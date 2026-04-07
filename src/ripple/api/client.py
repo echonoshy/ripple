@@ -22,11 +22,9 @@ class OpenRouterClient:
         """
         config = get_config()
 
-        self.api_key = api_key or config.get("api.openrouter_api_key")
+        self.api_key = api_key or config.get("api.api_key")
         if not self.api_key:
-            raise ValueError(
-                "OpenRouter API key is required. Please set 'api.openrouter_api_key' in config/settings.yaml"
-            )
+            raise ValueError("API key is required. Please set 'api.api_key' in config/settings.yaml")
 
         self.base_url = base_url or config.get("api.base_url", "https://openrouter.ai/api/v1")
 

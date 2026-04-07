@@ -41,7 +41,7 @@ class Config:
     def get(self, key: str, default: Any = None) -> Any:
         """获取配置值
 
-        支持点号分隔的嵌套键，例如 "api.openrouter_api_key"
+        支持点号分隔的嵌套键，例如 "api.api_key"
 
         Args:
             key: 配置键

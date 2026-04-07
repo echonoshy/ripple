@@ -25,9 +25,9 @@ cd ripple
 uv sync
 
 # 配置 API Key
-# 编辑 config/settings.yaml，设置你的 OpenRouter API Key
+# 编辑 config/settings.yaml，设置你的 API Key
 # api:
-#   openrouter_api_key: "your-api-key-here"
+#   api_key: "your-api-key-here"
 ```
 
 ### 基础使用
@@ -145,7 +145,7 @@ uv run python -m interfaces.cli.repl
 ```yaml
 # API 配置
 api:
-  openrouter_api_key: "your-api-key-here"
+  api_key: "your-api-key-here"
   base_url: "https://openrouter.ai/api/v1"
 
 # 模型配置

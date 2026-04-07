@@ -4,7 +4,6 @@
 """
 
 import asyncio
-import os
 from pathlib import Path
 
 import click
@@ -14,7 +13,7 @@ from rich.markdown import Markdown
 from ripple.api.client import OpenRouterClient
 from ripple.core.agent_loop import query
 from ripple.core.context import ToolOptions, ToolUseContext
-from ripple.messages.types import Message
+from ripple.skills.skill_tool import SkillTool
 from ripple.tools.builtin.bash import BashTool
 from ripple.tools.builtin.read import ReadTool
 from ripple.tools.builtin.write import WriteTool
@@ -51,7 +50,7 @@ async def run_agent(prompt: str, model: str, max_turns: int):
         model: 模型名称
         max_turns: 最大轮数
     """
-    console.print(f"\n[bold cyan]🌊 Ripple Agent 启动[/bold cyan]")
+    console.print("\n[bold cyan]🌊 Ripple Agent 启动[/bold cyan]")
     console.print(f"[dim]模型: {model}[/dim]")
     console.print(f"[dim]最大轮数: {max_turns}[/dim]\n")
 
@@ -60,6 +59,7 @@ async def run_agent(prompt: str, model: str, max_turns: int):
         BashTool(),
         ReadTool(),
         WriteTool(),
+        SkillTool(),  # 添加 Skill Tool
     ]
 
     # 创建上下文
@@ -114,7 +114,7 @@ async def run_agent(prompt: str, model: str, max_turns: int):
                             if is_error:
                                 console.print(f"[red]❌ 工具错误: {result_content}[/red]")
                             else:
-                                console.print(f"[green]✓ 工具结果[/green]")
+                                console.print("[green]✓ 工具结果[/green]")
                                 # 只显示前 500 字符
                                 if len(result_content) > 500:
                                     console.print(f"[dim]{result_content[:500]}...[/dim]")

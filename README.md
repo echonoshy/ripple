@@ -34,7 +34,7 @@ uv sync
 
 ```bash
 # 使用交互式终端（推荐）
-uv run ripple repl
+uv run ripple cli
 
 # 使用单次命令 CLI
 uv run ripple run "创建一个文件 /tmp/test.txt，内容是 Hello World"
@@ -125,10 +125,10 @@ Hello, $NAME! Welcome to Ripple.
 
 ## 💻 交互式终端
 
-Ripple 提供了一个交互式 REPL 终端，支持多轮对话：
+Ripple 提供了一个交互式 cli 终端，支持多轮对话：
 
 ```bash
-uv run python -m interfaces.cli.repl
+uv run ripple cli
 ```
 
 **终端命令：**
@@ -150,7 +150,7 @@ api:
 
 # 模型配置
 model:
-  default: "anthropic/claude-3.5-sonnet"
+  default: "anthropic/claude-sonnet-4.6"
   max_tokens: 4096
   temperature: 1.0
 

@@ -21,15 +21,21 @@ from ripple.tools.builtin.write import WriteTool
 console = Console()
 
 
-@click.command()
-@click.argument("prompt", required=False)
-@click.option("--model", default="anthropic/claude-3.5-sonnet", help="Model to use")
-@click.option("--max-turns", default=10, type=int, help="Maximum number of turns")
-def cli(prompt: str | None, model: str, max_turns: int):
+@click.group()
+def cli():
     """Ripple - Agent Loop CLI
 
     让每个提问都成为涟漪的中心，每一次循环都是向解的蔓延。
     """
+    pass
+
+
+@cli.command()
+@click.argument("prompt", required=False)
+@click.option("--model", default="anthropic/claude-3.5-sonnet", help="Model to use")
+@click.option("--max-turns", default=10, type=int, help="Maximum number of turns")
+def run(prompt: str | None, model: str, max_turns: int):
+    """运行单次查询"""
     if not prompt:
         console.print("[yellow]请输入提示词：[/yellow]")
         prompt = input("> ")
@@ -39,10 +45,10 @@ def cli(prompt: str | None, model: str, max_turns: int):
         return
 
     # 运行 agent loop
-    asyncio.run(run_agent(prompt, model, max_turns))
+    asyncio.run(run_agent_once(prompt, model, max_turns))
 
 
-async def run_agent(prompt: str, model: str, max_turns: int):
+async def run_agent_once(prompt: str, model: str, max_turns: int):
     """运行 agent loop
 
     Args:
@@ -77,7 +83,6 @@ async def run_agent(prompt: str, model: str, max_turns: int):
         client = OpenRouterClient()
     except ValueError as e:
         console.print(f"[red]错误: {e}[/red]")
-        console.print("[yellow]请设置 OPENROUTER_API_KEY 环境变量[/yellow]")
         return
 
     # 执行查询
@@ -133,6 +138,26 @@ async def run_agent(prompt: str, model: str, max_turns: int):
         import traceback
 
         console.print(f"[dim]{traceback.format_exc()}[/dim]")
+
+
+@cli.command()
+@click.option("--model", default=None, help="模型名称")
+@click.option("--max-turns", default=None, type=int, help="最大轮数")
+def repl(model: str | None, max_turns: int | None):
+    """启动交互式 REPL"""
+    from ripple.cli.repl import RippleREPL
+    repl_instance = RippleREPL(model=model, max_turns=max_turns)
+    asyncio.run(repl_instance.run())
+
+
+@cli.command()
+@click.option("--model", default=None, help="模型名称")
+@click.option("--max-turns", default=None, type=int, help="最大轮数")
+def tui(model: str | None, max_turns: int | None):
+    """启动 TUI 图形界面"""
+    from ripple.cli.tui import RippleTUI
+    app = RippleTUI(model=model, max_turns=max_turns)
+    app.run()
 
 
 if __name__ == "__main__":

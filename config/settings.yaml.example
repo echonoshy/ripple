@@ -1,0 +1,45 @@
+# Ripple 配置文件示例
+
+# 复制此文件为 config/settings.yaml 并填入你的配置
+
+# API 配置
+api:
+  # OpenRouter API Key（必填）
+  # 获取地址: https://openrouter.ai/keys
+  openrouter_api_key: "your-api-key-here"
+
+  # API Base URL（可选）
+  base_url: "https://openrouter.ai/api/v1"
+
+# 模型配置
+model:
+  # 默认模型
+  default: "anthropic/claude-3.5-sonnet"
+
+  # 最大 tokens
+  max_tokens: 4096
+
+  # 温度参数 (0.0-2.0)
+  temperature: 1.0
+
+# Agent 配置
+agent:
+  # 最大轮数
+  max_turns: 10
+
+  # Session ID 前缀
+  session_prefix: "ripple"
+
+# 工具配置
+tools:
+  # 启用的内置工具
+  builtin:
+    - bash
+    - read
+    - write
+    - skill
+
+# Skills 配置
+skills:
+  # Skills 目录
+  directory: ".claude/skills"

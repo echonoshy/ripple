@@ -21,7 +21,8 @@ async def process_stream_response(
     current_message_id = str(uuid4())
     accumulated_content: List[Dict[str, Any]] = []
     current_text = ""
-    current_tool_use: Dict[str, Any] | None = None
+    # 支持多个工具调用，使用 index 作为 key
+    tool_calls_map: Dict[int, Dict[str, Any]] = {}
 
     async for chunk in stream:
         if not chunk.choices:
@@ -37,27 +38,26 @@ async def process_stream_response(
         # 处理工具调用
         if delta.tool_calls:
             for tool_call in delta.tool_calls:
-                if tool_call.function:
-                    if current_tool_use is None:
-                        # 开始新的工具调用
-                        current_tool_use = {
-                            "type": "tool_use",
-                            "id": tool_call.id or str(uuid4()),
-                            "name": tool_call.function.name or "",
-                            "input": {},
-                        }
-                    else:
-                        # 累积工具调用参数
-                        if tool_call.function.arguments:
-                            # 这里需要解析 JSON 字符串
-                            import json
+                index = tool_call.index
 
-                            try:
-                                args = json.loads(tool_call.function.arguments)
-                                current_tool_use["input"].update(args)
-                            except json.JSONDecodeError:
-                                # 部分 JSON，继续累积
-                                pass
+                # 初始化工具调用
+                if index not in tool_calls_map:
+                    tool_calls_map[index] = {
+                        "type": "tool_use",
+                        "id": "",
+                        "name": "",
+                        "args_buffer": "",
+                    }
+
+                # 更新工具调用信息
+                if tool_call.id:
+                    tool_calls_map[index]["id"] = tool_call.id
+
+                if tool_call.function:
+                    if tool_call.function.name:
+                        tool_calls_map[index]["name"] = tool_call.function.name
+                    if tool_call.function.arguments:
+                        tool_calls_map[index]["args_buffer"] += tool_call.function.arguments
 
         # 检查是否完成
         if choice.finish_reason:
@@ -65,9 +65,26 @@ async def process_stream_response(
             if current_text:
                 accumulated_content.append({"type": "text", "text": current_text})
 
-            # 添加工具调用
-            if current_tool_use:
-                accumulated_content.append(current_tool_use)
+            # 添加所有工具调用
+            for index in sorted(tool_calls_map.keys()):
+                tool_data = tool_calls_map[index]
+
+                # 解析 JSON 参数
+                import json
+                tool_input = {}
+                if tool_data["args_buffer"]:
+                    try:
+                        tool_input = json.loads(tool_data["args_buffer"])
+                    except json.JSONDecodeError:
+                        # JSON 解析失败，使用空字典
+                        tool_input = {}
+
+                accumulated_content.append({
+                    "type": "tool_use",
+                    "id": tool_data["id"] or str(uuid4()),
+                    "name": tool_data["name"],
+                    "input": tool_input,
+                })
 
             # 创建最终消息
             usage = {}
@@ -85,7 +102,7 @@ async def process_stream_response(
 
             # 重置状态
             current_text = ""
-            current_tool_use = None
+            tool_calls_map = {}
             accumulated_content = []
             current_message_id = str(uuid4())
 

@@ -37,7 +37,6 @@ async def test_basic():
         client = OpenRouterClient()
     except ValueError as e:
         print(f"❌ 错误: {e}")
-        print("请设置 OPENROUTER_API_KEY 环境变量")
         return
 
     # 简单的测试提示

@@ -24,15 +24,23 @@ cd ripple
 # 安装依赖（使用 uv）
 uv sync
 
-# 设置 API Key
-export OPENROUTER_API_KEY="your-api-key"
+# 配置 API Key
+# 编辑 config/settings.yaml，设置你的 OpenRouter API Key
+# api:
+#   openrouter_api_key: "your-api-key-here"
 ```
 
 ### 基础使用
 
 ```bash
-# 使用 CLI
+# 使用交互式终端（推荐）
+uv run python -m ripple.cli.repl
+
+# 使用单次命令 CLI
 uv run python -m ripple.cli.main "创建一个文件 /tmp/test.txt，内容是 Hello World"
+
+# 查看所有工具和 Skills
+uv run python list_tools.py
 
 # 运行测试
 uv run python test_basic.py
@@ -115,6 +123,44 @@ Hello, $NAME! Welcome to Ripple.
 - **Read** - 读取文件（支持分页）
 - **Write** - 写入文件
 - **Skill** - 执行用户定义的 Skill
+
+运行 `uv run python list_tools.py` 查看所有可用工具和 Skills。
+
+## 💻 交互式终端
+
+Ripple 提供了一个交互式 REPL 终端，支持多轮对话：
+
+```bash
+uv run python -m ripple.cli.repl
+```
+
+**终端命令：**
+- `/help` - 显示帮助
+- `/clear` - 清空屏幕
+- `/model <name>` - 切换模型
+- `/info` - 显示当前配置
+- `/exit` 或 `/quit` - 退出
+
+## ⚙️ 配置
+
+所有配置都在 `config/settings.yaml` 文件中：
+
+```yaml
+# API 配置
+api:
+  openrouter_api_key: "your-api-key-here"
+  base_url: "https://openrouter.ai/api/v1"
+
+# 模型配置
+model:
+  default: "anthropic/claude-3.5-sonnet"
+  max_tokens: 4096
+  temperature: 1.0
+
+# Agent 配置
+agent:
+  max_turns: 10
+```
 
 ## 🏗️ 架构
 

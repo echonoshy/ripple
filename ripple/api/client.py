@@ -1,9 +1,10 @@
 """OpenRouter API 客户端"""
 
-import os
-from typing import Any, AsyncGenerator, Dict, List
+from typing import Any, AsyncGenerator
 
 from openai import AsyncOpenAI
+
+from ripple.utils.config import get_config
 
 
 class OpenRouterClient:
@@ -16,28 +17,40 @@ class OpenRouterClient:
         """初始化客户端
 
         Args:
-            api_key: OpenRouter API key，默认从环境变量 OPENROUTER_API_KEY 读取
-            base_url: API base URL，默认为 OpenRouter 官方地址
+            api_key: OpenRouter API key，默认从配置文件读取
+            base_url: API base URL，默认从配置文件读取
         """
-        self.api_key = api_key or os.getenv("OPENROUTER_API_KEY")
-        if not self.api_key:
-            raise ValueError("OpenRouter API key is required. Set OPENROUTER_API_KEY environment variable.")
+        config = get_config()
 
-        self.base_url = base_url or "https://openrouter.ai/api/v1"
+        self.api_key = api_key or config.get("api.openrouter_api_key")
+        if not self.api_key:
+            raise ValueError(
+                "OpenRouter API key is required. Please set 'api.openrouter_api_key' in config/settings.yaml"
+            )
+
+        self.base_url = base_url or config.get("api.base_url", "https://openrouter.ai/api/v1")
+
+        # 检测是否是 LiteLLM
+        self.is_litellm = "litellm" in self.base_url.lower()
+
         self.client = AsyncOpenAI(
             base_url=self.base_url,
             api_key=self.api_key,
+            default_headers={
+                "HTTP-Referer": "https://github.com/echonoshy/ripple",
+                "X-Title": "Ripple Agent",
+            },
         )
 
     async def stream_chat(
         self,
-        messages: List[Dict[str, Any]],
-        tools: List[Dict[str, Any]] | None = None,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
         model: str = "anthropic/claude-3.5-sonnet",
         max_tokens: int | None = None,
         temperature: float = 1.0,
         **kwargs,
-    ) -> AsyncGenerator[Dict[str, Any], None]:
+    ) -> AsyncGenerator[dict[str, Any], None]:
         """流式调用聊天 API
 
         Args:
@@ -72,13 +85,13 @@ class OpenRouterClient:
 
     async def chat(
         self,
-        messages: List[Dict[str, Any]],
-        tools: List[Dict[str, Any]] | None = None,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
         model: str = "anthropic/claude-3.5-sonnet",
         max_tokens: int | None = None,
         temperature: float = 1.0,
         **kwargs,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """非流式调用聊天 API
 
         Args:

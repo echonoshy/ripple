@@ -13,12 +13,8 @@ from ripple.core.transitions import (
     ContinueNextTurn,
     ContinueStopHookBlocking,
     Terminal,
-    TerminalAbortedTools,
-    TerminalCompleted,
-    TerminalMaxTurns,
-    TerminalStopHookPrevented,
 )
-from ripple.messages.types import AssistantMessage, Message, StreamEvent
+from ripple.messages.types import AssistantMessage, Message, RequestStartEvent, StreamEvent
 from ripple.messages.utils import (
     create_user_message,
     extract_tool_use_blocks,
@@ -47,7 +43,7 @@ class QueryParams:
 async def query_loop(
     params: QueryParams,
     client: OpenRouterClient,
-) -> AsyncGenerator[Message | StreamEvent, Terminal]:
+) -> AsyncGenerator[Message | StreamEvent | RequestStartEvent, Terminal]:
     """主 Agent 循环
 
     这是 Ripple 的核心循环，负责：
@@ -76,14 +72,14 @@ async def query_loop(
     # 主循环
     while True:
         # ========== 阶段 1: 调用模型 ==========
-        yield StreamEvent(type="stream_request_start")
+        yield RequestStartEvent(type="stream_request_start")
 
         assistant_messages: List[AssistantMessage] = []
         tool_use_blocks: List[Dict[str, Any]] = []
         needs_follow_up = False
 
         # 规范化消息用于 API
-        api_messages = normalize_messages_for_api(state.messages)
+        api_messages = normalize_messages_for_api(state.messages, is_litellm=client.is_litellm)
 
         # 准备工具定义
         tools = _prepare_tool_definitions(state.tool_use_context)
@@ -116,7 +112,7 @@ async def query_loop(
                 is_meta=True,
             )
             yield error_msg
-            return TerminalCompleted()
+            return
 
         # ========== 阶段 2: 判断是否需要继续 ==========
         if not needs_follow_up:
@@ -128,7 +124,7 @@ async def query_loop(
             )
 
             if stop_result.prevent_continuation:
-                return TerminalStopHookPrevented()
+                return
 
             if stop_result.blocking_errors:
                 # 注入错误消息，继续循环让模型修复
@@ -142,7 +138,7 @@ async def query_loop(
                 continue
 
             # 任务完成
-            return TerminalCompleted()
+            return
 
         # ========== 阶段 3: 执行工具 ==========
         tool_results: List[Message] = []
@@ -172,12 +168,12 @@ async def query_loop(
                 is_meta=True,
             )
             yield error_msg
-            return TerminalAbortedTools()
+            return
 
         # ========== 阶段 4: 检查最大轮数 ==========
         next_turn_count = state.turn_count + 1
         if params.max_turns and next_turn_count > params.max_turns:
-            return TerminalMaxTurns(turn_count=next_turn_count)
+            return
 
         # ========== 阶段 5: 继续下一轮 ==========
         state = (
@@ -245,7 +241,7 @@ async def query(
     client: OpenRouterClient | None = None,
     model: str = "anthropic/claude-3.5-sonnet",
     max_turns: int | None = None,
-) -> AsyncGenerator[Message | StreamEvent, Terminal]:
+) -> AsyncGenerator[Message | StreamEvent | RequestStartEvent, Terminal]:
     """查询入口函数
 
     Args:
@@ -276,6 +272,3 @@ async def query(
 
     async for item in query_loop(params, client):
         yield item
-
-    # 返回终止原因
-    return TerminalCompleted()

@@ -34,8 +34,8 @@ class TerminalImageError:
 class TerminalModelError:
     """模型错误"""
 
-    reason: Literal["model_error"] = "model_error"
     error: Exception
+    reason: Literal["model_error"] = "model_error"
 
 
 @dataclass
@@ -77,8 +77,8 @@ class TerminalHookStopped:
 class TerminalMaxTurns:
     """达到最大轮数"""
 
-    reason: Literal["max_turns"] = "max_turns"
     turn_count: int
+    reason: Literal["max_turns"] = "max_turns"
 
 
 Terminal = (
@@ -109,8 +109,8 @@ class ContinueNextTurn:
 class ContinueMaxOutputTokensRecovery:
     """Max Output Tokens 恢复"""
 
-    reason: Literal["max_output_tokens_recovery"] = "max_output_tokens_recovery"
     attempt: int
+    reason: Literal["max_output_tokens_recovery"] = "max_output_tokens_recovery"
 
 
 @dataclass

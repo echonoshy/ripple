@@ -37,9 +37,22 @@ tools:
     - bash
     - read
     - write
+    - subagent
     - skill
+
+  # SubAgent 工具配置
+  subagent:
+    # 默认最大轮数
+    default_max_turns: 5
+
+    # 默认允许的工具列表（为空则允许所有工具，除了 SubAgent 本身）
+    # 示例: ["Read", "Bash", "Grep", "Glob"]
+    default_allowed_tools: []
+
+    # 子 agent 的权限模式
+    permission_mode: "allow"  # allow, ask, deny
 
 # Skills 配置
 skills:
   # Skills 目录
-  directory: ".claude/skills"
+  directory: "skills"

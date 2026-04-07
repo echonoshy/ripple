@@ -34,19 +34,19 @@ uv sync
 
 ```bash
 # 使用交互式终端（推荐）
-uv run python -m ripple.cli.repl
+uv run ripple repl
 
 # 使用单次命令 CLI
-uv run python -m ripple.cli.main "创建一个文件 /tmp/test.txt，内容是 Hello World"
+uv run ripple run "创建一个文件 /tmp/test.txt，内容是 Hello World"
+
+# 使用 TUI 界面
+uv run ripple-tui
 
 # 查看所有工具和 Skills
-uv run python list_tools.py
+uv run python scripts/list_tools.py
 
 # 运行测试
-uv run python test_basic.py
-
-# 测试 Skill 系统
-uv run python test_skill.py
+uv run pytest
 ```
 
 ### 编程使用
@@ -94,7 +94,7 @@ Skill 是通过 Markdown 文件定义的可复用命令。
 
 ### 创建 Skill
 
-在 `.claude/skills/` 目录下创建 `.md` 文件：
+在 `skills/` 目录下创建 `.md` 文件：
 
 ```markdown
 ---
@@ -124,14 +124,14 @@ Hello, $NAME! Welcome to Ripple.
 - **Write** - 写入文件
 - **Skill** - 执行用户定义的 Skill
 
-运行 `uv run python list_tools.py` 查看所有可用工具和 Skills。
+运行 `uv run python scripts/list_tools.py` 查看所有可用工具和 Skills。
 
 ## 💻 交互式终端
 
 Ripple 提供了一个交互式 REPL 终端，支持多轮对话：
 
 ```bash
-uv run python -m ripple.cli.repl
+uv run python -m interfaces.cli.repl
 ```
 
 **终端命令：**
@@ -165,25 +165,23 @@ agent:
 ## 🏗️ 架构
 
 ```
-ripple/
-├── core/           # 核心 Agent Loop
-│   ├── agent_loop.py
-│   ├── state.py
-│   └── context.py
-├── api/            # API 客户端
-│   ├── client.py
-│   └── streaming.py
-├── tools/          # 工具系统
-│   ├── base.py
-│   ├── orchestration.py
-│   └── builtin/
-├── skills/         # Skill 系统
-│   ├── loader.py
-│   ├── executor.py
-│   └── skill_tool.py
-├── messages/       # 消息类型
-└── utils/          # 工具函数
+src/
+├── ripple/           # 核心库
+│   ├── core/         # Agent Loop 核心
+│   ├── api/          # API 客户端
+│   ├── tools/        # 工具系统
+│   ├── skills/       # Skill 系统
+│   ├── hooks/        # Hook 系统
+│   ├── messages/     # 消息类型
+│   └── utils/        # 工具函数
+└── interfaces/       # 接口层
+    ├── cli/          # 命令行接口
+    ├── tui/          # 终端 UI
+    ├── server/       # HTTP/WebSocket (预留)
+    └── web/          # Web 前端 (预留)
 ```
+
+详细说明请查看 [STRUCTURE.md](STRUCTURE.md)
 
 ## 📊 项目状态
 

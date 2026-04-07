@@ -18,6 +18,7 @@ from ripple.core.context import ToolOptions, ToolUseContext
 from ripple.skills.skill_tool import SkillTool
 from ripple.tools.builtin.bash import BashTool
 from ripple.tools.builtin.read import ReadTool
+from ripple.tools.builtin.subagent import SubAgentTool
 from ripple.tools.builtin.write import WriteTool
 from ripple.utils.config import get_config
 
@@ -48,6 +49,7 @@ class RippleREPL:
             BashTool(),
             ReadTool(),
             WriteTool(),
+            SubAgentTool(),
             SkillTool(),
         ]
 
@@ -98,6 +100,82 @@ class RippleREPL:
         """
         console.print(Panel(Markdown(info), title="配置信息", border_style="blue"))
 
+    def _display_subagent_execution(self, result_content: str):
+        """显示 SubAgent 的执行日志
+
+        Args:
+            result_content: SubAgent 的输出内容
+        """
+        console.print("\n[bold magenta]📦 SubAgent 执行详情[/bold magenta]")
+        console.print("[dim]" + "─" * 60 + "[/dim]")
+
+        # 调试：显示原始内容的前500字符
+        console.print(f"[yellow]DEBUG 原始内容: {result_content[:500]}...[/yellow]")
+
+        # 尝试解析 execution_log
+        try:
+            import re
+
+            # 提取 execution_log - 改进正则表达式
+            match = re.search(r"execution_log=\[(.*?)\]\s*(?:,\s*\)|$)", result_content, re.DOTALL)
+            if match:
+                log_str = "[" + match.group(1) + "]"
+                # 简单解析
+                import ast
+
+                execution_log = ast.literal_eval(log_str)
+
+                for entry in execution_log:
+                    entry_type = entry.get("type", "")
+
+                    if entry_type == "tool_call":
+                        tool_name = entry.get("tool_name", "")
+                        tool_input = entry.get("tool_input", {})
+                        console.print(f"\n  [cyan]🔧 SubAgent 调用: {tool_name}[/cyan]")
+
+                        # 显示输入参数
+                        import json
+
+                        input_str = json.dumps(tool_input, ensure_ascii=False, indent=2)
+                        if len(input_str) > 150:
+                            input_str = input_str[:150] + "..."
+                        console.print(f"  [dim]  参数: {input_str}[/dim]")
+
+                    elif entry_type == "tool_result":
+                        is_error = entry.get("is_error", False)
+                        content = entry.get("content", "")
+
+                        if is_error:
+                            console.print(f"  [red]  ❌ 错误: {content}[/red]")
+                        else:
+                            console.print("  [green]  ✓ 成功[/green]")
+                            if content:
+                                console.print(f"  [dim]  结果: {content}[/dim]")
+
+                    elif entry_type == "assistant_text":
+                        content = entry.get("content", "")
+                        if content:
+                            console.print(f"  [blue]💬 SubAgent: {content}[/blue]")
+
+            # 提取最终结果
+            result_match = re.search(r"result='(.*?)'(?=,\s*turns_used)", result_content, re.DOTALL)
+            if result_match:
+                final_result = result_match.group(1)
+                console.print("\n[bold green]✓ SubAgent 最终结果:[/bold green]")
+                console.print(f"[dim]{final_result[:300]}{'...' if len(final_result) > 300 else ''}[/dim]")
+
+            # 提取轮数
+            turns_match = re.search(r"turns_used=(\d+)", result_content)
+            if turns_match:
+                turns = turns_match.group(1)
+                console.print(f"\n[dim]使用轮数: {turns}[/dim]")
+
+        except Exception as e:
+            console.print(f"[yellow]无法解析 SubAgent 日志: {e}[/yellow]")
+            console.print(f"[dim]{result_content[:200]}...[/dim]")
+
+        console.print("[dim]" + "─" * 60 + "[/dim]\n")
+
     async def execute_query(self, prompt: str):
         """执行查询
 
@@ -135,6 +213,7 @@ class RippleREPL:
                                     # 显示工具输入参数
                                     if tool_input:
                                         import json
+
                                         input_str = json.dumps(tool_input, ensure_ascii=False, indent=2)
                                         # 如果参数太长，截断显示
                                         if len(input_str) > 200:
@@ -148,6 +227,19 @@ class RippleREPL:
                             if isinstance(block, dict) and block.get("type") == "tool_result":
                                 result_content = block.get("content", "")
                                 is_error = block.get("is_error", False)
+
+                                # 检查是否是 SubAgent 的结果
+                                try:
+                                    if "SubAgentOutput" in result_content or "execution_log" in result_content:
+                                        # 尝试解析 SubAgent 输出
+
+                                        # 提取 execution_log
+                                        if "execution_log=[" in result_content:
+                                            self._display_subagent_execution(result_content)
+                                            continue
+                                except Exception:
+                                    pass
+
                                 if is_error:
                                     console.print(f"[red]❌ 工具错误: {result_content}[/red]")
                                 else:
@@ -159,11 +251,12 @@ class RippleREPL:
                                             try:
                                                 # 简单提取 stdout 内容
                                                 import re
+
                                                 match = re.search(r"stdout='([^']*)'", result_content)
                                                 if match:
                                                     stdout_str = match.group(1)
                                                     # 解码转义字符
-                                                    stdout_str = stdout_str.encode().decode('unicode_escape')
+                                                    stdout_str = stdout_str.encode().decode("unicode_escape")
                                                     # 显示前几行
                                                     lines = stdout_str.split("\n")[:5]
                                                     preview = "\n".join(lines)

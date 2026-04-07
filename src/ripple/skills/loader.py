@@ -21,12 +21,11 @@ class SkillLoader:
         """初始化加载器
 
         Args:
-            skill_dirs: Skill 目录列表，默认为 [".claude/skills", "~/.claude/skills"]
+            skill_dirs: Skill 目录列表，默认为 ["skills"]
         """
         if skill_dirs is None:
             skill_dirs = [
-                ".claude/skills",
-                str(Path.home() / ".claude" / "skills"),
+                "skills",
             ]
         self.skill_dirs = [Path(d).expanduser() for d in skill_dirs]
         self._skills: Dict[str, Skill] = {}

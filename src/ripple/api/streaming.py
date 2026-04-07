@@ -71,6 +71,7 @@ async def process_stream_response(
 
                 # 解析 JSON 参数
                 import json
+
                 tool_input = {}
                 if tool_data["args_buffer"]:
                     try:
@@ -79,12 +80,14 @@ async def process_stream_response(
                         # JSON 解析失败，使用空字典
                         tool_input = {}
 
-                accumulated_content.append({
-                    "type": "tool_use",
-                    "id": tool_data["id"] or str(uuid4()),
-                    "name": tool_data["name"],
-                    "input": tool_input,
-                })
+                accumulated_content.append(
+                    {
+                        "type": "tool_use",
+                        "id": tool_data["id"] or str(uuid4()),
+                        "name": tool_data["name"],
+                        "input": tool_input,
+                    }
+                )
 
             # 创建最终消息
             usage = {}

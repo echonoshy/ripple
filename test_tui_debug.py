@@ -1,4 +1,4 @@
-"""调试 TUI 重复显示问题"""
+"""测试 TUI 是否能正常启动和响应"""
 
 import asyncio
 from pathlib import Path
@@ -9,73 +9,84 @@ from ripple.core.context import ToolOptions, ToolUseContext
 from ripple.skills.skill_tool import SkillTool
 from ripple.tools.builtin.bash import BashTool
 from ripple.tools.builtin.read import ReadTool
+from ripple.tools.builtin.subagent import SubAgentTool
 from ripple.tools.builtin.write import WriteTool
+from ripple.utils.config import get_config
 
 
 async def test_query():
-    """测试查询流程"""
+    """测试基本的 query 是否工作"""
+    print("🔍 测试 query 函数...")
+
+    config = get_config()
+    model = config.get("model.default", "anthropic/claude-3.5-sonnet")
+
     tools = [
         BashTool(),
         ReadTool(),
         WriteTool(),
+        SubAgentTool(),
         SkillTool(),
     ]
 
     context = ToolUseContext(
         options=ToolOptions(
             tools=tools,
-            model="claude-sonnet-4.6",
+            model=model,
         ),
-        session_id="debug-session",
+        session_id="test-session",
         cwd=str(Path.cwd()),
     )
 
-    client = OpenRouterClient()
+    try:
+        client = OpenRouterClient()
+        print(f"✓ 客户端初始化成功，模型: {model}")
+    except ValueError as e:
+        print(f"✗ 客户端初始化失败: {e}")
+        return
 
-    user_input = "帮我看下当前目录有哪些文件"
+    print("\n📤 发送测试查询: '列出当前目录的文件'")
+    print("=" * 60)
 
-    print("=== 开始测试 ===\n")
-    print(f"用户输入: {user_input}\n")
+    try:
+        async for item in query(
+            user_input="列出当前目录的文件",
+            context=context,
+            client=client,
+            model=model,
+            max_turns=3,
+        ):
+            if hasattr(item, "type"):
+                print(f"\n📦 收到消息类型: {item.type}")
 
-    assistant_message_count = 0
-    tool_use_count = 0
+                if item.type == "assistant":
+                    content = item.message.get("content", [])
+                    for block in content:
+                        if isinstance(block, dict):
+                            if block.get("type") == "text":
+                                text = block.get("text", "")[:100]
+                                print(f"  💬 文本: {text}...")
+                            elif block.get("type") == "tool_use":
+                                tool_name = block.get("name", "")
+                                print(f"  🔧 工具调用: {tool_name}")
 
-    async for item in query(
-        user_input=user_input,
-        context=context,
-        client=client,
-        model="claude-sonnet-4.6",
-        max_turns=10,
-    ):
-        if hasattr(item, "type"):
-            if item.type == "assistant":
-                assistant_message_count += 1
-                print(f"\n[Assistant Message #{assistant_message_count}]")
-                content = item.message.get("content", [])
-                for block in content:
-                    if isinstance(block, dict):
-                        if block.get("type") == "text":
-                            text = block.get("text", "")
-                            if text.strip():
-                                print(f"  Text: {text[:50]}...")
-                        elif block.get("type") == "tool_use":
-                            tool_use_count += 1
-                            tool_name = block.get("name", "")
-                            tool_id = block.get("id", "")
-                            print(f"  Tool Use #{tool_use_count}: {tool_name} (ID: {tool_id})")
+                elif item.type == "user":
+                    content = item.message.get("content", [])
+                    for block in content:
+                        if isinstance(block, dict) and block.get("type") == "tool_result":
+                            is_error = block.get("is_error", False)
+                            result = block.get("content", "")[:100]
+                            status = "❌ 错误" if is_error else "✓ 成功"
+                            print(f"  {status}: {result}...")
 
-            elif item.type == "user":
-                print(f"\n[User Message - Tool Result]")
-                content = item.message.get("content", [])
-                for block in content:
-                    if isinstance(block, dict) and block.get("type") == "tool_result":
-                        tool_use_id = block.get("tool_use_id", "")
-                        is_error = block.get("is_error", False)
-                        print(f"  Tool Result for ID: {tool_use_id}, Error: {is_error}")
+        print("\n" + "=" * 60)
+        print("✓ 查询完成")
 
-    print(f"\n=== 测试完成 ===")
-    print(f"总共收到 {assistant_message_count} 个 Assistant Message")
-    print(f"总共收到 {tool_use_count} 个 Tool Use")
+    except Exception as e:
+        print(f"\n✗ 查询失败: {e}")
+        import traceback
+
+        traceback.print_exc()
 
 
 if __name__ == "__main__":

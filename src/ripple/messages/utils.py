@@ -86,10 +86,7 @@ def normalize_messages_for_api(messages: List[Message], is_litellm: bool = False
             # 如果是 LiteLLM，移除 tool_use 块（因为它不支持）
             if is_litellm:
                 # 只保留文本内容
-                text_blocks = [
-                    block for block in content
-                    if isinstance(block, dict) and block.get("type") == "text"
-                ]
+                text_blocks = [block for block in content if isinstance(block, dict) and block.get("type") == "text"]
                 if text_blocks:
                     normalized.append({"role": "assistant", "content": text_blocks})
                 # 跳过没有文本的助手消息
@@ -100,10 +97,7 @@ def normalize_messages_for_api(messages: List[Message], is_litellm: bool = False
             content = msg.message["content"]
 
             # 检查是否是工具结果消息
-            has_tool_result = any(
-                isinstance(block, dict) and block.get("type") == "tool_result"
-                for block in content
-            )
+            has_tool_result = any(isinstance(block, dict) and block.get("type") == "tool_result" for block in content)
 
             if has_tool_result:
                 if is_litellm:
@@ -123,10 +117,9 @@ def normalize_messages_for_api(messages: List[Message], is_litellm: bool = False
                             else:
                                 normalized[-1]["content"] = [{"type": "text", "text": "\n\n".join(text_parts)}]
                         else:
-                            normalized.append({
-                                "role": "user",
-                                "content": [{"type": "text", "text": "\n\n".join(text_parts)}]
-                            })
+                            normalized.append(
+                                {"role": "user", "content": [{"type": "text", "text": "\n\n".join(text_parts)}]}
+                            )
                 else:
                     # 原生 Anthropic 格式
                     # 如果上一条消息也是 user 且包含工具结果，合并到一起

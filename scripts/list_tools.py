@@ -53,10 +53,10 @@ def list_builtin_tools():
 def list_skills():
     """列出用户定义的 Skills"""
     # 查找 skills 目录
-    skills_dir = Path.cwd() / ".claude" / "skills"
+    skills_dir = Path.cwd() / "skills"
 
     if not skills_dir.exists():
-        console.print("[yellow]未找到 .claude/skills 目录[/yellow]\n")
+        console.print("[yellow]未找到 skills 目录[/yellow]\n")
         return
 
     # 加载 skills
@@ -92,7 +92,7 @@ def main():
     # 列出 Skills
     list_skills()
 
-    console.print("[dim]提示: 可以在 .claude/skills/ 目录下创建更多 Skill[/dim]\n")
+    console.print("[dim]提示: 可以在 skills/ 目录下创建更多 Skill[/dim]\n")
 
 
 if __name__ == "__main__":

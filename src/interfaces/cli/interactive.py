@@ -1,4 +1,4 @@
-"""交互式 REPL 终端
+"""交互式 CLI 终端
 
 支持多轮对话和命令执行。
 """
@@ -18,6 +18,7 @@ from ripple.core.context import ToolOptions, ToolUseContext
 from ripple.skills.skill_tool import SkillTool
 from ripple.tools.builtin.bash import BashTool
 from ripple.tools.builtin.read import ReadTool
+from ripple.tools.builtin.search import SearchTool
 from ripple.tools.builtin.subagent import SubAgentTool
 from ripple.tools.builtin.write import WriteTool
 from ripple.utils.config import get_config
@@ -25,11 +26,11 @@ from ripple.utils.config import get_config
 console = Console()
 
 
-class RippleREPL:
+class RippleCLI:
     """Ripple 交互式终端"""
 
     def __init__(self, model: str | None = None, max_turns: int | None = None):
-        """初始化 REPL
+        """初始化 CLI
 
         Args:
             model: 模型名称
@@ -49,6 +50,7 @@ class RippleREPL:
             BashTool(),
             ReadTool(),
             WriteTool(),
+            SearchTool(),
             SubAgentTool(),
             SkillTool(),
         ]
@@ -59,7 +61,7 @@ class RippleREPL:
                 tools=tools,
                 model=self.model,
             ),
-            session_id=f"repl-session-{self.session_count}",
+            session_id=f"cli-session-{self.session_count}",
             cwd=str(Path.cwd()),
         )
 
@@ -73,7 +75,7 @@ class RippleREPL:
     def print_welcome(self):
         """打印欢迎信息"""
         welcome_text = """
-# 🌊 Ripple Agent REPL
+# 🌊 Ripple Agent CLI
 
 让每个提问都成为涟漪的中心，每一次循环都是向解的蔓延。
 
@@ -330,7 +332,7 @@ class RippleREPL:
         return True
 
     async def run(self):
-        """运行 REPL"""
+        """运行 CLI"""
         self.print_welcome()
 
         try:
@@ -368,14 +370,14 @@ class RippleREPL:
 @click.command()
 @click.option("--model", default=None, help="模型名称")
 @click.option("--max-turns", default=None, type=int, help="最大轮数")
-def repl(model: str | None, max_turns: int | None):
+def cli(model: str | None, max_turns: int | None):
     """启动 Ripple 交互式终端
 
     让每个提问都成为涟漪的中心，每一次循环都是向解的蔓延。
     """
-    repl_instance = RippleREPL(model=model, max_turns=max_turns)
-    asyncio.run(repl_instance.run())
+    cli_instance = RippleCLI(model=model, max_turns=max_turns)
+    asyncio.run(cli_instance.run())
 
 
 if __name__ == "__main__":
-    repl()
+    cli()

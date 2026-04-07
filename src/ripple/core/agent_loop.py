@@ -260,11 +260,21 @@ async def query(
     if client is None:
         client = OpenRouterClient()
 
+    # 创建系统消息（包含当前日期）
+    from datetime import datetime
+
+    from ripple.messages.utils import create_system_message
+
+    current_date = datetime.now().strftime("%Y/%m/%d")
+    system_message = create_system_message(
+        content=f"Today's date is {current_date}. Use this date when searching for current information or answering time-sensitive questions."
+    )
+
     # 创建初始消息
     initial_message = create_user_message(content=user_input)
 
     params = QueryParams(
-        messages=[initial_message],
+        messages=[system_message, initial_message],
         tool_use_context=context,
         model=model,
         max_turns=max_turns,

@@ -16,6 +16,7 @@ from ripple.core.context import ToolOptions, ToolUseContext
 from ripple.skills.skill_tool import SkillTool
 from ripple.tools.builtin.bash import BashTool
 from ripple.tools.builtin.read import ReadTool
+from ripple.tools.builtin.search import SearchTool
 from ripple.tools.builtin.subagent import SubAgentTool
 from ripple.tools.builtin.write import WriteTool
 
@@ -94,7 +95,7 @@ def display_subagent_execution(result_content: str):
 
 
 @click.group()
-def cli():
+def main():
     """Ripple - Agent Loop CLI
 
     让每个提问都成为涟漪的中心，每一次循环都是向解的蔓延。
@@ -102,7 +103,7 @@ def cli():
     pass
 
 
-@cli.command()
+@main.command()
 @click.argument("prompt", required=False)
 @click.option("--model", default="anthropic/claude-3.5-sonnet", help="Model to use")
 @click.option("--max-turns", default=10, type=int, help="Maximum number of turns")
@@ -137,6 +138,7 @@ async def run_agent_once(prompt: str, model: str, max_turns: int):
         BashTool(),
         ReadTool(),
         WriteTool(),
+        SearchTool(),
         SubAgentTool(),
         SkillTool(),  # 添加 Skill Tool
     ]
@@ -223,27 +225,16 @@ async def run_agent_once(prompt: str, model: str, max_turns: int):
         console.print(f"[dim]{traceback.format_exc()}[/dim]")
 
 
-@cli.command()
+@main.command()
 @click.option("--model", default=None, help="模型名称")
 @click.option("--max-turns", default=None, type=int, help="最大轮数")
-def repl(model: str | None, max_turns: int | None):
-    """启动交互式 REPL"""
-    from interfaces.cli.repl import RippleREPL
+def cli(model: str | None, max_turns: int | None):
+    """启动交互式 CLI"""
+    from interfaces.cli.interactive import RippleCLI
 
-    repl_instance = RippleREPL(model=model, max_turns=max_turns)
-    asyncio.run(repl_instance.run())
-
-
-@cli.command()
-@click.option("--model", default=None, help="模型名称")
-@click.option("--max-turns", default=None, type=int, help="最大轮数")
-def tui(model: str | None, max_turns: int | None):
-    """启动 TUI 图形界面"""
-    from interfaces.tui.tui import RippleTUI
-
-    app = RippleTUI(model=model, max_turns=max_turns)
-    app.run()
+    cli_instance = RippleCLI(model=model, max_turns=max_turns)
+    asyncio.run(cli_instance.run())
 
 
 if __name__ == "__main__":
-    cli()
+    main()

@@ -75,8 +75,13 @@ def normalize_messages_for_api(messages: List[Message], is_litellm: bool = False
         if msg.type == "user" and msg.is_meta:
             continue
 
-        # 跳过系统消息和进度消息
-        if msg.type in ("system", "progress", "attachment"):
+        # 处理系统消息
+        if msg.type == "system":
+            normalized.append({"role": "system", "content": msg.content})
+            continue
+
+        # 跳过进度消息和附件消息
+        if msg.type in ("progress", "attachment"):
             continue
 
         # 转换为 API 格式

@@ -14,10 +14,11 @@ dependencies = [
     "click>=8.0",
     "pyyaml>=6.0",
     "aiofiles>=23.0",
+    "ddgs>=9.13.0",
 ]
 
 [project.scripts]
-ripple = "interfaces.cli.main:cli"
+ripple = "interfaces.cli.main:main"
 
 [tool.uv]
 package = true

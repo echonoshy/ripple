@@ -32,6 +32,11 @@ def list_builtin_tools():
             "file": "ripple/tools/builtin/write.py",
         },
         {
+            "name": "Search",
+            "description": "使用 DuckDuckGo 搜索网络",
+            "file": "ripple/tools/builtin/search.py",
+        },
+        {
             "name": "Skill",
             "description": "执行用户定义的 Skill",
             "file": "ripple/skills/skill_tool.py",
@@ -60,7 +65,8 @@ def list_skills():
         return
 
     # 加载 skills
-    loader = SkillLoader(str(skills_dir))
+    loader = SkillLoader([str(skills_dir)])
+    loader.load_all()
     skills = loader.list_skills()
 
     if not skills:
@@ -72,11 +78,9 @@ def list_skills():
     table.add_column("描述", style="white")
     table.add_column("参数", style="cyan")
 
-    for skill_name in skills:
-        skill = loader.load_skill(skill_name)
-        if skill:
-            args = ", ".join(skill.arguments) if skill.arguments else "无"
-            table.add_row(skill.name, skill.description, args)
+    for skill in skills:
+        args = ", ".join(skill.arguments) if skill.arguments else "无"
+        table.add_row(skill.name, skill.description, args)
 
     console.print(table)
     console.print(f"\n[bold]总计: {len(skills)} 个 Skills[/bold]\n")

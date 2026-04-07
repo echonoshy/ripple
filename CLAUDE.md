@@ -21,7 +21,6 @@ src/
     permissions/       # 权限管理
   interfaces/          # 接口层（所有用户界面）
     cli/               # 命令行接口
-    tui/               # 终端 UI
     server/            # HTTP/WebSocket 服务端（预留）
     web/               # Web 前端（预留）
 tests/                 # 测试文件
@@ -38,14 +37,11 @@ config/                # 配置文件
 ## Running the Application
 
 ```bash
-# Interactive REPL (recommended)
-uv run ripple repl
+# Interactive CLI (recommended)
+uv run ripple cli
 
-# Single command CLI
+# Single command
 uv run ripple run "your query"
-
-# TUI interface
-uv run ripple-tui
 
 # List all tools and skills
 uv run python scripts/list_tools.py
@@ -106,8 +102,7 @@ uv run pytest
 
 ### Interface Layer (`src/interfaces/`)
 
-- **cli/**: Command-line interface (main.py, repl.py)
-- **tui/**: Terminal UI with Textual (tui.py)
+- **cli/**: Command-line interface (main.py, interactive.py)
 - **server/**: HTTP/WebSocket server (预留)
 - **web/**: Web frontend (预留)
 

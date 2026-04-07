@@ -106,8 +106,7 @@ src/ripple/tools/builtin/
 
 src/interfaces/
   ├── cli/main.py          # CLI 集成
-  ├── cli/repl.py          # REPL 集成
-  └── tui/tui.py           # TUI 集成
+  └── cli/repl.py          # REPL 集成
 
 config/
   └── settings.yaml.example # 配置示例

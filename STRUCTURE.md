@@ -16,7 +16,6 @@ ripple/
 │   │   └── permissions/   # 权限管理
 │   └── interfaces/        # 接口层（用户界面）
 │       ├── cli/           # 命令行接口
-│       ├── tui/           # 终端 UI (Textual)
 │       ├── server/        # HTTP/WebSocket 服务端（预留）
 │       └── web/           # Web 前端（预留）
 ├── tests/                 # 测试文件
@@ -34,7 +33,7 @@ ripple/
 ### 1. 核心库与接口分离
 
 - **src/ripple/**: 核心库，包含所有业务逻辑，可以被任何接口层调用
-- **src/interfaces/**: 接口层，提供不同的用户交互方式（CLI/TUI/Server/Web）
+- **src/interfaces/**: 接口层，提供不同的用户交互方式（CLI/Server/Web）
 
 ### 2. 模块化设计
 
@@ -60,16 +59,8 @@ ripple/
 - `repl.py`: 交互式 REPL
 
 ```bash
-uv run ripple "your query"
-uv run python -m interfaces.cli.repl
-```
-
-### TUI (终端 UI)
-
-- `tui.py`: 基于 Textual 的终端界面
-
-```bash
-uv run ripple-tui
+uv run ripple run "your query"
+uv run ripple repl
 ```
 
 ### Server (预留)

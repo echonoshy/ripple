@@ -39,9 +39,6 @@ uv run ripple repl
 # 使用单次命令 CLI
 uv run ripple run "创建一个文件 /tmp/test.txt，内容是 Hello World"
 
-# 使用 TUI 界面
-uv run ripple-tui
-
 # 查看所有工具和 Skills
 uv run python scripts/list_tools.py
 
@@ -176,7 +173,6 @@ src/
 │   └── utils/        # 工具函数
 └── interfaces/       # 接口层
     ├── cli/          # 命令行接口
-    ├── tui/          # 终端 UI
     ├── server/       # HTTP/WebSocket (预留)
     └── web/          # Web 前端 (预留)
 ```

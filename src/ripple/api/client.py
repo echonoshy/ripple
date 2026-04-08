@@ -2,6 +2,7 @@
 
 from typing import Any, AsyncGenerator
 
+import httpx
 from openai import AsyncOpenAI
 
 from ripple.utils.config import get_config
@@ -34,6 +35,7 @@ class OpenRouterClient:
         self.client = AsyncOpenAI(
             base_url=self.base_url,
             api_key=self.api_key,
+            timeout=httpx.Timeout(connect=30.0, read=120.0, write=30.0, pool=30.0),
             default_headers={
                 "HTTP-Referer": "https://github.com/echonoshy/ripple",
                 "X-Title": "Ripple Agent",

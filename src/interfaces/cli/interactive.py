@@ -290,7 +290,9 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
                         elif item.type == "assistant":
                             # 助手消息
                             status.stop()
-                            new_messages.append({"role": "assistant", "content": item.message.get("content", [])})
+                            from ripple.messages.utils import _convert_assistant_message
+
+                            new_messages.append(_convert_assistant_message(item.message.get("content", [])))
                             content = item.message.get("content", [])
                             for block in content:
                                 if isinstance(block, dict):
@@ -322,7 +324,16 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
                         elif item.type == "user":
                             # 工具结果
                             status.stop()
-                            new_messages.append({"role": "user", "content": item.message.get("content", [])})
+                            tool_content = item.message.get("content", [])
+                            for blk in tool_content:
+                                if isinstance(blk, dict) and blk.get("type") == "tool_result":
+                                    new_messages.append(
+                                        {
+                                            "role": "tool",
+                                            "tool_call_id": blk.get("tool_use_id", ""),
+                                            "content": blk.get("content", ""),
+                                        }
+                                    )
                             content = item.message.get("content", [])
                             for block in content:
                                 if isinstance(block, dict) and block.get("type") == "tool_result":

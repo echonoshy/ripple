@@ -3,6 +3,7 @@
 这是整个 Ripple 系统的核心，实现了类似 claude-code 的主循环逻辑。
 """
 
+import json
 from typing import Any, AsyncGenerator, Dict, List
 
 from ripple.api.client import OpenRouterClient
@@ -16,6 +17,7 @@ from ripple.core.transitions import (
 )
 from ripple.messages.types import AssistantMessage, Message, RequestStartEvent, StreamEvent
 from ripple.messages.utils import (
+    create_tool_result_message,
     create_user_message,
     extract_tool_use_blocks,
     normalize_messages_for_api,
@@ -70,6 +72,10 @@ async def query_loop(
         tool_use_context=params.tool_use_context,
         turn_count=1,
     )
+
+    # 跨轮次工具调用记录，用于检测重复调用死循环
+    # key = json({"name": ..., "input": ...})
+    executed_tool_keys: set[str] = set()
 
     # 主循环
     while True:
@@ -143,35 +149,54 @@ async def query_loop(
             # 任务完成
             return
 
-        # ========== 阶段 3: 执行工具 ==========
+        # ========== 阶段 3: 跨轮次去重 + 执行工具 ==========
         tool_results: List[Message] = []
+        new_tool_blocks: List[Dict[str, Any]] = []
 
-        # 导入工具编排模块（延迟导入避免循环依赖）
-        from ripple.tools.orchestration import run_tools
+        for block in tool_use_blocks:
+            key = json.dumps({"name": block.get("name"), "input": block.get("input", {})}, sort_keys=True)
+            if key in executed_tool_keys:
+                dup_msg = create_tool_result_message(
+                    tool_use_id=block["id"],
+                    content=(
+                        "This tool was already called with identical arguments in a previous turn. "
+                        "The result is already in the conversation above. "
+                        "Do NOT call this tool again. "
+                        "Use the previous result to respond to the user's question directly."
+                    ),
+                )
+                yield dup_msg
+                tool_results.append(dup_msg)
+            else:
+                new_tool_blocks.append(block)
+                executed_tool_keys.add(key)
 
-        try:
-            async for update in run_tools(
-                tool_use_blocks,
-                assistant_messages,
-                state.tool_use_context,
-            ):
-                if update.message:
-                    yield update.message
-                    tool_results.append(update.message)
+        # 执行非重复的工具调用
+        if new_tool_blocks:
+            from ripple.tools.orchestration import run_tools
 
-                if update.new_context:
-                    state.tool_use_context = update.new_context
+            try:
+                async for update in run_tools(
+                    new_tool_blocks,
+                    assistant_messages,
+                    state.tool_use_context,
+                ):
+                    if update.message:
+                        yield update.message
+                        tool_results.append(update.message)
 
-        except Exception as e:
-            # 工具执行错误
-            from ripple.utils.errors import error_message
+                    if update.new_context:
+                        state.tool_use_context = update.new_context
 
-            error_msg = create_user_message(
-                content=f"Tool execution error: {error_message(e)}",
-                is_meta=True,
-            )
-            yield error_msg
-            return
+            except Exception as e:
+                from ripple.utils.errors import error_message
+
+                error_msg = create_user_message(
+                    content=f"Tool execution error: {error_message(e)}",
+                    is_meta=True,
+                )
+                yield error_msg
+                return
 
         # ========== 阶段 4: 检查最大轮数 ==========
         next_turn_count = state.turn_count + 1

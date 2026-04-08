@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from ripple.core.context import ToolUseContext
 from ripple.messages.types import AssistantMessage
 from ripple.skills.executor import execute_forked_skill, execute_inline_skill
-from ripple.skills.loader import get_global_loader
+from ripple.skills.loader import get_global_loader, reload_skills
 from ripple.tools.base import Tool, ToolResult
 
 
@@ -73,7 +73,8 @@ Usage: Call this tool with the skill name and optional arguments."""
         # 移除前导斜杠（兼容性）
         skill_name = args.skill.lstrip("/")
 
-        # 查找 Skill
+        # 重新加载 skills 以确保使用磁盘上的最新版本
+        reload_skills()
         loader = get_global_loader()
         skill = loader.get_skill(skill_name)
 
@@ -109,7 +110,8 @@ Usage: Call this tool with the skill name and optional arguments."""
         Returns:
             JSON Schema
         """
-        # 动态生成可用 Skill 列表
+        # 重新加载并动态生成可用 Skill 列表
+        reload_skills()
         loader = get_global_loader()
         available_skills = [s.name for s in loader.list_skills()]
 

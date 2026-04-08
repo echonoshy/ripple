@@ -112,16 +112,22 @@ class SkillLoader:
 
         return skill
 
-    def _parse_allowed_tools(self, allowed_tools: List[str] | str) -> List[str]:
+    def _parse_allowed_tools(self, allowed_tools: list[str] | str) -> list[str]:
         """解析 allowed-tools 字段
+
+        支持两种模式：
+        - all: 允许使用所有工具，返回 ["__all__"]
+        - allow_list: 指定工具列表，如 ["Bash", "Read"]
 
         Args:
             allowed_tools: allowed-tools 配置
 
         Returns:
-            工具名称列表
+            工具名称列表，["__all__"] 表示所有工具
         """
         if isinstance(allowed_tools, str):
+            if allowed_tools.lower() == "all":
+                return ["__all__"]
             return [allowed_tools]
         elif isinstance(allowed_tools, list):
             return allowed_tools

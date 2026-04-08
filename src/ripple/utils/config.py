@@ -61,6 +61,31 @@ class Config:
                 return default
         return value
 
+    def resolve_model(self, name_or_alias: str) -> str:
+        """解析模型名称或别名为完整模型 ID
+
+        如果 name_or_alias 匹配 presets 中的别名，返回对应的模型 ID；
+        否则原样返回。
+
+        Args:
+            name_or_alias: 模型名称或预设别名
+
+        Returns:
+            完整模型 ID
+        """
+        presets = self.get("model.presets", {})
+        if presets and name_or_alias in presets:
+            return presets[name_or_alias].get("model", name_or_alias)
+        return name_or_alias
+
+    def get_model_presets(self) -> dict[str, dict]:
+        """获取所有模型预设
+
+        Returns:
+            预设字典 {别名: {model, description}}
+        """
+        return self.get("model.presets", {}) or {}
+
     def reload(self):
         """重新加载配置文件"""
         self._data = self._load_config()

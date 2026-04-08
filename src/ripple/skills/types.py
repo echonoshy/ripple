@@ -20,7 +20,7 @@ class Skill:
     file_path: str  # 源文件路径
 
     # Frontmatter 字段
-    allowed_tools: List[str] = None  # 允许的工具列表
+    allowed_tools: List[str] = None  # 允许的工具列表，["__all__"] 表示所有工具
     arguments: List[str] = None  # 参数名称列表
     context: str = "inline"  # 执行上下文：inline 或 fork
     hooks: Dict[str, Any] = None  # Hook 配置
@@ -37,6 +37,11 @@ class Skill:
             self.arguments = []
         if self.hooks is None:
             self.hooks = {}
+
+    @property
+    def is_all_tools_allowed(self) -> bool:
+        """是否允许使用所有工具"""
+        return "__all__" in self.allowed_tools
 
     def substitute_arguments(self, args: str) -> str:
         """替换内容中的参数占位符

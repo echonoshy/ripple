@@ -16,10 +16,10 @@ from ripple.api.client import OpenRouterClient
 from ripple.core.agent_loop import query
 from ripple.core.context import ToolOptions, ToolUseContext
 from ripple.skills.skill_tool import SkillTool
+from ripple.tools.builtin.agent_tool import AgentTool
 from ripple.tools.builtin.bash import BashTool
 from ripple.tools.builtin.read import ReadTool
 from ripple.tools.builtin.search import SearchTool
-from ripple.tools.builtin.subagent import SubAgentTool
 from ripple.tools.builtin.write import WriteTool
 from ripple.utils.config import get_config
 
@@ -33,25 +33,31 @@ class RippleCLI:
         """初始化 CLI
 
         Args:
-            model: 模型名称
+            model: 模型名称或预设别名
             max_turns: 最大轮数
         """
         config = get_config()
-        self.model = model or config.get("model.default", "anthropic/claude-3.5-sonnet")
+        raw_model = model or config.get("model.default", "anthropic/claude-3.5-sonnet")
+        self.model_alias = raw_model
+        self.model = config.resolve_model(raw_model)
         self.max_turns = max_turns or config.get("agent.max_turns", 10)
+        self.thinking = config.get("model.thinking.enabled", False)
         self.client: OpenRouterClient | None = None
         self.context: ToolUseContext | None = None
         self.session_count = 0
 
     def initialize(self):
         """初始化客户端和上下文"""
+        # 消息历史（用于 AgentTool 的 fork 模式）
+        messages = []
+
         # 初始化工具
         tools = [
             BashTool(),
             ReadTool(),
             WriteTool(),
             SearchTool(),
-            SubAgentTool(),
+            AgentTool(messages=messages),  # 传入消息历史以支持 fork 模式
             SkillTool(),
         ]
 
@@ -82,7 +88,9 @@ class RippleCLI:
 **命令:**
 - `/help` - 显示帮助
 - `/clear` - 清空屏幕
-- `/model <name>` - 切换模型
+- `/model <name>` - 切换模型（支持别名：opus / sonnet / haiku）
+- `/models` - 查看可用模型列表
+- `/thinking` - 开关思考模式
 - `/info` - 显示当前配置
 - `/exit` 或 `/quit` - 退出
 
@@ -93,14 +101,30 @@ class RippleCLI:
 
     def print_info(self):
         """打印当前配置信息"""
+        thinking_status = "开启" if self.thinking else "关闭"
+        display_model = f"{self.model_alias} ({self.model})" if self.model_alias != self.model else self.model
         info = f"""
 **当前配置:**
-- 模型: {self.model}
+- 模型: {display_model}
+- 思考模式: {thinking_status}
 - 最大轮数: {self.max_turns}
 - 工作目录: {Path.cwd()}
 - Session: {self.session_count}
         """
         console.print(Panel(Markdown(info), title="配置信息", border_style="blue"))
+
+    def print_models(self):
+        """打印可用模型列表"""
+        config = get_config()
+        presets = config.get_model_presets()
+        if not presets:
+            console.print("[yellow]未配置模型预设，请在 config/settings.yaml 中添加 model.presets[/yellow]")
+            return
+        lines = ["**可用模型:**\n"]
+        for alias, info in presets.items():
+            marker = " ← 当前" if alias == self.model_alias or info.get("model") == self.model else ""
+            lines.append(f"- `{alias}` → {info.get('model', '?')}  {info.get('description', '')}{marker}")
+        console.print(Panel(Markdown("\n".join(lines)), title="模型列表", border_style="blue"))
 
     def _display_subagent_execution(self, result_content: str):
         """显示 SubAgent 的执行日志
@@ -188,100 +212,115 @@ class RippleCLI:
             console.print("[red]客户端未初始化[/red]")
             return
 
-        console.print("\n[dim]正在处理...[/dim]\n")
-
         try:
-            async for item in query(
-                user_input=prompt,
-                context=self.context,
-                client=self.client,
-                model=self.model,
-                max_turns=self.max_turns,
-            ):
-                if hasattr(item, "type"):
-                    if item.type == "assistant":
-                        # 助手消息
-                        content = item.message.get("content", [])
-                        for block in content:
-                            if isinstance(block, dict):
-                                if block.get("type") == "text":
-                                    text = block.get("text", "")
-                                    if text.strip():
-                                        console.print(Markdown(text))
-                                elif block.get("type") == "tool_use":
-                                    tool_name = block.get("name", "")
-                                    tool_input = block.get("input", {})
-                                    console.print(f"\n[yellow]🔧 调用工具: {tool_name}[/yellow]")
-                                    # 显示工具输入参数
-                                    if tool_input:
+            with console.status("[bold cyan]正在思考...[/bold cyan]", spinner="dots") as status:
+                async for item in query(
+                    user_input=prompt,
+                    context=self.context,
+                    client=self.client,
+                    model=self.model,
+                    max_turns=self.max_turns,
+                    thinking=self.thinking,
+                ):
+                    if hasattr(item, "type"):
+                        if item.type == "stream_request_start":
+                            status.update("[bold cyan]正在思考...[/bold cyan]")
+                        elif item.type == "assistant":
+                            # 助手消息
+                            status.stop()
+                            content = item.message.get("content", [])
+                            for block in content:
+                                if isinstance(block, dict):
+                                    if block.get("type") == "text":
+                                        text = block.get("text", "")
+                                        if text.strip():
+                                            console.print(
+                                                Panel(Markdown(text), border_style="green", title="🤖 Ripple")
+                                            )
+                                    elif block.get("type") == "tool_use":
+                                        tool_name = block.get("name", "")
+                                        tool_input = block.get("input", {})
+
+                                        # 显示工具输入参数
                                         import json
 
                                         input_str = json.dumps(tool_input, ensure_ascii=False, indent=2)
-                                        # 如果参数太长，截断显示
                                         if len(input_str) > 200:
-                                            input_str = input_str[:200] + "..."
-                                        console.print(f"[dim]   参数: {input_str}[/dim]")
+                                            input_str = input_str[:200] + "\n..."
 
-                    elif item.type == "user":
-                        # 工具结果
-                        content = item.message.get("content", [])
-                        for block in content:
-                            if isinstance(block, dict) and block.get("type") == "tool_result":
-                                result_content = block.get("content", "")
-                                is_error = block.get("is_error", False)
+                                        console.print(
+                                            Panel(
+                                                f"[cyan]参数:[/cyan]\n{input_str}",
+                                                title=f"🔧 调用工具: [bold yellow]{tool_name}[/bold yellow]",
+                                                border_style="yellow",
+                                            )
+                                        )
+                            status.start()
 
-                                # 检查是否是 SubAgent 的结果
-                                try:
-                                    if "SubAgentOutput" in result_content or "execution_log" in result_content:
-                                        # 尝试解析 SubAgent 输出
+                        elif item.type == "user":
+                            # 工具结果
+                            status.stop()
+                            content = item.message.get("content", [])
+                            for block in content:
+                                if isinstance(block, dict) and block.get("type") == "tool_result":
+                                    result_content = block.get("content", "")
+                                    is_error = block.get("is_error", False)
 
-                                        # 提取 execution_log
-                                        if "execution_log=[" in result_content:
-                                            self._display_subagent_execution(result_content)
-                                            continue
-                                except Exception:
-                                    pass
+                                    # 检查是否是 SubAgent 的结果
+                                    try:
+                                        if "SubAgentOutput" in result_content or "execution_log" in result_content:
+                                            if "execution_log=[" in result_content:
+                                                self._display_subagent_execution(result_content)
+                                                continue
+                                    except Exception:
+                                        pass
 
-                                if is_error:
-                                    console.print(f"[red]❌ 工具错误: {result_content}[/red]")
-                                else:
-                                    console.print("[green]✓ 工具执行成功[/green]")
-                                    # 显示工具结果（截断长输出）
-                                    if result_content and len(result_content) > 50:
-                                        # 尝试解析 Bash 输出
-                                        if "stdout=" in result_content:
-                                            try:
-                                                # 简单提取 stdout 内容
-                                                import re
+                                    if is_error:
+                                        console.print(
+                                            Panel(
+                                                f"[red]{result_content}[/red]", title="❌ 工具错误", border_style="red"
+                                            )
+                                        )
+                                    else:
+                                        # 显示工具结果（截断长输出）
+                                        preview = ""
+                                        if result_content:
+                                            if "stdout=" in result_content:
+                                                try:
+                                                    import re
 
-                                                match = re.search(r"stdout='([^']*)'", result_content)
-                                                if match:
-                                                    stdout_str = match.group(1)
-                                                    # 解码转义字符
-                                                    stdout_str = stdout_str.encode().decode("unicode_escape")
-                                                    # 显示前几行
-                                                    lines = stdout_str.split("\n")[:5]
-                                                    preview = "\n".join(lines)
-                                                    if len(stdout_str.split("\n")) > 5:
-                                                        preview += "\n   ..."
-                                                    console.print(f"[dim]   输出:\n   {preview}[/dim]")
-                                                else:
-                                                    # 回退到简单截断
-                                                    preview = result_content[:150]
-                                                    if len(result_content) > 150:
-                                                        preview += "..."
-                                                    console.print(f"[dim]   结果: {preview}[/dim]")
-                                            except Exception:
-                                                # 解析失败，显示原始内容
-                                                preview = result_content[:150]
-                                                if len(result_content) > 150:
-                                                    preview += "..."
-                                                console.print(f"[dim]   结果: {preview}[/dim]")
+                                                    match = re.search(r"stdout='([^']*)'", result_content)
+                                                    if match:
+                                                        stdout_str = match.group(1)
+                                                        stdout_str = stdout_str.encode().decode("unicode_escape")
+                                                        lines = stdout_str.split("\n")[:10]
+                                                        preview = "\n".join(lines)
+                                                        if len(stdout_str.split("\n")) > 10:
+                                                            preview += "\n..."
+                                                    else:
+                                                        preview = result_content[:300] + (
+                                                            "..." if len(result_content) > 300 else ""
+                                                        )
+                                                except Exception:
+                                                    preview = result_content[:300] + (
+                                                        "..." if len(result_content) > 300 else ""
+                                                    )
+                                            else:
+                                                preview = result_content[:300] + (
+                                                    "..." if len(result_content) > 300 else ""
+                                                )
+
+                                        if preview:
+                                            console.print(
+                                                Panel(
+                                                    f"[dim]{preview}[/dim]",
+                                                    title="✓ 工具执行成功",
+                                                    border_style="green",
+                                                )
+                                            )
                                         else:
-                                            preview = result_content[:150]
-                                            if len(result_content) > 150:
-                                                preview += "..."
-                                            console.print(f"[dim]   结果: {preview}[/dim]")
+                                            console.print("[green]✓ 工具执行成功 (无输出)[/green]")
+                            status.start()
 
             console.print("\n[bold green]✓ 完成[/bold green]\n")
 
@@ -317,13 +356,23 @@ class RippleCLI:
         elif cmd.startswith("/model "):
             new_model = user_input[7:].strip()
             if new_model:
-                self.model = new_model
-                console.print(f"[green]已切换到模型: {new_model}[/green]")
+                config = get_config()
+                self.model_alias = new_model
+                self.model = config.resolve_model(new_model)
+                console.print(f"[green]已切换到模型: {self.model_alias} ({self.model})[/green]")
                 # 重新初始化上下文
                 self.session_count += 1
                 self.initialize()
             else:
                 console.print("[red]请指定模型名称[/red]")
+
+        elif cmd == "/models":
+            self.print_models()
+
+        elif cmd == "/thinking":
+            self.thinking = not self.thinking
+            status = "开启" if self.thinking else "关闭"
+            console.print(f"[green]思考模式已{status}[/green]")
 
         else:
             console.print(f"[red]未知命令: {cmd}[/red]")

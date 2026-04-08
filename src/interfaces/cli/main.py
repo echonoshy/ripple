@@ -14,10 +14,10 @@ from ripple.api.client import OpenRouterClient
 from ripple.core.agent_loop import query
 from ripple.core.context import ToolOptions, ToolUseContext
 from ripple.skills.skill_tool import SkillTool
+from ripple.tools.builtin.agent_tool import AgentTool
 from ripple.tools.builtin.bash import BashTool
 from ripple.tools.builtin.read import ReadTool
 from ripple.tools.builtin.search import SearchTool
-from ripple.tools.builtin.subagent import SubAgentTool
 from ripple.tools.builtin.write import WriteTool
 
 console = Console()
@@ -133,14 +133,17 @@ async def run_agent_once(prompt: str, model: str, max_turns: int):
     console.print(f"[dim]模型: {model}[/dim]")
     console.print(f"[dim]最大轮数: {max_turns}[/dim]\n")
 
+    # 消息历史（用于 AgentTool 的 fork 模式）
+    messages = []
+
     # 初始化工具
     tools = [
         BashTool(),
         ReadTool(),
         WriteTool(),
         SearchTool(),
-        SubAgentTool(),
-        SkillTool(),  # 添加 Skill Tool
+        AgentTool(messages=messages),  # 传入消息历史以支持 fork 模式
+        SkillTool(),
     ]
 
     # 创建上下文
@@ -162,57 +165,110 @@ async def run_agent_once(prompt: str, model: str, max_turns: int):
 
     # 执行查询
     try:
-        async for item in query(
-            user_input=prompt,
-            context=context,
-            client=client,
-            model=model,
-            max_turns=max_turns,
-        ):
-            # 处理不同类型的消息
-            if hasattr(item, "type"):
-                if item.type == "assistant":
-                    # 助手消息
-                    content = item.message.get("content", [])
-                    for block in content:
-                        if isinstance(block, dict):
-                            if block.get("type") == "text":
-                                text = block.get("text", "")
-                                if text.strip():
-                                    console.print(Markdown(text))
-                            elif block.get("type") == "tool_use":
-                                tool_name = block.get("name", "")
-                                console.print(f"\n[yellow]🔧 调用工具: {tool_name}[/yellow]")
+        with console.status("[bold cyan]正在思考...[/bold cyan]", spinner="dots") as status:
+            async for item in query(
+                user_input=prompt,
+                context=context,
+                client=client,
+                model=model,
+                max_turns=max_turns,
+            ):
+                # 处理不同类型的消息
+                if hasattr(item, "type"):
+                    if item.type == "stream_request_start":
+                        status.update("[bold cyan]正在思考...[/bold cyan]")
+                    elif item.type == "assistant":
+                        # 助手消息
+                        status.stop()
+                        content = item.message.get("content", [])
+                        for block in content:
+                            if isinstance(block, dict):
+                                if block.get("type") == "text":
+                                    text = block.get("text", "")
+                                    if text.strip():
+                                        from rich.panel import Panel
 
-                elif item.type == "user":
-                    # 工具结果
-                    content = item.message.get("content", [])
-                    for block in content:
-                        if isinstance(block, dict) and block.get("type") == "tool_result":
-                            result_content = block.get("content", "")
-                            is_error = block.get("is_error", False)
+                                        console.print(Panel(Markdown(text), border_style="green", title="🤖 Ripple"))
+                                elif block.get("type") == "tool_use":
+                                    tool_name = block.get("name", "")
+                                    tool_input = block.get("input", {})
 
-                            # 检查是否是 SubAgent 的结果
-                            try:
-                                if "SubAgentOutput" in result_content or "execution_log" in result_content:
-                                    if "execution_log=[" in result_content:
-                                        display_subagent_execution(result_content)
-                                        continue
-                            except Exception:
-                                pass
+                                    import json
 
-                            if is_error:
-                                console.print(f"[red]❌ 工具错误: {result_content}[/red]")
-                            else:
-                                console.print("[green]✓ 工具结果[/green]")
-                                # 只显示前 500 字符
-                                if len(result_content) > 500:
-                                    console.print(f"[dim]{result_content[:500]}...[/dim]")
+                                    input_str = json.dumps(tool_input, ensure_ascii=False, indent=2)
+                                    if len(input_str) > 200:
+                                        input_str = input_str[:200] + "\n..."
+
+                                    from rich.panel import Panel
+
+                                    console.print(
+                                        Panel(
+                                            f"[cyan]参数:[/cyan]\n{input_str}",
+                                            title=f"🔧 调用工具: [bold yellow]{tool_name}[/bold yellow]",
+                                            border_style="yellow",
+                                        )
+                                    )
+                        status.start()
+
+                    elif item.type == "user":
+                        # 工具结果
+                        status.stop()
+                        content = item.message.get("content", [])
+                        for block in content:
+                            if isinstance(block, dict) and block.get("type") == "tool_result":
+                                result_content = block.get("content", "")
+                                is_error = block.get("is_error", False)
+
+                                # 检查是否是 SubAgent 的结果
+                                try:
+                                    if "SubAgentOutput" in result_content or "execution_log" in result_content:
+                                        if "execution_log=[" in result_content:
+                                            display_subagent_execution(result_content)
+                                            continue
+                                except Exception:
+                                    pass
+
+                                from rich.panel import Panel
+
+                                if is_error:
+                                    console.print(
+                                        Panel(f"[red]{result_content}[/red]", title="❌ 工具错误", border_style="red")
+                                    )
                                 else:
-                                    console.print(f"[dim]{result_content}[/dim]")
+                                    preview = ""
+                                    if result_content:
+                                        if "stdout=" in result_content:
+                                            try:
+                                                import re
 
-                elif item.type == "stream_request_start":
-                    console.print("\n[dim]正在思考...[/dim]")
+                                                match = re.search(r"stdout='([^']*)'", result_content)
+                                                if match:
+                                                    stdout_str = match.group(1)
+                                                    stdout_str = stdout_str.encode().decode("unicode_escape")
+                                                    lines = stdout_str.split("\n")[:10]
+                                                    preview = "\n".join(lines)
+                                                    if len(stdout_str.split("\n")) > 10:
+                                                        preview += "\n..."
+                                                else:
+                                                    preview = result_content[:300] + (
+                                                        "..." if len(result_content) > 300 else ""
+                                                    )
+                                            except Exception:
+                                                preview = result_content[:300] + (
+                                                    "..." if len(result_content) > 300 else ""
+                                                )
+                                        else:
+                                            preview = result_content[:300] + (
+                                                "..." if len(result_content) > 300 else ""
+                                            )
+
+                                    if preview:
+                                        console.print(
+                                            Panel(f"[dim]{preview}[/dim]", title="✓ 工具执行成功", border_style="green")
+                                        )
+                                    else:
+                                        console.print("[green]✓ 工具执行成功 (无输出)[/green]")
+                        status.start()
 
         console.print("\n[bold green]✓ 任务完成[/bold green]")
 

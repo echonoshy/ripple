@@ -47,7 +47,11 @@ async def execute_inline_skill(
     )
 
     # 4. 创建 context 修改器（注入 allowed_tools）
+    # all 模式：不做任何过滤，使用上下文中的全部工具
+    # allow_list 模式：仅注入指定的工具列表
     def context_modifier(ctx: ToolUseContext) -> ToolUseContext:
+        if skill.is_all_tools_allowed:
+            return ctx
         if skill.allowed_tools:
             return ctx.with_allowed_tools(skill.allowed_tools)
         return ctx

@@ -32,12 +32,14 @@ class QueryParams:
         model: str = "anthropic/claude-3.5-sonnet",
         max_turns: int | None = None,
         max_tokens: int | None = None,
+        thinking: bool = False,
     ):
         self.messages = messages
         self.tool_use_context = tool_use_context
         self.model = model
         self.max_turns = max_turns
         self.max_tokens = max_tokens
+        self.thinking = thinking
 
 
 async def query_loop(
@@ -91,6 +93,7 @@ async def query_loop(
                 tools=tools if tools else None,
                 model=params.model,
                 max_tokens=params.max_tokens,
+                thinking=params.thinking,
             )
 
             async for message in process_stream_response(stream):
@@ -241,6 +244,7 @@ async def query(
     client: OpenRouterClient | None = None,
     model: str = "anthropic/claude-3.5-sonnet",
     max_turns: int | None = None,
+    thinking: bool = False,
 ) -> AsyncGenerator[Message | StreamEvent | RequestStartEvent, Terminal]:
     """查询入口函数
 
@@ -250,6 +254,7 @@ async def query(
         client: OpenRouter 客户端（可选）
         model: 模型名称
         max_turns: 最大轮数
+        thinking: 是否启用思考模式
 
     Yields:
         消息或流式事件
@@ -278,6 +283,7 @@ async def query(
         tool_use_context=context,
         model=model,
         max_turns=max_turns,
+        thinking=thinking,
     )
 
     async for item in query_loop(params, client):

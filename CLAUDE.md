@@ -111,7 +111,6 @@ uv run pytest
 ### Python
 
 - **不要生成 `__init__.py`**: 除非模块确实需要包级别的导入/导出，否则不要创建 `__init__.py` 文件。
-- **使用 pyrootutils**: 通过 pyrootutils 管理项目根路径和模块导入。
 - **代码完成后必须运行 ruff check**: 每次修改代码后执行 `ruff check` 和 `ruff format` 确保代码质量。
 - **行宽限制 120**: Ruff 的 `line-length` 已配置为 120，所有代码应遵循此限制。
 - **优先使用内置类型注解**: 使用 `list[str]`、`dict[str, str]` 等，不要从 typing 导入 `List`、`Dict`、`Optional` 等。

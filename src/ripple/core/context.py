@@ -33,6 +33,7 @@ class ToolUseContext:
     # 权限相关
     permission_mode: str = "ask"  # ask, allow, deny
     allowed_tools: List[str] = field(default_factory=list)
+    permission_manager: Optional[Any] = None  # 权限管理器
 
     # 回调函数
     on_progress: Optional[Callable] = None

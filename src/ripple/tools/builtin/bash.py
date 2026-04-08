@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from ripple.core.context import ToolUseContext
 from ripple.messages.types import AssistantMessage
+from ripple.permissions.levels import ToolRiskLevel
 from ripple.tools.base import Tool, ToolResult
 
 
@@ -38,6 +39,7 @@ class BashTool(Tool[BashInput, BashOutput]):
         self.name = "Bash"
         self.description = "Execute a bash command and return the output"
         self.max_result_size_chars = 100_000
+        self.risk_level = ToolRiskLevel.DANGEROUS
 
     async def call(
         self,
@@ -130,3 +132,30 @@ class BashTool(Tool[BashInput, BashOutput]):
             },
             "required": ["command"],
         }
+
+    def requires_confirmation(self, input_params: dict) -> bool:
+        """检查命令是否危险
+
+        Args:
+            input_params: 工具输入参数
+
+        Returns:
+            是否需要确认
+        """
+        command = input_params.get("command", "")
+
+        # 危险命令模式
+        dangerous_patterns = [
+            "rm -rf",
+            "rm -fr",
+            "rm -r",
+            "git push",
+            "git push --force",
+            "git reset --hard",
+            "DROP TABLE",
+            "DELETE FROM",
+            "sudo",
+            "chmod 777",
+        ]
+
+        return any(pattern in command for pattern in dangerous_patterns)

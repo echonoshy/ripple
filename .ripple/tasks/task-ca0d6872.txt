@@ -1,0 +1,1 @@
+Task failed: 'dict' object has no attribute 'type'

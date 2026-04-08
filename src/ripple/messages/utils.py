@@ -52,7 +52,9 @@ def create_system_message(content: str, level: str = "info") -> SystemMessage:
     return SystemMessage(type="system", content=content, level=level)
 
 
-def normalize_messages_for_api(messages: List[Message], is_litellm: bool = False) -> List[Dict[str, Any]]:
+def normalize_messages_for_api(
+    messages: List[Message | Dict[str, Any]], is_litellm: bool = False
+) -> List[Dict[str, Any]]:
     """规范化消息用于 API 调用
 
     - 移除 meta 消息
@@ -62,7 +64,7 @@ def normalize_messages_for_api(messages: List[Message], is_litellm: bool = False
     - 如果是 LiteLLM，将 tool_result 转换为文本
 
     Args:
-        messages: 消息列表
+        messages: 消息列表（可以是 Message 对象或字典）
         is_litellm: 是否是 LiteLLM API
 
     Returns:
@@ -71,6 +73,13 @@ def normalize_messages_for_api(messages: List[Message], is_litellm: bool = False
     normalized = []
 
     for msg in messages:
+        # 处理字典格式的消息（来自历史会话）
+        if isinstance(msg, dict):
+            # 字典格式已经是 API 格式，直接添加
+            normalized.append(msg)
+            continue
+
+        # 处理 Message 对象
         # 跳过 meta 消息
         if msg.type == "user" and msg.is_meta:
             continue

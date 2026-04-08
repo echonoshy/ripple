@@ -29,7 +29,25 @@ class SkillTool(Tool[SkillInput, Dict[str, Any]]):
 
     def __init__(self):
         self.name = "Skill"
-        self.description = "Execute a skill (slash command) by name"
+        self.description = """Execute a specialized skill to extend your capabilities beyond software development.
+
+Skills are pre-defined task templates that allow you to handle requests outside your core expertise.
+
+IMPORTANT: Before declining a user request because it's outside your domain (e.g., finance, fortune-telling, etc.),
+check if there's a relevant skill available by calling this tool.
+
+Available skills are listed in the tool's parameter schema. Common skills include:
+- etf-assistant: ETF investment analysis and recommendations
+- fortune-master-ultimate: Chinese fortune-telling and astrology
+- web-search: Web search and summarization
+- And more...
+
+When to use:
+1. User asks about topics outside software development (finance, divination, etc.)
+2. User explicitly mentions a skill name (e.g., "use etf-assistant")
+3. You need specialized domain knowledge
+
+Usage: Call this tool with the skill name and optional arguments."""
         self.max_result_size_chars = 100_000
 
     async def call(

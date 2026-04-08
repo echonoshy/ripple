@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from ripple.core.context import ToolUseContext
 from ripple.messages.types import AssistantMessage
+from ripple.permissions.levels import ToolRiskLevel
 from ripple.tools.base import Tool, ToolResult
 
 
@@ -38,6 +39,7 @@ class WriteTool(Tool[WriteInput, WriteOutput]):
         self.name = "Write"
         self.description = "Write content to a file (overwrites existing file)"
         self.max_result_size_chars = 10_000
+        self.risk_level = ToolRiskLevel.MODERATE
 
     async def call(
         self,

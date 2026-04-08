@@ -1,103 +1,74 @@
-"""工具和 Skills 统计
+"""列出所有可用的工具和技能
 
-列出所有可用的内置工具和用户定义的 Skills。
+用于调试和验证系统配置。
 """
 
-from pathlib import Path
-
-from rich.console import Console
-from rich.table import Table
-
-from ripple.skills.loader import SkillLoader
-
-console = Console()
-
-
-def list_builtin_tools():
-    """列出内置工具"""
-    tools = [
-        {
-            "name": "Bash",
-            "description": "执行 shell 命令",
-            "file": "ripple/tools/builtin/bash.py",
-        },
-        {
-            "name": "Read",
-            "description": "读取文件内容（支持分页）",
-            "file": "ripple/tools/builtin/read.py",
-        },
-        {
-            "name": "Write",
-            "description": "写入文件内容",
-            "file": "ripple/tools/builtin/write.py",
-        },
-        {
-            "name": "Search",
-            "description": "使用 DuckDuckGo 搜索网络",
-            "file": "ripple/tools/builtin/search.py",
-        },
-        {
-            "name": "Skill",
-            "description": "执行用户定义的 Skill",
-            "file": "ripple/skills/skill_tool.py",
-        },
-    ]
-
-    table = Table(title="内置工具", show_header=True, header_style="bold cyan")
-    table.add_column("工具名称", style="green")
-    table.add_column("描述", style="white")
-    table.add_column("文件路径", style="dim")
-
-    for tool in tools:
-        table.add_row(tool["name"], tool["description"], tool["file"])
-
-    console.print(table)
-    console.print(f"\n[bold]总计: {len(tools)} 个内置工具[/bold]\n")
+from ripple.skills.loader import get_global_loader
+from ripple.tools.builtin.bash import BashTool
+from ripple.tools.builtin.read import ReadTool
+from ripple.tools.builtin.write import WriteTool
 
 
 def list_skills():
-    """列出用户定义的 Skills"""
-    # 查找 skills 目录
-    skills_dir = Path.cwd() / "skills"
+    """列出所有可用的 skills"""
+    print("=" * 60)
+    print("Available Skills")
+    print("=" * 60)
 
-    if not skills_dir.exists():
-        console.print("[yellow]未找到 skills 目录[/yellow]\n")
-        return
-
-    # 加载 skills
-    loader = SkillLoader([str(skills_dir)])
-    loader.load_all()
+    loader = get_global_loader()
     skills = loader.list_skills()
 
-    if not skills:
-        console.print("[yellow]未找到任何 Skill[/yellow]\n")
-        return
+    # 分类统计
+    bundled = [s for s in skills if s.file_path.startswith("<bundled:")]
+    file_based = [s for s in skills if not s.file_path.startswith("<bundled:")]
 
-    table = Table(title="用户定义的 Skills", show_header=True, header_style="bold magenta")
-    table.add_column("Skill 名称", style="green")
-    table.add_column("描述", style="white")
-    table.add_column("参数", style="cyan")
+    print(f"\nTotal: {len(skills)} skills")
+    print(f"  - Bundled: {len(bundled)}")
+    print(f"  - File-based: {len(file_based)}")
 
-    for skill in skills:
-        args = ", ".join(skill.arguments) if skill.arguments else "无"
-        table.add_row(skill.name, skill.description, args)
+    # 列出 bundled skills
+    if bundled:
+        print("\n" + "-" * 60)
+        print("Bundled Skills:")
+        print("-" * 60)
+        for skill in bundled:
+            print(f"\n/{skill.name}")
+            print(f"  Description: {skill.description}")
+            print(f"  Context: {skill.context}")
+            print(f"  Allowed Tools: {skill.allowed_tools if skill.allowed_tools else 'all'}")
 
-    console.print(table)
-    console.print(f"\n[bold]总计: {len(skills)} 个 Skills[/bold]\n")
+    # 列出前 5 个文件 skills
+    if file_based:
+        print("\n" + "-" * 60)
+        print(f"File-based Skills (showing first 5 of {len(file_based)}):")
+        print("-" * 60)
+        for skill in file_based[:5]:
+            print(f"\n/{skill.name}")
+            print(f"  Description: {skill.description[:80]}...")
+            print(f"  File: {skill.file_path}")
+            print(f"  Context: {skill.context}")
 
 
-def main():
-    """主函数"""
-    console.print("\n[bold cyan]🌊 Ripple 工具统计[/bold cyan]\n")
+def list_tools():
+    """列出所有可用的工具"""
+    print("\n" + "=" * 60)
+    print("Available Tools")
+    print("=" * 60)
 
-    # 列出内置工具
-    list_builtin_tools()
+    tools = [
+        ("Bash", "Execute shell commands"),
+        ("Read", "Read files from filesystem"),
+        ("Write", "Write files to filesystem"),
+        ("Skill", "Execute user-defined skills"),
+        ("Agent", "Launch sub-agents for complex tasks"),
+    ]
 
-    # 列出 Skills
-    list_skills()
-
-    console.print("[dim]提示: 可以在 skills/ 目录下创建更多 Skill[/dim]\n")
+    for name, desc in tools:
+        print(f"\n{name}")
+        print(f"  {desc}")
 
 
 if __name__ == "__main__":
-    main()
+    list_skills()
+    list_tools()
+    print("\n" + "=" * 60)

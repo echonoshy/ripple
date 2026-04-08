@@ -194,6 +194,20 @@ async def _execute_tool(
         yield MessageUpdate(message=error_msg)
         return
 
+    # ========== 权限检查 ==========
+    if hasattr(context, "permission_manager") and context.permission_manager:
+        allowed, reason = await context.permission_manager.check_permission(tool, tool_use.get("input", {}))
+
+        if not allowed:
+            error_msg = create_tool_result_message(
+                tool_use_id=tool_use["id"],
+                content=f"Permission denied: {reason}",
+                is_error=True,
+                source_assistant_uuid=parent_message.uuid,
+            )
+            yield MessageUpdate(message=error_msg)
+            return
+
     try:
         # 调用工具
         result = await tool.call(
@@ -210,6 +224,11 @@ async def _execute_tool(
             source_assistant_uuid=parent_message.uuid,
         )
         yield MessageUpdate(message=result_msg)
+
+        # 注入工具产生的附加消息（如 Skill inline 模式的 prompt 注入）
+        if result.new_messages:
+            for msg in result.new_messages:
+                yield MessageUpdate(message=msg)
 
         # 应用 context 修改器
         if result.context_modifier:

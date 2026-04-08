@@ -1,6 +1,6 @@
 """Skill 加载器
 
-从目录加载 Skill 定义。
+从目录加载 Skill 定义，并合并 bundled skills。
 """
 
 from pathlib import Path
@@ -8,6 +8,7 @@ from typing import Dict, List
 
 import frontmatter
 
+from ripple.skills.registry import get_bundled_skills
 from ripple.skills.types import Skill
 
 
@@ -33,11 +34,22 @@ class SkillLoader:
     def load_all(self) -> Dict[str, Skill]:
         """加载所有 Skill
 
+        加载顺序：
+        1. Bundled skills（内置技能）
+        2. 文件系统 skills（用户技能）
+
+        后加载的覆盖先加载的（文件系统 skills 可以覆盖 bundled skills）
+
         Returns:
             Skill 字典（name -> Skill）
         """
         self._skills.clear()
 
+        # 1. 加载 bundled skills
+        bundled_skills = get_bundled_skills()
+        self._skills.update(bundled_skills)
+
+        # 2. 加载文件系统 skills
         for skill_dir in self.skill_dirs:
             if not skill_dir.exists():
                 continue
@@ -142,11 +154,19 @@ _global_loader: SkillLoader | None = None
 def get_global_loader() -> SkillLoader:
     """获取全局 Skill 加载器
 
+    首次调用时会注册所有 bundled skills 并加载所有 skills。
+
     Returns:
         全局加载器实例
     """
     global _global_loader
     if _global_loader is None:
+        # 注册所有 bundled skills
+        from ripple.skills.bundled import register_all_bundled_skills
+
+        register_all_bundled_skills()
+
+        # 创建加载器并加载所有 skills
         _global_loader = SkillLoader()
         _global_loader.load_all()
     return _global_loader

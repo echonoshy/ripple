@@ -245,6 +245,8 @@ async def query(
     model: str = "anthropic/claude-3.5-sonnet",
     max_turns: int | None = None,
     thinking: bool = False,
+    history_messages: list[Message] | None = None,
+    system_prompt: str | None = None,
 ) -> AsyncGenerator[Message | StreamEvent | RequestStartEvent, Terminal]:
     """查询入口函数
 
@@ -255,6 +257,8 @@ async def query(
         model: 模型名称
         max_turns: 最大轮数
         thinking: 是否启用思考模式
+        history_messages: 历史消息列表（可选）
+        system_prompt: 系统提示（可选）
 
     Yields:
         消息或流式事件
@@ -265,21 +269,33 @@ async def query(
     if client is None:
         client = OpenRouterClient()
 
-    # 创建系统消息（包含当前日期）
+    # 构建消息列表
+    messages = []
+
+    # 系统消息
     from datetime import datetime
 
     from ripple.messages.utils import create_system_message
 
-    current_date = datetime.now().strftime("%Y/%m/%d")
-    system_message = create_system_message(
-        content=f"Today's date is {current_date}. Use this date when searching for current information or answering time-sensitive questions."
-    )
+    if system_prompt:
+        messages.append(create_system_message(content=system_prompt))
+    else:
+        current_date = datetime.now().strftime("%Y/%m/%d")
+        messages.append(
+            create_system_message(
+                content=f"Today's date is {current_date}. Use this date when searching for current information or answering time-sensitive questions."
+            )
+        )
 
-    # 创建初始消息
-    initial_message = create_user_message(content=user_input)
+    # 历史消息
+    if history_messages:
+        messages.extend(history_messages)
+
+    # 新用户消息
+    messages.append(create_user_message(content=user_input))
 
     params = QueryParams(
-        messages=[system_message, initial_message],
+        messages=messages,
         tool_use_context=context,
         model=model,
         max_turns=max_turns,

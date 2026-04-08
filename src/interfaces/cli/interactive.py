@@ -15,8 +15,11 @@ from rich.prompt import Prompt
 from ripple.api.client import OpenRouterClient
 from ripple.core.agent_loop import query
 from ripple.core.context import ToolOptions, ToolUseContext
+from ripple.permissions.levels import PermissionMode
+from ripple.permissions.manager import PermissionManager
 from ripple.skills.skill_tool import SkillTool
 from ripple.tools.builtin.agent_tool import AgentTool
+from ripple.tools.builtin.ask_user import AskUserTool
 from ripple.tools.builtin.bash import BashTool
 from ripple.tools.builtin.read import ReadTool
 from ripple.tools.builtin.search import SearchTool
@@ -46,8 +49,43 @@ class RippleCLI:
         self.context: ToolUseContext | None = None
         self.session_count = 0
 
+        # 会话消息历史
+        self.session_messages: list = []
+        self.session_token_count: int = 0
+
+        # 系统提示（包含可用 skills）
+        self.system_prompt: str = ""
+
     def initialize(self):
         """初始化客户端和上下文"""
+        # 清空会话历史（切换模型时）
+        self.session_messages = []
+        self.session_token_count = 0
+
+        # 加载所有可用的 skills 并构建系统提示
+        from datetime import datetime
+
+        from ripple.skills.loader import get_global_loader
+
+        loader = get_global_loader()
+        skills = loader.list_skills()
+
+        # 构建 skills 列表（所有 skills）
+        skills_info = []
+        for skill in skills:
+            # 截断描述到 150 字符，避免过长
+            desc = skill.description[:150] + "..." if len(skill.description) > 150 else skill.description
+            skills_info.append(f"- {skill.name}: {desc}")
+
+        skills_text = "\n".join(skills_info)
+
+        self.system_prompt = f"""Today's date is {datetime.now().strftime("%Y/%m/%d")}.
+
+Available Skills (use the Skill tool to execute them):
+{skills_text}
+
+IMPORTANT: Before declining a user request because it's outside your domain, check if there's a relevant skill available."""
+
         # 消息历史（用于 AgentTool 的 fork 模式）
         messages = []
 
@@ -59,7 +97,11 @@ class RippleCLI:
             SearchTool(),
             AgentTool(messages=messages),  # 传入消息历史以支持 fork 模式
             SkillTool(),
+            AskUserTool(),  # 新增 AskUser 工具
         ]
+
+        # 创建权限管理器
+        permission_manager = PermissionManager(mode=PermissionMode.SMART)
 
         # 创建上下文
         self.context = ToolUseContext(
@@ -69,6 +111,7 @@ class RippleCLI:
             ),
             session_id=f"cli-session-{self.session_count}",
             cwd=str(Path.cwd()),
+            permission_manager=permission_manager,
         )
 
         # 创建客户端
@@ -87,7 +130,8 @@ class RippleCLI:
 
 **命令:**
 - `/help` - 显示帮助
-- `/clear` - 清空屏幕
+- `/clear` - 清空会话历史
+- `/tokens` - 显示 Token 使用情况
 - `/model <name>` - 切换模型（支持别名：opus / sonnet / haiku）
 - `/models` - 查看可用模型列表
 - `/thinking` - 开关思考模式
@@ -125,6 +169,19 @@ class RippleCLI:
             marker = " ← 当前" if alias == self.model_alias or info.get("model") == self.model else ""
             lines.append(f"- `{alias}` → {info.get('model', '?')}  {info.get('description', '')}{marker}")
         console.print(Panel(Markdown("\n".join(lines)), title="模型列表", border_style="blue"))
+
+    def _display_token_usage(self):
+        """显示 token 使用情况"""
+        max_context = 200_000  # Claude 3.5 Sonnet
+        usage_percent = (self.session_token_count / max_context) * 100
+
+        if usage_percent > 80:
+            console.print(
+                f"[yellow]⚠️  上下文使用: {usage_percent:.1f}% "
+                f"({self.session_token_count:,} / {max_context:,} tokens)[/yellow]"
+            )
+        elif usage_percent > 60:
+            console.print(f"[dim]上下文使用: {usage_percent:.1f}% ({self.session_token_count:,} tokens)[/dim]")
 
     def _display_subagent_execution(self, result_content: str):
         """显示 SubAgent 的执行日志
@@ -213,6 +270,9 @@ class RippleCLI:
             return
 
         try:
+            # 收集本次查询的新消息
+            new_messages = []
+
             with console.status("[bold cyan]正在思考...[/bold cyan]", spinner="dots") as status:
                 async for item in query(
                     user_input=prompt,
@@ -221,6 +281,8 @@ class RippleCLI:
                     model=self.model,
                     max_turns=self.max_turns,
                     thinking=self.thinking,
+                    history_messages=self.session_messages,
+                    system_prompt=self.system_prompt,
                 ):
                     if hasattr(item, "type"):
                         if item.type == "stream_request_start":
@@ -228,6 +290,7 @@ class RippleCLI:
                         elif item.type == "assistant":
                             # 助手消息
                             status.stop()
+                            new_messages.append({"role": "assistant", "content": item.message.get("content", [])})
                             content = item.message.get("content", [])
                             for block in content:
                                 if isinstance(block, dict):
@@ -260,6 +323,7 @@ class RippleCLI:
                         elif item.type == "user":
                             # 工具结果
                             status.stop()
+                            new_messages.append({"role": "user", "content": item.message.get("content", [])})
                             content = item.message.get("content", [])
                             for block in content:
                                 if isinstance(block, dict) and block.get("type") == "tool_result":
@@ -322,6 +386,30 @@ class RippleCLI:
                                             console.print("[green]✓ 工具执行成功 (无输出)[/green]")
                             status.start()
 
+            # 任务完成后，清理工具结果
+            from ripple.messages.cleanup import cleanup_tool_results, estimate_tokens, trim_old_messages
+
+            cleaned_messages = cleanup_tool_results(new_messages)
+            self.session_messages.extend(cleaned_messages)
+
+            # 更新 token 计数
+            self.session_token_count = estimate_tokens(self.session_messages)
+
+            # 智能清理：超过阈值时删除旧消息
+            if self.session_token_count > 150_000:
+                old_count = len(self.session_messages)
+                self.session_messages = trim_old_messages(self.session_messages)
+                new_count = len(self.session_messages)
+                self.session_token_count = estimate_tokens(self.session_messages)
+
+                console.print(
+                    f"[yellow]⚠️  上下文已清理 {old_count - new_count} 条旧消息 "
+                    f"(节省约 {150_000 - self.session_token_count:,} tokens)[/yellow]"
+                )
+
+            # 显示 token 使用情况
+            self._display_token_usage()
+
             console.print("\n[bold green]✓ 完成[/bold green]\n")
 
         except KeyboardInterrupt:
@@ -348,7 +436,22 @@ class RippleCLI:
             self.print_welcome()
 
         elif cmd == "/clear":
+            self.session_messages = []
+            self.session_token_count = 0
             console.clear()
+            console.print("[green]会话历史已清空[/green]")
+
+        elif cmd == "/tokens":
+            max_context = 200_000
+            usage_percent = (self.session_token_count / max_context) * 100
+            info = f"""
+**Token 使用情况:**
+- 当前使用: {self.session_token_count:,} tokens
+- 上下文窗口: {max_context:,} tokens
+- 使用率: {usage_percent:.1f}%
+- 消息数: {len(self.session_messages)}
+            """
+            console.print(Panel(Markdown(info), title="Token 统计", border_style="blue"))
 
         elif cmd == "/info":
             self.print_info()

@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from ripple.core.context import ToolUseContext
 from ripple.messages.types import AssistantMessage, Message
+from ripple.permissions.levels import ToolRiskLevel
 
 InputT = TypeVar("InputT", bound=BaseModel)
 OutputT = TypeVar("OutputT")
@@ -34,6 +35,7 @@ class Tool(ABC, Generic[InputT, OutputT]):
     name: str
     description: str = ""
     max_result_size_chars: int = 100_000
+    risk_level: ToolRiskLevel = ToolRiskLevel.SAFE  # 默认安全级别
 
     @abstractmethod
     async def call(
@@ -94,6 +96,17 @@ class Tool(ABC, Generic[InputT, OutputT]):
             "properties": {},
             "required": [],
         }
+
+    def requires_confirmation(self, input_params: dict) -> bool:
+        """判断是否需要用户确认（可被子类覆盖）
+
+        Args:
+            input_params: 工具输入参数
+
+        Returns:
+            是否需要确认
+        """
+        return self.risk_level == ToolRiskLevel.DANGEROUS
 
 
 class ToolRegistry:

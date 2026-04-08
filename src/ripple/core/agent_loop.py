@@ -22,6 +22,9 @@ from ripple.messages.utils import (
     extract_tool_use_blocks,
     normalize_messages_for_api,
 )
+from ripple.utils.logger import get_logger
+
+logger = get_logger("core.agent_loop")
 
 
 class QueryParams:
@@ -80,6 +83,7 @@ async def query_loop(
     # 主循环
     while True:
         # ========== 阶段 1: 调用模型 ==========
+        logger.info("Turn {}: 开始调用模型 {}", state.turn_count, params.model)
         yield RequestStartEvent(type="stream_request_start")
 
         assistant_messages: List[AssistantMessage] = []
@@ -111,9 +115,14 @@ async def query_loop(
                 if tool_uses:
                     tool_use_blocks.extend(tool_uses)
                     needs_follow_up = True
+                    for tu in tool_uses:
+                        logger.info("检测到工具调用: {}", tu.get("name", "unknown"))
 
         except Exception as e:
-            # API 错误处理
+            import traceback
+
+            logger.error("API 调用失败: {}\n{}", e, traceback.format_exc())
+
             from ripple.utils.errors import error_message
 
             error_msg = create_user_message(
@@ -122,6 +131,19 @@ async def query_loop(
             )
             yield error_msg
             return
+
+        # 记录流处理结果
+        if assistant_messages:
+            total_content_blocks = sum(len(m.message.get("content", [])) for m in assistant_messages)
+            logger.info(
+                "Turn {}: 收到 {} 条助手消息, {} 个 content blocks, {} 个工具调用",
+                state.turn_count,
+                len(assistant_messages),
+                total_content_blocks,
+                len(tool_use_blocks),
+            )
+        else:
+            logger.warning("Turn {}: 模型未返回任何消息（流式响应为空）", state.turn_count)
 
         # ========== 阶段 2: 判断是否需要继续 ==========
         if not needs_follow_up:
@@ -175,6 +197,9 @@ async def query_loop(
         if new_tool_blocks:
             from ripple.tools.orchestration import run_tools
 
+            tool_names = [b.get("name", "?") for b in new_tool_blocks]
+            logger.info("Turn {}: 执行工具 {}", state.turn_count, tool_names)
+
             try:
                 async for update in run_tools(
                     new_tool_blocks,
@@ -189,6 +214,10 @@ async def query_loop(
                         state.tool_use_context = update.new_context
 
             except Exception as e:
+                import traceback
+
+                logger.error("工具执行失败: {}\n{}", e, traceback.format_exc())
+
                 from ripple.utils.errors import error_message
 
                 error_msg = create_user_message(
@@ -201,6 +230,7 @@ async def query_loop(
         # ========== 阶段 4: 检查最大轮数 ==========
         next_turn_count = state.turn_count + 1
         if params.max_turns and next_turn_count > params.max_turns:
+            logger.warning("达到最大轮数 {}，终止循环", params.max_turns)
             return
 
         # ========== 阶段 5: 继续下一轮 ==========

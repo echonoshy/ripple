@@ -100,7 +100,15 @@ def main():
 
     让每个提问都成为涟漪的中心，每一次循环都是向解的蔓延。
     """
-    pass
+    from ripple.utils.config import get_config
+    from ripple.utils.logger import setup_logging
+
+    config = get_config()
+    setup_logging(
+        level=config.get("logging.level", "DEBUG"),
+        max_bytes=config.get("logging.max_bytes", 5 * 1024 * 1024),
+        backup_count=config.get("logging.backup_count", 3),
+    )
 
 
 @main.command()

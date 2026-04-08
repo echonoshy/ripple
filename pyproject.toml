@@ -16,6 +16,7 @@ dependencies = [
     "aiofiles>=23.0",
     "ddgs>=9.13.0",
     "prompt-toolkit>=3.0.52",
+    "loguru>=0.7.3",
 ]
 
 [project.scripts]

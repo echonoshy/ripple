@@ -9,13 +9,21 @@ from ripple.messages.types import Message
 
 
 def cleanup_tool_results(messages: list[Message]) -> list[Message]:
-    """清理工具调用和结果，只保留助手的文本总结
+    """清理工具调用和结果，只保留对话摘要
 
-    策略：
-    - 保留助手消息中的文本内容
-    - 删除助手消息中的 tool_use 块
-    - 删除用户消息中的 tool_result 块
-    - 保留普通用户消息
+    同时兼容两种消息格式，通过特征自动检测：
+
+    OpenAI 格式特征:
+    - assistant: content 为 str/None，工具调用在 tool_calls 字段
+    - 工具结果: 独立的 role="tool" 消息
+
+    Anthropic 格式特征:
+    - assistant: content 为 list，包含 {"type":"tool_use"} block
+    - 工具结果: 在 user 消息的 content 中，{"type":"tool_result"} block
+
+    清理策略（两种格式统一）:
+    - 只保留 assistant 的纯文本内容
+    - 丢弃所有工具调用和工具结果
 
     Args:
         messages: 原始消息列表
@@ -28,45 +36,53 @@ def cleanup_tool_results(messages: list[Message]) -> list[Message]:
     for msg in messages:
         role = msg.get("role")
 
+        # OpenAI 格式：独立的 tool 结果消息 → 丢弃
+        if role == "tool":
+            continue
+
         if role == "assistant":
-            # 只保留文本内容
-            content = msg.get("content", [])
-            if isinstance(content, str):
-                cleaned.append(msg)
-            elif isinstance(content, list):
-                text_blocks = [block for block in content if isinstance(block, dict) and block.get("type") == "text"]
-                if text_blocks:
-                    cleaned.append(
-                        {
-                            "role": "assistant",
-                            "content": text_blocks,
-                            **{k: v for k, v in msg.items() if k not in ["role", "content"]},
-                        }
-                    )
+            text = _extract_assistant_text(msg)
+            if text:
+                cleaned.append({"role": "assistant", "content": text})
 
         elif role == "user":
-            # 删除 tool_result，保留普通消息
             content = msg.get("content", [])
             if isinstance(content, str):
                 cleaned.append(msg)
             elif isinstance(content, list):
-                non_tool_blocks = [
+                # Anthropic 格式：过滤 tool_result block
+                text_blocks = [
                     block for block in content if isinstance(block, dict) and block.get("type") != "tool_result"
                 ]
-                if non_tool_blocks:
-                    cleaned.append(
-                        {
-                            "role": "user",
-                            "content": non_tool_blocks,
-                            **{k: v for k, v in msg.items() if k not in ["role", "content"]},
-                        }
-                    )
+                if text_blocks:
+                    cleaned.append({"role": "user", "content": text_blocks})
 
         else:
-            # 保留其他类型的消息（system 等）
             cleaned.append(msg)
 
     return cleaned
+
+
+def _extract_assistant_text(msg: dict) -> str:
+    """从 assistant 消息中提取纯文本，兼容 OpenAI / Anthropic 两种格式
+
+    OpenAI: {"role":"assistant", "content":"text...", "tool_calls":[...]}
+    Anthropic: {"role":"assistant", "content":[{"type":"text","text":"..."},{"type":"tool_use",...}]}
+    """
+    content = msg.get("content")
+
+    if isinstance(content, str):
+        return content.strip()
+
+    if isinstance(content, list):
+        parts = [
+            block.get("text", "")
+            for block in content
+            if isinstance(block, dict) and block.get("type") == "text" and block.get("text", "").strip()
+        ]
+        return "\n".join(parts)
+
+    return ""
 
 
 def estimate_tokens(messages: list[Message]) -> int:

@@ -6,6 +6,9 @@ import httpx
 from openai import AsyncOpenAI
 
 from ripple.utils.config import get_config
+from ripple.utils.logger import get_logger
+
+logger = get_logger("api.client")
 
 
 class OpenRouterClient:
@@ -31,6 +34,8 @@ class OpenRouterClient:
 
         # 检测是否是 LiteLLM
         self.is_litellm = "litellm" in self.base_url.lower()
+
+        logger.info("初始化 API 客户端: base_url={}, is_litellm={}", self.base_url, self.is_litellm)
 
         self.client = AsyncOpenAI(
             base_url=self.base_url,
@@ -95,6 +100,14 @@ class OpenRouterClient:
 
         if tools:
             params["tools"] = tools
+
+        logger.debug(
+            "stream_chat: model={}, messages={}, tools={}, thinking={}",
+            model,
+            len(messages),
+            len(tools) if tools else 0,
+            thinking,
+        )
 
         stream = await self.client.chat.completions.create(**params)
 

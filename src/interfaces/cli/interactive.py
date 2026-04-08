@@ -4,6 +4,7 @@
 """
 
 import asyncio
+import traceback
 from pathlib import Path
 
 import click
@@ -25,7 +26,10 @@ from ripple.tools.builtin.read import ReadTool
 from ripple.tools.builtin.search import SearchTool
 from ripple.tools.builtin.write import WriteTool
 from ripple.utils.config import get_config
+from ripple.utils.conversation_log import ConversationLogger, list_conversations
+from ripple.utils.logger import LOG_FILE, get_logger
 
+logger = get_logger("cli.interactive")
 console = Console()
 
 
@@ -55,6 +59,9 @@ class RippleCLI:
 
         # 系统提示（包含可用 skills）
         self.system_prompt: str = ""
+
+        # 初始化会话记录器
+        self.conversation_log = ConversationLogger(session_id=f"cli-{self.session_count}")
 
     def initialize(self):
         """初始化客户端和上下文"""
@@ -136,6 +143,8 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
 - `/models` - 查看可用模型列表
 - `/thinking` - 开关思考模式
 - `/info` - 显示当前配置
+- `/log` - 显示日志文件位置
+- `/history` - 查看历史会话记录
 - `/exit` 或 `/quit` - 退出
 
 **使用方法:**
@@ -275,6 +284,10 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
 
             has_output = False
 
+            # 记录用户消息
+            self.conversation_log.log_user_message(prompt)
+            logger.info("用户输入: {}", prompt[:200])
+
             with console.status("[bold cyan]正在思考...[/bold cyan]", spinner="dots") as status:
                 async for item in query(
                     user_input=prompt,
@@ -302,12 +315,14 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
                                         text = block.get("text", "")
                                         if text.strip():
                                             has_output = True
+                                            self.conversation_log.log_assistant_message(text)
                                             console.print(
                                                 Panel(Markdown(text), border_style="green", title="🤖 Ripple")
                                             )
                                     elif block.get("type") == "tool_use":
                                         tool_name = block.get("name", "")
                                         tool_input = block.get("input", {})
+                                        self.conversation_log.log_tool_call(tool_name, tool_input)
 
                                         # 显示工具调用，更简洁
                                         import json
@@ -365,10 +380,19 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
 
                                     from rich.markup import escape
 
+                                    # 获取工具名用于日志记录
+                                    tool_use_id = block.get("tool_use_id", "")
+                                    logged_tool_name = tool_use_id
+
                                     if is_error:
+                                        self.conversation_log.log_tool_result(
+                                            logged_tool_name, result_content, is_error=True
+                                        )
+                                        logger.warning("工具执行出错: {}: {}", logged_tool_name, result_content[:300])
                                         err_preview = escape(result_content[:100])
                                         console.print(f"❌ [red]工具错误:[/red] [dim]{err_preview}...[/dim]")
                                     else:
+                                        self.conversation_log.log_tool_result(logged_tool_name, result_content)
                                         if result_content:
                                             preview = result_content[:100].replace("\n", " ") + (
                                                 "..." if len(result_content) > 100 else ""
@@ -416,7 +440,11 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
         except KeyboardInterrupt:
             console.print("\n[yellow]已中断[/yellow]\n")
         except Exception as e:
-            console.print(f"\n[red]错误: {e}[/red]\n")
+            tb = traceback.format_exc()
+            logger.error("查询执行失败: {}\n{}", e, tb)
+            self.conversation_log.log_error(str(e), tb)
+            console.print(f"\n[red]错误: {e}[/red]")
+            console.print(f"[dim]详细日志: {LOG_FILE}[/dim]\n")
 
     def handle_command(self, user_input: str) -> bool:
         """处理命令
@@ -478,6 +506,30 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
             status = "开启" if self.thinking else "关闭"
             console.print(f"[green]思考模式已{status}[/green]")
 
+        elif cmd == "/log":
+            from ripple.utils.conversation_log import CONVERSATION_DIR
+
+            log_info = f"""
+**日志文件:**
+- 运行日志: `{LOG_FILE}`
+- 会话记录目录: `{CONVERSATION_DIR}`
+- 当前会话: `{self.conversation_log.filepath}`
+            """
+            console.print(Panel(Markdown(log_info), title="日志信息", border_style="blue"))
+
+        elif cmd == "/history":
+            from ripple.utils.conversation_log import CONVERSATION_DIR
+
+            conversations = list_conversations(limit=10)
+            if not conversations:
+                console.print("[yellow]暂无历史会话记录[/yellow]")
+            else:
+                lines = ["**最近会话记录:**\n"]
+                for conv in conversations:
+                    lines.append(f"- `{conv['file']}` ({conv['start_time'][:19]}, {conv['messages']} 条消息)")
+                lines.append(f"\n会话目录: `{CONVERSATION_DIR}`")
+                console.print(Panel(Markdown("\n".join(lines)), title="历史记录", border_style="blue"))
+
         else:
             console.print(f"[red]未知命令: {cmd}[/red]")
             console.print("[dim]输入 /help 查看帮助[/dim]")
@@ -530,6 +582,9 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
             except EOFError:
                 console.print("\n[cyan]再见！[/cyan]")
                 break
+
+        self.conversation_log.log_session_end()
+        logger.info("CLI 会话结束")
 
 
 @click.command()

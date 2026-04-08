@@ -16,6 +16,9 @@ dependencies = [
     "aiofiles>=23.0",
     "ddgs>=9.13.0",
     "prompt-toolkit>=3.0.52",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "websockets>=14.0",
 ]
 
 [project.scripts]

@@ -22,8 +22,6 @@ src/
     permissions/       # 权限管理
   interfaces/          # 接口层（所有用户界面）
     cli/               # 命令行接口
-    server/            # HTTP/WebSocket 服务端（预留）
-    web/               # Web 前端（预留）
 tests/                 # 测试文件
 scripts/               # 辅助脚本
 config/                # 配置文件
@@ -126,8 +124,6 @@ Ripple 支持两种类型的 Skills：
 ### Interface Layer (`src/interfaces/`)
 
 - **cli/**: Command-line interface (main.py, interactive.py)
-- **server/**: HTTP/WebSocket server (预留)
-- **web/**: Web frontend (预留)
 
 ## Coding Conventions
 

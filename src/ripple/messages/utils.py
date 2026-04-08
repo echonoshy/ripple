@@ -1,5 +1,6 @@
 """消息工具函数"""
 
+import json
 from typing import Any, Dict, List
 from uuid import uuid4
 
@@ -57,11 +58,9 @@ def normalize_messages_for_api(
 ) -> List[Dict[str, Any]]:
     """规范化消息用于 API 调用
 
-    - 移除 meta 消息
-    - 移除 UI-only 消息
-    - 转换为 API 格式
-    - 合并连续的工具结果消息
-    - 如果是 LiteLLM，将 tool_result 转换为文本
+    将内部 Anthropic 风格的消息（tool_use / tool_result content blocks）
+    转换为 OpenAI 标准格式（tool_calls 字段 + role:"tool" 消息），
+    确保与 OpenAI SDK / LiteLLM / OpenRouter 兼容。
 
     Args:
         messages: 消息列表（可以是 Message 对象或字典）
@@ -73,84 +72,79 @@ def normalize_messages_for_api(
     normalized = []
 
     for msg in messages:
-        # 处理字典格式的消息（来自历史会话）
         if isinstance(msg, dict):
-            # 字典格式已经是 API 格式，直接添加
             normalized.append(msg)
             continue
 
-        # 处理 Message 对象
-        # 跳过 meta 消息
         if msg.type == "user" and msg.is_meta:
             continue
 
-        # 处理系统消息
         if msg.type == "system":
             normalized.append({"role": "system", "content": msg.content})
             continue
 
-        # 跳过进度消息和附件消息
         if msg.type in ("progress", "attachment"):
             continue
 
-        # 转换为 API 格式
         if msg.type == "assistant":
             content = msg.message["content"]
-
-            # 如果是 LiteLLM，移除 tool_use 块（因为它不支持）
-            if is_litellm:
-                # 只保留文本内容
-                text_blocks = [block for block in content if isinstance(block, dict) and block.get("type") == "text"]
-                if text_blocks:
-                    normalized.append({"role": "assistant", "content": text_blocks})
-                # 跳过没有文本的助手消息
-            else:
-                normalized.append({"role": "assistant", "content": content})
+            normalized.append(_convert_assistant_message(content))
 
         elif msg.type == "user":
             content = msg.message["content"]
-
-            # 检查是否是工具结果消息
             has_tool_result = any(isinstance(block, dict) and block.get("type") == "tool_result" for block in content)
 
             if has_tool_result:
-                if is_litellm:
-                    # LiteLLM 不支持 tool_result，转换为文本
-                    text_parts = []
-                    for block in content:
-                        if isinstance(block, dict) and block.get("type") == "tool_result":
-                            result_content = block.get("content", "")
-                            text_parts.append(f"Tool result:\n{result_content}")
-
-                    if text_parts:
-                        # 如果上一条消息也是 user，合并
-                        if normalized and normalized[-1]["role"] == "user":
-                            existing_text = normalized[-1]["content"]
-                            if isinstance(existing_text, list) and existing_text:
-                                existing_text[0]["text"] += "\n\n" + "\n\n".join(text_parts)
-                            else:
-                                normalized[-1]["content"] = [{"type": "text", "text": "\n\n".join(text_parts)}]
-                        else:
-                            normalized.append(
-                                {"role": "user", "content": [{"type": "text", "text": "\n\n".join(text_parts)}]}
-                            )
-                else:
-                    # 原生 Anthropic 格式
-                    # 如果上一条消息也是 user 且包含工具结果，合并到一起
-                    if normalized and normalized[-1]["role"] == "user":
-                        # 合并内容
-                        if isinstance(normalized[-1]["content"], list):
-                            normalized[-1]["content"].extend(content)
-                        else:
-                            normalized[-1]["content"] = [normalized[-1]["content"]] + content
-                    else:
-                        # 创建新的 user 消息
-                        normalized.append({"role": "user", "content": content})
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "tool_result":
+                        tool_msg = {
+                            "role": "tool",
+                            "tool_call_id": block.get("tool_use_id", ""),
+                            "content": block.get("content", ""),
+                        }
+                        normalized.append(tool_msg)
             else:
-                # 普通用户消息
                 normalized.append({"role": "user", "content": content})
 
     return normalized
+
+
+def _convert_assistant_message(content: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """将 Anthropic 风格的 assistant content blocks 转为 OpenAI 格式
+
+    Anthropic 格式:
+      content: [{"type":"text","text":"..."}, {"type":"tool_use","id":"...","name":"...","input":{...}}]
+
+    OpenAI 格式:
+      {"role":"assistant", "content":"...", "tool_calls":[{"id":"...","type":"function","function":{...}}]}
+    """
+    text_parts: list[str] = []
+    tool_calls: list[Dict[str, Any]] = []
+
+    for block in content:
+        if not isinstance(block, dict):
+            continue
+        if block.get("type") == "text":
+            text_parts.append(block.get("text", ""))
+        elif block.get("type") == "tool_use":
+            tool_calls.append(
+                {
+                    "id": block.get("id", str(uuid4())),
+                    "type": "function",
+                    "function": {
+                        "name": block.get("name", ""),
+                        "arguments": json.dumps(block.get("input", {}), ensure_ascii=False),
+                    },
+                }
+            )
+
+    assistant_msg: Dict[str, Any] = {"role": "assistant"}
+    assistant_msg["content"] = "\n".join(text_parts) if text_parts else None
+
+    if tool_calls:
+        assistant_msg["tool_calls"] = tool_calls
+
+    return assistant_msg
 
 
 def extract_tool_use_blocks(message: AssistantMessage) -> List[Dict[str, Any]]:

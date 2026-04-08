@@ -273,6 +273,8 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
             # 收集本次查询的新消息
             new_messages = [{"role": "user", "content": [{"type": "text", "text": prompt}]}]
 
+            has_output = False
+
             with console.status("[bold cyan]正在思考...[/bold cyan]", spinner="dots") as status:
                 async for item in query(
                     user_input=prompt,
@@ -299,6 +301,7 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
                                     if block.get("type") == "text":
                                         text = block.get("text", "")
                                         if text.strip():
+                                            has_output = True
                                             console.print(
                                                 Panel(Markdown(text), border_style="green", title="🤖 Ripple")
                                             )
@@ -322,10 +325,22 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
                             status.start()
 
                         elif item.type == "user":
-                            # 工具结果
+                            # 工具结果 / API 错误消息
                             status.stop()
-                            tool_content = item.message.get("content", [])
-                            for blk in tool_content:
+                            content = item.message.get("content", [])
+
+                            # 检查是否是 API 错误等文本消息（is_meta 标记的内部消息）
+                            if getattr(item, "is_meta", False):
+                                for block in content:
+                                    if isinstance(block, dict) and block.get("type") == "text":
+                                        error_text = block.get("text", "")
+                                        if error_text:
+                                            has_output = True
+                                            console.print(f"\n[bold red]⚠️  {error_text}[/bold red]")
+                                status.start()
+                                continue
+
+                            for blk in content:
                                 if isinstance(blk, dict) and blk.get("type") == "tool_result":
                                     new_messages.append(
                                         {
@@ -334,7 +349,6 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
                                             "content": blk.get("content", ""),
                                         }
                                     )
-                            content = item.message.get("content", [])
                             for block in content:
                                 if isinstance(block, dict) and block.get("type") == "tool_result":
                                     result_content = block.get("content", "")
@@ -364,6 +378,14 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
                                         else:
                                             console.print("✓ [green]执行成功 (无输出)[/green]")
                             status.start()
+
+            if not has_output:
+                console.print(
+                    "\n[bold yellow]⚠️  模型未返回任何内容，可能原因：[/bold yellow]\n"
+                    "[yellow]  • 上下文过长，超出模型限制（尝试 /clear 清空历史）\n"
+                    "  • API 调用异常\n"
+                    "  • 模型返回了空响应[/yellow]"
+                )
 
             # 任务完成后，清理工具结果
             from ripple.messages.cleanup import cleanup_tool_results, estimate_tokens, trim_old_messages

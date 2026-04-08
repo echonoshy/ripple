@@ -4,6 +4,7 @@
 """
 
 import asyncio
+import json
 from dataclasses import dataclass
 from typing import Any, AsyncGenerator, Dict, List
 
@@ -18,6 +19,29 @@ class MessageUpdate:
 
     message: Message | None = None
     new_context: ToolUseContext | None = None
+
+
+def _dedup_tool_calls(
+    tool_use_blocks: List[Dict[str, Any]],
+) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """对相同 name + input 的工具调用去重，只保留第一个。
+
+    Returns:
+        (unique_blocks, duplicate_blocks)
+    """
+    seen: set[str] = set()
+    unique: list[Dict[str, Any]] = []
+    duplicates: list[Dict[str, Any]] = []
+
+    for block in tool_use_blocks:
+        key = json.dumps({"name": block.get("name"), "input": block.get("input", {})}, sort_keys=True)
+        if key in seen:
+            duplicates.append(block)
+        else:
+            seen.add(key)
+            unique.append(block)
+
+    return unique, duplicates
 
 
 async def run_tools(
@@ -37,8 +61,20 @@ async def run_tools(
     """
     current_context = tool_use_context
 
+    unique_blocks, duplicate_blocks = _dedup_tool_calls(tool_use_blocks)
+
+    for dup in duplicate_blocks:
+        parent_message = _find_parent_message(dup, assistant_messages)
+        msg = create_tool_result_message(
+            tool_use_id=dup["id"],
+            content="Duplicate tool call skipped — same tool was already called with identical arguments.",
+            is_error=False,
+            source_assistant_uuid=parent_message.uuid if parent_message else None,
+        )
+        yield MessageUpdate(message=msg)
+
     # 分区：并发安全 vs 串行
-    batches = _partition_tool_calls(tool_use_blocks, current_context)
+    batches = _partition_tool_calls(unique_blocks, current_context)
 
     for batch in batches:
         if batch["is_concurrency_safe"]:

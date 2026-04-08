@@ -271,7 +271,7 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
 
         try:
             # 收集本次查询的新消息
-            new_messages = []
+            new_messages = [{"role": "user", "content": [{"type": "text", "text": prompt}]}]
 
             with console.status("[bold cyan]正在思考...[/bold cyan]", spinner="dots") as status:
                 async for item in query(
@@ -304,19 +304,18 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
                                         tool_name = block.get("name", "")
                                         tool_input = block.get("input", {})
 
-                                        # 显示工具输入参数
+                                        # 显示工具调用，更简洁
                                         import json
 
-                                        input_str = json.dumps(tool_input, ensure_ascii=False, indent=2)
-                                        if len(input_str) > 200:
-                                            input_str = input_str[:200] + "\n..."
+                                        input_str = json.dumps(tool_input, ensure_ascii=False)
+                                        if len(input_str) > 100:
+                                            input_str = input_str[:100] + "..."
 
+                                        from rich.markup import escape
+
+                                        input_str = escape(input_str)
                                         console.print(
-                                            Panel(
-                                                f"[cyan]参数:[/cyan]\n{input_str}",
-                                                title=f"🔧 调用工具: [bold yellow]{tool_name}[/bold yellow]",
-                                                border_style="yellow",
-                                            )
+                                            f"🔧 [bold yellow]调用工具:[/bold yellow] [cyan]{tool_name}[/cyan] [dim]{input_str}[/dim]"
                                         )
                             status.start()
 
@@ -339,51 +338,20 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
                                     except Exception:
                                         pass
 
+                                    from rich.markup import escape
+
                                     if is_error:
-                                        console.print(
-                                            Panel(
-                                                f"[red]{result_content}[/red]", title="❌ 工具错误", border_style="red"
-                                            )
-                                        )
+                                        err_preview = escape(result_content[:100])
+                                        console.print(f"❌ [red]工具错误:[/red] [dim]{err_preview}...[/dim]")
                                     else:
-                                        # 显示工具结果（截断长输出）
-                                        preview = ""
                                         if result_content:
-                                            if "stdout=" in result_content:
-                                                try:
-                                                    import re
-
-                                                    match = re.search(r"stdout='([^']*)'", result_content)
-                                                    if match:
-                                                        stdout_str = match.group(1)
-                                                        stdout_str = stdout_str.encode().decode("unicode_escape")
-                                                        lines = stdout_str.split("\n")[:10]
-                                                        preview = "\n".join(lines)
-                                                        if len(stdout_str.split("\n")) > 10:
-                                                            preview += "\n..."
-                                                    else:
-                                                        preview = result_content[:300] + (
-                                                            "..." if len(result_content) > 300 else ""
-                                                        )
-                                                except Exception:
-                                                    preview = result_content[:300] + (
-                                                        "..." if len(result_content) > 300 else ""
-                                                    )
-                                            else:
-                                                preview = result_content[:300] + (
-                                                    "..." if len(result_content) > 300 else ""
-                                                )
-
-                                        if preview:
-                                            console.print(
-                                                Panel(
-                                                    f"[dim]{preview}[/dim]",
-                                                    title="✓ 工具执行成功",
-                                                    border_style="green",
-                                                )
+                                            preview = result_content[:100].replace("\n", " ") + (
+                                                "..." if len(result_content) > 100 else ""
                                             )
+                                            preview = escape(preview)
+                                            console.print(f"✓ [green]执行成功:[/green] [dim]{preview}[/dim]")
                                         else:
-                                            console.print("[green]✓ 工具执行成功 (无输出)[/green]")
+                                            console.print("✓ [green]执行成功 (无输出)[/green]")
                             status.start()
 
             # 任务完成后，清理工具结果
@@ -494,10 +462,22 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
 
         self.print_info()
 
+        try:
+            from prompt_toolkit import PromptSession
+            from prompt_toolkit.formatted_text import HTML
+            from prompt_toolkit.history import InMemoryHistory
+
+            session = PromptSession(history=InMemoryHistory())
+        except ImportError:
+            session = None
+
         while True:
             try:
                 # 获取用户输入
-                user_input = Prompt.ask("\n[bold cyan]ripple>[/bold cyan]")
+                if session:
+                    user_input = await session.prompt_async(HTML("<b><ansicyan>ripple></ansicyan></b> "))
+                else:
+                    user_input = Prompt.ask("\n[bold cyan]ripple>[/bold cyan]")
 
                 if not user_input.strip():
                     continue

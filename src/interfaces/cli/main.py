@@ -195,18 +195,15 @@ async def run_agent_once(prompt: str, model: str, max_turns: int):
 
                                     import json
 
-                                    input_str = json.dumps(tool_input, ensure_ascii=False, indent=2)
-                                    if len(input_str) > 200:
-                                        input_str = input_str[:200] + "\n..."
+                                    from rich.markup import escape
 
-                                    from rich.panel import Panel
+                                    input_str = json.dumps(tool_input, ensure_ascii=False)
+                                    if len(input_str) > 100:
+                                        input_str = input_str[:100] + "..."
 
+                                    input_str = escape(input_str)
                                     console.print(
-                                        Panel(
-                                            f"[cyan]参数:[/cyan]\n{input_str}",
-                                            title=f"🔧 调用工具: [bold yellow]{tool_name}[/bold yellow]",
-                                            border_style="yellow",
-                                        )
+                                        f"🔧 [bold yellow]调用工具:[/bold yellow] [cyan]{tool_name}[/cyan] [dim]{input_str}[/dim]"
                                     )
                         status.start()
 
@@ -228,46 +225,20 @@ async def run_agent_once(prompt: str, model: str, max_turns: int):
                                 except Exception:
                                     pass
 
-                                from rich.panel import Panel
+                                from rich.markup import escape
 
                                 if is_error:
-                                    console.print(
-                                        Panel(f"[red]{result_content}[/red]", title="❌ 工具错误", border_style="red")
-                                    )
+                                    err_preview = escape(result_content[:100])
+                                    console.print(f"❌ [red]工具错误:[/red] [dim]{err_preview}...[/dim]")
                                 else:
-                                    preview = ""
                                     if result_content:
-                                        if "stdout=" in result_content:
-                                            try:
-                                                import re
-
-                                                match = re.search(r"stdout='([^']*)'", result_content)
-                                                if match:
-                                                    stdout_str = match.group(1)
-                                                    stdout_str = stdout_str.encode().decode("unicode_escape")
-                                                    lines = stdout_str.split("\n")[:10]
-                                                    preview = "\n".join(lines)
-                                                    if len(stdout_str.split("\n")) > 10:
-                                                        preview += "\n..."
-                                                else:
-                                                    preview = result_content[:300] + (
-                                                        "..." if len(result_content) > 300 else ""
-                                                    )
-                                            except Exception:
-                                                preview = result_content[:300] + (
-                                                    "..." if len(result_content) > 300 else ""
-                                                )
-                                        else:
-                                            preview = result_content[:300] + (
-                                                "..." if len(result_content) > 300 else ""
-                                            )
-
-                                    if preview:
-                                        console.print(
-                                            Panel(f"[dim]{preview}[/dim]", title="✓ 工具执行成功", border_style="green")
+                                        preview = result_content[:100].replace("\n", " ") + (
+                                            "..." if len(result_content) > 100 else ""
                                         )
+                                        preview = escape(preview)
+                                        console.print(f"✓ [green]执行成功:[/green] [dim]{preview}[/dim]")
                                     else:
-                                        console.print("[green]✓ 工具执行成功 (无输出)[/green]")
+                                        console.print("✓ [green]执行成功 (无输出)[/green]")
                         status.start()
 
         console.print("\n[bold green]✓ 任务完成[/bold green]")

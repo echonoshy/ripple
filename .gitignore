@@ -208,3 +208,7 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+
+# Agent fork tool
+.ripple/

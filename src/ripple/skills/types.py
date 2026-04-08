@@ -52,7 +52,14 @@ class Skill:
         Returns:
             替换后的内容
         """
+        from pathlib import Path
+
         content = self.content
+
+        # 替换 $SKILL_BASE_DIR（skill 文件所在目录）
+        if not self.file_path.startswith("<bundled:"):
+            skill_dir = Path(self.file_path).parent
+            content = content.replace("$SKILL_BASE_DIR", str(skill_dir))
 
         # 替换 $ARGUMENTS
         content = content.replace("$ARGUMENTS", args)

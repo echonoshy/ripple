@@ -1,14 +1,28 @@
 <div align="center">
 
-# 🌊 Ripple
+<img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Travel%20and%20places/Water%20Wave.png" alt="Ripple" width="100" />
 
-**让每个提问都成为涟漪的中心，每一次循环都是向解的蔓延。**
+<h1 align="center">Ripple 涟漪</h1>
 
-[![Python 3.13+](https://img.shields.io/badge/Python-3.13%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![GitHub](https://img.shields.io/badge/GitHub-echonoshy%2Fripple-181717?logo=github)](https://github.com/echonoshy/ripple)
+<p align="center">
+  <b>让每个提问都成为涟漪的中心，每一次循环都是向解的蔓延。</b>
+</p>
 
-Ripple 是一个基于 Python 的 Agent 系统，灵感来自 [claude-code](https://docs.anthropic.com/en/docs/agents-and-tools/claude-code/overview)，实现了完整的 agentic loop，支持工具调用、Skill 系统和 Hook 验证。
+<p align="center">
+  <a href="https://www.python.org/">
+    <img src="https://img.shields.io/badge/Python-3.13%2B-blue?logo=python&logoColor=white" alt="Python 3.13+">
+  </a>
+  <a href="https://opensource.org/licenses/MIT">
+    <img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License: MIT">
+  </a>
+  <a href="https://github.com/echonoshy/ripple">
+    <img src="https://img.shields.io/badge/GitHub-echonoshy%2Fripple-181717?logo=github" alt="GitHub">
+  </a>
+</p>
+
+<p align="center">
+  Ripple 是一个基于 Python 的 Agent 系统，灵感来自 <a href="https://docs.anthropic.com/en/docs/agents-and-tools/claude-code/overview">claude-code</a>，<br>实现了完整的 agentic loop，支持工具调用、Skill 系统和 Hook 验证。
+</p>
 
 </div>
 

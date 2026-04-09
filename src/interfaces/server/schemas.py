@@ -25,6 +25,7 @@ class ChatCompletionRequest(BaseModel):
     session_id: str | None = None
     temperature: float | None = None
     max_tokens: int | None = None
+    thinking: bool = False
 
 
 # ─── Chat Completions 响应（非流式） ───
@@ -105,6 +106,17 @@ class SessionInfo(BaseModel):
     created_at: str
     last_active: str
     message_count: int
+
+
+# ─── System Info ───
+
+
+class SystemInfoResponse(BaseModel):
+    tools: list[str] = []
+    skills: list[dict[str, str]] = []
+    model_presets: dict[str, str] = {}
+    default_model: str = ""
+    max_turns: int = 10
 
 
 # ─── Tools Invoke ───

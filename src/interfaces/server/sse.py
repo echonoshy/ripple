@@ -14,6 +14,7 @@ from ripple.api.client import OpenRouterClient
 from ripple.core.agent_loop import query
 from ripple.core.context import ToolUseContext
 from ripple.messages.types import AssistantMessage, Message, RequestStartEvent, StreamEvent
+from ripple.messages.utils import create_user_message
 from ripple.utils.logger import get_logger
 
 logger = get_logger("server.sse")
@@ -65,11 +66,6 @@ async def stream_query_as_sse(
         符合 OpenAI SSE 格式的字符串行（包含 `data: ...\\n\\n`）。
     """
     import asyncio
-    from ripple.messages.utils import create_user_message
-    from ripple.messages.types import AssistantMessage
-
-    if history_messages is not None:
-        history_messages.append(create_user_message(content=user_input))
 
     chunk_id = f"chatcmpl-{uuid4().hex[:24]}"
     created = int(time.time())
@@ -77,6 +73,7 @@ async def stream_query_as_sse(
     accumulated_text = ""
     accumulated_tool_calls: list[dict[str, Any]] = []
     usage_info: dict[str, int] = {}
+    new_messages: list[Message] = []
 
     try:
         async for item in query(
@@ -108,13 +105,14 @@ async def stream_query_as_sse(
                     pass
 
             elif isinstance(item, AssistantMessage):
-                if history_messages is not None:
-                    history_messages.append(item)
+                new_messages.append(item)
 
                 usage = item.message.get("usage", {})
                 if usage:
                     usage_info["prompt_tokens"] = usage_info.get("prompt_tokens", 0) + usage.get("input_tokens", 0)
-                    usage_info["completion_tokens"] = usage_info.get("completion_tokens", 0) + usage.get("output_tokens", 0)
+                    usage_info["completion_tokens"] = usage_info.get("completion_tokens", 0) + usage.get(
+                        "output_tokens", 0
+                    )
 
                 content = item.message.get("content", [])
                 for block in content:
@@ -134,8 +132,7 @@ async def stream_query_as_sse(
                         yield _make_tool_event("tool_call", tool_call_data)
 
             elif hasattr(item, "type") and item.type == "user":
-                if history_messages is not None:
-                    history_messages.append(item)
+                new_messages.append(item)
 
                 content = item.message.get("content", [])
                 for block in content:
@@ -148,6 +145,10 @@ async def stream_query_as_sse(
                                 "is_error": block.get("is_error", False),
                             },
                         )
+
+        if history_messages is not None:
+            history_messages.append(create_user_message(content=user_input))
+            history_messages.extend(new_messages)
 
         finish_chunk = {
             "id": chunk_id,
@@ -167,18 +168,17 @@ async def stream_query_as_sse(
 
     except asyncio.CancelledError:
         logger.info("stream_query_as_sse 被取消 (CancelledError)")
-        if history_messages is not None and (accumulated_text or accumulated_tool_calls):
-            content = []
-            if accumulated_text:
-                content.append({"type": "text", "text": accumulated_text})
-            for tc in accumulated_tool_calls:
-                content.append({"type": "tool_use", "id": tc["id"], "name": tc["name"], "input": tc["input"]})
-            
-            partial_msg = AssistantMessage(
-                type="assistant",
-                message={"content": content}
-            )
-            history_messages.append(partial_msg)
+        if history_messages is not None:
+            history_messages.append(create_user_message(content=user_input))
+            history_messages.extend(new_messages)
+            if accumulated_text or accumulated_tool_calls:
+                content = []
+                if accumulated_text:
+                    content.append({"type": "text", "text": accumulated_text})
+                for tc in accumulated_tool_calls:
+                    content.append({"type": "tool_use", "id": tc["id"], "name": tc["name"], "input": tc["input"]})
+                partial_msg = AssistantMessage(type="assistant", message={"content": content})
+                history_messages.append(partial_msg)
         raise
 
 
@@ -197,17 +197,13 @@ async def collect_query_response(
     用于 stream=false 的请求。
     """
     import asyncio
-    from ripple.messages.utils import create_user_message
-    from ripple.messages.types import AssistantMessage
-
-    if history_messages is not None:
-        history_messages.append(create_user_message(content=user_input))
 
     chunk_id = f"chatcmpl-{uuid4().hex[:24]}"
     created = int(time.time())
     accumulated_text = ""
     tool_calls: list[dict[str, Any]] = []
     usage_info: dict[str, int] = {}
+    new_messages: list[Message] = []
 
     try:
         async for item in query(
@@ -227,13 +223,14 @@ async def collect_query_response(
                 continue
 
             if isinstance(item, AssistantMessage):
-                if history_messages is not None:
-                    history_messages.append(item)
+                new_messages.append(item)
 
                 usage = item.message.get("usage", {})
                 if usage:
                     usage_info["prompt_tokens"] = usage_info.get("prompt_tokens", 0) + usage.get("input_tokens", 0)
-                    usage_info["completion_tokens"] = usage_info.get("completion_tokens", 0) + usage.get("output_tokens", 0)
+                    usage_info["completion_tokens"] = usage_info.get("completion_tokens", 0) + usage.get(
+                        "output_tokens", 0
+                    )
 
                 for block in item.message.get("content", []):
                     if not isinstance(block, dict):
@@ -253,8 +250,11 @@ async def collect_query_response(
                         )
 
             elif hasattr(item, "type") and item.type == "user":
-                if history_messages is not None:
-                    history_messages.append(item)
+                new_messages.append(item)
+
+        if history_messages is not None:
+            history_messages.append(create_user_message(content=user_input))
+            history_messages.extend(new_messages)
 
         message: dict[str, Any] = {
             "role": "assistant",
@@ -284,22 +284,22 @@ async def collect_query_response(
 
     except asyncio.CancelledError:
         logger.info("collect_query_response 被取消 (CancelledError)")
-        if history_messages is not None and (accumulated_text or tool_calls):
-            content = []
-            if accumulated_text:
-                content.append({"type": "text", "text": accumulated_text})
-            for tc in tool_calls:
-                # 注意这里 tool_calls 的格式和 stream 中略有不同
-                content.append({
-                    "type": "tool_use", 
-                    "id": tc["id"], 
-                    "name": tc["function"]["name"], 
-                    "input": json.loads(tc["function"]["arguments"])
-                })
-            
-            partial_msg = AssistantMessage(
-                type="assistant",
-                message={"content": content}
-            )
-            history_messages.append(partial_msg)
+        if history_messages is not None:
+            history_messages.append(create_user_message(content=user_input))
+            history_messages.extend(new_messages)
+            if accumulated_text or tool_calls:
+                content = []
+                if accumulated_text:
+                    content.append({"type": "text", "text": accumulated_text})
+                for tc in tool_calls:
+                    content.append(
+                        {
+                            "type": "tool_use",
+                            "id": tc["id"],
+                            "name": tc["function"]["name"],
+                            "input": json.loads(tc["function"]["arguments"]),
+                        }
+                    )
+                partial_msg = AssistantMessage(type="assistant", message={"content": content})
+                history_messages.append(partial_msg)
         raise

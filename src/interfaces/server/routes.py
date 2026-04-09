@@ -17,6 +17,7 @@ from interfaces.server.schemas import (
     ModelInfo,
     ModelsResponse,
     SessionInfo,
+    SystemInfoResponse,
     ToolInvokeRequest,
     ToolInvokeResponse,
 )
@@ -69,6 +70,38 @@ async def list_models(_api_key: str = Depends(verify_api_key)):
     return ModelsResponse(data=models)
 
 
+# ─── System Info ───
+
+
+@router.get("/v1/info")
+async def get_system_info(_api_key: str = Depends(verify_api_key)):
+    """返回系统信息：可用工具、技能、模型预设"""
+    config = get_config()
+
+    from ripple.skills.loader import get_global_loader
+    from ripple.tools.builtin.bash import BashTool
+    from ripple.tools.builtin.read import ReadTool
+    from ripple.tools.builtin.search import SearchTool
+    from ripple.tools.builtin.write import WriteTool
+
+    tool_names = [cls.__name__.replace("Tool", "") for cls in [BashTool, ReadTool, WriteTool, SearchTool]]
+    tool_names.extend(["Agent", "Skill", "AskUser"])
+
+    loader = get_global_loader()
+    skills = [{"name": s.name, "description": s.description[:150]} for s in loader.list_skills()]
+
+    presets = config.get_model_presets() or {}
+    model_presets = {alias: info.get("model", alias) for alias, info in presets.items()}
+
+    return SystemInfoResponse(
+        tools=tool_names,
+        skills=skills,
+        model_presets=model_presets,
+        default_model=config.get("model.default", "sonnet"),
+        max_turns=config.get("agent.max_turns", 10),
+    )
+
+
 # ─── Chat Completions ───
 
 
@@ -107,7 +140,7 @@ async def chat_completions(
 
     if request.stream:
         return StreamingResponse(
-            _stream_chat(session, user_input, resolved_model, max_turns),
+            _stream_chat(session, user_input, resolved_model, max_turns, request.thinking),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -116,13 +149,14 @@ async def chat_completions(
             },
         )
     else:
-        return await _non_stream_chat(session, user_input, resolved_model, max_turns)
+        return await _non_stream_chat(session, user_input, resolved_model, max_turns, request.thinking)
 
 
-async def _stream_chat(session, user_input: str, model: str, max_turns: int):
+async def _stream_chat(session, user_input: str, model: str, max_turns: int, thinking: bool = False):
     """流式聊天：返回 SSE 事件生成器"""
     import asyncio
-    
+    import json as _json
+
     try:
         async with session.lock:
             session.current_task = asyncio.current_task()
@@ -135,13 +169,26 @@ async def _stream_chat(session, user_input: str, model: str, max_turns: int):
                     max_turns=max_turns,
                     history_messages=session.messages,
                     system_prompt=session.system_prompt,
+                    thinking=thinking,
                 ):
+                    if sse_line.startswith("data: ") and "finish_reason" in sse_line:
+                        try:
+                            payload = _json.loads(sse_line[6:].strip())
+                            usage = payload.get("usage", {})
+                            if usage:
+                                session.total_input_tokens += usage.get("prompt_tokens", 0)
+                                session.total_output_tokens += usage.get("completion_tokens", 0)
+                                session.last_input_tokens = usage.get("prompt_tokens", 0)
+                        except (_json.JSONDecodeError, AttributeError):
+                            pass
                     yield sse_line
             finally:
                 session.current_task = None
+                session.trim_messages_if_needed()
     except asyncio.CancelledError:
         logger.info("流式聊天被取消: {}", session.session_id)
         import json
+
         yield f"data: {json.dumps({'error': {'message': 'Request cancelled', 'type': 'cancelled'}})}\n\n"
         yield "data: [DONE]\n\n"
     except Exception as e:
@@ -153,15 +200,17 @@ async def _stream_chat(session, user_input: str, model: str, max_turns: int):
         yield "data: [DONE]\n\n"
 
 
-async def _non_stream_chat(session, user_input: str, model: str, max_turns: int) -> dict[str, Any]:
+async def _non_stream_chat(
+    session, user_input: str, model: str, max_turns: int, thinking: bool = False
+) -> dict[str, Any]:
     """非流式聊天：收集完整响应"""
     import asyncio
-    
+
     try:
         async with session.lock:
             session.current_task = asyncio.current_task()
             try:
-                return await collect_query_response(
+                result = await collect_query_response(
                     user_input=user_input,
                     context=session.context,
                     client=session.client,
@@ -169,9 +218,17 @@ async def _non_stream_chat(session, user_input: str, model: str, max_turns: int)
                     max_turns=max_turns,
                     history_messages=session.messages,
                     system_prompt=session.system_prompt,
+                    thinking=thinking,
                 )
+                usage = result.get("usage", {})
+                if usage:
+                    session.total_input_tokens += usage.get("prompt_tokens", 0)
+                    session.total_output_tokens += usage.get("completion_tokens", 0)
+                    session.last_input_tokens = usage.get("prompt_tokens", 0)
+                return result
             finally:
                 session.current_task = None
+                session.trim_messages_if_needed()
     except asyncio.CancelledError:
         logger.info("非流式聊天被取消: {}", session.session_id)
         raise HTTPException(status_code=499, detail="Request cancelled")
@@ -231,9 +288,29 @@ async def stop_session(
     session = manager.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
     stopped = manager.stop_session(session_id)
     return {"ok": True, "stopped": stopped}
+
+
+@router.get("/v1/sessions/{session_id}/usage")
+async def get_session_usage(
+    session_id: str,
+    _api_key: str = Depends(verify_api_key),
+):
+    """获取 session 的累计 token 使用量"""
+    manager = get_session_manager()
+    session = manager.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {
+        "session_id": session.session_id,
+        "total_input_tokens": session.total_input_tokens,
+        "total_output_tokens": session.total_output_tokens,
+        "total_tokens": session.total_input_tokens + session.total_output_tokens,
+        "last_input_tokens": session.last_input_tokens,
+        "message_count": len(session.messages),
+    }
 
 
 @router.delete("/v1/sessions/{session_id}")

@@ -46,7 +46,7 @@ def server(host: str | None, port: int | None, reload: bool):
 
     config = get_config()
     server_host = host or config.get("server.host", "0.0.0.0")
-    server_port = port or config.get("server.port", 8000)
+    server_port = port or config.get("server.port", 8810)
 
     click.echo(f"🌊 Ripple Server 启动中... http://{server_host}:{server_port}")
     click.echo(f"   API 文档: http://{server_host}:{server_port}/docs")

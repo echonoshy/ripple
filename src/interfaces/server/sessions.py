@@ -36,6 +36,32 @@ class Session:
     last_active: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     current_task: asyncio.Task | None = None
+    last_input_tokens: int = 0
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+
+    def trim_messages_if_needed(self, max_tokens: int = 150_000) -> int:
+        """当消息历史过长时修剪，参考 CLI 的 trim 策略。
+
+        Returns:
+            被修剪的消息数量
+        """
+        from ripple.messages.cleanup import estimate_tokens
+        from ripple.messages.utils import normalize_messages_for_api
+
+        normalized = normalize_messages_for_api(self.messages)
+        token_count = self.last_input_tokens or estimate_tokens(normalized)
+        if token_count < max_tokens:
+            return 0
+
+        old_count = len(self.messages)
+        keep_count = int(old_count * 0.8)
+        if keep_count < 2:
+            keep_count = 2
+        self.messages = self.messages[-keep_count:]
+        trimmed = old_count - len(self.messages)
+        logger.info("Session {} 消息修剪: 移除 {} 条旧消息 (tokens≈{})", self.session_id, trimmed, token_count)
+        return trimmed
 
 
 def _build_system_prompt() -> str:

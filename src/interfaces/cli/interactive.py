@@ -360,6 +360,20 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
                 self.context.on_pause_spinner = status.stop
                 self.context.on_resume_spinner = status.start
 
+                def _on_progress(msg: str):
+                    try:
+                        status.stop()
+                        from rich.markup import escape
+
+                        console.print(f"  [dim]{escape(msg)}[/dim]")
+                        status.start()
+                    except Exception:
+                        import sys
+
+                        print(f"  {msg}", file=sys.stderr, flush=True)
+
+                self.context.on_progress = _on_progress
+
                 async for item in query(
                     user_input=prompt,
                     context=self.context,
@@ -384,7 +398,7 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
                             Panel(Markdown("▌"), border_style="green", title="🤖 Ripple"),
                             console=console,
                             refresh_per_second=8,
-                            vertical_overflow="visible",
+                            transient=True,
                         )
                         live_display.start()
 
@@ -392,26 +406,31 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
                         if item.data:
                             streaming_text += item.data.get("text", "")
                         if live_display:
+                            # 限制显示长度，避免超出终端高度导致滚动时重复输出
+                            max_chars = max(500, getattr(console.size, 'height', 24) * 40)
+                            display_text = streaming_text
+                            if len(display_text) > max_chars:
+                                display_text = "...\n\n" + display_text[-max_chars:]
                             live_display.update(
-                                Panel(Markdown(streaming_text + "▌"), border_style="green", title="🤖 Ripple")
+                                Panel(Markdown(display_text + "▌"), border_style="green", title="🤖 Ripple")
                             )
 
                     elif item.type == "stream_end":
                         if live_display:
-                            live_display.update(
-                                Panel(Markdown(streaming_text), border_style="green", title="🤖 Ripple")
-                            )
                             live_display.stop()
                             live_display = None
+                            console.print(
+                                Panel(Markdown(streaming_text), border_style="green", title="🤖 Ripple")
+                            )
 
                     elif item.type == "assistant":
                         # 安全清理：如果 Live 还在运行（异常情况）
                         if live_display:
-                            live_display.update(
-                                Panel(Markdown(streaming_text), border_style="green", title="🤖 Ripple")
-                            )
                             live_display.stop()
                             live_display = None
+                            console.print(
+                                Panel(Markdown(streaming_text), border_style="green", title="🤖 Ripple")
+                            )
 
                         status.stop()
                         from ripple.messages.utils import _convert_assistant_message

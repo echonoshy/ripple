@@ -1,5 +1,6 @@
 """流式响应处理"""
 
+import asyncio
 from typing import Any, AsyncGenerator
 from uuid import uuid4
 
@@ -8,6 +9,8 @@ from ripple.messages.utils import create_assistant_message as create_msg
 from ripple.utils.logger import get_logger
 
 logger = get_logger("api.streaming")
+
+STREAM_CHUNK_TIMEOUT = 180
 
 
 async def process_stream_response(
@@ -36,7 +39,15 @@ async def process_stream_response(
     text_streaming_started = False
     last_usage: dict[str, int] = {}
 
-    async for chunk in stream:
+    aiter = stream.__aiter__()
+    while True:
+        try:
+            chunk = await asyncio.wait_for(aiter.__anext__(), timeout=STREAM_CHUNK_TIMEOUT)
+        except StopAsyncIteration:
+            break
+        except asyncio.TimeoutError:
+            logger.error("流式响应超时: {}s 未收到新 chunk (已收到 {} chunks)", STREAM_CHUNK_TIMEOUT, chunk_count)
+            raise TimeoutError(f"模型响应超时: {STREAM_CHUNK_TIMEOUT}s 内未收到数据 (已接收 {chunk_count} chunks)")
         chunk_count += 1
 
         if not chunk.choices:

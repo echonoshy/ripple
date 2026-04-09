@@ -81,6 +81,16 @@ class TerminalMaxTurns:
     reason: Literal["max_turns"] = "max_turns"
 
 
+@dataclass
+class TerminalNeedsInput:
+    """需要用户输入（execute 模式下 AskUser 挂起）"""
+
+    question: str = ""
+    options: list[str] | None = None
+    tool_use_id: str = ""
+    reason: Literal["needs_input"] = "needs_input"
+
+
 Terminal = (
     TerminalCompleted
     | TerminalPromptTooLong
@@ -92,6 +102,7 @@ Terminal = (
     | TerminalStopHookPrevented
     | TerminalHookStopped
     | TerminalMaxTurns
+    | TerminalNeedsInput
 )
 
 

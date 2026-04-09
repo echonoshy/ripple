@@ -58,6 +58,9 @@ Input:
         question = args.get("question", "")
         options = args.get("options", [])
 
+        if context.is_execute_mode:
+            return self._execute_mode_suspend(question, options, parent_message, context)
+
         if context.is_server_mode:
             return self._server_mode_response(question, options)
 
@@ -85,6 +88,33 @@ Input:
         result = {"question": question, "answer": answer, "options": options if options else None}
 
         return ToolResult(data=result)
+
+    @staticmethod
+    def _execute_mode_suspend(
+        question: str, options: list[str], parent_message: AssistantMessage, context: ToolUseContext
+    ) -> ToolResult[dict]:
+        """Execute 模式：挂起 agent loop，把问题上浮给调用方"""
+        tool_use_id = ""
+        if parent_message:
+            for block in parent_message.message.get("content", []):
+                if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("name") == "AskUser":
+                    tool_use_id = block.get("id", "")
+                    break
+
+        context.suspend_requested = True
+        context.suspend_data = {
+            "question": question,
+            "options": options if options else None,
+            "tool_use_id": tool_use_id,
+        }
+
+        return ToolResult(
+            data={
+                "question": question,
+                "answer": "[SUSPENDED] Waiting for caller to provide input via `ripple continue`.",
+                "options": options if options else None,
+            }
+        )
 
     @staticmethod
     def _server_mode_response(question: str, options: list[str]) -> ToolResult[dict]:

@@ -16,6 +16,7 @@ from ripple.core.transitions import (
     TerminalCompleted,
     TerminalMaxTurns,
     TerminalModelError,
+    TerminalNeedsInput,
     TerminalStopHookPrevented,
 )
 from ripple.messages.types import AssistantMessage, Message, RequestStartEvent, StreamEvent
@@ -220,6 +221,19 @@ async def query_loop(
                 )
                 yield error_msg
                 return
+
+        # ========== 阶段 3.5: 检查 execute 模式挂起 ==========
+        if state.tool_use_context.suspend_requested:
+            suspend = state.tool_use_context.suspend_data
+            logger.info("Execute 模式：AskUser 请求挂起，question={}", suspend.get("question", ""))
+            state = state.with_transition(
+                TerminalNeedsInput(
+                    question=suspend.get("question", ""),
+                    options=suspend.get("options"),
+                    tool_use_id=suspend.get("tool_use_id", ""),
+                )
+            )
+            return
 
         # ========== 阶段 4: 检查最大轮数 ==========
         next_turn_count = state.turn_count + 1

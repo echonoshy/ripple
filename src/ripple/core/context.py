@@ -37,6 +37,10 @@ class ToolUseContext:
     permission_manager: Any | None = None
 
     is_server_mode: bool = False
+    is_execute_mode: bool = False
+
+    suspend_requested: bool = False
+    suspend_data: dict[str, Any] = field(default_factory=dict)
 
     on_progress: Callable | None = None
     on_notification: Callable | None = None

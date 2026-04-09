@@ -1,0 +1,286 @@
+"""API 路由定义
+
+包含 chat completions、models、health、sessions、tools/invoke 等端点。
+"""
+
+import time
+import traceback
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
+
+from interfaces.server.auth import verify_api_key
+from interfaces.server.schemas import (
+    ChatCompletionRequest,
+    CreateSessionRequest,
+    ModelInfo,
+    ModelsResponse,
+    SessionInfo,
+    ToolInvokeRequest,
+    ToolInvokeResponse,
+)
+from interfaces.server.sessions import SessionManager
+from interfaces.server.sse import collect_query_response, stream_query_as_sse
+from ripple.utils.config import get_config
+from ripple.utils.logger import get_logger
+
+logger = get_logger("server.routes")
+
+router = APIRouter()
+
+_session_manager: SessionManager | None = None
+
+
+def get_session_manager() -> SessionManager:
+    if _session_manager is None:
+        raise RuntimeError("SessionManager not initialized")
+    return _session_manager
+
+
+def set_session_manager(manager: SessionManager):
+    global _session_manager
+    _session_manager = manager
+
+
+# ─── Health ───
+
+
+@router.get("/health")
+async def health():
+    return {"status": "ok", "timestamp": int(time.time())}
+
+
+# ─── Models ───
+
+
+@router.get("/v1/models")
+async def list_models(_api_key: str = Depends(verify_api_key)):
+    config = get_config()
+    presets = config.get_model_presets()
+    models = []
+    for alias, info in (presets or {}).items():
+        models.append(
+            ModelInfo(
+                id=alias,
+                owned_by="ripple",
+            )
+        )
+    return ModelsResponse(data=models)
+
+
+# ─── Chat Completions ───
+
+
+def _extract_user_input(request: ChatCompletionRequest) -> str:
+    """从 OpenAI 格式的 messages 中提取最后一条用户消息的文本"""
+    for msg in reversed(request.messages):
+        if msg.role == "user":
+            if isinstance(msg.content, str):
+                return msg.content
+            if isinstance(msg.content, list):
+                texts = [b.get("text", "") for b in msg.content if isinstance(b, dict) and b.get("type") == "text"]
+                return "\n".join(texts)
+    return ""
+
+
+@router.post("/v1/chat/completions")
+async def chat_completions(
+    request: ChatCompletionRequest,
+    _api_key: str = Depends(verify_api_key),
+):
+    manager = get_session_manager()
+    config = get_config()
+
+    resolved_model = config.resolve_model(request.model)
+    max_turns = request.max_turns or config.get("agent.max_turns", 10)
+    user_input = _extract_user_input(request)
+
+    if not user_input:
+        raise HTTPException(status_code=400, detail="No user message found in messages")
+
+    session, is_new = manager.get_or_create_session(
+        session_id=request.session_id,
+        model=request.model,
+        max_turns=max_turns,
+    )
+
+    if request.stream:
+        return StreamingResponse(
+            _stream_chat(session, user_input, resolved_model, max_turns),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Ripple-Session-Id": session.session_id,
+            },
+        )
+    else:
+        return await _non_stream_chat(session, user_input, resolved_model, max_turns)
+
+
+async def _stream_chat(session, user_input: str, model: str, max_turns: int):
+    """流式聊天：返回 SSE 事件生成器"""
+    import asyncio
+    
+    try:
+        async with session.lock:
+            session.current_task = asyncio.current_task()
+            try:
+                async for sse_line in stream_query_as_sse(
+                    user_input=user_input,
+                    context=session.context,
+                    client=session.client,
+                    model=model,
+                    max_turns=max_turns,
+                    history_messages=session.messages,
+                    system_prompt=session.system_prompt,
+                ):
+                    yield sse_line
+            finally:
+                session.current_task = None
+    except asyncio.CancelledError:
+        logger.info("流式聊天被取消: {}", session.session_id)
+        import json
+        yield f"data: {json.dumps({'error': {'message': 'Request cancelled', 'type': 'cancelled'}})}\n\n"
+        yield "data: [DONE]\n\n"
+    except Exception as e:
+        logger.error("流式聊天异常: {}\n{}", e, traceback.format_exc())
+        import json
+
+        error_data = {"error": {"message": str(e), "type": "server_error"}}
+        yield f"data: {json.dumps(error_data)}\n\n"
+        yield "data: [DONE]\n\n"
+
+
+async def _non_stream_chat(session, user_input: str, model: str, max_turns: int) -> dict[str, Any]:
+    """非流式聊天：收集完整响应"""
+    import asyncio
+    
+    try:
+        async with session.lock:
+            session.current_task = asyncio.current_task()
+            try:
+                return await collect_query_response(
+                    user_input=user_input,
+                    context=session.context,
+                    client=session.client,
+                    model=model,
+                    max_turns=max_turns,
+                    history_messages=session.messages,
+                    system_prompt=session.system_prompt,
+                )
+            finally:
+                session.current_task = None
+    except asyncio.CancelledError:
+        logger.info("非流式聊天被取消: {}", session.session_id)
+        raise HTTPException(status_code=499, detail="Request cancelled")
+    except Exception as e:
+        logger.error("非流式聊天异常: {}\n{}", e, traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── Sessions ───
+
+
+@router.post("/v1/sessions")
+async def create_session(
+    request: CreateSessionRequest,
+    _api_key: str = Depends(verify_api_key),
+):
+    manager = get_session_manager()
+    session = manager.create_session(
+        model=request.model,
+        max_turns=request.max_turns,
+        system_prompt=request.system_prompt,
+    )
+    return SessionInfo(
+        session_id=session.session_id,
+        model=session.model,
+        created_at=session.created_at.isoformat(),
+        last_active=session.last_active.isoformat(),
+        message_count=len(session.messages),
+    )
+
+
+@router.get("/v1/sessions/{session_id}")
+async def get_session(
+    session_id: str,
+    _api_key: str = Depends(verify_api_key),
+):
+    manager = get_session_manager()
+    session = manager.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return SessionInfo(
+        session_id=session.session_id,
+        model=session.model,
+        created_at=session.created_at.isoformat(),
+        last_active=session.last_active.isoformat(),
+        message_count=len(session.messages),
+    )
+
+
+@router.post("/v1/sessions/{session_id}/stop")
+async def stop_session(
+    session_id: str,
+    _api_key: str = Depends(verify_api_key),
+):
+    """停止当前 session 正在进行的聊天/任务"""
+    manager = get_session_manager()
+    session = manager.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    stopped = manager.stop_session(session_id)
+    return {"ok": True, "stopped": stopped}
+
+
+@router.delete("/v1/sessions/{session_id}")
+async def delete_session(
+    session_id: str,
+    _api_key: str = Depends(verify_api_key),
+):
+    manager = get_session_manager()
+    if not manager.delete_session(session_id):
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"ok": True}
+
+
+# ─── Tools Invoke ───
+
+
+@router.post("/v1/tools/invoke")
+async def invoke_tool(
+    request: ToolInvokeRequest,
+    _api_key: str = Depends(verify_api_key),
+):
+    manager = get_session_manager()
+
+    if request.session_id:
+        session = manager.get_session(request.session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+    else:
+        session = manager.create_session()
+
+    context = session.context
+    tool_instance = None
+    for t in context.options.tools:
+        if t.name == request.tool:
+            tool_instance = t
+            break
+
+    if not tool_instance:
+        available = [t.name for t in context.options.tools]
+        raise HTTPException(
+            status_code=404,
+            detail=f"Tool '{request.tool}' not found. Available: {available}",
+        )
+
+    try:
+        result = await tool_instance.call(args=request.args, context=context, parent_message=None)
+        return ToolInvokeResponse(ok=True, result=str(result.data))
+    except Exception as e:
+        logger.error("工具调用异常: {}\n{}", e, traceback.format_exc())
+        return ToolInvokeResponse(ok=False, error=str(e))

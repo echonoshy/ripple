@@ -1,0 +1,122 @@
+"""OpenAI 兼容的请求/响应 Pydantic 模型"""
+
+import time
+from typing import Any, Literal
+from uuid import uuid4
+
+from pydantic import BaseModel, Field
+
+# ─── Chat Completions 请求 ───
+
+
+class ChatMessage(BaseModel):
+    role: Literal["system", "user", "assistant", "tool"]
+    content: str | list[dict[str, Any]] | None = None
+    name: str | None = None
+    tool_call_id: str | None = None
+    tool_calls: list[dict[str, Any]] | None = None
+
+
+class ChatCompletionRequest(BaseModel):
+    model: str = "sonnet"
+    messages: list[ChatMessage]
+    stream: bool = False
+    max_turns: int | None = None
+    session_id: str | None = None
+    temperature: float | None = None
+    max_tokens: int | None = None
+
+
+# ─── Chat Completions 响应（非流式） ───
+
+
+class ChatCompletionChoice(BaseModel):
+    index: int = 0
+    message: dict[str, Any]
+    finish_reason: str | None = "stop"
+
+
+class UsageInfo(BaseModel):
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+
+
+class ChatCompletionResponse(BaseModel):
+    id: str = Field(default_factory=lambda: f"chatcmpl-{uuid4().hex[:24]}")
+    object: str = "chat.completion"
+    created: int = Field(default_factory=lambda: int(time.time()))
+    model: str = ""
+    choices: list[ChatCompletionChoice] = []
+    usage: UsageInfo = Field(default_factory=UsageInfo)
+
+
+# ─── Chat Completions 响应（流式 SSE chunk） ───
+
+
+class DeltaContent(BaseModel):
+    role: str | None = None
+    content: str | None = None
+    tool_calls: list[dict[str, Any]] | None = None
+
+
+class StreamChoice(BaseModel):
+    index: int = 0
+    delta: DeltaContent = Field(default_factory=DeltaContent)
+    finish_reason: str | None = None
+
+
+class ChatCompletionChunk(BaseModel):
+    id: str = ""
+    object: str = "chat.completion.chunk"
+    created: int = Field(default_factory=lambda: int(time.time()))
+    model: str = ""
+    choices: list[StreamChoice] = []
+    usage: UsageInfo | None = None
+
+
+# ─── Models 响应 ───
+
+
+class ModelInfo(BaseModel):
+    id: str
+    object: str = "model"
+    created: int = Field(default_factory=lambda: int(time.time()))
+    owned_by: str = "ripple"
+
+
+class ModelsResponse(BaseModel):
+    object: str = "list"
+    data: list[ModelInfo] = []
+
+
+# ─── Session 管理 ───
+
+
+class CreateSessionRequest(BaseModel):
+    model: str | None = None
+    max_turns: int | None = None
+    system_prompt: str | None = None
+
+
+class SessionInfo(BaseModel):
+    session_id: str
+    model: str
+    created_at: str
+    last_active: str
+    message_count: int
+
+
+# ─── Tools Invoke ───
+
+
+class ToolInvokeRequest(BaseModel):
+    tool: str
+    args: dict[str, Any] = {}
+    session_id: str | None = None
+
+
+class ToolInvokeResponse(BaseModel):
+    ok: bool = True
+    result: Any = None
+    error: str | None = None

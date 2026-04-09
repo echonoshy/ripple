@@ -58,6 +58,9 @@ Input:
         question = args.get("question", "")
         options = args.get("options", [])
 
+        if context.is_server_mode:
+            return self._server_mode_response(question, options)
+
         if context.on_pause_spinner:
             context.on_pause_spinner()
 
@@ -82,6 +85,18 @@ Input:
         result = {"question": question, "answer": answer, "options": options if options else None}
 
         return ToolResult(data=result)
+
+    @staticmethod
+    def _server_mode_response(question: str, options: list[str]) -> ToolResult[dict]:
+        """Server 模式：无法交互式询问用户，返回提示让模型自行决策"""
+        hint = (
+            f"[Server mode] Cannot interactively ask user. Question was: '{question}'. "
+            "Please make a reasonable decision based on context, or include the question in your response "
+            "so the user can answer in the next message."
+        )
+        if options:
+            hint += f" Available options were: {options}"
+        return ToolResult(data={"question": question, "answer": hint, "options": options or None})
 
     def is_concurrency_safe(self, input: dict[str, Any]) -> bool:
         return False  # 需要用户交互，不能并发

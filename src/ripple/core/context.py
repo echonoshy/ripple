@@ -36,6 +36,8 @@ class ToolUseContext:
     allowed_tools: list[str] = field(default_factory=list)
     permission_manager: Any | None = None
 
+    is_server_mode: bool = False
+
     on_progress: Callable | None = None
     on_notification: Callable | None = None
     on_pause_spinner: Callable | None = None

@@ -51,11 +51,9 @@ class OpenRouterClient:
         self,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
-        model: str = "anthropic/claude-3.5-sonnet",
+        model: str = "anthropic/claude-sonnet-4.6",
         max_tokens: int | None = None,
-        temperature: float = 1.0,
         thinking: bool | None = None,
-        thinking_budget: int | None = None,
         **kwargs,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """流式调用聊天 API
@@ -65,9 +63,7 @@ class OpenRouterClient:
             tools: 工具定义列表
             model: 模型名称
             max_tokens: 最大输出 token 数
-            temperature: 温度参数
             thinking: 是否启用思考模式（None 则从配置读取）
-            thinking_budget: 思考预算 token 数
             **kwargs: 其他参数
 
         Yields:
@@ -85,18 +81,12 @@ class OpenRouterClient:
         }
 
         if thinking:
-            if thinking_budget is None:
-                thinking_budget = config.get("model.thinking.budget_tokens", 10000)
             params["extra_body"] = {
-                "thinking": {"type": "enabled", "budget_tokens": thinking_budget},
+                "reasoning": {"enabled": True},
             }
-            # 思考模式下 temperature 必须为 1，且需要设置 max_tokens
-            params["temperature"] = 1.0
-            params["max_tokens"] = max_tokens or 16000
-        else:
-            params["temperature"] = temperature
-            if max_tokens:
-                params["max_tokens"] = max_tokens
+
+        if max_tokens:
+            params["max_tokens"] = max_tokens
 
         if tools:
             params["tools"] = tools
@@ -118,9 +108,9 @@ class OpenRouterClient:
         self,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
-        model: str = "anthropic/claude-3.5-sonnet",
+        model: str = "anthropic/claude-sonnet-4.6",
         max_tokens: int | None = None,
-        temperature: float = 1.0,
+        thinking: bool | None = None,
         **kwargs,
     ) -> dict[str, Any]:
         """非流式调用聊天 API
@@ -130,19 +120,27 @@ class OpenRouterClient:
             tools: 工具定义列表
             model: 模型名称
             max_tokens: 最大输出 token 数
-            temperature: 温度参数
+            thinking: 是否启用思考模式（None 则从配置读取）
             **kwargs: 其他参数
 
         Returns:
             完整响应
         """
+        config = get_config()
+        if thinking is None:
+            thinking = config.get("model.thinking.enabled", False)
+
         params = {
             "model": model,
             "messages": messages,
             "stream": False,
-            "temperature": temperature,
             **kwargs,
         }
+
+        if thinking:
+            params["extra_body"] = {
+                "reasoning": {"enabled": True},
+            }
 
         if tools:
             params["tools"] = tools

@@ -104,12 +104,12 @@ class SubAgentTool(Tool[SubAgentInput, SubAgentOutput]):
                     tools=sub_tools,
                     model=context.options.model,
                     max_tokens=context.options.max_tokens,
-                    temperature=context.options.temperature,
                 ),
                 session_id=f"{context.session_id}/sub-{uuid4().hex[:8]}",
                 cwd=context.cwd,
-                permission_mode=permission_mode,  # 从配置读取权限模式
-                read_file_state={},  # 独立的文件读取状态
+                thinking=context.thinking,
+                permission_mode=permission_mode,
+                read_file_state={},
             )
 
             # 4. 调用 query_loop
@@ -124,6 +124,7 @@ class SubAgentTool(Tool[SubAgentInput, SubAgentOutput]):
                 model=context.options.model,
                 max_turns=max_turns,
                 max_tokens=context.options.max_tokens,
+                thinking=context.thinking,
             )
 
             # 5. 收集输出和执行日志

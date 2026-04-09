@@ -3,7 +3,7 @@
 from typing import Any, AsyncGenerator
 from uuid import uuid4
 
-from ripple.messages.types import AssistantMessage
+from ripple.messages.types import AssistantMessage, StreamEvent
 from ripple.messages.utils import create_assistant_message as create_msg
 from ripple.utils.logger import get_logger
 
@@ -12,14 +12,19 @@ logger = get_logger("api.streaming")
 
 async def process_stream_response(
     stream: AsyncGenerator[Any, None],
-) -> AsyncGenerator[AssistantMessage, None]:
-    """处理流式响应，转换为 AssistantMessage
+) -> AsyncGenerator[AssistantMessage | StreamEvent, None]:
+    """处理流式响应，转换为 AssistantMessage 和 StreamEvent
+
+    在流式传输过程中，每个 text delta 会 yield 一个 StreamEvent(stream_chunk)，
+    让下游（如 CLI）可以实时显示文本。完整的 AssistantMessage 在 finish_reason 时 yield。
+
+    事件顺序: stream_start → stream_chunk* → stream_end → AssistantMessage
 
     Args:
         stream: OpenAI SDK 的流式响应
 
     Yields:
-        AssistantMessage 对象
+        StreamEvent 或 AssistantMessage
     """
     current_message_id = str(uuid4())
     accumulated_content: list[dict[str, Any]] = []
@@ -28,6 +33,7 @@ async def process_stream_response(
 
     chunk_count = 0
     yielded = False
+    text_streaming_started = False
     last_usage: dict[str, int] = {}
 
     async for chunk in stream:
@@ -44,16 +50,19 @@ async def process_stream_response(
         choice = chunk.choices[0]
         delta = choice.delta
 
-        # 处理文本内容
+        # 处理文本内容：逐 chunk 推送给下游
         if delta.content:
+            if not text_streaming_started:
+                yield StreamEvent(type="stream_start")
+                text_streaming_started = True
             current_text += delta.content
+            yield StreamEvent(type="stream_chunk", data={"text": delta.content})
 
         # 处理工具调用
         if delta.tool_calls:
             for tool_call in delta.tool_calls:
                 index = tool_call.index
 
-                # 初始化工具调用
                 if index not in tool_calls_map:
                     tool_calls_map[index] = {
                         "type": "tool_use",
@@ -62,7 +71,6 @@ async def process_stream_response(
                         "args_buffer": "",
                     }
 
-                # 更新工具调用信息
                 if tool_call.id:
                     tool_calls_map[index]["id"] = tool_call.id
 
@@ -75,10 +83,14 @@ async def process_stream_response(
         # 检查是否完成
         if choice.finish_reason:
             logger.debug("流完成: finish_reason={}, chunks={}", choice.finish_reason, chunk_count)
+
+            if text_streaming_started:
+                yield StreamEvent(type="stream_end")
+                text_streaming_started = False
+
             yield _build_message(current_text, tool_calls_map, accumulated_content, chunk, current_message_id)
             yielded = True
 
-            # 重置状态
             current_text = ""
             tool_calls_map = {}
             accumulated_content = []
@@ -93,6 +105,9 @@ async def process_stream_response(
                 len(current_text),
                 len(tool_calls_map),
             )
+            if text_streaming_started:
+                yield StreamEvent(type="stream_end")
+
             yield _build_message(
                 current_text, tool_calls_map, accumulated_content, None, current_message_id, last_usage
             )
@@ -146,7 +161,7 @@ def _build_message(
 
 
 async def collect_stream_response(stream: AsyncGenerator[Any, None]) -> AssistantMessage:
-    """收集完整的流式响应
+    """收集完整的流式响应（跳过 StreamEvent，只返回第一条 AssistantMessage）
 
     Args:
         stream: OpenAI SDK 的流式响应
@@ -154,8 +169,8 @@ async def collect_stream_response(stream: AsyncGenerator[Any, None]) -> Assistan
     Returns:
         完整的 AssistantMessage
     """
-    async for message in process_stream_response(stream):
-        return message
+    async for item in process_stream_response(stream):
+        if isinstance(item, AssistantMessage):
+            return item
 
-    # 如果没有消息，返回空消息
     return create_msg(content=[{"type": "text", "text": ""}])

@@ -120,15 +120,15 @@ class AgentTool(Tool[AgentToolInput, AgentToolOutput]):
         # 创建子上下文（继承父 agent 的工具列表）
         sub_context = ToolUseContext(
             options=ToolOptions(
-                tools=context.options.tools,  # 继承所有工具
+                tools=context.options.tools,
                 model=args.model or context.options.model,
                 max_tokens=context.options.max_tokens,
-                temperature=context.options.temperature,
             ),
             session_id=f"{context.session_id}/fork-{uuid4().hex[:8]}",
             cwd=context.cwd,
+            thinking=context.thinking,
             permission_mode=context.permission_mode,
-            read_file_state={},  # 独立的文件读取状态
+            read_file_state={},
         )
 
         # 合并消息：父历史 + fork 消息
@@ -152,7 +152,8 @@ class AgentTool(Tool[AgentToolInput, AgentToolOutput]):
             messages=full_messages,
             tool_use_context=sub_context,
             model=sub_context.options.model,
-            max_turns=200,  # fork 模式允许更多轮数
+            max_turns=200,
+            thinking=context.thinking,
         )
 
         task_manager.start_task(task, query_loop(params, client))

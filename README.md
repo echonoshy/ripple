@@ -71,11 +71,8 @@ api:
 ### 3. 运行
 
 ```bash
-# 启动交互式终端（推荐）
+# 启动交互式终端
 uv run ripple cli
-
-# 执行单次命令
-uv run ripple run "创建一个文件 /tmp/test.txt，内容是 Hello World"
 
 # 查看所有可用工具和 Skills
 uv run python scripts/list_tools.py

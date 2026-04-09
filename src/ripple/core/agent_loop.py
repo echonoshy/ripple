@@ -37,10 +37,10 @@ class QueryParams:
         self,
         messages: list[Message],
         tool_use_context: ToolUseContext,
-        model: str = "anthropic/claude-3.5-sonnet",
+        model: str = "anthropic/claude-sonnet-4.6",
         max_turns: int | None = None,
         max_tokens: int | None = None,
-        thinking: bool = False,
+        thinking: bool | None = None,
     ):
         self.messages = messages
         self.tool_use_context = tool_use_context
@@ -99,11 +99,15 @@ async def query_loop(
                 thinking=params.thinking,
             )
 
-            async for message in process_stream_response(stream):
-                yield message
-                assistant_messages.append(message)
+            async for item in process_stream_response(stream):
+                yield item
 
-                tool_uses = extract_tool_use_blocks(message)
+                if not isinstance(item, AssistantMessage):
+                    continue
+
+                assistant_messages.append(item)
+
+                tool_uses = extract_tool_use_blocks(item)
                 if tool_uses:
                     tool_use_blocks.extend(tool_uses)
                     needs_follow_up = True
@@ -287,9 +291,9 @@ async def query(
     user_input: str,
     context: ToolUseContext,
     client: OpenRouterClient | None = None,
-    model: str = "anthropic/claude-3.5-sonnet",
+    model: str = "anthropic/claude-sonnet-4.6",
     max_turns: int | None = None,
-    thinking: bool = False,
+    thinking: bool | None = None,
     history_messages: list[Message] | None = None,
     system_prompt: str | None = None,
 ) -> AsyncGenerator[Message | StreamEvent | RequestStartEvent, None]:

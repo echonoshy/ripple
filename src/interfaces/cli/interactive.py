@@ -155,8 +155,9 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
             ),
             session_id=self.session_id,
             cwd=Path.cwd(),
+            thinking=self.thinking,
             permission_manager=permission_manager,
-            on_pause_spinner=None,  # 稍后在 run_query 中设置
+            on_pause_spinner=None,
             on_resume_spinner=None,
         )
 
@@ -215,7 +216,7 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
         lines = ["**可用模型:**\n"]
         for alias, info in presets.items():
             marker = " ← 当前" if alias == self.model_alias or info.get("model") == self.model else ""
-            lines.append(f"- `{alias}` → {info.get('model', '?')}  {info.get('description', '')}{marker}")
+            lines.append(f"- `{alias}` → {info.get('model', '?')}{marker}")
         console.print(Panel(Markdown("\n".join(lines)), title="模型列表", border_style="blue"))
 
     def _get_context_tokens(self) -> int:
@@ -332,20 +333,22 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
             return
 
         try:
-            # 收集本次查询的新消息
+            from rich.live import Live
+
             new_messages = [{"role": "user", "content": [{"type": "text", "text": prompt}]}]
 
             has_output = False
-
-            # tool_use_id → tool_name 的映射，用于在 tool_result 中还原真实工具名
             tool_id_to_name: dict[str, str] = {}
 
-            # 记录用户消息
+            # 流式渲染状态
+            streaming_text = ""
+            live_display: Live | None = None
+            text_streamed_this_turn = False
+
             self.conversation_log.log_user_message(prompt)
             logger.info("用户输入: {}", prompt[:200])
 
             with console.status("[bold cyan]正在思考...[/bold cyan]", spinner="dots") as status:
-                # 设置 spinner 控制回调
                 self.context.on_pause_spinner = status.stop
                 self.context.on_resume_spinner = status.start
 
@@ -359,127 +362,166 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
                     history_messages=self.session_messages,
                     system_prompt=self.system_prompt,
                 ):
-                    if hasattr(item, "type"):
-                        if item.type == "stream_request_start":
-                            status.update("[bold cyan]正在思考...[/bold cyan]")
-                        elif item.type == "assistant":
-                            # 助手消息
-                            status.stop()
-                            from ripple.messages.utils import _convert_assistant_message
+                    if not hasattr(item, "type"):
+                        continue
 
-                            new_messages.append(_convert_assistant_message(item.message.get("content", [])))
+                    if item.type == "stream_request_start":
+                        status.update("[bold cyan]正在思考...[/bold cyan]")
 
-                            # 汇总 API 返回的真实 token 用量
-                            usage = item.message.get("usage", {})
-                            if usage:
-                                inp = usage.get("input_tokens", 0)
-                                out = usage.get("output_tokens", 0)
-                                self.api_input_tokens += inp
-                                self.api_output_tokens += out
-                                if inp > 0:
-                                    self.last_context_tokens = inp
+                    elif item.type == "stream_start":
+                        status.stop()
+                        streaming_text = ""
+                        text_streamed_this_turn = True
+                        live_display = Live(
+                            Panel(Markdown("▌"), border_style="green", title="🤖 Ripple"),
+                            console=console,
+                            refresh_per_second=8,
+                            vertical_overflow="visible",
+                        )
+                        live_display.start()
 
-                            content = item.message.get("content", [])
-                            for block in content:
-                                if isinstance(block, dict):
-                                    if block.get("type") == "text":
-                                        text = block.get("text", "")
-                                        if text.strip():
-                                            has_output = True
-                                            self.conversation_log.log_assistant_message(text)
+                    elif item.type == "stream_chunk":
+                        if item.data:
+                            streaming_text += item.data.get("text", "")
+                        if live_display:
+                            live_display.update(
+                                Panel(Markdown(streaming_text + "▌"), border_style="green", title="🤖 Ripple")
+                            )
+
+                    elif item.type == "stream_end":
+                        if live_display:
+                            live_display.update(
+                                Panel(Markdown(streaming_text), border_style="green", title="🤖 Ripple")
+                            )
+                            live_display.stop()
+                            live_display = None
+
+                    elif item.type == "assistant":
+                        # 安全清理：如果 Live 还在运行（异常情况）
+                        if live_display:
+                            live_display.update(
+                                Panel(Markdown(streaming_text), border_style="green", title="🤖 Ripple")
+                            )
+                            live_display.stop()
+                            live_display = None
+
+                        status.stop()
+                        from ripple.messages.utils import _convert_assistant_message
+
+                        new_messages.append(_convert_assistant_message(item.message.get("content", [])))
+
+                        usage = item.message.get("usage", {})
+                        if usage:
+                            inp = usage.get("input_tokens", 0)
+                            out = usage.get("output_tokens", 0)
+                            self.api_input_tokens += inp
+                            self.api_output_tokens += out
+                            if inp > 0:
+                                self.last_context_tokens = inp
+
+                        content = item.message.get("content", [])
+                        for block in content:
+                            if isinstance(block, dict):
+                                if block.get("type") == "text":
+                                    text = block.get("text", "")
+                                    if text.strip():
+                                        has_output = True
+                                        self.conversation_log.log_assistant_message(text)
+                                        if not text_streamed_this_turn:
                                             console.print(
                                                 Panel(Markdown(text), border_style="green", title="🤖 Ripple")
                                             )
-                                    elif block.get("type") == "tool_use":
-                                        tool_name = block.get("name", "")
-                                        tool_id = block.get("id", "")
-                                        tool_input = block.get("input", {})
+                                elif block.get("type") == "tool_use":
+                                    tool_name = block.get("name", "")
+                                    tool_id = block.get("id", "")
+                                    tool_input = block.get("input", {})
 
-                                        # 记录 id → name 映射
-                                        if tool_id:
-                                            tool_id_to_name[tool_id] = tool_name
+                                    if tool_id:
+                                        tool_id_to_name[tool_id] = tool_name
 
-                                        self.conversation_log.log_tool_call(tool_name, tool_input)
+                                    self.conversation_log.log_tool_call(tool_name, tool_input)
 
-                                        import json
+                                    import json
 
-                                        input_str = json.dumps(tool_input, ensure_ascii=False)
-                                        if len(input_str) > 100:
-                                            input_str = input_str[:100] + "..."
-
-                                        from rich.markup import escape
-
-                                        input_str = escape(input_str)
-                                        console.print(
-                                            f"🔧 [bold yellow]调用工具:[/bold yellow] [cyan]{tool_name}[/cyan] [dim]{input_str}[/dim]"
-                                        )
-                            status.start()
-
-                        elif item.type == "user":
-                            # 工具结果 / API 错误消息
-                            status.stop()
-                            content = item.message.get("content", [])
-
-                            # 检查是否是 API 错误等文本消息（is_meta 标记的内部消息）
-                            if getattr(item, "is_meta", False):
-                                for block in content:
-                                    if isinstance(block, dict) and block.get("type") == "text":
-                                        error_text = block.get("text", "")
-                                        if error_text:
-                                            has_output = True
-                                            console.print(f"\n[bold red]⚠️  {error_text}[/bold red]")
-                                status.start()
-                                continue
-
-                            for blk in content:
-                                if isinstance(blk, dict) and blk.get("type") == "tool_result":
-                                    new_messages.append(
-                                        {
-                                            "role": "tool",
-                                            "tool_call_id": blk.get("tool_use_id", ""),
-                                            "content": blk.get("content", ""),
-                                        }
-                                    )
-                            for block in content:
-                                if isinstance(block, dict) and block.get("type") == "tool_result":
-                                    result_content = block.get("content", "")
-                                    is_error = block.get("is_error", False)
-
-                                    # 检查是否是 SubAgent 的结果
-                                    try:
-                                        if "SubAgentOutput" in result_content or "execution_log" in result_content:
-                                            if "execution_log=[" in result_content:
-                                                self._display_subagent_execution(result_content)
-                                                continue
-                                    except Exception:
-                                        pass
+                                    input_str = json.dumps(tool_input, ensure_ascii=False)
+                                    if len(input_str) > 100:
+                                        input_str = input_str[:100] + "..."
 
                                     from rich.markup import escape
 
-                                    # 还原真实工具名：优先从 block 中取，其次从映射中取
-                                    tool_use_id = block.get("tool_use_id", "")
-                                    logged_tool_name = (
-                                        block.get("tool_name") or tool_id_to_name.get(tool_use_id) or tool_use_id
+                                    input_str = escape(input_str)
+                                    console.print(
+                                        f"🔧 [bold yellow]调用工具:[/bold yellow] [cyan]{tool_name}[/cyan] [dim]{input_str}[/dim]"
                                     )
 
-                                    if is_error:
-                                        self.conversation_log.log_tool_result(
-                                            logged_tool_name, result_content, is_error=True
-                                        )
-                                        logger.warning("工具执行出错: {}: {}", logged_tool_name, result_content[:300])
-                                        err_preview = escape(result_content[:100])
-                                        console.print(f"❌ [red]工具错误:[/red] [dim]{err_preview}...[/dim]")
-                                    else:
-                                        self.conversation_log.log_tool_result(logged_tool_name, result_content)
-                                        if result_content:
-                                            preview = result_content[:100].replace("\n", " ") + (
-                                                "..." if len(result_content) > 100 else ""
-                                            )
-                                            preview = escape(preview)
-                                            console.print(f"✓ [green]执行成功:[/green] [dim]{preview}[/dim]")
-                                        else:
-                                            console.print("✓ [green]执行成功 (无输出)[/green]")
+                        text_streamed_this_turn = False
+                        status.start()
+
+                    elif item.type == "user":
+                        status.stop()
+                        content = item.message.get("content", [])
+
+                        if getattr(item, "is_meta", False):
+                            for block in content:
+                                if isinstance(block, dict) and block.get("type") == "text":
+                                    error_text = block.get("text", "")
+                                    if error_text:
+                                        has_output = True
+                                        console.print(f"\n[bold red]⚠️  {error_text}[/bold red]")
                             status.start()
+                            continue
+
+                        for blk in content:
+                            if isinstance(blk, dict) and blk.get("type") == "tool_result":
+                                new_messages.append(
+                                    {
+                                        "role": "tool",
+                                        "tool_call_id": blk.get("tool_use_id", ""),
+                                        "content": blk.get("content", ""),
+                                    }
+                                )
+                        for block in content:
+                            if isinstance(block, dict) and block.get("type") == "tool_result":
+                                result_content = block.get("content", "")
+                                is_error = block.get("is_error", False)
+
+                                try:
+                                    if "SubAgentOutput" in result_content or "execution_log" in result_content:
+                                        if "execution_log=[" in result_content:
+                                            self._display_subagent_execution(result_content)
+                                            continue
+                                except Exception:
+                                    pass
+
+                                from rich.markup import escape
+
+                                tool_use_id = block.get("tool_use_id", "")
+                                logged_tool_name = (
+                                    block.get("tool_name") or tool_id_to_name.get(tool_use_id) or tool_use_id
+                                )
+
+                                if is_error:
+                                    self.conversation_log.log_tool_result(
+                                        logged_tool_name, result_content, is_error=True
+                                    )
+                                    logger.warning("工具执行出错: {}: {}", logged_tool_name, result_content[:300])
+                                    err_preview = escape(result_content[:100])
+                                    console.print(f"❌ [red]工具错误:[/red] [dim]{err_preview}...[/dim]")
+                                else:
+                                    self.conversation_log.log_tool_result(logged_tool_name, result_content)
+                                    if result_content:
+                                        preview = result_content[:100].replace("\n", " ") + (
+                                            "..." if len(result_content) > 100 else ""
+                                        )
+                                        preview = escape(preview)
+                                        console.print(f"✓ [green]执行成功:[/green] [dim]{preview}[/dim]")
+                                    else:
+                                        console.print("✓ [green]执行成功 (无输出)[/green]")
+                        status.start()
+
+            # 安全清理：确保 Live 已停止
+            if live_display:
+                live_display.stop()
 
             if not has_output:
                 console.print(
@@ -489,13 +531,11 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
                     "  • 模型返回了空响应[/yellow]"
                 )
 
-            # 任务完成后，清理工具结果
             from ripple.messages.cleanup import cleanup_tool_results, estimate_tokens, trim_old_messages
 
             cleaned_messages = cleanup_tool_results(new_messages)
             self.session_messages.extend(cleaned_messages)
 
-            # 智能清理：优先用 API 真实值，无则用 tiktoken 估算
             ctx = self.last_context_tokens or estimate_tokens(self.session_messages)
             if ctx > 150_000:
                 old_count = len(self.session_messages)
@@ -504,14 +544,17 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
 
                 console.print(f"[yellow]⚠️  上下文接近上限 ({ctx:,} tokens)，已清理 {trimmed} 条旧消息[/yellow]")
 
-            # 显示 token 使用情况
             self._display_token_usage()
 
             console.print("\n[bold green]✓ 完成[/bold green]\n")
 
         except KeyboardInterrupt:
+            if live_display:
+                live_display.stop()
             console.print("\n[yellow]已中断[/yellow]\n")
         except Exception as e:
+            if live_display:
+                live_display.stop()
             tb = traceback.format_exc()
             logger.error("查询执行失败: {}\n{}", e, tb)
             self.conversation_log.log_error(str(e), tb)
@@ -578,6 +621,8 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
 
         elif cmd == "/thinking":
             self.thinking = not self.thinking
+            if self.context:
+                self.context.thinking = self.thinking
             status = "开启" if self.thinking else "关闭"
             console.print(f"[green]思考模式已{status}[/green]")
 

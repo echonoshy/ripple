@@ -14,9 +14,8 @@ class ToolOptions:
     """工具选项"""
 
     tools: list[Any] = field(default_factory=list)
-    model: str = "anthropic/claude-3.5-sonnet"
+    model: str = "anthropic/claude-sonnet-4.6"
     max_tokens: int | None = None
-    temperature: float = 1.0
 
 
 @dataclass
@@ -32,6 +31,7 @@ class ToolUseContext:
     abort_signal: Any | None = None
     read_file_state: dict[str, Any] = field(default_factory=dict)
 
+    thinking: bool = False
     permission_mode: str = "ask"
     allowed_tools: list[str] = field(default_factory=list)
     permission_manager: Any | None = None

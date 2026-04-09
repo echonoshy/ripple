@@ -36,11 +36,8 @@ config/                # 配置文件
 ## Running the Application
 
 ```bash
-# Interactive CLI (recommended)
+# Interactive CLI
 uv run ripple cli
-
-# Single command
-uv run ripple run "your query"
 
 # List all tools and skills
 uv run python scripts/list_tools.py

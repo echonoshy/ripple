@@ -55,12 +55,11 @@ ripple/
 
 ### CLI (命令行接口)
 
-- `main.py`: 单次命令执行
-- `repl.py`: 交互式 REPL
+- `main.py`: CLI 入口（click group）
+- `interactive.py`: 交互式 CLI
 
 ```bash
-uv run ripple run "your query"
-uv run ripple repl
+uv run ripple cli
 ```
 
 ### Server (预留)

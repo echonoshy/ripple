@@ -58,6 +58,9 @@ Input:
         question = args.get("question", "")
         options = args.get("options", [])
 
+        if context.on_pause_spinner:
+            context.on_pause_spinner()
+
         console = Console()
         console.print(f"\n[bold cyan]🤔 AI 询问:[/bold cyan] {question}\n")
 
@@ -72,6 +75,9 @@ Input:
             answer = Prompt.ask("请回答")
 
         console.print(f"[green]✓ 用户回答: {answer}[/green]\n")
+
+        if context.on_resume_spinner:
+            context.on_resume_spinner()
 
         result = {"question": question, "answer": answer, "options": options if options else None}
 

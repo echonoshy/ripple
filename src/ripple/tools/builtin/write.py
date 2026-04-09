@@ -120,3 +120,22 @@ class WriteTool(Tool[WriteInput, WriteOutput]):
             },
             "required": ["file_path", "content"],
         }
+
+    def requires_confirmation(self, input_params: dict) -> bool:
+        """检查是否需要确认
+
+        覆盖现有文件时需要确认。
+
+        Args:
+            input_params: 工具输入参数
+
+        Returns:
+            是否需要确认
+        """
+        file_path = input_params.get("file_path", "")
+        if not file_path:
+            return False
+
+        # 检查文件是否存在
+        path = Path(file_path)
+        return path.exists() and path.is_file()

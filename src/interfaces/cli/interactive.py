@@ -88,7 +88,28 @@ class RippleCLI:
 
         self.system_prompt = f"""Today's date is {datetime.now().strftime("%Y/%m/%d")}.
 
-Available Skills (use the Skill tool to execute them):
+# Using Your Tools
+
+## Agent Tool (Fork SubAgent)
+Use the Agent tool to delegate complex, multi-step tasks:
+- When a task requires 3+ distinct operations
+- For parallel research (multiple file searches, web lookups)
+- When exploring unfamiliar code areas
+- For tasks that might take many turns
+
+Example: "Use Agent tool to search for all authentication-related files and summarize the auth flow"
+
+## AskUser Tool
+Proactively ask the user when:
+- Multiple valid approaches exist (e.g., "Should I use Redis or in-memory cache?")
+- Requirements are ambiguous (e.g., "Which files should I modify?")
+- You need user preferences (e.g., "Do you want verbose logging?")
+- Before risky operations (e.g., "This will delete 10 files. Confirm?")
+- When you're unsure about the user's intent
+
+DO NOT guess or assume - ask first when uncertain.
+
+# Available Skills
 {skills_text}
 
 IMPORTANT: Before declining a user request because it's outside your domain, check if there's a relevant skill available."""
@@ -119,6 +140,8 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
             session_id=f"cli-session-{self.session_count}",
             cwd=str(Path.cwd()),
             permission_manager=permission_manager,
+            on_pause_spinner=None,  # 稍后在 run_query 中设置
+            on_resume_spinner=None,
         )
 
         # 创建客户端
@@ -289,6 +312,10 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
             logger.info("用户输入: {}", prompt[:200])
 
             with console.status("[bold cyan]正在思考...[/bold cyan]", spinner="dots") as status:
+                # 设置 spinner 控制回调
+                self.context.on_pause_spinner = status.stop
+                self.context.on_resume_spinner = status.start
+
                 async for item in query(
                     user_input=prompt,
                     context=self.context,

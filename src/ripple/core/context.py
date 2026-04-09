@@ -38,6 +38,8 @@ class ToolUseContext:
     # 回调函数
     on_progress: Optional[Callable] = None
     on_notification: Optional[Callable] = None
+    on_pause_spinner: Optional[Callable] = None  # 暂停 spinner（用于用户交互）
+    on_resume_spinner: Optional[Callable] = None  # 恢复 spinner
 
     def with_options(self, options: ToolOptions) -> "ToolUseContext":
         """创建新上下文，更新选项"""

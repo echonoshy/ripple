@@ -232,7 +232,7 @@ async def _execute_tool(
 
     # ========== 权限检查 ==========
     if hasattr(context, "permission_manager") and context.permission_manager:
-        allowed, reason = await context.permission_manager.check_permission(tool, tool_use.get("input", {}))
+        allowed, reason = await context.permission_manager.check_permission(tool, tool_use.get("input", {}), context)
 
         if not allowed:
             error_msg = create_tool_result_message(

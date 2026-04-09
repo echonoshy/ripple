@@ -26,7 +26,7 @@ from ripple.tools.builtin.read import ReadTool
 from ripple.tools.builtin.search import SearchTool
 from ripple.tools.builtin.write import WriteTool
 from ripple.utils.config import get_config
-from ripple.utils.conversation_log import ConversationLogger, list_conversations
+from ripple.utils.conversation_log import ConversationLogger, generate_session_id, list_conversations
 from ripple.utils.logger import LOG_FILE, get_logger
 
 logger = get_logger("cli.interactive")
@@ -51,7 +51,7 @@ class RippleCLI:
         self.thinking = config.get("model.thinking.enabled", False)
         self.client: OpenRouterClient | None = None
         self.context: ToolUseContext | None = None
-        self.session_count = 0
+        self.session_id = generate_session_id()
 
         # 会话消息历史
         self.session_messages: list = []
@@ -61,7 +61,7 @@ class RippleCLI:
         self.system_prompt: str = ""
 
         # 初始化会话记录器
-        self.conversation_log = ConversationLogger(session_id=f"cli-{self.session_count}")
+        self.conversation_log = ConversationLogger(session_id=self.session_id)
 
     def initialize(self):
         """初始化客户端和上下文"""
@@ -146,7 +146,7 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
                 tools=tools,
                 model=self.model,
             ),
-            session_id=f"cli-session-{self.session_count}",
+            session_id=self.session_id,
             cwd=Path.cwd(),
             permission_manager=permission_manager,
             on_pause_spinner=None,  # 稍后在 run_query 中设置
@@ -194,7 +194,7 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
 - 思考模式: {thinking_status}
 - 最大轮数: {self.max_turns}
 - 工作目录: {Path.cwd()}
-- Session: {self.session_count}
+- Session: {self.session_id}
         """
         console.print(Panel(Markdown(info), title="配置信息", border_style="blue"))
 
@@ -525,8 +525,8 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
                 self.model_alias = new_model
                 self.model = config.resolve_model(new_model)
                 console.print(f"[green]已切换到模型: {self.model_alias} ({self.model})[/green]")
-                # 重新初始化上下文
-                self.session_count += 1
+                # 重新初始化上下文（生成新 session ID）
+                self.session_id = generate_session_id()
                 self.initialize()
             else:
                 console.print("[red]请指定模型名称[/red]")

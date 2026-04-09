@@ -19,6 +19,7 @@ from ripple.tools.builtin.bash import BashTool
 from ripple.tools.builtin.read import ReadTool
 from ripple.tools.builtin.search import SearchTool
 from ripple.tools.builtin.write import WriteTool
+from ripple.utils.conversation_log import generate_session_id
 
 console = Console()
 
@@ -160,7 +161,7 @@ async def run_agent_once(prompt: str, model: str, max_turns: int):
             tools=tools,
             model=model,
         ),
-        session_id="cli-session",
+        session_id=generate_session_id(),
         cwd=Path.cwd(),
     )
 

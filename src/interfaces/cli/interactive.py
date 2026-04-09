@@ -55,7 +55,12 @@ class RippleCLI:
 
         # 会话消息历史
         self.session_messages: list = []
-        self.session_token_count: int = 0
+
+        # API 返回的真实 token 统计（累计）
+        self.api_input_tokens: int = 0
+        self.api_output_tokens: int = 0
+        # 最后一次 API 调用的 input tokens（= 当前上下文大小）
+        self.last_context_tokens: int = 0
 
         # 系统提示（包含可用 skills）
         self.system_prompt: str = ""
@@ -67,7 +72,9 @@ class RippleCLI:
         """初始化客户端和上下文"""
         # 清空会话历史（切换模型时）
         self.session_messages = []
-        self.session_token_count = 0
+        self.api_input_tokens = 0
+        self.api_output_tokens = 0
+        self.last_context_tokens = 0
 
         # 加载所有可用的 skills 并构建系统提示
         from datetime import datetime
@@ -211,18 +218,35 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
             lines.append(f"- `{alias}` → {info.get('model', '?')}  {info.get('description', '')}{marker}")
         console.print(Panel(Markdown("\n".join(lines)), title="模型列表", border_style="blue"))
 
+    def _get_context_tokens(self) -> int:
+        """获取当前上下文 token 数：API 真实值优先，tiktoken 估算兜底"""
+        if self.last_context_tokens > 0:
+            return self.last_context_tokens
+        from ripple.messages.cleanup import estimate_tokens
+
+        return estimate_tokens(self.session_messages)
+
     def _display_token_usage(self):
         """显示 token 使用情况"""
-        max_context = 200_000  # Claude 3.5 Sonnet
-        usage_percent = (self.session_token_count / max_context) * 100
+        max_context = 200_000
+        ctx = self._get_context_tokens()
+        usage_percent = (ctx / max_context) * 100 if ctx else 0
+        api_total = self.api_input_tokens + self.api_output_tokens
 
+        parts = []
+        if api_total > 0:
+            parts.append(f"API 累计: ↑{self.api_input_tokens:,} ↓{self.api_output_tokens:,}")
+        if ctx > 0:
+            parts.append(f"上下文: {usage_percent:.1f}% ({ctx:,}/{max_context:,})")
+
+        if not parts:
+            return
+
+        summary = " | ".join(parts)
         if usage_percent > 80:
-            console.print(
-                f"[yellow]⚠️  上下文使用: {usage_percent:.1f}% "
-                f"({self.session_token_count:,} / {max_context:,} tokens)[/yellow]"
-            )
-        elif usage_percent > 60:
-            console.print(f"[dim]上下文使用: {usage_percent:.1f}% ({self.session_token_count:,} tokens)[/dim]")
+            console.print(f"[yellow]⚠️  {summary}[/yellow]")
+        else:
+            console.print(f"[dim]{summary}[/dim]")
 
     def _display_subagent_execution(self, result_content: str):
         """显示 SubAgent 的执行日志
@@ -313,6 +337,9 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
 
             has_output = False
 
+            # tool_use_id → tool_name 的映射，用于在 tool_result 中还原真实工具名
+            tool_id_to_name: dict[str, str] = {}
+
             # 记录用户消息
             self.conversation_log.log_user_message(prompt)
             logger.info("用户输入: {}", prompt[:200])
@@ -341,6 +368,17 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
                             from ripple.messages.utils import _convert_assistant_message
 
                             new_messages.append(_convert_assistant_message(item.message.get("content", [])))
+
+                            # 汇总 API 返回的真实 token 用量
+                            usage = item.message.get("usage", {})
+                            if usage:
+                                inp = usage.get("input_tokens", 0)
+                                out = usage.get("output_tokens", 0)
+                                self.api_input_tokens += inp
+                                self.api_output_tokens += out
+                                if inp > 0:
+                                    self.last_context_tokens = inp
+
                             content = item.message.get("content", [])
                             for block in content:
                                 if isinstance(block, dict):
@@ -354,10 +392,15 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
                                             )
                                     elif block.get("type") == "tool_use":
                                         tool_name = block.get("name", "")
+                                        tool_id = block.get("id", "")
                                         tool_input = block.get("input", {})
+
+                                        # 记录 id → name 映射
+                                        if tool_id:
+                                            tool_id_to_name[tool_id] = tool_name
+
                                         self.conversation_log.log_tool_call(tool_name, tool_input)
 
-                                        # 显示工具调用，更简洁
                                         import json
 
                                         input_str = json.dumps(tool_input, ensure_ascii=False)
@@ -413,9 +456,11 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
 
                                     from rich.markup import escape
 
-                                    # 获取工具名用于日志记录
+                                    # 还原真实工具名：优先从 block 中取，其次从映射中取
                                     tool_use_id = block.get("tool_use_id", "")
-                                    logged_tool_name = tool_use_id
+                                    logged_tool_name = (
+                                        block.get("tool_name") or tool_id_to_name.get(tool_use_id) or tool_use_id
+                                    )
 
                                     if is_error:
                                         self.conversation_log.log_tool_result(
@@ -450,20 +495,14 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
             cleaned_messages = cleanup_tool_results(new_messages)
             self.session_messages.extend(cleaned_messages)
 
-            # 更新 token 计数
-            self.session_token_count = estimate_tokens(self.session_messages)
-
-            # 智能清理：超过阈值时删除旧消息
-            if self.session_token_count > 150_000:
+            # 智能清理：优先用 API 真实值，无则用 tiktoken 估算
+            ctx = self.last_context_tokens or estimate_tokens(self.session_messages)
+            if ctx > 150_000:
                 old_count = len(self.session_messages)
                 self.session_messages = trim_old_messages(self.session_messages)
-                new_count = len(self.session_messages)
-                self.session_token_count = estimate_tokens(self.session_messages)
+                trimmed = old_count - len(self.session_messages)
 
-                console.print(
-                    f"[yellow]⚠️  上下文已清理 {old_count - new_count} 条旧消息 "
-                    f"(节省约 {150_000 - self.session_token_count:,} tokens)[/yellow]"
-                )
+                console.print(f"[yellow]⚠️  上下文接近上限 ({ctx:,} tokens)，已清理 {trimmed} 条旧消息[/yellow]")
 
             # 显示 token 使用情况
             self._display_token_usage()
@@ -499,18 +538,21 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
 
         elif cmd == "/clear":
             self.session_messages = []
-            self.session_token_count = 0
+            self.api_input_tokens = 0
+            self.api_output_tokens = 0
+            self.last_context_tokens = 0
             console.clear()
             console.print("[green]会话历史已清空[/green]")
 
         elif cmd == "/tokens":
             max_context = 200_000
-            usage_percent = (self.session_token_count / max_context) * 100
+            ctx = self._get_context_tokens()
+            usage_percent = (ctx / max_context) * 100 if ctx else 0
+            api_total = self.api_input_tokens + self.api_output_tokens
             info = f"""
 **Token 使用情况:**
-- 当前使用: {self.session_token_count:,} tokens
-- 上下文窗口: {max_context:,} tokens
-- 使用率: {usage_percent:.1f}%
+- 当前上下文: {ctx:,} / {max_context:,} tokens ({usage_percent:.1f}%)
+- API 累计: ↑ input {self.api_input_tokens:,} + ↓ output {self.api_output_tokens:,} = {api_total:,} tokens
 - 消息数: {len(self.session_messages)}
             """
             console.print(Panel(Markdown(info), title="Token 统计", border_style="blue"))

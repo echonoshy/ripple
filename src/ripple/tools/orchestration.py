@@ -5,6 +5,7 @@
 
 import asyncio
 import json
+import time
 from dataclasses import dataclass
 from typing import Any, AsyncGenerator
 
@@ -14,6 +15,15 @@ from ripple.messages.utils import create_tool_result_message
 from ripple.utils.logger import get_logger
 
 logger = get_logger("tools.orchestration")
+
+LOG_TRUNCATE_LEN = 500
+
+
+def _truncate(text: str, max_len: int = LOG_TRUNCATE_LEN) -> str:
+    """截断文本用于日志输出"""
+    if len(text) <= max_len:
+        return text
+    return text[:max_len] + f"...[+{len(text) - max_len} chars]"
 
 
 @dataclass
@@ -198,11 +208,13 @@ async def _run_tools_concurrently(
         if isinstance(result, Exception):
             from ripple.utils.errors import error_message
 
-            logger.error("并发工具执行异常: {}: {}", tool_use.get("name", "?"), result)
+            t_name = tool_use.get("name", "?")
+            logger.error("并发工具执行异常: {}: {}", t_name, result)
             error_msg = create_tool_result_message(
                 tool_use_id=tool_use.get("id", ""),
                 content=f"Tool execution failed: {error_message(result)}",
                 is_error=True,
+                tool_name=t_name,
             )
             yield MessageUpdate(message=error_msg)
         else:
@@ -225,47 +237,61 @@ async def _execute_tool(
     Yields:
         消息更新
     """
-    tool = _find_tool_by_name(context.options.tools, tool_use["name"])
+    tool_name = tool_use.get("name", "unknown")
+    tool_input = tool_use.get("input", {})
+    tool = _find_tool_by_name(context.options.tools, tool_name)
     parent_uuid = parent_message.uuid if parent_message else None
 
+    input_str = _truncate(json.dumps(tool_input, ensure_ascii=False))
+    logger.info("工具调用: {} | 参数: {}", tool_name, input_str)
+
     if not tool:
+        logger.warning("工具未找到: {}", tool_name)
         error_msg = create_tool_result_message(
             tool_use_id=tool_use["id"],
-            content=f"Tool '{tool_use['name']}' not found",
+            content=f"Tool '{tool_name}' not found",
             is_error=True,
+            tool_name=tool_name,
             source_assistant_uuid=parent_uuid,
         )
         yield MessageUpdate(message=error_msg)
         return
 
     if hasattr(context, "permission_manager") and context.permission_manager:
-        allowed, reason = await context.permission_manager.check_permission(tool, tool_use.get("input", {}), context)
+        allowed, reason = await context.permission_manager.check_permission(tool, tool_input, context)
 
         if not allowed:
+            logger.warning("工具权限拒绝: {} | 原因: {}", tool_name, reason)
             error_msg = create_tool_result_message(
                 tool_use_id=tool_use["id"],
                 content=f"Permission denied: {reason}",
                 is_error=True,
+                tool_name=tool_name,
                 source_assistant_uuid=parent_uuid,
             )
             yield MessageUpdate(message=error_msg)
             return
 
+    t0 = time.monotonic()
     try:
         result = await tool.call(
-            args=tool_use.get("input", {}),
+            args=tool_input,
             context=context,
             parent_message=parent_message,
         )
+        elapsed = time.monotonic() - t0
 
         result_content = str(result.data)
         if len(result_content) > tool.max_result_size_chars:
             result_content = result_content[: tool.max_result_size_chars] + "\n... [truncated]"
 
+        logger.info("工具完成: {} | 耗时: {:.2f}s | 结果: {}", tool_name, elapsed, _truncate(result_content))
+
         result_msg = create_tool_result_message(
             tool_use_id=tool_use["id"],
             content=result_content,
             is_error=False,
+            tool_name=tool_name,
             source_assistant_uuid=parent_uuid,
         )
         yield MessageUpdate(message=result_msg)
@@ -279,12 +305,17 @@ async def _execute_tool(
             yield MessageUpdate(new_context=new_context)
 
     except Exception as e:
+        elapsed = time.monotonic() - t0
         from ripple.utils.errors import error_message
+
+        err = error_message(e)
+        logger.warning("工具失败: {} | 耗时: {:.2f}s | 错误: {}", tool_name, elapsed, err)
 
         error_msg = create_tool_result_message(
             tool_use_id=tool_use["id"],
-            content=f"Tool execution failed: {error_message(e)}",
+            content=f"Tool execution failed: {err}",
             is_error=True,
+            tool_name=tool_name,
             source_assistant_uuid=parent_uuid,
         )
         yield MessageUpdate(message=error_msg)

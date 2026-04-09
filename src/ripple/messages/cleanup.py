@@ -6,6 +6,8 @@
 import json
 from typing import Any
 
+import tiktoken
+
 
 def cleanup_tool_results(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """清理工具调用和结果，只保留对话摘要
@@ -84,10 +86,21 @@ def _extract_assistant_text(msg: dict) -> str:
     return ""
 
 
-def estimate_tokens(messages: list[dict[str, Any]]) -> int:
-    """估算消息列表的 token 数
+_encoding: tiktoken.Encoding | None = None
 
-    简单实现：字符数 / 4
+
+def _get_encoding() -> tiktoken.Encoding:
+    """延迟加载 tiktoken 编码器（cl100k_base，兼容主流模型）"""
+    global _encoding
+    if _encoding is None:
+        _encoding = tiktoken.get_encoding("cl100k_base")
+    return _encoding
+
+
+def estimate_tokens(messages: list[dict[str, Any]]) -> int:
+    """基于 tiktoken 估算消息列表的 token 数
+
+    当 API 未返回 usage 时作为兜底。
 
     Args:
         messages: 消息列表
@@ -95,14 +108,38 @@ def estimate_tokens(messages: list[dict[str, Any]]) -> int:
     Returns:
         估算的 token 数
     """
-    total_chars = 0
-    for msg in messages:
-        try:
-            total_chars += len(json.dumps(msg, ensure_ascii=False))
-        except Exception:
-            total_chars += len(str(msg))
+    enc = _get_encoding()
+    total = 0
 
-    return total_chars // 4
+    for msg in messages:
+        total += 4  # 每条消息的格式开销
+
+        role = msg.get("role", "")
+        total += len(enc.encode(role))
+
+        content = msg.get("content")
+        if isinstance(content, str):
+            total += len(enc.encode(content))
+        elif isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict):
+                    text = block.get("text") or block.get("content") or ""
+                    if text:
+                        total += len(enc.encode(text))
+                    name = block.get("name") or ""
+                    if name:
+                        total += len(enc.encode(name))
+                    inp = block.get("input")
+                    if inp:
+                        total += len(enc.encode(json.dumps(inp, ensure_ascii=False)))
+
+        for tc in msg.get("tool_calls", []):
+            func = tc.get("function", {})
+            total += len(enc.encode(func.get("name", "")))
+            total += len(enc.encode(func.get("arguments", "")))
+
+    total += 2
+    return total
 
 
 def trim_old_messages(messages: list[dict[str, Any]], max_tokens: int = 150_000) -> list[dict[str, Any]]:
@@ -122,9 +159,8 @@ def trim_old_messages(messages: list[dict[str, Any]], max_tokens: int = 150_000)
     if current_tokens < max_tokens:
         return messages
 
-    # 删除最旧的 20% 消息
     keep_count = int(len(messages) * 0.8)
     if keep_count < 2:
-        keep_count = 2  # 至少保留 2 条消息
+        keep_count = 2
 
     return messages[-keep_count:]

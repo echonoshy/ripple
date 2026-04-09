@@ -167,17 +167,19 @@ def create_tool_result_message(
     tool_use_id: str,
     content: str,
     is_error: bool = False,
+    tool_name: str | None = None,
     source_assistant_uuid: str | None = None,
 ) -> UserMessage:
     """创建工具结果消息"""
+    block: dict[str, Any] = {
+        "type": "tool_result",
+        "tool_use_id": tool_use_id,
+        "content": content,
+        "is_error": is_error,
+    }
+    if tool_name:
+        block["tool_name"] = tool_name
     return create_user_message(
-        content=[
-            {
-                "type": "tool_result",
-                "tool_use_id": tool_use_id,
-                "content": content,
-                "is_error": is_error,
-            }
-        ],
+        content=[block],
         source_tool_assistant_uuid=source_assistant_uuid,
     )

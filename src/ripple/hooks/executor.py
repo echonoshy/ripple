@@ -4,7 +4,6 @@
 """
 
 from dataclasses import dataclass
-from typing import List
 
 from ripple.core.context import ToolUseContext
 from ripple.messages.types import AssistantMessage, Message, UserMessage
@@ -14,13 +13,13 @@ from ripple.messages.types import AssistantMessage, Message, UserMessage
 class StopHookResult:
     """Stop Hook 执行结果"""
 
-    blocking_errors: List[UserMessage]
+    blocking_errors: list[UserMessage]
     prevent_continuation: bool
 
 
 async def execute_stop_hooks(
-    messages: List[Message],
-    assistant_messages: List[AssistantMessage],
+    messages: list[Message],
+    assistant_messages: list[AssistantMessage],
     context: ToolUseContext,
 ) -> StopHookResult:
     """执行 Stop Hooks
@@ -43,7 +42,7 @@ async def execute_stop_hooks(
 
 async def execute_single_hook(
     hook: dict,
-    messages: List[Message],
+    messages: list[Message],
     context: ToolUseContext,
 ) -> dict:
     """执行单个 Hook

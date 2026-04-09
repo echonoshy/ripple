@@ -1,6 +1,6 @@
 """Token 计数工具"""
 
-from typing import Any, Dict, List
+from typing import Any
 
 import tiktoken
 
@@ -24,7 +24,7 @@ def count_tokens(text: str, model: str = "gpt-4") -> int:
     return len(encoding.encode(text))
 
 
-def count_message_tokens(messages: List[Dict[str, Any]], model: str = "gpt-4") -> int:
+def count_message_tokens(messages: list[dict[str, Any]], model: str = "gpt-4") -> int:
     """计算消息列表的 token 数量
 
     Args:
@@ -66,7 +66,7 @@ def count_message_tokens(messages: List[Dict[str, Any]], model: str = "gpt-4") -
     return total
 
 
-def estimate_tokens_with_buffer(messages: List[Dict[str, Any]], model: str = "gpt-4", buffer: float = 1.1) -> int:
+def estimate_tokens_with_buffer(messages: list[dict[str, Any]], model: str = "gpt-4", buffer: float = 1.1) -> int:
     """估算消息的 token 数量，带安全边界
 
     Args:

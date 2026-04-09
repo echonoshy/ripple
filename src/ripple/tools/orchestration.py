@@ -6,11 +6,14 @@
 import asyncio
 import json
 from dataclasses import dataclass
-from typing import Any, AsyncGenerator, Dict, List
+from typing import Any, AsyncGenerator
 
 from ripple.core.context import ToolUseContext
 from ripple.messages.types import AssistantMessage, Message
 from ripple.messages.utils import create_tool_result_message
+from ripple.utils.logger import get_logger
+
+logger = get_logger("tools.orchestration")
 
 
 @dataclass
@@ -22,16 +25,16 @@ class MessageUpdate:
 
 
 def _dedup_tool_calls(
-    tool_use_blocks: List[Dict[str, Any]],
-) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    tool_use_blocks: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """对相同 name + input 的工具调用去重，只保留第一个。
 
     Returns:
         (unique_blocks, duplicate_blocks)
     """
     seen: set[str] = set()
-    unique: list[Dict[str, Any]] = []
-    duplicates: list[Dict[str, Any]] = []
+    unique: list[dict[str, Any]] = []
+    duplicates: list[dict[str, Any]] = []
 
     for block in tool_use_blocks:
         key = json.dumps({"name": block.get("name"), "input": block.get("input", {})}, sort_keys=True)
@@ -45,8 +48,8 @@ def _dedup_tool_calls(
 
 
 async def run_tools(
-    tool_use_blocks: List[Dict[str, Any]],
-    assistant_messages: List[AssistantMessage],
+    tool_use_blocks: list[dict[str, Any]],
+    assistant_messages: list[AssistantMessage],
     tool_use_context: ToolUseContext,
 ) -> AsyncGenerator[MessageUpdate, None]:
     """执行工具调用
@@ -98,9 +101,9 @@ async def run_tools(
 
 
 def _partition_tool_calls(
-    tool_use_blocks: List[Dict[str, Any]],
+    tool_use_blocks: list[dict[str, Any]],
     context: ToolUseContext,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """将工具调用分区为可并发执行的批次
 
     Args:
@@ -141,8 +144,8 @@ def _partition_tool_calls(
 
 
 async def _run_tools_serially(
-    tool_use_blocks: List[Dict[str, Any]],
-    assistant_messages: List[AssistantMessage],
+    tool_use_blocks: list[dict[str, Any]],
+    assistant_messages: list[AssistantMessage],
     context: ToolUseContext,
 ) -> AsyncGenerator[MessageUpdate, None]:
     """串行执行工具
@@ -169,8 +172,8 @@ async def _run_tools_serially(
 
 
 async def _run_tools_concurrently(
-    tool_use_blocks: List[Dict[str, Any]],
-    assistant_messages: List[AssistantMessage],
+    tool_use_blocks: list[dict[str, Any]],
+    assistant_messages: list[AssistantMessage],
     context: ToolUseContext,
 ) -> AsyncGenerator[MessageUpdate, None]:
     """并发执行工具
@@ -183,54 +186,58 @@ async def _run_tools_concurrently(
     Yields:
         消息更新
     """
-    # 创建所有工具执行任务
     tasks = []
     for tool_use in tool_use_blocks:
         parent_message = _find_parent_message(tool_use, assistant_messages)
         task = _execute_tool_collect(tool_use, parent_message, context)
-        tasks.append(task)
+        tasks.append((tool_use, task))
 
-    # 并发执行
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    gathered = await asyncio.gather(*[t for _, t in tasks], return_exceptions=True)
 
-    # 生成结果
-    for result in results:
+    for (tool_use, _), result in zip(tasks, gathered):
         if isinstance(result, Exception):
-            # 错误处理
-            continue
-        for update in result:
-            yield update
+            from ripple.utils.errors import error_message
+
+            logger.error("并发工具执行异常: {}: {}", tool_use.get("name", "?"), result)
+            error_msg = create_tool_result_message(
+                tool_use_id=tool_use.get("id", ""),
+                content=f"Tool execution failed: {error_message(result)}",
+                is_error=True,
+            )
+            yield MessageUpdate(message=error_msg)
+        else:
+            for update in result:
+                yield update
 
 
 async def _execute_tool(
-    tool_use: Dict[str, Any],
-    parent_message: AssistantMessage,
+    tool_use: dict[str, Any],
+    parent_message: AssistantMessage | None,
     context: ToolUseContext,
 ) -> AsyncGenerator[MessageUpdate, None]:
     """执行单个工具
 
     Args:
         tool_use: 工具调用块
-        parent_message: 父助手消息
+        parent_message: 父助手消息（可能为 None）
         context: 工具使用上下文
 
     Yields:
         消息更新
     """
     tool = _find_tool_by_name(context.options.tools, tool_use["name"])
+    parent_uuid = parent_message.uuid if parent_message else None
 
     if not tool:
-        # 工具不存在
         error_msg = create_tool_result_message(
             tool_use_id=tool_use["id"],
             content=f"Tool '{tool_use['name']}' not found",
             is_error=True,
-            source_assistant_uuid=parent_message.uuid,
+            source_assistant_uuid=parent_uuid,
         )
         yield MessageUpdate(message=error_msg)
         return
 
-    # ========== 权限检查 ==========
     if hasattr(context, "permission_manager") and context.permission_manager:
         allowed, reason = await context.permission_manager.check_permission(tool, tool_use.get("input", {}), context)
 
@@ -239,56 +246,55 @@ async def _execute_tool(
                 tool_use_id=tool_use["id"],
                 content=f"Permission denied: {reason}",
                 is_error=True,
-                source_assistant_uuid=parent_message.uuid,
+                source_assistant_uuid=parent_uuid,
             )
             yield MessageUpdate(message=error_msg)
             return
 
     try:
-        # 调用工具
         result = await tool.call(
             args=tool_use.get("input", {}),
             context=context,
             parent_message=parent_message,
         )
 
-        # 创建工具结果消息
+        result_content = str(result.data)
+        if len(result_content) > tool.max_result_size_chars:
+            result_content = result_content[: tool.max_result_size_chars] + "\n... [truncated]"
+
         result_msg = create_tool_result_message(
             tool_use_id=tool_use["id"],
-            content=str(result.data),
+            content=result_content,
             is_error=False,
-            source_assistant_uuid=parent_message.uuid,
+            source_assistant_uuid=parent_uuid,
         )
         yield MessageUpdate(message=result_msg)
 
-        # 注入工具产生的附加消息（如 Skill inline 模式的 prompt 注入）
         if result.new_messages:
             for msg in result.new_messages:
                 yield MessageUpdate(message=msg)
 
-        # 应用 context 修改器
         if result.context_modifier:
             new_context = result.context_modifier(context)
             yield MessageUpdate(new_context=new_context)
 
     except Exception as e:
-        # 工具执行错误
         from ripple.utils.errors import error_message
 
         error_msg = create_tool_result_message(
             tool_use_id=tool_use["id"],
             content=f"Tool execution failed: {error_message(e)}",
             is_error=True,
-            source_assistant_uuid=parent_message.uuid,
+            source_assistant_uuid=parent_uuid,
         )
         yield MessageUpdate(message=error_msg)
 
 
 async def _execute_tool_collect(
-    tool_use: Dict[str, Any],
-    parent_message: AssistantMessage,
+    tool_use: dict[str, Any],
+    parent_message: AssistantMessage | None,
     context: ToolUseContext,
-) -> List[MessageUpdate]:
+) -> list[MessageUpdate]:
     """执行工具并收集所有更新
 
     Args:
@@ -305,7 +311,7 @@ async def _execute_tool_collect(
     return updates
 
 
-def _find_tool_by_name(tools: List[Any], name: str) -> Any:
+def _find_tool_by_name(tools: list[Any], name: str) -> Any:
     """根据名称查找工具
 
     Args:
@@ -322,9 +328,9 @@ def _find_tool_by_name(tools: List[Any], name: str) -> Any:
 
 
 def _find_parent_message(
-    tool_use: Dict[str, Any],
-    assistant_messages: List[AssistantMessage],
-) -> AssistantMessage:
+    tool_use: dict[str, Any],
+    assistant_messages: list[AssistantMessage],
+) -> AssistantMessage | None:
     """查找包含工具调用的助手消息
 
     Args:
@@ -332,7 +338,7 @@ def _find_parent_message(
         assistant_messages: 助手消息列表
 
     Returns:
-        父助手消息
+        父助手消息，找不到时返回 None
     """
     tool_use_id = tool_use["id"]
 

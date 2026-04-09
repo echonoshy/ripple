@@ -3,7 +3,7 @@
 使用 DuckDuckGo 进行网络搜索。
 """
 
-from typing import Any, Dict
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -39,7 +39,7 @@ class SearchTool(Tool[SearchInput, SearchOutput]):
 
     async def call(
         self,
-        args: SearchInput | Dict[str, Any],
+        args: SearchInput | dict[str, Any],
         context: ToolUseContext,
         parent_message: AssistantMessage,
     ) -> ToolResult[SearchOutput]:
@@ -98,7 +98,7 @@ class SearchTool(Tool[SearchInput, SearchOutput]):
             )
             return ToolResult(data=output)
 
-    def is_concurrency_safe(self, input: SearchInput | Dict[str, Any]) -> bool:
+    def is_concurrency_safe(self, input: SearchInput | dict[str, Any]) -> bool:
         """搜索是并发安全的
 
         Args:
@@ -109,7 +109,7 @@ class SearchTool(Tool[SearchInput, SearchOutput]):
         """
         return True
 
-    def _get_parameters_schema(self) -> Dict[str, Any]:
+    def _get_parameters_schema(self) -> dict[str, Any]:
         """获取参数 schema
 
         Returns:

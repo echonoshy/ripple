@@ -1,6 +1,6 @@
 """流式响应处理"""
 
-from typing import Any, AsyncGenerator, Dict, List
+from typing import Any, AsyncGenerator
 from uuid import uuid4
 
 from ripple.messages.types import AssistantMessage
@@ -22,14 +22,13 @@ async def process_stream_response(
         AssistantMessage 对象
     """
     current_message_id = str(uuid4())
-    accumulated_content: List[Dict[str, Any]] = []
+    accumulated_content: list[dict[str, Any]] = []
     current_text = ""
-    # 支持多个工具调用，使用 index 作为 key
-    tool_calls_map: Dict[int, Dict[str, Any]] = {}
+    tool_calls_map: dict[int, dict[str, Any]] = {}
 
     chunk_count = 0
     yielded = False
-    last_usage: Dict[str, int] = {}
+    last_usage: dict[str, int] = {}
 
     async for chunk in stream:
         chunk_count += 1
@@ -103,11 +102,11 @@ async def process_stream_response(
 
 def _build_message(
     current_text: str,
-    tool_calls_map: Dict[int, Dict[str, Any]],
-    accumulated_content: List[Dict[str, Any]],
+    tool_calls_map: dict[int, dict[str, Any]],
+    accumulated_content: list[dict[str, Any]],
     chunk: Any,
     message_id: str,
-    fallback_usage: Dict[str, int] | None = None,
+    fallback_usage: dict[str, int] | None = None,
 ) -> AssistantMessage:
     """从积累的流式数据构建 AssistantMessage"""
     import json

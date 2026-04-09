@@ -3,7 +3,7 @@
 启动子 agent 处理复杂子任务。
 """
 
-from typing import Any, Dict
+from typing import Any
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -51,7 +51,7 @@ class SubAgentTool(Tool[SubAgentInput, SubAgentOutput]):
 
     async def call(
         self,
-        args: SubAgentInput | Dict[str, Any],
+        args: SubAgentInput | dict[str, Any],
         context: ToolUseContext,
         parent_message: AssistantMessage,
     ) -> ToolResult[SubAgentOutput]:
@@ -196,7 +196,7 @@ class SubAgentTool(Tool[SubAgentInput, SubAgentOutput]):
             )
             return ToolResult(data=output)
 
-    def is_concurrency_safe(self, input: SubAgentInput | Dict[str, Any]) -> bool:
+    def is_concurrency_safe(self, input: SubAgentInput | dict[str, Any]) -> bool:
         """SubAgent 是并发安全的
 
         每个子 agent 有独立的 session_id 和上下文，不共享状态。
@@ -209,7 +209,7 @@ class SubAgentTool(Tool[SubAgentInput, SubAgentOutput]):
         """
         return True
 
-    def _get_parameters_schema(self) -> Dict[str, Any]:
+    def _get_parameters_schema(self) -> dict[str, Any]:
         """获取参数 schema
 
         Returns:

@@ -4,11 +4,10 @@
 """
 
 import json
+from typing import Any
 
-from ripple.messages.types import Message
 
-
-def cleanup_tool_results(messages: list[Message]) -> list[Message]:
+def cleanup_tool_results(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """清理工具调用和结果，只保留对话摘要
 
     同时兼容两种消息格式，通过特征自动检测：
@@ -85,7 +84,7 @@ def _extract_assistant_text(msg: dict) -> str:
     return ""
 
 
-def estimate_tokens(messages: list[Message]) -> int:
+def estimate_tokens(messages: list[dict[str, Any]]) -> int:
     """估算消息列表的 token 数
 
     简单实现：字符数 / 4
@@ -106,7 +105,7 @@ def estimate_tokens(messages: list[Message]) -> int:
     return total_chars // 4
 
 
-def trim_old_messages(messages: list[Message], max_tokens: int = 150_000) -> list[Message]:
+def trim_old_messages(messages: list[dict[str, Any]], max_tokens: int = 150_000) -> list[dict[str, Any]]:
     """超过阈值时，删除最旧的消息
 
     策略：删除最旧的 20% 消息

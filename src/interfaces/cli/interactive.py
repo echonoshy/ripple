@@ -86,6 +86,8 @@ class RippleCLI:
 
         skills_text = "\n".join(skills_info)
 
+        workspace_dir = Path.cwd() / ".ripple" / "workspace"
+
         self.system_prompt = f"""Today's date is {datetime.now().strftime("%Y/%m/%d")}.
 
 # Using Your Tools
@@ -108,6 +110,13 @@ Proactively ask the user when:
 - When you're unsure about the user's intent
 
 DO NOT guess or assume - ask first when uncertain.
+
+## File Writing Rules
+When the user asks to write or save content to a file without specifying an explicit path:
+- Default output directory: `{workspace_dir}`
+- Always use this directory for generated files (reports, summaries, notes, etc.)
+- Do NOT write to the user's home directory, root directory, or any system directory
+- If the user provides an explicit absolute path, respect it but warn if it's outside the workspace
 
 # Available Skills
 {skills_text}
@@ -138,7 +147,7 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
                 model=self.model,
             ),
             session_id=f"cli-session-{self.session_count}",
-            cwd=str(Path.cwd()),
+            cwd=Path.cwd(),
             permission_manager=permission_manager,
             on_pause_spinner=None,  # 稍后在 run_query 中设置
             on_resume_spinner=None,
@@ -224,10 +233,7 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
         console.print("\n[bold magenta]📦 SubAgent 执行详情[/bold magenta]")
         console.print("[dim]" + "─" * 60 + "[/dim]")
 
-        # 调试：显示原始内容的前500字符
-        console.print(f"[yellow]DEBUG 原始内容: {result_content[:500]}...[/yellow]")
-
-        # 尝试解析 execution_log
+        logger.debug("SubAgent 原始内容: {}...", result_content[:500])
         try:
             import re
 

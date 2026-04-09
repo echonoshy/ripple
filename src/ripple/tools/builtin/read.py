@@ -4,7 +4,7 @@
 """
 
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -42,7 +42,7 @@ class ReadTool(Tool[ReadInput, ReadOutput]):
 
     async def call(
         self,
-        args: ReadInput | Dict[str, Any],
+        args: ReadInput | dict[str, Any],
         context: ToolUseContext,
         parent_message: AssistantMessage,
     ) -> ToolResult[ReadOutput]:
@@ -103,7 +103,7 @@ class ReadTool(Tool[ReadInput, ReadOutput]):
             )
             return ToolResult(data=output)
 
-    def is_concurrency_safe(self, input: ReadInput | Dict[str, Any]) -> bool:
+    def is_concurrency_safe(self, input: ReadInput | dict[str, Any]) -> bool:
         """读取文件是并发安全的
 
         Args:
@@ -114,7 +114,7 @@ class ReadTool(Tool[ReadInput, ReadOutput]):
         """
         return True
 
-    def _get_parameters_schema(self) -> Dict[str, Any]:
+    def _get_parameters_schema(self) -> dict[str, Any]:
         """获取参数 schema
 
         Returns:

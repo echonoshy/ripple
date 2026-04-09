@@ -4,7 +4,7 @@
 """
 
 import json
-from typing import Any, AsyncGenerator, Dict, List
+from typing import Any, AsyncGenerator
 
 from ripple.api.client import OpenRouterClient
 from ripple.api.streaming import process_stream_response
@@ -13,7 +13,10 @@ from ripple.core.state import QueryState
 from ripple.core.transitions import (
     ContinueNextTurn,
     ContinueStopHookBlocking,
-    Terminal,
+    TerminalCompleted,
+    TerminalMaxTurns,
+    TerminalModelError,
+    TerminalStopHookPrevented,
 )
 from ripple.messages.types import AssistantMessage, Message, RequestStartEvent, StreamEvent
 from ripple.messages.utils import (
@@ -32,7 +35,7 @@ class QueryParams:
 
     def __init__(
         self,
-        messages: List[Message],
+        messages: list[Message],
         tool_use_context: ToolUseContext,
         model: str = "anthropic/claude-3.5-sonnet",
         max_turns: int | None = None,
@@ -50,7 +53,7 @@ class QueryParams:
 async def query_loop(
     params: QueryParams,
     client: OpenRouterClient,
-) -> AsyncGenerator[Message | StreamEvent | RequestStartEvent, Terminal]:
+) -> AsyncGenerator[Message | StreamEvent | RequestStartEvent, None]:
     """主 Agent 循环
 
     这是 Ripple 的核心循环，负责：
@@ -65,38 +68,28 @@ async def query_loop(
 
     Yields:
         消息或流式事件
-
-    Returns:
-        终止原因
     """
-    # 初始化状态
     state = QueryState(
         messages=params.messages,
         tool_use_context=params.tool_use_context,
         turn_count=1,
     )
 
-    # 跨轮次工具调用记录，用于检测重复调用死循环
-    # key = json({"name": ..., "input": ...})
     executed_tool_keys: set[str] = set()
 
-    # 主循环
     while True:
         # ========== 阶段 1: 调用模型 ==========
         logger.info("Turn {}: 开始调用模型 {}", state.turn_count, params.model)
         yield RequestStartEvent(type="stream_request_start")
 
-        assistant_messages: List[AssistantMessage] = []
-        tool_use_blocks: List[Dict[str, Any]] = []
+        assistant_messages: list[AssistantMessage] = []
+        tool_use_blocks: list[dict[str, Any]] = []
         needs_follow_up = False
 
-        # 规范化消息用于 API
-        api_messages = normalize_messages_for_api(state.messages, is_litellm=client.is_litellm)
+        api_messages = normalize_messages_for_api(state.messages)
 
-        # 准备工具定义
         tools = _prepare_tool_definitions(state.tool_use_context)
 
-        # 流式调用模型
         try:
             stream = client.stream_chat(
                 messages=api_messages,
@@ -110,7 +103,6 @@ async def query_loop(
                 yield message
                 assistant_messages.append(message)
 
-                # 检测工具调用
                 tool_uses = extract_tool_use_blocks(message)
                 if tool_uses:
                     tool_use_blocks.extend(tool_uses)
@@ -130,9 +122,9 @@ async def query_loop(
                 is_meta=True,
             )
             yield error_msg
+            state = state.with_transition(TerminalModelError(error=e))
             return
 
-        # 记录流处理结果
         if assistant_messages:
             total_content_blocks = sum(len(m.message.get("content", [])) for m in assistant_messages)
             logger.info(
@@ -147,7 +139,6 @@ async def query_loop(
 
         # ========== 阶段 2: 判断是否需要继续 ==========
         if not needs_follow_up:
-            # 没有工具调用，检查 Stop Hooks
             stop_result = await _handle_stop_hooks(
                 state.messages,
                 assistant_messages,
@@ -155,10 +146,10 @@ async def query_loop(
             )
 
             if stop_result.prevent_continuation:
+                state = state.with_transition(TerminalStopHookPrevented())
                 return
 
             if stop_result.blocking_errors:
-                # 注入错误消息，继续循环让模型修复
                 state = state.with_messages(
                     [
                         *state.messages,
@@ -168,12 +159,12 @@ async def query_loop(
                 ).with_transition(ContinueStopHookBlocking())
                 continue
 
-            # 任务完成
+            state = state.with_transition(TerminalCompleted())
             return
 
         # ========== 阶段 3: 跨轮次去重 + 执行工具 ==========
-        tool_results: List[Message] = []
-        new_tool_blocks: List[Dict[str, Any]] = []
+        tool_results: list[Message] = []
+        new_tool_blocks: list[dict[str, Any]] = []
 
         for block in tool_use_blocks:
             key = json.dumps({"name": block.get("name"), "input": block.get("input", {})}, sort_keys=True)
@@ -193,7 +184,6 @@ async def query_loop(
                 new_tool_blocks.append(block)
                 executed_tool_keys.add(key)
 
-        # 执行非重复的工具调用
         if new_tool_blocks:
             from ripple.tools.orchestration import run_tools
 
@@ -231,6 +221,7 @@ async def query_loop(
         next_turn_count = state.turn_count + 1
         if params.max_turns and next_turn_count > params.max_turns:
             logger.warning("达到最大轮数 {}，终止循环", params.max_turns)
+            state = state.with_transition(TerminalMaxTurns(turn_count=state.turn_count))
             return
 
         # ========== 阶段 5: 继续下一轮 ==========
@@ -247,7 +238,7 @@ async def query_loop(
         )
 
 
-def _prepare_tool_definitions(context: ToolUseContext) -> List[Dict[str, Any]]:
+def _prepare_tool_definitions(context: ToolUseContext) -> list[dict[str, Any]]:
     """准备工具定义用于 API 调用
 
     Args:
@@ -265,8 +256,8 @@ def _prepare_tool_definitions(context: ToolUseContext) -> List[Dict[str, Any]]:
 
 
 async def _handle_stop_hooks(
-    messages: List[Message],
-    assistant_messages: List[AssistantMessage],
+    messages: list[Message],
+    assistant_messages: list[AssistantMessage],
     context: ToolUseContext,
 ):
     """处理 Stop Hooks
@@ -279,13 +270,12 @@ async def _handle_stop_hooks(
     Returns:
         Stop Hook 结果
     """
-    # 延迟导入避免循环依赖
     from ripple.hooks.executor import StopHookResult, execute_stop_hooks
 
     try:
         return await execute_stop_hooks(messages, assistant_messages, context)
-    except Exception:
-        # Hook 执行失败，不阻止继续
+    except Exception as e:
+        logger.error("Stop Hook 执行异常（已忽略，不阻止继续）: {}", e)
         return StopHookResult(
             blocking_errors=[],
             prevent_continuation=False,
@@ -302,7 +292,7 @@ async def query(
     thinking: bool = False,
     history_messages: list[Message] | None = None,
     system_prompt: str | None = None,
-) -> AsyncGenerator[Message | StreamEvent | RequestStartEvent, Terminal]:
+) -> AsyncGenerator[Message | StreamEvent | RequestStartEvent, None]:
     """查询入口函数
 
     Args:
@@ -317,9 +307,6 @@ async def query(
 
     Yields:
         消息或流式事件
-
-    Returns:
-        终止原因
     """
     if client is None:
         client = OpenRouterClient()
@@ -336,9 +323,14 @@ async def query(
         messages.append(create_system_message(content=system_prompt))
     else:
         current_date = datetime.now().strftime("%Y/%m/%d")
+        workspace_dir = context.cwd / ".ripple" / "workspace"
         messages.append(
             create_system_message(
-                content=f"Today's date is {current_date}. Use this date when searching for current information or answering time-sensitive questions."
+                content=(
+                    f"Today's date is {current_date}. Use this date when searching for current information or answering time-sensitive questions.\n\n"
+                    f"When writing or saving files, use `{workspace_dir}` as the default output directory. "
+                    f"Do NOT write to the user's home directory, root directory, or any system directory."
+                )
             )
         )
 

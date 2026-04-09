@@ -3,12 +3,9 @@
 内置技能注册表，用于注册和管理编译到 Ripple 中的技能。
 """
 
-from typing import Dict
-
 from ripple.skills.types import Skill
 
-# 全局注册表：存储所有 bundled skills
-_bundled_skills: Dict[str, Skill] = {}
+_bundled_skills: dict[str, Skill] = {}
 
 
 def register_bundled_skill(
@@ -57,7 +54,7 @@ def register_bundled_skill(
     _bundled_skills[name] = skill
 
 
-def get_bundled_skills() -> Dict[str, Skill]:
+def get_bundled_skills() -> dict[str, Skill]:
     """获取所有 bundled skills
 
     Returns:

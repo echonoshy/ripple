@@ -161,7 +161,7 @@ async def run_agent_once(prompt: str, model: str, max_turns: int):
             model=model,
         ),
         session_id="cli-session",
-        cwd=str(Path.cwd()),
+        cwd=Path.cwd(),
     )
 
     # 创建客户端

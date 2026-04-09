@@ -3,7 +3,7 @@
 基于 claude-code 的消息系统，定义 Agent 循环中使用的各种消息类型。
 """
 
-from typing import Any, Dict, Literal, Optional, Union
+from typing import Any, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -22,7 +22,7 @@ class ToolUseBlock(BaseModel):
     type: Literal["tool_use"]
     id: str
     name: str
-    input: Dict[str, Any]
+    input: dict[str, Any]
 
 
 class ToolResultBlock(BaseModel):
@@ -31,19 +31,19 @@ class ToolResultBlock(BaseModel):
     type: Literal["tool_result"]
     tool_use_id: str
     content: str
-    is_error: Optional[bool] = None
+    is_error: bool | None = None
 
 
-ContentBlock = Union[TextBlock, ToolUseBlock, ToolResultBlock]
+ContentBlock = TextBlock | ToolUseBlock | ToolResultBlock
 
 
 class AssistantMessage(BaseModel):
     """助手消息"""
 
     type: Literal["assistant"]
-    message: Dict[str, Any]  # {id, content, usage}
+    message: dict[str, Any]  # {id, content, usage}
     uuid: str = Field(default_factory=lambda: str(uuid4()))
-    api_error: Optional[str] = None
+    api_error: str | None = None
     is_api_error_message: bool = False
 
 
@@ -51,10 +51,10 @@ class UserMessage(BaseModel):
     """用户消息"""
 
     type: Literal["user"]
-    message: Dict[str, Any]  # {content}
-    is_meta: bool = False  # 系统生成的元消息
-    source_tool_assistant_uuid: Optional[str] = None
-    tool_use_result: Optional[str] = None
+    message: dict[str, Any]  # {content}
+    is_meta: bool = False
+    source_tool_assistant_uuid: str | None = None
+    tool_use_result: str | None = None
 
 
 class SystemMessage(BaseModel):
@@ -70,24 +70,24 @@ class ProgressMessage(BaseModel):
 
     type: Literal["progress"]
     tool_use_id: str
-    data: Dict[str, Any]
+    data: dict[str, Any]
 
 
 class AttachmentMessage(BaseModel):
     """附件消息"""
 
     type: Literal["attachment"]
-    attachment: Dict[str, Any]
+    attachment: dict[str, Any]
 
 
-Message = Union[AssistantMessage, UserMessage, SystemMessage, ProgressMessage, AttachmentMessage]
+Message = AssistantMessage | UserMessage | SystemMessage | ProgressMessage | AttachmentMessage
 
 
 class StreamEvent(BaseModel):
     """流式事件"""
 
     type: Literal["stream_chunk", "stream_start", "stream_end"]
-    data: Optional[Dict[str, Any]] = None
+    data: dict[str, Any] | None = None
 
 
 class RequestStartEvent(BaseModel):

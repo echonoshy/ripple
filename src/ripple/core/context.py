@@ -3,17 +3,19 @@
 定义工具执行时的上下文信息。
 """
 
-from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from collections.abc import Callable
+from dataclasses import dataclass, field, replace
+from pathlib import Path
+from typing import Any
 
 
 @dataclass
 class ToolOptions:
     """工具选项"""
 
-    tools: List[Any] = field(default_factory=list)  # 实际类型是 List[Tool]
+    tools: list[Any] = field(default_factory=list)
     model: str = "anthropic/claude-3.5-sonnet"
-    max_tokens: Optional[int] = None
+    max_tokens: int | None = None
     temperature: float = 1.0
 
 
@@ -26,29 +28,24 @@ class ToolUseContext:
 
     options: ToolOptions
     session_id: str
-    cwd: str = "."
-    abort_signal: Optional[Any] = None  # 中断信号
-    read_file_state: Dict[str, Any] = field(default_factory=dict)  # 文件读取状态缓存
+    cwd: Path = field(default_factory=Path.cwd)
+    abort_signal: Any | None = None
+    read_file_state: dict[str, Any] = field(default_factory=dict)
 
-    # 权限相关
-    permission_mode: str = "ask"  # ask, allow, deny
-    allowed_tools: List[str] = field(default_factory=list)
-    permission_manager: Optional[Any] = None  # 权限管理器
+    permission_mode: str = "ask"
+    allowed_tools: list[str] = field(default_factory=list)
+    permission_manager: Any | None = None
 
-    # 回调函数
-    on_progress: Optional[Callable] = None
-    on_notification: Optional[Callable] = None
-    on_pause_spinner: Optional[Callable] = None  # 暂停 spinner（用于用户交互）
-    on_resume_spinner: Optional[Callable] = None  # 恢复 spinner
+    on_progress: Callable | None = None
+    on_notification: Callable | None = None
+    on_pause_spinner: Callable | None = None
+    on_resume_spinner: Callable | None = None
 
     def with_options(self, options: ToolOptions) -> "ToolUseContext":
         """创建新上下文，更新选项"""
-        from dataclasses import replace
-
         return replace(self, options=options)
 
-    def with_allowed_tools(self, tools: List[str]) -> "ToolUseContext":
-        """创建新上下文，更新允许的工具"""
-        from dataclasses import replace
-
-        return replace(self, allowed_tools=[*self.allowed_tools, *tools])
+    def with_allowed_tools(self, tools: list[str]) -> "ToolUseContext":
+        """创建新上下文，追加允许的工具（去重）"""
+        merged = list(dict.fromkeys([*self.allowed_tools, *tools]))
+        return replace(self, allowed_tools=merged)

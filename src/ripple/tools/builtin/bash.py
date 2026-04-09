@@ -4,7 +4,7 @@
 """
 
 import subprocess
-from typing import Any, Dict
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -43,7 +43,7 @@ class BashTool(Tool[BashInput, BashOutput]):
 
     async def call(
         self,
-        args: BashInput | Dict[str, Any],
+        args: BashInput | dict[str, Any],
         context: ToolUseContext,
         parent_message: AssistantMessage,
     ) -> ToolResult[BashOutput]:
@@ -98,7 +98,7 @@ class BashTool(Tool[BashInput, BashOutput]):
             )
             return ToolResult(data=output)
 
-    def is_concurrency_safe(self, input: BashInput | Dict[str, Any]) -> bool:
+    def is_concurrency_safe(self, input: BashInput | dict[str, Any]) -> bool:
         """Bash 命令通常不是并发安全的
 
         Args:
@@ -111,7 +111,7 @@ class BashTool(Tool[BashInput, BashOutput]):
         # 未来可以分析命令内容判断是否只读
         return False
 
-    def _get_parameters_schema(self) -> Dict[str, Any]:
+    def _get_parameters_schema(self) -> dict[str, Any]:
         """获取参数 schema
 
         Returns:

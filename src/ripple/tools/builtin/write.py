@@ -4,7 +4,7 @@
 """
 
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -43,7 +43,7 @@ class WriteTool(Tool[WriteInput, WriteOutput]):
 
     async def call(
         self,
-        args: WriteInput | Dict[str, Any],
+        args: WriteInput | dict[str, Any],
         context: ToolUseContext,
         parent_message: AssistantMessage,
     ) -> ToolResult[WriteOutput]:
@@ -89,7 +89,7 @@ class WriteTool(Tool[WriteInput, WriteOutput]):
             )
             return ToolResult(data=output)
 
-    def is_concurrency_safe(self, input: WriteInput | Dict[str, Any]) -> bool:
+    def is_concurrency_safe(self, input: WriteInput | dict[str, Any]) -> bool:
         """写入文件不是并发安全的
 
         Args:
@@ -100,7 +100,7 @@ class WriteTool(Tool[WriteInput, WriteOutput]):
         """
         return False
 
-    def _get_parameters_schema(self) -> Dict[str, Any]:
+    def _get_parameters_schema(self) -> dict[str, Any]:
         """获取参数 schema
 
         Returns:

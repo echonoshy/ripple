@@ -12,6 +12,7 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.prompt import Prompt
+from rich.theme import Theme
 
 from ripple.api.client import OpenRouterClient
 from ripple.core.agent_loop import query
@@ -30,7 +31,14 @@ from ripple.utils.conversation_log import ConversationLogger, generate_session_i
 from ripple.utils.logger import LOG_FILE, get_logger
 
 logger = get_logger("cli.interactive")
-console = Console()
+
+custom_theme = Theme(
+    {
+        "markdown.code": "cyan",
+        "markdown.code_block": "cyan",
+    }
+)
+console = Console(theme=custom_theme)
 
 
 class RippleCLI:

@@ -1,0 +1,330 @@
+"""query() async generator yield -> SSE 事件适配层
+
+将 agent_loop.query() 产生的 Message / StreamEvent 转换为
+OpenAI 兼容的 SSE data 行（chat.completion.chunk 格式）。
+"""
+
+import json
+import time
+from collections.abc import AsyncGenerator
+from typing import Any
+from uuid import uuid4
+
+from ripple.api.client import OpenRouterClient
+from ripple.core.agent_loop import query
+from ripple.core.context import ToolUseContext
+from ripple.messages.cleanup import cleanup_tool_results
+from ripple.messages.types import AssistantMessage, Message, RequestStartEvent, StreamEvent
+from ripple.messages.utils import _convert_assistant_message
+from ripple.utils.logger import get_logger
+
+logger = get_logger("server.sse")
+
+
+def _save_to_history(history_messages: list[Message], user_input: str, new_messages: list[Message]) -> None:
+    """将本轮消息转为 dict 并 cleanup 后追加到历史"""
+    raw_dicts: list[dict[str, Any]] = [{"role": "user", "content": [{"type": "text", "text": user_input}]}]
+
+    for msg in new_messages:
+        if isinstance(msg, AssistantMessage):
+            raw_dicts.append(_convert_assistant_message(msg.message.get("content", [])))
+        elif hasattr(msg, "type") and msg.type == "user":
+            content = msg.message.get("content", [])
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "tool_result":
+                    raw_dicts.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": block.get("tool_use_id", ""),
+                            "content": block.get("content", ""),
+                        }
+                    )
+
+    cleaned = cleanup_tool_results(raw_dicts)
+    history_messages.extend(cleaned)
+
+
+def _make_chunk(
+    chunk_id: str,
+    model: str,
+    created: int,
+    delta: dict[str, Any],
+    finish_reason: str | None = None,
+) -> str:
+    """构建一个 OpenAI chat.completion.chunk JSON 行"""
+    payload = {
+        "id": chunk_id,
+        "object": "chat.completion.chunk",
+        "created": created,
+        "model": model,
+        "choices": [
+            {
+                "index": 0,
+                "delta": delta,
+                "finish_reason": finish_reason,
+            }
+        ],
+    }
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def _make_tool_event(event_type: str, data: dict[str, Any]) -> str:
+    """构建 Ripple 扩展事件（tool_call / tool_result），用于丰富流式输出"""
+    payload = {"type": event_type, **data}
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+async def stream_query_as_sse(
+    user_input: str,
+    context: ToolUseContext,
+    client: OpenRouterClient,
+    model: str,
+    max_turns: int,
+    history_messages: list[Message] | None = None,
+    system_prompt: str | None = None,
+    thinking: bool = False,
+) -> AsyncGenerator[str, None]:
+    """消费 query() 的 async generator，产出 SSE data 行。
+
+    Yields:
+        符合 OpenAI SSE 格式的字符串行（包含 `data: ...\\n\\n`）。
+    """
+    import asyncio
+
+    chunk_id = f"chatcmpl-{uuid4().hex[:24]}"
+    created = int(time.time())
+    first_chunk = True
+    accumulated_text = ""
+    accumulated_tool_calls: list[dict[str, Any]] = []
+    usage_info: dict[str, int] = {}
+    new_messages: list[Message] = []
+
+    try:
+        async for item in query(
+            user_input=user_input,
+            context=context,
+            client=client,
+            model=model,
+            max_turns=max_turns,
+            thinking=thinking,
+            history_messages=history_messages,
+            system_prompt=system_prompt,
+        ):
+            if isinstance(item, RequestStartEvent):
+                continue
+
+            if isinstance(item, StreamEvent):
+                if item.type == "stream_start":
+                    if first_chunk:
+                        yield _make_chunk(chunk_id, model, created, {"role": "assistant"})
+                        first_chunk = False
+
+                elif item.type == "stream_chunk":
+                    text = (item.data or {}).get("text", "")
+                    if text:
+                        accumulated_text += text
+                        yield _make_chunk(chunk_id, model, created, {"content": text})
+
+                elif item.type == "stream_end":
+                    pass
+
+            elif isinstance(item, AssistantMessage):
+                new_messages.append(item)
+
+                usage = item.message.get("usage", {})
+                if usage:
+                    usage_info["prompt_tokens"] = usage_info.get("prompt_tokens", 0) + usage.get("input_tokens", 0)
+                    usage_info["completion_tokens"] = usage_info.get("completion_tokens", 0) + usage.get(
+                        "output_tokens", 0
+                    )
+
+                content = item.message.get("content", [])
+                for block in content:
+                    if not isinstance(block, dict):
+                        continue
+
+                    if block.get("type") == "text":
+                        pass
+
+                    elif block.get("type") == "tool_use":
+                        tool_call_data = {
+                            "name": block.get("name", ""),
+                            "id": block.get("id", ""),
+                            "input": block.get("input", {}),
+                        }
+                        accumulated_tool_calls.append(tool_call_data)
+                        yield _make_tool_event("tool_call", tool_call_data)
+
+            elif hasattr(item, "type") and item.type == "user":
+                new_messages.append(item)
+
+                if getattr(item, "is_meta", False):
+                    content = item.message.get("content", [])
+                    for block in content:
+                        if isinstance(block, dict) and block.get("type") == "text":
+                            meta_text = block.get("text", "")
+                            if meta_text:
+                                if not first_chunk:
+                                    yield _make_chunk(
+                                        chunk_id,
+                                        model,
+                                        created,
+                                        {"content": f"\n\n**System Notification:**\n{meta_text}"},
+                                    )
+                                else:
+                                    yield _make_chunk(chunk_id, model, created, {"role": "assistant"})
+                                    yield _make_chunk(
+                                        chunk_id, model, created, {"content": f"**System Notification:**\n{meta_text}"}
+                                    )
+                                    first_chunk = False
+
+                content = item.message.get("content", [])
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "tool_result":
+                        yield _make_tool_event(
+                            "tool_result",
+                            {
+                                "tool_use_id": block.get("tool_use_id", ""),
+                                "content": block.get("content", "")[:500],
+                                "is_error": block.get("is_error", False),
+                            },
+                        )
+
+        if history_messages is not None:
+            _save_to_history(history_messages, user_input, new_messages)
+
+        finish_chunk = {
+            "id": chunk_id,
+            "object": "chat.completion.chunk",
+            "created": created,
+            "model": model,
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+        }
+        if usage_info:
+            finish_chunk["usage"] = {
+                "prompt_tokens": usage_info.get("prompt_tokens", 0),
+                "completion_tokens": usage_info.get("completion_tokens", 0),
+                "total_tokens": usage_info.get("prompt_tokens", 0) + usage_info.get("completion_tokens", 0),
+            }
+        yield f"data: {json.dumps(finish_chunk, ensure_ascii=False)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    except asyncio.CancelledError:
+        logger.info("stream_query_as_sse 被取消 (CancelledError)")
+        if history_messages is not None:
+            _save_to_history(history_messages, user_input, new_messages)
+        raise
+
+
+async def collect_query_response(
+    user_input: str,
+    context: ToolUseContext,
+    client: OpenRouterClient,
+    model: str,
+    max_turns: int,
+    history_messages: list[Message] | None = None,
+    system_prompt: str | None = None,
+    thinking: bool = False,
+) -> dict[str, Any]:
+    """消费 query() 的 async generator，收集为完整的 ChatCompletion 响应。
+
+    用于 stream=false 的请求。
+    """
+    import asyncio
+
+    chunk_id = f"chatcmpl-{uuid4().hex[:24]}"
+    created = int(time.time())
+    accumulated_text = ""
+    tool_calls: list[dict[str, Any]] = []
+    usage_info: dict[str, int] = {}
+    new_messages: list[Message] = []
+
+    try:
+        async for item in query(
+            user_input=user_input,
+            context=context,
+            client=client,
+            model=model,
+            max_turns=max_turns,
+            thinking=thinking,
+            history_messages=history_messages,
+            system_prompt=system_prompt,
+        ):
+            if isinstance(item, (StreamEvent, RequestStartEvent)):
+                if isinstance(item, StreamEvent) and item.type == "stream_chunk":
+                    text = (item.data or {}).get("text", "")
+                    accumulated_text += text
+                continue
+
+            if isinstance(item, AssistantMessage):
+                new_messages.append(item)
+
+                usage = item.message.get("usage", {})
+                if usage:
+                    usage_info["prompt_tokens"] = usage_info.get("prompt_tokens", 0) + usage.get("input_tokens", 0)
+                    usage_info["completion_tokens"] = usage_info.get("completion_tokens", 0) + usage.get(
+                        "output_tokens", 0
+                    )
+
+                for block in item.message.get("content", []):
+                    if not isinstance(block, dict):
+                        continue
+                    if block.get("type") == "text" and block.get("text", "").strip():
+                        pass
+                    elif block.get("type") == "tool_use":
+                        tool_calls.append(
+                            {
+                                "id": block.get("id", ""),
+                                "type": "function",
+                                "function": {
+                                    "name": block.get("name", ""),
+                                    "arguments": json.dumps(block.get("input", {}), ensure_ascii=False),
+                                },
+                            }
+                        )
+
+            elif hasattr(item, "type") and item.type == "user":
+                new_messages.append(item)
+
+                if getattr(item, "is_meta", False):
+                    content = item.message.get("content", [])
+                    for block in content:
+                        if isinstance(block, dict) and block.get("type") == "text":
+                            meta_text = block.get("text", "")
+                            if meta_text:
+                                accumulated_text += f"\n\n**System Notification:**\n{meta_text}"
+
+        if history_messages is not None:
+            _save_to_history(history_messages, user_input, new_messages)
+
+        message: dict[str, Any] = {
+            "role": "assistant",
+            "content": accumulated_text or None,
+        }
+        if tool_calls:
+            message["tool_calls"] = tool_calls
+
+        return {
+            "id": chunk_id,
+            "object": "chat.completion",
+            "created": created,
+            "model": model,
+            "choices": [
+                {
+                    "index": 0,
+                    "message": message,
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {
+                "prompt_tokens": usage_info.get("prompt_tokens", 0),
+                "completion_tokens": usage_info.get("completion_tokens", 0),
+                "total_tokens": usage_info.get("prompt_tokens", 0) + usage_info.get("completion_tokens", 0),
+            },
+        }
+
+    except asyncio.CancelledError:
+        logger.info("collect_query_response 被取消 (CancelledError)")
+        if history_messages is not None:
+            _save_to_history(history_messages, user_input, new_messages)
+        raise

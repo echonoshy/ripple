@@ -1,0 +1,158 @@
+"use client";
+
+import React, { useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import rehypeHighlight from "rehype-highlight";
+import { ChevronRight, Brain } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+
+interface MarkdownRendererProps {
+  content: string;
+  className?: string;
+}
+
+interface ContentSegment {
+  type: "text" | "thinking";
+  content: string;
+}
+
+function parseThinkingBlocks(content: string): ContentSegment[] {
+  const segments: ContentSegment[] = [];
+  const regex = /<think>([\s\S]*?)<\/think>/g;
+  let lastIndex = 0;
+  let match;
+
+  while ((match = regex.exec(content)) !== null) {
+    if (match.index > lastIndex) {
+      const text = content.slice(lastIndex, match.index).trim();
+      if (text) segments.push({ type: "text", content: text });
+    }
+    const thinking = match[1].trim();
+    if (thinking) segments.push({ type: "thinking", content: thinking });
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < content.length) {
+    const text = content.slice(lastIndex).trim();
+    if (text) segments.push({ type: "text", content: text });
+  }
+
+  return segments.length > 0 ? segments : [{ type: "text", content }];
+}
+
+function ThinkingBlock({ content }: { content: string }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  return (
+    <div className="my-2 rounded-xl border border-violet-200/60 bg-violet-50/50 overflow-hidden">
+      <button
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="w-full px-4 py-2.5 flex items-center gap-2 text-left hover:bg-violet-100/50 transition-colors"
+      >
+        <Brain size={14} className="text-violet-500 shrink-0" />
+        <span className="text-sm font-semibold text-violet-600">Thinking Process</span>
+        <motion.div
+          animate={{ rotate: isExpanded ? 90 : 0 }}
+          transition={{ duration: 0.2 }}
+          className="ml-auto"
+        >
+          <ChevronRight size={14} className="text-violet-400" />
+        </motion.div>
+      </button>
+      <AnimatePresence>
+        {isExpanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.25, ease: "easeInOut" }}
+            className="overflow-hidden"
+          >
+            <div className="px-4 pb-3 border-t border-violet-200/40">
+              <div className="mt-2 text-sm text-slate-600 leading-relaxed markdown-body">
+                <MarkdownContent content={content} />
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function MarkdownContent({ content }: { content: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      rehypePlugins={[rehypeHighlight]}
+      components={{
+        pre({ children }) {
+          return <pre className="not-prose overflow-x-auto rounded-xl bg-slate-900 p-4 my-3 text-sm">{children}</pre>;
+        },
+        code({ className, children, ...props }) {
+          const isInline = !className;
+          if (isInline) {
+            return (
+              <code className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[13px] font-medium text-violet-600 border border-slate-200" {...props}>
+                {children}
+              </code>
+            );
+          }
+          return (
+            <code className={`${className} text-[13px] leading-relaxed`} {...props}>
+              {children}
+            </code>
+          );
+        },
+        a({ href, children }) {
+          return (
+            <a href={href} target="_blank" rel="noopener noreferrer" className="text-violet-600 hover:text-violet-700 underline underline-offset-2">
+              {children}
+            </a>
+          );
+        },
+        table({ children }) {
+          return (
+            <div className="overflow-x-auto my-3">
+              <table className="min-w-full border-collapse text-sm">{children}</table>
+            </div>
+          );
+        },
+        th({ children }) {
+          return <th className="border border-slate-200 bg-slate-50 px-3 py-2 text-left font-semibold">{children}</th>;
+        },
+        td({ children }) {
+          return <td className="border border-slate-200 px-3 py-2">{children}</td>;
+        },
+      }}
+    >
+      {content}
+    </ReactMarkdown>
+  );
+}
+
+export default function MarkdownRenderer({ content, className = "" }: MarkdownRendererProps) {
+  const segments = parseThinkingBlocks(content);
+  const hasThinking = segments.some(s => s.type === "thinking");
+
+  if (!hasThinking) {
+    return (
+      <div className={`markdown-body ${className}`}>
+        <MarkdownContent content={content} />
+      </div>
+    );
+  }
+
+  return (
+    <div className={`markdown-body ${className}`}>
+      {segments.map((segment, i) =>
+        segment.type === "thinking" ? (
+          <ThinkingBlock key={i} content={segment.content} />
+        ) : (
+          <MarkdownContent key={i} content={segment.content} />
+        )
+      )}
+    </div>
+  );
+}

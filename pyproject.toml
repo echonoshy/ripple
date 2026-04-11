@@ -1,0 +1,52 @@
+[project]
+name = "ripple"
+version = "0.1.0"
+description = "让每个提问都成为涟漪的中心，每一次循环都是向解的蔓延"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "pydantic>=2.0",
+    "openai>=1.0",
+    "httpx>=0.27",
+    "python-frontmatter>=1.0",
+    "tiktoken>=0.7",
+    "rich>=13.0",
+    "click>=8.0",
+    "pyyaml>=6.0",
+    "aiofiles>=23.0",
+    "ddgs>=9.13.0",
+    "prompt-toolkit>=3.0.52",
+    "loguru>=0.7.3",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+    "python-nsjail>=0.3.0",
+]
+
+[project.scripts]
+ripple = "interfaces.cli.main:main"
+
+[tool.uv]
+package = true
+dev-dependencies = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.3",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

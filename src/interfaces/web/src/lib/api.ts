@@ -1,38 +1,38 @@
-import { fetchEventSource } from '@microsoft/fetch-event-source';
-import { ToolCall, UsageInfo, SystemInfo, Session, SessionDetail } from '@/types';
+import { fetchEventSource } from "@microsoft/fetch-event-source";
+import { ToolCall, UsageInfo, SystemInfo, Session, SessionDetail } from "@/types";
 
 function getApiUrl(): string {
   if (process.env.NEXT_PUBLIC_RIPPLE_API_URL) {
     return process.env.NEXT_PUBLIC_RIPPLE_API_URL;
   }
-  if (typeof window !== 'undefined') {
+  if (typeof window !== "undefined") {
     return `${window.location.protocol}//${window.location.hostname}:8810/v1`;
   }
-  return 'http://localhost:8810/v1';
+  return "http://localhost:8810/v1";
 }
 
 const API_URL = getApiUrl();
-const API_KEY_STORAGE_KEY = 'ripple-api-key';
+const API_KEY_STORAGE_KEY = "ripple-api-key";
 
 export class AuthError extends Error {
-  constructor(message = 'Authentication required') {
+  constructor(message = "Authentication required") {
     super(message);
-    this.name = 'AuthError';
+    this.name = "AuthError";
   }
 }
 
 export function getApiKey(): string | null {
-  if (typeof window === 'undefined') return null;
+  if (typeof window === "undefined") return null;
   return localStorage.getItem(API_KEY_STORAGE_KEY);
 }
 
 export function setApiKey(key: string): void {
-  if (typeof window === 'undefined') return;
+  if (typeof window === "undefined") return;
   localStorage.setItem(API_KEY_STORAGE_KEY, key);
 }
 
 export function clearApiKey(): void {
-  if (typeof window === 'undefined') return;
+  if (typeof window === "undefined") return;
   localStorage.removeItem(API_KEY_STORAGE_KEY);
 }
 
@@ -48,7 +48,7 @@ export async function fetchModels(): Promise<{ id: string; owned_by: string }[]>
       headers: { ...authHeaders() },
     });
     if (res.status === 401) throw new AuthError();
-    if (!res.ok) throw new Error('Failed to fetch models');
+    if (!res.ok) throw new Error("Failed to fetch models");
     const data = await res.json();
     return data.data || [];
   } catch (error) {
@@ -64,7 +64,7 @@ export async function fetchSystemInfo(): Promise<SystemInfo | null> {
       headers: { ...authHeaders() },
     });
     if (res.status === 401) throw new AuthError();
-    if (!res.ok) throw new Error('Failed to fetch system info');
+    if (!res.ok) throw new Error("Failed to fetch system info");
     return await res.json();
   } catch (error) {
     if (error instanceof AuthError) throw error;
@@ -76,12 +76,12 @@ export async function fetchSystemInfo(): Promise<SystemInfo | null> {
 export async function createSession(): Promise<string> {
   try {
     const res = await fetch(`${API_URL}/sessions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({}),
     });
     if (res.status === 401) throw new AuthError();
-    if (!res.ok) throw new Error('Failed to create session');
+    if (!res.ok) throw new Error("Failed to create session");
     const data = await res.json();
     return data.session_id;
   } catch (error) {
@@ -97,7 +97,7 @@ export async function fetchSessions(): Promise<Session[]> {
       headers: { ...authHeaders() },
     });
     if (res.status === 401) throw new AuthError();
-    if (!res.ok) throw new Error('Failed to fetch sessions');
+    if (!res.ok) throw new Error("Failed to fetch sessions");
     const data = await res.json();
     return data.sessions || [];
   } catch (error) {
@@ -113,7 +113,7 @@ export async function fetchSessionDetails(sessionId: string): Promise<SessionDet
       headers: { ...authHeaders() },
     });
     if (res.status === 401) throw new AuthError();
-    if (!res.ok) throw new Error('Failed to fetch session details');
+    if (!res.ok) throw new Error("Failed to fetch session details");
     return await res.json();
   } catch (error) {
     if (error instanceof AuthError) throw error;
@@ -125,7 +125,7 @@ export async function fetchSessionDetails(sessionId: string): Promise<SessionDet
 export async function deleteSession(sessionId: string): Promise<boolean> {
   try {
     const res = await fetch(`${API_URL}/sessions/${sessionId}`, {
-      method: 'DELETE',
+      method: "DELETE",
       headers: { ...authHeaders() },
     });
     if (res.status === 401) throw new AuthError();
@@ -153,15 +153,15 @@ export async function sendChatMessage(
 ) {
   try {
     await fetchEventSource(`${API_URL}/chat/completions`, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
-        'x-session-id': sessionId,
+        "Content-Type": "application/json",
+        "x-session-id": sessionId,
         ...authHeaders(),
       },
       body: JSON.stringify({
         model,
-        messages: [{ role: 'user', content }],
+        messages: [{ role: "user", content }],
         stream: true,
         session_id: sessionId,
         thinking,
@@ -175,7 +175,7 @@ export async function sendChatMessage(
         }
       },
       onmessage(msg) {
-        if (msg.data === '[DONE]') {
+        if (msg.data === "[DONE]") {
           callbacks.onComplete();
           return;
         }
@@ -183,20 +183,19 @@ export async function sendChatMessage(
         try {
           const data = JSON.parse(msg.data);
 
-          if (data.type === 'tool_call') {
+          if (data.type === "tool_call") {
             callbacks.onToolCall({
               id: data.id,
               name: data.name,
               arguments: data.input || {},
-              status: 'running',
+              status: "running",
             });
             return;
           }
 
-          if (data.type === 'tool_result') {
-            const resultContent = typeof data.content === 'string'
-              ? data.content
-              : JSON.stringify(data.content);
+          if (data.type === "tool_result") {
+            const resultContent =
+              typeof data.content === "string" ? data.content : JSON.stringify(data.content);
             callbacks.onToolResult(data.tool_use_id, resultContent);
             return;
           }
@@ -221,7 +220,7 @@ export async function sendChatMessage(
       },
       onclose() {
         callbacks.onComplete();
-      }
+      },
     });
   } catch (error) {
     callbacks.onError(error as Error);

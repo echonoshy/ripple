@@ -45,12 +45,12 @@ function ThinkingBlock({ content }: { content: string }) {
   const [isExpanded, setIsExpanded] = useState(false);
 
   return (
-    <div className="my-2 rounded-xl border border-violet-200/60 bg-violet-50/50 overflow-hidden">
+    <div className="my-2 overflow-hidden rounded-xl border border-violet-200/60 bg-violet-50/50">
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full px-4 py-2.5 flex items-center gap-2 text-left hover:bg-violet-100/50 transition-colors"
+        className="flex w-full items-center gap-2 px-4 py-2.5 text-left transition-colors hover:bg-violet-100/50"
       >
-        <Brain size={14} className="text-violet-500 shrink-0" />
+        <Brain size={14} className="shrink-0 text-violet-500" />
         <span className="text-sm font-semibold text-violet-600">Thinking Process</span>
         <motion.div
           animate={{ rotate: isExpanded ? 90 : 0 }}
@@ -69,8 +69,8 @@ function ThinkingBlock({ content }: { content: string }) {
             transition={{ duration: 0.25, ease: "easeInOut" }}
             className="overflow-hidden"
           >
-            <div className="px-4 pb-3 border-t border-violet-200/40">
-              <div className="mt-2 text-sm text-slate-600 leading-relaxed markdown-body">
+            <div className="border-t border-violet-200/40 px-4 pb-3">
+              <div className="markdown-body mt-2 text-sm leading-relaxed text-slate-600">
                 <MarkdownContent content={content} />
               </div>
             </div>
@@ -88,13 +88,20 @@ function MarkdownContent({ content }: { content: string }) {
       rehypePlugins={[rehypeHighlight]}
       components={{
         pre({ children }) {
-          return <pre className="not-prose overflow-x-auto rounded-xl bg-slate-900 p-4 my-3 text-sm">{children}</pre>;
+          return (
+            <pre className="not-prose my-3 overflow-x-auto rounded-xl bg-slate-900 p-4 text-sm">
+              {children}
+            </pre>
+          );
         },
         code({ className, children, ...props }) {
           const isInline = !className;
           if (isInline) {
             return (
-              <code className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[13px] font-medium text-violet-600 border border-slate-200" {...props}>
+              <code
+                className="rounded-md border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[13px] font-medium text-violet-600"
+                {...props}
+              >
                 {children}
               </code>
             );
@@ -107,20 +114,29 @@ function MarkdownContent({ content }: { content: string }) {
         },
         a({ href, children }) {
           return (
-            <a href={href} target="_blank" rel="noopener noreferrer" className="text-violet-600 hover:text-violet-700 underline underline-offset-2">
+            <a
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-violet-600 underline underline-offset-2 hover:text-violet-700"
+            >
               {children}
             </a>
           );
         },
         table({ children }) {
           return (
-            <div className="overflow-x-auto my-3">
+            <div className="my-3 overflow-x-auto">
               <table className="min-w-full border-collapse text-sm">{children}</table>
             </div>
           );
         },
         th({ children }) {
-          return <th className="border border-slate-200 bg-slate-50 px-3 py-2 text-left font-semibold">{children}</th>;
+          return (
+            <th className="border border-slate-200 bg-slate-50 px-3 py-2 text-left font-semibold">
+              {children}
+            </th>
+          );
         },
         td({ children }) {
           return <td className="border border-slate-200 px-3 py-2">{children}</td>;
@@ -134,7 +150,7 @@ function MarkdownContent({ content }: { content: string }) {
 
 export default function MarkdownRenderer({ content, className = "" }: MarkdownRendererProps) {
   const segments = parseThinkingBlocks(content);
-  const hasThinking = segments.some(s => s.type === "thinking");
+  const hasThinking = segments.some((s) => s.type === "thinking");
 
   if (!hasThinking) {
     return (

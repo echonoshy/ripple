@@ -1,8 +1,8 @@
 export interface ToolCall {
   id: string;
   name: string;
-  arguments: any;
-  status: 'running' | 'success' | 'error';
+  arguments: Record<string, unknown> | string;
+  status: "running" | "success" | "error";
   result?: string;
 }
 
@@ -13,7 +13,7 @@ export interface AskUserData {
 
 export interface Message {
   id: string | number;
-  role: 'user' | 'assistant';
+  role: "user" | "assistant";
   content: string;
   toolCalls?: ToolCall[];
   askUser?: AskUserData;
@@ -52,5 +52,5 @@ export interface Session {
 }
 
 export interface SessionDetail extends Session {
-  messages: any[];
+  messages: Record<string, unknown>[];
 }

@@ -34,6 +34,7 @@ class MessageUpdate:
 
     message: Message | None = None
     new_context: ToolUseContext | None = None
+    stop_agent_loop: bool = False
 
 
 def _dedup_tool_calls(
@@ -128,7 +129,7 @@ def _partition_tool_calls(
     batches = []
 
     for tool_use in tool_use_blocks:
-        tool = _find_tool_by_name(context.options.tools, tool_use["name"])
+        tool = find_tool_by_name(context.options.tools, tool_use["name"])
 
         # 检查并发安全性
         is_safe = False
@@ -177,7 +178,7 @@ async def _run_tools_serially(
         parent_message = _find_parent_message(tool_use, assistant_messages)
 
         # 执行工具
-        async for update in _execute_tool(tool_use, parent_message, current_context):
+        async for update in execute_tool(tool_use, parent_message, current_context):
             if update.new_context:
                 current_context = update.new_context
             yield update
@@ -224,7 +225,7 @@ async def _run_tools_concurrently(
                 yield update
 
 
-async def _execute_tool(
+async def execute_tool(
     tool_use: dict[str, Any],
     parent_message: AssistantMessage | None,
     context: ToolUseContext,
@@ -241,7 +242,7 @@ async def _execute_tool(
     """
     tool_name = tool_use.get("name", "unknown")
     tool_input = tool_use.get("input", {})
-    tool = _find_tool_by_name(context.options.tools, tool_name)
+    tool = find_tool_by_name(context.options.tools, tool_name)
     parent_uuid = parent_message.uuid if parent_message else None
 
     if tool_use.get("_args_parse_error"):
@@ -312,7 +313,7 @@ async def _execute_tool(
             tool_name=tool_name,
             source_assistant_uuid=parent_uuid,
         )
-        yield MessageUpdate(message=result_msg)
+        yield MessageUpdate(message=result_msg, stop_agent_loop=result.stop_agent_loop)
 
         if result.new_messages:
             for msg in result.new_messages:
@@ -355,12 +356,12 @@ async def _execute_tool_collect(
         消息更新列表
     """
     updates = []
-    async for update in _execute_tool(tool_use, parent_message, context):
+    async for update in execute_tool(tool_use, parent_message, context):
         updates.append(update)
     return updates
 
 
-def _find_tool_by_name(tools: list[Any], name: str) -> Any:
+def find_tool_by_name(tools: list[Any], name: str) -> Any:
     """根据名称查找工具
 
     Args:

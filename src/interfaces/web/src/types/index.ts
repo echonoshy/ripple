@@ -11,12 +11,19 @@ export interface AskUserData {
   options: string[];
 }
 
+export interface PermissionRequestData {
+  tool: string;
+  params: Record<string, unknown> | string;
+  riskLevel: string;
+}
+
 export interface Message {
   id: string | number;
   role: "user" | "assistant";
   content: string;
   toolCalls?: ToolCall[];
   askUser?: AskUserData;
+  permissionRequest?: PermissionRequestData;
 }
 
 export interface UsageInfo {
@@ -53,4 +60,17 @@ export interface Session {
 
 export interface SessionDetail extends Session {
   messages: Record<string, unknown>[];
+}
+
+export interface TaskInfo {
+  id: string;
+  subject: string;
+  status: "pending" | "in_progress" | "completed";
+  activeForm?: string;
+}
+
+export interface TaskProgress {
+  completed: number;
+  total: number;
+  currentTask?: string;
 }

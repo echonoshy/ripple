@@ -74,6 +74,59 @@ def _make_tool_event(event_type: str, data: dict[str, Any]) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
+def _extract_task_event(
+    tool_name: str,
+    result_content: str | Any,
+    task_tracker: dict[str, dict[str, Any]],
+) -> dict[str, Any] | None:
+    """从 Task 工具结果中提取事件信息"""
+    try:
+        if isinstance(result_content, str):
+            data = json.loads(result_content)
+        else:
+            data = result_content
+
+        if not isinstance(data, dict):
+            return None
+
+        task_id = data.get("task_id", "")
+        subject = data.get("subject", "")
+        status = data.get("status", "pending")
+
+        if tool_name == "TaskCreate":
+            task_tracker[task_id] = {"id": task_id, "subject": subject, "status": "pending"}
+            return {
+                "type": "task_created",
+                "data": {"id": task_id, "subject": subject, "status": "pending"},
+            }
+        elif tool_name == "TaskUpdate":
+            if task_id in task_tracker:
+                task_tracker[task_id]["status"] = status
+                if subject:
+                    task_tracker[task_id]["subject"] = subject
+            else:
+                task_tracker[task_id] = {"id": task_id, "subject": subject, "status": status}
+            return {
+                "type": "task_updated",
+                "data": {"id": task_id, "subject": task_tracker[task_id].get("subject", ""), "status": status},
+            }
+    except (json.JSONDecodeError, TypeError, KeyError):
+        pass
+
+    return None
+
+
+def _build_task_progress(task_tracker: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """构建任务进度信息"""
+    total = len(task_tracker)
+    completed = sum(1 for t in task_tracker.values() if t.get("status") == "completed")
+    current = next(
+        (t.get("subject", "") for t in task_tracker.values() if t.get("status") == "in_progress"),
+        None,
+    )
+    return {"completed": completed, "total": total, "currentTask": current}
+
+
 async def stream_query_as_sse(
     user_input: str,
     context: ToolUseContext,
@@ -98,6 +151,10 @@ async def stream_query_as_sse(
     accumulated_tool_calls: list[dict[str, Any]] = []
     usage_info: dict[str, int] = {}
     new_messages: list[Message] = []
+    # 跟踪 tool_use id -> name 的映射，用于识别 task 工具的 result
+    tool_id_to_name: dict[str, str] = {}
+    # 跟踪任务状态用于发送 task_progress
+    task_tracker: dict[str, dict[str, Any]] = {}
 
     try:
         async for item in query(
@@ -149,13 +206,30 @@ async def stream_query_as_sse(
                         pass
 
                     elif block.get("type") == "tool_use":
+                        tool_name = block.get("name", "")
+                        tool_id = block.get("id", "")
+                        tool_input = block.get("input", {})
                         tool_call_data = {
-                            "name": block.get("name", ""),
-                            "id": block.get("id", ""),
-                            "input": block.get("input", {}),
+                            "name": tool_name,
+                            "id": tool_id,
+                            "input": tool_input,
                         }
                         accumulated_tool_calls.append(tool_call_data)
+                        tool_id_to_name[tool_id] = tool_name
                         yield _make_tool_event("tool_call", tool_call_data)
+
+                        # 对 TaskCreate 发送 task_created 事件
+                        if tool_name == "TaskCreate":
+                            task_id = tool_input.get("subject", "")[:8]
+                            yield _make_tool_event(
+                                "task_created",
+                                {
+                                    "id": task_id,
+                                    "subject": tool_input.get("subject", ""),
+                                    "status": "pending",
+                                    "activeForm": tool_input.get("activeForm"),
+                                },
+                            )
 
             elif hasattr(item, "type") and item.type == "user":
                 new_messages.append(item)
@@ -183,14 +257,26 @@ async def stream_query_as_sse(
                 content = item.message.get("content", [])
                 for block in content:
                     if isinstance(block, dict) and block.get("type") == "tool_result":
+                        tool_use_id = block.get("tool_use_id", "")
+                        result_content = block.get("content", "")
                         yield _make_tool_event(
                             "tool_result",
                             {
-                                "tool_use_id": block.get("tool_use_id", ""),
-                                "content": block.get("content", "")[:500],
+                                "tool_use_id": tool_use_id,
+                                "content": result_content[:500]
+                                if isinstance(result_content, str)
+                                else str(result_content)[:500],
                                 "is_error": block.get("is_error", False),
                             },
                         )
+
+                        # 对 Task 工具结果发送进度事件
+                        originating_tool = tool_id_to_name.get(tool_use_id, "")
+                        if originating_tool in ("TaskCreate", "TaskUpdate"):
+                            task_event = _extract_task_event(originating_tool, result_content, task_tracker)
+                            if task_event:
+                                yield _make_tool_event(task_event["type"], task_event["data"])
+                                yield _make_tool_event("task_progress", _build_task_progress(task_tracker))
 
         if history_messages is not None:
             _save_to_history(history_messages, user_input, new_messages)

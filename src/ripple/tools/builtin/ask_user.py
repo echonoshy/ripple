@@ -88,15 +88,15 @@ Input:
 
     @staticmethod
     def _server_mode_response(question: str, options: list[str]) -> ToolResult[dict]:
-        """Server 模式：无法交互式询问用户，返回提示让模型自行决策"""
-        hint = (
-            f"[Server mode] Cannot interactively ask user. Question was: '{question}'. "
-            "Please make a reasonable decision based on context, or include the question in your response "
-            "so the user can answer in the next message."
-        )
+        """Server 模式：将问题展示给用户，暂停 agent loop 等待用户回复"""
+        hint = f"The question has been displayed to the user via the chat interface. Question: '{question}'. "
         if options:
-            hint += f" Available options were: {options}"
-        return ToolResult(data={"question": question, "answer": hint, "options": options or None})
+            hint += f"Options presented: {options}. "
+        hint += "The agent loop has been paused. The user's response will be provided in the next message."
+        return ToolResult(
+            data={"question": question, "answer": hint, "options": options or None},
+            stop_agent_loop=True,
+        )
 
     def is_concurrency_safe(self, input: dict[str, Any]) -> bool:
         return False  # 需要用户交互，不能并发

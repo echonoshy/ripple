@@ -23,6 +23,10 @@ from ripple.tools.builtin.ask_user import AskUserTool
 from ripple.tools.builtin.bash import BashTool
 from ripple.tools.builtin.read import ReadTool
 from ripple.tools.builtin.search import SearchTool
+from ripple.tools.builtin.task_create import TaskCreateTool
+from ripple.tools.builtin.task_get import TaskGetTool
+from ripple.tools.builtin.task_list import TaskListTool
+from ripple.tools.builtin.task_update import TaskUpdateTool
 from ripple.tools.builtin.write import WriteTool
 from ripple.utils.config import get_config
 from ripple.utils.conversation_log import ConversationLogger, generate_session_id, list_conversations
@@ -105,6 +109,33 @@ class RippleCLI:
 
 # Using Your Tools
 
+## Task Management (TaskCreate, TaskUpdate, TaskList, TaskGet)
+Use task management tools to organize complex, multi-step work:
+
+**When to use:**
+- Complex tasks requiring 3+ distinct steps
+- User provides multiple tasks (numbered or comma-separated)
+- Non-trivial tasks requiring careful planning
+- When you need to track progress for the user
+
+**Workflow:**
+1. Use TaskCreate to break down work into tasks
+2. Use TaskUpdate to mark tasks as in_progress before starting
+3. Complete the work
+4. Use TaskUpdate to mark tasks as completed
+5. Use TaskList to check remaining work
+
+**Example:**
+User: "Add user authentication with login, registration, and password reset"
+You:
+- TaskCreate: "Implement user registration endpoint"
+- TaskCreate: "Implement login endpoint"
+- TaskCreate: "Implement password reset flow"
+- TaskUpdate #1 status=in_progress
+- [do the work]
+- TaskUpdate #1 status=completed
+- [continue with next task]
+
 ## Agent Tool (Fork SubAgent)
 Use the Agent tool to delegate complex, multi-step tasks:
 - When a task requires 3+ distinct operations
@@ -144,6 +175,10 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
             AgentTool(),
             SkillTool(),
             AskUserTool(),
+            TaskCreateTool(),
+            TaskUpdateTool(),
+            TaskListTool(),
+            TaskGetTool(),
         ]
 
         # 创建权限管理器

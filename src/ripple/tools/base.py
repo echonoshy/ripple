@@ -25,6 +25,7 @@ class ToolResult(Generic[OutputT]):
     data: OutputT
     new_messages: list[Message] | None = None
     context_modifier: Callable[[ToolUseContext], ToolUseContext] | None = None
+    stop_agent_loop: bool = False
 
 
 class Tool(ABC, Generic[InputT, OutputT]):

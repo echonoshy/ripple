@@ -1,5 +1,13 @@
 import { fetchEventSource } from "@microsoft/fetch-event-source";
-import { ToolCall, UsageInfo, SystemInfo, Session, SessionDetail } from "@/types";
+import {
+  ToolCall,
+  UsageInfo,
+  SystemInfo,
+  Session,
+  SessionDetail,
+  TaskInfo,
+  TaskProgress,
+} from "@/types";
 
 function getApiUrl(): string {
   if (process.env.NEXT_PUBLIC_RIPPLE_API_URL) {
@@ -148,6 +156,14 @@ export async function sendChatMessage(
     onToolResult: (toolId: string, result: string) => void;
     onUsage: (usage: UsageInfo) => void;
     onNewTurn?: () => void;
+    onTaskCreated?: (task: TaskInfo) => void;
+    onTaskUpdated?: (task: TaskInfo) => void;
+    onTaskProgress?: (progress: TaskProgress) => void;
+    onPermissionRequest?: (request: {
+      tool: string;
+      params: Record<string, unknown> | string;
+      riskLevel: string;
+    }) => void;
     onComplete: () => void;
     onError: (error: Error) => void;
   }
@@ -203,6 +219,43 @@ export async function sendChatMessage(
             const resultContent =
               typeof data.content === "string" ? data.content : JSON.stringify(data.content);
             callbacks.onToolResult(data.tool_use_id, resultContent);
+            return;
+          }
+
+          if (data.type === "task_created") {
+            callbacks.onTaskCreated?.({
+              id: data.id,
+              subject: data.subject,
+              status: data.status || "pending",
+              activeForm: data.activeForm,
+            });
+            return;
+          }
+
+          if (data.type === "task_updated") {
+            callbacks.onTaskUpdated?.({
+              id: data.id,
+              subject: data.subject,
+              status: data.status || "pending",
+            });
+            return;
+          }
+
+          if (data.type === "task_progress") {
+            callbacks.onTaskProgress?.({
+              completed: data.completed || 0,
+              total: data.total || 0,
+              currentTask: data.currentTask,
+            });
+            return;
+          }
+
+          if (data.type === "permission_request") {
+            callbacks.onPermissionRequest?.({
+              tool: data.tool,
+              params: data.params,
+              riskLevel: data.riskLevel,
+            });
             return;
           }
 

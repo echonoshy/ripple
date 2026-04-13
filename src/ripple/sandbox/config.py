@@ -41,6 +41,8 @@ class SandboxConfig:
         ]
     )
 
+    clone_newnet: bool = False
+
     tmpfs_size_mb: int = 64
 
     max_workspace_mb: int = 512
@@ -93,6 +95,7 @@ class SandboxConfig:
             retention_seconds=data.get("retention_seconds", 86400 * 7),
             nsjail_path=data.get("nsjail_path", "nsjail"),
             shared_readonly_paths=shared,
+            clone_newnet=data.get("clone_newnet", False),
             tmpfs_size_mb=data.get("tmpfs_size_mb", 64),
             max_workspace_mb=data.get("max_workspace_mb", 512),
         )

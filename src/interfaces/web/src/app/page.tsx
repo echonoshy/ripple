@@ -7,9 +7,6 @@ import {
   Cpu,
   Settings,
   MessageSquare,
-  Wrench,
-  ChevronRight,
-  User,
   Loader2,
   ChevronDown,
   Brain,
@@ -18,7 +15,7 @@ import {
   Trash2,
   Clock,
 } from "lucide-react";
-import { Message, UsageInfo, Session } from "@/types";
+import { Message, UsageInfo, Session, TaskInfo, TaskProgress } from "@/types";
 import {
   createSession,
   sendChatMessage,
@@ -31,8 +28,9 @@ import {
   fetchSessionDetails,
   deleteSession,
 } from "@/lib/api";
-import MarkdownRenderer from "@/components/MarkdownRenderer";
 import SettingsModal from "@/components/SettingsModal";
+import ChatMessage from "@/components/ChatMessage";
+import TaskExecutionPanel from "@/components/TaskExecutionPanel";
 
 const RippleIcon = ({ size = 24, className = "" }: { size?: number; className?: string }) => (
   <svg
@@ -65,7 +63,6 @@ export default function Home() {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [expandedTools, setExpandedTools] = useState<Record<string, boolean>>({});
   const [models, setModels] = useState<{ id: string; owned_by: string }[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>("sonnet");
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
@@ -87,6 +84,51 @@ export default function Home() {
 
   const [sessions, setSessions] = useState<Session[]>([]);
   const [isLoadingSessions, setIsLoadingSessions] = useState(false);
+
+  // Task progress tracking
+  const [tasks, setTasks] = useState<TaskInfo[]>([]);
+  const [taskProgress, setTaskProgress] = useState<TaskProgress | null>(null);
+
+  // Resizable right panel
+  const [rightPanelWidth, setRightPanelWidth] = useState(420);
+  const isResizingRef = useRef(false);
+  const RIGHT_PANEL_MIN = 320;
+  const RIGHT_PANEL_MAX = 700;
+
+  const handleResizeStart = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      isResizingRef.current = true;
+      const startX = e.clientX;
+      const startWidth = rightPanelWidth;
+
+      const handleMouseMove = (ev: MouseEvent) => {
+        if (!isResizingRef.current) return;
+        const delta = startX - ev.clientX;
+        const newWidth = Math.min(RIGHT_PANEL_MAX, Math.max(RIGHT_PANEL_MIN, startWidth + delta));
+        setRightPanelWidth(newWidth);
+      };
+
+      const handleMouseUp = () => {
+        isResizingRef.current = false;
+        document.removeEventListener("mousemove", handleMouseMove);
+        document.removeEventListener("mouseup", handleMouseUp);
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+      };
+
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+      document.addEventListener("mousemove", handleMouseMove);
+      document.addEventListener("mouseup", handleMouseUp);
+    },
+    [rightPanelWidth]
+  );
+
+  // Accumulate all tool calls across messages for the execution panel
+  const allToolCalls = messages.flatMap((m) =>
+    m.role === "assistant" && m.toolCalls ? m.toolCalls : []
+  );
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -132,10 +174,6 @@ export default function Home() {
     }
     init();
   }, [authState, loadSessions]);
-
-  const toggleTool = (id: string) => {
-    setExpandedTools((prev) => ({ ...prev, [id]: !prev[id] }));
-  };
 
   const handleAuthSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -213,7 +251,10 @@ export default function Home() {
                 .join("");
             }
             const rawToolCalls = msg.tool_calls as
-              | { id: string; function?: { name: string; arguments: string | Record<string, unknown> } }[]
+              | {
+                  id: string;
+                  function?: { name: string; arguments: string | Record<string, unknown> };
+                }[]
               | undefined;
             const toolCalls =
               rawToolCalls?.map((tc) => ({
@@ -309,6 +350,8 @@ export default function Home() {
 
       setInput("");
       setIsGenerating(true);
+      setTasks([]);
+      setTaskProgress(null);
 
       let currentContent = "";
 
@@ -334,7 +377,6 @@ export default function Home() {
                 lastMsg.toolCalls[existingToolIndex] = toolCall;
               } else {
                 lastMsg.toolCalls = [...(lastMsg.toolCalls || []), toolCall];
-                setExpandedTools((prev) => ({ ...prev, [toolCall.id]: true }));
               }
 
               if (toolCall.name === "AskUser") {
@@ -375,6 +417,28 @@ export default function Home() {
                 tool.status = "success";
                 tool.result = result;
               }
+            }
+            return newMessages;
+          });
+        },
+        onTaskCreated: (task) => {
+          setTasks((prev) => {
+            if (prev.some((t) => t.id === task.id)) return prev;
+            return [...prev, task];
+          });
+        },
+        onTaskUpdated: (task) => {
+          setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, ...task } : t)));
+        },
+        onTaskProgress: (progress) => {
+          setTaskProgress(progress);
+        },
+        onPermissionRequest: (request) => {
+          setMessages((prev) => {
+            const newMessages = [...prev];
+            const lastMsg = newMessages[newMessages.length - 1];
+            if (lastMsg.role === "assistant") {
+              lastMsg.permissionRequest = request;
             }
             return newMessages;
           });
@@ -430,6 +494,20 @@ export default function Home() {
   const contextPercent =
     lastContextTokens > 0 ? Math.min((lastContextTokens / MAX_CONTEXT_TOKENS) * 100, 100) : 0;
   const isContextWarning = contextPercent > 75;
+
+  const lastAssistantMessage = messages
+    .slice()
+    .reverse()
+    .find((m) => m.role === "assistant");
+  const activeAskUser = lastAssistantMessage?.askUser;
+  const activePermissionRequest = lastAssistantMessage?.permissionRequest;
+
+  const handlePermissionResolve = (action: "allow" | "always" | "deny") => {
+    // Call the API endpoint to resolve the permission request
+    // For now, we will just clear the UI state and simulate a response
+    console.log("Permission resolved:", action);
+    // TODO: Implement actual API call to unblock backend execution
+  };
 
   if (authState !== "authenticated") {
     return (
@@ -506,7 +584,7 @@ export default function Home() {
       {/* App Container */}
       <div className="relative z-10 flex h-full w-full">
         {/* Sidebar */}
-        <aside className="glass-panel hidden w-72 flex-col border-r border-white/40 md:flex">
+        <aside className="glass-panel hidden w-72 flex-shrink-0 flex-col border-r border-white/40 md:flex">
           <div className="flex items-center gap-3 p-6">
             <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-fuchsia-500 shadow-lg shadow-purple-500/30">
               <RippleIcon size={22} className="text-white" />
@@ -680,7 +758,7 @@ export default function Home() {
         </aside>
 
         {/* Main Chat Area */}
-        <main className="relative flex flex-1 flex-col">
+        <main className="relative flex min-w-0 flex-1 flex-col">
           {/* Header */}
           <header className="glass-panel z-20 flex h-16 items-center justify-between border-b border-white/40 px-6">
             <div className="flex items-center gap-3">
@@ -783,7 +861,7 @@ export default function Home() {
 
           {/* Messages */}
           <div className="flex-1 space-y-8 overflow-y-auto p-4 pb-10 md:p-6">
-            <div className="mx-auto max-w-5xl space-y-6">
+            <div className="mx-auto max-w-3xl space-y-6">
               {messages.length === 0 && (
                 <div className="flex h-64 flex-col items-center justify-center text-slate-400">
                   <RippleIcon size={48} className="mb-4 text-violet-200" />
@@ -793,170 +871,12 @@ export default function Home() {
 
               <AnimatePresence initial={false}>
                 {messages.map((msg, index) => (
-                  <motion.div
+                  <ChatMessage
                     key={msg.id}
-                    initial={{ opacity: 0, y: 20, scale: 0.95 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
-                    className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"}`}
-                  >
-                    {/* Avatar */}
-                    <div
-                      className={`mb-2 flex items-center gap-2 px-1 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"}`}
-                    >
-                      <div
-                        className={`flex h-6 w-6 items-center justify-center rounded-full shadow-sm ${msg.role === "user" ? "bg-gradient-to-br from-blue-400 to-indigo-500" : "bg-gradient-to-br from-violet-500 to-fuchsia-500"}`}
-                      >
-                        {msg.role === "user" ? (
-                          <User size={12} className="text-white" />
-                        ) : (
-                          <RippleIcon size={12} className="text-white" />
-                        )}
-                      </div>
-                      <span className="text-xs font-bold tracking-wider text-slate-400 uppercase">
-                        {msg.role === "user" ? "You" : "Ripple"}
-                      </span>
-                    </div>
-
-                    {/* Message Bubble */}
-                    {msg.role === "user" ? (
-                      <div className="max-w-[80%] rounded-3xl rounded-tr-sm bg-gradient-to-br from-blue-500 to-indigo-600 p-5 text-[15px] leading-relaxed text-white shadow-sm shadow-blue-500/20">
-                        <div className="whitespace-pre-wrap">{msg.content}</div>
-                      </div>
-                    ) : (
-                      <div className="w-full space-y-3 md:max-w-[90%]">
-                        {/* Initial Loading Indicator */}
-                        {isGenerating &&
-                          !msg.content &&
-                          (!msg.toolCalls || msg.toolCalls.length === 0) &&
-                          index === messages.length - 1 && (
-                            <div className="glass-bubble inline-flex items-center gap-2 rounded-2xl rounded-tl-sm p-4 text-slate-400 shadow-sm">
-                              <Loader2 size={16} className="animate-spin" />
-                              <span className="text-sm">Thinking...</span>
-                            </div>
-                          )}
-
-                        {/* Tool Calls */}
-                        {msg.toolCalls && msg.toolCalls.length > 0 && (
-                          <div className="space-y-2">
-                            {msg.toolCalls.map((tool) => (
-                              <div
-                                key={tool.id}
-                                className="overflow-hidden rounded-2xl border border-slate-200/60 bg-white/70 shadow-sm backdrop-blur-sm"
-                              >
-                                <motion.div
-                                  whileHover={{ backgroundColor: "rgba(241, 245, 249, 1)" }}
-                                  className="flex cursor-pointer items-center justify-between p-3 px-4 transition-colors"
-                                  onClick={() => toggleTool(tool.id)}
-                                >
-                                  <div className="flex items-center gap-3">
-                                    <div
-                                      className={`rounded-lg p-1.5 ${tool.status === "running" ? "bg-amber-100 text-amber-600" : "bg-emerald-100 text-emerald-600"}`}
-                                    >
-                                      <Wrench
-                                        size={14}
-                                        className={tool.status === "running" ? "animate-spin" : ""}
-                                      />
-                                    </div>
-                                    <span className="font-[family-name:var(--font-mono)] text-sm font-bold text-slate-700">
-                                      {tool.name}
-                                    </span>
-                                    <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs font-medium text-slate-400">
-                                      {tool.status === "running" ? "Running..." : "Success"}
-                                    </span>
-                                  </div>
-                                  <motion.div
-                                    animate={{ rotate: expandedTools[tool.id] ? 90 : 0 }}
-                                    transition={{ duration: 0.2 }}
-                                  >
-                                    <ChevronRight size={18} className="text-slate-400" />
-                                  </motion.div>
-                                </motion.div>
-
-                                <AnimatePresence>
-                                  {expandedTools[tool.id] && (
-                                    <motion.div
-                                      initial={{ height: 0, opacity: 0 }}
-                                      animate={{ height: "auto", opacity: 1 }}
-                                      exit={{ height: 0, opacity: 0 }}
-                                      transition={{ duration: 0.3, ease: "easeInOut" }}
-                                      className="overflow-hidden"
-                                    >
-                                      <div className="border-t border-slate-200/50 bg-slate-900 p-4 font-[family-name:var(--font-mono)] text-[13px] text-emerald-400">
-                                        <div className="mb-3">
-                                          <span className="text-slate-500 select-none">
-                                            {"// Arguments"}
-                                          </span>
-                                          <pre className="mt-1.5 overflow-x-auto opacity-90">
-                                            {typeof tool.arguments === "string"
-                                              ? tool.arguments
-                                              : JSON.stringify(tool.arguments, null, 2)}
-                                          </pre>
-                                        </div>
-                                        {tool.result && (
-                                          <div>
-                                            <span className="text-slate-500 select-none">
-                                              {"// Result"}
-                                            </span>
-                                            <pre className="mt-1.5 max-h-64 overflow-x-auto overflow-y-auto whitespace-pre-wrap text-slate-300 opacity-90">
-                                              {tool.result}
-                                            </pre>
-                                          </div>
-                                        )}
-                                      </div>
-                                    </motion.div>
-                                  )}
-                                </AnimatePresence>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-
-                        {/* Text Content */}
-                        {msg.content && (
-                          <div className="glass-bubble rounded-2xl rounded-tl-sm p-5 text-[15px] leading-relaxed text-slate-700 shadow-sm">
-                            <MarkdownRenderer content={msg.content} />
-                          </div>
-                        )}
-
-                        {/* AskUser Quick Reply Buttons */}
-                        {msg.askUser && msg.askUser.options.length > 0 && !isGenerating && (
-                          <div className="mt-2">
-                            <p className="mb-2 px-1 text-xs font-semibold tracking-wider text-slate-400 uppercase">
-                              Quick Reply
-                            </p>
-                            <div className="flex flex-wrap gap-2">
-                              {msg.askUser.options.map((option, i) => (
-                                <motion.button
-                                  key={i}
-                                  whileHover={{ scale: 1.03 }}
-                                  whileTap={{ scale: 0.97 }}
-                                  onClick={() => handleQuickReply(option)}
-                                  className="rounded-xl border border-violet-200 bg-white px-4 py-2 text-sm font-medium text-violet-700 shadow-sm transition-colors hover:border-violet-300 hover:bg-violet-50"
-                                >
-                                  {option}
-                                </motion.button>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Active Generation Indicator */}
-                        {isGenerating &&
-                        index === messages.length - 1 &&
-                        (msg.toolCalls?.length || msg.content) ? (
-                          <div className="flex animate-pulse items-center gap-2 px-2 py-2 text-sm text-slate-400">
-                            <Loader2 size={16} className="animate-spin" />
-                            <span>
-                              {msg.toolCalls && msg.toolCalls.some((t) => t.status === "running")
-                                ? "Executing tool..."
-                                : "Thinking..."}
-                            </span>
-                          </div>
-                        ) : null}
-                      </div>
-                    )}
-                  </motion.div>
+                    msg={msg}
+                    isGenerating={isGenerating}
+                    isLast={index === messages.length - 1}
+                  />
                 ))}
               </AnimatePresence>
               <div ref={messagesEndRef} className="h-32" />
@@ -965,7 +885,7 @@ export default function Home() {
 
           {/* Input Area */}
           <div className="pointer-events-none absolute right-0 bottom-0 left-0 z-20 bg-gradient-to-t from-slate-50 via-slate-50/95 to-transparent p-6">
-            <div className="pointer-events-auto mx-auto max-w-5xl">
+            <div className="pointer-events-auto mx-auto max-w-3xl">
               <form onSubmit={handleSend} className="relative flex items-center">
                 <input
                   type="text"
@@ -1003,6 +923,31 @@ export default function Home() {
             </div>
           </div>
         </main>
+
+        {/* Resizable Divider */}
+        <div
+          className="hidden w-1.5 flex-shrink-0 cursor-col-resize items-center justify-center hover:bg-violet-200/50 active:bg-violet-300/50 lg:flex"
+          onMouseDown={handleResizeStart}
+        >
+          <div className="h-8 w-0.5 rounded-full bg-slate-300 transition-colors group-hover:bg-violet-400" />
+        </div>
+
+        {/* Task Execution Panel (Right Column) */}
+        <aside
+          className="glass-panel hidden flex-shrink-0 flex-col border-l border-white/40 lg:flex"
+          style={{ width: rightPanelWidth }}
+        >
+          <TaskExecutionPanel
+            tasks={tasks}
+            taskProgress={taskProgress}
+            toolCalls={allToolCalls}
+            askUser={activeAskUser}
+            permissionRequest={activePermissionRequest}
+            onQuickReply={handleQuickReply}
+            onPermissionResolve={handlePermissionResolve}
+            isGenerating={isGenerating}
+          />
+        </aside>
       </div>
 
       {/* Settings Modal */}

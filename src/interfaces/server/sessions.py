@@ -18,6 +18,10 @@ from ripple.tools.builtin.ask_user import AskUserTool
 from ripple.tools.builtin.bash import BashTool
 from ripple.tools.builtin.read import ReadTool
 from ripple.tools.builtin.search import SearchTool
+from ripple.tools.builtin.task_create import TaskCreateTool
+from ripple.tools.builtin.task_get import TaskGetTool
+from ripple.tools.builtin.task_list import TaskListTool
+from ripple.tools.builtin.task_update import TaskUpdateTool
 from ripple.tools.builtin.write import WriteTool
 from ripple.utils.config import get_config
 from ripple.utils.conversation_log import generate_session_id
@@ -100,6 +104,11 @@ You are operating in a sandboxed workspace. Your working directory is `/workspac
 When the user asks to write or save content to a file without specifying an explicit path:
 - Default output directory: `/workspace`
 
+# Using your tools
+- Do NOT use the Bash tool to read or write files when dedicated Read/Write tools are available. Using dedicated tools allows the user to better understand and review your work.
+- Break down and manage your work with the TaskCreate tool. Use TaskCreate to plan your work and help the user track your progress. Mark each task as completed (via TaskUpdate) as soon as you are done with the task. Do not batch up multiple tasks before marking them as completed.
+- You can call multiple tools in a single response. If you intend to call multiple tools and there are no dependencies between them, make all independent tool calls in parallel. Maximize use of parallel tool calls where possible to increase efficiency. However, if some tool calls depend on previous calls to inform dependent values, do NOT call these tools in parallel and instead call them sequentially.
+
 # Available Skills
 {skills_text}
 
@@ -125,6 +134,10 @@ def _get_server_tools() -> list:
         AgentTool(),
         SkillTool(),
         AskUserTool(),
+        TaskCreateTool(),
+        TaskUpdateTool(),
+        TaskListTool(),
+        TaskGetTool(),
     ]
 
 

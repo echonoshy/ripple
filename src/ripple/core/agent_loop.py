@@ -77,7 +77,36 @@ async def query_loop(
 
     executed_tool_keys: set[str] = set()
 
+    # 每个 query_loop 创建独立的压缩器和错误恢复实例，避免跨会话状态污染
+    from ripple.compact.auto_compact import AutoCompactor
+    from ripple.recovery.error_recovery import ErrorRecovery
+
+    compactor = AutoCompactor()
+    recovery = ErrorRecovery()
+
     while True:
+        # ========== 阶段 0a: Microcompact — 清理旧 tool_result ==========
+        from ripple.compact.micro_compact import microcompact_messages
+
+        compacted_micro = microcompact_messages(state.messages)
+        if compacted_micro is not state.messages:
+            state = state.with_messages(compacted_micro)
+
+        # ========== 阶段 0b: 检查是否需要压缩 ==========
+        if compactor.should_compact(state.messages):
+            logger.info("开始压缩消息历史...")
+            compacted_messages = await compactor.compact(state.messages, state.tool_use_context)
+
+            state = state.with_messages(compacted_messages)
+            logger.info("压缩完成，当前消息数: {}", len(state.messages))
+
+        # ========== 阶段 0.5: 任务提醒检查 ==========
+        from ripple.utils.attachments import get_task_reminder_attachment
+
+        task_reminder = get_task_reminder_attachment(state.messages, state.tool_use_context.cwd)
+        if task_reminder:
+            state = state.with_messages([*state.messages, task_reminder])
+
         # 同步当前消息到上下文，供 AgentTool fork 时读取
         state.tool_use_context.current_messages = list(state.messages)
 
@@ -88,6 +117,12 @@ async def query_loop(
         assistant_messages: list[AssistantMessage] = []
         tool_use_blocks: list[dict[str, Any]] = []
         needs_follow_up = False
+        early_tool_results: list[Message] = []
+
+        # 创建流式工具执行器 — 在模型输出时提前启动并发安全的工具
+        from ripple.tools.streaming_executor import StreamingToolExecutor
+
+        streaming_executor = StreamingToolExecutor(state.tool_use_context)
 
         api_messages = normalize_messages_for_api(state.messages)
 
@@ -116,11 +151,33 @@ async def query_loop(
                     needs_follow_up = True
                     for tu in tool_uses:
                         logger.info("检测到工具调用: {}", tu.get("name", "unknown"))
+                        streaming_executor.add_tool(tu, item)
+
+                # 在流式阶段就 yield 已完成的并行工具结果，同时追踪用于后续 state 更新
+                for completed in streaming_executor.get_completed_results():
+                    if completed.message:
+                        yield completed.message
+                        early_tool_results.append(completed.message)
+                    if completed.new_context:
+                        state.tool_use_context = completed.new_context
 
         except Exception as e:
             import traceback
 
+            streaming_executor.discard()
             logger.error("API 调用失败: {}\n{}", e, traceback.format_exc())
+
+            # 检查是否是 max_output_tokens 错误
+            error_str = str(e).lower()
+            if "max_output_tokens" in error_str or "output token" in error_str:
+                if recovery.can_recover_max_output_tokens():
+                    logger.info("检测到 max_output_tokens 错误，尝试恢复")
+                    recovery_msg = recovery.create_recovery_message()
+                    yield recovery_msg
+
+                    # 继续下一轮
+                    state = state.with_messages([*state.messages, *assistant_messages, recovery_msg])
+                    continue
 
             from ripple.utils.errors import error_message
 
@@ -170,10 +227,39 @@ async def query_loop(
             return
 
         # ========== 阶段 3: 跨轮次去重 + 执行工具 ==========
-        tool_results: list[Message] = []
+        tool_results: list[Message] = list(early_tool_results)
         new_tool_blocks: list[dict[str, Any]] = []
+        should_stop_loop = False
+
+        # 先收集流式阶段已完成的并行工具结果
+        for completed in streaming_executor.get_completed_results():
+            if completed.message:
+                yield completed.message
+                tool_results.append(completed.message)
+            if completed.new_context:
+                state.tool_use_context = completed.new_context
+            if completed.stop_agent_loop:
+                should_stop_loop = True
+
+        # 等待所有已启动的流式工具完成
+        if streaming_executor.has_pending_tools():
+            remaining = await streaming_executor.get_remaining_results()
+            for update in remaining:
+                if update.message:
+                    yield update.message
+                    tool_results.append(update.message)
+                if update.new_context:
+                    state.tool_use_context = update.new_context
+                if update.stop_agent_loop:
+                    should_stop_loop = True
 
         for block in tool_use_blocks:
+            tool_id = block["id"]
+
+            # 跳过已被 streaming executor 处理的工具
+            if tool_id in streaming_executor.started_tool_ids:
+                continue
+
             key = json.dumps({"name": block.get("name"), "input": block.get("input", {})}, sort_keys=True)
             if key in executed_tool_keys:
                 dup_msg = create_tool_result_message(
@@ -210,6 +296,9 @@ async def query_loop(
                     if update.new_context:
                         state.tool_use_context = update.new_context
 
+                    if update.stop_agent_loop:
+                        should_stop_loop = True
+
             except Exception as e:
                 import traceback
 
@@ -223,6 +312,12 @@ async def query_loop(
                 )
                 yield error_msg
                 return
+
+        # ========== 阶段 3.5: 检查是否需要暂停 agent loop ==========
+        if should_stop_loop:
+            logger.info("Turn {}: 工具请求暂停 agent loop（如 AskUser）", state.turn_count)
+            state = state.with_messages([*state.messages, *assistant_messages, *tool_results])
+            return
 
         # ========== 阶段 4: 检查最大轮数 ==========
         next_turn_count = state.turn_count + 1

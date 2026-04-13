@@ -110,7 +110,7 @@ def generate_nsjail_config(config: SandboxConfig, session_id: str) -> str:
         clone_newpid: true
         clone_newipc: true
         clone_newuts: true
-        clone_newnet: true
+        clone_newnet: {"true" if config.clone_newnet else "false"}
 
         hostname: "sandbox"
 

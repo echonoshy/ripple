@@ -18,13 +18,28 @@ TASK_REMINDER_CONFIG = {
 }
 
 
+def _get_msg_type(msg) -> str | None:
+    """安全获取消息类型，兼容 Message 对象和 dict"""
+    if isinstance(msg, dict):
+        role = msg.get("role", "")
+        return {"user": "user", "assistant": "assistant", "system": "system", "tool": "user"}.get(role)
+    return getattr(msg, "type", None)
+
+
+def _get_msg_content(msg) -> list:
+    """安全获取消息 content 列表，兼容 Message 对象和 dict"""
+    if isinstance(msg, dict):
+        c = msg.get("content", [])
+        return c if isinstance(c, list) else []
+    return msg.message.get("content", []) if hasattr(msg, "message") else []
+
+
 def _count_assistant_turns_since_task_tool(messages: list[Message]) -> int:
     """从末尾往前数，距离最近一次 TaskCreate/TaskUpdate 调用过了多少个 assistant 轮次"""
     count = 0
     for msg in reversed(messages):
-        if msg.type == "assistant":
-            content = msg.message.get("content", [])
-            for block in content:
+        if _get_msg_type(msg) == "assistant":
+            for block in _get_msg_content(msg):
                 if isinstance(block, dict) and block.get("type") == "tool_use":
                     if block.get("name") in TASK_TOOL_NAMES:
                         return count
@@ -36,13 +51,13 @@ def _count_assistant_turns_since_last_reminder(messages: list[Message]) -> int:
     """从末尾往前数，距离最近一次 task_reminder 附件过了多少个 assistant 轮次"""
     count = 0
     for msg in reversed(messages):
-        if msg.type == "user":
-            content = msg.message.get("content", [])
-            for block in content:
+        msg_type = _get_msg_type(msg)
+        if msg_type == "user":
+            for block in _get_msg_content(msg):
                 if isinstance(block, dict) and block.get("type") == "text":
                     if "task tools haven't been used" in block.get("text", ""):
                         return count
-        if msg.type == "assistant":
+        if msg_type == "assistant":
             count += 1
     return count
 

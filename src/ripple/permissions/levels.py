@@ -17,4 +17,5 @@ class PermissionMode(Enum):
     ALLOW_ALL = "allow"  # 自动允许所有
     ASK = "ask"  # 每次询问
     DENY_ALL = "deny"  # 拒绝所有
-    SMART = "smart"  # 智能模式：安全的自动允许，危险的询问
+    SMART = "smart"  # 智能模式：安全的自动允许，危险的询问（CLI 用终端交互）
+    SERVER_SMART = "server_smart"  # Server 模式：安全的自动允许，危险的通过 stop_agent_loop 请求确认

@@ -8,7 +8,7 @@ from rich.prompt import Prompt
 from ripple.core.context import ToolUseContext
 from ripple.messages.types import AssistantMessage
 from ripple.permissions.levels import ToolRiskLevel
-from ripple.tools.base import Tool, ToolResult
+from ripple.tools.base import StopReason, Tool, ToolResult
 
 
 class AskUserTool(Tool):
@@ -96,6 +96,7 @@ Input:
         return ToolResult(
             data={"question": question, "answer": hint, "options": options or None},
             stop_agent_loop=True,
+            stop_reason=StopReason.ASK_USER,
         )
 
     def is_concurrency_safe(self, input: dict[str, Any]) -> bool:

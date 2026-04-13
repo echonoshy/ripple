@@ -18,7 +18,15 @@ from ripple.core.transitions import (
     TerminalModelError,
     TerminalStopHookPrevented,
 )
-from ripple.messages.types import AssistantMessage, Message, RequestStartEvent, StreamEvent
+from ripple.messages.types import (
+    AgentStopEvent,
+    AssistantMessage,
+    Message,
+    RequestStartEvent,
+    StreamEvent,
+    SystemMessage,
+    UserMessage,
+)
 from ripple.messages.utils import (
     create_tool_result_message,
     create_user_message,
@@ -28,6 +36,63 @@ from ripple.messages.utils import (
 from ripple.utils.logger import get_logger
 
 logger = get_logger("core.agent_loop")
+
+
+def _dict_to_message(d: dict[str, Any]) -> Message:
+    """将 OpenAI 格式的 dict 消息转换为内部 Message 对象。
+
+    _save_to_history 将消息以 OpenAI dict 格式存储，
+    但 query_loop 中的多个组件（microcompact、token counter、attachments）
+    需要 Message 对象。此函数做格式桥接。
+    """
+    role = d.get("role", "")
+
+    if role == "system":
+        return SystemMessage(type="system", content=d.get("content", ""))
+
+    if role == "assistant":
+        content = d.get("content", "")
+        blocks: list[dict[str, Any]] = []
+        if isinstance(content, str) and content:
+            blocks.append({"type": "text", "text": content})
+        elif isinstance(content, list):
+            blocks = list(content)
+        for tc in d.get("tool_calls", []):
+            func = tc.get("function", {})
+            args_raw = func.get("arguments", "{}")
+            try:
+                input_data = json.loads(args_raw) if isinstance(args_raw, str) else args_raw
+            except (json.JSONDecodeError, TypeError):
+                input_data = {}
+            blocks.append(
+                {
+                    "type": "tool_use",
+                    "id": tc.get("id", ""),
+                    "name": func.get("name", ""),
+                    "input": input_data,
+                }
+            )
+        return AssistantMessage(type="assistant", message={"content": blocks})
+
+    if role == "tool":
+        return UserMessage(
+            type="user",
+            message={
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": d.get("tool_call_id", ""),
+                        "content": d.get("content", ""),
+                    }
+                ]
+            },
+        )
+
+    # role == "user" or unknown
+    content = d.get("content", [])
+    if isinstance(content, str):
+        content = [{"type": "text", "text": content}]
+    return UserMessage(type="user", message={"content": content})
 
 
 class QueryParams:
@@ -53,7 +118,7 @@ class QueryParams:
 async def query_loop(
     params: QueryParams,
     client: OpenRouterClient,
-) -> AsyncGenerator[Message | StreamEvent | RequestStartEvent, None]:
+) -> AsyncGenerator[Message | StreamEvent | RequestStartEvent | AgentStopEvent, None]:
     """主 Agent 循环
 
     这是 Ripple 的核心循环，负责：
@@ -85,6 +150,11 @@ async def query_loop(
     recovery = ErrorRecovery()
 
     while True:
+        # ========== 阶段 0: 检查是否已被中止 ==========
+        if state.tool_use_context.abort_signal and state.tool_use_context.abort_signal.is_aborted:
+            logger.info("Turn {}: 检测到 abort signal，终止循环", state.turn_count)
+            return
+
         # ========== 阶段 0a: Microcompact — 清理旧 tool_result ==========
         from ripple.compact.micro_compact import microcompact_messages
 
@@ -175,8 +245,13 @@ async def query_loop(
                     recovery_msg = recovery.create_recovery_message()
                     yield recovery_msg
 
-                    # 继续下一轮
-                    state = state.with_messages([*state.messages, *assistant_messages, recovery_msg])
+                    state = state.with_messages([*state.messages, *assistant_messages, recovery_msg]).with_turn_count(
+                        state.turn_count + 1
+                    )
+                    if params.max_turns and state.turn_count > params.max_turns:
+                        logger.warning("恢复后达到最大轮数 {}，终止循环", params.max_turns)
+                        state = state.with_transition(TerminalMaxTurns(turn_count=state.turn_count))
+                        return
                     continue
 
             from ripple.utils.errors import error_message
@@ -230,6 +305,7 @@ async def query_loop(
         tool_results: list[Message] = list(early_tool_results)
         new_tool_blocks: list[dict[str, Any]] = []
         should_stop_loop = False
+        loop_stop_reason: str | None = None
 
         # 先收集流式阶段已完成的并行工具结果
         for completed in streaming_executor.get_completed_results():
@@ -240,6 +316,7 @@ async def query_loop(
                 state.tool_use_context = completed.new_context
             if completed.stop_agent_loop:
                 should_stop_loop = True
+                loop_stop_reason = loop_stop_reason or completed.stop_reason
 
         # 等待所有已启动的流式工具完成
         if streaming_executor.has_pending_tools():
@@ -252,6 +329,7 @@ async def query_loop(
                     state.tool_use_context = update.new_context
                 if update.stop_agent_loop:
                     should_stop_loop = True
+                    loop_stop_reason = loop_stop_reason or update.stop_reason
 
         for block in tool_use_blocks:
             tool_id = block["id"]
@@ -298,6 +376,7 @@ async def query_loop(
 
                     if update.stop_agent_loop:
                         should_stop_loop = True
+                        loop_stop_reason = loop_stop_reason or update.stop_reason
 
             except Exception as e:
                 import traceback
@@ -315,7 +394,14 @@ async def query_loop(
 
         # ========== 阶段 3.5: 检查是否需要暂停 agent loop ==========
         if should_stop_loop:
-            logger.info("Turn {}: 工具请求暂停 agent loop（如 AskUser）", state.turn_count)
+            logger.info(
+                "Turn {}: 工具请求暂停 agent loop（reason={}）",
+                state.turn_count,
+                loop_stop_reason or "unknown",
+            )
+            yield AgentStopEvent(
+                stop_reason=loop_stop_reason or "tool_requested",
+            )
             state = state.with_messages([*state.messages, *assistant_messages, *tool_results])
             return
 
@@ -394,7 +480,7 @@ async def query(
     thinking: bool | None = None,
     history_messages: list[Message] | None = None,
     system_prompt: str | None = None,
-) -> AsyncGenerator[Message | StreamEvent | RequestStartEvent, None]:
+) -> AsyncGenerator[Message | StreamEvent | RequestStartEvent | AgentStopEvent, None]:
     """查询入口函数
 
     Args:
@@ -436,9 +522,10 @@ async def query(
             )
         )
 
-    # 历史消息
+    # 历史消息（可能是 dict 或 Message，统一转换为 Message 对象）
     if history_messages:
-        messages.extend(history_messages)
+        for hm in history_messages:
+            messages.append(_dict_to_message(hm) if isinstance(hm, dict) else hm)
 
     # 新用户消息
     messages.append(create_user_message(content=user_input))

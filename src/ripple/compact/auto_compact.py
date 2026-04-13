@@ -132,7 +132,7 @@ class AutoCompactor:
         Returns:
             分割索引（该索引及之后的消息会被保留），若无法分割返回 0
         """
-        user_indices = [i for i, m in enumerate(messages) if m.type == "user"]
+        user_indices = [i for i, m in enumerate(messages) if getattr(m, "type", None) == "user"]
         if len(user_indices) <= turns_to_keep:
             return 0
         return user_indices[-turns_to_keep]

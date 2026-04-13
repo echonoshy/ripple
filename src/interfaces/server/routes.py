@@ -161,6 +161,11 @@ async def _stream_chat(
     try:
         async with session.lock:
             session.current_task = asyncio.current_task()
+            session.status = "running"
+            if session.context and session.context.abort_signal:
+                from ripple.core.context import AbortSignal
+
+                session.context.abort_signal = AbortSignal()
             try:
                 async for sse_line in stream_query_as_sse(
                     user_input=user_input,
@@ -172,7 +177,7 @@ async def _stream_chat(
                     system_prompt=session.system_prompt,
                     thinking=thinking,
                 ):
-                    if sse_line.startswith("data: ") and "finish_reason" in sse_line:
+                    if sse_line.startswith("data: ") and sse_line.strip() not in ("data: [DONE]",):
                         try:
                             payload = _json.loads(sse_line[6:].strip())
                             usage = payload.get("usage", {})
@@ -180,16 +185,27 @@ async def _stream_chat(
                                 session.total_input_tokens += usage.get("prompt_tokens", 0)
                                 session.total_output_tokens += usage.get("completion_tokens", 0)
                                 session.last_input_tokens = usage.get("prompt_tokens", 0)
+                            event_type = payload.get("type")
+                            if event_type == "agent_stop":
+                                stop_reason = payload.get("stop_reason", "")
+                                if stop_reason == "ask_user":
+                                    session.status = "awaiting_user_input"
+                                    session.pending_question = payload.get("metadata", {}).get("question")
+                                elif stop_reason == "permission_request":
+                                    session.status = "awaiting_permission"
                         except (_json.JSONDecodeError, AttributeError):
                             pass
                     yield sse_line
             finally:
                 session.current_task = None
+                if session.status == "running":
+                    session.status = "idle"
                 session.trim_messages_if_needed()
                 if manager:
                     manager.persist_session(session.session_id)
     except asyncio.CancelledError:
         logger.info("流式聊天被取消: {}", session.session_id)
+        session.status = "idle"
         import json
 
         yield f"data: {json.dumps({'error': {'message': 'Request cancelled', 'type': 'cancelled'}})}\n\n"
@@ -217,6 +233,11 @@ async def _non_stream_chat(
     try:
         async with session.lock:
             session.current_task = asyncio.current_task()
+            session.status = "running"
+            if session.context and session.context.abort_signal:
+                from ripple.core.context import AbortSignal
+
+                session.context.abort_signal = AbortSignal()
             try:
                 result = await collect_query_response(
                     user_input=user_input,
@@ -236,11 +257,14 @@ async def _non_stream_chat(
                 return result
             finally:
                 session.current_task = None
+                if session.status == "running":
+                    session.status = "idle"
                 session.trim_messages_if_needed()
                 if manager:
                     manager.persist_session(session.session_id)
     except asyncio.CancelledError:
         logger.info("非流式聊天被取消: {}", session.session_id)
+        session.status = "idle"
         raise HTTPException(status_code=499, detail="Request cancelled")
     except Exception as e:
         logger.error("非流式聊天异常: {}\n{}", e, traceback.format_exc())
@@ -313,6 +337,7 @@ async def get_session(
         last_active=session.last_active.isoformat(),
         message_count=len(session.messages),
         messages=normalize_messages_for_api(session.messages),
+        status=session.status,
     )
 
 

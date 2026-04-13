@@ -8,6 +8,9 @@ from rich.prompt import Prompt
 
 from ripple.permissions.levels import PermissionMode
 from ripple.tools.base import Tool
+from ripple.utils.logger import get_logger
+
+logger = get_logger("permissions.manager")
 
 
 class PermissionManager:
@@ -43,11 +46,28 @@ class PermissionManager:
         if perm_key in self.session_allowed:
             return True, None
 
-        if self.mode == PermissionMode.SMART:
+        if self.mode in (PermissionMode.SMART, PermissionMode.SERVER_SMART):
             if not tool.requires_confirmation(input_params):
                 return True, None
 
+        if self.mode == PermissionMode.SERVER_SMART:
+            return await self._server_deny_dangerous(tool, input_params)
+
         return await self._ask_user(tool, input_params, context)
+
+    async def _server_deny_dangerous(self, tool: Tool, input_params: dict) -> tuple[bool, str | None]:
+        """Server 模式：拒绝危险操作并提示模型使用 AskUser 先征求用户同意"""
+        logger.warning(
+            "Server 权限拦截危险操作: {} | 参数: {}",
+            tool.name,
+            json.dumps(input_params, ensure_ascii=False)[:200],
+        )
+        reason = (
+            f"This operation ({tool.name}) requires user confirmation. "
+            f"Use the AskUser tool to explain what you want to do and ask for permission first. "
+            f"After the user approves, retry this operation."
+        )
+        return False, reason
 
     async def _ask_user(self, tool: Tool, input_params: dict, context=None) -> tuple[bool, str | None]:
         """询问用户是否允许"""

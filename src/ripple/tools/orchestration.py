@@ -35,6 +35,7 @@ class MessageUpdate:
     message: Message | None = None
     new_context: ToolUseContext | None = None
     stop_agent_loop: bool = False
+    stop_reason: str | None = None
 
 
 def _dedup_tool_calls(
@@ -313,7 +314,11 @@ async def execute_tool(
             tool_name=tool_name,
             source_assistant_uuid=parent_uuid,
         )
-        yield MessageUpdate(message=result_msg, stop_agent_loop=result.stop_agent_loop)
+        yield MessageUpdate(
+            message=result_msg,
+            stop_agent_loop=result.stop_agent_loop,
+            stop_reason=result.stop_reason,
+        )
 
         if result.new_messages:
             for msg in result.new_messages:

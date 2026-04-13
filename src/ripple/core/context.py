@@ -3,6 +3,7 @@
 定义工具执行时的上下文信息。
 """
 
+import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -18,6 +19,20 @@ class ToolOptions:
     max_tokens: int | None = None
 
 
+class AbortSignal:
+    """可检查/可等待的中止信号"""
+
+    def __init__(self):
+        self._event = asyncio.Event()
+
+    def abort(self):
+        self._event.set()
+
+    @property
+    def is_aborted(self) -> bool:
+        return self._event.is_set()
+
+
 @dataclass
 class ToolUseContext:
     """工具使用上下文
@@ -28,7 +43,7 @@ class ToolUseContext:
     options: ToolOptions
     session_id: str
     cwd: Path = field(default_factory=Path.cwd)
-    abort_signal: Any | None = None
+    abort_signal: AbortSignal | None = None
     read_file_state: dict[str, Any] = field(default_factory=dict)
 
     thinking: bool = False

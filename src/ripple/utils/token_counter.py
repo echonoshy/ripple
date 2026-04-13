@@ -29,11 +29,16 @@ def estimate_message_tokens(message: Message) -> int:
     """估算单条消息的 token 数量
 
     Args:
-        message: 消息对象
+        message: 消息对象（或 dict）
 
     Returns:
         估算的 token 数量
     """
+    if isinstance(message, dict):
+        from ripple.messages.cleanup import estimate_tokens as _est_dict_tokens
+
+        return _est_dict_tokens([message])
+
     total = 0
 
     if message.type == "user":

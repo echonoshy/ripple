@@ -35,7 +35,7 @@ def microcompact_messages(
     compactable_indices: list[tuple[int, int]] = []
 
     for msg_idx, msg in enumerate(messages):
-        if msg.type != "user":
+        if isinstance(msg, dict) or getattr(msg, "type", None) != "user":
             continue
         content = msg.message.get("content", [])
         if not isinstance(content, list):

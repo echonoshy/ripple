@@ -98,7 +98,7 @@ class SubAgentTool(Tool[SubAgentInput, SubAgentOutput]):
                     )
                 )
 
-            # 3. 创建子上下文
+            # 3. 创建子上下文（继承父 agent 的权限管理器）
             sub_context = ToolUseContext(
                 options=ToolOptions(
                     tools=sub_tools,
@@ -109,7 +109,11 @@ class SubAgentTool(Tool[SubAgentInput, SubAgentOutput]):
                 cwd=context.cwd,
                 thinking=context.thinking,
                 permission_mode=permission_mode,
+                permission_manager=context.permission_manager,
+                is_server_mode=context.is_server_mode,
                 read_file_state={},
+                workspace_root=context.workspace_root,
+                sandbox_session_id=context.sandbox_session_id,
             )
 
             # 4. 调用 query_loop

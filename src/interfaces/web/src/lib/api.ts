@@ -7,6 +7,7 @@ import {
   SessionDetail,
   TaskInfo,
   TaskProgress,
+  AgentStopData,
 } from "@/types";
 
 function getApiUrl(): string {
@@ -51,28 +52,18 @@ function authHeaders(): Record<string, string> {
 }
 
 export async function fetchModels(): Promise<{ id: string; owned_by: string }[]> {
-  try {
-    const res = await fetch(`${API_URL}/models`, {
-      headers: { ...authHeaders() },
-    });
-    if (res.status === 401) throw new AuthError();
-    if (!res.ok) throw new Error("Failed to fetch models");
-    const data = await res.json();
-    return data.data || [];
-  } catch (error) {
-    if (error instanceof AuthError) throw error;
-    console.error("Error fetching models:", error);
-    return [];
-  }
+  const res = await fetch(`${API_URL}/models`, { headers: { ...authHeaders() } });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) throw new Error("Failed to fetch models");
+  const data = await res.json();
+  return data.data || [];
 }
 
 export async function fetchSystemInfo(): Promise<SystemInfo | null> {
   try {
-    const res = await fetch(`${API_URL}/info`, {
-      headers: { ...authHeaders() },
-    });
+    const res = await fetch(`${API_URL}/info`, { headers: { ...authHeaders() } });
     if (res.status === 401) throw new AuthError();
-    if (!res.ok) throw new Error("Failed to fetch system info");
+    if (!res.ok) return null;
     return await res.json();
   } catch (error) {
     if (error instanceof AuthError) throw error;
@@ -82,30 +73,22 @@ export async function fetchSystemInfo(): Promise<SystemInfo | null> {
 }
 
 export async function createSession(): Promise<string> {
-  try {
-    const res = await fetch(`${API_URL}/sessions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify({}),
-    });
-    if (res.status === 401) throw new AuthError();
-    if (!res.ok) throw new Error("Failed to create session");
-    const data = await res.json();
-    return data.session_id;
-  } catch (error) {
-    if (error instanceof AuthError) throw error;
-    console.error("Error creating session:", error);
-    return `sess_${Date.now()}`;
-  }
+  const res = await fetch(`${API_URL}/sessions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({}),
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) throw new Error("Failed to create session");
+  const data = await res.json();
+  return data.session_id;
 }
 
 export async function fetchSessions(): Promise<Session[]> {
   try {
-    const res = await fetch(`${API_URL}/sessions`, {
-      headers: { ...authHeaders() },
-    });
+    const res = await fetch(`${API_URL}/sessions`, { headers: { ...authHeaders() } });
     if (res.status === 401) throw new AuthError();
-    if (!res.ok) throw new Error("Failed to fetch sessions");
+    if (!res.ok) return [];
     const data = await res.json();
     return data.sessions || [];
   } catch (error) {
@@ -121,7 +104,7 @@ export async function fetchSessionDetails(sessionId: string): Promise<SessionDet
       headers: { ...authHeaders() },
     });
     if (res.status === 401) throw new AuthError();
-    if (!res.ok) throw new Error("Failed to fetch session details");
+    if (!res.ok) return null;
     return await res.json();
   } catch (error) {
     if (error instanceof AuthError) throw error;
@@ -138,9 +121,19 @@ export async function deleteSession(sessionId: string): Promise<boolean> {
     });
     if (res.status === 401) throw new AuthError();
     return res.ok;
-  } catch (error) {
-    if (error instanceof AuthError) throw error;
-    console.error("Error deleting session:", error);
+  } catch {
+    return false;
+  }
+}
+
+export async function stopSession(sessionId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_URL}/sessions/${sessionId}/stop`, {
+      method: "POST",
+      headers: { ...authHeaders() },
+    });
+    return res.ok;
+  } catch {
     return false;
   }
 }
@@ -159,21 +152,47 @@ export async function sendChatMessage(
     onTaskCreated?: (task: TaskInfo) => void;
     onTaskUpdated?: (task: TaskInfo) => void;
     onTaskProgress?: (progress: TaskProgress) => void;
+    onAgentStop?: (data: AgentStopData) => void;
     onPermissionRequest?: (request: {
       tool: string;
       params: Record<string, unknown> | string;
       riskLevel: string;
     }) => void;
+    onHeartbeat?: () => void;
     onComplete: () => void;
     onError: (error: Error) => void;
   }
 ) {
+  let completed = false;
+  const markComplete = () => {
+    if (completed) return;
+    completed = true;
+    callbacks.onComplete();
+  };
+
+  const CONNECTION_TIMEOUT_MS = 60_000;
+  let lastEventTime = Date.now();
+  let timeoutTimer: ReturnType<typeof setInterval> | null = null;
+
+  const startTimeoutCheck = () => {
+    timeoutTimer = setInterval(() => {
+      if (Date.now() - lastEventTime > CONNECTION_TIMEOUT_MS) {
+        clearInterval(timeoutTimer!);
+        timeoutTimer = null;
+        if (!completed) {
+          callbacks.onError(new Error("连接超时：服务器长时间无响应，请检查后端服务状态。"));
+        }
+      }
+    }, 5000);
+  };
+
   try {
+    startTimeoutCheck();
+
     await fetchEventSource(`${API_URL}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-session-id": sessionId,
         ...authHeaders(),
       },
       body: JSON.stringify({
@@ -184,24 +203,41 @@ export async function sendChatMessage(
         thinking,
       }),
       async onopen(response) {
-        if (response.status === 401) {
-          throw new AuthError();
-        }
-        if (!response.ok) {
-          throw new Error(`Server responded with ${response.status}`);
-        }
+        if (response.status === 401) throw new AuthError();
+        if (!response.ok) throw new Error(`Server responded with ${response.status}`);
+        lastEventTime = Date.now();
       },
       onmessage(msg) {
+        lastEventTime = Date.now();
+
         if (msg.data === "[DONE]") {
-          callbacks.onComplete();
+          markComplete();
           return;
         }
 
         try {
           const data = JSON.parse(msg.data);
 
+          if (data.error) {
+            console.error("Server error:", data.error.message || data.error);
+            return;
+          }
+
+          if (data.type === "heartbeat") {
+            callbacks.onHeartbeat?.();
+            return;
+          }
+
           if (data.type === "new_turn") {
             callbacks.onNewTurn?.();
+            return;
+          }
+
+          if (data.type === "agent_stop") {
+            callbacks.onAgentStop?.({
+              stop_reason: data.stop_reason || "completed",
+              metadata: data.metadata || {},
+            });
             return;
           }
 
@@ -274,14 +310,17 @@ export async function sendChatMessage(
         }
       },
       onerror(err) {
-        callbacks.onError(err);
         throw err;
       },
       onclose() {
-        callbacks.onComplete();
+        markComplete();
       },
     });
   } catch (error) {
-    callbacks.onError(error as Error);
+    if (!completed) {
+      callbacks.onError(error as Error);
+    }
+  } finally {
+    if (timeoutTimer) clearInterval(timeoutTimer);
   }
 }

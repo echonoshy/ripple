@@ -8,7 +8,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from ripple.api.client import OpenRouterClient
-from ripple.core.context import ToolOptions, ToolUseContext
+from ripple.core.context import AbortSignal, ToolOptions, ToolUseContext
 from ripple.permissions.levels import PermissionMode
 from ripple.permissions.manager import PermissionManager
 from ripple.sandbox.manager import SandboxManager
@@ -30,6 +30,15 @@ from ripple.utils.logger import get_logger
 logger = get_logger("server.sessions")
 
 
+class SessionStatus:
+    """Session 运行状态"""
+
+    IDLE = "idle"
+    RUNNING = "running"
+    AWAITING_USER_INPUT = "awaiting_user_input"
+    AWAITING_PERMISSION = "awaiting_permission"
+
+
 @dataclass
 class Session:
     session_id: str
@@ -46,6 +55,9 @@ class Session:
     last_input_tokens: int = 0
     total_input_tokens: int = 0
     total_output_tokens: int = 0
+    status: str = SessionStatus.IDLE
+    pending_question: str | None = None
+    pending_options: list[str] | None = None
 
     def trim_messages_if_needed(self, max_tokens: int = 150_000) -> int:
         """当消息历史过长时修剪，参考 CLI 的 trim 策略。
@@ -104,6 +116,48 @@ You are operating in a sandboxed workspace. Your working directory is `/workspac
 When the user asks to write or save content to a file without specifying an explicit path:
 - Default output directory: `/workspace`
 
+# Planning and User Interaction
+
+## When to Plan First
+For any non-trivial task (more than 2-3 steps), you MUST:
+1. First, analyze the user's request and break it down into steps using TaskCreate
+2. Present your plan to the user using AskUser and ask for confirmation BEFORE starting implementation
+3. Only proceed after the user approves the plan
+
+## When to Use AskUser
+Use the AskUser tool proactively in these situations:
+- **Ambiguous requirements**: When the user's request is unclear or has multiple valid interpretations, ask for clarification BEFORE guessing
+- **Plan confirmation**: After creating a task plan for complex work, ask the user to review and approve it
+- **Design decisions**: When there are multiple approaches with meaningful trade-offs (e.g., architecture choices, library selection), present options and let the user decide
+- **Destructive operations**: Before performing any operation that could overwrite existing work, delete files, or make hard-to-reverse changes, ask for explicit confirmation
+- **Missing information**: When you need specific details (file paths, configurations, preferences) that the user hasn't provided
+- **Progress checkpoints**: For long-running multi-step tasks, check in with the user at key milestones
+
+## When NOT to Use AskUser
+- Simple, unambiguous requests with a single clear solution (e.g., "read file X", "list files in directory Y")
+- When the user has already provided all necessary information and the task is straightforward
+- Follow-up actions that were already approved as part of a plan
+
+## Critical Rule
+Do NOT assume the user's intent when their request is ambiguous. Do NOT silently choose an approach when multiple valid options exist. When in doubt, ASK.
+
+# Safety and Permissions
+
+## Dangerous Operations — Always Confirm First
+Before executing any of the following, you MUST use AskUser to get explicit user confirmation:
+- Deleting files or directories (rm, rmdir, unlink)
+- Git operations that modify history (push, push --force, reset --hard, rebase, branch -D)
+- Database destructive operations (DROP, DELETE FROM, TRUNCATE)
+- Installing or removing system packages
+- Overwriting existing files with significantly different content
+- Running commands that could affect processes outside the workspace (kill, pkill)
+
+## Safe Operations — No Confirmation Needed
+- Reading files, searching, listing directories
+- Creating new files that don't overwrite existing ones
+- Running analysis or diagnostic commands
+- Git status, log, diff (read-only git operations)
+
 # Using your tools
 - Do NOT use the Bash tool to read or write files when dedicated Read/Write tools are available. Using dedicated tools allows the user to better understand and review your work.
 - Break down and manage your work with the TaskCreate tool. Use TaskCreate to plan your work and help the user track your progress. Mark each task as completed (via TaskUpdate) as soon as you are done with the task. Do not batch up multiple tasks before marking them as completed.
@@ -156,7 +210,7 @@ def _create_session_context(
     """为一个 session 创建工具上下文和 API 客户端"""
     tools = _get_server_tools()
 
-    permission_manager = PermissionManager(mode=PermissionMode.ALLOW_ALL)
+    permission_manager = PermissionManager(mode=PermissionMode.SERVER_SMART)
 
     cwd = workspace_root if workspace_root else Path.cwd()
 
@@ -164,6 +218,7 @@ def _create_session_context(
         options=ToolOptions(tools=tools, model=model),
         session_id=session_id,
         cwd=cwd,
+        abort_signal=AbortSignal(),
         permission_manager=permission_manager,
         is_server_mode=True,
         workspace_root=workspace_root,
@@ -314,6 +369,8 @@ class SessionManager:
         session = self.get_session(session_id)
         if session:
             if session.current_task and not session.current_task.done():
+                if session.context and session.context.abort_signal:
+                    session.context.abort_signal.abort()
                 session.current_task.cancel()
                 logger.info("已停止 session 的当前任务: {}", session_id)
                 return True

@@ -14,7 +14,7 @@ from ripple.api.client import OpenRouterClient
 from ripple.core.agent_loop import query
 from ripple.core.context import ToolUseContext
 from ripple.messages.cleanup import cleanup_tool_results
-from ripple.messages.types import AssistantMessage, Message, RequestStartEvent, StreamEvent
+from ripple.messages.types import AgentStopEvent, AssistantMessage, Message, RequestStartEvent, StreamEvent
 from ripple.messages.utils import _convert_assistant_message
 from ripple.utils.logger import get_logger
 
@@ -156,8 +156,11 @@ async def stream_query_as_sse(
     # 跟踪任务状态用于发送 task_progress
     task_tracker: dict[str, dict[str, Any]] = {}
 
-    try:
-        async for item in query(
+    heartbeat_interval = 8
+
+    async def _heartbeat_wrapper():
+        """包装 query() 生成器，在长时间无输出时发送心跳"""
+        gen = query(
             user_input=user_input,
             context=context,
             client=client,
@@ -166,7 +169,42 @@ async def stream_query_as_sse(
             thinking=thinking,
             history_messages=history_messages,
             system_prompt=system_prompt,
-        ):
+        )
+        pending_next = asyncio.ensure_future(gen.__anext__())
+        try:
+            while True:
+                try:
+                    item = await asyncio.wait_for(asyncio.shield(pending_next), timeout=heartbeat_interval)
+                    yield item
+                    pending_next = asyncio.ensure_future(gen.__anext__())
+                except asyncio.TimeoutError:
+                    yield StreamEvent(type="heartbeat", data={"ts": int(time.time())})
+                except StopAsyncIteration:
+                    break
+        finally:
+            if not pending_next.done():
+                pending_next.cancel()
+                try:
+                    await pending_next
+                except (asyncio.CancelledError, StopAsyncIteration):
+                    pass
+
+    try:
+        async for item in _heartbeat_wrapper():
+            if isinstance(item, StreamEvent) and item.type == "heartbeat":
+                yield _make_tool_event("heartbeat", item.data or {})
+                continue
+
+            if isinstance(item, AgentStopEvent):
+                yield _make_tool_event(
+                    "agent_stop",
+                    {
+                        "stop_reason": item.stop_reason,
+                        "metadata": item.metadata,
+                    },
+                )
+                continue
+
             if isinstance(item, RequestStartEvent):
                 if not first_chunk:
                     yield _make_tool_event("new_turn", {})
@@ -326,6 +364,7 @@ async def collect_query_response(
     tool_calls: list[dict[str, Any]] = []
     usage_info: dict[str, int] = {}
     new_messages: list[Message] = []
+    finish_reason = "stop"
 
     try:
         async for item in query(
@@ -338,6 +377,11 @@ async def collect_query_response(
             history_messages=history_messages,
             system_prompt=system_prompt,
         ):
+            if isinstance(item, AgentStopEvent):
+                if item.stop_reason in ("ask_user", "permission_request"):
+                    finish_reason = item.stop_reason
+                continue
+
             if isinstance(item, (StreamEvent, RequestStartEvent)):
                 if isinstance(item, StreamEvent) and item.type == "stream_chunk":
                     text = (item.data or {}).get("text", "")
@@ -401,7 +445,7 @@ async def collect_query_response(
                 {
                     "index": 0,
                     "message": message,
-                    "finish_reason": "stop",
+                    "finish_reason": finish_reason,
                 }
             ],
             "usage": {

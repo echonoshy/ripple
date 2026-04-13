@@ -94,3 +94,11 @@ class RequestStartEvent(BaseModel):
     """请求开始事件"""
 
     type: Literal["stream_request_start"]
+
+
+class AgentStopEvent(BaseModel):
+    """Agent 循环暂停事件，携带暂停原因和元数据"""
+
+    type: Literal["agent_stop"] = "agent_stop"
+    stop_reason: str = "completed"
+    metadata: dict[str, Any] = Field(default_factory=dict)

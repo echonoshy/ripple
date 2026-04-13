@@ -1,26 +1,62 @@
-import React from "react";
+"use client";
+
+import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { User, Loader2 } from "lucide-react";
 import { Message } from "@/types";
+import RippleIcon from "@/components/icons/RippleIcon";
 import MarkdownRenderer from "./MarkdownRenderer";
 
-const RippleIcon = ({ size = 24, className = "" }: { size?: number; className?: string }) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    className={className}
-  >
-    <circle cx="12" cy="12" r="10" opacity="0.3" />
-    <circle cx="12" cy="12" r="6" opacity="0.6" />
-    <circle cx="12" cy="12" r="2" />
-  </svg>
-);
+function ThinkingIndicator({ hasContent }: { hasContent: boolean }) {
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    const start = Date.now();
+    const timer = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - start) / 1000));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const formatTime = (s: number) => {
+    if (s < 60) return `${s}s`;
+    return `${Math.floor(s / 60)}m${s % 60}s`;
+  };
+
+  if (hasContent) {
+    return (
+      <div className="flex items-center gap-2 px-1 py-1.5 text-sm text-slate-400">
+        <div className="flex gap-0.5">
+          {[0, 1, 2].map((i) => (
+            <span
+              key={i}
+              className="inline-block h-1.5 w-1.5 animate-bounce rounded-full bg-violet-400"
+              style={{ animationDelay: `${i * 150}ms` }}
+            />
+          ))}
+        </div>
+        <span>处理中{elapsed > 3 ? ` · ${formatTime(elapsed)}` : ""}</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="inline-flex items-center gap-3 rounded-2xl rounded-tl-md border border-violet-100 bg-gradient-to-r from-violet-50 to-fuchsia-50 px-5 py-4 shadow-sm">
+      <div className="relative flex h-5 w-5 items-center justify-center">
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-violet-400 opacity-30" />
+        <Loader2 size={16} className="relative animate-spin text-violet-500" />
+      </div>
+      <div className="flex flex-col">
+        <span className="text-sm font-medium text-slate-600">
+          {elapsed < 5 ? "思考中..." : elapsed < 30 ? "正在生成回复..." : "仍在处理，请耐心等待..."}
+        </span>
+        {elapsed >= 3 && (
+          <span className="text-xs text-slate-400">已等待 {formatTime(elapsed)}</span>
+        )}
+      </div>
+    </div>
+  );
+}
 
 interface ChatMessageProps {
   msg: Message;
@@ -29,67 +65,44 @@ interface ChatMessageProps {
 }
 
 export default function ChatMessage({ msg, isGenerating, isLast }: ChatMessageProps) {
+  const isUser = msg.role === "user";
+  const showThinking = isGenerating && isLast && msg.role === "assistant";
+  const isEmptyAssistant = !msg.content && (!msg.toolCalls || msg.toolCalls.length === 0);
+
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20, scale: 0.95 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
-      className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"}`}
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
+      className={`flex gap-3 ${isUser ? "justify-end" : ""}`}
     >
-      {/* Avatar */}
-      <div
-        className={`mb-2 flex items-center gap-2 px-1 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"}`}
-      >
-        <div
-          className={`flex h-6 w-6 items-center justify-center rounded-full shadow-sm ${msg.role === "user" ? "bg-gradient-to-br from-blue-400 to-indigo-500" : "bg-gradient-to-br from-violet-500 to-fuchsia-500"}`}
-        >
-          {msg.role === "user" ? (
-            <User size={12} className="text-white" />
-          ) : (
-            <RippleIcon size={12} className="text-white" />
-          )}
+      {!isUser && (
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-fuchsia-500 shadow-sm">
+          <RippleIcon size={14} className="text-white" />
         </div>
-        <span className="text-xs font-bold tracking-wider text-slate-400 uppercase">
-          {msg.role === "user" ? "You" : "Ripple"}
-        </span>
-      </div>
+      )}
 
-      {/* Message Bubble */}
-      {msg.role === "user" ? (
-        <div className="max-w-[80%] rounded-3xl rounded-tr-sm bg-gradient-to-br from-blue-500 to-indigo-600 p-5 text-[15px] leading-relaxed text-white shadow-sm shadow-blue-500/20">
+      {isUser ? (
+        <div className="max-w-[85%] rounded-2xl rounded-br-md bg-gradient-to-br from-blue-500 to-indigo-600 px-4 py-3 text-[15px] leading-relaxed text-white shadow-sm">
           <div className="whitespace-pre-wrap">{msg.content}</div>
         </div>
       ) : (
-        <div className="w-full space-y-3 md:max-w-[90%]">
-          {/* Initial Loading Indicator */}
-          {isGenerating &&
-            !msg.content &&
-            (!msg.toolCalls || msg.toolCalls.length === 0) &&
-            isLast && (
-              <div className="glass-bubble inline-flex items-center gap-2 rounded-2xl rounded-tl-sm p-4 text-slate-400 shadow-sm">
-                <Loader2 size={16} className="animate-spin" />
-                <span className="text-sm">Thinking...</span>
-              </div>
-            )}
+        <div className="max-w-full min-w-0 flex-1 space-y-2">
+          {showThinking && isEmptyAssistant && <ThinkingIndicator hasContent={false} />}
 
-          {/* Text Content */}
           {msg.content && (
-            <div className="glass-bubble rounded-2xl rounded-tl-sm p-5 text-[15px] leading-relaxed text-slate-700 shadow-sm">
+            <div className="rounded-2xl rounded-tl-md border border-white/60 bg-white/80 px-5 py-4 text-[15px] leading-relaxed text-slate-700 shadow-sm backdrop-blur-sm">
               <MarkdownRenderer content={msg.content} />
             </div>
           )}
 
-          {/* Active Generation Indicator */}
-          {isGenerating && isLast && (msg.toolCalls?.length || msg.content) ? (
-            <div className="flex animate-pulse items-center gap-2 px-2 py-2 text-sm text-slate-400">
-              <Loader2 size={16} className="animate-spin" />
-              <span>
-                {msg.toolCalls && msg.toolCalls.some((t) => t.status === "running")
-                  ? "Executing tool..."
-                  : "Thinking..."}
-              </span>
-            </div>
-          ) : null}
+          {showThinking && !isEmptyAssistant && <ThinkingIndicator hasContent={true} />}
+        </div>
+      )}
+
+      {isUser && (
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-blue-400 to-indigo-500 shadow-sm">
+          <User size={14} className="text-white" />
         </div>
       )}
     </motion.div>

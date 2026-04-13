@@ -18,6 +18,14 @@ InputT = TypeVar("InputT", bound=BaseModel)
 OutputT = TypeVar("OutputT")
 
 
+class StopReason:
+    """Agent loop 暂停原因"""
+
+    COMPLETED = "completed"
+    ASK_USER = "ask_user"
+    PERMISSION_REQUEST = "permission_request"
+
+
 @dataclass
 class ToolResult(Generic[OutputT]):
     """工具执行结果"""
@@ -26,6 +34,7 @@ class ToolResult(Generic[OutputT]):
     new_messages: list[Message] | None = None
     context_modifier: Callable[[ToolUseContext], ToolUseContext] | None = None
     stop_agent_loop: bool = False
+    stop_reason: str | None = None
 
 
 class Tool(ABC, Generic[InputT, OutputT]):

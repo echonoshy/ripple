@@ -85,8 +85,8 @@ class OpenRouterClient:
                 "reasoning": {"enabled": True},
             }
 
-        if max_tokens:
-            params["max_tokens"] = max_tokens
+        default_max_output = config.get("model.max_output_tokens", 60000)
+        params["max_tokens"] = max_tokens or default_max_output
 
         if tools:
             params["tools"] = tools
@@ -145,8 +145,8 @@ class OpenRouterClient:
         if tools:
             params["tools"] = tools
 
-        if max_tokens:
-            params["max_tokens"] = max_tokens
+        default_max_output = config.get("model.max_output_tokens", 60000)
+        params["max_tokens"] = max_tokens or default_max_output
 
         response = await self.client.chat.completions.create(**params)
         return response.model_dump()

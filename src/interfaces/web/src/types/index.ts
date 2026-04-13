@@ -74,3 +74,8 @@ export interface TaskProgress {
   total: number;
   currentTask?: string;
 }
+
+export interface AgentStopData {
+  stop_reason: "completed" | "ask_user" | "permission_request" | "tool_requested" | string;
+  metadata: Record<string, unknown>;
+}

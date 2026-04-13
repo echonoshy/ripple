@@ -212,19 +212,17 @@ export default function Home() {
                 .map((c: { text?: string }) => c.text || "")
                 .join("");
             }
+            const rawToolCalls = msg.tool_calls as
+              | { id: string; function?: { name: string; arguments: string | Record<string, unknown> } }[]
+              | undefined;
             const toolCalls =
-              msg.tool_calls?.map(
-                (tc: {
-                  id: string;
-                  function?: { name: string; arguments: string | Record<string, unknown> };
-                }) => ({
-                  id: tc.id,
-                  name: tc.function?.name || "unknown",
-                  arguments: tc.function?.arguments || {},
-                  status: "success" as const,
-                  result: "", // We don't have the result here directly, it's in the next 'tool' message
-                })
-              ) || [];
+              rawToolCalls?.map((tc) => ({
+                id: tc.id,
+                name: tc.function?.name || "unknown",
+                arguments: tc.function?.arguments || {},
+                status: "success" as const,
+                result: "",
+              })) || [];
 
             mappedMessages.push({
               id: currentMsgId++,
@@ -354,6 +352,18 @@ export default function Home() {
             }
             return newMessages;
           });
+        },
+        onNewTurn: () => {
+          currentContent = "";
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: Date.now() + Math.random(),
+              role: "assistant",
+              content: "",
+              toolCalls: [],
+            },
+          ]);
         },
         onToolResult: (toolId, result) => {
           setMessages((prev) => {

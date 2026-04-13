@@ -111,6 +111,8 @@ async def stream_query_as_sse(
             system_prompt=system_prompt,
         ):
             if isinstance(item, RequestStartEvent):
+                if not first_chunk:
+                    yield _make_tool_event("new_turn", {})
                 continue
 
             if isinstance(item, StreamEvent):

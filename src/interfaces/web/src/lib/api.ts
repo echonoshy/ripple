@@ -147,6 +147,7 @@ export async function sendChatMessage(
     onToolCall: (toolCall: ToolCall) => void;
     onToolResult: (toolId: string, result: string) => void;
     onUsage: (usage: UsageInfo) => void;
+    onNewTurn?: () => void;
     onComplete: () => void;
     onError: (error: Error) => void;
   }
@@ -182,6 +183,11 @@ export async function sendChatMessage(
 
         try {
           const data = JSON.parse(msg.data);
+
+          if (data.type === "new_turn") {
+            callbacks.onNewTurn?.();
+            return;
+          }
 
           if (data.type === "tool_call") {
             callbacks.onToolCall({

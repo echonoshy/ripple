@@ -164,7 +164,19 @@ export default function Home() {
           if (msg.role === "user") {
             let contentStr = "";
             if (typeof msg.content === "string") {
-              contentStr = msg.content;
+              try {
+                const parsed = JSON.parse(msg.content);
+                if (Array.isArray(parsed)) {
+                  contentStr = parsed
+                    .filter((c: { type: string; text?: string }) => c.type === "text")
+                    .map((c: { text?: string }) => c.text || "")
+                    .join("\n");
+                } else {
+                  contentStr = msg.content;
+                }
+              } catch {
+                contentStr = msg.content;
+              }
             } else if (Array.isArray(msg.content)) {
               contentStr = msg.content
                 .filter((c: { type: string; text?: string }) => c.type === "text")
@@ -179,12 +191,27 @@ export default function Home() {
               content: contentStr,
             });
           } else if (msg.role === "assistant") {
-            const contentStr =
-              typeof msg.content === "string"
-                ? msg.content
-                : msg.content && Array.isArray(msg.content)
-                  ? msg.content.map((c: { text?: string }) => c.text || "").join("")
-                  : "";
+            let contentStr = "";
+            if (typeof msg.content === "string") {
+              try {
+                const parsed = JSON.parse(msg.content);
+                if (Array.isArray(parsed)) {
+                  contentStr = parsed
+                    .filter((c: { type: string; text?: string }) => c.type === "text")
+                    .map((c: { text?: string }) => c.text || "")
+                    .join("");
+                } else {
+                  contentStr = msg.content;
+                }
+              } catch {
+                contentStr = msg.content;
+              }
+            } else if (msg.content && Array.isArray(msg.content)) {
+              contentStr = msg.content
+                .filter((c: { type: string; text?: string }) => c.type === "text")
+                .map((c: { text?: string }) => c.text || "")
+                .join("");
+            }
             const toolCalls =
               msg.tool_calls?.map(
                 (tc: {

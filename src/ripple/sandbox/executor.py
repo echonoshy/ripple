@@ -41,7 +41,7 @@ def build_sandbox_env(config: SandboxConfig) -> dict[str, str]:
         "TERM": "xterm-256color",
         "LANG": "C.UTF-8",
         "UV_CACHE_DIR": SANDBOX_UV_CACHE_PATH,
-        "UV_LINK_MODE": "copy",
+        "UV_LINK_MODE": "hardlink",
     }
 
     if config.pypi_mirror_url:
@@ -79,7 +79,7 @@ def generate_nsjail_config(config: SandboxConfig, session_id: str) -> str:
     rw: false
 }}""")
 
-    # uv 全局 cache（读写，所有 session 共享，通过硬链接去重包文件）
+    # uv 全局 cache（读写，所有 session 共享；安装时通过 hardlink 共享 inode 去重）
     uv_cache = config.uv_cache_dir
     uv_cache.mkdir(parents=True, exist_ok=True)
     mounts.append(f"""mount {{

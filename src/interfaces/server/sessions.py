@@ -24,7 +24,7 @@ from ripple.tools.builtin.task_list import TaskListTool
 from ripple.tools.builtin.task_update import TaskUpdateTool
 from ripple.tools.builtin.write import WriteTool
 from ripple.utils.config import get_config
-from ripple.utils.conversation_log import generate_session_id
+from ripple.utils.conversation_log import ConversationLogger, generate_session_id
 from ripple.utils.logger import get_logger
 
 logger = get_logger("server.sessions")
@@ -59,6 +59,7 @@ class Session:
     pending_question: str | None = None
     pending_options: list[str] | None = None
     pending_permission_request: dict[str, object] | None = None
+    conversation_log: ConversationLogger | None = None
 
     def trim_messages_if_needed(self, max_tokens: int = 150_000) -> int:
         """当消息历史过长时修剪，参考 CLI 的 trim 策略。
@@ -324,6 +325,9 @@ class SessionManager:
             sandbox_session_id=session_id if self._sandbox_manager else None,
         )
 
+        # 创建会话日志记录器
+        conversation_log = ConversationLogger(session_id=session_id)
+
         session = Session(
             session_id=session_id,
             context=context,
@@ -331,6 +335,7 @@ class SessionManager:
             model=resolved_model,
             system_prompt=system_prompt or _build_system_prompt(workspace_root),
             max_turns=resolved_max_turns,
+            conversation_log=conversation_log,
         )
         self._sessions[session_id] = session
         logger.info(
@@ -353,6 +358,11 @@ class SessionManager:
             session = self._sessions[session_id]
             if session.current_task and not session.current_task.done():
                 session.current_task.cancel()
+
+            # 记录会话结束
+            if session.conversation_log:
+                session.conversation_log.log_session_end()
+
             del self._sessions[session_id]
 
             # 清理沙箱（包括磁盘文件）
@@ -431,6 +441,9 @@ class SessionManager:
             except (ValueError, TypeError):
                 pass
 
+        # 恢复时创建新的日志记录器
+        conversation_log = ConversationLogger(session_id=session_id)
+
         session = Session(
             session_id=session_id,
             messages=state.get("messages", []),
@@ -446,6 +459,7 @@ class SessionManager:
             pending_question=state.get("pending_question"),
             pending_options=state.get("pending_options"),
             pending_permission_request=state.get("pending_permission_request"),
+            conversation_log=conversation_log,
         )
         self._sessions[session_id] = session
         logger.info("恢复 session: {} ({} 条历史消息)", session_id, len(session.messages))

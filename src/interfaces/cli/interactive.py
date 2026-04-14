@@ -78,6 +78,9 @@ class RippleCLI:
         # 初始化会话记录器
         self.conversation_log = ConversationLogger(session_id=self.session_id)
 
+        # 任务进度跟踪器
+        self.task_tracker: dict[str, dict[str, str]] = {}
+
     def initialize(self):
         """初始化客户端和上下文"""
         # 清空会话历史（切换模型时）
@@ -85,6 +88,7 @@ class RippleCLI:
         self.api_input_tokens = 0
         self.api_output_tokens = 0
         self.last_context_tokens = 0
+        self.task_tracker = {}  # 清空任务跟踪器
 
         # 加载所有可用的 skills 并构建系统提示
         from datetime import datetime
@@ -106,6 +110,48 @@ class RippleCLI:
         workspace_dir = Path.cwd() / ".ripple" / "workspace"
 
         self.system_prompt = f"""Today's date is {datetime.now().strftime("%Y/%m/%d")}.
+
+# Planning and User Interaction
+
+## When to Plan First
+For any non-trivial task (more than 2-3 steps), you SHOULD:
+1. First, analyze the user's request and break it down into steps using TaskCreate
+2. Consider presenting your plan to the user using AskUser for confirmation BEFORE starting implementation
+3. Proceed with implementation after planning
+
+## When to Use AskUser
+Use the AskUser tool proactively in these situations:
+- **Ambiguous requirements**: When the user's request is unclear or has multiple valid interpretations, ask for clarification BEFORE guessing
+- **Plan confirmation**: For complex work, consider asking the user to review and approve your plan
+- **Design decisions**: When there are multiple approaches with meaningful trade-offs (e.g., architecture choices, library selection), present options and let the user decide
+- **Destructive operations**: Before performing any operation that could overwrite existing work, delete files, or make hard-to-reverse changes, ask for explicit confirmation
+- **Missing information**: When you need specific details (file paths, configurations, preferences) that the user hasn't provided
+- **Progress checkpoints**: For long-running multi-step tasks, check in with the user at key milestones
+
+## When NOT to Use AskUser
+- Simple, unambiguous requests with a single clear solution (e.g., "read file X", "list files in directory Y")
+- When the user has already provided all necessary information and the task is straightforward
+- Follow-up actions that were already approved as part of a plan
+
+## Critical Rule
+Do NOT assume the user's intent when their request is ambiguous. Do NOT silently choose an approach when multiple valid options exist. When in doubt, ASK.
+
+# Safety and Permissions
+
+## Dangerous Operations — Always Confirm First
+Before executing any of the following, you MUST use AskUser to get explicit user confirmation:
+- Deleting files or directories (rm, rmdir, unlink)
+- Git operations that modify history (push, push --force, reset --hard, rebase, branch -D)
+- Database destructive operations (DROP, DELETE FROM, TRUNCATE)
+- Installing or removing system packages
+- Overwriting existing files with significantly different content
+- Running commands that could affect processes outside the workspace (kill, pkill)
+
+## Safe Operations — No Confirmation Needed
+- Reading files, searching, listing directories
+- Creating new files that don't overwrite existing ones
+- Running analysis or diagnostic commands
+- Git status, log, diff (read-only git operations)
 
 # Using Your Tools
 
@@ -154,6 +200,11 @@ Proactively ask the user when:
 - When you're unsure about the user's intent
 
 DO NOT guess or assume - ask first when uncertain.
+
+## General Tool Usage
+- Do NOT use the Bash tool to read or write files when dedicated Read/Write tools are available. Using dedicated tools allows the user to better understand and review your work.
+- Break down and manage your work with the TaskCreate tool. Use TaskCreate to plan your work and help the user track your progress. Mark each task as completed (via TaskUpdate) as soon as you are done with the task. Do not batch up multiple tasks before marking them as completed.
+- You can call multiple tools in a single response. If you intend to call multiple tools and there are no dependencies between them, make all independent tool calls in parallel. Maximize use of parallel tool calls where possible to increase efficiency. However, if some tool calls depend on previous calls to inform dependent values, do NOT call these tools in parallel and instead call them sequentially.
 
 ## File Writing Rules
 When the user asks to write or save content to a file without specifying an explicit path:
@@ -215,6 +266,7 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
 **命令:**
 - `/help` - 显示帮助
 - `/clear` - 清空会话历史
+- `/tasks` - 显示当前任务进度
 - `/tokens` - 显示 Token 使用情况
 - `/model <name>` - 切换模型（支持别名：opus / sonnet / haiku）
 - `/models` - 查看可用模型列表
@@ -351,6 +403,64 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
             if result_text:
                 preview = result_text[:300] + ("..." if len(result_text) > 300 else "")
                 console.print(f"   [dim]{preview}[/dim]")
+
+    def _handle_task_tool_result(self, tool_name: str, result_content: str):
+        """处理任务工具的结果并更新跟踪器"""
+        import json
+
+        try:
+            if isinstance(result_content, str):
+                data = json.loads(result_content)
+            else:
+                data = result_content
+
+            if not isinstance(data, dict):
+                return
+
+            task_id = data.get("task_id", "")
+            subject = data.get("subject", "")
+            status = data.get("status", "pending")
+
+            if tool_name == "TaskCreate":
+                self.task_tracker[task_id] = {"id": task_id, "subject": subject, "status": "pending"}
+                console.print(f"📋 [cyan]任务创建:[/cyan] #{task_id} - {subject}")
+            elif tool_name == "TaskUpdate":
+                if task_id in self.task_tracker:
+                    self.task_tracker[task_id]["status"] = status
+                    if subject:
+                        self.task_tracker[task_id]["subject"] = subject
+                else:
+                    self.task_tracker[task_id] = {"id": task_id, "subject": subject, "status": status}
+
+                # 显示状态变化
+                task_subject = self.task_tracker[task_id].get("subject", "")
+                if status == "in_progress":
+                    console.print(f"▶️  [yellow]开始任务:[/yellow] #{task_id} - {task_subject}")
+                elif status == "completed":
+                    console.print(f"✅ [green]完成任务:[/green] #{task_id} - {task_subject}")
+                    self._display_task_progress()
+                elif status == "deleted":
+                    console.print(f"🗑️  [dim]删除任务:[/dim] #{task_id}")
+                    if task_id in self.task_tracker:
+                        del self.task_tracker[task_id]
+        except (json.JSONDecodeError, TypeError, KeyError):
+            pass
+
+    def _display_task_progress(self):
+        """显示任务进度摘要"""
+        if not self.task_tracker:
+            return
+
+        total = len(self.task_tracker)
+        completed = sum(1 for t in self.task_tracker.values() if t.get("status") == "completed")
+        in_progress = sum(1 for t in self.task_tracker.values() if t.get("status") == "in_progress")
+
+        if total > 0:
+            progress_text = f"[dim]进度: {completed}/{total} 完成"
+            if in_progress > 0:
+                progress_text += f", {in_progress} 进行中"
+            progress_text += "[/dim]"
+            console.print(progress_text)
 
     async def execute_query(self, prompt: str):
         """执行查询
@@ -539,7 +649,11 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
                                     console.print(f"❌ [red]工具错误:[/red] [dim]{err_preview}...[/dim]")
                                 else:
                                     self.conversation_log.log_tool_result(logged_tool_name, result_content)
-                                    if result_content:
+
+                                    # 处理任务工具结果
+                                    if logged_tool_name in ("TaskCreate", "TaskUpdate", "TaskList", "TaskGet"):
+                                        self._handle_task_tool_result(logged_tool_name, result_content)
+                                    elif result_content:
                                         preview = result_content[:100].replace("\n", " ") + (
                                             "..." if len(result_content) > 100 else ""
                                         )
@@ -614,8 +728,36 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
             self.api_input_tokens = 0
             self.api_output_tokens = 0
             self.last_context_tokens = 0
+            self.task_tracker = {}  # 清空任务跟踪器
             console.clear()
             console.print("[green]会话历史已清空[/green]")
+
+        elif cmd == "/tasks":
+            if not self.task_tracker:
+                console.print("[yellow]当前没有任务[/yellow]")
+            else:
+                lines = ["**当前任务:**\n"]
+                for task_id, task_info in self.task_tracker.items():
+                    status = task_info.get("status", "pending")
+                    subject = task_info.get("subject", "")
+
+                    if status == "completed":
+                        status_icon = "✅"
+                        status_color = "green"
+                    elif status == "in_progress":
+                        status_icon = "▶️"
+                        status_color = "yellow"
+                    else:
+                        status_icon = "📋"
+                        status_color = "dim"
+
+                    lines.append(f"- {status_icon} `#{task_id}` [{status_color}]{status}[/{status_color}]: {subject}")
+
+                total = len(self.task_tracker)
+                completed = sum(1 for t in self.task_tracker.values() if t.get("status") == "completed")
+                lines.append(f"\n进度: {completed}/{total} 完成")
+
+                console.print(Panel(Markdown("\n".join(lines)), title="任务列表", border_style="blue"))
 
         elif cmd == "/tokens":
             max_context = 200_000

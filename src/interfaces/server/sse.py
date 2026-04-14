@@ -169,8 +169,12 @@ async def stream_query_as_sse(
     history_messages: list[Message] | None = None,
     system_prompt: str | None = None,
     thinking: bool = False,
+    conversation_log=None,
 ) -> AsyncGenerator[str, None]:
     """消费 query() 的 async generator，产出 SSE data 行。
+
+    Args:
+        conversation_log: 可选的 ConversationLogger 实例，用于记录会话
 
     Yields:
         符合 OpenAI SSE 格式的字符串行（包含 `data: ...\\n\\n`）。
@@ -191,6 +195,10 @@ async def stream_query_as_sse(
     task_tracker: dict[str, dict[str, Any]] = {}
 
     heartbeat_interval = 8
+
+    # 记录用户消息
+    if conversation_log:
+        conversation_log.log_user_message(user_input)
 
     async def _heartbeat_wrapper():
         """包装 query() 生成器，在长时间无输出时发送心跳"""
@@ -278,7 +286,10 @@ async def stream_query_as_sse(
                         continue
 
                     if block.get("type") == "text":
-                        pass
+                        text_content = block.get("text", "")
+                        # 记录助手文本消息
+                        if text_content and conversation_log:
+                            conversation_log.log_assistant_message(text_content)
 
                     elif block.get("type") == "tool_use":
                         tool_name = block.get("name", "")
@@ -291,6 +302,11 @@ async def stream_query_as_sse(
                         }
                         accumulated_tool_calls.append(tool_call_data)
                         tool_id_to_name[tool_id] = tool_name
+
+                        # 记录工具调用
+                        if conversation_log:
+                            conversation_log.log_tool_call(tool_name, tool_input)
+
                         yield _make_tool_event("tool_call", tool_call_data)
 
             elif hasattr(item, "type") and item.type == "user":
@@ -321,6 +337,13 @@ async def stream_query_as_sse(
                     if isinstance(block, dict) and block.get("type") == "tool_result":
                         tool_use_id = block.get("tool_use_id", "")
                         result_content = block.get("content", "")
+                        is_error = block.get("is_error", False)
+
+                        # 记录工具结果
+                        originating_tool = tool_id_to_name.get(tool_use_id, "")
+                        if conversation_log and originating_tool:
+                            conversation_log.log_tool_result(originating_tool, str(result_content), is_error=is_error)
+
                         yield _make_tool_event(
                             "tool_result",
                             {
@@ -328,12 +351,11 @@ async def stream_query_as_sse(
                                 "content": result_content[:500]
                                 if isinstance(result_content, str)
                                 else str(result_content)[:500],
-                                "is_error": block.get("is_error", False),
+                                "is_error": is_error,
                             },
                         )
 
                         # 对 Task 工具结果发送进度事件
-                        originating_tool = tool_id_to_name.get(tool_use_id, "")
                         if originating_tool in ("TaskCreate", "TaskUpdate"):
                             task_event = _extract_task_event(originating_tool, result_content, task_tracker)
                             if task_event:
@@ -375,8 +397,12 @@ async def collect_query_response(
     history_messages: list[Message] | None = None,
     system_prompt: str | None = None,
     thinking: bool = False,
+    conversation_log=None,
 ) -> dict[str, Any]:
     """消费 query() 的 async generator，收集为完整的 ChatCompletion 响应。
+
+    Args:
+        conversation_log: 可选的 ConversationLogger 实例，用于记录会话
 
     用于 stream=false 的请求。
     """
@@ -389,6 +415,11 @@ async def collect_query_response(
     usage_info: dict[str, int] = {}
     new_messages: list[Message] = []
     finish_reason = "stop"
+    tool_id_to_name: dict[str, str] = {}
+
+    # 记录用户消息
+    if conversation_log:
+        conversation_log.log_user_message(user_input)
 
     try:
         async for item in query(
@@ -427,15 +458,27 @@ async def collect_query_response(
                     if not isinstance(block, dict):
                         continue
                     if block.get("type") == "text" and block.get("text", "").strip():
-                        pass
+                        text_content = block.get("text", "")
+                        # 记录助手文本消息
+                        if conversation_log:
+                            conversation_log.log_assistant_message(text_content)
                     elif block.get("type") == "tool_use":
+                        tool_name = block.get("name", "")
+                        tool_id = block.get("id", "")
+                        tool_input = block.get("input", {})
+                        tool_id_to_name[tool_id] = tool_name
+
+                        # 记录工具调用
+                        if conversation_log:
+                            conversation_log.log_tool_call(tool_name, tool_input)
+
                         tool_calls.append(
                             {
-                                "id": block.get("id", ""),
+                                "id": tool_id,
                                 "type": "function",
                                 "function": {
-                                    "name": block.get("name", ""),
-                                    "arguments": json.dumps(block.get("input", {}), ensure_ascii=False),
+                                    "name": tool_name,
+                                    "arguments": json.dumps(tool_input, ensure_ascii=False),
                                 },
                             }
                         )
@@ -450,6 +493,19 @@ async def collect_query_response(
                             meta_text = block.get("text", "")
                             if meta_text:
                                 accumulated_text += f"\n\n**System Notification:**\n{meta_text}"
+                else:
+                    # 记录工具结果
+                    content = item.message.get("content", [])
+                    for block in content:
+                        if isinstance(block, dict) and block.get("type") == "tool_result":
+                            tool_use_id = block.get("tool_use_id", "")
+                            result_content = block.get("content", "")
+                            is_error = block.get("is_error", False)
+                            originating_tool = tool_id_to_name.get(tool_use_id, "")
+                            if conversation_log and originating_tool:
+                                conversation_log.log_tool_result(
+                                    originating_tool, str(result_content), is_error=is_error
+                                )
 
         if history_messages is not None:
             _save_to_history(history_messages, user_input, new_messages)

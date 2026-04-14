@@ -182,6 +182,7 @@ async def _stream_chat(
                     history_messages=session.messages,
                     system_prompt=session.system_prompt,
                     thinking=thinking,
+                    conversation_log=session.conversation_log,
                 ):
                     if sse_line.startswith("data: ") and sse_line.strip() not in ("data: [DONE]",):
                         try:
@@ -264,6 +265,7 @@ async def _non_stream_chat(
                     history_messages=session.messages,
                     system_prompt=session.system_prompt,
                     thinking=thinking,
+                    conversation_log=session.conversation_log,
                 )
                 usage = result.get("usage", {})
                 if usage:

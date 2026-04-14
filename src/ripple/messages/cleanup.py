@@ -25,19 +25,12 @@ def cleanup_tool_results(messages: list[dict[str, Any]]) -> list[dict[str, Any]]
     清理策略（两种格式统一）:
     - 只保留 assistant 的纯文本内容
     - 丢弃所有工具调用和工具结果
-
-    Args:
-        messages: 原始消息列表
-
-    Returns:
-        清理后的消息列表
     """
     cleaned = []
 
     for msg in messages:
         role = msg.get("role")
 
-        # OpenAI 格式：独立的 tool 结果消息 → 丢弃
         if role == "tool":
             continue
 
@@ -51,7 +44,6 @@ def cleanup_tool_results(messages: list[dict[str, Any]]) -> list[dict[str, Any]]
             if isinstance(content, str):
                 cleaned.append(msg)
             elif isinstance(content, list):
-                # Anthropic 格式：过滤 tool_result block
                 text_blocks = [
                     block for block in content if isinstance(block, dict) and block.get("type") != "tool_result"
                 ]
@@ -65,11 +57,7 @@ def cleanup_tool_results(messages: list[dict[str, Any]]) -> list[dict[str, Any]]
 
 
 def _extract_assistant_text(msg: dict) -> str:
-    """从 assistant 消息中提取纯文本，兼容 OpenAI / Anthropic 两种格式
-
-    OpenAI: {"role":"assistant", "content":"text...", "tool_calls":[...]}
-    Anthropic: {"role":"assistant", "content":[{"type":"text","text":"..."},{"type":"tool_use",...}]}
-    """
+    """从 assistant 消息中提取纯文本，兼容 OpenAI / Anthropic 两种格式"""
     content = msg.get("content")
 
     if isinstance(content, str):
@@ -98,16 +86,7 @@ def _get_encoding() -> tiktoken.Encoding:
 
 
 def estimate_tokens(messages: list[dict[str, Any]]) -> int:
-    """基于 tiktoken 估算消息列表的 token 数
-
-    当 API 未返回 usage 时作为兜底。
-
-    Args:
-        messages: 消息列表
-
-    Returns:
-        估算的 token 数
-    """
+    """基于 tiktoken 估算消息列表的 token 数"""
     enc = _get_encoding()
     total = 0
 
@@ -142,25 +121,73 @@ def estimate_tokens(messages: list[dict[str, Any]]) -> int:
     return total
 
 
+def _find_safe_trim_boundary(messages: list[dict[str, Any]], start_index: int) -> int:
+    """从 start_index 开始向后找到安全的裁剪边界
+
+    安全边界要求：
+    1. 不在 assistant(tool_calls) + tool(result) 的配对中间切割
+    2. 不在 assistant(tool_use) + user(tool_result) 的配对中间切割
+    3. 优先在 user 消息（非 tool 结果）之前切割
+    """
+    n = len(messages)
+    idx = start_index
+
+    while idx < n:
+        msg = messages[idx]
+        role = msg.get("role")
+
+        # 如果是 user 消息且不是工具结果的容器，可以安全切割
+        if role == "user":
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                return idx
+            if isinstance(content, list):
+                has_tool_result = any(isinstance(b, dict) and b.get("type") == "tool_result" for b in content)
+                if not has_tool_result:
+                    return idx
+
+        # 如果是 system 消息，可以在它后面的消息处切
+        if role == "system":
+            idx += 1
+            continue
+
+        idx += 1
+
+    return start_index
+
+
 def trim_old_messages(messages: list[dict[str, Any]], max_tokens: int = 150_000) -> list[dict[str, Any]]:
-    """超过阈值时，删除最旧的消息
+    """超过阈值时裁剪旧消息
 
-    策略：删除最旧的 20% 消息
-
-    Args:
-        messages: 消息列表
-        max_tokens: 最大 token 数
-
-    Returns:
-        清理后的消息列表
+    策略：
+    1. 循环裁剪，直到 token 数低于阈值
+    2. 每次裁剪约 20% 的消息
+    3. 在安全边界处切割（尊重 tool_use/tool_result 配对）
+    4. 至少保留 2 条消息
     """
     current_tokens = estimate_tokens(messages)
 
-    if current_tokens < max_tokens:
+    if current_tokens <= max_tokens:
         return messages
 
-    keep_count = int(len(messages) * 0.8)
-    if keep_count < 2:
-        keep_count = 2
+    result = list(messages)
 
-    return messages[-keep_count:]
+    while estimate_tokens(result) > max_tokens and len(result) > 2:
+        trim_count = max(1, int(len(result) * 0.2))
+        raw_boundary = trim_count
+
+        # 找到安全的切割边界
+        safe_boundary = _find_safe_trim_boundary(result, raw_boundary)
+
+        if safe_boundary >= len(result) - 1:
+            safe_boundary = raw_boundary
+
+        if safe_boundary <= 0:
+            break
+
+        result = result[safe_boundary:]
+
+        if len(result) <= 2:
+            break
+
+    return result

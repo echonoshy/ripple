@@ -11,7 +11,20 @@ from ripple.utils.logger import get_logger
 
 logger = get_logger("compact.micro_compact")
 
-COMPACTABLE_TOOLS = {"Bash", "Read", "Write", "Search", "Glob", "Grep"}
+COMPACTABLE_TOOLS = {
+    "Bash",
+    "Read",
+    "Write",
+    "Search",
+    "Glob",
+    "Grep",
+    "Agent",
+    "Skill",
+    "TaskCreate",
+    "TaskUpdate",
+    "TaskList",
+    "TaskGet",
+}
 
 CLEARED_PLACEHOLDER = "[Tool result cleared to save context]"
 

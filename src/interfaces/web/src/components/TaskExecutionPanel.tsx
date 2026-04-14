@@ -1,16 +1,12 @@
 import React, { useState, useRef, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Wrench, Loader2, CheckCircle2, Circle, ListTodo, AlertTriangle } from "lucide-react";
-import { TaskInfo, TaskProgress, ToolCall, AskUserData, PermissionRequestData } from "@/types";
+import { Wrench, Loader2, CheckCircle2, Circle, ListTodo } from "lucide-react";
+import { TaskInfo, TaskProgress, ToolCall } from "@/types";
 
 interface TaskExecutionPanelProps {
   tasks: TaskInfo[];
   taskProgress: TaskProgress | null;
   toolCalls: ToolCall[];
-  askUser?: AskUserData;
-  permissionRequest?: PermissionRequestData;
-  onQuickReply: (option: string) => void;
-  onPermissionResolve: (action: "allow" | "always" | "deny") => void;
   isGenerating: boolean;
 }
 
@@ -18,11 +14,6 @@ export default function TaskExecutionPanel({
   tasks,
   taskProgress,
   toolCalls,
-  askUser,
-  permissionRequest,
-  onQuickReply,
-  onPermissionResolve,
-  isGenerating,
 }: TaskExecutionPanelProps) {
   const [topHeight, setTopHeight] = useState(250);
   const isResizingRef = useRef(false);
@@ -59,12 +50,11 @@ export default function TaskExecutionPanel({
     document.addEventListener("mouseup", onUp);
   };
 
-  const hasTopContent =
-    tasks.length > 0 || (permissionRequest && !isGenerating) || (askUser && !isGenerating);
+  const hasTopContent = tasks.length > 0;
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-[#0d1117]">
-      {/* Top Section: Tasks & Prompts */}
+      {/* Top Section: Tasks */}
       {hasTopContent && (
         <>
           <div
@@ -137,81 +127,6 @@ export default function TaskExecutionPanel({
                 </div>
               </div>
             )}
-
-            {/* Interactive Prompts Section */}
-            {permissionRequest && !isGenerating && (
-              <div className="space-y-3">
-                <h3 className="flex items-center gap-2 text-xs font-bold tracking-wider text-amber-500 uppercase">
-                  <AlertTriangle size={14} />
-                  Permission Required
-                </h3>
-                <div className="rounded-xl border border-amber-200 bg-white p-4 shadow-sm">
-                  <p className="mb-2 text-sm font-medium text-slate-700">
-                    Tool: <span className="font-mono text-amber-600">{permissionRequest.tool}</span>
-                  </p>
-                  <div className="mb-4 overflow-x-auto rounded-lg bg-slate-50 p-3 font-mono text-xs text-slate-600">
-                    {typeof permissionRequest.params === "string"
-                      ? permissionRequest.params
-                      : JSON.stringify(permissionRequest.params, null, 2)}
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    <motion.button
-                      whileHover={{ scale: 1.01 }}
-                      whileTap={{ scale: 0.99 }}
-                      onClick={() => onPermissionResolve("allow")}
-                      className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-emerald-600"
-                    >
-                      Allow Once
-                    </motion.button>
-                    <motion.button
-                      whileHover={{ scale: 1.01 }}
-                      whileTap={{ scale: 0.99 }}
-                      onClick={() => onPermissionResolve("always")}
-                      className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 shadow-sm transition-colors hover:bg-emerald-100"
-                    >
-                      Always Allow for this Session
-                    </motion.button>
-                    <motion.button
-                      whileHover={{ scale: 1.01 }}
-                      whileTap={{ scale: 0.99 }}
-                      onClick={() => onPermissionResolve("deny")}
-                      className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-600 shadow-sm transition-colors hover:bg-red-100"
-                    >
-                      Deny
-                    </motion.button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {askUser && !isGenerating && (
-              <div className="space-y-3">
-                <h3 className="flex items-center gap-2 text-xs font-bold tracking-wider text-slate-400 uppercase">
-                  <AlertTriangle size={14} />
-                  Action Required
-                </h3>
-                <div className="rounded-xl border border-violet-200 bg-white p-4 shadow-sm">
-                  <p className="mb-3 text-sm font-medium text-slate-700">{askUser.question}</p>
-                  {askUser.options && askUser.options.length > 0 ? (
-                    <div className="flex flex-wrap gap-2">
-                      {askUser.options.map((option, i) => (
-                        <motion.button
-                          key={i}
-                          whileHover={{ scale: 1.02 }}
-                          whileTap={{ scale: 0.98 }}
-                          onClick={() => onQuickReply(option)}
-                          className="rounded-lg border border-violet-200 bg-white px-4 py-2 text-sm font-medium text-violet-700 shadow-sm transition-colors hover:border-violet-300 hover:bg-violet-50"
-                        >
-                          {option}
-                        </motion.button>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-slate-500 italic">请在下方输入框中回复此问题。</p>
-                  )}
-                </div>
-              </div>
-            )}
           </div>
 
           {/* Vertical Resizer */}
@@ -223,45 +138,53 @@ export default function TaskExecutionPanel({
       )}
 
       {/* Bottom Section: Live Terminal Logs */}
-      <div className="flex-1 overflow-y-auto bg-[#0d1117] p-4 font-[family-name:var(--font-mono)] text-[13px] text-slate-300">
-        {toolCalls.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-slate-600 italic">
-            Waiting for execution logs...
-          </div>
-        ) : (
-          <div className="space-y-8 pb-8">
-            {toolCalls.map((tool) => (
-              <div key={tool.id} className="space-y-2">
-                <div className="flex items-center gap-2 text-violet-400">
-                  <Wrench size={14} className={tool.status === "running" ? "animate-spin" : ""} />
-                  <span className="font-bold">{tool.name}</span>
-                  <span className="text-xs text-slate-500">
-                    {tool.status === "running" ? "Running..." : "Success"}
-                  </span>
-                </div>
-                <div className="space-y-3 border-l-2 border-slate-800 pl-4">
-                  <div>
-                    <span className="text-slate-500 select-none">{"// Arguments"}</span>
-                    <pre className="mt-1 overflow-x-auto break-all whitespace-pre-wrap text-emerald-400 opacity-90">
-                      {typeof tool.arguments === "string"
-                        ? tool.arguments
-                        : JSON.stringify(tool.arguments, null, 2)}
-                    </pre>
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <div className="flex items-center gap-2 border-b border-slate-800 bg-[#161b22] px-4 py-2">
+          <Wrench size={14} className="text-violet-400" />
+          <span className="text-xs font-bold tracking-wider text-slate-400 uppercase">
+            Terminal Logs
+          </span>
+        </div>
+        <div className="flex-1 overflow-y-auto bg-[#0d1117] p-4 font-[family-name:var(--font-mono)] text-[13px] text-slate-300">
+          {toolCalls.length === 0 ? (
+            <div className="flex h-full items-center justify-center text-slate-600 italic">
+              Waiting for execution logs...
+            </div>
+          ) : (
+            <div className="space-y-8 pb-8">
+              {toolCalls.map((tool) => (
+                <div key={tool.id} className="space-y-2">
+                  <div className="flex items-center gap-2 text-violet-400">
+                    <Wrench size={14} className={tool.status === "running" ? "animate-spin" : ""} />
+                    <span className="font-bold">{tool.name}</span>
+                    <span className="text-xs text-slate-500">
+                      {tool.status === "running" ? "Running..." : "Success"}
+                    </span>
                   </div>
-                  {tool.result && (
+                  <div className="space-y-3 border-l-2 border-slate-800 pl-4">
                     <div>
-                      <span className="text-slate-500 select-none">{"// Result"}</span>
-                      <pre className="mt-1 overflow-x-auto break-all whitespace-pre-wrap text-slate-300 opacity-90">
-                        {tool.result}
+                      <span className="text-slate-500 select-none">{"// Arguments"}</span>
+                      <pre className="mt-1 overflow-x-auto break-all whitespace-pre-wrap text-emerald-400 opacity-90">
+                        {typeof tool.arguments === "string"
+                          ? tool.arguments
+                          : JSON.stringify(tool.arguments, null, 2)}
                       </pre>
                     </div>
-                  )}
+                    {tool.result && (
+                      <div>
+                        <span className="text-slate-500 select-none">{"// Result"}</span>
+                        <pre className="mt-1 overflow-x-auto break-all whitespace-pre-wrap text-slate-300 opacity-90">
+                          {tool.result}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
-            <div ref={logsEndRef} />
-          </div>
-        )}
+              ))}
+              <div ref={logsEndRef} />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

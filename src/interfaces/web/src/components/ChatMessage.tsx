@@ -63,9 +63,17 @@ interface ChatMessageProps {
   msg: Message;
   isGenerating: boolean;
   isLast: boolean;
+  onQuickReply?: (option: string) => void;
+  onPermissionResolve?: (action: "allow" | "always" | "deny") => void;
 }
 
-export default function ChatMessage({ msg, isGenerating, isLast }: ChatMessageProps) {
+export default function ChatMessage({
+  msg,
+  isGenerating,
+  isLast,
+  onQuickReply,
+  onPermissionResolve,
+}: ChatMessageProps) {
   const isUser = msg.role === "user";
   const showThinking = isGenerating && isLast && msg.role === "assistant";
   const isEmptyAssistant = !msg.content && (!msg.toolCalls || msg.toolCalls.length === 0);
@@ -98,6 +106,74 @@ export default function ChatMessage({ msg, isGenerating, isLast }: ChatMessagePr
           {msg.content && (
             <div className="rounded-xl rounded-tl-sm border border-white/60 bg-white/80 px-4 py-3 text-[14px] leading-snug text-slate-700 shadow-sm backdrop-blur-sm">
               <MarkdownRenderer content={msg.content} />
+            </div>
+          )}
+
+          {msg.askUser && !isGenerating && isLast && onQuickReply && (
+            <div className="rounded-xl rounded-tl-sm border border-violet-200 bg-white/90 px-4 py-3 shadow-sm backdrop-blur-sm">
+              <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-violet-700">
+                <span>💬</span>
+                <span>Action Required</span>
+              </div>
+              <p className="mb-3 text-sm text-slate-700">{msg.askUser.question}</p>
+              {msg.askUser.options && msg.askUser.options.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {msg.askUser.options.map((option, i) => (
+                    <motion.button
+                      key={i}
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={() => onQuickReply(option)}
+                      className="rounded-lg border border-violet-200 bg-white px-4 py-2 text-sm font-medium text-violet-700 shadow-sm transition-colors hover:border-violet-300 hover:bg-violet-50"
+                    >
+                      {option}
+                    </motion.button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {msg.permissionRequest && !isGenerating && isLast && onPermissionResolve && (
+            <div className="rounded-xl rounded-tl-sm border border-amber-200 bg-white/90 px-4 py-3 shadow-sm backdrop-blur-sm">
+              <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-amber-700">
+                <span>🔐</span>
+                <span>Permission Required</span>
+              </div>
+              <p className="mb-2 text-sm text-slate-700">
+                Tool: <span className="font-mono text-amber-600">{msg.permissionRequest.tool}</span>
+              </p>
+              <div className="mb-3 overflow-x-auto rounded-lg bg-slate-50 p-3 font-mono text-xs text-slate-600">
+                {typeof msg.permissionRequest.params === "string"
+                  ? msg.permissionRequest.params
+                  : JSON.stringify(msg.permissionRequest.params, null, 2)}
+              </div>
+              <div className="flex flex-col gap-2">
+                <motion.button
+                  whileHover={{ scale: 1.01 }}
+                  whileTap={{ scale: 0.99 }}
+                  onClick={() => onPermissionResolve("allow")}
+                  className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-emerald-600"
+                >
+                  Allow Once
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.01 }}
+                  whileTap={{ scale: 0.99 }}
+                  onClick={() => onPermissionResolve("always")}
+                  className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 shadow-sm transition-colors hover:bg-emerald-100"
+                >
+                  Always Allow for this Session
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.01 }}
+                  whileTap={{ scale: 0.99 }}
+                  onClick={() => onPermissionResolve("deny")}
+                  className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-600 shadow-sm transition-colors hover:bg-red-100"
+                >
+                  Deny
+                </motion.button>
+              </div>
             </div>
           )}
 

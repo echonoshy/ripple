@@ -12,10 +12,12 @@ from ripple.core.context import ToolUseContext
 from ripple.core.state import QueryState
 from ripple.core.transitions import (
     ContinueNextTurn,
+    ContinueReactiveCompactRetry,
     ContinueStopHookBlocking,
     TerminalCompleted,
     TerminalMaxTurns,
     TerminalModelError,
+    TerminalPromptTooLong,
     TerminalStopHookPrevented,
 )
 from ripple.messages.types import (
@@ -35,6 +37,36 @@ from ripple.messages.utils import (
 from ripple.utils.logger import get_logger
 
 logger = get_logger("core.agent_loop")
+
+# context_length_exceeded 相关的错误关键字
+_CONTEXT_TOO_LONG_KEYWORDS = [
+    "context_length_exceeded",
+    "prompt is too long",
+    "maximum context length",
+    "token limit",
+    "request too large",
+    "prompt_too_long",
+    "input too long",
+    "too many tokens",
+]
+
+# max_output_tokens 相关的错误关键字
+_MAX_OUTPUT_KEYWORDS = [
+    "max_output_tokens",
+    "output token",
+]
+
+MAX_REACTIVE_COMPACT_RETRIES = 2
+
+
+def _is_context_too_long_error(error_str: str) -> bool:
+    """判断是否是上下文过长的错误"""
+    return any(kw in error_str for kw in _CONTEXT_TOO_LONG_KEYWORDS)
+
+
+def _is_max_output_error(error_str: str) -> bool:
+    """判断是否是 max_output_tokens 错误"""
+    return any(kw in error_str for kw in _MAX_OUTPUT_KEYWORDS)
 
 
 def _extract_stop_metadata(stop_reason: str, tool_results: list[Message]) -> dict[str, str | list[str]]:
@@ -118,12 +150,12 @@ async def query_loop(
 
     executed_tool_keys: set[str] = set()
 
-    # 每个 query_loop 创建独立的压缩器和错误恢复实例，避免跨会话状态污染
     from ripple.compact.auto_compact import AutoCompactor
     from ripple.recovery.error_recovery import ErrorRecovery
 
     compactor = AutoCompactor()
     recovery = ErrorRecovery()
+    reactive_compact_count = 0
 
     while True:
         # ========== 阶段 0: 检查是否已被中止 ==========
@@ -165,7 +197,6 @@ async def query_loop(
         needs_follow_up = False
         early_tool_results: list[Message] = []
 
-        # 创建流式工具执行器 — 在模型输出时提前启动并发安全的工具
         from ripple.tools.streaming_executor import StreamingToolExecutor
 
         streaming_executor = StreamingToolExecutor(state.tool_use_context)
@@ -191,6 +222,13 @@ async def query_loop(
 
                 assistant_messages.append(item)
 
+                # 用 API 返回的真实 token 数校准压缩器
+                usage = item.message.get("usage", {})
+                if usage:
+                    prompt_tokens = usage.get("input_tokens", 0)
+                    if prompt_tokens > 0:
+                        compactor.calibrate_with_api_tokens(prompt_tokens)
+
                 tool_uses = extract_tool_use_blocks(item)
                 if tool_uses:
                     tool_use_blocks.extend(tool_uses)
@@ -199,7 +237,6 @@ async def query_loop(
                         logger.info("检测到工具调用: {}", tu.get("name", "unknown"))
                         streaming_executor.add_tool(tu, item)
 
-                # 在流式阶段就 yield 已完成的并行工具结果，同时追踪用于后续 state 更新
                 for completed in streaming_executor.get_completed_results():
                     if completed.message:
                         yield completed.message
@@ -213,9 +250,33 @@ async def query_loop(
             streaming_executor.discard()
             logger.error("API 调用失败: {}\n{}", e, traceback.format_exc())
 
-            # 检查是否是 max_output_tokens 错误
             error_str = str(e).lower()
-            if "max_output_tokens" in error_str or "output token" in error_str:
+
+            # 检查是否是上下文过长的错误 → reactive compact
+            if _is_context_too_long_error(error_str):
+                if reactive_compact_count < MAX_REACTIVE_COMPACT_RETRIES:
+                    reactive_compact_count += 1
+                    logger.warning(
+                        "检测到上下文过长错误，执行 reactive compact (尝试 {}/{})",
+                        reactive_compact_count,
+                        MAX_REACTIVE_COMPACT_RETRIES,
+                    )
+
+                    compacted = await compactor.reactive_compact(state.messages, state.tool_use_context)
+                    state = state.with_messages(compacted).with_transition(ContinueReactiveCompactRetry())
+                    continue
+                else:
+                    logger.error("reactive compact 已达最大重试次数，无法继续")
+                    error_msg = create_user_message(
+                        content="Context is still too long after compaction. Please start a new conversation.",
+                        is_meta=True,
+                    )
+                    yield error_msg
+                    state = state.with_transition(TerminalPromptTooLong())
+                    return
+
+            # 检查是否是 max_output_tokens 错误
+            if _is_max_output_error(error_str):
                 if recovery.can_recover_max_output_tokens():
                     logger.info("检测到 max_output_tokens 错误，尝试恢复")
                     recovery_msg = recovery.create_recovery_message()
@@ -284,7 +345,6 @@ async def query_loop(
         loop_stop_reason: str | None = None
         loop_stop_metadata: dict[str, Any] = {}
 
-        # 先收集流式阶段已完成的并行工具结果
         for completed in streaming_executor.get_completed_results():
             if completed.message:
                 yield completed.message
@@ -297,7 +357,6 @@ async def query_loop(
                 if completed.stop_metadata and not loop_stop_metadata:
                     loop_stop_metadata = completed.stop_metadata
 
-        # 等待所有已启动的流式工具完成
         if streaming_executor.has_pending_tools():
             remaining = await streaming_executor.get_remaining_results()
             for update in remaining:
@@ -315,7 +374,6 @@ async def query_loop(
         for block in tool_use_blocks:
             tool_id = block["id"]
 
-            # 跳过已被 streaming executor 处理的工具
             if tool_id in streaming_executor.started_tool_ids:
                 continue
 
@@ -412,17 +470,9 @@ async def query_loop(
 
 
 def _prepare_tool_definitions(context: ToolUseContext) -> list[dict[str, Any]]:
-    """准备工具定义用于 API 调用
-
-    Args:
-        context: 工具使用上下文
-
-    Returns:
-        工具定义列表
-    """
+    """准备工具定义用于 API 调用"""
     tools = []
     for tool in context.options.tools:
-        # 每个工具需要提供 to_openai_tool() 方法
         if hasattr(tool, "to_openai_tool"):
             tools.append(tool.to_openai_tool())
     return tools
@@ -433,16 +483,7 @@ async def _handle_stop_hooks(
     assistant_messages: list[AssistantMessage],
     context: ToolUseContext,
 ):
-    """处理 Stop Hooks
-
-    Args:
-        messages: 消息列表
-        assistant_messages: 助手消息列表
-        context: 工具使用上下文
-
-    Returns:
-        Stop Hook 结果
-    """
+    """处理 Stop Hooks"""
     from ripple.hooks.executor import StopHookResult, execute_stop_hooks
 
     try:
@@ -466,28 +507,12 @@ async def query(
     history_messages: list[Message] | None = None,
     system_prompt: str | None = None,
 ) -> AsyncGenerator[Message | StreamEvent | RequestStartEvent | AgentStopEvent, None]:
-    """查询入口函数
-
-    Args:
-        user_input: 用户输入
-        context: 工具使用上下文
-        client: OpenRouter 客户端（可选）
-        model: 模型名称
-        max_turns: 最大轮数
-        thinking: 是否启用思考模式
-        history_messages: 历史消息列表（可选）
-        system_prompt: 系统提示（可选）
-
-    Yields:
-        消息或流式事件
-    """
+    """查询入口函数"""
     if client is None:
         client = OpenRouterClient()
 
-    # 构建消息列表
     messages = []
 
-    # 系统消息
     from datetime import datetime
 
     from ripple.messages.utils import create_system_message
@@ -509,12 +534,10 @@ async def query(
             )
         )
 
-    # 历史消息（可能是 dict 或 Message，统一转换为 Message 对象）
     if history_messages:
         for hm in history_messages:
             messages.append(deserialize_message(hm) if isinstance(hm, dict) else hm)
 
-    # 新用户消息
     messages.append(create_user_message(content=user_input))
 
     params = QueryParams(

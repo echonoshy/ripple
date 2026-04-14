@@ -21,7 +21,12 @@ logger = get_logger("server.sse")
 
 
 def _save_to_history(history_messages: list[Message], user_input: str, new_messages: list[Message]) -> None:
-    """将本轮内部消息对象原样追加到历史，保留完整工具轨迹。"""
+    """将本轮消息追加到历史。
+
+    直接追加原始消息对象。跨 agent loop 的上下文清理由
+    clean_messages_for_model_context() 在传给模型时完成，
+    不修改 session.messages（保持完整以供 Web 展示）。
+    """
     history_messages.append(create_user_message(content=user_input))
     history_messages.extend(new_messages)
 
@@ -200,6 +205,11 @@ async def stream_query_as_sse(
     if conversation_log:
         conversation_log.log_user_message(user_input)
 
+    # 跨 loop 上下文清理：传给模型的是精简版，session.messages 保持完整
+    from ripple.compact.context_cleanup import clean_messages_for_model_context
+
+    model_history = clean_messages_for_model_context(history_messages) if history_messages else history_messages
+
     async def _heartbeat_wrapper():
         """包装 query() 生成器，在长时间无输出时发送心跳"""
         gen = query(
@@ -209,7 +219,7 @@ async def stream_query_as_sse(
             model=model,
             max_turns=max_turns,
             thinking=thinking,
-            history_messages=history_messages,
+            history_messages=model_history,
             system_prompt=system_prompt,
         )
         pending_next = asyncio.ensure_future(gen.__anext__())
@@ -421,6 +431,10 @@ async def collect_query_response(
     if conversation_log:
         conversation_log.log_user_message(user_input)
 
+    from ripple.compact.context_cleanup import clean_messages_for_model_context
+
+    model_history = clean_messages_for_model_context(history_messages) if history_messages else history_messages
+
     try:
         async for item in query(
             user_input=user_input,
@@ -429,7 +443,7 @@ async def collect_query_response(
             model=model,
             max_turns=max_turns,
             thinking=thinking,
-            history_messages=history_messages,
+            history_messages=model_history,
             system_prompt=system_prompt,
         ):
             if isinstance(item, AgentStopEvent):

@@ -527,15 +527,7 @@ export default function Home() {
   const allToolCalls = messages.flatMap((m) =>
     m.role === "assistant" && m.toolCalls ? m.toolCalls : []
   );
-  const lastAssistant = messages
-    .slice()
-    .reverse()
-    .find((m) => m.role === "assistant");
-  const showMobileTaskPanel =
-    tasks.length > 0 ||
-    allToolCalls.length > 0 ||
-    !!lastAssistant?.askUser ||
-    !!lastAssistant?.permissionRequest;
+  const showMobileTaskPanel = tasks.length > 0 || allToolCalls.length > 0;
 
   const isContextWarning = lastContextTokens > 150_000;
 
@@ -746,6 +738,8 @@ export default function Home() {
                     msg={msg}
                     isGenerating={isGenerating}
                     isLast={i === messages.length - 1}
+                    onQuickReply={handleQuickReply}
+                    onPermissionResolve={handlePermissionResolve}
                   />
                 ))}
               </AnimatePresence>
@@ -760,10 +754,6 @@ export default function Home() {
                 tasks={tasks}
                 taskProgress={taskProgress}
                 toolCalls={allToolCalls}
-                askUser={lastAssistant?.askUser}
-                permissionRequest={lastAssistant?.permissionRequest}
-                onQuickReply={handleQuickReply}
-                onPermissionResolve={handlePermissionResolve}
                 isGenerating={isGenerating}
               />
             </div>
@@ -797,10 +787,6 @@ export default function Home() {
             tasks={tasks}
             taskProgress={taskProgress}
             toolCalls={allToolCalls}
-            askUser={lastAssistant?.askUser}
-            permissionRequest={lastAssistant?.permissionRequest}
-            onQuickReply={handleQuickReply}
-            onPermissionResolve={handlePermissionResolve}
             isGenerating={isGenerating}
           />
         </aside>

@@ -79,16 +79,16 @@ export default function ChatMessage({ msg, isGenerating, isLast }: ChatMessagePr
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
-      className={`flex gap-3 ${isUser ? "justify-end" : ""}`}
+      className={`flex gap-2.5 ${isUser ? "justify-end" : ""}`}
     >
       {!isUser && (
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-fuchsia-500 shadow-sm">
-          <RippleIcon size={14} className="text-white" />
+        <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-fuchsia-500 shadow-sm">
+          <RippleIcon size={12} className="text-white" />
         </div>
       )}
 
       {isUser ? (
-        <div className="max-w-[85%] rounded-2xl rounded-br-md bg-gradient-to-br from-blue-500 to-indigo-600 px-4 py-3 text-[15px] leading-relaxed text-white shadow-sm">
+        <div className="max-w-[95%] rounded-xl rounded-br-sm bg-gradient-to-br from-blue-500 to-indigo-600 px-3.5 py-2.5 text-[14px] leading-snug text-white shadow-sm">
           <div className="whitespace-pre-wrap">{msg.content}</div>
         </div>
       ) : (
@@ -96,7 +96,7 @@ export default function ChatMessage({ msg, isGenerating, isLast }: ChatMessagePr
           {showThinking && isEmptyAssistant && <ThinkingIndicator hasContent={false} />}
 
           {msg.content && (
-            <div className="rounded-2xl rounded-tl-md border border-white/60 bg-white/80 px-5 py-4 text-[15px] leading-relaxed text-slate-700 shadow-sm backdrop-blur-sm">
+            <div className="rounded-xl rounded-tl-sm border border-white/60 bg-white/80 px-4 py-3 text-[14px] leading-snug text-slate-700 shadow-sm backdrop-blur-sm">
               <MarkdownRenderer content={msg.content} />
             </div>
           )}
@@ -106,8 +106,8 @@ export default function ChatMessage({ msg, isGenerating, isLast }: ChatMessagePr
       )}
 
       {isUser && (
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-blue-400 to-indigo-500 shadow-sm">
-          <User size={14} className="text-white" />
+        <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-blue-400 to-indigo-500 shadow-sm">
+          <User size={12} className="text-white" />
         </div>
       )}
     </motion.div>

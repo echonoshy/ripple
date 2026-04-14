@@ -79,7 +79,7 @@ export default function Home() {
   const [taskProgress, setTaskProgress] = useState<TaskProgress | null>(null);
 
   // ── Resizable right panel ──
-  const [rightPanelWidth, setRightPanelWidth] = useState(380);
+  const [rightPanelWidth, setRightPanelWidth] = useState(600);
   const isResizingRef = useRef(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -506,7 +506,7 @@ export default function Home() {
       const startWidth = rightPanelWidth;
       const onMove = (ev: MouseEvent) => {
         if (!isResizingRef.current) return;
-        setRightPanelWidth(Math.min(600, Math.max(300, startWidth + startX - ev.clientX)));
+        setRightPanelWidth(Math.min(1200, Math.max(300, startWidth + startX - ev.clientX)));
       };
       const onUp = () => {
         isResizingRef.current = false;
@@ -730,8 +730,8 @@ export default function Home() {
           </header>
 
           {/* Messages */}
-          <div className="flex-1 overflow-y-auto px-4 pt-6 pb-40 md:px-6">
-            <div className="mx-auto max-w-3xl space-y-5">
+          <div className="flex-1 overflow-y-auto px-4 pt-6 pb-4 md:px-6">
+            <div className="mx-auto max-w-5xl space-y-3">
               {messages.length === 0 && (
                 <div className="flex h-[50vh] flex-col items-center justify-center text-slate-400">
                   <RippleIcon size={48} className="mb-4 text-violet-200" />
@@ -782,10 +782,10 @@ export default function Home() {
 
         {/* Resize handle */}
         <div
-          className="hidden w-1 shrink-0 cursor-col-resize items-center justify-center hover:bg-violet-200/50 lg:flex"
+          className="z-30 hidden w-2 shrink-0 cursor-col-resize items-center justify-center transition-colors hover:bg-violet-200/80 lg:flex"
           onMouseDown={handleResizeStart}
         >
-          <div className="h-8 w-0.5 rounded-full bg-slate-300" />
+          <div className="h-12 w-1 rounded-full bg-slate-300" />
         </div>
 
         {/* Right panel */}

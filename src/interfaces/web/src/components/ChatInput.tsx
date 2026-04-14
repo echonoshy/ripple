@@ -3,6 +3,7 @@
 import React, { useRef, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import { Send, Square } from "lucide-react";
+import { shouldApplyInputFocus } from "@/lib/inputFocus";
 
 interface ChatInputProps {
   value: string;
@@ -11,6 +12,7 @@ interface ChatInputProps {
   onStop: () => void;
   isGenerating: boolean;
   hasSession: boolean;
+  focusToken: number;
 }
 
 export default function ChatInput({
@@ -20,6 +22,7 @@ export default function ChatInput({
   onStop,
   isGenerating,
   hasSession,
+  focusToken,
 }: ChatInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -33,6 +36,12 @@ export default function ChatInput({
   useEffect(() => {
     adjustHeight();
   }, [value, adjustHeight]);
+
+  useEffect(() => {
+    if (shouldApplyInputFocus(focusToken, isGenerating)) {
+      textareaRef.current?.focus();
+    }
+  }, [focusToken, isGenerating]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {

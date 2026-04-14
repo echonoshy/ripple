@@ -16,6 +16,7 @@ from interfaces.server.schemas import (
     CreateSessionRequest,
     ModelInfo,
     ModelsResponse,
+    PermissionResolveRequest,
     SessionDetailResponse,
     SessionInfo,
     SessionListResponse,
@@ -26,6 +27,8 @@ from interfaces.server.schemas import (
 )
 from interfaces.server.sessions import SessionManager
 from interfaces.server.sse import collect_query_response, stream_query_as_sse
+from ripple.messages.utils import serialize_messages
+from ripple.tools.orchestration import find_tool_by_name
 from ripple.utils.config import get_config
 from ripple.utils.logger import get_logger
 
@@ -162,6 +165,9 @@ async def _stream_chat(
         async with session.lock:
             session.current_task = asyncio.current_task()
             session.status = "running"
+            session.pending_question = None
+            session.pending_options = None
+            session.pending_permission_request = None
             if session.context and session.context.abort_signal:
                 from ripple.core.context import AbortSignal
 
@@ -188,11 +194,18 @@ async def _stream_chat(
                             event_type = payload.get("type")
                             if event_type == "agent_stop":
                                 stop_reason = payload.get("stop_reason", "")
+                                metadata = payload.get("metadata", {})
                                 if stop_reason == "ask_user":
                                     session.status = "awaiting_user_input"
-                                    session.pending_question = payload.get("metadata", {}).get("question")
+                                    session.pending_question = metadata.get("question")
+                                    options = metadata.get("options")
+                                    session.pending_options = options if isinstance(options, list) else None
                                 elif stop_reason == "permission_request":
                                     session.status = "awaiting_permission"
+                                    session.pending_question = metadata.get("question")
+                                    session.pending_permission_request = (
+                                        metadata if isinstance(metadata, dict) and metadata else None
+                                    )
                         except (_json.JSONDecodeError, AttributeError):
                             pass
                     yield sse_line
@@ -234,6 +247,9 @@ async def _non_stream_chat(
         async with session.lock:
             session.current_task = asyncio.current_task()
             session.status = "running"
+            session.pending_question = None
+            session.pending_options = None
+            session.pending_permission_request = None
             if session.context and session.context.abort_signal:
                 from ripple.core.context import AbortSignal
 
@@ -254,6 +270,16 @@ async def _non_stream_chat(
                     session.total_input_tokens += usage.get("prompt_tokens", 0)
                     session.total_output_tokens += usage.get("completion_tokens", 0)
                     session.last_input_tokens = usage.get("prompt_tokens", 0)
+                finish_reason = result.get("choices", [{}])[0].get("finish_reason", "stop")
+                stop_metadata = result.get("stop_metadata", {})
+                if finish_reason == "ask_user":
+                    session.status = "awaiting_user_input"
+                    session.pending_question = stop_metadata.get("question")
+                    options = stop_metadata.get("options")
+                    session.pending_options = options if isinstance(options, list) else None
+                elif finish_reason == "permission_request":
+                    session.status = "awaiting_permission"
+                    session.pending_permission_request = stop_metadata if isinstance(stop_metadata, dict) else None
                 return result
             finally:
                 session.current_task = None
@@ -328,16 +354,17 @@ async def get_session(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    from ripple.messages.utils import normalize_messages_for_api
-
     return SessionDetailResponse(
         session_id=session.session_id,
         model=session.model,
         created_at=session.created_at.isoformat(),
         last_active=session.last_active.isoformat(),
         message_count=len(session.messages),
-        messages=normalize_messages_for_api(session.messages),
+        messages=serialize_messages(session.messages),
         status=session.status,
+        pending_question=session.pending_question,
+        pending_options=session.pending_options,
+        pending_permission_request=session.pending_permission_request,
     )
 
 
@@ -354,6 +381,46 @@ async def stop_session(
 
     stopped = manager.stop_session(session_id)
     return {"ok": True, "stopped": stopped}
+
+
+@router.post("/v1/sessions/{session_id}/permissions/resolve")
+async def resolve_permission_request(
+    session_id: str,
+    request: PermissionResolveRequest,
+    _api_key: str = Depends(verify_api_key),
+):
+    """处理挂起的权限请求。"""
+    manager = get_session_manager()
+    session = manager.get_session(session_id)
+    if not session:
+        session = manager.resume_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    permission_request = session.pending_permission_request
+    if not permission_request:
+        raise HTTPException(status_code=409, detail="No pending permission request")
+
+    permission_manager = session.context.permission_manager if session.context else None
+    if not permission_manager:
+        raise HTTPException(status_code=500, detail="Permission manager unavailable")
+
+    if request.action in ("allow", "always"):
+        tool = find_tool_by_name(session.context.options.tools, permission_request.get("tool", ""))
+        if not tool:
+            raise HTTPException(status_code=404, detail="Requested tool not found")
+        params = permission_request.get("params", {})
+        permission_manager.grant_permission(
+            tool, params if isinstance(params, dict) else {}, scope="once" if request.action == "allow" else "session"
+        )
+
+    session.pending_permission_request = None
+    session.pending_question = None
+    session.pending_options = None
+    session.status = "idle"
+    manager.persist_session(session.session_id)
+
+    return {"ok": True, "action": request.action}
 
 
 @router.get("/v1/sessions/{session_id}/usage")

@@ -232,7 +232,7 @@ export default function TaskExecutionPanel({
           </div>
         )}
 
-        {askUser && askUser.options.length > 0 && !isGenerating && (
+        {askUser && !isGenerating && (
           <div className="space-y-3">
             <h3 className="flex items-center gap-2 text-xs font-bold tracking-wider text-slate-400 uppercase">
               <AlertTriangle size={14} />
@@ -240,19 +240,23 @@ export default function TaskExecutionPanel({
             </h3>
             <div className="rounded-2xl border border-violet-200 bg-white p-4 shadow-sm">
               <p className="mb-3 text-sm font-medium text-slate-700">{askUser.question}</p>
-              <div className="flex flex-wrap gap-2">
-                {askUser.options.map((option, i) => (
-                  <motion.button
-                    key={i}
-                    whileHover={{ scale: 1.03 }}
-                    whileTap={{ scale: 0.97 }}
-                    onClick={() => onQuickReply(option)}
-                    className="rounded-xl border border-violet-200 bg-white px-4 py-2 text-sm font-medium text-violet-700 shadow-sm transition-colors hover:border-violet-300 hover:bg-violet-50"
-                  >
-                    {option}
-                  </motion.button>
-                ))}
-              </div>
+              {askUser.options && askUser.options.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {askUser.options.map((option, i) => (
+                    <motion.button
+                      key={i}
+                      whileHover={{ scale: 1.03 }}
+                      whileTap={{ scale: 0.97 }}
+                      onClick={() => onQuickReply(option)}
+                      className="rounded-xl border border-violet-200 bg-white px-4 py-2 text-sm font-medium text-violet-700 shadow-sm transition-colors hover:border-violet-300 hover:bg-violet-50"
+                    >
+                      {option}
+                    </motion.button>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-slate-500 italic">请在下方输入框中回复此问题。</p>
+              )}
             </div>
           </div>
         )}

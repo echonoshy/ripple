@@ -58,6 +58,10 @@ class SandboxManager:
         total_output_tokens: int = 0,
         created_at: datetime | None = None,
         last_active: datetime | None = None,
+        status: str = "idle",
+        pending_question: str | None = None,
+        pending_options: list[str] | None = None,
+        pending_permission_request: dict | None = None,
     ) -> bool:
         """挂起 session：保存状态到磁盘，保留工作空间文件"""
         if not workspace_exists(self.config, session_id):
@@ -75,6 +79,10 @@ class SandboxManager:
             total_output_tokens=total_output_tokens,
             created_at=created_at,
             last_active=last_active,
+            status=status,
+            pending_question=pending_question,
+            pending_options=pending_options,
+            pending_permission_request=pending_permission_request,
         )
 
         logger.info("Session {} 已挂起", session_id)

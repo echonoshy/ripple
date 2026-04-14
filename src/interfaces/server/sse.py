@@ -13,35 +13,68 @@ from uuid import uuid4
 from ripple.api.client import OpenRouterClient
 from ripple.core.agent_loop import query
 from ripple.core.context import ToolUseContext
-from ripple.messages.cleanup import cleanup_tool_results
 from ripple.messages.types import AgentStopEvent, AssistantMessage, Message, RequestStartEvent, StreamEvent
-from ripple.messages.utils import _convert_assistant_message
+from ripple.messages.utils import create_user_message
 from ripple.utils.logger import get_logger
 
 logger = get_logger("server.sse")
 
 
 def _save_to_history(history_messages: list[Message], user_input: str, new_messages: list[Message]) -> None:
-    """将本轮消息转为 dict 并 cleanup 后追加到历史"""
-    raw_dicts: list[dict[str, Any]] = [{"role": "user", "content": [{"type": "text", "text": user_input}]}]
+    """将本轮内部消息对象原样追加到历史，保留完整工具轨迹。"""
+    history_messages.append(create_user_message(content=user_input))
+    history_messages.extend(new_messages)
 
-    for msg in new_messages:
-        if isinstance(msg, AssistantMessage):
-            raw_dicts.append(_convert_assistant_message(msg.message.get("content", [])))
-        elif hasattr(msg, "type") and msg.type == "user":
-            content = msg.message.get("content", [])
-            for block in content:
-                if isinstance(block, dict) and block.get("type") == "tool_result":
-                    raw_dicts.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": block.get("tool_use_id", ""),
-                            "content": block.get("content", ""),
-                        }
-                    )
 
-    cleaned = cleanup_tool_results(raw_dicts)
-    history_messages.extend(cleaned)
+def _extract_stop_metadata(stop_reason: str, new_messages: list[Message]) -> dict[str, Any]:
+    """从本轮消息中提取暂停所需元数据。"""
+    if stop_reason == "permission_request":
+        for msg in reversed(new_messages):
+            if getattr(msg, "type", None) != "user":
+                continue
+
+            for block in reversed(msg.message.get("content", [])):
+                if not isinstance(block, dict) or block.get("type") != "tool_result":
+                    continue
+
+                content = block.get("content", "")
+                if not isinstance(content, str) or "Awaiting user permission" not in content:
+                    continue
+
+                tool_name = block.get("tool_name")
+                if isinstance(tool_name, str):
+                    return {
+                        "tool": tool_name,
+                        "params": {},
+                        "riskLevel": "dangerous",
+                    }
+
+        return {}
+
+    if stop_reason != "ask_user":
+        return {}
+
+    for msg in reversed(new_messages):
+        if not isinstance(msg, AssistantMessage):
+            continue
+
+        for block in reversed(msg.message.get("content", [])):
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") != "tool_use" or block.get("name") != "AskUser":
+                continue
+
+            tool_input = block.get("input", {})
+            if not isinstance(tool_input, dict):
+                tool_input = {}
+
+            options = tool_input.get("options")
+            return {
+                "question": tool_input.get("question", ""),
+                "options": options if isinstance(options, list) else [],
+            }
+
+    return {}
 
 
 def _make_chunk(
@@ -151,6 +184,7 @@ async def stream_query_as_sse(
     accumulated_tool_calls: list[dict[str, Any]] = []
     usage_info: dict[str, int] = {}
     new_messages: list[Message] = []
+    finish_reason = "stop"
     # 跟踪 tool_use id -> name 的映射，用于识别 task 工具的 result
     tool_id_to_name: dict[str, str] = {}
     # 跟踪任务状态用于发送 task_progress
@@ -196,11 +230,14 @@ async def stream_query_as_sse(
                 continue
 
             if isinstance(item, AgentStopEvent):
+                if item.stop_reason in ("ask_user", "permission_request"):
+                    finish_reason = item.stop_reason
+                metadata = item.metadata or _extract_stop_metadata(item.stop_reason, new_messages)
                 yield _make_tool_event(
                     "agent_stop",
                     {
                         "stop_reason": item.stop_reason,
-                        "metadata": item.metadata,
+                        "metadata": metadata,
                     },
                 )
                 continue
@@ -255,19 +292,6 @@ async def stream_query_as_sse(
                         accumulated_tool_calls.append(tool_call_data)
                         tool_id_to_name[tool_id] = tool_name
                         yield _make_tool_event("tool_call", tool_call_data)
-
-                        # 对 TaskCreate 发送 task_created 事件
-                        if tool_name == "TaskCreate":
-                            task_id = tool_input.get("subject", "")[:8]
-                            yield _make_tool_event(
-                                "task_created",
-                                {
-                                    "id": task_id,
-                                    "subject": tool_input.get("subject", ""),
-                                    "status": "pending",
-                                    "activeForm": tool_input.get("activeForm"),
-                                },
-                            )
 
             elif hasattr(item, "type") and item.type == "user":
                 new_messages.append(item)
@@ -324,7 +348,7 @@ async def stream_query_as_sse(
             "object": "chat.completion.chunk",
             "created": created,
             "model": model,
-            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+            "choices": [{"index": 0, "delta": {}, "finish_reason": finish_reason}],
         }
         if usage_info:
             finish_chunk["usage"] = {
@@ -380,6 +404,7 @@ async def collect_query_response(
             if isinstance(item, AgentStopEvent):
                 if item.stop_reason in ("ask_user", "permission_request"):
                     finish_reason = item.stop_reason
+                    stop_metadata = item.metadata or _extract_stop_metadata(item.stop_reason, new_messages)
                 continue
 
             if isinstance(item, (StreamEvent, RequestStartEvent)):
@@ -453,6 +478,7 @@ async def collect_query_response(
                 "completion_tokens": usage_info.get("completion_tokens", 0),
                 "total_tokens": usage_info.get("prompt_tokens", 0) + usage_info.get("completion_tokens", 0),
             },
+            "stop_metadata": stop_metadata,
         }
 
     except asyncio.CancelledError:

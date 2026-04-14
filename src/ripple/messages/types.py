@@ -86,7 +86,7 @@ Message = AssistantMessage | UserMessage | SystemMessage | ProgressMessage | Att
 class StreamEvent(BaseModel):
     """流式事件"""
 
-    type: Literal["stream_chunk", "stream_start", "stream_end"]
+    type: Literal["stream_chunk", "stream_start", "stream_end", "heartbeat"]
     data: dict[str, Any] | None = None
 
 

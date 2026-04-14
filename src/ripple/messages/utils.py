@@ -6,7 +6,9 @@ from uuid import uuid4
 
 from ripple.messages.types import (
     AssistantMessage,
+    AttachmentMessage,
     Message,
+    ProgressMessage,
     SystemMessage,
     UserMessage,
 )
@@ -53,6 +55,97 @@ def create_system_message(content: str, level: str = "info") -> SystemMessage:
     return SystemMessage(type="system", content=content, level=level)
 
 
+def serialize_message(message: Message | dict[str, Any]) -> dict[str, Any]:
+    """将内部消息对象转换为可持久化的 dict。"""
+    if isinstance(message, dict):
+        return message
+    return message.model_dump()
+
+
+def serialize_messages(messages: list[Message | dict[str, Any]]) -> list[dict[str, Any]]:
+    """批量序列化消息列表。"""
+    return [serialize_message(message) for message in messages]
+
+
+def deserialize_message(data: dict[str, Any]) -> Message:
+    """将持久化/兼容格式的 dict 转回内部消息对象。"""
+    if "type" in data:
+        message_type = data.get("type")
+        if message_type == "assistant":
+            return AssistantMessage.model_validate(data)
+        if message_type == "user":
+            return UserMessage.model_validate(data)
+        if message_type == "system":
+            return SystemMessage.model_validate(data)
+        if message_type == "progress":
+            return ProgressMessage.model_validate(data)
+        if message_type == "attachment":
+            return AttachmentMessage.model_validate(data)
+
+    role = data.get("role", "")
+
+    if role == "system":
+        return SystemMessage(type="system", content=data.get("content", ""))
+
+    if role == "assistant":
+        content = data.get("content", "")
+        blocks: list[dict[str, Any]] = []
+        if isinstance(content, str) and content:
+            blocks.append({"type": "text", "text": content})
+        elif isinstance(content, list):
+            blocks = list(content)
+
+        for tool_call in data.get("tool_calls", []):
+            function_data = tool_call.get("function", {})
+            arguments_raw = function_data.get("arguments", "{}")
+            try:
+                tool_input = json.loads(arguments_raw) if isinstance(arguments_raw, str) else arguments_raw
+            except (json.JSONDecodeError, TypeError):
+                tool_input = {}
+
+            blocks.append(
+                {
+                    "type": "tool_use",
+                    "id": tool_call.get("id", ""),
+                    "name": function_data.get("name", ""),
+                    "input": tool_input,
+                }
+            )
+
+        usage = data.get("usage", {})
+        if not isinstance(usage, dict):
+            usage = {}
+
+        return AssistantMessage(
+            type="assistant",
+            message={
+                "id": data.get("id", str(uuid4())),
+                "content": blocks,
+                "usage": usage,
+            },
+            uuid=data.get("uuid", str(uuid4())),
+        )
+
+    if role == "tool":
+        return UserMessage(
+            type="user",
+            message={
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": data.get("tool_call_id", ""),
+                        "content": data.get("content", ""),
+                    }
+                ]
+            },
+        )
+
+    content = data.get("content", [])
+    if isinstance(content, str):
+        content = [{"type": "text", "text": content}]
+    return UserMessage(type="user", message={"content": content})
+
+
 def normalize_messages_for_api(
     messages: list[Message | dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -72,8 +165,10 @@ def normalize_messages_for_api(
 
     for msg in messages:
         if isinstance(msg, dict):
-            normalized.append(msg)
-            continue
+            if "role" in msg:
+                normalized.append(msg)
+                continue
+            msg = deserialize_message(msg)
 
         if msg.type == "user" and msg.is_meta:
             continue

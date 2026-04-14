@@ -58,6 +58,7 @@ class Session:
     status: str = SessionStatus.IDLE
     pending_question: str | None = None
     pending_options: list[str] | None = None
+    pending_permission_request: dict[str, object] | None = None
 
     def trim_messages_if_needed(self, max_tokens: int = 150_000) -> int:
         """当消息历史过长时修剪，参考 CLI 的 trim 策略。
@@ -292,6 +293,10 @@ class SessionManager:
             total_output_tokens=session.total_output_tokens,
             created_at=session.created_at,
             last_active=session.last_active,
+            status=session.status,
+            pending_question=session.pending_question,
+            pending_options=session.pending_options,
+            pending_permission_request=session.pending_permission_request,
         )
 
     def create_session(
@@ -437,6 +442,10 @@ class SessionManager:
             created_at=created_at,
             total_input_tokens=state.get("total_input_tokens", 0),
             total_output_tokens=state.get("total_output_tokens", 0),
+            status=state.get("status", SessionStatus.IDLE),
+            pending_question=state.get("pending_question"),
+            pending_options=state.get("pending_options"),
+            pending_permission_request=state.get("pending_permission_request"),
         )
         self._sessions[session_id] = session
         logger.info("恢复 session: {} ({} 条历史消息)", session_id, len(session.messages))
@@ -477,7 +486,7 @@ class SessionManager:
                 "message_count": len(s.messages),
                 "created_at": s.created_at.isoformat(),
                 "last_active": s.last_active.isoformat(),
-                "status": "active",
+                "status": s.status,
                 "total_input_tokens": s.total_input_tokens,
                 "total_output_tokens": s.total_output_tokens,
             }

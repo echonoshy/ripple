@@ -60,6 +60,9 @@ export interface Session {
 
 export interface SessionDetail extends Session {
   messages: Record<string, unknown>[];
+  pending_question?: string | null;
+  pending_options?: string[] | null;
+  pending_permission_request?: PermissionRequestData | null;
 }
 
 export interface TaskInfo {

@@ -36,6 +36,7 @@ class MessageUpdate:
     new_context: ToolUseContext | None = None
     stop_agent_loop: bool = False
     stop_reason: str | None = None
+    stop_metadata: dict[str, Any] | None = None
 
 
 def _dedup_tool_calls(
@@ -275,9 +276,30 @@ async def execute_tool(
         return
 
     if hasattr(context, "permission_manager") and context.permission_manager:
-        allowed, reason = await context.permission_manager.check_permission(tool, tool_input, context)
+        allowed, reason, permission_request = await context.permission_manager.check_permission(
+            tool, tool_input, context
+        )
 
         if not allowed:
+            if permission_request is not None:
+                permission_msg = create_tool_result_message(
+                    tool_use_id=tool_use["id"],
+                    content=(
+                        f"Awaiting user permission for {tool_name}. "
+                        "The request has been shown to the user and execution is paused."
+                    ),
+                    is_error=False,
+                    tool_name=tool_name,
+                    source_assistant_uuid=parent_uuid,
+                )
+                yield MessageUpdate(
+                    message=permission_msg,
+                    stop_agent_loop=True,
+                    stop_reason="permission_request",
+                    stop_metadata=permission_request,
+                )
+                return
+
             logger.warning("工具权限拒绝: {} | 原因: {}", tool_name, reason)
             error_msg = create_tool_result_message(
                 tool_use_id=tool_use["id"],

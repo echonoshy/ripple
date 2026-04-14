@@ -113,6 +113,13 @@ class SessionInfo(BaseModel):
 
 class SessionDetailResponse(SessionInfo):
     messages: list[dict[str, Any]] = []
+    pending_question: str | None = None
+    pending_options: list[str] | None = None
+    pending_permission_request: dict[str, Any] | None = None
+
+
+class PermissionResolveRequest(BaseModel):
+    action: Literal["allow", "always", "deny"]
 
 
 class SessionListResponse(BaseModel):

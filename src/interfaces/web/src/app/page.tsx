@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Cpu, ChevronDown, Brain, AlertTriangle, KeyRound, Menu } from "lucide-react";
-import { Message, UsageInfo, Session, TaskInfo, TaskProgress } from "@/types";
+import { Message, UsageInfo, Session, SessionDetail, TaskInfo, TaskProgress } from "@/types";
 import {
   createSession,
   sendChatMessage,
@@ -16,6 +16,7 @@ import {
   fetchSessions,
   fetchSessionDetails,
   deleteSession,
+  resolvePermissionRequest,
 } from "@/lib/api";
 import RippleIcon from "@/components/icons/RippleIcon";
 import Sidebar from "@/components/Sidebar";
@@ -23,6 +24,14 @@ import ChatInput from "@/components/ChatInput";
 import ChatMessage from "@/components/ChatMessage";
 import TaskExecutionPanel from "@/components/TaskExecutionPanel";
 import SettingsModal from "@/components/SettingsModal";
+import { applyTaskUpdate, upsertTask } from "@/lib/chatState";
+import { bumpInputFocusToken } from "@/lib/inputFocus";
+import {
+  clearStoredCurrentSessionId,
+  getStoredCurrentSessionId,
+  pickRestorableSessionId,
+  setStoredCurrentSessionId,
+} from "@/lib/sessionPersistence";
 
 function formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -55,6 +64,7 @@ export default function Home() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [thinkingEnabled, setThinkingEnabled] = useState(false);
+  const [inputFocusToken, setInputFocusToken] = useState(0);
 
   // ── Token tracking ──
   const [tokenUsage, setTokenUsage] = useState<UsageInfo>({
@@ -73,6 +83,8 @@ export default function Home() {
   const isResizingRef = useRef(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const activeRequestIdRef = useRef(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // ── Scroll to bottom on new messages ──
   useEffect(() => {
@@ -85,17 +97,51 @@ export default function Home() {
   }, []);
 
   // ── Load sessions ──
-  const loadSessions = useCallback(async () => {
-    if (authState !== "authenticated") return;
+  const loadSessions = useCallback(async (): Promise<Session[]> => {
+    if (authState !== "authenticated") return [];
     try {
       setIsLoadingSessions(true);
-      setSessions(await fetchSessions());
+      const loadedSessions = await fetchSessions();
+      setSessions(loadedSessions);
+      return loadedSessions;
     } catch {
-      /* swallow */
+      return [];
     } finally {
       setIsLoadingSessions(false);
     }
   }, [authState]);
+
+  const applySessionDetails = useCallback((details: SessionDetail) => {
+    setSessionId(details.session_id);
+    setSelectedModel(details.model);
+    setMessages(mapBackendMessages(details));
+    setTokenUsage({ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
+    setLastContextTokens(0);
+    setTasks([]);
+    setTaskProgress(null);
+    setStoredCurrentSessionId(undefined, details.session_id);
+  }, []);
+
+  const restoreStoredSession = useCallback(
+    async (availableSessions: Session[]) => {
+      const storedSessionId = getStoredCurrentSessionId();
+      const restorableSessionId = pickRestorableSessionId(storedSessionId, availableSessions);
+
+      if (!restorableSessionId) {
+        clearStoredCurrentSessionId();
+        return;
+      }
+
+      const details = await fetchSessionDetails(restorableSessionId);
+      if (!details) {
+        clearStoredCurrentSessionId();
+        return;
+      }
+
+      applySessionDetails(details);
+    },
+    [applySessionDetails]
+  );
 
   // ── Init on auth ──
   useEffect(() => {
@@ -107,16 +153,20 @@ export default function Home() {
         if (fetched.length > 0) {
           setSelectedModel(fetched.find((m) => m.id === "sonnet")?.id || fetched[0].id);
         }
-        await loadSessions();
+        const loadedSessions = await loadSessions();
+        if (loadedSessions.length > 0) {
+          await restoreStoredSession(loadedSessions);
+        }
       } catch (err) {
         if (err instanceof AuthError) {
           clearApiKey();
           setAuthState("needs_auth");
           setAuthErrorMsg("API Key 无效，请重新输入");
+          clearStoredCurrentSessionId();
         }
       }
     })();
-  }, [authState, loadSessions]);
+  }, [authState, loadSessions, restoreStoredSession]);
 
   // ── Auth submit ──
   const handleAuthSubmit = (e: React.FormEvent) => {
@@ -134,11 +184,7 @@ export default function Home() {
     try {
       const details = await fetchSessionDetails(id);
       if (!details) return;
-      setSessionId(id);
-      setSelectedModel(details.model);
-      setMessages(mapBackendMessages(details.messages));
-      setTokenUsage({ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
-      setLastContextTokens(0);
+      applySessionDetails(details);
       setIsSidebarOpen(false);
     } catch (err) {
       console.error("Error switching session:", err);
@@ -156,12 +202,14 @@ export default function Home() {
     try {
       const id = await createSession();
       setSessionId(id);
+      setStoredCurrentSessionId(undefined, id);
       await loadSessions();
     } catch (err) {
       if (err instanceof AuthError) {
         clearApiKey();
         setAuthState("needs_auth");
         setAuthErrorMsg("API Key 已失效");
+        clearStoredCurrentSessionId();
       }
     }
   };
@@ -172,170 +220,282 @@ export default function Home() {
     if (isGenerating) return;
     if (await deleteSession(id)) {
       setSessions((prev) => prev.filter((s) => s.session_id !== id));
+      if (getStoredCurrentSessionId() === id) {
+        clearStoredCurrentSessionId();
+      }
       if (id === sessionId) {
         setSessionId(null);
         setMessages([]);
+        setTasks([]);
+        setTaskProgress(null);
       }
     }
   };
 
   // ── Stop generation ──
   const handleStop = useCallback(async () => {
+    activeRequestIdRef.current += 1;
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
     if (sessionId) {
       await stopSession(sessionId);
     }
     setIsGenerating(false);
+    setInputFocusToken((prev) => bumpInputFocusToken(prev));
   }, [sessionId]);
 
   // ── Send message ──
-  const handleSendMessage = useCallback(async () => {
-    const text = input.trim();
-    if (!text || isGenerating) return;
+  const handleSendMessage = useCallback(
+    async (overrideText?: string) => {
+      const text = typeof overrideText === "string" ? overrideText.trim() : input.trim();
+      if (!text || isGenerating) return;
+      const requestId = activeRequestIdRef.current + 1;
+      activeRequestIdRef.current = requestId;
+      abortControllerRef.current?.abort();
+      const abortController = new AbortController();
+      abortControllerRef.current = abortController;
+      const isStaleRequest = () => activeRequestIdRef.current !== requestId;
 
-    let activeSessionId = sessionId;
-    if (!activeSessionId) {
+      let activeSessionId = sessionId;
+      if (!activeSessionId) {
+        try {
+          activeSessionId = await createSession();
+          setSessionId(activeSessionId);
+          setStoredCurrentSessionId(undefined, activeSessionId);
+        } catch (err) {
+          if (err instanceof AuthError) {
+            clearApiKey();
+            setAuthState("needs_auth");
+            clearStoredCurrentSessionId();
+          }
+          return;
+        }
+      }
+
+      setMessages((prev) => [
+        ...prev,
+        { id: Date.now(), role: "user", content: text },
+        { id: Date.now() + 1, role: "assistant", content: "", toolCalls: [] },
+      ]);
+      setInput("");
+      setIsGenerating(true);
+      setTasks([]);
+      setTaskProgress(null);
+
+      let currentContent = "";
+
+      await sendChatMessage(
+        activeSessionId,
+        text,
+        selectedModel,
+        thinkingEnabled,
+        {
+          onMessageDelta: (delta) => {
+            if (isStaleRequest()) return;
+            currentContent += delta;
+            setMessages((prev) => {
+              const msgs = [...prev];
+              const last = msgs[msgs.length - 1];
+              if (last.role === "assistant") last.content = currentContent;
+              return msgs;
+            });
+          },
+          onToolCall: (toolCall) => {
+            if (isStaleRequest()) return;
+            setMessages((prev) => {
+              const msgs = [...prev];
+              const last = msgs[msgs.length - 1];
+              if (last.role === "assistant") {
+                const idx = last.toolCalls?.findIndex((t) => t.id === toolCall.id) ?? -1;
+                if (idx >= 0 && last.toolCalls) {
+                  last.toolCalls[idx] = toolCall;
+                } else {
+                  last.toolCalls = [...(last.toolCalls || []), toolCall];
+                }
+                if (toolCall.name === "AskUser") {
+                  try {
+                    const args =
+                      typeof toolCall.arguments === "string"
+                        ? JSON.parse(toolCall.arguments)
+                        : toolCall.arguments;
+                    if (args?.question) {
+                      last.askUser = { question: args.question, options: args.options || [] };
+                    }
+                  } catch {
+                    /* ignore parse error */
+                  }
+                }
+              }
+              return msgs;
+            });
+          },
+          onNewTurn: () => {
+            if (isStaleRequest()) return;
+            currentContent = "";
+            setMessages((prev) => [
+              ...prev,
+              { id: Date.now() + Math.random(), role: "assistant", content: "", toolCalls: [] },
+            ]);
+          },
+          onToolResult: (toolId, result) => {
+            if (isStaleRequest()) return;
+            setMessages((prev) => {
+              const msgs = [...prev];
+              const last = msgs[msgs.length - 1];
+              if (last.role === "assistant") {
+                const tc = last.toolCalls?.find((t) => t.id === toolId);
+                if (tc) {
+                  tc.status = "success";
+                  tc.result = result;
+                }
+              }
+              return msgs;
+            });
+          },
+          onTaskCreated: (task) => {
+            if (isStaleRequest()) return;
+            setTasks((prev) => upsertTask(prev, task));
+          },
+          onTaskUpdated: (task) => {
+            if (isStaleRequest()) return;
+            setTasks((prev) => applyTaskUpdate(prev, task));
+          },
+          onTaskProgress: (progress) => {
+            if (isStaleRequest()) return;
+            setTaskProgress(progress);
+          },
+          onAgentStop: (data) => {
+            if (isStaleRequest()) return;
+            setMessages((prev) => {
+              const msgs = [...prev];
+              const last = msgs[msgs.length - 1];
+              if (last.role !== "assistant") return msgs;
+
+              if (data.stop_reason === "ask_user" && typeof data.metadata.question === "string") {
+                last.askUser = {
+                  question: data.metadata.question,
+                  options: Array.isArray(data.metadata.options)
+                    ? data.metadata.options.filter(
+                        (option): option is string => typeof option === "string"
+                      )
+                    : [],
+                };
+              }
+
+              if (data.stop_reason === "permission_request") {
+                last.permissionRequest = {
+                  tool: typeof data.metadata.tool === "string" ? data.metadata.tool : "unknown",
+                  params:
+                    typeof data.metadata.params === "string" ||
+                    (data.metadata.params && typeof data.metadata.params === "object")
+                      ? (data.metadata.params as Record<string, unknown> | string)
+                      : {},
+                  riskLevel:
+                    typeof data.metadata.riskLevel === "string"
+                      ? data.metadata.riskLevel
+                      : "dangerous",
+                };
+              }
+
+              return msgs;
+            });
+          },
+          onPermissionRequest: (request) => {
+            if (isStaleRequest()) return;
+            setMessages((prev) => {
+              const msgs = [...prev];
+              const last = msgs[msgs.length - 1];
+              if (last.role === "assistant") last.permissionRequest = request;
+              return msgs;
+            });
+          },
+          onUsage: (usage) => {
+            if (isStaleRequest()) return;
+            setTokenUsage((prev) => ({
+              prompt_tokens: prev.prompt_tokens + usage.prompt_tokens,
+              completion_tokens: prev.completion_tokens + usage.completion_tokens,
+              total_tokens: prev.total_tokens + usage.total_tokens,
+            }));
+            if (usage.prompt_tokens > 0) setLastContextTokens(usage.prompt_tokens);
+          },
+          onComplete: () => {
+            if (isStaleRequest()) return;
+            abortControllerRef.current = null;
+            setIsGenerating(false);
+            setInputFocusToken((prev) => bumpInputFocusToken(prev));
+            loadSessions();
+          },
+          onError: (err) => {
+            if (isStaleRequest()) return;
+            abortControllerRef.current = null;
+            if (err instanceof AuthError) {
+              clearApiKey();
+              setAuthState("needs_auth");
+              setAuthErrorMsg("API Key 已失效");
+              clearStoredCurrentSessionId();
+              setIsGenerating(false);
+              setInputFocusToken((prev) => bumpInputFocusToken(prev));
+              return;
+            }
+            console.error("Chat error:", err);
+            setIsGenerating(false);
+            setInputFocusToken((prev) => bumpInputFocusToken(prev));
+            setMessages((prev) => {
+              const msgs = [...prev];
+              const last = msgs[msgs.length - 1];
+              if (last.role === "assistant" && !last.content) {
+                last.content = "无法连接到 Ripple 服务。请确认服务端正在运行。";
+              }
+              return msgs;
+            });
+          },
+        },
+        { signal: abortController.signal }
+      );
+    },
+    [input, isGenerating, sessionId, selectedModel, thinkingEnabled, loadSessions]
+  );
+
+  const handleQuickReply = useCallback(
+    (option: string) => {
+      setInput(option);
+      handleSendMessage(option);
+    },
+    [handleSendMessage]
+  );
+
+  const handlePermissionResolve = useCallback(
+    async (action: "allow" | "always" | "deny") => {
+      if (!sessionId || isGenerating) return;
+
       try {
-        activeSessionId = await createSession();
-        setSessionId(activeSessionId);
+        const ok = await resolvePermissionRequest(sessionId, action);
+        if (!ok) {
+          throw new Error("Failed to resolve permission request");
+        }
+
+        const text =
+          action === "deny"
+            ? "Denied."
+            : action === "always"
+              ? "Approved for this session. Please proceed."
+              : "Approved. Please proceed.";
+        setInput(text);
+        await handleSendMessage(text);
       } catch (err) {
         if (err instanceof AuthError) {
           clearApiKey();
           setAuthState("needs_auth");
-        }
-        return;
-      }
-    }
-
-    setMessages((prev) => [
-      ...prev,
-      { id: Date.now(), role: "user", content: text },
-      { id: Date.now() + 1, role: "assistant", content: "", toolCalls: [] },
-    ]);
-    setInput("");
-    setIsGenerating(true);
-    setTasks([]);
-    setTaskProgress(null);
-
-    let currentContent = "";
-
-    await sendChatMessage(activeSessionId, text, selectedModel, thinkingEnabled, {
-      onMessageDelta: (delta) => {
-        currentContent += delta;
-        setMessages((prev) => {
-          const msgs = [...prev];
-          const last = msgs[msgs.length - 1];
-          if (last.role === "assistant") last.content = currentContent;
-          return msgs;
-        });
-      },
-      onToolCall: (toolCall) => {
-        setMessages((prev) => {
-          const msgs = [...prev];
-          const last = msgs[msgs.length - 1];
-          if (last.role === "assistant") {
-            const idx = last.toolCalls?.findIndex((t) => t.id === toolCall.id) ?? -1;
-            if (idx >= 0 && last.toolCalls) {
-              last.toolCalls[idx] = toolCall;
-            } else {
-              last.toolCalls = [...(last.toolCalls || []), toolCall];
-            }
-            if (toolCall.name === "AskUser") {
-              try {
-                const args =
-                  typeof toolCall.arguments === "string"
-                    ? JSON.parse(toolCall.arguments)
-                    : toolCall.arguments;
-                if (args?.options?.length > 0) {
-                  last.askUser = { question: args.question || "", options: args.options };
-                }
-              } catch {
-                /* ignore parse error */
-              }
-            }
-          }
-          return msgs;
-        });
-      },
-      onNewTurn: () => {
-        currentContent = "";
-        setMessages((prev) => [
-          ...prev,
-          { id: Date.now() + Math.random(), role: "assistant", content: "", toolCalls: [] },
-        ]);
-      },
-      onToolResult: (toolId, result) => {
-        setMessages((prev) => {
-          const msgs = [...prev];
-          const last = msgs[msgs.length - 1];
-          if (last.role === "assistant") {
-            const tc = last.toolCalls?.find((t) => t.id === toolId);
-            if (tc) {
-              tc.status = "success";
-              tc.result = result;
-            }
-          }
-          return msgs;
-        });
-      },
-      onTaskCreated: (task) => {
-        setTasks((prev) => (prev.some((t) => t.id === task.id) ? prev : [...prev, task]));
-      },
-      onTaskUpdated: (task) => {
-        setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, ...task } : t)));
-      },
-      onTaskProgress: (progress) => setTaskProgress(progress),
-      onAgentStop: () => {
-        // Agent paused (e.g. awaiting user input). Generation ends via onComplete.
-      },
-      onPermissionRequest: (request) => {
-        setMessages((prev) => {
-          const msgs = [...prev];
-          const last = msgs[msgs.length - 1];
-          if (last.role === "assistant") last.permissionRequest = request;
-          return msgs;
-        });
-      },
-      onUsage: (usage) => {
-        setTokenUsage((prev) => ({
-          prompt_tokens: prev.prompt_tokens + usage.prompt_tokens,
-          completion_tokens: prev.completion_tokens + usage.completion_tokens,
-          total_tokens: prev.total_tokens + usage.total_tokens,
-        }));
-        if (usage.prompt_tokens > 0) setLastContextTokens(usage.prompt_tokens);
-      },
-      onComplete: () => {
-        setIsGenerating(false);
-        loadSessions();
-      },
-      onError: (err) => {
-        if (err instanceof AuthError) {
-          clearApiKey();
-          setAuthState("needs_auth");
           setAuthErrorMsg("API Key 已失效");
-          setIsGenerating(false);
+          clearStoredCurrentSessionId();
           return;
         }
-        console.error("Chat error:", err);
-        setIsGenerating(false);
-        setMessages((prev) => {
-          const msgs = [...prev];
-          const last = msgs[msgs.length - 1];
-          if (last.role === "assistant" && !last.content) {
-            last.content = "无法连接到 Ripple 服务。请确认服务端正在运行。";
-          }
-          return msgs;
-        });
-      },
-    });
-  }, [input, isGenerating, sessionId, selectedModel, thinkingEnabled, loadSessions]);
 
-  const handleQuickReply = (option: string) => {
-    setInput(option);
-    setTimeout(() => {
-      const el = document.querySelector("textarea");
-      el?.focus();
-    }, 50);
-  };
+        console.error("Permission resolve error:", err);
+      }
+    },
+    [handleSendMessage, isGenerating, sessionId]
+  );
 
   // ── Resize right panel ──
   const handleResizeStart = useCallback(
@@ -371,6 +531,11 @@ export default function Home() {
     .slice()
     .reverse()
     .find((m) => m.role === "assistant");
+  const showMobileTaskPanel =
+    tasks.length > 0 ||
+    allToolCalls.length > 0 ||
+    !!lastAssistant?.askUser ||
+    !!lastAssistant?.permissionRequest;
 
   const isContextWarning = lastContextTokens > 150_000;
 
@@ -589,6 +754,21 @@ export default function Home() {
           </div>
 
           {/* Input */}
+          {showMobileTaskPanel && (
+            <div className="glass-panel mx-4 mb-3 max-h-72 overflow-hidden rounded-2xl border border-white/40 md:mx-6 lg:hidden">
+              <TaskExecutionPanel
+                tasks={tasks}
+                taskProgress={taskProgress}
+                toolCalls={allToolCalls}
+                askUser={lastAssistant?.askUser}
+                permissionRequest={lastAssistant?.permissionRequest}
+                onQuickReply={handleQuickReply}
+                onPermissionResolve={handlePermissionResolve}
+                isGenerating={isGenerating}
+              />
+            </div>
+          )}
+
           <ChatInput
             value={input}
             onChange={setInput}
@@ -596,6 +776,7 @@ export default function Home() {
             onStop={handleStop}
             isGenerating={isGenerating}
             hasSession={!!sessionId}
+            focusToken={inputFocusToken}
           />
         </main>
 
@@ -619,14 +800,7 @@ export default function Home() {
             askUser={lastAssistant?.askUser}
             permissionRequest={lastAssistant?.permissionRequest}
             onQuickReply={handleQuickReply}
-            onPermissionResolve={(action) => {
-              if (action === "deny") {
-                handleSendMessage();
-              } else {
-                setInput("Approved. Please proceed.");
-                setTimeout(() => handleSendMessage(), 100);
-              }
-            }}
+            onPermissionResolve={handlePermissionResolve}
             isGenerating={isGenerating}
           />
         </aside>
@@ -641,6 +815,7 @@ export default function Home() {
         apiKey={getApiKey()}
         onApiKeyChange={() => {
           clearApiKey();
+          clearStoredCurrentSessionId();
           setIsSettingsOpen(false);
           setAuthState("needs_auth");
         }}
@@ -653,12 +828,88 @@ export default function Home() {
 // HELPERS
 // ═══════════════════════════════════════════════════════
 
-function mapBackendMessages(raw: Record<string, unknown>[]): Message[] {
+function mapBackendMessages(
+  details: SessionDetail | { messages: Record<string, unknown>[] }
+): Message[] {
   const result: Message[] = [];
   let id = Date.now();
+  const raw = details.messages;
+  const pendingQuestion = "pending_question" in details ? details.pending_question : null;
+  const pendingOptions = "pending_options" in details ? details.pending_options : null;
+  const pendingPermissionRequest =
+    "pending_permission_request" in details ? details.pending_permission_request : null;
 
   for (const msg of raw) {
-    const role = msg.role as string;
+    const internalType = typeof msg.type === "string" ? msg.type : null;
+    const role = typeof msg.role === "string" ? msg.role : null;
+
+    if (internalType === "user") {
+      const content = getInternalMessageContent(msg);
+      const textContent = extractText(content);
+      if (textContent) {
+        result.push({ id: id++, role: "user", content: textContent });
+      }
+
+      for (const block of content) {
+        if (!isRecord(block) || block.type !== "tool_result") continue;
+
+        for (let i = result.length - 1; i >= 0; i--) {
+          const message = result[i];
+          if (message.role !== "assistant" || !message.toolCalls) continue;
+
+          const toolCall = message.toolCalls.find((tool) => tool.id === block.tool_use_id);
+          if (toolCall) {
+            toolCall.result =
+              typeof block.content === "string" ? block.content : JSON.stringify(block.content);
+            toolCall.status = block.is_error ? "error" : "success";
+            break;
+          }
+        }
+      }
+      continue;
+    }
+
+    if (internalType === "assistant") {
+      const content = getInternalMessageContent(msg);
+      const toolCalls = content
+        .filter(
+          (block): block is Record<string, unknown> => isRecord(block) && block.type === "tool_use"
+        )
+        .map((block) => ({
+          id: typeof block.id === "string" ? block.id : `tool-${id}`,
+          name: typeof block.name === "string" ? block.name : "unknown",
+          arguments: isRecord(block.input) ? block.input : {},
+          status: "success" as const,
+          result: "",
+        }));
+      const assistantMessage: Message = {
+        id: id++,
+        role: "assistant",
+        content: extractText(content),
+        toolCalls,
+      };
+
+      const askUserTool = content.find(
+        (block) => isRecord(block) && block.type === "tool_use" && block.name === "AskUser"
+      );
+      if (
+        isRecord(askUserTool) &&
+        isRecord(askUserTool.input) &&
+        typeof askUserTool.input.question === "string"
+      ) {
+        assistantMessage.askUser = {
+          question: askUserTool.input.question,
+          options: Array.isArray(askUserTool.input.options)
+            ? askUserTool.input.options.filter(
+                (option): option is string => typeof option === "string"
+              )
+            : [],
+        };
+      }
+
+      result.push(assistantMessage);
+      continue;
+    }
 
     if (role === "user") {
       result.push({ id: id++, role: "user", content: extractText(msg.content) });
@@ -678,7 +929,13 @@ function mapBackendMessages(raw: Record<string, unknown>[]): Message[] {
           status: "success" as const,
           result: "",
         })) || [];
-      result.push({ id: id++, role: "assistant", content: extractText(msg.content), toolCalls });
+      const assistantMessage: Message = {
+        id: id++,
+        role: "assistant",
+        content: extractText(msg.content),
+        toolCalls,
+      };
+      result.push(assistantMessage);
     } else if (role === "tool") {
       for (let i = result.length - 1; i >= 0; i--) {
         const m = result[i];
@@ -692,7 +949,35 @@ function mapBackendMessages(raw: Record<string, unknown>[]): Message[] {
       }
     }
   }
+
+  if (pendingQuestion) {
+    const lastAssistant = [...result].reverse().find((message) => message.role === "assistant");
+    if (lastAssistant) {
+      lastAssistant.askUser = {
+        question: pendingQuestion,
+        options: Array.isArray(pendingOptions) ? pendingOptions : [],
+      };
+    }
+  }
+
+  if (pendingPermissionRequest) {
+    const lastAssistant = [...result].reverse().find((message) => message.role === "assistant");
+    if (lastAssistant) {
+      lastAssistant.permissionRequest = pendingPermissionRequest;
+    }
+  }
+
   return result;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function getInternalMessageContent(message: Record<string, unknown>): Record<string, unknown>[] {
+  if (!isRecord(message.message)) return [];
+  const content = message.message.content;
+  return Array.isArray(content) ? content.filter(isRecord) : [];
 }
 
 function extractText(content: unknown): string {

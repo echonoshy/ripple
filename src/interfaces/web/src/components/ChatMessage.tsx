@@ -6,6 +6,7 @@ import { User, Loader2 } from "lucide-react";
 import { Message } from "@/types";
 import RippleIcon from "@/components/icons/RippleIcon";
 import MarkdownRenderer from "./MarkdownRenderer";
+import { shouldRenderAssistantMessage } from "@/lib/chatState";
 
 function ThinkingIndicator({ hasContent }: { hasContent: boolean }) {
   const [elapsed, setElapsed] = useState(0);
@@ -68,6 +69,10 @@ export default function ChatMessage({ msg, isGenerating, isLast }: ChatMessagePr
   const isUser = msg.role === "user";
   const showThinking = isGenerating && isLast && msg.role === "assistant";
   const isEmptyAssistant = !msg.content && (!msg.toolCalls || msg.toolCalls.length === 0);
+
+  if (!shouldRenderAssistantMessage(msg, isGenerating, isLast)) {
+    return null;
+  }
 
   return (
     <motion.div

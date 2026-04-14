@@ -138,6 +138,24 @@ export async function stopSession(sessionId: string): Promise<boolean> {
   }
 }
 
+export async function resolvePermissionRequest(
+  sessionId: string,
+  action: "allow" | "always" | "deny"
+): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_URL}/sessions/${sessionId}/permissions/resolve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ action }),
+    });
+    if (res.status === 401) throw new AuthError();
+    return res.ok;
+  } catch (error) {
+    if (error instanceof AuthError) throw error;
+    return false;
+  }
+}
+
 export async function sendChatMessage(
   sessionId: string,
   content: string,
@@ -161,7 +179,8 @@ export async function sendChatMessage(
     onHeartbeat?: () => void;
     onComplete: () => void;
     onError: (error: Error) => void;
-  }
+  },
+  options?: { signal?: AbortSignal }
 ) {
   let completed = false;
   const markComplete = () => {
@@ -191,6 +210,7 @@ export async function sendChatMessage(
 
     await fetchEventSource(`${API_URL}/chat/completions`, {
       method: "POST",
+      signal: options?.signal,
       headers: {
         "Content-Type": "application/json",
         ...authHeaders(),
@@ -219,7 +239,8 @@ export async function sendChatMessage(
           const data = JSON.parse(msg.data);
 
           if (data.error) {
-            console.error("Server error:", data.error.message || data.error);
+            callbacks.onError(new Error(data.error.message || String(data.error)));
+            markComplete();
             return;
           }
 
@@ -234,6 +255,13 @@ export async function sendChatMessage(
           }
 
           if (data.type === "agent_stop") {
+            if (data.stop_reason === "permission_request" && data.metadata) {
+              callbacks.onPermissionRequest?.({
+                tool: data.metadata.tool || "unknown",
+                params: data.metadata.params || {},
+                riskLevel: data.metadata.riskLevel || "dangerous",
+              });
+            }
             callbacks.onAgentStop?.({
               stop_reason: data.stop_reason || "completed",
               metadata: data.metadata || {},
@@ -317,6 +345,10 @@ export async function sendChatMessage(
       },
     });
   } catch (error) {
+    if (options?.signal?.aborted) {
+      markComplete();
+      return;
+    }
     if (!completed) {
       callbacks.onError(error as Error);
     }

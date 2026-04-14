@@ -8,39 +8,38 @@ import json
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
+from ripple.messages.utils import deserialize_message, serialize_messages
 from ripple.sandbox.config import SandboxConfig
 from ripple.utils.logger import get_logger
 
 logger = get_logger("sandbox.storage")
 
 
-def _serialize_message(msg: Any) -> dict:
-    """将消息对象序列化为可 JSON 化的 dict"""
-    if hasattr(msg, "model_dump"):
-        return msg.model_dump()
-    if isinstance(msg, dict):
-        return msg
-    return {"type": "unknown", "data": str(msg)}
-
-
-def _deserialize_messages(data_list: list[dict]) -> list[dict]:
-    """反序列化消息列表
-
-    保持为 dict 格式 — agent_loop 的 normalize_messages_for_api 会处理类型转换。
-    """
-    return data_list
+def _deserialize_messages(data_list: list[dict]) -> list:
+    """反序列化消息列表为内部消息对象。"""
+    return [deserialize_message(item) for item in data_list]
 
 
 def extract_title_from_messages(messages: list) -> str:
     """从消息列表中提取标题（第一条用户消息的前 50 字符）"""
     for msg in messages:
-        if not isinstance(msg, dict) or msg.get("role") != "user":
-            continue
-        content = msg.get("content", "")
+        if isinstance(msg, dict):
+            if "role" in msg and msg.get("role") != "user":
+                continue
+            if msg.get("type") not in (None, "user"):
+                continue
+            content = msg.get("content")
+            if content is None and isinstance(msg.get("message"), dict):
+                content = msg["message"].get("content", [])
+        else:
+            if getattr(msg, "type", None) != "user":
+                continue
+            content = msg.message.get("content", [])
+
         if isinstance(content, str) and content.strip():
             return content[:50].strip()
+
         if isinstance(content, list):
             for block in content:
                 if isinstance(block, dict) and block.get("type") == "text":
@@ -62,6 +61,10 @@ def save_session_state(
     total_output_tokens: int = 0,
     created_at: datetime | None = None,
     last_active: datetime | None = None,
+    status: str = "idle",
+    pending_question: str | None = None,
+    pending_options: list[str] | None = None,
+    pending_permission_request: dict | None = None,
 ) -> Path:
     """保存 session 状态到磁盘（原子写）"""
     state = {
@@ -76,7 +79,11 @@ def save_session_state(
         "created_at": (created_at or datetime.now(timezone.utc)).isoformat(),
         "last_active": (last_active or datetime.now(timezone.utc)).isoformat(),
         "suspended_at": datetime.now(timezone.utc).isoformat(),
-        "messages": [_serialize_message(m) for m in messages],
+        "status": status,
+        "pending_question": pending_question,
+        "pending_options": pending_options,
+        "pending_permission_request": pending_permission_request,
+        "messages": serialize_messages(messages),
     }
 
     state_file = config.state_file(session_id)

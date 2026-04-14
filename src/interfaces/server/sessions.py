@@ -114,8 +114,12 @@ You are operating in a sandboxed workspace. Your working directory is `/workspac
 - Your current directory is already `/workspace`
 - Use relative paths in commands (e.g., `ls`, `cat file.txt`, `python script.py`)
 
+### Development Environment
+- This workspace is pre-configured with **Python** and **uv** (a fast Python package manager). A virtual environment is automatically set up for you.
+- When the user asks to implement a feature, build a tool, write a script, do data analysis, create a web app, or any coding task, **always prefer Python** unless the user explicitly requests another language.
+- If the user's request is language-agnostic (e.g., "帮我写一个爬虫", "做一个数据分析", "写一个 web 服务"), default to Python without asking.
+
 ### Python Package Management
-- This workspace uses **uv** to manage Python packages. A virtual environment is automatically set up for you.
 - To install Python packages, use `uv pip install <package>` instead of `pip install` or `pip3 install`.
 - Example: `uv pip install numpy pandas matplotlib`
 - Do NOT use `pip install` or `pip3 install` directly — they may install packages to the wrong location.

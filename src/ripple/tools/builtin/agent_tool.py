@@ -3,7 +3,6 @@
 Fork 模式：继承父 agent 的完整对话上下文，后台运行子 agent。
 """
 
-from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -100,8 +99,10 @@ class AgentTool(Tool[AgentToolInput, AgentToolOutput]):
 
         full_messages = [*context.current_messages, *fork_messages]
 
+        from ripple.utils.paths import CLI_TASKS_DIR, SERVER_TASKS_DIR
+
         task_manager = get_task_manager()
-        output_dir = Path.cwd() / ".ripple" / "tasks"
+        output_dir = SERVER_TASKS_DIR if context.is_server_mode else CLI_TASKS_DIR
         task = task_manager.create_task(
             description=args.description,
             prompt=args.prompt,

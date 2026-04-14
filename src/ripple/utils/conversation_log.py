@@ -1,24 +1,20 @@
 """会话记录模块
 
 将聊天会话保存为 JSONL 文件，支持回顾历史对话。
-会话文件存储在 .ripple/conversations/<date>/ 目录下，
+CLI 和 Server 使用各自隔离的 conversations 目录，
 每个 session 使用 UUID 标识。
 """
 
 import json
 import uuid
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
-from ripple.utils.logger import RIPPLE_HOME, get_logger
+from ripple.utils.logger import get_logger
+from ripple.utils.paths import CLI_CONVERSATIONS_DIR
 
 logger = get_logger("conversation")
-
-CONVERSATION_DIR = RIPPLE_HOME / "conversations"
-
-
-def _ensure_dir(path=None):
-    (path or CONVERSATION_DIR).mkdir(parents=True, exist_ok=True)
 
 
 def generate_session_id() -> str:
@@ -29,18 +25,19 @@ def generate_session_id() -> str:
 class ConversationLogger:
     """会话记录器
 
-    每个 CLI 会话对应一个 JSONL 文件，记录所有对话内容。
-    文件按日期分目录存储：conversations/2026-04-09/143052_a1b2c3d4e5f6.jsonl
+    每个会话对应一个 JSONL 文件，记录所有对话内容。
+    文件按日期分目录存储：<conversations_dir>/2026-04-09/143052_a1b2c3d4e5f6.jsonl
     """
 
-    def __init__(self, session_id: str | None = None):
+    def __init__(self, session_id: str | None = None, conversations_dir: Path | None = None):
         now = datetime.now()
         date_str = now.strftime("%Y-%m-%d")
         time_str = now.strftime("%H%M%S")
         self.session_id = session_id or generate_session_id()
+        self.conversations_dir = conversations_dir or CLI_CONVERSATIONS_DIR
 
-        date_dir = CONVERSATION_DIR / date_str
-        _ensure_dir(date_dir)
+        date_dir = self.conversations_dir / date_str
+        date_dir.mkdir(parents=True, exist_ok=True)
 
         self.filepath = date_dir / f"{time_str}_{self.session_id}.jsonl"
         self._write_meta(now)
@@ -129,17 +126,19 @@ class ConversationLogger:
         logger.info("会话记录已关闭: {}", self.filepath)
 
 
-def list_conversations(limit: int = 20) -> list[dict[str, Any]]:
+def list_conversations(limit: int = 20, conversations_dir: Path | None = None) -> list[dict[str, Any]]:
     """列出最近的会话记录
 
     Args:
         limit: 返回的最大数量
+        conversations_dir: 会话目录，默认为 CLI 目录
 
     Returns:
         会话信息列表（最新的在前）
     """
-    _ensure_dir()
-    files = sorted(CONVERSATION_DIR.rglob("*.jsonl"), reverse=True)
+    base_dir = conversations_dir or CLI_CONVERSATIONS_DIR
+    base_dir.mkdir(parents=True, exist_ok=True)
+    files = sorted(base_dir.rglob("*.jsonl"), reverse=True)
     results = []
 
     for f in files[:limit]:
@@ -148,7 +147,7 @@ def list_conversations(limit: int = 20) -> list[dict[str, Any]]:
                 first_line = fp.readline()
                 meta = json.loads(first_line)
                 line_count = sum(1 for _ in fp) + 1
-                rel_path = f.relative_to(CONVERSATION_DIR)
+                rel_path = f.relative_to(base_dir)
                 results.append(
                     {
                         "file": str(rel_path),

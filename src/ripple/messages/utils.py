@@ -12,6 +12,9 @@ from ripple.messages.types import (
     SystemMessage,
     UserMessage,
 )
+from ripple.utils.logger import get_logger
+
+logger = get_logger("messages.utils")
 
 
 def create_user_message(
@@ -58,6 +61,8 @@ def create_system_message(content: str, level: str = "info") -> SystemMessage:
 def serialize_message(message: Message | dict[str, Any]) -> dict[str, Any]:
     """将内部消息对象转换为可持久化的 dict。"""
     if isinstance(message, dict):
+        if "type" not in message:
+            logger.warning("序列化消息缺少 type 字段，可能是 OpenAI 格式混入: {}", list(message.keys()))
         return message
     return message.model_dump()
 
@@ -67,83 +72,26 @@ def serialize_messages(messages: list[Message | dict[str, Any]]) -> list[dict[st
     return [serialize_message(message) for message in messages]
 
 
-def deserialize_message(data: dict[str, Any]) -> Message:
-    """将持久化/兼容格式的 dict 转回内部消息对象。"""
-    if "type" in data:
-        message_type = data.get("type")
-        if message_type == "assistant":
-            return AssistantMessage.model_validate(data)
-        if message_type == "user":
-            return UserMessage.model_validate(data)
-        if message_type == "system":
-            return SystemMessage.model_validate(data)
-        if message_type == "progress":
-            return ProgressMessage.model_validate(data)
-        if message_type == "attachment":
-            return AttachmentMessage.model_validate(data)
+def deserialize_message(data: dict[str, Any]) -> Message | dict[str, Any]:
+    """将持久化 dict 转回内部消息对象。
 
-    role = data.get("role", "")
+    仅支持内部格式（type 字段分派）。无法识别的格式原样返回并打印 warning。
+    """
+    message_type = data.get("type")
 
-    if role == "system":
-        return SystemMessage(type="system", content=data.get("content", ""))
+    if message_type == "assistant":
+        return AssistantMessage.model_validate(data)
+    if message_type == "user":
+        return UserMessage.model_validate(data)
+    if message_type == "system":
+        return SystemMessage.model_validate(data)
+    if message_type == "progress":
+        return ProgressMessage.model_validate(data)
+    if message_type == "attachment":
+        return AttachmentMessage.model_validate(data)
 
-    if role == "assistant":
-        content = data.get("content", "")
-        blocks: list[dict[str, Any]] = []
-        if isinstance(content, str) and content:
-            blocks.append({"type": "text", "text": content})
-        elif isinstance(content, list):
-            blocks = list(content)
-
-        for tool_call in data.get("tool_calls", []):
-            function_data = tool_call.get("function", {})
-            arguments_raw = function_data.get("arguments", "{}")
-            try:
-                tool_input = json.loads(arguments_raw) if isinstance(arguments_raw, str) else arguments_raw
-            except (json.JSONDecodeError, TypeError):
-                tool_input = {}
-
-            blocks.append(
-                {
-                    "type": "tool_use",
-                    "id": tool_call.get("id", ""),
-                    "name": function_data.get("name", ""),
-                    "input": tool_input,
-                }
-            )
-
-        usage = data.get("usage", {})
-        if not isinstance(usage, dict):
-            usage = {}
-
-        return AssistantMessage(
-            type="assistant",
-            message={
-                "id": data.get("id", str(uuid4())),
-                "content": blocks,
-                "usage": usage,
-            },
-            uuid=data.get("uuid", str(uuid4())),
-        )
-
-    if role == "tool":
-        return UserMessage(
-            type="user",
-            message={
-                "content": [
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": data.get("tool_call_id", ""),
-                        "content": data.get("content", ""),
-                    }
-                ]
-            },
-        )
-
-    content = data.get("content", [])
-    if isinstance(content, str):
-        content = [{"type": "text", "text": content}]
-    return UserMessage(type="user", message={"content": content})
+    logger.warning("无法识别的消息格式 (keys={}), 原样保留", list(data.keys()))
+    return data
 
 
 def normalize_messages_for_api(
@@ -169,6 +117,8 @@ def normalize_messages_for_api(
                 normalized.append(msg)
                 continue
             msg = deserialize_message(msg)
+            if isinstance(msg, dict):
+                continue
 
         if msg.type == "user" and msg.is_meta:
             continue

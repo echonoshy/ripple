@@ -114,6 +114,12 @@ You are operating in a sandboxed workspace. Your working directory is `/workspac
 - Your current directory is already `/workspace`
 - Use relative paths in commands (e.g., `ls`, `cat file.txt`, `python script.py`)
 
+### Python Package Management
+- This workspace uses **uv** to manage Python packages. A virtual environment is automatically set up for you.
+- To install Python packages, use `uv pip install <package>` instead of `pip install` or `pip3 install`.
+- Example: `uv pip install numpy pandas matplotlib`
+- Do NOT use `pip install` or `pip3 install` directly — they may install packages to the wrong location.
+
 ### File Writing Rules
 When the user asks to write or save content to a file without specifying an explicit path:
 - Default output directory: `/workspace`
@@ -325,8 +331,9 @@ class SessionManager:
             sandbox_session_id=session_id if self._sandbox_manager else None,
         )
 
-        # 创建会话日志记录器
-        conversation_log = ConversationLogger(session_id=session_id)
+        from ripple.utils.paths import SERVER_CONVERSATIONS_DIR
+
+        conversation_log = ConversationLogger(session_id=session_id, conversations_dir=SERVER_CONVERSATIONS_DIR)
 
         session = Session(
             session_id=session_id,
@@ -441,8 +448,9 @@ class SessionManager:
             except (ValueError, TypeError):
                 pass
 
-        # 恢复时创建新的日志记录器
-        conversation_log = ConversationLogger(session_id=session_id)
+        from ripple.utils.paths import SERVER_CONVERSATIONS_DIR
+
+        conversation_log = ConversationLogger(session_id=session_id, conversations_dir=SERVER_CONVERSATIONS_DIR)
 
         session = Session(
             session_id=session_id,

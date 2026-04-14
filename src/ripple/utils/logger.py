@@ -1,30 +1,15 @@
 """日志模块
 
 基于 loguru 提供统一的日志管理。
-日志和会话记录存储在项目根目录的 .ripple/ 下。
+日志存储在项目根目录的 .ripple/logs/ 下。
 """
-
-from pathlib import Path
 
 from loguru import logger
 
+from ripple.utils.paths import LOG_DIR, LOG_FILE, RIPPLE_HOME  # noqa: F401
+
 # 模块加载时立即移除默认的 stderr handler，防止日志泄漏到终端
 logger.remove()
-
-
-def _find_project_root() -> Path:
-    """查找项目根目录（包含 pyproject.toml 的目录）"""
-    current = Path.cwd()
-    while current != current.parent:
-        if (current / "pyproject.toml").exists():
-            return current
-        current = current.parent
-    return Path.cwd()
-
-
-RIPPLE_HOME = _find_project_root() / ".ripple"
-LOG_DIR = RIPPLE_HOME / "logs"
-LOG_FILE = LOG_DIR / "ripple.log"
 
 _initialized = False
 

@@ -196,3 +196,8 @@ Skill frontmatter 字段: `name`, `description`, `arguments`, `allowed-tools`, `
 
 - Claude Code 源码: `/home/lake/workspace/claude-code`
 - OpenClaw 源码: `/home/lake/workspace/openclaw`
+
+
+## 参考行为
+
+1. 遇到问题，不要上来就用正则这种方案， 这种取巧的方案，总会留下很多不靠谱的缺口。 好好想一下， 有没有妥善的方案呢？ 愤怒💢！

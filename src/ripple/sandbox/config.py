@@ -4,16 +4,24 @@ import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
+PYPI_MIRROR_TSINGHUA = "https://pypi.tuna.tsinghua.edu.cn/simple"
+
 
 @dataclass
 class ResourceLimits:
     """沙箱资源限制"""
 
-    max_memory_mb: int = 256
+    max_memory_mb: int = 4096
     max_cpu_ms_per_sec: int = 500
-    max_file_size_mb: int = 64
-    max_pids: int = 64
-    command_timeout: int = 120
+    max_file_size_mb: int = 1024
+    max_pids: int = 512
+    command_timeout: int = 300
+
+
+def _default_sandboxes_root() -> Path:
+    from ripple.utils.paths import SERVER_SANDBOXES_DIR
+
+    return SERVER_SANDBOXES_DIR
 
 
 def _discover_uv_bin_dir() -> str | None:
@@ -28,7 +36,7 @@ def _discover_uv_bin_dir() -> str | None:
 class SandboxConfig:
     """沙箱配置（nsjail 隔离）"""
 
-    sandboxes_root: Path = field(default_factory=lambda: Path.cwd() / ".ripple" / "sandboxes")
+    sandboxes_root: Path = field(default_factory=lambda: _default_sandboxes_root())
 
     resource_limits: ResourceLimits = field(default_factory=ResourceLimits)
 
@@ -52,11 +60,13 @@ class SandboxConfig:
 
     clone_newnet: bool = False
 
-    tmpfs_size_mb: int = 64
+    tmpfs_size_mb: int = 512
 
-    max_workspace_mb: int = 512
+    max_workspace_mb: int = 2048
 
     uv_bin_dir: str | None = field(default=None)
+
+    pypi_mirror_url: str = field(default=PYPI_MIRROR_TSINGHUA)
 
     def __post_init__(self):
         if self.uv_bin_dir is None:
@@ -89,15 +99,15 @@ class SandboxConfig:
 
     @classmethod
     def from_dict(cls, data: dict) -> "SandboxConfig":
-        root = Path(data["sandboxes_root"]) if "sandboxes_root" in data else Path.cwd() / ".ripple" / "sandboxes"
+        root = Path(data["sandboxes_root"]) if "sandboxes_root" in data else _default_sandboxes_root()
 
         limits_data = data.get("resource_limits", {})
         limits = ResourceLimits(
-            max_memory_mb=limits_data.get("max_memory_mb", 256),
+            max_memory_mb=limits_data.get("max_memory_mb", 4096),
             max_cpu_ms_per_sec=limits_data.get("max_cpu_ms_per_sec", 500),
-            max_file_size_mb=limits_data.get("max_file_size_mb", 64),
-            max_pids=limits_data.get("max_pids", 64),
-            command_timeout=limits_data.get("command_timeout", 120),
+            max_file_size_mb=limits_data.get("max_file_size_mb", 1024),
+            max_pids=limits_data.get("max_pids", 512),
+            command_timeout=limits_data.get("command_timeout", 300),
         )
 
         default_shared = [
@@ -120,7 +130,8 @@ class SandboxConfig:
             nsjail_path=data.get("nsjail_path", "nsjail"),
             shared_readonly_paths=shared,
             clone_newnet=data.get("clone_newnet", False),
-            tmpfs_size_mb=data.get("tmpfs_size_mb", 64),
-            max_workspace_mb=data.get("max_workspace_mb", 512),
+            tmpfs_size_mb=data.get("tmpfs_size_mb", 512),
+            max_workspace_mb=data.get("max_workspace_mb", 2048),
             uv_bin_dir=data.get("uv_bin_dir"),
+            pypi_mirror_url=data.get("pypi_mirror_url", PYPI_MIRROR_TSINGHUA),
         )

@@ -107,7 +107,9 @@ class RippleCLI:
 
         skills_text = "\n".join(skills_info)
 
-        workspace_dir = Path.cwd() / ".ripple" / "workspace"
+        from ripple.utils.paths import CLI_WORKSPACE_DIR
+
+        workspace_dir = CLI_WORKSPACE_DIR
 
         self.system_prompt = f"""Today's date is {datetime.now().strftime("%Y/%m/%d")}.
 

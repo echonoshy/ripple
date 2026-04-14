@@ -496,7 +496,9 @@ async def query(
         messages.append(create_system_message(content=system_prompt))
     else:
         current_date = datetime.now().strftime("%Y/%m/%d")
-        workspace_dir = context.cwd / ".ripple" / "workspace"
+        from ripple.utils.paths import CLI_WORKSPACE_DIR
+
+        workspace_dir = CLI_WORKSPACE_DIR
         messages.append(
             create_system_message(
                 content=(

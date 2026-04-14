@@ -33,7 +33,7 @@ def build_sandbox_env(config: SandboxConfig) -> dict[str, str]:
     if config.uv_bin_dir:
         path_parts.insert(0, config.uv_bin_dir)
 
-    return {
+    env = {
         "PATH": ":".join(path_parts),
         "HOME": "/workspace",
         "USER": "sandbox",
@@ -41,7 +41,14 @@ def build_sandbox_env(config: SandboxConfig) -> dict[str, str]:
         "TERM": "xterm-256color",
         "LANG": "C.UTF-8",
         "UV_CACHE_DIR": SANDBOX_UV_CACHE_PATH,
+        "UV_LINK_MODE": "copy",
     }
+
+    if config.pypi_mirror_url:
+        env["UV_INDEX_URL"] = config.pypi_mirror_url
+        env["PIP_INDEX_URL"] = config.pypi_mirror_url
+
+    return env
 
 
 def generate_nsjail_config(config: SandboxConfig, session_id: str) -> str:
@@ -135,11 +142,11 @@ def generate_nsjail_config(config: SandboxConfig, session_id: str) -> str:
 
         time_limit: {limits.command_timeout}
 
-        rlimit_as: {limits.max_memory_mb}
+        rlimit_as_type: INF
         rlimit_cpu_type: SOFT
         rlimit_fsize: {limits.max_file_size_mb}
-        rlimit_nofile: 1024
-        rlimit_nproc: {limits.max_pids}
+        rlimit_nofile: 8192
+        rlimit_nproc_type: SOFT
 
         skip_setsid: true
         disable_no_new_privs: false
@@ -218,6 +225,25 @@ async def execute_in_sandbox(
     return stdout, filtered_stderr, proc.returncode or 0
 
 
+_PIP_WRAPPER_SCRIPT = """\
+#!/bin/bash
+exec uv pip "$@"
+"""
+
+
+def _install_pip_wrappers(config: SandboxConfig, session_id: str) -> None:
+    """在 venv 的 bin/ 目录下写入 pip/pip3 wrapper，让 pip 命令透明委托给 uv pip"""
+    venv_bin = config.workspace_dir(session_id) / ".venv" / "bin"
+    if not venv_bin.is_dir():
+        return
+    for name in ("pip", "pip3"):
+        wrapper = venv_bin / name
+        if not wrapper.exists():
+            wrapper.write_text(_PIP_WRAPPER_SCRIPT, encoding="utf-8")
+            wrapper.chmod(0o755)
+            logger.debug("写入 {} wrapper: {}", name, wrapper)
+
+
 async def ensure_python_venv(
     config: SandboxConfig,
     session_id: str,
@@ -225,7 +251,8 @@ async def ensure_python_venv(
     """懒创建 per-session Python venv（首次需要时调用）
 
     优先使用 uv venv（<200ms），不可用时回退到 python3 -m venv。
-    venv 的包文件通过 uv cache 硬链接去重，不同 session 共享底层数据。
+    venv 创建后在 bin/ 下写入 pip/pip3 wrapper 脚本，让 pip install
+    透明委托给 uv pip install（避免包装到系统 site-packages）。
 
     Returns:
         (成功与否, 日志/错误信息)
@@ -235,17 +262,17 @@ async def ensure_python_venv(
 
     lock = _venv_locks.setdefault(session_id, asyncio.Lock())
     async with lock:
-        # double-check：拿到锁后再检查一次，可能另一个协程已经创建好了
         if config.has_python_venv(session_id):
             return True, ""
 
         logger.info("为 session {} 懒创建 Python venv", session_id)
 
         cmd = "uv venv /workspace/.venv 2>&1 || python3 -m venv /workspace/.venv"
-        stdout, stderr, exit_code = await execute_in_sandbox(cmd, config, session_id, timeout=30)
+        stdout, stderr, exit_code = await execute_in_sandbox(cmd, config, session_id, timeout=60)
 
         if exit_code == 0 and config.has_python_venv(session_id):
-            logger.info("session {} Python venv 创建成功", session_id)
+            _install_pip_wrappers(config, session_id)
+            logger.info("session {} Python venv 创建成功（含 pip wrapper）", session_id)
             return True, stdout
         else:
             msg = f"venv 创建失败 (exit={exit_code}): {stderr or stdout}"

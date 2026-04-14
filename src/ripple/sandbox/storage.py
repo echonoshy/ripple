@@ -90,6 +90,7 @@ def save_session_state(
     pending_question: str | None = None,
     pending_options: list[str] | None = None,
     pending_permission_request: dict | None = None,
+    compactor_state: dict | None = None,
 ) -> Path:
     """保存 session 状态到磁盘（meta.json + messages.jsonl）
 
@@ -138,6 +139,7 @@ def save_session_state(
         "pending_question": pending_question,
         "pending_options": pending_options,
         "pending_permission_request": pending_permission_request,
+        "compactor_state": compactor_state,
         "message_count": new_count,
     }
     _atomic_write_json(meta_file, meta)

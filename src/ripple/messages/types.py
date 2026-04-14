@@ -55,6 +55,7 @@ class UserMessage(BaseModel):
     is_meta: bool = False
     source_tool_assistant_uuid: str | None = None
     tool_use_result: str | None = None
+    is_compact_boundary: bool = False
 
 
 class SystemMessage(BaseModel):

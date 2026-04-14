@@ -1,5 +1,8 @@
 """Microcompact — 轻量级 tool_result 清理
 
+⚠️ 已弃用：本模块的功能已合并到 AutoCompactor.lightweight_cleanup() 中。
+agent_loop 不再直接调用 microcompact_messages()。保留仅供可能的外部调用方使用。
+
 在不调用 LLM 的情况下，通过清空旧的 tool_result 内容来释放 token 空间。
 参考 Claude Code 的 microcompact 策略。
 """

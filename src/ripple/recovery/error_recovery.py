@@ -16,13 +16,30 @@ class ErrorRecovery:
 
     # max_output_tokens 最大恢复次数
     MAX_OUTPUT_TOKENS_RETRIES = 3
+    # 升级因子：默认 max_output_tokens × 该系数
+    ESCALATION_FACTOR = 1.5
 
     def __init__(self):
         self.recovery_count = 0
+        self._escalation_attempted: bool = False
 
     def reset(self):
         """重置恢复计数"""
         self.recovery_count = 0
+        self._escalation_attempted = False
+
+    def can_escalate_max_output_tokens(self) -> bool:
+        """检查是否可以尝试升级 max_output_tokens（在注入 recovery 消息前先尝试）"""
+        return not self._escalation_attempted
+
+    def get_escalated_max_tokens(self) -> int:
+        """获取升级后的 max_tokens 值，并标记已尝试升级"""
+        from ripple.utils.config import get_config
+
+        config = get_config()
+        default = config.get("model.max_output_tokens", 60000)
+        self._escalation_attempted = True
+        return int(default * self.ESCALATION_FACTOR)
 
     def can_recover_max_output_tokens(self) -> bool:
         """检查是否可以恢复 max_output_tokens 错误

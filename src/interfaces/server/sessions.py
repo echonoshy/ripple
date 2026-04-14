@@ -8,6 +8,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from ripple.api.client import OpenRouterClient
+from ripple.compact.context_manager import ContextManager
 from ripple.core.context import AbortSignal, ToolOptions, ToolUseContext
 from ripple.permissions.levels import PermissionMode
 from ripple.permissions.manager import PermissionManager
@@ -60,29 +61,7 @@ class Session:
     pending_options: list[str] | None = None
     pending_permission_request: dict[str, object] | None = None
     conversation_log: ConversationLogger | None = None
-
-    def trim_messages_if_needed(self, max_tokens: int = 150_000) -> int:
-        """当消息历史过长时修剪，参考 CLI 的 trim 策略。
-
-        Returns:
-            被修剪的消息数量
-        """
-        from ripple.messages.cleanup import estimate_tokens
-        from ripple.messages.utils import normalize_messages_for_api
-
-        normalized = normalize_messages_for_api(self.messages)
-        token_count = self.last_input_tokens or estimate_tokens(normalized)
-        if token_count < max_tokens:
-            return 0
-
-        old_count = len(self.messages)
-        keep_count = int(old_count * 0.8)
-        if keep_count < 2:
-            keep_count = 2
-        self.messages = self.messages[-keep_count:]
-        trimmed = old_count - len(self.messages)
-        logger.info("Session {} 消息修剪: 移除 {} 条旧消息 (tokens≈{})", self.session_id, trimmed, token_count)
-        return trimmed
+    context_manager: ContextManager | None = None
 
 
 def _build_system_prompt(workspace_dir: Path | None = None) -> str:
@@ -308,6 +287,7 @@ class SessionManager:
             pending_question=session.pending_question,
             pending_options=session.pending_options,
             pending_permission_request=session.pending_permission_request,
+            compactor_state=session.context_manager.get_compactor_state() if session.context_manager else None,
         )
 
     def create_session(
@@ -347,6 +327,7 @@ class SessionManager:
             system_prompt=system_prompt or _build_system_prompt(workspace_root),
             max_turns=resolved_max_turns,
             conversation_log=conversation_log,
+            context_manager=ContextManager(),
         )
         self._sessions[session_id] = session
         logger.info(
@@ -472,6 +453,7 @@ class SessionManager:
             pending_options=state.get("pending_options"),
             pending_permission_request=state.get("pending_permission_request"),
             conversation_log=conversation_log,
+            context_manager=ContextManager.from_persisted_state(state.get("compactor_state", {})),
         )
         self._sessions[session_id] = session
         logger.info("恢复 session: {} ({} 条历史消息)", session_id, len(session.messages))

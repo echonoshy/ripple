@@ -79,7 +79,7 @@ export default function Home() {
   const [taskProgress, setTaskProgress] = useState<TaskProgress | null>(null);
 
   // ── Resizable right panel ──
-  const [rightPanelWidth, setRightPanelWidth] = useState(600);
+  const [rightPanelWidth, setRightPanelWidth] = useState(820);
   const isResizingRef = useRef(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -536,30 +536,28 @@ export default function Home() {
   // ═══════════════════════════════════════════════════════
   if (authState !== "authenticated") {
     return (
-      <div className="relative flex h-screen w-screen items-center justify-center overflow-hidden bg-slate-50">
-        <div className="pointer-events-none absolute inset-0 overflow-hidden">
-          <div className="animate-blob absolute top-[-10%] left-[-10%] h-96 w-96 rounded-full bg-purple-300 opacity-40 mix-blend-multiply blur-3xl" />
-          <div className="animate-blob animation-delay-2000 absolute top-[20%] right-[-10%] h-96 w-96 rounded-full bg-yellow-300 opacity-40 mix-blend-multiply blur-3xl" />
-          <div className="animate-blob animation-delay-4000 absolute bottom-[-20%] left-[20%] h-96 w-96 rounded-full bg-pink-300 opacity-40 mix-blend-multiply blur-3xl" />
-        </div>
+      <div className="flex h-screen w-screen items-center justify-center bg-[#09090b]">
         {authState === "needs_auth" && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="relative z-10 mx-4 w-full max-w-sm"
+            className="mx-4 w-full max-w-sm"
           >
-            <div className="glass-bubble rounded-3xl p-8 shadow-xl">
+            <div className="surface-panel rounded-2xl p-8">
               <div className="mb-8 flex flex-col items-center">
-                <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-fuchsia-500 shadow-lg shadow-purple-500/30">
-                  <RippleIcon size={32} className="text-white" />
+                <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-[#10b981]/30 bg-[#10b981]/10">
+                  <RippleIcon size={28} className="text-[#10b981]" />
                 </div>
-                <h1 className="bg-gradient-to-r from-violet-600 to-fuchsia-600 bg-clip-text text-2xl font-bold text-transparent">
-                  Ripple
-                </h1>
-                <p className="mt-2 text-sm text-slate-400">请输入 API Key 以访问服务</p>
+                <h1 className="text-xl font-semibold text-[#fafafa]">RIPPLE</h1>
+                <p className="mt-3 text-center text-sm text-[#a1a1aa]">
+                  Enter your API key to continue
+                </p>
+                <p className="mt-1 text-center font-[family-name:var(--font-cjk)] text-sm text-[#71717a]">
+                  请输入 API Key 以访问服务
+                </p>
               </div>
               {authErrorMsg && (
-                <div className="mb-4 flex items-center gap-2 rounded-xl border border-red-100 bg-red-50 p-3 text-sm text-red-600">
+                <div className="mb-4 flex items-center gap-2 rounded-lg border border-[#ef4444]/30 bg-[#ef4444]/[0.06] p-3 text-sm text-[#ef4444]">
                   <AlertTriangle size={16} />
                   <span>{authErrorMsg}</span>
                 </div>
@@ -568,23 +566,22 @@ export default function Home() {
                 <div className="relative mb-4">
                   <KeyRound
                     size={18}
-                    className="absolute top-1/2 left-4 -translate-y-1/2 text-slate-400"
+                    className="absolute top-1/2 left-4 -translate-y-1/2 text-[#71717a]"
                   />
                   <input
                     type="password"
                     value={keyInput}
                     onChange={(e) => setKeyInput(e.target.value)}
-                    placeholder="Enter your API Key"
-                    className="w-full rounded-xl border border-slate-200 bg-white py-3 pr-4 pl-11 text-slate-700 placeholder:text-slate-400 focus:border-violet-300 focus:ring-2 focus:ring-violet-500/50 focus:outline-none"
-                    autoFocus
+                    placeholder="Enter API key..."
+                    className="w-full rounded-lg border border-[#27272a] bg-[#18181b] py-3 pr-4 pl-11 font-[family-name:var(--font-mono)] text-sm text-[#fafafa] placeholder:text-[#71717a] focus:border-[#10b981]/50 focus:ring-2 focus:ring-[#10b981]/15 focus:outline-none"
                   />
                 </div>
                 <button
                   type="submit"
                   disabled={!keyInput.trim()}
-                  className="w-full rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 py-3 font-semibold text-white shadow-lg shadow-purple-500/25 transition-all hover:shadow-purple-500/40 disabled:opacity-50"
+                  className="btn-primary w-full py-3 text-sm"
                 >
-                  连接
+                  Connect
                 </button>
               </form>
             </div>
@@ -598,15 +595,13 @@ export default function Home() {
   // MAIN APP
   // ═══════════════════════════════════════════════════════
   return (
-    <div className="relative h-screen w-screen overflow-hidden bg-slate-50">
-      {/* Background blobs */}
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="animate-blob absolute top-[-10%] left-[-10%] h-96 w-96 rounded-full bg-purple-200 opacity-40 mix-blend-multiply blur-3xl" />
-        <div className="animate-blob animation-delay-2000 absolute top-[20%] right-[-10%] h-96 w-96 rounded-full bg-yellow-200 opacity-40 mix-blend-multiply blur-3xl" />
-        <div className="animate-blob animation-delay-4000 absolute bottom-[-20%] left-[20%] h-96 w-96 rounded-full bg-pink-200 opacity-40 mix-blend-multiply blur-3xl" />
-      </div>
-
-      <div className="relative z-10 flex h-full w-full">
+    <div className="h-screen w-screen overflow-hidden bg-[#09090b]">
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.3 }}
+        className="flex h-full w-full"
+      >
         {/* Sidebar */}
         <Sidebar
           sessions={sessions}
@@ -626,12 +621,12 @@ export default function Home() {
         {/* Main chat area */}
         <main className="relative flex min-w-0 flex-1 flex-col">
           {/* Header */}
-          <header className="glass-panel z-20 flex h-14 items-center justify-between border-b border-white/40 px-4 md:px-6">
+          <header className="surface-panel z-20 flex h-14 items-center justify-between rounded-none border-t-0 border-r-0 border-b border-l-0 px-4 md:px-6">
             <div className="flex items-center gap-2">
               {/* Mobile menu */}
               <button
                 onClick={() => setIsSidebarOpen(true)}
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 md:hidden"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-[#a1a1aa] hover:bg-white/[0.04] hover:text-[#fafafa] md:hidden"
               >
                 <Menu size={18} />
               </button>
@@ -640,23 +635,25 @@ export default function Home() {
               <div className="relative">
                 <button
                   onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
-                  className="flex items-center gap-1.5 rounded-lg border border-white/60 bg-white/50 px-2.5 py-1.5 text-sm text-slate-600 transition-colors hover:bg-white/80"
+                  className="flex items-center gap-1.5 rounded-lg border border-[#27272a] bg-[#18181b] px-2.5 py-1.5 text-sm text-[#fafafa] transition-colors hover:border-[#3f3f46]"
                 >
-                  <Cpu size={14} className="text-violet-500" />
-                  <span className="font-semibold">{selectedModel}</span>
+                  <Cpu size={14} className="text-[#3b82f6]" />
+                  <span className="font-[family-name:var(--font-mono)] text-sm font-medium">
+                    {selectedModel}
+                  </span>
                   <ChevronDown
                     size={12}
-                    className={`text-slate-400 transition-transform ${isModelDropdownOpen ? "rotate-180" : ""}`}
+                    className={`text-[#71717a] transition-transform ${isModelDropdownOpen ? "rotate-180" : ""}`}
                   />
                 </button>
                 <AnimatePresence>
                   {isModelDropdownOpen && (
                     <motion.div
-                      initial={{ opacity: 0, y: 8 }}
+                      initial={{ opacity: 0, y: 4 }}
                       animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: 8 }}
-                      transition={{ duration: 0.12 }}
-                      className="absolute top-full left-0 z-50 mt-1 w-44 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg"
+                      exit={{ opacity: 0, y: 4 }}
+                      transition={{ duration: 0.1 }}
+                      className="absolute top-full left-0 z-50 mt-1 w-44 overflow-hidden rounded-xl border border-[#27272a] bg-[#18181b] shadow-lg"
                     >
                       <div className="p-1">
                         {models.map((m) => (
@@ -666,10 +663,10 @@ export default function Home() {
                               setSelectedModel(m.id);
                               setIsModelDropdownOpen(false);
                             }}
-                            className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+                            className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left font-[family-name:var(--font-mono)] text-sm transition-colors ${
                               selectedModel === m.id
-                                ? "bg-violet-50 font-semibold text-violet-700"
-                                : "text-slate-600 hover:bg-slate-50"
+                                ? "bg-[#10b981]/10 font-medium text-[#10b981]"
+                                : "text-[#a1a1aa] hover:bg-[#18181b] hover:text-[#fafafa]"
                             }`}
                           >
                             {m.id}
@@ -682,9 +679,9 @@ export default function Home() {
               </div>
 
               {thinkingEnabled && (
-                <div className="flex items-center gap-1 rounded-md bg-violet-50 px-2 py-1 text-violet-600">
+                <div className="flex items-center gap-1 rounded-md border border-[#10b981]/30 bg-[#10b981]/[0.06] px-2 py-1 text-[#10b981]">
                   <Brain size={11} />
-                  <span className="text-[10px] font-bold tracking-wide">THINK</span>
+                  <span className="text-xs font-medium">Think</span>
                 </div>
               )}
             </div>
@@ -692,31 +689,34 @@ export default function Home() {
             <div className="flex items-center gap-2">
               {tokenUsage.total_tokens > 0 && (
                 <div
-                  className={`hidden items-center gap-1.5 rounded-lg border px-2.5 py-1 font-mono text-[11px] sm:flex ${
+                  className={`hidden items-center gap-1.5 rounded-lg border px-2.5 py-1 font-[family-name:var(--font-mono)] text-xs sm:flex ${
                     isContextWarning
-                      ? "border-amber-200 bg-amber-50 text-amber-700"
-                      : "border-slate-200 bg-slate-50 text-slate-500"
+                      ? "border-[#ef4444]/30 bg-[#ef4444]/[0.06] text-[#ef4444]"
+                      : "border-[#27272a] bg-[#18181b] text-[#a1a1aa]"
                   }`}
                 >
                   {isContextWarning && <AlertTriangle size={11} />}
-                  <span>↑{formatTokens(tokenUsage.prompt_tokens)}</span>
-                  <span className="text-slate-300">|</span>
-                  <span>↓{formatTokens(tokenUsage.completion_tokens)}</span>
+                  <span className="text-[#10b981]">↑{formatTokens(tokenUsage.prompt_tokens)}</span>
+                  <span className="text-[#71717a]">|</span>
+                  <span className="text-[#3b82f6]">
+                    ↓{formatTokens(tokenUsage.completion_tokens)}
+                  </span>
                 </div>
               )}
               <div
                 className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 ${
                   sessionId
-                    ? "border-green-100 bg-green-50 text-green-600"
-                    : "border-slate-200 bg-slate-50 text-slate-500"
+                    ? "border-[#10b981]/30 bg-[#10b981]/10 text-[#10b981]"
+                    : "border-[#27272a] bg-[#18181b] text-[#71717a]"
                 }`}
               >
                 <div
-                  className={`h-1.5 w-1.5 rounded-full ${sessionId ? "animate-pulse bg-green-500" : "bg-slate-400"}`}
+                  className={`h-2 w-2 rounded-full ${sessionId ? "glow-green bg-[#10b981]" : "bg-[#71717a]"}`}
+                  style={
+                    sessionId ? { animation: "glow-pulse 2s ease-in-out infinite" } : undefined
+                  }
                 />
-                <span className="text-[10px] font-bold tracking-wide">
-                  {sessionId ? "ACTIVE" : "READY"}
-                </span>
+                <span className="text-xs font-medium">{sessionId ? "Online" : "Ready"}</span>
               </div>
             </div>
           </header>
@@ -725,10 +725,18 @@ export default function Home() {
           <div className="flex-1 overflow-y-auto px-4 pt-6 pb-4 md:px-6">
             <div className="mx-auto max-w-5xl space-y-3">
               {messages.length === 0 && (
-                <div className="flex h-[50vh] flex-col items-center justify-center text-slate-400">
-                  <RippleIcon size={48} className="mb-4 text-violet-200" />
-                  <p className="text-lg font-medium">How can I help you today?</p>
-                  <p className="mt-1 text-sm text-slate-300">输入消息开始对话</p>
+                <div className="flex h-[50vh] flex-col items-center justify-center text-[#71717a]">
+                  <div
+                    className="mb-6 flex h-20 w-20 items-center justify-center rounded-2xl border border-[#10b981]/20 bg-[#10b981]/5"
+                    style={{ animation: "float-breathe 3s ease-in-out infinite" }}
+                  >
+                    <RippleIcon size={40} className="text-[#10b981]/50" />
+                  </div>
+                  <p className="text-lg font-semibold text-[#fafafa]">Ripple</p>
+                  <p className="mt-2 text-sm text-[#a1a1aa]">Start a conversation</p>
+                  <p className="mt-1 font-[family-name:var(--font-cjk)] text-sm text-[#71717a]">
+                    输入消息开始对话
+                  </p>
                 </div>
               )}
               <AnimatePresence initial={false}>
@@ -749,7 +757,7 @@ export default function Home() {
 
           {/* Input */}
           {showMobileTaskPanel && (
-            <div className="glass-panel mx-4 mb-3 max-h-72 overflow-hidden rounded-2xl border border-white/40 md:mx-6 lg:hidden">
+            <div className="surface-panel mx-4 mb-3 max-h-72 overflow-hidden rounded-xl md:mx-6 lg:hidden">
               <TaskExecutionPanel
                 tasks={tasks}
                 taskProgress={taskProgress}
@@ -772,15 +780,15 @@ export default function Home() {
 
         {/* Resize handle */}
         <div
-          className="z-30 hidden w-2 shrink-0 cursor-col-resize items-center justify-center transition-colors hover:bg-violet-200/80 lg:flex"
+          className="z-30 hidden w-1.5 shrink-0 cursor-col-resize items-center justify-center bg-[#09090b] transition-colors hover:bg-[#10b981]/15 lg:flex"
           onMouseDown={handleResizeStart}
         >
-          <div className="h-12 w-1 rounded-full bg-slate-300" />
+          <div className="h-12 w-0.5 rounded-full bg-[#27272a]" />
         </div>
 
         {/* Right panel */}
         <aside
-          className="glass-panel hidden shrink-0 flex-col border-l border-white/40 lg:flex"
+          className="surface-panel hidden shrink-0 flex-col rounded-none border-t-0 border-r-0 border-b-0 border-l lg:flex"
           style={{ width: rightPanelWidth }}
         >
           <TaskExecutionPanel
@@ -790,7 +798,7 @@ export default function Home() {
             isGenerating={isGenerating}
           />
         </aside>
-      </div>
+      </motion.div>
 
       {/* Settings modal */}
       <SettingsModal

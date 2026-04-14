@@ -175,6 +175,7 @@ async def stream_query_as_sse(
     system_prompt: str | None = None,
     thinking: bool = False,
     conversation_log=None,
+    context_manager=None,
 ) -> AsyncGenerator[str, None]:
     """消费 query() 的 async generator，产出 SSE data 行。
 
@@ -206,9 +207,10 @@ async def stream_query_as_sse(
         conversation_log.log_user_message(user_input)
 
     # 跨 loop 上下文清理：传给模型的是精简版，session.messages 保持完整
-    from ripple.compact.context_cleanup import clean_messages_for_model_context
-
-    model_history = clean_messages_for_model_context(history_messages) if history_messages else history_messages
+    if context_manager and history_messages:
+        model_history = context_manager.prepare_model_messages(history_messages)
+    else:
+        model_history = history_messages
 
     async def _heartbeat_wrapper():
         """包装 query() 生成器，在长时间无输出时发送心跳"""
@@ -221,6 +223,7 @@ async def stream_query_as_sse(
             thinking=thinking,
             history_messages=model_history,
             system_prompt=system_prompt,
+            compactor=context_manager.compactor if context_manager else None,
         )
         pending_next = asyncio.ensure_future(gen.__anext__())
         try:
@@ -408,6 +411,7 @@ async def collect_query_response(
     system_prompt: str | None = None,
     thinking: bool = False,
     conversation_log=None,
+    context_manager=None,
 ) -> dict[str, Any]:
     """消费 query() 的 async generator，收集为完整的 ChatCompletion 响应。
 
@@ -431,9 +435,10 @@ async def collect_query_response(
     if conversation_log:
         conversation_log.log_user_message(user_input)
 
-    from ripple.compact.context_cleanup import clean_messages_for_model_context
-
-    model_history = clean_messages_for_model_context(history_messages) if history_messages else history_messages
+    if context_manager and history_messages:
+        model_history = context_manager.prepare_model_messages(history_messages)
+    else:
+        model_history = history_messages
 
     try:
         async for item in query(
@@ -445,6 +450,7 @@ async def collect_query_response(
             thinking=thinking,
             history_messages=model_history,
             system_prompt=system_prompt,
+            compactor=context_manager.compactor if context_manager else None,
         ):
             if isinstance(item, AgentStopEvent):
                 if item.stop_reason in ("ask_user", "permission_request"):

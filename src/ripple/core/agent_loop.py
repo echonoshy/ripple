@@ -4,13 +4,15 @@
 """
 
 import json
-from typing import Any, AsyncGenerator
+import re
+from typing import TYPE_CHECKING, Any, AsyncGenerator
 
 from ripple.api.client import OpenRouterClient
 from ripple.api.streaming import process_stream_response
 from ripple.core.context import ToolUseContext
 from ripple.core.state import QueryState
 from ripple.core.transitions import (
+    ContinueMaxOutputTokensEscalate,
     ContinueNextTurn,
     ContinueReactiveCompactRetry,
     ContinueStopHookBlocking,
@@ -36,6 +38,9 @@ from ripple.messages.utils import (
 )
 from ripple.utils.logger import get_logger
 
+if TYPE_CHECKING:
+    from ripple.compact.auto_compact import AutoCompactor
+
 logger = get_logger("core.agent_loop")
 
 # context_length_exceeded 相关的错误关键字
@@ -57,6 +62,41 @@ _MAX_OUTPUT_KEYWORDS = [
 ]
 
 MAX_REACTIVE_COMPACT_RETRIES = 2
+
+# 从 PTL 错误消息中提取 token 数值的正则
+_PTL_TOKEN_PATTERN = re.compile(r"(\d[\d,]*)\s*tokens?\s*[>≥]\s*(\d[\d,]*)")
+_PTL_CONTEXT_LENGTH_PATTERN = re.compile(r"maximum\s+(?:context\s+)?length\s+(?:is\s+)?(\d[\d,]*)")
+
+
+def _parse_ptl_token_gap(error_str: str) -> int | None:
+    """从 prompt-too-long 错误消息中提取 token 超额量
+
+    支持的格式：
+    - "137500 tokens > 135000 limit" → gap = 2500
+    - "maximum context length is 200000 ... resulted in 210000 tokens" → gap = 10000
+
+    Returns:
+        token 超额量，无法解析时返回 None
+    """
+    # 模式 1: "X tokens > Y"
+    match = _PTL_TOKEN_PATTERN.search(error_str)
+    if match:
+        actual = int(match.group(1).replace(",", ""))
+        limit = int(match.group(2).replace(",", ""))
+        if actual > limit:
+            return actual - limit
+
+    # 模式 2: "maximum context length is Y ... X tokens"
+    limit_match = _PTL_CONTEXT_LENGTH_PATTERN.search(error_str)
+    if limit_match:
+        limit = int(limit_match.group(1).replace(",", ""))
+        all_numbers = re.findall(r"(\d[\d,]*)\s*tokens?", error_str)
+        for num_str in all_numbers:
+            num = int(num_str.replace(",", ""))
+            if num > limit:
+                return num - limit
+
+    return None
 
 
 def _is_context_too_long_error(error_str: str) -> bool:
@@ -114,6 +154,7 @@ class QueryParams:
         max_turns: int | None = None,
         max_tokens: int | None = None,
         thinking: bool | None = None,
+        compactor: "AutoCompactor | None" = None,
     ):
         self.messages = messages
         self.tool_use_context = tool_use_context
@@ -121,6 +162,7 @@ class QueryParams:
         self.max_turns = max_turns
         self.max_tokens = max_tokens
         self.thinking = thinking
+        self.compactor = compactor
 
 
 async def query_loop(
@@ -153,9 +195,10 @@ async def query_loop(
     from ripple.compact.auto_compact import AutoCompactor
     from ripple.recovery.error_recovery import ErrorRecovery
 
-    compactor = AutoCompactor()
+    compactor = params.compactor or AutoCompactor()
     recovery = ErrorRecovery()
     reactive_compact_count = 0
+    last_microcompact_msg_count: int = 0
 
     while True:
         # ========== 阶段 0: 检查是否已被中止 ==========
@@ -163,12 +206,13 @@ async def query_loop(
             logger.info("Turn {}: 检测到 abort signal，终止循环", state.turn_count)
             return
 
-        # ========== 阶段 0a: Microcompact — 清理旧 tool_result ==========
-        from ripple.compact.micro_compact import microcompact_messages
-
-        compacted_micro = microcompact_messages(state.messages)
-        if compacted_micro is not state.messages:
-            state = state.with_messages(compacted_micro)
+        # ========== 阶段 0a: 轻量级清理 — 清理旧 tool_result / tool_input ==========
+        msg_count = len(state.messages)
+        if msg_count > last_microcompact_msg_count:
+            compacted_micro = compactor.lightweight_cleanup(state.messages)
+            if compacted_micro is not state.messages:
+                state = state.with_messages(compacted_micro)
+            last_microcompact_msg_count = msg_count
 
         # ========== 阶段 0b: 检查是否需要压缩 ==========
         if compactor.should_compact(state.messages):
@@ -176,6 +220,7 @@ async def query_loop(
             compacted_messages = await compactor.compact(state.messages, state.tool_use_context)
 
             state = state.with_messages(compacted_messages)
+            last_microcompact_msg_count = 0  # 压缩后重置，让 microcompact 重新评估
             logger.info("压缩完成，当前消息数: {}", len(state.messages))
 
         # ========== 阶段 0.5: 任务提醒检查 ==========
@@ -256,13 +301,21 @@ async def query_loop(
             if _is_context_too_long_error(error_str):
                 if reactive_compact_count < MAX_REACTIVE_COMPACT_RETRIES:
                     reactive_compact_count += 1
+
+                    # 尝试从错误消息中解析精确的 token 超额量
+                    token_gap = _parse_ptl_token_gap(error_str)
+
                     logger.warning(
-                        "检测到上下文过长错误，执行 reactive compact (尝试 {}/{})",
+                        "检测到上下文过长错误，执行 reactive compact (尝试 {}/{}, gap={})",
                         reactive_compact_count,
                         MAX_REACTIVE_COMPACT_RETRIES,
+                        token_gap,
                     )
 
-                    compacted = await compactor.reactive_compact(state.messages, state.tool_use_context)
+                    compacted = await compactor.reactive_compact(
+                        state.messages, state.tool_use_context, token_gap=token_gap
+                    )
+                    last_microcompact_msg_count = 0  # 压缩后重置
                     state = state.with_messages(compacted).with_transition(ContinueReactiveCompactRetry())
                     continue
                 else:
@@ -277,8 +330,26 @@ async def query_loop(
 
             # 检查是否是 max_output_tokens 错误
             if _is_max_output_error(error_str):
+                # 阶段 1: 先尝试升级 max_tokens（不注入 recovery 消息）
+                if recovery.can_escalate_max_output_tokens():
+                    escalated_max = recovery.get_escalated_max_tokens()
+                    logger.info("检测到 max_output_tokens 错误，升级 max_tokens 到 {}", escalated_max)
+                    params.max_tokens = escalated_max
+
+                    state = (
+                        state.with_messages([*state.messages, *assistant_messages])
+                        .with_turn_count(state.turn_count + 1)
+                        .with_transition(ContinueMaxOutputTokensEscalate())
+                    )
+                    if params.max_turns and state.turn_count > params.max_turns:
+                        logger.warning("升级后达到最大轮数 {}，终止循环", params.max_turns)
+                        state = state.with_transition(TerminalMaxTurns(turn_count=state.turn_count))
+                        return
+                    continue
+
+                # 阶段 2: 升级已尝试过，回退到注入 recovery 消息
                 if recovery.can_recover_max_output_tokens():
-                    logger.info("检测到 max_output_tokens 错误，尝试恢复")
+                    logger.info("升级无效，注入 recovery 消息恢复")
                     recovery_msg = recovery.create_recovery_message()
                     yield recovery_msg
 
@@ -506,6 +577,7 @@ async def query(
     thinking: bool | None = None,
     history_messages: list[Message] | None = None,
     system_prompt: str | None = None,
+    compactor: "AutoCompactor | None" = None,
 ) -> AsyncGenerator[Message | StreamEvent | RequestStartEvent | AgentStopEvent, None]:
     """查询入口函数"""
     if client is None:
@@ -546,6 +618,7 @@ async def query(
         model=model,
         max_turns=max_turns,
         thinking=thinking,
+        compactor=compactor,
     )
 
     async for item in query_loop(params, client):

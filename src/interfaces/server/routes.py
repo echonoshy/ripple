@@ -183,6 +183,7 @@ async def _stream_chat(
                     system_prompt=session.system_prompt,
                     thinking=thinking,
                     conversation_log=session.conversation_log,
+                    context_manager=session.context_manager,
                 ):
                     if sse_line.startswith("data: ") and sse_line.strip() not in ("data: [DONE]",):
                         try:
@@ -214,7 +215,6 @@ async def _stream_chat(
                 session.current_task = None
                 if session.status == "running":
                     session.status = "idle"
-                session.trim_messages_if_needed()
                 if manager:
                     manager.persist_session(session.session_id)
     except asyncio.CancelledError:
@@ -266,6 +266,7 @@ async def _non_stream_chat(
                     system_prompt=session.system_prompt,
                     thinking=thinking,
                     conversation_log=session.conversation_log,
+                    context_manager=session.context_manager,
                 )
                 usage = result.get("usage", {})
                 if usage:
@@ -287,7 +288,6 @@ async def _non_stream_chat(
                 session.current_task = None
                 if session.status == "running":
                     session.status = "idle"
-                session.trim_messages_if_needed()
                 if manager:
                     manager.persist_session(session.session_id)
     except asyncio.CancelledError:

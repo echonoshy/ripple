@@ -22,6 +22,7 @@ def create_user_message(
     is_meta: bool = False,
     source_tool_assistant_uuid: str | None = None,
     tool_use_result: str | None = None,
+    is_compact_boundary: bool = False,
 ) -> UserMessage:
     """创建用户消息"""
     if isinstance(content, str):
@@ -33,6 +34,7 @@ def create_user_message(
         is_meta=is_meta,
         source_tool_assistant_uuid=source_tool_assistant_uuid,
         tool_use_result=tool_use_result,
+        is_compact_boundary=is_compact_boundary,
     )
 
 

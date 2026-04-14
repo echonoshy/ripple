@@ -1,5 +1,8 @@
 """跨 Agent Loop 上下文清理
 
+⚠️ 已弃用：本模块的功能已合并到 ContextManager + AutoCompactor.lightweight_cleanup() 中。
+Server 模式不再调用本模块。保留仅供 CLI 或其他可能的调用方使用。
+
 在多轮对话中，前一个 agent loop 的工具调用细节对后续 loop 无价值，
 只有对话文本和操作摘要是有意义的上下文。
 

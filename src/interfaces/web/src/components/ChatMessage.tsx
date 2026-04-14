@@ -26,33 +26,41 @@ function ThinkingIndicator({ hasContent }: { hasContent: boolean }) {
 
   if (hasContent) {
     return (
-      <div className="flex items-center gap-2 px-1 py-1.5 text-sm text-slate-400">
-        <div className="flex gap-0.5">
+      <div className="flex items-center gap-2 px-1 py-1.5 text-sm text-[#a1a1aa]">
+        <div className="flex gap-1">
           {[0, 1, 2].map((i) => (
             <span
               key={i}
-              className="inline-block h-1.5 w-1.5 animate-bounce rounded-full bg-violet-400"
-              style={{ animationDelay: `${i * 150}ms` }}
+              className="inline-block h-1.5 w-1.5 rounded-full bg-[#10b981]"
+              style={{
+                animation: "bounce-dot 1.4s ease-in-out infinite",
+                animationDelay: `${i * 160}ms`,
+              }}
             />
           ))}
         </div>
-        <span>处理中{elapsed > 3 ? ` · ${formatTime(elapsed)}` : ""}</span>
+        <span>Thinking{elapsed > 3 ? ` — ${formatTime(elapsed)}` : ""}</span>
       </div>
     );
   }
 
   return (
-    <div className="inline-flex items-center gap-3 rounded-2xl rounded-tl-md border border-violet-100 bg-gradient-to-r from-violet-50 to-fuchsia-50 px-5 py-4 shadow-sm">
+    <div className="inline-flex items-center gap-3 rounded-xl border border-[#27272a] bg-[#18181b] px-5 py-4">
       <div className="relative flex h-5 w-5 items-center justify-center">
-        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-violet-400 opacity-30" />
-        <Loader2 size={16} className="relative animate-spin text-violet-500" />
+        <Loader2 size={16} className="relative animate-spin text-[#10b981]" />
       </div>
       <div className="flex flex-col">
-        <span className="text-sm font-medium text-slate-600">
-          {elapsed < 5 ? "思考中..." : elapsed < 30 ? "正在生成回复..." : "仍在处理，请耐心等待..."}
+        <span className="text-sm text-[#fafafa]">
+          {elapsed < 5
+            ? "Thinking..."
+            : elapsed < 30
+              ? "Generating response..."
+              : "Still processing..."}
         </span>
         {elapsed >= 3 && (
-          <span className="text-xs text-slate-400">已等待 {formatTime(elapsed)}</span>
+          <span className="font-[family-name:var(--font-mono)] text-xs text-[#71717a]">
+            {formatTime(elapsed)}
+          </span>
         )}
       </div>
     </div>
@@ -86,36 +94,39 @@ export default function ChatMessage({
     <motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
+      transition={{ type: "spring", stiffness: 400, damping: 30 }}
       className={`flex gap-2.5 ${isUser ? "justify-end" : ""}`}
     >
+      {/* Assistant avatar */}
       {!isUser && (
-        <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-fuchsia-500 shadow-sm">
-          <RippleIcon size={12} className="text-white" />
+        <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[#10b981]/30 bg-[#10b981]/10">
+          <RippleIcon size={14} className="text-[#10b981]" />
         </div>
       )}
 
       {isUser ? (
-        <div className="max-w-[95%] rounded-xl rounded-br-sm bg-gradient-to-br from-blue-500 to-indigo-600 px-3.5 py-2.5 text-[14px] leading-snug text-white shadow-sm">
+        /* User message */
+        <div className="max-w-[95%] rounded-2xl rounded-br-md border border-[#3b82f6]/20 bg-[#3b82f6]/[0.05] px-4 py-3 text-sm leading-relaxed text-[#fafafa]">
           <div className="whitespace-pre-wrap">{msg.content}</div>
         </div>
       ) : (
+        /* Assistant message */
         <div className="max-w-full min-w-0 flex-1 space-y-2">
           {showThinking && isEmptyAssistant && <ThinkingIndicator hasContent={false} />}
 
           {msg.content && (
-            <div className="rounded-xl rounded-tl-sm border border-white/60 bg-white/80 px-4 py-3 text-[14px] leading-snug text-slate-700 shadow-sm backdrop-blur-sm">
+            <div className="rounded-2xl rounded-tl-md border border-[#27272a] bg-[#18181b] px-4 py-3 text-sm leading-relaxed text-[#fafafa]">
               <MarkdownRenderer content={msg.content} />
             </div>
           )}
 
           {msg.askUser && !isGenerating && isLast && onQuickReply && (
-            <div className="rounded-xl rounded-tl-sm border border-violet-200 bg-white/90 px-4 py-3 shadow-sm backdrop-blur-sm">
-              <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-violet-700">
-                <span>💬</span>
-                <span>Action Required</span>
+            <div className="rounded-xl border border-[#10b981]/30 bg-[#18181b] px-4 py-3">
+              <div className="mb-2 flex items-center gap-2 text-xs font-medium text-[#10b981]">
+                <span>{">"}</span>
+                <span>Select an option</span>
               </div>
-              <p className="mb-3 text-sm text-slate-700">{msg.askUser.question}</p>
+              <p className="mb-3 text-sm text-[#fafafa]">{msg.askUser.question}</p>
               {msg.askUser.options && msg.askUser.options.length > 0 && (
                 <div className="flex flex-wrap gap-2">
                   {msg.askUser.options.map((option, i) => (
@@ -124,9 +135,9 @@ export default function ChatMessage({
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
                       onClick={() => onQuickReply(option)}
-                      className="rounded-lg border border-violet-200 bg-white px-4 py-2 text-sm font-medium text-violet-700 shadow-sm transition-colors hover:border-violet-300 hover:bg-violet-50"
+                      className="btn-ghost px-4 py-2 text-sm"
                     >
-                      {option}
+                      {String.fromCharCode(65 + i)}. {option}
                     </motion.button>
                   ))}
                 </div>
@@ -135,15 +146,16 @@ export default function ChatMessage({
           )}
 
           {msg.permissionRequest && !isGenerating && isLast && onPermissionResolve && (
-            <div className="rounded-xl rounded-tl-sm border border-amber-200 bg-white/90 px-4 py-3 shadow-sm backdrop-blur-sm">
-              <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-amber-700">
-                <span>🔐</span>
+            <div className="rounded-xl border border-[#ef4444]/30 bg-[#ef4444]/[0.03] px-4 py-3">
+              <div className="mb-2 flex items-center gap-2 text-xs font-medium text-[#ef4444]">
+                <span>!</span>
                 <span>Permission Required</span>
               </div>
-              <p className="mb-2 text-sm text-slate-700">
-                Tool: <span className="font-mono text-amber-600">{msg.permissionRequest.tool}</span>
+              <p className="mb-2 text-sm text-[#fafafa]">
+                Tool:{" "}
+                <span className="font-medium text-[#f59e0b]">{msg.permissionRequest.tool}</span>
               </p>
-              <div className="mb-3 overflow-x-auto rounded-lg bg-slate-50 p-3 font-mono text-xs text-slate-600">
+              <div className="mb-3 overflow-x-auto rounded-lg border border-[#27272a] bg-[#18181b] p-3 font-[family-name:var(--font-mono)] text-xs text-[#10b981]">
                 {typeof msg.permissionRequest.params === "string"
                   ? msg.permissionRequest.params
                   : JSON.stringify(msg.permissionRequest.params, null, 2)}
@@ -153,7 +165,7 @@ export default function ChatMessage({
                   whileHover={{ scale: 1.01 }}
                   whileTap={{ scale: 0.99 }}
                   onClick={() => onPermissionResolve("allow")}
-                  className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-emerald-600"
+                  className="rounded-lg border border-[#10b981]/40 bg-[#10b981]/10 px-4 py-2 text-sm text-[#10b981] transition-colors hover:bg-[#10b981]/15"
                 >
                   Allow Once
                 </motion.button>
@@ -161,15 +173,15 @@ export default function ChatMessage({
                   whileHover={{ scale: 1.01 }}
                   whileTap={{ scale: 0.99 }}
                   onClick={() => onPermissionResolve("always")}
-                  className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 shadow-sm transition-colors hover:bg-emerald-100"
+                  className="rounded-lg border border-[#3b82f6]/30 bg-[#3b82f6]/[0.06] px-4 py-2 text-sm text-[#3b82f6] transition-colors hover:bg-[#3b82f6]/10"
                 >
-                  Always Allow for this Session
+                  Always Allow
                 </motion.button>
                 <motion.button
                   whileHover={{ scale: 1.01 }}
                   whileTap={{ scale: 0.99 }}
                   onClick={() => onPermissionResolve("deny")}
-                  className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-600 shadow-sm transition-colors hover:bg-red-100"
+                  className="rounded-lg border border-[#ef4444]/30 bg-[#ef4444]/[0.06] px-4 py-2 text-sm text-[#ef4444] transition-colors hover:bg-[#ef4444]/10"
                 >
                   Deny
                 </motion.button>
@@ -181,9 +193,10 @@ export default function ChatMessage({
         </div>
       )}
 
+      {/* User avatar */}
       {isUser && (
-        <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-blue-400 to-indigo-500 shadow-sm">
-          <User size={12} className="text-white" />
+        <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[#3b82f6]/30 bg-[#3b82f6]/10">
+          <User size={14} className="text-[#3b82f6]" />
         </div>
       )}
     </motion.div>

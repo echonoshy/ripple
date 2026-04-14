@@ -6,7 +6,7 @@
 import json
 from typing import Any
 
-import tiktoken
+from ripple.utils.token_counter import _get_encoding
 
 
 def cleanup_tool_results(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -72,17 +72,6 @@ def _extract_assistant_text(msg: dict) -> str:
         return "\n".join(parts)
 
     return ""
-
-
-_encoding: tiktoken.Encoding | None = None
-
-
-def _get_encoding() -> tiktoken.Encoding:
-    """延迟加载 tiktoken 编码器（cl100k_base，兼容主流模型）"""
-    global _encoding
-    if _encoding is None:
-        _encoding = tiktoken.get_encoding("cl100k_base")
-    return _encoding
 
 
 def estimate_tokens(messages: list[dict[str, Any]]) -> int:

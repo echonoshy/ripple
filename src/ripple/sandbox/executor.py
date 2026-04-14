@@ -15,6 +15,9 @@ logger = get_logger("sandbox.executor")
 
 SANDBOX_UV_CACHE_PATH = "/uv-cache"
 
+# per-session 锁，防止并发懒创建 venv 时目录竞争
+_venv_locks: dict[str, asyncio.Lock] = {}
+
 
 def check_nsjail_available(nsjail_path: str = "nsjail"):
     """启动时检查 nsjail 是否可用，不可用则直接报错"""
@@ -230,15 +233,21 @@ async def ensure_python_venv(
     if config.has_python_venv(session_id):
         return True, ""
 
-    logger.info("为 session {} 懒创建 Python venv", session_id)
+    lock = _venv_locks.setdefault(session_id, asyncio.Lock())
+    async with lock:
+        # double-check：拿到锁后再检查一次，可能另一个协程已经创建好了
+        if config.has_python_venv(session_id):
+            return True, ""
 
-    cmd = "uv venv /workspace/.venv 2>&1 || python3 -m venv /workspace/.venv"
-    stdout, stderr, exit_code = await execute_in_sandbox(cmd, config, session_id, timeout=30)
+        logger.info("为 session {} 懒创建 Python venv", session_id)
 
-    if exit_code == 0 and config.has_python_venv(session_id):
-        logger.info("session {} Python venv 创建成功", session_id)
-        return True, stdout
-    else:
-        msg = f"venv 创建失败 (exit={exit_code}): {stderr or stdout}"
-        logger.warning("session {} {}", session_id, msg)
-        return False, msg
+        cmd = "uv venv /workspace/.venv 2>&1 || python3 -m venv /workspace/.venv"
+        stdout, stderr, exit_code = await execute_in_sandbox(cmd, config, session_id, timeout=30)
+
+        if exit_code == 0 and config.has_python_venv(session_id):
+            logger.info("session {} Python venv 创建成功", session_id)
+            return True, stdout
+        else:
+            msg = f"venv 创建失败 (exit={exit_code}): {stderr or stdout}"
+            logger.warning("session {} {}", session_id, msg)
+            return False, msg

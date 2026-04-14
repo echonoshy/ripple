@@ -19,9 +19,9 @@ from ripple.utils.logger import get_logger
 
 logger = get_logger("tools.bash")
 
-# 匹配需要 Python venv 的命令开头（支持管道、&& 等组合命令中的首个 token）
+# 匹配需要 Python venv 的命令（支持管道、&&、绝对路径等）
 _PYTHON_CMD_PATTERN = re.compile(
-    r"(?:^|&&|\|\||;|\|)\s*(?:uv\s+(?:pip|run|add)|python3?|pip3?)\b",
+    r"(?:^|&&|\|\||;|\|)\s*(?:uv\s+(?:pip|run|add)|(?:/\S+/)?python3?|(?:/\S+/)?pip3?)\b",
 )
 
 
@@ -134,9 +134,9 @@ class BashTool(Tool[BashInput, BashOutput]):
 
         session_id = context.sandbox_session_id
 
-        # 懒创建 Python venv
+        # 懒创建 Python venv（失败时直接返回错误，不继续执行）
         if venv_err := await self._ensure_venv_if_needed(args.command, session_id):
-            logger.warning(venv_err)
+            return "", venv_err, 1
 
         # 自动激活已有 venv
         command = self._wrap_with_venv_activation(args.command, session_id)

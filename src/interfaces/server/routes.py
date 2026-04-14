@@ -30,7 +30,7 @@ from interfaces.server.sse import collect_query_response, stream_query_as_sse
 from ripple.messages.utils import serialize_messages
 from ripple.tools.orchestration import find_tool_by_name
 from ripple.utils.config import get_config
-from ripple.utils.logger import get_logger
+from ripple.utils.logger import get_logger, session_context
 
 logger = get_logger("server.routes")
 
@@ -161,76 +161,77 @@ async def _stream_chat(
     import asyncio
     import json as _json
 
-    try:
-        async with session.lock:
-            session.current_task = asyncio.current_task()
-            session.status = "running"
-            session.pending_question = None
-            session.pending_options = None
-            session.pending_permission_request = None
-            if session.context and session.context.abort_signal:
-                from ripple.core.context import AbortSignal
+    with session_context(session.session_id):
+        try:
+            async with session.lock:
+                session.current_task = asyncio.current_task()
+                session.status = "running"
+                session.pending_question = None
+                session.pending_options = None
+                session.pending_permission_request = None
+                if session.context and session.context.abort_signal:
+                    from ripple.core.context import AbortSignal
 
-                session.context.abort_signal = AbortSignal()
-            try:
-                async for sse_line in stream_query_as_sse(
-                    user_input=user_input,
-                    context=session.context,
-                    client=session.client,
-                    model=model,
-                    max_turns=max_turns,
-                    history_messages=session.messages,
-                    system_prompt=session.system_prompt,
-                    thinking=thinking,
-                    conversation_log=session.conversation_log,
-                    context_manager=session.context_manager,
-                ):
-                    if sse_line.startswith("data: ") and sse_line.strip() not in ("data: [DONE]",):
-                        try:
-                            payload = _json.loads(sse_line[6:].strip())
-                            usage = payload.get("usage", {})
-                            if usage:
-                                session.total_input_tokens += usage.get("prompt_tokens", 0)
-                                session.total_output_tokens += usage.get("completion_tokens", 0)
-                                session.last_input_tokens = usage.get("prompt_tokens", 0)
-                            event_type = payload.get("type")
-                            if event_type == "agent_stop":
-                                stop_reason = payload.get("stop_reason", "")
-                                metadata = payload.get("metadata", {})
-                                if stop_reason == "ask_user":
-                                    session.status = "awaiting_user_input"
-                                    session.pending_question = metadata.get("question")
-                                    options = metadata.get("options")
-                                    session.pending_options = options if isinstance(options, list) else None
-                                elif stop_reason == "permission_request":
-                                    session.status = "awaiting_permission"
-                                    session.pending_question = metadata.get("question")
-                                    session.pending_permission_request = (
-                                        metadata if isinstance(metadata, dict) and metadata else None
-                                    )
-                        except (_json.JSONDecodeError, AttributeError):
-                            pass
-                    yield sse_line
-            finally:
-                session.current_task = None
-                if session.status == "running":
-                    session.status = "idle"
-                if manager:
-                    manager.persist_session(session.session_id)
-    except asyncio.CancelledError:
-        logger.info("流式聊天被取消: {}", session.session_id)
-        session.status = "idle"
-        import json
+                    session.context.abort_signal = AbortSignal()
+                try:
+                    async for sse_line in stream_query_as_sse(
+                        user_input=user_input,
+                        context=session.context,
+                        client=session.client,
+                        model=model,
+                        max_turns=max_turns,
+                        history_messages=session.messages,
+                        system_prompt=session.system_prompt,
+                        thinking=thinking,
+                        conversation_log=session.conversation_log,
+                        context_manager=session.context_manager,
+                    ):
+                        if sse_line.startswith("data: ") and sse_line.strip() not in ("data: [DONE]",):
+                            try:
+                                payload = _json.loads(sse_line[6:].strip())
+                                usage = payload.get("usage", {})
+                                if usage:
+                                    session.total_input_tokens += usage.get("prompt_tokens", 0)
+                                    session.total_output_tokens += usage.get("completion_tokens", 0)
+                                    session.last_input_tokens = usage.get("prompt_tokens", 0)
+                                event_type = payload.get("type")
+                                if event_type == "agent_stop":
+                                    stop_reason = payload.get("stop_reason", "")
+                                    metadata = payload.get("metadata", {})
+                                    if stop_reason == "ask_user":
+                                        session.status = "awaiting_user_input"
+                                        session.pending_question = metadata.get("question")
+                                        options = metadata.get("options")
+                                        session.pending_options = options if isinstance(options, list) else None
+                                    elif stop_reason == "permission_request":
+                                        session.status = "awaiting_permission"
+                                        session.pending_question = metadata.get("question")
+                                        session.pending_permission_request = (
+                                            metadata if isinstance(metadata, dict) and metadata else None
+                                        )
+                            except (_json.JSONDecodeError, AttributeError):
+                                pass
+                        yield sse_line
+                finally:
+                    session.current_task = None
+                    if session.status == "running":
+                        session.status = "idle"
+                    if manager:
+                        manager.persist_session(session.session_id)
+        except asyncio.CancelledError:
+            logger.info("流式聊天被取消: {}", session.session_id)
+            session.status = "idle"
+            import json
 
-        yield f"data: {json.dumps({'error': {'message': 'Request cancelled', 'type': 'cancelled'}})}\n\n"
-        yield "data: [DONE]\n\n"
-    except Exception as e:
-        logger.error("流式聊天异常: {}\n{}", e, traceback.format_exc())
-        import json
+            yield f"data: {json.dumps({'error': {'message': 'Request cancelled', 'type': 'cancelled'}})}\n\n"
+            yield "data: [DONE]\n\n"
+        except Exception as e:
+            logger.error("流式聊天异常: {}\n{}", e, traceback.format_exc())
+            import json
 
-        error_data = {"error": {"message": str(e), "type": "server_error"}}
-        yield f"data: {json.dumps(error_data)}\n\n"
-        yield "data: [DONE]\n\n"
+            error_data = {"error": {"message": str(e), "type": "server_error"}}
+            yield f"data: {json.dumps(error_data)}\n\n"
+            yield "data: [DONE]\n\n"
 
 
 async def _non_stream_chat(
@@ -244,59 +245,60 @@ async def _non_stream_chat(
     """非流式聊天：收集完整响应"""
     import asyncio
 
-    try:
-        async with session.lock:
-            session.current_task = asyncio.current_task()
-            session.status = "running"
-            session.pending_question = None
-            session.pending_options = None
-            session.pending_permission_request = None
-            if session.context and session.context.abort_signal:
-                from ripple.core.context import AbortSignal
+    with session_context(session.session_id):
+        try:
+            async with session.lock:
+                session.current_task = asyncio.current_task()
+                session.status = "running"
+                session.pending_question = None
+                session.pending_options = None
+                session.pending_permission_request = None
+                if session.context and session.context.abort_signal:
+                    from ripple.core.context import AbortSignal
 
-                session.context.abort_signal = AbortSignal()
-            try:
-                result = await collect_query_response(
-                    user_input=user_input,
-                    context=session.context,
-                    client=session.client,
-                    model=model,
-                    max_turns=max_turns,
-                    history_messages=session.messages,
-                    system_prompt=session.system_prompt,
-                    thinking=thinking,
-                    conversation_log=session.conversation_log,
-                    context_manager=session.context_manager,
-                )
-                usage = result.get("usage", {})
-                if usage:
-                    session.total_input_tokens += usage.get("prompt_tokens", 0)
-                    session.total_output_tokens += usage.get("completion_tokens", 0)
-                    session.last_input_tokens = usage.get("prompt_tokens", 0)
-                finish_reason = result.get("choices", [{}])[0].get("finish_reason", "stop")
-                stop_metadata = result.get("stop_metadata", {})
-                if finish_reason == "ask_user":
-                    session.status = "awaiting_user_input"
-                    session.pending_question = stop_metadata.get("question")
-                    options = stop_metadata.get("options")
-                    session.pending_options = options if isinstance(options, list) else None
-                elif finish_reason == "permission_request":
-                    session.status = "awaiting_permission"
-                    session.pending_permission_request = stop_metadata if isinstance(stop_metadata, dict) else None
-                return result
-            finally:
-                session.current_task = None
-                if session.status == "running":
-                    session.status = "idle"
-                if manager:
-                    manager.persist_session(session.session_id)
-    except asyncio.CancelledError:
-        logger.info("非流式聊天被取消: {}", session.session_id)
-        session.status = "idle"
-        raise HTTPException(status_code=499, detail="Request cancelled")
-    except Exception as e:
-        logger.error("非流式聊天异常: {}\n{}", e, traceback.format_exc())
-        raise HTTPException(status_code=500, detail=str(e))
+                    session.context.abort_signal = AbortSignal()
+                try:
+                    result = await collect_query_response(
+                        user_input=user_input,
+                        context=session.context,
+                        client=session.client,
+                        model=model,
+                        max_turns=max_turns,
+                        history_messages=session.messages,
+                        system_prompt=session.system_prompt,
+                        thinking=thinking,
+                        conversation_log=session.conversation_log,
+                        context_manager=session.context_manager,
+                    )
+                    usage = result.get("usage", {})
+                    if usage:
+                        session.total_input_tokens += usage.get("prompt_tokens", 0)
+                        session.total_output_tokens += usage.get("completion_tokens", 0)
+                        session.last_input_tokens = usage.get("prompt_tokens", 0)
+                    finish_reason = result.get("choices", [{}])[0].get("finish_reason", "stop")
+                    stop_metadata = result.get("stop_metadata", {})
+                    if finish_reason == "ask_user":
+                        session.status = "awaiting_user_input"
+                        session.pending_question = stop_metadata.get("question")
+                        options = stop_metadata.get("options")
+                        session.pending_options = options if isinstance(options, list) else None
+                    elif finish_reason == "permission_request":
+                        session.status = "awaiting_permission"
+                        session.pending_permission_request = stop_metadata if isinstance(stop_metadata, dict) else None
+                    return result
+                finally:
+                    session.current_task = None
+                    if session.status == "running":
+                        session.status = "idle"
+                    if manager:
+                        manager.persist_session(session.session_id)
+        except asyncio.CancelledError:
+            logger.info("非流式聊天被取消: {}", session.session_id)
+            session.status = "idle"
+            raise HTTPException(status_code=499, detail="Request cancelled")
+        except Exception as e:
+            logger.error("非流式聊天异常: {}\n{}", e, traceback.format_exc())
+            raise HTTPException(status_code=500, detail=str(e))
 
 
 # ─── Sessions ───

@@ -30,7 +30,7 @@ from ripple.tools.builtin.task_update import TaskUpdateTool
 from ripple.tools.builtin.write import WriteTool
 from ripple.utils.config import get_config
 from ripple.utils.conversation_log import ConversationLogger, generate_session_id, list_conversations
-from ripple.utils.logger import LOG_FILE, get_logger
+from ripple.utils.logger import LOG_FILE, get_logger, session_context
 
 logger = get_logger("cli.interactive")
 
@@ -474,6 +474,11 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
             console.print("[red]客户端未初始化[/red]")
             return
 
+        # 设置 session_id 日志上下文，使所有下游日志自动携带 session_id
+        with session_context(self.session_id):
+            await self._execute_query_inner(prompt)
+
+    async def _execute_query_inner(self, prompt: str):
         try:
             from rich.live import Live
 

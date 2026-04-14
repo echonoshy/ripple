@@ -193,6 +193,7 @@ async def stream_query_as_sse(
     accumulated_text = ""
     accumulated_tool_calls: list[dict[str, Any]] = []
     usage_info: dict[str, int] = {}
+    last_prompt_tokens: int = 0
     new_messages: list[Message] = []
     finish_reason = "stop"
     # 跟踪 tool_use id -> name 的映射，用于识别 task 工具的 result
@@ -251,7 +252,7 @@ async def stream_query_as_sse(
                 continue
 
             if isinstance(item, AgentStopEvent):
-                if item.stop_reason in ("ask_user", "permission_request"):
+                if item.stop_reason in ("ask_user", "permission_request", "max_turns"):
                     finish_reason = item.stop_reason
                 metadata = item.metadata or _extract_stop_metadata(item.stop_reason, new_messages)
                 yield _make_tool_event(
@@ -288,10 +289,13 @@ async def stream_query_as_sse(
 
                 usage = item.message.get("usage", {})
                 if usage:
-                    usage_info["prompt_tokens"] = usage_info.get("prompt_tokens", 0) + usage.get("input_tokens", 0)
+                    input_tokens = usage.get("input_tokens", 0)
+                    usage_info["prompt_tokens"] = usage_info.get("prompt_tokens", 0) + input_tokens
                     usage_info["completion_tokens"] = usage_info.get("completion_tokens", 0) + usage.get(
                         "output_tokens", 0
                     )
+                    if input_tokens > 0:
+                        last_prompt_tokens = input_tokens
 
                 content = item.message.get("content", [])
                 for block in content:
@@ -390,6 +394,7 @@ async def stream_query_as_sse(
                 "prompt_tokens": usage_info.get("prompt_tokens", 0),
                 "completion_tokens": usage_info.get("completion_tokens", 0),
                 "total_tokens": usage_info.get("prompt_tokens", 0) + usage_info.get("completion_tokens", 0),
+                "last_prompt_tokens": last_prompt_tokens,
             }
         yield f"data: {json.dumps(finish_chunk, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"
@@ -427,6 +432,7 @@ async def collect_query_response(
     accumulated_text = ""
     tool_calls: list[dict[str, Any]] = []
     usage_info: dict[str, int] = {}
+    last_prompt_tokens: int = 0
     new_messages: list[Message] = []
     finish_reason = "stop"
     tool_id_to_name: dict[str, str] = {}
@@ -453,7 +459,7 @@ async def collect_query_response(
             compactor=context_manager.compactor if context_manager else None,
         ):
             if isinstance(item, AgentStopEvent):
-                if item.stop_reason in ("ask_user", "permission_request"):
+                if item.stop_reason in ("ask_user", "permission_request", "max_turns"):
                     finish_reason = item.stop_reason
                     stop_metadata = item.metadata or _extract_stop_metadata(item.stop_reason, new_messages)
                 continue
@@ -469,10 +475,13 @@ async def collect_query_response(
 
                 usage = item.message.get("usage", {})
                 if usage:
-                    usage_info["prompt_tokens"] = usage_info.get("prompt_tokens", 0) + usage.get("input_tokens", 0)
+                    input_tokens = usage.get("input_tokens", 0)
+                    usage_info["prompt_tokens"] = usage_info.get("prompt_tokens", 0) + input_tokens
                     usage_info["completion_tokens"] = usage_info.get("completion_tokens", 0) + usage.get(
                         "output_tokens", 0
                     )
+                    if input_tokens > 0:
+                        last_prompt_tokens = input_tokens
 
                 for block in item.message.get("content", []):
                     if not isinstance(block, dict):
@@ -553,6 +562,7 @@ async def collect_query_response(
                 "prompt_tokens": usage_info.get("prompt_tokens", 0),
                 "completion_tokens": usage_info.get("completion_tokens", 0),
                 "total_tokens": usage_info.get("prompt_tokens", 0) + usage_info.get("completion_tokens", 0),
+                "last_prompt_tokens": last_prompt_tokens,
             },
             "stop_metadata": stop_metadata,
         }

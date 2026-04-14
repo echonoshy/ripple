@@ -416,7 +416,8 @@ export default function Home() {
               completion_tokens: prev.completion_tokens + usage.completion_tokens,
               total_tokens: prev.total_tokens + usage.total_tokens,
             }));
-            if (usage.prompt_tokens > 0) setLastContextTokens(usage.prompt_tokens);
+            const ctx = usage.last_prompt_tokens ?? usage.prompt_tokens;
+            if (ctx > 0) setLastContextTokens(ctx);
           },
           onComplete: () => {
             if (isStaleRequest()) return;

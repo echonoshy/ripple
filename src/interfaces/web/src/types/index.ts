@@ -30,6 +30,7 @@ export interface UsageInfo {
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
+  last_prompt_tokens?: number;
 }
 
 export interface SessionUsage {

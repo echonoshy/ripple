@@ -4,6 +4,8 @@
 日志存储在项目根目录的 .ripple/logs/ 下。
 """
 
+from contextlib import contextmanager
+
 from loguru import logger
 
 from ripple.utils.paths import LOG_DIR, LOG_FILE, RIPPLE_HOME  # noqa: F401
@@ -35,7 +37,7 @@ def setup_logging(level: str = "DEBUG", max_bytes: int = 5 * 1024 * 1024, backup
     logger.add(
         LOG_FILE,
         level=level.upper(),
-        format="{time:YYYY-MM-DD HH:mm:ss} [{level}] {extra[module]}: {message}",
+        format="{time:YYYY-MM-DD HH:mm:ss} [{level}] {extra[module]}({extra[session_id]}): {message}",
         rotation=rotation_mb,
         retention=backup_count,
         encoding="utf-8",
@@ -55,6 +57,23 @@ def get_logger(name: str) -> "logger":
         name: 模块名称
 
     Returns:
-        绑定了 module 上下文的 loguru logger
+        绑定了 module 和默认 session_id 上下文的 loguru logger
     """
-    return logger.bind(module=name)
+    return logger.bind(module=name, session_id="-")
+
+
+@contextmanager
+def session_context(session_id: str):
+    """设置当前协程/线程的 session_id 日志上下文
+
+    在此上下文管理器内的所有日志调用都会自动包含 session_id。
+    基于 loguru 的 contextualize，使用 Python contextvars，
+    天然支持 asyncio 协程隔离。
+
+    用法::
+
+        with session_context("srv-abc123"):
+            logger.info("这条日志会带上 session_id")
+    """
+    with logger.contextualize(session_id=session_id):
+        yield

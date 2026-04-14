@@ -63,6 +63,11 @@ _MAX_OUTPUT_KEYWORDS = [
 
 MAX_REACTIVE_COMPACT_RETRIES = 2
 
+# 达到最大轮数时的提示消息
+_MAX_TURNS_NOTICE = (
+    'Reached max turn limit ({max_turns} turns, currently at turn {turn_count}). Reply "continue" to keep going.'
+)
+
 # 从 PTL 错误消息中提取 token 数值的正则
 _PTL_TOKEN_PATTERN = re.compile(r"(\d[\d,]*)\s*tokens?\s*[>≥]\s*(\d[\d,]*)")
 _PTL_CONTEXT_LENGTH_PATTERN = re.compile(r"maximum\s+(?:context\s+)?length\s+(?:is\s+)?(\d[\d,]*)")
@@ -342,7 +347,19 @@ async def query_loop(
                         .with_transition(ContinueMaxOutputTokensEscalate())
                     )
                     if params.max_turns and state.turn_count > params.max_turns:
-                        logger.warning("升级后达到最大轮数 {}，终止循环", params.max_turns)
+                        logger.warning("升级后达到最大轮数 {}，暂停循环等待用户确认", params.max_turns)
+                        notice = create_user_message(
+                            content=_MAX_TURNS_NOTICE.format(max_turns=params.max_turns, turn_count=state.turn_count),
+                            is_meta=True,
+                        )
+                        yield notice
+                        yield AgentStopEvent(
+                            stop_reason="max_turns",
+                            metadata={
+                                "question": f"Reached max turn limit after {state.turn_count} turns. Continue?",
+                                "options": ["Continue", "Stop"],
+                            },
+                        )
                         state = state.with_transition(TerminalMaxTurns(turn_count=state.turn_count))
                         return
                     continue
@@ -357,7 +374,19 @@ async def query_loop(
                         state.turn_count + 1
                     )
                     if params.max_turns and state.turn_count > params.max_turns:
-                        logger.warning("恢复后达到最大轮数 {}，终止循环", params.max_turns)
+                        logger.warning("恢复后达到最大轮数 {}，暂停循环等待用户确认", params.max_turns)
+                        notice = create_user_message(
+                            content=_MAX_TURNS_NOTICE.format(max_turns=params.max_turns, turn_count=state.turn_count),
+                            is_meta=True,
+                        )
+                        yield notice
+                        yield AgentStopEvent(
+                            stop_reason="max_turns",
+                            metadata={
+                                "question": f"Reached max turn limit after {state.turn_count} turns. Continue?",
+                                "options": ["Continue", "Stop"],
+                            },
+                        )
                         state = state.with_transition(TerminalMaxTurns(turn_count=state.turn_count))
                         return
                     continue
@@ -522,7 +551,20 @@ async def query_loop(
         # ========== 阶段 4: 检查最大轮数 ==========
         next_turn_count = state.turn_count + 1
         if params.max_turns and next_turn_count > params.max_turns:
-            logger.warning("达到最大轮数 {}，终止循环", params.max_turns)
+            logger.warning("达到最大轮数 {}，暂停循环等待用户确认", params.max_turns)
+            notice = create_user_message(
+                content=_MAX_TURNS_NOTICE.format(max_turns=params.max_turns, turn_count=state.turn_count),
+                is_meta=True,
+            )
+            yield notice
+            yield AgentStopEvent(
+                stop_reason="max_turns",
+                metadata={
+                    "question": f"Reached max turn limit after {state.turn_count} turns. Continue?",
+                    "options": ["Continue", "Stop"],
+                },
+            )
+            state = state.with_messages([*state.messages, *assistant_messages, *tool_results])
             state = state.with_transition(TerminalMaxTurns(turn_count=state.turn_count))
             return
 

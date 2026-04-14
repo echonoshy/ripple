@@ -18,25 +18,25 @@
 
 ---
 
-## ✨ 核心特性
+## 演示
 
-- 🔄 **Agent Loop** — 多轮对话、自动工具调用、智能任务完成
-- 🛠️ **工具系统** — Bash、Read、Write、Search、SubAgent 等内置能力
-- 📚 **Skill 系统** — Markdown + YAML 定义专属技能，支持动态加载与覆盖
-- 🤖 **SubAgent** — Fork 机制处理复杂多步任务
-- 🔌 **多模型支持** — 通过 OpenRouter 接入 Claude Opus / Sonnet / Haiku
-
-## 📸 演示
+### CLI 界面
 
 <p align="center">
-  <img src="assets/case-1.png" width="100%" alt="Ripple CLI 界面与信息搜索演示" />
+  <img src="assets/cli-1.png" width="100%" alt="Ripple CLI 界面与信息搜索演示" />
 </p>
 
 <p align="center">
-  <img src="assets/case-2.png" width="100%" alt="Ripple Skill 系统调用演示" />
+  <img src="assets/cli-2.png" width="100%" alt="Ripple Skill 系统调用演示" />
 </p>
 
-## 🚀 快速开始
+### Web 界面
+
+<p align="center">
+  <img src="assets/web-1.png" width="100%" alt="Ripple Web 界面" />
+</p>
+
+## 快速开始
 
 ```bash
 # 克隆仓库
@@ -55,7 +55,7 @@ api:
 uv run ripple cli
 ```
 
-## 📚 文档
+## 文档
 
 详细文档正在完善中，敬请期待...
 
@@ -64,7 +64,7 @@ uv run ripple cli
 - 工具扩展
 - API 参考
 
-## 📄 开源协议
+## 开源协议
 
 本项目基于 [MIT License](https://opensource.org/licenses/MIT) 开源。
 

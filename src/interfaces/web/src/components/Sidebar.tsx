@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState, useRef, useCallback } from "react";
 import { motion } from "framer-motion";
 import { MessageSquare, Loader2, Trash2, Clock, Settings, X } from "lucide-react";
 import RippleIcon from "@/components/icons/RippleIcon";
@@ -47,22 +47,65 @@ export default function Sidebar({
     lastContextTokens > 0 ? Math.min((lastContextTokens / MAX_CONTEXT_TOKENS) * 100, 100) : 0;
   const isContextWarning = contextPercent > 75;
 
+  const [width, setWidth] = useState(256);
+  const isResizingRef = useRef(false);
+
+  const handleResizeStart = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      isResizingRef.current = true;
+      const startX = e.clientX;
+      const startWidth = width;
+      const onMove = (ev: MouseEvent) => {
+        if (!isResizingRef.current) return;
+        setWidth(Math.min(600, Math.max(200, startWidth + ev.clientX - startX)));
+      };
+      const onUp = () => {
+        isResizingRef.current = false;
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+      };
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    },
+    [width]
+  );
+
   const sidebarContent = (
     <>
       {/* Logo */}
       <div className="flex items-center justify-between border-b border-[#27272a] p-5">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#10b981]/30 bg-[#10b981]/10">
-            <RippleIcon size={18} className="text-[#10b981]" />
-          </div>
-          <h1 className="text-base font-semibold text-[#fafafa]">Ripple</h1>
-        </div>
-        <button
-          onClick={onCloseMobile}
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-[#a1a1aa] hover:bg-white/[0.04] hover:text-[#fafafa] md:hidden"
+        <a 
+          href="https://github.com/echonoshy/ripple"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="group flex items-center gap-3 transition-opacity hover:opacity-80"
+          title="View on GitHub"
         >
-          <X size={18} />
-        </button>
+          <div className="flex items-center justify-center">
+            <RippleIcon size={22} className="text-[#fafafa]" />
+          </div>
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-[17px] font-medium tracking-wide text-[#fafafa] font-[family-name:var(--font-sans)]">
+              Ripple
+            </h1>
+            <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] font-medium tracking-widest text-[#a1a1aa] uppercase">
+              Beta
+            </span>
+          </div>
+        </a>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={onCloseMobile}
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-[#a1a1aa] hover:bg-white/[0.04] hover:text-[#fafafa] transition-colors md:hidden"
+          >
+            <X size={18} />
+          </button>
+        </div>
       </div>
 
       {/* Content */}
@@ -204,9 +247,21 @@ export default function Sidebar({
   return (
     <>
       {/* Desktop sidebar */}
-      <aside className="surface-panel hidden w-64 shrink-0 flex-col rounded-none border-t-0 border-r border-b-0 border-l-0 md:flex">
-        {sidebarContent}
-      </aside>
+      <div 
+        className="hidden md:flex relative shrink-0" 
+        style={{ width: width }}
+      >
+        <aside className="surface-panel flex h-full w-full flex-col rounded-none border-t-0 border-r border-b-0 border-l-0">
+          {sidebarContent}
+        </aside>
+        {/* Resize handle */}
+        <div
+          className="absolute top-0 right-0 bottom-0 z-30 w-1.5 translate-x-1/2 cursor-col-resize items-center justify-center bg-transparent transition-colors hover:bg-[#10b981]/15 flex group"
+          onMouseDown={handleResizeStart}
+        >
+          <div className="h-12 w-0.5 rounded-full bg-[#27272a] opacity-0 transition-opacity group-hover:opacity-100" />
+        </div>
+      </div>
 
       {/* Mobile overlay sidebar */}
       {isMobileOpen && (

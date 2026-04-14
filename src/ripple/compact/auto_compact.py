@@ -213,10 +213,17 @@ class AutoCompactor:
                 if isinstance(inp, dict) and len(str(inp)) > TOOL_INPUT_MAX_CHARS:
                     tool_input_indices.append((msg_idx, block_idx))
 
-        # 确定需要清理的 tool_result
-        to_clear_results = compactable_indices[:-preserve_recent] if len(compactable_indices) > preserve_recent else []
+        # 找到当前轮次起点，保护当前任务的所有 tool 数据不被清理
+        current_turn_start = self._find_last_user_turn_start(messages)
 
-        if not to_clear_results and not tool_input_indices:
+        # 仅对旧轮次（已完成任务）的 tool_result 应用清理
+        old_turn_results = [(mi, bi) for mi, bi in compactable_indices if mi < current_turn_start]
+        to_clear_results = old_turn_results[:-preserve_recent] if len(old_turn_results) > preserve_recent else []
+
+        # 仅清理旧轮次的过大 tool_input
+        old_turn_inputs = [(mi, bi) for mi, bi in tool_input_indices if mi < current_turn_start]
+
+        if not to_clear_results and not old_turn_inputs:
             return messages
 
         result = list(messages)
@@ -240,9 +247,9 @@ class AutoCompactor:
             block["content"] = CLEARED_PLACEHOLDER
             cleared_count += 1
 
-        # 清理过大的 tool_use input
+        # 清理过大的 tool_use input（仅旧轮次）
         input_cleared = 0
-        for msg_idx, block_idx in tool_input_indices:
+        for msg_idx, block_idx in old_turn_inputs:
             if msg_idx not in modified_msgs:
                 msg = result[msg_idx]
                 new_msg = copy.copy(msg)
@@ -363,6 +370,28 @@ class AutoCompactor:
         if len(user_indices) <= turns_to_keep:
             return 0
         return user_indices[-turns_to_keep]
+
+    @staticmethod
+    def _find_last_user_turn_start(messages: list[Message]) -> int:
+        """找到最后一个真实用户消息的索引（当前对话轮次的起点）
+
+        真实用户消息 = 用户直接输入的文本消息（非 tool_result 包装消息）。
+        当前轮次内的所有 tool 数据不应被轻量清理，防止模型在数据积累阶段丢失信息。
+        """
+        for i in range(len(messages) - 1, -1, -1):
+            msg = messages[i]
+            if isinstance(msg, dict) or getattr(msg, "type", None) != "user":
+                continue
+            content = msg.message.get("content", [])
+            if isinstance(content, str):
+                return i
+            if isinstance(content, list):
+                is_pure_tool_result = all(
+                    isinstance(b, dict) and b.get("type") == "tool_result" for b in content if isinstance(b, dict)
+                )
+                if not is_pure_tool_result:
+                    return i
+        return 0
 
     @staticmethod
     def _find_safe_boundary(messages: list[Message], proposed_index: int) -> int:

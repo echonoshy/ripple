@@ -61,7 +61,33 @@ function testApplyTaskUpdateFallsBackToSameSubjectPlaceholder() {
   assert.equal(updated[0].status, "completed");
 }
 
+function testShouldShowAssistantWithAskUser() {
+  const message: Message = {
+    id: "assistant-2",
+    role: "assistant",
+    content: "",
+    askUser: { question: "Which option?", options: ["A", "B"] },
+  };
+
+  assert.equal(shouldRenderAssistantMessage(message, false, true), true);
+  assert.equal(shouldRenderAssistantMessage(message, false, false), true);
+}
+
+function testShouldShowAssistantWithPermissionRequest() {
+  const message: Message = {
+    id: "assistant-3",
+    role: "assistant",
+    content: "",
+    permissionRequest: { tool: "Bash", params: { command: "rm -rf" }, riskLevel: "high" },
+  };
+
+  assert.equal(shouldRenderAssistantMessage(message, false, true), true);
+  assert.equal(shouldRenderAssistantMessage(message, false, false), true);
+}
+
 testShouldHideEmptyAssistantWithOnlyToolCalls();
+testShouldShowAssistantWithAskUser();
+testShouldShowAssistantWithPermissionRequest();
 testUpsertTaskReplacesPlaceholderWithRealTask();
 testApplyTaskUpdateFallsBackToSameSubjectPlaceholder();
 

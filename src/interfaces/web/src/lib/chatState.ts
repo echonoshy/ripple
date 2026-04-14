@@ -1,7 +1,8 @@
 import type { Message, TaskInfo } from "@/types";
 
 function hasVisibleAssistantContent(message: Message): boolean {
-  return message.role === "assistant" && message.content.trim().length > 0;
+  if (message.role !== "assistant") return false;
+  return message.content.trim().length > 0 || !!message.askUser || !!message.permissionRequest;
 }
 
 function findPlaceholderTaskIndex(tasks: TaskInfo[], incoming: TaskInfo): number {

@@ -79,7 +79,7 @@ export default function Sidebar({
     <>
       {/* Logo */}
       <div className="flex items-center justify-between border-b border-[#27272a] p-5">
-        <a 
+        <a
           href="https://github.com/echonoshy/ripple"
           target="_blank"
           rel="noopener noreferrer"
@@ -90,7 +90,7 @@ export default function Sidebar({
             <RippleIcon size={22} className="text-[#fafafa]" />
           </div>
           <div className="flex items-center gap-2.5">
-            <h1 className="text-[17px] font-medium tracking-wide text-[#fafafa] font-[family-name:var(--font-sans)]">
+            <h1 className="font-[family-name:var(--font-sans)] text-[17px] font-medium tracking-wide text-[#fafafa]">
               Ripple
             </h1>
             <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] font-medium tracking-widest text-[#a1a1aa] uppercase">
@@ -101,7 +101,7 @@ export default function Sidebar({
         <div className="flex items-center gap-1">
           <button
             onClick={onCloseMobile}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-[#a1a1aa] hover:bg-white/[0.04] hover:text-[#fafafa] transition-colors md:hidden"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-[#a1a1aa] transition-colors hover:bg-white/[0.04] hover:text-[#fafafa] md:hidden"
           >
             <X size={18} />
           </button>
@@ -247,16 +247,13 @@ export default function Sidebar({
   return (
     <>
       {/* Desktop sidebar */}
-      <div 
-        className="hidden md:flex relative shrink-0" 
-        style={{ width: width }}
-      >
+      <div className="relative hidden shrink-0 md:flex" style={{ width: width }}>
         <aside className="surface-panel flex h-full w-full flex-col rounded-none border-t-0 border-r border-b-0 border-l-0">
           {sidebarContent}
         </aside>
         {/* Resize handle */}
         <div
-          className="absolute top-0 right-0 bottom-0 z-30 w-1.5 translate-x-1/2 cursor-col-resize items-center justify-center bg-transparent transition-colors hover:bg-[#10b981]/15 flex group"
+          className="group absolute top-0 right-0 bottom-0 z-30 flex w-1.5 translate-x-1/2 cursor-col-resize items-center justify-center bg-transparent transition-colors hover:bg-[#10b981]/15"
           onMouseDown={handleResizeStart}
         >
           <div className="h-12 w-0.5 rounded-full bg-[#27272a] opacity-0 transition-opacity group-hover:opacity-100" />

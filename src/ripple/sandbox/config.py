@@ -87,8 +87,11 @@ class SandboxConfig:
     def workspace_dir(self, session_id: str) -> Path:
         return self.session_dir(session_id) / "workspace"
 
-    def state_file(self, session_id: str) -> Path:
-        return self.session_dir(session_id) / "state.json"
+    def meta_file(self, session_id: str) -> Path:
+        return self.session_dir(session_id) / "meta.json"
+
+    def messages_file(self, session_id: str) -> Path:
+        return self.session_dir(session_id) / "messages.jsonl"
 
     def nsjail_cfg_file(self, session_id: str) -> Path:
         return self.session_dir(session_id) / "nsjail.cfg"

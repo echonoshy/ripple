@@ -101,7 +101,7 @@ def normalize_messages_for_api(
 
     将内部 Anthropic 风格的消息（tool_use / tool_result content blocks）
     转换为 OpenAI 标准格式（tool_calls 字段 + role:"tool" 消息），
-    确保与 OpenAI SDK / LiteLLM / OpenRouter 兼容。
+    确保与 OpenAI SDK / OpenRouter 兼容。
 
     Args:
         messages: 消息列表（可以是 Message 对象或字典）

@@ -17,8 +17,9 @@ def create_workspace(config: SandboxConfig, session_id: str) -> Path:
 
     目录结构：
         .ripple/sandboxes/sessions/<session_id>/
-        ├── workspace/      ← 用户文件
-        └── state.json      ← 会话持久化（由 storage 模块管理）
+        ├── workspace/        ← 用户文件
+        ├── meta.json         ← 会话元数据（由 storage 模块管理）
+        └── messages.jsonl    ← 对话历史（由 storage 模块管理）
     """
     workspace = config.workspace_dir(session_id)
     workspace.mkdir(parents=True, exist_ok=True)
@@ -112,8 +113,4 @@ def list_suspended_sessions(config: SandboxConfig) -> list[str]:
     sessions_dir = config.sessions_dir
     if not sessions_dir.exists():
         return []
-    result = []
-    for d in sessions_dir.iterdir():
-        if d.is_dir() and (d / "state.json").exists():
-            result.append(d.name)
-    return result
+    return [d.name for d in sessions_dir.iterdir() if d.is_dir() and (d / "meta.json").exists()]

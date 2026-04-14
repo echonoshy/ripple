@@ -32,10 +32,7 @@ class OpenRouterClient:
 
         self.base_url = base_url or config.get("api.base_url", "https://openrouter.ai/api/v1")
 
-        # 检测是否是 LiteLLM
-        self.is_litellm = "litellm" in self.base_url.lower()
-
-        logger.info("初始化 API 客户端: base_url={}, is_litellm={}", self.base_url, self.is_litellm)
+        logger.info("初始化 API 客户端: base_url={}", self.base_url)
 
         self.client = AsyncOpenAI(
             base_url=self.base_url,

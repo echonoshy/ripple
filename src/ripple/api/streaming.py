@@ -94,7 +94,7 @@ async def process_stream_response(
             tool_calls_map = {}
             current_message_id = str(uuid4())
 
-    # 流结束后的 fallback：如果有未 yield 的内容（LiteLLM 可能不发送 finish_reason）
+    # 流结束后的 fallback：如果有未 yield 的内容（某些 API 可能不发送 finish_reason）
     if not yielded:
         if current_text or tool_calls_map:
             logger.warning(

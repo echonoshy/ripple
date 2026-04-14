@@ -137,7 +137,7 @@ Skill frontmatter 字段: `name`, `description`, `arguments`, `allowed-tools`, `
 
 ### 消息流 (`src/ripple/messages/`)
 - **types.py**: 消息类型 (UserMessage, AssistantMessage, ToolUseBlock, ToolResultBlock)
-- **utils.py**: 消息规范化以兼容 API (处理 LiteLLM 特性)
+- **utils.py**: 消息规范化以兼容 API
 
 ### API 集成 (`src/ripple/api/`)
 - **client.py**: OpenRouterClient 封装 OpenAI 兼容 API

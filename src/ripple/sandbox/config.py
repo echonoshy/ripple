@@ -1,5 +1,6 @@
 """沙箱配置"""
 
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -13,6 +14,14 @@ class ResourceLimits:
     max_file_size_mb: int = 64
     max_pids: int = 64
     command_timeout: int = 120
+
+
+def _discover_uv_bin_dir() -> str | None:
+    """自动发现 uv 二进制所在目录"""
+    uv_path = shutil.which("uv")
+    if uv_path:
+        return str(Path(uv_path).resolve().parent)
+    return None
 
 
 @dataclass
@@ -47,9 +56,20 @@ class SandboxConfig:
 
     max_workspace_mb: int = 512
 
+    uv_bin_dir: str | None = field(default=None)
+
+    def __post_init__(self):
+        if self.uv_bin_dir is None:
+            self.uv_bin_dir = _discover_uv_bin_dir()
+
     @property
     def sessions_dir(self) -> Path:
         return self.sandboxes_root / "sessions"
+
+    @property
+    def uv_cache_dir(self) -> Path:
+        """全局共享的 uv cache 目录（所有 session 共用，通过硬链接去重）"""
+        return self.sandboxes_root / "uv-cache"
 
     def session_dir(self, session_id: str) -> Path:
         return self.sessions_dir / session_id
@@ -62,6 +82,10 @@ class SandboxConfig:
 
     def nsjail_cfg_file(self, session_id: str) -> Path:
         return self.session_dir(session_id) / "nsjail.cfg"
+
+    def has_python_venv(self, session_id: str) -> bool:
+        """检查 session 的 workspace 内是否已创建 Python venv"""
+        return (self.workspace_dir(session_id) / ".venv" / "pyvenv.cfg").exists()
 
     @classmethod
     def from_dict(cls, data: dict) -> "SandboxConfig":
@@ -98,4 +122,5 @@ class SandboxConfig:
             clone_newnet=data.get("clone_newnet", False),
             tmpfs_size_mb=data.get("tmpfs_size_mb", 64),
             max_workspace_mb=data.get("max_workspace_mb", 512),
+            uv_bin_dir=data.get("uv_bin_dir"),
         )

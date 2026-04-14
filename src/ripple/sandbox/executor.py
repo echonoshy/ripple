@@ -4,7 +4,6 @@
 """
 
 import asyncio
-import os
 import shutil
 import textwrap
 from pathlib import Path
@@ -13,6 +12,8 @@ from ripple.sandbox.config import SandboxConfig
 from ripple.utils.logger import get_logger
 
 logger = get_logger("sandbox.executor")
+
+SANDBOX_UV_CACHE_PATH = "/uv-cache"
 
 
 def check_nsjail_available(nsjail_path: str = "nsjail"):
@@ -23,33 +24,21 @@ def check_nsjail_available(nsjail_path: str = "nsjail"):
     logger.info("nsjail 可用: {}", path)
 
 
-def get_sanitized_env() -> dict[str, str]:
-    """获取清理后的环境变量，隐藏 GPU 和敏感信息"""
-    env = dict(os.environ)
+def build_sandbox_env(config: SandboxConfig) -> dict[str, str]:
+    """构建沙箱最小白名单环境变量（不继承宿主环境）"""
+    path_parts = ["/usr/local/sbin", "/usr/local/bin", "/usr/sbin", "/usr/bin", "/sbin", "/bin"]
+    if config.uv_bin_dir:
+        path_parts.insert(0, config.uv_bin_dir)
 
-    env["CUDA_VISIBLE_DEVICES"] = ""
-    env["NVIDIA_VISIBLE_DEVICES"] = ""
-    env["GPU_DEVICE_ORDINAL"] = ""
-    env["ROCR_VISIBLE_DEVICES"] = ""
-
-    sensitive_keys = [
-        "AWS_ACCESS_KEY_ID",
-        "AWS_SECRET_ACCESS_KEY",
-        "AWS_SESSION_TOKEN",
-        "OPENAI_API_KEY",
-        "ANTHROPIC_API_KEY",
-        "HF_TOKEN",
-        "GITHUB_TOKEN",
-        "GH_TOKEN",
-        "GITLAB_TOKEN",
-        "DATABASE_URL",
-        "REDIS_URL",
-        "MONGO_URI",
-    ]
-    for key in sensitive_keys:
-        env.pop(key, None)
-
-    return env
+    return {
+        "PATH": ":".join(path_parts),
+        "HOME": "/workspace",
+        "USER": "sandbox",
+        "SHELL": "/bin/bash",
+        "TERM": "xterm-256color",
+        "LANG": "C.UTF-8",
+        "UV_CACHE_DIR": SANDBOX_UV_CACHE_PATH,
+    }
 
 
 def generate_nsjail_config(config: SandboxConfig, session_id: str) -> str:
@@ -67,6 +56,27 @@ def generate_nsjail_config(config: SandboxConfig, session_id: str) -> str:
     dst: "{path_str}"
     is_bind: true
     rw: false
+}}""")
+
+    # uv 二进制目录（只读），保持原路径以兼容 PATH
+    if config.uv_bin_dir:
+        uv_dir = Path(config.uv_bin_dir)
+        if uv_dir.exists():
+            mounts.append(f"""mount {{
+    src: "{config.uv_bin_dir}"
+    dst: "{config.uv_bin_dir}"
+    is_bind: true
+    rw: false
+}}""")
+
+    # uv 全局 cache（读写，所有 session 共享，通过硬链接去重包文件）
+    uv_cache = config.uv_cache_dir
+    uv_cache.mkdir(parents=True, exist_ok=True)
+    mounts.append(f"""mount {{
+    src: "{uv_cache}"
+    dst: "{SANDBOX_UV_CACHE_PATH}"
+    is_bind: true
+    rw: true
 }}""")
 
     mounts.append(f"""mount {{
@@ -100,6 +110,10 @@ def generate_nsjail_config(config: SandboxConfig, session_id: str) -> str:
 
     mounts_str = "\n\n".join(mounts)
 
+    sandbox_env = build_sandbox_env(config)
+    envars = [f'envar: "{k}={v}"' for k, v in sandbox_env.items()]
+    envars_str = "\n".join(envars)
+
     return textwrap.dedent(f"""\
         name: "ripple-sandbox-{session_id}"
 
@@ -127,7 +141,9 @@ def generate_nsjail_config(config: SandboxConfig, session_id: str) -> str:
         skip_setsid: true
         disable_no_new_privs: false
 
-        keep_env: true
+        keep_env: false
+
+        {envars_str}
 
         {mounts_str}
     """)
@@ -176,7 +192,6 @@ async def execute_in_sandbox(
         *nsjail_cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
-        env=get_sanitized_env(),
     )
 
     try:
@@ -198,3 +213,32 @@ async def execute_in_sandbox(
     filtered_stderr = "\n".join(filtered_stderr_lines)
 
     return stdout, filtered_stderr, proc.returncode or 0
+
+
+async def ensure_python_venv(
+    config: SandboxConfig,
+    session_id: str,
+) -> tuple[bool, str]:
+    """懒创建 per-session Python venv（首次需要时调用）
+
+    优先使用 uv venv（<200ms），不可用时回退到 python3 -m venv。
+    venv 的包文件通过 uv cache 硬链接去重，不同 session 共享底层数据。
+
+    Returns:
+        (成功与否, 日志/错误信息)
+    """
+    if config.has_python_venv(session_id):
+        return True, ""
+
+    logger.info("为 session {} 懒创建 Python venv", session_id)
+
+    cmd = "uv venv /workspace/.venv 2>&1 || python3 -m venv /workspace/.venv"
+    stdout, stderr, exit_code = await execute_in_sandbox(cmd, config, session_id, timeout=30)
+
+    if exit_code == 0 and config.has_python_venv(session_id):
+        logger.info("session {} Python venv 创建成功", session_id)
+        return True, stdout
+    else:
+        msg = f"venv 创建失败 (exit={exit_code}): {stderr or stdout}"
+        logger.warning("session {} {}", session_id, msg)
+        return False, msg

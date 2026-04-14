@@ -6,6 +6,7 @@ Server 模式：通过 nsjail 在沙箱中执行。
 """
 
 import asyncio
+import re
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -14,6 +15,14 @@ from ripple.core.context import ToolUseContext
 from ripple.messages.types import AssistantMessage
 from ripple.permissions.levels import ToolRiskLevel
 from ripple.tools.base import Tool, ToolResult
+from ripple.utils.logger import get_logger
+
+logger = get_logger("tools.bash")
+
+# 匹配需要 Python venv 的命令开头（支持管道、&& 等组合命令中的首个 token）
+_PYTHON_CMD_PATTERN = re.compile(
+    r"(?:^|&&|\|\||;|\|)\s*(?:uv\s+(?:pip|run|add)|python3?|pip3?)\b",
+)
 
 
 class BashInput(BaseModel):
@@ -38,6 +47,11 @@ _sandbox_config = None
 def set_sandbox_config(config):
     global _sandbox_config
     _sandbox_config = config
+
+
+def _needs_python_venv(command: str) -> bool:
+    """判断命令是否需要 Python venv 环境"""
+    return bool(_PYTHON_CMD_PATTERN.search(command))
 
 
 class BashTool(Tool[BashInput, BashOutput]):
@@ -93,20 +107,50 @@ class BashTool(Tool[BashInput, BashOutput]):
             )
         return None
 
+    async def _ensure_venv_if_needed(self, command: str, session_id: str) -> str | None:
+        """如果命令需要 Python 且 venv 不存在，懒创建之。返回错误信息或 None。"""
+        if not _needs_python_venv(command):
+            return None
+
+        if _sandbox_config.has_python_venv(session_id):
+            return None
+
+        from ripple.sandbox.executor import ensure_python_venv
+
+        success, msg = await ensure_python_venv(_sandbox_config, session_id)
+        if not success:
+            return f"[SANDBOX] Failed to initialize Python venv: {msg}"
+        return None
+
+    def _wrap_with_venv_activation(self, command: str, session_id: str) -> str:
+        """如果 workspace 内存在 venv，自动在命令前激活它"""
+        if _sandbox_config.has_python_venv(session_id):
+            return f". /workspace/.venv/bin/activate && {command}"
+        return command
+
     async def _execute_in_sandbox(self, args: BashInput, context: ToolUseContext) -> tuple[str, str, int]:
         """通过 nsjail 在沙箱中执行"""
         from ripple.sandbox.executor import execute_in_sandbox
 
+        session_id = context.sandbox_session_id
+
+        # 懒创建 Python venv
+        if venv_err := await self._ensure_venv_if_needed(args.command, session_id):
+            logger.warning(venv_err)
+
+        # 自动激活已有 venv
+        command = self._wrap_with_venv_activation(args.command, session_id)
+
         stdout, stderr, exit_code = await execute_in_sandbox(
-            args.command,
+            command,
             _sandbox_config,
-            context.sandbox_session_id,
+            session_id,
             timeout=args.timeout,
         )
 
         from ripple.sandbox.workspace import check_workspace_quota
 
-        exceeded, size_bytes = check_workspace_quota(_sandbox_config, context.sandbox_session_id)
+        exceeded, size_bytes = check_workspace_quota(_sandbox_config, session_id)
         if exceeded:
             size_mb = size_bytes / (1024 * 1024)
             stderr += f"\n[SANDBOX] Warning: workspace size ({size_mb:.1f}MB) exceeds quota ({_sandbox_config.max_workspace_mb}MB)"

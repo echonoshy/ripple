@@ -532,6 +532,17 @@ async def get_sandbox_info(
             "max_pids": sandbox.config.resource_limits.max_pids,
             "command_timeout": sandbox.config.resource_limits.command_timeout,
         },
+        "runtimes": {
+            "python": {
+                "available": sandbox.config.uv_bin_dir is not None,
+                "uv_bin_dir": sandbox.config.uv_bin_dir,
+            },
+            "nodejs": {
+                "available": sandbox.config.node_dir is not None,
+                "node_dir": sandbox.config.node_dir,
+                "pnpm_store_dir": str(sandbox.config.pnpm_cache_dir),
+            },
+        },
         "idle_suspend_seconds": sandbox.config.idle_suspend_seconds,
         "retention_seconds": sandbox.config.retention_seconds,
         "active_sessions": len(manager.list_sessions()),

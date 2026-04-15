@@ -65,18 +65,28 @@ class Session:
 
 
 def _build_system_prompt(workspace_dir: Path | None = None) -> str:
-    """构建 Server 模式的系统提示"""
-    from ripple.skills.loader import get_global_loader
+    """构建 Server 模式的系统提示
 
-    loader = get_global_loader()
-    skills = loader.list_skills()
+    Server 模式下使用 workspace 级别的 skill 列表（bundled + workspace/skills/），
+    CLI 模式下使用全局 loader。
+    """
+    if workspace_dir:
+        from ripple.skills.loader import load_workspace_skills
+
+        skills_dict = load_workspace_skills(workspace_dir)
+        skills = list(skills_dict.values())
+    else:
+        from ripple.skills.loader import get_global_loader
+
+        loader = get_global_loader()
+        skills = loader.list_skills()
 
     skills_info = []
     for skill in skills:
         desc = skill.description[:150] + "..." if len(skill.description) > 150 else skill.description
         skills_info.append(f"- {skill.name}: {desc}")
 
-    skills_text = "\n".join(skills_info)
+    skills_text = "\n".join(skills_info) if skills_info else "(no skills installed yet)"
 
     now_str = datetime.now(timezone.utc).strftime("%Y/%m/%d")
     return f"""Today's date is {now_str}.
@@ -94,14 +104,23 @@ You are operating in a sandboxed workspace. Your working directory is `/workspac
 - Use relative paths in commands (e.g., `ls`, `cat file.txt`, `python script.py`)
 
 ### Development Environment
-- This workspace is pre-configured with **Python** and **uv** (a fast Python package manager). A virtual environment is automatically set up for you.
-- When the user asks to implement a feature, build a tool, write a script, do data analysis, create a web app, or any coding task, **always prefer Python** unless the user explicitly requests another language.
+- This workspace is pre-configured with **Python** + **uv** and **Node.js** + **pnpm**.
+- A Python virtual environment and pnpm global environment are automatically set up on first use.
+- When the user asks to implement a feature, build a tool, write a script, do data analysis, create a web app, or any coding task, **always prefer Python** unless the user explicitly requests another language or the task clearly requires Node.js (e.g., installing npm packages, running frontend frameworks).
 - If the user's request is language-agnostic (e.g., "帮我写一个爬虫", "做一个数据分析", "写一个 web 服务"), default to Python without asking.
 
 ### Python Package Management
 - To install Python packages, use `uv pip install <package>` instead of `pip install` or `pip3 install`.
 - Example: `uv pip install numpy pandas matplotlib`
 - Do NOT use `pip install` or `pip3 install` directly — they may install packages to the wrong location.
+
+### Node.js / pnpm Package Management
+- **Always prefer `pnpm` over `npm`** for package installation — pnpm uses hardlinks and a content-addressable store, significantly saving disk space and improving speed.
+- To install Node.js packages locally: `pnpm add <package>`
+- To install CLI tools globally: `pnpm install -g <package>`
+- Only use `npm` if the user explicitly requests it. Both `npm install -g` and `pnpm install -g` work correctly in this environment.
+- `npx` is available for running one-off commands (e.g., `npx cowsay hello`). Note: npx caches downloaded packages in `/workspace/.npm/_npx/` — they are NOT deleted after execution and persist in the workspace.
+- Example: `pnpm install -g @larksuite/cli`
 
 ### File Writing Rules
 When the user asks to write or save content to a file without specifying an explicit path:
@@ -157,7 +176,14 @@ Before executing any of the following, you MUST use AskUser to get explicit user
 # Available Skills
 {skills_text}
 
-IMPORTANT: Before declining a user request because it's outside your domain, check if there's a relevant skill available."""
+IMPORTANT: Before declining a user request because it's outside your domain, check if there's a relevant skill available.
+
+## Installing Skills
+Skills are loaded from `/workspace/skills/`. Each skill is a Markdown file (usually `SKILL.md`) with YAML frontmatter containing at least a `name` field. To install new skills:
+1. Create the directory: `mkdir -p /workspace/skills/<skill-name>/`
+2. Place the skill's `SKILL.md` and any reference files there
+3. Skills from GitHub repos (e.g., larksuite/cli) can be installed by cloning and copying: `git clone <repo> /tmp/repo && cp -r /tmp/repo/skills/* /workspace/skills/ && rm -rf /tmp/repo`
+4. Newly installed skills are automatically available on next Skill tool call — no restart needed"""
 
 
 _SESSION_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")

@@ -5,6 +5,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 PYPI_MIRROR_TSINGHUA = "https://pypi.tuna.tsinghua.edu.cn/simple"
+NPM_MIRROR_NPMMIRROR = "https://registry.npmmirror.com"
+
+SANDBOX_NODE_DIR = "/opt/node"
+SANDBOX_PNPM_STORE = "/pnpm-store"
 
 
 @dataclass
@@ -29,6 +33,46 @@ def _discover_uv_bin_dir() -> str | None:
     uv_path = shutil.which("uv")
     if uv_path:
         return str(Path(uv_path).resolve().parent)
+    return None
+
+
+def _discover_node_dir() -> str | None:
+    """自动发现 Node.js 安装根目录（含 bin/ 和 lib/）
+
+    node、npm、pnpm、npx 等二进制位于 bin/ 下且通过符号链接指向 ../lib/node_modules/，
+    因此需要挂载整个安装目录而非仅 bin/。
+    """
+    node_path = shutil.which("node")
+    if node_path:
+        real_path = Path(node_path).resolve()
+        # node 二进制通常位于 <install_root>/bin/node
+        if real_path.parent.name == "bin":
+            return str(real_path.parent.parent)
+    return None
+
+
+def _discover_pnpm_store_dir() -> str | None:
+    """自动发现 pnpm content-addressable store 目录"""
+    pnpm_path = shutil.which("pnpm")
+    if not pnpm_path:
+        return None
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            [pnpm_path, "store", "path"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            store_path = Path(result.stdout.strip())
+            # pnpm store path 返回的是 v10 子目录，取其父目录作为 store 根
+            if store_path.name.startswith("v") and store_path.parent.name == "store":
+                return str(store_path.parent)
+            return str(store_path)
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
     return None
 
 
@@ -64,13 +108,22 @@ class SandboxConfig:
 
     max_workspace_mb: int = 2048
 
+    # --- Python / uv ---
     uv_bin_dir: str | None = field(default=None)
-
     pypi_mirror_url: str = field(default=PYPI_MIRROR_TSINGHUA)
+
+    # --- Node.js / pnpm ---
+    node_dir: str | None = field(default=None)
+    pnpm_store_dir: str | None = field(default=None)
+    npm_registry_url: str = field(default=NPM_MIRROR_NPMMIRROR)
 
     def __post_init__(self):
         if self.uv_bin_dir is None:
             self.uv_bin_dir = _discover_uv_bin_dir()
+        if self.node_dir is None:
+            self.node_dir = _discover_node_dir()
+        if self.pnpm_store_dir is None:
+            self.pnpm_store_dir = _discover_pnpm_store_dir()
 
     @property
     def sessions_dir(self) -> Path:
@@ -80,6 +133,26 @@ class SandboxConfig:
     def uv_cache_dir(self) -> Path:
         """全局共享的 uv cache 目录（所有 session 共用，通过硬链接去重）"""
         return self.sandboxes_root / "uv-cache"
+
+    @property
+    def pnpm_cache_dir(self) -> Path:
+        """全局共享的 pnpm store 目录（所有 session 共用，通过硬链接去重）
+
+        如果宿主机已有 pnpm store 且与 sandboxes_root 在同一文件系统上，
+        则直接使用宿主机 store（最大化硬链接共享）；否则在 sandboxes_root 下新建。
+        """
+        if self.pnpm_store_dir:
+            return Path(self.pnpm_store_dir)
+        return self.sandboxes_root / "pnpm-store"
+
+    @property
+    def corepack_cache_dir(self) -> Path:
+        """全局共享的 corepack 缓存目录（所有 session 共用）
+
+        corepack 负责下载 pnpm 等包管理器自身的二进制。共享此缓存后，
+        只有第一个 session 需要下载，后续 session 直接复用。
+        """
+        return self.sandboxes_root / "corepack-cache"
 
     def session_dir(self, session_id: str) -> Path:
         return self.sessions_dir / session_id
@@ -99,6 +172,13 @@ class SandboxConfig:
     def has_python_venv(self, session_id: str) -> bool:
         """检查 session 的 workspace 内是否已创建 Python venv"""
         return (self.workspace_dir(session_id) / ".venv" / "pyvenv.cfg").exists()
+
+    def has_pnpm_setup(self, session_id: str) -> bool:
+        """检查 session 的 workspace 内是否已成功初始化 Node.js 全局环境
+
+        使用 marker 文件而非目录存在判断，避免 mkdir 成功但后续配置失败时的误判。
+        """
+        return (self.workspace_dir(session_id) / ".local" / ".node-setup-done").exists()
 
     @classmethod
     def from_dict(cls, data: dict) -> "SandboxConfig":
@@ -137,4 +217,7 @@ class SandboxConfig:
             max_workspace_mb=data.get("max_workspace_mb", 2048),
             uv_bin_dir=data.get("uv_bin_dir"),
             pypi_mirror_url=data.get("pypi_mirror_url", PYPI_MIRROR_TSINGHUA),
+            node_dir=data.get("node_dir"),
+            pnpm_store_dir=data.get("pnpm_store_dir"),
+            npm_registry_url=data.get("npm_registry_url", NPM_MIRROR_NPMMIRROR),
         )

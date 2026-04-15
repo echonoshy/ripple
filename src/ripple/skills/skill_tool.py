@@ -1,8 +1,12 @@
 """Skill Tool
 
 作为工具暴露给模型，让模型可以调用 Skill。
+
+Server 模式下每个 session 拥有独立的 skill 集合（bundled + workspace/skills/），
+CLI 模式下使用全局 SkillLoader。
 """
 
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -10,7 +14,8 @@ from pydantic import BaseModel, Field
 from ripple.core.context import ToolUseContext
 from ripple.messages.types import AssistantMessage
 from ripple.skills.executor import execute_forked_skill, execute_inline_skill
-from ripple.skills.loader import get_global_loader, reload_skills
+from ripple.skills.loader import get_global_loader, load_workspace_skills, reload_skills
+from ripple.skills.types import Skill
 from ripple.tools.base import Tool, ToolResult
 
 
@@ -36,6 +41,18 @@ class SkillTool(Tool[SkillInput, dict[str, Any]]):
         )
         self.max_result_size_chars = 100_000
 
+    def _get_skills(self, workspace_root: Path | None) -> dict[str, Skill]:
+        """获取当前可用的 skill 集合
+
+        Server 模式：使用 workspace 级别加载（bundled + workspace/skills/）
+        CLI 模式：使用全局 loader（bundled + CWD/skills/）
+        """
+        if workspace_root:
+            return load_workspace_skills(workspace_root)
+        reload_skills()
+        loader = get_global_loader()
+        return {s.name: s for s in loader.list_skills()}
+
     async def call(
         self,
         args: SkillInput | dict[str, Any],
@@ -48,16 +65,15 @@ class SkillTool(Tool[SkillInput, dict[str, Any]]):
 
         skill_name = args.skill.lstrip("/")
 
-        reload_skills()
-        loader = get_global_loader()
-        skill = loader.get_skill(skill_name)
+        skills = self._get_skills(context.workspace_root)
+        skill = skills.get(skill_name)
 
         if not skill:
             return ToolResult(
                 data={
                     "success": False,
                     "error": f"Skill '{skill_name}' not found",
-                    "available_skills": [s.name for s in loader.list_skills()],
+                    "available_skills": list(skills.keys()),
                 }
             )
 

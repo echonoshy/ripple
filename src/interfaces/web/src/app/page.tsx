@@ -279,8 +279,6 @@ export default function Home() {
       ]);
       setInput("");
       setIsGenerating(true);
-      setTasks([]);
-      setTaskProgress(null);
 
       let currentContent = "";
 

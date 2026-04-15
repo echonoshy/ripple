@@ -24,6 +24,11 @@ _PYTHON_CMD_PATTERN = re.compile(
     r"(?:^|&&|\|\||;|\|)\s*(?:uv\s+(?:pip|run|add)|(?:/\S+/)?python3?|(?:/\S+/)?pip3?)\b",
 )
 
+# 匹配需要 pnpm 全局环境的命令
+_NODE_CMD_PATTERN = re.compile(
+    r"(?:^|&&|\|\||;|\|)\s*(?:pnpm|npx|npm|node|corepack|lark-cli)\b",
+)
+
 
 class BashInput(BaseModel):
     """Bash 工具输入"""
@@ -52,6 +57,11 @@ def set_sandbox_config(config):
 def _needs_python_venv(command: str) -> bool:
     """判断命令是否需要 Python venv 环境"""
     return bool(_PYTHON_CMD_PATTERN.search(command))
+
+
+def _needs_node_env(command: str) -> bool:
+    """判断命令是否需要 Node.js/pnpm 环境"""
+    return bool(_NODE_CMD_PATTERN.search(command))
 
 
 class BashTool(Tool[BashInput, BashOutput]):
@@ -122,6 +132,24 @@ class BashTool(Tool[BashInput, BashOutput]):
             return f"[SANDBOX] Failed to initialize Python venv: {msg}"
         return None
 
+    async def _ensure_pnpm_if_needed(self, command: str, session_id: str) -> str | None:
+        """如果命令需要 Node.js/pnpm 且全局环境未初始化，懒创建之。返回错误信息或 None。"""
+        if not _needs_node_env(command):
+            return None
+
+        if not _sandbox_config.node_dir:
+            return "[SANDBOX] Node.js is not available. Please install Node.js on the host."
+
+        if _sandbox_config.has_pnpm_setup(session_id):
+            return None
+
+        from ripple.sandbox.executor import ensure_pnpm_setup
+
+        success, msg = await ensure_pnpm_setup(_sandbox_config, session_id)
+        if not success:
+            return f"[SANDBOX] Failed to initialize pnpm environment: {msg}"
+        return None
+
     def _wrap_with_venv_activation(self, command: str, session_id: str) -> str:
         """如果 workspace 内存在 venv，自动在命令前激活它"""
         if _sandbox_config.has_python_venv(session_id):
@@ -137,6 +165,10 @@ class BashTool(Tool[BashInput, BashOutput]):
         # 懒创建 Python venv（失败时直接返回错误，不继续执行）
         if venv_err := await self._ensure_venv_if_needed(args.command, session_id):
             return "", venv_err, 1
+
+        # 懒初始化 pnpm 全局环境（失败时直接返回错误，不继续执行）
+        if pnpm_err := await self._ensure_pnpm_if_needed(args.command, session_id):
+            return "", pnpm_err, 1
 
         # 自动激活已有 venv
         command = self._wrap_with_venv_activation(args.command, session_id)

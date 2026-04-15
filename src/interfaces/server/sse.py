@@ -7,6 +7,7 @@ OpenAI 兼容的 SSE data 行（chat.completion.chunk 格式）。
 import json
 import time
 from collections.abc import AsyncGenerator
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -15,6 +16,8 @@ from ripple.core.agent_loop import query
 from ripple.core.context import ToolUseContext
 from ripple.messages.types import AgentStopEvent, AssistantMessage, Message, RequestStartEvent, StreamEvent
 from ripple.messages.utils import create_user_message
+from ripple.tasks.manager import get_task_manager
+from ripple.tasks.models import TaskStatus
 from ripple.utils.logger import get_logger
 
 logger = get_logger("server.sse")
@@ -165,6 +168,31 @@ def _build_task_progress(task_tracker: dict[str, dict[str, Any]]) -> dict[str, A
     return {"completed": completed, "total": total, "currentTask": current}
 
 
+def _load_existing_tasks(cwd: Any) -> dict[str, dict[str, Any]]:
+    """从 TaskManager 加载已有任务，预填充 task_tracker。
+
+    这样 task_progress 的 total 从一开始就反映真实的任务总数，
+    而不是在 TaskUpdate 事件逐个到来时递增。
+    """
+    tracker: dict[str, dict[str, Any]] = {}
+    try:
+        task_path = Path(cwd) / ".ripple" / "tasks.json"
+        if not task_path.exists():
+            return tracker
+        tm = get_task_manager(task_path)
+        for task in tm.list_tasks():
+            if task.status == TaskStatus.DELETED:
+                continue
+            tracker[task.id] = {
+                "id": task.id,
+                "subject": task.subject,
+                "status": task.status.value,
+            }
+    except Exception:
+        logger.debug("预加载任务失败，将使用空 task_tracker")
+    return tracker
+
+
 async def stream_query_as_sse(
     user_input: str,
     context: ToolUseContext,
@@ -198,8 +226,8 @@ async def stream_query_as_sse(
     finish_reason = "stop"
     # 跟踪 tool_use id -> name 的映射，用于识别 task 工具的 result
     tool_id_to_name: dict[str, str] = {}
-    # 跟踪任务状态用于发送 task_progress
-    task_tracker: dict[str, dict[str, Any]] = {}
+    # 从 TaskManager 预加载已有任务，避免 task_progress.total 从 0 递增
+    task_tracker: dict[str, dict[str, Any]] = _load_existing_tasks(context.cwd)
 
     heartbeat_interval = 8
 
@@ -244,6 +272,12 @@ async def stream_query_as_sse(
                     await pending_next
                 except (asyncio.CancelledError, StopAsyncIteration):
                     pass
+
+    # 在流开始时发送已有任务的状态，让前端立即获得正确的任务列表
+    if task_tracker:
+        for tdata in task_tracker.values():
+            yield _make_tool_event("task_created", tdata)
+        yield _make_tool_event("task_progress", _build_task_progress(task_tracker))
 
     try:
         async for item in _heartbeat_wrapper():

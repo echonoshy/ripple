@@ -4,19 +4,29 @@
 """
 
 import asyncio
+import os
 import shutil
 import textwrap
 from pathlib import Path
 
-from ripple.sandbox.config import SandboxConfig
+from ripple.sandbox.config import SANDBOX_NODE_DIR, SANDBOX_PNPM_STORE, SandboxConfig
 from ripple.utils.logger import get_logger
 
 logger = get_logger("sandbox.executor")
 
 SANDBOX_UV_CACHE_PATH = "/uv-cache"
+SANDBOX_COREPACK_HOME = "/corepack-cache"
 
-# per-session 锁，防止并发懒创建 venv 时目录竞争
+# Node.js 全局安装目录（遵循 ~/.local 约定）
+# npm:  NPM_CONFIG_PREFIX=/workspace/.local → bin 在 /workspace/.local/bin/
+# pnpm: PNPM_HOME=/workspace/.local/bin → bin 直接在 /workspace/.local/bin/
+# 两者的全局 CLI 二进制统一落在 /workspace/.local/bin/，只需一个 PATH 条目
+SANDBOX_NODE_PREFIX = "/workspace/.local"
+SANDBOX_NODE_BIN = "/workspace/.local/bin"
+
+# per-session 锁，防止并发懒创建时目录竞争
 _venv_locks: dict[str, asyncio.Lock] = {}
+_pnpm_locks: dict[str, asyncio.Lock] = {}
 
 
 def check_nsjail_available(nsjail_path: str = "nsjail"):
@@ -30,8 +40,14 @@ def check_nsjail_available(nsjail_path: str = "nsjail"):
 def build_sandbox_env(config: SandboxConfig) -> dict[str, str]:
     """构建沙箱最小白名单环境变量（不继承宿主环境）"""
     path_parts = ["/usr/local/sbin", "/usr/local/bin", "/usr/sbin", "/usr/bin", "/sbin", "/bin"]
+
     if config.uv_bin_dir:
         path_parts.insert(0, config.uv_bin_dir)
+
+    if config.node_dir:
+        path_parts.insert(0, f"{SANDBOX_NODE_DIR}/bin")
+        # npm/pnpm 全局安装的二进制统一放在 /workspace/.local/bin/
+        path_parts.insert(0, SANDBOX_NODE_BIN)
 
     env = {
         "PATH": ":".join(path_parts),
@@ -47,6 +63,37 @@ def build_sandbox_env(config: SandboxConfig) -> dict[str, str]:
     if config.pypi_mirror_url:
         env["UV_INDEX_URL"] = config.pypi_mirror_url
         env["PIP_INDEX_URL"] = config.pypi_mirror_url
+
+    # Node.js 包管理器环境变量
+    if config.node_dir:
+        # pnpm 全局 bin → /workspace/.local/bin/
+        env["PNPM_HOME"] = SANDBOX_NODE_BIN
+        env["PNPM_STORE_DIR"] = SANDBOX_PNPM_STORE
+        # npm 全局 prefix → /workspace/.local/（bin 自动在 prefix/bin/ 下）
+        env["NPM_CONFIG_PREFIX"] = SANDBOX_NODE_PREFIX
+        if config.npm_registry_url:
+            env["NPM_CONFIG_REGISTRY"] = config.npm_registry_url
+            # corepack 下载包管理器自身（如 pnpm）时使用独立的注册源配置
+            env["COREPACK_NPM_REGISTRY"] = config.npm_registry_url
+        env["COREPACK_ENABLE_AUTO_PIN"] = "0"
+        env["COREPACK_ENABLE_DOWNLOAD_PROMPT"] = "0"
+        # corepack 缓存共享，避免每个 session 重复下载 pnpm 二进制
+        env["COREPACK_HOME"] = SANDBOX_COREPACK_HOME
+
+    # 自动继承宿主进程的代理设置（clone_newnet=false 共享网络栈，但 env 是隔离的）
+    for var in (
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "ALL_PROXY",
+        "all_proxy",
+        "NO_PROXY",
+        "no_proxy",
+    ):
+        val = os.environ.get(var)
+        if val:
+            env[var] = val
 
     return env
 
@@ -85,6 +132,39 @@ def generate_nsjail_config(config: SandboxConfig, session_id: str) -> str:
     mounts.append(f"""mount {{
     src: "{uv_cache}"
     dst: "{SANDBOX_UV_CACHE_PATH}"
+    is_bind: true
+    rw: true
+}}""")
+
+    # Node.js 安装目录（只读，含 bin/ 和 lib/node_modules/）
+    if config.node_dir:
+        node_dir = Path(config.node_dir)
+        if node_dir.exists():
+            mounts.append(f"""mount {{
+    src: "{config.node_dir}"
+    dst: "{SANDBOX_NODE_DIR}"
+    is_bind: true
+    rw: false
+}}""")
+
+    # pnpm content-addressable store（读写，所有 session 共享，通过硬链接去重）
+    if config.node_dir:
+        pnpm_cache = config.pnpm_cache_dir
+        pnpm_cache.mkdir(parents=True, exist_ok=True)
+        mounts.append(f"""mount {{
+    src: "{pnpm_cache}"
+    dst: "{SANDBOX_PNPM_STORE}"
+    is_bind: true
+    rw: true
+}}""")
+
+    # corepack 缓存（读写，所有 session 共享，避免每个 session 重新下载 pnpm）
+    if config.node_dir:
+        corepack_cache = config.corepack_cache_dir
+        corepack_cache.mkdir(parents=True, exist_ok=True)
+        mounts.append(f"""mount {{
+    src: "{corepack_cache}"
+    dst: "{SANDBOX_COREPACK_HOME}"
     is_bind: true
     rw: true
 }}""")
@@ -200,6 +280,7 @@ async def execute_in_sandbox(
 
     proc = await asyncio.create_subprocess_exec(
         *nsjail_cmd,
+        stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -276,5 +357,57 @@ async def ensure_python_venv(
             return True, stdout
         else:
             msg = f"venv 创建失败 (exit={exit_code}): {stderr or stdout}"
+            logger.warning("session {} {}", session_id, msg)
+            return False, msg
+
+
+# ---------------------------------------------------------------------------
+# Node.js / pnpm 环境初始化
+# ---------------------------------------------------------------------------
+
+
+async def ensure_pnpm_setup(
+    config: SandboxConfig,
+    session_id: str,
+) -> tuple[bool, str]:
+    """懒初始化 per-session Node.js 全局环境（首次需要时调用）
+
+    创建 /workspace/.local/bin/ 目录，配置 pnpm global-bin-dir 和 store-dir，
+    使 pnpm install -g / npm install -g 安装的 CLI 二进制可通过 PATH 直接调用。
+
+    成功后写入 marker 文件 .node-setup-done，避免 mkdir 成功但 pnpm config 失败时的误判。
+
+    Returns:
+        (成功与否, 日志/错误信息)
+    """
+    if not config.node_dir:
+        return False, "Node.js not available in sandbox"
+
+    if config.has_pnpm_setup(session_id):
+        return True, ""
+
+    lock = _pnpm_locks.setdefault(session_id, asyncio.Lock())
+    async with lock:
+        if config.has_pnpm_setup(session_id):
+            return True, ""
+
+        logger.info("为 session {} 初始化 Node.js 全局环境", session_id)
+
+        marker = "/workspace/.local/.node-setup-done"
+        cmd = (
+            f"mkdir -p {SANDBOX_NODE_BIN} && "
+            f"pnpm config set global-bin-dir {SANDBOX_NODE_BIN} --global && "
+            f"pnpm config set store-dir {SANDBOX_PNPM_STORE} --global && "
+            # pnpm v10 默认屏蔽 postinstall 等 build scripts，沙箱自身已提供隔离，允许全部
+            f"echo 'onlyBuiltDependencies[]=*' >> /workspace/.npmrc && "
+            f"touch {marker}"
+        )
+        stdout, stderr, exit_code = await execute_in_sandbox(cmd, config, session_id, timeout=120)
+
+        if exit_code == 0 and config.has_pnpm_setup(session_id):
+            logger.info("session {} Node.js 全局环境初始化成功", session_id)
+            return True, stdout
+        else:
+            msg = f"Node.js 全局环境初始化失败 (exit={exit_code}): {stderr or stdout}"
             logger.warning("session {} {}", session_id, msg)
             return False, msg

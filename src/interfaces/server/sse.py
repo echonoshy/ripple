@@ -469,6 +469,7 @@ async def collect_query_response(
     last_prompt_tokens: int = 0
     new_messages: list[Message] = []
     finish_reason = "stop"
+    stop_metadata: dict[str, Any] = {}
     tool_id_to_name: dict[str, str] = {}
 
     # 记录用户消息

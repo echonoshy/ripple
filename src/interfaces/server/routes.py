@@ -285,6 +285,7 @@ async def _non_stream_chat(
                     elif finish_reason == "permission_request":
                         session.status = "awaiting_permission"
                         session.pending_permission_request = stop_metadata if isinstance(stop_metadata, dict) else None
+                    result["session_id"] = session.session_id
                     return result
                 finally:
                     session.current_task = None

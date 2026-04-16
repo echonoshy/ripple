@@ -6,9 +6,10 @@
 1. 文件名为 SKILL.md（推荐的入口文件命名）
 2. 文件包含有效的 YAML frontmatter 且含有 name 或 description 字段
 
-支持两种加载模式：
-- 全局模式：从进程 CWD 的 skills/ 目录加载（CLI 模式）
-- Workspace 模式：从指定 workspace/skills/ 目录加载（Server per-session 模式）
+支持三层加载模式（后者覆盖前者）：
+1. Bundled Skills  — 内置 Python 硬编码
+2. Shared Skills   — server.shared_skills_dirs 配置的全局共享目录
+3. Workspace Skills — 每个 session 的 workspace/skills/（沙箱内）
 """
 
 from pathlib import Path
@@ -166,6 +167,75 @@ def reload_skills():
 
 
 # ---------------------------------------------------------------------------
+# Shared skills (Server 级别共享，所有 session 可见)
+# ---------------------------------------------------------------------------
+
+_shared_skills_cache: tuple[dict[str, Skill], float] | None = None
+
+
+def _get_shared_skill_dirs() -> list[Path]:
+    """从配置读取共享 skill 目录列表"""
+    from ripple.utils.config import get_config
+
+    config = get_config()
+    dirs = config.get("skills.shared_dirs", [])
+    return [Path(d).expanduser().resolve() for d in dirs]
+
+
+def _compute_dirs_mtime(dirs: list[Path]) -> float:
+    """计算多个目录的聚合 mtime（取最大值）"""
+    mtime = 0.0
+    for d in dirs:
+        try:
+            if d.exists():
+                mtime = max(mtime, d.stat().st_mtime)
+        except OSError:
+            pass
+    return mtime
+
+
+def load_shared_skills() -> dict[str, Skill]:
+    """加载共享 skills（bundled + shared_dirs）
+
+    Server 模式下用于 schema 生成、/v1/info、system prompt 等场景。
+    使用目录 mtime 做轻量缓存。
+
+    Returns:
+        合并后的 skill 字典（name -> Skill）
+    """
+    global _shared_skills_cache
+
+    from ripple.skills.bundled import register_all_bundled_skills
+
+    register_all_bundled_skills()
+
+    shared_dirs = _get_shared_skill_dirs()
+    current_mtime = _compute_dirs_mtime(shared_dirs)
+
+    if _shared_skills_cache is not None:
+        cached_skills, cached_mtime = _shared_skills_cache
+        if cached_skills and current_mtime == cached_mtime and current_mtime > 0:
+            return cached_skills
+
+    merged: dict[str, Skill] = {}
+    merged.update(get_bundled_skills())
+    for d in shared_dirs:
+        merged.update(_load_skills_from_dir(d))
+
+    _shared_skills_cache = (merged, current_mtime)
+    if merged:
+        logger.debug("共享 skills 加载了 {} 个（来自 {} 个目录）", len(merged), len(shared_dirs))
+
+    return merged
+
+
+def invalidate_shared_cache() -> None:
+    """清除共享 skill 缓存"""
+    global _shared_skills_cache
+    _shared_skills_cache = None
+
+
+# ---------------------------------------------------------------------------
 # Per-workspace skill loading (Server per-session 模式)
 # ---------------------------------------------------------------------------
 
@@ -173,18 +243,18 @@ _workspace_skills_cache: dict[Path, tuple[float, dict[str, Skill]]] = {}
 
 
 def load_workspace_skills(workspace_root: Path) -> dict[str, Skill]:
-    """加载指定 workspace 的 skills（bundled + workspace/skills/）
+    """加载指定 workspace 的完整 skills（bundled + shared + workspace/skills/）
+
+    三层合并，后者覆盖前者：
+    1. Bundled skills
+    2. Shared skills（来自 skills.shared_dirs 配置）
+    3. Workspace skills（session 沙箱内的 workspace/skills/）
 
     使用目录 mtime 做轻量缓存，避免每次工具调用都做磁盘扫描。
-    workspace 中的 skill 覆盖同名 bundled skill。
 
     Returns:
         合并后的 skill 字典（name -> Skill）
     """
-    from ripple.skills.bundled import register_all_bundled_skills
-
-    register_all_bundled_skills()
-
     skills_dir = workspace_root / WORKSPACE_SKILLS_DIRNAME
 
     cached_mtime, cached_skills = _workspace_skills_cache.get(workspace_root, (0.0, {}))
@@ -197,7 +267,7 @@ def load_workspace_skills(workspace_root: Path) -> dict[str, Skill]:
         return cached_skills
 
     merged: dict[str, Skill] = {}
-    merged.update(get_bundled_skills())
+    merged.update(load_shared_skills())
     merged.update(_load_skills_from_dir(skills_dir))
 
     _workspace_skills_cache[workspace_root] = (current_mtime, merged)

@@ -85,12 +85,12 @@ async def get_system_info(_api_key: str = Depends(verify_api_key)):
     config = get_config()
 
     from interfaces.server.sessions import get_server_tool_names
-    from ripple.skills.loader import get_global_loader
+    from ripple.skills.loader import load_shared_skills
 
     tool_names = get_server_tool_names()
 
-    loader = get_global_loader()
-    skills = [{"name": s.name, "description": s.description[:150]} for s in loader.list_skills()]
+    skills_dict = load_shared_skills()
+    skills = [{"name": s.name, "description": s.description[:150]} for s in skills_dict.values()]
 
     presets = config.get_model_presets() or {}
     model_presets = {alias: info.get("model", alias) for alias, info in presets.items()}

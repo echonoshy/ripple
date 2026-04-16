@@ -67,8 +67,8 @@ class Session:
 def _build_system_prompt(workspace_dir: Path | None = None) -> str:
     """构建 Server 模式的系统提示
 
-    Server 模式下使用 workspace 级别的 skill 列表（bundled + workspace/skills/），
-    CLI 模式下使用全局 loader。
+    Server 模式下使用三层合并的 skill 列表（bundled + shared + workspace/skills/），
+    无 workspace 时使用共享 skills（bundled + shared_dirs）。
     """
     if workspace_dir:
         from ripple.skills.loader import load_workspace_skills
@@ -76,10 +76,10 @@ def _build_system_prompt(workspace_dir: Path | None = None) -> str:
         skills_dict = load_workspace_skills(workspace_dir)
         skills = list(skills_dict.values())
     else:
-        from ripple.skills.loader import get_global_loader
+        from ripple.skills.loader import load_shared_skills
 
-        loader = get_global_loader()
-        skills = loader.list_skills()
+        skills_dict = load_shared_skills()
+        skills = list(skills_dict.values())
 
     skills_info = []
     for skill in skills:

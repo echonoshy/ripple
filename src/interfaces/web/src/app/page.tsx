@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Cpu, ChevronDown, Brain, AlertTriangle, KeyRound, Menu } from "lucide-react";
+import { Cpu, ChevronDown, Brain, AlertTriangle, KeyRound, Menu, Copy, Check } from "lucide-react";
 import { Message, UsageInfo, Session, SessionDetail, TaskInfo, TaskProgress } from "@/types";
 import {
   createSession,
@@ -25,6 +25,7 @@ import ChatMessage from "@/components/ChatMessage";
 import TaskExecutionPanel from "@/components/TaskExecutionPanel";
 import SettingsModal from "@/components/SettingsModal";
 import { applyTaskUpdate, upsertTask } from "@/lib/chatState";
+import { copyTextToClipboard } from "@/lib/clipboard";
 import { bumpInputFocusToken } from "@/lib/inputFocus";
 import {
   clearStoredCurrentSessionId,
@@ -65,6 +66,7 @@ export default function Home() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [thinkingEnabled, setThinkingEnabled] = useState(false);
   const [inputFocusToken, setInputFocusToken] = useState(0);
+  const [sessionIdCopied, setSessionIdCopied] = useState(false);
 
   // ── Token tracking ──
   const [tokenUsage, setTokenUsage] = useState<UsageInfo>({
@@ -463,6 +465,14 @@ export default function Home() {
     [handleSendMessage]
   );
 
+  const handleCopySessionId = useCallback(async () => {
+    if (!sessionId) return;
+    const ok = await copyTextToClipboard(sessionId);
+    if (!ok) return;
+    setSessionIdCopied(true);
+    window.setTimeout(() => setSessionIdCopied(false), 1600);
+  }, [sessionId]);
+
   const handlePermissionResolve = useCallback(
     async (action: "allow" | "always" | "deny") => {
       if (!sessionId || isGenerating) return;
@@ -701,6 +711,22 @@ export default function Home() {
                     ↓{formatTokens(tokenUsage.completion_tokens)}
                   </span>
                 </div>
+              )}
+              {sessionId && (
+                <button
+                  type="button"
+                  onClick={handleCopySessionId}
+                  title={sessionIdCopied ? "已复制" : `点击复制 Session ID: ${sessionId}`}
+                  className="hidden items-center gap-1.5 rounded-lg border border-[#27272a] bg-[#18181b] px-2.5 py-1 font-[family-name:var(--font-mono)] text-xs text-[#a1a1aa] transition-colors hover:border-[#10b981]/40 hover:text-[#fafafa] sm:flex"
+                >
+                  <span className="text-[#71717a]">ID</span>
+                  <span className="max-w-[140px] truncate">{sessionId}</span>
+                  {sessionIdCopied ? (
+                    <Check size={12} className="text-[#10b981]" />
+                  ) : (
+                    <Copy size={12} className="text-[#71717a]" />
+                  )}
+                </button>
               )}
               <div
                 className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 ${

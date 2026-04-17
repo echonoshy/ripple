@@ -44,12 +44,14 @@ export default function ChatInput({
     }
   }, [focusToken, isGenerating]);
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      if (!isGenerating && value.trim()) {
-        onSend();
-      }
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key !== "Enter" || e.shiftKey) return;
+    // 当 IME 正在组词时（如中文输入法选字），Enter 仅用于确认候选，不应触发发送。
+    // `isComposing` 是现代浏览器的标准属性；`keyCode === 229` 是兼容旧浏览器的回退判断。
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+    e.preventDefault();
+    if (!isGenerating && value.trim()) {
+      onSend();
     }
   };
 

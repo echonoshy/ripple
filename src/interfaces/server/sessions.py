@@ -51,7 +51,7 @@ class Session:
     context: ToolUseContext | None = None
     client: OpenRouterClient | None = None
     model: str = ""
-    system_prompt: str | None = None
+    caller_system_prompt: str | None = None
     max_turns: int = 10
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     last_active: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -68,8 +68,8 @@ class Session:
     context_manager: ContextManager | None = None
 
 
-def _build_system_prompt(workspace_dir: Path | None = None) -> str:
-    """构建 Server 模式的系统提示
+def _build_default_system_prompt(workspace_dir: Path | None = None) -> str:
+    """构建 Server 模式的默认系统提示（每轮请求动态调用以刷新日期和 skill 列表）
 
     Server 模式下使用三层合并的 skill 列表（bundled + shared + workspace/skills/），
     无 workspace 时使用共享 skills（bundled + shared_dirs）。
@@ -190,6 +190,29 @@ Skills are loaded from `/workspace/skills/`. Each skill is a Markdown file (usua
 4. Newly installed skills are automatically available on next Skill tool call — no restart needed"""
 
 
+_CALLER_PROMPT_SEPARATOR = (
+    "\n\n"
+    "────────────────────────────────────────────────────────\n"
+    "# Caller Instructions (HIGHEST PRIORITY)\n\n"
+    "The following instructions are provided by the calling application and "
+    "**take precedence over any conflicting rules above**. If there is any "
+    "conflict between these instructions and the sections above (output format, "
+    "tool usage, planning, interaction style, etc.), you MUST follow the rules "
+    "in this section.\n\n"
+)
+
+
+def _merge_system_prompt(workspace_dir: Path | None, caller_system_prompt: str | None) -> str:
+    """将默认 prompt 与调用方追加的 caller prompt 合并
+
+    每次请求都会调用，以便刷新默认 prompt 中的日期和 skill 列表。
+    """
+    default_prompt = _build_default_system_prompt(workspace_dir)
+    if not caller_system_prompt or not caller_system_prompt.strip():
+        return default_prompt
+    return default_prompt + _CALLER_PROMPT_SEPARATOR + caller_system_prompt.strip()
+
+
 _SESSION_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
 
 
@@ -307,7 +330,7 @@ class SessionManager:
             session.session_id,
             messages=session.messages,
             model=session.model,
-            system_prompt=session.system_prompt,
+            caller_system_prompt=session.caller_system_prompt,
             max_turns=session.max_turns,
             total_input_tokens=session.total_input_tokens,
             total_output_tokens=session.total_output_tokens,
@@ -337,7 +360,7 @@ class SessionManager:
         self,
         model: str | None = None,
         max_turns: int | None = None,
-        system_prompt: str | None = None,
+        caller_system_prompt: str | None = None,
         feishu: "FeishuConfig | None" = None,
     ) -> Session:
         config = get_config()
@@ -370,7 +393,7 @@ class SessionManager:
             context=context,
             client=client,
             model=resolved_model,
-            system_prompt=system_prompt or _build_system_prompt(workspace_root),
+            caller_system_prompt=caller_system_prompt,
             max_turns=resolved_max_turns,
             conversation_log=conversation_log,
             context_manager=ContextManager(),
@@ -489,7 +512,7 @@ class SessionManager:
             context=context,
             client=client,
             model=resolved_model,
-            system_prompt=state.get("system_prompt") or _build_system_prompt(workspace_root),
+            caller_system_prompt=state.get("caller_system_prompt"),
             max_turns=state.get("max_turns", 10),
             created_at=created_at,
             total_input_tokens=state.get("total_input_tokens", 0),
@@ -560,6 +583,7 @@ class SessionManager:
         session_id: str | None,
         model: str | None = None,
         max_turns: int | None = None,
+        caller_system_prompt: str | None = None,
     ) -> tuple[Session, bool]:
         """获取已有 session 或创建新的。支持自动恢复已挂起的 session。"""
         if session_id:
@@ -573,5 +597,9 @@ class SessionManager:
             if resumed:
                 return resumed, False
 
-        session = self.create_session(model=model, max_turns=max_turns)
+        session = self.create_session(
+            model=model,
+            max_turns=max_turns,
+            caller_system_prompt=caller_system_prompt,
+        )
         return session, True

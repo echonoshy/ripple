@@ -160,6 +160,7 @@ class QueryParams:
         max_tokens: int | None = None,
         thinking: bool | None = None,
         compactor: "AutoCompactor | None" = None,
+        temperature: float | None = None,
     ):
         self.messages = messages
         self.tool_use_context = tool_use_context
@@ -168,6 +169,7 @@ class QueryParams:
         self.max_tokens = max_tokens
         self.thinking = thinking
         self.compactor = compactor
+        self.temperature = temperature
 
 
 async def query_loop(
@@ -256,12 +258,17 @@ async def query_loop(
         tools = _prepare_tool_definitions(state.tool_use_context)
 
         try:
+            stream_kwargs: dict[str, Any] = {}
+            if params.temperature is not None:
+                stream_kwargs["temperature"] = params.temperature
+
             stream = client.stream_chat(
                 messages=api_messages,
                 tools=tools if tools else None,
                 model=params.model,
                 max_tokens=params.max_tokens,
                 thinking=params.thinking,
+                **stream_kwargs,
             )
 
             async for item in process_stream_response(stream):
@@ -620,6 +627,8 @@ async def query(
     history_messages: list[Message] | None = None,
     system_prompt: str | None = None,
     compactor: "AutoCompactor | None" = None,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
 ) -> AsyncGenerator[Message | StreamEvent | RequestStartEvent | AgentStopEvent, None]:
     """查询入口函数"""
     if client is None:
@@ -661,6 +670,8 @@ async def query(
         max_turns=max_turns,
         thinking=thinking,
         compactor=compactor,
+        temperature=temperature,
+        max_tokens=max_tokens,
     )
 
     async for item in query_loop(params, client):

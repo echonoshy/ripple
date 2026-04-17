@@ -204,6 +204,8 @@ async def stream_query_as_sse(
     thinking: bool = False,
     conversation_log=None,
     context_manager=None,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
 ) -> AsyncGenerator[str, None]:
     """消费 query() 的 async generator，产出 SSE data 行。
 
@@ -253,6 +255,8 @@ async def stream_query_as_sse(
             history_messages=model_history,
             system_prompt=system_prompt,
             compactor=context_manager.compactor if context_manager else None,
+            temperature=temperature,
+            max_tokens=max_tokens,
         )
         pending_next = asyncio.ensure_future(gen.__anext__())
         try:
@@ -451,6 +455,8 @@ async def collect_query_response(
     thinking: bool = False,
     conversation_log=None,
     context_manager=None,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
 ) -> dict[str, Any]:
     """消费 query() 的 async generator，收集为完整的 ChatCompletion 响应。
 
@@ -492,6 +498,8 @@ async def collect_query_response(
             history_messages=model_history,
             system_prompt=system_prompt,
             compactor=context_manager.compactor if context_manager else None,
+            temperature=temperature,
+            max_tokens=max_tokens,
         ):
             if isinstance(item, AgentStopEvent):
                 if item.stop_reason in ("ask_user", "permission_request", "max_turns"):

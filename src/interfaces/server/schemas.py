@@ -26,6 +26,9 @@ class ChatCompletionRequest(BaseModel):
     temperature: float | None = None
     max_tokens: int | None = None
     thinking: bool = False
+    # 说明：messages 中的 role="system" 条目会被提取并作为 "caller system prompt"，
+    # 追加到 ripple 默认 system prompt 之后（而非替换）。若本次请求未带任何 system
+    # 消息，则清空 session 上记忆的 caller 段，仅使用默认 prompt。
 
 
 # ─── Chat Completions 响应（非流式） ───
@@ -105,6 +108,8 @@ class FeishuConfig(BaseModel):
 class CreateSessionRequest(BaseModel):
     model: str | None = None
     max_turns: int | None = None
+    # 调用方自定义 system prompt，会追加在 ripple 默认 prompt 之后，并标注为
+    # "Caller Instructions (HIGHEST PRIORITY)" —— 与默认 prompt 冲突时以此为准。
     system_prompt: str | None = None
     feishu: FeishuConfig | None = None
 

@@ -119,6 +119,31 @@ def _extract_user_input(request: ChatCompletionRequest) -> str:
     return ""
 
 
+def _extract_caller_system_prompt(request: ChatCompletionRequest) -> str | None:
+    """从 OpenAI 格式的 messages 中收集所有 role=system 的内容，按顺序拼接
+
+    返回值语义：
+    - 至少有一条非空 system 消息 → 返回拼接后的字符串
+    - 没有或全部为空 → 返回 None（调用方视为"未传"，会清空 session 上的 caller 段）
+    """
+    parts: list[str] = []
+    for msg in request.messages:
+        if msg.role != "system":
+            continue
+        if isinstance(msg.content, str):
+            if msg.content.strip():
+                parts.append(msg.content)
+        elif isinstance(msg.content, list):
+            for b in msg.content:
+                if isinstance(b, dict) and b.get("type") == "text":
+                    text = b.get("text", "")
+                    if text.strip():
+                        parts.append(text)
+    if not parts:
+        return None
+    return "\n\n".join(parts)
+
+
 @router.post("/v1/chat/completions")
 async def chat_completions(
     request: ChatCompletionRequest,
@@ -130,6 +155,7 @@ async def chat_completions(
     resolved_model = config.resolve_model(request.model)
     max_turns = request.max_turns or config.get("agent.max_turns", 10)
     user_input = _extract_user_input(request)
+    caller_system_prompt = _extract_caller_system_prompt(request)
 
     if not user_input:
         raise HTTPException(status_code=400, detail="No user message found in messages")
@@ -138,11 +164,25 @@ async def chat_completions(
         session_id=request.session_id,
         model=request.model,
         max_turns=max_turns,
+        caller_system_prompt=caller_system_prompt,
     )
+
+    # 对已存在的 session：本轮带了 system 就覆盖，没带就清空 caller 段（仅默认 prompt 生效）
+    if not is_new:
+        session.caller_system_prompt = caller_system_prompt
 
     if request.stream:
         return StreamingResponse(
-            _stream_chat(session, user_input, resolved_model, max_turns, request.thinking, manager),
+            _stream_chat(
+                session,
+                user_input,
+                resolved_model,
+                max_turns,
+                request.thinking,
+                manager,
+                temperature=request.temperature,
+                max_tokens=request.max_tokens,
+            ),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -151,15 +191,34 @@ async def chat_completions(
             },
         )
     else:
-        return await _non_stream_chat(session, user_input, resolved_model, max_turns, request.thinking, manager)
+        return await _non_stream_chat(
+            session,
+            user_input,
+            resolved_model,
+            max_turns,
+            request.thinking,
+            manager,
+            temperature=request.temperature,
+            max_tokens=request.max_tokens,
+        )
 
 
 async def _stream_chat(
-    session, user_input: str, model: str, max_turns: int, thinking: bool = False, manager: SessionManager | None = None
+    session,
+    user_input: str,
+    model: str,
+    max_turns: int,
+    thinking: bool = False,
+    manager: SessionManager | None = None,
+    *,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
 ):
     """流式聊天：返回 SSE 事件生成器"""
     import asyncio
     import json as _json
+
+    from interfaces.server.sessions import _merge_system_prompt
 
     with session_context(session.session_id):
         try:
@@ -173,6 +232,9 @@ async def _stream_chat(
                     from ripple.core.context import AbortSignal
 
                     session.context.abort_signal = AbortSignal()
+                # 每轮动态合并：默认 prompt（刷新日期和 skill 列表） + caller 段
+                workspace_root = session.context.workspace_root if session.context else None
+                merged_system_prompt = _merge_system_prompt(workspace_root, session.caller_system_prompt)
                 try:
                     async for sse_line in stream_query_as_sse(
                         user_input=user_input,
@@ -181,10 +243,12 @@ async def _stream_chat(
                         model=model,
                         max_turns=max_turns,
                         history_messages=session.messages,
-                        system_prompt=session.system_prompt,
+                        system_prompt=merged_system_prompt,
                         thinking=thinking,
                         conversation_log=session.conversation_log,
                         context_manager=session.context_manager,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
                     ):
                         if sse_line.startswith("data: ") and sse_line.strip() not in ("data: [DONE]",):
                             try:
@@ -241,9 +305,14 @@ async def _non_stream_chat(
     max_turns: int,
     thinking: bool = False,
     manager: SessionManager | None = None,
+    *,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
 ) -> dict[str, Any]:
     """非流式聊天：收集完整响应"""
     import asyncio
+
+    from interfaces.server.sessions import _merge_system_prompt
 
     with session_context(session.session_id):
         try:
@@ -257,6 +326,8 @@ async def _non_stream_chat(
                     from ripple.core.context import AbortSignal
 
                     session.context.abort_signal = AbortSignal()
+                workspace_root = session.context.workspace_root if session.context else None
+                merged_system_prompt = _merge_system_prompt(workspace_root, session.caller_system_prompt)
                 try:
                     result = await collect_query_response(
                         user_input=user_input,
@@ -265,10 +336,12 @@ async def _non_stream_chat(
                         model=model,
                         max_turns=max_turns,
                         history_messages=session.messages,
-                        system_prompt=session.system_prompt,
+                        system_prompt=merged_system_prompt,
                         thinking=thinking,
                         conversation_log=session.conversation_log,
                         context_manager=session.context_manager,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
                     )
                     usage = result.get("usage", {})
                     if usage:
@@ -336,7 +409,7 @@ async def create_session(
     session = manager.create_session(
         model=request.model,
         max_turns=request.max_turns,
-        system_prompt=request.system_prompt,
+        caller_system_prompt=request.system_prompt,
         feishu=request.feishu,
     )
     return SessionInfo(

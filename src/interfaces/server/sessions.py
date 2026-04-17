@@ -5,7 +5,11 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
 from uuid import uuid4
+
+if TYPE_CHECKING:
+    from interfaces.server.schemas import FeishuConfig
 
 from ripple.api.client import OpenRouterClient
 from ripple.compact.context_manager import ContextManager
@@ -316,11 +320,25 @@ class SessionManager:
             compactor_state=session.context_manager.get_compactor_state() if session.context_manager else None,
         )
 
+    def _write_feishu_config(self, session_id: str, feishu: "FeishuConfig") -> None:
+        """将飞书凭证写入 session 目录的 feishu.json"""
+        import json
+
+        if not self._sandbox_manager:
+            return
+        feishu_file = self._sandbox_manager.config.feishu_config_file(session_id)
+        feishu_file.write_text(
+            json.dumps({"app_id": feishu.app_id, "app_secret": feishu.app_secret, "brand": feishu.brand}, indent=2),
+            encoding="utf-8",
+        )
+        logger.debug("写入 session {} feishu.json", session_id)
+
     def create_session(
         self,
         model: str | None = None,
         max_turns: int | None = None,
         system_prompt: str | None = None,
+        feishu: "FeishuConfig | None" = None,
     ) -> Session:
         config = get_config()
         resolved_model = config.resolve_model(model or config.get("model.default", "sonnet"))
@@ -333,6 +351,8 @@ class SessionManager:
         workspace_root = None
         if self._sandbox_manager:
             workspace_root = self._sandbox_manager.setup_session(session_id)
+            if feishu:
+                self._write_feishu_config(session_id, feishu)
 
         context, client = _create_session_context(
             resolved_model,

@@ -6,7 +6,7 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
-import { ChevronRight, Brain } from "lucide-react";
+import { ChevronRight, Brain, ExternalLink, KeyRound, Settings2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 /**
@@ -58,9 +58,13 @@ interface MarkdownRendererProps {
   className?: string;
 }
 
+type FeishuTag = "setup" | "auth";
+
 interface ContentSegment {
-  type: "text" | "thinking";
+  type: "text" | "thinking" | "feishu";
   content: string;
+  tag?: FeishuTag;
+  url?: string;
 }
 
 function parseThinkingBlocks(content: string): ContentSegment[] {
@@ -72,7 +76,7 @@ function parseThinkingBlocks(content: string): ContentSegment[] {
   while ((match = regex.exec(content)) !== null) {
     if (match.index > lastIndex) {
       const text = content.slice(lastIndex, match.index).trim();
-      if (text) segments.push({ type: "text", content: text });
+      if (text) segments.push(...parseFeishuBlocks(text));
     }
     const thinking = match[1].trim();
     if (thinking) segments.push({ type: "thinking", content: thinking });
@@ -81,10 +85,88 @@ function parseThinkingBlocks(content: string): ContentSegment[] {
 
   if (lastIndex < content.length) {
     const text = content.slice(lastIndex).trim();
-    if (text) segments.push({ type: "text", content: text });
+    if (text) segments.push(...parseFeishuBlocks(text));
   }
 
-  return segments.length > 0 ? segments : [{ type: "text", content }];
+  return segments.length > 0 ? segments : parseFeishuBlocks(content);
+}
+
+/**
+ * 识别 bash 工具返回的飞书标签，转换为可交互的按钮卡片。
+ *
+ * 标签由 `_ensure_lark_cli_if_needed` (bash.py) 或 SKILL 指导下的模型输出产生：
+ *   [FEISHU_SETUP] ... https://open.feishu.cn/page/cli?user_code=...
+ *   [FEISHU_AUTH]  ... https://accounts.feishu.cn/...
+ *
+ * 匹配策略：从标签起扫到第一个 http(s) URL（含），整段替换为 feishu 卡片；
+ * 前后的普通文本保留为独立的 text segment。
+ */
+function parseFeishuBlocks(text: string): ContentSegment[] {
+  const segments: ContentSegment[] = [];
+  const re = /\[FEISHU_(SETUP|AUTH)\][\s\S]*?(https?:\/\/\S+)/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) {
+      const before = text.slice(last, m.index).trim();
+      if (before) segments.push({ type: "text", content: before });
+    }
+    const tag: FeishuTag = m[1] === "SETUP" ? "setup" : "auth";
+    segments.push({ type: "feishu", content: m[0], tag, url: m[2] });
+    last = m.index + m[0].length;
+  }
+
+  if (last < text.length) {
+    const tail = text.slice(last).trim();
+    if (tail) segments.push({ type: "text", content: tail });
+  }
+
+  return segments.length > 0 ? segments : [{ type: "text", content: text }];
+}
+
+function FeishuCard({ tag, url }: { tag: FeishuTag; url: string }) {
+  const isSetup = tag === "setup";
+  const title = isSetup ? "配置飞书应用" : "飞书授权登录";
+  const subtitle = isSetup
+    ? "该 session 尚未配置飞书应用。点击下方按钮在浏览器中完成创建。"
+    : "AI Agent 请求访问你的飞书数据。点击下方按钮完成授权。";
+  const Icon = isSetup ? Settings2 : KeyRound;
+  const accent = isSetup ? "#3b82f6" : "#10b981";
+
+  return (
+    <div
+      className="my-2 overflow-hidden rounded-xl border bg-[#18181b]"
+      style={{ borderColor: `${accent}40` }}
+    >
+      <div className="flex items-center gap-2 px-4 py-3" style={{ backgroundColor: `${accent}14` }}>
+        <Icon size={16} style={{ color: accent }} />
+        <span className="text-sm font-medium" style={{ color: accent }}>
+          {title}
+        </span>
+      </div>
+      <div className="space-y-3 px-4 py-3">
+        <p className="text-sm text-[#a1a1aa]">{subtitle}</p>
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors"
+          style={{
+            borderColor: `${accent}66`,
+            color: accent,
+            backgroundColor: `${accent}0d`,
+          }}
+        >
+          {isSetup ? "打开配置链接" : "打开授权链接"}
+          <ExternalLink size={13} />
+        </a>
+        <div className="font-[family-name:var(--font-mono)] text-[11px] break-all text-[#52525b]">
+          {url}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function ThinkingBlock({ content }: { content: string }) {
@@ -198,9 +280,9 @@ function MarkdownContent({ content }: { content: string }) {
 
 export default function MarkdownRenderer({ content, className = "" }: MarkdownRendererProps) {
   const segments = parseThinkingBlocks(content);
-  const hasThinking = segments.some((s) => s.type === "thinking");
+  const hasSpecial = segments.some((s) => s.type !== "text");
 
-  if (!hasThinking) {
+  if (!hasSpecial) {
     return (
       <div className={`markdown-body ${className}`}>
         <MarkdownContent content={content} />
@@ -210,13 +292,15 @@ export default function MarkdownRenderer({ content, className = "" }: MarkdownRe
 
   return (
     <div className={`markdown-body ${className}`}>
-      {segments.map((segment, i) =>
-        segment.type === "thinking" ? (
-          <ThinkingBlock key={i} content={segment.content} />
-        ) : (
-          <MarkdownContent key={i} content={segment.content} />
-        )
-      )}
+      {segments.map((segment, i) => {
+        if (segment.type === "thinking") {
+          return <ThinkingBlock key={i} content={segment.content} />;
+        }
+        if (segment.type === "feishu" && segment.url && segment.tag) {
+          return <FeishuCard key={i} tag={segment.tag} url={segment.url} />;
+        }
+        return <MarkdownContent key={i} content={segment.content} />;
+      })}
     </div>
   );
 }

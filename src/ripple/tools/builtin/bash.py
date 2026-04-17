@@ -24,9 +24,16 @@ _PYTHON_CMD_PATTERN = re.compile(
     r"(?:^|&&|\|\||;|\|)\s*(?:uv\s+(?:pip|run|add)|(?:/\S+/)?python3?|(?:/\S+/)?pip3?)\b",
 )
 
-# 匹配需要 pnpm 全局环境的命令
+# 匹配需要 pnpm 全局环境的命令。
+# 注意：lark-cli 是宿主预装的 Go 静态二进制（/usr/local/bin/lark-cli），
+# 通过只读 bind mount 可在沙箱直接运行，无需 Node/pnpm 环境 — 因此不在此列表中。
 _NODE_CMD_PATTERN = re.compile(
-    r"(?:^|&&|\|\||;|\|)\s*(?:pnpm|npx|npm|node|corepack|lark-cli)\b",
+    r"(?:^|&&|\|\||;|\|)\s*(?:pnpm|npx|npm|node|corepack)\b",
+)
+
+# 匹配需要 lark-cli 的命令
+_LARK_CLI_CMD_PATTERN = re.compile(
+    r"(?:^|&&|\|\||;|\|)\s*lark-cli\b",
 )
 
 
@@ -62,6 +69,11 @@ def _needs_python_venv(command: str) -> bool:
 def _needs_node_env(command: str) -> bool:
     """判断命令是否需要 Node.js/pnpm 环境"""
     return bool(_NODE_CMD_PATTERN.search(command))
+
+
+def _needs_lark_cli(command: str) -> bool:
+    """判断命令是否需要 lark-cli"""
+    return bool(_LARK_CLI_CMD_PATTERN.search(command))
 
 
 class BashTool(Tool[BashInput, BashOutput]):
@@ -150,6 +162,33 @@ class BashTool(Tool[BashInput, BashOutput]):
             return f"[SANDBOX] Failed to initialize pnpm environment: {msg}"
         return None
 
+    async def _ensure_lark_cli_if_needed(self, command: str, session_id: str) -> str | None:
+        """确保 lark-cli 已配置 app 凭证。返回错误/提示信息或 None。
+
+        lark-cli 二进制由宿主机预装（/usr/local/bin/lark-cli，readonly bind
+        mount 到沙箱），无需 per-session 安装。仅在凭证缺失时启动沙箱内
+        `config init --new` 并把 setup URL 返回给模型。
+        """
+        if not _needs_lark_cli(command):
+            return None
+
+        if not _sandbox_config.lark_cli_bin:
+            return "[SANDBOX] lark-cli 未预装（宿主机）。请联系管理员执行: bash scripts/install-feishu-cli.sh"
+
+        from ripple.sandbox.executor import ensure_lark_cli_config
+
+        success, msg = await ensure_lark_cli_config(_sandbox_config, session_id)
+        if success:
+            return None
+
+        if msg.startswith("http"):
+            return (
+                f"[FEISHU_SETUP] 飞书应用尚未配置。请让用户点击以下链接完成配置：\n\n"
+                f"  {msg}\n\n"
+                f"用户完成配置后，重新执行命令即可。"
+            )
+        return f"[SANDBOX] lark-cli 准备失败: {msg}"
+
     def _wrap_with_venv_activation(self, command: str, session_id: str) -> str:
         """如果 workspace 内存在 venv，自动在命令前激活它"""
         if _sandbox_config.has_python_venv(session_id):
@@ -169,6 +208,10 @@ class BashTool(Tool[BashInput, BashOutput]):
         # 懒初始化 pnpm 全局环境（失败时直接返回错误，不继续执行）
         if pnpm_err := await self._ensure_pnpm_if_needed(args.command, session_id):
             return "", pnpm_err, 1
+
+        # 懒安装 lark-cli（失败时直接返回错误，不继续执行）
+        if lark_err := await self._ensure_lark_cli_if_needed(args.command, session_id):
+            return "", lark_err, 1
 
         # 自动激活已有 venv
         command = self._wrap_with_venv_activation(args.command, session_id)

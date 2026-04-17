@@ -10,6 +10,13 @@ NPM_MIRROR_NPMMIRROR = "https://registry.npmmirror.com"
 SANDBOX_NODE_DIR = "/opt/node"
 SANDBOX_PNPM_STORE = "/pnpm-store"
 
+# lark-cli 预装根目录（宿主机 = 沙箱内路径一致，只读 bind mount）。
+# 二进制布局由 scripts/install-feishu-cli.sh 维护：
+#   /opt/lark-cli/vX.Y.Z/bin/lark-cli
+#   /opt/lark-cli/current -> vX.Y.Z
+#   /usr/local/bin/lark-cli -> /opt/lark-cli/current/bin/lark-cli
+LARK_CLI_INSTALL_ROOT = "/opt/lark-cli"
+
 
 @dataclass
 class ResourceLimits:
@@ -48,6 +55,24 @@ def _discover_node_dir() -> str | None:
         # node 二进制通常位于 <install_root>/bin/node
         if real_path.parent.name == "bin":
             return str(real_path.parent.parent)
+    return None
+
+
+def _discover_lark_cli_bin() -> str | None:
+    """自动发现宿主机上的 lark-cli 二进制路径
+
+    探测顺序：
+      1. /usr/local/bin/lark-cli (脚本默认安装位置，通常是 symlink)
+      2. shutil.which("lark-cli")
+
+    沙箱内以同样的路径可见（通过 /usr + /opt/lark-cli 的只读 bind mount）。
+    """
+    default = Path("/usr/local/bin/lark-cli")
+    if default.exists() or default.is_symlink():
+        return str(default)
+    found = shutil.which("lark-cli")
+    if found:
+        return found
     return None
 
 
@@ -117,6 +142,11 @@ class SandboxConfig:
     pnpm_store_dir: str | None = field(default=None)
     npm_registry_url: str = field(default=NPM_MIRROR_NPMMIRROR)
 
+    # --- lark-cli ---
+    # 宿主机预装的 lark-cli 二进制路径。通过 readonly bind mount 挂进沙箱。
+    # 由 scripts/install-feishu-cli.sh 安装到 /usr/local/bin/lark-cli。
+    lark_cli_bin: str | None = field(default=None)
+
     def __post_init__(self):
         if self.uv_bin_dir is None:
             self.uv_bin_dir = _discover_uv_bin_dir()
@@ -124,6 +154,8 @@ class SandboxConfig:
             self.node_dir = _discover_node_dir()
         if self.pnpm_store_dir is None:
             self.pnpm_store_dir = _discover_pnpm_store_dir()
+        if self.lark_cli_bin is None:
+            self.lark_cli_bin = _discover_lark_cli_bin()
 
     @property
     def sessions_dir(self) -> Path:
@@ -180,6 +212,18 @@ class SandboxConfig:
         """
         return (self.workspace_dir(session_id) / ".local" / ".node-setup-done").exists()
 
+    def has_lark_cli_config(self, session_id: str) -> bool:
+        """检查 session 是否已配置 lark-cli app 凭证
+
+        判定依据：沙箱内 `$HOME=/workspace`，lark-cli 把 app 配置写到
+        `/workspace/.lark-cli/config.json`，对应宿主 workspace 目录下的同路径。
+        """
+        return (self.workspace_dir(session_id) / ".lark-cli" / "config.json").exists()
+
+    def feishu_config_file(self, session_id: str) -> Path:
+        """session 级飞书凭证配置文件路径（宿主机侧）"""
+        return self.session_dir(session_id) / "feishu.json"
+
     @classmethod
     def from_dict(cls, data: dict) -> "SandboxConfig":
         root = Path(data["sandboxes_root"]) if "sandboxes_root" in data else _default_sandboxes_root()
@@ -220,4 +264,5 @@ class SandboxConfig:
             node_dir=data.get("node_dir"),
             pnpm_store_dir=data.get("pnpm_store_dir"),
             npm_registry_url=data.get("npm_registry_url", NPM_MIRROR_NPMMIRROR),
+            lark_cli_bin=data.get("lark_cli_bin"),
         )

@@ -7,9 +7,10 @@ import asyncio
 import os
 import shutil
 import textwrap
+from dataclasses import dataclass as _dc
 from pathlib import Path
 
-from ripple.sandbox.config import SANDBOX_NODE_DIR, SANDBOX_PNPM_STORE, SandboxConfig
+from ripple.sandbox.config import LARK_CLI_INSTALL_ROOT, SANDBOX_NODE_DIR, SANDBOX_PNPM_STORE, SandboxConfig
 from ripple.utils.logger import get_logger
 
 logger = get_logger("sandbox.executor")
@@ -27,6 +28,7 @@ SANDBOX_NODE_BIN = "/workspace/.local/bin"
 # per-session 锁，防止并发懒创建时目录竞争
 _venv_locks: dict[str, asyncio.Lock] = {}
 _pnpm_locks: dict[str, asyncio.Lock] = {}
+_lark_cli_config_locks: dict[str, asyncio.Lock] = {}
 
 
 def check_nsjail_available(nsjail_path: str = "nsjail"):
@@ -167,6 +169,17 @@ def generate_nsjail_config(config: SandboxConfig, session_id: str) -> str:
     dst: "{SANDBOX_COREPACK_HOME}"
     is_bind: true
     rw: true
+}}""")
+
+    # lark-cli 原生二进制安装根（只读，所有 session 共享）。
+    # /usr/local/bin/lark-cli -> /opt/lark-cli/current/bin/lark-cli，必须挂
+    # /opt/lark-cli 整个目录 symlink 才能在沙箱内被解析。
+    if config.lark_cli_bin and Path(LARK_CLI_INSTALL_ROOT).exists():
+        mounts.append(f"""mount {{
+    src: "{LARK_CLI_INSTALL_ROOT}"
+    dst: "{LARK_CLI_INSTALL_ROOT}"
+    is_bind: true
+    rw: false
 }}""")
 
     mounts.append(f"""mount {{
@@ -411,3 +424,260 @@ async def ensure_pnpm_setup(
             msg = f"Node.js 全局环境初始化失败 (exit={exit_code}): {stderr or stdout}"
             logger.warning("session {} {}", session_id, msg)
             return False, msg
+
+
+# ---------------------------------------------------------------------------
+# lark-cli 配置流程（二进制由宿主机预装 + bind mount 提供）
+# ---------------------------------------------------------------------------
+#
+# 设计约定：
+# 1. lark-cli 原生二进制由宿主机 scripts/install-feishu-cli.sh 预装，路径
+#    /usr/local/bin/lark-cli -> /opt/lark-cli/current/bin/lark-cli，
+#    /opt/lark-cli 以只读方式 bind mount 进所有沙箱。
+# 2. per-session 凭证完全隔离：沙箱内 HOME=/workspace，lark-cli 的 app 配置
+#    自然写到 /workspace/.lark-cli/config.json（= 宿主 workspace_dir/.lark-cli/...）。
+# 3. `config init --new`（交互式，阻塞等浏览器）改在沙箱内 spawn，宿主进程只
+#    保留句柄做后台管理 — 进程输出的任何副作用都在沙箱 /workspace 内。
+# 4. 凭证 seed (feishu.json) 通过 stdin pipe 喂给沙箱内 `lark-cli config init
+#    --app-id X --app-secret-stdin --brand Y`，**绝不**进 argv 或 shell 拼接。
+
+
+def _get_feishu_credentials(config: SandboxConfig, session_id: str) -> tuple[str, str, str] | None:
+    """读取飞书 app 凭证，返回 (app_id, app_secret, brand) 或 None
+
+    仅从 session 级 feishu.json 读取（严格 per-session 隔离）。
+    """
+    import json
+
+    feishu_file = config.feishu_config_file(session_id)
+    if feishu_file.exists():
+        try:
+            data = json.loads(feishu_file.read_text(encoding="utf-8"))
+            app_id = data.get("app_id", "")
+            app_secret = data.get("app_secret", "")
+            if app_id and app_secret:
+                return app_id, app_secret, data.get("brand", "feishu")
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning("session {} feishu.json 读取失败: {}", session_id, e)
+    return None
+
+
+@_dc
+class _FeishuSetupState:
+    """一个 session 正在进行中的 `lark-cli config init --new` 进程
+
+    进程运行在 nsjail 沙箱内，输出（QR + URL）通过 stdout/stderr 合流抓取。
+    """
+
+    process: asyncio.subprocess.Process
+    url: str
+
+
+_feishu_setup_states: dict[str, _FeishuSetupState] = {}
+
+
+async def _extract_url_from_process(proc: asyncio.subprocess.Process, timeout_seconds: int = 30) -> str:
+    """从进程的合并输出中提取 URL（阻塞直到 URL 出现或超时）
+
+    `config init --new` 会先输出 ASCII QR 码再输出 `https://...` 链接，
+    总耗时通常 < 5s。此函数逐行读取，匹配到第一个 http(s) URL 即返回。
+    """
+    import re
+
+    url_pattern = re.compile(r"https?://\S+")
+    assert proc.stdout is not None
+    deadline = asyncio.get_event_loop().time() + timeout_seconds
+    while asyncio.get_event_loop().time() < deadline:
+        try:
+            line = await asyncio.wait_for(proc.stdout.readline(), timeout=5)
+        except asyncio.TimeoutError:
+            continue
+        if not line:
+            break
+        text = line.decode(errors="replace")
+        m = url_pattern.search(text)
+        if m:
+            return m.group(0)
+    return ""
+
+
+def _build_nsjail_argv(config: SandboxConfig, session_id: str, command: str) -> list[str]:
+    """构造 nsjail + bash -c 的命令行，复用已有的 per-session nsjail.cfg。
+
+    cfg 文件必须已存在（调用方应先经过 execute_in_sandbox 或 write_nsjail_config）。
+    """
+    cfg_path = config.nsjail_cfg_file(session_id)
+    if not cfg_path.exists():
+        write_nsjail_config(config, session_id)
+    return [
+        config.nsjail_path,
+        "--config",
+        str(cfg_path),
+        "--",
+        "/bin/bash",
+        "-c",
+        command,
+    ]
+
+
+async def _start_feishu_setup(
+    config: SandboxConfig,
+    session_id: str,
+) -> tuple[bool, str]:
+    """在沙箱内启动 `lark-cli config init --new`，提取 URL 后立即返回。
+
+    进程保持后台运行直到用户完成浏览器配置；完成后沙箱内会写入
+    /workspace/.lark-cli/config.json，宿主侧通过 `has_lark_cli_config` 感知。
+
+    Returns:
+        (False, setup_url)  — URL 已就绪，等待用户点击
+        (False, error_msg)  — 启动失败
+    """
+    if not config.lark_cli_bin:
+        return False, "lark-cli 未预装（宿主机），无法启动配置流程"
+
+    # 确保 nsjail cfg 已生成
+    if not config.nsjail_cfg_file(session_id).exists():
+        write_nsjail_config(config, session_id)
+
+    argv = _build_nsjail_argv(config, session_id, "lark-cli config init --new 2>&1")
+
+    proc = await asyncio.create_subprocess_exec(
+        *argv,
+        stdin=asyncio.subprocess.DEVNULL,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+
+    url = await _extract_url_from_process(proc)
+    if not url:
+        proc.kill()
+        await proc.wait()
+        return False, "无法从 config init --new 输出中提取配置链接"
+
+    _feishu_setup_states[session_id] = _FeishuSetupState(process=proc, url=url)
+    logger.info("session {} 飞书配置流程已在沙箱内启动，URL: {}", session_id, url)
+    return False, url
+
+
+async def _check_feishu_setup(
+    config: SandboxConfig,
+    session_id: str,
+) -> tuple[bool, str]:
+    """检查沙箱内 config init --new 进程状态。
+
+    Returns:
+        (True, "")          — 配置完成，/workspace/.lark-cli/config.json 已生成
+        (False, url)        — 仍在等待用户点击
+        (False, error_msg)  — 进程异常退出
+    """
+    state = _feishu_setup_states.get(session_id)
+    if not state:
+        return False, ""
+
+    if state.process.returncode is None:
+        try:
+            await asyncio.wait_for(state.process.wait(), timeout=0.1)
+        except asyncio.TimeoutError:
+            return False, state.url
+
+    exit_code = state.process.returncode
+    del _feishu_setup_states[session_id]
+
+    if exit_code != 0:
+        return False, f"config init --new 失败 (exit={exit_code})"
+
+    # config init --new 正常退出会把凭证写到 /workspace/.lark-cli/config.json
+    if not config.has_lark_cli_config(session_id):
+        return False, "config init --new 退出但未生成 config.json"
+
+    logger.info("session {} 飞书 app 配置完成", session_id)
+    return True, ""
+
+
+async def _inject_feishu_credentials(
+    config: SandboxConfig,
+    session_id: str,
+    app_id: str,
+    app_secret: str,
+    brand: str,
+) -> tuple[bool, str]:
+    """将已有的 app 凭证（feishu.json）通过 stdin 注入沙箱内 lark-cli。
+
+    命令参数里只带非敏感的 app_id / brand；app_secret 通过 stdin 传入
+    `--app-secret-stdin`，避免 argv / shell 历史 / ps aux 泄漏。
+    """
+    import shlex
+
+    # app_id / brand 通过 shlex.quote 严格转义；app_secret 不入命令行
+    quoted_app_id = shlex.quote(app_id)
+    quoted_brand = shlex.quote(brand)
+    inner_cmd = f"lark-cli config init --app-id {quoted_app_id} --app-secret-stdin --brand {quoted_brand} 2>&1"
+    argv = _build_nsjail_argv(config, session_id, inner_cmd)
+
+    proc = await asyncio.create_subprocess_exec(
+        *argv,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+
+    try:
+        stdout_bytes, _ = await asyncio.wait_for(
+            proc.communicate(input=f"{app_secret}\n".encode()),
+            timeout=30,
+        )
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.wait()
+        return False, "lark-cli 凭证注入超时"
+
+    output = stdout_bytes.decode(errors="replace") if stdout_bytes else ""
+    exit_code = proc.returncode or 0
+    if exit_code == 0:
+        logger.info("session {} lark-cli app 凭证注入成功", session_id)
+        return True, ""
+    return False, f"lark-cli 凭证注入失败 (exit={exit_code}): {output.strip()}"
+
+
+async def ensure_lark_cli_config(
+    config: SandboxConfig,
+    session_id: str,
+) -> tuple[bool, str]:
+    """确保沙箱内 lark-cli 已配置 app 凭证。
+
+    三阶段逻辑（lark-cli 二进制由宿主预装，不再有"懒安装"步骤）：
+      1. 沙箱内已有 `/workspace/.lark-cli/config.json` → 直接返回
+      2. 宿主 feishu.json 有种子凭证 → 通过 stdin 注入沙箱
+      3. 无凭证 → 检查或启动沙箱内 `config init --new`，返回 setup URL
+
+    Returns:
+        (True, "")          — 配置就绪
+        (False, setup_url)  — 需要用户点击链接完成配置
+        (False, error_msg)  — 错误
+    """
+    if not config.lark_cli_bin:
+        return False, ("lark-cli 未预装（宿主机）。请管理员执行: bash scripts/install-feishu-cli.sh")
+
+    if config.has_lark_cli_config(session_id):
+        return True, ""
+
+    lock = _lark_cli_config_locks.setdefault(session_id, asyncio.Lock())
+    async with lock:
+        if config.has_lark_cli_config(session_id):
+            return True, ""
+
+        # 阶段 2：有 seed 凭证 → stdin 注入
+        creds = _get_feishu_credentials(config, session_id)
+        if creds:
+            app_id, app_secret, brand = creds
+            return await _inject_feishu_credentials(config, session_id, app_id, app_secret, brand)
+
+        # 阶段 3：检查/启动沙箱内 config init --new
+        if session_id in _feishu_setup_states:
+            ok, msg = await _check_feishu_setup(config, session_id)
+            if ok:
+                return True, ""
+            return False, msg
+
+        return await _start_feishu_setup(config, session_id)

@@ -337,6 +337,7 @@ async def create_session(
         model=request.model,
         max_turns=request.max_turns,
         system_prompt=request.system_prompt,
+        feishu=request.feishu,
     )
     return SessionInfo(
         session_id=session.session_id,

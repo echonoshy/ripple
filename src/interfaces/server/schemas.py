@@ -94,10 +94,19 @@ class ModelsResponse(BaseModel):
 # ─── Session 管理 ───
 
 
+class FeishuConfig(BaseModel):
+    """飞书应用凭证（per-session）"""
+
+    app_id: str
+    app_secret: str
+    brand: str = "feishu"
+
+
 class CreateSessionRequest(BaseModel):
     model: str | None = None
     max_turns: int | None = None
     system_prompt: str | None = None
+    feishu: FeishuConfig | None = None
 
 
 class SessionInfo(BaseModel):

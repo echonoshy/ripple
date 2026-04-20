@@ -10,6 +10,17 @@ NPM_MIRROR_NPMMIRROR = "https://registry.npmmirror.com"
 SANDBOX_NODE_DIR = "/opt/node"
 SANDBOX_PNPM_STORE = "/pnpm-store"
 
+# uv / corepack 缓存路径（所有 session 共享，通过 bind mount rw 挂入沙箱）
+SANDBOX_UV_CACHE_PATH = "/uv-cache"
+SANDBOX_COREPACK_HOME = "/corepack-cache"
+
+# Node.js 全局安装目录（遵循 ~/.local 约定）
+# npm:  NPM_CONFIG_PREFIX=/workspace/.local → bin 在 /workspace/.local/bin/
+# pnpm: PNPM_HOME=/workspace/.local/bin → bin 直接在 /workspace/.local/bin/
+# 两者的全局 CLI 二进制统一落在 /workspace/.local/bin/，只需一个 PATH 条目
+SANDBOX_NODE_PREFIX = "/workspace/.local"
+SANDBOX_NODE_BIN = "/workspace/.local/bin"
+
 # lark-cli 预装根目录（宿主机 = 沙箱内路径一致，只读 bind mount）。
 # 二进制布局由 scripts/install-feishu-cli.sh 维护：
 #   /opt/lark-cli/vX.Y.Z/bin/lark-cli
@@ -29,10 +40,16 @@ class ResourceLimits:
     command_timeout: int = 300
 
 
-def _default_sandboxes_root() -> Path:
-    from ripple.utils.paths import SERVER_SANDBOXES_DIR
+def _default_sessions_root() -> Path:
+    from ripple.utils.paths import SESSIONS_DIR
 
-    return SERVER_SANDBOXES_DIR
+    return SESSIONS_DIR
+
+
+def _default_caches_root() -> Path:
+    from ripple.utils.paths import SANDBOXES_CACHE_DIR
+
+    return SANDBOXES_CACHE_DIR
 
 
 def _discover_uv_bin_dir() -> str | None:
@@ -103,9 +120,21 @@ def _discover_pnpm_store_dir() -> str | None:
 
 @dataclass
 class SandboxConfig:
-    """沙箱配置（nsjail 隔离）"""
+    """沙箱配置（nsjail 隔离）
 
-    sandboxes_root: Path = field(default_factory=lambda: _default_sandboxes_root())
+    目录布局：
+    - sessions_root/<sid>/                ← 每个 session 的完整运行时状态
+        ├── meta.json, messages.jsonl, tasks.json, nsjail.cfg, feishu.json
+        ├── task-outputs/                 ← AgentTool 后台任务的输出
+        └── workspace/                    ← 沙箱工作区（用户文件）
+    - caches_root/
+        ├── uv-cache/
+        ├── corepack-cache/
+        └── pnpm-store/                   (可选)
+    """
+
+    sessions_root: Path = field(default_factory=lambda: _default_sessions_root())
+    caches_root: Path = field(default_factory=lambda: _default_caches_root())
 
     resource_limits: ResourceLimits = field(default_factory=ResourceLimits)
 
@@ -158,24 +187,20 @@ class SandboxConfig:
             self.lark_cli_bin = _discover_lark_cli_bin()
 
     @property
-    def sessions_dir(self) -> Path:
-        return self.sandboxes_root / "sessions"
-
-    @property
     def uv_cache_dir(self) -> Path:
         """全局共享的 uv cache 目录（所有 session 共用，通过硬链接去重）"""
-        return self.sandboxes_root / "uv-cache"
+        return self.caches_root / "uv-cache"
 
     @property
     def pnpm_cache_dir(self) -> Path:
         """全局共享的 pnpm store 目录（所有 session 共用，通过硬链接去重）
 
-        如果宿主机已有 pnpm store 且与 sandboxes_root 在同一文件系统上，
-        则直接使用宿主机 store（最大化硬链接共享）；否则在 sandboxes_root 下新建。
+        如果宿主机已有 pnpm store 且与 caches_root 在同一文件系统上，
+        则直接使用宿主机 store（最大化硬链接共享）；否则在 caches_root 下新建。
         """
         if self.pnpm_store_dir:
             return Path(self.pnpm_store_dir)
-        return self.sandboxes_root / "pnpm-store"
+        return self.caches_root / "pnpm-store"
 
     @property
     def corepack_cache_dir(self) -> Path:
@@ -184,10 +209,10 @@ class SandboxConfig:
         corepack 负责下载 pnpm 等包管理器自身的二进制。共享此缓存后，
         只有第一个 session 需要下载，后续 session 直接复用。
         """
-        return self.sandboxes_root / "corepack-cache"
+        return self.caches_root / "corepack-cache"
 
     def session_dir(self, session_id: str) -> Path:
-        return self.sessions_dir / session_id
+        return self.sessions_root / session_id
 
     def workspace_dir(self, session_id: str) -> Path:
         return self.session_dir(session_id) / "workspace"
@@ -200,6 +225,14 @@ class SandboxConfig:
 
     def nsjail_cfg_file(self, session_id: str) -> Path:
         return self.session_dir(session_id) / "nsjail.cfg"
+
+    def tasks_file(self, session_id: str) -> Path:
+        """TaskCreate/Update/Get/List 工具的 todo 持久化文件"""
+        return self.session_dir(session_id) / "tasks.json"
+
+    def task_outputs_dir(self, session_id: str) -> Path:
+        """AgentTool 后台任务的输出目录"""
+        return self.session_dir(session_id) / "task-outputs"
 
     def has_python_venv(self, session_id: str) -> bool:
         """检查 session 的 workspace 内是否已创建 Python venv"""
@@ -226,7 +259,8 @@ class SandboxConfig:
 
     @classmethod
     def from_dict(cls, data: dict) -> "SandboxConfig":
-        root = Path(data["sandboxes_root"]) if "sandboxes_root" in data else _default_sandboxes_root()
+        sessions_root = Path(data["sessions_root"]) if "sessions_root" in data else _default_sessions_root()
+        caches_root = Path(data["caches_root"]) if "caches_root" in data else _default_caches_root()
 
         limits_data = data.get("resource_limits", {})
         limits = ResourceLimits(
@@ -250,7 +284,8 @@ class SandboxConfig:
         shared = data.get("shared_readonly_paths", default_shared)
 
         return cls(
-            sandboxes_root=root,
+            sessions_root=sessions_root,
+            caches_root=caches_root,
             resource_limits=limits,
             idle_suspend_seconds=data.get("idle_suspend_seconds", 1800),
             retention_seconds=data.get("retention_seconds", 86400 * 7),

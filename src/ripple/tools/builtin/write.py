@@ -64,8 +64,8 @@ class WriteTool(Tool[WriteInput, WriteOutput]):
         try:
             file_path = Path(args.file_path)
 
-            # Server 模式下校验路径在 workspace 范围内
-            if context.is_server_mode and context.workspace_root:
+            # 沙箱模式下校验路径在 workspace 范围内
+            if context.is_sandboxed:
                 from ripple.sandbox.workspace import validate_path
 
                 file_path = validate_path(file_path, context.workspace_root)
@@ -79,7 +79,7 @@ class WriteTool(Tool[WriteInput, WriteOutput]):
 
             # 磁盘配额检查
             quota_warning = ""
-            if context.is_server_mode and context.sandbox_session_id:
+            if context.is_sandboxed:
                 from ripple.tools.builtin.bash import _sandbox_config
 
                 if _sandbox_config:

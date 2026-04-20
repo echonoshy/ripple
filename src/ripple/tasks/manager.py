@@ -35,9 +35,14 @@ def get_task_manager(storage_path: Path | None = None) -> "TaskManager":
 
 
 class TaskManager:
-    """任务管理器
+    """TodoList 任务管理器
 
-    管理任务的生命周期，包括创建、更新、查询和持久化。
+    管理 TaskCreate/TaskUpdate/TaskGet/TaskList 工具所操作的 todo 列表，
+    负责生命周期管理与持久化（`.ripple/tasks.json`）。
+
+    Note:
+        不要与 `ripple.core.background.BackgroundTaskRegistry` 混淆 ——
+        后者管理的是 AgentTool 启动的 subagent 后台任务（内存态）。
     """
 
     def __init__(self, storage_path: Path | None = None):

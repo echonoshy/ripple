@@ -1,0 +1,262 @@
+"""nsjail 配置生成
+
+负责为每个 session 生成 `nsjail.cfg` 文件，包括沙箱白名单环境变量、
+mount 列表以及资源/命名空间配置。执行逻辑见 `executor.py`。
+"""
+
+import os
+import textwrap
+from pathlib import Path
+
+from ripple.sandbox.config import (
+    LARK_CLI_INSTALL_ROOT,
+    SANDBOX_COREPACK_HOME,
+    SANDBOX_NODE_BIN,
+    SANDBOX_NODE_DIR,
+    SANDBOX_NODE_PREFIX,
+    SANDBOX_PNPM_STORE,
+    SANDBOX_UV_CACHE_PATH,
+    SandboxConfig,
+)
+from ripple.utils.logger import get_logger
+
+logger = get_logger("sandbox.nsjail_config")
+
+
+def build_sandbox_env(config: SandboxConfig) -> dict[str, str]:
+    """构建沙箱最小白名单环境变量（不继承宿主环境）"""
+    path_parts = ["/usr/local/sbin", "/usr/local/bin", "/usr/sbin", "/usr/bin", "/sbin", "/bin"]
+
+    if config.uv_bin_dir:
+        path_parts.insert(0, config.uv_bin_dir)
+
+    if config.node_dir:
+        path_parts.insert(0, f"{SANDBOX_NODE_DIR}/bin")
+        path_parts.insert(0, SANDBOX_NODE_BIN)
+
+    env = {
+        "PATH": ":".join(path_parts),
+        "HOME": "/workspace",
+        "USER": "sandbox",
+        "SHELL": "/bin/bash",
+        "TERM": "xterm-256color",
+        "LANG": "C.UTF-8",
+        "UV_CACHE_DIR": SANDBOX_UV_CACHE_PATH,
+        "UV_LINK_MODE": "hardlink",
+    }
+
+    if config.pypi_mirror_url:
+        env["UV_INDEX_URL"] = config.pypi_mirror_url
+        env["PIP_INDEX_URL"] = config.pypi_mirror_url
+
+    if config.node_dir:
+        env["PNPM_HOME"] = SANDBOX_NODE_BIN
+        env["PNPM_STORE_DIR"] = SANDBOX_PNPM_STORE
+        env["NPM_CONFIG_PREFIX"] = SANDBOX_NODE_PREFIX
+        if config.npm_registry_url:
+            env["NPM_CONFIG_REGISTRY"] = config.npm_registry_url
+            # corepack 下载包管理器自身（如 pnpm）时使用独立的注册源配置
+            env["COREPACK_NPM_REGISTRY"] = config.npm_registry_url
+        env["COREPACK_ENABLE_AUTO_PIN"] = "0"
+        env["COREPACK_ENABLE_DOWNLOAD_PROMPT"] = "0"
+        # 跨 session 共享 corepack 缓存，避免每次重下 pnpm 二进制
+        env["COREPACK_HOME"] = SANDBOX_COREPACK_HOME
+
+    # 自动继承宿主进程的代理设置（clone_newnet=false 共享网络栈，但 env 是隔离的）
+    for var in (
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "ALL_PROXY",
+        "all_proxy",
+        "NO_PROXY",
+        "no_proxy",
+    ):
+        val = os.environ.get(var)
+        if val:
+            env[var] = val
+
+    return env
+
+
+def generate_nsjail_config(config: SandboxConfig, session_id: str) -> str:
+    """为指定 session 生成 nsjail 配置文件内容"""
+    workspace = config.workspace_dir(session_id)
+    limits = config.resource_limits
+
+    mounts = []
+
+    for path_str in config.shared_readonly_paths:
+        p = Path(path_str)
+        if p.exists():
+            mounts.append(f"""mount {{
+    src: "{path_str}"
+    dst: "{path_str}"
+    is_bind: true
+    rw: false
+}}""")
+
+    # uv 二进制目录（只读），保持原路径以兼容 PATH
+    if config.uv_bin_dir:
+        uv_dir = Path(config.uv_bin_dir)
+        if uv_dir.exists():
+            mounts.append(f"""mount {{
+    src: "{config.uv_bin_dir}"
+    dst: "{config.uv_bin_dir}"
+    is_bind: true
+    rw: false
+}}""")
+
+    # uv 全局 cache（读写，所有 session 共享；安装时通过 hardlink 共享 inode 去重）
+    uv_cache = config.uv_cache_dir
+    uv_cache.mkdir(parents=True, exist_ok=True)
+    mounts.append(f"""mount {{
+    src: "{uv_cache}"
+    dst: "{SANDBOX_UV_CACHE_PATH}"
+    is_bind: true
+    rw: true
+}}""")
+
+    # Node.js 安装目录（只读，含 bin/ 和 lib/node_modules/）
+    if config.node_dir:
+        node_dir = Path(config.node_dir)
+        if node_dir.exists():
+            mounts.append(f"""mount {{
+    src: "{config.node_dir}"
+    dst: "{SANDBOX_NODE_DIR}"
+    is_bind: true
+    rw: false
+}}""")
+
+    # pnpm content-addressable store（读写，所有 session 共享，通过硬链接去重）
+    if config.node_dir:
+        pnpm_cache = config.pnpm_cache_dir
+        pnpm_cache.mkdir(parents=True, exist_ok=True)
+        mounts.append(f"""mount {{
+    src: "{pnpm_cache}"
+    dst: "{SANDBOX_PNPM_STORE}"
+    is_bind: true
+    rw: true
+}}""")
+
+    # corepack 缓存（读写，所有 session 共享，避免每个 session 重新下载 pnpm）
+    if config.node_dir:
+        corepack_cache = config.corepack_cache_dir
+        corepack_cache.mkdir(parents=True, exist_ok=True)
+        mounts.append(f"""mount {{
+    src: "{corepack_cache}"
+    dst: "{SANDBOX_COREPACK_HOME}"
+    is_bind: true
+    rw: true
+}}""")
+
+    # lark-cli 原生二进制安装根（只读，所有 session 共享）。
+    # /usr/local/bin/lark-cli -> /opt/lark-cli/current/bin/lark-cli，必须挂
+    # /opt/lark-cli 整个目录 symlink 才能在沙箱内被解析。
+    if config.lark_cli_bin and Path(LARK_CLI_INSTALL_ROOT).exists():
+        mounts.append(f"""mount {{
+    src: "{LARK_CLI_INSTALL_ROOT}"
+    dst: "{LARK_CLI_INSTALL_ROOT}"
+    is_bind: true
+    rw: false
+}}""")
+
+    mounts.append(f"""mount {{
+    src: "{workspace}"
+    dst: "/workspace"
+    is_bind: true
+    rw: true
+}}""")
+
+    mounts.append("""mount {
+    dst: "/proc"
+    fstype: "proc"
+    rw: false
+}""")
+
+    mounts.append(f"""mount {{
+    dst: "/tmp"
+    fstype: "tmpfs"
+    rw: true
+    options: "size={config.tmpfs_size_mb}M"
+}}""")
+
+    for dev in ["/dev/null", "/dev/zero", "/dev/urandom", "/dev/random"]:
+        if Path(dev).exists():
+            mounts.append(f"""mount {{
+    src: "{dev}"
+    dst: "{dev}"
+    is_bind: true
+    rw: false
+}}""")
+
+    mounts_str = "\n\n".join(mounts)
+
+    sandbox_env = build_sandbox_env(config)
+    envars = [f'envar: "{k}={v}"' for k, v in sandbox_env.items()]
+    envars_str = "\n".join(envars)
+
+    return textwrap.dedent(f"""\
+        name: "ripple-sandbox-{session_id}"
+
+        mode: ONCE
+
+        clone_newuser: true
+        clone_newns: true
+        clone_newpid: true
+        clone_newipc: true
+        clone_newuts: true
+        clone_newnet: {"true" if config.clone_newnet else "false"}
+
+        hostname: "sandbox"
+
+        cwd: "/workspace"
+
+        time_limit: {limits.command_timeout}
+
+        rlimit_as_type: INF
+        rlimit_cpu_type: SOFT
+        rlimit_fsize: {limits.max_file_size_mb}
+        rlimit_nofile: 8192
+        rlimit_nproc_type: SOFT
+
+        skip_setsid: true
+        disable_no_new_privs: false
+
+        keep_env: false
+
+        {envars_str}
+
+        {mounts_str}
+    """)
+
+
+def write_nsjail_config(config: SandboxConfig, session_id: str) -> Path:
+    """生成并写入 nsjail 配置文件"""
+    cfg_content = generate_nsjail_config(config, session_id)
+    cfg_path = config.nsjail_cfg_file(session_id)
+    cfg_path.parent.mkdir(parents=True, exist_ok=True)
+    cfg_path.write_text(cfg_content, encoding="utf-8")
+    logger.debug("写入 nsjail 配置: {}", cfg_path)
+    return cfg_path
+
+
+def build_nsjail_argv(config: SandboxConfig, session_id: str, command: str) -> list[str]:
+    """构造 `nsjail --config X.cfg -- /bin/bash -c CMD` argv。
+
+    若 session 的 cfg 尚未生成则自动写入。调用方负责捕获 stdin/stdout/stderr
+    并管理进程生命周期。
+    """
+    cfg_path = config.nsjail_cfg_file(session_id)
+    if not cfg_path.exists():
+        write_nsjail_config(config, session_id)
+    return [
+        config.nsjail_path,
+        "--config",
+        str(cfg_path),
+        "--",
+        "/bin/bash",
+        "-c",
+        command,
+    ]

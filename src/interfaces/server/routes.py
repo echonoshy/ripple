@@ -260,7 +260,6 @@ async def _stream_chat(
                         history_messages=session.messages,
                         system_prompt=merged_system_prompt,
                         thinking=thinking,
-                        conversation_log=session.conversation_log,
                         context_manager=session.context_manager,
                         temperature=temperature,
                         max_tokens=max_tokens,
@@ -353,7 +352,6 @@ async def _non_stream_chat(
                         history_messages=session.messages,
                         system_prompt=merged_system_prompt,
                         thinking=thinking,
-                        conversation_log=session.conversation_log,
                         context_manager=session.context_manager,
                         temperature=temperature,
                         max_tokens=max_tokens,
@@ -622,7 +620,8 @@ async def get_sandbox_info(
     return {
         "enabled": True,
         "mode": "nsjail",
-        "sandboxes_root": str(sandbox.config.sandboxes_root),
+        "sessions_root": str(sandbox.config.sessions_root),
+        "caches_root": str(sandbox.config.caches_root),
         "resource_limits": {
             "max_memory_mb": sandbox.config.resource_limits.max_memory_mb,
             "max_cpu_ms_per_sec": sandbox.config.resource_limits.max_cpu_ms_per_sec,

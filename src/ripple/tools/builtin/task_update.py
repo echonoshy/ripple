@@ -52,6 +52,8 @@ class TaskUpdateTool(Tool[TaskUpdateInput, TaskUpdateOutput]):
         """获取任务管理器实例"""
         if self._task_manager:
             return self._task_manager
+        if context.session_runtime_dir is not None:
+            return get_task_manager(context.session_runtime_dir / "tasks.json")
         return get_task_manager(context.cwd / ".ripple" / "tasks.json")
 
     async def call(

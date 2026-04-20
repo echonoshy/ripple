@@ -20,16 +20,6 @@
 
 ## 演示
 
-### CLI 界面
-
-<p align="center">
-  <img src="assets/cli-1.png" width="100%" alt="Ripple CLI 界面与信息搜索演示" />
-</p>
-
-<p align="center">
-  <img src="assets/cli-2.png" width="100%" alt="Ripple Skill 系统调用演示" />
-</p>
-
 ### Web 界面
 
 <p align="center">
@@ -51,8 +41,13 @@ api:
   api_key: "your-api-key-here"
   base_url: "https://openrouter.ai/api/v1"
 
-# 启动
-uv run ripple cli
+# 启动 API Server
+uv run ripple server
+
+# 启动 Web 前端（另开一个终端）
+cd src/interfaces/web
+bun install
+bun run dev
 ```
 
 ## 文档

@@ -1,17 +1,29 @@
-"""自动压缩系统
+"""自动压缩协调器
 
-当消息历史过长时自动压缩，以支持长对话。
-支持两种模式：硬截断 和 LLM 摘要压缩（优先使用后者）。
+当消息历史过长时自动压缩，以支持长对话。本模块仅负责：
+- 触发判定（`should_compact`）、token 估算校准
+- 压缩策略选择（LLM 摘要 / 定向裁剪 / 硬截断）
+- 状态持久化（get_state / from_state）
+- 连续失败断路器
 
-阈值从配置的 model.max_tokens 动态计算（默认 75%），
-同时支持用 API 返回的真实 prompt_tokens 校准估算。
+具体策略实现见 `cleanup.py` / `truncate.py` / `summary.py`；
+纯边界查找见 `boundaries.py`。
 """
 
-import copy
-
+from ripple.compact.cleanup import lightweight_cleanup as _lightweight_cleanup
+from ripple.compact.summary import (
+    SUMMARIZATION_FAILURE_THRESHOLD,
+)
+from ripple.compact.summary import (
+    compact_with_summary as _compact_with_summary,
+)
+from ripple.compact.summary import (
+    compact_with_turns as _compact_with_turns,
+)
+from ripple.compact.truncate import hard_truncate as _hard_truncate
+from ripple.compact.truncate import targeted_trim as _targeted_trim
 from ripple.core.context import ToolUseContext
 from ripple.messages.types import Message
-from ripple.messages.utils import create_user_message
 from ripple.utils.logger import get_logger
 from ripple.utils.token_counter import estimate_messages_tokens
 
@@ -22,37 +34,6 @@ COMPACT_RATIO = 0.75
 
 # 压缩后保留的最近消息轮数
 DEFAULT_PRESERVED_TURNS = 10
-
-# 发送给摘要模型的最大 token 数（防止摘要请求自身溢出）
-SUMMARY_INPUT_MAX_TOKENS = 80_000
-
-# LLM 摘要连续失败断路器阈值
-SUMMARIZATION_FAILURE_THRESHOLD = 3
-
-# lightweight_cleanup 中可压缩的工具名集合
-COMPACTABLE_TOOLS = {
-    "Bash",
-    "Read",
-    "Write",
-    "Search",
-    "Glob",
-    "Grep",
-    "Agent",
-    "Skill",
-    "TaskCreate",
-    "TaskUpdate",
-    "TaskList",
-    "TaskGet",
-}
-
-# 工具结果被清理后的占位符
-CLEARED_PLACEHOLDER = "[Tool result cleared to save context]"
-
-# tool_use input 大于此字符数时清理
-TOOL_INPUT_MAX_CHARS = 500
-
-# tool_use input 被清理后的占位符
-TOOL_INPUT_PLACEHOLDER = {"_note": "Arguments omitted from prior conversation turn"}
 
 
 def _get_compact_threshold() -> int:
@@ -68,12 +49,14 @@ def _get_compact_threshold() -> int:
 
 
 class AutoCompactor:
-    """自动压缩器
+    """自动压缩器（协调器）
 
-    当消息历史超过阈值时，自动压缩旧消息。
-    支持两种触发方式：
-    1. 主动检查：should_compact() 用估算 token 判断
-    2. 被动触发：reactive_compact() 在 API 返回 context_length_exceeded 时调用
+    对外暴露统一的压缩入口：
+    - `should_compact`：基于增量 token 估算判断是否需要压缩
+    - `compact`：正常触发，优先 LLM 摘要，失败回退硬截断
+    - `reactive_compact`：API 返回 context_length_exceeded 时的紧急压缩
+    - `lightweight_cleanup`：不调用 LLM 的工具结果清理
+    - `calibrate_with_api_tokens`：用 API 返回的真实 prompt_tokens 校准估算
     """
 
     def __init__(self, threshold: int | None = None, preserved_turns: int | None = None):
@@ -83,6 +66,10 @@ class AutoCompactor:
         self._cached_message_count = 0
         self._system_overhead: int = 0  # system prompt + tool definitions 的 token 开销
         self._consecutive_summary_failures: int = 0  # LLM 摘要连续失败计数
+
+    # ------------------------------------------------------------------ #
+    # 触发判定 / 估算校准
+    # ------------------------------------------------------------------ #
 
     def should_compact(self, messages: list[Message]) -> bool:
         """检查是否需要压缩（增量估算 token 数）"""
@@ -96,10 +83,8 @@ class AutoCompactor:
             self._cached_message_count = msg_count
 
         should = self._cached_token_count > self.threshold
-
         if should:
             logger.info("消息历史达到 {} tokens，超过阈值 {}，需要压缩", self._cached_token_count, self.threshold)
-
         return should
 
     def calibrate_with_api_tokens(self, actual_prompt_tokens: int):
@@ -121,7 +106,6 @@ class AutoCompactor:
                 # EMA 平滑，避免测量噪声
                 self._system_overhead = int(0.7 * self._system_overhead + 0.3 * overhead)
 
-        # 减去 overhead，使缓存值与 estimate_messages_tokens 的口径一致
         calibrated = actual_prompt_tokens - self._system_overhead
         self._cached_token_count = max(calibrated, 0)
 
@@ -138,6 +122,10 @@ class AutoCompactor:
         """压缩后重置缓存（overhead 保留，它是结构性的不随压缩变化）"""
         self._cached_token_count = 0
         self._cached_message_count = 0
+
+    # ------------------------------------------------------------------ #
+    # 状态持久化
+    # ------------------------------------------------------------------ #
 
     def get_state(self) -> dict:
         """序列化 compactor 状态，用于持久化"""
@@ -162,141 +150,33 @@ class AutoCompactor:
         instance._cached_message_count = 0
         return instance
 
+    # ------------------------------------------------------------------ #
+    # 压缩策略分派
+    # ------------------------------------------------------------------ #
+
     def lightweight_cleanup(
         self,
         messages: list[Message],
         preserve_recent: int = 5,
     ) -> list[Message]:
-        """合并的轻量级清理（替代原 micro_compact + context_cleanup）
-
-        单次遍历完成：
-        1. 旧的 tool_result 内容替换为占位符（保留最近 preserve_recent 个）
-        2. 旧的 tool_use input 过大时替换为占位符
-
-        如果没有任何修改，返回原 list 对象（保持 is 检查兼容）。
-        """
-        # 收集所有可压缩的 tool_result 位置
-        compactable_indices: list[tuple[int, int]] = []
-
-        for msg_idx, msg in enumerate(messages):
-            if isinstance(msg, dict) or getattr(msg, "type", None) != "user":
-                continue
-            content = msg.message.get("content", [])
-            if not isinstance(content, list):
-                continue
-            for block_idx, block in enumerate(content):
-                if not isinstance(block, dict) or block.get("type") != "tool_result":
-                    continue
-                tool_name = block.get("tool_name", "")
-                if tool_name not in COMPACTABLE_TOOLS:
-                    continue
-                content_val = block.get("content", "")
-                if content_val == CLEARED_PLACEHOLDER:
-                    continue
-                compactable_indices.append((msg_idx, block_idx))
-
-        # 收集需要清理 tool_use input 的 assistant 消息位置
-        tool_input_indices: list[tuple[int, int]] = []
-
-        for msg_idx, msg in enumerate(messages):
-            if isinstance(msg, dict) or getattr(msg, "type", None) != "assistant":
-                continue
-            content = msg.message.get("content", [])
-            if not isinstance(content, list):
-                continue
-            for block_idx, block in enumerate(content):
-                if not isinstance(block, dict) or block.get("type") != "tool_use":
-                    continue
-                inp = block.get("input", {})
-                if isinstance(inp, dict) and inp == TOOL_INPUT_PLACEHOLDER:
-                    continue
-                if isinstance(inp, dict) and len(str(inp)) > TOOL_INPUT_MAX_CHARS:
-                    tool_input_indices.append((msg_idx, block_idx))
-
-        # 找到当前轮次起点，保护当前任务的所有 tool 数据不被清理
-        current_turn_start = self._find_last_user_turn_start(messages)
-
-        # 仅对旧轮次（已完成任务）的 tool_result 应用清理
-        old_turn_results = [(mi, bi) for mi, bi in compactable_indices if mi < current_turn_start]
-        to_clear_results = old_turn_results[:-preserve_recent] if len(old_turn_results) > preserve_recent else []
-
-        # 仅清理旧轮次的过大 tool_input
-        old_turn_inputs = [(mi, bi) for mi, bi in tool_input_indices if mi < current_turn_start]
-
-        if not to_clear_results and not old_turn_inputs:
-            return messages
-
-        result = list(messages)
-        modified_msgs: dict[int, Message] = {}
-        freed_chars = 0
-        cleared_count = 0
-
-        # 清理旧 tool_result
-        for msg_idx, block_idx in to_clear_results:
-            if msg_idx not in modified_msgs:
-                msg = result[msg_idx]
-                new_msg = copy.copy(msg)
-                new_msg.message = copy.deepcopy(msg.message)
-                modified_msgs[msg_idx] = new_msg
-                result[msg_idx] = new_msg
-
-            block = modified_msgs[msg_idx].message["content"][block_idx]
-            old_content = block.get("content", "")
-            if isinstance(old_content, str):
-                freed_chars += len(old_content)
-            block["content"] = CLEARED_PLACEHOLDER
-            cleared_count += 1
-
-        # 清理过大的 tool_use input（仅旧轮次）
-        input_cleared = 0
-        for msg_idx, block_idx in old_turn_inputs:
-            if msg_idx not in modified_msgs:
-                msg = result[msg_idx]
-                new_msg = copy.copy(msg)
-                new_msg.message = copy.deepcopy(msg.message)
-                modified_msgs[msg_idx] = new_msg
-                result[msg_idx] = new_msg
-
-            block = modified_msgs[msg_idx].message["content"][block_idx]
-            old_input = block.get("input", {})
-            freed_chars += len(str(old_input))
-            block["input"] = TOOL_INPUT_PLACEHOLDER
-            input_cleared += 1
-
-        # 更新 token 缓存
-        freed_tokens = freed_chars // 4
-        self._cached_token_count = max(0, self._cached_token_count - freed_tokens)
-
-        if cleared_count > 0 or input_cleared > 0:
-            logger.info(
-                "Lightweight cleanup: 清理 {} 个 tool_result + {} 个 tool_input (释放约 {} chars / {} tokens)",
-                cleared_count,
-                input_cleared,
-                freed_chars,
-                freed_tokens,
-            )
-
-        return result
+        """不调用 LLM 的轻量级清理（清空旧 tool_result / tool_use input）"""
+        return _lightweight_cleanup(self, messages, preserve_recent=preserve_recent)
 
     async def compact(self, messages: list[Message], context: ToolUseContext) -> list[Message]:
-        """压缩消息历史
-
-        优先使用 LLM 摘要压缩，失败则 fallback 到硬截断。
-        连续失败超过断路器阈值后，跳过 LLM 直接硬截断。
-        """
+        """正常触发压缩：优先 LLM 摘要，失败或断路器开启则硬截断"""
         if self._consecutive_summary_failures >= SUMMARIZATION_FAILURE_THRESHOLD:
             logger.warning(
                 "断路器开启: 连续 {} 次摘要失败，直接使用硬截断",
                 self._consecutive_summary_failures,
             )
-            return self._hard_truncate(messages)
+            return _hard_truncate(self, messages)
 
         try:
-            result, _ = await self.compact_with_summary(messages, context)
+            result, _ = await _compact_with_summary(self, messages, context)
             return result
         except Exception as e:
             logger.warning("compact_with_summary 失败，使用硬截断: {}", e)
-            return self._hard_truncate(messages)
+            return _hard_truncate(self, messages)
 
     async def reactive_compact(
         self,
@@ -304,279 +184,36 @@ class AutoCompactor:
         context: ToolUseContext,
         token_gap: int | None = None,
     ) -> list[Message]:
-        """被动触发压缩 — 当 API 返回 context_length_exceeded 时调用
+        """紧急压缩：API 返回 context_length_exceeded 时调用
 
-        如果提供了 token_gap，使用定向裁剪只移除足够的消息来弥合差距。
-        否则回退到激进的轮数减半策略。
+        - 若提供 token_gap，先尝试定向裁剪；不足时回退
+        - 否则 LLM 摘要（保留轮数减半）；失败则硬截断
         """
         logger.warning("Reactive compact 触发：上下文超出模型窗口，进行紧急压缩")
 
-        # 定向裁剪：有精确的 token 超额量时使用
         if token_gap is not None and token_gap > 0:
-            return self._targeted_trim(messages, token_gap)
+            return _targeted_trim(self, messages, token_gap)
 
         aggressive_turns = max(3, self.preserved_turns // 2)
 
         if self._consecutive_summary_failures >= SUMMARIZATION_FAILURE_THRESHOLD:
             logger.warning("断路器开启，跳过 LLM 进行 reactive compact")
-            return self._hard_truncate(messages, turns_to_keep=aggressive_turns)
+            return _hard_truncate(self, messages, turns_to_keep=aggressive_turns)
 
         try:
-            result, _ = await self._compact_with_turns(messages, context, aggressive_turns)
+            result, _ = await _compact_with_turns(self, messages, context, aggressive_turns)
             return result
         except Exception as e:
             logger.warning("Reactive compact 摘要失败，使用激进硬截断: {}", e)
-            return self._hard_truncate(messages, turns_to_keep=aggressive_turns)
+            return _hard_truncate(self, messages, turns_to_keep=aggressive_turns)
 
-    def _hard_truncate(self, messages: list[Message], turns_to_keep: int | None = None) -> list[Message]:
-        """硬截断压缩 — 不调用 LLM，直接丢弃旧消息"""
-        keep = turns_to_keep or self.preserved_turns
-        split_index = self._find_turn_boundary(messages, keep)
-        if split_index <= 0:
-            logger.warning("没有足够的轮次可以压缩，跳过")
-            return messages
-
-        preserved = messages[split_index:]
-        discarded = messages[:split_index]
-        discarded_count = len(discarded)
-        discarded_tokens = estimate_messages_tokens(discarded)
-
-        logger.info(
-            "硬截断压缩: 丢弃 {} 条旧消息 (约 {} tokens)，保留最近 {} 条",
-            discarded_count,
-            discarded_tokens,
-            len(preserved),
-        )
-
-        boundary = create_user_message(
-            content=(
-                f"[Conversation history compacted] "
-                f"{discarded_count} older messages ({discarded_tokens:,} tokens) have been removed "
-                f"to stay within context limits. "
-                f"The most recent {len(preserved)} messages are preserved below. "
-                f"Continue the conversation naturally."
-            ),
-            is_compact_boundary=True,
-        )
-
-        result = [boundary, *preserved]
-        self.reset_cache()
-        return result
-
-    @staticmethod
-    def _find_turn_boundary(messages: list[Message], turns_to_keep: int) -> int:
-        """从末尾往前找到第 N 轮 user 消息的起始位置"""
-        user_indices = [i for i, m in enumerate(messages) if getattr(m, "type", None) == "user"]
-        if len(user_indices) <= turns_to_keep:
-            return 0
-        return user_indices[-turns_to_keep]
-
-    @staticmethod
-    def _find_last_user_turn_start(messages: list[Message]) -> int:
-        """找到最后一个真实用户消息的索引（当前对话轮次的起点）
-
-        真实用户消息 = 用户直接输入的文本消息（非 tool_result 包装消息）。
-        当前轮次内的所有 tool 数据不应被轻量清理，防止模型在数据积累阶段丢失信息。
-        """
-        for i in range(len(messages) - 1, -1, -1):
-            msg = messages[i]
-            if isinstance(msg, dict) or getattr(msg, "type", None) != "user":
-                continue
-            content = msg.message.get("content", [])
-            if isinstance(content, str):
-                return i
-            if isinstance(content, list):
-                is_pure_tool_result = all(
-                    isinstance(b, dict) and b.get("type") == "tool_result" for b in content if isinstance(b, dict)
-                )
-                if not is_pure_tool_result:
-                    return i
-        return 0
-
-    @staticmethod
-    def _find_safe_boundary(messages: list[Message], proposed_index: int) -> int:
-        """调整切割位置，避免在 tool_use/tool_result 配对中间切割
-
-        从 proposed_index 向后找到下一个安全的切割点（非 tool_result 的 user 消息）。
-        """
-        n = len(messages)
-        idx = proposed_index
-        while idx < n - 1:
-            msg = messages[idx]
-            if getattr(msg, "type", None) == "user":
-                content = msg.message.get("content", [])
-                if isinstance(content, str):
-                    return idx
-                if isinstance(content, list):
-                    has_tool_result = any(isinstance(b, dict) and b.get("type") == "tool_result" for b in content)
-                    if not has_tool_result:
-                        return idx
-            idx += 1
-        return proposed_index
-
-    def _targeted_trim(self, messages: list[Message], token_gap: int) -> list[Message]:
-        """定向裁剪 — 只移除足够的旧消息来弥合 token 差距
-
-        从最旧的消息开始逐条累积 token 数，直到释放量 >= gap + 安全余量。
-        """
-        safety_margin = 5000
-        target_to_free = token_gap + safety_margin
-
-        freed = 0
-        split_index = 0
-
-        for i, msg in enumerate(messages):
-            if freed >= target_to_free:
-                break
-            freed += estimate_messages_tokens([msg])
-            split_index = i + 1
-
-        if split_index <= 0 or split_index >= len(messages) - 1:
-            logger.warning(
-                "定向裁剪不足 (freed={}, needed={})，回退到激进硬截断",
-                freed,
-                target_to_free,
-            )
-            aggressive_turns = max(3, self.preserved_turns // 2)
-            return self._hard_truncate(messages, turns_to_keep=aggressive_turns)
-
-        # 调整到安全边界
-        split_index = self._find_safe_boundary(messages, split_index)
-
-        preserved = messages[split_index:]
-        discarded = messages[:split_index]
-        discarded_tokens = estimate_messages_tokens(discarded)
-
-        logger.info(
-            "定向裁剪: 移除 {} 条消息 (~{} tokens) 以弥合 {} tokens 的差距",
-            len(discarded),
-            discarded_tokens,
-            token_gap,
-        )
-
-        boundary = create_user_message(
-            content=(
-                f"[Conversation history compacted] "
-                f"{len(discarded)} older messages ({discarded_tokens:,} tokens) have been removed "
-                f"to stay within context limits. "
-                f"The most recent {len(preserved)} messages are preserved below."
-            ),
-            is_compact_boundary=True,
-        )
-
-        result = [boundary, *preserved]
-        self.reset_cache()
-        return result
-
-    async def compact_with_summary(self, messages: list[Message], context: ToolUseContext) -> tuple[list[Message], str]:
-        """使用 LLM 摘要压缩（默认保留轮数）"""
-        return await self._compact_with_turns(messages, context, self.preserved_turns)
-
-    async def _compact_with_turns(
-        self, messages: list[Message], context: ToolUseContext, turns: int
+    async def compact_with_summary(
+        self,
+        messages: list[Message],
+        context: ToolUseContext,
     ) -> tuple[list[Message], str]:
-        """使用 LLM 摘要压缩，指定保留轮数"""
-        split_index = self._find_turn_boundary(messages, turns)
-        if split_index <= 0:
-            return messages, ""
-
-        discarded = messages[:split_index]
-        preserved = messages[split_index:]
-
-        try:
-            summary = await self._generate_summary(discarded, context)
-            self._consecutive_summary_failures = 0  # 成功，重置计数
-        except Exception as e:
-            self._consecutive_summary_failures += 1
-            logger.warning(
-                "LLM 摘要生成失败 ({}/{})，fallback 到硬截断: {}",
-                self._consecutive_summary_failures,
-                SUMMARIZATION_FAILURE_THRESHOLD,
-                e,
-            )
-            compacted = self._hard_truncate(messages, turns_to_keep=turns)
-            return compacted, f"Compacted {len(messages) - len(compacted)} messages (fallback)"
-
-        boundary = create_user_message(
-            content=(
-                f"[Conversation Summary]\n"
-                f"The earlier part of this conversation ({len(discarded)} messages, "
-                f"~{estimate_messages_tokens(discarded):,} tokens) has been summarized:\n\n"
-                f"{summary}\n\n"
-                f"The most recent {len(preserved)} messages are preserved below. "
-                f"Continue the conversation naturally using the summary as context."
-            ),
-            is_compact_boundary=True,
-        )
-
-        result = [boundary, *preserved]
-        self.reset_cache()
-
-        logger.info(
-            "LLM 摘要压缩完成: {} 条旧消息 -> 摘要 ({} 字符), 保留 {} 条",
-            len(discarded),
-            len(summary),
-            len(preserved),
-        )
-
-        return result, summary
-
-    async def _generate_summary(self, messages: list[Message], context: ToolUseContext) -> str:
-        """调用 LLM 生成消息摘要，对输入做预截断以防溢出"""
-        from ripple.api.client import create_client
-        from ripple.compact.compact_prompt import (
-            COMPACT_SYSTEM_PROMPT,
-            COMPACT_USER_PROMPT_TEMPLATE,
-            format_compact_summary,
-        )
-        from ripple.messages.utils import (
-            create_system_message,
-            create_user_message,
-            normalize_messages_for_api,
-        )
-        from ripple.utils.config import get_config
-
-        config = get_config()
-        compact_model = config.get("model.compact_model", config.resolve_model("haiku"))
-
-        # 估算：先用 OpenAI 规范化下算 token，避免两种 provider 做不同估算
-        normalized = normalize_messages_for_api(messages)
-
-        from ripple.messages.cleanup import estimate_tokens as estimate_dict_tokens
-
-        total_tokens = estimate_dict_tokens(normalized)
-        cut_off_index = 0  # 保留 messages 中从该索引开始的消息
-        if total_tokens > SUMMARY_INPUT_MAX_TOKENS:
-            logger.info("摘要输入过长 ({} tokens)，截断到 {} tokens", total_tokens, SUMMARY_INPUT_MAX_TOKENS)
-            # 从尾部反向累加，找到能塞下的最早消息下标
-            running = 0
-            keep_from = len(messages)
-            for i in range(len(messages) - 1, -1, -1):
-                msg_tokens = estimate_dict_tokens(normalize_messages_for_api([messages[i]]))
-                if running + msg_tokens > SUMMARY_INPUT_MAX_TOKENS:
-                    break
-                running += msg_tokens
-                keep_from = i
-            cut_off_index = keep_from
-
-        # 构造 Ripple 内部格式的消息序列，交给 client 自行适配 provider
-        compact_messages: list[Message] = [create_system_message(content=COMPACT_SYSTEM_PROMPT)]
-        compact_messages.extend(messages[cut_off_index:])
-        compact_messages.append(create_user_message(content=COMPACT_USER_PROMPT_TEMPLATE))
-
-        client = create_client()
-        response = await client.complete(
-            messages=compact_messages,
-            model=compact_model,
-            max_tokens=4096,
-            thinking=False,
-        )
-
-        raw_text = response.get("text", "") if isinstance(response, dict) else ""
-        if not raw_text:
-            raise ValueError("Empty response from compact model")
-
-        return format_compact_summary(raw_text)
+        """直接调用 LLM 摘要压缩（供外部显式使用）"""
+        return await _compact_with_summary(self, messages, context)
 
 
 # 全局单例

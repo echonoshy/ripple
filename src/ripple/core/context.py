@@ -9,6 +9,8 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
+from ripple.utils.paths import SESSIONS_DIR
+
 
 @dataclass
 class ToolOptions:
@@ -51,18 +53,30 @@ class ToolUseContext:
     allowed_tools: list[str] = field(default_factory=list)
     permission_manager: Any | None = None
 
-    is_server_mode: bool = False
-
     current_messages: list[Any] = field(default_factory=list)
 
-    # 沙箱相关
-    workspace_root: Path | None = None  # session 独立工作空间根目录（server 模式下设置）
+    # Session / 沙箱相关
+    workspace_root: Path | None = None  # 沙箱 workspace（用户文件所在）
     sandbox_session_id: str | None = None  # 沙箱对应的 session_id（用于 nsjail 执行）
+    session_runtime_dir: Path | None = None  # session 运行时数据目录（tasks.json/task-outputs/ 的父目录）
 
     on_progress: Callable | None = None
     on_notification: Callable | None = None
-    on_pause_spinner: Callable | None = None
-    on_resume_spinner: Callable | None = None
+
+    @property
+    def is_sandboxed(self) -> bool:
+        """当前 context 是否绑定到 nsjail 沙箱 session。
+
+        true 时意味着工具应通过 SandboxManager 在沙箱内执行，
+        读写路径需落在 workspace_root 下。
+        """
+        if not self.sandbox_session_id or not self.workspace_root:
+            return False
+        try:
+            self.workspace_root.resolve().relative_to(SESSIONS_DIR.resolve())
+        except (ValueError, OSError):
+            return False
+        return True
 
     def with_options(self, options: ToolOptions) -> "ToolUseContext":
         """创建新上下文，更新选项"""

@@ -1,6 +1,8 @@
 """Hook 执行器
 
-实现 Stop Hooks 的执行逻辑。
+Stop Hook 原语实现。`core.stop_hooks.handle_stop_hooks` 是 agent loop 的
+resilient 包装层，会把此处抛出的异常降级为 no-op；底层调用方应调用
+`execute_stop_hooks` 获取原始结果。
 """
 
 from dataclasses import dataclass
@@ -24,16 +26,9 @@ async def execute_stop_hooks(
 ) -> StopHookResult:
     """执行 Stop Hooks
 
-    Args:
-        messages: 消息列表
-        assistant_messages: 助手消息列表
-        context: 工具使用上下文
-
-    Returns:
-        Stop Hook 结果
+    目前为占位实现：返回"无 hook / 全部通过"。后续接入 hook 调度时替换此逻辑。
     """
     # TODO: 实现 Hook 执行逻辑
-    # 目前返回空结果，表示没有 Hook 或所有 Hook 通过
     return StopHookResult(
         blocking_errors=[],
         prevent_continuation=False,
@@ -45,20 +40,13 @@ async def execute_single_hook(
     messages: list[Message],
     context: ToolUseContext,
 ) -> dict:
-    """执行单个 Hook
+    """执行单个 Hook（按 hook 类型分派）
 
-    Args:
-        hook: Hook 配置
-        messages: 消息列表
-        context: 工具使用上下文
-
-    Returns:
-        Hook 执行结果
+    TODO: 根据 hook 类型执行
+      - command: 执行 shell 命令
+      - prompt:  调用 LLM 评估
+      - agent:   运行子代理验证
     """
-    # TODO: 根据 hook 类型执行
-    # - command: 执行 shell 命令
-    # - prompt: 调用 LLM 评估
-    # - agent: 运行子代理验证
     return {
         "outcome": "success",
         "blocking_error": None,

@@ -1,15 +1,30 @@
 """核心 Agent Loop 实现
 
-这是整个 Ripple 系统的核心，实现了类似 claude-code 的主循环逻辑。
+Ripple 的主循环，类似 claude-code 的 agent loop 职责：
+1. 维护消息历史并按需触发压缩
+2. 流式调用模型 API
+3. 执行工具、跨轮去重、合并结果
+4. 在错误（PTL / max_output_tokens）或终止条件下做状态转移
+
+错误识别 / 元数据提取见 `errors.py`；stop hooks 见 `stop_hooks.py`；
+入参见 `query_params.py`。
 """
 
 import json
-import re
 from typing import TYPE_CHECKING, Any, AsyncGenerator
 
 from ripple.api.client import LLMClient, create_client
 from ripple.core.context import ToolUseContext
+from ripple.core.errors import (
+    MAX_REACTIVE_COMPACT_RETRIES,
+    extract_stop_metadata,
+    is_context_too_long_error,
+    is_max_output_error,
+    parse_ptl_token_gap,
+)
+from ripple.core.query_params import QueryParams
 from ripple.core.state import QueryState
+from ripple.core.stop_hooks import handle_stop_hooks
 from ripple.core.transitions import (
     ContinueMaxOutputTokensEscalate,
     ContinueNextTurn,
@@ -41,133 +56,17 @@ if TYPE_CHECKING:
 
 logger = get_logger("core.agent_loop")
 
-# context_length_exceeded 相关的错误关键字
-_CONTEXT_TOO_LONG_KEYWORDS = [
-    "context_length_exceeded",
-    "prompt is too long",
-    "maximum context length",
-    "token limit",
-    "request too large",
-    "prompt_too_long",
-    "input too long",
-    "too many tokens",
-]
-
-# max_output_tokens 相关的错误关键字
-_MAX_OUTPUT_KEYWORDS = [
-    "max_output_tokens",
-    "output token",
-]
-
-MAX_REACTIVE_COMPACT_RETRIES = 2
+__all__ = ["QueryParams", "query", "query_loop"]
 
 # 达到最大轮数时的提示消息
 _MAX_TURNS_NOTICE = (
     'Reached max turn limit ({max_turns} turns, currently at turn {turn_count}). Reply "continue" to keep going.'
 )
 
-# 从 PTL 错误消息中提取 token 数值的正则
-_PTL_TOKEN_PATTERN = re.compile(r"(\d[\d,]*)\s*tokens?\s*[>≥]\s*(\d[\d,]*)")
-_PTL_CONTEXT_LENGTH_PATTERN = re.compile(r"maximum\s+(?:context\s+)?length\s+(?:is\s+)?(\d[\d,]*)")
 
-
-def _parse_ptl_token_gap(error_str: str) -> int | None:
-    """从 prompt-too-long 错误消息中提取 token 超额量
-
-    支持的格式：
-    - "137500 tokens > 135000 limit" → gap = 2500
-    - "maximum context length is 200000 ... resulted in 210000 tokens" → gap = 10000
-
-    Returns:
-        token 超额量，无法解析时返回 None
-    """
-    # 模式 1: "X tokens > Y"
-    match = _PTL_TOKEN_PATTERN.search(error_str)
-    if match:
-        actual = int(match.group(1).replace(",", ""))
-        limit = int(match.group(2).replace(",", ""))
-        if actual > limit:
-            return actual - limit
-
-    # 模式 2: "maximum context length is Y ... X tokens"
-    limit_match = _PTL_CONTEXT_LENGTH_PATTERN.search(error_str)
-    if limit_match:
-        limit = int(limit_match.group(1).replace(",", ""))
-        all_numbers = re.findall(r"(\d[\d,]*)\s*tokens?", error_str)
-        for num_str in all_numbers:
-            num = int(num_str.replace(",", ""))
-            if num > limit:
-                return num - limit
-
-    return None
-
-
-def _is_context_too_long_error(error_str: str) -> bool:
-    """判断是否是上下文过长的错误"""
-    return any(kw in error_str for kw in _CONTEXT_TOO_LONG_KEYWORDS)
-
-
-def _is_max_output_error(error_str: str) -> bool:
-    """判断是否是 max_output_tokens 错误"""
-    return any(kw in error_str for kw in _MAX_OUTPUT_KEYWORDS)
-
-
-def _extract_stop_metadata(stop_reason: str, tool_results: list[Message]) -> dict[str, str | list[str]]:
-    """从工具结果中提取暂停元数据。"""
-    if stop_reason != "ask_user":
-        return {}
-
-    for message in reversed(tool_results):
-        if getattr(message, "type", None) != "user":
-            continue
-
-        for block in reversed(message.message.get("content", [])):
-            if not isinstance(block, dict) or block.get("type") != "tool_result":
-                continue
-
-            content = block.get("content", "")
-            if not isinstance(content, str):
-                continue
-
-            try:
-                payload = json.loads(content)
-            except json.JSONDecodeError:
-                continue
-
-            if not isinstance(payload, dict) or "question" not in payload:
-                continue
-
-            options = payload.get("options")
-            return {
-                "question": str(payload.get("question", "")),
-                "options": options if isinstance(options, list) else [],
-            }
-
-    return {}
-
-
-class QueryParams:
-    """查询参数"""
-
-    def __init__(
-        self,
-        messages: list[Message],
-        tool_use_context: ToolUseContext,
-        model: str = "anthropic/claude-sonnet-4.6",
-        max_turns: int | None = None,
-        max_tokens: int | None = None,
-        thinking: bool | None = None,
-        compactor: "AutoCompactor | None" = None,
-        temperature: float | None = None,
-    ):
-        self.messages = messages
-        self.tool_use_context = tool_use_context
-        self.model = model
-        self.max_turns = max_turns
-        self.max_tokens = max_tokens
-        self.thinking = thinking
-        self.compactor = compactor
-        self.temperature = temperature
+def _collect_tools(context: ToolUseContext) -> list[Any]:
+    """收集上下文中可用的工具对象（BaseTool 实例），具体格式转换由 client 自行处理"""
+    return list(context.options.tools)
 
 
 async def query_loop(
@@ -198,7 +97,7 @@ async def query_loop(
     executed_tool_keys: set[str] = set()
 
     from ripple.compact.auto_compact import AutoCompactor
-    from ripple.recovery.error_recovery import ErrorRecovery
+    from ripple.core.recovery import ErrorRecovery
 
     compactor = params.compactor or AutoCompactor()
     recovery = ErrorRecovery()
@@ -231,7 +130,10 @@ async def query_loop(
         # ========== 阶段 0.5: 任务提醒检查 ==========
         from ripple.utils.attachments import get_task_reminder_attachment
 
-        task_reminder = get_task_reminder_attachment(state.messages, state.tool_use_context.cwd)
+        task_reminder = get_task_reminder_attachment(
+            state.messages,
+            state.tool_use_context.session_runtime_dir,
+        )
         if task_reminder:
             state = state.with_messages([*state.messages, task_reminder])
 
@@ -304,12 +206,12 @@ async def query_loop(
             error_str = str(e).lower()
 
             # 检查是否是上下文过长的错误 → reactive compact
-            if _is_context_too_long_error(error_str):
+            if is_context_too_long_error(error_str):
                 if reactive_compact_count < MAX_REACTIVE_COMPACT_RETRIES:
                     reactive_compact_count += 1
 
                     # 尝试从错误消息中解析精确的 token 超额量
-                    token_gap = _parse_ptl_token_gap(error_str)
+                    token_gap = parse_ptl_token_gap(error_str)
 
                     logger.warning(
                         "检测到上下文过长错误，执行 reactive compact (尝试 {}/{}, gap={})",
@@ -335,7 +237,7 @@ async def query_loop(
                     return
 
             # 检查是否是 max_output_tokens 错误
-            if _is_max_output_error(error_str):
+            if is_max_output_error(error_str):
                 # 阶段 1: 先尝试升级 max_tokens（不注入 recovery 消息）
                 if recovery.can_escalate_max_output_tokens():
                     escalated_max = recovery.get_escalated_max_tokens()
@@ -416,7 +318,7 @@ async def query_loop(
 
         # ========== 阶段 2: 判断是否需要继续 ==========
         if not needs_follow_up:
-            stop_result = await _handle_stop_hooks(
+            stop_result = await handle_stop_hooks(
                 state.messages,
                 assistant_messages,
                 state.tool_use_context,
@@ -544,7 +446,7 @@ async def query_loop(
             yield AgentStopEvent(
                 stop_reason=loop_stop_reason or "tool_requested",
                 metadata=loop_stop_metadata
-                or _extract_stop_metadata(loop_stop_reason or "tool_requested", tool_results),
+                or extract_stop_metadata(loop_stop_reason or "tool_requested", tool_results),
             )
             state = state.with_messages([*state.messages, *assistant_messages, *tool_results])
             return
@@ -583,29 +485,6 @@ async def query_loop(
         )
 
 
-def _collect_tools(context: ToolUseContext) -> list[Any]:
-    """收集上下文中可用的工具对象（BaseTool 实例），具体格式转换由 client 自行处理"""
-    return list(context.options.tools)
-
-
-async def _handle_stop_hooks(
-    messages: list[Message],
-    assistant_messages: list[AssistantMessage],
-    context: ToolUseContext,
-):
-    """处理 Stop Hooks"""
-    from ripple.hooks.executor import StopHookResult, execute_stop_hooks
-
-    try:
-        return await execute_stop_hooks(messages, assistant_messages, context)
-    except Exception as e:
-        logger.error("Stop Hook 执行异常（已忽略，不阻止继续）: {}", e)
-        return StopHookResult(
-            blocking_errors=[],
-            prevent_continuation=False,
-        )
-
-
 # 简化的入口函数
 async def query(
     user_input: str,
@@ -634,15 +513,11 @@ async def query(
         messages.append(create_system_message(content=system_prompt))
     else:
         current_date = datetime.now().strftime("%Y/%m/%d")
-        from ripple.utils.paths import CLI_WORKSPACE_DIR
-
-        workspace_dir = CLI_WORKSPACE_DIR
         messages.append(
             create_system_message(
                 content=(
-                    f"Today's date is {current_date}. Use this date when searching for current information or answering time-sensitive questions.\n\n"
-                    f"When writing or saving files, use `{workspace_dir}` as the default output directory. "
-                    f"Do NOT write to the user's home directory, root directory, or any system directory."
+                    f"Today's date is {current_date}. "
+                    "Use this date when searching for current information or answering time-sensitive questions."
                 )
             )
         )

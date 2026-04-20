@@ -2,8 +2,7 @@
 
 作为工具暴露给模型，让模型可以调用 Skill。
 
-Server 模式下每个 session 拥有独立的 skill 集合（bundled + shared + workspace/skills/），
-CLI 模式下使用全局 SkillLoader。
+每个 session 拥有独立的 skill 集合（shared + workspace/skills/）。
 """
 
 from pathlib import Path
@@ -14,7 +13,7 @@ from pydantic import BaseModel, Field
 from ripple.core.context import ToolUseContext
 from ripple.messages.types import AssistantMessage
 from ripple.skills.executor import execute_forked_skill, execute_inline_skill
-from ripple.skills.loader import get_global_loader, load_shared_skills, load_workspace_skills, reload_skills
+from ripple.skills.loader import load_shared_skills, load_workspace_skills
 from ripple.skills.types import Skill
 from ripple.tools.base import Tool, ToolResult
 
@@ -44,14 +43,12 @@ class SkillTool(Tool[SkillInput, dict[str, Any]]):
     def _get_skills(self, workspace_root: Path | None) -> dict[str, Skill]:
         """获取当前可用的 skill 集合
 
-        Server 模式：使用 workspace 级别加载（bundled + shared + workspace/skills/）
-        CLI 模式：使用全局 loader（bundled + CWD/skills/）
+        有 workspace 时：两层加载（shared + workspace/skills/）
+        无 workspace 时：仅加载 shared skills
         """
         if workspace_root:
             return load_workspace_skills(workspace_root)
-        reload_skills()
-        loader = get_global_loader()
-        return {s.name: s for s in loader.list_skills()}
+        return load_shared_skills()
 
     async def call(
         self,

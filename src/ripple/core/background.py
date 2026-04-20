@@ -28,8 +28,13 @@ class BackgroundTask:
 
 
 @dataclass
-class TaskManager:
-    """任务管理器"""
+class BackgroundTaskRegistry:
+    """后台 Agent 任务注册表
+
+    管理由 AgentTool 启动的 subagent 后台任务（asyncio.Task 驱动）。
+    与 `ripple.tasks.manager.TaskManager`（TodoList 持久化）**不同**，
+    此处仅管理运行中的 subagent loop，数据仅存于内存。
+    """
 
     tasks: dict[str, BackgroundTask] = field(default_factory=dict)
     _running_tasks: dict[str, asyncio.Task] = field(default_factory=dict)
@@ -188,20 +193,15 @@ class TaskManager:
         return True
 
 
-# 全局任务管理器实例
-_global_task_manager: TaskManager | None = None
+_global_background_registry: BackgroundTaskRegistry | None = None
 
 
-def get_task_manager() -> TaskManager:
-    """获取全局任务管理器
-
-    Returns:
-        任务管理器实例
-    """
-    global _global_task_manager
-    if _global_task_manager is None:
-        _global_task_manager = TaskManager()
-    return _global_task_manager
+def get_background_registry() -> BackgroundTaskRegistry:
+    """获取全局后台任务注册表（进程级单例）"""
+    global _global_background_registry
+    if _global_background_registry is None:
+        _global_background_registry = BackgroundTaskRegistry()
+    return _global_background_registry
 
 
 def create_task_notification(task: BackgroundTask) -> Message:

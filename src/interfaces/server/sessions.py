@@ -29,7 +29,6 @@ from ripple.tools.builtin.task_list import TaskListTool
 from ripple.tools.builtin.task_update import TaskUpdateTool
 from ripple.tools.builtin.write import WriteTool
 from ripple.utils.config import get_config
-from ripple.utils.conversation_log import ConversationLogger, generate_session_id
 from ripple.utils.logger import get_logger
 
 logger = get_logger("server.sessions")
@@ -64,7 +63,6 @@ class Session:
     pending_question: str | None = None
     pending_options: list[str] | None = None
     pending_permission_request: dict[str, object] | None = None
-    conversation_log: ConversationLogger | None = None
     context_manager: ContextManager | None = None
 
 
@@ -250,11 +248,12 @@ def _create_session_context(
     *,
     workspace_root: Path | None = None,
     sandbox_session_id: str | None = None,
+    session_runtime_dir: Path | None = None,
 ) -> tuple[ToolUseContext, LLMClient]:
     """为一个 session 创建工具上下文和 API 客户端"""
     tools = _get_server_tools()
 
-    permission_manager = PermissionManager(mode=PermissionMode.SERVER_SMART)
+    permission_manager = PermissionManager(mode=PermissionMode.SMART)
 
     cwd = workspace_root if workspace_root else Path.cwd()
 
@@ -264,9 +263,9 @@ def _create_session_context(
         cwd=cwd,
         abort_signal=AbortSignal(),
         permission_manager=permission_manager,
-        is_server_mode=True,
         workspace_root=workspace_root,
         sandbox_session_id=sandbox_session_id,
+        session_runtime_dir=session_runtime_dir,
     )
 
     client = create_client()
@@ -368,12 +367,14 @@ class SessionManager:
         resolved_max_turns = max_turns or config.get("agent.max_turns", 10)
 
         session_id = f"srv-{uuid4().hex[:12]}"
-        internal_sid = generate_session_id()
+        internal_sid = uuid4().hex[:12]
 
         # 沙箱初始化
         workspace_root = None
+        session_runtime_dir = None
         if self._sandbox_manager:
             workspace_root = self._sandbox_manager.setup_session(session_id)
+            session_runtime_dir = self._sandbox_manager.config.session_dir(session_id)
             if feishu:
                 self._write_feishu_config(session_id, feishu)
 
@@ -382,11 +383,8 @@ class SessionManager:
             internal_sid,
             workspace_root=workspace_root,
             sandbox_session_id=session_id if self._sandbox_manager else None,
+            session_runtime_dir=session_runtime_dir,
         )
-
-        from ripple.utils.paths import SERVER_CONVERSATIONS_DIR
-
-        conversation_log = ConversationLogger(session_id=session_id, conversations_dir=SERVER_CONVERSATIONS_DIR)
 
         session = Session(
             session_id=session_id,
@@ -395,7 +393,6 @@ class SessionManager:
             model=resolved_model,
             caller_system_prompt=caller_system_prompt,
             max_turns=resolved_max_turns,
-            conversation_log=conversation_log,
             context_manager=ContextManager(),
         )
         self._sessions[session_id] = session
@@ -419,10 +416,6 @@ class SessionManager:
             session = self._sessions[session_id]
             if session.current_task and not session.current_task.done():
                 session.current_task.cancel()
-
-            # 记录会话结束
-            if session.conversation_log:
-                session.conversation_log.log_session_end()
 
             del self._sessions[session_id]
 
@@ -486,13 +479,15 @@ class SessionManager:
         config = get_config()
         resolved_model = config.resolve_model(state.get("model", config.get("model.default", "sonnet")))
         workspace_root = self._sandbox_manager.get_session_workspace(session_id)
+        session_runtime_dir = self._sandbox_manager.config.session_dir(session_id)
 
-        internal_sid = generate_session_id()
+        internal_sid = uuid4().hex[:12]
         context, client = _create_session_context(
             resolved_model,
             internal_sid,
             workspace_root=workspace_root,
             sandbox_session_id=session_id,
+            session_runtime_dir=session_runtime_dir,
         )
 
         created_at = datetime.now(timezone.utc)
@@ -501,10 +496,6 @@ class SessionManager:
                 created_at = datetime.fromisoformat(state["created_at"])
             except (ValueError, TypeError):
                 pass
-
-        from ripple.utils.paths import SERVER_CONVERSATIONS_DIR
-
-        conversation_log = ConversationLogger(session_id=session_id, conversations_dir=SERVER_CONVERSATIONS_DIR)
 
         session = Session(
             session_id=session_id,
@@ -521,7 +512,6 @@ class SessionManager:
             pending_question=state.get("pending_question"),
             pending_options=state.get("pending_options"),
             pending_permission_request=state.get("pending_permission_request"),
-            conversation_log=conversation_log,
             context_manager=ContextManager.from_persisted_state(state.get("compactor_state", {})),
         )
         self._sessions[session_id] = session

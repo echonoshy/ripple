@@ -16,10 +16,13 @@ def create_workspace(config: SandboxConfig, session_id: str) -> Path:
     """创建 session 工作空间目录
 
     目录结构：
-        .ripple/sandboxes/sessions/<session_id>/
+        .ripple/sessions/<session_id>/
         ├── workspace/        ← 用户文件
         ├── meta.json         ← 会话元数据（由 storage 模块管理）
-        └── messages.jsonl    ← 对话历史（由 storage 模块管理）
+        ├── messages.jsonl    ← 对话历史（由 storage 模块管理）
+        ├── tasks.json        ← TaskTool 的 todo 列表
+        ├── task-outputs/     ← AgentTool 后台任务输出
+        └── nsjail.cfg
     """
     workspace = config.workspace_dir(session_id)
     workspace.mkdir(parents=True, exist_ok=True)
@@ -110,7 +113,7 @@ def _is_under_virtual_root(path: Path) -> bool:
 
 def list_suspended_sessions(config: SandboxConfig) -> list[str]:
     """列出所有磁盘上有持久化状态的 session"""
-    sessions_dir = config.sessions_dir
-    if not sessions_dir.exists():
+    sessions_root = config.sessions_root
+    if not sessions_root.exists():
         return []
-    return [d.name for d in sessions_dir.iterdir() if d.is_dir() and (d / "meta.json").exists()]
+    return [d.name for d in sessions_root.iterdir() if d.is_dir() and (d / "meta.json").exists()]

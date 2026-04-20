@@ -41,7 +41,11 @@ def create_app() -> FastAPI:
         manager = SessionManager(sandbox_manager=sandbox_mgr)
         set_session_manager(manager)
         manager.start_cleanup_loop()
-        logger.info("Ripple Server 启动完成 (sandbox=nsjail, root={})", sandbox_mgr.config.sandboxes_root)
+        logger.info(
+            "Ripple Server 启动完成 (sandbox=nsjail, sessions={}, caches={})",
+            sandbox_mgr.config.sessions_root,
+            sandbox_mgr.config.caches_root,
+        )
         yield
         manager.stop_cleanup_loop()
         logger.info("Ripple Server 已关闭")

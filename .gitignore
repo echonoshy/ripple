@@ -212,3 +212,7 @@ __marimo__/
 
 # Agent fork tool
 .ripple/
+
+
+# temp files
+tmp/

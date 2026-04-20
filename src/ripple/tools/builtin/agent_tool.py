@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
-from ripple.core.background import create_task_notification, get_task_manager
+from ripple.core.background import create_task_notification, get_background_registry
 from ripple.core.context import ToolOptions, ToolUseContext
 from ripple.core.fork import build_forked_messages, is_in_fork_child
 from ripple.messages.types import AssistantMessage
@@ -91,22 +91,22 @@ class AgentTool(Tool[AgentToolInput, AgentToolOutput]):
             thinking=context.thinking,
             permission_mode=context.permission_mode,
             permission_manager=context.permission_manager,
-            is_server_mode=context.is_server_mode,
             read_file_state={},
             workspace_root=context.workspace_root,
             sandbox_session_id=context.sandbox_session_id,
+            session_runtime_dir=context.session_runtime_dir,
         )
 
         full_messages = [*context.current_messages, *fork_messages]
 
-        from ripple.utils.paths import CLI_TASKS_DIR, SERVER_TASKS_DIR
-
-        task_manager = get_task_manager()
-        output_dir = SERVER_TASKS_DIR if context.is_server_mode else CLI_TASKS_DIR
-        task = task_manager.create_task(
+        registry = get_background_registry()
+        task_output_dir = (
+            context.session_runtime_dir / "task-outputs" if context.session_runtime_dir is not None else None
+        )
+        task = registry.create_task(
             description=args.description,
             prompt=args.prompt,
-            output_dir=output_dir,
+            output_dir=task_output_dir,
         )
 
         from ripple.api.client import create_client
@@ -121,7 +121,7 @@ class AgentTool(Tool[AgentToolInput, AgentToolOutput]):
             thinking=context.thinking,
         )
 
-        task_manager.start_task(task, query_loop(params, client))
+        registry.start_task(task, query_loop(params, client))
 
         output = AgentToolOutput(
             status="fork_launched",

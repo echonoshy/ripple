@@ -4,6 +4,8 @@
 在模型长时间未使用 Task 工具时自动注入提醒。
 """
 
+from pathlib import Path
+
 from ripple.messages.types import Message, UserMessage
 from ripple.messages.utils import create_user_message
 from ripple.utils.logger import get_logger
@@ -62,12 +64,14 @@ def _count_assistant_turns_since_last_reminder(messages: list[Message]) -> int:
     return count
 
 
-def _get_current_task_list_text(cwd) -> str | None:
+def _get_current_task_list_text(session_runtime_dir: Path | None) -> str | None:
     """读取当前任务列表并格式化为文本"""
     from ripple.tasks.manager import get_task_manager
 
+    if session_runtime_dir is None:
+        return None
     try:
-        task_manager = get_task_manager(cwd / ".ripple" / "tasks.json")
+        task_manager = get_task_manager(session_runtime_dir / "tasks.json")
         tasks = task_manager.list_tasks(include_deleted=False)
         if not tasks:
             return None
@@ -82,7 +86,7 @@ def _get_current_task_list_text(cwd) -> str | None:
 
 def get_task_reminder_attachment(
     messages: list[Message],
-    cwd,
+    session_runtime_dir: Path | None,
 ) -> UserMessage | None:
     """检查是否需要向模型注入 task_reminder 附件
 
@@ -109,7 +113,7 @@ def get_task_reminder_attachment(
         "Make sure that you NEVER mention this reminder to the user."
     )
 
-    task_list_text = _get_current_task_list_text(cwd)
+    task_list_text = _get_current_task_list_text(session_runtime_dir)
     if task_list_text:
         reminder_text += f"\n\nHere are the existing tasks:\n{task_list_text}"
 

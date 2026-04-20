@@ -25,13 +25,39 @@ src/
     messages/          # 消息类型
     utils/             # 工具函数
     permissions/       # 权限管理
+    sandbox/           # nsjail 沙箱管理
+    compact/           # 上下文压缩
+    tasks/             # 后台任务管理
   interfaces/          # 接口层
-    cli/               # 命令行接口（Python）
+    server/            # FastAPI Server + CLI 入口
     web/               # Web 前端（Next.js + TypeScript）
 tests/                 # 测试文件
 scripts/               # 辅助脚本
 config/                # 配置文件
-skills/                # 用户自定义 Skills（Markdown）
+skills/                # 共享 Skills（Markdown）
+```
+
+### 运行时目录 `.ripple/`
+
+由 Server 在首次运行时创建，不纳入版本控制：
+
+```
+.ripple/
+├── logs/
+│   └── ripple.log                   # 进程日志
+├── sandboxes-cache/                 # 跨 session 共享的包缓存
+│   ├── uv-cache/
+│   ├── corepack-cache/
+│   └── pnpm-store/                  # 可选
+└── sessions/
+    └── <session_id>/                # 每个 session 的完整运行时状态
+        ├── meta.json                # 会话元数据
+        ├── messages.jsonl           # 消息流水（唯一消息来源）
+        ├── tasks.json               # TaskTool todo 列表
+        ├── task-outputs/            # AgentTool 后台任务输出
+        ├── nsjail.cfg               # 沙箱配置
+        ├── feishu.json              # 可选：飞书凭证
+        └── workspace/               # 沙箱 workspace（用户文件，保持干净）
 ```
 
 ## 运行应用
@@ -39,11 +65,11 @@ skills/                # 用户自定义 Skills（Markdown）
 ### 后端 (Python)
 
 ```bash
-# 交互式 CLI
-uv run ripple cli
+# 启动 API Server
+uv run ripple server
 
-# 列出所有工具和技能
-uv run python scripts/list_tools.py
+# 带自动重载（开发模式）
+uv run ripple server --reload
 
 # 运行测试
 uv run pytest
@@ -96,25 +122,17 @@ bun run format:check # 检查格式（不修改文件）
 
 ## Skill 系统
 
-Ripple 支持两种类型的 Skills：
+Skills 是带 YAML frontmatter 的 Markdown 文件，定义特定领域的任务模板。
 
-### Bundled Skills（内置技能）
-- **位置**: `src/ripple/skills/bundled/`
-- **格式**: Python 文件，通过 `register_bundled_skill()` 注册
-- **内容**: 硬编码的字符串常量（prompt）
-- **示例**: `simplify.py`, `hello.py`
-- **用途**: 编译到系统中的通用技能
+### 加载层级（后者覆盖前者）
+1. **Shared Skills**: 来自 `skills.shared_dirs` 配置（默认 `skills/shared`），所有 session 可见
+2. **Workspace Skills**: 来自每个 session 沙箱内的 `workspace/skills/`
 
-### File-based Skills（文件技能）
-- **位置**: `skills/` 目录
-- **格式**: Markdown 文件，带 YAML frontmatter
-- **内容**: 用户定义的任务模板
-- **加载**: 自动从 `skills/` 目录递归加载
-- **覆盖**: 可以覆盖同名的 bundled skills
+### Skill 文件格式
+- 文件名为 `SKILL.md`（推荐），或含 YAML frontmatter 且有 `name`/`description` 字段
+- frontmatter 字段: `name`, `description`, `arguments`, `allowed-tools`, `context`, `when-to-use`
 
 详细文档: [docs/SKILLS.md](docs/SKILLS.md)
-
-Skill frontmatter 字段: `name`, `description`, `arguments`, `allowed-tools`, `context`, `when-to-use`
 
 ## 架构
 
@@ -130,8 +148,7 @@ Skill frontmatter 字段: `name`, `description`, `arguments`, `allowed-tools`, `
 - **builtin/**: 内置工具 (Bash, Read, Write)
 
 ### Skill 系统 (`src/ripple/skills/`)
-- **registry.py**: Bundled skills 注册表
-- **loader.py**: 加载 bundled skills 和文件系统 skills，支持去重和覆盖
+- **loader.py**: 加载 shared 和 workspace skills，支持 mtime 缓存
 - **executor.py**: 执行 skills（inline 和 fork 模式）
 - **skill_tool.py**: SkillTool 包装器，作为工具暴露给模型
 
@@ -144,7 +161,7 @@ Skill frontmatter 字段: `name`, `description`, `arguments`, `allowed-tools`, `
 - **streaming.py**: 处理流式响应，在流式传输期间处理工具调用
 
 ### 接口层 (`src/interfaces/`)
-- **cli/**: 命令行接口 (Python)
+- **server/**: FastAPI Server + CLI 启动入口（`ripple server`）
 - **web/**: Web 前端 (Next.js + React)
 
 ## 编码规范

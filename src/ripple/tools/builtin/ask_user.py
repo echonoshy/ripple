@@ -1,9 +1,10 @@
-"""AskUser 工具 - 让 AI 主动询问用户"""
+"""AskUser 工具 - 让 AI 主动询问用户
+
+将问题通过 stop_agent_loop 挂起 agent，由前端 UI 呈现给用户，
+用户回复后再由 `/v1/sessions/{id}/resume` 等恢复流程继续。
+"""
 
 from typing import Any
-
-from rich.console import Console
-from rich.prompt import Prompt
 
 from ripple.core.context import ToolUseContext
 from ripple.messages.types import AssistantMessage
@@ -54,41 +55,10 @@ Input:
     async def call(
         self, args: dict[str, Any], context: ToolUseContext, parent_message: AssistantMessage
     ) -> ToolResult[dict]:
-        """执行询问"""
+        """将问题挂起到前端交互"""
         question = args.get("question", "")
         options = args.get("options", [])
 
-        if context.is_server_mode:
-            return self._server_mode_response(question, options)
-
-        if context.on_pause_spinner:
-            context.on_pause_spinner()
-
-        console = Console()
-        console.print(f"\n[bold cyan]🤔 AI 询问:[/bold cyan] {question}\n")
-
-        if options:
-            for i, opt in enumerate(options, 1):
-                console.print(f"  {i}. {opt}")
-
-            choices = [str(i) for i in range(1, len(options) + 1)]
-            answer_idx = Prompt.ask("请选择", choices=choices)
-            answer = options[int(answer_idx) - 1]
-        else:
-            answer = Prompt.ask("请回答")
-
-        console.print(f"[green]✓ 用户回答: {answer}[/green]\n")
-
-        if context.on_resume_spinner:
-            context.on_resume_spinner()
-
-        result = {"question": question, "answer": answer, "options": options if options else None}
-
-        return ToolResult(data=result)
-
-    @staticmethod
-    def _server_mode_response(question: str, options: list[str]) -> ToolResult[dict]:
-        """Server 模式：将问题展示给用户，暂停 agent loop 等待用户回复"""
         hint = f"The question has been displayed to the user via the chat interface. Question: '{question}'. "
         if options:
             hint += f"Options presented: {options}. "
@@ -100,4 +70,4 @@ Input:
         )
 
     def is_concurrency_safe(self, input: dict[str, Any]) -> bool:
-        return False  # 需要用户交互，不能并发
+        return False

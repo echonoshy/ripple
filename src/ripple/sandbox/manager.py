@@ -7,7 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from ripple.sandbox.config import SandboxConfig
-from ripple.sandbox.executor import check_nsjail_available, write_nsjail_config
+from ripple.sandbox.executor import check_nsjail_available
+from ripple.sandbox.nsjail_config import write_nsjail_config
 from ripple.sandbox.storage import (
     delete_session_state,
     get_suspended_session_info,
@@ -32,7 +33,11 @@ class SandboxManager:
     def __init__(self, config: SandboxConfig | None = None):
         self.config = config or SandboxConfig()
         check_nsjail_available(self.config.nsjail_path)
-        logger.info("SandboxManager 初始化: root={}", self.config.sandboxes_root)
+        logger.info(
+            "SandboxManager 初始化: sessions={}, caches={}",
+            self.config.sessions_root,
+            self.config.caches_root,
+        )
 
     def setup_session(self, session_id: str) -> Path:
         """为 session 初始化沙箱环境，返回 workspace 路径"""

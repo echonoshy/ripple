@@ -98,7 +98,7 @@ class BashTool(Tool[BashInput, BashOutput]):
             return ToolResult(data=BashOutput(stdout="", stderr=error, exit_code=1))
 
         try:
-            if context.is_server_mode and context.sandbox_session_id and _sandbox_config:
+            if context.is_sandboxed and _sandbox_config:
                 stdout, stderr, exit_code = await self._execute_in_sandbox(args, context)
             else:
                 stdout, stderr, exit_code = await self._execute_direct(args, context)
@@ -137,7 +137,7 @@ class BashTool(Tool[BashInput, BashOutput]):
         if _sandbox_config.has_python_venv(session_id):
             return None
 
-        from ripple.sandbox.executor import ensure_python_venv
+        from ripple.sandbox.provisioning import ensure_python_venv
 
         success, msg = await ensure_python_venv(_sandbox_config, session_id)
         if not success:
@@ -155,7 +155,7 @@ class BashTool(Tool[BashInput, BashOutput]):
         if _sandbox_config.has_pnpm_setup(session_id):
             return None
 
-        from ripple.sandbox.executor import ensure_pnpm_setup
+        from ripple.sandbox.provisioning import ensure_pnpm_setup
 
         success, msg = await ensure_pnpm_setup(_sandbox_config, session_id)
         if not success:
@@ -175,7 +175,7 @@ class BashTool(Tool[BashInput, BashOutput]):
         if not _sandbox_config.lark_cli_bin:
             return "[SANDBOX] lark-cli 未预装（宿主机）。请联系管理员执行: bash scripts/install-feishu-cli.sh"
 
-        from ripple.sandbox.executor import ensure_lark_cli_config
+        from ripple.sandbox.feishu import ensure_lark_cli_config
 
         success, msg = await ensure_lark_cli_config(_sandbox_config, session_id)
         if success:

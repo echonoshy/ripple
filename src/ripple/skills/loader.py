@@ -1,22 +1,20 @@
 """Skill 加载器
 
-从目录加载 Skill 定义，并合并 bundled skills。
+从目录加载 Skill 定义。
 
 只有满足以下条件之一的 .md 文件才会被加载为 Skill：
 1. 文件名为 SKILL.md（推荐的入口文件命名）
 2. 文件包含有效的 YAML frontmatter 且含有 name 或 description 字段
 
-支持三层加载模式（后者覆盖前者）：
-1. Bundled Skills  — 内置 Python 硬编码
-2. Shared Skills   — server.shared_skills_dirs 配置的全局共享目录
-3. Workspace Skills — 每个 session 的 workspace/skills/（沙箱内）
+支持两层加载模式（后者覆盖前者）：
+1. Shared Skills   — skills.shared_dirs 配置的全局共享目录（所有 session 可见）
+2. Workspace Skills — 每个 session 的 workspace/skills/（沙箱内）
 """
 
 from pathlib import Path
 
 import frontmatter
 
-from ripple.skills.registry import get_bundled_skills
 from ripple.skills.types import Skill
 from ripple.utils.logger import get_logger
 
@@ -92,80 +90,6 @@ def _load_skills_from_dir(skill_dir: Path) -> dict[str, Skill]:
     return skills
 
 
-class SkillLoader:
-    """Skill 加载器
-
-    从 Markdown 文件加载 Skill 定义。
-    """
-
-    def __init__(self, skill_dirs: list[str] | None = None):
-        """初始化加载器
-
-        Args:
-            skill_dirs: Skill 目录列表，默认为 ["skills"]
-        """
-        if skill_dirs is None:
-            skill_dirs = ["skills"]
-        self.skill_dirs = [Path(d).expanduser() for d in skill_dirs]
-        self._skills: dict[str, Skill] = {}
-
-    def load_all(self) -> dict[str, Skill]:
-        """加载所有 Skill
-
-        加载顺序：
-        1. Bundled skills（内置技能）
-        2. 文件系统 skills（用户技能）
-
-        后加载的覆盖先加载的（文件系统 skills 可以覆盖 bundled skills）
-
-        Returns:
-            Skill 字典（name -> Skill）
-        """
-        self._skills.clear()
-
-        bundled_skills = get_bundled_skills()
-        self._skills.update(bundled_skills)
-
-        for skill_dir in self.skill_dirs:
-            self._skills.update(_load_skills_from_dir(skill_dir))
-
-        return self._skills
-
-    def get_skill(self, name: str) -> Skill | None:
-        """获取 Skill"""
-        return self._skills.get(name)
-
-    def list_skills(self) -> list[Skill]:
-        """列出所有 Skill"""
-        return list(self._skills.values())
-
-
-_global_loader: SkillLoader | None = None
-
-
-def get_global_loader() -> SkillLoader:
-    """获取全局 Skill 加载器
-
-    首次调用时会注册所有 bundled skills 并加载所有 skills。
-    """
-    global _global_loader
-    if _global_loader is None:
-        from ripple.skills.bundled import register_all_bundled_skills
-
-        register_all_bundled_skills()
-
-        _global_loader = SkillLoader()
-        _global_loader.load_all()
-    return _global_loader
-
-
-def reload_skills():
-    """重新加载所有 Skill"""
-    global _global_loader
-    if _global_loader:
-        _global_loader.load_all()
-
-
 # ---------------------------------------------------------------------------
 # Shared skills (Server 级别共享，所有 session 可见)
 # ---------------------------------------------------------------------------
@@ -173,13 +97,50 @@ def reload_skills():
 _shared_skills_cache: tuple[dict[str, Skill], float] | None = None
 
 
+_GLOB_CHARS = "*?["
+
+
+def _expand_shared_pattern(pattern: str) -> list[Path]:
+    """将 shared_dirs 中的单个条目展开为实际存在的目录列表。
+
+    支持三种写法：
+    - 普通路径（相对或绝对）："skills" / "/abs/path"
+    - 含 ~ 的 home 路径："~/my-skills"
+    - 含 glob 通配符："skills/*" / "~/skills/*/shared"
+
+    glob 不匹配文件；只保留实际存在的目录。
+    """
+    expanded = Path(pattern).expanduser()
+    raw = str(expanded)
+
+    if not any(ch in raw for ch in _GLOB_CHARS):
+        return [expanded.resolve()] if expanded.exists() else []
+
+    if expanded.is_absolute():
+        anchor = Path(expanded.anchor)
+        rel = expanded.relative_to(anchor)
+        matches = anchor.glob(str(rel))
+    else:
+        matches = Path.cwd().glob(raw)
+
+    return [m.resolve() for m in matches if m.is_dir()]
+
+
 def _get_shared_skill_dirs() -> list[Path]:
-    """从配置读取共享 skill 目录列表"""
+    """从配置读取共享 skill 目录列表（支持 glob）"""
     from ripple.utils.config import get_config
 
     config = get_config()
-    dirs = config.get("skills.shared_dirs", [])
-    return [Path(d).expanduser().resolve() for d in dirs]
+    patterns = config.get("skills.shared_dirs", [])
+
+    resolved: list[Path] = []
+    seen: set[Path] = set()
+    for pattern in patterns:
+        for path in _expand_shared_pattern(pattern):
+            if path not in seen:
+                seen.add(path)
+                resolved.append(path)
+    return resolved
 
 
 def _compute_dirs_mtime(dirs: list[Path]) -> float:
@@ -195,7 +156,7 @@ def _compute_dirs_mtime(dirs: list[Path]) -> float:
 
 
 def load_shared_skills() -> dict[str, Skill]:
-    """加载共享 skills（bundled + shared_dirs）
+    """加载共享 skills（来自 skills.shared_dirs 配置）
 
     Server 模式下用于 schema 生成、/v1/info、system prompt 等场景。
     使用目录 mtime 做轻量缓存。
@@ -204,10 +165,6 @@ def load_shared_skills() -> dict[str, Skill]:
         合并后的 skill 字典（name -> Skill）
     """
     global _shared_skills_cache
-
-    from ripple.skills.bundled import register_all_bundled_skills
-
-    register_all_bundled_skills()
 
     shared_dirs = _get_shared_skill_dirs()
     current_mtime = _compute_dirs_mtime(shared_dirs)
@@ -218,7 +175,6 @@ def load_shared_skills() -> dict[str, Skill]:
             return cached_skills
 
     merged: dict[str, Skill] = {}
-    merged.update(get_bundled_skills())
     for d in shared_dirs:
         merged.update(_load_skills_from_dir(d))
 
@@ -243,12 +199,11 @@ _workspace_skills_cache: dict[Path, tuple[float, dict[str, Skill]]] = {}
 
 
 def load_workspace_skills(workspace_root: Path) -> dict[str, Skill]:
-    """加载指定 workspace 的完整 skills（bundled + shared + workspace/skills/）
+    """加载指定 workspace 的完整 skills（shared + workspace/skills/）
 
-    三层合并，后者覆盖前者：
-    1. Bundled skills
-    2. Shared skills（来自 skills.shared_dirs 配置）
-    3. Workspace skills（session 沙箱内的 workspace/skills/）
+    两层合并，后者覆盖前者：
+    1. Shared skills（来自 skills.shared_dirs 配置）
+    2. Workspace skills（session 沙箱内的 workspace/skills/）
 
     使用目录 mtime 做轻量缓存，避免每次工具调用都做磁盘扫描。
 

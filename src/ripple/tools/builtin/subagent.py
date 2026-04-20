@@ -110,10 +110,10 @@ class SubAgentTool(Tool[SubAgentInput, SubAgentOutput]):
                 thinking=context.thinking,
                 permission_mode=permission_mode,
                 permission_manager=context.permission_manager,
-                is_server_mode=context.is_server_mode,
                 read_file_state={},
                 workspace_root=context.workspace_root,
                 sandbox_session_id=context.sandbox_session_id,
+                session_runtime_dir=context.session_runtime_dir,
             )
 
             # 4. 调用 query_loop

@@ -169,6 +169,31 @@ def generate_nsjail_config(config: SandboxConfig, session_id: str) -> str:
     rw: false
 }}""")
 
+    # 共享 skill 目录（只读，所有 session 共享）。
+    # 以"原路径 → 原路径"挂载，使 Skill 系统提示中替换后的 `$SKILL_BASE_DIR`
+    # 宿主绝对路径（见 `skills/types.py`）在沙箱内依然可直接访问，从而允许
+    # 在 skill 里用 Bash/Python 调用 skill 目录下的辅助脚本、模板等资源。
+    try:
+        from ripple.skills.loader import _get_shared_skill_dirs
+    except Exception:
+        _get_shared_skill_dirs = None  # type: ignore[assignment]
+    if _get_shared_skill_dirs is not None:
+        try:
+            skill_dirs = _get_shared_skill_dirs()
+        except Exception as exc:
+            logger.warning("枚举共享 skill 目录失败，沙箱将无法访问 $SKILL_BASE_DIR: {}", exc)
+            skill_dirs = []
+        for skill_root in skill_dirs:
+            if not skill_root.exists():
+                continue
+            src = str(skill_root)
+            mounts.append(f"""mount {{
+    src: "{src}"
+    dst: "{src}"
+    is_bind: true
+    rw: false
+}}""")
+
     mounts.append(f"""mount {{
     src: "{workspace}"
     dst: "/workspace"

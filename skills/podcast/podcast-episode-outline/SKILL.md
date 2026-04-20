@@ -1,7 +1,8 @@
 ---
 name: podcast-episode-outline
-description: 根据播客内容生成带时间锚点的结构化大纲，用于章节浏览、跳转回听、UI section 展示。
-when-to-use: 需要生成章节目录、时间轴大纲，或为后续跳转/UI 展示提供 section 列表
+description: 根据播客内容生成带时间锚点的结构化大纲，用于章节浏览、跳转回听、UI section 展示。支持把结果直接落盘到 work_dir/outline.json。
+when-to-use: 需要生成章节目录、时间轴大纲，或为后续跳转/UI 展示提供 section 列表，或 podcast-auto-md 流水线调用
+allowed-tools: [Read, Write]
 ---
 
 # podcast-episode-outline
@@ -10,11 +11,27 @@ when-to-use: 需要生成章节目录、时间轴大纲，或为后续跳转/UI 
 
 产出**带时间锚点**的结构化大纲，展示本期是如何展开的，并为跳转、回听、UI 章节提供 section 列表。
 
-纯模型处理 skill，不需要外部工具。
+支持 `Read` / `Write`：在流水线模式下从 work_dir 读取输入、把结果写入 `<work_dir>/outline.json`。
 
 ## 输入
 
-`$ARGUMENTS` 为 JSON：
+`$ARGUMENTS` 为 JSON。推荐的流水线模式（由 `podcast-auto-md` 调用）：
+
+```json
+{
+  "work_dir": "/workspace/.podcast-work/<episode_id>",
+  "max_sections": 12
+}
+```
+
+当给了 `work_dir` 时，**必须**：
+1. 用 `Read` 读 `<work_dir>/meta.json`，从中取 `episode.outline`（作为 `shownotes_outline`）、`episode.title`
+2. 用 `Read` 读 `<work_dir>/content.txt` 作为 `content`
+3. 若 `<work_dir>/transcript.json` 存在，从中取 `transcript.segments` 作为时间来源（优先级见 Step 1）
+4. 在 Step 5 里用 `Write` 把完整 JSON 写到 `<work_dir>/outline.json`
+5. 只给调用方返回一行确认，**不要**把完整 JSON 贴回对话
+
+独立模式：
 
 ```json
 {
@@ -52,6 +69,13 @@ when-to-use: 需要生成章节目录、时间轴大纲，或为后续跳转/UI 
 - `end`：秒数（有下一个 section 时 = 下一个的 `start`；最后一段 = 本期总时长或 `window.end`；拿不到就省略）
 
 ### Step 5 — 输出
+
+**流水线模式（给了 `work_dir`）**：
+1. 用 `Write` 把 JSON 写到 `<work_dir>/outline.json`
+2. 给调用方返回一行短确认，例如：`outline.json 已写入 ...（sections=10）`
+3. **不要**把完整 JSON 贴回对话
+
+**独立模式**：直接把 JSON 作为最终回复返回。
 
 ## 输出 Schema
 

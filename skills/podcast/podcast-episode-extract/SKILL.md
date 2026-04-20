@@ -1,8 +1,8 @@
 ---
 name: podcast-episode-extract
-description: 根据已知的 episode URL，抽取该期播客的结构化元信息（标题、节目名、简介、嘉宾、主播、章节 outline 等）。不负责搜索 URL。
+description: 根据已知的 episode URL，抽取该期播客的结构化元信息（标题、节目名、简介、嘉宾、主播、章节 outline 等）。不负责搜索 URL。支持把结果落盘到 work_dir/meta.json 和 content.txt。
 when-to-use: 用户提供了播客单集链接，或上游 skill 已经拿到 episode_url 需要取元信息时
-allowed-tools: [Bash]
+allowed-tools: [Bash, Write]
 ---
 
 # podcast-episode-extract
@@ -16,8 +16,18 @@ allowed-tools: [Bash]
 `$ARGUMENTS` 既可是一个裸 URL 字符串，也可是 JSON：
 
 ```json
-{ "episode_url": "https://www.xiaoyuzhoufm.com/episode/69cdbe5eb977fb2c47e1e409" }
+{
+  "episode_url": "https://www.xiaoyuzhoufm.com/episode/69cdbe5eb977fb2c47e1e409",
+  "work_dir": "/workspace/.podcast-work/<episode_id>"
+}
 ```
+
+若给了 `work_dir`（流水线模式），**必须**在完成 extract 后：
+1. 用 `Write` 把本 skill 的完整 JSON（符合下节 Schema）写到 `<work_dir>/meta.json`
+2. 再用 `Write` 把 `description + 去 HTML 的 shownotes` 拼接后的纯文本写到 `<work_dir>/content.txt`（供 summarize / outline / keywords 复用，避免重复抓取/清洗）
+3. 只给调用方返回一行短确认，**不要**把完整 JSON 贴回对话
+
+若没给 `work_dir`，按原样把 JSON 作为最终回复返回。
 
 ## 执行步骤（必须按此执行）
 
@@ -90,7 +100,15 @@ pattern: data-timestamp="(\d+)">([0-9:]+)</a>\s*([^<\n]+)
 
 ### Step 6 — 输出 JSON
 
-严格按下节 Schema 输出，不要多加字段。
+严格按下节 Schema 组装 JSON。
+
+**流水线模式（给了 `work_dir`）**：
+1. 用 `Write` 把 JSON 写到 `<work_dir>/meta.json`
+2. 用 `Write` 把 `description + shownotes 去 HTML` 合并后的纯文本写到 `<work_dir>/content.txt`
+3. 给调用方返回一行短确认，例如：`meta.json + content.txt 已写入 /workspace/.podcast-work/<eid>/（outline=10 sections, content=3421 chars）`
+4. **不要**把完整 JSON 贴回对话
+
+**独立模式**：直接把 JSON 作为最终回复返回，不写盘。
 
 ## 输出 Schema
 

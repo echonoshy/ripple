@@ -10,16 +10,20 @@ Ripple 的主循环，类似 claude-code 的 agent loop 职责：
 入参见 `query_params.py`。
 """
 
+import asyncio
 import json
 from typing import TYPE_CHECKING, Any, AsyncGenerator
 
 from ripple.api.client import LLMClient, create_client
 from ripple.core.context import ToolUseContext
 from ripple.core.errors import (
+    CONNECTION_RETRY_BACKOFF_BASE,
+    MAX_CONNECTION_RETRIES,
     MAX_REACTIVE_COMPACT_RETRIES,
     extract_stop_metadata,
     is_context_too_long_error,
     is_max_output_error,
+    is_retryable_connection_error,
     parse_ptl_token_gap,
 )
 from ripple.core.query_params import QueryParams
@@ -103,6 +107,19 @@ async def query_loop(
     recovery = ErrorRecovery()
     reactive_compact_count = 0
     last_microcompact_msg_count: int = 0
+    # 跨轮累计的连接错误重试计数。仅在"本轮未产出任何 AssistantMessage 就失败"时递增；
+    # 一旦有一轮成功产出消息就清零，避免偶发抖动累积到上限。
+    connection_retry_count = 0
+
+    # 从配置读取连接重试参数（见 config/settings.yaml: api.connection_retry）
+    # errors.py 里的常量作为 fallback，避免配置缺失时崩溃
+    from ripple.utils.config import get_config
+
+    _api_cfg = get_config()
+    max_connection_retries = int(_api_cfg.get("api.connection_retry.max_retries", MAX_CONNECTION_RETRIES))
+    connection_retry_backoff_base = float(
+        _api_cfg.get("api.connection_retry.backoff_base", CONNECTION_RETRY_BACKOFF_BASE)
+    )
 
     while True:
         # ========== 阶段 0: 检查是否已被中止 ==========
@@ -204,6 +221,27 @@ async def query_loop(
             logger.error("API 调用失败: {}\n{}", e, traceback.format_exc())
 
             error_str = str(e).lower()
+
+            # 检查是否是可重试的连接/网络错误
+            # 前置条件：本轮尚未产出任何 AssistantMessage —— 否则重试会产生重复消息污染历史
+            if is_retryable_connection_error(error_str) and not assistant_messages:
+                if connection_retry_count < max_connection_retries:
+                    connection_retry_count += 1
+                    backoff = connection_retry_backoff_base * (2 ** (connection_retry_count - 1))
+                    logger.warning(
+                        "检测到可重试的连接错误，{}s 后重试 (尝试 {}/{})",
+                        backoff,
+                        connection_retry_count,
+                        max_connection_retries,
+                    )
+                    await asyncio.sleep(backoff)
+                    # state / turn_count 均保持不变，直接重入循环重新调用模型
+                    continue
+                else:
+                    logger.error(
+                        "连接错误已达最大重试次数 {}，终止本次 query",
+                        max_connection_retries,
+                    )
 
             # 检查是否是上下文过长的错误 → reactive compact
             if is_context_too_long_error(error_str):
@@ -313,6 +351,8 @@ async def query_loop(
                 total_content_blocks,
                 len(tool_use_blocks),
             )
+            # 本轮成功产出 → 清零连接错误重试计数，避免偶发抖动累积
+            connection_retry_count = 0
         else:
             logger.warning("Turn {}: 模型未返回任何消息（流式响应为空）", state.turn_count)
 

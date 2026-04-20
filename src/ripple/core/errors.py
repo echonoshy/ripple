@@ -28,7 +28,35 @@ _MAX_OUTPUT_KEYWORDS = [
     "output token",
 ]
 
+# 可重试的连接类错误关键字（与 SDK 原生重试互补，覆盖 SDK 无法自动续的流中断场景）
+# 注意：仅对"本轮尚未产出任何 AssistantMessage"时生效，否则会污染消息历史
+_RETRYABLE_CONNECTION_KEYWORDS = [
+    "connection error",
+    "connection reset",
+    "connection aborted",
+    "connection refused",
+    "connection closed",
+    "connecterror",
+    "read timeout",
+    "remote protocol error",
+    "server disconnected",
+    "apitimeouterror",
+    "apiconnectionerror",
+    # 可重试的 HTTP 状态码（字符串匹配）
+    "status code: 429",
+    "status code: 500",
+    "status code: 502",
+    "status code: 503",
+    "status code: 504",
+]
+
 MAX_REACTIVE_COMPACT_RETRIES = 2
+
+# 本轮"模型流建立失败"的最大重试次数（与 AsyncOpenAI.max_retries 叠加生效）
+MAX_CONNECTION_RETRIES = 3
+
+# 连接错误重试的指数退避基数（秒）：delay = BASE * 2^(attempt-1)
+CONNECTION_RETRY_BACKOFF_BASE = 1.0
 
 # 从 PTL 错误消息中提取 token 数值的正则
 _PTL_TOKEN_PATTERN = re.compile(r"(\d[\d,]*)\s*tokens?\s*[>≥]\s*(\d[\d,]*)")
@@ -74,6 +102,23 @@ def is_context_too_long_error(error_str: str) -> bool:
 def is_max_output_error(error_str: str) -> bool:
     """判断是否是 max_output_tokens 错误"""
     return any(kw in error_str for kw in _MAX_OUTPUT_KEYWORDS)
+
+
+def is_retryable_connection_error(error_str: str) -> bool:
+    """判断是否是可自动重试的连接/网络错误
+
+    用于 agent_loop 对"流建立失败"或"可重试 5xx/429"做一层自己的指数退避重试，
+    与 AsyncOpenAI SDK 自带的 max_retries 互补（SDK 只覆盖流建立之前）。
+
+    调用方必须额外检查"本轮是否已产出 AssistantMessage"，已产出则不要重试，
+    否则会出现重复消息污染历史。
+    """
+    # 主动排除不该重试的错误：认证/参数错误
+    non_retryable = ["status code: 401", "status code: 403", "status code: 400", "status code: 404"]
+    if any(kw in error_str for kw in non_retryable):
+        return False
+
+    return any(kw in error_str for kw in _RETRYABLE_CONNECTION_KEYWORDS)
 
 
 def extract_stop_metadata(stop_reason: str, tool_results: list[Message]) -> dict[str, str | list[str]]:

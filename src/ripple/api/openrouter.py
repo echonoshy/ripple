@@ -58,10 +58,22 @@ class OpenRouterClient(LLMClient):
 
         logger.info("初始化 OpenRouter 客户端: base_url={}", self.base_url)
 
+        # 从配置读取超时 / 重试参数（见 config/settings.yaml: api.timeout / api.max_retries）
+        # - max_retries 只覆盖"流建立之前"的瞬时错误（APIConnectionError / 429 / 5xx）
+        # - "流建立之后"的中断重试由 agent_loop 层兜底
+        timeout_cfg = config.get("api.timeout", {}) or {}
+        max_retries = config.get("api.max_retries", 3)
+
         self.client = AsyncOpenAI(
             base_url=self.base_url,
             api_key=self.api_key,
-            timeout=httpx.Timeout(connect=30.0, read=120.0, write=30.0, pool=30.0),
+            timeout=httpx.Timeout(
+                connect=float(timeout_cfg.get("connect", 15.0)),
+                read=float(timeout_cfg.get("read", 300.0)),
+                write=float(timeout_cfg.get("write", 30.0)),
+                pool=float(timeout_cfg.get("pool", 30.0)),
+            ),
+            max_retries=int(max_retries),
             default_headers={
                 "HTTP-Referer": "https://github.com/echonoshy/ripple",
                 "X-Title": "Ripple Agent",

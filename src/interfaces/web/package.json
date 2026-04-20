@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --port 8820",
+    "dev": "next dev --port 8821",
     "build": "next build",
-    "start": "next start --port 8820",
+    "start": "next start --port 8821",
     "lint": "eslint",
     "lint:fix": "eslint --fix",
     "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json,css}\"",

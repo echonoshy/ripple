@@ -1,9 +1,11 @@
 """飞书 / lark-cli 凭证注入与配置引导（沙箱内）
 
 设计约定：
-1. lark-cli 原生二进制由宿主机 `scripts/install-feishu-cli.sh` 预装，路径
-   `/usr/local/bin/lark-cli -> /opt/lark-cli/current/bin/lark-cli`，
-   `/opt/lark-cli` 以只读方式 bind mount 进所有沙箱。
+1. lark-cli 原生二进制由 `scripts/install-feishu-cli.sh` 安装到项目内
+   `<repo_root>/vendor/lark-cli/`（current→vX.Y.Z/bin/lark-cli 布局），
+   启动沙箱时将该目录 readonly bind mount 到沙箱内固定路径
+   `/opt/lark-cli`，并把 `/opt/lark-cli/current/bin` 注入沙箱 PATH。
+   历史 `/opt/lark-cli/` 全局安装路径也被自动识别。
 2. per-session 凭证完全隔离：沙箱内 HOME=/workspace，lark-cli 的 app 配置
    自然写到 `/workspace/.lark-cli/config.json`（= 宿主 `workspace_dir/.lark-cli/...`）。
 3. `config init --new`（交互式，阻塞等浏览器）改在沙箱内 spawn，宿主进程只

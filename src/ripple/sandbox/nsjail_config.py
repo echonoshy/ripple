@@ -10,6 +10,7 @@ from pathlib import Path
 
 from ripple.sandbox.config import (
     LARK_CLI_INSTALL_ROOT,
+    LARK_CLI_SANDBOX_BIN_DIR,
     SANDBOX_COREPACK_HOME,
     SANDBOX_NODE_BIN,
     SANDBOX_NODE_DIR,
@@ -33,6 +34,11 @@ def build_sandbox_env(config: SandboxConfig) -> dict[str, str]:
     if config.node_dir:
         path_parts.insert(0, f"{SANDBOX_NODE_DIR}/bin")
         path_parts.insert(0, SANDBOX_NODE_BIN)
+
+    # lark-cli 通过 bind-mount 到 /opt/lark-cli，bin 目录显式加入 PATH，
+    # 解耦宿主安装位置（vendor/ 或 /opt/），不再依赖 /usr/local/bin/lark-cli 软链。
+    if config.lark_cli_install_root:
+        path_parts.insert(0, LARK_CLI_SANDBOX_BIN_DIR)
 
     env = {
         "PATH": ":".join(path_parts),
@@ -152,11 +158,12 @@ def generate_nsjail_config(config: SandboxConfig, session_id: str) -> str:
 }}""")
 
     # lark-cli 原生二进制安装根（只读，所有 session 共享）。
-    # /usr/local/bin/lark-cli -> /opt/lark-cli/current/bin/lark-cli，必须挂
-    # /opt/lark-cli 整个目录 symlink 才能在沙箱内被解析。
-    if config.lark_cli_bin and Path(LARK_CLI_INSTALL_ROOT).exists():
+    # 宿主侧 install_root（vendor/lark-cli/ 或 /opt/lark-cli/，含 current→vX.Y.Z
+    # 软链和 current/bin/lark-cli 二进制）整体挂到沙箱内固定的
+    # LARK_CLI_INSTALL_ROOT（/opt/lark-cli），使 current 软链在沙箱内可解析。
+    if config.lark_cli_install_root and Path(config.lark_cli_install_root).exists():
         mounts.append(f"""mount {{
-    src: "{LARK_CLI_INSTALL_ROOT}"
+    src: "{config.lark_cli_install_root}"
     dst: "{LARK_CLI_INSTALL_ROOT}"
     is_bind: true
     rw: false

@@ -25,8 +25,9 @@ _PYTHON_CMD_PATTERN = re.compile(
 )
 
 # 匹配需要 pnpm 全局环境的命令。
-# 注意：lark-cli 是宿主预装的 Go 静态二进制（/usr/local/bin/lark-cli），
-# 通过只读 bind mount 可在沙箱直接运行，无需 Node/pnpm 环境 — 因此不在此列表中。
+# 注意：lark-cli 是 Go 静态二进制（scripts/install-feishu-cli.sh 下载到
+# <repo_root>/vendor/lark-cli/），沙箱启动时 readonly bind mount 到
+# /opt/lark-cli 并加入 PATH，无需 Node/pnpm 环境 — 因此不在此列表中。
 _NODE_CMD_PATTERN = re.compile(
     r"(?:^|&&|\|\||;|\|)\s*(?:pnpm|npx|npm|node|corepack)\b",
 )
@@ -165,9 +166,10 @@ class BashTool(Tool[BashInput, BashOutput]):
     async def _ensure_lark_cli_if_needed(self, command: str, session_id: str) -> str | None:
         """确保 lark-cli 已配置 app 凭证。返回错误/提示信息或 None。
 
-        lark-cli 二进制由宿主机预装（/usr/local/bin/lark-cli，readonly bind
-        mount 到沙箱），无需 per-session 安装。仅在凭证缺失时启动沙箱内
-        `config init --new` 并把 setup URL 返回给模型。
+        lark-cli 二进制由宿主侧 scripts/install-feishu-cli.sh 安装到
+        <repo_root>/vendor/lark-cli/，沙箱启动时 readonly bind mount 到
+        /opt/lark-cli 并加入 PATH，无需 per-session 安装。仅在凭证缺失时
+        启动沙箱内 `config init --new` 并把 setup URL 返回给模型。
         """
         if not _needs_lark_cli(command):
             return None

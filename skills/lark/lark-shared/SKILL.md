@@ -140,9 +140,10 @@ lark-cli auth login --device-code <DEVICE_CODE>
 
 ## 更新与维护
 
-lark-cli 由宿主机管理员统一预装（路径 `/usr/local/bin/lark-cli`），不要尝试
-在沙箱内用 `npm install -g` 升级。如果命令输出 `_notice.update`，完成当前
-请求后告知用户："飞书 CLI 有新版本可用，请联系管理员在宿主机升级。"
+lark-cli 是 Go 静态二进制，由项目脚本 `scripts/install-feishu-cli.sh` 安装到
+仓库内 `vendor/lark-cli/`，沙箱启动时 readonly bind-mount 到 `/opt/lark-cli`
+并已加入 `PATH`，可直接调用 `lark-cli`。**不要**尝试用 `npm install -g`
+或 `pnpm install -g` 安装/升级（它不是 npm 包）。
 
 ## 安全规则
 

@@ -21,12 +21,16 @@ SANDBOX_COREPACK_HOME = "/corepack-cache"
 SANDBOX_NODE_PREFIX = "/workspace/.local"
 SANDBOX_NODE_BIN = "/workspace/.local/bin"
 
-# lark-cli 预装根目录（宿主机 = 沙箱内路径一致，只读 bind mount）。
-# 二进制布局由 scripts/install-feishu-cli.sh 维护：
+# lark-cli 在**沙箱内**的挂载目的地（dst）。
+# 宿主侧的安装根目录由 scripts/install-feishu-cli.sh 决定（默认项目内
+# `<repo_root>/vendor/lark-cli/`，或历史上的 `/opt/lark-cli/`），运行时发现后
+# 以 readonly bind mount 方式挂到这个固定路径，使沙箱内路径与安装来源解耦。
+# 二进制布局（不论宿主哪种安装方式，沙箱内始终一致）：
 #   /opt/lark-cli/vX.Y.Z/bin/lark-cli
 #   /opt/lark-cli/current -> vX.Y.Z
-#   /usr/local/bin/lark-cli -> /opt/lark-cli/current/bin/lark-cli
 LARK_CLI_INSTALL_ROOT = "/opt/lark-cli"
+LARK_CLI_SANDBOX_BIN_DIR = f"{LARK_CLI_INSTALL_ROOT}/current/bin"
+LARK_CLI_SANDBOX_BIN = f"{LARK_CLI_SANDBOX_BIN_DIR}/lark-cli"
 
 
 @dataclass
@@ -75,15 +79,47 @@ def _discover_node_dir() -> str | None:
     return None
 
 
+def _repo_root() -> Path:
+    """从本文件位置推出仓库根（src/ripple/sandbox/config.py → 3 层上）"""
+    return Path(__file__).resolve().parents[3]
+
+
+def _discover_lark_cli_install_root() -> str | None:
+    """自动发现 lark-cli 的**宿主侧安装根目录**（用于 bind-mount 到沙箱）。
+
+    要求目录结构为 `<root>/current/bin/lark-cli`。探测顺序：
+      1. 项目内（scripts/install-feishu-cli.sh 默认位置）：
+         `<repo_root>/vendor/lark-cli/`
+      2. 宿主全局（历史位置）：`/opt/lark-cli/`
+
+    返回任一命中的路径，否则 None。
+    """
+    candidates = [
+        _repo_root() / "vendor" / "lark-cli",
+        Path("/opt/lark-cli"),
+    ]
+    for root in candidates:
+        if (root / "current" / "bin" / "lark-cli").exists():
+            return str(root)
+    return None
+
+
 def _discover_lark_cli_bin() -> str | None:
-    """自动发现宿主机上的 lark-cli 二进制路径
+    """自动发现 lark-cli 二进制的宿主路径（仅作可用性判据）。
 
     探测顺序：
-      1. /usr/local/bin/lark-cli (脚本默认安装位置，通常是 symlink)
-      2. shutil.which("lark-cli")
+      1. 已发现的 install_root 下的 current/bin/lark-cli（vendor/ 或 /opt/）
+      2. /usr/local/bin/lark-cli（遗留 symlink，实际目标需自行可挂入沙箱）
+      3. `shutil.which("lark-cli")`
 
-    沙箱内以同样的路径可见（通过 /usr + /opt/lark-cli 的只读 bind mount）。
+    注意：这里返回的是**宿主路径**，沙箱内不一定可以按同名访问 —— 沙箱内
+    的实际可调用路径取决于 nsjail 的 bind-mount 结果，由 install_root
+    决定。
     """
+    root = _discover_lark_cli_install_root()
+    if root:
+        return str(Path(root) / "current" / "bin" / "lark-cli")
+
     default = Path("/usr/local/bin/lark-cli")
     if default.exists() or default.is_symlink():
         return str(default)
@@ -172,8 +208,11 @@ class SandboxConfig:
     npm_registry_url: str = field(default=NPM_MIRROR_NPMMIRROR)
 
     # --- lark-cli ---
-    # 宿主机预装的 lark-cli 二进制路径。通过 readonly bind mount 挂进沙箱。
-    # 由 scripts/install-feishu-cli.sh 安装到 /usr/local/bin/lark-cli。
+    # lark_cli_install_root: 宿主侧安装根目录，要求含 `current/bin/lark-cli`。
+    #   运行时 readonly bind-mount 到沙箱内 LARK_CLI_INSTALL_ROOT（/opt/lark-cli）。
+    #   由 scripts/install-feishu-cli.sh 默认写入 <repo_root>/vendor/lark-cli/。
+    # lark_cli_bin: 宿主二进制路径（仅用于可用性检测 + 日志），可与 install_root 无关。
+    lark_cli_install_root: str | None = field(default=None)
     lark_cli_bin: str | None = field(default=None)
 
     def __post_init__(self):
@@ -183,6 +222,8 @@ class SandboxConfig:
             self.node_dir = _discover_node_dir()
         if self.pnpm_store_dir is None:
             self.pnpm_store_dir = _discover_pnpm_store_dir()
+        if self.lark_cli_install_root is None:
+            self.lark_cli_install_root = _discover_lark_cli_install_root()
         if self.lark_cli_bin is None:
             self.lark_cli_bin = _discover_lark_cli_bin()
 
@@ -299,5 +340,6 @@ class SandboxConfig:
             node_dir=data.get("node_dir"),
             pnpm_store_dir=data.get("pnpm_store_dir"),
             npm_registry_url=data.get("npm_registry_url", NPM_MIRROR_NPMMIRROR),
+            lark_cli_install_root=data.get("lark_cli_install_root"),
             lark_cli_bin=data.get("lark_cli_bin"),
         )

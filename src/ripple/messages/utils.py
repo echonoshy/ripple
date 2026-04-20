@@ -163,6 +163,106 @@ def normalize_messages_for_api(
     return normalized
 
 
+def normalize_messages_for_anthropic(
+    messages: list[Message | dict[str, Any]],
+) -> tuple[str | None, list[dict[str, Any]]]:
+    """规范化消息用于 Anthropic Messages API 调用
+
+    Anthropic API 要求：
+    - `system` 是顶层独立参数（不是消息角色）
+    - `messages` 仅允许 `user` / `assistant` 两种 role
+    - content 使用 block 数组：`text` / `tool_use` / `tool_result`
+
+    本函数把内部 `SystemMessage` 合并成一个 system prompt（多个按顺序用换行拼接），
+    把 `UserMessage`/`AssistantMessage` 的内部 content blocks 原样透传
+    （内部格式本来就是 Anthropic 风格的）。
+
+    Args:
+        messages: 消息列表（Message 对象或已序列化的 dict）
+
+    Returns:
+        (system_prompt, messages) 元组；system_prompt 为 None 表示没有 system
+    """
+    system_parts: list[str] = []
+    normalized: list[dict[str, Any]] = []
+
+    for msg in messages:
+        if isinstance(msg, dict):
+            if "role" in msg and "type" not in msg:
+                role = msg.get("role")
+                content = msg.get("content")
+                if role == "system":
+                    if isinstance(content, str):
+                        system_parts.append(content)
+                    continue
+                if role in ("user", "assistant"):
+                    normalized.append({"role": role, "content": _to_anthropic_content(content)})
+                continue
+            msg = deserialize_message(msg)
+            if isinstance(msg, dict):
+                continue
+
+        if msg.type == "user" and msg.is_meta:
+            continue
+
+        if msg.type == "system":
+            system_parts.append(msg.content)
+            continue
+
+        if msg.type in ("progress", "attachment"):
+            continue
+
+        if msg.type == "assistant":
+            content_blocks = msg.message.get("content", [])
+            normalized.append({"role": "assistant", "content": _clean_anthropic_blocks(content_blocks)})
+
+        elif msg.type == "user":
+            content_blocks = msg.message.get("content", [])
+            normalized.append({"role": "user", "content": _clean_anthropic_blocks(content_blocks)})
+
+    system = "\n\n".join(p for p in system_parts if p).strip() or None
+    return system, normalized
+
+
+def _to_anthropic_content(content: Any) -> list[dict[str, Any]]:
+    """把 raw content（字符串或 block 列表）规范为 Anthropic content blocks"""
+    if isinstance(content, str):
+        return [{"type": "text", "text": content}]
+    if isinstance(content, list):
+        return _clean_anthropic_blocks(content)
+    return [{"type": "text", "text": str(content)}]
+
+
+def _clean_anthropic_blocks(blocks: list[Any]) -> list[dict[str, Any]]:
+    """清洗 content blocks，只保留 Anthropic 认可的字段"""
+    cleaned: list[dict[str, Any]] = []
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        btype = block.get("type")
+        if btype == "text":
+            cleaned.append({"type": "text", "text": block.get("text", "")})
+        elif btype == "tool_use":
+            cleaned.append(
+                {
+                    "type": "tool_use",
+                    "id": block.get("id", ""),
+                    "name": block.get("name", ""),
+                    "input": block.get("input", {}) or {},
+                }
+            )
+        elif btype == "tool_result":
+            entry: dict[str, Any] = {
+                "type": "tool_result",
+                "tool_use_id": block.get("tool_use_id", ""),
+                "content": block.get("content", ""),
+            }
+            if block.get("is_error"):
+                entry["is_error"] = True
+            cleaned.append(entry)
+    return cleaned
+
+
 def _convert_assistant_message(content: list[dict[str, Any]]) -> dict[str, Any]:
     """将 Anthropic 风格的 assistant content blocks 转为 OpenAI 格式
 

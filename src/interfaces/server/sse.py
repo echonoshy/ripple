@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from ripple.api.client import OpenRouterClient
+from ripple.api.client import LLMClient
 from ripple.core.agent_loop import query
 from ripple.core.context import ToolUseContext
 from ripple.messages.types import AgentStopEvent, AssistantMessage, Message, RequestStartEvent, StreamEvent
@@ -196,7 +196,7 @@ def _load_existing_tasks(cwd: Any) -> dict[str, dict[str, Any]]:
 async def stream_query_as_sse(
     user_input: str,
     context: ToolUseContext,
-    client: OpenRouterClient,
+    client: LLMClient,
     model: str,
     max_turns: int,
     history_messages: list[Message] | None = None,
@@ -447,7 +447,7 @@ async def stream_query_as_sse(
 async def collect_query_response(
     user_input: str,
     context: ToolUseContext,
-    client: OpenRouterClient,
+    client: LLMClient,
     model: str,
     max_turns: int,
     history_messages: list[Message] | None = None,

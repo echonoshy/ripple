@@ -12,7 +12,7 @@ from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.theme import Theme
 
-from ripple.api.client import OpenRouterClient
+from ripple.api.client import LLMClient, create_client
 from ripple.core.agent_loop import query
 from ripple.core.context import ToolOptions, ToolUseContext
 from ripple.permissions.levels import PermissionMode
@@ -59,7 +59,7 @@ class RippleCLI:
         self.model = config.resolve_model(raw_model)
         self.max_turns = max_turns or config.get("agent.max_turns", 10)
         self.thinking = config.get("model.thinking.enabled", False)
-        self.client: OpenRouterClient | None = None
+        self.client: LLMClient | None = None
         self.context: ToolUseContext | None = None
         self.session_id = generate_session_id()
 
@@ -253,7 +253,7 @@ IMPORTANT: Before declining a user request because it's outside your domain, che
 
         # 创建客户端
         try:
-            self.client = OpenRouterClient()
+            self.client = create_client()
         except ValueError as e:
             console.print(f"[red]错误: {e}[/red]")
             raise

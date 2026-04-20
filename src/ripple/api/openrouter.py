@@ -1,0 +1,161 @@
+"""OpenRouter (OpenAI 兼容) API 客户端
+
+把内部 Ripple 消息格式 → OpenAI Chat Completions 格式，
+并把 OpenAI 流式响应反向解析回 `AssistantMessage` / `StreamEvent`。
+"""
+
+from typing import TYPE_CHECKING, Any, AsyncGenerator
+
+import httpx
+from openai import AsyncOpenAI
+
+from ripple.api.base import LLMClient
+from ripple.api.streaming import process_stream_response
+from ripple.messages.types import AssistantMessage, Message, StreamEvent
+from ripple.messages.utils import normalize_messages_for_api
+from ripple.utils.config import get_config
+from ripple.utils.logger import get_logger
+
+if TYPE_CHECKING:
+    from ripple.tools.base import Tool
+
+logger = get_logger("api.openrouter")
+
+
+class OpenRouterClient(LLMClient):
+    """OpenRouter API 客户端（OpenAI 兼容）
+
+    通过 AsyncOpenAI SDK 打 Chat Completions 端点，
+    同时兼容任何使用 OpenAI 协议的第三方服务。
+    """
+
+    provider_type = "openai"
+
+    def __init__(
+        self,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        provider_name: str = "openrouter",
+    ):
+        config = get_config()
+
+        if api_key is None or base_url is None:
+            try:
+                provider_cfg = config.get_provider_config(provider_name)
+                api_key = api_key or provider_cfg.get("api_key")
+                base_url = base_url or provider_cfg.get("base_url")
+            except ValueError:
+                # 兜底：用老式配置
+                api_key = api_key or config.get("api.api_key")
+                base_url = base_url or config.get("api.base_url", "https://openrouter.ai/api/v1")
+
+        if not api_key:
+            raise ValueError("OpenRouter API key 未配置，请在 config/settings.yaml 里设置")
+
+        self.api_key = api_key
+        self.base_url = base_url
+        self.provider_name = provider_name
+
+        logger.info("初始化 OpenRouter 客户端: base_url={}", self.base_url)
+
+        self.client = AsyncOpenAI(
+            base_url=self.base_url,
+            api_key=self.api_key,
+            timeout=httpx.Timeout(connect=30.0, read=120.0, write=30.0, pool=30.0),
+            default_headers={
+                "HTTP-Referer": "https://github.com/echonoshy/ripple",
+                "X-Title": "Ripple Agent",
+            },
+        )
+
+    async def stream(
+        self,
+        messages: list[Message | dict[str, Any]],
+        tools: "list[Tool] | None" = None,
+        model: str = "anthropic/claude-sonnet-4.6",
+        max_tokens: int | None = None,
+        thinking: bool | None = None,
+        **kwargs: Any,
+    ) -> AsyncGenerator[AssistantMessage | StreamEvent, None]:
+        config = get_config()
+        if thinking is None:
+            thinking = config.get("model.thinking.enabled", False)
+
+        api_messages = normalize_messages_for_api(messages)
+        tool_schemas = [t.to_openai_tool() for t in tools] if tools else None
+
+        params: dict[str, Any] = {
+            "model": model,
+            "messages": api_messages,
+            "stream": True,
+            **kwargs,
+        }
+
+        if thinking:
+            params["extra_body"] = {"reasoning": {"enabled": True}}
+
+        params["max_tokens"] = max_tokens or config.get("model.max_output_tokens", 60000)
+
+        if tool_schemas:
+            params["tools"] = tool_schemas
+
+        logger.debug(
+            "stream: model={}, messages={}, tools={}, thinking={}",
+            model,
+            len(api_messages),
+            len(tool_schemas) if tool_schemas else 0,
+            thinking,
+        )
+
+        raw_stream = await self.client.chat.completions.create(**params)
+
+        async for item in process_stream_response(_iter_raw_chunks(raw_stream)):
+            yield item
+
+    async def complete(
+        self,
+        messages: list[Message | dict[str, Any]],
+        model: str = "anthropic/claude-sonnet-4.6",
+        max_tokens: int | None = None,
+        thinking: bool | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        config = get_config()
+        if thinking is None:
+            thinking = config.get("model.thinking.enabled", False)
+
+        api_messages = normalize_messages_for_api(messages)
+
+        params: dict[str, Any] = {
+            "model": model,
+            "messages": api_messages,
+            "stream": False,
+            **kwargs,
+        }
+
+        if thinking:
+            params["extra_body"] = {"reasoning": {"enabled": True}}
+
+        params["max_tokens"] = max_tokens or config.get("model.max_output_tokens", 60000)
+
+        response = await self.client.chat.completions.create(**params)
+        data = response.model_dump()
+
+        choices = data.get("choices", [])
+        text = ""
+        if choices:
+            text = choices[0].get("message", {}).get("content", "") or ""
+
+        usage_raw = data.get("usage", {}) or {}
+        usage = {
+            "input_tokens": usage_raw.get("prompt_tokens", 0) or 0,
+            "output_tokens": usage_raw.get("completion_tokens", 0) or 0,
+        }
+
+        return {"text": text, "usage": usage}
+
+
+async def _iter_raw_chunks(stream: Any) -> AsyncGenerator[Any, None]:
+    """把 AsyncOpenAI 的流包装成 async generator，便于给 process_stream_response 消费"""
+    async for chunk in stream:
+        yield chunk

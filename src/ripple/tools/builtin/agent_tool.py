@@ -109,10 +109,10 @@ class AgentTool(Tool[AgentToolInput, AgentToolOutput]):
             output_dir=output_dir,
         )
 
-        from ripple.api.client import OpenRouterClient
+        from ripple.api.client import create_client
         from ripple.core.agent_loop import QueryParams, query_loop
 
-        client = OpenRouterClient()
+        client = create_client()
         params = QueryParams(
             messages=full_messages,
             tool_use_context=sub_context,

@@ -11,7 +11,7 @@ from uuid import uuid4
 if TYPE_CHECKING:
     from interfaces.server.schemas import FeishuConfig
 
-from ripple.api.client import OpenRouterClient
+from ripple.api.client import LLMClient, create_client
 from ripple.compact.context_manager import ContextManager
 from ripple.core.context import AbortSignal, ToolOptions, ToolUseContext
 from ripple.permissions.levels import PermissionMode
@@ -49,7 +49,7 @@ class Session:
     session_id: str
     messages: list = field(default_factory=list)
     context: ToolUseContext | None = None
-    client: OpenRouterClient | None = None
+    client: LLMClient | None = None
     model: str = ""
     caller_system_prompt: str | None = None
     max_turns: int = 10
@@ -250,7 +250,7 @@ def _create_session_context(
     *,
     workspace_root: Path | None = None,
     sandbox_session_id: str | None = None,
-) -> tuple[ToolUseContext, OpenRouterClient]:
+) -> tuple[ToolUseContext, LLMClient]:
     """为一个 session 创建工具上下文和 API 客户端"""
     tools = _get_server_tools()
 
@@ -269,7 +269,7 @@ def _create_session_context(
         sandbox_session_id=sandbox_session_id,
     )
 
-    client = OpenRouterClient()
+    client = create_client()
     return context, client
 
 

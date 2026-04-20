@@ -7,8 +7,7 @@ import json
 import re
 from typing import TYPE_CHECKING, Any, AsyncGenerator
 
-from ripple.api.client import OpenRouterClient
-from ripple.api.streaming import process_stream_response
+from ripple.api.client import LLMClient, create_client
 from ripple.core.context import ToolUseContext
 from ripple.core.state import QueryState
 from ripple.core.transitions import (
@@ -34,7 +33,6 @@ from ripple.messages.utils import (
     create_user_message,
     deserialize_message,
     extract_tool_use_blocks,
-    normalize_messages_for_api,
 )
 from ripple.utils.logger import get_logger
 
@@ -174,7 +172,7 @@ class QueryParams:
 
 async def query_loop(
     params: QueryParams,
-    client: OpenRouterClient,
+    client: LLMClient,
 ) -> AsyncGenerator[Message | StreamEvent | RequestStartEvent | AgentStopEvent, None]:
     """主 Agent 循环
 
@@ -253,25 +251,21 @@ async def query_loop(
 
         streaming_executor = StreamingToolExecutor(state.tool_use_context)
 
-        api_messages = normalize_messages_for_api(state.messages)
-
-        tools = _prepare_tool_definitions(state.tool_use_context)
+        tools = _collect_tools(state.tool_use_context)
 
         try:
             stream_kwargs: dict[str, Any] = {}
             if params.temperature is not None:
                 stream_kwargs["temperature"] = params.temperature
 
-            stream = client.stream_chat(
-                messages=api_messages,
+            async for item in client.stream(
+                messages=state.messages,
                 tools=tools if tools else None,
                 model=params.model,
                 max_tokens=params.max_tokens,
                 thinking=params.thinking,
                 **stream_kwargs,
-            )
-
-            async for item in process_stream_response(stream):
+            ):
                 yield item
 
                 if not isinstance(item, AssistantMessage):
@@ -589,13 +583,9 @@ async def query_loop(
         )
 
 
-def _prepare_tool_definitions(context: ToolUseContext) -> list[dict[str, Any]]:
-    """准备工具定义用于 API 调用"""
-    tools = []
-    for tool in context.options.tools:
-        if hasattr(tool, "to_openai_tool"):
-            tools.append(tool.to_openai_tool())
-    return tools
+def _collect_tools(context: ToolUseContext) -> list[Any]:
+    """收集上下文中可用的工具对象（BaseTool 实例），具体格式转换由 client 自行处理"""
+    return list(context.options.tools)
 
 
 async def _handle_stop_hooks(
@@ -620,7 +610,7 @@ async def _handle_stop_hooks(
 async def query(
     user_input: str,
     context: ToolUseContext,
-    client: OpenRouterClient | None = None,
+    client: LLMClient | None = None,
     model: str = "anthropic/claude-sonnet-4.6",
     max_turns: int | None = None,
     thinking: bool | None = None,
@@ -632,7 +622,7 @@ async def query(
 ) -> AsyncGenerator[Message | StreamEvent | RequestStartEvent | AgentStopEvent, None]:
     """查询入口函数"""
     if client is None:
-        client = OpenRouterClient()
+        client = create_client()
 
     messages = []
 

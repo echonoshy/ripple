@@ -74,6 +74,14 @@ class Tool(ABC, Generic[InputT, OutputT]):
             },
         }
 
+    def to_anthropic_tool(self) -> dict[str, Any]:
+        """转换为 Anthropic Messages API 工具定义格式"""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "input_schema": self._get_parameters_schema(),
+        }
+
     def _get_parameters_schema(self) -> dict[str, Any]:
         """获取参数 schema，子类可重写"""
         return {

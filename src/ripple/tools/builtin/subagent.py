@@ -117,10 +117,10 @@ class SubAgentTool(Tool[SubAgentInput, SubAgentOutput]):
             )
 
             # 4. 调用 query_loop
-            from ripple.api.client import OpenRouterClient
+            from ripple.api.client import create_client
             from ripple.core.agent_loop import QueryParams, query_loop
 
-            client = OpenRouterClient()
+            client = create_client()
 
             sub_params = QueryParams(
                 messages=[create_user_message(args.prompt)],

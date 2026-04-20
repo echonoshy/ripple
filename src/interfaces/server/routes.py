@@ -50,6 +50,22 @@ def set_session_manager(manager: SessionManager):
     _session_manager = manager
 
 
+def _display_model(raw_id: str) -> str:
+    """把存储层的 raw model ID 反映射回前端友好的别名
+
+    前端下拉菜单用的是 "sonnet"/"opus"/"haiku" 这类 alias，
+    但 session.model 存的是 resolve 后的 raw ID（如 "claude-sonnet-4-6"
+    或 "anthropic/claude-sonnet-4.6"）。直接透传给前端会导致下拉框选中状态丢失。
+
+    反查策略：如果 raw_id 命中任何 preset 的 provider 值，返回对应 alias；
+    否则原样返回（兼容自定义 model）。
+    """
+    if not raw_id:
+        return raw_id
+    alias = get_config().alias_for_model(raw_id)
+    return alias or raw_id
+
+
 # ─── Health ───
 
 
@@ -92,8 +108,7 @@ async def get_system_info(_api_key: str = Depends(verify_api_key)):
     skills_dict = load_shared_skills()
     skills = [{"name": s.name, "description": s.description[:150]} for s in skills_dict.values()]
 
-    presets = config.get_model_presets() or {}
-    model_presets = {alias: info.get("model", alias) for alias, info in presets.items()}
+    model_presets = config.presets_for_provider()
 
     return SystemInfoResponse(
         tools=tool_names,
@@ -389,7 +404,7 @@ async def list_sessions(
         SessionInfo(
             session_id=s["session_id"],
             title=s.get("title", ""),
-            model=s.get("model", ""),
+            model=_display_model(s.get("model", "")),
             created_at=s.get("created_at", ""),
             last_active=s.get("last_active", ""),
             message_count=s.get("message_count", 0),
@@ -414,7 +429,7 @@ async def create_session(
     )
     return SessionInfo(
         session_id=session.session_id,
-        model=session.model,
+        model=_display_model(session.model),
         created_at=session.created_at.isoformat(),
         last_active=session.last_active.isoformat(),
         message_count=len(session.messages),
@@ -435,7 +450,7 @@ async def get_session(
 
     return SessionDetailResponse(
         session_id=session.session_id,
-        model=session.model,
+        model=_display_model(session.model),
         created_at=session.created_at.isoformat(),
         last_active=session.last_active.isoformat(),
         message_count=len(session.messages),
@@ -561,7 +576,7 @@ async def resume_session(
         raise HTTPException(status_code=404, detail="Suspended session not found")
     return SessionInfo(
         session_id=session.session_id,
-        model=session.model,
+        model=_display_model(session.model),
         created_at=session.created_at.isoformat(),
         last_active=session.last_active.isoformat(),
         message_count=len(session.messages),
@@ -576,8 +591,16 @@ async def list_suspended_sessions(
     """列出所有已挂起的 session"""
     manager = get_session_manager()
     suspended = manager.list_suspended_sessions()
+
+    sessions_out = []
+    for s in suspended:
+        entry = dict(s)
+        if "model" in entry:
+            entry["model"] = _display_model(entry["model"])
+        sessions_out.append(SuspendedSessionInfo(**entry))
+
     return {
-        "sessions": [SuspendedSessionInfo(**s) for s in suspended],
+        "sessions": sessions_out,
         "count": len(suspended),
     }
 

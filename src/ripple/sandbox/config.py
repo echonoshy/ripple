@@ -77,6 +77,12 @@ def _default_caches_root() -> Path:
     return SANDBOXES_CACHE_DIR
 
 
+def _default_sandboxes_root() -> Path:
+    from ripple.utils.paths import SANDBOXES_DIR
+
+    return SANDBOXES_DIR
+
+
 def _discover_uv_bin_dir() -> str | None:
     """自动发现 uv 二进制所在目录"""
     uv_path = shutil.which("uv")
@@ -199,7 +205,7 @@ def _discover_pnpm_store_dir() -> str | None:
 class SandboxConfig:
     """沙箱配置（nsjail 隔离）
 
-    目录布局：
+    目录布局（旧版，Phase 6 将移除）：
     - sessions_root/<sid>/                ← 每个 session 的完整运行时状态
         ├── meta.json, messages.jsonl, tasks.json, nsjail.cfg, feishu.json, notion.json
         ├── task-outputs/                 ← AgentTool 后台任务的输出
@@ -208,9 +214,19 @@ class SandboxConfig:
         ├── uv-cache/
         ├── corepack-cache/
         └── pnpm-store/                   (可选)
+
+    目录布局（新版，user 维度；Phase 1-5 与旧版共存，Phase 6 成为唯一布局）：
+    - sandboxes_root/<user_id>/
+        ├── workspace/                    ← user 持久工作区
+        ├── nsjail.cfg                    ← user 级沙箱配置
+        ├── credentials/{feishu.json, notion.json}
+        └── sessions/<sid>/               ← 每个 session 的运行时状态
+            ├── meta.json, messages.jsonl, tasks.json
+            └── task-outputs/
     """
 
     sessions_root: Path = field(default_factory=lambda: _default_sessions_root())
+    sandboxes_root: Path = field(default_factory=lambda: _default_sandboxes_root())
     caches_root: Path = field(default_factory=lambda: _default_caches_root())
 
     resource_limits: ResourceLimits = field(default_factory=ResourceLimits)
@@ -378,9 +394,43 @@ class SandboxConfig:
         except (json.JSONDecodeError, OSError):
             return False
 
+    # --- user 维度路径方法（Phase 1-5 过渡期带 _by_uid 后缀；Phase 6 去掉） ---
+
+    def sandbox_dir(self, user_id: str) -> Path:
+        validate_user_id(user_id)
+        return self.sandboxes_root / user_id
+
+    def workspace_dir_by_uid(self, user_id: str) -> Path:
+        return self.sandbox_dir(user_id) / "workspace"
+
+    def nsjail_cfg_file_by_uid(self, user_id: str) -> Path:
+        return self.sandbox_dir(user_id) / "nsjail.cfg"
+
+    def feishu_config_file_by_uid(self, user_id: str) -> Path:
+        return self.sandbox_dir(user_id) / "credentials" / "feishu.json"
+
+    def notion_config_file_by_uid(self, user_id: str) -> Path:
+        return self.sandbox_dir(user_id) / "credentials" / "notion.json"
+
+    def session_dir_by_uid(self, user_id: str, session_id: str) -> Path:
+        return self.sandbox_dir(user_id) / "sessions" / session_id
+
+    def meta_file_by_uid(self, user_id: str, session_id: str) -> Path:
+        return self.session_dir_by_uid(user_id, session_id) / "meta.json"
+
+    def messages_file_by_uid(self, user_id: str, session_id: str) -> Path:
+        return self.session_dir_by_uid(user_id, session_id) / "messages.jsonl"
+
+    def tasks_file_by_uid(self, user_id: str, session_id: str) -> Path:
+        return self.session_dir_by_uid(user_id, session_id) / "tasks.json"
+
+    def task_outputs_dir_by_uid(self, user_id: str, session_id: str) -> Path:
+        return self.session_dir_by_uid(user_id, session_id) / "task-outputs"
+
     @classmethod
     def from_dict(cls, data: dict) -> "SandboxConfig":
         sessions_root = Path(data["sessions_root"]) if "sessions_root" in data else _default_sessions_root()
+        sandboxes_root = Path(data["sandboxes_root"]) if "sandboxes_root" in data else _default_sandboxes_root()
         caches_root = Path(data["caches_root"]) if "caches_root" in data else _default_caches_root()
 
         limits_data = data.get("resource_limits", {})
@@ -406,6 +456,7 @@ class SandboxConfig:
 
         return cls(
             sessions_root=sessions_root,
+            sandboxes_root=sandboxes_root,
             caches_root=caches_root,
             resource_limits=limits,
             idle_suspend_seconds=data.get("idle_suspend_seconds", 1800),

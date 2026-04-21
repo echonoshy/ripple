@@ -1,21 +1,9 @@
 import type { Metadata } from "next";
-import { Inter, JetBrains_Mono, Noto_Sans_SC } from "next/font/google";
+import { Noto_Sans_SC } from "next/font/google";
+import { GeistSans } from "geist/font/sans";
+import { GeistMono } from "geist/font/mono";
 import "katex/dist/katex.min.css";
 import "./globals.css";
-
-const inter = Inter({
-  weight: ["400", "500", "600"],
-  subsets: ["latin"],
-  variable: "--font-sans",
-  display: "swap",
-});
-
-const jetbrainsMono = JetBrains_Mono({
-  weight: ["400"],
-  subsets: ["latin"],
-  variable: "--font-mono",
-  display: "swap",
-});
 
 const notoSansSC = Noto_Sans_SC({
   weight: ["400", "700"],
@@ -37,7 +25,7 @@ export default function RootLayout({
   return (
     <html lang="zh-CN">
       <body
-        className={`${inter.variable} ${jetbrainsMono.variable} ${notoSansSC.variable} flex min-h-screen flex-col font-[family-name:var(--font-sans)] antialiased`}
+        className={`${GeistSans.variable} ${GeistMono.variable} ${notoSansSC.variable} flex min-h-screen flex-col font-[family-name:var(--font-sans)] antialiased`}
       >
         {children}
       </body>

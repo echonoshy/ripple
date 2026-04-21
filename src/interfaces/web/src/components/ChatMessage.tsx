@@ -26,12 +26,12 @@ function ThinkingIndicator({ hasContent }: { hasContent: boolean }) {
 
   if (hasContent) {
     return (
-      <div className="flex items-center gap-2 px-1 py-1.5 text-sm text-[#a1a1aa]">
+      <div className="flex items-center gap-2 px-1 py-1.5 text-sm text-[#888888]">
         <div className="flex gap-1">
           {[0, 1, 2].map((i) => (
             <span
               key={i}
-              className="inline-block h-1.5 w-1.5 rounded-full bg-[#10b981]"
+              className="inline-block h-1.5 w-1.5 rounded-full bg-[#ededed]"
               style={{
                 animation: "bounce-dot 1.4s ease-in-out infinite",
                 animationDelay: `${i * 160}ms`,
@@ -45,12 +45,12 @@ function ThinkingIndicator({ hasContent }: { hasContent: boolean }) {
   }
 
   return (
-    <div className="inline-flex items-center gap-3 rounded-xl border border-[#27272a] bg-[#18181b] px-5 py-4">
+    <div className="inline-flex items-center gap-3 rounded-xl border border-white/10 bg-[#0a0a0a] px-5 py-4">
       <div className="relative flex h-5 w-5 items-center justify-center">
-        <Loader2 size={16} className="relative animate-spin text-[#10b981]" />
+        <Loader2 size={16} className="relative animate-spin text-[#ededed]" />
       </div>
       <div className="flex flex-col">
-        <span className="text-sm text-[#fafafa]">
+        <span className="text-sm text-[#ededed]">
           {elapsed < 5
             ? "Thinking..."
             : elapsed < 30
@@ -58,7 +58,7 @@ function ThinkingIndicator({ hasContent }: { hasContent: boolean }) {
               : "Still processing..."}
         </span>
         {elapsed >= 3 && (
-          <span className="font-[family-name:var(--font-mono)] text-xs text-[#71717a]">
+          <span className="font-[family-name:var(--font-mono)] text-xs text-[#666666]">
             {formatTime(elapsed)}
           </span>
         )}
@@ -99,14 +99,14 @@ export default function ChatMessage({
     >
       {/* Assistant avatar */}
       {!isUser && (
-        <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[#10b981]/30 bg-[#10b981]/10">
-          <RippleIcon size={14} className="text-[#10b981]" />
+        <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/10 bg-black/5">
+          <RippleIcon size={14} className="text-[#ededed]" />
         </div>
       )}
 
       {isUser ? (
         /* User message */
-        <div className="max-w-[95%] rounded-2xl rounded-br-md border border-[#3b82f6]/20 bg-[#3b82f6]/[0.05] px-4 py-3 text-sm leading-relaxed text-[#fafafa]">
+        <div className="max-w-[95%] rounded-2xl rounded-br-md border border-white/10 bg-[#111111] px-4 py-3 text-sm leading-relaxed text-[#ededed]">
           <div className="whitespace-pre-wrap">{msg.content}</div>
         </div>
       ) : (
@@ -115,18 +115,18 @@ export default function ChatMessage({
           {showThinking && isEmptyAssistant && <ThinkingIndicator hasContent={false} />}
 
           {msg.content && (
-            <div className="rounded-2xl rounded-tl-md border border-[#27272a] bg-[#18181b] px-4 py-3 text-sm leading-relaxed text-[#fafafa]">
+            <div className="rounded-2xl rounded-tl-md border border-white/10 bg-[#0a0a0a] px-4 py-3 text-sm leading-relaxed text-[#ededed]">
               <MarkdownRenderer content={msg.content} />
             </div>
           )}
 
           {msg.askUser && !isGenerating && isLast && onQuickReply && (
-            <div className="rounded-xl border border-[#10b981]/30 bg-[#18181b] px-4 py-3">
-              <div className="mb-2 flex items-center gap-2 text-xs font-medium text-[#10b981]">
+            <div className="rounded-xl border border-white/10 bg-[#0a0a0a] px-4 py-3">
+              <div className="mb-2 flex items-center gap-2 text-xs font-medium text-[#ededed]">
                 <span>{">"}</span>
                 <span>Select an option</span>
               </div>
-              <p className="mb-3 text-sm text-[#fafafa]">{msg.askUser.question}</p>
+              <p className="mb-3 text-sm text-[#ededed]">{msg.askUser.question}</p>
               {msg.askUser.options && msg.askUser.options.length > 0 && (
                 <div className="flex flex-wrap gap-2">
                   {msg.askUser.options.map((option, i) => (
@@ -146,16 +146,16 @@ export default function ChatMessage({
           )}
 
           {msg.permissionRequest && !isGenerating && isLast && onPermissionResolve && (
-            <div className="rounded-xl border border-[#ef4444]/30 bg-[#ef4444]/[0.03] px-4 py-3">
-              <div className="mb-2 flex items-center gap-2 text-xs font-medium text-[#ef4444]">
+            <div className="rounded-xl border border-[#ff4444]/20 bg-[#ff4444]/[0.03] px-4 py-3">
+              <div className="mb-2 flex items-center gap-2 text-xs font-medium text-[#ff4444]">
                 <span>!</span>
                 <span>Permission Required</span>
               </div>
-              <p className="mb-2 text-sm text-[#fafafa]">
+              <p className="mb-2 text-sm text-[#ededed]">
                 Tool:{" "}
-                <span className="font-medium text-[#f59e0b]">{msg.permissionRequest.tool}</span>
+                <span className="font-medium text-[#ededed]">{msg.permissionRequest.tool}</span>
               </p>
-              <div className="mb-3 overflow-x-auto rounded-lg border border-[#27272a] bg-[#18181b] p-3 font-[family-name:var(--font-mono)] text-xs text-[#10b981]">
+              <div className="mb-3 overflow-x-auto rounded-lg border border-white/10 bg-[#0a0a0a] p-3 font-[family-name:var(--font-mono)] text-xs text-[#ededed]">
                 {typeof msg.permissionRequest.params === "string"
                   ? msg.permissionRequest.params
                   : JSON.stringify(msg.permissionRequest.params, null, 2)}
@@ -165,7 +165,7 @@ export default function ChatMessage({
                   whileHover={{ scale: 1.01 }}
                   whileTap={{ scale: 0.99 }}
                   onClick={() => onPermissionResolve("allow")}
-                  className="rounded-lg border border-[#10b981]/40 bg-[#10b981]/10 px-4 py-2 text-sm text-[#10b981] transition-colors hover:bg-[#10b981]/15"
+                  className="rounded-lg border border-[#ededed]/40 bg-[#ededed]/10 px-4 py-2 text-sm text-[#ededed] transition-colors hover:bg-[#ededed]/15"
                 >
                   Allow Once
                 </motion.button>
@@ -173,7 +173,7 @@ export default function ChatMessage({
                   whileHover={{ scale: 1.01 }}
                   whileTap={{ scale: 0.99 }}
                   onClick={() => onPermissionResolve("always")}
-                  className="rounded-lg border border-[#3b82f6]/30 bg-[#3b82f6]/[0.06] px-4 py-2 text-sm text-[#3b82f6] transition-colors hover:bg-[#3b82f6]/10"
+                  className="rounded-lg border border-white/10 bg-black/5 px-4 py-2 text-sm text-[#ededed] transition-colors hover:bg-[#ededed]/10"
                 >
                   Always Allow
                 </motion.button>
@@ -181,7 +181,7 @@ export default function ChatMessage({
                   whileHover={{ scale: 1.01 }}
                   whileTap={{ scale: 0.99 }}
                   onClick={() => onPermissionResolve("deny")}
-                  className="rounded-lg border border-[#ef4444]/30 bg-[#ef4444]/[0.06] px-4 py-2 text-sm text-[#ef4444] transition-colors hover:bg-[#ef4444]/10"
+                  className="rounded-lg border border-[#ff4444]/20 bg-[#ff4444]/10 px-4 py-2 text-sm text-[#ff4444] transition-colors hover:bg-[#ff4444]/10"
                 >
                   Deny
                 </motion.button>
@@ -195,8 +195,8 @@ export default function ChatMessage({
 
       {/* User avatar */}
       {isUser && (
-        <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[#3b82f6]/30 bg-[#3b82f6]/10">
-          <User size={14} className="text-[#3b82f6]" />
+        <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/10 bg-black/5">
+          <User size={14} className="text-[#ededed]" />
         </div>
       )}
     </motion.div>

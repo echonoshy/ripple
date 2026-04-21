@@ -56,11 +56,11 @@ export default function ChatInput({
   };
 
   return (
-    <div className="z-20 shrink-0 border-t border-[#27272a] bg-[#09090b]/90 px-4 pt-3 pb-6 backdrop-blur-sm md:px-6">
+    <div className="z-20 shrink-0 border-t border-white/10 bg-black/90 px-4 pt-3 pb-6 backdrop-blur-sm md:px-6">
       <div className="mx-auto max-w-5xl">
-        <div className="relative flex items-end gap-2 rounded-xl border border-[#27272a] bg-[#18181b] p-1.5 transition-all duration-200 focus-within:border-[#10b981]/40 focus-within:shadow-[0_0_0_3px_rgba(16,185,129,0.08)] focus-within:ring-2 focus-within:ring-[#10b981]/10">
+        <div className="relative flex items-end gap-2 rounded-xl border border-white/10 bg-[#0a0a0a] p-1.5 transition-all duration-200 focus-within:border-white/20 focus-within:border-white/40 focus-within:shadow-[0_0_15px_rgba(255,255,255,0.05)] focus-within:ring-0">
           {/* Terminal prompt prefix */}
-          <span className="flex shrink-0 items-center pb-3 pl-3 font-[family-name:var(--font-mono)] text-sm font-medium text-[#10b981]">
+          <span className="flex shrink-0 items-center pb-3 pl-3 font-[family-name:var(--font-mono)] text-sm font-medium text-[#ededed]">
             {">_"}
           </span>
           <textarea
@@ -71,7 +71,7 @@ export default function ChatInput({
             disabled={isGenerating}
             rows={1}
             placeholder={isGenerating ? "Thinking..." : "Ask anything..."}
-            className="max-h-[400px] min-h-[44px] flex-1 resize-none bg-transparent py-3 pr-2 text-sm leading-relaxed text-[#fafafa] placeholder:text-[#71717a] focus:outline-none disabled:opacity-60 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:bg-transparent"
+            className="max-h-[400px] min-h-[44px] flex-1 resize-none bg-transparent py-3 pr-2 text-sm leading-relaxed text-[#ededed] placeholder:text-[#666666] focus:outline-none disabled:opacity-60 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:bg-transparent"
           />
           <div className="flex shrink-0 items-center gap-1.5 pr-1 pb-1">
             {isGenerating ? (
@@ -80,7 +80,7 @@ export default function ChatInput({
                 whileTap={{ scale: 0.95 }}
                 type="button"
                 onClick={onStop}
-                className="flex h-9 w-9 items-center justify-center rounded-lg border border-[#ef4444]/40 bg-[#ef4444]/10 text-[#ef4444] transition-colors hover:bg-[#ef4444]/15"
+                className="flex h-9 w-9 items-center justify-center rounded-lg border border-[#ff4444]/40 bg-[#ff4444]/10 text-[#ff4444] transition-colors hover:bg-[#ff4444]/15"
                 title="Stop generation"
               >
                 <Square size={14} fill="currentColor" />
@@ -92,7 +92,7 @@ export default function ChatInput({
                 type="button"
                 onClick={onSend}
                 disabled={!value.trim()}
-                className="flex h-9 w-9 items-center justify-center rounded-lg border border-[#10b981]/40 bg-[#10b981]/10 text-[#10b981] transition-colors hover:bg-[#10b981]/15 disabled:cursor-not-allowed disabled:opacity-30"
+                className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-black/5 text-[#ededed] transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-30"
               >
                 <Send size={14} className="ml-0.5" />
               </motion.button>
@@ -100,19 +100,19 @@ export default function ChatInput({
           </div>
         </div>
 
-        <div className="mt-2 flex justify-center gap-4 text-xs text-[#71717a]">
+        <div className="mt-2 flex justify-center gap-4 text-xs text-[#666666]">
           <span className="flex items-center gap-1">
-            <kbd className="rounded border border-[#27272a] bg-[#18181b] px-1.5 py-0.5 font-[family-name:var(--font-mono)] text-[10px] text-[#a1a1aa]">
+            <kbd className="rounded border border-white/10 bg-[#0a0a0a] px-1.5 py-0.5 font-[family-name:var(--font-mono)] text-[10px] text-[#888888]">
               Shift
             </kbd>{" "}
             +{" "}
-            <kbd className="rounded border border-[#27272a] bg-[#18181b] px-1.5 py-0.5 font-[family-name:var(--font-mono)] text-[10px] text-[#a1a1aa]">
+            <kbd className="rounded border border-white/10 bg-[#0a0a0a] px-1.5 py-0.5 font-[family-name:var(--font-mono)] text-[10px] text-[#888888]">
               Enter
             </kbd>{" "}
             换行
           </span>
           <span className="flex items-center gap-1">
-            <kbd className="rounded border border-[#27272a] bg-[#18181b] px-1.5 py-0.5 font-[family-name:var(--font-mono)] text-[10px] text-[#a1a1aa]">
+            <kbd className="rounded border border-white/10 bg-[#0a0a0a] px-1.5 py-0.5 font-[family-name:var(--font-mono)] text-[10px] text-[#888888]">
               Enter
             </kbd>{" "}
             发送

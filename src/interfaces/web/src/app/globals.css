@@ -1,31 +1,31 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Inter", "Noto Sans SC", sans-serif;
-  --font-mono: "JetBrains Mono", "Noto Sans SC", monospace;
+  --font-sans: var(--font-geist-sans), "Noto Sans SC", sans-serif;
+  --font-mono: var(--font-geist-mono), "Noto Sans SC", monospace;
   --font-cjk: "Noto Sans SC", sans-serif;
 }
 
 /* ─── Elegant Light Utilities ─── */
 @layer utilities {
   .surface-panel {
-    @apply border border-[#27272a] bg-[#18181b];
+    @apply border border-white/10 bg-[#0a0a0a];
   }
 
   .surface-elevated {
-    @apply border border-[#27272a] bg-[#18181b] shadow-sm;
+    @apply border border-white/10 bg-[#0a0a0a] shadow-sm;
   }
 
   .btn-primary {
-    @apply rounded-lg border border-[#10b981]/40 bg-[#10b981]/10 px-4 py-2.5 font-medium text-[#10b981] transition-all;
+    @apply rounded-lg border border-transparent bg-white px-4 py-2.5 font-medium text-black transition-all;
   }
 
   .btn-primary:hover {
-    @apply bg-[#10b981]/15 shadow-[0_0_20px_rgba(16,185,129,0.12)];
+    @apply bg-[#e5e5e5] shadow-[0_0_15px_rgba(255,255,255,0.1)];
   }
 
   .btn-primary:active {
-    @apply scale-[0.98] bg-[#10b981]/20;
+    @apply scale-[0.98] bg-[#cccccc];
   }
 
   .btn-primary:disabled {
@@ -33,11 +33,11 @@
   }
 
   .btn-ghost {
-    @apply rounded-lg border border-[#27272a] bg-transparent px-4 py-2 text-[#a1a1aa] transition-all;
+    @apply rounded-lg border border-white/10 bg-white px-4 py-2 text-[#888888] transition-all;
   }
 
   .btn-ghost:hover {
-    @apply border-[#3f3f46] bg-[#27272a] text-[#fafafa];
+    @apply border-white/20 bg-[#27272a] text-[#ededed];
   }
 
   .glow-green {
@@ -104,15 +104,15 @@
 
 /* ─── Body ─── */
 body {
-  background-color: #09090b;
-  color: #fafafa;
+  background-color: #000000;
+  color: #ededed;
   overflow: hidden;
 }
 
 /* ─── Markdown body styles ─── */
 .markdown-body {
   line-height: 1.75;
-  color: #fafafa;
+  color: #ededed;
 }
 .markdown-body > *:first-child {
   margin-top: 0;
@@ -132,7 +132,7 @@ body {
   font-weight: 600;
   margin: 1em 0 0.5em;
   line-height: 1.3;
-  color: #fafafa;
+  color: #ededed;
 }
 .markdown-body h1 {
   font-size: 1.5em;
@@ -161,18 +161,18 @@ body {
   border-left: 3px solid #10b981;
   padding-left: 1em;
   margin: 0.75em 0;
-  color: #a1a1aa;
+  color: #888888;
 }
 .markdown-body hr {
   border: none;
-  border-top: 1px solid #27272a;
+  border-top: 1px solid rgba(255,255,255,0.1);
   margin: 1em 0;
 }
 
 /* ─── KaTeX（与暗色聊天区协调）── */
 .markdown-body .katex {
   font-size: 1.05em;
-  color: #e4e4e7;
+  color: #ededed;
 }
 .markdown-body .katex-display {
   margin: 0.85em 0;

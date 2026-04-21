@@ -48,8 +48,8 @@ function ReadyBadge({ label, ready }: { label: string; ready: boolean }) {
     <div
       className={`flex items-center justify-between rounded-md border px-2.5 py-1.5 text-xs ${
         ready
-          ? "border-[#10b981]/30 bg-[#10b981]/[0.06] text-[#10b981]"
-          : "border-[#27272a] bg-[#18181b] text-[#71717a]"
+          ? "border-white/10 bg-black/5 text-[#ededed]"
+          : "border-white/10 bg-[#0a0a0a] text-[#666666]"
       }`}
     >
       <span className="font-[family-name:var(--font-mono)]">{label}</span>
@@ -193,13 +193,13 @@ export default function SettingsModal({
             transition={{ type: "spring", stiffness: 400, damping: 30 }}
             className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center p-4"
           >
-            <div className="pointer-events-auto max-h-[80vh] w-full max-w-lg overflow-hidden rounded-2xl border border-[#27272a] bg-[#09090b] shadow-2xl">
+            <div className="pointer-events-auto max-h-[80vh] w-full max-w-lg overflow-hidden rounded-2xl border border-white/10 bg-black shadow-2xl">
               {/* Header */}
-              <div className="flex items-center justify-between border-b border-[#27272a] px-6 py-4">
-                <h2 className="text-base font-semibold text-[#fafafa]">Settings</h2>
+              <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
+                <h2 className="text-base font-semibold text-[#ededed]">Settings</h2>
                 <button
                   onClick={onClose}
-                  className="flex h-8 w-8 items-center justify-center rounded-lg text-[#a1a1aa] transition-colors hover:bg-[#18181b] hover:text-[#fafafa]"
+                  className="flex h-8 w-8 items-center justify-center rounded-lg text-[#888888] transition-colors hover:bg-[#0a0a0a] hover:text-[#ededed]"
                 >
                   <X size={16} />
                 </button>
@@ -208,44 +208,44 @@ export default function SettingsModal({
               <div className="max-h-[calc(80vh-64px)] space-y-6 overflow-y-auto p-6">
                 {/* Config */}
                 <div>
-                  <h3 className="mb-3 text-xs font-medium tracking-wider text-[#71717a] uppercase">
+                  <h3 className="mb-3 text-xs font-medium tracking-wider text-[#666666] uppercase">
                     Config
                   </h3>
-                  <div className="flex items-center justify-between rounded-xl border border-[#27272a] bg-[#18181b] p-4">
+                  <div className="flex items-center justify-between rounded-xl border border-white/10 bg-[#0a0a0a] p-4">
                     <div className="flex items-center gap-3">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-[#10b981]/30 bg-[#10b981]/[0.06]">
-                        <Brain size={18} className="text-[#10b981]" />
+                      <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-black/5">
+                        <Brain size={18} className="text-[#ededed]" />
                       </div>
                       <div>
-                        <p className="text-sm text-[#fafafa]">Thinking Mode</p>
-                        <p className="text-xs text-[#71717a]">Show reasoning process</p>
+                        <p className="text-sm text-[#ededed]">Thinking Mode</p>
+                        <p className="text-xs text-[#666666]">Show reasoning process</p>
                       </div>
                     </div>
                     <button
                       onClick={() => onThinkingToggle(!thinkingEnabled)}
                       className={`relative h-7 w-14 rounded-full transition-colors ${
                         thinkingEnabled
-                          ? "border border-[#10b981]/40 bg-[#10b981]/20"
-                          : "border border-[#27272a] bg-[#27272a]"
+                          ? "border border-white/20 bg-[#ededed]/20"
+                          : "border border-white/10 bg-[#27272a]"
                       }`}
                     >
                       <motion.div
                         animate={{ x: thinkingEnabled ? 26 : 2 }}
                         transition={{ type: "tween", duration: 0.1 }}
                         className={`absolute top-[3px] h-[22px] w-[22px] rounded-full ${
-                          thinkingEnabled ? "bg-[#10b981]" : "bg-[#71717a]"
+                          thinkingEnabled ? "bg-[#ededed]" : "bg-[#71717a]"
                         }`}
                       />
                     </button>
                   </div>
-                  <div className="mt-3 flex items-center justify-between rounded-xl border border-[#27272a] bg-[#18181b] p-4">
+                  <div className="mt-3 flex items-center justify-between rounded-xl border border-white/10 bg-[#0a0a0a] p-4">
                     <div className="flex items-center gap-3">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-[#f59e0b]/30 bg-[#f59e0b]/[0.06]">
-                        <KeyRound size={18} className="text-[#f59e0b]" />
+                      <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-black/5">
+                        <KeyRound size={18} className="text-[#ededed]" />
                       </div>
                       <div>
-                        <p className="text-sm text-[#fafafa]">API Key</p>
-                        <p className="font-[family-name:var(--font-mono)] text-xs text-[#71717a]">
+                        <p className="text-sm text-[#ededed]">API Key</p>
+                        <p className="font-[family-name:var(--font-mono)] text-xs text-[#666666]">
                           {apiKey ? `${apiKey.slice(0, 6)}${"*".repeat(8)}` : "Not set"}
                         </p>
                       </div>
@@ -258,17 +258,17 @@ export default function SettingsModal({
 
                 {/* User */}
                 <div>
-                  <h3 className="mb-3 text-xs font-medium tracking-wider text-[#71717a] uppercase">
+                  <h3 className="mb-3 text-xs font-medium tracking-wider text-[#666666] uppercase">
                     User
                   </h3>
-                  <div className="rounded-xl border border-[#27272a] bg-[#18181b] p-4">
+                  <div className="rounded-xl border border-white/10 bg-[#0a0a0a] p-4">
                     <div className="flex items-center justify-between">
                       <div className="flex min-w-0 items-center gap-3">
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#3b82f6]/30 bg-[#3b82f6]/[0.06]">
-                          <UserRound size={18} className="text-[#3b82f6]" />
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-black/5">
+                          <UserRound size={18} className="text-[#ededed]" />
                         </div>
                         <div className="min-w-0">
-                          <p className="text-sm text-[#fafafa]">User ID</p>
+                          <p className="text-sm text-[#ededed]">User ID</p>
                           {isEditingUserId ? (
                             <div className="mt-1 flex items-center gap-2">
                               <input
@@ -281,11 +281,11 @@ export default function SettingsModal({
                                   if (e.key === "Escape") handleCancelEditUserId();
                                 }}
                                 placeholder="e.g. alice"
-                                className="w-48 rounded-md border border-[#27272a] bg-[#09090b] px-2 py-1 font-[family-name:var(--font-mono)] text-xs text-[#fafafa] placeholder:text-[#71717a] focus:border-[#3b82f6]/50 focus:outline-none"
+                                className="w-48 rounded-md border border-white/10 bg-black px-2 py-1 font-[family-name:var(--font-mono)] text-xs text-[#ededed] placeholder:text-[#666666] focus:border-[#ededed]/50 focus:outline-none"
                               />
                             </div>
                           ) : (
-                            <p className="truncate font-[family-name:var(--font-mono)] text-xs text-[#71717a]">
+                            <p className="truncate font-[family-name:var(--font-mono)] text-xs text-[#666666]">
                               {userId}
                             </p>
                           )}
@@ -318,7 +318,7 @@ export default function SettingsModal({
                       </div>
                     </div>
                     {userIdError && (
-                      <p className="mt-2 pl-12 text-xs text-[#ef4444]">{userIdError}</p>
+                      <p className="mt-2 pl-12 text-xs text-[#ff4444]">{userIdError}</p>
                     )}
                     <p className="mt-2 pl-12 text-[11px] text-[#52525b]">
                       Switching user will reset current session state and reload sessions.
@@ -328,32 +328,32 @@ export default function SettingsModal({
 
                 {/* Sandbox */}
                 <div>
-                  <h3 className="mb-3 flex items-center gap-2 text-xs font-medium tracking-wider text-[#71717a] uppercase">
+                  <h3 className="mb-3 flex items-center gap-2 text-xs font-medium tracking-wider text-[#666666] uppercase">
                     <Box size={14} />
                     Sandbox
                   </h3>
-                  <div className="rounded-xl border border-[#27272a] bg-[#18181b] p-4">
+                  <div className="rounded-xl border border-white/10 bg-[#0a0a0a] p-4">
                     {sandboxLoading ? (
-                      <div className="flex items-center gap-2 text-sm text-[#71717a]">
+                      <div className="flex items-center gap-2 text-sm text-[#666666]">
                         <Loader2 size={14} className="animate-spin" />
                         <span>Loading sandbox...</span>
                       </div>
                     ) : sandbox ? (
                       <div className="space-y-3">
                         <div className="grid grid-cols-2 gap-2 text-xs">
-                          <div className="rounded-md border border-[#27272a] bg-[#09090b] p-2">
-                            <p className="text-[10px] tracking-wider text-[#71717a] uppercase">
+                          <div className="rounded-md border border-white/10 bg-black p-2">
+                            <p className="text-[10px] tracking-wider text-[#666666] uppercase">
                               Workspace
                             </p>
-                            <p className="mt-1 font-[family-name:var(--font-mono)] text-sm text-[#fafafa]">
+                            <p className="mt-1 font-[family-name:var(--font-mono)] text-sm text-[#ededed]">
                               {formatBytes(sandbox.workspace_size_bytes)}
                             </p>
                           </div>
-                          <div className="rounded-md border border-[#27272a] bg-[#09090b] p-2">
-                            <p className="text-[10px] tracking-wider text-[#71717a] uppercase">
+                          <div className="rounded-md border border-white/10 bg-black p-2">
+                            <p className="text-[10px] tracking-wider text-[#666666] uppercase">
                               Sessions
                             </p>
-                            <p className="mt-1 font-[family-name:var(--font-mono)] text-sm text-[#fafafa]">
+                            <p className="mt-1 font-[family-name:var(--font-mono)] text-sm text-[#ededed]">
                               {sandbox.session_count}
                             </p>
                           </div>
@@ -367,9 +367,9 @@ export default function SettingsModal({
                       </div>
                     ) : (
                       <div className="flex items-center justify-between gap-3">
-                        <p className="text-sm text-[#a1a1aa]">
+                        <p className="text-sm text-[#888888]">
                           No sandbox yet for{" "}
-                          <span className="font-[family-name:var(--font-mono)] text-[#fafafa]">
+                          <span className="font-[family-name:var(--font-mono)] text-[#ededed]">
                             {userId}
                           </span>
                           .
@@ -385,7 +385,7 @@ export default function SettingsModal({
                     )}
 
                     {sandboxError && (
-                      <div className="mt-3 flex items-start gap-2 rounded-md border border-[#ef4444]/30 bg-[#ef4444]/[0.06] p-2 text-xs text-[#ef4444]">
+                      <div className="mt-3 flex items-start gap-2 rounded-md border border-[#ff4444]/20 bg-[#ff4444]/10 p-2 text-xs text-[#ff4444]">
                         <AlertTriangle size={12} className="mt-0.5 shrink-0" />
                         <span className="break-all">{sandboxError}</span>
                       </div>
@@ -394,11 +394,11 @@ export default function SettingsModal({
 
                   {/* Danger zone */}
                   {sandbox && (
-                    <div className="mt-3 rounded-xl border border-[#ef4444]/20 bg-[#ef4444]/[0.03] p-4">
+                    <div className="mt-3 rounded-xl border border-[#ff4444]/20 bg-[#ff4444]/[0.03] p-4">
                       <div className="flex items-center justify-between gap-3">
                         <div className="min-w-0">
-                          <p className="text-sm font-medium text-[#ef4444]">Delete Sandbox</p>
-                          <p className="mt-0.5 text-xs text-[#a1a1aa]">
+                          <p className="text-sm font-medium text-[#ff4444]">Delete Sandbox</p>
+                          <p className="mt-0.5 text-xs text-[#888888]">
                             Permanently destroys workspace, credentials and all sessions for this
                             user.
                           </p>
@@ -415,7 +415,7 @@ export default function SettingsModal({
                             <button
                               onClick={handleDeleteSandbox}
                               disabled={sandboxBusy}
-                              className="flex items-center gap-1.5 rounded-md border border-[#ef4444] bg-[#ef4444]/10 px-3 py-1.5 text-xs font-medium text-[#ef4444] transition-colors hover:bg-[#ef4444]/20 disabled:opacity-50"
+                              className="flex items-center gap-1.5 rounded-md border border-[#ff4444] bg-[#ff4444]/10 px-3 py-1.5 text-xs font-medium text-[#ff4444] transition-colors hover:bg-[#ff4444]/20 disabled:opacity-50"
                             >
                               {sandboxBusy ? (
                                 <Loader2 size={12} className="animate-spin" />
@@ -432,7 +432,7 @@ export default function SettingsModal({
                             title={
                               isDefaultUser ? "default user cannot be deleted" : "Delete sandbox"
                             }
-                            className="flex shrink-0 items-center gap-1.5 rounded-md border border-[#ef4444]/40 px-3 py-1.5 text-xs font-medium text-[#ef4444] transition-colors hover:bg-[#ef4444]/10 disabled:cursor-not-allowed disabled:opacity-40"
+                            className="flex shrink-0 items-center gap-1.5 rounded-md border border-[#ff4444]/40 px-3 py-1.5 text-xs font-medium text-[#ff4444] transition-colors hover:bg-[#ff4444]/10 disabled:cursor-not-allowed disabled:opacity-40"
                           >
                             <Trash2 size={12} />
                             Delete
@@ -445,14 +445,14 @@ export default function SettingsModal({
 
                 {/* System Info */}
                 {loading ? (
-                  <div className="py-8 text-center text-sm text-[#71717a]">
+                  <div className="py-8 text-center text-sm text-[#666666]">
                     Loading system info...
                   </div>
                 ) : systemInfo ? (
                   <>
                     {/* Tools */}
                     <div>
-                      <h3 className="mb-3 flex items-center gap-2 text-xs font-medium tracking-wider text-[#71717a] uppercase">
+                      <h3 className="mb-3 flex items-center gap-2 text-xs font-medium tracking-wider text-[#666666] uppercase">
                         <Wrench size={14} />
                         Tools
                       </h3>
@@ -460,7 +460,7 @@ export default function SettingsModal({
                         {systemInfo.tools.map((tool) => (
                           <span
                             key={tool}
-                            className="rounded-md border border-[#10b981]/20 bg-[#10b981]/[0.06] px-3 py-1.5 font-[family-name:var(--font-mono)] text-xs text-[#10b981]"
+                            className="rounded-md border border-[#ededed]/20 bg-[#ededed]/[0.06] px-3 py-1.5 font-[family-name:var(--font-mono)] text-xs text-[#ededed]"
                           >
                             {tool}
                           </span>
@@ -470,7 +470,7 @@ export default function SettingsModal({
 
                     {/* Skills */}
                     <div>
-                      <h3 className="mb-3 flex items-center gap-2 text-xs font-medium tracking-wider text-[#71717a] uppercase">
+                      <h3 className="mb-3 flex items-center gap-2 text-xs font-medium tracking-wider text-[#666666] uppercase">
                         <Sparkles size={14} />
                         Skills
                       </h3>
@@ -479,23 +479,23 @@ export default function SettingsModal({
                           {systemInfo.skills.map((skill) => (
                             <div
                               key={skill.name}
-                              className="rounded-lg border border-[#27272a] bg-[#18181b] p-3"
+                              className="rounded-lg border border-white/10 bg-[#0a0a0a] p-3"
                             >
-                              <p className="text-sm font-medium text-[#fafafa]">{skill.name}</p>
-                              <p className="mt-0.5 line-clamp-2 text-xs text-[#71717a]">
+                              <p className="text-sm font-medium text-[#ededed]">{skill.name}</p>
+                              <p className="mt-0.5 line-clamp-2 text-xs text-[#666666]">
                                 {skill.description}
                               </p>
                             </div>
                           ))}
                         </div>
                       ) : (
-                        <p className="text-sm text-[#71717a]">No skills available</p>
+                        <p className="text-sm text-[#666666]">No skills available</p>
                       )}
                     </div>
 
                     {/* Model Presets */}
                     <div>
-                      <h3 className="mb-3 flex items-center gap-2 text-xs font-medium tracking-wider text-[#71717a] uppercase">
+                      <h3 className="mb-3 flex items-center gap-2 text-xs font-medium tracking-wider text-[#666666] uppercase">
                         <Server size={14} />
                         Models
                       </h3>
@@ -503,12 +503,12 @@ export default function SettingsModal({
                         {Object.entries(systemInfo.model_presets).map(([alias, model]) => (
                           <div
                             key={alias}
-                            className="flex items-center justify-between rounded-lg border border-[#27272a] bg-[#18181b] px-3 py-2"
+                            className="flex items-center justify-between rounded-lg border border-white/10 bg-[#0a0a0a] px-3 py-2"
                           >
-                            <span className="font-[family-name:var(--font-mono)] text-sm font-medium text-[#3b82f6]">
+                            <span className="font-[family-name:var(--font-mono)] text-sm font-medium text-[#ededed]">
                               {alias}
                             </span>
-                            <span className="ml-4 max-w-[250px] truncate font-[family-name:var(--font-mono)] text-xs text-[#71717a]">
+                            <span className="ml-4 max-w-[250px] truncate font-[family-name:var(--font-mono)] text-xs text-[#666666]">
                               {model}
                             </span>
                           </div>
@@ -517,7 +517,7 @@ export default function SettingsModal({
                     </div>
                   </>
                 ) : (
-                  <div className="py-8 text-center text-sm text-[#71717a]">
+                  <div className="py-8 text-center text-sm text-[#666666]">
                     Connection error. Is the server online?
                   </div>
                 )}

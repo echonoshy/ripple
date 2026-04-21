@@ -136,7 +136,7 @@ function FeishuCard({ tag, url }: { tag: FeishuTag; url: string }) {
 
   return (
     <div
-      className="my-2 overflow-hidden rounded-xl border bg-[#18181b]"
+      className="my-2 overflow-hidden rounded-xl border bg-[#0a0a0a]"
       style={{ borderColor: `${accent}40` }}
     >
       <div className="flex items-center gap-2 px-4 py-3" style={{ backgroundColor: `${accent}14` }}>
@@ -146,7 +146,7 @@ function FeishuCard({ tag, url }: { tag: FeishuTag; url: string }) {
         </span>
       </div>
       <div className="space-y-3 px-4 py-3">
-        <p className="text-sm text-[#a1a1aa]">{subtitle}</p>
+        <p className="text-sm text-[#888888]">{subtitle}</p>
         <a
           href={url}
           target="_blank"
@@ -173,19 +173,19 @@ function ThinkingBlock({ content }: { content: string }) {
   const [isExpanded, setIsExpanded] = useState(false);
 
   return (
-    <div className="my-2 overflow-hidden rounded-xl border border-[#10b981]/20 bg-[#10b981]/[0.03]">
+    <div className="my-2 overflow-hidden rounded-xl border border-white/10 bg-black/5">
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className="flex w-full items-center gap-2 rounded-t-xl px-4 py-2.5 text-left transition-colors hover:bg-[#10b981]/[0.05]"
+        className="flex w-full items-center gap-2 rounded-t-xl px-4 py-2.5 text-left transition-colors hover:bg-white/10"
       >
-        <Brain size={14} className="shrink-0 text-[#10b981]" />
-        <span className="text-xs font-medium text-[#10b981]">Thought Process</span>
+        <Brain size={14} className="shrink-0 text-[#ededed]" />
+        <span className="text-xs font-medium text-[#ededed]">Thought Process</span>
         <motion.div
           animate={{ rotate: isExpanded ? 90 : 0 }}
           transition={{ duration: 0.1 }}
           className="ml-auto"
         >
-          <ChevronRight size={14} className="text-[#10b981]/50" />
+          <ChevronRight size={14} className="text-[#ededed]/50" />
         </motion.div>
       </button>
       <AnimatePresence>
@@ -197,8 +197,8 @@ function ThinkingBlock({ content }: { content: string }) {
             transition={{ duration: 0.15 }}
             className="overflow-hidden"
           >
-            <div className="border-t border-[#10b981]/10 px-4 pb-3">
-              <div className="markdown-body mt-2 text-sm leading-relaxed text-[#a1a1aa]">
+            <div className="border-t border-white/10 px-4 pb-3">
+              <div className="markdown-body mt-2 text-sm leading-relaxed text-[#888888]">
                 <MarkdownContent content={content} />
               </div>
             </div>
@@ -219,7 +219,7 @@ function MarkdownContent({ content }: { content: string }) {
       components={{
         pre({ children }) {
           return (
-            <pre className="not-prose my-3 overflow-x-auto rounded-lg border border-[#27272a] bg-[#09090b] p-4 font-[family-name:var(--font-mono)] text-[13px]">
+            <pre className="not-prose my-3 overflow-x-auto rounded-lg border border-white/10 bg-black p-4 font-[family-name:var(--font-mono)] text-[13px]">
               {children}
             </pre>
           );
@@ -229,7 +229,7 @@ function MarkdownContent({ content }: { content: string }) {
           if (isInline) {
             return (
               <code
-                className="rounded-md border border-[#3f3f46] bg-[#27272a] px-1.5 py-0.5 font-[family-name:var(--font-mono)] text-[13px] text-[#60a5fa]"
+                className="rounded-md border border-white/20 bg-[#27272a] px-1.5 py-0.5 font-[family-name:var(--font-mono)] text-[13px] text-[#60a5fa]"
                 {...props}
               >
                 {children}
@@ -248,7 +248,7 @@ function MarkdownContent({ content }: { content: string }) {
               href={href}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-[#3b82f6] underline underline-offset-2 hover:text-[#60a5fa]"
+              className="text-[#ededed] underline underline-offset-2 hover:text-[#60a5fa]"
             >
               {children}
             </a>
@@ -263,13 +263,13 @@ function MarkdownContent({ content }: { content: string }) {
         },
         th({ children }) {
           return (
-            <th className="border border-[#27272a] bg-[#27272a] px-3 py-2 text-left text-sm font-medium text-[#fafafa]">
+            <th className="border border-white/10 bg-[#27272a] px-3 py-2 text-left text-sm font-medium text-[#ededed]">
               {children}
             </th>
           );
         },
         td({ children }) {
-          return <td className="border border-[#27272a] px-3 py-2 text-[#fafafa]">{children}</td>;
+          return <td className="border border-white/10 px-3 py-2 text-[#ededed]">{children}</td>;
         },
       }}
     >

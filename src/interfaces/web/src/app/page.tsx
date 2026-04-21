@@ -576,7 +576,7 @@ export default function Home() {
   // ═══════════════════════════════════════════════════════
   if (authState !== "authenticated") {
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-[#09090b]">
+      <div className="flex h-screen w-screen items-center justify-center bg-black">
         {authState === "needs_auth" && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -585,19 +585,19 @@ export default function Home() {
           >
             <div className="surface-panel rounded-2xl p-8">
               <div className="mb-8 flex flex-col items-center">
-                <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-[#10b981]/30 bg-[#10b981]/10">
-                  <RippleIcon size={28} className="text-[#10b981]" />
+                <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-black/5">
+                  <RippleIcon size={28} className="text-[#ededed]" />
                 </div>
-                <h1 className="text-xl font-semibold text-[#fafafa]">RIPPLE</h1>
-                <p className="mt-3 text-center text-sm text-[#a1a1aa]">
+                <h1 className="text-xl font-semibold text-[#ededed]">RIPPLE</h1>
+                <p className="mt-3 text-center text-sm text-[#888888]">
                   Enter your API key to continue
                 </p>
-                <p className="mt-1 text-center font-[family-name:var(--font-cjk)] text-sm text-[#71717a]">
+                <p className="mt-1 text-center font-[family-name:var(--font-cjk)] text-sm text-[#666666]">
                   请输入 API Key 以访问服务
                 </p>
               </div>
               {authErrorMsg && (
-                <div className="mb-4 flex items-center gap-2 rounded-lg border border-[#ef4444]/30 bg-[#ef4444]/[0.06] p-3 text-sm text-[#ef4444]">
+                <div className="mb-4 flex items-center gap-2 rounded-lg border border-[#ff4444]/20 bg-[#ff4444]/10 p-3 text-sm text-[#ff4444]">
                   <AlertTriangle size={16} />
                   <span>{authErrorMsg}</span>
                 </div>
@@ -606,14 +606,14 @@ export default function Home() {
                 <div className="relative mb-4">
                   <KeyRound
                     size={18}
-                    className="absolute top-1/2 left-4 -translate-y-1/2 text-[#71717a]"
+                    className="absolute top-1/2 left-4 -translate-y-1/2 text-[#666666]"
                   />
                   <input
                     type="password"
                     value={keyInput}
                     onChange={(e) => setKeyInput(e.target.value)}
                     placeholder="Enter API key..."
-                    className="w-full rounded-lg border border-[#27272a] bg-[#18181b] py-3 pr-4 pl-11 font-[family-name:var(--font-mono)] text-sm text-[#fafafa] placeholder:text-[#71717a] focus:border-[#10b981]/50 focus:ring-2 focus:ring-[#10b981]/15 focus:outline-none"
+                    className="w-full rounded-lg border border-white/10 bg-[#0a0a0a] py-3 pr-4 pl-11 font-[family-name:var(--font-mono)] text-sm text-[#ededed] placeholder:text-[#666666] focus:border-[#ededed]/50 focus:ring-2 focus:ring-[#10b981]/15 focus:outline-none"
                   />
                 </div>
                 <button
@@ -635,7 +635,7 @@ export default function Home() {
   // MAIN APP
   // ═══════════════════════════════════════════════════════
   return (
-    <div className="h-screen w-screen overflow-hidden bg-[#09090b]">
+    <div className="h-screen w-screen overflow-hidden bg-black">
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -666,7 +666,7 @@ export default function Home() {
               {/* Mobile menu */}
               <button
                 onClick={() => setIsSidebarOpen(true)}
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-[#a1a1aa] hover:bg-white/[0.04] hover:text-[#fafafa] md:hidden"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-[#888888] hover:bg-white/5 hover:text-[#ededed] md:hidden"
               >
                 <Menu size={18} />
               </button>
@@ -675,15 +675,15 @@ export default function Home() {
               <div className="relative">
                 <button
                   onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
-                  className="flex items-center gap-1.5 rounded-lg border border-[#27272a] bg-[#18181b] px-2.5 py-1.5 text-sm text-[#fafafa] transition-colors hover:border-[#3f3f46]"
+                  className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-[#0a0a0a] px-2.5 py-1.5 text-sm text-[#ededed] transition-colors hover:border-white/20"
                 >
-                  <Cpu size={14} className="text-[#3b82f6]" />
+                  <Cpu size={14} className="text-[#ededed]" />
                   <span className="font-[family-name:var(--font-mono)] text-sm font-medium">
                     {selectedModel}
                   </span>
                   <ChevronDown
                     size={12}
-                    className={`text-[#71717a] transition-transform ${isModelDropdownOpen ? "rotate-180" : ""}`}
+                    className={`text-[#666666] transition-transform ${isModelDropdownOpen ? "rotate-180" : ""}`}
                   />
                 </button>
                 <AnimatePresence>
@@ -693,7 +693,7 @@ export default function Home() {
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: 4 }}
                       transition={{ duration: 0.1 }}
-                      className="absolute top-full left-0 z-50 mt-1 w-44 overflow-hidden rounded-xl border border-[#27272a] bg-[#18181b] shadow-lg"
+                      className="absolute top-full left-0 z-50 mt-1 w-44 overflow-hidden rounded-xl border border-white/10 bg-[#0a0a0a] shadow-lg"
                     >
                       <div className="p-1">
                         {models.map((m) => (
@@ -705,8 +705,8 @@ export default function Home() {
                             }}
                             className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left font-[family-name:var(--font-mono)] text-sm transition-colors ${
                               selectedModel === m.id
-                                ? "bg-[#10b981]/10 font-medium text-[#10b981]"
-                                : "text-[#a1a1aa] hover:bg-[#18181b] hover:text-[#fafafa]"
+                                ? "bg-[#ededed]/10 font-medium text-[#ededed]"
+                                : "text-[#888888] hover:bg-[#0a0a0a] hover:text-[#ededed]"
                             }`}
                           >
                             {m.id}
@@ -719,7 +719,7 @@ export default function Home() {
               </div>
 
               {thinkingEnabled && (
-                <div className="flex items-center gap-1 rounded-md border border-[#10b981]/30 bg-[#10b981]/[0.06] px-2 py-1 text-[#10b981]">
+                <div className="flex items-center gap-1 rounded-md border border-white/10 bg-black/5 px-2 py-1 text-[#ededed]">
                   <Brain size={11} />
                   <span className="text-xs font-medium">Think</span>
                 </div>
@@ -731,14 +731,14 @@ export default function Home() {
                 <div
                   className={`hidden items-center gap-1.5 rounded-lg border px-2.5 py-1 font-[family-name:var(--font-mono)] text-xs sm:flex ${
                     isContextWarning
-                      ? "border-[#ef4444]/30 bg-[#ef4444]/[0.06] text-[#ef4444]"
-                      : "border-[#27272a] bg-[#18181b] text-[#a1a1aa]"
+                      ? "border-[#ff4444]/20 bg-[#ff4444]/10 text-[#ff4444]"
+                      : "border-white/10 bg-[#0a0a0a] text-[#888888]"
                   }`}
                 >
                   {isContextWarning && <AlertTriangle size={11} />}
-                  <span className="text-[#10b981]">↑{formatTokens(tokenUsage.prompt_tokens)}</span>
-                  <span className="text-[#71717a]">|</span>
-                  <span className="text-[#3b82f6]">
+                  <span className="text-[#ededed]">↑{formatTokens(tokenUsage.prompt_tokens)}</span>
+                  <span className="text-[#666666]">|</span>
+                  <span className="text-[#ededed]">
                     ↓{formatTokens(tokenUsage.completion_tokens)}
                   </span>
                 </div>
@@ -748,14 +748,14 @@ export default function Home() {
                   type="button"
                   onClick={handleCopySessionId}
                   title={sessionIdCopied ? "已复制" : `点击复制 Session ID: ${sessionId}`}
-                  className="hidden items-center gap-1.5 rounded-lg border border-[#27272a] bg-[#18181b] px-2.5 py-1 font-[family-name:var(--font-mono)] text-xs text-[#a1a1aa] transition-colors hover:border-[#10b981]/40 hover:text-[#fafafa] sm:flex"
+                  className="hidden items-center gap-1.5 rounded-lg border border-white/10 bg-[#0a0a0a] px-2.5 py-1 font-[family-name:var(--font-mono)] text-xs text-[#888888] transition-colors hover:border-[#ededed]/40 hover:text-[#ededed] sm:flex"
                 >
-                  <span className="text-[#71717a]">ID</span>
+                  <span className="text-[#666666]">ID</span>
                   <span className="max-w-[140px] truncate">{sessionId}</span>
                   {sessionIdCopied ? (
-                    <Check size={12} className="text-[#10b981]" />
+                    <Check size={12} className="text-[#ededed]" />
                   ) : (
-                    <Copy size={12} className="text-[#71717a]" />
+                    <Copy size={12} className="text-[#666666]" />
                   )}
                 </button>
               )}
@@ -763,20 +763,20 @@ export default function Home() {
                 type="button"
                 onClick={() => setIsSettingsOpen(true)}
                 title="Click to change in Settings"
-                className="hidden items-center gap-1.5 rounded-lg border border-[#27272a] bg-[#18181b] px-2.5 py-1 font-[family-name:var(--font-mono)] text-xs text-[#a1a1aa] transition-colors hover:border-[#3b82f6]/40 hover:text-[#fafafa] sm:flex"
+                className="hidden items-center gap-1.5 rounded-lg border border-white/10 bg-[#0a0a0a] px-2.5 py-1 font-[family-name:var(--font-mono)] text-xs text-[#888888] transition-colors hover:border-[#ededed]/40 hover:text-[#ededed] sm:flex"
               >
-                <span className="text-[#71717a]">user</span>
-                <span className="max-w-[120px] truncate text-[#3b82f6]">{userId}</span>
+                <span className="text-[#666666]">user</span>
+                <span className="max-w-[120px] truncate text-[#ededed]">{userId}</span>
               </button>
               <div
                 className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 ${
                   sessionId
-                    ? "border-[#10b981]/30 bg-[#10b981]/10 text-[#10b981]"
-                    : "border-[#27272a] bg-[#18181b] text-[#71717a]"
+                    ? "border-white/10 bg-black/5 text-[#ededed]"
+                    : "border-white/10 bg-[#0a0a0a] text-[#666666]"
                 }`}
               >
                 <div
-                  className={`h-2 w-2 rounded-full ${sessionId ? "glow-green bg-[#10b981]" : "bg-[#71717a]"}`}
+                  className={`h-2 w-2 rounded-full ${sessionId ? "glow-white bg-transparent" : "bg-[#71717a]"}`}
                   style={
                     sessionId ? { animation: "glow-pulse 2s ease-in-out infinite" } : undefined
                   }
@@ -790,16 +790,16 @@ export default function Home() {
           <div className="flex-1 overflow-y-auto px-4 pt-6 pb-4 md:px-6">
             <div className="mx-auto max-w-5xl space-y-3">
               {messages.length === 0 && (
-                <div className="flex h-[50vh] flex-col items-center justify-center text-[#71717a]">
+                <div className="flex h-[50vh] flex-col items-center justify-center text-[#666666]">
                   <div
-                    className="mb-6 flex h-20 w-20 items-center justify-center rounded-2xl border border-[#10b981]/20 bg-[#10b981]/5"
+                    className="mb-6 flex h-20 w-20 items-center justify-center rounded-2xl border border-white/10 bg-black/5"
                     style={{ animation: "float-breathe 3s ease-in-out infinite" }}
                   >
-                    <RippleIcon size={40} className="text-[#10b981]/50" />
+                    <RippleIcon size={40} className="text-white/50" />
                   </div>
-                  <p className="text-lg font-semibold text-[#fafafa]">Ripple</p>
-                  <p className="mt-2 text-sm text-[#a1a1aa]">Start a conversation</p>
-                  <p className="mt-1 font-[family-name:var(--font-cjk)] text-sm text-[#71717a]">
+                  <p className="text-lg font-semibold text-[#ededed]">Ripple</p>
+                  <p className="mt-2 text-sm text-[#888888]">Start a conversation</p>
+                  <p className="mt-1 font-[family-name:var(--font-cjk)] text-sm text-[#666666]">
                     输入消息开始对话
                   </p>
                 </div>
@@ -845,7 +845,7 @@ export default function Home() {
 
         {/* Resize handle */}
         <div
-          className="z-30 hidden w-1.5 shrink-0 cursor-col-resize items-center justify-center bg-[#09090b] transition-colors hover:bg-[#10b981]/15 lg:flex"
+          className="z-30 hidden w-1.5 shrink-0 cursor-col-resize items-center justify-center bg-black transition-colors hover:bg-[#ededed]/15 lg:flex"
           onMouseDown={handleResizeStart}
         >
           <div className="h-12 w-0.5 rounded-full bg-[#27272a]" />

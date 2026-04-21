@@ -48,6 +48,7 @@ class SessionStatus:
 @dataclass
 class Session:
     session_id: str
+    user_id: str = "default"
     messages: list = field(default_factory=list)
     context: ToolUseContext | None = None
     client: LLMClient | None = None
@@ -253,6 +254,7 @@ def _create_session_context(
     workspace_root: Path | None = None,
     sandbox_session_id: str | None = None,
     session_runtime_dir: Path | None = None,
+    user_id: str | None = None,
 ) -> tuple[ToolUseContext, LLMClient]:
     """为一个 session 创建工具上下文和 API 客户端"""
     tools = _get_server_tools()
@@ -270,6 +272,7 @@ def _create_session_context(
         workspace_root=workspace_root,
         sandbox_session_id=sandbox_session_id,
         session_runtime_dir=session_runtime_dir,
+        user_id=user_id,
     )
 
     client = create_client()
@@ -281,7 +284,7 @@ class SessionManager:
 
     def __init__(self, sandbox_manager: SandboxManager | None = None):
         config = get_config()
-        self._sessions: dict[str, Session] = {}
+        self._sessions: dict[tuple[str, str], Session] = {}
         self._ttl_seconds: int = config.get("server.session.ttl_seconds", 3600)
         self._cleanup_task: asyncio.Task | None = None
         self._sandbox_manager = sandbox_manager
@@ -308,18 +311,18 @@ class SessionManager:
         """清理过期 session：先挂起，再根据保留策略删除"""
         now = datetime.now(timezone.utc)
         expired = [
-            sid for sid, s in self._sessions.items() if (now - s.last_active).total_seconds() > self._ttl_seconds
+            key for key, s in self._sessions.items() if (now - s.last_active).total_seconds() > self._ttl_seconds
         ]
-        for sid in expired:
+        for key in expired:
+            session = self._sessions[key]
             if self._sandbox_manager:
-                session = self._sessions[sid]
                 if session.current_task and not session.current_task.done():
                     session.current_task.cancel()
                 self._suspend_to_disk(session)
-                logger.info("Session 过期自动挂起: {}", sid)
+                logger.info("Session 过期自动挂起: {}/{}", key[0], key[1])
             else:
-                logger.info("Session 过期清理: {}", sid)
-            del self._sessions[sid]
+                logger.info("Session 过期清理: {}/{}", key[0], key[1])
+            del self._sessions[key]
 
         # 清理磁盘上过期的挂起 session
         if self._sandbox_manager:
@@ -329,7 +332,8 @@ class SessionManager:
         """内部方法：将 session 状态保存到磁盘"""
         if not self._sandbox_manager:
             return
-        self._sandbox_manager.suspend_session(
+        self._sandbox_manager.suspend_session_uid(
+            session.user_id,
             session.session_id,
             messages=session.messages,
             model=session.model,
@@ -346,21 +350,25 @@ class SessionManager:
             compactor_state=session.context_manager.get_compactor_state() if session.context_manager else None,
         )
 
-    def _write_feishu_config(self, session_id: str, feishu: "FeishuConfig") -> None:
-        """将飞书凭证写入 session 目录的 feishu.json"""
+    def _write_feishu_config(self, user_id: str, feishu: "FeishuConfig") -> None:
+        """将飞书凭证写入 user 目录的 feishu.json"""
         import json
 
         if not self._sandbox_manager:
             return
-        feishu_file = self._sandbox_manager.config.feishu_config_file(session_id)
+        feishu_file = self._sandbox_manager.config.feishu_config_file_by_uid(user_id)
+        feishu_file.parent.mkdir(parents=True, exist_ok=True)
         feishu_file.write_text(
             json.dumps({"app_id": feishu.app_id, "app_secret": feishu.app_secret, "brand": feishu.brand}, indent=2),
             encoding="utf-8",
         )
-        logger.debug("写入 session {} feishu.json", session_id)
+        feishu_file.chmod(0o600)
+        logger.debug("写入 user {} feishu.json", user_id)
 
     def create_session(
         self,
+        *,
+        user_id: str = "default",
         model: str | None = None,
         max_turns: int | None = None,
         caller_system_prompt: str | None = None,
@@ -377,10 +385,12 @@ class SessionManager:
         workspace_root = None
         session_runtime_dir = None
         if self._sandbox_manager:
-            workspace_root = self._sandbox_manager.setup_session(session_id)
-            session_runtime_dir = self._sandbox_manager.config.session_dir(session_id)
+            self._sandbox_manager.ensure_sandbox(user_id)
+            self._sandbox_manager.setup_session_uid(user_id, session_id)
+            workspace_root = self._sandbox_manager.config.workspace_dir_by_uid(user_id)
+            session_runtime_dir = self._sandbox_manager.config.session_dir_by_uid(user_id, session_id)
             if feishu:
-                self._write_feishu_config(session_id, feishu)
+                self._write_feishu_config(user_id, feishu)
 
         context, client = _create_session_context(
             resolved_model,
@@ -388,10 +398,12 @@ class SessionManager:
             workspace_root=workspace_root,
             sandbox_session_id=session_id if self._sandbox_manager else None,
             session_runtime_dir=session_runtime_dir,
+            user_id=user_id,
         )
 
         session = Session(
             session_id=session_id,
+            user_id=user_id,
             context=context,
             client=client,
             model=resolved_model,
@@ -399,63 +411,66 @@ class SessionManager:
             max_turns=resolved_max_turns,
             context_manager=ContextManager(),
         )
-        self._sessions[session_id] = session
+        self._sessions[(user_id, session_id)] = session
         logger.info(
-            "创建 session: {} (model={}, workspace={})",
+            "创建 session: {}/{} (model={}, workspace={})",
+            user_id,
             session_id,
             resolved_model,
             workspace_root or "none",
         )
         return session
 
-    def get_session(self, session_id: str) -> Session | None:
-        session = self._sessions.get(session_id)
+    def get_session(self, session_id: str, *, user_id: str = "default") -> Session | None:
+        session = self._sessions.get((user_id, session_id))
         if session:
             session.last_active = datetime.now(timezone.utc)
         return session
 
-    def delete_session(self, session_id: str) -> bool:
+    def delete_session(self, session_id: str, *, user_id: str = "default") -> bool:
         _validate_session_id(session_id)
-        if session_id in self._sessions:
-            session = self._sessions[session_id]
+        key = (user_id, session_id)
+        if key in self._sessions:
+            session = self._sessions[key]
             if session.current_task and not session.current_task.done():
                 session.current_task.cancel()
 
-            del self._sessions[session_id]
+            del self._sessions[key]
 
             # 清理沙箱（包括磁盘文件）
             if self._sandbox_manager:
-                self._sandbox_manager.teardown_session(session_id)
+                self._sandbox_manager.teardown_session_uid(user_id, session_id)
 
-            logger.info("删除 session: {}", session_id)
+            logger.info("删除 session: {}/{}", user_id, session_id)
             return True
 
         # 可能是已挂起的 session
         if self._sandbox_manager:
-            self._sandbox_manager.teardown_session(session_id)
+            self._sandbox_manager.teardown_session_uid(user_id, session_id)
             return True
 
         return False
 
-    def stop_session(self, session_id: str) -> bool:
+    def stop_session(self, session_id: str, *, user_id: str = "default") -> bool:
         """停止 session 中正在运行的任务"""
-        session = self.get_session(session_id)
+        session = self.get_session(session_id, user_id=user_id)
         if session:
             if session.current_task and not session.current_task.done():
                 if session.context and session.context.abort_signal:
                     session.context.abort_signal.abort()
                 session.current_task.cancel()
-                logger.info("已停止 session 的当前任务: {}", session_id)
+                logger.info("已停止 session 的当前任务: {}/{}", user_id, session_id)
                 return True
             else:
-                logger.info("session {} 没有正在运行的任务", session_id)
+                logger.info("session {}/{} 没有正在运行的任务", user_id, session_id)
                 return False
         return False
 
-    def suspend_session(self, session_id: str) -> bool:
+    def suspend_session(self, session_id: str, *, user_id: str = "default") -> bool:
         """手动挂起 session：从内存移除，状态持久化到磁盘"""
         _validate_session_id(session_id)
-        session = self._sessions.get(session_id)
+        key = (user_id, session_id)
+        session = self._sessions.get(key)
         if not session:
             return False
 
@@ -463,27 +478,30 @@ class SessionManager:
             session.current_task.cancel()
 
         self._suspend_to_disk(session)
-        del self._sessions[session_id]
-        logger.info("手动挂起 session: {}", session_id)
+        del self._sessions[key]
+        logger.info("手动挂起 session: {}/{}", user_id, session_id)
         return True
 
-    def resume_session(self, session_id: str) -> Session | None:
+    def resume_session(self, session_id: str, *, user_id: str = "default") -> Session | None:
         """从磁盘恢复已挂起的 session 到内存"""
         _validate_session_id(session_id)
-        if session_id in self._sessions:
-            return self._sessions[session_id]
+        key = (user_id, session_id)
+        if key in self._sessions:
+            return self._sessions[key]
 
         if not self._sandbox_manager:
             return None
 
-        state = self._sandbox_manager.resume_session(session_id)
+        state = self._sandbox_manager.resume_session_uid(user_id, session_id)
         if state is None:
             return None
 
         config = get_config()
         resolved_model = config.resolve_model(state.get("model", config.get("model.default", "sonnet")))
-        workspace_root = self._sandbox_manager.get_session_workspace(session_id)
-        session_runtime_dir = self._sandbox_manager.config.session_dir(session_id)
+        workspace_root = self._sandbox_manager.config.workspace_dir_by_uid(user_id)
+        if not workspace_root.exists():
+            workspace_root = None
+        session_runtime_dir = self._sandbox_manager.config.session_dir_by_uid(user_id, session_id)
 
         internal_sid = uuid4().hex[:12]
         context, client = _create_session_context(
@@ -492,6 +510,7 @@ class SessionManager:
             workspace_root=workspace_root,
             sandbox_session_id=session_id,
             session_runtime_dir=session_runtime_dir,
+            user_id=user_id,
         )
 
         created_at = datetime.now(timezone.utc)
@@ -503,6 +522,7 @@ class SessionManager:
 
         session = Session(
             session_id=session_id,
+            user_id=user_id,
             messages=state.get("messages", []),
             context=context,
             client=client,
@@ -518,40 +538,52 @@ class SessionManager:
             pending_permission_request=state.get("pending_permission_request"),
             context_manager=ContextManager.from_persisted_state(state.get("compactor_state", {})),
         )
-        self._sessions[session_id] = session
-        logger.info("恢复 session: {} ({} 条历史消息)", session_id, len(session.messages))
+        self._sessions[key] = session
+        logger.info("恢复 session: {}/{} ({} 条历史消息)", user_id, session_id, len(session.messages))
         return session
 
-    def persist_session(self, session_id: str) -> bool:
+    def persist_session(self, session_id: str, *, user_id: str = "default") -> bool:
         """将 session 当前状态持久化到磁盘（不从内存中移除）"""
-        session = self._sessions.get(session_id)
+        session = self._sessions.get((user_id, session_id))
         if not session or not self._sandbox_manager:
             return False
         self._suspend_to_disk(session)
         return True
 
-    def list_sessions(self) -> list[Session]:
-        return list(self._sessions.values())
+    def list_sessions(self, *, user_id: str | None = None) -> list[Session]:
+        if user_id is None:
+            return list(self._sessions.values())
+        return [s for s in self._sessions.values() if s.user_id == user_id]
 
-    def list_all_sessions(self) -> list[dict]:
+    def list_all_sessions(self, *, user_id: str | None = None) -> list[dict]:
         """列出所有 session（内存活跃 + 磁盘持久化），去重后按 last_active 降序"""
-        from ripple.sandbox.storage import extract_title_from_messages, get_suspended_session_info
-        from ripple.sandbox.workspace import list_suspended_sessions as _list_disk_sessions
+        from ripple.sandbox.storage import extract_title_from_messages, get_suspended_session_info_uid
 
-        result: dict[str, dict] = {}
+        if not self._sandbox_manager:
+            user_ids_to_scan: list[str] = []
+        elif user_id is not None:
+            user_ids_to_scan = [user_id]
+        else:
+            user_ids_to_scan = self._sandbox_manager.list_user_sandboxes()
 
-        if self._sandbox_manager:
-            for sid in _list_disk_sessions(self._sandbox_manager.config):
-                info = get_suspended_session_info(self._sandbox_manager.config, sid)
+        result: dict[tuple[str, str], dict] = {}
+
+        for uid in user_ids_to_scan:
+            for sid in self._sandbox_manager.list_user_sessions(uid):
+                info = get_suspended_session_info_uid(self._sandbox_manager.config, uid, sid)
                 if info and info.get("message_count", 0) > 0:
                     info["status"] = "suspended"
-                    result[sid] = info
+                    info["user_id"] = uid
+                    result[(uid, sid)] = info
 
         for s in self._sessions.values():
+            if user_id is not None and s.user_id != user_id:
+                continue
             if not s.messages:
                 continue
-            result[s.session_id] = {
+            result[(s.user_id, s.session_id)] = {
                 "session_id": s.session_id,
+                "user_id": s.user_id,
                 "title": extract_title_from_messages(s.messages),
                 "model": s.model,
                 "message_count": len(s.messages),
@@ -564,17 +596,30 @@ class SessionManager:
 
         return sorted(result.values(), key=lambda x: x.get("last_active", ""), reverse=True)
 
-    def list_suspended_sessions(self) -> list[dict]:
+    def list_suspended_sessions(self, *, user_id: str | None = None) -> list[dict]:
         """列出所有已挂起（仅在磁盘上）的 session"""
+        from ripple.sandbox.storage import get_suspended_session_info_uid
+
         if not self._sandbox_manager:
             return []
-        suspended = self._sandbox_manager.list_suspended()
-        active_ids = set(self._sessions.keys())
-        return [s for s in suspended if s["session_id"] not in active_ids]
+        user_ids_to_scan = [user_id] if user_id is not None else self._sandbox_manager.list_user_sandboxes()
+        active_keys = {(s.user_id, s.session_id) for s in self._sessions.values()}
+        out: list[dict] = []
+        for uid in user_ids_to_scan:
+            for sid in self._sandbox_manager.list_user_sessions(uid):
+                if (uid, sid) in active_keys:
+                    continue
+                info = get_suspended_session_info_uid(self._sandbox_manager.config, uid, sid)
+                if info:
+                    info["user_id"] = uid
+                    out.append(info)
+        return out
 
     def get_or_create_session(
         self,
         session_id: str | None,
+        *,
+        user_id: str = "default",
         model: str | None = None,
         max_turns: int | None = None,
         caller_system_prompt: str | None = None,
@@ -582,16 +627,17 @@ class SessionManager:
         """获取已有 session 或创建新的。支持自动恢复已挂起的 session。"""
         if session_id:
             _validate_session_id(session_id)
-            existing = self.get_session(session_id)
+            existing = self.get_session(session_id, user_id=user_id)
             if existing:
                 return existing, False
 
             # 尝试从磁盘恢复
-            resumed = self.resume_session(session_id)
+            resumed = self.resume_session(session_id, user_id=user_id)
             if resumed:
                 return resumed, False
 
         session = self.create_session(
+            user_id=user_id,
             model=model,
             max_turns=max_turns,
             caller_system_prompt=caller_system_prompt,

@@ -1,5 +1,6 @@
 """FastAPI 应用入口"""
 
+import argparse
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -11,7 +12,7 @@ from ripple.sandbox.config import SandboxConfig
 from ripple.sandbox.manager import SandboxManager
 from ripple.tools.builtin.bash import set_sandbox_config, set_sandbox_manager
 from ripple.utils.config import get_config
-from ripple.utils.logger import get_logger
+from ripple.utils.logger import get_logger, setup_logging
 
 logger = get_logger("server.app")
 
@@ -69,3 +70,51 @@ def create_app() -> FastAPI:
     app.include_router(router)
 
     return app
+
+
+def main() -> None:
+    """启动 Ripple API Server（`ripple` 命令入口）"""
+    import uvicorn
+
+    config = get_config()
+    setup_logging(
+        level=config.get("logging.level", "DEBUG"),
+        max_bytes=config.get("logging.max_bytes", 5 * 1024 * 1024),
+        backup_count=config.get("logging.backup_count", 3),
+    )
+
+    parser = argparse.ArgumentParser(
+        prog="ripple",
+        description="Ripple Agent API Server",
+    )
+    parser.add_argument("--host", default=None, help="监听地址")
+    parser.add_argument("--port", type=int, default=None, help="监听端口")
+    parser.add_argument(
+        "--reload",
+        action="store_true",
+        default=False,
+        help="开发模式自动重载",
+    )
+    args = parser.parse_args()
+
+    server_host = args.host or config.get("server.host", "0.0.0.0")
+    server_port = args.port or config.get("server.port", 8810)
+
+    print(f"🌊 Ripple Server 启动中... http://{server_host}:{server_port}")
+    print(f"   API 文档: http://{server_host}:{server_port}/docs")
+
+    if args.reload:
+        uvicorn.run(
+            "interfaces.server.app:create_app",
+            factory=True,
+            host=server_host,
+            port=server_port,
+            reload=True,
+            reload_dirs=["src"],
+        )
+    else:
+        uvicorn.run(create_app(), host=server_host, port=server_port)
+
+
+if __name__ == "__main__":
+    main()

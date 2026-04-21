@@ -29,7 +29,7 @@ src/
     compact/           # 上下文压缩
     tasks/             # 后台任务管理
   interfaces/          # 接口层
-    server/            # FastAPI Server + CLI 入口
+    server/            # FastAPI Server（沙箱服务端）
     web/               # Web 前端（Next.js + TypeScript）
 tests/                 # 测试文件
 scripts/               # 辅助脚本
@@ -81,10 +81,10 @@ skills/                # 共享 Skills（Markdown）
 
 ```bash
 # 启动 API Server
-uv run ripple server
+uv run ripple
 
 # 带自动重载（开发模式）
-uv run ripple server --reload
+uv run ripple --reload
 
 # 运行测试
 uv run pytest
@@ -176,7 +176,7 @@ Skills 是带 YAML frontmatter 的 Markdown 文件，定义特定领域的任务
 - **streaming.py**: 处理流式响应，在流式传输期间处理工具调用
 
 ### 接口层 (`src/interfaces/`)
-- **server/**: FastAPI Server + CLI 启动入口（`ripple server`）
+- **server/**: FastAPI Server 启动入口（`ripple` 命令，入口为 `interfaces.server.app:main`）
 - **web/**: Web 前端 (Next.js + React)
 
 ## 编码规范

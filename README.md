@@ -42,7 +42,7 @@ api:
   base_url: "https://openrouter.ai/api/v1"
 
 # 启动 API Server
-uv run ripple server
+uv run ripple
 
 # 启动 Web 前端（另开一个终端）
 cd src/interfaces/web

@@ -163,6 +163,26 @@ class SystemInfoResponse(BaseModel):
     max_turns: int = 10
 
 
+# ─── Sandbox 管理 ───
+
+
+class SandboxInfo(BaseModel):
+    """一个 user 的沙箱状态摘要"""
+
+    user_id: str
+    workspace_size_bytes: int = 0
+    session_count: int = 0
+    has_python_venv: bool = False
+    has_pnpm_setup: bool = False
+    has_lark_cli_config: bool = False
+    has_notion_token: bool = False
+
+
+class SandboxListResponse(BaseModel):
+    sandboxes: list[SandboxInfo] = []
+    count: int = 0
+
+
 # ─── Tools Invoke ───
 
 

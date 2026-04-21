@@ -3,6 +3,7 @@
 协调 nsjail 工作空间创建/销毁、配置生成、会话持久化等。
 """
 
+import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -33,6 +34,7 @@ class SandboxManager:
     def __init__(self, config: SandboxConfig | None = None):
         self.config = config or SandboxConfig()
         check_nsjail_available(self.config.nsjail_path)
+        self._user_locks: dict[str, asyncio.Lock] = {}
         logger.info(
             "SandboxManager 初始化: sessions={}, caches={}",
             self.config.sessions_root,
@@ -144,3 +146,113 @@ class SandboxManager:
                     self.teardown_session(sid)
             except (ValueError, TypeError):
                 continue
+
+    # --- user 维度 API (Phase 2-5 过渡期) ---
+
+    def user_lock(self, user_id: str) -> asyncio.Lock:
+        """获取 user 级工具调用锁；所有会修改 user workspace 的命令前应 `async with`"""
+        return self._user_locks.setdefault(user_id, asyncio.Lock())
+
+    def ensure_sandbox(self, user_id: str) -> Path:
+        """幂等地为 user 创建沙箱环境（workspace + nsjail.cfg）"""
+        from ripple.sandbox.nsjail_config import write_nsjail_config_uid
+        from ripple.sandbox.workspace import create_user_workspace
+
+        workspace = create_user_workspace(self.config, user_id)
+        write_nsjail_config_uid(self.config, user_id)
+        logger.info("user {} 沙箱就绪", user_id)
+        return workspace
+
+    def teardown_sandbox(self, user_id: str, *, allow_default: bool = False) -> bool:
+        """销毁整个 user sandbox（含所有 session）"""
+        if user_id == "default" and not allow_default:
+            raise PermissionError("default user sandbox cannot be torn down")
+        from ripple.sandbox.workspace import destroy_user_sandbox
+
+        self._user_locks.pop(user_id, None)
+        return destroy_user_sandbox(self.config, user_id)
+
+    def setup_session_uid(self, user_id: str, session_id: str) -> Path:
+        """在已存在的 user sandbox 下创建 session 目录（若 sandbox 缺失则一并创建）"""
+        from ripple.sandbox.workspace import create_user_workspace
+
+        create_user_workspace(self.config, user_id)
+        session_dir = self.config.session_dir_by_uid(user_id, session_id)
+        session_dir.mkdir(parents=True, exist_ok=True)
+        self.config.task_outputs_dir_by_uid(user_id, session_id).mkdir(exist_ok=True)
+        logger.info("user {} session {} 就绪", user_id, session_id)
+        return session_dir
+
+    def teardown_session_uid(self, user_id: str, session_id: str) -> None:
+        """仅删 session 目录，保留 sandbox"""
+        import shutil
+
+        from ripple.sandbox.storage import delete_session_state_uid
+
+        delete_session_state_uid(self.config, user_id, session_id)
+        session_dir = self.config.session_dir_by_uid(user_id, session_id)
+        if session_dir.exists():
+            shutil.rmtree(session_dir)
+
+    def suspend_session_uid(
+        self,
+        user_id: str,
+        session_id: str,
+        **kwargs,
+    ) -> bool:
+        """挂起：只写 meta.json + messages.jsonl，保留 workspace"""
+        from ripple.sandbox.storage import save_session_state_uid
+        from ripple.sandbox.workspace import user_sandbox_exists
+
+        if not user_sandbox_exists(self.config, user_id):
+            logger.warning("无法挂起: user {} 无 sandbox", user_id)
+            return False
+        save_session_state_uid(self.config, user_id, session_id, **kwargs)
+        return True
+
+    def resume_session_uid(self, user_id: str, session_id: str) -> dict | None:
+        """从磁盘恢复 session 状态；sandbox 缺了就重建"""
+        from ripple.sandbox.nsjail_config import write_nsjail_config_uid
+        from ripple.sandbox.storage import load_session_state_uid
+        from ripple.sandbox.workspace import user_sandbox_exists
+
+        state = load_session_state_uid(self.config, user_id, session_id)
+        if state is None:
+            return None
+        if not user_sandbox_exists(self.config, user_id):
+            self.ensure_sandbox(user_id)
+        write_nsjail_config_uid(self.config, user_id)
+        return state
+
+    def list_user_sandboxes(self) -> list[str]:
+        """列出所有已存在的 user_id"""
+        from ripple.sandbox.workspace import list_all_user_ids
+
+        return list_all_user_ids(self.config)
+
+    def list_user_sessions(self, user_id: str) -> list[str]:
+        from ripple.sandbox.workspace import list_user_sessions as _list
+
+        return _list(self.config, user_id)
+
+    def sandbox_summary(self, user_id: str) -> dict | None:
+        """为 GET /v1/sandboxes 返回的摘要"""
+        from ripple.sandbox.workspace import user_sandbox_exists
+
+        if not user_sandbox_exists(self.config, user_id):
+            return None
+        ws_size = 0
+        ws = self.config.workspace_dir_by_uid(user_id)
+        if ws.exists():
+            for f in ws.rglob("*"):
+                if f.is_file():
+                    ws_size += f.stat().st_size
+        return {
+            "user_id": user_id,
+            "workspace_size_bytes": ws_size,
+            "session_count": len(self.list_user_sessions(user_id)),
+            "has_python_venv": self.config.has_python_venv_by_uid(user_id),
+            "has_pnpm_setup": self.config.has_pnpm_setup_by_uid(user_id),
+            "has_lark_cli_config": self.config.has_lark_cli_config_by_uid(user_id),
+            "has_notion_token": self.config.has_notion_token_by_uid(user_id),
+        }

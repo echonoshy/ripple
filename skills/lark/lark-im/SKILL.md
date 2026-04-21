@@ -38,6 +38,27 @@ Chat (oc_xxx)
 - `--as bot` means **bot identity** and uses `tenant_access_token`. Calls run as the app bot, so behavior depends on the bot's membership, app visibility, availability range, and bot-specific scopes.
 - If an IM API says it supports both `user` and `bot`, the token type changes who the operator is. The same API can succeed with one identity and fail with the other because owner/admin status, chat membership, tenant boundary, or app availability are checked against the current caller.
 
+### 默认身份：优先使用 `--as user`
+
+IM 场景下默认代表"当前用户本人"收发消息、管理自己加入的群聊，因此**默认应显式使用 `--as user`（用户身份）**，始终显式带上 `--as user`，不要依赖 CLI 的隐式默认（CLI 底层默认仍是 `bot`，不显式指定会以 bot 身份发送）。
+
+- **`--as user`（默认推荐）**：以当前登录用户身份收发消息、回复、管理群聊。用户可以正常访问自己加入的所有群聊和私聊。执行前先完成用户授权：
+
+```bash
+lark-cli auth login --domain contact,im
+```
+
+- **`--as bot`**：仅在以下情况使用：
+    1. 用户明确要求"以应用身份 / bot 身份发送"；
+    2. 当前工作流就是 bot 作为机器人主动播报、在 bot 自己所在群中代表应用发言；
+    3. `messages.forward` / `messages.merge_forward` / `images.create` 等仅支持 `bot` 的 API。
+
+**执行规则**：
+
+1. 发消息、回消息、建群、查群聊、查消息、下载聊天资源，默认都先用 `--as user`。
+2. 如果出现权限不足，先检查当前是否误用了 bot 身份；不要默认回退到 bot。
+3. 只有在用户明确要求"用应用身份 / bot 身份"，或当前 API 仅支持 bot（见下文 Identity 标注）时，才切换到 `--as bot`。
+
 ### Sender Name Resolution with Bot Identity
 
 When using bot identity (`--as bot`) to fetch messages (e.g. `+chat-messages-list`, `+threads-messages-list`, `+messages-mget`), sender names may not be resolved (shown as open_id instead of display name). This happens when the bot cannot access the user's contact info.

@@ -12,13 +12,16 @@ Replies sent by this tool are visible to other people. Before calling it, you **
 
 1. Which message to reply to
 2. The reply content
-3. Which identity to use (user or bot)
 
 **Do not** send a reply without explicit user approval.
 
-When using `--as bot`, the reply is sent in the app's name, so make sure the app has already been added to the target chat.
+### Default identity: `--as user`
 
-When using `--as user`, the reply is sent as the authorized end user and requires the `im:message.send_as_user` and `im:message` scopes.
+**默认以用户本人身份回复**，即始终显式带上 `--as user`。只有当用户明确说"用 bot / 应用身份回"，或场景本身就是 bot 在自己所在群里接话时，才切换到 `--as bot`。不要因为 CLI 隐式默认是 `bot` 而省略 `--as`，那会导致以应用名义回复。
+
+When using `--as user` (default), the reply is sent as the authorized end user and requires the `im:message.send_as_user` and `im:message` scopes. The reply appears as if the user typed it themselves.
+
+When using `--as bot`, the reply is sent in the app's name, so make sure the app has already been added to the target chat.
 
 ## Choose The Right Content Flag
 
@@ -100,42 +103,44 @@ This is better for quick readable formatting, but the final payload may still di
 
 ## Commands
 
+> 所有示例默认以 `--as user`（用户本人身份）回复。只有用户明确要求 bot 身份时才换成 `--as bot`。
+
 ```bash
 # Reply to a message (plain text, --text is recommended for normal replies)
-lark-cli im +messages-reply --message-id om_xxx --text "Received"
+lark-cli im +messages-reply --as user --message-id om_xxx --text "Received"
 
 # Equivalent manual JSON
-lark-cli im +messages-reply --message-id om_xxx --content '{"text":"Received"}'
+lark-cli im +messages-reply --as user --message-id om_xxx --content '{"text":"Received"}'
 
-# Reply as a bot
-lark-cli im +messages-reply --message-id om_xxx --text "bot reply" --as bot
+# Reply as a bot (only when explicitly requested)
+lark-cli im +messages-reply --as bot --message-id om_xxx --text "bot reply"
 
 # Reply with preserved multi-line text
-lark-cli im +messages-reply --message-id om_xxx --text $'Line 1\nLine 2\n  indented line'
+lark-cli im +messages-reply --as user --message-id om_xxx --text $'Line 1\nLine 2\n  indented line'
 
 # Reply inside the thread (message appears in the target thread)
-lark-cli im +messages-reply --message-id om_xxx --text "Let's discuss this" --reply-in-thread
+lark-cli im +messages-reply --as user --message-id om_xxx --text "Let's discuss this" --reply-in-thread
 
 # Reply with basic Markdown (will be converted to post JSON)
-lark-cli im +messages-reply --message-id om_xxx --markdown $'## Reply\n\n- item 1\n- item 2'
+lark-cli im +messages-reply --as user --message-id om_xxx --markdown $'## Reply\n\n- item 1\n- item 2'
 
 # If you need exact post structure, send JSON directly
-lark-cli im +messages-reply --message-id om_xxx --msg-type post --content '{"zh_cn":{"title":"Reply","content":[[{"tag":"text","text":"Detailed content"}]]}}'
+lark-cli im +messages-reply --as user --message-id om_xxx --msg-type post --content '{"zh_cn":{"title":"Reply","content":[[{"tag":"text","text":"Detailed content"}]]}}'
 
 # Reply with a local image (uploaded automatically before sending)
-lark-cli im +messages-reply --message-id om_xxx --image ./photo.png
+lark-cli im +messages-reply --as user --message-id om_xxx --image ./photo.png
 
 # Reply with a local file (uploaded automatically before sending)
-lark-cli im +messages-reply --message-id om_xxx --file ./report.pdf
+lark-cli im +messages-reply --as user --message-id om_xxx --file ./report.pdf
 
 # Reply with a local video (--video-cover is required as the video cover)
-lark-cli im +messages-reply --message-id om_xxx --video ./demo.mp4 --video-cover ./cover.png
+lark-cli im +messages-reply --as user --message-id om_xxx --video ./demo.mp4 --video-cover ./cover.png
 
 # With an idempotency key
-lark-cli im +messages-reply --message-id om_xxx --text "Received" --idempotency-key my-unique-id
+lark-cli im +messages-reply --as user --message-id om_xxx --text "Received" --idempotency-key my-unique-id
 
 # Preview the request without executing it
-lark-cli im +messages-reply --message-id om_xxx --markdown $'## Test\n\nhello' --dry-run
+lark-cli im +messages-reply --as user --message-id om_xxx --markdown $'## Test\n\nhello' --dry-run
 ```
 
 ## Parameters
@@ -154,7 +159,7 @@ lark-cli im +messages-reply --message-id om_xxx --markdown $'## Test\n\nhello' -
 | `--audio <path\|key>` | One content option | Local audio path or `file_key` |
 | `--reply-in-thread` | No | Reply inside the thread. The reply appears in the target message's thread instead of the main chat stream |
 | `--idempotency-key <key>` | No | Idempotency key; the same key sends only one reply within 1 hour |
-| `--as <identity>` | No | Identity type: `bot` or `user` (default `bot`) |
+| `--as <identity>` | No | Identity type: `bot` or `user`. Agent 默认显式传 `--as user`（用户本人回复）。CLI 未指定时的底层默认仍是 `bot`，所以**不要省略 `--as`**。 |
 | `--dry-run` | No | Print the request only, do not execute it |
 
 > **Mutual exclusivity rule:** `--text`, `--markdown`, `--content`, and `--image`/`--file`/`--video`/`--audio` cannot be used together. Media flags are also mutually exclusive with each other.

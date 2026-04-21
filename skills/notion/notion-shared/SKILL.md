@@ -44,8 +44,8 @@ rich_text 结构）时 —— 凭记忆几乎一定会错。
 
 ## Token 来源（本项目强约定）
 
-- **存储位置**：**per-session** 隔离。宿主侧文件
-  `session_dir/notion.json`，仅当前 session 可读，不同 session 互不可见。
+- **存储位置**：**per-user** 隔离。宿主侧文件
+  `.ripple/sandboxes/<user_id>/credentials/notion.json`，仅当前 user 可读，不同 user 互不可见；同一 user 的多个 session 共享同一个 token。
 - **写入入口**：唯一合法入口是内置工具 **`NotionTokenSet`**（见下文）。
   写入时会自动重生成 `nsjail.cfg`，下一次 bash 命令立刻能拿到 env。
 - **沙箱注入方式**：沙箱启动时（生成 `nsjail.cfg` 的那一刻）读取
@@ -143,4 +143,4 @@ Integration，token 才能读/写它。
   用户复述意图并获得确认，除非用户在本轮对话里已经明确授权本次操作。
 - 批量操作（循环里创建 >5 个 page）前先列出**完整计划**给用户过目，不要闷头跑完。
 - 不要把 token 写到 `/workspace` 下任何文件 —— 它应该通过 `NotionTokenSet` 落到宿主的
-  `session_dir/notion.json`，由沙箱自动注入成 env。
+  `.ripple/sandboxes/<user_id>/credentials/notion.json`，由沙箱自动注入成 env。

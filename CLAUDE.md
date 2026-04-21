@@ -37,6 +37,17 @@ config/                # 配置文件
 skills/                # 共享 Skills（Markdown）
 ```
 
+### User 沙箱层
+
+沙箱（workspace + 凭证 + nsjail.cfg）以 **user_id** 为隔离单位，而非 session_id。一个 user 对应一个长期存在的 workspace，其下可开多个 session；同一 user 的多个 session 共享 workspace，通过 user 级 `asyncio.Lock` 保证工具调用互斥。
+
+调用方通过 HTTP header `X-Ripple-User-Id: <uid>` 传入 user_id；缺失时回落到 `default`。user_id 合法字符集 `[a-zA-Z0-9_-]{1,64}`。ripple 不做身份鉴权——由上游业务系统保证 user_id 的有效性与隔离语义。
+
+管理端点：
+- `POST /v1/sandboxes` — 幂等为当前 user 创建 sandbox
+- `GET /v1/sandboxes` — 返回当前 user sandbox 摘要（含 workspace 大小、session 数、环境就绪态）
+- `DELETE /v1/sandboxes` — 销毁当前 user 的整个 sandbox；`default` user 禁止销毁（409）
+
 ### 运行时目录 `.ripple/`
 
 由 Server 在首次运行时创建，不纳入版本控制：
@@ -45,19 +56,23 @@ skills/                # 共享 Skills（Markdown）
 .ripple/
 ├── logs/
 │   └── ripple.log                   # 进程日志
-├── sandboxes-cache/                 # 跨 session 共享的包缓存
+├── sandboxes-cache/                 # 跨 user 共享的包缓存
 │   ├── uv-cache/
 │   ├── corepack-cache/
 │   └── pnpm-store/                  # 可选
-└── sessions/
-    └── <session_id>/                # 每个 session 的完整运行时状态
-        ├── meta.json                # 会话元数据
-        ├── messages.jsonl           # 消息流水（唯一消息来源）
-        ├── tasks.json               # TaskTool todo 列表
-        ├── task-outputs/            # AgentTool 后台任务输出
-        ├── nsjail.cfg               # 沙箱配置
-        ├── feishu.json              # 可选：飞书凭证
-        └── workspace/               # 沙箱 workspace（用户文件，保持干净）
+└── sandboxes/
+    └── <user_id>/                   # user 级沙箱（长期存在）
+        ├── workspace/               # user 持久工作区（跨 session 共享）
+        ├── nsjail.cfg               # user 级沙箱配置
+        ├── credentials/
+        │   ├── feishu.json          # 可选：飞书凭证
+        │   └── notion.json          # 可选：Notion Integration Token
+        └── sessions/
+            └── <session_id>/        # 每个 session 的运行时状态
+                ├── meta.json        # 会话元数据
+                ├── messages.jsonl   # 消息流水（唯一消息来源）
+                ├── tasks.json       # TaskTool todo 列表
+                └── task-outputs/    # AgentTool 后台任务输出
 ```
 
 ## 运行应用
@@ -211,8 +226,8 @@ Skills 是带 YAML frontmatter 的 Markdown 文件，定义特定领域的任务
 
 | CLI | 安装脚本 | 宿主安装位置 | 沙箱路径 | 鉴权方式 |
 |-----|----------|-------------|----------|---------|
-| `lark-cli`（飞书） | `bash scripts/install-feishu-cli.sh` | `vendor/lark-cli/v<X.Y.Z>/bin/` | `/opt/lark-cli/current/bin/lark-cli` | per-session：`lark-cli auth login`（OAuth） |
-| `ntn`（Notion） | `bash scripts/install-notion-cli.sh` | `vendor/notion-cli/v<X.Y.Z>/bin/` | `/opt/notion-cli/current/bin/ntn` | per-session：用户对话粘贴 token → 模型调内置工具 `NotionTokenSet` → `session_dir/notion.json` → `NOTION_API_TOKEN` env |
+| `lark-cli`（飞书） | `bash scripts/install-feishu-cli.sh` | `vendor/lark-cli/v<X.Y.Z>/bin/` | `/opt/lark-cli/current/bin/lark-cli` | per-user：`lark-cli auth login`（OAuth），凭证落在 `sandboxes/<uid>/workspace/.lark-cli/` |
+| `ntn`（Notion） | `bash scripts/install-notion-cli.sh` | `vendor/notion-cli/v<X.Y.Z>/bin/` | `/opt/notion-cli/current/bin/ntn` | per-user：用户对话粘贴 token → 模型调内置工具 `NotionTokenSet` → `sandboxes/<uid>/credentials/notion.json` → `NOTION_API_TOKEN` env |
 
 - 下载失败都会打印手工安装指引，**不会自动重试**
 - 版本切换：`bash scripts/use-<name>-cli.sh <version>`

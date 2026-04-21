@@ -67,6 +67,49 @@ def check_workspace_quota(config: SandboxConfig, session_id: str) -> tuple[bool,
     return size > max_bytes, size
 
 
+# --- user 维度 API (Phase 2-5 过渡期) ---
+
+
+def create_user_workspace(config: SandboxConfig, user_id: str) -> Path:
+    """为 user 初始化 sandbox 目录结构，返回 workspace 路径（幂等）。"""
+    sandbox = config.sandbox_dir(user_id)
+    workspace = config.workspace_dir_by_uid(user_id)
+    (sandbox / "credentials").mkdir(parents=True, exist_ok=True)
+    (sandbox / "sessions").mkdir(parents=True, exist_ok=True)
+    workspace.mkdir(parents=True, exist_ok=True)
+    logger.info("创建 user sandbox: {} → {}", user_id, sandbox)
+    return workspace
+
+
+def destroy_user_sandbox(config: SandboxConfig, user_id: str) -> bool:
+    """销毁整个 user 的 sandbox（含所有 session）"""
+    sandbox = config.sandbox_dir(user_id)
+    if sandbox.exists():
+        shutil.rmtree(sandbox)
+        logger.info("销毁 user sandbox: {}", user_id)
+        return True
+    return False
+
+
+def user_sandbox_exists(config: SandboxConfig, user_id: str) -> bool:
+    return config.sandbox_dir(user_id).exists()
+
+
+def list_user_sessions(config: SandboxConfig, user_id: str) -> list[str]:
+    """列出某 user 下所有有 meta.json 的 session"""
+    sessions_dir = config.sandbox_dir(user_id) / "sessions"
+    if not sessions_dir.exists():
+        return []
+    return [d.name for d in sessions_dir.iterdir() if d.is_dir() and (d / "meta.json").exists()]
+
+
+def list_all_user_ids(config: SandboxConfig) -> list[str]:
+    """枚举 sandboxes_root 下的所有 user_id"""
+    if not config.sandboxes_root.exists():
+        return []
+    return [d.name for d in config.sandboxes_root.iterdir() if d.is_dir()]
+
+
 SANDBOX_VIRTUAL_ROOT = Path("/workspace")
 
 

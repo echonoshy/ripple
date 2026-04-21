@@ -45,10 +45,13 @@ export function clearApiKey(): void {
   localStorage.removeItem(API_KEY_STORAGE_KEY);
 }
 
+const DEFAULT_USER_ID = "default";
+
 function authHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { "X-Ripple-User-Id": DEFAULT_USER_ID };
   const key = getApiKey();
-  if (!key) return {};
-  return { Authorization: `Bearer ${key}` };
+  if (key) headers.Authorization = `Bearer ${key}`;
+  return headers;
 }
 
 export async function fetchModels(): Promise<{ id: string; owned_by: string }[]> {

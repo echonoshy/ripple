@@ -114,6 +114,7 @@ class SubAgentTool(Tool[SubAgentInput, SubAgentOutput]):
                 workspace_root=context.workspace_root,
                 sandbox_session_id=context.sandbox_session_id,
                 session_runtime_dir=context.session_runtime_dir,
+                user_id=context.user_id,
             )
 
             # 4. 调用 query_loop

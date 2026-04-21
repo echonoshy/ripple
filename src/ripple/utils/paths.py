@@ -6,19 +6,23 @@
     .ripple/
     ├── logs/
     │   └── ripple.log            ← 进程日志
-    ├── sandboxes-cache/          ← 跨 session 共享的包缓存（uv / corepack / pnpm）
+    ├── sandboxes-cache/          ← 跨 session/user 共享的包缓存（uv / corepack / pnpm）
     │   ├── uv-cache/
     │   ├── corepack-cache/
     │   └── pnpm-store/           (可选，宿主机没有 pnpm store 时使用)
-    └── sessions/                 ← 每个 session 的完整运行时状态
-        └── <session_id>/
-            ├── meta.json
-            ├── messages.jsonl
-            ├── tasks.json
-            ├── task-outputs/
+    ├── sessions/                 ← [DEPRECATED: 旧 session 级布局，将在 Phase 6 清理]
+    │   └── <session_id>/...
+    └── sandboxes/                ← user 级沙箱（新布局）
+        └── <user_id>/
+            ├── credentials/
+            ├── workspace/
             ├── nsjail.cfg
-            ├── feishu.json       (可选)
-            └── workspace/        ← 沙箱工作区（用户文件，保持干净）
+            └── sessions/
+                └── <session_id>/
+                    ├── meta.json
+                    ├── messages.jsonl
+                    ├── tasks.json
+                    └── task-outputs/
 """
 
 from pathlib import Path
@@ -41,3 +45,4 @@ LOG_FILE = LOG_DIR / "ripple.log"
 
 SESSIONS_DIR = RIPPLE_HOME / "sessions"
 SANDBOXES_CACHE_DIR = RIPPLE_HOME / "sandboxes-cache"
+SANDBOXES_DIR = RIPPLE_HOME / "sandboxes"

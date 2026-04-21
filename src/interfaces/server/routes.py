@@ -18,6 +18,7 @@ from interfaces.server.schemas import (
     ModelInfo,
     ModelsResponse,
     PermissionResolveRequest,
+    SandboxInfo,
     SessionDetailResponse,
     SessionInfo,
     SessionListResponse,
@@ -615,6 +616,62 @@ async def list_suspended_sessions(
         "sessions": sessions_out,
         "count": len(suspended),
     }
+
+
+# ─── Sandboxes (user-scoped) ───
+
+
+@router.post("/v1/sandboxes")
+async def create_sandbox(
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+):
+    """幂等地为当前 user 创建 sandbox。已存在则直接返回当前摘要。"""
+    manager = get_session_manager()
+    if not manager.sandbox_manager:
+        raise HTTPException(status_code=500, detail="sandbox disabled")
+    manager.sandbox_manager.ensure_sandbox(user_id)
+    summary = manager.sandbox_manager.sandbox_summary(user_id)
+    if summary is None:
+        raise HTTPException(status_code=500, detail="sandbox creation failed")
+    return SandboxInfo(**summary)
+
+
+@router.get("/v1/sandboxes")
+async def get_sandbox(
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+):
+    """获取当前 user sandbox 摘要；不存在返回 404。"""
+    manager = get_session_manager()
+    if not manager.sandbox_manager:
+        raise HTTPException(status_code=500, detail="sandbox disabled")
+    summary = manager.sandbox_manager.sandbox_summary(user_id)
+    if summary is None:
+        raise HTTPException(status_code=404, detail=f"Sandbox for user {user_id!r} not found")
+    return SandboxInfo(**summary)
+
+
+@router.delete("/v1/sandboxes")
+async def delete_sandbox(
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+):
+    """销毁当前 user 的整个 sandbox（含所有 session）。`default` user 禁止销毁。"""
+    manager = get_session_manager()
+    if not manager.sandbox_manager:
+        raise HTTPException(status_code=500, detail="sandbox disabled")
+
+    for uid, sid in [k for k in list(manager._sessions.keys()) if k[0] == user_id]:
+        manager.delete_session(sid, user_id=uid)
+
+    try:
+        ok = manager.sandbox_manager.teardown_sandbox(user_id, allow_default=False)
+    except PermissionError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"Sandbox for user {user_id!r} not found")
+    return {"ok": True, "user_id": user_id}
 
 
 # ─── Sandbox Info ───

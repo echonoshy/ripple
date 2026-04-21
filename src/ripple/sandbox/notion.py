@@ -58,3 +58,32 @@ def write_notion_token(config: SandboxConfig, session_id: str, api_token: str) -
     f.write_text(payload, encoding="utf-8")
     f.chmod(0o600)
     logger.debug("写入 session {} notion.json", session_id)
+
+
+def read_notion_token_uid(config: SandboxConfig, user_id: str) -> str | None:
+    """读取 user 级 Notion Integration Token。
+
+    语义与 :func:`read_notion_token` 相同，但路径来自 sandboxes/<uid>/credentials/notion.json。
+    """
+    f = config.notion_config_file_by_uid(user_id)
+    if not f.exists():
+        return None
+    try:
+        data = json.loads(f.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning("user {} notion.json 读取失败: {}", user_id, e)
+        return None
+    token = data.get("api_token", "")
+    if not isinstance(token, str) or not token.strip():
+        return None
+    return token.strip()
+
+
+def write_notion_token_uid(config: SandboxConfig, user_id: str, api_token: str) -> None:
+    """将 token 写入 user_dir/credentials/notion.json。"""
+    f = config.notion_config_file_by_uid(user_id)
+    f.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps({"api_token": api_token.strip()}, indent=2)
+    f.write_text(payload, encoding="utf-8")
+    f.chmod(0o600)
+    logger.debug("写入 user {} notion.json", user_id)

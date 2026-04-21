@@ -9,7 +9,7 @@ from interfaces.server.routes import router, set_session_manager
 from interfaces.server.sessions import SessionManager
 from ripple.sandbox.config import SandboxConfig
 from ripple.sandbox.manager import SandboxManager
-from ripple.tools.builtin.bash import set_sandbox_config
+from ripple.tools.builtin.bash import set_sandbox_config, set_sandbox_manager
 from ripple.utils.config import get_config
 from ripple.utils.logger import get_logger
 
@@ -35,8 +35,9 @@ def create_app() -> FastAPI:
     async def lifespan(app: FastAPI):
         sandbox_mgr = _create_sandbox_manager()
 
-        # 将沙箱配置注入 BashTool
+        # 将沙箱配置 + manager 注入 BashTool（manager 用于 per-user lock）
         set_sandbox_config(sandbox_mgr.config)
+        set_sandbox_manager(sandbox_mgr)
 
         manager = SessionManager(sandbox_manager=sandbox_mgr)
         set_session_manager(manager)

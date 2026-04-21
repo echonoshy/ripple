@@ -110,6 +110,29 @@ def list_all_user_ids(config: SandboxConfig) -> list[str]:
     return [d.name for d in config.sandboxes_root.iterdir() if d.is_dir()]
 
 
+def get_workspace_size_bytes_uid(config: SandboxConfig, user_id: str) -> int:
+    """计算 user workspace 占用大小"""
+    workspace = config.workspace_dir_by_uid(user_id)
+    if not workspace.exists():
+        return 0
+    total = 0
+    for f in workspace.rglob("*"):
+        if f.is_file():
+            total += f.stat().st_size
+    return total
+
+
+def check_workspace_quota_uid(config: SandboxConfig, user_id: str) -> tuple[bool, int]:
+    """检查 user workspace 是否超出配额
+
+    Returns:
+        (是否超限, 当前大小字节数)
+    """
+    size = get_workspace_size_bytes_uid(config, user_id)
+    max_bytes = config.max_workspace_mb * 1024 * 1024
+    return size > max_bytes, size
+
+
 SANDBOX_VIRTUAL_ROOT = Path("/workspace")
 
 

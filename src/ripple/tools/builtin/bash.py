@@ -61,11 +61,18 @@ class BashOutput(BaseModel):
 
 # 全局沙箱配置引用（由 server 启动时设置）
 _sandbox_config = None
+# 全局 SandboxManager 引用（用于获取 per-user lock）
+_sandbox_manager = None
 
 
 def set_sandbox_config(config):
     global _sandbox_config
     _sandbox_config = config
+
+
+def set_sandbox_manager(manager):
+    global _sandbox_manager
+    _sandbox_manager = manager
 
 
 def _needs_python_venv(command: str) -> bool:
@@ -141,22 +148,22 @@ class BashTool(Tool[BashInput, BashOutput]):
             )
         return None
 
-    async def _ensure_venv_if_needed(self, command: str, session_id: str) -> str | None:
+    async def _ensure_venv_if_needed(self, command: str, user_id: str) -> str | None:
         """如果命令需要 Python 且 venv 不存在，懒创建之。返回错误信息或 None。"""
         if not _needs_python_venv(command):
             return None
 
-        if _sandbox_config.has_python_venv(session_id):
+        if _sandbox_config.has_python_venv_by_uid(user_id):
             return None
 
-        from ripple.sandbox.provisioning import ensure_python_venv
+        from ripple.sandbox.provisioning import ensure_python_venv_uid
 
-        success, msg = await ensure_python_venv(_sandbox_config, session_id)
+        success, msg = await ensure_python_venv_uid(_sandbox_config, user_id)
         if not success:
             return f"[SANDBOX] Failed to initialize Python venv: {msg}"
         return None
 
-    async def _ensure_pnpm_if_needed(self, command: str, session_id: str) -> str | None:
+    async def _ensure_pnpm_if_needed(self, command: str, user_id: str) -> str | None:
         """如果命令需要 Node.js/pnpm 且全局环境未初始化，懒创建之。返回错误信息或 None。"""
         if not _needs_node_env(command):
             return None
@@ -164,22 +171,22 @@ class BashTool(Tool[BashInput, BashOutput]):
         if not _sandbox_config.node_dir:
             return "[SANDBOX] Node.js is not available. Please install Node.js on the host."
 
-        if _sandbox_config.has_pnpm_setup(session_id):
+        if _sandbox_config.has_pnpm_setup_by_uid(user_id):
             return None
 
-        from ripple.sandbox.provisioning import ensure_pnpm_setup
+        from ripple.sandbox.provisioning import ensure_pnpm_setup_uid
 
-        success, msg = await ensure_pnpm_setup(_sandbox_config, session_id)
+        success, msg = await ensure_pnpm_setup_uid(_sandbox_config, user_id)
         if not success:
             return f"[SANDBOX] Failed to initialize pnpm environment: {msg}"
         return None
 
-    async def _ensure_lark_cli_if_needed(self, command: str, session_id: str) -> str | None:
+    async def _ensure_lark_cli_if_needed(self, command: str, user_id: str) -> str | None:
         """确保 lark-cli 已配置 app 凭证。返回错误/提示信息或 None。
 
         lark-cli 二进制由宿主侧 scripts/install-feishu-cli.sh 安装到
         <repo_root>/vendor/lark-cli/，沙箱启动时 readonly bind mount 到
-        /opt/lark-cli 并加入 PATH，无需 per-session 安装。仅在凭证缺失时
+        /opt/lark-cli 并加入 PATH，无需 per-user 安装。仅在凭证缺失时
         启动沙箱内 `config init --new` 并把 setup URL 返回给模型。
         """
         if not _needs_lark_cli(command):
@@ -188,9 +195,9 @@ class BashTool(Tool[BashInput, BashOutput]):
         if not _sandbox_config.lark_cli_bin:
             return "[SANDBOX] lark-cli 未预装（宿主机）。请联系管理员执行: bash scripts/install-feishu-cli.sh"
 
-        from ripple.sandbox.feishu import ensure_lark_cli_config
+        from ripple.sandbox.feishu import ensure_lark_cli_config_uid
 
-        success, msg = await ensure_lark_cli_config(_sandbox_config, session_id)
+        success, msg = await ensure_lark_cli_config_uid(_sandbox_config, user_id)
         if success:
             return None
 
@@ -202,12 +209,13 @@ class BashTool(Tool[BashInput, BashOutput]):
             )
         return f"[SANDBOX] lark-cli 准备失败: {msg}"
 
-    async def _ensure_notion_cli_if_needed(self, command: str, session_id: str) -> str | None:
-        """确保 notion-cli (ntn) 二进制已挂入沙箱、且当前 session 已绑定 token。
+    async def _ensure_notion_cli_if_needed(self, command: str, user_id: str) -> str | None:
+        """确保 notion-cli (ntn) 二进制已挂入沙箱、且当前 user 已绑定 token。
 
-        Token 采用 **per-session 隔离** 模式：每个 session 在 session_dir/notion.json
-        里持有独立的 Integration Token。没配置时返回明确的"问用户拿 token + 调
-        NotionTokenSet 工具"指令，让模型走对话流程完成绑定（不依赖任何特定前端 UI）。
+        Token 采用 **per-user 隔离** 模式：每个 user 在 sandboxes/<uid>/credentials/notion.json
+        里持有独立的 Integration Token（对该 user 下所有 session 共享）。没配置时返回明确
+        的"问用户拿 token + 调 NotionTokenSet 工具"指令，让模型走对话流程完成绑定
+        （不依赖任何特定前端 UI）。
 
         返回 None 表示前置条件满足；非 None 表示错误/提示文本，调用方会 short-circuit。
         """
@@ -217,9 +225,9 @@ class BashTool(Tool[BashInput, BashOutput]):
         if not _sandbox_config.notion_cli_install_root:
             return "[SANDBOX] notion-cli (ntn) 未预装（宿主机）。请联系管理员执行: bash scripts/install-notion-cli.sh"
 
-        if not _sandbox_config.has_notion_token(session_id):
+        if not _sandbox_config.has_notion_token_by_uid(user_id):
             return (
-                "[NOTION_AUTH_REQUIRED] 当前会话尚未绑定 Notion Integration Token。\n\n"
+                "[NOTION_AUTH_REQUIRED] 当前用户尚未绑定 Notion Integration Token。\n\n"
                 "请按以下步骤处理（不要再次直接调 ntn）：\n"
                 "  1. 用一段简短自然语言告知用户：需要他从 "
                 "https://www.notion.so/profile/integrations 复制 Internal "
@@ -232,52 +240,58 @@ class BashTool(Tool[BashInput, BashOutput]):
             )
         return None
 
-    def _wrap_with_venv_activation(self, command: str, session_id: str) -> str:
+    def _wrap_with_venv_activation(self, command: str, user_id: str) -> str:
         """如果 workspace 内存在 venv，自动在命令前激活它"""
-        if _sandbox_config.has_python_venv(session_id):
+        if _sandbox_config.has_python_venv_by_uid(user_id):
             return f". /workspace/.venv/bin/activate && {command}"
         return command
 
     async def _execute_in_sandbox(self, args: BashInput, context: ToolUseContext) -> tuple[str, str, int]:
-        """通过 nsjail 在沙箱中执行"""
-        from ripple.sandbox.executor import execute_in_sandbox
+        """通过 nsjail 在沙箱中执行（user-scoped）"""
+        from ripple.sandbox.executor import execute_in_sandbox_uid
+        from ripple.sandbox.workspace import check_workspace_quota_uid
 
-        session_id = context.sandbox_session_id
+        user_id = context.user_id
+        if not user_id:
+            return "", "[SANDBOX] 当前上下文没有 user_id，无法定位 sandbox", 1
 
-        # 懒创建 Python venv（失败时直接返回错误，不继续执行）
-        if venv_err := await self._ensure_venv_if_needed(args.command, session_id):
-            return "", venv_err, 1
+        async def _run() -> tuple[str, str, int]:
+            if venv_err := await self._ensure_venv_if_needed(args.command, user_id):
+                return "", venv_err, 1
 
-        # 懒初始化 pnpm 全局环境（失败时直接返回错误，不继续执行）
-        if pnpm_err := await self._ensure_pnpm_if_needed(args.command, session_id):
-            return "", pnpm_err, 1
+            if pnpm_err := await self._ensure_pnpm_if_needed(args.command, user_id):
+                return "", pnpm_err, 1
 
-        # 懒安装 lark-cli（失败时直接返回错误，不继续执行）
-        if lark_err := await self._ensure_lark_cli_if_needed(args.command, session_id):
-            return "", lark_err, 1
+            if lark_err := await self._ensure_lark_cli_if_needed(args.command, user_id):
+                return "", lark_err, 1
 
-        # notion-cli (ntn) 前置校验（二进制 + token），任一缺失直接返回错误
-        if notion_err := await self._ensure_notion_cli_if_needed(args.command, session_id):
-            return "", notion_err, 1
+            if notion_err := await self._ensure_notion_cli_if_needed(args.command, user_id):
+                return "", notion_err, 1
 
-        # 自动激活已有 venv
-        command = self._wrap_with_venv_activation(args.command, session_id)
+            command = self._wrap_with_venv_activation(args.command, user_id)
 
-        stdout, stderr, exit_code = await execute_in_sandbox(
-            command,
-            _sandbox_config,
-            session_id,
-            timeout=args.timeout,
-        )
+            stdout, stderr, exit_code = await execute_in_sandbox_uid(
+                command,
+                _sandbox_config,
+                user_id,
+                timeout=args.timeout,
+            )
 
-        from ripple.sandbox.workspace import check_workspace_quota
+            exceeded, size_bytes = check_workspace_quota_uid(_sandbox_config, user_id)
+            if exceeded:
+                size_mb = size_bytes / (1024 * 1024)
+                stderr += (
+                    f"\n[SANDBOX] Warning: workspace size ({size_mb:.1f}MB) "
+                    f"exceeds quota ({_sandbox_config.max_workspace_mb}MB)"
+                )
+            return stdout, stderr, exit_code
 
-        exceeded, size_bytes = check_workspace_quota(_sandbox_config, session_id)
-        if exceeded:
-            size_mb = size_bytes / (1024 * 1024)
-            stderr += f"\n[SANDBOX] Warning: workspace size ({size_mb:.1f}MB) exceeds quota ({_sandbox_config.max_workspace_mb}MB)"
-
-        return stdout, stderr, exit_code
+        # 同一 user 的多 session 共享 workspace，以 per-user lock 串行化
+        # 保护 workspace 级 provisioning（venv/pnpm/lark-cli setup）和文件写入。
+        if _sandbox_manager is not None:
+            async with _sandbox_manager.user_lock(user_id):
+                return await _run()
+        return await _run()
 
     async def _execute_direct(self, args: BashInput, context: ToolUseContext) -> tuple[str, str, int]:
         """直接在宿主机执行（CLI 模式）"""

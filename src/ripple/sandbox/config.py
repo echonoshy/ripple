@@ -1,5 +1,6 @@
 """沙箱配置"""
 
+import re
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -41,6 +42,16 @@ LARK_CLI_SANDBOX_BIN = f"{LARK_CLI_SANDBOX_BIN_DIR}/lark-cli"
 NOTION_CLI_INSTALL_ROOT = "/opt/notion-cli"
 NOTION_CLI_SANDBOX_BIN_DIR = f"{NOTION_CLI_INSTALL_ROOT}/current/bin"
 NOTION_CLI_SANDBOX_BIN = f"{NOTION_CLI_SANDBOX_BIN_DIR}/ntn"
+
+
+_USER_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
+
+
+def validate_user_id(user_id: str) -> str:
+    """校验 user_id 合法性（防路径穿越），返回原值。非法抛 ValueError。"""
+    if not isinstance(user_id, str) or not _USER_ID_RE.match(user_id):
+        raise ValueError(f"Invalid user_id: {user_id!r}")
+    return user_id
 
 
 @dataclass

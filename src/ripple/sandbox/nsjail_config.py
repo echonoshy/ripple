@@ -1,6 +1,6 @@
 """nsjail 配置生成
 
-负责为每个 session 生成 `nsjail.cfg` 文件，包括沙箱白名单环境变量、
+负责为每个 user 生成 `nsjail.cfg` 文件，包括沙箱白名单环境变量、
 mount 列表以及资源/命名空间配置。执行逻辑见 `executor.py`。
 """
 
@@ -26,12 +26,11 @@ from ripple.utils.logger import get_logger
 logger = get_logger("sandbox.nsjail_config")
 
 
-def build_sandbox_env(config: SandboxConfig, session_id: str | None = None) -> dict[str, str]:
+def build_sandbox_env(config: SandboxConfig, user_id: str) -> dict[str, str]:
     """构建沙箱最小白名单环境变量（不继承宿主环境）。
 
-    `session_id` 可选：仅在生成某个具体 session 的 nsjail.cfg 时传入。
-    per-session 的敏感 env（如 NOTION_API_TOKEN）只有在给出 session_id 时
-    才会尝试注入，从而保证不同 session 写出的 cfg 之间严格隔离。
+    按 user_id 读取 per-user 敏感 env（如 NOTION_API_TOKEN），确保不同 user
+    之间严格隔离。
     """
     path_parts = ["/usr/local/sbin", "/usr/local/bin", "/usr/sbin", "/usr/bin", "/sbin", "/bin"]
 
@@ -66,17 +65,15 @@ def build_sandbox_env(config: SandboxConfig, session_id: str | None = None) -> d
         env["UV_INDEX_URL"] = config.pypi_mirror_url
         env["PIP_INDEX_URL"] = config.pypi_mirror_url
 
-    # Notion CLI (ntn) 鉴权 token —— **per-session** 严格隔离：
-    # 只从该 session 的 notion.json 读取，没配就完全不注入（bash 守卫会
-    # 在命令执行前拦下并向前端吐 `[NOTION_SETUP]` marker 让用户补填）。
-    # 这里故意**不**回落到任何全局配置，避免 "A session 的 token 泄漏给
-    # B session" 这种严重隔离破坏。
-    if session_id:
-        from ripple.sandbox.notion import read_notion_token
+    # Notion CLI (ntn) 鉴权 token —— **per-user** 严格隔离：
+    # 只从该 user 的 credentials/notion.json 读取，没配就完全不注入（bash 守卫会
+    # 在命令执行前拦下并提示用户通过 NotionTokenSet 工具绑定）。
+    # 这里故意**不**回落到任何全局配置，避免跨 user 泄漏。
+    from ripple.sandbox.notion import read_notion_token
 
-        notion_token = read_notion_token(config, session_id)
-        if notion_token:
-            env["NOTION_API_TOKEN"] = notion_token
+    notion_token = read_notion_token(config, user_id)
+    if notion_token:
+        env["NOTION_API_TOKEN"] = notion_token
 
     if config.node_dir:
         env["PNPM_HOME"] = SANDBOX_NODE_BIN
@@ -88,7 +85,7 @@ def build_sandbox_env(config: SandboxConfig, session_id: str | None = None) -> d
             env["COREPACK_NPM_REGISTRY"] = config.npm_registry_url
         env["COREPACK_ENABLE_AUTO_PIN"] = "0"
         env["COREPACK_ENABLE_DOWNLOAD_PROMPT"] = "0"
-        # 跨 session 共享 corepack 缓存，避免每次重下 pnpm 二进制
+        # 跨 user 共享 corepack 缓存，避免每次重下 pnpm 二进制
         env["COREPACK_HOME"] = SANDBOX_COREPACK_HOME
 
     # 自动继承宿主进程的代理设置（clone_newnet=false 共享网络栈，但 env 是隔离的）
@@ -110,7 +107,7 @@ def build_sandbox_env(config: SandboxConfig, session_id: str | None = None) -> d
 
 
 def _build_common_mounts(config: SandboxConfig) -> list[str]:
-    """生成与具体 session/user 无关的公共 mount 列表（bind-mount 共享二进制/缓存/skill 目录）"""
+    """生成与具体 user 无关的公共 mount 列表（bind-mount 共享二进制/缓存/skill 目录）"""
     mounts: list[str] = []
 
     for path_str in config.shared_readonly_paths:
@@ -134,7 +131,7 @@ def _build_common_mounts(config: SandboxConfig) -> list[str]:
     rw: false
 }}""")
 
-    # uv 全局 cache（读写，所有 session 共享；安装时通过 hardlink 共享 inode 去重）
+    # uv 全局 cache（读写，所有 user 共享；安装时通过 hardlink 共享 inode 去重）
     uv_cache = config.uv_cache_dir
     uv_cache.mkdir(parents=True, exist_ok=True)
     mounts.append(f"""mount {{
@@ -155,7 +152,7 @@ def _build_common_mounts(config: SandboxConfig) -> list[str]:
     rw: false
 }}""")
 
-    # pnpm content-addressable store（读写，所有 session 共享，通过硬链接去重）
+    # pnpm content-addressable store（读写，所有 user 共享，通过硬链接去重）
     if config.node_dir:
         pnpm_cache = config.pnpm_cache_dir
         pnpm_cache.mkdir(parents=True, exist_ok=True)
@@ -166,7 +163,7 @@ def _build_common_mounts(config: SandboxConfig) -> list[str]:
     rw: true
 }}""")
 
-    # corepack 缓存（读写，所有 session 共享，避免每个 session 重新下载 pnpm）
+    # corepack 缓存（读写，所有 user 共享，避免每个 user 重新下载 pnpm）
     if config.node_dir:
         corepack_cache = config.corepack_cache_dir
         corepack_cache.mkdir(parents=True, exist_ok=True)
@@ -177,7 +174,7 @@ def _build_common_mounts(config: SandboxConfig) -> list[str]:
     rw: true
 }}""")
 
-    # lark-cli 原生二进制安装根（只读，所有 session 共享）。
+    # lark-cli 原生二进制安装根（只读，所有 user 共享）。
     # 宿主侧 install_root（vendor/lark-cli/ 或 /opt/lark-cli/，含 current→vX.Y.Z
     # 软链和 current/bin/lark-cli 二进制）整体挂到沙箱内固定的
     # LARK_CLI_INSTALL_ROOT（/opt/lark-cli），使 current 软链在沙箱内可解析。
@@ -189,7 +186,7 @@ def _build_common_mounts(config: SandboxConfig) -> list[str]:
     rw: false
 }}""")
 
-    # notion-cli (ntn) 原生二进制安装根（只读，所有 session 共享），与 lark-cli 同款。
+    # notion-cli (ntn) 原生二进制安装根（只读，所有 user 共享），与 lark-cli 同款。
     if config.notion_cli_install_root and Path(config.notion_cli_install_root).exists():
         mounts.append(f"""mount {{
     src: "{config.notion_cli_install_root}"
@@ -198,7 +195,7 @@ def _build_common_mounts(config: SandboxConfig) -> list[str]:
     rw: false
 }}""")
 
-    # 共享 skill 目录（只读，所有 session 共享）。
+    # 共享 skill 目录（只读，所有 user 共享）。
     # 以"原路径 → 原路径"挂载，使 Skill 系统提示中替换后的 `$SKILL_BASE_DIR`
     # 宿主绝对路径（见 `skills/types.py`）在沙箱内依然可直接访问，从而允许
     # 在 skill 里用 Bash/Python 调用 skill 目录下的辅助脚本、模板等资源。
@@ -226,9 +223,9 @@ def _build_common_mounts(config: SandboxConfig) -> list[str]:
     return mounts
 
 
-def generate_nsjail_config(config: SandboxConfig, session_id: str) -> str:
-    """为指定 session 生成 nsjail 配置文件内容"""
-    workspace = config.workspace_dir(session_id)
+def generate_nsjail_config(config: SandboxConfig, user_id: str) -> str:
+    """为指定 user 生成 nsjail 配置文件内容"""
+    workspace = config.workspace_dir(user_id)
     limits = config.resource_limits
 
     mounts = _build_common_mounts(config)
@@ -264,125 +261,7 @@ def generate_nsjail_config(config: SandboxConfig, session_id: str) -> str:
 
     mounts_str = "\n\n".join(mounts)
 
-    sandbox_env = build_sandbox_env(config, session_id=session_id)
-    envars = [f'envar: "{k}={v}"' for k, v in sandbox_env.items()]
-    envars_str = "\n".join(envars)
-
-    return textwrap.dedent(f"""\
-        name: "ripple-sandbox-{session_id}"
-
-        mode: ONCE
-
-        clone_newuser: true
-        clone_newns: true
-        clone_newpid: true
-        clone_newipc: true
-        clone_newuts: true
-        clone_newnet: {"true" if config.clone_newnet else "false"}
-
-        hostname: "sandbox"
-
-        cwd: "/workspace"
-
-        time_limit: {limits.command_timeout}
-
-        rlimit_as_type: INF
-        rlimit_cpu_type: SOFT
-        rlimit_fsize: {limits.max_file_size_mb}
-        rlimit_nofile: 8192
-        rlimit_nproc_type: SOFT
-
-        skip_setsid: true
-        disable_no_new_privs: false
-
-        keep_env: false
-
-        {envars_str}
-
-        {mounts_str}
-    """)
-
-
-def write_nsjail_config(config: SandboxConfig, session_id: str) -> Path:
-    """生成并写入 nsjail 配置文件"""
-    cfg_content = generate_nsjail_config(config, session_id)
-    cfg_path = config.nsjail_cfg_file(session_id)
-    cfg_path.parent.mkdir(parents=True, exist_ok=True)
-    cfg_path.write_text(cfg_content, encoding="utf-8")
-    logger.debug("写入 nsjail 配置: {}", cfg_path)
-    return cfg_path
-
-
-def build_nsjail_argv(config: SandboxConfig, session_id: str, command: str) -> list[str]:
-    """构造 `nsjail --config X.cfg -- /bin/bash -c CMD` argv。
-
-    若 session 的 cfg 尚未生成则自动写入。调用方负责捕获 stdin/stdout/stderr
-    并管理进程生命周期。
-    """
-    cfg_path = config.nsjail_cfg_file(session_id)
-    if not cfg_path.exists():
-        write_nsjail_config(config, session_id)
-    return [
-        config.nsjail_path,
-        "--config",
-        str(cfg_path),
-        "--",
-        "/bin/bash",
-        "-c",
-        command,
-    ]
-
-
-def build_sandbox_env_uid(config: SandboxConfig, user_id: str) -> dict[str, str]:
-    """同 build_sandbox_env，但按 user_id 读取 notion token 注入。"""
-    env = build_sandbox_env(config, session_id=None)
-    from ripple.sandbox.notion import read_notion_token_uid
-
-    tok = read_notion_token_uid(config, user_id)
-    if tok:
-        env["NOTION_API_TOKEN"] = tok
-    return env
-
-
-def generate_nsjail_config_uid(config: SandboxConfig, user_id: str) -> str:
-    """为某 user 生成 nsjail 配置文件内容。"""
-    workspace = config.workspace_dir_by_uid(user_id)
-    limits = config.resource_limits
-
-    mounts = _build_common_mounts(config)
-
-    mounts.append(f"""mount {{
-    src: "{workspace}"
-    dst: "/workspace"
-    is_bind: true
-    rw: true
-}}""")
-
-    mounts.append("""mount {
-    dst: "/proc"
-    fstype: "proc"
-    rw: false
-}""")
-
-    mounts.append(f"""mount {{
-    dst: "/tmp"
-    fstype: "tmpfs"
-    rw: true
-    options: "size={config.tmpfs_size_mb}M"
-}}""")
-
-    for dev in ["/dev/null", "/dev/zero", "/dev/urandom", "/dev/random"]:
-        if Path(dev).exists():
-            mounts.append(f"""mount {{
-    src: "{dev}"
-    dst: "{dev}"
-    is_bind: true
-    rw: false
-}}""")
-
-    mounts_str = "\n\n".join(mounts)
-
-    sandbox_env = build_sandbox_env_uid(config, user_id)
+    sandbox_env = build_sandbox_env(config, user_id)
     envars = [f'envar: "{k}={v}"' for k, v in sandbox_env.items()]
     envars_str = "\n".join(envars)
 
@@ -421,21 +300,25 @@ def generate_nsjail_config_uid(config: SandboxConfig, user_id: str) -> str:
     """)
 
 
-def write_nsjail_config_uid(config: SandboxConfig, user_id: str) -> Path:
+def write_nsjail_config(config: SandboxConfig, user_id: str) -> Path:
     """生成并写入 user 级 nsjail 配置文件"""
-    cfg_content = generate_nsjail_config_uid(config, user_id)
-    cfg_path = config.nsjail_cfg_file_by_uid(user_id)
+    cfg_content = generate_nsjail_config(config, user_id)
+    cfg_path = config.nsjail_cfg_file(user_id)
     cfg_path.parent.mkdir(parents=True, exist_ok=True)
     cfg_path.write_text(cfg_content, encoding="utf-8")
     logger.debug("写入 user nsjail 配置: {}", cfg_path)
     return cfg_path
 
 
-def build_nsjail_argv_uid(config: SandboxConfig, user_id: str, command: str) -> list[str]:
-    """构造 `nsjail --config X.cfg -- /bin/bash -c CMD` argv（user 版）。"""
-    cfg_path = config.nsjail_cfg_file_by_uid(user_id)
+def build_nsjail_argv(config: SandboxConfig, user_id: str, command: str) -> list[str]:
+    """构造 `nsjail --config X.cfg -- /bin/bash -c CMD` argv。
+
+    若 user 的 cfg 尚未生成则自动写入。调用方负责捕获 stdin/stdout/stderr
+    并管理进程生命周期。
+    """
+    cfg_path = config.nsjail_cfg_file(user_id)
     if not cfg_path.exists():
-        write_nsjail_config_uid(config, user_id)
+        write_nsjail_config(config, user_id)
     return [
         config.nsjail_path,
         "--config",

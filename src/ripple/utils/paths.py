@@ -6,13 +6,11 @@
     .ripple/
     ├── logs/
     │   └── ripple.log            ← 进程日志
-    ├── sandboxes-cache/          ← 跨 session/user 共享的包缓存（uv / corepack / pnpm）
+    ├── sandboxes-cache/          ← 跨 user 共享的包缓存（uv / corepack / pnpm）
     │   ├── uv-cache/
     │   ├── corepack-cache/
     │   └── pnpm-store/           (可选，宿主机没有 pnpm store 时使用)
-    ├── sessions/                 ← [DEPRECATED: 旧 session 级布局，将在 Phase 6 清理]
-    │   └── <session_id>/...
-    └── sandboxes/                ← user 级沙箱（新布局）
+    └── sandboxes/                ← user 级沙箱
         └── <user_id>/
             ├── credentials/
             ├── workspace/
@@ -43,6 +41,5 @@ RIPPLE_HOME = _find_project_root() / ".ripple"
 LOG_DIR = RIPPLE_HOME / "logs"
 LOG_FILE = LOG_DIR / "ripple.log"
 
-SESSIONS_DIR = RIPPLE_HOME / "sessions"
 SANDBOXES_CACHE_DIR = RIPPLE_HOME / "sandboxes-cache"
 SANDBOXES_DIR = RIPPLE_HOME / "sandboxes"

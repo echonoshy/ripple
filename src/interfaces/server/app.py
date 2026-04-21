@@ -43,8 +43,8 @@ def create_app() -> FastAPI:
         set_session_manager(manager)
         manager.start_cleanup_loop()
         logger.info(
-            "Ripple Server 启动完成 (sandbox=nsjail, sessions={}, caches={})",
-            sandbox_mgr.config.sessions_root,
+            "Ripple Server 启动完成 (sandbox=nsjail, sandboxes={}, caches={})",
+            sandbox_mgr.config.sandboxes_root,
             sandbox_mgr.config.caches_root,
         )
         yield

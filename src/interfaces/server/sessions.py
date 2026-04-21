@@ -332,7 +332,7 @@ class SessionManager:
         """内部方法：将 session 状态保存到磁盘"""
         if not self._sandbox_manager:
             return
-        self._sandbox_manager.suspend_session_uid(
+        self._sandbox_manager.suspend_session(
             session.user_id,
             session.session_id,
             messages=session.messages,
@@ -356,7 +356,7 @@ class SessionManager:
 
         if not self._sandbox_manager:
             return
-        feishu_file = self._sandbox_manager.config.feishu_config_file_by_uid(user_id)
+        feishu_file = self._sandbox_manager.config.feishu_config_file(user_id)
         feishu_file.parent.mkdir(parents=True, exist_ok=True)
         feishu_file.write_text(
             json.dumps({"app_id": feishu.app_id, "app_secret": feishu.app_secret, "brand": feishu.brand}, indent=2),
@@ -386,9 +386,9 @@ class SessionManager:
         session_runtime_dir = None
         if self._sandbox_manager:
             self._sandbox_manager.ensure_sandbox(user_id)
-            self._sandbox_manager.setup_session_uid(user_id, session_id)
-            workspace_root = self._sandbox_manager.config.workspace_dir_by_uid(user_id)
-            session_runtime_dir = self._sandbox_manager.config.session_dir_by_uid(user_id, session_id)
+            self._sandbox_manager.setup_session(user_id, session_id)
+            workspace_root = self._sandbox_manager.config.workspace_dir(user_id)
+            session_runtime_dir = self._sandbox_manager.config.session_dir(user_id, session_id)
             if feishu:
                 self._write_feishu_config(user_id, feishu)
 
@@ -439,14 +439,14 @@ class SessionManager:
 
             # 清理沙箱（包括磁盘文件）
             if self._sandbox_manager:
-                self._sandbox_manager.teardown_session_uid(user_id, session_id)
+                self._sandbox_manager.teardown_session(user_id, session_id)
 
             logger.info("删除 session: {}/{}", user_id, session_id)
             return True
 
         # 可能是已挂起的 session
         if self._sandbox_manager:
-            self._sandbox_manager.teardown_session_uid(user_id, session_id)
+            self._sandbox_manager.teardown_session(user_id, session_id)
             return True
 
         return False
@@ -492,16 +492,16 @@ class SessionManager:
         if not self._sandbox_manager:
             return None
 
-        state = self._sandbox_manager.resume_session_uid(user_id, session_id)
+        state = self._sandbox_manager.resume_session(user_id, session_id)
         if state is None:
             return None
 
         config = get_config()
         resolved_model = config.resolve_model(state.get("model", config.get("model.default", "sonnet")))
-        workspace_root = self._sandbox_manager.config.workspace_dir_by_uid(user_id)
+        workspace_root = self._sandbox_manager.config.workspace_dir(user_id)
         if not workspace_root.exists():
             workspace_root = None
-        session_runtime_dir = self._sandbox_manager.config.session_dir_by_uid(user_id, session_id)
+        session_runtime_dir = self._sandbox_manager.config.session_dir(user_id, session_id)
 
         internal_sid = uuid4().hex[:12]
         context, client = _create_session_context(
@@ -557,7 +557,7 @@ class SessionManager:
 
     def list_all_sessions(self, *, user_id: str | None = None) -> list[dict]:
         """列出所有 session（内存活跃 + 磁盘持久化），去重后按 last_active 降序"""
-        from ripple.sandbox.storage import extract_title_from_messages, get_suspended_session_info_uid
+        from ripple.sandbox.storage import extract_title_from_messages, get_suspended_session_info
 
         if not self._sandbox_manager:
             user_ids_to_scan: list[str] = []
@@ -570,7 +570,7 @@ class SessionManager:
 
         for uid in user_ids_to_scan:
             for sid in self._sandbox_manager.list_user_sessions(uid):
-                info = get_suspended_session_info_uid(self._sandbox_manager.config, uid, sid)
+                info = get_suspended_session_info(self._sandbox_manager.config, uid, sid)
                 if info and info.get("message_count", 0) > 0:
                     info["status"] = "suspended"
                     info["user_id"] = uid
@@ -598,7 +598,7 @@ class SessionManager:
 
     def list_suspended_sessions(self, *, user_id: str | None = None) -> list[dict]:
         """列出所有已挂起（仅在磁盘上）的 session"""
-        from ripple.sandbox.storage import get_suspended_session_info_uid
+        from ripple.sandbox.storage import get_suspended_session_info
 
         if not self._sandbox_manager:
             return []
@@ -609,7 +609,7 @@ class SessionManager:
             for sid in self._sandbox_manager.list_user_sessions(uid):
                 if (uid, sid) in active_keys:
                     continue
-                info = get_suspended_session_info_uid(self._sandbox_manager.config, uid, sid)
+                info = get_suspended_session_info(self._sandbox_manager.config, uid, sid)
                 if info:
                     info["user_id"] = uid
                     out.append(info)

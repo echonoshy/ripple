@@ -1,6 +1,11 @@
-"""会话工作空间管理
+"""User 沙箱工作空间管理
 
-每个 session 拥有独立的工作空间目录，所有文件操作限制在其中。
+每个 user 拥有一个独立的 sandbox 目录：
+    sandboxes_root/<user_id>/
+        ├── workspace/            ← 用户文件（user 内所有 session 共享）
+        ├── credentials/          ← 飞书/Notion 等凭证
+        ├── nsjail.cfg            ← user 级 nsjail 配置
+        └── sessions/<sid>/       ← 每个 session 的运行时状态
 """
 
 import shutil
@@ -12,68 +17,10 @@ from ripple.utils.logger import get_logger
 logger = get_logger("sandbox.workspace")
 
 
-def create_workspace(config: SandboxConfig, session_id: str) -> Path:
-    """创建 session 工作空间目录
-
-    目录结构：
-        .ripple/sessions/<session_id>/
-        ├── workspace/        ← 用户文件
-        ├── meta.json         ← 会话元数据（由 storage 模块管理）
-        ├── messages.jsonl    ← 对话历史（由 storage 模块管理）
-        ├── tasks.json        ← TaskTool 的 todo 列表
-        ├── task-outputs/     ← AgentTool 后台任务输出
-        └── nsjail.cfg
-    """
-    workspace = config.workspace_dir(session_id)
-    workspace.mkdir(parents=True, exist_ok=True)
-    logger.info("创建工作空间: {} → {}", session_id, workspace)
-    return workspace
-
-
-def destroy_workspace(config: SandboxConfig, session_id: str) -> bool:
-    """销毁 session 工作空间"""
-    session_dir = config.session_dir(session_id)
-    if session_dir.exists():
-        shutil.rmtree(session_dir)
-        logger.info("销毁工作空间: {}", session_id)
-        return True
-    return False
-
-
-def workspace_exists(config: SandboxConfig, session_id: str) -> bool:
-    return config.workspace_dir(session_id).exists()
-
-
-def get_workspace_size_bytes(config: SandboxConfig, session_id: str) -> int:
-    """计算工作空间占用大小"""
-    workspace = config.workspace_dir(session_id)
-    if not workspace.exists():
-        return 0
-    total = 0
-    for f in workspace.rglob("*"):
-        if f.is_file():
-            total += f.stat().st_size
-    return total
-
-
-def check_workspace_quota(config: SandboxConfig, session_id: str) -> tuple[bool, int]:
-    """检查 workspace 是否超出配额
-
-    Returns:
-        (是否超限, 当前大小字节数)
-    """
-    size = get_workspace_size_bytes(config, session_id)
-    max_bytes = config.max_workspace_mb * 1024 * 1024
-    return size > max_bytes, size
-
-
-# --- user 维度 API (Phase 2-5 过渡期) ---
-
-
-def create_user_workspace(config: SandboxConfig, user_id: str) -> Path:
+def create_sandbox(config: SandboxConfig, user_id: str) -> Path:
     """为 user 初始化 sandbox 目录结构，返回 workspace 路径（幂等）。"""
     sandbox = config.sandbox_dir(user_id)
-    workspace = config.workspace_dir_by_uid(user_id)
+    workspace = config.workspace_dir(user_id)
     (sandbox / "credentials").mkdir(parents=True, exist_ok=True)
     (sandbox / "sessions").mkdir(parents=True, exist_ok=True)
     workspace.mkdir(parents=True, exist_ok=True)
@@ -81,7 +28,7 @@ def create_user_workspace(config: SandboxConfig, user_id: str) -> Path:
     return workspace
 
 
-def destroy_user_sandbox(config: SandboxConfig, user_id: str) -> bool:
+def destroy_sandbox(config: SandboxConfig, user_id: str) -> bool:
     """销毁整个 user 的 sandbox（含所有 session）"""
     sandbox = config.sandbox_dir(user_id)
     if sandbox.exists():
@@ -91,7 +38,7 @@ def destroy_user_sandbox(config: SandboxConfig, user_id: str) -> bool:
     return False
 
 
-def user_sandbox_exists(config: SandboxConfig, user_id: str) -> bool:
+def sandbox_exists(config: SandboxConfig, user_id: str) -> bool:
     return config.sandbox_dir(user_id).exists()
 
 
@@ -110,9 +57,9 @@ def list_all_user_ids(config: SandboxConfig) -> list[str]:
     return [d.name for d in config.sandboxes_root.iterdir() if d.is_dir()]
 
 
-def get_workspace_size_bytes_uid(config: SandboxConfig, user_id: str) -> int:
+def get_workspace_size_bytes(config: SandboxConfig, user_id: str) -> int:
     """计算 user workspace 占用大小"""
-    workspace = config.workspace_dir_by_uid(user_id)
+    workspace = config.workspace_dir(user_id)
     if not workspace.exists():
         return 0
     total = 0
@@ -122,13 +69,13 @@ def get_workspace_size_bytes_uid(config: SandboxConfig, user_id: str) -> int:
     return total
 
 
-def check_workspace_quota_uid(config: SandboxConfig, user_id: str) -> tuple[bool, int]:
+def check_workspace_quota(config: SandboxConfig, user_id: str) -> tuple[bool, int]:
     """检查 user workspace 是否超出配额
 
     Returns:
         (是否超限, 当前大小字节数)
     """
-    size = get_workspace_size_bytes_uid(config, user_id)
+    size = get_workspace_size_bytes(config, user_id)
     max_bytes = config.max_workspace_mb * 1024 * 1024
     return size > max_bytes, size
 
@@ -175,11 +122,3 @@ def _is_under_virtual_root(path: Path) -> bool:
         return True
     except ValueError:
         return False
-
-
-def list_suspended_sessions(config: SandboxConfig) -> list[str]:
-    """列出所有磁盘上有持久化状态的 session"""
-    sessions_root = config.sessions_root
-    if not sessions_root.exists():
-        return []
-    return [d.name for d in sessions_root.iterdir() if d.is_dir() and (d / "meta.json").exists()]

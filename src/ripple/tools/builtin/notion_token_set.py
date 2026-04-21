@@ -23,8 +23,8 @@ from typing import Any
 from ripple.core.context import ToolUseContext
 from ripple.messages.types import AssistantMessage
 from ripple.permissions.levels import ToolRiskLevel
-from ripple.sandbox.notion import write_notion_token_uid
-from ripple.sandbox.nsjail_config import write_nsjail_config_uid
+from ripple.sandbox.notion import write_notion_token
+from ripple.sandbox.nsjail_config import write_nsjail_config
 from ripple.tools.base import Tool, ToolResult
 from ripple.utils.logger import get_logger
 
@@ -133,8 +133,8 @@ class NotionTokenSetTool(Tool):
             )
 
         try:
-            write_notion_token_uid(_sandbox_config, user_id, api_token)
-            write_nsjail_config_uid(_sandbox_config, user_id)
+            write_notion_token(_sandbox_config, user_id, api_token)
+            write_nsjail_config(_sandbox_config, user_id)
         except OSError as e:
             logger.error("user {} 写入 notion.json 失败: {}", user_id, e)
             return ToolResult(data={"ok": False, "error": f"写入失败: {e}"})

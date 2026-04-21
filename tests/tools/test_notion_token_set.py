@@ -7,7 +7,7 @@ import pytest
 
 from ripple.core.context import ToolOptions, ToolUseContext
 from ripple.sandbox.config import SandboxConfig
-from ripple.sandbox.workspace import create_user_workspace
+from ripple.sandbox.workspace import create_sandbox
 from ripple.tools.builtin import bash as bash_mod
 from ripple.tools.builtin.notion_token_set import NotionTokenSetTool
 
@@ -16,17 +16,16 @@ from ripple.tools.builtin.notion_token_set import NotionTokenSetTool
 async def test_notion_token_set_writes_to_user_dir(tmp_path: Path):
     cfg = SandboxConfig(
         sandboxes_root=tmp_path / "sandboxes",
-        sessions_root=tmp_path / "sessions",
         caches_root=tmp_path / "caches",
         nsjail_path="/bin/true",
     )
-    create_user_workspace(cfg, "alice")
+    create_sandbox(cfg, "alice")
     bash_mod._sandbox_config = cfg  # type: ignore[assignment]
 
     ctx = ToolUseContext(
         options=ToolOptions(),
         session_id="int",
-        workspace_root=cfg.workspace_dir_by_uid("alice"),
+        workspace_root=cfg.workspace_dir("alice"),
         sandbox_session_id="srv-abc",
         user_id="alice",
     )
@@ -36,7 +35,7 @@ async def test_notion_token_set_writes_to_user_dir(tmp_path: Path):
 
     assert result.data["ok"] is True
     assert token not in json.dumps(result.data)
-    notion_file = cfg.notion_config_file_by_uid("alice")
+    notion_file = cfg.notion_config_file("alice")
     assert notion_file.exists()
     data = json.loads(notion_file.read_text())
     assert data["api_token"] == token
@@ -46,7 +45,6 @@ async def test_notion_token_set_writes_to_user_dir(tmp_path: Path):
 async def test_notion_token_set_requires_user_id(tmp_path: Path):
     cfg = SandboxConfig(
         sandboxes_root=tmp_path / "sandboxes",
-        sessions_root=tmp_path / "sessions",
         caches_root=tmp_path / "caches",
         nsjail_path="/bin/true",
     )
@@ -68,7 +66,6 @@ async def test_notion_token_set_requires_user_id(tmp_path: Path):
 async def test_notion_token_set_rejects_bad_prefix(tmp_path: Path):
     cfg = SandboxConfig(
         sandboxes_root=tmp_path / "sandboxes",
-        sessions_root=tmp_path / "sessions",
         caches_root=tmp_path / "caches",
         nsjail_path="/bin/true",
     )

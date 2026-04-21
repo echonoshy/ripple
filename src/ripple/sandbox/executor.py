@@ -26,54 +26,6 @@ def check_nsjail_available(nsjail_path: str = "nsjail"):
 async def execute_in_sandbox(
     command: str,
     config: SandboxConfig,
-    session_id: str,
-    timeout: int | None = None,
-) -> tuple[str, str, int]:
-    """在 nsjail 沙箱中执行命令
-
-    Returns:
-        (stdout, stderr, exit_code)
-    """
-    cfg_path = config.nsjail_cfg_file(session_id)
-    if not cfg_path.exists():
-        write_nsjail_config(config, session_id)
-
-    effective_timeout = timeout or config.resource_limits.command_timeout
-    nsjail_cmd = build_nsjail_argv(config, session_id, command)
-
-    logger.debug("nsjail 执行: {}", command[:200])
-
-    proc = await asyncio.create_subprocess_exec(
-        *nsjail_cmd,
-        stdin=asyncio.subprocess.DEVNULL,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-
-    try:
-        stdout_bytes, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=effective_timeout)
-    except asyncio.TimeoutError:
-        proc.kill()
-        await proc.wait()
-        return "", f"Command timed out after {effective_timeout} seconds", -1
-
-    stdout = stdout_bytes.decode(errors="replace") if stdout_bytes else ""
-    stderr = stderr_bytes.decode(errors="replace") if stderr_bytes else ""
-
-    nsjail_log_prefixes = ("[I]", "[D]", "[W]", "[E]", "[F]")
-    filtered_stderr_lines = []
-    for line in stderr.splitlines():
-        if any(line.startswith(p) for p in nsjail_log_prefixes):
-            continue
-        filtered_stderr_lines.append(line)
-    filtered_stderr = "\n".join(filtered_stderr_lines)
-
-    return stdout, filtered_stderr, proc.returncode or 0
-
-
-async def execute_in_sandbox_uid(
-    command: str,
-    config: SandboxConfig,
     user_id: str,
     timeout: int | None = None,
 ) -> tuple[str, str, int]:
@@ -82,16 +34,14 @@ async def execute_in_sandbox_uid(
     Returns:
         (stdout, stderr, exit_code)
     """
-    from ripple.sandbox.nsjail_config import build_nsjail_argv_uid, write_nsjail_config_uid
-
-    cfg_path = config.nsjail_cfg_file_by_uid(user_id)
+    cfg_path = config.nsjail_cfg_file(user_id)
     if not cfg_path.exists():
-        write_nsjail_config_uid(config, user_id)
+        write_nsjail_config(config, user_id)
 
     effective_timeout = timeout or config.resource_limits.command_timeout
-    nsjail_cmd = build_nsjail_argv_uid(config, user_id, command)
+    nsjail_cmd = build_nsjail_argv(config, user_id, command)
 
-    logger.debug("nsjail 执行 (uid={}): {}", user_id, command[:200])
+    logger.debug("nsjail 执行 (user={}): {}", user_id, command[:200])
 
     proc = await asyncio.create_subprocess_exec(
         *nsjail_cmd,

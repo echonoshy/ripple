@@ -691,7 +691,7 @@ async def get_sandbox_info(
     return {
         "enabled": True,
         "mode": "nsjail",
-        "sessions_root": str(sandbox.config.sessions_root),
+        "sandboxes_root": str(sandbox.config.sandboxes_root),
         "caches_root": str(sandbox.config.caches_root),
         "resource_limits": {
             "max_memory_mb": sandbox.config.resource_limits.max_memory_mb,

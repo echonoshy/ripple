@@ -19,7 +19,6 @@ def client(tmp_path: Path, monkeypatch):
 
     sbx_cfg = SandboxConfig(
         sandboxes_root=tmp_path / "sandboxes",
-        sessions_root=tmp_path / "sessions",
         caches_root=tmp_path / "caches",
         nsjail_path="/bin/true",
     )

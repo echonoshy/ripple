@@ -1,10 +1,10 @@
-"""notion token 的 uid 维度 API"""
+"""notion token 的 user 维度 API"""
 
 from pathlib import Path
 
 from ripple.sandbox.config import SandboxConfig
-from ripple.sandbox.notion import read_notion_token_uid, write_notion_token_uid
-from ripple.sandbox.workspace import create_user_workspace
+from ripple.sandbox.notion import read_notion_token, write_notion_token
+from ripple.sandbox.workspace import create_sandbox
 
 
 def _cfg(tmp_path: Path) -> SandboxConfig:
@@ -16,21 +16,21 @@ def _cfg(tmp_path: Path) -> SandboxConfig:
 
 def test_write_then_read(tmp_path: Path):
     c = _cfg(tmp_path)
-    create_user_workspace(c, "alice")
-    write_notion_token_uid(c, "alice", "ntn_abc123def456")
-    assert read_notion_token_uid(c, "alice") == "ntn_abc123def456"
+    create_sandbox(c, "alice")
+    write_notion_token(c, "alice", "ntn_abc123def456")
+    assert read_notion_token(c, "alice") == "ntn_abc123def456"
 
 
 def test_read_missing_returns_none(tmp_path: Path):
     c = _cfg(tmp_path)
-    assert read_notion_token_uid(c, "alice") is None
+    assert read_notion_token(c, "alice") is None
 
 
 def test_tokens_isolated_between_users(tmp_path: Path):
     c = _cfg(tmp_path)
-    create_user_workspace(c, "alice")
-    create_user_workspace(c, "bob")
-    write_notion_token_uid(c, "alice", "ntn_alice_token")
-    write_notion_token_uid(c, "bob", "ntn_bob_token")
-    assert read_notion_token_uid(c, "alice") == "ntn_alice_token"
-    assert read_notion_token_uid(c, "bob") == "ntn_bob_token"
+    create_sandbox(c, "alice")
+    create_sandbox(c, "bob")
+    write_notion_token(c, "alice", "ntn_alice_token")
+    write_notion_token(c, "bob", "ntn_bob_token")
+    assert read_notion_token(c, "alice") == "ntn_alice_token"
+    assert read_notion_token(c, "bob") == "ntn_bob_token"

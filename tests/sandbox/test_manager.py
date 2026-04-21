@@ -23,7 +23,7 @@ def _manager(tmp_path: Path) -> SandboxManager:
 def test_ensure_sandbox_creates_layout(tmp_path: Path):
     m = _manager(tmp_path)
     workspace = m.ensure_sandbox("alice")
-    assert workspace == m.config.workspace_dir_by_uid("alice")
+    assert workspace == m.config.workspace_dir("alice")
     assert workspace.exists()
     assert (m.config.sandbox_dir("alice") / "credentials").exists()
     assert (m.config.sandbox_dir("alice") / "sessions").exists()
@@ -53,15 +53,15 @@ def test_teardown_sandbox_rejects_default(tmp_path: Path):
 
 def test_setup_session_creates_session_dir(tmp_path: Path):
     m = _manager(tmp_path)
-    m.setup_session_uid("alice", "srv-abc")
-    assert m.config.session_dir_by_uid("alice", "srv-abc").exists()
+    m.setup_session("alice", "srv-abc")
+    assert m.config.session_dir("alice", "srv-abc").exists()
 
 
 def test_teardown_session_removes_session_only(tmp_path: Path):
     m = _manager(tmp_path)
-    m.setup_session_uid("alice", "srv-abc")
-    m.setup_session_uid("alice", "srv-def")
-    m.teardown_session_uid("alice", "srv-abc")
-    assert not m.config.session_dir_by_uid("alice", "srv-abc").exists()
-    assert m.config.session_dir_by_uid("alice", "srv-def").exists()
+    m.setup_session("alice", "srv-abc")
+    m.setup_session("alice", "srv-def")
+    m.teardown_session("alice", "srv-abc")
+    assert not m.config.session_dir("alice", "srv-abc").exists()
+    assert m.config.session_dir("alice", "srv-def").exists()
     assert m.config.sandbox_dir("alice").exists()

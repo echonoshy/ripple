@@ -153,12 +153,12 @@ class BashTool(Tool[BashInput, BashOutput]):
         if not _needs_python_venv(command):
             return None
 
-        if _sandbox_config.has_python_venv_by_uid(user_id):
+        if _sandbox_config.has_python_venv(user_id):
             return None
 
-        from ripple.sandbox.provisioning import ensure_python_venv_uid
+        from ripple.sandbox.provisioning import ensure_python_venv
 
-        success, msg = await ensure_python_venv_uid(_sandbox_config, user_id)
+        success, msg = await ensure_python_venv(_sandbox_config, user_id)
         if not success:
             return f"[SANDBOX] Failed to initialize Python venv: {msg}"
         return None
@@ -171,12 +171,12 @@ class BashTool(Tool[BashInput, BashOutput]):
         if not _sandbox_config.node_dir:
             return "[SANDBOX] Node.js is not available. Please install Node.js on the host."
 
-        if _sandbox_config.has_pnpm_setup_by_uid(user_id):
+        if _sandbox_config.has_pnpm_setup(user_id):
             return None
 
-        from ripple.sandbox.provisioning import ensure_pnpm_setup_uid
+        from ripple.sandbox.provisioning import ensure_pnpm_setup
 
-        success, msg = await ensure_pnpm_setup_uid(_sandbox_config, user_id)
+        success, msg = await ensure_pnpm_setup(_sandbox_config, user_id)
         if not success:
             return f"[SANDBOX] Failed to initialize pnpm environment: {msg}"
         return None
@@ -195,9 +195,9 @@ class BashTool(Tool[BashInput, BashOutput]):
         if not _sandbox_config.lark_cli_bin:
             return "[SANDBOX] lark-cli 未预装（宿主机）。请联系管理员执行: bash scripts/install-feishu-cli.sh"
 
-        from ripple.sandbox.feishu import ensure_lark_cli_config_uid
+        from ripple.sandbox.feishu import ensure_lark_cli_config
 
-        success, msg = await ensure_lark_cli_config_uid(_sandbox_config, user_id)
+        success, msg = await ensure_lark_cli_config(_sandbox_config, user_id)
         if success:
             return None
 
@@ -225,7 +225,7 @@ class BashTool(Tool[BashInput, BashOutput]):
         if not _sandbox_config.notion_cli_install_root:
             return "[SANDBOX] notion-cli (ntn) 未预装（宿主机）。请联系管理员执行: bash scripts/install-notion-cli.sh"
 
-        if not _sandbox_config.has_notion_token_by_uid(user_id):
+        if not _sandbox_config.has_notion_token(user_id):
             return (
                 "[NOTION_AUTH_REQUIRED] 当前用户尚未绑定 Notion Integration Token。\n\n"
                 "请按以下步骤处理（不要再次直接调 ntn）：\n"
@@ -242,14 +242,14 @@ class BashTool(Tool[BashInput, BashOutput]):
 
     def _wrap_with_venv_activation(self, command: str, user_id: str) -> str:
         """如果 workspace 内存在 venv，自动在命令前激活它"""
-        if _sandbox_config.has_python_venv_by_uid(user_id):
+        if _sandbox_config.has_python_venv(user_id):
             return f". /workspace/.venv/bin/activate && {command}"
         return command
 
     async def _execute_in_sandbox(self, args: BashInput, context: ToolUseContext) -> tuple[str, str, int]:
         """通过 nsjail 在沙箱中执行（user-scoped）"""
-        from ripple.sandbox.executor import execute_in_sandbox_uid
-        from ripple.sandbox.workspace import check_workspace_quota_uid
+        from ripple.sandbox.executor import execute_in_sandbox
+        from ripple.sandbox.workspace import check_workspace_quota
 
         user_id = context.user_id
         if not user_id:
@@ -270,14 +270,14 @@ class BashTool(Tool[BashInput, BashOutput]):
 
             command = self._wrap_with_venv_activation(args.command, user_id)
 
-            stdout, stderr, exit_code = await execute_in_sandbox_uid(
+            stdout, stderr, exit_code = await execute_in_sandbox(
                 command,
                 _sandbox_config,
                 user_id,
                 timeout=args.timeout,
             )
 
-            exceeded, size_bytes = check_workspace_quota_uid(_sandbox_config, user_id)
+            exceeded, size_bytes = check_workspace_quota(_sandbox_config, user_id)
             if exceeded:
                 size_mb = size_bytes / (1024 * 1024)
                 stderr += (

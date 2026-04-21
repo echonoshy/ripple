@@ -65,12 +65,6 @@ class ResourceLimits:
     command_timeout: int = 300
 
 
-def _default_sessions_root() -> Path:
-    from ripple.utils.paths import SESSIONS_DIR
-
-    return SESSIONS_DIR
-
-
 def _default_caches_root() -> Path:
     from ripple.utils.paths import SANDBOXES_CACHE_DIR
 
@@ -205,17 +199,7 @@ def _discover_pnpm_store_dir() -> str | None:
 class SandboxConfig:
     """沙箱配置（nsjail 隔离）
 
-    目录布局（旧版，Phase 6 将移除）：
-    - sessions_root/<sid>/                ← 每个 session 的完整运行时状态
-        ├── meta.json, messages.jsonl, tasks.json, nsjail.cfg, feishu.json, notion.json
-        ├── task-outputs/                 ← AgentTool 后台任务的输出
-        └── workspace/                    ← 沙箱工作区（用户文件）
-    - caches_root/
-        ├── uv-cache/
-        ├── corepack-cache/
-        └── pnpm-store/                   (可选)
-
-    目录布局（新版，user 维度；Phase 1-5 与旧版共存，Phase 6 成为唯一布局）：
+    目录布局（user 维度）：
     - sandboxes_root/<user_id>/
         ├── workspace/                    ← user 持久工作区
         ├── nsjail.cfg                    ← user 级沙箱配置
@@ -223,9 +207,12 @@ class SandboxConfig:
         └── sessions/<sid>/               ← 每个 session 的运行时状态
             ├── meta.json, messages.jsonl, tasks.json
             └── task-outputs/
+    - caches_root/
+        ├── uv-cache/
+        ├── corepack-cache/
+        └── pnpm-store/                   (可选)
     """
 
-    sessions_root: Path = field(default_factory=lambda: _default_sessions_root())
     sandboxes_root: Path = field(default_factory=lambda: _default_sandboxes_root())
     caches_root: Path = field(default_factory=lambda: _default_caches_root())
 
@@ -276,9 +263,9 @@ class SandboxConfig:
     # notion_cli_install_root: 宿主侧安装根目录，要求含 `current/bin/ntn`。
     #   运行时 readonly bind-mount 到沙箱内 NOTION_CLI_INSTALL_ROOT（/opt/notion-cli）。
     #   由 scripts/install-notion-cli.sh 默认写入 <repo_root>/vendor/notion-cli/。
-    # 注意：Notion Integration Token 采用 **per-session** 存储模式（见
-    # `notion_config_file(session_id)` → session_dir/notion.json），沙箱启动时
-    # 动态读取并注入 env NOTION_API_TOKEN。此处不持有全局 token，保证严格隔离。
+    # 注意：Notion Integration Token 采用 **per-user** 存储模式（见
+    # `notion_config_file(user_id)` → sandbox_dir/credentials/notion.json），
+    # 沙箱启动时动态读取并注入 env NOTION_API_TOKEN。此处不持有全局 token，保证严格隔离。
     notion_cli_install_root: str | None = field(default=None)
 
     def __post_init__(self):
@@ -320,131 +307,75 @@ class SandboxConfig:
         """
         return self.caches_root / "corepack-cache"
 
-    def session_dir(self, session_id: str) -> Path:
-        return self.sessions_root / session_id
+    # --- user 维度路径方法 ---
 
-    def workspace_dir(self, session_id: str) -> Path:
-        return self.session_dir(session_id) / "workspace"
+    def sandbox_dir(self, user_id: str) -> Path:
+        validate_user_id(user_id)
+        return self.sandboxes_root / user_id
 
-    def meta_file(self, session_id: str) -> Path:
-        return self.session_dir(session_id) / "meta.json"
+    def workspace_dir(self, user_id: str) -> Path:
+        return self.sandbox_dir(user_id) / "workspace"
 
-    def messages_file(self, session_id: str) -> Path:
-        return self.session_dir(session_id) / "messages.jsonl"
+    def nsjail_cfg_file(self, user_id: str) -> Path:
+        return self.sandbox_dir(user_id) / "nsjail.cfg"
 
-    def nsjail_cfg_file(self, session_id: str) -> Path:
-        return self.session_dir(session_id) / "nsjail.cfg"
+    def feishu_config_file(self, user_id: str) -> Path:
+        """user 级飞书凭证配置文件路径（宿主机侧）"""
+        return self.sandbox_dir(user_id) / "credentials" / "feishu.json"
 
-    def tasks_file(self, session_id: str) -> Path:
-        """TaskCreate/Update/Get/List 工具的 todo 持久化文件"""
-        return self.session_dir(session_id) / "tasks.json"
-
-    def task_outputs_dir(self, session_id: str) -> Path:
-        """AgentTool 后台任务的输出目录"""
-        return self.session_dir(session_id) / "task-outputs"
-
-    def has_python_venv(self, session_id: str) -> bool:
-        """检查 session 的 workspace 内是否已创建 Python venv"""
-        return (self.workspace_dir(session_id) / ".venv" / "pyvenv.cfg").exists()
-
-    def has_pnpm_setup(self, session_id: str) -> bool:
-        """检查 session 的 workspace 内是否已成功初始化 Node.js 全局环境
-
-        使用 marker 文件而非目录存在判断，避免 mkdir 成功但后续配置失败时的误判。
-        """
-        return (self.workspace_dir(session_id) / ".local" / ".node-setup-done").exists()
-
-    def has_lark_cli_config(self, session_id: str) -> bool:
-        """检查 session 是否已配置 lark-cli app 凭证
-
-        判定依据：沙箱内 `$HOME=/workspace`，lark-cli 把 app 配置写到
-        `/workspace/.lark-cli/config.json`，对应宿主 workspace 目录下的同路径。
-        """
-        return (self.workspace_dir(session_id) / ".lark-cli" / "config.json").exists()
-
-    def feishu_config_file(self, session_id: str) -> Path:
-        """session 级飞书凭证配置文件路径（宿主机侧）"""
-        return self.session_dir(session_id) / "feishu.json"
-
-    def notion_config_file(self, session_id: str) -> Path:
-        """session 级 Notion Integration Token 文件路径（宿主机侧，per-session）
+    def notion_config_file(self, user_id: str) -> Path:
+        """user 级 Notion Integration Token 文件路径（宿主机侧，per-user）
 
         文件内容格式: {"api_token": "ntn_xxx..."}
 
         **绝不**挂进沙箱 /workspace（免得用户脚本意外读到）；仅由
         `ripple.sandbox.notion.read_notion_token` 在构造沙箱 env 时读取。
         """
-        return self.session_dir(session_id) / "notion.json"
-
-    def has_notion_token(self, session_id: str) -> bool:
-        """检查 session 是否已配置 Notion Integration Token
-
-        判定依据：session_dir/notion.json 存在且有非空 api_token 字段。
-        不读取文件内容的合法性校验（留给 write 端），只看"是否可用"。
-        """
-        f = self.notion_config_file(session_id)
-        if not f.exists():
-            return False
-        try:
-            import json
-
-            data = json.loads(f.read_text(encoding="utf-8"))
-            token = data.get("api_token", "")
-            return isinstance(token, str) and bool(token.strip())
-        except (json.JSONDecodeError, OSError):
-            return False
-
-    # --- user 维度路径方法（Phase 1-5 过渡期带 _by_uid 后缀；Phase 6 去掉） ---
-
-    def sandbox_dir(self, user_id: str) -> Path:
-        validate_user_id(user_id)
-        return self.sandboxes_root / user_id
-
-    def workspace_dir_by_uid(self, user_id: str) -> Path:
-        return self.sandbox_dir(user_id) / "workspace"
-
-    def nsjail_cfg_file_by_uid(self, user_id: str) -> Path:
-        return self.sandbox_dir(user_id) / "nsjail.cfg"
-
-    def feishu_config_file_by_uid(self, user_id: str) -> Path:
-        return self.sandbox_dir(user_id) / "credentials" / "feishu.json"
-
-    def notion_config_file_by_uid(self, user_id: str) -> Path:
         return self.sandbox_dir(user_id) / "credentials" / "notion.json"
 
-    def session_dir_by_uid(self, user_id: str, session_id: str) -> Path:
+    def session_dir(self, user_id: str, session_id: str) -> Path:
         return self.sandbox_dir(user_id) / "sessions" / session_id
 
-    def meta_file_by_uid(self, user_id: str, session_id: str) -> Path:
-        return self.session_dir_by_uid(user_id, session_id) / "meta.json"
+    def meta_file(self, user_id: str, session_id: str) -> Path:
+        return self.session_dir(user_id, session_id) / "meta.json"
 
-    def messages_file_by_uid(self, user_id: str, session_id: str) -> Path:
-        return self.session_dir_by_uid(user_id, session_id) / "messages.jsonl"
+    def messages_file(self, user_id: str, session_id: str) -> Path:
+        return self.session_dir(user_id, session_id) / "messages.jsonl"
 
-    def tasks_file_by_uid(self, user_id: str, session_id: str) -> Path:
-        return self.session_dir_by_uid(user_id, session_id) / "tasks.json"
+    def tasks_file(self, user_id: str, session_id: str) -> Path:
+        """TaskCreate/Update/Get/List 工具的 todo 持久化文件"""
+        return self.session_dir(user_id, session_id) / "tasks.json"
 
-    def task_outputs_dir_by_uid(self, user_id: str, session_id: str) -> Path:
-        return self.session_dir_by_uid(user_id, session_id) / "task-outputs"
+    def task_outputs_dir(self, user_id: str, session_id: str) -> Path:
+        """AgentTool 后台任务的输出目录"""
+        return self.session_dir(user_id, session_id) / "task-outputs"
 
-    def has_python_venv_by_uid(self, user_id: str) -> bool:
+    def has_python_venv(self, user_id: str) -> bool:
         """检查 user workspace 内是否已创建 Python venv"""
-        return (self.workspace_dir_by_uid(user_id) / ".venv" / "pyvenv.cfg").exists()
+        return (self.workspace_dir(user_id) / ".venv" / "pyvenv.cfg").exists()
 
-    def has_pnpm_setup_by_uid(self, user_id: str) -> bool:
-        """检查 user workspace 内是否已成功初始化 Node.js 全局环境"""
-        return (self.workspace_dir_by_uid(user_id) / ".local" / ".node-setup-done").exists()
+    def has_pnpm_setup(self, user_id: str) -> bool:
+        """检查 user workspace 内是否已成功初始化 Node.js 全局环境
 
-    def has_lark_cli_config_by_uid(self, user_id: str) -> bool:
-        """检查 user 是否已配置 lark-cli app 凭证"""
-        return (self.workspace_dir_by_uid(user_id) / ".lark-cli" / "config.json").exists()
+        使用 marker 文件而非目录存在判断，避免 mkdir 成功但后续配置失败时的误判。
+        """
+        return (self.workspace_dir(user_id) / ".local" / ".node-setup-done").exists()
 
-    def has_notion_token_by_uid(self, user_id: str) -> bool:
+    def has_lark_cli_config(self, user_id: str) -> bool:
+        """检查 user 是否已配置 lark-cli app 凭证
+
+        判定依据：沙箱内 `$HOME=/workspace`，lark-cli 把 app 配置写到
+        `/workspace/.lark-cli/config.json`，对应宿主 workspace 目录下的同路径。
+        """
+        return (self.workspace_dir(user_id) / ".lark-cli" / "config.json").exists()
+
+    def has_notion_token(self, user_id: str) -> bool:
         """检查 user 是否已配置 Notion Integration Token
 
         判定依据：credentials/notion.json 存在且有非空 api_token 字段。
+        不读取文件内容的合法性校验（留给 write 端），只看"是否可用"。
         """
-        f = self.notion_config_file_by_uid(user_id)
+        f = self.notion_config_file(user_id)
         if not f.exists():
             return False
         try:
@@ -458,7 +389,6 @@ class SandboxConfig:
 
     @classmethod
     def from_dict(cls, data: dict) -> "SandboxConfig":
-        sessions_root = Path(data["sessions_root"]) if "sessions_root" in data else _default_sessions_root()
         sandboxes_root = Path(data["sandboxes_root"]) if "sandboxes_root" in data else _default_sandboxes_root()
         caches_root = Path(data["caches_root"]) if "caches_root" in data else _default_caches_root()
 
@@ -484,7 +414,6 @@ class SandboxConfig:
         shared = data.get("shared_readonly_paths", default_shared)
 
         return cls(
-            sessions_root=sessions_root,
             sandboxes_root=sandboxes_root,
             caches_root=caches_root,
             resource_limits=limits,

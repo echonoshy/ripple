@@ -1,8 +1,8 @@
 ---
 name: podcast-episode-resolve
-description: 根据用户提供的播客标题，找到最可能对应的 episode URL，供后续 extract / content-resolve 等 skill 使用。只负责找页面，不做正文抽取。
+description: 根据用户提供的播客标题，找到最可能对应的 episode URL，供后续 extract / auto-md 流水线使用。只负责找页面，不做正文抽取。
 when-to-use: 用户只给出播客标题（或"帮我找这期播客""这期链接是什么"这类意图），且后续链路需要一个 episode URL 才能继续
-allowed-tools: [Search, Bash]
+allowed-tools: [WebSearch, Bash]
 ---
 
 # podcast-episode-resolve
@@ -31,13 +31,15 @@ allowed-tools: [Search, Bash]
 2. `<title> site:podcasts.apple.com`
 3. `<title> <podcast_name?> <author?>`（通用召回）
 
-每条查询调用 **Search** 工具：
+每条查询调用 `WebSearch` 工具：
 
 ```
-Search(query="<title> site:xiaoyuzhoufm.com", max_results=5)
-Search(query="<title> site:podcasts.apple.com", max_results=5)
-Search(query="<title> <podcast_name?>", max_results=5)
+WebSearch(search_term="<title> site:xiaoyuzhoufm.com")
+WebSearch(search_term="<title> site:podcasts.apple.com")
+WebSearch(search_term="<title> <podcast_name?>")
 ```
+
+> 若运行环境没有 `WebSearch`，可以改用 Bash + `curl` 请求公开搜索接口；具体实现交由调用方决定。
 
 ### Step 3 — 归并并打分
 

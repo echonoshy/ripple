@@ -1,253 +1,159 @@
 ---
 name: podcast-auto-md
-description: 用户在聊天里直接发送播客标题或链接时，自动走播客全链路，把每步结果落盘到每期独立的 work_dir，最后用脚本模板渲染成 Markdown 文件返回。
-when-to-use: 用户给出播客标题或单集链接，希望直接拿到一份完整 markdown 归档
-allowed-tools: [Skill, Bash, Read, Write]
+description: 用户给一个播客 URL 或标题，直接产出一份完整 Markdown：在对话里完整呈现，同时落盘到 host 可见路径。无 JSON 切片、无渲染脚本、无中间产物。
+when-to-use: 用户发送一个播客标题或单集链接，希望直接拿到 Markdown
+allowed-tools: [Skill, Bash, Write, Read]
 ---
 
 # Podcast Auto MD
 
 ## 目的
 
-当用户直接发送**一个播客标题或 URL** 时，自动完成整条播客处理链路，并生成一份可交付的 Markdown 文件。
+> 用户只发一个播客 URL / 标题 → 你产出一份完整 Markdown → 同时**在对话里展示给用户** + **落盘到指定路径**。
 
-> **用户只发一个播客标题 / URL → 系统自动生成完整播客 Markdown → 返回给用户。**
+## 触发场景
 
-## 强触发场景
-
-- 输入就是一个播客标题或 URL
-- 用户说"帮我整理这期播客"
-- 用户说"把这期播客生成 md 给我"
-- 用户说"帮我输出完整播客内容"
-- 用户说"总结一下这期播客"
+- 输入是播客标题或 URL
+- "帮我整理这期播客 / 生成 md / 总结一下"
 
 ## 输入
 
 `$ARGUMENTS` 可以是：
+- 裸 URL：`https://www.xiaoyuzhoufm.com/episode/xxxx`
+- 裸标题：`某期标题`
+- JSON：`{"episode_url": "...", "title": "...", "output_dir": "..."}`
 
-```json
-{ "title": "播客标题" }
+## 流程（仅 2~3 步，不要画蛇添足）
+
+### Step 0 — 仅当只有标题、没 URL 时：先 resolve
+
+```
+Skill(skill="podcast-episode-resolve", args="{\"title\": \"<title>\"}")
 ```
 
-或：
+- 若 `matched: false`：直接返回候选给用户挑，**不**继续后面步骤
+- 若 `matched: true`：用 `best_match.episode_url` 进入 Step 1
 
-```json
-{
-  "title": "播客标题（可选，和 episode_url 至少给一个）",
-  "episode_url": "https://www.xiaoyuzhoufm.com/episode/xxxx",
-  "output_dir": "/workspace/outputs/podcast",
-  "prefer_transcript": true,
-  "include_full_transcript": true
-}
-```
-
-## 架构原则（非常重要）
-
-为了避免"最后一个 turn 输出过长被上游断流"，本 skill 采用**每步落盘 + 最后脚本渲染**的流水线，而不是"最后让模型自由写出整份 md"。
-
-- 每期播客都有唯一的 `episode_id` 和 `work_dir`，不同链接互不覆盖
-- 每个子 skill 的输出都**立刻写盘到 `work_dir` 下的固定 slot 文件**，只给上游返回一行确认
-- 最终 md 的拼装**不由模型自由创作**，而是调用 `render.py` 把 4 个 JSON 套进 TEMPLATE.md
-- 这样最后一个 turn 的模型输出量稳定在几百 token，不会再触发 SSE 断流
-
-## work_dir 与 episode_id 规则
-
-- 所有中间文件的根：`/workspace/.podcast-work/<episode_id>/`
-- `episode_id` 生成规则（orchestrator 在 Step 1 统一算好，下游所有 skill 复用）：
-
-  | URL 特征 | episode_id |
-  |---|---|
-  | `xiaoyuzhoufm.com/episode/<eid>` | 取 `<eid>` |
-  | `podcasts.apple.com/...?i=<num>` | 取 `i=<num>` 的值 |
-  | 其他 | `sha1(episode_url)` 前 12 位 |
-  | 只有标题，没有 URL | `sha1("title::" + title)` 前 12 位，临时目录，resolve 成功后换成正式 id 并把旧目录 `mv` 过去 |
-
-- work_dir 中的 slot 文件：
-
-  | 文件 | 写入方 | 内容 |
-  |---|---|---|
-  | `meta.json` | extract | episode 元信息（title / podcast_name / hosts / guests / outline / audio_url / ...） |
-  | `content.txt` | extract（或 auto-md Step 6） | summarize/outline/keywords 的输入文本（description + shownotes 去 HTML + 可选 transcript） |
-  | `transcript.json` | transcribe（可选） | `{text, segments}` |
-  | `summary.json` | summarize | 三粒度摘要 |
-  | `outline.json` | outline | 时间轴 sections |
-  | `keywords.json` | keywords | topics/entities/concepts/highlights |
-
-## 执行步骤（必须按此执行）
-
-### Step 1 — 确定 episode_id 和 work_dir
-
-使用 **Bash** 工具执行一次：
+### Step 1 — 用 pipeline.py 一键抓取
 
 ```bash
-python3 - <<'PY'
-import json, re, hashlib, sys, os
-args = json.loads(os.environ.get("AUTO_MD_ARGS", "{}"))
-url = (args.get("episode_url") or "").strip()
-title = (args.get("title") or "").strip()
-eid = None
-if url:
-    m = re.search(r"xiaoyuzhoufm\.com/episode/([0-9a-f]+)", url)
-    if m: eid = m.group(1)
-    if not eid:
-        m = re.search(r"[?&]i=(\d+)", url)
-        if m: eid = "apple-" + m.group(1)
-    if not eid:
-        eid = hashlib.sha1(url.encode()).hexdigest()[:12]
-elif title:
-    eid = "t-" + hashlib.sha1(("title::" + title).encode()).hexdigest()[:12]
-else:
-    sys.exit("need title or episode_url")
-work_dir = f"/workspace/.podcast-work/{eid}"
-print(json.dumps({"episode_id": eid, "work_dir": work_dir}))
-PY
+python3 /home/lake/workspace/wip/ripple-dev/skills/podcast/podcast-auto-md/pipeline.py prepare \
+  --args '{"episode_url": "<url>"}'
 ```
 
-（实际调用时请把 `$ARGUMENTS` 的 JSON 塞进 `AUTO_MD_ARGS` 环境变量，然后 `mkdir -p <work_dir>`。）
+输出一行 JSON，关键字段：
 
-把结果记成 `ep_id` / `work_dir`，后续所有 skill 调用都要把 `work_dir` 一起传下去。
+| 字段 | 说明 |
+|---|---|
+| `work_dir` | `/workspace/.podcast-work/<eid>/`，含 `meta.json` + `content.txt` |
+| `output_path` | **最终 md 落盘路径**，host 可见（默认 `<repo>/.outputs/podcast/YYYY-MM-DD-<slug>.md`） |
+| `title` / `podcast_name` / `audio_url` / `has_outline` / `outline_sections` | 元信息摘要 |
 
-### Step 2 — 判断起点
+> **不要再调用 `podcast-episode-extract` / `understand` / `transcribe` / `render.py`**——这些步骤都被 pipeline.py 一次完成或已被废弃。
 
-- 已是 URL → 跳过 resolve，去 Step 3
-- 只有标题 → 走 Step 2.5 调 `podcast-episode-resolve`，取 `best_match.episode_url`；若 `matched: false` **立即停止**，把候选给用户选
+### Step 2 — 读原料 + 直接写 Markdown + 同时落盘 + 同时呈现
 
-### Step 3 — 调用 `podcast-episode-extract`
+1. **Read** `<work_dir>/meta.json` 和 `<work_dir>/content.txt` 拿原料
+2. **按下面的"模板与硬规则"在对话里直接写出完整 Markdown**
+3. 在**同一条**回复里**用 `Write` 工具**把这段 Markdown 落盘到 `output_path`
+4. 在**同一条**回复里**也**把 Markdown 完整文本呈现在对话正文中（用户的明确要求）
 
-```
-Skill(skill="podcast-episode-extract",
-      args="{\"episode_url\": \"<url>\", \"work_dir\": \"<work_dir>\"}")
-```
+> 关键：**Markdown 写一次，既给用户看、也给 Write 工具用**——同样的内容、同步落盘。**不要让模型生成任何 JSON 文件**。
 
-该 skill **会自己把 episode 元信息写到 `<work_dir>/meta.json`**，只给你返回一行确认。不要再把完整 JSON 回灌到对话。
+### Step 3 — 末尾用一行说明确认
 
-### Step 4 — 调用 `podcast-episode-content-resolve`
+`已生成: <output_path>（约 N 字、M 个章节）`
 
-传入 Step 3 的 meta（可以直接传路径 `<work_dir>/meta.json`）。根据 `strategy` 决定是否要 Step 5：
+## 模板与硬规则（直接照抄）
 
-- `text_only` / `prefer_text_then_audio` → 直接跳到 Step 6
-- `audio_only` → Step 5
-- `none` → 提前失败，见"失败回退"
+```markdown
+# {{episode.title}}
 
-### Step 5 — 可选：`podcast-episode-transcribe`
+- **播客**：{{episode.podcast_name}}
+- **主播**：{{episode.hosts | join("、") | "_未标注_"}}
+- **嘉宾**：{{episode.guests | join("、") | "_未标注_"}}
+- **发布日期**：{{episode.published_at | YYYY-MM-DD}}
+- **时长**：{{episode.duration | "X 小时 Y 分钟" 或 "M 分钟"}}
+- **链接**：{{episode.episode_url}}
 
-```
-Skill(skill="podcast-episode-transcribe",
-      args="{\"audio_url\": \"<audio_url>\", \"episode_url\": \"<url>\", \"work_dir\": \"<work_dir>\"}")
-```
+## 节目简介
 
-成功后 transcript 会落到 `<work_dir>/transcript.json`。
+{{节目简介，控制在 ~400 字内；如果原 description 是 shownotes 头部的复述，则截取主要 1~3 段即可，可在末尾用「……」表示折叠}}
 
-### Step 6 — 汇总 content.txt
+## 摘要
 
-如果 extract 没自动写 `<work_dir>/content.txt`，用 **Bash** 合成一次：
+**一句话**：{{≤ 60 字的本期最浓缩定位}}
 
-```bash
-python3 - <<'PY'
-import json, re, pathlib, html
-W = pathlib.Path("<work_dir>")
-meta = json.loads((W / "meta.json").read_text())
-ep = meta.get("episode", {})
-parts = [ep.get("description") or "",
-         re.sub(r"<[^>]+>", "", ep.get("shownotes") or "")]
-tr = W / "transcript.json"
-if tr.exists():
-    parts.append(json.loads(tr.read_text()).get("transcript", {}).get("text", ""))
-(W / "content.txt").write_text(html.unescape("\n\n".join(p for p in parts if p)))
-PY
-```
+{{1~2 段、≤ 300 字的中等长度摘要，覆盖主线脉络。中文双引号统一用「」/『』，**不要用半角 `"`**。}}
 
-### Step 7 — 并行调用三个内容理解 skill
+### 要点
 
-每个 skill **自己落盘 + 只返回确认行**（不回灌大 JSON）。可以在一个 turn 里并行发起：
+- {{要点 1，≤ 30 字}}
+- {{要点 2}}
+- {{...3~7 条，覆盖原文各大段不重复}}
 
-```
-Skill(skill="podcast-episode-summarize",
-      args="{\"work_dir\": \"<work_dir>\"}")
-Skill(skill="podcast-episode-outline",
-      args="{\"work_dir\": \"<work_dir>\"}")
-Skill(skill="podcast-episode-keywords",
-      args="{\"work_dir\": \"<work_dir>\"}")
-```
+## 时间轴
 
-三个 skill 会分别写 `summary.json` / `outline.json` / `keywords.json`。
+> 时间戳必须**全部**直接复用 `meta.episode.outline` 字段（pipeline 已抓好）。**禁止伪造或重新估算时间**。
 
-### Step 8 — 用脚本渲染最终 Markdown（**不要让模型自由写 md**）
+- {{HH:MM:SS}}  {{原 topic}}{{ —— 可选的一句解读，≤ 40 字}}
+- ...
 
-用 **Bash** 调用本 skill 目录下的 `render.py`：
+## 关键词
 
-```bash
-python3 "$SKILL_BASE_DIR/render.py" \
-  --work-dir "<work_dir>" \
-  --template "$SKILL_BASE_DIR/TEMPLATE.md" \
-  --output-dir "<output_dir or /workspace/outputs/podcast>" \
-  --include-transcript <true|false>
-```
+- **主题**：{{topic1}} · {{topic2}} · {{topic3}}
+- **实体**：{{entity1}} · {{entity2}} · ...
+- **核心概念**：{{concept1}} · {{concept2}} · ...
 
-脚本会输出一行 JSON：`{"markdown_path": "...", "artifacts": {...}}`。
+### 值得追问
 
-**禁止**在这一步让模型把完整 md 抄一遍到对话里——那样会复现 Turn 7 断流的老问题。
+- **{{高价值切入点 1}}** — {{为什么值得追问，一句话}}
+- ...3~6 条
 
-### Step 9 — 返回 JSON 给上层
+## 相关链接
 
-根据 Step 8 的 JSON + resolve 信息，组装成下节 Schema 返回。
+- 原始链接：{{episode.episode_url}}
+- 音频：{{episode.audio_url}}
+- {{shownotes 里出现的参考资料链接，如果有}}
 
-## 输出 Schema
+---
 
-```json
-{
-  "matched": true,
-  "title": "播客标题",
-  "episode_id": "69c80ac524a6ea4a547feae2",
-  "work_dir": "/workspace/.podcast-work/69c80ac524a6ea4a547feae2",
-  "resolve": {
-    "episode_url": "https://www.xiaoyuzhoufm.com/episode/xxxx",
-    "source": "search:xiaoyuzhou",
-    "confidence": 0.91
-  },
-  "markdown_path": "/workspace/outputs/podcast/2026-03-29-a-gu-zuoye-bang.md",
-  "artifacts": {
-    "meta": true,
-    "summary": true,
-    "outline": true,
-    "keywords": true,
-    "transcript": false
-  },
-  "notes": "无 ASR，基于 shownotes"
-}
+<sub>由 podcast-auto-md 自动整理。数据来源：{{source.provider}}。</sub>
 ```
 
-## Outline 硬规则（与 `podcast-episode-outline` 一致）
+### 内容硬规则
 
-- 有时间轴 → **直接用时间轴目录格式**：
-  - `00:00:34 30年前的合影`
-  - `00:02:12 四十周年巡演`
-- **禁止**把时间轴 outline 渲染成 `### 1. ... / ### 2. ...` 这种纯文章目录
-- 没有任何时间信息 → 明写"暂无时间轴"，**不要伪造 `00:00:00`**
+- 所有人名 / 数字 / 机构 / 引述都必须能在 `content.txt` 里找到出处，**不引入节目外的知识**
+- 字符串中如果想表达"引号"，统一用 `「」` / `『』`，**不要写半角 `"`**（避免任何潜在的转义陷阱）
+- 时间轴**直接复用** `meta.episode.outline`，按 `seconds` 升序排列
+- 如果 outline 为空：写 `_（本期无原始时间轴）_`，**不要伪造 `00:00:00` 占位**
+- description 段控制在 ~400 字内，超长就截断 + `……`
+- 如果 hosts / guests / duration 缺失：用 `_未标注_` 占位
+- Markdown 不要超过 3 级标题（`###`）
+- 不要在 md 里出现"由模型生成"以外的任何元注释（不要 `<details>`、不要调试信息）
 
-## 产出硬规则
+## 输出 Schema（你最终在对话里返回给上层的内容）
 
-- Markdown 必须基于**结构化字段**组装，不是模型自由发挥的散文
-- 最终 md 由 `render.py` 生成，**不由模型在对话里写出整份 md**
-- 每期播客使用独立 `work_dir`（见上方 episode_id 规则），多链接之间不会互相覆盖
-- 区分"原始信息"（meta）和"模型生成信息"（summary / outline / keywords）
-- 若只给了主题、没有真实 episode_url / transcript / shownotes：
-  - **标记为"主题整理稿"**
-  - **禁止输出伪造时间轴 outline**
-  - 头部元信息中明写 `resolve.matched = false`
+整个回复结构：
+
+1. **完整 Markdown 文本**（用户要看的产物）
+2. 一行确认：`已生成: <output_path>（X 字 / Y 个章节）`
+
+不需要返回 JSON。上层 caller 直接用 `output_path` 作为 artifact。
 
 ## 失败回退
 
 | 场景 | 行为 |
 |---|---|
-| Step 2 resolve 失败 | 返回候选给用户，不生成 md |
-| Step 3 extract 成功但 Step 5 transcribe 失败 | 生成精简版 md（无 transcript，其他字段齐全） |
-| Step 5 transcribe 超时（> 10 min） | 先产出 metadata + summary + outline + keywords 版 md |
-| 只有主题、没有真实 URL | 产出"主题整理稿"模式，`artifacts.outline = false` |
-| 单个子 skill 失败 | work_dir 里对应 slot 缺失，`render.py` 自动降级为占位文案，不中断整条流水线 |
+| Step 0 resolve 失败 | 把候选交给用户，**不**生成 md |
+| Step 1 prepare 抓页面失败（fetched=false） | 仍然产出一份"信息不全"版 md：保留链接 + 简单说明，不编造内容 |
+| 只给 title、resolve 也失败 | 不产出 md，直接告诉用户 |
 
-## 备注
+## 禁用项（曾是故障根因，绝对不要做）
 
-- 这是一个**编排 skill**，不替代底层 skill，只把它们串成用户可直接感知的最终产物。
-- 每次调用 `Skill(...)` 都是真实调用，不能只在对话里"声明自己做了"。
-- 任何时候**不要**把大段 JSON / 完整 md 抄回到对话正文里——这是让最后一个 turn 断流的主因。对话里只保留路径和简短状态，完整内容一律靠 work_dir 文件接力。
+- ❌ 不要生成任何 `summary.json` / `outline.json` / `keywords.json` / `understand_input.json`
+- ❌ 不要再调用 `podcast-episode-understand`、`podcast-auto-md/render.py`、`pipeline.py split-understand` —— 它们已经被删除
+- ❌ 不要在 markdown 字符串里使用半角双引号 `"`，统一用 `「」` / `『』`
+- ❌ 不要用 `TaskCreate` / `TaskUpdate`
+- ❌ 不要在调完 pipeline 之后又用 `cat` / `Read` 重复读 `meta.json`、`content.txt`——一次就够
+- ❌ 不要把 markdown 写成"先调 Write 落盘，然后说'内容如下'再贴一次"的两步——**在同一条回复里**，对话正文 = Write 的内容，逻辑上只有一份

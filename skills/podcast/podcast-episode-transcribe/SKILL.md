@@ -22,15 +22,19 @@ allowed-tools: [Bash]
   "title": "播客标题",
   "podcast_name": "播客节目名",
   "language": "zh",
-  "need_timestamps": true
+  "need_timestamps": true,
+  "work_dir": "/workspace/.podcast-work/<episode_id>"
 }
 ```
+
+- 传了 `work_dir` 时：**transcript.json 必须写入 `<work_dir>/transcript.json`**，让 auto-md 下游自动捡到
+- 没传 `work_dir`：按原逻辑写 `/workspace/.tmp-transcribe/`，并把路径写进输出 JSON
 
 ## 执行步骤（必须按此执行）
 
 ### Step 1 — 解析输入
 
-取 `audio_url`（必填）、`language`（默认 `zh`）、`need_timestamps`（默认 `true`）。
+取 `audio_url`（必填）、`language`（默认 `zh`）、`need_timestamps`（默认 `true`）、`work_dir`（可选）。
 
 ### Step 2 — 能力探测
 
@@ -71,19 +75,47 @@ whisper-cpp -m <model.bin> -l zh -osrt \
 
 从 `.srt` 解析出 `segments`，每段 `{ start, end, text }`，拼出 `transcript.text`。
 
-### Step 5 — 无 ASR 时的硬降级
+### Step 5 — 成功落盘
 
-若 Step 2 探测失败，**不要假装转写成功**，直接返回：
+完成转写后，用 **Bash 里的 Python 脚本**直接把结构化结果写入 `transcript.json`（**不要**让模型用 Write 工具手写这种可能很大的 JSON）：
 
-```json
-{
-  "matched": false,
-  "source": { "type": "audio_file", "url": "<audio_url>" },
-  "transcript": null,
-  "quality": { "mode": "unavailable", "confidence": "none" },
-  "notes": "当前沙箱未安装 ASR（whisper/whisper.cpp/faster-whisper）。请走文本来源，或在宿主启用 ASR 后重试。"
+```bash
+python3 - <<'PY'
+import json, pathlib
+work = pathlib.Path("<work_dir 或 /workspace/.tmp-transcribe>")
+work.mkdir(parents=True, exist_ok=True)
+payload = {
+    "matched": True,
+    "source": {"type": "audio_file", "url": "<audio_url>"},
+    "transcript": {"text": "<...>", "language": "zh", "segments": [...]},
+    "quality": {"mode": "asr:whisper.cpp", "confidence": "medium"},
+    "notes": "默认不做 speaker diarization",
 }
+(work / "transcript.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+print("transcript.json written")
+PY
 ```
+
+### Step 6 — 无 ASR 时的硬降级
+
+若 Step 2 探测失败，**不要假装转写成功**。若传了 `work_dir`，同样用 Bash 落一份"明确失败"标记，方便 auto-md 渲染降级：
+
+```bash
+python3 - <<'PY'
+import json, pathlib
+work = pathlib.Path("<work_dir>")
+work.mkdir(parents=True, exist_ok=True)
+(work / "transcript.json").write_text(json.dumps({
+    "matched": False,
+    "source": {"type": "audio_file", "url": "<audio_url>"},
+    "transcript": None,
+    "quality": {"mode": "unavailable", "confidence": "none"},
+    "notes": "沙箱未安装 ASR (whisper/whisper.cpp/faster-whisper)。"
+}, ensure_ascii=False, indent=2), encoding="utf-8")
+PY
+```
+
+然后只向调用方返回一行状态 + `matched: false`，不要把完整 JSON 抄回对话。
 
 ## 输出 Schema（成功时）
 

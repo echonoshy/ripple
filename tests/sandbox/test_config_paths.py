@@ -53,3 +53,39 @@ def test_user_id_validated(tmp_path: Path):
     c = _cfg(tmp_path)
     with pytest.raises(ValueError):
         c.sandbox_dir("../evil")
+
+
+def test_has_python_venv_by_uid(tmp_path: Path):
+    c = _cfg(tmp_path)
+    assert c.has_python_venv_by_uid("alice") is False
+
+    venv_cfg = c.workspace_dir_by_uid("alice") / ".venv" / "pyvenv.cfg"
+    venv_cfg.parent.mkdir(parents=True)
+    venv_cfg.write_text("")
+    assert c.has_python_venv_by_uid("alice") is True
+
+
+def test_has_pnpm_setup_by_uid(tmp_path: Path):
+    c = _cfg(tmp_path)
+    marker = c.workspace_dir_by_uid("alice") / ".local" / ".node-setup-done"
+    marker.parent.mkdir(parents=True)
+    marker.touch()
+    assert c.has_pnpm_setup_by_uid("alice") is True
+
+
+def test_has_lark_cli_config_by_uid(tmp_path: Path):
+    c = _cfg(tmp_path)
+    cfg = c.workspace_dir_by_uid("alice") / ".lark-cli" / "config.json"
+    cfg.parent.mkdir(parents=True)
+    cfg.write_text("{}")
+    assert c.has_lark_cli_config_by_uid("alice") is True
+
+
+def test_has_notion_token_by_uid(tmp_path: Path):
+    c = _cfg(tmp_path)
+    assert c.has_notion_token_by_uid("alice") is False
+
+    f = c.notion_config_file_by_uid("alice")
+    f.parent.mkdir(parents=True)
+    f.write_text('{"api_token": "ntn_abc123def456ghi789"}')
+    assert c.has_notion_token_by_uid("alice") is True

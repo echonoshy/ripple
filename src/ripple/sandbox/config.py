@@ -427,6 +427,35 @@ class SandboxConfig:
     def task_outputs_dir_by_uid(self, user_id: str, session_id: str) -> Path:
         return self.session_dir_by_uid(user_id, session_id) / "task-outputs"
 
+    def has_python_venv_by_uid(self, user_id: str) -> bool:
+        """检查 user workspace 内是否已创建 Python venv"""
+        return (self.workspace_dir_by_uid(user_id) / ".venv" / "pyvenv.cfg").exists()
+
+    def has_pnpm_setup_by_uid(self, user_id: str) -> bool:
+        """检查 user workspace 内是否已成功初始化 Node.js 全局环境"""
+        return (self.workspace_dir_by_uid(user_id) / ".local" / ".node-setup-done").exists()
+
+    def has_lark_cli_config_by_uid(self, user_id: str) -> bool:
+        """检查 user 是否已配置 lark-cli app 凭证"""
+        return (self.workspace_dir_by_uid(user_id) / ".lark-cli" / "config.json").exists()
+
+    def has_notion_token_by_uid(self, user_id: str) -> bool:
+        """检查 user 是否已配置 Notion Integration Token
+
+        判定依据：credentials/notion.json 存在且有非空 api_token 字段。
+        """
+        f = self.notion_config_file_by_uid(user_id)
+        if not f.exists():
+            return False
+        try:
+            import json
+
+            data = json.loads(f.read_text(encoding="utf-8"))
+            token = data.get("api_token", "")
+            return isinstance(token, str) and bool(token.strip())
+        except (json.JSONDecodeError, OSError):
+            return False
+
     @classmethod
     def from_dict(cls, data: dict) -> "SandboxConfig":
         sessions_root = Path(data["sessions_root"]) if "sessions_root" in data else _default_sessions_root()

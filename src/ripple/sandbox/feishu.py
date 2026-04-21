@@ -240,3 +240,155 @@ async def ensure_lark_cli_config(
             return False, msg
 
         return await _start_feishu_setup(config, session_id)
+
+
+# --- user 维度 API (Phase 2-5 过渡期) ---
+
+_lark_cli_config_locks_uid: dict[str, asyncio.Lock] = {}
+_feishu_setup_states_uid: dict[str, _FeishuSetupState] = {}
+
+
+def _get_feishu_credentials_uid(config: SandboxConfig, user_id: str) -> tuple[str, str, str] | None:
+    """读取 user 级飞书 app 凭证"""
+    feishu_file = config.feishu_config_file_by_uid(user_id)
+    if feishu_file.exists():
+        try:
+            data = json.loads(feishu_file.read_text(encoding="utf-8"))
+            app_id = data.get("app_id", "")
+            app_secret = data.get("app_secret", "")
+            if app_id and app_secret:
+                return app_id, app_secret, data.get("brand", "feishu")
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning("user {} feishu.json 读取失败: {}", user_id, e)
+    return None
+
+
+async def _start_feishu_setup_uid(
+    config: SandboxConfig,
+    user_id: str,
+) -> tuple[bool, str]:
+    """在 user 沙箱内启动 `lark-cli config init --new`（user 版）"""
+    from ripple.sandbox.nsjail_config import build_nsjail_argv_uid, write_nsjail_config_uid
+
+    if not config.lark_cli_bin:
+        return False, "lark-cli 未预装（宿主机），无法启动配置流程"
+
+    if not config.nsjail_cfg_file_by_uid(user_id).exists():
+        write_nsjail_config_uid(config, user_id)
+
+    argv = build_nsjail_argv_uid(config, user_id, "lark-cli config init --new 2>&1")
+
+    proc = await asyncio.create_subprocess_exec(
+        *argv,
+        stdin=asyncio.subprocess.DEVNULL,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+
+    url = await _extract_url_from_process(proc)
+    if not url:
+        proc.kill()
+        await proc.wait()
+        return False, "无法从 config init --new 输出中提取配置链接"
+
+    _feishu_setup_states_uid[user_id] = _FeishuSetupState(process=proc, url=url)
+    logger.info("user {} 飞书配置流程已在沙箱内启动，URL: {}", user_id, url)
+    return False, url
+
+
+async def _check_feishu_setup_uid(
+    config: SandboxConfig,
+    user_id: str,
+) -> tuple[bool, str]:
+    """检查 user 沙箱内 config init --new 进程状态"""
+    state = _feishu_setup_states_uid.get(user_id)
+    if not state:
+        return False, ""
+
+    if state.process.returncode is None:
+        try:
+            await asyncio.wait_for(state.process.wait(), timeout=0.1)
+        except asyncio.TimeoutError:
+            return False, state.url
+
+    exit_code = state.process.returncode
+    del _feishu_setup_states_uid[user_id]
+
+    if exit_code != 0:
+        return False, f"config init --new 失败 (exit={exit_code})"
+
+    if not config.has_lark_cli_config_by_uid(user_id):
+        return False, "config init --new 退出但未生成 config.json"
+
+    logger.info("user {} 飞书 app 配置完成", user_id)
+    return True, ""
+
+
+async def _inject_feishu_credentials_uid(
+    config: SandboxConfig,
+    user_id: str,
+    app_id: str,
+    app_secret: str,
+    brand: str,
+) -> tuple[bool, str]:
+    """通过 stdin 将 app 凭证注入 user 沙箱内 lark-cli"""
+    from ripple.sandbox.nsjail_config import build_nsjail_argv_uid
+
+    quoted_app_id = shlex.quote(app_id)
+    quoted_brand = shlex.quote(brand)
+    inner_cmd = f"lark-cli config init --app-id {quoted_app_id} --app-secret-stdin --brand {quoted_brand} 2>&1"
+    argv = build_nsjail_argv_uid(config, user_id, inner_cmd)
+
+    proc = await asyncio.create_subprocess_exec(
+        *argv,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+
+    try:
+        stdout_bytes, _ = await asyncio.wait_for(
+            proc.communicate(input=f"{app_secret}\n".encode()),
+            timeout=30,
+        )
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.wait()
+        return False, "lark-cli 凭证注入超时"
+
+    output = stdout_bytes.decode(errors="replace") if stdout_bytes else ""
+    exit_code = proc.returncode or 0
+    if exit_code == 0:
+        logger.info("user {} lark-cli app 凭证注入成功", user_id)
+        return True, ""
+    return False, f"lark-cli 凭证注入失败 (exit={exit_code}): {output.strip()}"
+
+
+async def ensure_lark_cli_config_uid(
+    config: SandboxConfig,
+    user_id: str,
+) -> tuple[bool, str]:
+    """确保 user 沙箱内 lark-cli 已配置 app 凭证（user 版）"""
+    if not config.lark_cli_bin:
+        return False, ("lark-cli 未预装（宿主机）。请管理员执行: bash scripts/install-feishu-cli.sh")
+
+    if config.has_lark_cli_config_by_uid(user_id):
+        return True, ""
+
+    lock = _lark_cli_config_locks_uid.setdefault(user_id, asyncio.Lock())
+    async with lock:
+        if config.has_lark_cli_config_by_uid(user_id):
+            return True, ""
+
+        creds = _get_feishu_credentials_uid(config, user_id)
+        if creds:
+            app_id, app_secret, brand = creds
+            return await _inject_feishu_credentials_uid(config, user_id, app_id, app_secret, brand)
+
+        if user_id in _feishu_setup_states_uid:
+            ok, msg = await _check_feishu_setup_uid(config, user_id)
+            if ok:
+                return True, ""
+            return False, msg
+
+        return await _start_feishu_setup_uid(config, user_id)

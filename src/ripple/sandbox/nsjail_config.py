@@ -109,12 +109,9 @@ def build_sandbox_env(config: SandboxConfig, session_id: str | None = None) -> d
     return env
 
 
-def generate_nsjail_config(config: SandboxConfig, session_id: str) -> str:
-    """为指定 session 生成 nsjail 配置文件内容"""
-    workspace = config.workspace_dir(session_id)
-    limits = config.resource_limits
-
-    mounts = []
+def _build_common_mounts(config: SandboxConfig) -> list[str]:
+    """生成与具体 session/user 无关的公共 mount 列表（bind-mount 共享二进制/缓存/skill 目录）"""
+    mounts: list[str] = []
 
     for path_str in config.shared_readonly_paths:
         p = Path(path_str)
@@ -226,6 +223,16 @@ def generate_nsjail_config(config: SandboxConfig, session_id: str) -> str:
     rw: false
 }}""")
 
+    return mounts
+
+
+def generate_nsjail_config(config: SandboxConfig, session_id: str) -> str:
+    """为指定 session 生成 nsjail 配置文件内容"""
+    workspace = config.workspace_dir(session_id)
+    limits = config.resource_limits
+
+    mounts = _build_common_mounts(config)
+
     mounts.append(f"""mount {{
     src: "{workspace}"
     dst: "/workspace"
@@ -315,6 +322,120 @@ def build_nsjail_argv(config: SandboxConfig, session_id: str, command: str) -> l
     cfg_path = config.nsjail_cfg_file(session_id)
     if not cfg_path.exists():
         write_nsjail_config(config, session_id)
+    return [
+        config.nsjail_path,
+        "--config",
+        str(cfg_path),
+        "--",
+        "/bin/bash",
+        "-c",
+        command,
+    ]
+
+
+def build_sandbox_env_uid(config: SandboxConfig, user_id: str) -> dict[str, str]:
+    """同 build_sandbox_env，但按 user_id 读取 notion token 注入。"""
+    env = build_sandbox_env(config, session_id=None)
+    from ripple.sandbox.notion import read_notion_token_uid
+
+    tok = read_notion_token_uid(config, user_id)
+    if tok:
+        env["NOTION_API_TOKEN"] = tok
+    return env
+
+
+def generate_nsjail_config_uid(config: SandboxConfig, user_id: str) -> str:
+    """为某 user 生成 nsjail 配置文件内容。"""
+    workspace = config.workspace_dir_by_uid(user_id)
+    limits = config.resource_limits
+
+    mounts = _build_common_mounts(config)
+
+    mounts.append(f"""mount {{
+    src: "{workspace}"
+    dst: "/workspace"
+    is_bind: true
+    rw: true
+}}""")
+
+    mounts.append("""mount {
+    dst: "/proc"
+    fstype: "proc"
+    rw: false
+}""")
+
+    mounts.append(f"""mount {{
+    dst: "/tmp"
+    fstype: "tmpfs"
+    rw: true
+    options: "size={config.tmpfs_size_mb}M"
+}}""")
+
+    for dev in ["/dev/null", "/dev/zero", "/dev/urandom", "/dev/random"]:
+        if Path(dev).exists():
+            mounts.append(f"""mount {{
+    src: "{dev}"
+    dst: "{dev}"
+    is_bind: true
+    rw: false
+}}""")
+
+    mounts_str = "\n\n".join(mounts)
+
+    sandbox_env = build_sandbox_env_uid(config, user_id)
+    envars = [f'envar: "{k}={v}"' for k, v in sandbox_env.items()]
+    envars_str = "\n".join(envars)
+
+    return textwrap.dedent(f"""\
+        name: "ripple-sandbox-{user_id}"
+
+        mode: ONCE
+
+        clone_newuser: true
+        clone_newns: true
+        clone_newpid: true
+        clone_newipc: true
+        clone_newuts: true
+        clone_newnet: {"true" if config.clone_newnet else "false"}
+
+        hostname: "sandbox"
+
+        cwd: "/workspace"
+
+        time_limit: {limits.command_timeout}
+
+        rlimit_as_type: INF
+        rlimit_cpu_type: SOFT
+        rlimit_fsize: {limits.max_file_size_mb}
+        rlimit_nofile: 8192
+        rlimit_nproc_type: SOFT
+
+        skip_setsid: true
+        disable_no_new_privs: false
+
+        keep_env: false
+
+        {envars_str}
+
+        {mounts_str}
+    """)
+
+
+def write_nsjail_config_uid(config: SandboxConfig, user_id: str) -> Path:
+    """生成并写入 user 级 nsjail 配置文件"""
+    cfg_content = generate_nsjail_config_uid(config, user_id)
+    cfg_path = config.nsjail_cfg_file_by_uid(user_id)
+    cfg_path.parent.mkdir(parents=True, exist_ok=True)
+    cfg_path.write_text(cfg_content, encoding="utf-8")
+    logger.debug("写入 user nsjail 配置: {}", cfg_path)
+    return cfg_path
+
+
+def build_nsjail_argv_uid(config: SandboxConfig, user_id: str, command: str) -> list[str]:
+    """构造 `nsjail --config X.cfg -- /bin/bash -c CMD` argv（user 版）。"""
+    cfg_path = config.nsjail_cfg_file_by_uid(user_id)
+    if not cfg_path.exists():
+        write_nsjail_config_uid(config, user_id)
     return [
         config.nsjail_path,
         "--config",

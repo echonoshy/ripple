@@ -9,7 +9,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
-from ripple.utils.paths import SESSIONS_DIR
+from ripple.utils.paths import SANDBOXES_DIR, SESSIONS_DIR
 
 
 @dataclass
@@ -59,24 +59,32 @@ class ToolUseContext:
     workspace_root: Path | None = None  # 沙箱 workspace（用户文件所在）
     sandbox_session_id: str | None = None  # 沙箱对应的 session_id（用于 nsjail 执行）
     session_runtime_dir: Path | None = None  # session 运行时数据目录（tasks.json/task-outputs/ 的父目录）
+    user_id: str | None = None  # 沙箱绑定的 user_id（Phase 3 起；None 表示旧 session-only 模式）
 
     on_progress: Callable | None = None
     on_notification: Callable | None = None
 
     @property
     def is_sandboxed(self) -> bool:
-        """当前 context 是否绑定到 nsjail 沙箱 session。
+        """当前 context 是否绑定到 nsjail 沙箱。
 
         true 时意味着工具应通过 SandboxManager 在沙箱内执行，
-        读写路径需落在 workspace_root 下。
+        读写路径需落在 workspace_root 下。过渡期同时识别旧
+        `SESSIONS_DIR` 下和新 `SANDBOXES_DIR` 下的 workspace。
         """
-        if not self.sandbox_session_id or not self.workspace_root:
+        if not self.workspace_root:
             return False
         try:
-            self.workspace_root.resolve().relative_to(SESSIONS_DIR.resolve())
-        except (ValueError, OSError):
+            resolved_ws = self.workspace_root.resolve()
+        except OSError:
             return False
-        return True
+        for root in (SANDBOXES_DIR, SESSIONS_DIR):
+            try:
+                resolved_ws.relative_to(root.resolve())
+                return True
+            except ValueError:
+                continue
+        return False
 
     def with_options(self, options: ToolOptions) -> "ToolUseContext":
         """创建新上下文，更新选项"""

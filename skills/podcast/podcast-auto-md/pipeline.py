@@ -28,11 +28,13 @@ UA = (
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
 
-# 都用仓库内目录:host 与 sandbox 双向可见(整个 ripple-dev 仓库被挂载进 sandbox).
-# .podcast-work/ 是中间产物(meta.json + content.txt), .outputs/podcast/ 是最终 md.
-_REPO_ROOT = pathlib.Path("/home/lake/workspace/wip/ripple-dev")
-WORK_ROOT_DEFAULT = _REPO_ROOT / ".podcast-work"
-OUTPUT_ROOT_DEFAULT = _REPO_ROOT / ".outputs" / "podcast"
+# 默认全部写到 sandbox 的 /workspace 下（nsjail 只把 <repo>/.ripple/sandboxes/<uid>/workspace
+# 挂成 /workspace，是沙箱内唯一可写位置；从宿主看即 .ripple/sandboxes/<uid>/workspace/...）。
+# .podcast-work/ 是中间产物（meta.json + content.txt），.outputs/podcast/ 是最终 md。
+# 如需自定义，可通过 --work-root / --output-root 或 args.output_dir 覆盖。
+_SANDBOX_WORKSPACE = pathlib.Path("/workspace")
+WORK_ROOT_DEFAULT = _SANDBOX_WORKSPACE / ".podcast-work"
+OUTPUT_ROOT_DEFAULT = _SANDBOX_WORKSPACE / ".outputs" / "podcast"
 
 
 def compute_episode_id(url: str, title: str) -> str:

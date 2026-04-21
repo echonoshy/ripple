@@ -542,10 +542,12 @@ class SessionManager:
         logger.info("恢复 session: {}/{} ({} 条历史消息)", user_id, session_id, len(session.messages))
         return session
 
-    def persist_session(self, session_id: str, *, user_id: str = "default") -> bool:
-        """将 session 当前状态持久化到磁盘（不从内存中移除）"""
-        session = self._sessions.get((user_id, session_id))
-        if not session or not self._sandbox_manager:
+    def persist_session(self, session: Session) -> bool:
+        """将 session 当前状态持久化到磁盘（不从内存中移除）
+
+        直接接收 Session 实例以避免调用方忘传 user_id 导致的落盘失败。
+        """
+        if not self._sandbox_manager:
             return False
         self._suspend_to_disk(session)
         return True

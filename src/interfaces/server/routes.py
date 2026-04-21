@@ -299,7 +299,7 @@ async def _stream_chat(
                     if session.status == "running":
                         session.status = "idle"
                     if manager:
-                        manager.persist_session(session.session_id)
+                        manager.persist_session(session)
         except asyncio.CancelledError:
             logger.info("流式聊天被取消: {}", session.session_id)
             session.status = "idle"
@@ -382,7 +382,7 @@ async def _non_stream_chat(
                     if session.status == "running":
                         session.status = "idle"
                     if manager:
-                        manager.persist_session(session.session_id)
+                        manager.persist_session(session)
         except asyncio.CancelledError:
             logger.info("非流式聊天被取消: {}", session.session_id)
             session.status = "idle"
@@ -520,7 +520,7 @@ async def resolve_permission_request(
     session.pending_question = None
     session.pending_options = None
     session.status = "idle"
-    manager.persist_session(session.session_id)
+    manager.persist_session(session)
 
     return {"ok": True, "action": request.action}
 

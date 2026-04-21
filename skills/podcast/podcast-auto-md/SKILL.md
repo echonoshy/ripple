@@ -46,7 +46,7 @@ python3 /home/lake/workspace/wip/ripple-dev/skills/podcast/podcast-auto-md/pipel
 | 字段 | 说明 |
 |---|---|
 | `work_dir` | `/workspace/.podcast-work/<eid>/`，含 `meta.json` + `content.txt` |
-| `output_path` | **最终 md 落盘路径**，host 可见（默认 `<repo>/.outputs/podcast/YYYY-MM-DD-<slug>.md`） |
+| `output_path` | **最终 md 落盘路径**，默认 `/workspace/.outputs/podcast/YYYY-MM-DD-<slug>.md`（从宿主看即 `<repo>/.ripple/sandboxes/<uid>/workspace/.outputs/podcast/...`） |
 | `title` / `podcast_name` / `audio_url` / `has_outline` / `outline_sections` | 元信息摘要 |
 
 > **不要再调用 `podcast-episode-extract` / `understand` / `transcribe` / `render.py`**——这些步骤都被 pipeline.py 一次完成或已被废弃。

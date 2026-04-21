@@ -3,6 +3,7 @@ import {
   ToolCall,
   UsageInfo,
   SystemInfo,
+  SandboxInfo,
   Session,
   SessionDetail,
   TaskInfo,
@@ -22,6 +23,9 @@ function getApiUrl(): string {
 
 const API_URL = getApiUrl();
 const API_KEY_STORAGE_KEY = "ripple-api-key";
+const USER_ID_STORAGE_KEY = "ripple-user-id";
+const DEFAULT_USER_ID = "default";
+const USER_ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
 
 export class AuthError extends Error {
   constructor(message = "Authentication required") {
@@ -45,10 +49,33 @@ export function clearApiKey(): void {
   localStorage.removeItem(API_KEY_STORAGE_KEY);
 }
 
-const DEFAULT_USER_ID = "default";
+export function isValidUserId(uid: string): boolean {
+  return USER_ID_PATTERN.test(uid);
+}
+
+export function getUserId(): string {
+  if (typeof window === "undefined") return DEFAULT_USER_ID;
+  const stored = localStorage.getItem(USER_ID_STORAGE_KEY);
+  if (stored && isValidUserId(stored)) return stored;
+  return DEFAULT_USER_ID;
+}
+
+export function setUserId(uid: string): void {
+  if (typeof window === "undefined") return;
+  const trimmed = uid.trim();
+  if (!isValidUserId(trimmed)) {
+    throw new Error("Invalid user_id: must match ^[a-zA-Z0-9_-]{1,64}$");
+  }
+  localStorage.setItem(USER_ID_STORAGE_KEY, trimmed);
+}
+
+export function clearUserId(): void {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem(USER_ID_STORAGE_KEY);
+}
 
 function authHeaders(): Record<string, string> {
-  const headers: Record<string, string> = { "X-Ripple-User-Id": DEFAULT_USER_ID };
+  const headers: Record<string, string> = { "X-Ripple-User-Id": getUserId() };
   const key = getApiKey();
   if (key) headers.Authorization = `Bearer ${key}`;
   return headers;
@@ -358,4 +385,39 @@ export async function sendChatMessage(
   } finally {
     if (timeoutTimer) clearInterval(timeoutTimer);
   }
+}
+
+export async function fetchCurrentSandbox(): Promise<SandboxInfo | null> {
+  const res = await fetch(`${API_URL}/sandboxes`, { headers: { ...authHeaders() } });
+  if (res.status === 401) throw new AuthError();
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Failed to fetch sandbox (${res.status})`);
+  return (await res.json()) as SandboxInfo;
+}
+
+export async function createCurrentSandbox(): Promise<SandboxInfo> {
+  const res = await fetch(`${API_URL}/sandboxes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) throw new Error(`Failed to create sandbox (${res.status})`);
+  return (await res.json()) as SandboxInfo;
+}
+
+export async function deleteCurrentSandbox(): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(`${API_URL}/sandboxes`, {
+    method: "DELETE",
+    headers: { ...authHeaders() },
+  });
+  if (res.status === 401) throw new AuthError();
+  if (res.ok) return { ok: true };
+  let message = `HTTP ${res.status}`;
+  try {
+    const body = (await res.json()) as { detail?: string };
+    if (body?.detail) message = body.detail;
+  } catch {
+    /* ignore parse error */
+  }
+  return { ok: false, error: message };
 }

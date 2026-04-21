@@ -49,6 +49,16 @@ export interface SystemInfo {
   max_turns: number;
 }
 
+export interface SandboxInfo {
+  user_id: string;
+  workspace_size_bytes: number;
+  session_count: number;
+  has_python_venv: boolean;
+  has_pnpm_setup: boolean;
+  has_lark_cli_config: boolean;
+  has_notion_token: boolean;
+}
+
 export interface Session {
   session_id: string;
   title: string;

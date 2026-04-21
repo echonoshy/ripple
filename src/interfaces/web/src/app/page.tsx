@@ -12,6 +12,8 @@ import {
   getApiKey,
   setApiKey,
   clearApiKey,
+  getUserId,
+  setUserId,
   AuthError,
   fetchSessions,
   fetchSessionDetails,
@@ -60,6 +62,9 @@ export default function Home() {
   const [models, setModels] = useState<{ id: string; owned_by: string }[]>([]);
   const [selectedModel, setSelectedModel] = useState("sonnet");
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
+
+  // ── User identity ──
+  const [userId, setUserIdState] = useState<string>(() => getUserId());
 
   // ── UI state ──
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -112,6 +117,32 @@ export default function Home() {
       setIsLoadingSessions(false);
     }
   }, [authState]);
+
+  const handleUserIdChange = useCallback(
+    (newUid: string) => {
+      try {
+        setUserId(newUid);
+      } catch {
+        return;
+      }
+      setUserIdState(newUid);
+      abortControllerRef.current?.abort();
+      activeRequestIdRef.current += 1;
+      setSessionId(null);
+      setMessages([]);
+      setSessions([]);
+      setTasks([]);
+      setTaskProgress(null);
+      setTokenUsage({ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
+      setLastContextTokens(0);
+      setIsGenerating(false);
+      clearStoredCurrentSessionId();
+      if (authState === "authenticated") {
+        void loadSessions();
+      }
+    },
+    [authState, loadSessions]
+  );
 
   const applySessionDetails = useCallback((details: SessionDetail) => {
     setSessionId(details.session_id);
@@ -728,6 +759,15 @@ export default function Home() {
                   )}
                 </button>
               )}
+              <button
+                type="button"
+                onClick={() => setIsSettingsOpen(true)}
+                title="Click to change in Settings"
+                className="hidden items-center gap-1.5 rounded-lg border border-[#27272a] bg-[#18181b] px-2.5 py-1 font-[family-name:var(--font-mono)] text-xs text-[#a1a1aa] transition-colors hover:border-[#3b82f6]/40 hover:text-[#fafafa] sm:flex"
+              >
+                <span className="text-[#71717a]">user</span>
+                <span className="max-w-[120px] truncate text-[#3b82f6]">{userId}</span>
+              </button>
               <div
                 className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 ${
                   sessionId
@@ -832,6 +872,8 @@ export default function Home() {
         thinkingEnabled={thinkingEnabled}
         onThinkingToggle={setThinkingEnabled}
         apiKey={getApiKey()}
+        userId={userId}
+        onUserIdChange={handleUserIdChange}
         onApiKeyChange={() => {
           clearApiKey();
           clearStoredCurrentSessionId();

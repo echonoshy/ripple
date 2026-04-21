@@ -116,3 +116,91 @@ async def ensure_pnpm_setup(
             msg = f"Node.js 全局环境初始化失败 (exit={exit_code}): {stderr or stdout}"
             logger.warning("session {} {}", session_id, msg)
             return False, msg
+
+
+# --- user 维度 API (Phase 2-5 过渡期) ---
+
+_venv_locks_uid: dict[str, asyncio.Lock] = {}
+_pnpm_locks_uid: dict[str, asyncio.Lock] = {}
+
+
+def _install_pip_wrappers_uid(config: SandboxConfig, user_id: str) -> None:
+    """在 user venv 的 bin/ 下写入 pip/pip3 wrapper"""
+    venv_bin = config.workspace_dir_by_uid(user_id) / ".venv" / "bin"
+    if not venv_bin.is_dir():
+        return
+    for name in ("pip", "pip3"):
+        wrapper = venv_bin / name
+        if not wrapper.exists():
+            wrapper.write_text(_PIP_WRAPPER_SCRIPT, encoding="utf-8")
+            wrapper.chmod(0o755)
+            logger.debug("写入 {} wrapper: {}", name, wrapper)
+
+
+async def ensure_python_venv_uid(
+    config: SandboxConfig,
+    user_id: str,
+) -> tuple[bool, str]:
+    """懒创建 per-user Python venv"""
+    if config.has_python_venv_by_uid(user_id):
+        return True, ""
+
+    lock = _venv_locks_uid.setdefault(user_id, asyncio.Lock())
+    async with lock:
+        if config.has_python_venv_by_uid(user_id):
+            return True, ""
+
+        logger.info("为 user {} 懒创建 Python venv", user_id)
+
+        from ripple.sandbox.executor import execute_in_sandbox_uid
+
+        cmd = "uv venv /workspace/.venv 2>&1 || python3 -m venv /workspace/.venv"
+        stdout, stderr, exit_code = await execute_in_sandbox_uid(cmd, config, user_id, timeout=60)
+
+        if exit_code == 0 and config.has_python_venv_by_uid(user_id):
+            _install_pip_wrappers_uid(config, user_id)
+            logger.info("user {} Python venv 创建成功（含 pip wrapper）", user_id)
+            return True, stdout
+        else:
+            msg = f"venv 创建失败 (exit={exit_code}): {stderr or stdout}"
+            logger.warning("user {} {}", user_id, msg)
+            return False, msg
+
+
+async def ensure_pnpm_setup_uid(
+    config: SandboxConfig,
+    user_id: str,
+) -> tuple[bool, str]:
+    """懒初始化 per-user Node.js 全局环境"""
+    if not config.node_dir:
+        return False, "Node.js not available in sandbox"
+
+    if config.has_pnpm_setup_by_uid(user_id):
+        return True, ""
+
+    lock = _pnpm_locks_uid.setdefault(user_id, asyncio.Lock())
+    async with lock:
+        if config.has_pnpm_setup_by_uid(user_id):
+            return True, ""
+
+        logger.info("为 user {} 初始化 Node.js 全局环境", user_id)
+
+        from ripple.sandbox.executor import execute_in_sandbox_uid
+
+        marker = "/workspace/.local/.node-setup-done"
+        cmd = (
+            f"mkdir -p {SANDBOX_NODE_BIN} && "
+            f"pnpm config set global-bin-dir {SANDBOX_NODE_BIN} --global && "
+            f"pnpm config set store-dir {SANDBOX_PNPM_STORE} --global && "
+            f"echo 'onlyBuiltDependencies[]=*' >> /workspace/.npmrc && "
+            f"touch {marker}"
+        )
+        stdout, stderr, exit_code = await execute_in_sandbox_uid(cmd, config, user_id, timeout=120)
+
+        if exit_code == 0 and config.has_pnpm_setup_by_uid(user_id):
+            logger.info("user {} Node.js 全局环境初始化成功", user_id)
+            return True, stdout
+        else:
+            msg = f"Node.js 全局环境初始化失败 (exit={exit_code}): {stderr or stdout}"
+            logger.warning("user {} {}", user_id, msg)
+            return False, msg

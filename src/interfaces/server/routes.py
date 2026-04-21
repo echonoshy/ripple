@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
 from interfaces.server.auth import verify_api_key
+from interfaces.server.deps import get_user_id
 from interfaces.server.schemas import (
     ChatCompletionRequest,
     CreateSessionRequest,
@@ -162,6 +163,7 @@ def _extract_caller_system_prompt(request: ChatCompletionRequest) -> str | None:
 @router.post("/v1/chat/completions")
 async def chat_completions(
     request: ChatCompletionRequest,
+    user_id: str = Depends(get_user_id),
     _api_key: str = Depends(verify_api_key),
 ):
     manager = get_session_manager()
@@ -177,6 +179,7 @@ async def chat_completions(
 
     session, is_new = manager.get_or_create_session(
         session_id=request.session_id,
+        user_id=user_id,
         model=request.model,
         max_turns=max_turns,
         caller_system_prompt=caller_system_prompt,
@@ -393,10 +396,11 @@ async def _non_stream_chat(
 
 @router.get("/v1/sessions")
 async def list_sessions(
+    user_id: str = Depends(get_user_id),
     _api_key: str = Depends(verify_api_key),
 ):
     manager = get_session_manager()
-    all_sessions = manager.list_all_sessions()
+    all_sessions = manager.list_all_sessions(user_id=user_id)
 
     session_infos = [
         SessionInfo(
@@ -416,10 +420,12 @@ async def list_sessions(
 @router.post("/v1/sessions")
 async def create_session(
     request: CreateSessionRequest,
+    user_id: str = Depends(get_user_id),
     _api_key: str = Depends(verify_api_key),
 ):
     manager = get_session_manager()
     session = manager.create_session(
+        user_id=user_id,
         model=request.model,
         max_turns=request.max_turns,
         caller_system_prompt=request.system_prompt,
@@ -437,12 +443,13 @@ async def create_session(
 @router.get("/v1/sessions/{session_id}")
 async def get_session(
     session_id: str,
+    user_id: str = Depends(get_user_id),
     _api_key: str = Depends(verify_api_key),
 ):
     manager = get_session_manager()
-    session = manager.get_session(session_id)
+    session = manager.get_session(session_id, user_id=user_id)
     if not session:
-        session = manager.resume_session(session_id)
+        session = manager.resume_session(session_id, user_id=user_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -463,15 +470,16 @@ async def get_session(
 @router.post("/v1/sessions/{session_id}/stop")
 async def stop_session(
     session_id: str,
+    user_id: str = Depends(get_user_id),
     _api_key: str = Depends(verify_api_key),
 ):
     """停止当前 session 正在进行的聊天/任务"""
     manager = get_session_manager()
-    session = manager.get_session(session_id)
+    session = manager.get_session(session_id, user_id=user_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    stopped = manager.stop_session(session_id)
+    stopped = manager.stop_session(session_id, user_id=user_id)
     return {"ok": True, "stopped": stopped}
 
 
@@ -479,13 +487,14 @@ async def stop_session(
 async def resolve_permission_request(
     session_id: str,
     request: PermissionResolveRequest,
+    user_id: str = Depends(get_user_id),
     _api_key: str = Depends(verify_api_key),
 ):
     """处理挂起的权限请求。"""
     manager = get_session_manager()
-    session = manager.get_session(session_id)
+    session = manager.get_session(session_id, user_id=user_id)
     if not session:
-        session = manager.resume_session(session_id)
+        session = manager.resume_session(session_id, user_id=user_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -518,11 +527,12 @@ async def resolve_permission_request(
 @router.get("/v1/sessions/{session_id}/usage")
 async def get_session_usage(
     session_id: str,
+    user_id: str = Depends(get_user_id),
     _api_key: str = Depends(verify_api_key),
 ):
     """获取 session 的累计 token 使用量"""
     manager = get_session_manager()
-    session = manager.get_session(session_id)
+    session = manager.get_session(session_id, user_id=user_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     return {
@@ -538,10 +548,11 @@ async def get_session_usage(
 @router.delete("/v1/sessions/{session_id}")
 async def delete_session(
     session_id: str,
+    user_id: str = Depends(get_user_id),
     _api_key: str = Depends(verify_api_key),
 ):
     manager = get_session_manager()
-    if not manager.delete_session(session_id):
+    if not manager.delete_session(session_id, user_id=user_id):
         raise HTTPException(status_code=404, detail="Session not found")
     return {"ok": True}
 
@@ -552,11 +563,12 @@ async def delete_session(
 @router.post("/v1/sessions/{session_id}/suspend")
 async def suspend_session(
     session_id: str,
+    user_id: str = Depends(get_user_id),
     _api_key: str = Depends(verify_api_key),
 ):
     """挂起 session：保存状态到磁盘，释放内存"""
     manager = get_session_manager()
-    ok = manager.suspend_session(session_id)
+    ok = manager.suspend_session(session_id, user_id=user_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Session not found or already suspended")
     return {"ok": True, "session_id": session_id}
@@ -565,11 +577,12 @@ async def suspend_session(
 @router.post("/v1/sessions/{session_id}/resume")
 async def resume_session(
     session_id: str,
+    user_id: str = Depends(get_user_id),
     _api_key: str = Depends(verify_api_key),
 ):
     """恢复已挂起的 session"""
     manager = get_session_manager()
-    session = manager.resume_session(session_id)
+    session = manager.resume_session(session_id, user_id=user_id)
     if not session:
         raise HTTPException(status_code=404, detail="Suspended session not found")
     return SessionInfo(
@@ -584,11 +597,12 @@ async def resume_session(
 
 @router.get("/v1/sessions/suspended")
 async def list_suspended_sessions(
+    user_id: str = Depends(get_user_id),
     _api_key: str = Depends(verify_api_key),
 ):
-    """列出所有已挂起的 session"""
+    """列出所有已挂起的 session（仅当前 user）"""
     manager = get_session_manager()
-    suspended = manager.list_suspended_sessions()
+    suspended = manager.list_suspended_sessions(user_id=user_id)
 
     sessions_out = []
     for s in suspended:
@@ -653,16 +667,17 @@ async def get_sandbox_info(
 @router.post("/v1/tools/invoke")
 async def invoke_tool(
     request: ToolInvokeRequest,
+    user_id: str = Depends(get_user_id),
     _api_key: str = Depends(verify_api_key),
 ):
     manager = get_session_manager()
 
     if request.session_id:
-        session = manager.get_session(request.session_id)
+        session = manager.get_session(request.session_id, user_id=user_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
     else:
-        session = manager.create_session()
+        session = manager.create_session(user_id=user_id)
 
     context = session.context
     tool_instance = None

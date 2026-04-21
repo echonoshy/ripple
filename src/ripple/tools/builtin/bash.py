@@ -37,6 +37,12 @@ _LARK_CLI_CMD_PATTERN = re.compile(
     r"(?:^|&&|\|\||;|\|)\s*lark-cli\b",
 )
 
+# 匹配需要 notion-cli (ntn) 的命令。
+# 注意：ntn 是 Rust 静态二进制，与 lark-cli 一样无需 Node/pnpm 环境。
+_NOTION_CLI_CMD_PATTERN = re.compile(
+    r"(?:^|&&|\|\||;|\|)\s*ntn\b",
+)
+
 
 class BashInput(BaseModel):
     """Bash 工具输入"""
@@ -75,6 +81,11 @@ def _needs_node_env(command: str) -> bool:
 def _needs_lark_cli(command: str) -> bool:
     """判断命令是否需要 lark-cli"""
     return bool(_LARK_CLI_CMD_PATTERN.search(command))
+
+
+def _needs_notion_cli(command: str) -> bool:
+    """判断命令是否需要 notion-cli (ntn)"""
+    return bool(_NOTION_CLI_CMD_PATTERN.search(command))
 
 
 class BashTool(Tool[BashInput, BashOutput]):
@@ -191,6 +202,36 @@ class BashTool(Tool[BashInput, BashOutput]):
             )
         return f"[SANDBOX] lark-cli 准备失败: {msg}"
 
+    async def _ensure_notion_cli_if_needed(self, command: str, session_id: str) -> str | None:
+        """确保 notion-cli (ntn) 二进制已挂入沙箱、且当前 session 已绑定 token。
+
+        Token 采用 **per-session 隔离** 模式：每个 session 在 session_dir/notion.json
+        里持有独立的 Integration Token。没配置时返回明确的"问用户拿 token + 调
+        NotionTokenSet 工具"指令，让模型走对话流程完成绑定（不依赖任何特定前端 UI）。
+
+        返回 None 表示前置条件满足；非 None 表示错误/提示文本，调用方会 short-circuit。
+        """
+        if not _needs_notion_cli(command):
+            return None
+
+        if not _sandbox_config.notion_cli_install_root:
+            return "[SANDBOX] notion-cli (ntn) 未预装（宿主机）。请联系管理员执行: bash scripts/install-notion-cli.sh"
+
+        if not _sandbox_config.has_notion_token(session_id):
+            return (
+                "[NOTION_AUTH_REQUIRED] 当前会话尚未绑定 Notion Integration Token。\n\n"
+                "请按以下步骤处理（不要再次直接调 ntn）：\n"
+                "  1. 用一段简短自然语言告知用户：需要他从 "
+                "https://www.notion.so/profile/integrations 复制 Internal "
+                "Integration Token（格式 `ntn_...` 或 `secret_...`）并直接粘贴到对话里。\n"
+                "  2. 提醒用户：把目标 page/database 在 Notion 里 Share 给该 Integration，"
+                "否则即使 token 正确也会 404/403。\n"
+                "  3. 收到用户贴出的 token 后，**立刻调 `NotionTokenSet` 工具** 完成绑定 "
+                "（参数 `api_token=<用户贴的原文>`），然后重跑刚才被拦下的命令。\n"
+                "  4. 在你后续的回复里**不要回显完整 token**，最多展示前 6 字符 + `...`。"
+            )
+        return None
+
     def _wrap_with_venv_activation(self, command: str, session_id: str) -> str:
         """如果 workspace 内存在 venv，自动在命令前激活它"""
         if _sandbox_config.has_python_venv(session_id):
@@ -214,6 +255,10 @@ class BashTool(Tool[BashInput, BashOutput]):
         # 懒安装 lark-cli（失败时直接返回错误，不继续执行）
         if lark_err := await self._ensure_lark_cli_if_needed(args.command, session_id):
             return "", lark_err, 1
+
+        # notion-cli (ntn) 前置校验（二进制 + token），任一缺失直接返回错误
+        if notion_err := await self._ensure_notion_cli_if_needed(args.command, session_id):
+            return "", notion_err, 1
 
         # 自动激活已有 venv
         command = self._wrap_with_venv_activation(args.command, session_id)

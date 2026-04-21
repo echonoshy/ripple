@@ -205,6 +205,19 @@ Skills 是带 YAML frontmatter 的 Markdown 文件，定义特定领域的任务
 
 由于网络原因，如果你要测试、debug 或者启动该项目，先执行 `proxy_on`
 
+### 外部 CLI 依赖
+
+两个通过 `vendor/` 目录托管的静态二进制，沙箱启动时 readonly bind-mount 到 `/opt/<name>/`：
+
+| CLI | 安装脚本 | 宿主安装位置 | 沙箱路径 | 鉴权方式 |
+|-----|----------|-------------|----------|---------|
+| `lark-cli`（飞书） | `bash scripts/install-feishu-cli.sh` | `vendor/lark-cli/v<X.Y.Z>/bin/` | `/opt/lark-cli/current/bin/lark-cli` | per-session：`lark-cli auth login`（OAuth） |
+| `ntn`（Notion） | `bash scripts/install-notion-cli.sh` | `vendor/notion-cli/v<X.Y.Z>/bin/` | `/opt/notion-cli/current/bin/ntn` | per-session：用户对话粘贴 token → 模型调内置工具 `NotionTokenSet` → `session_dir/notion.json` → `NOTION_API_TOKEN` env |
+
+- 下载失败都会打印手工安装指引，**不会自动重试**
+- 版本切换：`bash scripts/use-<name>-cli.sh <version>`
+- 相关 skill 分别在 `skills/lark/` 和 `skills/notion/` 下（首次使用前先读对应 `*-shared/SKILL.md`）
+
 ### 安全
 
 **重要**: 检查未被 `.gitignore` 的文件中，不要包含 API key、token 等敏感信息。如果测试文件中用到了，测试完毕后请删除该测试文件，或者明显提示风险，不要通过 git 上传。

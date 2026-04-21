@@ -32,6 +32,16 @@ LARK_CLI_INSTALL_ROOT = "/opt/lark-cli"
 LARK_CLI_SANDBOX_BIN_DIR = f"{LARK_CLI_INSTALL_ROOT}/current/bin"
 LARK_CLI_SANDBOX_BIN = f"{LARK_CLI_SANDBOX_BIN_DIR}/lark-cli"
 
+# notion-cli (ntn) 在**沙箱内**的挂载目的地（dst）。
+# 宿主侧的安装根目录由 scripts/install-notion-cli.sh 决定（项目内
+# `<repo_root>/vendor/notion-cli/`），运行时发现后以 readonly bind mount
+# 方式挂到这个固定路径，与 lark-cli 同款模式。
+#   /opt/notion-cli/vX.Y.Z/bin/ntn
+#   /opt/notion-cli/current -> vX.Y.Z
+NOTION_CLI_INSTALL_ROOT = "/opt/notion-cli"
+NOTION_CLI_SANDBOX_BIN_DIR = f"{NOTION_CLI_INSTALL_ROOT}/current/bin"
+NOTION_CLI_SANDBOX_BIN = f"{NOTION_CLI_SANDBOX_BIN_DIR}/ntn"
+
 
 @dataclass
 class ResourceLimits:
@@ -104,6 +114,26 @@ def _discover_lark_cli_install_root() -> str | None:
     return None
 
 
+def _discover_notion_cli_install_root() -> str | None:
+    """自动发现 notion-cli (ntn) 的**宿主侧安装根目录**（用于 bind-mount 到沙箱）。
+
+    要求目录结构为 `<root>/current/bin/ntn`。探测顺序：
+      1. 项目内（scripts/install-notion-cli.sh 默认位置）：
+         `<repo_root>/vendor/notion-cli/`
+      2. 宿主全局（备用）：`/opt/notion-cli/`
+
+    返回任一命中的路径，否则 None。
+    """
+    candidates = [
+        _repo_root() / "vendor" / "notion-cli",
+        Path("/opt/notion-cli"),
+    ]
+    for root in candidates:
+        if (root / "current" / "bin" / "ntn").exists():
+            return str(root)
+    return None
+
+
 def _discover_lark_cli_bin() -> str | None:
     """自动发现 lark-cli 二进制的宿主路径（仅作可用性判据）。
 
@@ -160,7 +190,7 @@ class SandboxConfig:
 
     目录布局：
     - sessions_root/<sid>/                ← 每个 session 的完整运行时状态
-        ├── meta.json, messages.jsonl, tasks.json, nsjail.cfg, feishu.json
+        ├── meta.json, messages.jsonl, tasks.json, nsjail.cfg, feishu.json, notion.json
         ├── task-outputs/                 ← AgentTool 后台任务的输出
         └── workspace/                    ← 沙箱工作区（用户文件）
     - caches_root/
@@ -215,6 +245,15 @@ class SandboxConfig:
     lark_cli_install_root: str | None = field(default=None)
     lark_cli_bin: str | None = field(default=None)
 
+    # --- notion-cli (ntn) ---
+    # notion_cli_install_root: 宿主侧安装根目录，要求含 `current/bin/ntn`。
+    #   运行时 readonly bind-mount 到沙箱内 NOTION_CLI_INSTALL_ROOT（/opt/notion-cli）。
+    #   由 scripts/install-notion-cli.sh 默认写入 <repo_root>/vendor/notion-cli/。
+    # 注意：Notion Integration Token 采用 **per-session** 存储模式（见
+    # `notion_config_file(session_id)` → session_dir/notion.json），沙箱启动时
+    # 动态读取并注入 env NOTION_API_TOKEN。此处不持有全局 token，保证严格隔离。
+    notion_cli_install_root: str | None = field(default=None)
+
     def __post_init__(self):
         if self.uv_bin_dir is None:
             self.uv_bin_dir = _discover_uv_bin_dir()
@@ -226,6 +265,8 @@ class SandboxConfig:
             self.lark_cli_install_root = _discover_lark_cli_install_root()
         if self.lark_cli_bin is None:
             self.lark_cli_bin = _discover_lark_cli_bin()
+        if self.notion_cli_install_root is None:
+            self.notion_cli_install_root = _discover_notion_cli_install_root()
 
     @property
     def uv_cache_dir(self) -> Path:
@@ -298,6 +339,34 @@ class SandboxConfig:
         """session 级飞书凭证配置文件路径（宿主机侧）"""
         return self.session_dir(session_id) / "feishu.json"
 
+    def notion_config_file(self, session_id: str) -> Path:
+        """session 级 Notion Integration Token 文件路径（宿主机侧，per-session）
+
+        文件内容格式: {"api_token": "ntn_xxx..."}
+
+        **绝不**挂进沙箱 /workspace（免得用户脚本意外读到）；仅由
+        `ripple.sandbox.notion.read_notion_token` 在构造沙箱 env 时读取。
+        """
+        return self.session_dir(session_id) / "notion.json"
+
+    def has_notion_token(self, session_id: str) -> bool:
+        """检查 session 是否已配置 Notion Integration Token
+
+        判定依据：session_dir/notion.json 存在且有非空 api_token 字段。
+        不读取文件内容的合法性校验（留给 write 端），只看"是否可用"。
+        """
+        f = self.notion_config_file(session_id)
+        if not f.exists():
+            return False
+        try:
+            import json
+
+            data = json.loads(f.read_text(encoding="utf-8"))
+            token = data.get("api_token", "")
+            return isinstance(token, str) and bool(token.strip())
+        except (json.JSONDecodeError, OSError):
+            return False
+
     @classmethod
     def from_dict(cls, data: dict) -> "SandboxConfig":
         sessions_root = Path(data["sessions_root"]) if "sessions_root" in data else _default_sessions_root()
@@ -342,4 +411,5 @@ class SandboxConfig:
             npm_registry_url=data.get("npm_registry_url", NPM_MIRROR_NPMMIRROR),
             lark_cli_install_root=data.get("lark_cli_install_root"),
             lark_cli_bin=data.get("lark_cli_bin"),
+            notion_cli_install_root=data.get("notion_cli_install_root"),
         )

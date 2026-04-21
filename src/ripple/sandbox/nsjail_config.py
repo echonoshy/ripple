@@ -11,6 +11,8 @@ from pathlib import Path
 from ripple.sandbox.config import (
     LARK_CLI_INSTALL_ROOT,
     LARK_CLI_SANDBOX_BIN_DIR,
+    NOTION_CLI_INSTALL_ROOT,
+    NOTION_CLI_SANDBOX_BIN_DIR,
     SANDBOX_COREPACK_HOME,
     SANDBOX_NODE_BIN,
     SANDBOX_NODE_DIR,
@@ -24,8 +26,13 @@ from ripple.utils.logger import get_logger
 logger = get_logger("sandbox.nsjail_config")
 
 
-def build_sandbox_env(config: SandboxConfig) -> dict[str, str]:
-    """构建沙箱最小白名单环境变量（不继承宿主环境）"""
+def build_sandbox_env(config: SandboxConfig, session_id: str | None = None) -> dict[str, str]:
+    """构建沙箱最小白名单环境变量（不继承宿主环境）。
+
+    `session_id` 可选：仅在生成某个具体 session 的 nsjail.cfg 时传入。
+    per-session 的敏感 env（如 NOTION_API_TOKEN）只有在给出 session_id 时
+    才会尝试注入，从而保证不同 session 写出的 cfg 之间严格隔离。
+    """
     path_parts = ["/usr/local/sbin", "/usr/local/bin", "/usr/sbin", "/usr/bin", "/sbin", "/bin"]
 
     if config.uv_bin_dir:
@@ -39,6 +46,10 @@ def build_sandbox_env(config: SandboxConfig) -> dict[str, str]:
     # 解耦宿主安装位置（vendor/ 或 /opt/），不再依赖 /usr/local/bin/lark-cli 软链。
     if config.lark_cli_install_root:
         path_parts.insert(0, LARK_CLI_SANDBOX_BIN_DIR)
+
+    # notion-cli (ntn) 同 lark-cli 的模式：bind-mount 到 /opt/notion-cli，bin 入 PATH。
+    if config.notion_cli_install_root:
+        path_parts.insert(0, NOTION_CLI_SANDBOX_BIN_DIR)
 
     env = {
         "PATH": ":".join(path_parts),
@@ -54,6 +65,18 @@ def build_sandbox_env(config: SandboxConfig) -> dict[str, str]:
     if config.pypi_mirror_url:
         env["UV_INDEX_URL"] = config.pypi_mirror_url
         env["PIP_INDEX_URL"] = config.pypi_mirror_url
+
+    # Notion CLI (ntn) 鉴权 token —— **per-session** 严格隔离：
+    # 只从该 session 的 notion.json 读取，没配就完全不注入（bash 守卫会
+    # 在命令执行前拦下并向前端吐 `[NOTION_SETUP]` marker 让用户补填）。
+    # 这里故意**不**回落到任何全局配置，避免 "A session 的 token 泄漏给
+    # B session" 这种严重隔离破坏。
+    if session_id:
+        from ripple.sandbox.notion import read_notion_token
+
+        notion_token = read_notion_token(config, session_id)
+        if notion_token:
+            env["NOTION_API_TOKEN"] = notion_token
 
     if config.node_dir:
         env["PNPM_HOME"] = SANDBOX_NODE_BIN
@@ -169,6 +192,15 @@ def generate_nsjail_config(config: SandboxConfig, session_id: str) -> str:
     rw: false
 }}""")
 
+    # notion-cli (ntn) 原生二进制安装根（只读，所有 session 共享），与 lark-cli 同款。
+    if config.notion_cli_install_root and Path(config.notion_cli_install_root).exists():
+        mounts.append(f"""mount {{
+    src: "{config.notion_cli_install_root}"
+    dst: "{NOTION_CLI_INSTALL_ROOT}"
+    is_bind: true
+    rw: false
+}}""")
+
     # 共享 skill 目录（只读，所有 session 共享）。
     # 以"原路径 → 原路径"挂载，使 Skill 系统提示中替换后的 `$SKILL_BASE_DIR`
     # 宿主绝对路径（见 `skills/types.py`）在沙箱内依然可直接访问，从而允许
@@ -225,7 +257,7 @@ def generate_nsjail_config(config: SandboxConfig, session_id: str) -> str:
 
     mounts_str = "\n\n".join(mounts)
 
-    sandbox_env = build_sandbox_env(config)
+    sandbox_env = build_sandbox_env(config, session_id=session_id)
     envars = [f'envar: "{k}={v}"' for k, v in sandbox_env.items()]
     envars_str = "\n".join(envars)
 

@@ -22,6 +22,7 @@ from ripple.tools.builtin.agent_tool import AgentTool
 from ripple.tools.builtin.ask_user import AskUserTool
 from ripple.tools.builtin.bash import BashTool
 from ripple.tools.builtin.music_identify import MusicIdentifyTool
+from ripple.tools.builtin.notion_token_set import NotionTokenSetTool
 from ripple.tools.builtin.read import ReadTool
 from ripple.tools.builtin.search import SearchTool
 from ripple.tools.builtin.task_create import TaskCreateTool
@@ -232,6 +233,7 @@ def _get_server_tools() -> list:
         SkillTool(),
         AskUserTool(),
         MusicIdentifyTool(),
+        NotionTokenSetTool(),
         TaskCreateTool(),
         TaskUpdateTool(),
         TaskListTool(),

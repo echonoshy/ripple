@@ -166,26 +166,29 @@ export default function TaskExecutionPanel({
               />
             </div>
           ) : (
-            <div className="space-y-6 pb-8">
+            <div className="space-y-2 pb-8">
               {toolCalls.map((tool) => (
                 <motion.div
                   key={tool.id}
-                  initial={{ opacity: 0, x: -8 }}
-                  animate={{ opacity: 1, x: 0 }}
+                  initial={{ opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.2 }}
-                  className="space-y-2"
+                  className="rounded-lg border border-[#222] bg-[#000] p-3 font-mono text-[12px]"
                 >
-                  <div className="flex items-center gap-2 text-[13px] text-[#ededed]">
-                    <Wrench size={13} className={tool.status === "running" ? "animate-spin" : ""} />
+                  <div className="flex items-center gap-2 text-[#ededed]">
+                    <span className="text-[#666]">▶</span>
                     <span className="font-medium">{tool.name}</span>
-                    <span className="text-[12px] text-[#666666]">
-                      {tool.status === "running" ? "running" : "done"}
+                    <span className="text-[10px] text-[#666]">
+                      {tool.status === "running" ? "running..." : "done"}
                     </span>
+                    {tool.status === "running" && (
+                      <Loader2 size={10} className="animate-spin text-[#666] ml-auto" />
+                    )}
                   </div>
-                  <div className="space-y-3 border-l border-white/10 pl-4">
+                  <div className="mt-2 ml-4 border-l border-[#222] pl-3 space-y-2">
                     <div>
-                      <span className="text-[12px] text-[#666666] select-none">{"// args"}</span>
-                      <pre className="mt-1 overflow-x-auto text-[13px] break-all whitespace-pre-wrap text-[#ededed] opacity-90">
+                      <span className="text-[#555] select-none">{"// args"}</span>
+                      <pre className="mt-1 overflow-x-auto break-all whitespace-pre-wrap text-[#aaa]">
                         {typeof tool.arguments === "string"
                           ? tool.arguments
                           : JSON.stringify(tool.arguments, null, 2)}
@@ -193,10 +196,8 @@ export default function TaskExecutionPanel({
                     </div>
                     {tool.result && (
                       <div>
-                        <span className="text-[12px] text-[#666666] select-none">
-                          {"// result"}
-                        </span>
-                        <pre className="mt-1 overflow-x-auto text-[13px] break-all whitespace-pre-wrap text-[#888888] opacity-90">
+                        <span className="text-[#555] select-none">{"// result"}</span>
+                        <pre className="mt-1 overflow-x-auto break-all whitespace-pre-wrap text-[#888]">
                           {tool.result}
                         </pre>
                       </div>

@@ -94,7 +94,7 @@ export default function ChatMessage({
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ type: "spring", stiffness: 400, damping: 30 }}
-      className="flex flex-col gap-2 mb-2"
+      className="flex flex-col gap-0.5 mb-0"
     >
       {/* Label */}
       <div className="flex items-center gap-2 text-xs font-medium text-[#888888] mb-1 px-1">
@@ -103,16 +103,16 @@ export default function ChatMessage({
 
       {isUser ? (
         /* User message - Subtle gradient background */
-        <div className="user-message-bg text-[15px] leading-relaxed text-[#ededed]">
+        <div className="user-message-bg text-[14px] leading-relaxed text-[#ededed]">
           <div className="whitespace-pre-wrap">{msg.content}</div>
         </div>
       ) : (
-        /* Assistant message - Glowing left border */
-        <div className="max-w-full min-w-0 flex-1 space-y-2 glow-line-vertical pl-5 ml-1 py-1">
+        /* Assistant message - Simple left border */
+        <div className="max-w-full min-w-0 flex-1 space-y-2 border-l-[3px] border-white/20 pl-5 ml-1 py-1">
           {showThinking && isEmptyAssistant && <ThinkingIndicator hasContent={false} />}
 
           {msg.content && (
-            <div className="text-[15px] leading-relaxed text-[#ededed]">
+            <div className="text-[14px] leading-relaxed text-[#ededed]">
               <MarkdownRenderer content={msg.content} />
             </div>
           )}
@@ -191,7 +191,7 @@ export default function ChatMessage({
       )}
       
       {/* Separator (except for the very last message being generated) */}
-      {!isLast && <div className="separator-glow mt-6 mb-4" />}
+      {!isLast && <div className="separator-glow mt-3 mb-1" />}
     </motion.div>
   );
 }

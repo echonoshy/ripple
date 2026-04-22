@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Wrench, Loader2, CheckCircle2, Circle, ListTodo } from "lucide-react";
+import { Wrench, Loader2, CheckCircle2, Circle, ListTodo, Settings } from "lucide-react";
 import { TaskInfo, TaskProgress, ToolCall } from "@/types";
 
 interface TaskExecutionPanelProps {
@@ -176,7 +176,7 @@ export default function TaskExecutionPanel({
                   className="rounded-lg border border-[#222] bg-[#000] p-3 font-mono text-[12px] hover-glow-card"
                 >
                   <div className="flex items-center gap-2 text-[#ededed]">
-                    <span className="text-[#666]">▶</span>
+                    <Settings size={12} className="text-[#666]" />
                     <span className="font-medium">{tool.name}</span>
                     <span className="text-[10px] text-[#666]">
                       {tool.status === "running" ? "running..." : "done"}

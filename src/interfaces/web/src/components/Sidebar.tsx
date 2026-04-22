@@ -97,7 +97,7 @@ export default function Sidebar({
             />
           </div>
           <div className="flex items-center gap-2.5">
-            <h1 className="bg-gradient-to-br from-white to-white/50 bg-clip-text font-[family-name:var(--font-sans)] text-[17px] font-semibold tracking-wide text-transparent">
+            <h1 className="bg-gradient-to-br from-white to-white/50 bg-clip-text font-[family-name:var(--font-mono)] text-[17px] font-bold tracking-tighter text-transparent">
               Ripple
             </h1>
           </div>
@@ -122,19 +122,19 @@ export default function Sidebar({
           className={`group relative mb-4 flex w-full items-center gap-3 overflow-hidden rounded-xl border p-3 text-left transition-all duration-300 ${
             isDefaultUser
               ? "border-[#ff9d2a]/20 bg-gradient-to-br from-[#ff9d2a]/[0.08] to-transparent hover:border-[#ff9d2a]/40 hover:shadow-[0_0_15px_rgba(255,157,42,0.1)]"
-              : "border-[#6366f1]/20 bg-gradient-to-br from-[#6366f1]/[0.08] to-transparent hover:border-[#6366f1]/40 hover:shadow-[0_0_15px_rgba(99,102,241,0.1)]"
+              : "border-white/10 bg-gradient-to-br from-white/[0.04] to-transparent hover:border-white/20 hover:shadow-[0_0_15px_rgba(255,255,255,0.05)]"
           }`}
         >
           {/* Subtle background glow on hover */}
           <div className={`absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100 ${
-            isDefaultUser ? "bg-gradient-to-r from-[#ff9d2a]/10 to-transparent" : "bg-gradient-to-r from-[#6366f1]/10 to-transparent"
+            isDefaultUser ? "bg-gradient-to-r from-[#ff9d2a]/10 to-transparent" : "bg-gradient-to-r from-white/10 to-transparent"
           }`} />
           
           <div
             className={`relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border shadow-sm transition-transform duration-300 group-hover:scale-105 ${
               isDefaultUser
                 ? "border-[#ff9d2a]/30 bg-[#ff9d2a]/10 text-[#ff9d2a]"
-                : "border-[#6366f1]/30 bg-[#6366f1]/10 text-[#818cf8]"
+                : "border-white/20 bg-white/5 text-[#ededed]"
             }`}
           >
             <UserRound size={16} />
@@ -142,7 +142,7 @@ export default function Sidebar({
           <div className="relative min-w-0 flex-1">
             <p
               className={`text-[10px] font-medium tracking-wider uppercase ${
-                isDefaultUser ? "text-[#ff9d2a]/80" : "text-[#818cf8]/80"
+                isDefaultUser ? "text-[#ff9d2a]/80" : "text-[#888888]"
               }`}
             >
               {isDefaultUser ? "Default user" : "Signed in as"}
@@ -154,7 +154,7 @@ export default function Sidebar({
           <Settings
             size={14}
             className={`relative transition-all duration-300 group-hover:rotate-90 ${
-              isDefaultUser ? "text-[#ff9d2a]/50 group-hover:text-[#ff9d2a]" : "text-[#6366f1]/50 group-hover:text-[#818cf8]"
+              isDefaultUser ? "text-[#ff9d2a]/50 group-hover:text-[#ff9d2a]" : "text-[#666666] group-hover:text-[#ededed]"
             }`}
           />
         </button>

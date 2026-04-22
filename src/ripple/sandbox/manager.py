@@ -151,4 +151,6 @@ class SandboxManager:
             "has_pnpm_setup": self.config.has_pnpm_setup(user_id),
             "has_lark_cli_config": self.config.has_lark_cli_config(user_id),
             "has_notion_token": self.config.has_notion_token(user_id),
+            "has_gogcli_client_config": self.config.has_gogcli_client_config(user_id),
+            "has_gogcli_login": self.config.has_gogcli_login(user_id),
         }

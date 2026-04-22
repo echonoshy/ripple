@@ -77,3 +77,10 @@ def test_ensure_keyring_password_different_per_user(cfg: SandboxConfig):
     pw_alice = ensure_gogcli_keyring_password(cfg, "alice")
     pw_bob = ensure_gogcli_keyring_password(cfg, "bob")
     assert pw_alice != pw_bob
+
+
+def test_ensure_keyring_password_creates_credentials_dir(cfg: SandboxConfig):
+    assert not cfg.gogcli_keyring_pass_file("alice").parent.exists()
+    ensure_gogcli_keyring_password(cfg, "alice")
+    assert cfg.gogcli_keyring_pass_file("alice").parent.exists()
+    assert cfg.gogcli_keyring_pass_file("alice").exists()

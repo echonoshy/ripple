@@ -176,6 +176,8 @@ class SandboxInfo(BaseModel):
     has_pnpm_setup: bool = False
     has_lark_cli_config: bool = False
     has_notion_token: bool = False
+    has_gogcli_client_config: bool = False
+    has_gogcli_login: bool = False
 
 
 class SandboxListResponse(BaseModel):

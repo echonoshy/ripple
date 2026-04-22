@@ -2,9 +2,8 @@
 
 import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { User, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { Message } from "@/types";
-import RippleIcon from "@/components/icons/RippleIcon";
 import MarkdownRenderer from "./MarkdownRenderer";
 import { shouldRenderAssistantMessage } from "@/lib/chatState";
 
@@ -95,33 +94,31 @@ export default function ChatMessage({
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ type: "spring", stiffness: 400, damping: 30 }}
-      className={`flex gap-2.5 ${isUser ? "justify-end" : ""}`}
+      className="flex flex-col gap-1 mb-8"
     >
-      {/* Assistant avatar */}
-      {!isUser && (
-        <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/10 bg-black/5">
-          <RippleIcon size={14} className="text-[#ededed]" />
-        </div>
-      )}
+      {/* Label */}
+      <div className="flex items-center gap-2 text-xs font-medium text-[#888888] mb-1">
+        {isUser ? "User" : "Ripple"}
+      </div>
 
       {isUser ? (
-        /* User message */
-        <div className="max-w-[95%] rounded-2xl rounded-br-md border border-white/10 bg-[#111111] px-4 py-3 text-sm leading-relaxed text-[#ededed]">
+        /* User message - No bubble, just text */
+        <div className="text-[15px] leading-relaxed text-[#ededed]">
           <div className="whitespace-pre-wrap">{msg.content}</div>
         </div>
       ) : (
-        /* Assistant message */
+        /* Assistant message - No bubble, just markdown */
         <div className="max-w-full min-w-0 flex-1 space-y-2">
           {showThinking && isEmptyAssistant && <ThinkingIndicator hasContent={false} />}
 
           {msg.content && (
-            <div className="rounded-2xl rounded-tl-md border border-white/10 bg-[#0a0a0a] px-4 py-3 text-sm leading-relaxed text-[#ededed]">
+            <div className="text-[15px] leading-relaxed text-[#ededed]">
               <MarkdownRenderer content={msg.content} />
             </div>
           )}
 
           {msg.askUser && !isGenerating && isLast && onQuickReply && (
-            <div className="rounded-xl border border-white/10 bg-[#0a0a0a] px-4 py-3">
+            <div className="rounded-xl border border-white/10 bg-[#0a0a0a] px-4 py-3 mt-4">
               <div className="mb-2 flex items-center gap-2 text-xs font-medium text-[#ededed]">
                 <span>{">"}</span>
                 <span>Select an option</span>
@@ -146,7 +143,7 @@ export default function ChatMessage({
           )}
 
           {msg.permissionRequest && !isGenerating && isLast && onPermissionResolve && (
-            <div className="rounded-xl border border-[#ff4444]/20 bg-[#ff4444]/[0.03] px-4 py-3">
+            <div className="rounded-xl border border-[#ff4444]/20 bg-[#ff4444]/[0.03] px-4 py-3 mt-4">
               <div className="mb-2 flex items-center gap-2 text-xs font-medium text-[#ff4444]">
                 <span>!</span>
                 <span>Permission Required</span>
@@ -190,13 +187,6 @@ export default function ChatMessage({
           )}
 
           {showThinking && !isEmptyAssistant && <ThinkingIndicator hasContent={true} />}
-        </div>
-      )}
-
-      {/* User avatar */}
-      {isUser && (
-        <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/10 bg-black/5">
-          <User size={14} className="text-[#ededed]" />
         </div>
       )}
     </motion.div>

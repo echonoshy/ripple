@@ -173,7 +173,7 @@ export default function TaskExecutionPanel({
                   initial={{ opacity: 0, y: 4 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.2 }}
-                  className="rounded-lg border border-[#222] bg-[#000] p-3 font-mono text-[12px]"
+                  className="rounded-lg border border-[#222] bg-[#000] p-3 font-mono text-[12px] hover-glow-card"
                 >
                   <div className="flex items-center gap-2 text-[#ededed]">
                     <span className="text-[#666]">▶</span>

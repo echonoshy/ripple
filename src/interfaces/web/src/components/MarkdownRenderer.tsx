@@ -219,7 +219,7 @@ function MarkdownContent({ content }: { content: string }) {
       components={{
         pre({ children }) {
           return (
-            <pre className="not-prose my-3 overflow-x-auto rounded-lg border border-white/10 bg-black p-4 font-[family-name:var(--font-mono)] text-[13px]">
+            <pre className="not-prose my-3 overflow-x-auto rounded-lg border border-white/5 bg-black p-4 font-[family-name:var(--font-mono)] text-[13px]">
               {children}
             </pre>
           );
@@ -229,7 +229,7 @@ function MarkdownContent({ content }: { content: string }) {
           if (isInline) {
             return (
               <code
-                className="rounded-md border border-white/20 bg-[#27272a] px-1.5 py-0.5 font-[family-name:var(--font-mono)] text-[13px] text-[#60a5fa]"
+                className="rounded-md border border-white/10 bg-white/5 px-1.5 py-0.5 font-[family-name:var(--font-mono)] text-[13px] text-[#ededed]"
                 {...props}
               >
                 {children}

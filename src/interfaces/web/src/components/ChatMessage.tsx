@@ -94,21 +94,21 @@ export default function ChatMessage({
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ type: "spring", stiffness: 400, damping: 30 }}
-      className="flex flex-col gap-1 mb-8"
+      className="flex flex-col gap-2 mb-2"
     >
       {/* Label */}
-      <div className="flex items-center gap-2 text-xs font-medium text-[#888888] mb-1">
+      <div className="flex items-center gap-2 text-xs font-medium text-[#888888] mb-1 px-1">
         {isUser ? "User" : "Ripple"}
       </div>
 
       {isUser ? (
-        /* User message - No bubble, just text */
-        <div className="text-[15px] leading-relaxed text-[#ededed]">
+        /* User message - Subtle gradient background */
+        <div className="user-message-bg text-[15px] leading-relaxed text-[#ededed]">
           <div className="whitespace-pre-wrap">{msg.content}</div>
         </div>
       ) : (
-        /* Assistant message - No bubble, just markdown */
-        <div className="max-w-full min-w-0 flex-1 space-y-2">
+        /* Assistant message - Glowing left border */
+        <div className="max-w-full min-w-0 flex-1 space-y-2 glow-line-vertical pl-5 ml-1 py-1">
           {showThinking && isEmptyAssistant && <ThinkingIndicator hasContent={false} />}
 
           {msg.content && (
@@ -189,6 +189,9 @@ export default function ChatMessage({
           {showThinking && !isEmptyAssistant && <ThinkingIndicator hasContent={true} />}
         </div>
       )}
+      
+      {/* Separator (except for the very last message being generated) */}
+      {!isLast && <div className="separator-glow mt-6 mb-4" />}
     </motion.div>
   );
 }

@@ -222,16 +222,20 @@ Skills 是带 YAML frontmatter 的 Markdown 文件，定义特定领域的任务
 
 ### 外部 CLI 依赖
 
-两个通过 `vendor/` 目录托管的静态二进制，沙箱启动时 readonly bind-mount 到 `/opt/<name>/`：
+三个通过 `vendor/` 目录托管的静态二进制，沙箱启动时 readonly bind-mount 到 `/opt/<name>/`：
 
 | CLI | 安装脚本 | 宿主安装位置 | 沙箱路径 | 鉴权方式 |
 |-----|----------|-------------|----------|---------|
 | `lark-cli`（飞书） | `bash scripts/install-feishu-cli.sh` | `vendor/lark-cli/v<X.Y.Z>/bin/` | `/opt/lark-cli/current/bin/lark-cli` | per-user：`lark-cli auth login`（OAuth），凭证落在 `sandboxes/<uid>/workspace/.lark-cli/` |
 | `ntn`（Notion） | `bash scripts/install-notion-cli.sh` | `vendor/notion-cli/v<X.Y.Z>/bin/` | `/opt/notion-cli/current/bin/ntn` | per-user：用户对话粘贴 token → 模型调内置工具 `NotionTokenSet` → `sandboxes/<uid>/credentials/notion.json` → `NOTION_API_TOKEN` env |
+| `gog`（gogcli, Google Suite CLI） | `bash scripts/install-gogcli-cli.sh` | `vendor/gogcli-cli/v<X.Y.Z>/bin/` | `/opt/gogcli-cli/current/bin/gog` | per-user 独立 GCP 项目 + **远程 2-step OAuth**：用户 GCP Console 建 Desktop OAuth Client → 粘 `client_secret.json` → `GoogleWorkspaceClientConfigSet` → `GoogleWorkspaceLoginStart` 拿 URL → 用户本地浏览器 Allow → 复制地址栏回调 URL → `GoogleWorkspaceLoginComplete` → 加密 refresh_token 存到 `/workspace/.config/gogcli/keyring/`（backend=file，密码由 ripple provision 时随机生成） |
 
 - 下载失败都会打印手工安装指引，**不会自动重试**
 - 版本切换：`bash scripts/use-<name>-cli.sh <version>`
-- 相关 skill 分别在 `skills/lark/` 和 `skills/notion/` 下（首次使用前先读对应 `*-shared/SKILL.md`）
+- 相关 skill 分别在 `skills/lark/`、`skills/notion/`、`skills/gog/` 下（首次使用前必读对应 `*-shared/SKILL.md`）
+- `gog` 的鉴权涉及两个独立状态：`has_gogcli_client_config`（OAuth Client 绑定）+ `has_gogcli_login`（远程 2-step 授权完成），前端 SettingsModal 分两个 badge 展示
+- **`gog` 不要求 ripple server 和用户浏览器同机**（使用 `gog auth add --remote --step 1/2`，用户把浏览器地址栏 callback URL 贴回 agent 完成授权）
+- 破坏性 gog 子命令（gmail send / drive delete / sheets clear / admin.* 等）**必须先调 `AskUser` 工具让用户显式确认**后才能通过 `Bash` 执行；详见 `skills/gog/gog-shared/SKILL.md`
 
 ### 安全
 

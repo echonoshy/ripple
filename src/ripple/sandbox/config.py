@@ -43,6 +43,15 @@ NOTION_CLI_INSTALL_ROOT = "/opt/notion-cli"
 NOTION_CLI_SANDBOX_BIN_DIR = f"{NOTION_CLI_INSTALL_ROOT}/current/bin"
 NOTION_CLI_SANDBOX_BIN = f"{NOTION_CLI_SANDBOX_BIN_DIR}/ntn"
 
+# gogcli (gog) 在**沙箱内**的挂载目的地。
+# 宿主侧安装根由 scripts/install-gogcli-cli.sh 决定（`<repo_root>/vendor/gogcli-cli/`），
+# 运行时 readonly bind-mount 到沙箱内固定路径。
+#   /opt/gogcli-cli/vX.Y.Z/bin/gog
+#   /opt/gogcli-cli/current -> vX.Y.Z
+GOGCLI_CLI_INSTALL_ROOT = "/opt/gogcli-cli"
+GOGCLI_CLI_SANDBOX_BIN_DIR = f"{GOGCLI_CLI_INSTALL_ROOT}/current/bin"
+GOGCLI_CLI_SANDBOX_BIN = f"{GOGCLI_CLI_SANDBOX_BIN_DIR}/gog"
+
 
 _USER_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
 
@@ -141,6 +150,26 @@ def _discover_notion_cli_install_root() -> str | None:
     ]
     for root in candidates:
         if (root / "current" / "bin" / "ntn").exists():
+            return str(root)
+    return None
+
+
+def _discover_gogcli_cli_install_root() -> str | None:
+    """自动发现 gogcli (gog) 的**宿主侧安装根目录**（用于 bind-mount 到沙箱）。
+
+    优先级：
+      1. 项目内（scripts/install-gogcli-cli.sh 默认位置）：
+         `<repo_root>/vendor/gogcli-cli/`
+      2. 宿主全局（备用）：`/opt/gogcli-cli/`
+    要求该目录下含 `current/bin/gog`。
+    """
+    candidates = [
+        _repo_root() / "vendor" / "gogcli-cli",
+        Path("/opt/gogcli-cli"),
+    ]
+    for root in candidates:
+        gog = root / "current" / "bin" / "gog"
+        if gog.exists() and gog.is_file():
             return str(root)
     return None
 
@@ -267,8 +296,11 @@ class SandboxConfig:
     # `notion_config_file(user_id)` → sandbox_dir/credentials/notion.json），
     # 沙箱启动时动态读取并注入 env NOTION_API_TOKEN。此处不持有全局 token，保证严格隔离。
     notion_cli_install_root: str | None = field(default=None)
+    gogcli_cli_install_root: str | None = field(default=None)
 
     def __post_init__(self):
+        self.sandboxes_root = Path(self.sandboxes_root)
+        self.caches_root = Path(self.caches_root)
         if self.uv_bin_dir is None:
             self.uv_bin_dir = _discover_uv_bin_dir()
         if self.node_dir is None:
@@ -281,6 +313,8 @@ class SandboxConfig:
             self.lark_cli_bin = _discover_lark_cli_bin()
         if self.notion_cli_install_root is None:
             self.notion_cli_install_root = _discover_notion_cli_install_root()
+        if self.gogcli_cli_install_root is None:
+            self.gogcli_cli_install_root = _discover_gogcli_cli_install_root()
 
     @property
     def uv_cache_dir(self) -> Path:
@@ -332,6 +366,24 @@ class SandboxConfig:
         `ripple.sandbox.notion.read_notion_token` 在构造沙箱 env 时读取。
         """
         return self.sandbox_dir(user_id) / "credentials" / "notion.json"
+
+    def gogcli_client_config_file(self, user_id: str) -> Path:
+        """Desktop OAuth client_secret.json 的宿主侧落盘路径（不入沙箱）。
+
+        `GoogleWorkspaceClientConfigSet` 工具把用户贴的 JSON 原文写这里；
+        `ripple.sandbox.gogcli.read_gogcli_client_config` 在构造沙箱 env 时读取。
+        """
+        validate_user_id(user_id)
+        return self.sandbox_dir(user_id) / "credentials" / "gogcli-client.json"
+
+    def gogcli_keyring_pass_file(self, user_id: str) -> Path:
+        """gogcli keyring (backend=file) 的加密密码宿主侧存放路径。
+
+        首次 provision 时由 ripple 随机生成 32B 密码写入 (mode 0600)，
+        沙箱启动时作为 env `GOG_KEYRING_PASSWORD` 注入；agent/user 都不可见。
+        """
+        validate_user_id(user_id)
+        return self.sandbox_dir(user_id) / "credentials" / "gogcli-keyring.pass"
 
     def session_dir(self, user_id: str, session_id: str) -> Path:
         return self.sandbox_dir(user_id) / "sessions" / session_id
@@ -387,6 +439,35 @@ class SandboxConfig:
         except (json.JSONDecodeError, OSError):
             return False
 
+    def has_gogcli_client_config(self, user_id: str) -> bool:
+        """判定依据：credentials/gogcli-client.json 存在且非空。
+
+        不校验 JSON 合法性（那是 `write_gogcli_client_config` 负责的）。
+        """
+        f = self.gogcli_client_config_file(user_id)
+        try:
+            return f.exists() and f.stat().st_size > 0
+        except OSError:
+            return False
+
+    def has_gogcli_login(self, user_id: str) -> bool:
+        """判定依据：`workspace/.config/gogcli/keyring/` 目录下有非空文件。
+
+        gogcli backend=file 会把加密 credentials 写进 keyring 目录；只要里面有
+        任何非空文件，就说明至少跑成功过一次 `gog auth add`。
+        这个检测对 agent 引导很重要（`has_gogcli_login=False` → 引导 OAuth login）。
+        """
+        d = self.workspace_dir(user_id) / ".config" / "gogcli" / "keyring"
+        if not d.exists() or not d.is_dir():
+            return False
+        try:
+            for entry in d.iterdir():
+                if entry.is_file() and entry.stat().st_size > 0:
+                    return True
+        except OSError:
+            return False
+        return False
+
     @classmethod
     def from_dict(cls, data: dict) -> "SandboxConfig":
         sandboxes_root = Path(data["sandboxes_root"]) if "sandboxes_root" in data else _default_sandboxes_root()
@@ -432,4 +513,5 @@ class SandboxConfig:
             lark_cli_install_root=data.get("lark_cli_install_root"),
             lark_cli_bin=data.get("lark_cli_bin"),
             notion_cli_install_root=data.get("notion_cli_install_root"),
+            gogcli_cli_install_root=data.get("gogcli_cli_install_root"),
         )

@@ -21,6 +21,9 @@ from ripple.skills.skill_tool import SkillTool
 from ripple.tools.builtin.agent_tool import AgentTool
 from ripple.tools.builtin.ask_user import AskUserTool
 from ripple.tools.builtin.bash import BashTool
+from ripple.tools.builtin.gogcli_client_config_set import GoogleWorkspaceClientConfigSetTool
+from ripple.tools.builtin.gogcli_login_complete import GoogleWorkspaceLoginCompleteTool
+from ripple.tools.builtin.gogcli_login_start import GoogleWorkspaceLoginStartTool
 from ripple.tools.builtin.music_identify import MusicIdentifyTool
 from ripple.tools.builtin.notion_token_set import NotionTokenSetTool
 from ripple.tools.builtin.read import ReadTool
@@ -235,6 +238,9 @@ def _get_server_tools() -> list:
         AskUserTool(),
         MusicIdentifyTool(),
         NotionTokenSetTool(),
+        GoogleWorkspaceClientConfigSetTool(),
+        GoogleWorkspaceLoginStartTool(),
+        GoogleWorkspaceLoginCompleteTool(),
         TaskCreateTool(),
         TaskUpdateTool(),
         TaskListTool(),

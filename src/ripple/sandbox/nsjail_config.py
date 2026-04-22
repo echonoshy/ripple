@@ -9,6 +9,8 @@ import textwrap
 from pathlib import Path
 
 from ripple.sandbox.config import (
+    GOGCLI_CLI_INSTALL_ROOT,
+    GOGCLI_CLI_SANDBOX_BIN_DIR,
     LARK_CLI_INSTALL_ROOT,
     LARK_CLI_SANDBOX_BIN_DIR,
     NOTION_CLI_INSTALL_ROOT,
@@ -50,6 +52,10 @@ def build_sandbox_env(config: SandboxConfig, user_id: str) -> dict[str, str]:
     if config.notion_cli_install_root:
         path_parts.insert(0, NOTION_CLI_SANDBOX_BIN_DIR)
 
+    # gogcli (gog) 同 lark-cli/notion-cli 的模式：bind-mount 到 /opt/gogcli-cli，bin 入 PATH。
+    if config.gogcli_cli_install_root:
+        path_parts.insert(0, GOGCLI_CLI_SANDBOX_BIN_DIR)
+
     env = {
         "PATH": ":".join(path_parts),
         "HOME": "/workspace",
@@ -74,6 +80,24 @@ def build_sandbox_env(config: SandboxConfig, user_id: str) -> dict[str, str]:
     notion_token = read_notion_token(config, user_id)
     if notion_token:
         env["NOTION_API_TOKEN"] = notion_token
+
+    # gogcli keyring + config dir：
+    # * XDG_CONFIG_HOME → /workspace/.config（随 workspace per-user 隔离，
+    #   gogcli 会读/写 /workspace/.config/gogcli/credentials.json + keyring/）
+    # * GOG_KEYRING_BACKEND=file + GOG_KEYRING_PASSWORD（从宿主侧 per-user 密码文件读）
+    # 只在宿主侧的密码文件**实际存在**时才注入 password，否则 gog 命令会抱怨缺密码
+    # （provisioning 层负责在 user 首次 sandbox 创建时生成密码）。
+    if config.gogcli_cli_install_root:
+        env["XDG_CONFIG_HOME"] = "/workspace/.config"
+        env["GOG_KEYRING_BACKEND"] = "file"
+        pass_file = config.gogcli_keyring_pass_file(user_id)
+        if pass_file.exists():
+            try:
+                pw = pass_file.read_text(encoding="utf-8").strip()
+                if pw:
+                    env["GOG_KEYRING_PASSWORD"] = pw
+            except OSError as exc:
+                logger.warning("user {} gogcli-keyring.pass 读取失败: {}", user_id, exc)
 
     if config.node_dir:
         env["PNPM_HOME"] = SANDBOX_NODE_BIN
@@ -191,6 +215,15 @@ def _build_common_mounts(config: SandboxConfig) -> list[str]:
         mounts.append(f"""mount {{
     src: "{config.notion_cli_install_root}"
     dst: "{NOTION_CLI_INSTALL_ROOT}"
+    is_bind: true
+    rw: false
+}}""")
+
+    # gogcli (gog) 原生二进制安装根（只读，所有 user 共享），与 lark-cli/notion-cli 同款。
+    if config.gogcli_cli_install_root and Path(config.gogcli_cli_install_root).exists():
+        mounts.append(f"""mount {{
+    src: "{config.gogcli_cli_install_root}"
+    dst: "{GOGCLI_CLI_INSTALL_ROOT}"
     is_bind: true
     rw: false
 }}""")

@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useCallback } from "react";
 import { motion } from "framer-motion";
-import { MessageSquare, Loader2, Trash2, Clock, Settings, X } from "lucide-react";
+import { MessageSquare, Loader2, Trash2, Clock, Settings, X, UserRound } from "lucide-react";
 import RippleIcon from "@/components/icons/RippleIcon";
 import { Session, UsageInfo } from "@/types";
 
@@ -22,6 +22,7 @@ interface SidebarProps {
   tokenUsage: UsageInfo;
   lastContextTokens: number;
   isMobileOpen: boolean;
+  userId: string;
   onNewChat: () => void;
   onSwitchSession: (id: string) => void;
   onDeleteSession: (id: string, e: React.MouseEvent) => void;
@@ -37,12 +38,14 @@ export default function Sidebar({
   tokenUsage,
   lastContextTokens,
   isMobileOpen,
+  userId,
   onNewChat,
   onSwitchSession,
   onDeleteSession,
   onOpenSettings,
   onCloseMobile,
 }: SidebarProps) {
+  const isDefaultUser = userId === "default";
   const contextPercent =
     lastContextTokens > 0 ? Math.min((lastContextTokens / MAX_CONTEXT_TOKENS) * 100, 100) : 0;
   const isContextWarning = contextPercent > 75;
@@ -88,7 +91,10 @@ export default function Sidebar({
         >
           <div className="relative flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 bg-gradient-to-b from-white/10 to-transparent shadow-[0_0_15px_rgba(255,255,255,0.05)] transition-all group-hover:border-white/20 group-hover:shadow-[0_0_20px_rgba(255,255,255,0.1)]">
             <div className="absolute inset-0 rounded-xl bg-white/5 opacity-0 transition-opacity group-hover:opacity-100" />
-            <RippleIcon size={16} className="relative z-10 text-[#ededed] transition-transform duration-500 group-hover:scale-110" />
+            <RippleIcon
+              size={16}
+              className="relative z-10 text-[#ededed] transition-transform duration-500 group-hover:scale-110"
+            />
           </div>
           <div className="flex items-center gap-2.5">
             <h1 className="bg-gradient-to-br from-white to-white/50 bg-clip-text font-[family-name:var(--font-sans)] text-[17px] font-semibold tracking-wide text-transparent">
@@ -108,6 +114,51 @@ export default function Sidebar({
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-4 pt-4 pb-4">
+        {/* Current user — prominent, clickable to open settings */}
+        <button
+          type="button"
+          onClick={onOpenSettings}
+          title="Click to change user in Settings"
+          className={`group relative mb-4 flex w-full items-center gap-3 overflow-hidden rounded-xl border p-3 text-left transition-all duration-300 ${
+            isDefaultUser
+              ? "border-[#ff9d2a]/20 bg-gradient-to-br from-[#ff9d2a]/[0.08] to-transparent hover:border-[#ff9d2a]/40 hover:shadow-[0_0_15px_rgba(255,157,42,0.1)]"
+              : "border-[#6366f1]/20 bg-gradient-to-br from-[#6366f1]/[0.08] to-transparent hover:border-[#6366f1]/40 hover:shadow-[0_0_15px_rgba(99,102,241,0.1)]"
+          }`}
+        >
+          {/* Subtle background glow on hover */}
+          <div className={`absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100 ${
+            isDefaultUser ? "bg-gradient-to-r from-[#ff9d2a]/10 to-transparent" : "bg-gradient-to-r from-[#6366f1]/10 to-transparent"
+          }`} />
+          
+          <div
+            className={`relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border shadow-sm transition-transform duration-300 group-hover:scale-105 ${
+              isDefaultUser
+                ? "border-[#ff9d2a]/30 bg-[#ff9d2a]/10 text-[#ff9d2a]"
+                : "border-[#6366f1]/30 bg-[#6366f1]/10 text-[#818cf8]"
+            }`}
+          >
+            <UserRound size={16} />
+          </div>
+          <div className="relative min-w-0 flex-1">
+            <p
+              className={`text-[10px] font-medium tracking-wider uppercase ${
+                isDefaultUser ? "text-[#ff9d2a]/80" : "text-[#818cf8]/80"
+              }`}
+            >
+              {isDefaultUser ? "Default user" : "Signed in as"}
+            </p>
+            <p className="truncate font-[family-name:var(--font-mono)] text-sm font-semibold text-[#ededed] transition-colors group-hover:text-white">
+              {userId}
+            </p>
+          </div>
+          <Settings
+            size={14}
+            className={`relative transition-all duration-300 group-hover:rotate-90 ${
+              isDefaultUser ? "text-[#ff9d2a]/50 group-hover:text-[#ff9d2a]" : "text-[#6366f1]/50 group-hover:text-[#818cf8]"
+            }`}
+          />
+        </button>
+
         <motion.button
           whileHover={{ scale: 1.01 }}
           whileTap={{ scale: 0.99 }}

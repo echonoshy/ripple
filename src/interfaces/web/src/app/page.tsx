@@ -2,7 +2,17 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Cpu, ChevronDown, Brain, AlertTriangle, KeyRound, Menu, Copy, Check } from "lucide-react";
+import {
+  Cpu,
+  ChevronDown,
+  Brain,
+  AlertTriangle,
+  KeyRound,
+  Menu,
+  Copy,
+  Check,
+  UserRound,
+} from "lucide-react";
 import { Message, UsageInfo, Session, SessionDetail, TaskInfo, TaskProgress } from "@/types";
 import {
   createSession,
@@ -119,7 +129,7 @@ export default function Home() {
   }, [authState]);
 
   const handleUserIdChange = useCallback(
-    (newUid: string) => {
+    async (newUid: string) => {
       try {
         setUserId(newUid);
       } catch {
@@ -138,7 +148,8 @@ export default function Home() {
       setIsGenerating(false);
       clearStoredCurrentSessionId();
       if (authState === "authenticated") {
-        void loadSessions();
+        const loaded = await loadSessions();
+        console.info(`[ripple] switched to user "${newUid}", loaded ${loaded.length} sessions`);
       }
     },
     [authState, loadSessions]
@@ -651,6 +662,7 @@ export default function Home() {
           tokenUsage={tokenUsage}
           lastContextTokens={lastContextTokens}
           isMobileOpen={isSidebarOpen}
+          userId={userId}
           onNewChat={handleNewChat}
           onSwitchSession={handleSwitchSession}
           onDeleteSession={handleDeleteSession}
@@ -762,11 +774,15 @@ export default function Home() {
               <button
                 type="button"
                 onClick={() => setIsSettingsOpen(true)}
-                title="Click to change in Settings"
-                className="hidden items-center gap-1.5 rounded-lg border border-white/10 bg-[#0a0a0a] px-2.5 py-1 font-[family-name:var(--font-mono)] text-xs text-[#888888] transition-colors hover:border-[#ededed]/40 hover:text-[#ededed] sm:flex"
+                title="Click to change user in Settings"
+                className={`group hidden items-center gap-1.5 rounded-lg border px-2.5 py-1 font-[family-name:var(--font-mono)] text-xs transition-all duration-300 sm:flex ${
+                  userId === "default"
+                    ? "border-[#ff9d2a]/30 bg-gradient-to-r from-[#ff9d2a]/10 to-transparent text-[#ff9d2a] hover:border-[#ff9d2a]/60 hover:shadow-[0_0_10px_rgba(255,157,42,0.1)]"
+                    : "border-[#6366f1]/30 bg-gradient-to-r from-[#6366f1]/10 to-transparent text-[#818cf8] hover:border-[#6366f1]/60 hover:shadow-[0_0_10px_rgba(99,102,241,0.1)]"
+                }`}
               >
-                <span className="text-[#666666]">user</span>
-                <span className="max-w-[120px] truncate text-[#ededed]">{userId}</span>
+                <UserRound size={12} className="transition-transform duration-300 group-hover:scale-110" />
+                <span className="max-w-[120px] truncate font-semibold">{userId}</span>
               </button>
               <div
                 className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 ${

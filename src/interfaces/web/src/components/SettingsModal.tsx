@@ -33,7 +33,7 @@ interface SettingsModalProps {
   apiKey: string | null;
   onApiKeyChange: () => void;
   userId: string;
-  onUserIdChange: (uid: string) => void;
+  onUserIdChange: (uid: string) => void | Promise<void>;
 }
 
 function formatBytes(n: number): string {
@@ -133,7 +133,7 @@ export default function SettingsModal({
     setUserIdError(null);
   };
 
-  const handleSaveUserId = () => {
+  const handleSaveUserId = async () => {
     const trimmed = userIdInput.trim();
     if (!isValidUserId(trimmed)) {
       setUserIdError("Must match ^[a-zA-Z0-9_-]{1,64}$");
@@ -142,7 +142,8 @@ export default function SettingsModal({
     setIsEditingUserId(false);
     setUserIdError(null);
     if (trimmed !== userId) {
-      onUserIdChange(trimmed);
+      await onUserIdChange(trimmed);
+      onClose();
     }
   };
 

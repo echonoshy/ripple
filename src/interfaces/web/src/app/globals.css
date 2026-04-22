@@ -47,6 +47,46 @@
   .glow-blue {
     box-shadow: 0 0 8px rgba(59, 130, 246, 0.2);
   }
+
+  .glow-line-vertical {
+    position: relative;
+  }
+  
+  .glow-line-vertical::before {
+    content: '';
+    position: absolute;
+    left: -1px;
+    top: 0;
+    width: 2px;
+    height: 100%;
+    background: linear-gradient(to bottom, rgba(255,255,255,0.8), rgba(255,255,255,0.1) 80%, transparent);
+    box-shadow: 0 0 10px rgba(255,255,255,0.3);
+    border-radius: 2px;
+  }
+
+  .separator-glow {
+    height: 1px;
+    width: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
+    margin: 2rem 0;
+  }
+
+  .user-message-bg {
+    background: linear-gradient(145deg, rgba(20,20,20,1), rgba(10,10,10,1));
+    border: 1px solid rgba(255,255,255,0.05);
+    border-radius: 0.75rem;
+    padding: 1rem 1.25rem;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.02);
+  }
+  
+  .hover-glow-card {
+    transition: all 0.3s ease;
+  }
+  
+  .hover-glow-card:hover {
+    box-shadow: 0 0 15px rgba(255,255,255,0.05);
+    border-color: rgba(255,255,255,0.2);
+  }
 }
 
 /* ─── Animations ─── */

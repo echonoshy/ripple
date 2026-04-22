@@ -21,11 +21,15 @@ metadata:
 
 ## 前置条件
 
-仅支持 **user 身份**。执行前确保已授权：
+仅支持 **user 身份**。所有命令显式带 `--as user`。如果未登录，按 `lark-shared`
+的两段式流程完成一次性全域授权：
 
 ```bash
-lark-cli auth login --domain calendar,task
+lark-cli auth login --no-wait --json --domain all
 ```
+
+**不要**写 `--domain calendar,task` 之类的窄域——本环境是单人本地沙箱，多次窄域
+login 只会让用户反复点链接。
 
 ## 工作流
 

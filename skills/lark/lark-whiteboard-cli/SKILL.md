@@ -15,6 +15,11 @@ metadata:
 > [!IMPORTANT]
 > 执行 `npm install` 安装新的依赖前，务必征得用户同意！
 
+> [!IMPORTANT]
+> **CRITICAL — 调用 `lark-cli` 之前 MUST 先用 Read 工具读取
+> [`../lark-shared/SKILL.md`](../lark-shared/SKILL.md)**：本 skill 默认按
+> 全局规则执行（`--as user` + `--domain all`），仅当上传飞书画板需要切到 bot
+> 创建资源时才显式覆盖。
 
 ## Workflow
 

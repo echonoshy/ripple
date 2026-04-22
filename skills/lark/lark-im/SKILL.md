@@ -40,24 +40,21 @@ Chat (oc_xxx)
 
 ### 默认身份：优先使用 `--as user`
 
-IM 场景下默认代表"当前用户本人"收发消息、管理自己加入的群聊，因此**默认应显式使用 `--as user`（用户身份）**，始终显式带上 `--as user`，不要依赖 CLI 的隐式默认（CLI 底层默认仍是 `bot`，不显式指定会以 bot 身份发送）。
+IM 场景下默认代表"当前用户本人"收发消息、管理自己加入的群聊，因此**严格按
+`lark-shared` 的全局默认执行**：
 
-- **`--as user`（默认推荐）**：以当前登录用户身份收发消息、回复、管理群聊。用户可以正常访问自己加入的所有群聊和私聊。执行前先完成用户授权：
-
-```bash
-lark-cli auth login --domain contact,im
-```
-
-- **`--as bot`**：仅在以下情况使用：
-    1. 用户明确要求"以应用身份 / bot 身份发送"；
-    2. 当前工作流就是 bot 作为机器人主动播报、在 bot 自己所在群中代表应用发言；
-    3. `messages.forward` / `messages.merge_forward` / `images.create` 等仅支持 `bot` 的 API。
-
-**执行规则**：
-
-1. 发消息、回消息、建群、查群聊、查消息、下载聊天资源，默认都先用 `--as user`。
-2. 如果出现权限不足，先检查当前是否误用了 bot 身份；不要默认回退到 bot。
-3. 只有在用户明确要求"用应用身份 / bot 身份"，或当前 API 仅支持 bot（见下文 Identity 标注）时，才切换到 `--as bot`。
+- 凡同时支持 user / bot 的 API（含 `+messages-send`、`+messages-reply`、
+  `+chat-messages-list`、`+chat-search`、`+chat-update`、`+messages-mget`、
+  `+messages-search`、`+messages-resources-download`、`+threads-messages-list`、
+  `+chat-create` 的 user 路径），**必须显式带 `--as user`**。
+- 切到 `--as bot` 只允许两种情况：
+    1. 用户在当前消息里明确要求"以应用身份 / bot 身份发送"；
+    2. 当前 API **只支持 bot**（见下文 Identity 标注，如 `messages.forward`、
+       `messages.merge_forward`、`images.create`）。
+- 如果未登录 user 身份，按 `lark-shared` 的"Agent 代理发起认证"两段式流程
+  完成 `lark-cli auth login --no-wait --json --domain all`（一次性全域授权，
+  不要写 `--domain contact,im` 之类的窄域）。
+- 出现权限不足时，**先检查是否误用了 bot 身份**；不要默认回退到 bot。
 
 ### Sender Name Resolution with Bot Identity
 

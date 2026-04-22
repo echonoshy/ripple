@@ -18,12 +18,15 @@ metadata:
 
 ## 前置条件
 
-仅支持 **user 身份**。执行前确保已授权：
+仅支持 **user 身份**。所有命令显式带 `--as user`。如果未登录，按 `lark-shared`
+的两段式流程完成一次性全域授权：
 
 ```bash
-lark-cli auth login --domain vc        # 基础（查询+纪要）
-lark-cli auth login --domain vc,drive   # 含读取纪要文档正文、生成文档
+lark-cli auth login --no-wait --json --domain all
 ```
+
+**不要**为了"最小权限"写 `--domain vc` / `--domain vc,drive`——本工作流后续可能
+跨 vc / drive / docx，多次窄域 login 只会让用户反复点链接。
 
 ## 工作流
 

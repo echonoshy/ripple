@@ -148,3 +148,59 @@ def ensure_gogcli_keyring_password(config: SandboxConfig, user_id: str) -> str:
     f.chmod(0o600)
     logger.info("user {} gogcli keyring password 已生成", user_id)
     return pw
+
+
+def parse_auth_list_output(stdout: str) -> list[dict]:
+    """把 `gog auth list --json` 的输出解析成 [{email, alias, valid}] 列表。
+
+    对格式抖动宽容：
+      * 顶层可能是 `{"accounts": [...]}` 或裸数组 `[...]`
+      * 每个 entry 可能缺 `alias` / `valid`，补 None
+      * `valid` 可能是 bool 或 "true"/"false" 字符串
+
+    缺 `email` 字段的 entry 会被静默丢弃（那是 gog 内部状态项，非账号）。
+
+    Raises:
+        ValueError: stdout 不是合法 JSON。调用方自己决定是报错还是降级。
+    """
+    try:
+        data = json.loads(stdout)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"gog auth list 输出不是合法 JSON: {e.msg}") from e
+
+    if isinstance(data, dict):
+        raw_list = data.get("accounts", [])
+    elif isinstance(data, list):
+        raw_list = data
+    else:
+        return []
+
+    out: list[dict] = []
+    for entry in raw_list:
+        if not isinstance(entry, dict):
+            continue
+        email = entry.get("email")
+        if not isinstance(email, str) or not email.strip():
+            continue
+
+        alias = entry.get("alias")
+        if alias is not None and not isinstance(alias, str):
+            alias = None
+
+        valid_raw = entry.get("valid")
+        valid: bool | None
+        if isinstance(valid_raw, bool):
+            valid = valid_raw
+        elif isinstance(valid_raw, str):
+            low = valid_raw.strip().lower()
+            if low == "true":
+                valid = True
+            elif low == "false":
+                valid = False
+            else:
+                valid = None
+        else:
+            valid = None
+
+        out.append({"email": email.strip(), "alias": alias, "valid": valid})
+    return out

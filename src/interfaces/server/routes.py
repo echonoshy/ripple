@@ -14,6 +14,8 @@ from interfaces.server.deps import get_user_id
 from interfaces.server.schemas import (
     ChatCompletionRequest,
     CreateSessionRequest,
+    GogcliAccountInfo,
+    GogcliAccountsResponse,
     ModelInfo,
     ModelsResponse,
     PermissionResolveRequest,
@@ -671,6 +673,44 @@ async def delete_sandbox(
     if not ok:
         raise HTTPException(status_code=404, detail=f"Sandbox for user {user_id!r} not found")
     return {"ok": True, "user_id": user_id}
+
+
+@router.get("/v1/sandboxes/gogcli-accounts")
+async def get_gogcli_accounts(
+    check: bool = False,
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+) -> GogcliAccountsResponse:
+    """列出当前 user 已绑的 Google 账号（共享 GoogleWorkspaceAuthStatus 工具的解析逻辑）。"""
+    from ripple.sandbox.config import GOGCLI_CLI_SANDBOX_BIN  # noqa: PLC0415
+    from ripple.sandbox.executor import execute_in_sandbox  # noqa: PLC0415
+    from ripple.sandbox.gogcli import parse_auth_list_output  # noqa: PLC0415
+    from ripple.tools.builtin.bash import _sandbox_config  # noqa: PLC0415
+
+    if _sandbox_config is None or not _sandbox_config.gogcli_cli_install_root:
+        return GogcliAccountsResponse()
+
+    has_client = _sandbox_config.has_gogcli_client_config(user_id)
+    cmd = f"{GOGCLI_CLI_SANDBOX_BIN} auth list --json"
+    if check:
+        cmd += " --check"
+
+    stdout, _stderr, code = await execute_in_sandbox(cmd, _sandbox_config, user_id, timeout=30 if check else 10)
+    if code != 0:
+        return GogcliAccountsResponse(has_client_config=has_client, checked=check)
+
+    try:
+        raw = parse_auth_list_output(stdout)
+    except ValueError:
+        return GogcliAccountsResponse(has_client_config=has_client, checked=check)
+
+    accounts = [GogcliAccountInfo(**a) for a in raw]
+    return GogcliAccountsResponse(
+        has_client_config=has_client,
+        accounts=accounts,
+        count=len(accounts),
+        checked=check,
+    )
 
 
 # ─── Sandbox Info ───

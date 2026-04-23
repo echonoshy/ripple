@@ -185,6 +185,19 @@ class SandboxListResponse(BaseModel):
     count: int = 0
 
 
+class GogcliAccountInfo(BaseModel):
+    email: str
+    alias: str | None = None
+    valid: bool | None = None
+
+
+class GogcliAccountsResponse(BaseModel):
+    has_client_config: bool = False
+    accounts: list[GogcliAccountInfo] = []
+    count: int = 0
+    checked: bool = False
+
+
 # ─── Tools Invoke ───
 
 

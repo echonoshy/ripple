@@ -233,8 +233,10 @@ Skills 是带 YAML frontmatter 的 Markdown 文件，定义特定领域的任务
 - 下载失败都会打印手工安装指引，**不会自动重试**
 - 版本切换：`bash scripts/use-<name>-cli.sh <version>`
 - 相关 skill 分别在 `skills/lark/`、`skills/notion/`、`skills/gog/` 下（首次使用前必读对应 `*-shared/SKILL.md`）
-- `gog` 的鉴权涉及两个独立状态：`has_gogcli_client_config`（OAuth Client 绑定）+ `has_gogcli_login`（远程 2-step 授权完成），前端 SettingsModal 分两个 badge 展示
+- `gog` 的鉴权涉及两个独立状态：`has_gogcli_client_config`（OAuth Client 绑定）+ `has_gogcli_login`（远程 2-step 授权完成），前端 SettingsModal 分两个 badge 展示 + 列出已绑账号（通过 `GET /v1/sandboxes/gogcli-accounts`）
 - **`gog` 不要求 ripple server 和用户浏览器同机**（使用 `gog auth add --remote --step 1/2`，用户把浏览器地址栏 callback URL 贴回 agent 完成授权）
+- gogcli 内置工具共 5 个（按使用顺序）：`GoogleWorkspaceClientConfigSet` → `GoogleWorkspaceLoginStart` → `GoogleWorkspaceLoginComplete`（首次绑定三件套），`GoogleWorkspaceAuthStatus`（运行时查已绑账号 / 可选 `check=true` 验活），`GoogleWorkspaceLogout`（⚠️ 解绑，由 skill 层负责 AskUser）
+- `skills/gog/` 下按 service 拆 skill：`gog-shared`（鉴权 + 纪律，**必读**）、`gog-gmail` / `gog-drive` / `gog-calendar` / `gog-sheets` / `gog-docs` / `gog-tasks` / `gog-slides` / `gog-people`；其它服务（chat/keep/forms/classroom/appscript/admin）走 `gog <service> --help` self-document
 - 破坏性 gog 子命令（gmail send / drive delete / sheets clear / admin.* 等）**必须先调 `AskUser` 工具让用户显式确认**后才能通过 `Bash` 执行；详见 `skills/gog/gog-shared/SKILL.md`
 
 ### 安全

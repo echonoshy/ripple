@@ -4,6 +4,7 @@ import {
   UsageInfo,
   SystemInfo,
   SandboxInfo,
+  GogcliAccountsResponse,
   Session,
   SessionDetail,
   TaskInfo,
@@ -393,6 +394,18 @@ export async function fetchCurrentSandbox(): Promise<SandboxInfo | null> {
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`Failed to fetch sandbox (${res.status})`);
   return (await res.json()) as SandboxInfo;
+}
+
+export async function fetchGogcliAccounts(
+  check: boolean = false
+): Promise<GogcliAccountsResponse | null> {
+  const qs = check ? "?check=true" : "";
+  const res = await fetch(`${API_URL}/sandboxes/gogcli-accounts${qs}`, {
+    headers: { ...authHeaders() },
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) return null;
+  return (await res.json()) as GogcliAccountsResponse;
 }
 
 export async function createCurrentSandbox(): Promise<SandboxInfo> {

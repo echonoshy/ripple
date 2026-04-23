@@ -16,11 +16,12 @@ import {
   Check,
   Loader2,
 } from "lucide-react";
-import { SandboxInfo, SystemInfo } from "@/types";
+import { GogcliAccountsResponse, SandboxInfo, SystemInfo } from "@/types";
 import {
   createCurrentSandbox,
   deleteCurrentSandbox,
   fetchCurrentSandbox,
+  fetchGogcliAccounts,
   fetchSystemInfo,
   isValidUserId,
 } from "@/lib/api";
@@ -82,6 +83,7 @@ export default function SettingsModal({
   const [sandboxError, setSandboxError] = useState<string | null>(null);
   const [sandboxBusy, setSandboxBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [gogAccounts, setGogAccounts] = useState<GogcliAccountsResponse | null>(null);
 
   const refreshSandbox = useCallback(async () => {
     setSandboxLoading(true);
@@ -121,6 +123,25 @@ export default function SettingsModal({
       setUserIdError(null);
     }
   }, [isOpen, userId, refreshSandbox]);
+
+  useEffect(() => {
+    if (!sandbox?.has_gogcli_client_config) {
+      setGogAccounts(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await fetchGogcliAccounts();
+        if (!cancelled) setGogAccounts(data);
+      } catch {
+        // 静默失败 —— 拿不到账号列表不影响其他 sandbox 信息
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sandbox?.has_gogcli_client_config]);
 
   const handleStartEditUserId = () => {
     setUserIdInput(userId);
@@ -364,7 +385,27 @@ export default function SettingsModal({
                           <ReadyBadge label="pnpm" ready={sandbox.has_pnpm_setup} />
                           <ReadyBadge label="lark-cli" ready={sandbox.has_lark_cli_config} />
                           <ReadyBadge label="notion token" ready={sandbox.has_notion_token} />
+                          <ReadyBadge label="gog client" ready={sandbox.has_gogcli_client_config} />
+                          <ReadyBadge label="gog login" ready={sandbox.has_gogcli_login} />
                         </div>
+                        {gogAccounts && gogAccounts.accounts.length > 0 && (
+                          <div>
+                            <p className="mb-1 text-[10px] tracking-wider text-[#666666] uppercase">
+                              Google 已绑账号
+                            </p>
+                            <ul className="space-y-1">
+                              {gogAccounts.accounts.map((a) => (
+                                <li
+                                  key={a.email}
+                                  className="flex items-center gap-2 rounded-md border border-white/10 bg-black/5 px-2.5 py-1.5 font-[family-name:var(--font-mono)] text-xs text-[#ededed]"
+                                >
+                                  <span className="truncate">{a.email}</span>
+                                  {a.alias && <span className="text-[#888]">({a.alias})</span>}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <div className="flex items-center justify-between gap-3">

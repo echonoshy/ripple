@@ -57,6 +57,21 @@ export interface SandboxInfo {
   has_pnpm_setup: boolean;
   has_lark_cli_config: boolean;
   has_notion_token: boolean;
+  has_gogcli_client_config: boolean;
+  has_gogcli_login: boolean;
+}
+
+export interface GogcliAccountInfo {
+  email: string;
+  alias: string | null;
+  valid: boolean | null;
+}
+
+export interface GogcliAccountsResponse {
+  has_client_config: boolean;
+  accounts: GogcliAccountInfo[];
+  count: number;
+  checked: boolean;
 }
 
 export interface Session {

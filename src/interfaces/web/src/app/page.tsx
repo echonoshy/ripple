@@ -781,7 +781,10 @@ export default function Home() {
                     : "border-white/20 bg-gradient-to-r from-white/5 to-transparent text-[#ededed] hover:border-white/40 hover:shadow-[0_0_10px_rgba(255,255,255,0.05)]"
                 }`}
               >
-                <UserRound size={12} className="transition-transform duration-300 group-hover:scale-110" />
+                <UserRound
+                  size={12}
+                  className="transition-transform duration-300 group-hover:scale-110"
+                />
                 <span className="max-w-[120px] truncate font-semibold">{userId}</span>
               </button>
               <div

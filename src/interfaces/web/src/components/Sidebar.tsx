@@ -126,10 +126,14 @@ export default function Sidebar({
           }`}
         >
           {/* Subtle background glow on hover */}
-          <div className={`absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100 ${
-            isDefaultUser ? "bg-gradient-to-r from-[#ff9d2a]/10 to-transparent" : "bg-gradient-to-r from-white/10 to-transparent"
-          }`} />
-          
+          <div
+            className={`absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100 ${
+              isDefaultUser
+                ? "bg-gradient-to-r from-[#ff9d2a]/10 to-transparent"
+                : "bg-gradient-to-r from-white/10 to-transparent"
+            }`}
+          />
+
           <div
             className={`relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border shadow-sm transition-transform duration-300 group-hover:scale-105 ${
               isDefaultUser
@@ -154,7 +158,9 @@ export default function Sidebar({
           <Settings
             size={14}
             className={`relative transition-all duration-300 group-hover:rotate-90 ${
-              isDefaultUser ? "text-[#ff9d2a]/50 group-hover:text-[#ff9d2a]" : "text-[#666666] group-hover:text-[#ededed]"
+              isDefaultUser
+                ? "text-[#ff9d2a]/50 group-hover:text-[#ff9d2a]"
+                : "text-[#666666] group-hover:text-[#ededed]"
             }`}
           />
         </button>

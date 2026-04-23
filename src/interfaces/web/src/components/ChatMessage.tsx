@@ -94,21 +94,21 @@ export default function ChatMessage({
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ type: "spring", stiffness: 400, damping: 30 }}
-      className="flex flex-col gap-0.5 mb-0"
+      className="mb-0 flex flex-col gap-0.5"
     >
       {/* Label */}
-      <div className="flex items-center gap-2 text-xs font-medium text-[#888888] mb-1 px-1">
+      <div className="mb-1 flex items-center gap-2 px-1 text-xs font-medium text-[#888888]">
         {isUser ? "User" : "Ripple"}
       </div>
 
       {isUser ? (
         /* User message - Subtle gradient background */
         <div className="user-message-bg text-[14px] leading-relaxed text-[#ededed]">
-          <div className="whitespace-pre-wrap break-words">{msg.content}</div>
+          <div className="break-words whitespace-pre-wrap">{msg.content}</div>
         </div>
       ) : (
         /* Assistant message - Simple left border */
-        <div className="max-w-full min-w-0 flex-1 space-y-2 border-l-[3px] border-white/20 pl-5 ml-1 py-1">
+        <div className="ml-1 max-w-full min-w-0 flex-1 space-y-2 border-l-[3px] border-white/20 py-1 pl-5">
           {showThinking && isEmptyAssistant && <ThinkingIndicator hasContent={false} />}
 
           {msg.content && (
@@ -118,7 +118,7 @@ export default function ChatMessage({
           )}
 
           {msg.askUser && !isGenerating && isLast && onQuickReply && (
-            <div className="rounded-xl border border-white/10 bg-[#0a0a0a] px-4 py-3 mt-4">
+            <div className="mt-4 rounded-xl border border-white/10 bg-[#0a0a0a] px-4 py-3">
               <div className="mb-2 flex items-center gap-2 text-xs font-medium text-[#ededed]">
                 <span>{">"}</span>
                 <span>Select an option</span>
@@ -143,7 +143,7 @@ export default function ChatMessage({
           )}
 
           {msg.permissionRequest && !isGenerating && isLast && onPermissionResolve && (
-            <div className="rounded-xl border border-[#ff4444]/20 bg-[#ff4444]/[0.03] px-4 py-3 mt-4">
+            <div className="mt-4 rounded-xl border border-[#ff4444]/20 bg-[#ff4444]/[0.03] px-4 py-3">
               <div className="mb-2 flex items-center gap-2 text-xs font-medium text-[#ff4444]">
                 <span>!</span>
                 <span>Permission Required</span>
@@ -189,7 +189,7 @@ export default function ChatMessage({
           {showThinking && !isEmptyAssistant && <ThinkingIndicator hasContent={true} />}
         </div>
       )}
-      
+
       {/* Separator (except for the very last message being generated) */}
       {!isLast && <div className="separator-glow mt-3 mb-1" />}
     </motion.div>

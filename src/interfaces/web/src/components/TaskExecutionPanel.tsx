@@ -173,7 +173,7 @@ export default function TaskExecutionPanel({
                   initial={{ opacity: 0, y: 4 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.2 }}
-                  className="rounded-lg border border-[#222] bg-[#000] p-3 font-mono text-[12px] hover-glow-card"
+                  className="hover-glow-card rounded-lg border border-[#222] bg-[#000] p-3 font-mono text-[12px]"
                 >
                   <div className="flex items-center gap-2 text-[#ededed]">
                     <Settings size={12} className="text-[#666]" />
@@ -182,10 +182,10 @@ export default function TaskExecutionPanel({
                       {tool.status === "running" ? "running..." : "done"}
                     </span>
                     {tool.status === "running" && (
-                      <Loader2 size={10} className="animate-spin text-[#666] ml-auto" />
+                      <Loader2 size={10} className="ml-auto animate-spin text-[#666]" />
                     )}
                   </div>
-                  <div className="mt-2 ml-4 border-l border-[#222] pl-3 space-y-2">
+                  <div className="mt-2 ml-4 space-y-2 border-l border-[#222] pl-3">
                     <div>
                       <span className="text-[#555] select-none">{"// args"}</span>
                       <pre className="mt-1 overflow-x-auto break-all whitespace-pre-wrap text-[#aaa]">

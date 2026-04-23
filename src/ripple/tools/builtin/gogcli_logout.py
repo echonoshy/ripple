@@ -123,13 +123,15 @@ class GoogleWorkspaceLogoutTool(Tool):
 
         remaining: int | None
         list_cmd = f"{GOGCLI_CLI_SANDBOX_BIN} auth list --json"
-        lout, _lerr, lcode = await execute_in_sandbox(list_cmd, _sandbox_config, user_id, timeout=10)
+        lout, lerr, lcode = await execute_in_sandbox(list_cmd, _sandbox_config, user_id, timeout=10)
         if lcode == 0:
             try:
                 remaining = len(parse_auth_list_output(lout))
             except ValueError:
+                logger.warning("user {} 解析 gog auth list 输出失败，remaining_accounts 设为 None", user_id)
                 remaining = None
         else:
+            logger.warning("user {} gog auth list 验证失败 (code={}): {}", user_id, lcode, lerr[:500])
             remaining = None
 
         logger.info("user {} 已解绑 gogcli 账号 {} (剩余 {})", user_id, email, remaining)

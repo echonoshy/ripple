@@ -15,6 +15,37 @@ def _ctx(user_id: str = "alice") -> ToolUseContext:
 
 
 @pytest.mark.asyncio
+async def test_returns_error_when_sandbox_disabled():
+    tool = GoogleWorkspaceLogoutTool()
+    with patch("ripple.tools.builtin.bash._sandbox_config", None):
+        res = await tool.call({"email": "alice@gmail.com"}, _ctx(), None)
+    assert res.data["ok"] is False
+    assert "Sandbox" in res.data["error"]
+
+
+@pytest.mark.asyncio
+async def test_returns_error_when_no_user_id():
+    tool = GoogleWorkspaceLogoutTool()
+    mock_cfg = MagicMock()
+    mock_cfg.gogcli_cli_install_root = "/vendor/gogcli-cli"
+    with patch("ripple.tools.builtin.bash._sandbox_config", mock_cfg):
+        res = await tool.call({"email": "alice@gmail.com"}, _ctx(user_id=""), None)
+    assert res.data["ok"] is False
+    assert "user_id" in res.data["error"]
+
+
+@pytest.mark.asyncio
+async def test_returns_error_when_gogcli_not_installed():
+    tool = GoogleWorkspaceLogoutTool()
+    mock_cfg = MagicMock()
+    mock_cfg.gogcli_cli_install_root = None
+    with patch("ripple.tools.builtin.bash._sandbox_config", mock_cfg):
+        res = await tool.call({"email": "alice@gmail.com"}, _ctx(), None)
+    assert res.data["ok"] is False
+    assert "未预装" in res.data["error"]
+
+
+@pytest.mark.asyncio
 async def test_rejects_missing_email():
     tool = GoogleWorkspaceLogoutTool()
     mock_cfg = MagicMock()
@@ -63,6 +94,7 @@ async def test_success_path():
     assert res.data["email"] == "alice@gmail.com"
     assert res.data["remaining_accounts"] == 1
     assert call_count["n"] == 2
+    assert "myaccount.google.com/permissions" in res.data["next"]
 
 
 @pytest.mark.asyncio
@@ -104,3 +136,20 @@ async def test_success_even_if_list_fails_after():
 
     assert res.data["ok"] is True
     assert res.data["remaining_accounts"] is None
+
+
+@pytest.mark.asyncio
+async def test_error_falls_back_to_stdout_when_stderr_empty():
+    tool = GoogleWorkspaceLogoutTool()
+    mock_cfg = MagicMock()
+    mock_cfg.gogcli_cli_install_root = "/vendor/gogcli-cli"
+    with (
+        patch("ripple.tools.builtin.bash._sandbox_config", mock_cfg),
+        patch(
+            "ripple.tools.builtin.gogcli_logout.execute_in_sandbox",
+            new=AsyncMock(return_value=("panic: unexpected state", "", 2)),
+        ),
+    ):
+        res = await tool.call({"email": "a@b.com"}, _ctx(), None)
+    assert res.data["ok"] is False
+    assert "panic" in res.data["error"]

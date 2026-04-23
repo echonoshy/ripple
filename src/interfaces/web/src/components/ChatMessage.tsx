@@ -104,7 +104,7 @@ export default function ChatMessage({
       {isUser ? (
         /* User message - Subtle gradient background */
         <div className="user-message-bg text-[14px] leading-relaxed text-[#ededed]">
-          <div className="whitespace-pre-wrap">{msg.content}</div>
+          <div className="whitespace-pre-wrap break-words">{msg.content}</div>
         </div>
       ) : (
         /* Assistant message - Simple left border */

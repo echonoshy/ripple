@@ -130,6 +130,30 @@ GoogleWorkspaceLoginComplete(email="user@gmail.com", callback_url="<用户粘贴
 
 把 `enable_url` 给用户，让他去 GCP Console 点 **Enable**；等 ~10 秒生效再重试。**不要**反复自动重试。
 
+## 🔍 运行时检查 & 账号管理
+
+首期只做鉴权的三件套没暴露"当前绑了谁"的视图。新增两个工具弥补：
+
+- **`GoogleWorkspaceAuthStatus`**（只读，SAFE）
+  - 查当前 user 绑了哪些邮箱、alias 是什么；可选 `check=true` 真跑一次 token exchange 验活（每账号一次网络往返 + 少量配额消耗）。
+  - 开局不确定该用哪个 `--account` 的时候先调一下。
+  - 业务命令报 `invalid_grant` / `unauthorized_client` 时调 `check=true`：如果 `valid=false`，就是 refresh_token 失效，走 `GoogleWorkspaceLoginStart` 重新授权。
+
+- **`GoogleWorkspaceLogout`**（⚠️ 破坏性，见下面破坏性清单）
+  - 解绑某个账号（从本地 keyring 删 refresh_token）。
+  - **不**撤销 Google 侧的授权；如果用户要彻底 revoke，引导去 <https://myaccount.google.com/permissions>。
+  - 不动 Desktop OAuth client config（跨账号共享）。
+
+## 🧰 gogcli 工具总览（5 个）
+
+| 用途 | 工具 | 何时调 |
+|---|---|---|
+| 绑 Desktop OAuth client | `GoogleWorkspaceClientConfigSet` | 首次、或用户换了 GCP 项目 |
+| 拿授权 URL | `GoogleWorkspaceLoginStart` | 每次新账号 / refresh token 失效 |
+| 吃 callback URL 换 token | `GoogleWorkspaceLoginComplete` | 紧跟 LoginStart 之后 |
+| 列已绑账号 / 验活 | `GoogleWorkspaceAuthStatus` | 开局、可疑 token 错误 |
+| 解绑账号 | `GoogleWorkspaceLogout` | 用户明确要求解绑（⚠️ 先 AskUser） |
+
 ## 🛡 破坏性操作必须调 AskUser 二次确认（ripple 纪律）
 
 以下 gog 子命令**执行前必须**先调 `AskUser(question=...)` 工具、等用户明确同意后再调 `Bash` 执行。**绝不能直接执行**。
@@ -138,6 +162,7 @@ GoogleWorkspaceLoginComplete(email="user@gmail.com", callback_url="<用户粘贴
 
 | Service | 命令 |
 |---|---|
+| gogcli（工具层） | `GoogleWorkspaceLogout`（解绑本地 keyring 某账号，会丢失该账号的 refresh_token） |
 | gmail | `send` / `drafts send` / `forward` / `reply` / `delete` / `batch delete` / `filters delete` / `labels delete` / `labels modify --remove` |
 | drive | `delete` / `unshare` / `share` / `move`（不确定目标时）/ `upload --replace` |
 | sheets | `delete-tab` / `clear` / `update`（覆盖已有数据）/ `chart delete` |
@@ -185,9 +210,13 @@ AskUser(
 | 写 Sheet（⚠️ 破坏性） | `gog sheets update/append/clear` | |
 | 读 Doc | `gog docs info/cat/list-tabs` | |
 | 写 Doc（⚠️ 破坏性） | `gog docs update/write/sed/find-replace` | |
-| 列 Tasks | `gog tasks lists/list/get` | |
-| 修改 Tasks（⚠️ 破坏性） | `gog tasks add/update/done/delete` | |
-| 其他：people / chat / forms / classroom / appscript | `gog <service> --help` | self-document |
+| 列 Tasks | `gog tasks lists/list/get` | 见 `gog-tasks` skill |
+| 修改 Tasks（⚠️ 破坏性） | `gog tasks add/update/done/delete` | 见 `gog-tasks` skill |
+| Slides 读 / 导出 | `gog slides info/slide/export` | 见 `gog-slides` skill |
+| Slides 写（⚠️ 破坏性） | `gog slides create/copy/find-replace/batch-update` | 见 `gog-slides` skill（优先 `--dry-run`） |
+| Contacts 读 / 搜 | `gog people list/search/me` | 见 `gog-people` skill |
+| Contacts 写（⚠️ 破坏性） | `gog people create/update/delete/merge` | 见 `gog-people` skill |
+| 其他：chat / keep / forms / classroom / appscript | `gog <service> --help` | self-document，暂无专门 skill |
 
 ## 🧭 账号选择
 

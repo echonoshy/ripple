@@ -12,9 +12,46 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, AsyncGenerator
 
 from ripple.messages.types import AssistantMessage, Message, StreamEvent
+from ripple.utils.logger import logger as _loguru_logger
 
 if TYPE_CHECKING:
     from ripple.tools.base import Tool
+
+
+def log_llm_call(
+    *,
+    provider: str,
+    model: str,
+    prompt_tokens: int,
+    completion_tokens: int,
+    duration_ms: float,
+    finish_reason: str | None,
+    provider_request_id: str | None,
+    tool_count: int = 0,
+    error: str | None = None,
+) -> None:
+    """输出一条 LLM 调用结构化日志
+
+    同时落到 ``ripple.log``（channel 非 access）和可选的 ``llm.log``（channel=llm）。
+    格式固定成 ``key=value`` 风格，便于后续 grep。
+    """
+    total = prompt_tokens + completion_tokens
+    _loguru_logger.bind(module="llm", channel="llm").info(
+        (
+            "llm_call provider={} model={} prompt_tokens={} completion_tokens={} "
+            "total_tokens={} duration_ms={:.0f} finish_reason={} tools={} provider_request_id={}{}"
+        ),
+        provider,
+        model,
+        prompt_tokens,
+        completion_tokens,
+        total,
+        duration_ms,
+        finish_reason or "-",
+        tool_count,
+        provider_request_id or "-",
+        f" error={error}" if error else "",
+    )
 
 
 class LLMClient(ABC):

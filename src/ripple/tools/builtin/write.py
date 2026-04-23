@@ -161,3 +161,19 @@ class WriteTool(Tool[WriteInput, WriteOutput]):
         # 检查文件是否存在
         path = Path(file_path)
         return path.exists() and path.is_file()
+
+    def log_input_summary(self, input_params: dict[str, Any]) -> dict[str, Any]:
+        """Write 摘要只记 path + 内容字节数，不记正文（避免 ripple.log 刷屏）"""
+        content = input_params.get("content") or ""
+        return {
+            "path": input_params.get("file_path", ""),
+            "bytes": len(content),
+        }
+
+    def log_result_summary(self, result_data: Any) -> dict[str, Any]:
+        if isinstance(result_data, WriteOutput):
+            return {
+                "success": result_data.success,
+                "bytes_written": result_data.bytes_written,
+            }
+        return super().log_result_summary(result_data)

@@ -316,6 +316,25 @@ class BashTool(Tool[BashInput, BashOutput]):
     def is_concurrency_safe(self, input: BashInput | dict[str, Any]) -> bool:
         return False
 
+    def log_input_summary(self, input_params: dict[str, Any]) -> dict[str, Any]:
+        """Bash 命令本身排障价值很高，完整保留（但超过 400 字符截断）"""
+        cmd = input_params.get("command", "") or ""
+        if len(cmd) > 400:
+            cmd = cmd[:400] + f"...[+{len(cmd) - 400}]"
+        return {
+            "command": cmd,
+            "timeout": input_params.get("timeout", 120),
+        }
+
+    def log_result_summary(self, result_data: Any) -> dict[str, Any]:
+        if isinstance(result_data, BashOutput):
+            return {
+                "exit_code": result_data.exit_code,
+                "stdout_bytes": len(result_data.stdout),
+                "stderr_bytes": len(result_data.stderr),
+            }
+        return super().log_result_summary(result_data)
+
     def _get_parameters_schema(self) -> dict[str, Any]:
         return {
             "type": "object",

@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from interfaces.server.middleware import RequestContextMiddleware
 from interfaces.server.routes import router, set_session_manager
 from interfaces.server.sessions import SessionManager
 from ripple.sandbox.config import SandboxConfig
@@ -59,13 +60,18 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    # RequestContextMiddleware 须最外层执行（注册在最后、outermost）：
+    # 把 user_id/session_id/request_id 绑到 contextvars 后，CORS / 路由 / handler
+    # 都能继承到这套上下文，所有日志自然带上这些字段。
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["X-Request-Id", "X-Ripple-Session-Id"],
     )
+    app.add_middleware(RequestContextMiddleware)
 
     app.include_router(router)
 
@@ -77,10 +83,13 @@ def main() -> None:
     import uvicorn
 
     config = get_config()
+    logging_cfg = config.get("logging", {}) or {}
     setup_logging(
-        level=config.get("logging.level", "DEBUG"),
-        max_bytes=config.get("logging.max_bytes", 5 * 1024 * 1024),
-        backup_count=config.get("logging.backup_count", 3),
+        level=logging_cfg.get("level", "DEBUG"),
+        rotation=logging_cfg.get("rotation", "50 MB"),
+        retention=logging_cfg.get("retention", "14 days"),
+        access_log=bool(logging_cfg.get("access_log", True)),
+        llm_log=bool(logging_cfg.get("llm_log", True)),
     )
 
     parser = argparse.ArgumentParser(

@@ -4,7 +4,6 @@
 """
 
 import time
-import traceback
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -308,7 +307,7 @@ async def _stream_chat(
             yield f"data: {json.dumps({'error': {'message': 'Request cancelled', 'type': 'cancelled'}})}\n\n"
             yield "data: [DONE]\n\n"
         except Exception as e:
-            logger.error("流式聊天异常: {}\n{}", e, traceback.format_exc())
+            logger.exception("流式聊天异常: {}", e)
             import json
 
             error_data = {"error": {"message": str(e), "type": "server_error"}}
@@ -388,7 +387,7 @@ async def _non_stream_chat(
             session.status = "idle"
             raise HTTPException(status_code=499, detail="Request cancelled")
         except Exception as e:
-            logger.error("非流式聊天异常: {}\n{}", e, traceback.format_exc())
+            logger.exception("非流式聊天异常: {}", e)
             raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -754,5 +753,5 @@ async def invoke_tool(
         result = await tool_instance.call(args=request.args, context=context, parent_message=None)
         return ToolInvokeResponse(ok=True, result=str(result.data))
     except Exception as e:
-        logger.error("工具调用异常: {}\n{}", e, traceback.format_exc())
+        logger.exception("工具调用异常: {}", e)
         return ToolInvokeResponse(ok=False, error=str(e))

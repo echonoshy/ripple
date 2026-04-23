@@ -18,6 +18,7 @@ from ripple.utils.logger import get_logger
 
 logger = get_logger("tools.orchestration")
 
+# 工具结果落盘到 ripple.log 的上限（完整结果仍写入 messages.jsonl）
 LOG_TRUNCATE_LEN = 500
 
 
@@ -26,6 +27,34 @@ def _truncate(text: str, max_len: int = LOG_TRUNCATE_LEN) -> str:
     if len(text) <= max_len:
         return text
     return text[:max_len] + f"...[+{len(text) - max_len} chars]"
+
+
+def _fmt_kv(summary: dict[str, Any]) -> str:
+    """把 {"k1": v1, "k2": v2} 格式化成 "k1=v1 k2=v2"，便于 grep
+
+    值里有空格时会加双引号。None 会被渲染成 ``null``。
+    """
+    if not summary:
+        return "-"
+    parts: list[str] = []
+    for key, value in summary.items():
+        if value is None:
+            rendered = "null"
+        elif isinstance(value, bool):
+            rendered = "true" if value else "false"
+        elif isinstance(value, (int, float)):
+            rendered = str(value)
+        elif isinstance(value, str):
+            rendered = value
+        else:
+            try:
+                rendered = json.dumps(value, ensure_ascii=False)
+            except (TypeError, ValueError):
+                rendered = str(value)
+        if any(ch in rendered for ch in (" ", "\t", "\n", '"')):
+            rendered = '"' + rendered.replace('"', '\\"').replace("\n", "\\n") + '"'
+        parts.append(f"{key}={rendered}")
+    return " ".join(parts)
 
 
 @dataclass
@@ -214,7 +243,7 @@ async def _run_tools_concurrently(
             from ripple.utils.errors import error_message
 
             t_name = tool_use.get("name", "?")
-            logger.error("并发工具执行异常: {}: {}", t_name, result)
+            logger.opt(exception=result).error("并发工具执行异常: {}", t_name)
             error_msg = create_tool_result_message(
                 tool_use_id=tool_use.get("id", ""),
                 content=f"Tool execution failed: {error_message(result)}",
@@ -260,8 +289,15 @@ async def execute_tool(
         yield MessageUpdate(message=error_msg)
         return
 
-    input_str = _truncate(json.dumps(tool_input, ensure_ascii=False))
-    logger.info("工具调用: {} | 参数: {}", tool_name, input_str)
+    if tool:
+        try:
+            input_summary = tool.log_input_summary(tool_input)
+        except Exception:
+            # 摘要钩子若异常，退回到 keys-only，永不因日志钩子拖垮主流程
+            input_summary = {"keys": sorted(tool_input.keys()) if isinstance(tool_input, dict) else []}
+    else:
+        input_summary = {"keys": sorted(tool_input.keys()) if isinstance(tool_input, dict) else []}
+    logger.info("工具调用: {} | {}", tool_name, _fmt_kv(input_summary))
 
     if not tool:
         logger.warning("工具未找到: {}", tool_name)
@@ -327,7 +363,11 @@ async def execute_tool(
         if len(result_content) > tool.max_result_size_chars:
             result_content = result_content[: tool.max_result_size_chars] + "\n... [truncated]"
 
-        logger.info("工具完成: {} | 耗时: {:.2f}s | 结果: {}", tool_name, elapsed, _truncate(result_content))
+        try:
+            result_summary = tool.log_result_summary(result.data)
+        except Exception:
+            result_summary = {"bytes": len(result_content)}
+        logger.info("工具完成: {} | 耗时: {:.2f}s | {}", tool_name, elapsed, _fmt_kv(result_summary))
 
         result_msg = create_tool_result_message(
             tool_use_id=tool_use["id"],

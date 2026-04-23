@@ -120,6 +120,22 @@ class ReadTool(Tool[ReadInput, ReadOutput]):
         """
         return True
 
+    def log_input_summary(self, input_params: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "path": input_params.get("file_path", ""),
+            "offset": input_params.get("offset", 0),
+            "limit": input_params.get("limit", 2000),
+        }
+
+    def log_result_summary(self, result_data: Any) -> dict[str, Any]:
+        if isinstance(result_data, ReadOutput):
+            return {
+                "read_lines": result_data.read_lines,
+                "total_lines": result_data.total_lines,
+                "bytes": len(result_data.content),
+            }
+        return super().log_result_summary(result_data)
+
     def _get_parameters_schema(self) -> dict[str, Any]:
         """获取参数 schema
 

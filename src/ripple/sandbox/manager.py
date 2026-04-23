@@ -130,8 +130,9 @@ class SandboxManager:
                 except (ValueError, TypeError):
                     continue
                 if (now - suspended_at).total_seconds() > self.config.retention_seconds:
-                    logger.info("清理过期挂起 session: {}/{} (挂起于 {})", uid, sid, suspended_at_str)
-                    self.teardown_session(uid, sid)
+                    with logger.contextualize(user_id=uid, session_id=sid, request_id="cleanup"):
+                        logger.info("清理过期挂起 session (挂起于 {})", suspended_at_str)
+                        self.teardown_session(uid, sid)
 
     def sandbox_summary(self, user_id: str) -> dict | None:
         """为 GET /v1/sandboxes 返回的摘要"""

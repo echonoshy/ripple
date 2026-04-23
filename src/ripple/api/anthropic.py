@@ -13,12 +13,13 @@
 """
 
 import json
+import time
 from typing import TYPE_CHECKING, Any, AsyncGenerator
 from uuid import uuid4
 
 import httpx
 
-from ripple.api.base import LLMClient
+from ripple.api.base import LLMClient, log_llm_call
 from ripple.messages.types import AssistantMessage, Message, StreamEvent
 from ripple.messages.utils import create_assistant_message, normalize_messages_for_anthropic
 from ripple.utils.config import get_config
@@ -136,26 +137,54 @@ class AnthropicClient(LLMClient):
             extra=kwargs,
         )
 
+        tool_count = len(payload.get("tools", []) or [])
         logger.debug(
             "stream: model={}, messages={}, tools={}, thinking={}",
             model,
             len(payload.get("messages", [])),
-            len(payload.get("tools", [])),
+            tool_count,
             thinking,
         )
 
         url = f"{self.base_url}/v1/messages"
 
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            async with client.stream("POST", url, headers=self._headers, json=payload) as response:
-                if response.status_code >= 400:
-                    err_body = await response.aread()
-                    text = err_body.decode("utf-8", errors="replace")
-                    logger.error("Anthropic API 错误: status={}, body={}", response.status_code, text[:500])
-                    raise RuntimeError(f"Anthropic API error {response.status_code}: {text}")
+        start_ts = time.monotonic()
+        captured: dict[str, Any] = {
+            "provider_request_id": None,
+            "finish_reason": None,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+        }
+        error_str: str | None = None
 
-                async for item in _parse_anthropic_sse(response.aiter_lines()):
-                    yield item
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                async with client.stream("POST", url, headers=self._headers, json=payload) as response:
+                    if response.status_code >= 400:
+                        err_body = await response.aread()
+                        text = err_body.decode("utf-8", errors="replace")
+                        logger.error("Anthropic API 错误: status={}, body={}", response.status_code, text[:500])
+                        error_str = f"http {response.status_code}"
+                        raise RuntimeError(f"Anthropic API error {response.status_code}: {text}")
+
+                    async for item in _parse_anthropic_sse(response.aiter_lines(), captured=captured):
+                        yield item
+        except Exception as e:
+            if error_str is None:
+                error_str = str(e)
+            raise
+        finally:
+            log_llm_call(
+                provider=self.provider_name,
+                model=model,
+                prompt_tokens=captured["prompt_tokens"],
+                completion_tokens=captured["completion_tokens"],
+                duration_ms=(time.monotonic() - start_ts) * 1000.0,
+                finish_reason=captured["finish_reason"],
+                provider_request_id=captured["provider_request_id"],
+                tool_count=tool_count,
+                error=error_str,
+            )
 
     async def complete(
         self,
@@ -207,6 +236,7 @@ class AnthropicClient(LLMClient):
 
 async def _parse_anthropic_sse(
     lines_iter: AsyncGenerator[str, None],
+    captured: dict[str, Any] | None = None,
 ) -> AsyncGenerator[AssistantMessage | StreamEvent, None]:
     """解析 Anthropic Messages API 的 SSE 流，yield 统一的内部事件
 
@@ -218,6 +248,11 @@ async def _parse_anthropic_sse(
 
     对应输出：
       stream_start → stream_chunk* → stream_end → AssistantMessage
+
+    Args:
+        lines_iter: SSE 字节流按行迭代器
+        captured: 可选的元数据收集 dict，会就地写入 provider_request_id /
+            prompt_tokens / completion_tokens / finish_reason，供调用方打 llm_call 日志
 
     注意：text 和 tool_use 可能交替出现，需要按 index 维护各 content block 的累积状态。
     """
@@ -258,6 +293,11 @@ async def _parse_anthropic_sse(
             msg_usage = message.get("usage", {}) or {}
             if msg_usage.get("input_tokens") is not None:
                 usage["input_tokens"] = msg_usage["input_tokens"]
+            if captured is not None:
+                if captured.get("provider_request_id") is None and message.get("id"):
+                    captured["provider_request_id"] = message["id"]
+                if msg_usage.get("input_tokens") is not None:
+                    captured["prompt_tokens"] = int(msg_usage["input_tokens"] or 0)
 
         elif etype == "content_block_start":
             index = event.get("index", 0)
@@ -307,6 +347,13 @@ async def _parse_anthropic_sse(
             msg_delta_usage = event.get("usage", {}) or {}
             if msg_delta_usage.get("output_tokens") is not None:
                 usage["output_tokens"] = msg_delta_usage["output_tokens"]
+            # Anthropic 的 stop_reason 放在 message_delta.delta 里
+            delta_meta = event.get("delta", {}) or {}
+            if captured is not None:
+                if msg_delta_usage.get("output_tokens") is not None:
+                    captured["completion_tokens"] = int(msg_delta_usage["output_tokens"] or 0)
+                if delta_meta.get("stop_reason"):
+                    captured["finish_reason"] = delta_meta["stop_reason"]
 
         elif etype == "message_stop":
             if text_streaming_started:

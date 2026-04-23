@@ -215,10 +215,8 @@ async def query_loop(
                         state.tool_use_context = completed.new_context
 
         except Exception as e:
-            import traceback
-
             streaming_executor.discard()
-            logger.error("API 调用失败: {}\n{}", e, traceback.format_exc())
+            logger.exception("API 调用失败: {}", e)
 
             error_str = str(e).lower()
 
@@ -463,9 +461,7 @@ async def query_loop(
                             loop_stop_metadata = update.stop_metadata
 
             except Exception as e:
-                import traceback
-
-                logger.error("工具执行失败: {}\n{}", e, traceback.format_exc())
+                logger.exception("工具执行失败: {}", e)
 
                 from ripple.utils.errors import error_message
 

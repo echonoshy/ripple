@@ -4,12 +4,13 @@
 并把 OpenAI 流式响应反向解析回 `AssistantMessage` / `StreamEvent`。
 """
 
+import time
 from typing import TYPE_CHECKING, Any, AsyncGenerator
 
 import httpx
 from openai import AsyncOpenAI
 
-from ripple.api.base import LLMClient
+from ripple.api.base import LLMClient, log_llm_call
 from ripple.api.streaming import process_stream_response
 from ripple.messages.types import AssistantMessage, Message, StreamEvent
 from ripple.messages.utils import normalize_messages_for_api
@@ -111,18 +112,60 @@ class OpenRouterClient(LLMClient):
         if tool_schemas:
             params["tools"] = tool_schemas
 
+        tool_count = len(tool_schemas) if tool_schemas else 0
         logger.debug(
             "stream: model={}, messages={}, tools={}, thinking={}",
             model,
             len(api_messages),
-            len(tool_schemas) if tool_schemas else 0,
+            tool_count,
             thinking,
         )
 
         raw_stream = await self.client.chat.completions.create(**params)
 
-        async for item in process_stream_response(_iter_raw_chunks(raw_stream)):
-            yield item
+        # 捕获 chunk 级元数据用于 llm_call 结构化日志（不解析 payload，只抓 id/usage/finish_reason）
+        captured: dict[str, Any] = {
+            "provider_request_id": None,
+            "finish_reason": None,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+        }
+        start_ts = time.monotonic()
+        error_str: str | None = None
+
+        async def _iter_and_capture() -> AsyncGenerator[Any, None]:
+            async for chunk in raw_stream:
+                if captured["provider_request_id"] is None:
+                    chunk_id = getattr(chunk, "id", None)
+                    if chunk_id:
+                        captured["provider_request_id"] = chunk_id
+                chunk_usage = getattr(chunk, "usage", None)
+                if chunk_usage is not None:
+                    captured["prompt_tokens"] = int(getattr(chunk_usage, "prompt_tokens", 0) or 0)
+                    captured["completion_tokens"] = int(getattr(chunk_usage, "completion_tokens", 0) or 0)
+                choices = getattr(chunk, "choices", None) or []
+                if choices and getattr(choices[0], "finish_reason", None):
+                    captured["finish_reason"] = choices[0].finish_reason
+                yield chunk
+
+        try:
+            async for item in process_stream_response(_iter_and_capture()):
+                yield item
+        except Exception as e:
+            error_str = str(e)
+            raise
+        finally:
+            log_llm_call(
+                provider=self.provider_name,
+                model=model,
+                prompt_tokens=captured["prompt_tokens"],
+                completion_tokens=captured["completion_tokens"],
+                duration_ms=(time.monotonic() - start_ts) * 1000.0,
+                finish_reason=captured["finish_reason"],
+                provider_request_id=captured["provider_request_id"],
+                tool_count=tool_count,
+                error=error_str,
+            )
 
     async def complete(
         self,
@@ -165,9 +208,3 @@ class OpenRouterClient(LLMClient):
         }
 
         return {"text": text, "usage": usage}
-
-
-async def _iter_raw_chunks(stream: Any) -> AsyncGenerator[Any, None]:
-    """把 AsyncOpenAI 的流包装成 async generator，便于给 process_stream_response 消费"""
-    async for chunk in stream:
-        yield chunk

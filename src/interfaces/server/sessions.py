@@ -35,6 +35,7 @@ from ripple.tools.builtin.task_update import TaskUpdateTool
 from ripple.tools.builtin.write import WriteTool
 from ripple.utils.config import get_config
 from ripple.utils.logger import get_logger
+from ripple.utils.logger import logger as root_logger
 
 logger = get_logger("server.sessions")
 
@@ -314,20 +315,24 @@ class SessionManager:
             self._cleanup_expired()
 
     def _cleanup_expired(self):
-        """清理过期 session：先挂起，再根据保留策略删除"""
+        """清理过期 session：先挂起，再根据保留策略删除
+
+        后台任务内的日志在这里显式绑定 user_id/session_id，避免落盘成 "-"。
+        """
         now = datetime.now(timezone.utc)
         expired = [
             key for key, s in self._sessions.items() if (now - s.last_active).total_seconds() > self._ttl_seconds
         ]
         for key in expired:
             session = self._sessions[key]
-            if self._sandbox_manager:
-                if session.current_task and not session.current_task.done():
-                    session.current_task.cancel()
-                self._suspend_to_disk(session)
-                logger.info("Session 过期自动挂起: {}/{}", key[0], key[1])
-            else:
-                logger.info("Session 过期清理: {}/{}", key[0], key[1])
+            with root_logger.contextualize(user_id=key[0], session_id=key[1], request_id="cleanup"):
+                if self._sandbox_manager:
+                    if session.current_task and not session.current_task.done():
+                        session.current_task.cancel()
+                    self._suspend_to_disk(session)
+                    logger.info("Session 过期自动挂起")
+                else:
+                    logger.info("Session 过期清理")
             del self._sessions[key]
 
         # 清理磁盘上过期的挂起 session

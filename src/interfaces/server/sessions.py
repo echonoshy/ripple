@@ -21,6 +21,7 @@ from ripple.skills.skill_tool import SkillTool
 from ripple.tools.builtin.agent_tool import AgentTool
 from ripple.tools.builtin.ask_user import AskUserTool
 from ripple.tools.builtin.bash import BashTool
+from ripple.tools.builtin.gogcli_auth_status import GoogleWorkspaceAuthStatusTool
 from ripple.tools.builtin.gogcli_client_config_set import GoogleWorkspaceClientConfigSetTool
 from ripple.tools.builtin.gogcli_login_complete import GoogleWorkspaceLoginCompleteTool
 from ripple.tools.builtin.gogcli_login_start import GoogleWorkspaceLoginStartTool
@@ -242,6 +243,7 @@ def _get_server_tools() -> list:
         GoogleWorkspaceClientConfigSetTool(),
         GoogleWorkspaceLoginStartTool(),
         GoogleWorkspaceLoginCompleteTool(),
+        GoogleWorkspaceAuthStatusTool(),
         TaskCreateTool(),
         TaskUpdateTool(),
         TaskListTool(),

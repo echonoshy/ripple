@@ -23,8 +23,23 @@ from ripple.utils.config import get_config
 
 DEFAULT_BASE_URL = "https://shazam-api.com/api"
 DEFAULT_REQUEST_TIMEOUT = 60
+DEFAULT_CONNECT_TIMEOUT = 10
+DEFAULT_WRITE_TIMEOUT = 120
 DEFAULT_POLL_TIMEOUT = 60
 DEFAULT_POLL_INTERVAL = 3
+
+
+def _format_http_error(e: Exception) -> str:
+    """把 httpx 异常格式化成"一眼能定位"的字符串。
+
+    httpx 的 ReadTimeout/WriteTimeout/ConnectError 等异常 `str(e)` 经常是空串，
+    直接用 f"...: {e}" 会得到 "...: " 这种毫无信息的提示，必须带上类型名和 repr。
+    """
+    type_name = type(e).__name__
+    msg = str(e).strip()
+    if msg:
+        return f"{type_name}: {msg}"
+    return f"{type_name}: {e!r}"
 
 
 class MusicIdentifyInput(BaseModel):
@@ -83,6 +98,8 @@ def _load_shazam_settings() -> dict[str, Any]:
         "api_key": api_key,
         "base_url": config.get("services.shazam.base_url", DEFAULT_BASE_URL),
         "request_timeout": int(config.get("services.shazam.request_timeout", DEFAULT_REQUEST_TIMEOUT)),
+        "connect_timeout": int(config.get("services.shazam.connect_timeout", DEFAULT_CONNECT_TIMEOUT)),
+        "write_timeout": int(config.get("services.shazam.write_timeout", DEFAULT_WRITE_TIMEOUT)),
         "poll_timeout": int(config.get("services.shazam.poll_timeout", DEFAULT_POLL_TIMEOUT)),
         "poll_interval": int(config.get("services.shazam.poll_interval", DEFAULT_POLL_INTERVAL)),
     }
@@ -223,7 +240,13 @@ class MusicIdentifyTool(Tool[MusicIdentifyInput, MusicIdentifyOutput]):
             )
 
         headers = {"Authorization": f"Bearer {cfg['api_key']}"}
-        async with httpx.AsyncClient(headers=headers, timeout=cfg["request_timeout"]) as client:
+        timeout = httpx.Timeout(
+            connect=float(cfg["connect_timeout"]),
+            read=float(cfg["request_timeout"]),
+            write=float(cfg["write_timeout"]),
+            pool=float(cfg["connect_timeout"]),
+        )
+        async with httpx.AsyncClient(headers=headers, timeout=timeout) as client:
             try:
                 if args.file_path:
                     path = _resolve_audio_file_path(args.file_path, context)
@@ -245,7 +268,7 @@ class MusicIdentifyTool(Tool[MusicIdentifyInput, MusicIdentifyOutput]):
                         matched=False,
                         status="failed",
                         results=[],
-                        notes=f"提交阶段 HTTP 错误: {e}",
+                        notes=f"提交阶段 HTTP 错误: {_format_http_error(e)}",
                     ),
                 )
 
@@ -274,7 +297,7 @@ class MusicIdentifyTool(Tool[MusicIdentifyInput, MusicIdentifyOutput]):
                         matched=False,
                         status="failed",
                         results=[],
-                        notes=f"轮询阶段 HTTP 错误: {e}",
+                        notes=f"轮询阶段 HTTP 错误: {_format_http_error(e)}",
                     ),
                 )
 

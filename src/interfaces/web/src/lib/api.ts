@@ -23,6 +23,27 @@ function getApiUrl(): string {
 }
 
 const API_URL = getApiUrl();
+
+/**
+ * API origin (host only, no `/v1` suffix) — useful for tools that return a
+ * relative backend path like `/v1/bilibili/qrcode.png?content=...` and need
+ * the markdown renderer to rewrite it to a fully-qualified URL.
+ */
+export function getApiOrigin(): string {
+  return API_URL.replace(/\/v1\/?$/, "");
+}
+
+/**
+ * Rewrite a backend-relative URL (starts with `/v1/`) to an absolute URL
+ * against the configured API origin. Non-`/v1/` URLs are returned as-is.
+ */
+export function resolveBackendUrl(href: string | undefined): string | undefined {
+  if (!href) return href;
+  if (href.startsWith("/v1/")) {
+    return `${getApiOrigin()}${href}`;
+  }
+  return href;
+}
 const API_KEY_STORAGE_KEY = "ripple-api-key";
 const USER_ID_STORAGE_KEY = "ripple-user-id";
 const DEFAULT_USER_ID = "default";

@@ -8,6 +8,7 @@ import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
 import { ChevronRight, Brain, ExternalLink, KeyRound, Settings2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { resolveBackendUrl } from "@/lib/api";
 
 /**
  * LLM 常把矩阵换行写成单反斜杠加空格 `\ `，KaTeX 需要 `\\`。
@@ -245,7 +246,7 @@ function MarkdownContent({ content }: { content: string }) {
         a({ href, children }) {
           return (
             <a
-              href={href}
+              href={resolveBackendUrl(href)}
               target="_blank"
               rel="noopener noreferrer"
               className="text-[#ededed] underline underline-offset-2 hover:text-[#60a5fa]"
@@ -253,6 +254,11 @@ function MarkdownContent({ content }: { content: string }) {
               {children}
             </a>
           );
+        },
+        img({ src, alt, ...rest }) {
+          const resolved = typeof src === "string" ? resolveBackendUrl(src) : src;
+          // eslint-disable-next-line @next/next/no-img-element -- 后端相对路径图片（如 B 站扫码 QR）跨 origin，Next <Image> 会强行要求域名白名单；这里允许原生 img 并手动约束尺寸
+          return <img src={resolved} alt={alt ?? ""} loading="lazy" {...rest} />;
         },
         table({ children }) {
           return (

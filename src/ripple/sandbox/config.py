@@ -357,6 +357,20 @@ class SandboxConfig:
         """user 级飞书凭证配置文件路径（宿主机侧）"""
         return self.sandbox_dir(user_id) / "credentials" / "feishu.json"
 
+    def bilibili_config_file(self, user_id: str) -> Path:
+        """user 级 Bilibili 凭证 JSON 路径（宿主侧，per-user）。
+
+        文件内容格式（由 `sandbox/bilibili.py` 维护）:
+            {"sessdata": "...", "bili_jct": "...", "dede_user_id": "...",
+             "uname": "...", "mid": 123, "bound_at": 123, "expires_at": 123}
+
+        与 Notion/gogcli 的差异：SESSDATA **不**作为 env 注入，而是把整个 JSON
+        以 readonly bind-mount 挂进沙箱的 `/workspace/.bilibili/sessdata.json`，
+        这样 bilibili 相关的 pipeline 脚本能直接读到 sessdata + bili_jct 等多字段。
+        """
+        validate_user_id(user_id)
+        return self.sandbox_dir(user_id) / "credentials" / "bilibili.json"
+
     def notion_config_file(self, user_id: str) -> Path:
         """user 级 Notion Integration Token 文件路径（宿主机侧，per-user）
 
@@ -436,6 +450,25 @@ class SandboxConfig:
             data = json.loads(f.read_text(encoding="utf-8"))
             token = data.get("api_token", "")
             return isinstance(token, str) and bool(token.strip())
+        except (json.JSONDecodeError, OSError):
+            return False
+
+    def has_bilibili_credential(self, user_id: str) -> bool:
+        """判定依据：credentials/bilibili.json 存在且含非空 sessdata 字段。
+
+        只做结构性判定（是否能拿到一串 token），不校验 SESSDATA 在 B 站侧
+        是否仍然有效 —— 有效性是 `sandbox/bilibili.py::verify_credential_live`
+        的职责，它会实际打 /x/web-interface/nav 接口。
+        """
+        f = self.bilibili_config_file(user_id)
+        if not f.exists():
+            return False
+        try:
+            import json
+
+            data = json.loads(f.read_text(encoding="utf-8"))
+            sessdata = data.get("sessdata", "") if isinstance(data, dict) else ""
+            return isinstance(sessdata, str) and bool(sessdata.strip())
         except (json.JSONDecodeError, OSError):
             return False
 

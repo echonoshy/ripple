@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from ripple.core.context import ToolUseContext
 from ripple.messages.types import AssistantMessage, Message
 from ripple.messages.utils import create_tool_result_message
+from ripple.sandbox.bilibili_gate import GATE_ALLOWED_TOOLS, gate_status
 from ripple.utils.logger import get_logger
 
 logger = get_logger("tools.orchestration")
@@ -310,6 +311,48 @@ async def execute_tool(
         )
         yield MessageUpdate(message=error_msg)
         return
+
+    # ── Bilibili 扫码互斥闸门 ──
+    # 当 BilibiliLoginStart 已发过二维码、但 BilibiliLoginPoll 尚未回收 terminal
+    # state（也没被 Logout 显式取消）时，本 user 不允许跑任何非扫码相关工具——
+    # 防 agent 在用户还在扫码时抢跑 extract / Bash / Write 等，把还没落盘的凭证
+    # 当 'need_sessdata' 错用。
+    if context.user_id and tool_name not in GATE_ALLOWED_TOOLS:
+        pending = gate_status(context.user_id)
+        if pending is not None:
+            elapsed = pending.elapsed()
+            gate_error = (
+                "Blocked by BilibiliAuthGate: 当前 user 的 B 站扫码登录还在进行中"
+                f"（qrcode_key={pending.qrcode_key[:8]}..., 已等 {elapsed:.0f}s）。\n"
+                "两段式扫码登录尚未收尾，你 **必须** 先处理完扫码再做别的事：\n"
+                "  1. **如果用户最近一句是『好了 / 扫好了 / ok / done / 点了确认登录』**——"
+                f"他刚扫完 + 点完确认：调 `BilibiliLoginPoll(qrcode_key='{pending.qrcode_key}')` "
+                "拿凭证（默认 30s 短等待，B 站侧状态通常秒返回 ok）。\n"
+                "  2. **如果 poll 上一轮返回 state=pending**：说明用户还没真正扫完/没点确认；"
+                "先耐心回复用户提示他完成扫码动作，**结束本 turn**，等他回话再 poll。"
+                "**不要**在当前 turn 直接再 poll，也不要硬拉其他工具尝试绕过。\n"
+                "  3. **如果用户明确放弃**（『算了 / 不登录了 / 取消』）：调 `BilibiliLogout` "
+                "解除闸门，然后按用户意图继续（或走降级路径）。\n"
+                "  4. **如果二维码已过期**或用户抱怨无法打开：调 `BilibiliLoginStart` 重新"
+                "生成（会覆盖旧的 key）。\n"
+                f"扫码窗口期内 `{tool_name}` 等非扫码工具一律被拒绝——这是硬互斥，"
+                "不要再用其他 tool call 尝试绕过。"
+            )
+            logger.warning(
+                "工具被 bilibili 扫码闸门拦截: {} | user={} elapsed={:.1f}s",
+                tool_name,
+                context.user_id,
+                elapsed,
+            )
+            blocked_msg = create_tool_result_message(
+                tool_use_id=tool_use["id"],
+                content=gate_error,
+                is_error=True,
+                tool_name=tool_name,
+                source_assistant_uuid=parent_uuid,
+            )
+            yield MessageUpdate(message=blocked_msg)
+            return
 
     if hasattr(context, "permission_manager") and context.permission_manager:
         allowed, reason, permission_request = await context.permission_manager.check_permission(

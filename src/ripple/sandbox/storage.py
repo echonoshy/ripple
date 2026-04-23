@@ -5,6 +5,7 @@
 - messages.jsonl: 对话历史（增量追加，避免全量重写）
 """
 
+import hashlib
 import json
 import shutil
 import tempfile
@@ -18,6 +19,25 @@ from ripple.utils.logger import get_logger
 logger = get_logger("sandbox.storage")
 
 STATE_VERSION = 2
+
+
+def _message_fingerprint(serialized_msg: dict) -> tuple[str, str, str]:
+    """给已序列化的 message 算一个 (role, type, content_hash8) 指纹。
+
+    ``content_hash8`` 用 sha1 前 8 字符——足够区分不同 message、短到日志里肉眼可比。
+    只在 save_session_state 里用作诊断：定位"同一 user prompt 在 messages.jsonl
+    被连续追加多次"这类 prompt 重复注入问题。
+    """
+    role = serialized_msg.get("role") or ""
+    mtype = serialized_msg.get("type") or ""
+    # 直接对整条 message 的稳定 JSON 做 hash，避免踩 content 是 str/list/dict
+    # 多种形态导致的分支逻辑。
+    try:
+        canonical = json.dumps(serialized_msg, ensure_ascii=False, sort_keys=True)
+    except (TypeError, ValueError):
+        canonical = repr(serialized_msg)
+    h = hashlib.sha1(canonical.encode("utf-8")).hexdigest()[:8]
+    return role, mtype, h
 
 
 def extract_title_from_messages(messages: list) -> str:
@@ -115,11 +135,71 @@ def save_session_state(
 
     new_lines = [json.dumps(msg, ensure_ascii=False) for msg in serialized_messages]
     if new_count > old_count > 0 and messages_file.exists():
+        # 增量追加路径：诊断"prompt 重复注入" bug 的主要现场。
+        # 1) 给追加的每条消息算指纹；
+        # 2) 对比历史最后 K 条指纹，若本批追加的新消息指纹命中历史，上报 warning——
+        #    真要是 LLM 输出偶然撞了某条旧消息的概率极低，更可能是 agent_loop
+        #    在异步 tool 阻塞后把上一轮 user prompt 又塞了一遍。
+        appended_serialized = serialized_messages[old_count:]
+        appended_fps = [_message_fingerprint(m) for m in appended_serialized]
+
+        recent_history_fps: list[tuple[str, str, str]] = []
+        history_peek = 20
+        if old_count > 0:
+            try:
+                with open(messages_file, encoding="utf-8") as f:
+                    tail = f.readlines()[-history_peek:]
+                for raw in tail:
+                    raw = raw.strip()
+                    if not raw:
+                        continue
+                    try:
+                        recent_history_fps.append(_message_fingerprint(json.loads(raw)))
+                    except json.JSONDecodeError:
+                        continue
+            except OSError as e:
+                logger.debug("诊断读取 messages.jsonl 尾部失败: {}", e)
+
+        history_hashes = {fp[2] for fp in recent_history_fps}
+        duplicates = [fp for fp in appended_fps if fp[2] in history_hashes]
+
         with open(messages_file, "a", encoding="utf-8") as f:
             for line in new_lines[old_count:]:
                 f.write(line + "\n")
+
+        # 常规诊断日志（debug 级）：每次追加都记录 role/type/hash 序列
+        logger.debug(
+            "append messages[{}]: {}/{} prev={} next={} fps={}",
+            new_count - old_count,
+            user_id,
+            session_id,
+            old_count,
+            new_count,
+            [f"{r}:{t}:{h}" for r, t, h in appended_fps],
+        )
+        # 疑似重复注入时升到 warning——方便线上直接用 grep 抓
+        if duplicates:
+            logger.warning(
+                "疑似 prompt 重复注入 {}/{}：本次追加 {} 条里有 {} 条指纹命中历史最后"
+                " {} 条。追加={} 命中={}。若频繁出现说明 agent_loop 某处在 async tool"
+                " 阻塞后重复入队 user prompt。",
+                user_id,
+                session_id,
+                len(appended_fps),
+                len(duplicates),
+                history_peek,
+                [f"{r}:{t}:{h}" for r, t, h in appended_fps],
+                [f"{r}:{t}:{h}" for r, t, h in duplicates],
+            )
     else:
         _atomic_write_lines(messages_file, new_lines)
+        logger.debug(
+            "full-rewrite messages: {}/{} old={} new={} (trim/first-write)",
+            user_id,
+            session_id,
+            old_count,
+            new_count,
+        )
 
     meta = {
         "version": STATE_VERSION,

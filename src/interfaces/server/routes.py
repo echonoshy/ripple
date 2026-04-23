@@ -6,8 +6,8 @@
 import time
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response, StreamingResponse
 
 from interfaces.server.auth import verify_api_key
 from interfaces.server.deps import get_user_id
@@ -710,6 +710,37 @@ async def get_gogcli_accounts(
         accounts=accounts,
         count=len(accounts),
         checked=check,
+    )
+
+
+# ─── Bilibili 扫码二维码图片 ───
+
+
+@router.get("/v1/bilibili/qrcode.png")
+async def bilibili_qrcode_png(
+    content: str = Query(..., min_length=1, max_length=2048, description="QR 要编码的原始内容"),
+):
+    """渲染 B 站扫码登录二维码为 PNG，无鉴权（只做图像编码，无状态）。
+
+    设计理由：
+      * LLM 对话里直接嵌 base64 PNG 会爆 token，所以让工具返回短 URL、前端/用户
+        在浏览器打开这个路由拿到真正的图像。
+      * 路由无状态：`content` 参数就是要 encode 的字符串（通常是 B 站 qrcode
+        scan-web URL），服务端用 `segno` 即时渲染。不做任何日志/审计——content
+        本身只含 `qrcode_key`（B 站公开，没 SESSDATA，泄露也无意义）。
+      * 不鉴权：防止前端/用户打开时还要带 token；PNG 内容对谁都是同样的，安全上
+        没区别。rate-limit 由上游 nginx/API gateway 负责（如果需要）。
+    """
+    from ripple.sandbox.bilibili import render_qrcode_png_bytes
+
+    try:
+        png = render_qrcode_png_bytes(content)
+    except Exception as e:  # noqa: BLE001 — 编码失败返 400 即可
+        raise HTTPException(status_code=400, detail=f"QR 编码失败: {e}") from e
+    return Response(
+        content=png,
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=60"},
     )
 
 

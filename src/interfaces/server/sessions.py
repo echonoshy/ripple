@@ -21,6 +21,10 @@ from ripple.skills.skill_tool import SkillTool
 from ripple.tools.builtin.agent_tool import AgentTool
 from ripple.tools.builtin.ask_user import AskUserTool
 from ripple.tools.builtin.bash import BashTool
+from ripple.tools.builtin.bilibili_auth_status import BilibiliAuthStatusTool
+from ripple.tools.builtin.bilibili_login_poll import BilibiliLoginPollTool
+from ripple.tools.builtin.bilibili_login_start import BilibiliLoginStartTool
+from ripple.tools.builtin.bilibili_logout import BilibiliLogoutTool
 from ripple.tools.builtin.gogcli_auth_status import GoogleWorkspaceAuthStatusTool
 from ripple.tools.builtin.gogcli_client_config_set import GoogleWorkspaceClientConfigSetTool
 from ripple.tools.builtin.gogcli_login_complete import GoogleWorkspaceLoginCompleteTool
@@ -241,6 +245,10 @@ def _get_server_tools() -> list:
         AskUserTool(),
         MusicIdentifyTool(),
         NotionTokenSetTool(),
+        BilibiliLoginStartTool(),
+        BilibiliLoginPollTool(),
+        BilibiliAuthStatusTool(),
+        BilibiliLogoutTool(),
         GoogleWorkspaceClientConfigSetTool(),
         GoogleWorkspaceLoginStartTool(),
         GoogleWorkspaceLoginCompleteTool(),

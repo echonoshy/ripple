@@ -17,6 +17,7 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.34",
     "python-nsjail>=0.3.0",
+    "segno>=1.6.6",
 ]
 
 [project.scripts]

@@ -270,6 +270,20 @@ def generate_nsjail_config(config: SandboxConfig, user_id: str) -> str:
     rw: true
 }}""")
 
+    # Bilibili 凭证（per-user）：
+    # 仅当宿主侧 `credentials/bilibili.json` 实际存在时才追加 readonly bind-mount，
+    # 把它挂到沙箱内 `/workspace/.bilibili/sessdata.json`。不存在时**不挂**——
+    # 避免 nsjail 因源路径缺失而启动失败；等用户通过扫码流程（BilibiliLoginPoll）
+    # 完成绑定后，调用方会重生 nsjail.cfg，下次沙箱启动即可看到文件。
+    bili_src = config.bilibili_config_file(user_id)
+    if bili_src.exists():
+        mounts.append(f"""mount {{
+    src: "{bili_src}"
+    dst: "/workspace/.bilibili/sessdata.json"
+    is_bind: true
+    rw: false
+}}""")
+
     mounts.append("""mount {
     dst: "/proc"
     fstype: "proc"

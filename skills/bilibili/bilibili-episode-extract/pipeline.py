@@ -265,9 +265,55 @@ def extract_view_points(view_data: dict) -> list[dict]:
 #   -101 —— 账号未登录 / SESSDATA 失效
 #   -400 —— 请求参数错误（bvid/cid 不匹配）
 #   -404 —— 视频不存在 / 已删除
-#   -352 / -412 —— 风控（UA / Cookie / 频控被挡）
+#   -352 / -412 —— 风控（UA / Cookie / 频控被挡）；HTTP 层的 412/352 也归这一类
 _CODE_NEED_SESSDATA = {-101, -400}
 _CODE_RISK_CONTROL = {-352, -412}
+_HTTP_RISK_STATUS = {412, 352}
+
+
+def _wbi_call(
+    opener: urllib.request.OpenerDirector,
+    base_url: str,
+    params: dict,
+    mixin_key: str,
+) -> dict:
+    """统一的 WBI 签名调用。
+
+    把 ``HTTPError 412/352``（B 站风控偶尔会在 HTTP 层而不是 JSON code 里抛）伪装
+    成一条假 JSON ``{"code": -412/-352, "message": "HTTP 412"}``，让上游统一按
+    ``_CODE_RISK_CONTROL`` 走 mixin_key 重试逻辑。其它异常透传成 dict（带
+    ``_exc`` 字段）便于上游兜底。
+    """
+    signed = wbi_sign(params, mixin_key)
+    url = base_url + "?" + urllib.parse.urlencode(signed)
+    try:
+        return http_get_json(opener, url)
+    except urllib.error.HTTPError as e:
+        if e.code in _HTTP_RISK_STATUS:
+            return {"code": -e.code, "message": f"HTTP {e.code}"}
+        return {"code": None, "message": f"HTTP {e.code}", "_exc": e}
+    except Exception as e:
+        return {"code": None, "message": f"http request failed: {e}", "_exc": e}
+
+
+def _call_with_risk_retry(
+    opener: urllib.request.OpenerDirector,
+    base_url: str,
+    params: dict,
+    mixin_key: str,
+    refresh_mixin_key: "callable | None",
+) -> dict:
+    """先签一次；命中风控（JSON code 或 HTTP status）就刷新 mixin_key 再签一次。"""
+    data = _wbi_call(opener, base_url, params, mixin_key)
+    code = data.get("code")
+    if code in _CODE_RISK_CONTROL and refresh_mixin_key is not None:
+        try:
+            new_mk = refresh_mixin_key()
+        except Exception:
+            new_mk = ""
+        if new_mk and new_mk != mixin_key:
+            data = _wbi_call(opener, base_url, params, new_mk)
+    return data
 
 
 def fetch_subtitle(
@@ -282,36 +328,25 @@ def fetch_subtitle(
     status: ok | empty | need_sessdata | error。调用方负责判断 SESSDATA 是否存在。
 
     ``refresh_mixin_key`` 是一个可选回调 ``() -> str``：当首次请求返回风控状态码
-    （-352 / -412）或 WBI 签名看起来可疑时，调用它拿一把新的 mixin_key 再试一次。
+    （-352 / -412 / HTTP 412）或 WBI 签名看起来可疑时，调用它拿一把新的
+    mixin_key 再试一次。
     """
-
-    def _call(mk: str) -> dict:
-        params = wbi_sign({"bvid": bvid, "cid": cid}, mk)
-        url = "https://api.bilibili.com/x/player/wbi/v2?" + urllib.parse.urlencode(params)
-        return http_get_json(opener, url)
-
-    try:
-        data = _call(mixin_key)
-    except Exception as e:
-        return {
-            "status": "error",
-            "raw_code": None,
-            "raw_message": f"http request failed: {e}",
-        }
+    data = _call_with_risk_retry(
+        opener,
+        "https://api.bilibili.com/x/player/wbi/v2",
+        {"bvid": bvid, "cid": cid},
+        mixin_key,
+        refresh_mixin_key,
+    )
 
     code = data.get("code")
     message = data.get("message", "")
-
-    # 风控命中：拿新 key 重试一次
-    if code in _CODE_RISK_CONTROL and refresh_mixin_key is not None:
-        try:
-            new_mk = refresh_mixin_key()
-            if new_mk and new_mk != mixin_key:
-                data = _call(new_mk)
-                code = data.get("code")
-                message = data.get("message", "")
-        except Exception:
-            pass  # 重试失败就继续用原 response 走下面的分类
+    if "_exc" in data and code is None:
+        return {
+            "status": "error",
+            "raw_code": None,
+            "raw_message": message,
+        }
 
     if code != 0:
         if code in _CODE_NEED_SESSDATA:
@@ -392,38 +427,22 @@ def fetch_ai_summary(
     if up_mid:
         base["up_mid"] = up_mid
 
-    def _call(mk: str) -> dict:
-        params = wbi_sign(base, mk)
-        url = "https://api.bilibili.com/x/web-interface/view/conclusion/get?" + urllib.parse.urlencode(params)
-        return http_get_json(opener, url)
-
-    try:
-        data = _call(mixin_key)
-    except urllib.error.HTTPError as e:
-        return {
-            "status": "error",
-            "raw_code": e.code,
-            "raw_message": f"HTTP {e.code}",
-        }
-    except Exception as e:
-        return {
-            "status": "error",
-            "raw_code": None,
-            "raw_message": f"http request failed: {e}",
-        }
+    data = _call_with_risk_retry(
+        opener,
+        "https://api.bilibili.com/x/web-interface/view/conclusion/get",
+        base,
+        mixin_key,
+        refresh_mixin_key,
+    )
 
     code = data.get("code")
     message = data.get("message", "")
-
-    if code in _CODE_RISK_CONTROL and refresh_mixin_key is not None:
-        try:
-            new_mk = refresh_mixin_key()
-            if new_mk and new_mk != mixin_key:
-                data = _call(new_mk)
-                code = data.get("code")
-                message = data.get("message", "")
-        except Exception:
-            pass
+    if "_exc" in data and code is None:
+        return {
+            "status": "error",
+            "raw_code": None,
+            "raw_message": message,
+        }
 
     if code != 0:
         # code == 1：B 站侧"暂未生成 AI 总结"，属 empty 而非 error。

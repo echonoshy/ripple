@@ -145,7 +145,14 @@ ripple 后端暴露了 4 个 per-user 隔离的内置工具，完成**全自动*
 
 - **WBI 签名**由 `extract` 脚本自己算：从 `https://api.bilibili.com/x/web-interface/nav` 拿 `img_key` / `sub_key`（每日刷新），按 `MIXIN_KEY_ENC_TAB` 重排取前 32 位得 `mixin_key`，参数加 `wts` 后按 key 升序拼接 + MD5 = `w_rid`。算法稳定，**纯本地**。
 - **User-Agent** 一律用普通桌面 Chrome UA；**Referer** 固定 `https://www.bilibili.com`；Cookie 只带 `SESSDATA` 一个字段就够（别把整串浏览器 Cookie 贴进来）。
-- **风控退避**：请求失败 code 非 0 时，脚本直接把 `code` + `message` 透传给上层，**不做指数退避重试**——这里不是高频场景，失败就告诉用户。
+- **风控退避**：脚本只做一次"刷 mixin_key 重试"——既覆盖 JSON `code: -352/-412`
+  也覆盖 HTTP 层的 `412/352`（B 站偶尔走这条）。重试仍失败就把 `code` /
+  `message` 透传给上层，**不做指数退避**——高频重试只会让 ban 更久。
+- **失败可见性策略（给上层 skill）**：`subtitle.status` / `ai_summary.status`
+  出现 `error` 时，**面向终端用户的产出（如 auto-md 的 Markdown）应该静默按
+  "无字幕 / 无 AI 总结" 处理**——普通用户对 `-412 风控` 之类的术语既看不懂也
+  没办法解决，写出去只会像出 bug。详细错误码已经落在 `subtitle.json` /
+  `summary.json` 的 `raw_code` / `raw_message` 里供开发者排查。
 
 ## 五、MD 输出统一风格（供 `bilibili-auto-md` 参考）
 
@@ -158,7 +165,7 @@ ripple 后端暴露了 4 个 per-user 隔离的内置工具，完成**全自动*
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
-| `code: -352` / `412` | 风控（Cookie 被 ban 或 UA 异常） | 重新扫码登录（`BilibiliLogout` + `BilibiliLoginStart`），降低调用频率 |
+| `code: -352` / `-412` 或 HTTP `412` / `352` | 风控（Cookie 被 ban 或 UA 异常） | 脚本会自动刷 mixin_key 重试一次；仍失败时上层应**静默降级**（按"无字幕"产出 MD），不要把错误码暴露给终端用户。开发者可看 `subtitle.json` / `summary.json` 排查；持续被 ban 时考虑 `BilibiliLogout` + `BilibiliLoginStart` 重扫码 |
 | `code: -101` | 未登录 / SESSDATA 失效 | 调 `BilibiliAuthStatus(verify=true)` 确认；若 `validated=false` 就重扫码 |
 | 字幕 `subtitles: []` | 该视频未开启字幕 / 需要登录 | 有 SESSDATA 仍空就是真的没有 |
 | AI 总结返回 `code: 0` 但 `model_result` 空 | 该视频暂未生成 AI 总结（常见于小 UP、新视频） | `auto-md` 降级为基于字幕让模型总结 |

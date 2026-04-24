@@ -99,7 +99,7 @@ python /home/lake/workspace/wip/ripple-dev/skills/bilibili/bilibili-auto-md/pipe
 | `ai_summary.status` | 同上 |
 | `has_view_points` + `view_points_count` | 是否有 UP 主打的原生章节 |
 
-如果输出有 `error` 字段（网络 / 风控 / 找不到 BV），直接把错误告诉用户，**不**继续写 MD。
+如果输出**顶层**有 `error` 字段（找不到 BV / extract 子进程崩等致命错误），直接把错误告诉用户，**不**继续写 MD。注意：`subtitle.status = "error"` 或 `ai_summary.status = "error"` 是**字段级**错误，**不**算这里说的"顶层 error"——按下面"失败回退"表静默处理即可，**不要**因此中断流程。
 
 ### Step 2 — 读原料 → 组装 MD 字符串 → Write 落盘 → 原文贴回对话（顺序严格）
 
@@ -142,13 +142,18 @@ python /home/lake/workspace/wip/ripple-dev/skills/bilibili/bilibili-auto-md/pipe
 > 派生。**禁止**从 outline 的 part.content 推断"视频风格 / 情绪走向 / 叙事手法 /
 > 配乐特点"等节目外解读。
 
+> 下面所有判断里："`subtitle.status` 不是 `ok`" 包括 `empty` / `error` / `need_sessdata`
+> 三种情况——也就是说 **error 在用户视角下等价于 empty**，模板分支不为它单独写文案。
+> 同理 `ai_summary.status` 不是 `ok` 也包括所有非 ok 状态。
+
 {{
   如果 ai_summary.status=="ok" 且 summary 存在：
     直接使用 summary（官方 AI 总结），可略做语句打磨，不得新增节目外信息
   否则若 subtitle.status=="ok"：
     基于 content.txt 由模型写 1~2 段、≤ 300 字的中等长度摘要
-  否则：
-    "_暂无字幕和 AI 总结，只能基于标题/简介概述：…_"（≤ 100 字，明确标注信息不全）
+  否则（双方都不是 ok，含 empty / error / need_sessdata 任何组合）：
+    "_暂无字幕和 AI 总结，只能基于标题/简介概述：…_"（≤ 100 字，明确标注信息不全）。
+    **不要**写"接口被风控 / 抓取失败"之类的技术细节
 }}
 
 ## 时间轴
@@ -157,11 +162,11 @@ python /home/lake/workspace/wip/ripple-dev/skills/bilibili/bilibili-auto-md/pipe
 > **禁止伪造时间戳**。无时间轴时按下方规则处理。
 
 {{
-  优先 ai_summary.outline：
+  优先 ai_summary.outline（仅 ai_summary.status=="ok"）：
     ### {{section.title}}
     - {{HH:MM:SS}}  {{part.content}}
     - ...
-  其次 view_points：
+  其次 view_points（meta.view_points 非空）：
     - {{HH:MM:SS}}  {{vp.content}}
   都无：
     _（本期无原生章节，也无 AI 总结时间轴）_
@@ -171,11 +176,12 @@ python /home/lake/workspace/wip/ripple-dev/skills/bilibili/bilibili-auto-md/pipe
 
 - 条数规则（**宁少勿多**，禁止凑数）：
     - 有字幕（`subtitle.status=="ok"`）：3~7 条都行，从 content.txt 里抽取关键句
-    - 无字幕但有 AI 总结：条数 = `ai_summary.outline[*].parts[*]` 的**总数**，
-      **最少 1 条、最多 5 条**。如果 outline 只有 3 个 parts，你就写 3 条要点，
-      不要扩展到 5 条，更不要再加"总体风格/整体基调/意外感十足"这种主观条
-    - 既无字幕也无 AI 总结：写 `_（信息不足以提炼要点）_`，**禁止**从 title / desc
-      硬脑补
+    - 无字幕（`subtitle.status` 非 `ok`，含 `empty` / `error` / `need_sessdata`）但有 AI 总结：
+      条数 = `ai_summary.outline[*].parts[*]` 的**总数**，**最少 1 条、最多 5 条**。
+      如果 outline 只有 3 个 parts，你就写 3 条要点，不要扩展到 5 条，更不要再加
+      "总体风格/整体基调/意外感十足"这种主观条
+    - 既无字幕也无 AI 总结（双方都非 `ok`）：写 `_（信息不足以提炼要点）_`，
+      **禁止**从 title / desc 硬脑补
 - 每条要点的**来源**硬性要求：
     - 必须能一一对应到 `meta.json` 的某个字段、`summary.json` 的某个 `part.content`、
       或 `content.txt` 的某一行。找不到出处就**直接删掉这条**，不要硬凑
@@ -221,16 +227,24 @@ python /home/lake/workspace/wip/ripple-dev/skills/bilibili/bilibili-auto-md/pipe
 
 ## 失败回退
 
+> **核心原则：别把技术错误甩给用户。** 普通用户对 `-412 风控` / `WBI 签名失败` /
+> `HTTP 412` 这类术语既看不懂、也没办法解决，写在 MD 里只会让对话像出 bug。
+> 因此：**`status = error` 在 MD 用户视角下，等价于 `empty` —— 静默走"没有字幕 /
+> 没有 AI 总结"分支，不暴露任何错误码、不加 `⚠️`、不留任何技术债气味。**
+> 真正的错误信息已经写在 `subtitle.json` / `summary.json` 的 `raw_code` /
+> `raw_message` 里，开发者排查时自己 cat 即可。
+
 | 场景 | 行为 |
 |---|---|
-| pipeline 返回 `error`（网络/风控/找不到 BV） | 把 `error.message` 告诉用户，**不**产出 MD |
+| pipeline **顶层**返回 `error`（找不到 BV / 进程异常 / extract 子进程崩）| 把 `error.message` 告诉用户，**不**产出 MD（这种是真的没法继续） |
 | `subtitle.status = need_sessdata` 且 `ai_summary.status = need_sessdata` | 凭证真的失效了。**先不写 MD**，调 `BilibiliAuthStatus(verify=true)` 确认后走扫码流程（Step 0），绑定成功再重跑 pipeline |
 | **仅** `subtitle.status = need_sessdata`，`ai_summary` 正常 | 通常意味着 UP 主没开字幕（B 站返回 -101 也有这种歧义）。正常产出，"字幕节选"章节写 `_（本期未提供字幕）_` 即可，**不要**为此重登 |
-| `subtitle.status = error` 且 `raw_code`/`raw_message` 非空 | 把具体错误码 + message 告诉用户（例如 `-412 风控`、`WBI signature 失败`）。**不要**静默产出带"⚠️"的降级 MD。让用户决定是重试还是先放过去 |
-| `subtitle.status = need_sessdata` 且 `ai_summary.status = need_sessdata`（**用户已明确拒绝登录**） | 仍产出 MD，但顶部加警告行（见上方硬规则） |
-| `subtitle.status = ok`、`ai_summary.status = empty` | 正常产出，摘要改由模型基于字幕写（B 站该视频暂无 AI 总结是常见情况） |
-| `subtitle.status = empty`、`ai_summary.status = ok` | 正常产出，时间轴/要点基于官方 AI 总结；"字幕节选"相关内容跳过 |
-| `subtitle.status = empty` 且 `ai_summary.status = empty` | 两边都没内容。产出 MD 但"要点"章节写 `_（信息不足以提炼要点，建议直接打开视频查看）_`；**禁止**从 title/desc 硬脑补要点 |
+| `subtitle.status = error`（**任何原因**：风控 / WBI / 网络 / 字幕文件下载失败） | **静默**按"无字幕"处理 —— 模板里"字幕节选" / "要点"分支按 `empty` 走（写 `_（本期未提供字幕）_`），**不**在 MD 任何位置写错误码、不加 `⚠️`、不告诉用户「被风控了 / 接口失败」。如果同时 AI 总结正常，输出体验对用户来说就是"这视频没字幕"，刚好和"empty"一样 |
+| `ai_summary.status = error`（**任何原因**） | **静默**按"无 AI 总结"处理，等同于 `empty` |
+| `subtitle.status = need_sessdata` 且 `ai_summary.status = need_sessdata`（**用户已明确拒绝登录**） | 仍产出 MD，但顶部加警告行（见上方硬规则）。这一项是"用户主动选择了缺数据"，所以提示是合理的；和 error 的"用户没得选"性质不同，别混淆 |
+| `subtitle.status = ok`、`ai_summary.status = empty`（含真 empty 和静默并入的 error）| 正常产出，摘要改由模型基于字幕写（B 站该视频暂无 AI 总结是常见情况） |
+| `subtitle.status = empty`（含静默并入的 error）、`ai_summary.status = ok` | 正常产出，时间轴/要点基于官方 AI 总结；"字幕节选"相关内容跳过 |
+| `subtitle.status = empty` 且 `ai_summary.status = empty`（含双方静默并入的 error）| 两边都没内容。产出 MD 但"要点"章节写 `_（信息不足以提炼要点，建议直接打开视频查看）_`；**禁止**从 title/desc 硬脑补要点 |
 | `meta.desc` 空 / `view_points` 空 / `duration` 空 | 用 `_未标注_` / `_（本期无…）_` 占位，**绝不编造** |
 
 ## 禁用项

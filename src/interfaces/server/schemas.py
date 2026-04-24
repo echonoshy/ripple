@@ -25,7 +25,11 @@ class ChatCompletionRequest(BaseModel):
     session_id: str | None = None
     temperature: float | None = None
     max_tokens: int | None = None
-    thinking: bool = False
+    # 说明：thinking 三态语义
+    #   True  → 显式开启 reasoning（OpenRouter `reasoning.enabled=true` / Anthropic thinking block）
+    #   False → 显式关闭
+    #   None  → 调用方未指定，回落到 config/settings.yaml 的 model.thinking.enabled
+    thinking: bool | None = None
     # 说明：messages 中的 role="system" 条目会被提取并作为 "caller system prompt"，
     # 追加到 ripple 默认 system prompt 之后（而非替换）。若本次请求未带任何 system
     # 消息，则清空 session 上记忆的 caller 段，仅使用默认 prompt。

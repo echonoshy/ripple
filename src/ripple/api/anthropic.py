@@ -33,6 +33,11 @@ logger = get_logger("api.anthropic")
 # Anthropic API 版本标识；大多数第三方兼容服务都要求此 header
 _ANTHROPIC_VERSION = "2023-06-01"
 
+# 与 ripple.api.streaming 保持一致：把 thinking 内容包进 <think>...</think>，
+# 共用 text 流交给前端 MarkdownRenderer 折叠渲染。
+_THINK_OPEN = "<think>\n"
+_THINK_CLOSE = "\n</think>\n\n"
+
 
 class AnthropicClient(LLMClient):
     """Anthropic Messages API 兼容客户端"""
@@ -257,13 +262,14 @@ async def _parse_anthropic_sse(
     注意：text 和 tool_use 可能交替出现，需要按 index 维护各 content block 的累积状态。
     """
     current_message_id: str = str(uuid4())
-    # index -> {"type":"text"|"tool_use", "text":"", "id":"", "name":"", "args_buffer":""}
+    # index -> {"type":"text"|"tool_use"|"thinking", "text":"", "id":"", "name":"", "args_buffer":""}
     block_states: dict[int, dict[str, Any]] = {}
 
     # 汇总 usage（message_start 带 input_tokens，message_delta 带 output_tokens）
     usage: dict[str, int] = {}
 
     text_streaming_started = False
+    thinking_open = False  # 当前是否处在 <think>...</think> 段中
     yielded_message = False
 
     async for raw_line in lines_iter:
@@ -305,16 +311,28 @@ async def _parse_anthropic_sse(
             btype = block.get("type")
 
             if btype == "text":
+                # 切到正式文本：若上一段 thinking 还未闭合，先收尾
+                if thinking_open:
+                    yield StreamEvent(type="stream_chunk", data={"text": _THINK_CLOSE})
+                    _append_to_text_block(block_states, _THINK_CLOSE)
+                    thinking_open = False
                 block_states[index] = {"type": "text", "text": ""}
             elif btype == "tool_use":
+                if thinking_open:
+                    yield StreamEvent(type="stream_chunk", data={"text": _THINK_CLOSE})
+                    _append_to_text_block(block_states, _THINK_CLOSE)
+                    thinking_open = False
                 block_states[index] = {
                     "type": "tool_use",
                     "id": block.get("id", ""),
                     "name": block.get("name", ""),
                     "args_buffer": "",
                 }
+            elif btype == "thinking":
+                # Anthropic extended thinking：累积到本 block 的 text 字段，
+                # build_assistant_message 时合并进上一个 / 新建 text block 一起持久化
+                block_states[index] = {"type": "thinking", "text": ""}
             else:
-                # 其他类型（如 thinking），先保留结构但不参与后续构建
                 block_states[index] = {"type": btype or "unknown"}
 
         elif etype == "content_block_delta":
@@ -337,7 +355,19 @@ async def _parse_anthropic_sse(
             elif dtype == "input_json_delta":
                 state["args_buffer"] = state.get("args_buffer", "") + (delta.get("partial_json", "") or "")
 
-            # thinking_delta 等其他类型暂不透传
+            elif dtype == "thinking_delta":
+                think_piece = delta.get("thinking", "") or ""
+                state["text"] = state.get("text", "") + think_piece
+                if not text_streaming_started:
+                    yield StreamEvent(type="stream_start")
+                    text_streaming_started = True
+                if not thinking_open:
+                    yield StreamEvent(type="stream_chunk", data={"text": _THINK_OPEN})
+                    thinking_open = True
+                if think_piece:
+                    yield StreamEvent(type="stream_chunk", data={"text": think_piece})
+
+            # signature_delta 等暂不处理（thinking 接力需要时再补）
 
         elif etype == "content_block_stop":
             # 到这里该 block 已收齐；无需特殊处理，统一在 message_stop 时汇总
@@ -356,6 +386,11 @@ async def _parse_anthropic_sse(
                     captured["finish_reason"] = delta_meta["stop_reason"]
 
         elif etype == "message_stop":
+            # 收尾未闭合的 <think> 段（极少：纯 thinking 没有任何后续 content）
+            if thinking_open:
+                yield StreamEvent(type="stream_chunk", data={"text": _THINK_CLOSE})
+                thinking_open = False
+
             if text_streaming_started:
                 yield StreamEvent(type="stream_end")
                 text_streaming_started = False
@@ -376,10 +411,27 @@ async def _parse_anthropic_sse(
 
     # 流结束但没有收到 message_stop — 做 fallback
     if not yielded_message and block_states:
+        if thinking_open:
+            yield StreamEvent(type="stream_chunk", data={"text": _THINK_CLOSE})
         if text_streaming_started:
             yield StreamEvent(type="stream_end")
         logger.warning("Anthropic 流结束但未收到 message_stop，fallback yield 内容 (blocks={})", len(block_states))
         yield _build_assistant_message(current_message_id, block_states, usage)
+
+
+def _append_to_text_block(block_states: dict[int, dict[str, Any]], piece: str) -> None:
+    """把一段文本追加到当前最后一个 text block，让持久化里的 text 与流出的内容一致。
+
+    用于 thinking 段闭合时把 </think> 写入持久化结构。
+    """
+    for index in sorted(block_states.keys(), reverse=True):
+        state = block_states[index]
+        if state.get("type") == "text":
+            state["text"] = state.get("text", "") + piece
+            return
+    # 没有 text block 就新开一个（极少见：thinking 后立即 tool_use）
+    new_index = (max(block_states.keys()) + 1) if block_states else 0
+    block_states[new_index] = {"type": "text", "text": piece}
 
 
 def _build_assistant_message(
@@ -387,7 +439,12 @@ def _build_assistant_message(
     block_states: dict[int, dict[str, Any]],
     usage: dict[str, int],
 ) -> AssistantMessage:
-    """把累积的 block_states 按 index 顺序组装为 AssistantMessage"""
+    """把累积的 block_states 按 index 顺序组装为 AssistantMessage
+
+    thinking block 会被包成 <think>...</think> 合并进相邻的 text block，让
+    messages.jsonl 里直接保留可被前端 MarkdownRenderer 渲染的文本结构，无须
+    新增 thinking content block 类型。
+    """
     content: list[dict[str, Any]] = []
 
     for index in sorted(block_states.keys()):
@@ -398,6 +455,17 @@ def _build_assistant_message(
             text = state.get("text", "") or ""
             if text:
                 content.append({"type": "text", "text": text})
+
+        elif btype == "thinking":
+            think_text = state.get("text", "") or ""
+            if not think_text:
+                continue
+            wrapped = f"{_THINK_OPEN}{think_text}{_THINK_CLOSE}"
+            # 与下一个相邻 text block 合并；若没有，则单独成块
+            if content and content[-1].get("type") == "text":
+                content[-1]["text"] = wrapped + content[-1]["text"]
+            else:
+                content.append({"type": "text", "text": wrapped})
 
         elif btype == "tool_use":
             args_buffer = state.get("args_buffer", "") or ""

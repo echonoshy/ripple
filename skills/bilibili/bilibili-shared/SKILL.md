@@ -38,10 +38,10 @@ ripple 后端暴露了 4 个 per-user 隔离的内置工具，完成**全自动*
 
 | 工具 | 用途 |
 |---|---|
-| `BilibiliAuthStatus` | 查当前 user 是否已绑定 B 站；返回 `bound` + `uname` + `expires_at`（不回显 SESSDATA） |
-| `BilibiliLoginStart` | 向 B 站申请二维码；返回 `qrcode_key` + `qrcode_image_url`（HTTP 路由，点开就是可扫的 PNG） |
+| `BilibiliLoginStart` | **B 站登录的统一入口**。自带 bound 检查：已绑定→直接返回 `bound: True` + 身份字段；未绑定→申请新二维码并返回 `qrcode_key` + `qrcode_image_url`（HTTP 路由，点开就是可扫的 PNG）。**子 skill 默认调这一个就够**，不要先调 AuthStatus。 |
 | `BilibiliLoginPoll` | 检查用户是否已扫码 + 点了确认登录。**短等待**（默认 30s）——用户说"好了"之后调，通常秒返回 `state=ok`；用户没点完确认则返回 `state=pending`，等下一 turn 再 poll |
 | `BilibiliLogout` | 解绑（删宿主凭证 + 重生 nsjail.cfg）；B 站其他设备登录态不受影响 |
+| `BilibiliAuthStatus` | 显式查询绑定状态。日常 pipeline **不需要**调用（LoginStart 已含 bound 检查）；只在以下两种场景用：①用户主动问"我绑的是哪个 B 站号 / 什么时候过期"；②pipeline 跑完出现 `need_sessdata`，调 `BilibiliAuthStatus(verify=true)` 二次确认凭证是否真失效 |
 
 凭证落盘位置（**per-user 严格隔离**，每个 user 沙箱看不到别人的）：
 
@@ -55,12 +55,19 @@ ripple 后端暴露了 4 个 per-user 隔离的内置工具，完成**全自动*
 > 再在下一 turn 里调 `BilibiliLoginPoll`。**绝对不要**在展示二维码的同 turn 里
 > 立刻 poll——这会让对话挂在"处理中"几十秒，用户体验极差。
 
-1. 先调 `BilibiliAuthStatus`。`bound=true` → 直接进正式流程。
-2. `bound=false` → **本 turn 内**调 `BilibiliLoginStart`。返回里只关心一个字段：
-   **`qrcode_image_url`**（形如 `/v1/bilibili/qrcode.png?content=...`）——浏览器
-   打开就是一张真正可扫的二维码 PNG。
-   ⚠️ 工具还会返回 `qrcode_content`，那是 B 站**扫完之后**的落地 URL（浏览器
-   打开只会看到"下载 B 站 App"提示页），**绝对不要**把它当成二维码链接给用户。
+1. **直接调 `BilibiliLoginStart`**（不要先调 `BilibiliAuthStatus` 浪费一个
+   round-trip——LoginStart 已含 bound 检查）。看返回的 `bound` 字段：
+
+   - `bound=true` → 凭证已绑定且未过期。可看 `days_until_expiry`（≤ 7 时礼貌提
+     醒续签），然后直接进正式流程。
+   - `bound=false` → 工具已发了新二维码 + 把扫码闸门关上了，进入下面的扫码流程。
+
+2. `bound=false` 分支：返回里关心三个字段：
+   - **`qrcode_image_url`**（形如 `/v1/bilibili/qrcode.png?content=...`）——浏览器
+     打开就是一张真正可扫的二维码 PNG。
+   - **`qrcode_key`**：传给 `BilibiliLoginPoll` 用。
+   - `qrcode_content`：⚠️ 那是 B 站**扫完之后**的落地 URL（浏览器打开只会看到
+     "下载 B 站 App"提示页），**绝对不要**把它当成二维码链接给用户。
    ⚠️ **绝对禁止**在回复里贴 ASCII / Unicode 方块二维码——工具从 v2 起也不再
    返回该字段，这会往对话历史里灌 2000+ token 毫无用处的字符块。
 3. **同一条回复（即本 turn 结尾）**里**只给用户两样东西**：

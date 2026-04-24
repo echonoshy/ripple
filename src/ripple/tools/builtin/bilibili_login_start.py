@@ -1,11 +1,22 @@
 """BilibiliLoginStart — 向 B 站申请扫码登录二维码，返回给用户扫描
 
+设计上**自带状态检查**——上层 skill 不需要先调 ``BilibiliAuthStatus`` 再来调本
+工具，可以直接 fire-and-forget 一次本工具：
+
+  * 当前 user **已绑定**（凭证存在且未过期）→ 直接 short-circuit 返回
+    ``{ok: True, bound: True, uname, mid, expires_at, days_until_expiry}``。
+    既不生成新二维码，也不获取扫码闸门。agent 拿到 ``bound=True`` 直接进原业务。
+  * 当前 user **未绑定 / 已过期** → 走正常扫码流程，返回 ``{ok: True, bound: False,
+    qrcode_key, qrcode_image_url, ...}``，agent 把链接贴给用户后结束本 turn。
+
+这样把"AuthStatus + LoginStart"两次 round-trip 合成一次，省掉一次模型推理。
+
 扫码登录 2 步流程的**第 1 步**（第 2 步 `BilibiliLoginPoll` 会等用户完成扫码）：
 
   1. 本工具调 ``https://passport.bilibili.com/x/passport-login/web/qrcode/generate``
      拿到 qrcode_key + 要扫的 URL。
   2. 把这个 URL 以**一种**形式返回给前端：
-       * ``qrcode_image_url`` —— 指向 ripple 自己的 ``/v1/bilibili/qrcode.png`` 路由，
+       * ``qrcode_image_url`` —— 指向 ripple 自己的 ``/v1/bilibili/qrcode.png`` 路由,
          用户在浏览器里打开就能看到一张可扫的 PNG 二维码；
        * ``qrcode_content`` —— 被 encode 进 QR 的原始字符串（调试用，不要给用户）。
      （旧版还返回 ``qrcode_ascii`` Unicode 方块，在 Web UI 场景只会污染对话 + 浪费
@@ -37,7 +48,11 @@ from typing import Any
 from ripple.core.context import ToolUseContext
 from ripple.messages.types import AssistantMessage
 from ripple.permissions.levels import ToolRiskLevel
-from ripple.sandbox.bilibili import QRCODE_TTL_SECONDS, qrcode_generate
+from ripple.sandbox.bilibili import (
+    QRCODE_TTL_SECONDS,
+    qrcode_generate,
+    read_bilibili_credential,
+)
 from ripple.sandbox.bilibili_gate import acquire_gate
 from ripple.tools.base import Tool, ToolResult
 from ripple.utils.logger import get_logger
@@ -51,11 +66,21 @@ class BilibiliLoginStartTool(Tool):
     def __init__(self):
         self.name = "BilibiliLoginStart"
         self.description = (
-            "Start the Bilibili QR-code login flow (step 1 of 2). Use this whenever you "
-            "need to bind (or re-bind) a user's Bilibili SESSDATA — e.g. the user is about "
-            "to use a Bilibili skill for the first time, or a previous SESSDATA expired.\n\n"
+            "Ensure the current user has a live Bilibili SESSDATA bound. This is the\n"
+            "**preferred entry point** for any Bilibili skill — DO NOT call BilibiliAuthStatus\n"
+            "first; this tool already does the bound-check internally and short-circuits.\n\n"
             "Parameters: none.\n\n"
-            "Returns JSON including:\n"
+            "Returns one of two shapes (always check `bound` first):\n\n"
+            "  Shape A — already bound (no QR generated, no scan gate acquired):\n"
+            "    {ok: True, bound: True, uname: str, mid: int, expires_at: int,\n"
+            "     days_until_expiry: int|null, next: <hint to proceed>}\n"
+            "  → Just continue the original task. If `days_until_expiry <= 7` you may\n"
+            "    optionally remind the user to re-scan soon, but it's not blocking.\n\n"
+            "  Shape B — not bound / expired (fresh QR issued, scan gate acquired):\n"
+            "    {ok: True, bound: False, qrcode_key: str, qrcode_image_url: str,\n"
+            "     qrcode_content: str, expires_in_seconds: int, next: <two-turn protocol>}\n"
+            "  → Surface `qrcode_image_url` as a markdown link and END this turn (see below).\n\n"
+            "Field details for Shape B:\n"
             "  - qrcode_key: opaque token; pass it to BilibiliLoginPoll in step 2.\n"
             "  - qrcode_image_url: relative URL like `/v1/bilibili/qrcode.png?content=...`.\n"
             "    When opened in a browser, it renders the QR code as a PNG image (cache-60s).\n"
@@ -67,7 +92,7 @@ class BilibiliLoginStartTool(Tool):
             "    to the user — it's the B 站 scan-web landing page, opening it in a browser\n"
             "    just shows a 'download App' redirect, NOT a scannable QR).\n"
             "  - expires_in_seconds: how long this QR is valid (~180s).\n\n"
-            "**CRITICAL — two-turn flow (do NOT call BilibiliLoginPoll in the same turn):**\n"
+            "**CRITICAL — two-turn flow when bound=False (do NOT call BilibiliLoginPoll in the same turn):**\n"
             "  1. In THIS turn, write a reply that ONLY contains:\n"
             "       a. the markdown link `[点此查看扫码二维码](qrcode_image_url)`；\n"
             "       b. a short instruction: '请用 B 站 App 扫一扫 → 在 App 里点『确认登录』\n"
@@ -108,9 +133,48 @@ class BilibiliLoginStartTool(Tool):
         context: ToolUseContext,
         parent_message: AssistantMessage | None,
     ) -> ToolResult[dict]:
+        from ripple.tools.builtin.bash import _sandbox_config  # noqa: PLC0415
+
         user_id = context.user_id
         if not user_id:
             return ToolResult(data={"ok": False, "error": "当前上下文没有 user_id"})
+
+        # Short-circuit：已绑定且未过期就直接返回身份信息，省一次 round-trip。
+        # `read_bilibili_credential` 内部会处理"过期凭证按未绑定看待"的语义，所以
+        # 这里 cred is not None 就意味着真的可用。
+        if _sandbox_config is not None:
+            cred = read_bilibili_credential(_sandbox_config, user_id)
+            if cred is not None:
+                import time  # noqa: PLC0415
+
+                expires_at = int(cred.get("expires_at") or 0)
+                now = int(time.time())
+                days_until_expiry: int | None
+                if expires_at <= 0:
+                    days_until_expiry = None
+                else:
+                    days_until_expiry = max(0, (expires_at - now) // 86400)
+
+                logger.info(
+                    "user {} 已绑定 B 站账号 (uname={}), 跳过扫码",
+                    user_id,
+                    cred.get("uname") or "?",
+                )
+                return ToolResult(
+                    data={
+                        "ok": True,
+                        "bound": True,
+                        "uname": cred.get("uname") or "",
+                        "mid": cred.get("mid") or 0,
+                        "expires_at": expires_at,
+                        "days_until_expiry": days_until_expiry,
+                        "next": (
+                            "当前 user 已绑定 B 站账号，**无需扫码**，直接继续原业务即可。"
+                            "如 days_until_expiry <= 7，可顺便提醒用户「登录还有 N 天到期，"
+                            "要不要顺便续一下」，但不强制。"
+                        ),
+                    }
+                )
 
         try:
             gen = qrcode_generate()
@@ -134,6 +198,7 @@ class BilibiliLoginStartTool(Tool):
         return ToolResult(
             data={
                 "ok": True,
+                "bound": False,
                 "qrcode_key": qrcode_key,
                 "qrcode_image_url": image_url,
                 "qrcode_content": qrcode_content,

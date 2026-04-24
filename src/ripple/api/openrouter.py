@@ -23,6 +23,31 @@ if TYPE_CHECKING:
 logger = get_logger("api.openrouter")
 
 
+def _set_reasoning(params: dict[str, Any], *, enabled: bool) -> None:
+    """显式写入 OpenRouter Reasoning 开关（true/false 都生效）。
+
+    设计取舍：
+      - 只用 `enabled` 这个 OpenRouter 全平台普适字段；不用 `effort` (low/medium/high)。
+        `effort` 来自 OpenAI o-系列原生 API，OpenRouter 转发到 Anthropic / Gemini 等
+        非 OpenAI 后端时是经验性映射 (≈ 20% / 50% / 80% 的 max_tokens budget)，
+        在不同 provider / 不同路由下行为不完全一致，社区有"对 Anthropic 翻译失效"
+        的反馈。日后如果需要精细控制，应改用更通用的 `max_tokens` (budget) 字段。
+      - `enabled: false` 是显式关，避免把"用户关掉"和"沿用 provider 默认"混为一谈。
+        对不支持 reasoning 的模型，OpenRouter 会静默忽略该字段，安全。
+      - 与已有的 `extra_body` 合并而不是覆盖，给上游留扩展余地。
+    """
+    extra_body = params.get("extra_body") or {}
+    if not isinstance(extra_body, dict):
+        # 老调用方可能传非 dict，保守起见包一层
+        extra_body = {"_legacy": extra_body}
+    reasoning = extra_body.get("reasoning")
+    if not isinstance(reasoning, dict):
+        reasoning = {}
+    reasoning["enabled"] = bool(enabled)
+    extra_body["reasoning"] = reasoning
+    params["extra_body"] = extra_body
+
+
 class OpenRouterClient(LLMClient):
     """OpenRouter API 客户端（OpenAI 兼容）
 
@@ -92,7 +117,9 @@ class OpenRouterClient(LLMClient):
     ) -> AsyncGenerator[AssistantMessage | StreamEvent, None]:
         config = get_config()
         if thinking is None:
-            thinking = config.get("model.thinking.enabled", False)
+            thinking = bool(config.get("model.thinking.enabled", False))
+        else:
+            thinking = bool(thinking)
 
         api_messages = normalize_messages_for_api(messages)
         tool_schemas = [t.to_openai_tool() for t in tools] if tools else None
@@ -104,8 +131,7 @@ class OpenRouterClient(LLMClient):
             **kwargs,
         }
 
-        if thinking:
-            params["extra_body"] = {"reasoning": {"enabled": True}}
+        _set_reasoning(params, enabled=thinking)
 
         params["max_tokens"] = max_tokens or config.get("model.max_output_tokens", 60000)
 
@@ -177,7 +203,9 @@ class OpenRouterClient(LLMClient):
     ) -> dict[str, Any]:
         config = get_config()
         if thinking is None:
-            thinking = config.get("model.thinking.enabled", False)
+            thinking = bool(config.get("model.thinking.enabled", False))
+        else:
+            thinking = bool(thinking)
 
         api_messages = normalize_messages_for_api(messages)
 
@@ -188,8 +216,7 @@ class OpenRouterClient(LLMClient):
             **kwargs,
         }
 
-        if thinking:
-            params["extra_body"] = {"reasoning": {"enabled": True}}
+        _set_reasoning(params, enabled=thinking)
 
         params["max_tokens"] = max_tokens or config.get("model.max_output_tokens", 60000)
 

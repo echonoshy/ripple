@@ -29,18 +29,20 @@ metadata:
 - 短链：`https://b23.tv/xxxxxx`
 - JSON：`{"url": "...", "sessdata": "...", "output_dir": "..."}`
 
-## 流程（3 步：先确认登录态 → 抓取 → 写 MD）
+## 流程（3 步：确认登录态 → 抓取 → 写 MD）
 
-### Step 0 — 先确认 B 站登录态（**两段式扫码**，默认先登录，别降级）
+### Step 0 — 一次调用确认登录态（**两段式扫码**，默认先登录，别降级）
 
-先调 `BilibiliAuthStatus`（**不**要传 `verify=true`，那是白烧一次外网请求）。
+直接调 `BilibiliLoginStart`——它**自带状态检查**，不需要先调 `BilibiliAuthStatus`
+预热一次（那是白烧一个 round-trip）。根据返回的 `bound` 字段分两支处理：
 
-- `bound=true` → 直接进 Step 1。
+- `bound=true` → 凭证已绑定且未过期。可顺便看 `days_until_expiry`：≤ 7 时礼貌提
+  醒一句"登录还有 N 天到期，要不要顺便续一下"，然后**直接进 Step 1**。
 
-- `bound=false` → **默认路径 = 两段式扫码登录**：
+- `bound=false` → 工具已发了新二维码 + 把扫码闸门关上了，走两段式扫码：
 
-  **Turn A（当前这个 turn）**：调 `BilibiliLoginStart`，拿到 `qrcode_key` +
-  `qrcode_image_url` 后，回复里**只给**用户两样东西：
+  **Turn A（当前这个 turn）**：拿到 `qrcode_key` + `qrcode_image_url` 后，回复里
+  **只给**用户两样东西：
     1. 一个 markdown 链接 `[点此查看扫码二维码](qrcode_image_url)`（用户在浏览器
        打开就是一张真正可扫的 PNG 二维码）；
     2. 一句指引「请用 B 站 App 扫一扫 → 在 App 里点『确认登录』→ 扫完后回我一句
@@ -239,5 +241,10 @@ python3 /home/lake/workspace/wip/ripple-dev/skills/bilibili/bilibili-auto-md/pip
   （一字不差）。**严禁**给对话版加 emoji 标题（📌 📖 🕐 🔑 等）、把列表改成表格、
   给章节小标题加粗、重排章节顺序、添加对话专用的介绍语 / 总结语。**贴给用户的
   版本 = 文件内容**，不是"文件内容 + 装饰"
+- ❌ **不要先调 `BilibiliAuthStatus` 再调 `BilibiliLoginStart`**——LoginStart 已经
+  自带 bound 检查；多调一次 AuthStatus 就是多浪费一个模型 round-trip
+- ❌ **不要为本 skill 调用 `TaskCreate` / `TaskUpdate`**——这是个单步原子任务
+  （Step 0~3 都在一个 agent loop 里跑完），跑任务面板纯属仪式，每次 Update 都
+  要等模型 reasoning 一轮，白白多花几十秒
 - ❌ 不要用正则 / 字符串扣 B 站网页来替代 `pipeline.py`——API 路径已经封装稳了
 - ❌ 不要对无 AI 总结的视频硬编"伪时间轴"——缺就缺，明确标注

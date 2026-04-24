@@ -215,7 +215,7 @@ export default function SettingsModal({
             transition={{ type: "spring", stiffness: 400, damping: 30 }}
             className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center p-4"
           >
-            <div className="pointer-events-auto max-h-[80vh] w-full max-w-lg overflow-hidden rounded-2xl border border-white/10 bg-black shadow-2xl">
+            <div className="pointer-events-auto max-h-[80vh] w-full max-w-2xl overflow-hidden rounded-2xl border border-white/10 bg-black shadow-2xl">
               {/* Header */}
               <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
                 <h2 className="text-base font-semibold text-[#ededed]">Settings</h2>
@@ -247,7 +247,7 @@ export default function SettingsModal({
                       onClick={() => onThinkingToggle(!thinkingEnabled)}
                       className={`relative h-7 w-14 rounded-full transition-colors ${
                         thinkingEnabled
-                          ? "border border-white/20 bg-[#ededed]/20"
+                          ? "border border-white/30 bg-[#ededed]/40"
                           : "border border-white/10 bg-[#27272a]"
                       }`}
                     >

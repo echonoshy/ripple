@@ -5,7 +5,7 @@ when-to-use: 用户想"抽取字幕 / 拿视频原料 / 看 AI 总结 / 准备�
 allowed-tools: [Bash, Read]
 metadata:
   requires:
-    bins: ["python3"]
+    bins: ["python"]
 ---
 
 # bilibili-episode-extract
@@ -32,7 +32,7 @@ metadata:
 ## 执行（一条命令搞定）
 
 ```bash
-python3 /home/lake/workspace/wip/ripple-dev/skills/bilibili/bilibili-episode-extract/pipeline.py \
+python /home/lake/workspace/wip/ripple-dev/skills/bilibili/bilibili-episode-extract/pipeline.py \
   --args '<上面的 JSON>'
 ```
 
@@ -95,13 +95,13 @@ python3 /home/lake/workspace/wip/ripple-dev/skills/bilibili/bilibili-episode-ext
 
 ```bash
 # 完整链路（有 SESSDATA 持久化文件）
-python3 .../pipeline.py --args '{"url":"https://www.bilibili.com/video/BV1xx411c7mD"}'
+python .../pipeline.py --args '{"url":"https://www.bilibili.com/video/BV1xx411c7mD"}'
 
 # 一次性带 SESSDATA（不落盘）
-python3 .../pipeline.py --args '{"bvid":"BV1xx411c7mD","sessdata":"abc...xxx"}'
+python .../pipeline.py --args '{"bvid":"BV1xx411c7mD","sessdata":"abc...xxx"}'
 
 # 分 P
-python3 .../pipeline.py --args '{"url":"https://www.bilibili.com/video/BV1xx411c7mD?p=3"}'
+python .../pipeline.py --args '{"url":"https://www.bilibili.com/video/BV1xx411c7mD?p=3"}'
 ```
 
 ## 硬规则

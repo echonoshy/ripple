@@ -5,7 +5,7 @@ when-to-use: 用户发送一个 B 站视频链接/BV 号，希望直接拿到 Ma
 allowed-tools: [Skill, Bash, Write, Read]
 metadata:
   requires:
-    bins: ["python3"]
+    bins: ["python"]
 ---
 
 # bilibili-auto-md
@@ -84,7 +84,7 @@ Step 1 跑完如果 `subtitle.status` 或 `ai_summary.status` 出现
 ### Step 1 — 用 pipeline.py 一键抓取 + 算出 output_path
 
 ```bash
-python3 /home/lake/workspace/wip/ripple-dev/skills/bilibili/bilibili-auto-md/pipeline.py \
+python /home/lake/workspace/wip/ripple-dev/skills/bilibili/bilibili-auto-md/pipeline.py \
   --args '{"url": "<url 或 BV>"}'
 ```
 

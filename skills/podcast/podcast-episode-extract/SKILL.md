@@ -29,7 +29,7 @@ allowed-tools: [Bash]
 如果 `podcast-auto-md/pipeline.py` 可用，**优先直接用它**，一条命令就能完成抓取 + 落盘 + strategy 判断：
 
 ```bash
-python3 $RIPPLE_SKILLS_DIR/podcast/podcast-auto-md/pipeline.py prepare \
+python $RIPPLE_SKILLS_DIR/podcast/podcast-auto-md/pipeline.py prepare \
   --args '{"episode_url": "<url>"}'
 ```
 
@@ -51,7 +51,7 @@ python3 $RIPPLE_SKILLS_DIR/podcast/podcast-auto-md/pipeline.py prepare \
 ### Step 2 — 抓页面 + 解析 + 落盘（一个 Bash 命令完成）
 
 ```bash
-python3 <<'PY'
+python <<'PY'
 import json, re, html, pathlib, urllib.request
 
 URL = "<episode_url>"

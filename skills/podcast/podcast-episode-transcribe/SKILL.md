@@ -80,7 +80,7 @@ whisper-cpp -m <model.bin> -l zh -osrt \
 完成转写后，用 **Bash 里的 Python 脚本**直接把结构化结果写入 `transcript.json`（**不要**让模型用 Write 工具手写这种可能很大的 JSON）：
 
 ```bash
-python3 - <<'PY'
+python - <<'PY'
 import json, pathlib
 work = pathlib.Path("<work_dir 或 /workspace/.tmp-transcribe>")
 work.mkdir(parents=True, exist_ok=True)
@@ -101,7 +101,7 @@ PY
 若 Step 2 探测失败，**不要假装转写成功**。若传了 `work_dir`，同样用 Bash 落一份"明确失败"标记，方便 auto-md 渲染降级：
 
 ```bash
-python3 - <<'PY'
+python - <<'PY'
 import json, pathlib
 work = pathlib.Path("<work_dir>")
 work.mkdir(parents=True, exist_ok=True)

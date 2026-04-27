@@ -24,10 +24,6 @@ def create_sandbox(config: SandboxConfig, user_id: str) -> Path:
     (sandbox / "credentials").mkdir(parents=True, exist_ok=True)
     (sandbox / "sessions").mkdir(parents=True, exist_ok=True)
     workspace.mkdir(parents=True, exist_ok=True)
-    if config.gogcli_cli_install_root:
-        from ripple.sandbox.gogcli import ensure_gogcli_keyring_password
-
-        ensure_gogcli_keyring_password(config, user_id)
     logger.info("创建 user sandbox: {} → {}", user_id, sandbox)
     return workspace
 

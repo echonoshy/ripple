@@ -228,7 +228,7 @@ Skills 是带 YAML frontmatter 的 Markdown 文件，定义特定领域的任务
 |-----|----------|-------------|----------|---------|
 | `lark-cli`（飞书） | `bash scripts/install-feishu-cli.sh` | `vendor/lark-cli/v<X.Y.Z>/bin/` | `/opt/lark-cli/current/bin/lark-cli` | per-user：`lark-cli auth login`（OAuth），凭证落在 `sandboxes/<uid>/workspace/.lark-cli/` |
 | `ntn`（Notion） | `bash scripts/install-notion-cli.sh` | `vendor/notion-cli/v<X.Y.Z>/bin/` | `/opt/notion-cli/current/bin/ntn` | per-user：用户对话粘贴 token → 模型调内置工具 `NotionTokenSet` → `sandboxes/<uid>/credentials/notion.json` → `NOTION_API_TOKEN` env |
-| `gog`（gogcli, Google Suite CLI） | `bash scripts/install-gogcli-cli.sh` | `vendor/gogcli-cli/v<X.Y.Z>/bin/` | `/opt/gogcli-cli/current/bin/gog` | per-user 独立 GCP 项目 + **远程 2-step OAuth**：用户 GCP Console 建 Desktop OAuth Client → 粘 `client_secret.json` → `GoogleWorkspaceClientConfigSet` → `GoogleWorkspaceLoginStart` 拿 URL → 用户本地浏览器 Allow → 复制地址栏回调 URL → `GoogleWorkspaceLoginComplete` → 加密 refresh_token 存到 `/workspace/.config/gogcli/keyring/`（backend=file，密码由 ripple provision 时随机生成） |
+| `gog`（gogcli, Google Suite CLI） | `bash scripts/install-gogcli-cli.sh` | `vendor/gogcli-cli/v<X.Y.Z>/bin/` | `/opt/gogcli-cli/current/bin/gog` | per-user 独立 GCP 项目 + **远程 2-step OAuth**：用户 GCP Console 建 Desktop OAuth Client → 粘 `client_secret.json` → `GoogleWorkspaceClientConfigSet` → `GoogleWorkspaceLoginStart` 拿 URL → 用户本地浏览器 Allow → 复制地址栏回调 URL → `GoogleWorkspaceLoginComplete` → 加密 refresh_token 存到 `/workspace/.config/gogcli/keyring/`（backend=file，keyring 密码由 ripple 在首次 gog 鉴权动作前懒生成） |
 
 - 下载失败都会打印手工安装指引，**不会自动重试**
 - 版本切换：`bash scripts/use-<name>-cli.sh <version>`

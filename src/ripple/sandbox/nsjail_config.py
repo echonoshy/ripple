@@ -85,8 +85,8 @@ def build_sandbox_env(config: SandboxConfig, user_id: str) -> dict[str, str]:
     # * XDG_CONFIG_HOME → /workspace/.config（随 workspace per-user 隔离，
     #   gogcli 会读/写 /workspace/.config/gogcli/credentials.json + keyring/）
     # * GOG_KEYRING_BACKEND=file + GOG_KEYRING_PASSWORD（从宿主侧 per-user 密码文件读）
-    # 只在宿主侧的密码文件**实际存在**时才注入 password，否则 gog 命令会抱怨缺密码
-    # （provisioning 层负责在 user 首次 sandbox 创建时生成密码）。
+    # 只在宿主侧的密码文件**实际存在**时才注入 password，否则 gog 命令会抱怨缺密码。
+    # 真正会执行 gog 鉴权/解绑的工具会在 execute_in_sandbox 前懒生成该文件。
     if config.gogcli_cli_install_root:
         env["XDG_CONFIG_HOME"] = "/workspace/.config"
         env["GOG_KEYRING_BACKEND"] = "file"

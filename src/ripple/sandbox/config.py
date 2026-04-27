@@ -393,7 +393,7 @@ class SandboxConfig:
     def gogcli_keyring_pass_file(self, user_id: str) -> Path:
         """gogcli keyring (backend=file) 的加密密码宿主侧存放路径。
 
-        首次 provision 时由 ripple 随机生成 32B 密码写入 (mode 0600)，
+        首次 gog 鉴权动作前由 ripple 随机生成 32B 密码写入 (mode 0600)，
         沙箱启动时作为 env `GOG_KEYRING_PASSWORD` 注入；agent/user 都不可见。
         """
         validate_user_id(user_id)

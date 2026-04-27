@@ -21,6 +21,7 @@ from ripple.permissions.levels import ToolRiskLevel
 from ripple.sandbox.config import GOGCLI_CLI_SANDBOX_BIN
 from ripple.sandbox.executor import execute_in_sandbox
 from ripple.sandbox.gogcli import parse_auth_list_output
+from ripple.sandbox.nsjail_config import write_nsjail_config
 from ripple.tools.base import Tool, ToolResult
 from ripple.utils.logger import get_logger
 
@@ -100,10 +101,23 @@ class GoogleWorkspaceAuthStatusTool(Tool):
             )
 
         check = bool(args.get("check", False))
+        pass_file = _sandbox_config.gogcli_keyring_pass_file(user_id)
+        if not pass_file.exists():
+            return ToolResult(
+                data={
+                    "ok": True,
+                    "has_client_config": _sandbox_config.has_gogcli_client_config(user_id),
+                    "accounts": [],
+                    "count": 0,
+                    "checked": check,
+                }
+            )
+
         cmd = f"{GOGCLI_CLI_SANDBOX_BIN} auth list --json"
         if check:
             cmd += " --check"
 
+        write_nsjail_config(_sandbox_config, user_id)
         stdout, stderr, code = await execute_in_sandbox(cmd, _sandbox_config, user_id, timeout=30 if check else 10)
 
         if code != 0:

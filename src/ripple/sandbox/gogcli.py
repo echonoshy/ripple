@@ -7,7 +7,7 @@
      `read_gogcli_client_config` 读出来注入 env（`GOG_CLIENT_ID` /
      `GOG_CLIENT_SECRET` 只是内部名，实际传给 `gog auth credentials` 子命令的
      时候走 stdin / tempfile；见 `gogcli_client_config_set` 工具）。
-  2. **keyring backend=file 的加密密码**：ripple 在 user 首次 provision 时
+  2. **keyring backend=file 的加密密码**：ripple 在 user 首次 gog 鉴权动作前
      随机生成 32B 密码落到 `sandboxes/<uid>/credentials/gogcli-keyring.pass`
      (mode 0600)，沙箱启动时作为 env `GOG_KEYRING_PASSWORD` 注入。密码对
      agent / user 都不可见。
@@ -129,7 +129,9 @@ def ensure_gogcli_keyring_password(config: SandboxConfig, user_id: str) -> str:
     """幂等地拿到 user 级 gogcli keyring 密码；不存在则生成 32B 随机密码并落盘。
 
     密码用于 `GOG_KEYRING_BACKEND=file` 时加密 refresh_token。密码本身仅
-    ripple 进程可读（mode 0600），agent/user 都不会见到。
+    ripple 进程可读（mode 0600），agent/user 都不会见到。调用方应在执行
+    需要 keyring 的 `gog` 命令前调用本函数，避免新 sandbox 仅因 provision
+    就出现 gogcli 凭据文件。
 
     返回：密码字符串（已 strip）。
     """

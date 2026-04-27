@@ -20,6 +20,8 @@ from ripple.messages.types import AssistantMessage
 from ripple.permissions.levels import ToolRiskLevel
 from ripple.sandbox.config import GOGCLI_CLI_SANDBOX_BIN
 from ripple.sandbox.executor import execute_in_sandbox
+from ripple.sandbox.gogcli import ensure_gogcli_keyring_password
+from ripple.sandbox.nsjail_config import write_nsjail_config
 from ripple.tools.base import Tool, ToolResult
 from ripple.utils.logger import get_logger
 
@@ -122,6 +124,8 @@ class GoogleWorkspaceLoginCompleteTool(Tool):
                 }
             )
 
+        ensure_gogcli_keyring_password(_sandbox_config, user_id)
+        write_nsjail_config(_sandbox_config, user_id)
         cmd = (
             f"{GOGCLI_CLI_SANDBOX_BIN} auth add {_shq(email)} "
             f"--services user --remote --step 2 --auth-url {_shq(callback_url)}"

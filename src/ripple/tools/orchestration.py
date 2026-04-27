@@ -361,6 +361,11 @@ async def execute_tool(
 
         if not allowed:
             if permission_request is not None:
+                permission_request = {
+                    **permission_request,
+                    "tool_use_id": tool_use["id"],
+                    "source_assistant_uuid": parent_uuid,
+                }
                 permission_msg = create_tool_result_message(
                     tool_use_id=tool_use["id"],
                     content=(

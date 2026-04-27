@@ -31,7 +31,7 @@ from interfaces.server.schemas import (
 from interfaces.server.sessions import SessionManager
 from interfaces.server.sse import collect_query_response, stream_query_as_sse
 from ripple.messages.utils import serialize_messages
-from ripple.tools.orchestration import find_tool_by_name
+from ripple.tools.orchestration import execute_tool, find_tool_by_name
 from ripple.utils.config import get_config
 from ripple.utils.logger import get_logger, session_context, set_current_session_id
 
@@ -162,6 +162,44 @@ def _extract_caller_system_prompt(request: ChatCompletionRequest) -> str | None:
     return "\n\n".join(parts)
 
 
+def _find_parent_assistant_message(messages: list[Any], tool_use_id: str, source_uuid: str | None = None):
+    for msg in reversed(messages):
+        if getattr(msg, "type", None) != "assistant":
+            continue
+        if source_uuid and getattr(msg, "uuid", None) == source_uuid:
+            return msg
+        for block in msg.message.get("content", []):
+            if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("id") == tool_use_id:
+                return msg
+    return None
+
+
+def _replace_tool_result(messages: list[Any], tool_use_id: str, replacement_messages: list[Any]) -> None:
+    """用实际执行结果替换权限等待占位 tool_result。"""
+    if not replacement_messages:
+        return
+
+    for idx, msg in enumerate(messages):
+        if getattr(msg, "type", None) != "user":
+            continue
+        content = msg.message.get("content", [])
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if not isinstance(block, dict) or block.get("type") != "tool_result":
+                continue
+            if block.get("tool_use_id") != tool_use_id:
+                continue
+            if "Awaiting user permission" not in str(block.get("content", "")):
+                continue
+            messages[idx] = replacement_messages[0]
+            if len(replacement_messages) > 1:
+                messages[idx + 1 : idx + 1] = replacement_messages[1:]
+            return
+
+    messages.extend(replacement_messages)
+
+
 @router.post("/v1/chat/completions")
 async def chat_completions(
     request: ChatCompletionRequest,
@@ -264,6 +302,7 @@ async def _stream_chat(
                         model=model,
                         max_turns=max_turns,
                         history_messages=session.messages,
+                        model_history_messages=session.model_messages,
                         system_prompt=merged_system_prompt,
                         thinking=thinking,
                         context_manager=session.context_manager,
@@ -356,6 +395,7 @@ async def _non_stream_chat(
                         model=model,
                         max_turns=max_turns,
                         history_messages=session.messages,
+                        model_history_messages=session.model_messages,
                         system_prompt=merged_system_prompt,
                         thinking=thinking,
                         context_manager=session.context_manager,
@@ -506,26 +546,69 @@ async def resolve_permission_request(
     if not permission_request:
         raise HTTPException(status_code=409, detail="No pending permission request")
 
-    permission_manager = session.context.permission_manager if session.context else None
-    if not permission_manager:
-        raise HTTPException(status_code=500, detail="Permission manager unavailable")
+    async with session.lock:
+        permission_manager = session.context.permission_manager if session.context else None
+        if not permission_manager:
+            raise HTTPException(status_code=500, detail="Permission manager unavailable")
 
-    if request.action in ("allow", "always"):
-        tool = find_tool_by_name(session.context.options.tools, permission_request.get("tool", ""))
+        tool_name = permission_request.get("tool", "")
+        tool_use_id = permission_request.get("tool_use_id") or ""
+        source_uuid = permission_request.get("source_assistant_uuid")
+        params = permission_request.get("params", {})
+        params = params if isinstance(params, dict) else {}
+
+        if not isinstance(tool_name, str) or not tool_name:
+            raise HTTPException(status_code=400, detail="Invalid permission request")
+        if not isinstance(tool_use_id, str) or not tool_use_id:
+            raise HTTPException(status_code=400, detail="Permission request is missing tool_use_id")
+
+        tool = find_tool_by_name(session.context.options.tools, tool_name)
         if not tool:
             raise HTTPException(status_code=404, detail="Requested tool not found")
-        params = permission_request.get("params", {})
-        permission_manager.grant_permission(
-            tool, params if isinstance(params, dict) else {}, scope="once" if request.action == "allow" else "session"
-        )
 
-    session.pending_permission_request = None
-    session.pending_question = None
-    session.pending_options = None
-    session.status = "idle"
-    manager.persist_session(session)
+        replay_messages: list[Any] = []
+        if request.action in ("allow", "always"):
+            permission_manager.grant_permission(
+                tool,
+                params,
+                scope="once" if request.action == "allow" else "session",
+            )
+            parent_message = _find_parent_assistant_message(session.messages, tool_use_id, source_uuid)
+            async for update in execute_tool(
+                {"id": tool_use_id, "name": tool_name, "input": params},
+                parent_message,
+                session.context,
+            ):
+                if update.message:
+                    replay_messages.append(update.message)
+                if update.new_context:
+                    session.context = update.new_context
+        else:
+            from ripple.messages.utils import create_tool_result_message
 
-    return {"ok": True, "action": request.action}
+            replay_messages.append(
+                create_tool_result_message(
+                    tool_use_id=tool_use_id,
+                    content="Permission denied by user. Do not retry this tool call unless the user explicitly asks.",
+                    is_error=True,
+                    tool_name=tool_name,
+                    source_assistant_uuid=source_uuid if isinstance(source_uuid, str) else None,
+                )
+            )
+
+        _replace_tool_result(session.messages, tool_use_id, replay_messages)
+        if session.model_messages:
+            _replace_tool_result(session.model_messages, tool_use_id, replay_messages)
+        else:
+            session.model_messages = list(session.messages)
+
+        session.pending_permission_request = None
+        session.pending_question = None
+        session.pending_options = None
+        session.status = "idle"
+        manager.persist_session(session)
+
+    return {"ok": True, "action": request.action, "replayed": request.action in ("allow", "always")}
 
 
 @router.get("/v1/sessions/{session_id}/usage")

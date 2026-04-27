@@ -60,6 +60,7 @@ class Session:
     session_id: str
     user_id: str = "default"
     messages: list = field(default_factory=list)
+    model_messages: list = field(default_factory=list)
     context: ToolUseContext | None = None
     client: LLMClient | None = None
     model: str = ""
@@ -274,6 +275,7 @@ def _create_session_context(
     sandbox_session_id: str | None = None,
     session_runtime_dir: Path | None = None,
     user_id: str | None = None,
+    sandbox_manager: SandboxManager | None = None,
 ) -> tuple[ToolUseContext, LLMClient]:
     """为一个 session 创建工具上下文和 API 客户端"""
     tools = _get_server_tools()
@@ -292,6 +294,7 @@ def _create_session_context(
         sandbox_session_id=sandbox_session_id,
         session_runtime_dir=session_runtime_dir,
         user_id=user_id,
+        sandbox_manager=sandbox_manager,
     )
 
     client = create_client()
@@ -359,6 +362,7 @@ class SessionManager:
             session.user_id,
             session.session_id,
             messages=session.messages,
+            model_messages=session.model_messages,
             model=session.model,
             caller_system_prompt=session.caller_system_prompt,
             max_turns=session.max_turns,
@@ -422,6 +426,7 @@ class SessionManager:
             sandbox_session_id=session_id if self._sandbox_manager else None,
             session_runtime_dir=session_runtime_dir,
             user_id=user_id,
+            sandbox_manager=self._sandbox_manager,
         )
 
         session = Session(
@@ -534,6 +539,7 @@ class SessionManager:
             sandbox_session_id=session_id,
             session_runtime_dir=session_runtime_dir,
             user_id=user_id,
+            sandbox_manager=self._sandbox_manager,
         )
 
         created_at = datetime.now(timezone.utc)
@@ -547,6 +553,7 @@ class SessionManager:
             session_id=session_id,
             user_id=user_id,
             messages=state.get("messages", []),
+            model_messages=state.get("model_messages", []),
             context=context,
             client=client,
             model=resolved_model,

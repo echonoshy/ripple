@@ -408,6 +408,9 @@ class SandboxConfig:
     def messages_file(self, user_id: str, session_id: str) -> Path:
         return self.session_dir(user_id, session_id) / "messages.jsonl"
 
+    def model_messages_file(self, user_id: str, session_id: str) -> Path:
+        return self.session_dir(user_id, session_id) / "model_messages.jsonl"
+
     def tasks_file(self, user_id: str, session_id: str) -> Path:
         """TaskCreate/Update/Get/List 工具的 todo 持久化文件"""
         return self.session_dir(user_id, session_id) / "tasks.json"

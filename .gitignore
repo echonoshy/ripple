@@ -220,3 +220,6 @@ tmp/
 # podcast pipeline 中间产物 / 最终产物
 .podcast-work/
 .outputs/
+
+# codex
+.codex 

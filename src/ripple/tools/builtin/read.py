@@ -60,7 +60,7 @@ class ReadTool(Tool[ReadInput, ReadOutput]):
         if isinstance(args, dict):
             args = ReadInput(**args)
 
-        try:
+        async def _read_file() -> ToolResult[ReadOutput]:
             file_path = Path(args.file_path)
 
             # 沙箱模式下校验路径在 workspace 范围内
@@ -98,6 +98,12 @@ class ReadTool(Tool[ReadInput, ReadOutput]):
             )
 
             return ToolResult(data=output)
+
+        try:
+            if context.is_sandboxed and context.sandbox_manager and context.user_id:
+                async with context.sandbox_manager.user_lock(context.user_id):
+                    return await _read_file()
+            return await _read_file()
 
         except Exception as e:
             from ripple.utils.errors import error_message

@@ -61,7 +61,7 @@ class WriteTool(Tool[WriteInput, WriteOutput]):
         if isinstance(args, dict):
             args = WriteInput(**args)
 
-        try:
+        async def _write_file() -> ToolResult[WriteOutput]:
             file_path = Path(args.file_path)
 
             # 沙箱模式下校验路径在 workspace 范围内
@@ -85,7 +85,7 @@ class WriteTool(Tool[WriteInput, WriteOutput]):
                 if _sandbox_config:
                     from ripple.sandbox.workspace import check_workspace_quota
 
-                    exceeded, size_bytes = check_workspace_quota(_sandbox_config, context.sandbox_session_id)
+                    exceeded, size_bytes = check_workspace_quota(_sandbox_config, context.user_id or "")
                     if exceeded:
                         size_mb = size_bytes / (1024 * 1024)
                         quota_warning = (
@@ -100,6 +100,12 @@ class WriteTool(Tool[WriteInput, WriteOutput]):
             )
 
             return ToolResult(data=output)
+
+        try:
+            if context.is_sandboxed and context.sandbox_manager and context.user_id:
+                async with context.sandbox_manager.user_lock(context.user_id):
+                    return await _write_file()
+            return await _write_file()
 
         except Exception as e:
             from ripple.utils.errors import error_message

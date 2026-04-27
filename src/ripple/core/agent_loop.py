@@ -11,7 +11,6 @@ Ripple 的主循环，类似 claude-code 的 agent loop 职责：
 """
 
 import asyncio
-import json
 from typing import TYPE_CHECKING, Any, AsyncGenerator
 
 from ripple.api.client import LLMClient, create_client
@@ -48,7 +47,6 @@ from ripple.messages.types import (
     StreamEvent,
 )
 from ripple.messages.utils import (
-    create_tool_result_message,
     create_user_message,
     deserialize_message,
     extract_tool_use_blocks,
@@ -71,6 +69,16 @@ _MAX_TURNS_NOTICE = (
 def _collect_tools(context: ToolUseContext) -> list[Any]:
     """收集上下文中可用的工具对象（BaseTool 实例），具体格式转换由 client 自行处理"""
     return list(context.options.tools)
+
+
+def _sync_current_messages(
+    root_context: ToolUseContext, active_context: ToolUseContext, messages: list[Message]
+) -> None:
+    """把当前模型上下文同步回 root context，供 server 持久化 model_messages。"""
+    snapshot = list(messages)
+    active_context.current_messages = snapshot
+    if root_context is not active_context:
+        root_context.current_messages = snapshot
 
 
 async def query_loop(
@@ -98,8 +106,6 @@ async def query_loop(
         turn_count=1,
     )
 
-    executed_tool_keys: set[str] = set()
-
     from ripple.compact.auto_compact import AutoCompactor
     from ripple.core.recovery import ErrorRecovery
 
@@ -110,6 +116,7 @@ async def query_loop(
     # 跨轮累计的连接错误重试计数。仅在"本轮未产出任何 AssistantMessage 就失败"时递增；
     # 一旦有一轮成功产出消息就清零，避免偶发抖动累积到上限。
     connection_retry_count = 0
+    root_context = params.tool_use_context
 
     # 从配置读取连接重试参数（见 config/settings.yaml: api.connection_retry）
     # errors.py 里的常量作为 fallback，避免配置缺失时崩溃
@@ -155,7 +162,7 @@ async def query_loop(
             state = state.with_messages([*state.messages, task_reminder])
 
         # 同步当前消息到上下文，供 AgentTool fork 时读取
-        state.tool_use_context.current_messages = list(state.messages)
+        _sync_current_messages(root_context, state.tool_use_context, state.messages)
 
         # ========== 阶段 1: 调用模型 ==========
         logger.info("event=agent.turn.start turn={} model={}", state.turn_count, params.model)
@@ -273,6 +280,7 @@ async def query_loop(
                         is_meta=True,
                     )
                     yield error_msg
+                    _sync_current_messages(root_context, state.tool_use_context, [*state.messages, error_msg])
                     state = state.with_transition(TerminalPromptTooLong())
                     return
 
@@ -303,6 +311,7 @@ async def query_loop(
                                 "options": ["Continue", "Stop"],
                             },
                         )
+                        _sync_current_messages(root_context, state.tool_use_context, [*state.messages, notice])
                         state = state.with_transition(TerminalMaxTurns(turn_count=state.turn_count))
                         return
                     continue
@@ -330,6 +339,7 @@ async def query_loop(
                                 "options": ["Continue", "Stop"],
                             },
                         )
+                        _sync_current_messages(root_context, state.tool_use_context, [*state.messages, notice])
                         state = state.with_transition(TerminalMaxTurns(turn_count=state.turn_count))
                         return
                     continue
@@ -341,6 +351,9 @@ async def query_loop(
                 is_meta=True,
             )
             yield error_msg
+            _sync_current_messages(
+                root_context, state.tool_use_context, [*state.messages, *assistant_messages, error_msg]
+            )
             state = state.with_transition(TerminalModelError(error=e))
             return
 
@@ -367,6 +380,7 @@ async def query_loop(
             )
 
             if stop_result.prevent_continuation:
+                _sync_current_messages(root_context, state.tool_use_context, [*state.messages, *assistant_messages])
                 state = state.with_transition(TerminalStopHookPrevented())
                 return
 
@@ -381,9 +395,10 @@ async def query_loop(
                 continue
 
             state = state.with_transition(TerminalCompleted())
+            _sync_current_messages(root_context, state.tool_use_context, [*state.messages, *assistant_messages])
             return
 
-        # ========== 阶段 3: 跨轮次去重 + 执行工具 ==========
+        # ========== 阶段 3: 执行工具 ==========
         tool_results: list[Message] = list(early_tool_results)
         new_tool_blocks: list[dict[str, Any]] = []
         should_stop_loop = False
@@ -422,22 +437,7 @@ async def query_loop(
             if tool_id in streaming_executor.started_tool_ids:
                 continue
 
-            key = json.dumps({"name": block.get("name"), "input": block.get("input", {})}, sort_keys=True)
-            if key in executed_tool_keys:
-                dup_msg = create_tool_result_message(
-                    tool_use_id=block["id"],
-                    content=(
-                        "This tool was already called with identical arguments in a previous turn. "
-                        "The result is already in the conversation above. "
-                        "Do NOT call this tool again. "
-                        "Use the previous result to respond to the user's question directly."
-                    ),
-                )
-                yield dup_msg
-                tool_results.append(dup_msg)
-            else:
-                new_tool_blocks.append(block)
-                executed_tool_keys.add(key)
+            new_tool_blocks.append(block)
 
         if new_tool_blocks:
             from ripple.tools.orchestration import run_tools
@@ -474,10 +474,14 @@ async def query_loop(
                     is_meta=True,
                 )
                 yield error_msg
+                _sync_current_messages(
+                    root_context, state.tool_use_context, [*state.messages, *assistant_messages, error_msg]
+                )
                 return
 
         # ========== 阶段 3.5: 检查是否需要暂停 agent loop ==========
         if should_stop_loop:
+            final_messages = [*state.messages, *assistant_messages, *tool_results]
             logger.info(
                 "event=agent.stop_requested turn={} reason={}",
                 state.turn_count,
@@ -488,7 +492,8 @@ async def query_loop(
                 metadata=loop_stop_metadata
                 or extract_stop_metadata(loop_stop_reason or "tool_requested", tool_results),
             )
-            state = state.with_messages([*state.messages, *assistant_messages, *tool_results])
+            state = state.with_messages(final_messages)
+            _sync_current_messages(root_context, state.tool_use_context, final_messages)
             return
 
         # ========== 阶段 4: 检查最大轮数 ==========
@@ -509,6 +514,7 @@ async def query_loop(
             )
             state = state.with_messages([*state.messages, *assistant_messages, *tool_results])
             state = state.with_transition(TerminalMaxTurns(turn_count=state.turn_count))
+            _sync_current_messages(root_context, state.tool_use_context, state.messages)
             return
 
         # ========== 阶段 5: 继续下一轮 ==========
@@ -523,6 +529,7 @@ async def query_loop(
             .with_turn_count(next_turn_count)
             .with_transition(ContinueNextTurn())
         )
+        _sync_current_messages(root_context, state.tool_use_context, state.messages)
 
 
 # 简化的入口函数

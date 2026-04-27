@@ -34,6 +34,18 @@ def _save_to_history(history_messages: list[Message], user_input: str, new_messa
     history_messages.extend(new_messages)
 
 
+def _model_messages_from_context(context: ToolUseContext) -> list[Message]:
+    """取 query_loop 写回的模型上下文，去掉动态 system prompt 后用于持久化。"""
+    return [msg for msg in context.current_messages if getattr(msg, "type", None) != "system"]
+
+
+def _replace_model_history_from_context(context: ToolUseContext, model_history_messages: list[Message] | None) -> None:
+    if model_history_messages is None or not context.current_messages:
+        return
+    model_history_messages.clear()
+    model_history_messages.extend(_model_messages_from_context(context))
+
+
 def _extract_stop_metadata(stop_reason: str, new_messages: list[Message]) -> dict[str, Any]:
     """从本轮消息中提取暂停所需元数据。"""
     if stop_reason == "permission_request":
@@ -202,6 +214,7 @@ async def stream_query_as_sse(
     model: str,
     max_turns: int,
     history_messages: list[Message] | None = None,
+    model_history_messages: list[Message] | None = None,
     system_prompt: str | None = None,
     thinking: bool | None = None,
     context_manager=None,
@@ -232,10 +245,11 @@ async def stream_query_as_sse(
     heartbeat_interval = 8
 
     # 跨 loop 上下文清理：传给模型的是精简版，session.messages 保持完整
-    if context_manager and history_messages:
-        model_history = context_manager.prepare_model_messages(history_messages)
+    source_history = model_history_messages if model_history_messages else history_messages
+    if context_manager and source_history:
+        model_history = context_manager.prepare_model_messages(source_history)
     else:
-        model_history = history_messages
+        model_history = source_history
 
     async def _heartbeat_wrapper():
         """包装 query() 生成器，在长时间无输出时发送心跳"""
@@ -399,6 +413,7 @@ async def stream_query_as_sse(
 
         if history_messages is not None:
             _save_to_history(history_messages, user_input, new_messages)
+        _replace_model_history_from_context(context, model_history_messages)
 
         finish_chunk = {
             "id": chunk_id,
@@ -421,6 +436,7 @@ async def stream_query_as_sse(
         logger.info("stream_query_as_sse 被取消 (CancelledError)")
         if history_messages is not None:
             _save_to_history(history_messages, user_input, new_messages)
+        _replace_model_history_from_context(context, model_history_messages)
         raise
 
 
@@ -431,6 +447,7 @@ async def collect_query_response(
     model: str,
     max_turns: int,
     history_messages: list[Message] | None = None,
+    model_history_messages: list[Message] | None = None,
     system_prompt: str | None = None,
     thinking: bool | None = None,
     context_manager=None,
@@ -454,10 +471,11 @@ async def collect_query_response(
     stop_metadata: dict[str, Any] = {}
     tool_id_to_name: dict[str, str] = {}
 
-    if context_manager and history_messages:
-        model_history = context_manager.prepare_model_messages(history_messages)
+    source_history = model_history_messages if model_history_messages else history_messages
+    if context_manager and source_history:
+        model_history = context_manager.prepare_model_messages(source_history)
     else:
-        model_history = history_messages
+        model_history = source_history
 
     try:
         async for item in query(
@@ -531,6 +549,7 @@ async def collect_query_response(
 
         if history_messages is not None:
             _save_to_history(history_messages, user_input, new_messages)
+        _replace_model_history_from_context(context, model_history_messages)
 
         message: dict[str, Any] = {
             "role": "assistant",
@@ -564,4 +583,5 @@ async def collect_query_response(
         logger.info("collect_query_response 被取消 (CancelledError)")
         if history_messages is not None:
             _save_to_history(history_messages, user_input, new_messages)
+        _replace_model_history_from_context(context, model_history_messages)
         raise

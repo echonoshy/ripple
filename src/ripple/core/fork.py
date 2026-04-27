@@ -102,7 +102,6 @@ def build_forked_messages(directive: str, assistant_message: AssistantMessage) -
         return [
             create_user_message(
                 content=build_child_message(directive),
-                is_meta=True,
             )
         ]
 
@@ -123,7 +122,6 @@ def build_forked_messages(directive: str, assistant_message: AssistantMessage) -
             *tool_result_blocks,
             {"type": "text", "text": build_child_message(directive)},
         ],
-        is_meta=True,
     )
 
     return [full_assistant_message, tool_result_message]

@@ -104,6 +104,7 @@ def save_session_state(
     model: str,
     caller_system_prompt: str | None,
     max_turns: int,
+    model_messages: list | None = None,
     total_input_tokens: int = 0,
     total_output_tokens: int = 0,
     created_at: datetime | None = None,
@@ -124,6 +125,7 @@ def save_session_state(
 
     meta_file = config.meta_file(user_id, session_id)
     messages_file = config.messages_file(user_id, session_id)
+    model_messages_file = config.model_messages_file(user_id, session_id)
 
     old_count = 0
     if meta_file.exists():
@@ -201,6 +203,10 @@ def save_session_state(
             new_count,
         )
 
+    serialized_model_messages = serialize_messages(model_messages or messages)
+    model_lines = [json.dumps(msg, ensure_ascii=False) for msg in serialized_model_messages]
+    _atomic_write_lines(model_messages_file, model_lines)
+
     meta = {
         "version": STATE_VERSION,
         "session_id": session_id,
@@ -220,6 +226,7 @@ def save_session_state(
         "pending_permission_request": pending_permission_request,
         "compactor_state": compactor_state,
         "message_count": new_count,
+        "model_message_count": len(serialized_model_messages),
     }
     _atomic_write_json(meta_file, meta)
     logger.info(
@@ -236,6 +243,7 @@ def load_session_state(config: SandboxConfig, user_id: str, session_id: str) -> 
     """从磁盘加载 session 状态（meta.json + messages.jsonl）"""
     meta_file = config.meta_file(user_id, session_id)
     messages_file = config.messages_file(user_id, session_id)
+    model_messages_file = config.model_messages_file(user_id, session_id)
     if not meta_file.exists():
         return None
     try:
@@ -265,11 +273,32 @@ def load_session_state(config: SandboxConfig, user_id: str, session_id: str) -> 
         except OSError as e:
             logger.error("加载 messages.jsonl 失败: {}/{} - {}", user_id, session_id, e)
     state["messages"] = [deserialize_message(item) for item in raw_messages]
+    raw_model_messages = []
+    if model_messages_file.exists():
+        try:
+            with open(model_messages_file, encoding="utf-8") as f:
+                for line_num, line in enumerate(f, 1):
+                    stripped = line.strip()
+                    if not stripped:
+                        continue
+                    try:
+                        raw_model_messages.append(json.loads(stripped))
+                    except json.JSONDecodeError:
+                        logger.warning(
+                            "model_messages.jsonl 第 {} 行解析失败: {}/{}",
+                            line_num,
+                            user_id,
+                            session_id,
+                        )
+        except OSError as e:
+            logger.error("加载 model_messages.jsonl 失败: {}/{} - {}", user_id, session_id, e)
+    state["model_messages"] = [deserialize_message(item) for item in raw_model_messages] if raw_model_messages else []
     logger.info(
-        "event=session.load target_user={} target_session={} messages={}",
+        "event=session.load target_user={} target_session={} messages={} model_messages={}",
         user_id,
         session_id,
         len(state["messages"]),
+        len(state["model_messages"]),
     )
     return state
 

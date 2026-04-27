@@ -124,7 +124,7 @@ async def query_loop(
     while True:
         # ========== 阶段 0: 检查是否已被中止 ==========
         if state.tool_use_context.abort_signal and state.tool_use_context.abort_signal.is_aborted:
-            logger.info("Turn {}: 检测到 abort signal，终止循环", state.turn_count)
+            logger.info("event=agent.abort turn={} reason=abort_signal", state.turn_count)
             return
 
         # ========== 阶段 0a: 轻量级清理 — 清理旧 tool_result / tool_input ==========
@@ -158,7 +158,7 @@ async def query_loop(
         state.tool_use_context.current_messages = list(state.messages)
 
         # ========== 阶段 1: 调用模型 ==========
-        logger.info("Turn {}: 开始调用模型 {}", state.turn_count, params.model)
+        logger.info("event=agent.turn.start turn={} model={}", state.turn_count, params.model)
         yield RequestStartEvent(type="stream_request_start")
 
         assistant_messages: list[AssistantMessage] = []
@@ -204,7 +204,11 @@ async def query_loop(
                     tool_use_blocks.extend(tool_uses)
                     needs_follow_up = True
                     for tu in tool_uses:
-                        logger.info("检测到工具调用: {}", tu.get("name", "unknown"))
+                        logger.info(
+                            "event=agent.tool.detected turn={} tool={}",
+                            state.turn_count,
+                            tu.get("name", "unknown"),
+                        )
                         streaming_executor.add_tool(tu, item)
 
                 for completed in streaming_executor.get_completed_results():
@@ -343,7 +347,7 @@ async def query_loop(
         if assistant_messages:
             total_content_blocks = sum(len(m.message.get("content", [])) for m in assistant_messages)
             logger.info(
-                "Turn {}: 收到 {} 条助手消息, {} 个 content blocks, {} 个工具调用",
+                "event=agent.turn.model_result turn={} assistant_messages={} content_blocks={} tool_calls={}",
                 state.turn_count,
                 len(assistant_messages),
                 total_content_blocks,
@@ -352,7 +356,7 @@ async def query_loop(
             # 本轮成功产出 → 清零连接错误重试计数，避免偶发抖动累积
             connection_retry_count = 0
         else:
-            logger.warning("Turn {}: 模型未返回任何消息（流式响应为空）", state.turn_count)
+            logger.warning("event=agent.turn.empty_response turn={}", state.turn_count)
 
         # ========== 阶段 2: 判断是否需要继续 ==========
         if not needs_follow_up:
@@ -439,7 +443,7 @@ async def query_loop(
             from ripple.tools.orchestration import run_tools
 
             tool_names = [b.get("name", "?") for b in new_tool_blocks]
-            logger.info("Turn {}: 执行工具 {}", state.turn_count, tool_names)
+            logger.info("event=agent.tools.start turn={} tools={}", state.turn_count, tool_names)
 
             try:
                 async for update in run_tools(
@@ -475,7 +479,7 @@ async def query_loop(
         # ========== 阶段 3.5: 检查是否需要暂停 agent loop ==========
         if should_stop_loop:
             logger.info(
-                "Turn {}: 工具请求暂停 agent loop（reason={}）",
+                "event=agent.stop_requested turn={} reason={}",
                 state.turn_count,
                 loop_stop_reason or "unknown",
             )

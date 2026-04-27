@@ -22,14 +22,13 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from ripple.sandbox.config import _USER_ID_RE
-from ripple.utils.logger import get_logger, logger, new_request_id
+from ripple.utils.logger import get_logger, new_request_id, request_context
 
 Scope = dict[str, Any]
 Message = dict[str, Any]
 Receive = Callable[[], Awaitable[Message]]
 Send = Callable[[Message], Awaitable[None]]
 
-_access_logger = get_logger("http.access")
 _app_logger = get_logger("http")
 
 _MAX_REQUEST_ID_LEN = 64
@@ -109,17 +108,13 @@ class RequestContextMiddleware:
                 response_info["bytes"] += len(body)
             await send(message)
 
-        with logger.contextualize(
-            user_id=user_id,
-            session_id=session_id,
-            request_id=request_id,
-        ):
+        with request_context(user_id=user_id, session_id=session_id, request_id=request_id):
             try:
                 await self.app(scope, receive, send_wrapper)
             except Exception:
                 elapsed_ms = (time.monotonic() - start) * 1000.0
-                logger.bind(module="http.access", channel="access").exception(
-                    "{} {} status=500 latency={:.1f}ms bytes_out={}",
+                _app_logger.exception(
+                    "event=http.request.error method={} path={} status=500 duration_ms={:.1f} bytes={}",
                     method,
                     path,
                     elapsed_ms,
@@ -129,10 +124,9 @@ class RequestContextMiddleware:
 
             elapsed_ms = (time.monotonic() - start) * 1000.0
             # 健康检查刷屏价值低，降级到 DEBUG；其他接口固定 INFO
-            level_logger = logger.bind(module="http.access", channel="access")
-            log_fn = level_logger.debug if path == "/health" else level_logger.info
+            log_fn = _app_logger.debug if path == "/health" else _app_logger.info
             log_fn(
-                "{} {} status={} latency={:.1f}ms bytes_out={}",
+                "event=http.request.end method={} path={} status={} duration_ms={:.1f} bytes={}",
                 method,
                 path,
                 response_info["status"],

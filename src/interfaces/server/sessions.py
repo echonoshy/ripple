@@ -436,7 +436,7 @@ class SessionManager:
         )
         self._sessions[(user_id, session_id)] = session
         logger.info(
-            "创建 session: {}/{} (model={}, workspace={})",
+            "event=session.create target_user={} target_session={} model={} workspace={}",
             user_id,
             session_id,
             resolved_model,
@@ -562,7 +562,12 @@ class SessionManager:
             context_manager=ContextManager.from_persisted_state(state.get("compactor_state", {})),
         )
         self._sessions[key] = session
-        logger.info("恢复 session: {}/{} ({} 条历史消息)", user_id, session_id, len(session.messages))
+        logger.info(
+            "event=session.resume target_user={} target_session={} messages={}",
+            user_id,
+            session_id,
+            len(session.messages),
+        )
         return session
 
     def persist_session(self, session: Session) -> bool:

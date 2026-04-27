@@ -223,7 +223,7 @@ def save_session_state(
     }
     _atomic_write_json(meta_file, meta)
     logger.info(
-        "保存 session 状态: {}/{} ({} 条消息, 追加 {})",
+        "event=session.persist target_user={} target_session={} messages={} appended={}",
         user_id,
         session_id,
         new_count,
@@ -266,7 +266,7 @@ def load_session_state(config: SandboxConfig, user_id: str, session_id: str) -> 
             logger.error("加载 messages.jsonl 失败: {}/{} - {}", user_id, session_id, e)
     state["messages"] = [deserialize_message(item) for item in raw_messages]
     logger.info(
-        "加载 session 状态: {}/{} ({} 条消息)",
+        "event=session.load target_user={} target_session={} messages={}",
         user_id,
         session_id,
         len(state["messages"]),

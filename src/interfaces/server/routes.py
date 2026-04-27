@@ -33,7 +33,7 @@ from interfaces.server.sse import collect_query_response, stream_query_as_sse
 from ripple.messages.utils import serialize_messages
 from ripple.tools.orchestration import find_tool_by_name
 from ripple.utils.config import get_config
-from ripple.utils.logger import get_logger, session_context
+from ripple.utils.logger import get_logger, session_context, set_current_session_id
 
 logger = get_logger("server.routes")
 
@@ -186,6 +186,7 @@ async def chat_completions(
         max_turns=max_turns,
         caller_system_prompt=caller_system_prompt,
     )
+    set_current_session_id(session.session_id)
 
     # 对已存在的 session：本轮带了 system 就覆盖，没带就清空 caller 段（仅默认 prompt 生效）
     if not is_new:
@@ -433,6 +434,7 @@ async def create_session(
         caller_system_prompt=request.system_prompt,
         feishu=request.feishu,
     )
+    set_current_session_id(session.session_id)
     return SessionInfo(
         session_id=session.session_id,
         model=_display_model(session.model),

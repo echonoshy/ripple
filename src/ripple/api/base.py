@@ -32,13 +32,16 @@ def log_llm_call(
 ) -> None:
     """输出一条 LLM 调用结构化日志
 
-    同时落到 ``ripple.log``（channel 非 access）和可选的 ``llm.log``（channel=llm）。
     格式固定成 ``key=value`` 风格，便于后续 grep。
     """
     total = prompt_tokens + completion_tokens
-    _loguru_logger.bind(module="llm", channel="llm").info(
+    error_part = ""
+    if error:
+        escaped_error = error.replace("\n", "\\n").replace('"', '\\"')
+        error_part = f' error="{escaped_error}"'
+    _loguru_logger.bind(module="llm").info(
         (
-            "llm_call provider={} model={} prompt_tokens={} completion_tokens={} "
+            "event=llm.call.end provider={} model={} prompt_tokens={} completion_tokens={} "
             "total_tokens={} duration_ms={:.0f} finish_reason={} tools={} provider_request_id={}{}"
         ),
         provider,
@@ -50,7 +53,7 @@ def log_llm_call(
         finish_reason or "-",
         tool_count,
         provider_request_id or "-",
-        f" error={error}" if error else "",
+        error_part,
     )
 
 

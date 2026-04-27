@@ -88,8 +88,6 @@ def main() -> None:
         level=logging_cfg.get("level", "DEBUG"),
         rotation=logging_cfg.get("rotation", "50 MB"),
         retention=logging_cfg.get("retention", "14 days"),
-        access_log=bool(logging_cfg.get("access_log", True)),
-        llm_log=bool(logging_cfg.get("llm_log", True)),
     )
 
     parser = argparse.ArgumentParser(

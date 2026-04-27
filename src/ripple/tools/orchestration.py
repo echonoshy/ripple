@@ -298,7 +298,7 @@ async def execute_tool(
             input_summary = {"keys": sorted(tool_input.keys()) if isinstance(tool_input, dict) else []}
     else:
         input_summary = {"keys": sorted(tool_input.keys()) if isinstance(tool_input, dict) else []}
-    logger.info("工具调用: {} | {}", tool_name, _fmt_kv(input_summary))
+    logger.info("event=tool.call.start tool={} {}", tool_name, _fmt_kv(input_summary))
 
     if not tool:
         logger.warning("工具未找到: {}", tool_name)
@@ -410,7 +410,12 @@ async def execute_tool(
             result_summary = tool.log_result_summary(result.data)
         except Exception:
             result_summary = {"bytes": len(result_content)}
-        logger.info("工具完成: {} | 耗时: {:.2f}s | {}", tool_name, elapsed, _fmt_kv(result_summary))
+        logger.info(
+            "event=tool.call.end tool={} duration_ms={:.0f} {}",
+            tool_name,
+            elapsed * 1000.0,
+            _fmt_kv(result_summary),
+        )
 
         result_msg = create_tool_result_message(
             tool_use_id=tool_use["id"],
@@ -438,7 +443,12 @@ async def execute_tool(
         from ripple.utils.errors import error_message
 
         err = error_message(e)
-        logger.warning("工具失败: {} | 耗时: {:.2f}s | 错误: {}", tool_name, elapsed, err)
+        logger.warning(
+            "event=tool.call.error tool={} duration_ms={:.0f} error={}",
+            tool_name,
+            elapsed * 1000.0,
+            err,
+        )
 
         error_msg = create_tool_result_message(
             tool_use_id=tool_use["id"],

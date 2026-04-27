@@ -41,7 +41,7 @@ async def execute_in_sandbox(
     effective_timeout = timeout or config.resource_limits.command_timeout
     nsjail_cmd = build_nsjail_argv(config, user_id, command)
 
-    logger.debug("nsjail 执行 (user={}): {}", user_id, command[:200])
+    logger.debug("event=sandbox.command.start target_user={} command={}", user_id, command[:200])
 
     proc = await asyncio.create_subprocess_exec(
         *nsjail_cmd,
@@ -55,6 +55,11 @@ async def execute_in_sandbox(
     except asyncio.TimeoutError:
         proc.kill()
         await proc.wait()
+        logger.warning(
+            "event=sandbox.command.timeout target_user={} timeout_s={}",
+            user_id,
+            effective_timeout,
+        )
         return "", f"Command timed out after {effective_timeout} seconds", -1
 
     stdout = stdout_bytes.decode(errors="replace") if stdout_bytes else ""
@@ -68,4 +73,12 @@ async def execute_in_sandbox(
         filtered_stderr_lines.append(line)
     filtered_stderr = "\n".join(filtered_stderr_lines)
 
-    return stdout, filtered_stderr, proc.returncode or 0
+    exit_code = proc.returncode or 0
+    logger.debug(
+        "event=sandbox.command.end target_user={} exit_code={} stdout_bytes={} stderr_bytes={}",
+        user_id,
+        exit_code,
+        len(stdout),
+        len(filtered_stderr),
+    )
+    return stdout, filtered_stderr, exit_code

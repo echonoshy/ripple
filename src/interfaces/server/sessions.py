@@ -295,6 +295,7 @@ def _create_session_context(
         session_runtime_dir=session_runtime_dir,
         user_id=user_id,
         sandbox_manager=sandbox_manager,
+        sandboxed=workspace_root is not None and sandbox_manager is not None,
     )
 
     client = create_client()

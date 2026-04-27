@@ -9,8 +9,6 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
-from ripple.utils.paths import SANDBOXES_DIR
-
 
 @dataclass
 class ToolOptions:
@@ -61,29 +59,15 @@ class ToolUseContext:
     session_runtime_dir: Path | None = None  # session 运行时数据目录（tasks.json/task-outputs/ 的父目录）
     user_id: str | None = None  # 沙箱绑定的 user_id（Phase 3 起；None 表示旧 session-only 模式）
     sandbox_manager: Any | None = None
+    sandboxed: bool = False
 
     on_progress: Callable | None = None
     on_notification: Callable | None = None
 
     @property
     def is_sandboxed(self) -> bool:
-        """当前 context 是否绑定到 nsjail 沙箱。
-
-        true 时意味着工具应通过 SandboxManager 在沙箱内执行，
-        读写路径需落在 workspace_root 下（workspace_root 必须位于
-        `SANDBOXES_DIR` 下才视为沙箱化）。
-        """
-        if not self.workspace_root:
-            return False
-        try:
-            resolved_ws = self.workspace_root.resolve()
-        except OSError:
-            return False
-        try:
-            resolved_ws.relative_to(SANDBOXES_DIR.resolve())
-            return True
-        except ValueError:
-            return False
+        """当前 context 是否绑定到 nsjail 沙箱。"""
+        return self.sandboxed and self.workspace_root is not None
 
     def with_options(self, options: ToolOptions) -> "ToolUseContext":
         """创建新上下文，更新选项"""

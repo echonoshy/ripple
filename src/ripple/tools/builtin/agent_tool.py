@@ -97,6 +97,7 @@ class AgentTool(Tool[AgentToolInput, AgentToolOutput]):
             session_runtime_dir=context.session_runtime_dir,
             user_id=context.user_id,
             sandbox_manager=context.sandbox_manager,
+            sandboxed=context.sandboxed,
         )
 
         full_messages = [*context.current_messages, *fork_messages]

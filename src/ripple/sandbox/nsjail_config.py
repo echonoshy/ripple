@@ -28,6 +28,44 @@ from ripple.utils.logger import get_logger
 logger = get_logger("sandbox.nsjail_config")
 
 
+def _quote_textproto(value: str) -> str:
+    """Return a safe textproto string literal for nsjail.cfg."""
+    out = ['"']
+    for ch in value:
+        if ch == "\\":
+            out.append("\\\\")
+        elif ch == '"':
+            out.append('\\"')
+        elif ch == "\n":
+            out.append("\\n")
+        elif ch == "\r":
+            out.append("\\r")
+        elif ch == "\t":
+            out.append("\\t")
+        elif ord(ch) < 0x20 or ord(ch) == 0x7F:
+            out.append(f"\\{ord(ch):03o}")
+        else:
+            out.append(ch)
+    out.append('"')
+    return "".join(out)
+
+
+def _mount_block(src: str | None, dst: str, *, rw: bool, fstype: str | None = None, options: str | None = None) -> str:
+    lines = ["mount {"]
+    if src is not None:
+        lines.append(f"    src: {_quote_textproto(src)}")
+    lines.append(f"    dst: {_quote_textproto(dst)}")
+    if fstype is not None:
+        lines.append(f"    fstype: {_quote_textproto(fstype)}")
+    else:
+        lines.append("    is_bind: true")
+    lines.append(f"    rw: {'true' if rw else 'false'}")
+    if options is not None:
+        lines.append(f"    options: {_quote_textproto(options)}")
+    lines.append("}")
+    return "\n".join(lines)
+
+
 def build_sandbox_env(config: SandboxConfig, user_id: str) -> dict[str, str]:
     """构建沙箱最小白名单环境变量（不继承宿主环境）。
 
@@ -137,96 +175,51 @@ def _build_common_mounts(config: SandboxConfig) -> list[str]:
     for path_str in config.shared_readonly_paths:
         p = Path(path_str)
         if p.exists():
-            mounts.append(f"""mount {{
-    src: "{path_str}"
-    dst: "{path_str}"
-    is_bind: true
-    rw: false
-}}""")
+            mounts.append(_mount_block(path_str, path_str, rw=False))
 
     # uv 二进制目录（只读），保持原路径以兼容 PATH
     if config.uv_bin_dir:
         uv_dir = Path(config.uv_bin_dir)
         if uv_dir.exists():
-            mounts.append(f"""mount {{
-    src: "{config.uv_bin_dir}"
-    dst: "{config.uv_bin_dir}"
-    is_bind: true
-    rw: false
-}}""")
+            mounts.append(_mount_block(config.uv_bin_dir, config.uv_bin_dir, rw=False))
 
     # uv 全局 cache（读写，所有 user 共享；安装时通过 hardlink 共享 inode 去重）
     uv_cache = config.uv_cache_dir
     uv_cache.mkdir(parents=True, exist_ok=True)
-    mounts.append(f"""mount {{
-    src: "{uv_cache}"
-    dst: "{SANDBOX_UV_CACHE_PATH}"
-    is_bind: true
-    rw: true
-}}""")
+    mounts.append(_mount_block(str(uv_cache), SANDBOX_UV_CACHE_PATH, rw=True))
 
     # Node.js 安装目录（只读，含 bin/ 和 lib/node_modules/）
     if config.node_dir:
         node_dir = Path(config.node_dir)
         if node_dir.exists():
-            mounts.append(f"""mount {{
-    src: "{config.node_dir}"
-    dst: "{SANDBOX_NODE_DIR}"
-    is_bind: true
-    rw: false
-}}""")
+            mounts.append(_mount_block(config.node_dir, SANDBOX_NODE_DIR, rw=False))
 
     # pnpm content-addressable store（读写，所有 user 共享，通过硬链接去重）
     if config.node_dir:
         pnpm_cache = config.pnpm_cache_dir
         pnpm_cache.mkdir(parents=True, exist_ok=True)
-        mounts.append(f"""mount {{
-    src: "{pnpm_cache}"
-    dst: "{SANDBOX_PNPM_STORE}"
-    is_bind: true
-    rw: true
-}}""")
+        mounts.append(_mount_block(str(pnpm_cache), SANDBOX_PNPM_STORE, rw=True))
 
     # corepack 缓存（读写，所有 user 共享，避免每个 user 重新下载 pnpm）
     if config.node_dir:
         corepack_cache = config.corepack_cache_dir
         corepack_cache.mkdir(parents=True, exist_ok=True)
-        mounts.append(f"""mount {{
-    src: "{corepack_cache}"
-    dst: "{SANDBOX_COREPACK_HOME}"
-    is_bind: true
-    rw: true
-}}""")
+        mounts.append(_mount_block(str(corepack_cache), SANDBOX_COREPACK_HOME, rw=True))
 
     # lark-cli 原生二进制安装根（只读，所有 user 共享）。
     # 宿主侧 install_root（vendor/lark-cli/ 或 /opt/lark-cli/，含 current→vX.Y.Z
     # 软链和 current/bin/lark-cli 二进制）整体挂到沙箱内固定的
     # LARK_CLI_INSTALL_ROOT（/opt/lark-cli），使 current 软链在沙箱内可解析。
     if config.lark_cli_install_root and Path(config.lark_cli_install_root).exists():
-        mounts.append(f"""mount {{
-    src: "{config.lark_cli_install_root}"
-    dst: "{LARK_CLI_INSTALL_ROOT}"
-    is_bind: true
-    rw: false
-}}""")
+        mounts.append(_mount_block(config.lark_cli_install_root, LARK_CLI_INSTALL_ROOT, rw=False))
 
     # notion-cli (ntn) 原生二进制安装根（只读，所有 user 共享），与 lark-cli 同款。
     if config.notion_cli_install_root and Path(config.notion_cli_install_root).exists():
-        mounts.append(f"""mount {{
-    src: "{config.notion_cli_install_root}"
-    dst: "{NOTION_CLI_INSTALL_ROOT}"
-    is_bind: true
-    rw: false
-}}""")
+        mounts.append(_mount_block(config.notion_cli_install_root, NOTION_CLI_INSTALL_ROOT, rw=False))
 
     # gogcli (gog) 原生二进制安装根（只读，所有 user 共享），与 lark-cli/notion-cli 同款。
     if config.gogcli_cli_install_root and Path(config.gogcli_cli_install_root).exists():
-        mounts.append(f"""mount {{
-    src: "{config.gogcli_cli_install_root}"
-    dst: "{GOGCLI_CLI_INSTALL_ROOT}"
-    is_bind: true
-    rw: false
-}}""")
+        mounts.append(_mount_block(config.gogcli_cli_install_root, GOGCLI_CLI_INSTALL_ROOT, rw=False))
 
     # 共享 skill 目录（只读，所有 user 共享）。
     # 以"原路径 → 原路径"挂载，使 Skill 系统提示中替换后的 `$SKILL_BASE_DIR`
@@ -246,12 +239,7 @@ def _build_common_mounts(config: SandboxConfig) -> list[str]:
             if not skill_root.exists():
                 continue
             src = str(skill_root)
-            mounts.append(f"""mount {{
-    src: "{src}"
-    dst: "{src}"
-    is_bind: true
-    rw: false
-}}""")
+            mounts.append(_mount_block(src, src, rw=False))
 
     return mounts
 
@@ -263,12 +251,7 @@ def generate_nsjail_config(config: SandboxConfig, user_id: str) -> str:
 
     mounts = _build_common_mounts(config)
 
-    mounts.append(f"""mount {{
-    src: "{workspace}"
-    dst: "/workspace"
-    is_bind: true
-    rw: true
-}}""")
+    mounts.append(_mount_block(str(workspace), "/workspace", rw=True))
 
     # Bilibili 凭证（per-user）：
     # 仅当宿主侧 `credentials/bilibili.json` 实际存在时才追加 readonly bind-mount，
@@ -277,43 +260,24 @@ def generate_nsjail_config(config: SandboxConfig, user_id: str) -> str:
     # 完成绑定后，调用方会重生 nsjail.cfg，下次沙箱启动即可看到文件。
     bili_src = config.bilibili_config_file(user_id)
     if bili_src.exists():
-        mounts.append(f"""mount {{
-    src: "{bili_src}"
-    dst: "/workspace/.bilibili/sessdata.json"
-    is_bind: true
-    rw: false
-}}""")
+        mounts.append(_mount_block(str(bili_src), "/workspace/.bilibili/sessdata.json", rw=False))
 
-    mounts.append("""mount {
-    dst: "/proc"
-    fstype: "proc"
-    rw: false
-}""")
+    mounts.append(_mount_block(None, "/proc", rw=False, fstype="proc"))
 
-    mounts.append(f"""mount {{
-    dst: "/tmp"
-    fstype: "tmpfs"
-    rw: true
-    options: "size={config.tmpfs_size_mb}M"
-}}""")
+    mounts.append(_mount_block(None, "/tmp", rw=True, fstype="tmpfs", options=f"size={config.tmpfs_size_mb}M"))
 
     for dev in ["/dev/null", "/dev/zero", "/dev/urandom", "/dev/random"]:
         if Path(dev).exists():
-            mounts.append(f"""mount {{
-    src: "{dev}"
-    dst: "{dev}"
-    is_bind: true
-    rw: false
-}}""")
+            mounts.append(_mount_block(dev, dev, rw=False))
 
     mounts_str = "\n\n".join(mounts)
 
     sandbox_env = build_sandbox_env(config, user_id)
-    envars = [f'envar: "{k}={v}"' for k, v in sandbox_env.items()]
+    envars = [f"envar: {_quote_textproto(f'{k}={v}')}" for k, v in sandbox_env.items()]
     envars_str = "\n".join(envars)
 
     return textwrap.dedent(f"""\
-        name: "ripple-sandbox-{user_id}"
+        name: {_quote_textproto(f"ripple-sandbox-{user_id}")}
 
         mode: ONCE
 

@@ -23,6 +23,10 @@
   <img src="assets/web.png" width="80%" alt="Ripple Web 界面" style="border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);" />
 </p>
 
+## 文档
+
+- [Agent 系统架构说明](https://echonoshy.github.io/ripple/pages/agent-system-architecture.html)
+
 
 <br/>
 

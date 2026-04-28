@@ -21,6 +21,7 @@ export interface Message {
   id: string | number;
   role: "user" | "assistant";
   content: string;
+  created_at?: string;
   toolCalls?: ToolCall[];
   askUser?: AskUserData;
   permissionRequest?: PermissionRequestData;

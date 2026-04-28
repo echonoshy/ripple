@@ -1,6 +1,7 @@
 """消息工具函数"""
 
 import json
+from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
@@ -17,12 +18,17 @@ from ripple.utils.logger import get_logger
 logger = get_logger("messages.utils")
 
 
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
 def create_user_message(
     content: str | list[dict[str, Any]],
     is_meta: bool = False,
     source_tool_assistant_uuid: str | None = None,
     tool_use_result: str | None = None,
     is_compact_boundary: bool = False,
+    created_at: str | None = None,
 ) -> UserMessage:
     """创建用户消息"""
     if isinstance(content, str):
@@ -35,6 +41,7 @@ def create_user_message(
         source_tool_assistant_uuid=source_tool_assistant_uuid,
         tool_use_result=tool_use_result,
         is_compact_boundary=is_compact_boundary,
+        created_at=created_at or _utc_now_iso(),
     )
 
 
@@ -52,12 +59,13 @@ def create_assistant_message(
             "usage": usage or {},
         },
         uuid=str(uuid4()),
+        created_at=_utc_now_iso(),
     )
 
 
 def create_system_message(content: str, level: str = "info") -> SystemMessage:
     """创建系统消息"""
-    return SystemMessage(type="system", content=content, level=level)
+    return SystemMessage(type="system", content=content, level=level, created_at=_utc_now_iso())
 
 
 def serialize_message(message: Message | dict[str, Any]) -> dict[str, Any]:

@@ -2,8 +2,12 @@
 
 调用 `bilibili-episode-extract/pipeline.py` 拉原料，再算好最终 md 的
 `output_path`（/workspace/.outputs/bilibili/YYYY-MM-DD-<slug>.md），把两份
-信息合起来返回给 SKILL 层。SKILL 层负责用 Read 读原料 + 写 Markdown + Write
-落盘到 output_path。
+信息合起来返回给 SKILL 层。默认要求已完成扫码登录；如果 extract 只拿到
+基础 meta 而字幕 / AI 总结都需要 SESSDATA，本脚本不会返回 output_path，
+防止上层模型误把残缺原料写成最终 Markdown。只有用户明确拒绝登录时，上层
+才可以传 allow_unauthenticated=true 走元数据降级产物。
+
+SKILL 层负责用 Read 读原料 + 写 Markdown + Write 落盘到 output_path。
 
 遵循 podcast-auto-md 的设计：脚本不写 Markdown，模型在对话里写 Markdown 同时
 用 Write 落盘——保证"对话里看到的"等于"磁盘上落盘的"。
@@ -57,6 +61,20 @@ def call_extract(
     return json.loads(proc.stdout)
 
 
+def _as_bool(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+    return bool(value)
+
+
+def _both_fields_need_sessdata(extracted: dict) -> bool:
+    subtitle = extracted.get("subtitle") or {}
+    ai_summary = extracted.get("ai_summary") or {}
+    return subtitle.get("status") == "need_sessdata" and ai_summary.get("status") == "need_sessdata"
+
+
 def run(
     args_dict: dict,
     work_root: pathlib.Path,
@@ -64,10 +82,29 @@ def run(
     output_root: pathlib.Path,
 ) -> dict:
     raw_output_dir = args_dict.pop("output_dir", None)
+    allow_unauthenticated = _as_bool(args_dict.pop("allow_unauthenticated", False))
     extracted = call_extract(args_dict, work_root, sessdata_file)
 
     if "error" in extracted:
         return extracted
+
+    if _both_fields_need_sessdata(extracted) and not allow_unauthenticated:
+        return {
+            **extracted,
+            "auth_required": True,
+            "error": {
+                "code": "bilibili_auth_required",
+                "message": (
+                    "B 站字幕和官方 AI 总结都需要登录态；默认不允许只根据视频元数据生成 "
+                    "Markdown。请先走 BilibiliLoginStart/BilibiliLoginPoll 完成扫码登录，"
+                    "或者在用户明确拒绝登录后重跑并传 allow_unauthenticated=true。"
+                ),
+            },
+            "next": (
+                "不要写 Markdown，也不要调用 Write。请发起或继续 B 站扫码登录；"
+                "只有用户明确说不要登录/只要元数据时，才允许传 allow_unauthenticated=true。"
+            ),
+        }
 
     title = extracted.get("title") or extracted.get("bvid") or "untitled"
     bvid = extracted.get("bvid")

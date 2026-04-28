@@ -284,6 +284,8 @@ async def _stream_chat(
             async with session.lock:
                 session.current_task = asyncio.current_task()
                 session.status = "running"
+                if manager:
+                    manager.touch_session(session)
                 session.pending_question = None
                 session.pending_options = None
                 session.pending_permission_request = None
@@ -340,6 +342,7 @@ async def _stream_chat(
                     if session.status == "running":
                         session.status = "idle"
                     if manager:
+                        manager.touch_session(session)
                         manager.persist_session(session)
         except asyncio.CancelledError:
             logger.info("流式聊天被取消: {}", session.session_id)
@@ -378,6 +381,8 @@ async def _non_stream_chat(
             async with session.lock:
                 session.current_task = asyncio.current_task()
                 session.status = "running"
+                if manager:
+                    manager.touch_session(session)
                 session.pending_question = None
                 session.pending_options = None
                 session.pending_permission_request = None
@@ -424,6 +429,7 @@ async def _non_stream_chat(
                     if session.status == "running":
                         session.status = "idle"
                     if manager:
+                        manager.touch_session(session)
                         manager.persist_session(session)
         except asyncio.CancelledError:
             logger.info("非流式聊天被取消: {}", session.session_id)
@@ -606,6 +612,7 @@ async def resolve_permission_request(
         session.pending_question = None
         session.pending_options = None
         session.status = "idle"
+        manager.touch_session(session)
         manager.persist_session(session)
 
     return {"ok": True, "action": request.action, "replayed": request.action in ("allow", "always")}

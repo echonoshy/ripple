@@ -451,10 +451,12 @@ class SessionManager:
         return session
 
     def get_session(self, session_id: str, *, user_id: str = "default") -> Session | None:
-        session = self._sessions.get((user_id, session_id))
+        return self._sessions.get((user_id, session_id))
+
+    def touch_session(self, session: Session) -> None:
+        """Mark a session as active because real conversation state changed."""
         if session:
             session.last_active = datetime.now(timezone.utc)
-        return session
 
     def delete_session(self, session_id: str, *, user_id: str = "default") -> bool:
         _validate_session_id(session_id)
@@ -549,6 +551,12 @@ class SessionManager:
                 created_at = datetime.fromisoformat(state["created_at"])
             except (ValueError, TypeError):
                 pass
+        last_active = created_at
+        if state.get("last_active"):
+            try:
+                last_active = datetime.fromisoformat(state["last_active"])
+            except (ValueError, TypeError):
+                pass
 
         session = Session(
             session_id=session_id,
@@ -561,6 +569,7 @@ class SessionManager:
             caller_system_prompt=state.get("caller_system_prompt"),
             max_turns=state.get("max_turns", 10),
             created_at=created_at,
+            last_active=last_active,
             total_input_tokens=state.get("total_input_tokens", 0),
             total_output_tokens=state.get("total_output_tokens", 0),
             status=state.get("status", SessionStatus.IDLE),

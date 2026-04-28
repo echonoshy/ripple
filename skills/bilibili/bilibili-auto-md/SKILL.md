@@ -29,6 +29,10 @@ metadata:
 - 短链：`https://b23.tv/xxxxxx`
 - JSON：`{"url": "...", "sessdata": "...", "output_dir": "..."}`
 
+`allow_unauthenticated` 是内部降级开关，默认 `false`。**只有**用户明确说过
+「不要登录 / 不用登录 / 别扫码 / 只要元数据 / 直接给我」时，才允许传
+`{"allow_unauthenticated": true}`。其它情况下禁止传这个字段。
+
 ## 流程（3 步：确认登录态 → 抓取 → 写 MD）
 
 ### Step 0 — 一次调用确认登录态（**两段式扫码**，默认先登录，别降级）
@@ -76,6 +80,8 @@ metadata:
     UX，属于违规；用户问「总结一下 XXX」默认是"要质量好的总结"，不是"任何半成品都行"。
   - **降级的唯一触发条件**：用户在对话里**明确说过**"不要登录 / 不用登录 / 别扫码 /
     直接给我 / 只要元数据 / 就用标题简介" 之类的字样。否则一律走扫码。
+  - 只有走降级路径时，Step 1 的 pipeline 参数才允许加入
+    `"allow_unauthenticated": true`；默认路径禁止加入。
 
 Step 1 跑完如果 `subtitle.status` 或 `ai_summary.status` 出现
 `need_sessdata` / 疑似鉴权失败，再调一次 `BilibiliAuthStatus(verify=true)` 确认
@@ -86,6 +92,13 @@ Step 1 跑完如果 `subtitle.status` 或 `ai_summary.status` 出现
 ```bash
 python /home/lake/workspace/wip/ripple-dev/skills/bilibili/bilibili-auto-md/pipeline.py \
   --args '{"url": "<url 或 BV>"}'
+```
+
+若用户已经明确拒绝登录，才可以这样降级运行：
+
+```bash
+python /home/lake/workspace/wip/ripple-dev/skills/bilibili/bilibili-auto-md/pipeline.py \
+  --args '{"url": "<url 或 BV>", "allow_unauthenticated": true}'
 ```
 
 输出一行 JSON，关键字段：
@@ -99,9 +112,17 @@ python /home/lake/workspace/wip/ripple-dev/skills/bilibili/bilibili-auto-md/pipe
 | `ai_summary.status` | 同上 |
 | `has_view_points` + `view_points_count` | 是否有 UP 主打的原生章节 |
 
-如果输出**顶层**有 `error` 字段（找不到 BV / extract 子进程崩等致命错误），直接把错误告诉用户，**不**继续写 MD。注意：`subtitle.status = "error"` 或 `ai_summary.status = "error"` 是**字段级**错误，**不**算这里说的"顶层 error"——按下面"失败回退"表静默处理即可，**不要**因此中断流程。
+如果输出**顶层**有 `error` 字段（找不到 BV / extract 子进程崩、或
+`auth_required=true` 等阻断），直接把错误告诉用户或继续扫码流程，**不**继续写
+MD，**不**调用 `Write`，也**不要**自己构造 `/workspace/.outputs/bilibili/*.md`
+路径。注意：`subtitle.status = "error"` 或 `ai_summary.status = "error"` 是
+**字段级**错误，**不**算这里说的"顶层 error"——按下面"失败回退"表静默处理即可，
+**不要**因此中断流程。
 
 ### Step 2 — 读原料 → 组装 MD 字符串 → Write 落盘 → 原文贴回对话（顺序严格）
+
+进入 Step 2 的前置条件：Step 1 返回了 `output_path`，且顶层没有 `error` /
+`auth_required`。没有 `output_path` 时**禁止**写 Markdown。
 
 1. **Read** `<work_dir>/meta.json` 拿 meta + view_points
 2. 若 `ai_summary.status == "ok"`：**Read** `<work_dir>/summary.json` 拿 summary + outline（优先用这个做"摘要"和"时间轴"）
@@ -237,6 +258,7 @@ python /home/lake/workspace/wip/ripple-dev/skills/bilibili/bilibili-auto-md/pipe
 | 场景 | 行为 |
 |---|---|
 | pipeline **顶层**返回 `error`（找不到 BV / 进程异常 / extract 子进程崩）| 把 `error.message` 告诉用户，**不**产出 MD（这种是真的没法继续） |
+| pipeline 返回 `auth_required=true` | **不写 MD，不调用 Write**。发起或继续 `BilibiliLoginStart` / `BilibiliLoginPoll` 扫码流程；只有用户明确拒绝登录后，才可重跑并传 `allow_unauthenticated=true` |
 | `subtitle.status = need_sessdata` 且 `ai_summary.status = need_sessdata` | 凭证真的失效了。**先不写 MD**，调 `BilibiliAuthStatus(verify=true)` 确认后走扫码流程（Step 0），绑定成功再重跑 pipeline |
 | **仅** `subtitle.status = need_sessdata`，`ai_summary` 正常 | 通常意味着 UP 主没开字幕（B 站返回 -101 也有这种歧义）。正常产出，"字幕节选"章节写 `_（本期未提供字幕）_` 即可，**不要**为此重登 |
 | `subtitle.status = error`（**任何原因**：风控 / WBI / 网络 / 字幕文件下载失败） | **静默**按"无字幕"处理 —— 模板里"字幕节选" / "要点"分支按 `empty` 走（写 `_（本期未提供字幕）_`），**不**在 MD 任何位置写错误码、不加 `⚠️`、不告诉用户「被风控了 / 接口失败」。如果同时 AI 总结正常，输出体验对用户来说就是"这视频没字幕"，刚好和"empty"一样 |

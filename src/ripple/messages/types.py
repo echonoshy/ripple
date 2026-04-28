@@ -43,6 +43,7 @@ class AssistantMessage(BaseModel):
     type: Literal["assistant"]
     message: dict[str, Any]  # {id, content, usage}
     uuid: str = Field(default_factory=lambda: str(uuid4()))
+    created_at: str | None = None
     api_error: str | None = None
     is_api_error_message: bool = False
 
@@ -52,6 +53,7 @@ class UserMessage(BaseModel):
 
     type: Literal["user"]
     message: dict[str, Any]  # {content}
+    created_at: str | None = None
     is_meta: bool = False
     source_tool_assistant_uuid: str | None = None
     tool_use_result: str | None = None
@@ -63,6 +65,7 @@ class SystemMessage(BaseModel):
 
     type: Literal["system"]
     content: str
+    created_at: str | None = None
     level: Literal["info", "warning", "error"] = "info"
 
 
@@ -72,6 +75,7 @@ class ProgressMessage(BaseModel):
     type: Literal["progress"]
     tool_use_id: str
     data: dict[str, Any]
+    created_at: str | None = None
 
 
 class AttachmentMessage(BaseModel):
@@ -79,6 +83,7 @@ class AttachmentMessage(BaseModel):
 
     type: Literal["attachment"]
     attachment: dict[str, Any]
+    created_at: str | None = None
 
 
 Message = AssistantMessage | UserMessage | SystemMessage | ProgressMessage | AttachmentMessage

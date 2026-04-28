@@ -7,6 +7,7 @@ OpenAI 兼容的 SSE data 行（chat.completion.chunk 格式）。
 import json
 import time
 from collections.abc import AsyncGenerator
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -23,14 +24,19 @@ from ripple.utils.logger import get_logger
 logger = get_logger("server.sse")
 
 
-def _save_to_history(history_messages: list[Message], user_input: str, new_messages: list[Message]) -> None:
+def _save_to_history(
+    history_messages: list[Message],
+    user_input: str,
+    new_messages: list[Message],
+    user_message_created_at: str,
+) -> None:
     """将本轮消息追加到历史。
 
     直接追加原始消息对象。跨 agent loop 的上下文清理由
     clean_messages_for_model_context() 在传给模型时完成，
     不修改 session.messages（保持完整以供 Web 展示）。
     """
-    history_messages.append(create_user_message(content=user_input))
+    history_messages.append(create_user_message(content=user_input, created_at=user_message_created_at))
     history_messages.extend(new_messages)
 
 
@@ -230,6 +236,7 @@ async def stream_query_as_sse(
 
     chunk_id = f"chatcmpl-{uuid4().hex[:24]}"
     created = int(time.time())
+    user_message_created_at = datetime.now(timezone.utc).isoformat()
     first_chunk = True
     accumulated_text = ""
     accumulated_tool_calls: list[dict[str, Any]] = []
@@ -412,7 +419,7 @@ async def stream_query_as_sse(
                                 yield _make_tool_event("task_progress", _build_task_progress(task_tracker))
 
         if history_messages is not None:
-            _save_to_history(history_messages, user_input, new_messages)
+            _save_to_history(history_messages, user_input, new_messages, user_message_created_at)
         _replace_model_history_from_context(context, model_history_messages)
 
         finish_chunk = {
@@ -435,7 +442,7 @@ async def stream_query_as_sse(
     except asyncio.CancelledError:
         logger.info("stream_query_as_sse 被取消 (CancelledError)")
         if history_messages is not None:
-            _save_to_history(history_messages, user_input, new_messages)
+            _save_to_history(history_messages, user_input, new_messages, user_message_created_at)
         _replace_model_history_from_context(context, model_history_messages)
         raise
 
@@ -462,6 +469,7 @@ async def collect_query_response(
 
     chunk_id = f"chatcmpl-{uuid4().hex[:24]}"
     created = int(time.time())
+    user_message_created_at = datetime.now(timezone.utc).isoformat()
     accumulated_text = ""
     tool_calls: list[dict[str, Any]] = []
     usage_info: dict[str, int] = {}
@@ -548,7 +556,7 @@ async def collect_query_response(
                                 accumulated_text += f"\n\n**System Notification:**\n{meta_text}"
 
         if history_messages is not None:
-            _save_to_history(history_messages, user_input, new_messages)
+            _save_to_history(history_messages, user_input, new_messages, user_message_created_at)
         _replace_model_history_from_context(context, model_history_messages)
 
         message: dict[str, Any] = {
@@ -582,6 +590,6 @@ async def collect_query_response(
     except asyncio.CancelledError:
         logger.info("collect_query_response 被取消 (CancelledError)")
         if history_messages is not None:
-            _save_to_history(history_messages, user_input, new_messages)
+            _save_to_history(history_messages, user_input, new_messages, user_message_created_at)
         _replace_model_history_from_context(context, model_history_messages)
         raise

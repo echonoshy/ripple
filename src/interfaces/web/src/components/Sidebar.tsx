@@ -14,6 +14,30 @@ function formatTokens(n: number): string {
   return n.toLocaleString();
 }
 
+function formatSessionTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const dayDiff = Math.round(
+    (startOfToday.getTime() - startOfDate.getTime()) / (24 * 60 * 60 * 1000)
+  );
+  const time = date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+  if (dayDiff === 0) return time;
+  if (dayDiff === 1) return `昨天 ${time}`;
+  if (date.getFullYear() === now.getFullYear()) {
+    return `${date.toLocaleDateString([], { month: "2-digit", day: "2-digit" })} ${time}`;
+  }
+  return `${date.toLocaleDateString([], {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  })} ${time}`;
+}
+
 interface SidebarProps {
   sessions: Session[];
   currentSessionId: string | null;
@@ -221,10 +245,7 @@ export default function Sidebar({
                       </p>
                       <p className="mt-0.5 flex items-center gap-1 text-xs text-[#666666]">
                         <Clock size={9} />
-                        {new Date(session.last_active).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
+                        {formatSessionTime(session.last_active)}
                         <span className="mx-0.5">·</span>
                         {session.message_count} msgs
                       </p>

@@ -103,9 +103,10 @@ ripple 后端暴露了 4 个 per-user 隔离的内置工具，完成**全自动*
    ```
 2. **bind-mount JSON** `/workspace/.bilibili/sessdata.json`（扫码登录的产物；
    由后端维护，脚本只读；取其 `sessdata` 字段）。
-3. 都没命中 → 脚本层**只**把字幕 / AI 总结字段置 `status: need_sessdata`
-   返回，**不自动降级**出最终产物。上层 skill（auto-md 等）**默认**应该
-   立刻调 `BilibiliLoginStart` 发起扫码——见下面「降级使用边界」。
+3. 都没命中 → extract 脚本层**只**把字幕 / AI 总结字段置
+   `status: need_sessdata` 返回；auto-md prepare 层会在默认模式下返回
+   `auth_required=true`，且**不返回 `output_path`**。上层 skill（auto-md 等）
+   **必须停止写文件**，立刻调 `BilibiliLoginStart` 发起扫码——见下面「降级使用边界」。
 
 ### 降级使用边界（不是默认路径！）
 
@@ -120,6 +121,13 @@ ripple 后端暴露了 4 个 per-user 隔离的内置工具，完成**全自动*
 
 除此以外一律走扫码。**禁止**在未征求用户意见的情况下，自作主张产出一份带
 「⚠️ 未登录」警告的残疾结果——这是糟糕 UX，违反本 skill 的纪律。
+
+代码层协议：只有在上述显式拒绝登录场景里，上层才允许给 `bilibili-auto-md`
+的 `pipeline.py` 传 `allow_unauthenticated=true`。没有这个参数时，auto-md
+遇到 `subtitle.status == need_sessdata` 且 `ai_summary.status == need_sessdata`
+会直接返回 `auth_required=true`，并拒绝提供最终 Markdown 的 `output_path`。
+收到该结果后，**禁止**调用 `Write`，也禁止自己构造 `/workspace/.outputs/bilibili/*.md`
+路径写文件。
 
 ### 绝对禁止
 

@@ -66,6 +66,31 @@ function ThinkingIndicator({ hasContent }: { hasContent: boolean }) {
   );
 }
 
+function formatMessageTime(value: string | undefined): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const dayDiff = Math.round(
+    (startOfToday.getTime() - startOfDate.getTime()) / (24 * 60 * 60 * 1000)
+  );
+  const time = date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+  if (dayDiff === 0) return time;
+  if (dayDiff === 1) return `昨天 ${time}`;
+  if (date.getFullYear() === now.getFullYear()) {
+    return `${date.toLocaleDateString([], { month: "2-digit", day: "2-digit" })} ${time}`;
+  }
+  return `${date.toLocaleDateString([], {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  })} ${time}`;
+}
+
 interface ChatMessageProps {
   msg: Message;
   isGenerating: boolean;
@@ -84,6 +109,7 @@ export default function ChatMessage({
   const isUser = msg.role === "user";
   const showThinking = isGenerating && isLast && msg.role === "assistant";
   const isEmptyAssistant = !msg.content && (!msg.toolCalls || msg.toolCalls.length === 0);
+  const messageTime = isUser ? formatMessageTime(msg.created_at) : "";
 
   if (!shouldRenderAssistantMessage(msg, isGenerating, isLast)) {
     return null;
@@ -99,6 +125,11 @@ export default function ChatMessage({
       {/* Label */}
       <div className="mb-1 flex items-center gap-2 px-1 text-xs font-medium text-[#888888]">
         {isUser ? "User" : "Ripple"}
+        {messageTime && (
+          <span className="font-[family-name:var(--font-mono)] font-normal text-[#666666]">
+            {messageTime}
+          </span>
+        )}
       </div>
 
       {isUser ? (

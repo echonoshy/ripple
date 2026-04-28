@@ -316,9 +316,10 @@ export default function Home() {
         }
       }
 
+      const sentAt = new Date().toISOString();
       setMessages((prev) => [
         ...prev,
-        { id: Date.now(), role: "user", content: text },
+        { id: Date.now(), role: "user", content: text, created_at: sentAt },
         { id: Date.now() + 1, role: "assistant", content: "", toolCalls: [] },
       ]);
       setInput("");
@@ -376,7 +377,12 @@ export default function Home() {
             currentContent = "";
             setMessages((prev) => [
               ...prev,
-              { id: Date.now() + Math.random(), role: "assistant", content: "", toolCalls: [] },
+              {
+                id: Date.now() + Math.random(),
+                role: "assistant",
+                content: "",
+                toolCalls: [],
+              },
             ]);
           },
           onToolResult: (toolId, result) => {
@@ -924,10 +930,11 @@ function mapBackendMessages(
     const role = typeof msg.role === "string" ? msg.role : null;
 
     if (internalType === "user") {
+      const createdAt = typeof msg.created_at === "string" ? msg.created_at : undefined;
       const content = getInternalMessageContent(msg);
       const textContent = extractText(content);
       if (textContent) {
-        result.push({ id: id++, role: "user", content: textContent });
+        result.push({ id: id++, role: "user", content: textContent, created_at: createdAt });
       }
 
       for (const block of content) {
@@ -950,6 +957,7 @@ function mapBackendMessages(
     }
 
     if (internalType === "assistant") {
+      const createdAt = typeof msg.created_at === "string" ? msg.created_at : undefined;
       const content = getInternalMessageContent(msg);
       const toolCalls = content
         .filter(
@@ -966,6 +974,7 @@ function mapBackendMessages(
         id: id++,
         role: "assistant",
         content: extractText(content),
+        created_at: createdAt,
         toolCalls,
       };
 
@@ -992,8 +1001,15 @@ function mapBackendMessages(
     }
 
     if (role === "user") {
-      result.push({ id: id++, role: "user", content: extractText(msg.content) });
+      const createdAt = typeof msg.created_at === "string" ? msg.created_at : undefined;
+      result.push({
+        id: id++,
+        role: "user",
+        content: extractText(msg.content),
+        created_at: createdAt,
+      });
     } else if (role === "assistant") {
+      const createdAt = typeof msg.created_at === "string" ? msg.created_at : undefined;
       const toolCalls =
         (
           msg.tool_calls as
@@ -1013,6 +1029,7 @@ function mapBackendMessages(
         id: id++,
         role: "assistant",
         content: extractText(msg.content),
+        created_at: createdAt,
         toolCalls,
       };
       result.push(assistantMessage);

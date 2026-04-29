@@ -33,6 +33,7 @@ from ripple.tools.builtin.gogcli_logout import GoogleWorkspaceLogoutTool
 from ripple.tools.builtin.music_identify import MusicIdentifyTool
 from ripple.tools.builtin.notion_token_set import NotionTokenSetTool
 from ripple.tools.builtin.read import ReadTool
+from ripple.tools.builtin.schedule import ScheduleTool
 from ripple.tools.builtin.search import SearchTool
 from ripple.tools.builtin.task_create import TaskCreateTool
 from ripple.tools.builtin.task_get import TaskGetTool
@@ -42,6 +43,7 @@ from ripple.tools.builtin.write import WriteTool
 from ripple.utils.config import get_config
 from ripple.utils.logger import get_logger
 from ripple.utils.logger import logger as root_logger
+from ripple.utils.time import current_time_context
 
 logger = get_logger("server.sessions")
 
@@ -104,8 +106,7 @@ def _build_default_system_prompt(workspace_dir: Path | None = None) -> str:
 
     skills_text = "\n".join(skills_info) if skills_info else "(no skills installed yet)"
 
-    now_str = datetime.now(timezone.utc).strftime("%Y/%m/%d")
-    return f"""Today's date is {now_str}.
+    return f"""{current_time_context()}
 
 ## Workspace
 You are operating in a sandboxed workspace. Your working directory is `/workspace`.
@@ -189,6 +190,11 @@ Before executing any of the following, you MUST use AskUser to get explicit user
 - Break down and manage your work with the TaskCreate tool. Use TaskCreate to plan your work and help the user track your progress. Mark each task as completed (via TaskUpdate) as soon as you are done with the task. Do not batch up multiple tasks before marking them as completed.
 - You can call multiple tools in a single response. If you intend to call multiple tools and there are no dependencies between them, make all independent tool calls in parallel. Maximize use of parallel tool calls where possible to increase efficiency. However, if some tool calls depend on previous calls to inform dependent values, do NOT call these tools in parallel and instead call them sequentially.
 
+## Scheduled Work
+- When the user asks for a reminder, delayed follow-up, future execution, or recurring task, use the Schedule tool.
+- Do NOT use Bash with `sleep`, `at`, `cron`, timeout loops, or polling loops to emulate scheduled work.
+- Prefer Schedule with `execution_type="agent"` for chat-described tasks, especially tasks that need other tools later. Use `execution_type="command"` only when the user explicitly wants a shell command to run on a schedule.
+
 # Available Skills
 {skills_text}
 
@@ -241,6 +247,7 @@ def _get_server_tools() -> list:
         ReadTool(),
         WriteTool(),
         SearchTool(),
+        ScheduleTool(),
         AgentTool(),
         SkillTool(),
         AskUserTool(),

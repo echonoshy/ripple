@@ -34,9 +34,7 @@ async def execute_in_sandbox(
     Returns:
         (stdout, stderr, exit_code)
     """
-    cfg_path = config.nsjail_cfg_file(user_id)
-    if not cfg_path.exists():
-        write_nsjail_config(config, user_id)
+    write_nsjail_config(config, user_id)
 
     effective_timeout = timeout or config.resource_limits.command_timeout
     nsjail_cmd = build_nsjail_argv(config, user_id, command)

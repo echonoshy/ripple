@@ -20,6 +20,12 @@ from interfaces.server.schemas import (
     ModelsResponse,
     PermissionResolveRequest,
     SandboxInfo,
+    ScheduleCreateRequest,
+    ScheduledJobInfo,
+    ScheduledJobListResponse,
+    ScheduledRunInfo,
+    ScheduledRunListResponse,
+    ScheduleUpdateRequest,
     SessionDetailResponse,
     SessionInfo,
     SessionListResponse,
@@ -31,6 +37,8 @@ from interfaces.server.schemas import (
 from interfaces.server.sessions import SessionManager
 from interfaces.server.sse import collect_query_response, stream_query_as_sse
 from ripple.messages.utils import serialize_messages
+from ripple.scheduler.manager import SchedulerManager, compute_initial_next_run
+from ripple.scheduler.models import ScheduledJob, utc_now
 from ripple.tools.orchestration import execute_tool, find_tool_by_name
 from ripple.utils.config import get_config
 from ripple.utils.logger import get_logger, session_context, set_current_session_id
@@ -40,6 +48,7 @@ logger = get_logger("server.routes")
 router = APIRouter()
 
 _session_manager: SessionManager | None = None
+_scheduler_manager: SchedulerManager | None = None
 
 
 def get_session_manager() -> SessionManager:
@@ -51,6 +60,17 @@ def get_session_manager() -> SessionManager:
 def set_session_manager(manager: SessionManager):
     global _session_manager
     _session_manager = manager
+
+
+def get_scheduler_manager() -> SchedulerManager:
+    if _scheduler_manager is None:
+        raise RuntimeError("SchedulerManager not initialized")
+    return _scheduler_manager
+
+
+def set_scheduler_manager(manager: SchedulerManager):
+    global _scheduler_manager
+    _scheduler_manager = manager
 
 
 def _display_model(raw_id: str) -> str:
@@ -803,6 +823,175 @@ async def get_gogcli_accounts(
         count=len(accounts),
         checked=check,
     )
+
+
+# ─── Scheduled Sandbox Jobs (user-scoped) ───
+
+
+def _job_info(job: ScheduledJob) -> ScheduledJobInfo:
+    return ScheduledJobInfo(**job.model_dump())
+
+
+def _run_info(run) -> ScheduledRunInfo:
+    return ScheduledRunInfo(**run.model_dump())
+
+
+def _validate_schedule_fields(
+    schedule_type: str,
+    *,
+    run_at,
+    interval_seconds: int | None,
+    execution_type: str = "command",
+    command: str | None = None,
+    prompt: str | None = None,
+) -> None:
+    if schedule_type == "once" and run_at is None:
+        raise HTTPException(status_code=400, detail="run_at is required for once schedules")
+    if schedule_type == "interval" and interval_seconds is None:
+        raise HTTPException(status_code=400, detail="interval_seconds is required for interval schedules")
+    if execution_type == "command" and not (command or "").strip():
+        raise HTTPException(status_code=400, detail="command is required for command schedules")
+    if execution_type == "agent" and not (prompt or "").strip():
+        raise HTTPException(status_code=400, detail="prompt is required for agent schedules")
+
+
+@router.post("/v1/sandbox/schedules")
+async def create_schedule(
+    request: ScheduleCreateRequest,
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+) -> ScheduledJobInfo:
+    """Create a user-scoped scheduled sandbox command."""
+    _validate_schedule_fields(
+        request.schedule_type,
+        run_at=request.run_at,
+        interval_seconds=request.interval_seconds,
+        execution_type=request.execution_type,
+        command=request.command,
+        prompt=request.prompt,
+    )
+    scheduler = get_scheduler_manager()
+    job = ScheduledJob(
+        user_id=user_id,
+        name=request.name,
+        command=request.command or "",
+        prompt=request.prompt,
+        execution_type=request.execution_type,
+        created_from=request.created_from,
+        schedule_type=request.schedule_type,
+        run_at=request.run_at,
+        interval_seconds=request.interval_seconds,
+        enabled=request.enabled,
+        timeout_seconds=request.timeout_seconds,
+    )
+    created = scheduler.create_job(job)
+    return _job_info(created)
+
+
+@router.get("/v1/sandbox/schedules")
+async def list_schedules(
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+) -> ScheduledJobListResponse:
+    scheduler = get_scheduler_manager()
+    jobs = [_job_info(job) for job in scheduler.list_jobs(user_id)]
+    return ScheduledJobListResponse(jobs=jobs, count=len(jobs))
+
+
+@router.get("/v1/sandbox/schedules/{job_id}")
+async def get_schedule(
+    job_id: str,
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+) -> ScheduledJobInfo:
+    scheduler = get_scheduler_manager()
+    job = scheduler.get_job(user_id, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Scheduled job not found")
+    return _job_info(job)
+
+
+@router.patch("/v1/sandbox/schedules/{job_id}")
+async def update_schedule(
+    job_id: str,
+    request: ScheduleUpdateRequest,
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+) -> ScheduledJobInfo:
+    scheduler = get_scheduler_manager()
+    job = scheduler.get_job(user_id, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Scheduled job not found")
+
+    update = request.model_dump(exclude_unset=True)
+    for key, value in update.items():
+        setattr(job, key, value)
+    _validate_schedule_fields(
+        job.schedule_type,
+        run_at=job.run_at,
+        interval_seconds=job.interval_seconds,
+        execution_type=job.execution_type,
+        command=job.command,
+        prompt=job.prompt,
+    )
+    job.next_run_at = compute_initial_next_run(job, now=utc_now())
+    updated = scheduler.update_job(job)
+    return _job_info(updated)
+
+
+@router.delete("/v1/sandbox/schedules/{job_id}")
+async def delete_schedule(
+    job_id: str,
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+):
+    scheduler = get_scheduler_manager()
+    if not scheduler.delete_job(user_id, job_id):
+        raise HTTPException(status_code=404, detail="Scheduled job not found")
+    return {"ok": True}
+
+
+@router.post("/v1/sandbox/schedules/{job_id}/run")
+async def run_schedule_now(
+    job_id: str,
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+) -> ScheduledRunInfo:
+    scheduler = get_scheduler_manager()
+    run = await scheduler.run_job(user_id, job_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Scheduled job not found or already running")
+    return _run_info(run)
+
+
+@router.get("/v1/sandbox/schedules/{job_id}/runs")
+async def list_schedule_runs(
+    job_id: str,
+    limit: int = Query(default=50, ge=1, le=200),
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+) -> ScheduledRunListResponse:
+    scheduler = get_scheduler_manager()
+    if scheduler.get_job(user_id, job_id) is None:
+        raise HTTPException(status_code=404, detail="Scheduled job not found")
+    runs = [_run_info(run) for run in scheduler.list_runs(user_id, job_id, limit=limit)]
+    return ScheduledRunListResponse(runs=runs, count=len(runs))
+
+
+@router.get("/v1/sandbox/schedules/{job_id}/runs/{run_id}")
+async def get_schedule_run(
+    job_id: str,
+    run_id: str,
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+) -> ScheduledRunInfo:
+    scheduler = get_scheduler_manager()
+    if scheduler.get_job(user_id, job_id) is None:
+        raise HTTPException(status_code=404, detail="Scheduled job not found")
+    run = scheduler.get_run(user_id, job_id, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Scheduled run not found")
+    return _run_info(run)
 
 
 # ─── Bilibili 扫码二维码图片 ───

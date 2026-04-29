@@ -12,6 +12,7 @@ import {
   Copy,
   Check,
   UserRound,
+  CalendarClock,
 } from "lucide-react";
 import { Message, UsageInfo, Session, SessionDetail, TaskInfo, TaskProgress } from "@/types";
 import {
@@ -36,6 +37,7 @@ import ChatInput from "@/components/ChatInput";
 import ChatMessage from "@/components/ChatMessage";
 import TaskExecutionPanel from "@/components/TaskExecutionPanel";
 import SettingsModal from "@/components/SettingsModal";
+import ScheduledTasksModal from "@/components/ScheduledTasksModal";
 import { applyTaskUpdate, upsertTask } from "@/lib/chatState";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { bumpInputFocusToken } from "@/lib/inputFocus";
@@ -78,6 +80,7 @@ export default function Home() {
 
   // ── UI state ──
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isScheduledTasksOpen, setIsScheduledTasksOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [thinkingEnabled, setThinkingEnabled] = useState(false);
   const [inputFocusToken, setInputFocusToken] = useState(0);
@@ -793,6 +796,14 @@ export default function Home() {
                 />
                 <span className="max-w-[120px] truncate font-semibold">{userId}</span>
               </button>
+              <button
+                type="button"
+                onClick={() => setIsScheduledTasksOpen(true)}
+                title="Open scheduled tasks"
+                className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-[#0a0a0a] text-[#888888] transition-colors hover:border-[#ededed]/40 hover:text-[#ededed]"
+              >
+                <CalendarClock size={14} />
+              </button>
               <div
                 className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 ${
                   sessionId
@@ -905,6 +916,11 @@ export default function Home() {
           setIsSettingsOpen(false);
           setAuthState("needs_auth");
         }}
+      />
+      <ScheduledTasksModal
+        isOpen={isScheduledTasksOpen}
+        onClose={() => setIsScheduledTasksOpen(false)}
+        userId={userId}
       />
     </div>
   );

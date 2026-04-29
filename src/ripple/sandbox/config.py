@@ -419,6 +419,18 @@ class SandboxConfig:
         """AgentTool 后台任务的输出目录"""
         return self.session_dir(user_id, session_id) / "task-outputs"
 
+    def scheduled_tasks_dir(self, user_id: str) -> Path:
+        """user 级定时任务数据目录"""
+        return self.sandbox_dir(user_id) / "scheduled-tasks"
+
+    def scheduled_jobs_file(self, user_id: str) -> Path:
+        """user 级定时任务定义文件"""
+        return self.scheduled_tasks_dir(user_id) / "jobs.json"
+
+    def scheduled_runs_dir(self, user_id: str) -> Path:
+        """user 级定时任务执行记录目录"""
+        return self.scheduled_tasks_dir(user_id) / "runs"
+
     def has_python_venv(self, user_id: str) -> bool:
         """检查 user workspace 内是否已创建 Python venv"""
         return (self.workspace_dir(user_id) / ".venv" / "pyvenv.cfg").exists()

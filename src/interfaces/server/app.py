@@ -7,11 +7,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from interfaces.server.middleware import RequestContextMiddleware
-from interfaces.server.routes import router, set_session_manager
+from interfaces.server.routes import router, set_scheduler_manager, set_session_manager
+from interfaces.server.scheduler_agent import run_scheduled_agent_job
 from interfaces.server.sessions import SessionManager
 from ripple.sandbox.config import SandboxConfig
 from ripple.sandbox.manager import SandboxManager
+from ripple.scheduler.manager import SchedulerManager
 from ripple.tools.builtin.bash import set_sandbox_config, set_sandbox_manager
+from ripple.tools.builtin.schedule import set_schedule_tool_manager
 from ripple.utils.config import get_config
 from ripple.utils.logger import get_logger, setup_logging
 
@@ -42,14 +45,22 @@ def create_app() -> FastAPI:
         set_sandbox_manager(sandbox_mgr)
 
         manager = SessionManager(sandbox_manager=sandbox_mgr)
+        scheduler = SchedulerManager(
+            sandbox_mgr,
+            agent_job_runner=lambda job, run: run_scheduled_agent_job(job, run, sandbox_mgr),
+        )
         set_session_manager(manager)
+        set_scheduler_manager(scheduler)
+        set_schedule_tool_manager(scheduler)
         manager.start_cleanup_loop()
+        scheduler.start()
         logger.info(
             "Ripple Server 启动完成 (sandbox=nsjail, sandboxes={}, caches={})",
             sandbox_mgr.config.sandboxes_root,
             sandbox_mgr.config.caches_root,
         )
         yield
+        await scheduler.stop()
         manager.stop_cleanup_loop()
         logger.info("Ripple Server 已关闭")
 

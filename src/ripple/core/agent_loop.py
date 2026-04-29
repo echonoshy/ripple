@@ -552,18 +552,16 @@ async def query(
 
     messages = []
 
-    from datetime import datetime
-
     from ripple.messages.utils import create_system_message
+    from ripple.utils.time import current_time_context
 
     if system_prompt:
         messages.append(create_system_message(content=system_prompt))
     else:
-        current_date = datetime.now().strftime("%Y/%m/%d")
         messages.append(
             create_system_message(
                 content=(
-                    f"Today's date is {current_date}. "
+                    f"{current_time_context()} "
                     "Use this date when searching for current information or answering time-sensitive questions."
                 )
             )

@@ -4,6 +4,10 @@ import {
   UsageInfo,
   SystemInfo,
   SandboxInfo,
+  ScheduleCreateInput,
+  ScheduledJob,
+  ScheduledRun,
+  ScheduleUpdateInput,
   GogcliAccountsResponse,
   Session,
   SessionDetail,
@@ -454,4 +458,66 @@ export async function deleteCurrentSandbox(): Promise<{ ok: boolean; error?: str
     /* ignore parse error */
   }
   return { ok: false, error: message };
+}
+
+export async function fetchSchedules(): Promise<ScheduledJob[]> {
+  const res = await fetch(`${API_URL}/sandbox/schedules`, { headers: { ...authHeaders() } });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) throw new Error(`Failed to fetch schedules (${res.status})`);
+  const data = (await res.json()) as { jobs?: ScheduledJob[] };
+  return data.jobs || [];
+}
+
+export async function createSchedule(input: ScheduleCreateInput): Promise<ScheduledJob> {
+  const res = await fetch(`${API_URL}/sandbox/schedules`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(input),
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) throw new Error(`Failed to create schedule (${res.status})`);
+  return (await res.json()) as ScheduledJob;
+}
+
+export async function updateSchedule(
+  jobId: string,
+  input: ScheduleUpdateInput
+): Promise<ScheduledJob> {
+  const res = await fetch(`${API_URL}/sandbox/schedules/${jobId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(input),
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) throw new Error(`Failed to update schedule (${res.status})`);
+  return (await res.json()) as ScheduledJob;
+}
+
+export async function deleteSchedule(jobId: string): Promise<boolean> {
+  const res = await fetch(`${API_URL}/sandbox/schedules/${jobId}`, {
+    method: "DELETE",
+    headers: { ...authHeaders() },
+  });
+  if (res.status === 401) throw new AuthError();
+  return res.ok;
+}
+
+export async function runScheduleNow(jobId: string): Promise<ScheduledRun> {
+  const res = await fetch(`${API_URL}/sandbox/schedules/${jobId}/run`, {
+    method: "POST",
+    headers: { ...authHeaders() },
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) throw new Error(`Failed to run schedule (${res.status})`);
+  return (await res.json()) as ScheduledRun;
+}
+
+export async function fetchScheduleRuns(jobId: string, limit: number = 5): Promise<ScheduledRun[]> {
+  const res = await fetch(`${API_URL}/sandbox/schedules/${jobId}/runs?limit=${limit}`, {
+    headers: { ...authHeaders() },
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) throw new Error(`Failed to fetch schedule runs (${res.status})`);
+  const data = (await res.json()) as { runs?: ScheduledRun[] };
+  return data.runs || [];
 }

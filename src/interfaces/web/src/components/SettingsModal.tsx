@@ -215,7 +215,7 @@ export default function SettingsModal({
             transition={{ type: "spring", stiffness: 400, damping: 30 }}
             className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center p-4"
           >
-            <div className="pointer-events-auto max-h-[80vh] w-full max-w-2xl overflow-hidden rounded-2xl border border-white/10 bg-black shadow-2xl">
+            <div className="pointer-events-auto max-h-[84vh] w-full max-w-4xl overflow-hidden rounded-2xl border border-white/10 bg-black shadow-2xl">
               {/* Header */}
               <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
                 <h2 className="text-base font-semibold text-[#ededed]">Settings</h2>
@@ -227,7 +227,7 @@ export default function SettingsModal({
                 </button>
               </div>
 
-              <div className="max-h-[calc(80vh-64px)] space-y-6 overflow-y-auto p-6">
+              <div className="max-h-[calc(84vh-64px)] space-y-6 overflow-y-auto p-6">
                 {/* Config */}
                 <div>
                   <h3 className="mb-3 text-xs font-medium tracking-wider text-[#666666] uppercase">

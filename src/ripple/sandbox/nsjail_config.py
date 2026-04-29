@@ -24,6 +24,7 @@ from ripple.sandbox.config import (
     SandboxConfig,
 )
 from ripple.utils.logger import get_logger
+from ripple.utils.time import configured_timezone_name
 
 logger = get_logger("sandbox.nsjail_config")
 
@@ -101,6 +102,7 @@ def build_sandbox_env(config: SandboxConfig, user_id: str) -> dict[str, str]:
         "SHELL": "/bin/bash",
         "TERM": "xterm-256color",
         "LANG": "C.UTF-8",
+        "TZ": configured_timezone_name(),
         "UV_CACHE_DIR": SANDBOX_UV_CACHE_PATH,
         "UV_LINK_MODE": "hardlink",
     }

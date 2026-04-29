@@ -37,6 +37,7 @@ interface ScheduleFormState {
   scheduleType: ScheduleType;
   runAtLocal: string;
   intervalSeconds: string;
+  maxRuns: string;
   timeoutSeconds: string;
 }
 
@@ -48,6 +49,7 @@ const DEFAULT_FORM: ScheduleFormState = {
   scheduleType: "interval",
   runAtLocal: "",
   intervalSeconds: "86400",
+  maxRuns: "",
   timeoutSeconds: "300",
 };
 
@@ -72,6 +74,14 @@ function formatInterval(seconds: number | null): string {
   if (seconds % 3600 === 0) return `${seconds / 3600}h`;
   if (seconds % 60 === 0) return `${seconds / 60}m`;
   return `${seconds}s`;
+}
+
+function formatDuration(ms: number | null): string {
+  if (ms === null) return "—";
+  if (ms < 1000) return `${ms}ms`;
+  const seconds = ms / 1000;
+  if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
 }
 
 function statusClass(status: string | null): string {
@@ -99,6 +109,12 @@ function parsePositiveInt(value: string, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function parseOptionalPositiveInt(value: string): number | null {
+  if (!value.trim()) return null;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
 export default function ScheduledTasksPanel({ sandboxReady, userId }: ScheduledTasksPanelProps) {
   const [jobs, setJobs] = useState<ScheduledJob[]>([]);
   const [runsByJob, setRunsByJob] = useState<Record<string, ScheduledRun[]>>({});
@@ -115,13 +131,11 @@ export default function ScheduledTasksPanel({ sandboxReady, userId }: ScheduledT
       enabled: jobs.filter((job) => job.enabled).length,
       once: jobs.filter((job) => job.schedule_type === "once").length,
       interval: jobs.filter((job) => job.schedule_type === "interval").length,
-      running: Object.values(runsByJob)
-        .flat()
-        .filter((run) => run.status === "running").length,
+      running: jobs.filter((job) => job.running_at || job.current_run_id).length,
       failed: jobs.filter((job) => job.last_status === "failed" || job.last_status === "timeout")
         .length,
     }),
-    [jobs, runsByJob]
+    [jobs]
   );
 
   const canSubmit = useMemo(() => {
@@ -130,6 +144,7 @@ export default function ScheduledTasksPanel({ sandboxReady, userId }: ScheduledT
     if (form.executionType === "agent" && !form.prompt.trim()) return false;
     if (form.executionType === "command" && !form.command.trim()) return false;
     if (form.scheduleType === "once") return Boolean(localDateTimeToIso(form.runAtLocal));
+    if (form.maxRuns.trim() && parseOptionalPositiveInt(form.maxRuns) === null) return false;
     return parsePositiveInt(form.intervalSeconds, 0) > 0;
   }, [form, sandboxReady, submitting]);
 
@@ -185,6 +200,7 @@ export default function ScheduledTasksPanel({ sandboxReady, userId }: ScheduledT
         run_at: form.scheduleType === "once" ? localDateTimeToIso(form.runAtLocal) : null,
         interval_seconds:
           form.scheduleType === "interval" ? parsePositiveInt(form.intervalSeconds, 86400) : null,
+        max_runs: form.scheduleType === "interval" ? parseOptionalPositiveInt(form.maxRuns) : null,
         timeout_seconds: parsePositiveInt(form.timeoutSeconds, 300),
         enabled: true,
       });
@@ -338,7 +354,7 @@ export default function ScheduledTasksPanel({ sandboxReady, userId }: ScheduledT
                   className="w-full resize-none rounded-md border border-white/10 bg-black px-3 py-2 font-[family-name:var(--font-mono)] text-xs text-[#ededed] placeholder:text-[#666666] focus:border-[#ededed]/50 focus:outline-none"
                 />
               )}
-              <div className="grid gap-2 sm:grid-cols-3">
+              <div className="grid gap-2 sm:grid-cols-4">
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
@@ -391,6 +407,20 @@ export default function ScheduledTasksPanel({ sandboxReady, userId }: ScheduledT
                     />
                   </label>
                 )}
+                <label className="block">
+                  <span className="mb-1 block text-[10px] tracking-wider text-[#666666] uppercase">
+                    Max runs
+                  </span>
+                  <input
+                    type="number"
+                    min={1}
+                    value={form.maxRuns}
+                    onChange={(e) => setForm((prev) => ({ ...prev, maxRuns: e.target.value }))}
+                    disabled={form.scheduleType !== "interval"}
+                    placeholder="∞"
+                    className="w-full rounded-md border border-white/10 bg-black px-3 py-2 font-[family-name:var(--font-mono)] text-xs text-[#ededed] placeholder:text-[#666666] focus:border-[#ededed]/50 focus:outline-none disabled:opacity-40"
+                  />
+                </label>
                 <label className="block">
                   <span className="mb-1 block text-[10px] tracking-wider text-[#666666] uppercase">
                     Timeout
@@ -447,7 +477,9 @@ export default function ScheduledTasksPanel({ sandboxReady, userId }: ScheduledT
                 jobs.map((job) => {
                   const busy = busyJobId === job.id;
                   const runs = runsByJob[job.id] || [];
-                  const hasRunningRun = runs.some((run) => run.status === "running");
+                  const hasRunningRun =
+                    Boolean(job.running_at || job.current_run_id) ||
+                    runs.some((run) => run.status === "running");
                   return (
                     <div key={job.id} className="rounded-lg border border-white/10 bg-black p-3">
                       <div className="flex items-start justify-between gap-3">
@@ -498,8 +530,24 @@ export default function ScheduledTasksPanel({ sandboxReady, userId }: ScheduledT
                             </span>
                             <span>next {formatDateTime(job.next_run_at)}</span>
                             <span>last {formatDateTime(job.last_run_at)}</span>
+                            <span>duration {formatDuration(job.last_duration_ms)}</span>
+                            {job.max_runs ? (
+                              <span>
+                                runs {job.run_count}/{job.max_runs}
+                              </span>
+                            ) : (
+                              <span>runs {job.run_count}</span>
+                            )}
+                            {job.consecutive_errors > 0 && (
+                              <span>errors {job.consecutive_errors}</span>
+                            )}
                             <span>from {job.created_from}</span>
                           </div>
+                          {job.last_error && (
+                            <p className="mt-2 rounded-md border border-[#ff4444]/20 bg-[#ff4444]/10 px-2 py-1 font-[family-name:var(--font-mono)] text-[11px] break-all whitespace-pre-wrap text-[#ff7777]">
+                              {job.last_error}
+                            </p>
+                          )}
                         </div>
                         <div className="flex shrink-0 items-center gap-1">
                           <button
@@ -574,6 +622,11 @@ export default function ScheduledTasksPanel({ sandboxReady, userId }: ScheduledT
                                   {run.finished_at && (
                                     <span className="hidden text-[#52525b] sm:inline">
                                       finished {formatDateTime(run.finished_at)}
+                                    </span>
+                                  )}
+                                  {run.duration_ms !== null && (
+                                    <span className="hidden text-[#52525b] sm:inline">
+                                      {formatDuration(run.duration_ms)}
                                     </span>
                                   )}
                                 </div>

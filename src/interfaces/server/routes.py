@@ -37,7 +37,7 @@ from interfaces.server.schemas import (
 from interfaces.server.sessions import SessionManager
 from interfaces.server.sse import collect_query_response, stream_query_as_sse
 from ripple.messages.utils import serialize_messages
-from ripple.scheduler.manager import SchedulerManager, compute_initial_next_run
+from ripple.scheduler.manager import ScheduledJobRunningError, SchedulerManager, compute_initial_next_run
 from ripple.scheduler.models import ScheduledJob, utc_now
 from ripple.tools.orchestration import execute_tool, find_tool_by_name
 from ripple.utils.config import get_config
@@ -881,6 +881,7 @@ async def create_schedule(
         schedule_type=request.schedule_type,
         run_at=request.run_at,
         interval_seconds=request.interval_seconds,
+        max_runs=request.max_runs,
         enabled=request.enabled,
         timeout_seconds=request.timeout_seconds,
     )
@@ -946,7 +947,11 @@ async def delete_schedule(
     _api_key: str = Depends(verify_api_key),
 ):
     scheduler = get_scheduler_manager()
-    if not scheduler.delete_job(user_id, job_id):
+    try:
+        removed = scheduler.delete_job(user_id, job_id)
+    except ScheduledJobRunningError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not removed:
         raise HTTPException(status_code=404, detail="Scheduled job not found")
     return {"ok": True}
 

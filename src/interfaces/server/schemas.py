@@ -215,6 +215,7 @@ class ScheduleCreateRequest(BaseModel):
     schedule_type: Literal["once", "interval"]
     run_at: datetime | None = None
     interval_seconds: int | None = Field(default=None, ge=1)
+    max_runs: int | None = Field(default=None, ge=1)
     enabled: bool = True
     timeout_seconds: int = Field(default=300, ge=1, le=86_400)
 
@@ -228,6 +229,7 @@ class ScheduleUpdateRequest(BaseModel):
     schedule_type: Literal["once", "interval"] | None = None
     run_at: datetime | None = None
     interval_seconds: int | None = Field(default=None, ge=1)
+    max_runs: int | None = Field(default=None, ge=1)
     enabled: bool | None = None
     timeout_seconds: int | None = Field(default=None, ge=1, le=86_400)
 
@@ -243,11 +245,20 @@ class ScheduledJobInfo(BaseModel):
     schedule_type: str
     run_at: datetime | None = None
     interval_seconds: int | None = None
+    max_runs: int | None = None
     enabled: bool
     timeout_seconds: int
     next_run_at: datetime | None = None
+    running_at: datetime | None = None
+    current_run_id: str | None = None
     last_run_at: datetime | None = None
     last_status: str | None = None
+    last_error: str | None = None
+    last_duration_ms: int | None = None
+    run_count: int = 0
+    consecutive_errors: int = 0
+    consecutive_skipped: int = 0
+    schedule_error_count: int = 0
     created_at: datetime
     updated_at: datetime
 
@@ -269,6 +280,7 @@ class ScheduledRunInfo(BaseModel):
     stderr_tail: str = ""
     error: str | None = None
     summary: str | None = None
+    duration_ms: int | None = None
 
 
 class ScheduledRunListResponse(BaseModel):

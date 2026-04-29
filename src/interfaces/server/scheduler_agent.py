@@ -1,13 +1,11 @@
 """Agent runner used by scheduled jobs."""
 
-from datetime import datetime, timezone
 from uuid import uuid4
 
 from interfaces.server.sessions import _create_session_context, _merge_system_prompt
 from ripple.core.agent_loop import query
-from ripple.messages.types import AgentStopEvent, AssistantMessage, Message
+from ripple.messages.types import AgentStopEvent, AssistantMessage
 from ripple.sandbox.manager import SandboxManager
-from ripple.sandbox.storage import save_session_state
 from ripple.scheduler.models import ScheduledJob, ScheduledRun
 from ripple.utils.config import get_config
 from ripple.utils.logger import get_logger
@@ -30,7 +28,7 @@ async def run_scheduled_agent_job(
     run: ScheduledRun,
     sandbox_manager: SandboxManager,
 ) -> ScheduledRun:
-    """Run an agent prompt for a scheduled job and store a resumable transcript."""
+    """Run an agent prompt for a scheduled job and store the result on the run record."""
 
     prompt = (job.prompt or "").strip()
     if not prompt:
@@ -40,25 +38,24 @@ async def run_scheduled_agent_job(
 
     config = get_config()
     model = config.resolve_model(config.get("model.default", "sonnet"))
-    display_session_id = f"sched-{job.id}-{run.id}"
     internal_session_id = f"sched-{uuid4().hex[:12]}"
 
-    sandbox_manager.setup_session(job.user_id, display_session_id)
+    sandbox_manager.ensure_sandbox(job.user_id)
     workspace_root = sandbox_manager.config.workspace_dir(job.user_id)
-    session_runtime_dir = sandbox_manager.config.session_dir(job.user_id, display_session_id)
+    session_runtime_dir = sandbox_manager.config.scheduled_runs_dir(job.user_id) / job.id / run.id / "runtime"
+    session_runtime_dir.mkdir(parents=True, exist_ok=True)
 
     context, client = _create_session_context(
         model,
         internal_session_id,
         workspace_root=workspace_root,
-        sandbox_session_id=display_session_id,
+        sandbox_session_id=None,
         session_runtime_dir=session_runtime_dir,
         user_id=job.user_id,
         sandbox_manager=sandbox_manager,
     )
     system_prompt = _merge_system_prompt(workspace_root, None)
 
-    messages: list[Message] = []
     final_text = ""
     stop_reason = ""
     try:
@@ -71,13 +68,11 @@ async def run_scheduled_agent_job(
             system_prompt=system_prompt,
         ):
             if isinstance(item, AssistantMessage):
-                messages.append(item)
                 text = _assistant_text(item)
                 if text:
                     final_text = text
             elif isinstance(item, AgentStopEvent):
                 stop_reason = item.stop_reason
-        messages = list(context.current_messages or messages)
         run.exit_code = 0
         run.status = "success" if stop_reason != "max_turns" else "failed"
         run.summary = final_text
@@ -88,22 +83,5 @@ async def run_scheduled_agent_job(
         logger.exception("定时 agent 任务异常: job={} run={} error={}", job.id, run.id, exc)
         run.status = "failed"
         run.error = str(exc)
-    finally:
-        now = datetime.now(timezone.utc)
-        save_session_state(
-            sandbox_manager.config,
-            job.user_id,
-            display_session_id,
-            messages=messages,
-            model_messages=context.current_messages or messages,
-            model=model,
-            caller_system_prompt=None,
-            max_turns=10,
-            total_input_tokens=0,
-            total_output_tokens=0,
-            created_at=run.started_at,
-            last_active=now,
-            status="idle",
-        )
 
     return run

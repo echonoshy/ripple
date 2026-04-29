@@ -625,6 +625,8 @@ class SessionManager:
         for uid in user_ids_to_scan:
             for sid in self._sandbox_manager.list_user_sessions(uid):
                 info = get_suspended_session_info(self._sandbox_manager.config, uid, sid)
+                if self._is_hidden_session_info(info):
+                    continue
                 if info and info.get("message_count", 0) > 0:
                     info["status"] = "suspended"
                     info["user_id"] = uid
@@ -650,6 +652,11 @@ class SessionManager:
 
         return sorted(result.values(), key=lambda x: x.get("last_active", ""), reverse=True)
 
+    def _is_hidden_session_info(self, info: dict | None) -> bool:
+        if info is None:
+            return False
+        return bool(info.get("hidden_from_session_list")) or info.get("source") == "scheduler"
+
     def list_suspended_sessions(self, *, user_id: str | None = None) -> list[dict]:
         """列出所有已挂起（仅在磁盘上）的 session"""
         from ripple.sandbox.storage import get_suspended_session_info
@@ -664,6 +671,8 @@ class SessionManager:
                 if (uid, sid) in active_keys:
                     continue
                 info = get_suspended_session_info(self._sandbox_manager.config, uid, sid)
+                if self._is_hidden_session_info(info):
+                    continue
                 if info:
                     info["user_id"] = uid
                     out.append(info)

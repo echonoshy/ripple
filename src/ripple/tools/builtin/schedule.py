@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 from ripple.core.context import ToolUseContext
 from ripple.messages.types import AssistantMessage
-from ripple.scheduler.manager import SchedulerManager, compute_initial_next_run
+from ripple.scheduler.manager import ScheduledJobRunningError, SchedulerManager
 from ripple.scheduler.models import ScheduledJob, utc_now
 from ripple.tools.base import Tool, ToolResult
 
@@ -33,6 +33,7 @@ class ScheduleToolInput(BaseModel):
     run_at: str | None = Field(default=None, description="ISO-8601 timestamp for one-shot jobs")
     delay_seconds: int | None = Field(default=None, ge=1, description="Relative delay for one-shot jobs")
     interval_seconds: int | None = Field(default=None, ge=1, description="Interval in seconds for recurring jobs")
+    max_runs: int | None = Field(default=None, ge=1, description="Stop interval jobs after this many actual runs")
     enabled: bool | None = None
     timeout_seconds: int | None = Field(default=None, ge=1, le=86_400)
     limit: int | None = Field(default=20, ge=1, le=200)
@@ -111,20 +112,30 @@ class ScheduleTool(Tool[ScheduleToolInput, ScheduleToolOutput]):
                 "prompt",
                 "schedule_type",
                 "interval_seconds",
+                "max_runs",
                 "enabled",
                 "timeout_seconds",
             ):
                 if key in update and update[key] is not None:
                     setattr(job, key, update[key])
             if "run_at" in update or "delay_seconds" in update:
-                job.run_at = self._resolve_run_at(args)
-            job.next_run_at = compute_initial_next_run(job, now=utc_now())
+                job.run_at = self._resolve_run_at(job.schedule_type, args)
+            self._validate_job_fields(job)
             updated = manager.update_job(job)
             return ToolResult(data=ScheduleToolOutput(action=args.action, job=updated.model_dump(mode="json")))
 
         if args.action == "remove":
             job_id = self._require_job_id(args.job_id)
-            removed = manager.delete_job(user_id, job_id)
+            try:
+                removed = manager.delete_job(user_id, job_id)
+            except ScheduledJobRunningError as exc:
+                return ToolResult(
+                    data=ScheduleToolOutput(
+                        action=args.action,
+                        status="running",
+                        message=str(exc),
+                    )
+                )
             return ToolResult(
                 data=ScheduleToolOutput(
                     action=args.action,
@@ -155,7 +166,7 @@ class ScheduleTool(Tool[ScheduleToolInput, ScheduleToolOutput]):
         name = (args.name or "").strip()
         if not name:
             raise ValueError("name is required")
-        run_at = self._resolve_run_at(args)
+        run_at = self._resolve_run_at(args.schedule_type, args)
         command = (args.command or "").strip()
         prompt = (args.prompt or "").strip()
         if args.execution_type == "command" and not command:
@@ -174,12 +185,13 @@ class ScheduleTool(Tool[ScheduleToolInput, ScheduleToolOutput]):
             schedule_type=args.schedule_type,
             run_at=run_at,
             interval_seconds=args.interval_seconds,
+            max_runs=args.max_runs,
             enabled=True if args.enabled is None else args.enabled,
             timeout_seconds=args.timeout_seconds or 300,
         )
 
-    def _resolve_run_at(self, args: ScheduleToolInput):
-        if args.schedule_type != "once":
+    def _resolve_run_at(self, schedule_type: str, args: ScheduleToolInput):
+        if schedule_type != "once":
             return None
         if args.delay_seconds:
             return utc_now() + timedelta(seconds=args.delay_seconds)
@@ -199,6 +211,18 @@ class ScheduleTool(Tool[ScheduleToolInput, ScheduleToolOutput]):
         if not resolved:
             raise ValueError("job_id is required")
         return resolved
+
+    def _validate_job_fields(self, job: ScheduledJob) -> None:
+        if not job.name.strip():
+            raise ValueError("name is required")
+        if job.schedule_type == "once" and job.run_at is None:
+            raise ValueError("run_at or delay_seconds is required for once schedules")
+        if job.schedule_type == "interval" and not job.interval_seconds:
+            raise ValueError("interval_seconds is required for interval schedules")
+        if job.execution_type == "command" and not job.command.strip():
+            raise ValueError("command is required for command schedules")
+        if job.execution_type == "agent" and not (job.prompt or "").strip():
+            raise ValueError("prompt is required for agent schedules")
 
     def is_concurrency_safe(self, input: ScheduleToolInput | dict[str, Any]) -> bool:
         return False

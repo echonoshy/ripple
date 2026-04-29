@@ -77,7 +77,6 @@ export interface GogcliAccountsResponse {
 
 export type ScheduleType = "once" | "interval";
 export type ScheduleExecutionType = "command" | "agent";
-
 export interface ScheduledJob {
   id: string;
   user_id: string;
@@ -89,11 +88,20 @@ export interface ScheduledJob {
   schedule_type: ScheduleType;
   run_at: string | null;
   interval_seconds: number | null;
+  max_runs: number | null;
   enabled: boolean;
   timeout_seconds: number;
   next_run_at: string | null;
+  running_at: string | null;
+  current_run_id: string | null;
   last_run_at: string | null;
   last_status: string | null;
+  last_error: string | null;
+  last_duration_ms: number | null;
+  run_count: number;
+  consecutive_errors: number;
+  consecutive_skipped: number;
+  schedule_error_count: number;
   created_at: string;
   updated_at: string;
 }
@@ -110,6 +118,7 @@ export interface ScheduledRun {
   stderr_tail: string;
   error: string | null;
   summary: string | null;
+  duration_ms: number | null;
 }
 
 export interface ScheduleCreateInput {
@@ -121,6 +130,7 @@ export interface ScheduleCreateInput {
   schedule_type: ScheduleType;
   run_at?: string | null;
   interval_seconds?: number | null;
+  max_runs?: number | null;
   enabled?: boolean;
   timeout_seconds?: number;
 }
@@ -134,6 +144,7 @@ export interface ScheduleUpdateInput {
   schedule_type?: ScheduleType;
   run_at?: string | null;
   interval_seconds?: number | null;
+  max_runs?: number | null;
   enabled?: boolean;
   timeout_seconds?: number;
 }

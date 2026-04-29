@@ -1,0 +1,164 @@
+# Ripple 配置文件示例
+#
+# 复制本文件为 config/settings.yaml 后，填入本地真实密钥。
+# 不要把包含真实密钥的 config/settings.yaml 提交到仓库。
+
+# API 配置
+api:
+  # 当前启用的 provider（见下方 providers 定义）
+  provider: "openrouter"
+
+  # 请求超时（秒）
+  # - connect: TLS 握手超时，代理不通时越短越好（走重试更快）
+  # - read: 单次 chunk 读取超时，长 Markdown 生成场景请放宽到 300s+
+  timeout:
+    connect: 15
+    read: 300
+    write: 30
+    pool: 30
+
+  # SDK 原生重试次数（覆盖"流建立之前"的瞬时错误：APIConnectionError / 429 / 5xx）
+  max_retries: 3
+
+  # agent_loop 层的二次重试（覆盖 SDK 无法自动续、但流尚未产出任何消息的场景）
+  connection_retry:
+    max_retries: 3
+    # 指数退避基数（秒）：delay = base * 2^(attempt-1)，attempt 从 1 开始
+    backoff_base: 1.0
+
+  # 多 provider 配置；切换只需改上方 api.provider
+  providers:
+    wanjiedata:
+      type: "anthropic"  # Anthropic Messages API 兼容
+      api_key: "<WANJIEDATA_API_KEY>"
+      base_url: "https://maas-openapi.wanjiedata.com/api/anthropic"
+
+    openrouter:
+      type: "openai"  # OpenAI Chat Completions 兼容
+      api_key: "<OPENROUTER_API_KEY>"
+      base_url: "https://openrouter.ai/api/v1"
+
+# 模型配置
+model:
+  # 默认模型（可以用预设别名：opus / sonnet / haiku）
+  default: "sonnet"
+  # 上下文窗口最大 tokens（接近上限时自动丢弃历史消息）
+  max_tokens: 200000
+  # 单次输出最大 tokens
+  max_output_tokens: 60000
+
+  # 思考模式（Claude 4.6 使用 adaptive thinking，通过 OpenRouter reasoning API）
+  thinking:
+    enabled: false
+
+  # 模型预设（/models 查看，/model <别名> 切换）
+  # 每个别名下按 provider 给出对应的模型 ID
+  presets:
+    opus:
+      wanjiedata: "claude-opus-4-7-stable"
+      openrouter: "anthropic/claude-opus-4.7"
+    sonnet:
+      wanjiedata: "claude-sonnet-4-5-20250929"
+      openrouter: "anthropic/claude-sonnet-4.6"
+    haiku:
+      wanjiedata: "claude-haiku-4-5-20251001"
+      openrouter: "anthropic/claude-haiku-4.5"
+
+# Agent 配置
+agent:
+  max_turns: 200
+  session_prefix: "ripple"
+
+# 工具配置
+tools:
+  builtin:
+    - bash
+    - read
+    - write
+    - skill
+    - subagent
+
+  # SubAgent 工具配置
+  subagent:
+    default_max_turns: 5
+    default_allowed_tools: []
+    permission_mode: "allow"
+
+# 日志配置
+#   ripple.log — 唯一主日志。HTTP / session / agent / LLM / tool / sandbox 事件
+#                按同一请求时间线写入，方便用 req= 或 session= grep 排查。
+#
+# 格式固定为人类可读：
+#   YYYY-MM-DD HH:mm:ss.SSS LEVEL req=<request_id> user=<user_id> session=<session_id> module=<module> | event=...
+#
+# rotation / retention 走 loguru 语义：
+#   rotation  — 单文件轮转阈值，支持 "50 MB" / "100 MB" / "00:00"（每日零点）
+#   retention — 轮转后保留策略，支持 "14 days" / "30 days" 或保留文件个数（int）
+logging:
+  level: "DEBUG"
+  rotation: "50 MB"
+  retention: "14 days"
+
+# Server 配置
+server:
+  host: "0.0.0.0"
+  port: 8810
+  api_keys:
+    - "<RIPPLE_SERVER_API_KEY>"
+  session:
+    ttl_seconds: 3600
+
+  # 沙箱配置（nsjail）
+  sandbox:
+    # user 沙箱根目录（每个 user 的 workspace + nsjail.cfg + credentials + sessions/）
+    # sandboxes_root: ".ripple/sandboxes"
+    # 跨 user 共享的包管理器缓存（uv / corepack / pnpm）
+    # caches_root: ".ripple/sandboxes-cache"
+
+    # 空闲自动挂起时间（秒），默认 30 分钟
+    idle_suspend_seconds: 1800
+
+    # 挂起后磁盘保留时间（秒），默认 7 天
+    retention_seconds: 604800
+
+    # workspace 磁盘配额（MB）
+    max_workspace_mb: 2048
+
+    # /tmp tmpfs 大小（MB），uv 下载临时文件需要足够空间
+    tmpfs_size_mb: 512
+
+    # PyPI 镜像 URL（设置为空字符串则使用官方源）
+    pypi_mirror_url: "https://pypi.tuna.tsinghua.edu.cn/simple"
+
+    # 资源限制
+    resource_limits:
+      max_memory_mb: 4096
+      max_file_size_mb: 1024
+      max_pids: 512
+      command_timeout: 120
+
+# 外部服务配置（第三方 API）
+services:
+  # Shazam 音乐识别 API（用于 skills/podcast/music-identify）
+  shazam:
+    api_key: "<SHAZAM_API_KEY>"
+    base_url: "https://shazam-api.com/api"
+    # 连接超时（秒），TCP 握手 + TLS
+    connect_timeout: 10
+    # 读超时（秒），等待服务端响应首字节/后续数据
+    request_timeout: 60
+    # 写超时（秒），上传 mp3 文件时的 write 阶段；大文件建议 120+
+    write_timeout: 120
+    # 轮询总超时（秒）
+    poll_timeout: 60
+    # 轮询间隔（秒）
+    poll_interval: 3
+
+
+# Skills 配置
+skills:
+  # 共享 skill 目录（所有 Server session 可见）
+  # 支持 glob：skills/* 会展开为所有顶层子目录；也可写具体路径如 skills/lark
+  # 路径相对于项目根目录，或使用 ~ 展开为绝对路径
+  shared_dirs:
+    - "skills/*"

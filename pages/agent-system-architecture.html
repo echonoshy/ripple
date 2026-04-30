@@ -7,24 +7,24 @@
     <style>
       :root {
         color-scheme: light;
-        --bg: #fbfbfa;
-        --paper: #ffffff;
-        --paper-soft: #f7f7f5;
-        --ink: #1f1f1d;
-        --muted: #6b6b65;
-        --faint: #9a9a92;
-        --line: #e8e6e1;
-        --line-strong: #d7d4cd;
-        --accent: #2563eb;
-        --accent-soft: #eff6ff;
-        --green: #147d4f;
-        --green-soft: #eef8f2;
-        --yellow: #8a6100;
-        --yellow-soft: #fff7dd;
-        --red: #b42318;
-        --red-soft: #fff1f0;
-        --code-bg: #f4f4f2;
-        --nav-width: 292px;
+        --bg: #f6f3ee;
+        --paper: #fffdf8;
+        --paper-soft: #eee8dd;
+        --ink: #191817;
+        --muted: #67615a;
+        --faint: #8f877d;
+        --line: #ded6ca;
+        --line-strong: #c8bfb2;
+        --accent: #b35c3f;
+        --accent-soft: #f6e4dc;
+        --green: #2e6f5a;
+        --green-soft: #e3eee8;
+        --yellow: #7a6127;
+        --yellow-soft: #f1e7c8;
+        --red: #9e3c2f;
+        --red-soft: #f4ded9;
+        --code-bg: #ebe4d8;
+        --nav-width: 304px;
         --radius: 8px;
       }
 
@@ -39,7 +39,9 @@
       body {
         margin: 0;
         color: var(--ink);
-        background: var(--bg);
+        background:
+          linear-gradient(90deg, rgba(25, 24, 23, 0.025), transparent 1px) 0 0 / 72px 72px,
+          var(--bg);
         font:
           16px/1.68 ui-sans-serif,
           -apple-system,
@@ -78,25 +80,25 @@
         position: sticky;
         top: 0;
         height: 100vh;
-        padding: 22px 16px 28px;
+        padding: 26px 18px 32px;
         border-right: 1px solid var(--line);
-        background: rgba(251, 251, 250, 0.92);
-        backdrop-filter: blur(18px);
+        background: rgba(246, 243, 238, 0.94);
+        backdrop-filter: blur(16px);
         overflow-y: auto;
       }
 
       .brand {
         display: flex;
         align-items: center;
-        gap: 10px;
-        margin: 0 8px 18px;
-        padding-bottom: 16px;
+        gap: 12px;
+        margin: 0 8px 20px;
+        padding-bottom: 18px;
         border-bottom: 1px solid var(--line);
         text-decoration: none;
       }
 
       .brand:hover .brand-title strong {
-        color: var(--accent);
+        color: var(--ink);
       }
 
       .brand-mark {
@@ -105,9 +107,9 @@
         width: 30px;
         height: 30px;
         border: 1px solid var(--line-strong);
-        border-radius: 7px;
-        background: var(--paper);
-        color: var(--accent);
+        border-radius: 4px;
+        background: var(--ink);
+        color: var(--paper);
         font-weight: 800;
       }
 
@@ -145,8 +147,9 @@
 
       .toc a {
         display: block;
-        padding: 7px 9px;
-        border-radius: 6px;
+        padding: 8px 10px;
+        border-left: 2px solid transparent;
+        border-radius: 0 6px 6px 0;
         color: var(--muted);
         font-size: 13px;
         line-height: 1.35;
@@ -155,7 +158,8 @@
 
       .toc a:hover,
       .toc a.active {
-        background: var(--paper-soft);
+        border-left-color: var(--accent);
+        background: rgba(255, 253, 248, 0.58);
         color: var(--ink);
       }
 
@@ -164,13 +168,13 @@
       }
 
       .doc {
-        max-width: 980px;
+        max-width: 1040px;
         margin: 0 auto;
         padding: 64px 54px 120px;
       }
 
       .hero {
-        padding-bottom: 46px;
+        padding-bottom: 52px;
         border-bottom: 1px solid var(--line);
       }
 
@@ -178,7 +182,8 @@
         margin: 0 0 12px;
         color: var(--accent);
         font-size: 13px;
-        font-weight: 750;
+        font-weight: 680;
+        text-transform: uppercase;
       }
 
       h1,
@@ -191,29 +196,29 @@
       }
 
       h1 {
-        max-width: 850px;
-        font-size: clamp(38px, 6vw, 68px);
-        font-weight: 780;
+        max-width: 900px;
+        font-size: clamp(42px, 6vw, 74px);
+        font-weight: 640;
       }
 
       h2 {
         margin-top: 72px;
         padding-top: 8px;
         font-size: clamp(28px, 3.5vw, 42px);
-        font-weight: 760;
+        font-weight: 620;
         scroll-margin-top: 28px;
       }
 
       h3 {
         margin-top: 34px;
         font-size: 22px;
-        font-weight: 720;
+        font-weight: 620;
       }
 
       h4 {
         margin-top: 22px;
         font-size: 16px;
-        font-weight: 720;
+        font-weight: 620;
       }
 
       p {
@@ -224,7 +229,7 @@
         max-width: 780px;
         margin-top: 20px;
         color: var(--muted);
-        font-size: 19px;
+        font-size: 20px;
       }
 
       .meta-row {
@@ -240,8 +245,8 @@
         min-height: 28px;
         padding: 4px 9px;
         border: 1px solid var(--line);
-        border-radius: 6px;
-        background: var(--paper);
+        border-radius: 999px;
+        background: rgba(255, 253, 248, 0.66);
         color: var(--muted);
         font-size: 12px;
         font-weight: 650;
@@ -271,8 +276,8 @@
       .card {
         border: 1px solid var(--line);
         border-radius: var(--radius);
-        background: var(--paper);
-        padding: 16px;
+        background: rgba(255, 253, 248, 0.72);
+        padding: 18px;
       }
 
       .card h3,
@@ -289,27 +294,32 @@
         margin-top: 18px;
         padding: 14px 16px;
         border: 1px solid var(--line);
-        border-radius: var(--radius);
-        background: var(--paper);
+        border-left: 3px solid var(--line-strong);
+        border-radius: 4px;
+        background: rgba(255, 253, 248, 0.68);
       }
 
       .callout.info {
-        border-color: #c9dcff;
+        border-color: #d4b2a2;
+        border-left-color: var(--accent);
         background: var(--accent-soft);
       }
 
       .callout.good {
-        border-color: #c7ead7;
+        border-color: #bdd6c9;
+        border-left-color: var(--green);
         background: var(--green-soft);
       }
 
       .callout.warn {
-        border-color: #f2df9b;
+        border-color: #d7c893;
+        border-left-color: var(--yellow);
         background: var(--yellow-soft);
       }
 
       .callout.danger {
-        border-color: #ffd0cc;
+        border-color: #dfaca4;
+        border-left-color: var(--red);
         background: var(--red-soft);
       }
 
@@ -320,19 +330,19 @@
 
       .flow {
         display: grid;
-        gap: 8px;
+        gap: 10px;
         margin-top: 18px;
       }
 
       .step {
         display: grid;
-        grid-template-columns: 34px minmax(0, 1fr);
-        gap: 10px;
+        grid-template-columns: 38px minmax(0, 1fr);
+        gap: 12px;
         align-items: start;
         padding: 12px;
         border: 1px solid var(--line);
         border-radius: var(--radius);
-        background: var(--paper);
+        background: rgba(255, 253, 248, 0.72);
       }
 
       .num {
@@ -340,9 +350,10 @@
         place-items: center;
         width: 28px;
         height: 28px;
-        border-radius: 6px;
-        background: var(--paper-soft);
-        color: var(--muted);
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: transparent;
+        color: var(--accent);
         font-size: 13px;
         font-weight: 750;
       }
@@ -369,7 +380,7 @@
         padding: 9px 11px;
         border: 1px solid var(--line);
         border-radius: 6px;
-        background: var(--paper);
+        background: rgba(255, 253, 248, 0.72);
         color: var(--muted);
         font-size: 14px;
       }
@@ -384,7 +395,7 @@
         border-collapse: collapse;
         border: 1px solid var(--line);
         border-radius: var(--radius);
-        background: var(--paper);
+        background: rgba(255, 253, 248, 0.82);
         overflow: hidden;
       }
 
@@ -414,7 +425,7 @@
         padding: 2px 5px;
         border-radius: 5px;
         background: var(--code-bg);
-        color: #33332f;
+        color: var(--ink);
         font-size: 0.9em;
       }
 
@@ -423,8 +434,8 @@
         padding: 16px;
         border: 1px solid var(--line);
         border-radius: var(--radius);
-        background: var(--code-bg);
-        color: #2e2e2a;
+        background: #211f1d;
+        color: #f8f1e6;
         font-size: 13px;
         line-height: 1.58;
         overflow-x: auto;
@@ -434,6 +445,7 @@
         padding: 0;
         border-radius: 0;
         background: transparent;
+        color: inherit;
         font-size: inherit;
       }
 
@@ -507,6 +519,7 @@
           <li><a href="#agent-loop">Agent Loop</a></li>
           <li><a href="#streaming-api">流式 API 适配</a></li>
           <li><a href="#tools">工具系统</a></li>
+          <li><a href="#scheduler">定时任务</a></li>
           <li><a href="#permissions">权限与暂停</a></li>
           <li><a href="#compact">上下文压缩</a></li>
           <li><a href="#skills">Skill 系统</a></li>
@@ -525,13 +538,14 @@
             <h1>从一次请求讲清 Agent 系统如何运转</h1>
             <p class="lead">
               这份文档按模块拆解 Ripple 的 Agent 架构：HTTP 入口、Session 运行态、消息模型、主循环、
-              工具编排、权限暂停、上下文压缩、Skill、沙箱、Fork 子代理以及前端事件协议。
+              工具编排、定时任务、权限暂停、上下文压缩、Skill、沙箱、Fork 子代理以及前端事件协议。
             </p>
             <div class="meta-row">
               <span class="tag">Python 3.13+</span>
               <span class="tag">FastAPI</span>
               <span class="tag">OpenAI-compatible API</span>
               <span class="tag">Tool Use</span>
+              <span class="tag">Scheduled Jobs</span>
               <span class="tag">User Sandbox</span>
             </div>
           </header>
@@ -573,6 +587,12 @@
                 <h3>能力层</h3>
                 <p>
                   Skill 把领域工作流包装成模型可调用的工具；AgentTool 把复杂子任务 fork 到后台 agent 执行。
+                </p>
+              </div>
+              <div class="card">
+                <h3>调度层</h3>
+                <p>
+                  Scheduler 以 user sandbox 为边界保存定时任务，支持延迟提醒、周期任务、沙箱命令和后台 agent prompt。
                 </p>
               </div>
               <div class="card">
@@ -975,7 +995,7 @@
               <li><code>src/ripple/tools/base.py</code>：<code>Tool</code>、<code>ToolResult</code>、风险等级和 schema 转换。</li>
               <li><code>src/ripple/tools/orchestration.py</code>：查找工具、去重、分批、执行、权限、结果消息。</li>
               <li><code>src/ripple/tools/streaming_executor.py</code>：流式期间抢跑并发安全工具。</li>
-              <li><code>src/ripple/tools/builtin/</code>：Bash、Read、Write、Skill、Agent、AskUser、Task 等内置工具。</li>
+              <li><code>src/ripple/tools/builtin/</code>：Bash、Read、Write、Skill、Agent、AskUser、Task、Schedule 等内置工具。</li>
             </ul>
 
             <h3>Tool 抽象解决什么问题</h3>
@@ -1061,6 +1081,155 @@
               <strong>工具不是信任边界内的自由执行</strong>
               任何可能修改文件、执行命令、发外部请求或启动子代理的能力，都必须显式声明风险等级，并走权限、
               沙箱和日志摘要。模型输出的参数只能被当作待验证输入。
+            </div>
+          </section>
+
+          <section id="scheduler">
+            <h2>定时任务</h2>
+            <p class="section-lead">
+              定时任务把“稍后执行”和“周期执行”纳入同一套 user sandbox 边界。它不是让模型自己 sleep 或轮询，
+              而是由 Server 进程内的 SchedulerManager 负责扫描、持久化、执行和记录 run history。
+            </p>
+
+            <ul class="file-list">
+              <li><code>src/ripple/scheduler/models.py</code>：ScheduledJob、ScheduledJobState、ScheduledRun 数据模型。</li>
+              <li><code>src/ripple/scheduler/store.py</code>：按 user sandbox 保存 jobs、jobs-state 和 runs。</li>
+              <li><code>src/ripple/scheduler/manager.py</code>：后台 tick、并发保护、运行状态、重启恢复。</li>
+              <li><code>src/ripple/tools/builtin/schedule.py</code>：模型可调用的 Schedule 工具。</li>
+              <li><code>src/interfaces/server/scheduler_agent.py</code>：定时 agent job 的隔离运行入口。</li>
+              <li><code>src/interfaces/web/src/components/ScheduledTasksPanel.tsx</code>：前端 Scheduled Tasks 面板。</li>
+            </ul>
+
+            <h3>任务类型</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>维度</th>
+                  <th>当前取值</th>
+                  <th>行为</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>execution_type</code></td>
+                  <td><code>command</code></td>
+                  <td>通过 <code>run_sandbox_command()</code> 在当前 user 的 nsjail sandbox 中执行 shell 命令。</td>
+                </tr>
+                <tr>
+                  <td><code>execution_type</code></td>
+                  <td><code>agent</code></td>
+                  <td>为本次 run 创建独立 runtime，运行一次 agent loop，并把最终摘要写入 run 记录。</td>
+                </tr>
+                <tr>
+                  <td><code>schedule_type</code></td>
+                  <td><code>once</code></td>
+                  <td>按 <code>run_at</code> 或 <code>delay_seconds</code> 执行一次，完成后不再计算下一次。</td>
+                </tr>
+                <tr>
+                  <td><code>schedule_type</code></td>
+                  <td><code>interval</code></td>
+                  <td>按 <code>interval_seconds</code> 计算下一次运行时间，可用 <code>max_runs</code> 限制次数。</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <h3>调度路径</h3>
+            <div class="flow">
+              <div class="step">
+                <div class="num">1</div>
+                <div>
+                  <strong>创建或更新 job</strong>
+                  <span>
+                    REST API 或 <code>Schedule</code> 工具构造 <code>ScheduledJob</code>。
+                    Server 不接受 body 里的 user_id，而是使用请求 header 解析出的当前 user。
+                  </span>
+                </div>
+              </div>
+              <div class="step">
+                <div class="num">2</div>
+                <div>
+                  <strong>持久化定义和状态</strong>
+                  <span>
+                    job definition 写入 <code>scheduled-tasks/jobs.json</code>；
+                    runtime state 写入 <code>scheduled-tasks/jobs-state.json</code>，
+                    避免频繁变化的运行状态污染用户可编辑定义。
+                  </span>
+                </div>
+              </div>
+              <div class="step">
+                <div class="num">3</div>
+                <div>
+                  <strong>后台 tick 扫描</strong>
+                  <span>
+                    <code>SchedulerManager</code> 默认每 5 秒扫描所有 user sandbox，
+                    只启动 enabled、到期且没有 running marker 的任务。
+                  </span>
+                </div>
+              </div>
+              <div class="step">
+                <div class="num">4</div>
+                <div>
+                  <strong>写入 running marker</strong>
+                  <span>
+                    在 <code>_state_lock</code> 内创建 <code>ScheduledRun</code>，
+                    持久化 <code>running_at/current_run_id</code>，再释放锁执行真实任务。
+                  </span>
+                </div>
+              </div>
+              <div class="step">
+                <div class="num">5</div>
+                <div>
+                  <strong>执行与收口</strong>
+                  <span>
+                    command job 使用 user 级 sandbox lock；agent job 使用独立 <code>sched-*</code> runtime。
+                    完成后写 run 终态、duration、stdout/stderr tail 或 agent summary，并计算下一次运行。
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <h3>API 与工具入口</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>入口</th>
+                  <th>用途</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>POST /v1/sandbox/schedules</code></td>
+                  <td>创建定时任务，支持 once / interval、command / agent。</td>
+                </tr>
+                <tr>
+                  <td><code>GET /v1/sandbox/schedules</code></td>
+                  <td>列出当前 user 的任务摘要。</td>
+                </tr>
+                <tr>
+                  <td><code>PATCH /v1/sandbox/schedules/{job_id}</code></td>
+                  <td>更新任务定义和 enabled 状态，并重新计算 next_run_at。</td>
+                </tr>
+                <tr>
+                  <td><code>POST /v1/sandbox/schedules/{job_id}/run</code></td>
+                  <td>立即触发一次任务；如果任务正在运行，会按 running marker 跳过。</td>
+                </tr>
+                <tr>
+                  <td><code>GET /v1/sandbox/schedules/{job_id}/runs</code></td>
+                  <td>读取 run history，前端面板用它展示 running、success、failed、timeout 等状态。</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div class="callout good">
+              <strong>可靠性边界</strong>
+              Scheduler 启动时会恢复被 server 重启打断的 running run，把它们标记为 failed，并清空 running marker。
+              这让定时任务不会因为进程退出永久卡在运行中。
+            </div>
+
+            <div class="callout warn">
+              <strong>当前范围</strong>
+              当前实现覆盖 once / interval。cron、timezone、本地 wall-clock 语义、失败退避和主动投递到原 chat
+              仍属于后续演进项；这些方向已在 <code>docs/SCHEDULER_DESIGN.md</code> 中约束。
             </div>
           </section>
 
@@ -1270,9 +1439,18 @@
             <h3>目录职责</h3>
             <p>
               运行时目录分成共享缓存、user sandbox 和 session runtime 三类。共享缓存用于复用包管理器缓存；
-              user sandbox 保存长期 workspace、nsjail 配置和用户级凭证；session runtime 保存某一次会话的消息、
-              任务列表和后台任务输出。这个拆分让 workspace 可以长期存在，同时允许 session 被挂起、恢复或清理。
+              user sandbox 保存长期 workspace、nsjail 配置、用户级凭证和 <code>scheduled-tasks/</code>；
+              session runtime 保存某一次会话的消息、任务列表和后台任务输出。这个拆分让 workspace 可以长期存在，
+              同时允许 session 被挂起、恢复或清理。
             </p>
+            <pre><code>.ripple/sandboxes/&lt;user_id&gt;/
+  workspace/
+  credentials/
+  scheduled-tasks/
+    jobs.json
+    jobs-state.json
+    runs/&lt;job_id&gt;/&lt;run_id&gt;.json
+  sessions/&lt;session_id&gt;/</code></pre>
 
             <h3>user lock</h3>
             <p>
@@ -1379,7 +1557,7 @@
             <h2>前端事件协议</h2>
             <p class="section-lead">
               前端不只消费文本流，还要理解 Agent 的运行状态：工具调用、工具结果、任务进度、权限暂停、
-              用户输入暂停和 heartbeat。SSE 层负责把内部事件转换为前端可以直接消费的事件。
+              用户输入暂停、定时任务状态和 heartbeat。SSE 层负责把内部事件转换为前端可以直接消费的事件。
             </p>
 
             <ul class="file-list">
@@ -1416,6 +1594,11 @@
                   <td><code>task_created</code> / <code>task_updated</code></td>
                   <td>Task 工具结果</td>
                   <td>维护 todo 进度条和任务列表。</td>
+                </tr>
+                <tr>
+                  <td>Scheduled Tasks 轮询</td>
+                  <td><code>/v1/sandbox/schedules</code> 与 <code>/runs</code></td>
+                  <td>展示定时任务定义、下一次运行时间和最近 run 状态。</td>
                 </tr>
                 <tr>
                   <td><code>agent_stop</code></td>

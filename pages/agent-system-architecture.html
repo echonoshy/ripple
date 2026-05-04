@@ -3,29 +3,32 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Ripple Agent 系统架构说明</title>
+    <title>Ripple Agent Runtime</title>
     <style>
       :root {
-        color-scheme: light;
-        --bg: #f6f3ee;
-        --paper: #fffdf8;
-        --paper-soft: #eee8dd;
-        --ink: #191817;
-        --muted: #67615a;
-        --faint: #8f877d;
-        --line: #ded6ca;
-        --line-strong: #c8bfb2;
-        --accent: #b35c3f;
-        --accent-soft: #f6e4dc;
-        --green: #2e6f5a;
-        --green-soft: #e3eee8;
-        --yellow: #7a6127;
-        --yellow-soft: #f1e7c8;
-        --red: #9e3c2f;
-        --red-soft: #f4ded9;
-        --code-bg: #ebe4d8;
-        --nav-width: 304px;
+        color-scheme: dark;
+        --bg: #070a0f;
+        --paper: rgba(13, 18, 27, 0.82);
+        --paper-strong: rgba(19, 27, 40, 0.94);
+        --ink: #eef7fb;
+        --muted: #9cadb8;
+        --soft: rgba(255, 255, 255, 0.08);
+        --line: rgba(166, 223, 230, 0.18);
+        --line-strong: rgba(166, 223, 230, 0.34);
+        --graphite: #121a24;
+        --teal: #37d8d1;
+        --teal-soft: rgba(55, 216, 209, 0.13);
+        --coral: #ff775c;
+        --coral-soft: rgba(255, 119, 92, 0.13);
+        --violet: #9a7cff;
+        --violet-soft: rgba(154, 124, 255, 0.14);
+        --lime: #b8dc56;
+        --lime-soft: rgba(184, 220, 86, 0.14);
+        --blue: #62a8ff;
+        --blue-soft: rgba(98, 168, 255, 0.14);
         --radius: 8px;
+        --shadow: 0 26px 90px rgba(0, 0, 0, 0.38);
+        --nav-width: 264px;
       }
 
       * {
@@ -38,12 +41,16 @@
 
       body {
         margin: 0;
-        color: var(--ink);
         background:
-          linear-gradient(90deg, rgba(25, 24, 23, 0.025), transparent 1px) 0 0 / 72px 72px,
+          radial-gradient(circle at 20% 8%, rgba(55, 216, 209, 0.18), transparent 28%),
+          radial-gradient(circle at 80% 18%, rgba(154, 124, 255, 0.16), transparent 26%),
+          radial-gradient(circle at 74% 86%, rgba(255, 119, 92, 0.1), transparent 28%),
+          linear-gradient(90deg, rgba(166, 223, 230, 0.05), transparent 1px) 0 0 / 80px 80px,
+          linear-gradient(0deg, rgba(166, 223, 230, 0.04), transparent 1px) 0 0 / 80px 80px,
           var(--bg);
+        color: var(--ink);
         font:
-          16px/1.68 ui-sans-serif,
+          16px/1.55 ui-sans-serif,
           -apple-system,
           BlinkMacSystemFont,
           "Segoe UI",
@@ -58,418 +65,694 @@
         color: inherit;
       }
 
-      code,
-      pre {
+      code {
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        background: var(--soft);
+        padding: 1px 5px;
         font-family:
           ui-monospace,
           SFMono-Regular,
           Menlo,
-          Monaco,
           Consolas,
-          "Liberation Mono",
           monospace;
+        font-size: 0.9em;
       }
 
-      .layout {
+      .shell {
         display: grid;
         grid-template-columns: var(--nav-width) minmax(0, 1fr);
         min-height: 100vh;
       }
 
-      .sidebar {
+      .nav {
         position: sticky;
         top: 0;
         height: 100vh;
-        padding: 26px 18px 32px;
+        padding: 24px 18px;
         border-right: 1px solid var(--line);
-        background: rgba(246, 243, 238, 0.94);
-        backdrop-filter: blur(16px);
+        background: rgba(7, 10, 15, 0.78);
+        backdrop-filter: blur(20px);
         overflow-y: auto;
       }
 
       .brand {
-        display: flex;
-        align-items: center;
+        display: grid;
+        grid-template-columns: 36px 1fr;
         gap: 12px;
-        margin: 0 8px 20px;
-        padding-bottom: 18px;
-        border-bottom: 1px solid var(--line);
+        align-items: center;
+        margin-bottom: 24px;
         text-decoration: none;
-      }
-
-      .brand:hover .brand-title strong {
-        color: var(--ink);
       }
 
       .brand-mark {
         display: grid;
         place-items: center;
-        width: 30px;
-        height: 30px;
-        border: 1px solid var(--line-strong);
-        border-radius: 4px;
-        background: var(--ink);
-        color: var(--paper);
+        width: 36px;
+        height: 36px;
+        border-radius: 6px;
+        border: 1px solid rgba(55, 216, 209, 0.5);
+        background: linear-gradient(135deg, rgba(55, 216, 209, 0.25), rgba(154, 124, 255, 0.24));
+        color: var(--ink);
+        box-shadow: 0 0 28px rgba(55, 216, 209, 0.18);
         font-weight: 800;
       }
 
-      .brand-title {
-        display: flex;
-        flex-direction: column;
-        line-height: 1.25;
+      .brand strong,
+      .brand span {
+        display: block;
       }
 
-      .brand-title strong {
+      .brand strong {
         font-size: 14px;
       }
 
-      .brand-title span {
+      .brand span {
         color: var(--muted);
         font-size: 12px;
       }
 
-      .toc-title {
-        margin: 16px 8px 8px;
-        color: var(--faint);
+      .nav-title {
+        margin: 26px 0 8px;
+        color: var(--muted);
         font-size: 11px;
-        font-weight: 700;
+        font-weight: 760;
         letter-spacing: 0.08em;
         text-transform: uppercase;
       }
 
       .toc {
         display: grid;
-        gap: 2px;
+        gap: 4px;
         margin: 0;
         padding: 0;
         list-style: none;
       }
 
       .toc a {
-        display: block;
-        padding: 8px 10px;
-        border-left: 2px solid transparent;
-        border-radius: 0 6px 6px 0;
+        display: grid;
+        grid-template-columns: 24px 1fr;
+        gap: 8px;
+        align-items: center;
+        min-height: 38px;
+        border-radius: 6px;
+        padding: 7px 9px;
         color: var(--muted);
         font-size: 13px;
-        line-height: 1.35;
         text-decoration: none;
       }
 
       .toc a:hover,
       .toc a.active {
-        border-left-color: var(--accent);
-        background: rgba(255, 253, 248, 0.58);
+        background: rgba(255, 255, 255, 0.07);
         color: var(--ink);
+        box-shadow:
+          inset 3px 0 0 var(--teal),
+          0 12px 30px rgba(0, 0, 0, 0.18);
       }
 
-      .content {
+      .toc b {
+        display: grid;
+        place-items: center;
+        width: 22px;
+        height: 22px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(55, 216, 209, 0.1);
+        color: var(--teal);
+        font-size: 11px;
+      }
+
+      .deck {
         min-width: 0;
       }
 
-      .doc {
-        max-width: 1040px;
-        margin: 0 auto;
-        padding: 64px 54px 120px;
+      .slide {
+        display: grid;
+        align-items: center;
+        min-height: 100vh;
+        padding: 54px;
+        border-bottom: 1px solid var(--line);
+        background:
+          linear-gradient(115deg, rgba(255, 255, 255, 0.025), transparent 38%),
+          transparent;
       }
 
-      .hero {
-        padding-bottom: 52px;
-        border-bottom: 1px solid var(--line);
+      .slide-inner {
+        display: grid;
+        grid-template-columns: minmax(300px, 0.82fr) minmax(420px, 1.18fr);
+        gap: 38px;
+        align-items: center;
+        width: min(1180px, 100%);
+        margin: 0 auto;
+      }
+
+      .slide.reverse .slide-inner {
+        grid-template-columns: minmax(420px, 1.18fr) minmax(300px, 0.82fr);
+      }
+
+      .slide.reverse .copy {
+        order: 2;
+      }
+
+      .hero-slide {
+        position: relative;
+        overflow: hidden;
+        background: var(--bg);
+        color: var(--ink);
+      }
+
+      .hero-slide::before {
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(circle at 70% 22%, rgba(55, 216, 209, 0.28), transparent 28%),
+          radial-gradient(circle at 88% 76%, rgba(154, 124, 255, 0.22), transparent 28%),
+          linear-gradient(135deg, rgba(7, 10, 15, 0.96), rgba(12, 18, 29, 0.9) 62%, rgba(7, 10, 15, 0.96));
+        content: "";
+      }
+
+      .hero-slide .slide-inner {
+        position: relative;
+        z-index: 1;
+        grid-template-columns: minmax(320px, 0.76fr) minmax(320px, 1fr);
       }
 
       .eyebrow {
-        margin: 0 0 12px;
-        color: var(--accent);
+        margin: 0 0 14px;
+        color: var(--teal);
         font-size: 13px;
-        font-weight: 680;
+        font-weight: 760;
+        letter-spacing: 0.08em;
         text-transform: uppercase;
+      }
+
+      .hero-slide .eyebrow {
+        color: var(--teal);
       }
 
       h1,
       h2,
       h3,
-      h4 {
+      p {
         margin: 0;
-        line-height: 1.18;
-        letter-spacing: 0;
       }
 
       h1 {
-        max-width: 900px;
-        font-size: clamp(42px, 6vw, 74px);
-        font-weight: 640;
+        max-width: 760px;
+        font-size: clamp(44px, 6.2vw, 82px);
+        font-weight: 720;
+        line-height: 1.02;
+        color: #f5fbff;
+        opacity: 1;
+        text-shadow:
+          0 0 28px rgba(55, 216, 209, 0.16),
+          0 12px 50px rgba(0, 0, 0, 0.36);
       }
 
       h2 {
-        margin-top: 72px;
-        padding-top: 8px;
-        font-size: clamp(28px, 3.5vw, 42px);
-        font-weight: 620;
-        scroll-margin-top: 28px;
-      }
-
-      h3 {
-        margin-top: 34px;
-        font-size: 22px;
-        font-weight: 620;
-      }
-
-      h4 {
-        margin-top: 22px;
-        font-size: 16px;
-        font-weight: 620;
-      }
-
-      p {
-        margin: 12px 0 0;
+        font-size: clamp(34px, 4vw, 58px);
+        font-weight: 710;
+        line-height: 1.06;
       }
 
       .lead {
-        max-width: 780px;
-        margin-top: 20px;
+        max-width: 620px;
+        margin-top: 22px;
         color: var(--muted);
-        font-size: 20px;
+        font-size: clamp(17px, 2vw, 22px);
       }
 
-      .meta-row {
+      .copy-text {
+        display: grid;
+        gap: 14px;
+        max-width: 520px;
+        margin-top: 22px;
+        color: var(--muted);
+        font-size: 18px;
+      }
+
+      .chips {
         display: flex;
         flex-wrap: wrap;
-        gap: 8px;
-        margin-top: 24px;
+        gap: 10px;
+        margin-top: 28px;
       }
 
-      .tag {
+      .chip {
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        border-radius: 999px;
+        padding: 8px 12px;
+        background: rgba(255, 255, 255, 0.1);
+        color: rgba(255, 255, 255, 0.82);
+        font-size: 13px;
+      }
+
+      .tagline {
         display: inline-flex;
         align-items: center;
-        min-height: 28px;
-        padding: 4px 9px;
-        border: 1px solid var(--line);
+        gap: 9px;
+        margin-top: 28px;
         border-radius: 999px;
-        background: rgba(255, 253, 248, 0.66);
-        color: var(--muted);
-        font-size: 12px;
-        font-weight: 650;
-      }
-
-      section {
-        scroll-margin-top: 28px;
-      }
-
-      .section-lead {
-        max-width: 850px;
-        color: var(--muted);
-        font-size: 17px;
-      }
-
-      .grid {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 12px;
-        margin-top: 18px;
-      }
-
-      .grid.three {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-      }
-
-      .card {
+        padding: 10px 14px;
         border: 1px solid var(--line);
-        border-radius: var(--radius);
-        background: rgba(255, 253, 248, 0.72);
-        padding: 18px;
-      }
-
-      .card h3,
-      .card h4 {
-        margin-top: 0;
-      }
-
-      .card p {
-        color: var(--muted);
-        font-size: 14px;
-      }
-
-      .callout {
-        margin-top: 18px;
-        padding: 14px 16px;
-        border: 1px solid var(--line);
-        border-left: 3px solid var(--line-strong);
-        border-radius: 4px;
-        background: rgba(255, 253, 248, 0.68);
-      }
-
-      .callout.info {
-        border-color: #d4b2a2;
-        border-left-color: var(--accent);
-        background: var(--accent-soft);
-      }
-
-      .callout.good {
-        border-color: #bdd6c9;
-        border-left-color: var(--green);
-        background: var(--green-soft);
-      }
-
-      .callout.warn {
-        border-color: #d7c893;
-        border-left-color: var(--yellow);
-        background: var(--yellow-soft);
-      }
-
-      .callout.danger {
-        border-color: #dfaca4;
-        border-left-color: var(--red);
-        background: var(--red-soft);
-      }
-
-      .callout strong {
-        display: block;
-        margin-bottom: 4px;
-      }
-
-      .flow {
-        display: grid;
-        gap: 10px;
-        margin-top: 18px;
-      }
-
-      .step {
-        display: grid;
-        grid-template-columns: 38px minmax(0, 1fr);
-        gap: 12px;
-        align-items: start;
-        padding: 12px;
-        border: 1px solid var(--line);
-        border-radius: var(--radius);
-        background: rgba(255, 253, 248, 0.72);
-      }
-
-      .num {
-        display: grid;
-        place-items: center;
-        width: 28px;
-        height: 28px;
-        border: 1px solid var(--line);
-        border-radius: 999px;
-        background: transparent;
-        color: var(--accent);
-        font-size: 13px;
-        font-weight: 750;
-      }
-
-      .step strong {
-        display: block;
-        margin-bottom: 2px;
-      }
-
-      .step span {
-        color: var(--muted);
-        font-size: 14px;
-      }
-
-      .file-list {
-        display: grid;
-        gap: 8px;
-        margin: 16px 0 0;
-        padding: 0;
-        list-style: none;
-      }
-
-      .file-list li {
-        padding: 9px 11px;
-        border: 1px solid var(--line);
-        border-radius: 6px;
-        background: rgba(255, 253, 248, 0.72);
-        color: var(--muted);
-        font-size: 14px;
-      }
-
-      .file-list code {
+        background: rgba(255, 255, 255, 0.06);
         color: var(--ink);
+        font-weight: 690;
       }
 
-      table {
-        width: 100%;
-        margin-top: 16px;
-        border-collapse: collapse;
+      .tagline::before {
+        width: 9px;
+        height: 9px;
+        border-radius: 999px;
+        background: var(--teal);
+        content: "";
+      }
+
+      .visual {
+        position: relative;
+        min-height: 520px;
         border: 1px solid var(--line);
         border-radius: var(--radius);
-        background: rgba(255, 253, 248, 0.82);
+        background:
+          radial-gradient(circle at 18% 18%, rgba(55, 216, 209, 0.16), transparent 34%),
+          radial-gradient(circle at 86% 78%, rgba(154, 124, 255, 0.14), transparent 34%),
+          linear-gradient(145deg, rgba(13, 18, 27, 0.92), rgba(10, 14, 22, 0.86));
+        box-shadow: var(--shadow);
         overflow: hidden;
       }
 
-      th,
-      td {
-        padding: 10px 12px;
-        border-bottom: 1px solid var(--line);
-        text-align: left;
-        vertical-align: top;
+      .visual.compact {
+        min-height: 430px;
       }
 
-      th {
-        background: var(--paper-soft);
+      .stage {
+        position: absolute;
+        inset: 28px;
+        display: grid;
+        place-items: center;
+      }
+
+      .node {
+        display: grid;
+        place-items: center;
+        min-width: 112px;
+        min-height: 58px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        padding: 12px 16px;
+        background: rgba(12, 18, 28, 0.88);
+        color: var(--ink);
+        font-weight: 730;
+        text-align: center;
+        box-shadow:
+          0 14px 38px rgba(0, 0, 0, 0.22),
+          inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      }
+
+      .node.dark {
+        border-color: rgba(55, 216, 209, 0.42);
+        background: linear-gradient(135deg, rgba(55, 216, 209, 0.2), rgba(154, 124, 255, 0.18));
+        color: var(--ink);
+      }
+
+      .node.teal {
+        border-color: rgba(55, 216, 209, 0.34);
+        background: var(--teal-soft);
+        color: #bffdfa;
+      }
+
+      .node.coral {
+        border-color: rgba(255, 119, 92, 0.34);
+        background: var(--coral-soft);
+        color: #ffd4ca;
+      }
+
+      .node.violet {
+        border-color: rgba(154, 124, 255, 0.36);
+        background: var(--violet-soft);
+        color: #ded5ff;
+      }
+
+      .node.lime {
+        border-color: rgba(184, 220, 86, 0.34);
+        background: var(--lime-soft);
+        color: #efffb9;
+      }
+
+      .node.blue {
+        border-color: rgba(98, 168, 255, 0.36);
+        background: var(--blue-soft);
+        color: #d6e9ff;
+      }
+
+      .caption {
+        color: var(--muted);
         font-size: 13px;
+        font-weight: 560;
       }
 
-      td {
+      .module-map {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 18px;
+        width: 100%;
+      }
+
+      .module-map .node {
+        min-height: 102px;
+      }
+
+      .module-map .core {
+        position: relative;
+        grid-column: 2;
+        grid-row: 2;
+        min-height: 122px;
+        background: linear-gradient(135deg, rgba(55, 216, 209, 0.3), rgba(154, 124, 255, 0.28));
+        color: var(--ink);
+        box-shadow: 0 0 42px rgba(55, 216, 209, 0.16);
+      }
+
+      .module-map .core::before,
+      .module-map .core::after {
+        position: absolute;
+        inset: -18px;
+        border: 1px solid rgba(55, 216, 209, 0.32);
+        border-radius: 12px;
+        content: "";
+      }
+
+      .module-map .core::after {
+        inset: -34px;
+        border-color: rgba(154, 124, 255, 0.22);
+      }
+
+      .knowledge-map {
+        display: grid;
+        gap: 14px;
+        width: 100%;
+      }
+
+      .knowledge-row {
+        display: grid;
+        grid-template-columns: 1fr 34px 1fr 34px 1fr;
+        gap: 8px;
+        align-items: stretch;
+      }
+
+      .knowledge-card {
+        display: grid;
+        gap: 8px;
+        align-content: start;
+        min-height: 126px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 14px;
+        background: rgba(13, 18, 27, 0.72);
+        box-shadow:
+          0 14px 36px rgba(0, 0, 0, 0.2),
+          inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      }
+
+      .knowledge-card strong {
+        color: var(--ink);
+        font-size: 15px;
+      }
+
+      .knowledge-card ul {
+        display: grid;
+        gap: 5px;
+        margin: 0;
+        padding: 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.35;
+        list-style: none;
+      }
+
+      .knowledge-card li::before {
+        margin-right: 6px;
+        color: var(--teal);
+        content: "•";
+      }
+
+      .lane-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+        width: 100%;
+      }
+
+      .lane {
+        display: grid;
+        gap: 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 14px;
+        background: rgba(13, 18, 27, 0.66);
+      }
+
+      .lane-title {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 760;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .pill-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 7px;
+      }
+
+      .pill {
+        border-radius: 999px;
+        padding: 6px 9px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--ink);
+        font-size: 12px;
+        font-weight: 680;
+      }
+
+      .state-chart {
+        display: grid;
+        gap: 12px;
+        width: min(520px, 100%);
+      }
+
+      .state-row {
+        display: grid;
+        grid-template-columns: 1fr 30px 1fr;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .matrix {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+        width: 100%;
+      }
+
+      .rail {
+        display: grid;
+        gap: 18px;
+        width: 100%;
+      }
+
+      .rail-row {
+        display: grid;
+        grid-template-columns: 1fr 34px 1fr 34px 1fr;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .arrow {
+        height: 2px;
+        background: linear-gradient(90deg, rgba(55, 216, 209, 0.2), rgba(55, 216, 209, 0.72));
+        position: relative;
+      }
+
+      .arrow::after {
+        position: absolute;
+        right: -1px;
+        top: -5px;
+        border: 6px solid transparent;
+        border-left-color: rgba(55, 216, 209, 0.72);
+        content: "";
+      }
+
+      .sandbox-map {
+        display: grid;
+        gap: 16px;
+        width: 100%;
+      }
+
+      .user-box {
+        border: 2px solid rgba(55, 216, 209, 0.28);
+        border-radius: 8px;
+        padding: 18px;
+        background: rgba(55, 216, 209, 0.08);
+      }
+
+      .session-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+        margin-top: 16px;
+      }
+
+      .mini-stack {
+        display: grid;
+        gap: 8px;
+        margin-top: 16px;
+      }
+
+      .mini {
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 10px 12px;
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--ink);
+        font-size: 13px;
+        font-weight: 680;
+      }
+
+      .loop {
+        position: relative;
+        width: min(440px, 100%);
+        aspect-ratio: 1;
+        border: 2px solid rgba(22, 127, 134, 0.26);
+        border-radius: 999px;
+      }
+
+      .loop::before,
+      .loop::after {
+        position: absolute;
+        inset: 54px;
+        border: 1px solid rgba(41, 50, 58, 0.12);
+        border-radius: inherit;
+        content: "";
+      }
+
+      .loop::after {
+        inset: 118px;
+        background: var(--graphite);
+      }
+
+      .loop .center {
+        position: absolute;
+        inset: 0;
+        z-index: 2;
+        display: grid;
+        place-items: center;
+        color: var(--paper);
+        font-size: 22px;
+        font-weight: 780;
+      }
+
+      .orbit {
+        position: absolute;
+        width: 130px;
+        min-height: 58px;
+        transform: translate(-50%, -50%);
+      }
+
+      .orbit.o1 {
+        left: 50%;
+        top: 2%;
+      }
+
+      .orbit.o2 {
+        left: 94%;
+        top: 34%;
+      }
+
+      .orbit.o3 {
+        left: 78%;
+        top: 88%;
+      }
+
+      .orbit.o4 {
+        left: 22%;
+        top: 88%;
+      }
+
+      .orbit.o5 {
+        left: 6%;
+        top: 34%;
+      }
+
+      .tool-funnel {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 13px;
+        width: min(430px, 100%);
+      }
+
+      .gate {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+        width: 100%;
+      }
+
+      .decision {
+        display: grid;
+        place-items: center;
+        width: 138px;
+        height: 138px;
+        margin: 0 auto;
+        transform: rotate(45deg);
+        border: 2px solid rgba(255, 119, 92, 0.42);
+        border-radius: 8px;
+        background: var(--coral-soft);
+      }
+
+      .decision span {
+        transform: rotate(-45deg);
+        color: #ffd4ca;
+        font-weight: 780;
+      }
+
+      .skill-layers {
+        display: grid;
+        gap: 14px;
+        width: 100%;
+      }
+
+      .skill-layers .node {
+        min-height: 72px;
+      }
+
+      .choice-tree {
+        display: grid;
+        gap: 14px;
+        width: min(520px, 100%);
+      }
+
+      .split {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+      }
+
+      .footer-note {
+        margin-top: 30px;
         color: var(--muted);
         font-size: 14px;
       }
 
-      tr:last-child td {
-        border-bottom: 0;
-      }
-
-      code {
-        padding: 2px 5px;
-        border-radius: 5px;
-        background: var(--code-bg);
-        color: var(--ink);
-        font-size: 0.9em;
-      }
-
-      pre {
-        margin: 16px 0 0;
-        padding: 16px;
-        border: 1px solid var(--line);
-        border-radius: var(--radius);
-        background: #211f1d;
-        color: #f8f1e6;
-        font-size: 13px;
-        line-height: 1.58;
-        overflow-x: auto;
-      }
-
-      pre code {
-        padding: 0;
-        border-radius: 0;
-        background: transparent;
-        color: inherit;
-        font-size: inherit;
-      }
-
-      .caption {
-        margin-top: 8px;
-        color: var(--faint);
-        font-size: 13px;
-      }
-
-      .divider {
-        height: 1px;
-        margin: 52px 0 0;
-        background: var(--line);
-      }
-
-      @media (max-width: 980px) {
-        .layout {
+      @media (max-width: 1000px) {
+        .shell {
           display: block;
         }
 
-        .sidebar {
-          position: relative;
+        .nav {
+          position: static;
           height: auto;
-          max-height: none;
           border-right: 0;
           border-bottom: 1px solid var(--line);
         }
@@ -478,1222 +761,1067 @@
           grid-template-columns: repeat(2, minmax(0, 1fr));
         }
 
-        .doc {
-          padding: 42px 22px 90px;
+        .slide,
+        .hero-slide {
+          min-height: auto;
+          padding: 42px 22px;
         }
 
-        .grid,
-        .grid.three {
+        .slide-inner,
+        .slide.reverse .slide-inner,
+        .hero-slide .slide-inner {
           grid-template-columns: 1fr;
+        }
+
+        .slide.reverse .copy {
+          order: 0;
+        }
+
+        .visual {
+          min-height: 430px;
         }
       }
 
-      @media (max-width: 620px) {
+      @media (max-width: 640px) {
         .toc {
           grid-template-columns: 1fr;
         }
 
-        table {
-          display: block;
-          overflow-x: auto;
+        .module-map,
+        .knowledge-row,
+        .lane-grid,
+        .session-grid,
+        .matrix,
+        .split,
+        .gate {
+          grid-template-columns: 1fr;
+        }
+
+        .module-map .core {
+          grid-column: auto;
+          grid-row: auto;
+        }
+
+        .rail-row {
+          grid-template-columns: 1fr;
+        }
+
+        .state-row {
+          grid-template-columns: 1fr;
+        }
+
+        .arrow {
+          display: none;
+        }
+
+        .visual {
+          min-height: 500px;
+        }
+
+        .loop {
+          width: 330px;
+        }
+
+        .orbit {
+          width: 106px;
+          font-size: 13px;
         }
       }
     </style>
   </head>
   <body>
-    <div class="layout">
-      <aside class="sidebar">
+    <div class="shell">
+      <aside class="nav">
         <a class="brand" href="https://github.com/echonoshy/ripple" target="_blank" rel="noreferrer">
-          <div class="brand-mark">R</div>
-          <div class="brand-title">
-            <strong>Ripple Agent System</strong>
-            <span>Architecture Notes</span>
-          </div>
+          <span class="brand-mark">R</span>
+          <span>
+            <strong>Ripple Runtime</strong>
+            <span>Architecture Map</span>
+          </span>
         </a>
-        <div class="toc-title">目录</div>
+        <div class="nav-title">系统地图</div>
         <ol class="toc" id="toc">
-          <li><a href="#overview">系统总览</a></li>
-          <li><a href="#request-path">一次请求路径</a></li>
-          <li><a href="#server-session">Server 与 Session</a></li>
-          <li><a href="#messages">Message 模型</a></li>
-          <li><a href="#agent-loop">Agent Loop</a></li>
-          <li><a href="#streaming-api">流式 API 适配</a></li>
-          <li><a href="#tools">工具系统</a></li>
-          <li><a href="#scheduler">定时任务</a></li>
-          <li><a href="#permissions">权限与暂停</a></li>
-          <li><a href="#compact">上下文压缩</a></li>
-          <li><a href="#skills">Skill 系统</a></li>
-          <li><a href="#sandbox">沙箱与持久化</a></li>
-          <li><a href="#fork">Subagent 与 Fork</a></li>
-          <li><a href="#hooks-recovery">Hooks 与 Recovery</a></li>
-          <li><a href="#frontend">前端事件协议</a></li>
-          <li><a href="#extension">扩展指南</a></li>
+          <li><a href="#position"><b>0</b>项目定位</a></li>
+          <li><a href="#entry"><b>1</b>请求入口</a></li>
+          <li><a href="#session"><b>2</b>Session 与 Sandbox</a></li>
+          <li><a href="#messages"><b>3</b>Message 模型</a></li>
+          <li><a href="#loop"><b>4</b>Agent Loop</a></li>
+          <li><a href="#streaming"><b>5</b>流式 API</a></li>
+          <li><a href="#tools"><b>6</b>工具系统</a></li>
+          <li><a href="#permission"><b>7</b>权限暂停</a></li>
+          <li><a href="#compact"><b>8</b>上下文压缩</a></li>
+          <li><a href="#skills"><b>9</b>Skill 系统</a></li>
+          <li><a href="#scheduler"><b>10</b>定时任务</a></li>
+          <li><a href="#fork"><b>11</b>Subagent / Fork</a></li>
+          <li><a href="#hooks"><b>12</b>Hooks / Recovery</a></li>
+          <li><a href="#frontend"><b>13</b>前端事件协议</a></li>
+          <li><a href="#extend"><b>14</b>扩展路径</a></li>
         </ol>
       </aside>
 
-      <main class="content">
-        <article class="doc">
-          <header class="hero">
-            <p class="eyebrow">基于当前 Ripple 项目的架构说明</p>
-            <h1>从一次请求讲清 Agent 系统如何运转</h1>
-            <p class="lead">
-              这份文档按模块拆解 Ripple 的 Agent 架构：HTTP 入口、Session 运行态、消息模型、主循环、
-              工具编排、定时任务、权限暂停、上下文压缩、Skill、沙箱、Fork 子代理以及前端事件协议。
-            </p>
-            <div class="meta-row">
-              <span class="tag">Python 3.13+</span>
-              <span class="tag">FastAPI</span>
-              <span class="tag">OpenAI-compatible API</span>
-              <span class="tag">Tool Use</span>
-              <span class="tag">Scheduled Jobs</span>
-              <span class="tag">User Sandbox</span>
-            </div>
-          </header>
-
-          <section id="overview">
-            <h2>系统总览</h2>
-            <p class="section-lead">
-              Ripple 的核心不是“调用一次模型”，而是一个可恢复、可暂停、可执行工具、可压缩上下文的 agentic loop。
-              系统边界可以拆成四条线：请求进入、模型推理、工具副作用、运行态持久化。
-            </p>
-
-            <div class="grid three">
-              <div class="card">
-                <h3>入口层</h3>
-                <p>
-                  FastAPI 接收 OpenAI 兼容的 chat completions 请求，解析 user input、system prompt、model、
-                  stream 模式和 session id。
-                </p>
-              </div>
-              <div class="card">
-                <h3>运行态</h3>
-                <p>
-                  Session 持有消息历史、模型历史、工具上下文、权限状态、当前任务、token 统计和 compactor 状态。
-                </p>
-              </div>
-              <div class="card">
-                <h3>主循环</h3>
-                <p>
-                  Agent Loop 负责调用模型、识别 tool use、执行工具、回灌 tool result，并决定继续下一轮还是终止。
-                </p>
-              </div>
-              <div class="card">
-                <h3>工具层</h3>
-                <p>
-                  工具统一继承 <code>Tool</code>，由 orchestration 层处理去重、权限、串并行、结果截断和上下文修改。
-                </p>
-              </div>
-              <div class="card">
-                <h3>能力层</h3>
-                <p>
-                  Skill 把领域工作流包装成模型可调用的工具；AgentTool 把复杂子任务 fork 到后台 agent 执行。
-                </p>
-              </div>
-              <div class="card">
-                <h3>调度层</h3>
-                <p>
-                  Scheduler 以 user sandbox 为边界保存定时任务，支持延迟提醒、周期任务、沙箱命令和后台 agent prompt。
-                </p>
-              </div>
-              <div class="card">
-                <h3>隔离层</h3>
-                <p>
-                  Sandbox 以 <code>user_id</code> 为隔离单位，workspace 长期存在，session 只是该 user 下的运行态。
-                </p>
+      <main class="deck">
+        <section class="slide hero-slide" id="position">
+          <div class="slide-inner">
+            <div class="copy">
+              <p class="eyebrow">Ripple Agent System</p>
+              <h1>Ripple Agent Runtime</h1>
+              <p class="lead">
+                一次请求进入 Server 后，会被拆成可恢复的会话、可验证的工具动作、可压缩的上下文和可持久化的用户工作区。
+              </p>
+              <div class="chips">
+                <span class="chip">Agent Loop</span>
+                <span class="chip">Tool Use</span>
+                <span class="chip">Skill</span>
+                <span class="chip">User Sandbox</span>
+                <span class="chip">Permission</span>
+                <span class="chip">Scheduler</span>
+                <span class="chip">Compact</span>
               </div>
             </div>
-
-            <div class="callout info">
-              <strong>核心判断</strong>
-              Ripple 的架构重点是“模型可以提出动作，但动作必须经过系统执行边界”。因此 tool use 不是直接副作用，
-              而是先进入工具编排层，再经过权限、沙箱、锁、结果标准化，最后才以 tool result 的形式回到模型上下文。
-            </div>
-          </section>
-
-          <section id="request-path">
-            <h2>一次请求路径</h2>
-            <p class="section-lead">
-              从用户发送一条消息到浏览器收到流式输出，中间会经过 Server、Session、SSE 适配层、Agent Loop、
-              LLM Client 和 Tool Orchestration。下面是当前系统中的主要调用路径。
-            </p>
-
-            <div class="flow">
-              <div class="step">
-                <div class="num">1</div>
-                <div>
-                  <strong><code>POST /v1/chat/completions</code></strong>
-                  <span>
-                    <code>routes.py</code> 解析请求，提取最后一条 user message、调用方 system prompt、
-                    model、max_turns、stream 参数，并通过 <code>X-Ripple-User-Id</code> 取得 user_id。
-                  </span>
-                </div>
-              </div>
-              <div class="step">
-                <div class="num">2</div>
-                <div>
-                  <strong><code>SessionManager.get_or_create_session()</code></strong>
-                  <span>
-                    如果请求带 session_id，优先从内存取；取不到则从磁盘恢复；仍不存在时创建新 session，
-                    并初始化 sandbox workspace、runtime dir、ToolUseContext 和 LLM client。
-                  </span>
-                </div>
-              </div>
-              <div class="step">
-                <div class="num">3</div>
-                <div>
-                  <strong><code>stream_query_as_sse()</code> 或 <code>collect_query_response()</code></strong>
-                  <span>
-                    SSE 层把 agent loop 的内部事件转换成 OpenAI 兼容 chunk，同时附加 Ripple 扩展事件：
-                    tool_call、tool_result、task_progress、agent_stop、heartbeat。
-                  </span>
-                </div>
-              </div>
-              <div class="step">
-                <div class="num">4</div>
-                <div>
-                  <strong><code>query()</code> 构造消息上下文</strong>
-                  <span>
-                    合并 system prompt、历史 model messages 和本轮 user input，然后调用 <code>query_loop()</code>。
-                  </span>
-                </div>
-              </div>
-              <div class="step">
-                <div class="num">5</div>
-                <div>
-                  <strong><code>query_loop()</code> 多轮执行</strong>
-                  <span>
-                    每轮调用模型流，收集 assistant message，检测 tool use，执行工具并把 tool result 写回消息历史。
-                    如果还有 tool result 需要模型理解，则进入下一轮。
-                  </span>
+            <div class="visual compact">
+              <div class="stage">
+                <div class="module-map">
+                  <div class="node blue">Request<br /><span class="caption">入口协议</span></div>
+                  <div class="node teal">Session<br /><span class="caption">运行态</span></div>
+                  <div class="node violet">Tool<br /><span class="caption">执行边界</span></div>
+                  <div class="node coral">Permission<br /><span class="caption">暂停恢复</span></div>
+                  <div class="node core">Agent Loop</div>
+                  <div class="node lime">Skill<br /><span class="caption">领域流程</span></div>
+                  <div class="node">Compact<br /><span class="caption">上下文管理</span></div>
+                  <div class="node">Scheduler<br /><span class="caption">后台任务</span></div>
+                  <div class="node">Frontend<br /><span class="caption">事件协议</span></div>
                 </div>
               </div>
             </div>
+          </div>
+        </section>
 
-            <div class="callout info">
-              <strong>理解这条路径的关键</strong>
-              Server 只负责接入请求和维护 session；SSE 层负责把内部事件翻译给前端；
-              Agent Loop 负责持续推进任务；工具层负责执行真实副作用。每一层只处理自己的边界问题，
-              因此系统可以在等待用户确认、上下文过长、工具失败或请求取消时保持可恢复。
-            </div>
-          </section>
-
-          <section id="server-session">
-            <h2>Server 与 Session</h2>
-            <p class="section-lead">
-              Server 层负责把 HTTP 请求变成一个可恢复的 Agent 运行态。这里最关键的不是路由本身，
-              而是 session 如何绑定 user sandbox、工具上下文、权限状态和持久化消息。
-            </p>
-
-            <ul class="file-list">
-              <li><code>src/interfaces/server/routes.py</code>：HTTP 端点、流式/非流式聊天、权限恢复。</li>
-              <li><code>src/interfaces/server/sessions.py</code>：Session 数据结构、创建、恢复、挂起、TTL 清理。</li>
-              <li><code>src/interfaces/server/sse.py</code>：Agent 内部事件到 SSE / OpenAI chunk 的转换。</li>
-              <li><code>src/interfaces/server/deps.py</code>：从 header 解析 <code>X-Ripple-User-Id</code>。</li>
-            </ul>
-
-            <h3>Session 保存什么</h3>
-            <table>
-              <thead>
-                <tr>
-                  <th>字段</th>
-                  <th>作用</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td><code>messages</code></td>
-                  <td>完整展示历史，面向前端和持久化。这里尽量保留用户可见信息。</td>
-                </tr>
-                <tr>
-                  <td><code>model_messages</code></td>
-                  <td>模型上下文历史，可能经过 compact 或清理，用于下一轮模型输入。</td>
-                </tr>
-                <tr>
-                  <td><code>context</code></td>
-                  <td><code>ToolUseContext</code>，工具执行需要的 cwd、workspace、权限、sandbox、当前消息等。</td>
-                </tr>
-                <tr>
-                  <td><code>status</code></td>
-                  <td><code>idle</code>、<code>running</code>、<code>awaiting_user_input</code>、<code>awaiting_permission</code>。</td>
-                </tr>
-                <tr>
-                  <td><code>pending_permission_request</code></td>
-                  <td>危险工具被拦截时保存待确认请求，前端确认后重放原工具调用。</td>
-                </tr>
-                <tr>
-                  <td><code>context_manager</code></td>
-                  <td>封装 compactor 状态，session 挂起后可恢复压缩参数和估算状态。</td>
-                </tr>
-              </tbody>
-            </table>
-
-            <h3>创建 session 时发生了什么</h3>
-            <p>
-              新 session 会先解析模型别名和最大轮数，然后建立一个外部可见的 session id，以及一个内部工具上下文使用的
-              session id。如果启用了 sandbox，系统会确保当前 user 的 workspace 存在，并为本次 session 创建独立的运行时目录。
-              随后，SessionManager 会创建 <code>ToolUseContext</code> 和 LLM client，并把它们绑定到 session。
-            </p>
-            <p>
-              这样设计的原因是：会话、模型、工具、权限和沙箱并不是彼此独立的全局状态，而是一组必须共同恢复的运行态。
-              当 session 从磁盘恢复时，只要这些字段能够重新构造，Agent 就可以继续沿用同一条对话历史运行。
-            </p>
-
-            <div class="callout good">
-              <strong>设计要点</strong>
-              Session id 是一次对话的运行态标识；user id 才是沙箱和 workspace 的隔离维度。
-              同一个 user 的多个 session 可以共享 workspace，但工具执行需要通过 user 级锁避免互相踩写。
-            </div>
-          </section>
-
-          <section id="messages">
-            <h2>Message 模型</h2>
-            <p class="section-lead">
-              Ripple 内部消息模型的目标是统一 provider 差异。模型 API 可以是 OpenAI 兼容格式，
-              前端可以消费 SSE，但 Agent Loop 内部只处理一组稳定的 Pydantic message 类型。
-            </p>
-
-            <ul class="file-list">
-              <li><code>src/ripple/messages/types.py</code>：核心消息类型定义。</li>
-              <li><code>src/ripple/messages/utils.py</code>：创建、序列化、反序列化、提取 tool use。</li>
-              <li><code>src/ripple/messages/cleanup.py</code>：模型上下文清理。</li>
-            </ul>
-
-            <table>
-              <thead>
-                <tr>
-                  <th>类型</th>
-                  <th>用途</th>
-                  <th>典型内容</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td><code>SystemMessage</code></td>
-                  <td>系统提示或系统通知。</td>
-                  <td><code>{ type, content, level }</code></td>
-                </tr>
-                <tr>
-                  <td><code>UserMessage</code></td>
-                  <td>用户输入、tool result、meta 提示。</td>
-                  <td><code>message.content</code> 可以包含 text 或 tool_result block。</td>
-                </tr>
-                <tr>
-                  <td><code>AssistantMessage</code></td>
-                  <td>模型输出。</td>
-                  <td><code>message.content</code> 可以包含 text 和 tool_use block。</td>
-                </tr>
-                <tr>
-                  <td><code>StreamEvent</code></td>
-                  <td>实时文本事件，不一定进入最终消息历史。</td>
-                  <td><code>stream_start</code>、<code>stream_chunk</code>、<code>stream_end</code>、<code>heartbeat</code>。</td>
-                </tr>
-                <tr>
-                  <td><code>AgentStopEvent</code></td>
-                  <td>Agent loop 主动暂停。</td>
-                  <td><code>ask_user</code>、<code>permission_request</code>、<code>max_turns</code>。</td>
-                </tr>
-              </tbody>
-            </table>
-
-            <h3>Tool use 与 tool result 的配对</h3>
-            <p>
-              模型发出的工具调用是 assistant message 里的 <code>tool_use</code> block；工具执行结果会被包装成
-              user message 里的 <code>tool_result</code> block，并通过 <code>tool_use_id</code> 关联回原调用。
-              下一轮模型看到的是“我刚才调用了工具，并收到了这个结果”。
-            </p>
-
-            <div class="callout good">
-              <strong>为什么要配对</strong>
-              工具调用和工具结果必须稳定配对，否则模型无法判断某个结果对应哪一次动作。
-              <code>tool_use_id</code> 就是这条链路的关联键。它让系统可以支持多个工具调用、并发执行、
-              权限等待后重放，以及前端展示工具调用状态。
+        <section class="slide" id="entry">
+          <div class="slide-inner">
+            <div class="copy">
+              <p class="eyebrow">Module 01</p>
+              <h2>请求入口：从 Chat API 进入运行时</h2>
+              <div class="copy-text">
+                <p>入口层接收 OpenAI-compatible 请求，解析 user、model、stream 和 system prompt。</p>
+                <p>它的产物不是最终答案，而是一个已经绑定上下文和工具边界的 session。</p>
+              </div>
+              <div class="tagline">入口层只做接入、解析和分发</div>
             </div>
 
-            <div class="callout info">
-              <strong>两套历史</strong>
-              <code>session.messages</code> 偏向产品展示和完整追溯；
-              <code>session.model_messages</code> 偏向模型可承受的上下文。压缩和清理通常影响后者，
-              但不应该破坏前端展示历史。
-            </div>
-          </section>
-
-          <section id="agent-loop">
-            <h2>Agent Loop</h2>
-            <p class="section-lead">
-              <code>query_loop()</code> 是 Ripple 的核心。它不是一个简单的 while 调模型，而是一个带状态转移、
-              错误恢复、上下文压缩、工具抢跑和停止事件的执行引擎。
-            </p>
-
-            <ul class="file-list">
-              <li><code>src/ripple/core/agent_loop.py</code>：主循环。</li>
-              <li><code>src/ripple/core/state.py</code>：<code>QueryState</code>。</li>
-              <li><code>src/ripple/core/query_params.py</code>：一次 query 的入参。</li>
-              <li><code>src/ripple/core/transitions.py</code>：继续和终止状态。</li>
-              <li><code>src/ripple/core/errors.py</code>：错误分类和 token gap 解析。</li>
-            </ul>
-
-            <h3>状态对象很薄，但边界清楚</h3>
-            <p>
-              <code>QueryState</code> 不承担业务逻辑，只保存循环推进所需的最小状态：当前模型上下文、
-              工具上下文、轮数和上一轮状态转移原因。它的价值在于让每一次循环都能明确回答三个问题：
-              模型现在能看到什么、工具现在能访问什么、循环下一步应该继续还是终止。
-            </p>
-
-            <h3>主循环阶段</h3>
-            <div class="flow">
-              <div class="step">
-                <div class="num">0</div>
-                <div>
-                  <strong>中止检查</strong>
-                  <span>如果 <code>AbortSignal</code> 已经被设置，当前 query 直接返回，不继续调用模型或工具。</span>
-                </div>
-              </div>
-              <div class="step">
-                <div class="num">1</div>
-                <div>
-                  <strong>轻量清理和主动压缩</strong>
-                  <span>
-                    先执行 <code>lightweight_cleanup()</code> 清理旧 tool_result / tool_input，再用
-                    <code>should_compact()</code> 判断是否需要 LLM summary 或截断。
-                  </span>
-                </div>
-              </div>
-              <div class="step">
-                <div class="num">2</div>
-                <div>
-                  <strong>任务提醒和 current messages 同步</strong>
-                  <span>
-                    如存在 Task reminder，则追加 meta message；随后把当前 messages 同步到
-                    <code>ToolUseContext.current_messages</code>，供 AgentTool fork 使用。
-                  </span>
-                </div>
-              </div>
-              <div class="step">
-                <div class="num">3</div>
-                <div>
-                  <strong>调用模型流</strong>
-                  <span>
-                    <code>client.stream()</code> 产出 <code>StreamEvent</code> 和 <code>AssistantMessage</code>。
-                    文本 chunk 会直接传给上层，完整 assistant message 用于收集 tool use。
-                  </span>
-                </div>
-              </div>
-              <div class="step">
-                <div class="num">4</div>
-                <div>
-                  <strong>检测工具调用</strong>
-                  <span>
-                    <code>extract_tool_use_blocks()</code> 从 assistant message 提取 tool_use。
-                    并发安全工具会交给 <code>StreamingToolExecutor</code> 尝试抢跑。
-                  </span>
-                </div>
-              </div>
-              <div class="step">
-                <div class="num">5</div>
-                <div>
-                  <strong>执行剩余工具</strong>
-                  <span>
-                    流式抢跑已接管的 tool id 会跳过；剩余工具进入 <code>run_tools()</code>，
-                    根据并发安全性分批执行。
-                  </span>
-                </div>
-              </div>
-              <div class="step">
-                <div class="num">6</div>
-                <div>
-                  <strong>决定继续或停止</strong>
-                  <span>
-                    没有 tool use 时执行 stop hooks；有 tool result 时进入下一轮。若工具请求暂停、
-                    达到 max_turns 或遇到不可恢复错误，则产生 <code>AgentStopEvent</code> 或终止。
-                  </span>
+            <div class="visual">
+              <div class="stage">
+                <div class="knowledge-map">
+                  <div class="knowledge-row">
+                    <div class="knowledge-card">
+                      <strong>调用方输入</strong>
+                      <ul>
+                        <li>OpenAI-compatible messages</li>
+                        <li>model / stream / max_turns</li>
+                        <li>X-Ripple-User-Id</li>
+                      </ul>
+                    </div>
+                    <div class="arrow"></div>
+                    <div class="knowledge-card">
+                      <strong>Server 解析</strong>
+                      <ul>
+                        <li>提取最后一条 user message</li>
+                        <li>收集 caller system prompt</li>
+                        <li>解析模型别名</li>
+                      </ul>
+                    </div>
+                    <div class="arrow"></div>
+                    <div class="knowledge-card">
+                      <strong>Session 分发</strong>
+                      <ul>
+                        <li>get_or_create_session()</li>
+                        <li>新建或磁盘恢复</li>
+                        <li>进入 stream / collect</li>
+                      </ul>
+                    </div>
+                  </div>
+                  <div class="lane-grid">
+                    <div class="lane">
+                      <div class="lane-title">主要文件</div>
+                      <div class="pill-list">
+                        <span class="pill">routes.py</span>
+                        <span class="pill">schemas.py</span>
+                        <span class="pill">sessions.py</span>
+                        <span class="pill">sse.py</span>
+                      </div>
+                    </div>
+                    <div class="lane">
+                      <div class="lane-title">输出形态</div>
+                      <div class="pill-list">
+                        <span class="pill">OpenAI chunk</span>
+                        <span class="pill">tool_call</span>
+                        <span class="pill">tool_result</span>
+                        <span class="pill">agent_stop</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
+          </div>
+        </section>
 
-            <h3>循环为什么要分阶段</h3>
-            <p>
-              Agent Loop 的核心难点不是调用模型，而是把一次模型输出放进可控的生命周期里。
-              调模型之前要先确认上下文仍然可用，避免过长历史导致请求失败；调模型期间要持续把文本流推给上层，
-              同时识别工具意图；模型结束后要把工具结果作为新的事实写回上下文；如果工具产生了暂停请求，
-              循环必须停在可恢复的位置。
-            </p>
-            <p>
-              这种分阶段结构让系统可以处理真实工程中的边界情况：用户中止请求、模型输出过长、上下文超限、
-              工具需要确认、工具结果很大、工具可以并发执行、以及最大轮数保护。每个边界都有明确的位置处理，
-              不会混在一段不可恢复的调用链里。
-            </p>
-
-            <div class="callout warn">
-              <strong>为什么 tool result 需要下一轮</strong>
-              工具执行结果不是直接拼进最终回答。模型必须在下一轮看到 tool result，然后决定继续调用工具还是输出最终答案。
-              这就是 agent loop 与简化 function call 示例的核心差异。
+        <section class="slide reverse" id="session">
+          <div class="slide-inner">
+            <div class="copy">
+              <p class="eyebrow">Module 02</p>
+              <h2>Session 与 Sandbox：运行态和工作区分层</h2>
+              <div class="copy-text">
+                <p>session 保存一次对话如何继续推进。</p>
+                <p>user sandbox 保存同一用户长期共享的 workspace、凭证和任务状态。</p>
+              </div>
+              <div class="tagline">隔离维度是 user_id，不是 session_id</div>
             </div>
-          </section>
 
-          <section id="streaming-api">
-            <h2>流式 API 适配</h2>
-            <p class="section-lead">
-              API 层把 provider 的流式响应变成 Ripple 的内部事件。它需要同时处理文本流、reasoning、
-              tool call 参数增量、usage token，以及 finish_reason 缺失的 fallback。
-            </p>
-
-            <ul class="file-list">
-              <li><code>src/ripple/api/client.py</code>：统一 LLMClient 入口和 create_client。</li>
-              <li><code>src/ripple/api/streaming.py</code>：把 OpenAI SDK stream 转成 <code>StreamEvent</code> / <code>AssistantMessage</code>。</li>
-              <li><code>src/ripple/api/openrouter.py</code>：OpenRouter/OpenAI 兼容实现。</li>
-              <li><code>src/ripple/api/anthropic.py</code>：Anthropic 适配。</li>
-            </ul>
-
-            <h3>流式处理的三个缓冲区</h3>
-            <table>
-              <thead>
-                <tr>
-                  <th>缓冲区</th>
-                  <th>作用</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td><code>current_text</code></td>
-                  <td>累计文本 delta，最终构造成 assistant text block；每个 delta 同时以 stream_chunk 推给前端。</td>
-                </tr>
-                <tr>
-                  <td><code>tool_calls_map</code></td>
-                  <td>按 tool call index 累计 id、name 和 arguments buffer，finish 时再 JSON parse。</td>
-                </tr>
-                <tr>
-                  <td><code>last_usage</code></td>
-                  <td>保存 usage token，供 compactor 校准和 SSE usage 汇总。</td>
-                </tr>
-              </tbody>
-            </table>
-
-            <h3>Reasoning 的处理</h3>
-            <p>
-              有些 provider 把思考内容放在 <code>delta.reasoning</code> 或 <code>delta.reasoning_content</code>。
-              当前实现会把它包装成 <code>&lt;think&gt;...&lt;/think&gt;</code> 文本块，复用前端 MarkdownRenderer 的折叠渲染能力，
-              不额外增加协议类型。
-            </p>
-
-            <h3>工具参数不是一次性到达</h3>
-            <p>
-              OpenAI 兼容流式 tool call 的 <code>function.arguments</code> 会分多段到达，所以
-              <code>process_stream_response()</code> 先累积 <code>args_buffer</code>，直到 finish_reason 才执行
-              <code>json.loads()</code>。如果解析失败，tool_use block 会带上 <code>_args_parse_error</code>，
-              后续工具层会返回结构化错误，而不是直接崩掉主循环。
-            </p>
-          </section>
-
-          <section id="tools">
-            <h2>工具系统</h2>
-            <p class="section-lead">
-              工具系统的重点是可控执行。模型只产生 tool_use 意图；真正的副作用由工具编排层决定是否执行、
-              何时执行、串行还是并行、是否需要用户确认，以及如何把结果回灌给模型。
-            </p>
-
-            <ul class="file-list">
-              <li><code>src/ripple/tools/base.py</code>：<code>Tool</code>、<code>ToolResult</code>、风险等级和 schema 转换。</li>
-              <li><code>src/ripple/tools/orchestration.py</code>：查找工具、去重、分批、执行、权限、结果消息。</li>
-              <li><code>src/ripple/tools/streaming_executor.py</code>：流式期间抢跑并发安全工具。</li>
-              <li><code>src/ripple/tools/builtin/</code>：Bash、Read、Write、Skill、Agent、AskUser、Task、Schedule 等内置工具。</li>
-            </ul>
-
-            <h3>Tool 抽象解决什么问题</h3>
-            <p>
-              工具抽象把“模型可以调用什么”和“系统如何安全执行”放在同一个协议里。
-              每个工具都需要声明名称、描述、输入结构、风险等级、最大结果大小，以及是否可以并发执行。
-              这些信息同时服务于三件事：生成模型可理解的 tool schema、执行前做权限判断、执行后把结果标准化为
-              tool result。
-            </p>
-            <p>
-              这样做的原因是，工具不是普通函数。它们可能读写文件、启动命令、访问外部服务或改变 session 状态。
-              如果没有统一抽象，Agent Loop 就无法在不同工具之间稳定处理权限、日志、并发和错误。
-            </p>
-
-            <h3>工具执行细节</h3>
-            <div class="flow">
-              <div class="step">
-                <div class="num">1</div>
-                <div>
-                  <strong>去重</strong>
-                  <span>
-                    <code>_dedup_tool_calls()</code> 用 <code>name + input</code> 生成稳定 key，
-                    相同调用只执行第一个，其余返回“重复调用已跳过”的结果。
-                  </span>
-                </div>
-              </div>
-              <div class="step">
-                <div class="num">2</div>
-                <div>
-                  <strong>分批</strong>
-                  <span>
-                    <code>_partition_tool_calls()</code> 调用每个工具的 <code>is_concurrency_safe()</code>。
-                    连续安全工具合并成并发批次，不安全工具单独串行执行。
-                  </span>
-                </div>
-              </div>
-              <div class="step">
-                <div class="num">3</div>
-                <div>
-                  <strong>权限检查</strong>
-                  <span>
-                    <code>PermissionManager.check_permission()</code> 在真正执行前运行。
-                    如果需要确认，会返回 permission_request 并暂停 agent loop。
-                  </span>
-                </div>
-              </div>
-              <div class="step">
-                <div class="num">4</div>
-                <div>
-                  <strong>调用工具</strong>
-                  <span>
-                    <code>tool.call()</code> 返回 <code>ToolResult</code>。
-                    如果 data 是 Pydantic model，则用 <code>model_dump_json()</code> 序列化。
-                  </span>
-                </div>
-              </div>
-              <div class="step">
-                <div class="num">5</div>
-                <div>
-                  <strong>结果标准化</strong>
-                  <span>
-                    结果超过 <code>max_result_size_chars</code> 会截断；随后创建
-                    <code>tool_result</code> message，附带 tool_use_id、is_error 和 source assistant uuid。
-                  </span>
+            <div class="visual">
+              <div class="stage">
+                <div class="sandbox-map">
+                  <div class="user-box">
+                    <div class="node dark">User Sandbox<br /><code>.ripple/sandboxes/&lt;user_id&gt;</code></div>
+                    <div class="session-grid">
+                      <div class="node teal">Session A<br /><span class="caption">chat state</span></div>
+                      <div class="node teal">Session B<br /><span class="caption">same workspace</span></div>
+                      <div class="node teal">Session C<br /><span class="caption">own runtime</span></div>
+                    </div>
+                    <div class="matrix">
+                      <div class="lane">
+                        <div class="lane-title">user 级长期状态</div>
+                        <div class="pill-list">
+                          <span class="pill">workspace</span>
+                          <span class="pill">credentials</span>
+                          <span class="pill">nsjail.cfg</span>
+                          <span class="pill">scheduled-tasks</span>
+                        </div>
+                      </div>
+                      <div class="lane">
+                        <div class="lane-title">session 级运行状态</div>
+                        <div class="pill-list">
+                          <span class="pill">messages</span>
+                          <span class="pill">model_messages</span>
+                          <span class="pill">ToolUseContext</span>
+                          <span class="pill">status</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="mini-stack">
+                      <div class="mini">多个 session 共享 workspace，因此写操作要经过 user lock</div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
+          </div>
+        </section>
 
-            <h3>StreamingToolExecutor 的分工</h3>
-            <p>
-              普通 <code>run_tools()</code> 要等模型完整响应结束后才能执行工具。
-              <code>StreamingToolExecutor</code> 则在流式过程中一旦看到并发安全 tool_use，就立即
-              <code>asyncio.create_task()</code> 执行。这样搜索、读文件、AgentTool 这类安全工具可以与模型剩余输出重叠，
-              减少端到端等待时间。
-            </p>
-
-            <p>
-              它不会接管所有工具，只接管明确声明为并发安全的工具。模型流结束后，主循环会跳过已经被抢跑的工具，
-              只把剩余工具交给普通编排流程。这样既能利用并行能力，又不会让写文件、改凭证、等待用户确认等操作提前发生。
-            </p>
-
-            <div class="callout danger">
-              <strong>工具不是信任边界内的自由执行</strong>
-              任何可能修改文件、执行命令、发外部请求或启动子代理的能力，都必须显式声明风险等级，并走权限、
-              沙箱和日志摘要。模型输出的参数只能被当作待验证输入。
+        <section class="slide" id="messages">
+          <div class="slide-inner">
+            <div class="copy">
+              <p class="eyebrow">Module 03</p>
+              <h2>Message 模型：统一对话、工具和事件</h2>
+              <div class="copy-text">
+                <p>模型 provider、前端 SSE 和内部 loop 都有自己的表达方式。</p>
+                <p>Message 层把它们收敛成稳定的 System、User、Assistant、Tool block 和 StreamEvent。</p>
+              </div>
+              <div class="tagline">tool_use 与 tool_result 的配对是整条链路的锚点</div>
             </div>
-          </section>
 
-          <section id="scheduler">
-            <h2>定时任务</h2>
-            <p class="section-lead">
-              定时任务把“稍后执行”和“周期执行”纳入同一套 user sandbox 边界。它不是让模型自己 sleep 或轮询，
-              而是由 Server 进程内的 SchedulerManager 负责扫描、持久化、执行和记录 run history。
-            </p>
-
-            <ul class="file-list">
-              <li><code>src/ripple/scheduler/models.py</code>：ScheduledJob、ScheduledJobState、ScheduledRun 数据模型。</li>
-              <li><code>src/ripple/scheduler/store.py</code>：按 user sandbox 保存 jobs、jobs-state 和 runs。</li>
-              <li><code>src/ripple/scheduler/manager.py</code>：后台 tick、并发保护、运行状态、重启恢复。</li>
-              <li><code>src/ripple/tools/builtin/schedule.py</code>：模型可调用的 Schedule 工具。</li>
-              <li><code>src/interfaces/server/scheduler_agent.py</code>：定时 agent job 的隔离运行入口。</li>
-              <li><code>src/interfaces/web/src/components/ScheduledTasksPanel.tsx</code>：前端 Scheduled Tasks 面板。</li>
-            </ul>
-
-            <h3>任务类型</h3>
-            <table>
-              <thead>
-                <tr>
-                  <th>维度</th>
-                  <th>当前取值</th>
-                  <th>行为</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td><code>execution_type</code></td>
-                  <td><code>command</code></td>
-                  <td>通过 <code>run_sandbox_command()</code> 在当前 user 的 nsjail sandbox 中执行 shell 命令。</td>
-                </tr>
-                <tr>
-                  <td><code>execution_type</code></td>
-                  <td><code>agent</code></td>
-                  <td>为本次 run 创建独立 runtime，运行一次 agent loop，并把最终摘要写入 run 记录。</td>
-                </tr>
-                <tr>
-                  <td><code>schedule_type</code></td>
-                  <td><code>once</code></td>
-                  <td>按 <code>run_at</code> 或 <code>delay_seconds</code> 执行一次，完成后不再计算下一次。</td>
-                </tr>
-                <tr>
-                  <td><code>schedule_type</code></td>
-                  <td><code>interval</code></td>
-                  <td>按 <code>interval_seconds</code> 计算下一次运行时间，可用 <code>max_runs</code> 限制次数。</td>
-                </tr>
-              </tbody>
-            </table>
-
-            <h3>调度路径</h3>
-            <div class="flow">
-              <div class="step">
-                <div class="num">1</div>
-                <div>
-                  <strong>创建或更新 job</strong>
-                  <span>
-                    REST API 或 <code>Schedule</code> 工具构造 <code>ScheduledJob</code>。
-                    Server 不接受 body 里的 user_id，而是使用请求 header 解析出的当前 user。
-                  </span>
-                </div>
-              </div>
-              <div class="step">
-                <div class="num">2</div>
-                <div>
-                  <strong>持久化定义和状态</strong>
-                  <span>
-                    job definition 写入 <code>scheduled-tasks/jobs.json</code>；
-                    runtime state 写入 <code>scheduled-tasks/jobs-state.json</code>，
-                    避免频繁变化的运行状态污染用户可编辑定义。
-                  </span>
-                </div>
-              </div>
-              <div class="step">
-                <div class="num">3</div>
-                <div>
-                  <strong>后台 tick 扫描</strong>
-                  <span>
-                    <code>SchedulerManager</code> 默认每 5 秒扫描所有 user sandbox，
-                    只启动 enabled、到期且没有 running marker 的任务。
-                  </span>
-                </div>
-              </div>
-              <div class="step">
-                <div class="num">4</div>
-                <div>
-                  <strong>写入 running marker</strong>
-                  <span>
-                    在 <code>_state_lock</code> 内创建 <code>ScheduledRun</code>，
-                    持久化 <code>running_at/current_run_id</code>，再释放锁执行真实任务。
-                  </span>
-                </div>
-              </div>
-              <div class="step">
-                <div class="num">5</div>
-                <div>
-                  <strong>执行与收口</strong>
-                  <span>
-                    command job 使用 user 级 sandbox lock；agent job 使用独立 <code>sched-*</code> runtime。
-                    完成后写 run 终态、duration、stdout/stderr tail 或 agent summary，并计算下一次运行。
-                  </span>
+            <div class="visual">
+              <div class="stage">
+                <div class="knowledge-map">
+                  <div class="knowledge-row">
+                    <div class="knowledge-card">
+                      <strong>输入消息</strong>
+                      <ul>
+                        <li>SystemMessage</li>
+                        <li>UserMessage</li>
+                        <li>caller system prompt</li>
+                      </ul>
+                    </div>
+                    <div class="arrow"></div>
+                    <div class="knowledge-card">
+                      <strong>模型动作</strong>
+                      <ul>
+                        <li>AssistantMessage</li>
+                        <li>text block</li>
+                        <li>tool_use block</li>
+                      </ul>
+                    </div>
+                    <div class="arrow"></div>
+                    <div class="knowledge-card">
+                      <strong>工具事实</strong>
+                      <ul>
+                        <li>UserMessage</li>
+                        <li>tool_result block</li>
+                        <li>tool_use_id 关联</li>
+                      </ul>
+                    </div>
+                  </div>
+                  <div class="matrix">
+                    <div class="knowledge-card">
+                      <strong>两套历史</strong>
+                      <ul>
+                        <li>session.messages：展示与追溯</li>
+                        <li>session.model_messages：模型上下文</li>
+                        <li>压缩通常只影响模型历史</li>
+                      </ul>
+                    </div>
+                    <div class="knowledge-card">
+                      <strong>相关文件</strong>
+                      <ul>
+                        <li>messages/types.py</li>
+                        <li>messages/utils.py</li>
+                        <li>messages/cleanup.py</li>
+                      </ul>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
+          </div>
+        </section>
 
-            <h3>API 与工具入口</h3>
-            <table>
-              <thead>
-                <tr>
-                  <th>入口</th>
-                  <th>用途</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td><code>POST /v1/sandbox/schedules</code></td>
-                  <td>创建定时任务，支持 once / interval、command / agent。</td>
-                </tr>
-                <tr>
-                  <td><code>GET /v1/sandbox/schedules</code></td>
-                  <td>列出当前 user 的任务摘要。</td>
-                </tr>
-                <tr>
-                  <td><code>PATCH /v1/sandbox/schedules/{job_id}</code></td>
-                  <td>更新任务定义和 enabled 状态，并重新计算 next_run_at。</td>
-                </tr>
-                <tr>
-                  <td><code>POST /v1/sandbox/schedules/{job_id}/run</code></td>
-                  <td>立即触发一次任务；如果任务正在运行，会按 running marker 跳过。</td>
-                </tr>
-                <tr>
-                  <td><code>GET /v1/sandbox/schedules/{job_id}/runs</code></td>
-                  <td>读取 run history，前端面板用它展示 running、success、failed、timeout 等状态。</td>
-                </tr>
-              </tbody>
-            </table>
-
-            <div class="callout good">
-              <strong>可靠性边界</strong>
-              Scheduler 启动时会恢复被 server 重启打断的 running run，把它们标记为 failed，并清空 running marker。
-              这让定时任务不会因为进程退出永久卡在运行中。
-            </div>
-
-            <div class="callout warn">
-              <strong>当前范围</strong>
-              当前实现覆盖 once / interval。cron、timezone、本地 wall-clock 语义、失败退避和主动投递到原 chat
-              仍属于后续演进项；这些方向已在 <code>docs/SCHEDULER_DESIGN.md</code> 中约束。
-            </div>
-          </section>
-
-          <section id="permissions">
-            <h2>权限与暂停</h2>
-            <p class="section-lead">
-              Ripple 把“等待用户确认”建模成 agent loop 的正常暂停状态，而不是异常。
-              这样前端可以展示确认 UI，用户确认后 server 能重放原工具调用并更新同一条 session 历史。
-            </p>
-
-            <ul class="file-list">
-              <li><code>src/ripple/permissions/manager.py</code>：权限 key、一次性授权、session 授权、permission request。</li>
-              <li><code>src/ripple/permissions/levels.py</code>：权限模式和工具风险等级。</li>
-              <li><code>src/interfaces/server/routes.py</code>：<code>/permissions/resolve</code> 端点重放工具。</li>
-              <li><code>src/ripple/tools/builtin/ask_user.py</code>：模型主动向用户提问的暂停工具。</li>
-            </ul>
-
-            <h3>权限检查如何影响循环</h3>
-            <p>
-              权限检查发生在工具真正执行之前。如果操作已被允许，工具继续执行；如果操作需要确认，
-              工具层会先生成一条“等待用户授权”的 tool result，再向 Agent Loop 返回暂停信号。
-              这条暂停信号会被转换成 <code>AgentStopEvent</code>，前端据此展示确认界面。
-            </p>
-            <p>
-              这种设计避免了两类问题：一是危险操作在用户确认前已经发生；二是系统把等待确认当成错误处理。
-              在 Ripple 里，等待确认是可恢复状态，仍然属于正常执行路径。
-            </p>
-
-            <h3>确认后的恢复</h3>
-            <p>
-              前端调用 <code>POST /v1/sessions/{session_id}/permissions/resolve</code>。如果用户选择 allow 或 always，
-              server 会给 <code>PermissionManager</code> 授权，再用保存的 <code>tool_use_id</code>、tool name 和 params
-              重新调用 <code>execute_tool()</code>。随后 <code>_replace_tool_result()</code> 会把之前的等待占位结果替换成真实结果。
-            </p>
-
-            <table>
-              <thead>
-                <tr>
-                  <th>状态</th>
-                  <th>触发来源</th>
-                  <th>前端应该做什么</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td><code>awaiting_permission</code></td>
-                  <td>危险工具需要确认。</td>
-                  <td>展示 allow / always / deny，并调用 resolve 端点。</td>
-                </tr>
-                <tr>
-                  <td><code>awaiting_user_input</code></td>
-                  <td><code>AskUser</code> 工具或类似用户输入需求。</td>
-                  <td>展示问题和选项，等待用户下一条消息。</td>
-                </tr>
-                <tr>
-                  <td><code>idle</code></td>
-                  <td>完成、取消、确认处理完毕。</td>
-                  <td>允许继续发起下一轮请求。</td>
-                </tr>
-              </tbody>
-            </table>
-          </section>
-
-          <section id="compact">
-            <h2>上下文压缩</h2>
-            <p class="section-lead">
-              长任务里消息会不断增长。Ripple 的压缩不是单一策略，而是分层降级：
-              先做无损或低损清理，再尝试 LLM 摘要，最后在紧急情况下定向裁剪或硬截断。
-            </p>
-
-            <ul class="file-list">
-              <li><code>src/ripple/compact/auto_compact.py</code>：压缩协调器和触发判定。</li>
-              <li><code>src/ripple/compact/cleanup.py</code>：轻量清理旧 tool_result / tool input。</li>
-              <li><code>src/ripple/compact/summary.py</code>：LLM 摘要压缩。</li>
-              <li><code>src/ripple/compact/truncate.py</code>：定向裁剪和硬截断。</li>
-              <li><code>src/ripple/compact/context_manager.py</code>：server session 侧的模型上下文准备与 compactor 状态。</li>
-            </ul>
-
-            <h3>触发与校准</h3>
-            <p>
-              <code>AutoCompactor.should_compact()</code> 使用增量 token 估算，避免每轮都重算全部历史。
-              估算阈值默认是模型上下文窗口的 <code>75%</code>。模型返回真实 <code>input_tokens</code> 后，
-              <code>calibrate_with_api_tokens()</code> 会扣掉 system prompt 和 tool definitions 的结构性 overhead，
-              用真实 token 反向校准估算缓存。
-            </p>
-
-            <h3>三层策略</h3>
-            <table>
-              <thead>
-                <tr>
-                  <th>策略</th>
-                  <th>何时触发</th>
-                  <th>特点</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td><code>lightweight_cleanup</code></td>
-                  <td>每轮开始，如果消息数增加。</td>
-                  <td>不调用 LLM，清理旧工具大输出和旧工具输入，保留最近若干轮。</td>
-                </tr>
-                <tr>
-                  <td><code>compact</code></td>
-                  <td>估算 token 超过阈值。</td>
-                  <td>优先 LLM summary；连续失败达到断路器阈值后直接 hard truncate。</td>
-                </tr>
-                <tr>
-                  <td><code>reactive_compact</code></td>
-                  <td>API 明确返回 context too long。</td>
-                  <td>如果能解析 token gap，先 targeted trim；否则减少保留轮数，进行更激进压缩。</td>
-                </tr>
-              </tbody>
-            </table>
-
-            <p>
-              Reactive compact 的目的不是追求最优摘要，而是在 API 已经拒绝请求时尽快回到可调用状态。
-              如果错误中能解析出超出的 token 数，系统会优先裁掉足够多的内容；如果无法精确判断，
-              就降低保留轮数并使用更激进的压缩策略。它是失败恢复机制，不是常规上下文管理的首选路径。
-            </p>
-
-            <div class="callout info">
-              <strong>产品体验与模型上下文分离</strong>
-              压缩服务于模型调用，不应等同于删除用户历史。server 会从
-              <code>context.current_messages</code> 回写 <code>model_messages</code>，
-              让下一轮模型使用压缩后的上下文，同时保留 <code>messages</code> 给前端展示。
-            </div>
-          </section>
-
-          <section id="skills">
-            <h2>Skill 系统</h2>
-            <p class="section-lead">
-              Skill 是把领域工作流包装成模型可调用能力的层。它不是 Python 插件，而是带 YAML frontmatter 的 Markdown 指令，
-              由 <code>SkillTool</code> 暴露给模型。
-            </p>
-
-            <ul class="file-list">
-              <li><code>src/ripple/skills/types.py</code>：Skill 数据结构、参数替换、allowed tools 判断。</li>
-              <li><code>src/ripple/skills/loader.py</code>：shared / workspace 两级加载与缓存。</li>
-              <li><code>src/ripple/skills/skill_tool.py</code>：模型调用的 <code>Skill</code> 工具。</li>
-              <li><code>src/ripple/skills/executor.py</code>：inline 和 fork 两种执行方式。</li>
-            </ul>
-
-            <h3>加载层级</h3>
-            <p>
-              <code>load_shared_skills()</code> 从配置 <code>skills.shared_dirs</code> 读取共享技能；
-              <code>load_workspace_skills(workspace_root)</code> 会先加载 shared，再加载
-              <code>workspace/skills/</code>，后者覆盖前者。缓存使用目录 mtime，避免每次工具调用都扫描磁盘。
-            </p>
-
-            <h3>Skill 文件入口</h3>
-            <p>
-              loader 只加载两类 Markdown：文件名是 <code>SKILL.md</code>，或 frontmatter 中包含
-              <code>name</code> / <code>description</code>。普通 README 或 references 文档不会误加载成 skill。
-            </p>
-
-            <p>
-              一个 Skill 通常包含名称、描述、可用工具、执行上下文和正文说明。正文并不是给用户看的说明书，
-              而是给模型看的操作规范：什么时候使用这个能力、按什么顺序调用工具、哪些动作必须确认、
-              失败时如何降级、最后应该如何汇报结果。
-            </p>
-
-            <h3>Inline 与 Fork</h3>
-            <table>
-              <thead>
-                <tr>
-                  <th>模式</th>
-                  <th>实现</th>
-                  <th>适合场景</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td><code>inline</code></td>
-                  <td><code>execute_inline_skill()</code> 把 skill 内容作为 tool result 返回给当前模型。</td>
-                  <td>短流程、规则说明、领域命令手册。</td>
-                </tr>
-                <tr>
-                  <td><code>fork</code></td>
-                  <td><code>execute_forked_skill()</code> 通过 AgentTool 启动后台子 agent。</td>
-                  <td>复杂、多步骤、可异步执行的领域任务。</td>
-                </tr>
-              </tbody>
-            </table>
-
-            <div class="callout good">
-              <strong>Skill 的边界</strong>
-              Skill 只增加模型的操作知识和可用工具范围，不绕过权限系统。即便 skill 允许某个工具，
-              危险操作仍然要经过工具自身风险等级和 PermissionManager。
-            </div>
-          </section>
-
-          <section id="sandbox">
-            <h2>沙箱与持久化</h2>
-            <p class="section-lead">
-              Ripple 的沙箱以 user 为单位，而不是 session 为单位。这样用户工作区可以跨多轮、多 session 长期存在，
-              同时 session runtime 只保存对话状态、任务状态和后台输出。
-            </p>
-
-            <ul class="file-list">
-              <li><code>src/ripple/sandbox/manager.py</code>：user sandbox 生命周期、session 持久化、摘要。</li>
-              <li><code>src/ripple/sandbox/config.py</code>：路径约定和环境状态检测。</li>
-              <li><code>src/ripple/sandbox/workspace.py</code>：workspace 创建、销毁、大小统计。</li>
-              <li><code>src/ripple/sandbox/storage.py</code>：messages.jsonl、meta.json、挂起状态读写。</li>
-              <li><code>src/ripple/sandbox/executor.py</code>：nsjail 执行相关能力。</li>
-            </ul>
-
-            <h3>目录职责</h3>
-            <p>
-              运行时目录分成共享缓存、user sandbox 和 session runtime 三类。共享缓存用于复用包管理器缓存；
-              user sandbox 保存长期 workspace、nsjail 配置、用户级凭证和 <code>scheduled-tasks/</code>；
-              session runtime 保存某一次会话的消息、任务列表和后台任务输出。这个拆分让 workspace 可以长期存在，
-              同时允许 session 被挂起、恢复或清理。
-            </p>
-            <pre><code>.ripple/sandboxes/&lt;user_id&gt;/
-  workspace/
-  credentials/
-  scheduled-tasks/
-    jobs.json
-    jobs-state.json
-    runs/&lt;job_id&gt;/&lt;run_id&gt;.json
-  sessions/&lt;session_id&gt;/</code></pre>
-
-            <h3>user lock</h3>
-            <p>
-              <code>SandboxManager.user_lock(user_id)</code> 返回 user 级 <code>asyncio.Lock</code>。
-              所有会修改同一 user workspace 的工具调用，都应该在这个锁下运行。原因是多个 session 可以共享同一个 workspace，
-              如果 Bash、Write、CLI 登录等副作用并发执行，容易造成文件竞争或凭证状态不一致。
-            </p>
-
-            <h3>挂起与恢复</h3>
-            <p>
-              Session TTL 到期时，<code>SessionManager._cleanup_expired()</code> 会取消运行中的任务，
-              然后调用 <code>_suspend_to_disk()</code> 把 session 状态写入磁盘。恢复时
-              <code>resume_session()</code> 会读取状态、重建 ToolUseContext 和 LLM client，并恢复 compactor 状态。
-            </p>
-
-            <div class="callout warn">
-              <strong>default user 的特殊规则</strong>
-              <code>SandboxManager.teardown_sandbox()</code> 默认禁止销毁 <code>default</code> user sandbox。
-              这是管理端点层面的保护，避免误删默认工作区。
-            </div>
-          </section>
-
-          <section id="fork">
-            <h2>Subagent 与 Fork</h2>
-            <p class="section-lead">
-              Ripple 的 AgentTool 不是“再开一段聊天”，而是 fork 一个继承父上下文的后台 agent。
-              它可以把复杂子任务放到后台运行，并把输出写入 session runtime 的 task-outputs。
-            </p>
-
-            <ul class="file-list">
-              <li><code>src/ripple/tools/builtin/agent_tool.py</code>：AgentTool 输入、输出、fork 启动。</li>
-              <li><code>src/ripple/core/fork.py</code>：fork 消息构造、防递归、cache 友好占位符。</li>
-              <li><code>src/ripple/core/background.py</code>：后台任务注册和输出收集。</li>
-              <li><code>src/ripple/tasks/manager.py</code>：TaskCreate/TaskUpdate 的 todo 管理，不要与后台任务混淆。</li>
-            </ul>
-
-            <h3>Fork 消息如何构造</h3>
-            <p>
-              <code>build_forked_messages()</code> 会保留父 assistant message 的完整 tool_use blocks，
-              然后构造一个 user message：先为这些 tool_use 填入统一占位 tool_result，再追加子任务指令。
-              这样多个 fork 子 agent 的请求前缀尽可能字节级一致，有利于 prompt cache。
-            </p>
-
-            <p>
-              Fork 子 agent 继承父 agent 的当前上下文，再追加一段专门的子任务指令。为了让多个子任务共享更稳定的
-              prompt 前缀，系统会给父 assistant message 中的工具调用补上统一占位结果，然后把真正不同的子任务指令放在最后。
-              这能减少上下文差异，也降低子 agent 误解父流程状态的概率。
-            </p>
-
-            <h3>防递归</h3>
-            <p>
-              <code>is_in_fork_child()</code> 会扫描历史消息中是否存在 <code>&lt;fork-boilerplate&gt;</code>。
-              如果子 agent 再次调用 AgentTool，工具会直接返回错误，要求它在当前进程内直接执行。
-            </p>
-
-            <h3>ToolUseContext 的继承</h3>
-            <p>
-              子 agent 会继承父上下文里的工具集合、cwd、workspace_root、sandbox_session_id、session_runtime_dir、
-              user_id、sandbox_manager、permission_manager 和 thinking 等字段。但它会生成自己的
-              <code>session_id</code>，并重置 <code>read_file_state</code>。
-            </p>
-          </section>
-
-          <section id="hooks-recovery">
-            <h2>Hooks 与 Recovery</h2>
-            <p class="section-lead">
-              当模型没有继续 tool_use 时，主循环并不会马上结束。它还会执行 stop hooks，允许系统对“模型认为完成”
-              这个状态做最后验证。同时，API 错误会进入明确的恢复分支。
-            </p>
-
-            <ul class="file-list">
-              <li><code>src/ripple/core/stop_hooks.py</code>：模型停止后的 hook 处理。</li>
-              <li><code>src/ripple/core/hooks.py</code>：hook 基础逻辑。</li>
-              <li><code>src/ripple/core/recovery.py</code>：max_output_tokens 两阶段恢复。</li>
-              <li><code>src/ripple/core/errors.py</code>：错误分类、连接错误重试、PTL token gap 解析。</li>
-            </ul>
-
-            <h3>Stop hooks 的位置</h3>
-            <p>
-              Stop hooks 只在模型没有继续请求工具时运行。也就是说，模型认为自己已经可以结束，
-              系统才进行最后检查。如果 hook 发现阻塞问题，可以把问题写回消息历史并让模型继续一轮；
-              如果 hook 明确阻止继续，循环就以对应终止状态结束。
-            </p>
-            <p>
-              这个位置很重要：hook 不应该打断正常工具执行，也不应该替代权限系统。它更像是完成前的系统校验，
-              用来补充模型自身无法可靠判断的规则。
-            </p>
-
-            <h3>max_output_tokens 恢复</h3>
-            <p>
-              <code>ErrorRecovery</code> 对 max output 错误采用两阶段策略：第一次先把
-              <code>max_tokens</code> 升级到默认值的 1.5 倍，不注入额外消息；如果仍失败，再注入 recovery user message，
-              要求模型直接续写并拆小剩余工作。恢复次数有上限，避免无限循环。
-            </p>
-
-            <h3>连接错误重试</h3>
-            <p>
-              连接类错误只有在本轮尚未产出任何 <code>AssistantMessage</code> 时才会重试。
-              如果已经产生 assistant message，再重试可能导致重复消息污染历史，所以会走终止错误路径。
-            </p>
-          </section>
-
-          <section id="frontend">
-            <h2>前端事件协议</h2>
-            <p class="section-lead">
-              前端不只消费文本流，还要理解 Agent 的运行状态：工具调用、工具结果、任务进度、权限暂停、
-              用户输入暂停、定时任务状态和 heartbeat。SSE 层负责把内部事件转换为前端可以直接消费的事件。
-            </p>
-
-            <ul class="file-list">
-              <li><code>src/interfaces/server/sse.py</code>：SSE 事件生成。</li>
-              <li><code>src/interfaces/web/</code>：Next.js 前端消费事件并渲染状态。</li>
-              <li><code>src/interfaces/server/schemas.py</code>：请求、响应和 session 结构。</li>
-            </ul>
-
-            <table>
-              <thead>
-                <tr>
-                  <th>事件</th>
-                  <th>来源</th>
-                  <th>前端用途</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>OpenAI chunk</td>
-                  <td><code>StreamEvent.stream_chunk</code></td>
-                  <td>实时渲染 assistant 文本。</td>
-                </tr>
-                <tr>
-                  <td><code>tool_call</code></td>
-                  <td><code>AssistantMessage.tool_use</code></td>
-                  <td>展示模型准备调用哪个工具和参数。</td>
-                </tr>
-                <tr>
-                  <td><code>tool_result</code></td>
-                  <td><code>UserMessage.tool_result</code></td>
-                  <td>展示工具完成状态，内容只截取前 500 字符。</td>
-                </tr>
-                <tr>
-                  <td><code>task_created</code> / <code>task_updated</code></td>
-                  <td>Task 工具结果</td>
-                  <td>维护 todo 进度条和任务列表。</td>
-                </tr>
-                <tr>
-                  <td>Scheduled Tasks 轮询</td>
-                  <td><code>/v1/sandbox/schedules</code> 与 <code>/runs</code></td>
-                  <td>展示定时任务定义、下一次运行时间和最近 run 状态。</td>
-                </tr>
-                <tr>
-                  <td><code>agent_stop</code></td>
-                  <td><code>AgentStopEvent</code></td>
-                  <td>切换到等待用户输入、等待权限或 max_turns 确认状态。</td>
-                </tr>
-                <tr>
-                  <td><code>heartbeat</code></td>
-                  <td>SSE wrapper 超时心跳</td>
-                  <td>保持长连接活跃，避免前端误判请求结束。</td>
-                </tr>
-              </tbody>
-            </table>
-
-            <div class="callout info">
-              <strong>SSE 层的额外职责</strong>
-              流结束后，SSE 层会把本轮 new messages 追加到 <code>session.messages</code>，
-              并从 <code>context.current_messages</code> 回写 <code>session.model_messages</code>。
-              因此它既是协议适配层，也是本轮 query 的持久化收口点。
-            </div>
-          </section>
-
-          <section id="extension">
-            <h2>扩展指南</h2>
-            <p class="section-lead">
-              如果要在当前系统里扩展能力，优先判断它是“新工具”还是“新 Skill”。工具适合新增可执行副作用；
-              Skill 适合把已有工具编排成领域流程。
-            </p>
-
-            <h3>新增一个工具</h3>
-            <div class="flow">
-              <div class="step">
-                <div class="num">1</div>
-                <div>
-                  <strong>创建工具类</strong>
-                  <span>在 <code>src/ripple/tools/builtin/</code> 下实现 <code>Tool[Input, Output]</code>。</span>
-                </div>
+        <section class="slide" id="loop">
+          <div class="slide-inner">
+            <div class="copy">
+              <p class="eyebrow">Module 04</p>
+              <h2>Agent Loop：模型推理与工具事实闭环</h2>
+              <div class="copy-text">
+                <p>模型负责提出下一步，系统负责执行边界内的动作。</p>
+                <p>工具结果不会直接变成最终答案，而是回到模型上下文再判断下一轮。</p>
               </div>
-              <div class="step">
-                <div class="num">2</div>
-                <div>
-                  <strong>定义输入模型和 schema</strong>
-                  <span>用 Pydantic 模型描述参数；必要时重写 <code>_get_parameters_schema()</code>。</span>
-                </div>
-              </div>
-              <div class="step">
-                <div class="num">3</div>
-                <div>
-                  <strong>声明风险等级</strong>
-                  <span>修改文件、执行命令、发消息、删除资源等操作不要标为 safe。</span>
-                </div>
-              </div>
-              <div class="step">
-                <div class="num">4</div>
-                <div>
-                  <strong>实现并发安全判断</strong>
-                  <span>只读、无共享状态的工具可以返回 true；会写 workspace 或改凭证的工具应返回 false。</span>
-                </div>
-              </div>
-              <div class="step">
-                <div class="num">5</div>
-                <div>
-                  <strong>注册到 server 工具列表</strong>
-                  <span>把实例加入 <code>sessions.py::_get_server_tools()</code>。</span>
-                </div>
-              </div>
-              <div class="step">
-                <div class="num">6</div>
-                <div>
-                  <strong>补测试和日志摘要</strong>
-                  <span>覆盖成功、权限拒绝、异常、长输出截断；必要时重写 <code>log_input_summary()</code>。</span>
+              <div class="tagline">重点不是调用一次模型，而是持续推进状态</div>
+            </div>
+
+            <div class="visual">
+              <div class="stage">
+                <div class="knowledge-map">
+                  <div class="knowledge-row">
+                    <div class="knowledge-card">
+                      <strong>1. 准备上下文</strong>
+                      <ul>
+                        <li>lightweight cleanup</li>
+                        <li>should_compact()</li>
+                        <li>同步 current_messages</li>
+                      </ul>
+                    </div>
+                    <div class="arrow"></div>
+                    <div class="knowledge-card">
+                      <strong>2. 调用模型流</strong>
+                      <ul>
+                        <li>client.stream()</li>
+                        <li>StreamEvent 文本增量</li>
+                        <li>AssistantMessage 完整落地</li>
+                      </ul>
+                    </div>
+                    <div class="arrow"></div>
+                    <div class="knowledge-card">
+                      <strong>3. 提取动作</strong>
+                      <ul>
+                        <li>extract_tool_use_blocks()</li>
+                        <li>并发安全工具可抢跑</li>
+                        <li>没有工具则进入 stop hooks</li>
+                      </ul>
+                    </div>
+                  </div>
+                  <div class="knowledge-row">
+                    <div class="knowledge-card">
+                      <strong>6. 停止条件</strong>
+                      <ul>
+                        <li>completed</li>
+                        <li>ask_user / permission</li>
+                        <li>max_turns / unrecoverable</li>
+                      </ul>
+                    </div>
+                    <div class="arrow"></div>
+                    <div class="knowledge-card">
+                      <strong>5. 回灌结果</strong>
+                      <ul>
+                        <li>tool_result block</li>
+                        <li>写回 model context</li>
+                        <li>需要模型再理解一轮</li>
+                      </ul>
+                    </div>
+                    <div class="arrow"></div>
+                    <div class="knowledge-card">
+                      <strong>4. 执行工具</strong>
+                      <ul>
+                        <li>run_tools()</li>
+                        <li>权限 / 沙箱 / 截断</li>
+                        <li>ToolResult 标准化</li>
+                      </ul>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
+          </div>
+        </section>
 
-            <h3>新增一个 Skill</h3>
-            <p>
-              如果能力不需要新增底层副作用，只是希望模型按某个领域流程使用现有工具，则创建
-              <code>SKILL.md</code> 更合适。放在 shared skills 目录可全局可见；放在
-              <code>workspace/skills/</code> 只影响当前 user workspace。
-            </p>
-
-            <div class="callout info">
-              <strong>选择工具还是 Skill</strong>
-              如果需要系统新增一种实际能力，例如调用新的外部 API、读写一种新资源或执行一种新副作用，应新增工具。
-              如果只是把已有工具组织成稳定流程，例如某类文档处理、某个 CLI 的使用规范或某个业务步骤，应新增 Skill。
+        <section class="slide reverse" id="streaming">
+          <div class="slide-inner">
+            <div class="copy">
+              <p class="eyebrow">Module 05</p>
+              <h2>流式 API：增量输出、工具参数和 usage 收口</h2>
+              <div class="copy-text">
+                <p>文本、reasoning、tool arguments 和 usage 会分片到达。</p>
+                <p>API 层负责拼装缓冲区，最后产出 StreamEvent 和完整 AssistantMessage。</p>
+              </div>
+              <div class="tagline">流式适配层让 Agent Loop 不关心 provider 细节</div>
             </div>
 
-            <div class="divider"></div>
-            <p class="caption">
-              本文档对应当前仓库模块结构生成；如果后续调整了 agent loop、工具协议或 sandbox 生命周期，
-              应同步更新对应章节，而不是只改概念图。
-            </p>
-          </section>
-        </article>
+            <div class="visual">
+              <div class="stage">
+                <div class="knowledge-map">
+                  <div class="knowledge-row">
+                    <div class="knowledge-card">
+                      <strong>Provider Delta</strong>
+                      <ul>
+                        <li>text delta</li>
+                        <li>reasoning_content</li>
+                        <li>tool_calls[].function.arguments</li>
+                      </ul>
+                    </div>
+                    <div class="arrow"></div>
+                    <div class="knowledge-card">
+                      <strong>三个缓冲区</strong>
+                      <ul>
+                        <li>current_text</li>
+                        <li>tool_calls_map</li>
+                        <li>last_usage</li>
+                      </ul>
+                    </div>
+                    <div class="arrow"></div>
+                    <div class="knowledge-card">
+                      <strong>内部输出</strong>
+                      <ul>
+                        <li>StreamEvent</li>
+                        <li>AssistantMessage</li>
+                        <li>usage calibration</li>
+                      </ul>
+                    </div>
+                  </div>
+                  <div class="matrix">
+                    <div class="knowledge-card">
+                      <strong>Reasoning</strong>
+                      <ul>
+                        <li>包装为 &lt;think&gt; 文本块</li>
+                        <li>复用 MarkdownRenderer 折叠</li>
+                      </ul>
+                    </div>
+                    <div class="knowledge-card">
+                      <strong>参数解析失败</strong>
+                      <ul>
+                        <li>保留 _args_parse_error</li>
+                        <li>工具层返回结构化错误</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="slide reverse" id="tools">
+          <div class="slide-inner">
+            <div class="copy">
+              <p class="eyebrow">Module 06</p>
+              <h2>工具系统：把模型意图变成受控副作用</h2>
+              <div class="copy-text">
+                <p>Tool 抽象定义模型能调用什么，也定义系统如何安全执行。</p>
+                <p>编排层处理查找、去重、分批、权限、截断和 tool_result 标准化。</p>
+              </div>
+              <div class="tagline">tool use 不是信任边界内的自由执行</div>
+            </div>
+
+            <div class="visual">
+              <div class="stage">
+                <div class="knowledge-map">
+                  <div class="matrix">
+                    <div class="knowledge-card">
+                      <strong>Tool 定义</strong>
+                      <ul>
+                        <li>name / description</li>
+                        <li>input schema</li>
+                        <li>risk_level</li>
+                        <li>max_result_size_chars</li>
+                      </ul>
+                    </div>
+                    <div class="knowledge-card">
+                      <strong>执行约束</strong>
+                      <ul>
+                        <li>requires_confirmation()</li>
+                        <li>is_concurrency_safe()</li>
+                        <li>log_input_summary()</li>
+                        <li>log_result_summary()</li>
+                      </ul>
+                    </div>
+                  </div>
+                  <div class="knowledge-row">
+                    <div class="knowledge-card">
+                      <strong>模型意图</strong>
+                      <ul>
+                        <li>tool_use id</li>
+                        <li>name</li>
+                        <li>input</li>
+                      </ul>
+                    </div>
+                    <div class="arrow"></div>
+                    <div class="knowledge-card">
+                      <strong>编排层</strong>
+                      <ul>
+                        <li>find tool</li>
+                        <li>dedup</li>
+                        <li>partition batches</li>
+                      </ul>
+                    </div>
+                    <div class="arrow"></div>
+                    <div class="knowledge-card">
+                      <strong>模型事实</strong>
+                      <ul>
+                        <li>tool_result</li>
+                        <li>is_error</li>
+                        <li>source assistant uuid</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="slide" id="permission">
+          <div class="slide-inner">
+            <div class="copy">
+              <p class="eyebrow">Module 07</p>
+              <h2>权限暂停：危险动作停在可恢复位置</h2>
+              <div class="copy-text">
+                <p>危险工具在执行前被拦截，并写入等待确认的占位结果。</p>
+                <p>用户确认后，server 重放同一个 tool_use，并替换成真实结果。</p>
+              </div>
+              <div class="tagline">暂停不是失败，是 agent loop 的一个合法出口</div>
+            </div>
+
+            <div class="visual compact">
+              <div class="stage">
+                <div class="state-chart">
+                  <div class="state-row">
+                    <div class="node blue">Tool Call</div>
+                    <div class="arrow"></div>
+                    <div class="node violet">PermissionManager</div>
+                  </div>
+                  <div class="gate">
+                    <div class="knowledge-card">
+                      <strong>已允许</strong>
+                      <ul>
+                        <li>执行工具</li>
+                        <li>生成真实 tool_result</li>
+                        <li>loop 继续</li>
+                      </ul>
+                    </div>
+                    <div class="knowledge-card">
+                      <strong>需要确认</strong>
+                      <ul>
+                        <li>保存 pending request</li>
+                        <li>写等待占位 tool_result</li>
+                        <li>AgentStopEvent</li>
+                      </ul>
+                    </div>
+                  </div>
+                  <div class="state-row">
+                    <div class="node coral">awaiting_permission</div>
+                    <div class="arrow"></div>
+                    <div class="node dark">resolve → replay → replace result</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="slide reverse" id="compact">
+          <div class="slide-inner">
+            <div class="copy">
+              <p class="eyebrow">Module 08</p>
+              <h2>上下文压缩：长任务的模型窗口管理</h2>
+              <div class="copy-text">
+                <p>展示历史可以完整保留，模型上下文必须控制在窗口内。</p>
+                <p>系统先做轻量清理，再尝试摘要，失败时进入定向裁剪和硬截断。</p>
+              </div>
+              <div class="tagline">产品展示历史和模型上下文要分开管理</div>
+            </div>
+
+            <div class="visual">
+              <div class="stage">
+                <div class="knowledge-map">
+                  <div class="knowledge-row">
+                    <div class="knowledge-card">
+                      <strong>常规清理</strong>
+                      <ul>
+                        <li>lightweight_cleanup()</li>
+                        <li>清理旧 tool_result / tool_input</li>
+                        <li>每轮开始执行</li>
+                      </ul>
+                    </div>
+                    <div class="arrow"></div>
+                    <div class="knowledge-card">
+                      <strong>主动压缩</strong>
+                      <ul>
+                        <li>should_compact()</li>
+                        <li>阈值约 75% context window</li>
+                        <li>优先 LLM summary</li>
+                      </ul>
+                    </div>
+                    <div class="arrow"></div>
+                    <div class="knowledge-card">
+                      <strong>失败恢复</strong>
+                      <ul>
+                        <li>reactive_compact()</li>
+                        <li>targeted trim</li>
+                        <li>hard truncate 兜底</li>
+                      </ul>
+                    </div>
+                  </div>
+                  <div class="matrix">
+                    <div class="knowledge-card">
+                      <strong>校准来源</strong>
+                      <ul>
+                        <li>API usage.input_tokens</li>
+                        <li>扣除 system/tool overhead</li>
+                        <li>反向修正估算缓存</li>
+                      </ul>
+                    </div>
+                    <div class="knowledge-card">
+                      <strong>相关文件</strong>
+                      <ul>
+                        <li>compact/auto_compact.py</li>
+                        <li>compact/summary.py</li>
+                        <li>compact/truncate.py</li>
+                        <li>compact/context_manager.py</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="slide reverse" id="skills">
+          <div class="slide-inner">
+            <div class="copy">
+              <p class="eyebrow">Module 09</p>
+              <h2>Skill 系统：把领域 SOP 注入工具使用方式</h2>
+              <div class="copy-text">
+                <p>Skill 不新增底层副作用，而是组织已有工具的使用方式。</p>
+                <p>它声明适用场景、参数、允许工具、执行步骤和失败降级。</p>
+              </div>
+              <div class="tagline">Skill 增加操作知识，不绕过权限系统</div>
+            </div>
+
+            <div class="visual">
+              <div class="stage">
+                <div class="knowledge-map">
+                  <div class="knowledge-row">
+                    <div class="knowledge-card">
+                      <strong>1. 文件入口</strong>
+                      <ul>
+                        <li>SKILL.md</li>
+                        <li>YAML frontmatter</li>
+                        <li>name / description</li>
+                      </ul>
+                    </div>
+                    <div class="arrow"></div>
+                    <div class="knowledge-card">
+                      <strong>2. 加载顺序</strong>
+                      <ul>
+                        <li>shared skills</li>
+                        <li>workspace/skills</li>
+                        <li>workspace 覆盖 shared</li>
+                      </ul>
+                    </div>
+                    <div class="arrow"></div>
+                    <div class="knowledge-card">
+                      <strong>3. 暴露给模型</strong>
+                      <ul>
+                        <li>SkillTool schema</li>
+                        <li>args 参数替换</li>
+                        <li>allowed tools 约束</li>
+                      </ul>
+                    </div>
+                  </div>
+                  <div class="matrix">
+                    <div class="knowledge-card">
+                      <strong>inline</strong>
+                      <ul>
+                        <li>把 skill 正文作为 tool_result</li>
+                        <li>当前模型继续执行流程</li>
+                      </ul>
+                    </div>
+                    <div class="knowledge-card">
+                      <strong>fork</strong>
+                      <ul>
+                        <li>通过 AgentTool 启动子 agent</li>
+                        <li>适合复杂多步骤任务</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="slide" id="scheduler">
+          <div class="slide-inner">
+            <div class="copy">
+              <p class="eyebrow">Module 10</p>
+              <h2>定时任务：后台执行仍然属于用户沙箱</h2>
+              <div class="copy-text">
+                <p>Scheduler 由 Server 后台 tick 驱动，不依赖模型阻塞等待。</p>
+                <p>每次运行都写入状态和历史，command 与 agent job 都落在当前 user 边界内。</p>
+              </div>
+              <div class="tagline">任务定义、运行状态和 run history 分开持久化</div>
+            </div>
+
+            <div class="visual">
+              <div class="stage">
+                <div class="knowledge-map">
+                  <div class="knowledge-row">
+                    <div class="knowledge-card">
+                      <strong>任务定义</strong>
+                      <ul>
+                        <li>execution_type: command / agent</li>
+                        <li>schedule_type: once / interval</li>
+                        <li>enabled / timeout / max_runs</li>
+                      </ul>
+                    </div>
+                    <div class="arrow"></div>
+                    <div class="knowledge-card">
+                      <strong>后台扫描</strong>
+                      <ul>
+                        <li>SchedulerManager tick</li>
+                        <li>检查 next_run_at</li>
+                        <li>running marker 防重复</li>
+                      </ul>
+                    </div>
+                    <div class="arrow"></div>
+                    <div class="knowledge-card">
+                      <strong>执行收口</strong>
+                      <ul>
+                        <li>command: user lock + nsjail</li>
+                        <li>agent: sched-* runtime</li>
+                        <li>写 duration / summary / tail</li>
+                      </ul>
+                    </div>
+                  </div>
+                  <div class="matrix">
+                    <div class="knowledge-card">
+                      <strong>存储拆分</strong>
+                      <ul>
+                        <li>jobs.json：定义</li>
+                        <li>jobs-state.json：运行态</li>
+                        <li>runs/&lt;job&gt;/&lt;run&gt;.json：历史</li>
+                      </ul>
+                    </div>
+                    <div class="knowledge-card">
+                      <strong>入口</strong>
+                      <ul>
+                        <li>Schedule tool</li>
+                        <li>/v1/sandbox/schedules</li>
+                        <li>ScheduledTasksPanel</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="slide reverse" id="fork">
+          <div class="slide-inner">
+            <div class="copy">
+              <p class="eyebrow">Module 11</p>
+              <h2>Subagent / Fork：继承上下文的后台分工</h2>
+              <div class="copy-text">
+                <p>AgentTool 会 fork 父上下文，并把子任务追加到稳定的消息前缀之后。</p>
+                <p>子 agent 继承工具、cwd、workspace 和权限边界，但写入自己的后台输出。</p>
+              </div>
+              <div class="tagline">Fork 的关键是上下文继承和防递归</div>
+            </div>
+
+            <div class="visual">
+              <div class="stage">
+                <div class="knowledge-map">
+                  <div class="knowledge-row">
+                    <div class="knowledge-card">
+                      <strong>父上下文</strong>
+                      <ul>
+                        <li>current_messages</li>
+                        <li>tool set / cwd</li>
+                        <li>permission_manager</li>
+                      </ul>
+                    </div>
+                    <div class="arrow"></div>
+                    <div class="knowledge-card">
+                      <strong>fork 构造</strong>
+                      <ul>
+                        <li>保留父 assistant tool_use</li>
+                        <li>填统一占位 tool_result</li>
+                        <li>追加子任务指令</li>
+                      </ul>
+                    </div>
+                    <div class="arrow"></div>
+                    <div class="knowledge-card">
+                      <strong>后台输出</strong>
+                      <ul>
+                        <li>task-outputs/</li>
+                        <li>AgentToolOutput</li>
+                        <li>父 agent 可读取摘要</li>
+                      </ul>
+                    </div>
+                  </div>
+                  <div class="matrix">
+                    <div class="knowledge-card">
+                      <strong>防递归</strong>
+                      <ul>
+                        <li>扫描 &lt;fork-boilerplate&gt;</li>
+                        <li>子 agent 再调 AgentTool 会返回错误</li>
+                      </ul>
+                    </div>
+                    <div class="knowledge-card">
+                      <strong>相关文件</strong>
+                      <ul>
+                        <li>tools/builtin/agent_tool.py</li>
+                        <li>core/fork.py</li>
+                        <li>core/background.py</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="slide" id="hooks">
+          <div class="slide-inner">
+            <div class="copy">
+              <p class="eyebrow">Module 12</p>
+              <h2>Hooks / Recovery：完成前校验与错误分流</h2>
+              <div class="copy-text">
+                <p>模型停止调用工具不等于系统一定可以结束。</p>
+                <p>Stop hooks 做最后校验；恢复器把输出超限、连接错误等问题分到不同处理路径。</p>
+              </div>
+              <div class="tagline">hook 是完成前检查，不替代工具权限</div>
+            </div>
+
+            <div class="visual">
+              <div class="stage">
+                <div class="knowledge-map">
+                  <div class="knowledge-row">
+                    <div class="knowledge-card">
+                      <strong>Stop Hooks</strong>
+                      <ul>
+                        <li>仅在无 tool_use 时运行</li>
+                        <li>发现问题可阻塞完成</li>
+                        <li>也可写回消息继续一轮</li>
+                      </ul>
+                    </div>
+                    <div class="arrow"></div>
+                    <div class="knowledge-card">
+                      <strong>max_output_tokens</strong>
+                      <ul>
+                        <li>第一阶段放大 max_tokens</li>
+                        <li>第二阶段注入 recovery message</li>
+                        <li>次数上限防循环</li>
+                      </ul>
+                    </div>
+                    <div class="arrow"></div>
+                    <div class="knowledge-card">
+                      <strong>连接错误</strong>
+                      <ul>
+                        <li>未产出 assistant 时可重试</li>
+                        <li>已产出则避免重复污染历史</li>
+                        <li>走终止错误路径</li>
+                      </ul>
+                    </div>
+                  </div>
+                  <div class="matrix">
+                    <div class="knowledge-card">
+                      <strong>恢复目标</strong>
+                      <ul>
+                        <li>尽量维持同一 session</li>
+                        <li>避免重复 assistant message</li>
+                        <li>让模型能继续收口</li>
+                      </ul>
+                    </div>
+                    <div class="knowledge-card">
+                      <strong>相关文件</strong>
+                      <ul>
+                        <li>core/stop_hooks.py</li>
+                        <li>core/recovery.py</li>
+                        <li>core/errors.py</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="slide reverse" id="frontend">
+          <div class="slide-inner">
+            <div class="copy">
+              <p class="eyebrow">Module 13</p>
+              <h2>前端事件协议：文本流之外的运行状态</h2>
+              <div class="copy-text">
+                <p>Web UI 不只显示 assistant 文本，还要显示工具执行、任务进度和暂停状态。</p>
+                <p>SSE adapter 把内部事件翻译成 OpenAI chunk 与 Ripple 扩展事件。</p>
+              </div>
+              <div class="tagline">SSE 层同时负责协议翻译和本轮持久化收口</div>
+            </div>
+
+            <div class="visual">
+              <div class="stage">
+                <div class="knowledge-map">
+                  <div class="knowledge-row">
+                    <div class="knowledge-card">
+                      <strong>Agent 内部事件</strong>
+                      <ul>
+                        <li>StreamEvent</li>
+                        <li>AssistantMessage</li>
+                        <li>UserMessage tool_result</li>
+                        <li>AgentStopEvent</li>
+                      </ul>
+                    </div>
+                    <div class="arrow"></div>
+                    <div class="knowledge-card">
+                      <strong>SSE Adapter</strong>
+                      <ul>
+                        <li>OpenAI chunk</li>
+                        <li>tool_call / tool_result</li>
+                        <li>task_progress / heartbeat</li>
+                      </ul>
+                    </div>
+                    <div class="arrow"></div>
+                    <div class="knowledge-card">
+                      <strong>Web UI</strong>
+                      <ul>
+                        <li>ChatMessage</li>
+                        <li>TaskExecutionPanel</li>
+                        <li>ScheduledTasksPanel</li>
+                        <li>SettingsModal</li>
+                      </ul>
+                    </div>
+                  </div>
+                  <div class="matrix">
+                    <div class="knowledge-card">
+                      <strong>暂停状态</strong>
+                      <ul>
+                        <li>awaiting_user_input</li>
+                        <li>awaiting_permission</li>
+                        <li>idle / running</li>
+                      </ul>
+                    </div>
+                    <div class="knowledge-card">
+                      <strong>收口动作</strong>
+                      <ul>
+                        <li>追加 session.messages</li>
+                        <li>回写 session.model_messages</li>
+                        <li>同步 usage 与状态</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="slide" id="extend">
+          <div class="slide-inner">
+            <div class="copy">
+              <p class="eyebrow">Module 14</p>
+              <h2>扩展路径：Tool 改能力，Skill 改流程</h2>
+              <div class="copy-text">
+                <p>新外部 API、CLI、文件写入或资源操作，应该落成 Tool。</p>
+                <p>已有工具的稳定组合、业务 SOP、服务使用规范，应该落成 Skill。</p>
+              </div>
+              <div class="tagline">Tool 改执行边界，Skill 改操作方式</div>
+            </div>
+
+            <div class="visual compact">
+              <div class="stage">
+                <div class="choice-tree">
+                  <div class="node dark">我要扩展 Ripple</div>
+                  <div class="decision"><span>新副作用?</span></div>
+                  <div class="split">
+                    <div class="knowledge-card">
+                      <strong>是：新增 Tool</strong>
+                      <ul>
+                        <li>实现 Tool 类</li>
+                        <li>定义 Pydantic 输入</li>
+                        <li>声明 risk / concurrency</li>
+                        <li>注册到 server tools</li>
+                      </ul>
+                    </div>
+                    <div class="knowledge-card">
+                      <strong>否：新增 Skill</strong>
+                      <ul>
+                        <li>创建 SKILL.md</li>
+                        <li>写使用时机和步骤</li>
+                        <li>限制 allowed tools</li>
+                        <li>描述失败降级方式</li>
+                      </ul>
+                    </div>
+                  </div>
+                  <div class="split">
+                    <div class="mini">API / CLI / 文件写入 / 外部服务</div>
+                    <div class="mini">文档处理 / 业务 SOP / 服务使用规范</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="slide reverse" id="wrap">
+          <div class="slide-inner">
+            <div class="copy">
+              <p class="eyebrow">Runtime Map</p>
+              <h2>一条主线，多个支撑系统</h2>
+              <div class="copy-text">
+                <p>主线负责推进一次请求：入口、会话、消息、循环、工具和权限。</p>
+                <p>支撑系统负责维持工程可用性：压缩、调度、子代理、恢复、前端事件和扩展边界。</p>
+              </div>
+              <p class="footer-note">Ripple 的关键设计是让模型只提出动作，让运行时掌握状态、权限和副作用。</p>
+            </div>
+
+            <div class="visual compact">
+              <div class="stage">
+                <div class="module-map">
+                  <div class="node teal">主线<br /><span class="caption">Entry → Session → Loop</span></div>
+                  <div class="node blue">执行<br /><span class="caption">Tools → Permission</span></div>
+                  <div class="node violet">上下文<br /><span class="caption">Messages → Streaming → Compact</span></div>
+                  <div class="node coral">后台<br /><span class="caption">Scheduler → Fork</span></div>
+                  <div class="node core">Ripple Tutorial</div>
+                  <div class="node lime">校验<br /><span class="caption">Hooks → Recovery</span></div>
+                  <div class="node">能力<br /><span class="caption">Skills → Extend</span></div>
+                  <div class="node">界面<br /><span class="caption">SSE → Web UI</span></div>
+                  <div class="node">隔离<br /><span class="caption">User Sandbox</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
       </main>
     </div>
 
@@ -1719,8 +1847,8 @@
           }
         },
         {
-          rootMargin: "-12% 0px -70% 0px",
-          threshold: [0.05, 0.2, 0.5],
+          rootMargin: "-20% 0px -60% 0px",
+          threshold: [0.08, 0.24, 0.5],
         },
       );
 

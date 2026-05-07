@@ -103,6 +103,20 @@ logging:
 server:
   host: "0.0.0.0"
   port: 8810
+  # 浏览器能访问到的后端根地址。配置后 gogcli Google OAuth 可以由后端自动接收
+  # callback 并完成授权，用户不再需要复制 127.0.0.1 回调 URL。
+  # 本机开发可用: "http://localhost:8810"
+  # 远程部署请填写公网 HTTPS 地址，并在 GCP Web OAuth Client 里把下方完整
+  # callback URL 加到 Authorized redirect URIs。
+  # public_base_url: "http://localhost:8810"
+  gogcli_oauth:
+    # 未显式配置 public_base_url/callback_url 时，自动使用当前 API 请求的 Host
+    # 生成 callback URL。Web UI、localhost、端口转发、常规反向代理通常都适用；
+    # 如果你的 API Host 不是用户浏览器可访问地址，可设为 false 强制回到手工复制模式。
+    auto_from_request: true
+    # 优先级高于 public_base_url。通常保持注释，让系统使用:
+    #   <server.public_base_url>/v1/sandboxes/gogcli/oauth/callback
+    # callback_url: "http://localhost:8810/v1/sandboxes/gogcli/oauth/callback"
   api_keys:
     - "<RIPPLE_SERVER_API_KEY>"
   session:

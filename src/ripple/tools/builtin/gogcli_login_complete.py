@@ -14,6 +14,7 @@
 
 import re
 from typing import Any
+from urllib.parse import urlparse
 
 from ripple.core.context import ToolUseContext
 from ripple.messages.types import AssistantMessage
@@ -27,11 +28,21 @@ from ripple.utils.logger import get_logger
 
 logger = get_logger("tools.gogcli_login_complete")
 
-_CALLBACK_URL_PATTERN = re.compile(r"^https?://[^/]+/oauth2/callback\?[^\s]+$")
+_CALLBACK_URL_PATTERN = re.compile(r"^https?://[^\s]+\?[^\s]+$")
 
 
 def _shq(s: str) -> str:
     return "'" + s.replace("'", "'\\''") + "'"
+
+
+def _looks_like_callback_url(callback_url: str) -> bool:
+    if not _CALLBACK_URL_PATTERN.match(callback_url):
+        return False
+    try:
+        parsed = urlparse(callback_url)
+    except ValueError:
+        return False
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc) and bool(parsed.path)
 
 
 class GoogleWorkspaceLoginCompleteTool(Tool):
@@ -105,13 +116,13 @@ class GoogleWorkspaceLoginCompleteTool(Tool):
 
         if not email or "@" not in email:
             return ToolResult(data={"ok": False, "error": "email 参数无效"})
-        if not _CALLBACK_URL_PATTERN.match(callback_url):
+        if not _looks_like_callback_url(callback_url):
             return ToolResult(
                 data={
                     "ok": False,
                     "error": (
-                        "callback_url 格式不符。期望形如 "
-                        "http://127.0.0.1:<port>/oauth2/callback?code=...&state=...\n"
+                        "callback_url 格式不符。期望形如带 code/state 查询参数的完整 http(s) URL，"
+                        "例如 http://127.0.0.1:<port>/oauth2/callback?code=...&state=...\n"
                         f"实际收到: {callback_url[:200]}"
                     ),
                 }

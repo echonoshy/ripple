@@ -60,6 +60,7 @@ class ToolUseContext:
     user_id: str | None = None  # 沙箱绑定的 user_id（Phase 3 起；None 表示旧 session-only 模式）
     sandbox_manager: Any | None = None
     sandboxed: bool = False
+    request_public_base_url: str | None = None
 
     on_progress: Callable | None = None
     on_notification: Callable | None = None

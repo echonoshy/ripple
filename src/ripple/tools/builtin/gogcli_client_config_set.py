@@ -1,7 +1,7 @@
-"""GoogleWorkspaceClientConfigSet — 把用户贴的 Desktop OAuth client_secret.json 绑到当前 user
+"""GoogleWorkspaceClientConfigSet — 把用户贴的 OAuth client_secret.json 绑到当前 user
 
 两步流程的**第 1 步**：
-  1. 用户在 GCP Console 建一个 **Desktop** OAuth Client，下 JSON。
+  1. 用户在 GCP Console 建 OAuth Client 并下载 JSON。
   2. 用户把 JSON 贴到对话，agent 调本工具。
   3. 本工具落盘到 `sandboxes/<uid>/credentials/gogcli-client.json`。
   4. 然后在沙箱里跑 `gog auth credentials <path>` 把 client 真正注册到 gogcli 自己
@@ -31,12 +31,12 @@ _SANDBOX_CLIENT_JSON_DST = "/workspace/.config/gogcli/.pending-client.json"
 
 
 class GoogleWorkspaceClientConfigSetTool(Tool):
-    """绑定 Desktop OAuth client_secret.json 到当前 user（per-user 隔离）"""
+    """绑定 OAuth client_secret.json 到当前 user（per-user 隔离）"""
 
     def __init__(self):
         self.name = "GoogleWorkspaceClientConfigSet"
         self.description = (
-            "Bind the user's Google Cloud Desktop OAuth client configuration "
+            "Bind the user's Google Cloud OAuth client configuration "
             "(client_secret.json) to the current user. Call this **immediately** after "
             "the user pastes the JSON contents of `client_secret_*.json` from GCP Console.\n\n"
             "When to trigger:\n"
@@ -51,9 +51,13 @@ class GoogleWorkspaceClientConfigSetTool(Tool):
             "  is strictly isolated; credentials won't leak to other users. Only advise if the "
             "  user explicitly asks about security.\n"
             "- After this tool succeeds, the very next step is `GoogleWorkspaceLoginStart`.\n\n"
-            "If the user hasn't created a Desktop OAuth Client yet, first guide them:\n"
+            "If the user hasn't created an OAuth Client yet, first guide them:\n"
             "  1. Open https://console.cloud.google.com/apis/credentials → pick/create a project.\n"
-            "  2. Create Credentials → OAuth client ID → Application type: **Desktop app** → name it.\n"
+            "  2. Create Credentials → OAuth client ID.\n"
+            "     - Local one-machine Ripple: Application type **Desktop app** is fine.\n"
+            "     - Remote/server Ripple with assisted callback: use **Web application** and add "
+            "the actual Ripple callback URL as an Authorized redirect URI. It can come from "
+            "`server.gogcli_oauth.callback_url`, `server.public_base_url`, or the current API request origin.\n"
             "  3. Download the JSON (`client_secret_<number>-<hash>.apps.googleusercontent.com.json`).\n"
             "  4. Configure OAuth consent screen (External type → add user's own account as Test user).\n"
             "  5. In 'Enabled APIs & Services' enable ALL the APIs below (first-time, one-shot):\n"
@@ -74,7 +78,7 @@ class GoogleWorkspaceClientConfigSetTool(Tool):
                         "client_secret_json": {
                             "type": "string",
                             "description": (
-                                "The full JSON text of the user's Desktop OAuth client_secret.json. "
+                                "The full JSON text of the user's OAuth client_secret.json. "
                                 "Must contain `installed` or `web` with `client_id` and `client_secret`."
                             ),
                         },
@@ -163,7 +167,8 @@ class GoogleWorkspaceClientConfigSetTool(Tool):
                 "next": (
                     "Client config 已绑定。**下一步立刻调 `GoogleWorkspaceLoginStart`**，"
                     "它会在沙箱里启动 `gog auth add --remote --step 1` 并返回 OAuth URL。"
-                    "把 URL 原样转发给用户，让他本地浏览器打开→点 Allow→复制地址栏 URL 粘回对话。"
+                    "如果 Ripple 能从配置或当前 API 请求推断 callback URL，"
+                    "用户只需在浏览器授权；否则按手工 remote 流程复制地址栏 callback URL 粘回对话。"
                     "不要主动劝用户 rotate client_secret —— sandbox 严格隔离。"
                 ),
             }

@@ -3,11 +3,12 @@
 包含 chat completions、models、health、sessions、tools/invoke 等端点。
 """
 
+import html
 import time
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import Response, StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse, Response, StreamingResponse
 
 from interfaces.server.auth import verify_api_key
 from interfaces.server.deps import get_user_id
@@ -220,9 +221,16 @@ def _replace_tool_result(messages: list[Any], tool_use_id: str, replacement_mess
     messages.extend(replacement_messages)
 
 
+def _request_public_base_url(request: Request) -> str | None:
+    from ripple.sandbox.gogcli_oauth import gogcli_oauth_request_base_url  # noqa: PLC0415
+
+    return gogcli_oauth_request_base_url(dict(request.headers), str(request.url))
+
+
 @router.post("/v1/chat/completions")
 async def chat_completions(
     request: ChatCompletionRequest,
+    http_request: Request,
     user_id: str = Depends(get_user_id),
     _api_key: str = Depends(verify_api_key),
 ):
@@ -249,6 +257,7 @@ async def chat_completions(
     # 对已存在的 session：本轮带了 system 就覆盖，没带就清空 caller 段（仅默认 prompt 生效）
     if not is_new:
         session.caller_system_prompt = caller_system_prompt
+    session.context.request_public_base_url = _request_public_base_url(http_request)
 
     if request.stream:
         return StreamingResponse(
@@ -825,6 +834,118 @@ async def get_gogcli_accounts(
     )
 
 
+def _gogcli_oauth_html(title: str, body: str, *, status_code: int = 200) -> HTMLResponse:
+    escaped_title = html.escape(title)
+    escaped_body = html.escape(body)
+    return HTMLResponse(
+        status_code=status_code,
+        content=f"""<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{escaped_title}</title>
+    <style>
+      body {{
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        line-height: 1.6;
+        max-width: 720px;
+        margin: 12vh auto;
+        padding: 0 24px;
+        color: #111827;
+      }}
+      h1 {{ font-size: 24px; margin-bottom: 12px; }}
+      p {{ color: #374151; }}
+    </style>
+  </head>
+  <body>
+    <h1>{escaped_title}</h1>
+    <p>{escaped_body}</p>
+  </body>
+</html>""",
+    )
+
+
+@router.get("/v1/sandboxes/gogcli/oauth/callback", include_in_schema=False)
+async def gogcli_oauth_callback(request: Request) -> HTMLResponse:
+    """Browser callback for assisted gogcli OAuth.
+
+    Google cannot send Ripple API auth headers during OAuth redirects. This
+    endpoint is therefore protected by gogcli's random `state`; the route only
+    works when `GoogleWorkspaceLoginStart` has registered a matching pending
+    state in this process.
+    """
+    from ripple.sandbox.config import GOGCLI_CLI_SANDBOX_BIN  # noqa: PLC0415
+    from ripple.sandbox.executor import execute_in_sandbox  # noqa: PLC0415
+    from ripple.sandbox.gogcli import ensure_gogcli_keyring_password  # noqa: PLC0415
+    from ripple.sandbox.gogcli_oauth import build_gogcli_callback_auth_url, pop_pending_gogcli_oauth  # noqa: PLC0415
+    from ripple.sandbox.nsjail_config import write_nsjail_config  # noqa: PLC0415
+    from ripple.tools.builtin.bash import _sandbox_config  # noqa: PLC0415
+    from ripple.tools.builtin.gogcli_login_complete import _shq  # noqa: PLC0415
+
+    state = (request.query_params.get("state") or "").strip()
+    if not state:
+        return _gogcli_oauth_html("Google 授权失败", "OAuth 回调缺少 state 参数。", status_code=400)
+
+    pending = pop_pending_gogcli_oauth(state)
+    if pending is None:
+        return _gogcli_oauth_html(
+            "Google 授权已过期",
+            "找不到匹配的 OAuth 登录请求，可能已经超过 10 分钟或服务已重启。请回到 Ripple 重新发起授权。",
+            status_code=400,
+        )
+
+    provider_error = request.query_params.get("error")
+    if provider_error:
+        description = request.query_params.get("error_description") or provider_error
+        return _gogcli_oauth_html(
+            "Google 授权被拒绝",
+            f"Google 返回错误：{description}。请回到 Ripple 重新发起授权。",
+            status_code=400,
+        )
+
+    if "code" not in request.query_params:
+        return _gogcli_oauth_html("Google 授权失败", "OAuth 回调缺少 code 参数。", status_code=400)
+
+    if _sandbox_config is None:
+        return _gogcli_oauth_html("Google 授权失败", "Ripple sandbox 未启用，无法保存 gogcli 凭证。", status_code=500)
+    if not _sandbox_config.gogcli_cli_install_root:
+        return _gogcli_oauth_html("Google 授权失败", "gogcli 未预装，无法保存 Google 凭证。", status_code=500)
+
+    ensure_gogcli_keyring_password(_sandbox_config, pending.user_id)
+    write_nsjail_config(_sandbox_config, pending.user_id)
+    query_string = request.scope.get("query_string", b"")
+    if isinstance(query_string, bytes):
+        query = query_string.decode("ascii", errors="ignore")
+    else:
+        query = str(query_string)
+    callback_url = build_gogcli_callback_auth_url(pending.redirect_uri, query)
+    cmd = (
+        f"{GOGCLI_CLI_SANDBOX_BIN} auth add {_shq(pending.email)} "
+        f"--services user --remote --step 2 --auth-url {_shq(callback_url)}"
+    )
+    stdout, stderr, code = await execute_in_sandbox(cmd, _sandbox_config, pending.user_id, timeout=60)
+    if code != 0:
+        detail = (stderr or stdout)[-500:] or "unknown error"
+        logger.warning(
+            "user {} assisted gog auth step 2 失败 (code={}): {}",
+            pending.user_id,
+            code,
+            detail[:300],
+        )
+        return _gogcli_oauth_html(
+            "Google 授权未完成",
+            f"gogcli 保存凭证失败：{detail}。请回到 Ripple 重新发起授权。",
+            status_code=500,
+        )
+
+    logger.info("user {} assisted gogcli 绑定成功: {}", pending.user_id, pending.email)
+    return _gogcli_oauth_html(
+        "Google 授权完成",
+        "Ripple 已保存 Google Workspace 授权。可以关闭这个页面，回到对话继续。",
+    )
+
+
 # ─── Scheduled Sandbox Jobs (user-scoped) ───
 
 
@@ -1080,6 +1201,7 @@ async def get_sandbox_info(
 @router.post("/v1/tools/invoke")
 async def invoke_tool(
     request: ToolInvokeRequest,
+    http_request: Request,
     user_id: str = Depends(get_user_id),
     _api_key: str = Depends(verify_api_key),
 ):
@@ -1093,6 +1215,7 @@ async def invoke_tool(
         session = manager.create_session(user_id=user_id)
 
     context = session.context
+    context.request_public_base_url = _request_public_base_url(http_request)
     tool_instance = None
     for t in context.options.tools:
         if t.name == request.tool:

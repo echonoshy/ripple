@@ -5,7 +5,7 @@
 流程：
   1. agent 从用户输入里拿到形如
      `http://127.0.0.1:<port>/oauth2/callback?code=...&state=...` 的 URL。
-  2. 本工具在沙箱里跑 `gog auth add <email> --services user --remote --step 2 --auth-url '<url>'`。
+  2. 本工具在沙箱里跑基础 Workspace services 的 `gog auth add ... --remote --step 2 --auth-url '<url>'`。
   3. gog 内部校验 state、用 code 换 token、加密存 refresh_token 到 keyring。
   4. 工具返回 ok=true，agent 业务继续。
 
@@ -21,7 +21,7 @@ from ripple.messages.types import AssistantMessage
 from ripple.permissions.levels import ToolRiskLevel
 from ripple.sandbox.config import GOGCLI_CLI_SANDBOX_BIN
 from ripple.sandbox.executor import execute_in_sandbox
-from ripple.sandbox.gogcli import ensure_gogcli_keyring_password
+from ripple.sandbox.gogcli import GOGCLI_BASIC_SERVICES_ARG, ensure_gogcli_keyring_password
 from ripple.sandbox.nsjail_config import write_nsjail_config
 from ripple.tools.base import Tool, ToolResult
 from ripple.utils.logger import get_logger
@@ -139,7 +139,7 @@ class GoogleWorkspaceLoginCompleteTool(Tool):
         write_nsjail_config(_sandbox_config, user_id)
         cmd = (
             f"{GOGCLI_CLI_SANDBOX_BIN} auth add {_shq(email)} "
-            f"--services user --remote --step 2 --auth-url {_shq(callback_url)}"
+            f"--services {GOGCLI_BASIC_SERVICES_ARG} --remote --step 2 --auth-url {_shq(callback_url)}"
         )
         stdout, stderr, code = await execute_in_sandbox(cmd, _sandbox_config, user_id, timeout=60)
 

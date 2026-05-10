@@ -1,13 +1,15 @@
-"""GoogleWorkspaceClientConfigSet — 把用户贴的 OAuth client_secret.json 绑到当前 user
+"""GoogleWorkspaceClientConfigSet — 管理员/开发调试时绑定 Google OAuth 凭据到当前 user
 
-两步流程的**第 1 步**：
-  1. 用户在 GCP Console 建 OAuth Client 并下载 JSON。
-  2. 用户把 JSON 贴到对话，agent 调本工具。
-  3. 本工具落盘到 `sandboxes/<uid>/credentials/gogcli-client.json`。
-  4. 然后在沙箱里跑 `gog auth credentials <path>` 把 client 真正注册到 gogcli 自己
+正常终端用户授权流程不应该调用本工具。部署方应在 `config/settings.yaml` 里配置
+`server.gogcli_oauth.client`，随后由 `GoogleWorkspaceLoginStart` 自动注册。
+
+本工具只保留给管理员/开发者做迁移、排障或一次性调试：
+  1. 管理员已经在对话中明确提供凭据 JSON。
+  2. 本工具落盘到 `sandboxes/<uid>/credentials/gogcli-client.json`。
+  3. 然后在沙箱里跑 `gog auth credentials <path>` 把 client 真正注册到 gogcli 自己
      的 config（`$XDG_CONFIG_HOME/gogcli/credentials.json`），供后续 `gog auth add`
      使用。
-  5. 本工具会顺便触发"注册到 gogcli config"那一步（一次 sandbox bash 调用），
+  4. 本工具会顺便触发"注册到 gogcli config"那一步（一次 sandbox bash 调用），
      让 `GoogleWorkspaceLoginStart` 直接可用。
 
 风险等级：SAFE（写 user 自己目录的一份 JSON + 在沙箱里跑一条幂等命令）。
@@ -18,51 +20,40 @@ from typing import Any
 from ripple.core.context import ToolUseContext
 from ripple.messages.types import AssistantMessage
 from ripple.permissions.levels import ToolRiskLevel
-from ripple.sandbox.config import GOGCLI_CLI_SANDBOX_BIN
-from ripple.sandbox.executor import execute_in_sandbox
-from ripple.sandbox.gogcli import ensure_gogcli_keyring_password, write_gogcli_client_config
-from ripple.sandbox.nsjail_config import write_nsjail_config
+from ripple.sandbox.gogcli_registration import GogcliClientRegistrationError, register_gogcli_client_config
 from ripple.tools.base import Tool, ToolResult
 from ripple.utils.logger import get_logger
 
 logger = get_logger("tools.gogcli_client_config_set")
 
-_SANDBOX_CLIENT_JSON_DST = "/workspace/.config/gogcli/.pending-client.json"
-
 
 class GoogleWorkspaceClientConfigSetTool(Tool):
-    """绑定 OAuth client_secret.json 到当前 user（per-user 隔离）"""
+    """管理员/开发调试时绑定 Google OAuth 凭据到当前 user（per-user 隔离）"""
 
     def __init__(self):
         self.name = "GoogleWorkspaceClientConfigSet"
         self.description = (
-            "Bind the user's Google Cloud OAuth client configuration "
-            "(client_secret.json) to the current user. Call this **immediately** after "
-            "the user pastes the JSON contents of `client_secret_*.json` from GCP Console.\n\n"
+            "Admin/debug-only escape hatch: bind a Google OAuth credential JSON to the current "
+            "user. Normal end-user login should use `GoogleWorkspaceLoginStart`, which "
+            "auto-registers `server.gogcli_oauth.client` when the deployment is configured. "
+            "Call this tool only when an operator has already supplied the JSON explicitly for "
+            "migration, debugging, or one-off local setup.\n\n"
             "When to trigger:\n"
-            "- User pastes a JSON blob whose top-level key is `installed` (Desktop) or `web`.\n"
+            "- Operator/admin supplies a JSON blob whose top-level key is `installed` (Desktop) or `web`.\n"
             "- The JSON contains `client_id` and `client_secret`.\n"
-            "- You got a `[GOGCLI_CLIENT_CONFIG_REQUIRED]` guard.\n\n"
+            "- The operator explicitly confirms this is an admin/debug setup, not a normal "
+            "  end-user authorization flow.\n\n"
             "IMPORTANT:\n"
-            "- Pass exactly what the user pasted via `client_secret_json` (no trim/reformat).\n"
-            "- Do NOT echo `client_secret` back to the user in subsequent messages. "
+            "- Do not route normal users to this tool. If login reports missing server config, "
+            "  tell the user the service is not configured yet and ask an administrator to fix "
+            "  `server.gogcli_oauth.client`.\n"
+            "- Pass exactly the supplied JSON via `client_secret_json` (no reformat).\n"
+            "- Do NOT echo `client_secret` back in subsequent messages. "
             "  You may mention `client_id` (not a secret).\n"
             "- Do NOT proactively warn 'rotate your secret / security risk'. The user sandbox "
             "  is strictly isolated; credentials won't leak to other users. Only advise if the "
             "  user explicitly asks about security.\n"
-            "- After this tool succeeds, the very next step is `GoogleWorkspaceLoginStart`.\n\n"
-            "If the user hasn't created an OAuth Client yet, first guide them:\n"
-            "  1. Open https://console.cloud.google.com/apis/credentials → pick/create a project.\n"
-            "  2. Create Credentials → OAuth client ID.\n"
-            "     - Local one-machine Ripple: Application type **Desktop app** is fine.\n"
-            "     - Remote/server Ripple with assisted callback: use **Web application** and add "
-            "the actual Ripple callback URL as an Authorized redirect URI. It can come from "
-            "`server.gogcli_oauth.callback_url`, `server.public_base_url`, or the current API request origin.\n"
-            "  3. Download the JSON (`client_secret_<number>-<hash>.apps.googleusercontent.com.json`).\n"
-            "  4. Configure OAuth consent screen (External type → add user's own account as Test user).\n"
-            "  5. In 'Enabled APIs & Services' enable ALL the APIs below (first-time, one-shot):\n"
-            "     Gmail, Drive, Calendar, Sheets, Docs, Slides, Tasks, People, Chat, Forms, Apps Script, Classroom.\n"
-            "  6. Paste the full JSON content here.\n"
+            "- After this tool succeeds, the very next step is `GoogleWorkspaceLoginStart`.\n"
         )
         self.risk_level = ToolRiskLevel.SAFE
 
@@ -78,7 +69,7 @@ class GoogleWorkspaceClientConfigSetTool(Tool):
                         "client_secret_json": {
                             "type": "string",
                             "description": (
-                                "The full JSON text of the user's OAuth client_secret.json. "
+                                "The full Google OAuth credential JSON supplied by the operator. "
                                 "Must contain `installed` or `web` with `client_id` and `client_secret`."
                             ),
                         },
@@ -99,7 +90,10 @@ class GoogleWorkspaceClientConfigSetTool(Tool):
             return ToolResult(
                 data={
                     "ok": False,
-                    "error": "client_secret_json 为空。请让用户把 GCP Console 下载的 client_secret_*.json 完整粘贴过来。",
+                    "error": (
+                        "client_secret_json 为空。此工具仅供管理员/开发调试；"
+                        "正常授权请先配置 server.gogcli_oauth.client 后调用 GoogleWorkspaceLoginStart。"
+                    ),
                 }
             )
 
@@ -121,42 +115,24 @@ class GoogleWorkspaceClientConfigSetTool(Tool):
             )
 
         try:
-            client = write_gogcli_client_config(_sandbox_config, user_id, raw)
-            ensure_gogcli_keyring_password(_sandbox_config, user_id)
-            write_nsjail_config(_sandbox_config, user_id)
+            client = await register_gogcli_client_config(_sandbox_config, user_id, raw)
         except ValueError as e:
             return ToolResult(data={"ok": False, "error": str(e)})
-        except OSError as e:
-            logger.error("user {} 写入 gogcli-client.json 失败: {}", user_id, e)
-            return ToolResult(data={"ok": False, "error": f"写入失败: {e}"})
-
-        client_json_path_host = _sandbox_config.gogcli_client_config_file(user_id)
-        pending_on_workspace = _sandbox_config.workspace_dir(user_id) / ".config" / "gogcli" / ".pending-client.json"
-        pending_on_workspace.parent.mkdir(parents=True, exist_ok=True)
-        pending_on_workspace.write_text(client_json_path_host.read_text(encoding="utf-8"), encoding="utf-8")
-        pending_on_workspace.chmod(0o600)
-
-        register_cmd = (
-            f"mkdir -p $XDG_CONFIG_HOME/gogcli && "
-            f"{GOGCLI_CLI_SANDBOX_BIN} auth credentials {_SANDBOX_CLIENT_JSON_DST} && "
-            f"rm -f {_SANDBOX_CLIENT_JSON_DST}"
-        )
-        stdout, stderr, code = await execute_in_sandbox(register_cmd, _sandbox_config, user_id, timeout=30)
-        if code != 0:
-            try:
-                pending_on_workspace.unlink(missing_ok=True)
-            except OSError:
-                pass
-            logger.error("user {} gog auth credentials 失败 (code={}): {}", user_id, code, stderr[:500])
+        except GogcliClientRegistrationError as e:
+            logger.error("user {} gog auth credentials 失败: {}", user_id, e)
             return ToolResult(
                 data={
                     "ok": False,
                     "error": (
-                        f"gog auth credentials 命令失败 (exit {code})。stderr 片段: {stderr[-500:]}\n"
-                        "常见原因：1) client_secret.json 里字段无效；2) gog 二进制问题。"
+                        f"{e}\n"
+                        "常见原因：1) 凭据 JSON 里字段无效；2) gog 二进制问题；"
+                        "3) Web OAuth client 的 redirect URI 未登记。"
                     ),
                 }
             )
+        except OSError as e:
+            logger.error("user {} 写入 gogcli-client.json 失败: {}", user_id, e)
+            return ToolResult(data={"ok": False, "error": f"写入失败: {e}"})
 
         logger.info("user {} gogcli client config 已绑定 (client_id={}...)", user_id, client.client_id[:12])
 
@@ -168,7 +144,7 @@ class GoogleWorkspaceClientConfigSetTool(Tool):
                     "Client config 已绑定。**下一步立刻调 `GoogleWorkspaceLoginStart`**，"
                     "它会在沙箱里启动 `gog auth add --remote --step 1` 并返回 OAuth URL。"
                     "如果 Ripple 能从配置或当前 API 请求推断 callback URL，"
-                    "用户只需在浏览器授权；否则按手工 remote 流程复制地址栏 callback URL 粘回对话。"
+                    "用户只需在浏览器授权；否则按 remote 流程完成 callback。"
                     "不要主动劝用户 rotate client_secret —— sandbox 严格隔离。"
                 ),
             }

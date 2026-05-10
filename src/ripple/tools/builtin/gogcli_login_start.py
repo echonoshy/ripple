@@ -1,14 +1,17 @@
 """GoogleWorkspaceLoginStart — 在沙箱内跑 `gog auth add --remote --step 1`，返回 OAuth URL
 
-两步流程的**第 1 步**。前置条件：已调 `GoogleWorkspaceClientConfigSet`。
+两步流程的**第 1 步**。若当前 user 还没有 gogcli OAuth client，本工具会优先从
+部署级 `server.gogcli_oauth.client` 配置自动注册。若部署级配置缺失，本工具只返回
+服务端配置错误，不引导最终用户创建或提供 OAuth 凭据。
 
 流程：
-  1. 本工具在沙箱里跑 `gog auth add <email> --services user --remote --step 1`。
-  2. gog 打印一条 `https://accounts.google.com/o/oauth2/...` URL（state 缓存在沙箱磁盘）。
-  3. 若能解析出浏览器可访问的 Ripple callback URL，则传给 gogcli；否则使用 gogcli
+  1. 若缺 user 级 gogcli client config，先尝试从部署级配置自动注册。
+  2. 本工具在沙箱里跑基础 Workspace services 的 `gog auth add ... --remote --step 1`。
+  3. gog 打印一条 `https://accounts.google.com/o/oauth2/...` URL（state 缓存在沙箱磁盘）。
+  4. 若能解析出浏览器可访问的 Ripple callback URL，则传给 gogcli；否则使用 gogcli
      默认的 127.0.0.1 loopback remote 流程。
-  4. 返回 URL 给 agent，agent 转发给用户。
-  5. assisted 模式下，Google 回调直接打回 Ripple 后端并自动完成 step 2；manual 模式下，
+  5. 返回 URL 给 agent，agent 转发给用户。
+  6. assisted 模式下，Google 回调直接打回 Ripple 后端并自动完成 step 2；manual 模式下，
      用户把地址栏 URL 复制粘贴回 agent，再调 `GoogleWorkspaceLoginComplete`。
 
 关键特性 vs gws 老方案：
@@ -27,12 +30,17 @@ from ripple.messages.types import AssistantMessage
 from ripple.permissions.levels import ToolRiskLevel
 from ripple.sandbox.config import GOGCLI_CLI_SANDBOX_BIN
 from ripple.sandbox.executor import execute_in_sandbox
-from ripple.sandbox.gogcli import ensure_gogcli_keyring_password
+from ripple.sandbox.gogcli import (
+    GOGCLI_BASIC_SERVICES_ARG,
+    configured_gogcli_client_secret_json,
+    ensure_gogcli_keyring_password,
+)
 from ripple.sandbox.gogcli_oauth import (
     extract_oauth_state,
     register_pending_gogcli_oauth,
     resolve_gogcli_oauth_callback_url,
 )
+from ripple.sandbox.gogcli_registration import GogcliClientRegistrationError, register_gogcli_client_config
 from ripple.sandbox.nsjail_config import write_nsjail_config
 from ripple.tools.base import Tool, ToolResult
 from ripple.utils.logger import get_logger
@@ -53,17 +61,21 @@ class GoogleWorkspaceLoginStartTool(Tool):
     def __init__(self):
         self.name = "GoogleWorkspaceLoginStart"
         self.description = (
-            "Start step 1 of the gogcli OAuth remote flow. Requires "
-            "`GoogleWorkspaceClientConfigSet` to have been called first.\n\n"
+            "Start step 1 of the gogcli OAuth remote flow. If the current user has no gogcli "
+            "OAuth client yet, this tool auto-registers the deployment-level client from "
+            "`server.gogcli_oauth.client` when configured. If the deployment-level client is "
+            "missing, report the server-side configuration error to the operator/admin; do not "
+            "ask normal end users for OAuth credential material.\n\n"
             "Parameters:\n"
             "- email (required): The Google account the user wants to bind "
             "  (e.g. you@gmail.com or you@company.com).\n\n"
             "What this tool does:\n"
-            "  1. Runs `gog auth add <email> --services user --remote --step 1` inside the sandbox.\n"
-            "  2. Captures the printed OAuth URL (gogcli caches `state` on disk, TTL ~10 min).\n"
-            "  3. If Ripple can resolve a browser-reachable callback URL from config or the current "
+            "  1. Auto-registers the deployment-level OAuth client for this user if needed.\n"
+            "  2. Runs `gog auth add <email>` for the basic Workspace services inside the sandbox.\n"
+            "  3. Captures the printed OAuth URL (gogcli caches `state` on disk, TTL ~10 min).\n"
+            "  4. If Ripple can resolve a browser-reachable callback URL from config or the current "
             "API request origin, uses it so the browser callback can complete step 2 automatically.\n"
-            "  4. Otherwise falls back to the fully remote manual flow where the user pastes the "
+            "  5. Otherwise falls back to the fully remote manual flow where the user pastes the "
             "browser address-bar callback URL and you call `GoogleWorkspaceLoginComplete`.\n\n"
             "After you get the URL:\n"
             "- If `callback_mode=assisted`, ask the user to open the URL, approve Google access, "
@@ -72,10 +84,7 @@ class GoogleWorkspaceLoginStartTool(Tool):
             "- If `callback_mode=manual`, tell the user to open the URL, approve access, then copy "
             "the full address-bar URL back here so you can call `GoogleWorkspaceLoginComplete`.\n\n"
             "IMPORTANT:\n"
-            "- Scope: this tool always requests `--services user` which is gogcli's alias for all\n"
-            "  user-facing services (Gmail+Drive+Calendar+Docs+Slides+Sheets+Chat+Tasks+...). Covers\n"
-            "  the full Workspace surface in one consent, so the user never needs to re-authorize for\n"
-            "  new services.\n"
+            f"- Scope: this tool requests only the basic Workspace services: {GOGCLI_BASIC_SERVICES_ARG}.\n"
             "- Show the URL to the user verbatim. DO NOT paraphrase or shorten.\n"
             "- If state expires (user took >10 min), rerun this tool to get a fresh URL.\n"
         )
@@ -124,24 +133,59 @@ class GoogleWorkspaceLoginStartTool(Tool):
                 data={"ok": False, "error": "gogcli 未预装。请联系管理员执行: bash scripts/install-gogcli-cli.sh"}
             )
 
-        if not _sandbox_config.has_gogcli_client_config(user_id):
-            return ToolResult(
-                data={
-                    "ok": False,
-                    "error": (
-                        "[GOGCLI_CLIENT_CONFIG_REQUIRED] 当前 user 还没绑 Desktop OAuth Client。"
-                        "请先让用户在 GCP Console 建 Desktop OAuth Client 并下载 client_secret.json，"
-                        "把 JSON 粘到对话里，然后调 GoogleWorkspaceClientConfigSet 工具绑定。"
-                    ),
-                }
-            )
-
-        ensure_gogcli_keyring_password(_sandbox_config, user_id)
-        write_nsjail_config(_sandbox_config, user_id)
         assisted_callback_url = resolve_gogcli_oauth_callback_url(
             request_base_url=context.request_public_base_url,
         )
-        cmd = f"{GOGCLI_CLI_SANDBOX_BIN} auth add {_shq(email)} --services user --remote --step 1"
+        if not _sandbox_config.has_gogcli_client_config(user_id):
+            try:
+                configured_client = configured_gogcli_client_secret_json(callback_url=assisted_callback_url)
+            except (ValueError, TypeError) as e:
+                return ToolResult(
+                    data={
+                        "ok": False,
+                        "error": (
+                            "[GOGCLI_GLOBAL_CLIENT_INVALID] server.gogcli_oauth.client 配置无效，"
+                            f"无法自动注册 Google OAuth Client: {e}"
+                        ),
+                    }
+                )
+
+            if configured_client:
+                try:
+                    client = await register_gogcli_client_config(_sandbox_config, user_id, configured_client)
+                    logger.info(
+                        "user {} gogcli client config 已从全局配置自动注册 (client_id={}...)",
+                        user_id,
+                        client.client_id[:12],
+                    )
+                except (ValueError, GogcliClientRegistrationError, OSError) as e:
+                    return ToolResult(
+                        data={
+                            "ok": False,
+                            "error": (
+                                f"[GOGCLI_GLOBAL_CLIENT_REGISTER_FAILED] 全局 Google OAuth Client 自动注册失败: {e}"
+                            ),
+                        }
+                    )
+            else:
+                callback_hint = assisted_callback_url or "<server.public_base_url>/v1/sandboxes/gogcli/oauth/callback"
+                return ToolResult(
+                    data={
+                        "ok": False,
+                        "error": (
+                            "[GOGCLI_SERVER_OAUTH_CLIENT_REQUIRED] Google Workspace 授权还没有完成服务端配置。"
+                            "请管理员在 config/settings.yaml 配置 server.gogcli_oauth.client，"
+                            "并把当前回调地址加入 Google Web 授权应用的 Authorized redirect URIs: "
+                            f"{callback_hint}。服务端配置完成后，用户只需重新发起授权。"
+                        ),
+                    }
+                )
+
+        ensure_gogcli_keyring_password(_sandbox_config, user_id)
+        write_nsjail_config(_sandbox_config, user_id)
+        cmd = (
+            f"{GOGCLI_CLI_SANDBOX_BIN} auth add {_shq(email)} --services {GOGCLI_BASIC_SERVICES_ARG} --remote --step 1"
+        )
         if assisted_callback_url:
             cmd += f" --redirect-uri {_shq(assisted_callback_url)}"
         try:

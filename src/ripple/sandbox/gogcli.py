@@ -1,12 +1,10 @@
 """gogcli (`gog`) 的 per-user 凭证/密码管理
 
 本模块承担两件事：
-  1. **OAuth Desktop client_secret.json 的读/写**：用户在对话里贴 JSON，
-     `GoogleWorkspaceClientConfigSet` 工具调 `write_gogcli_client_config` 落到
-     `sandboxes/<uid>/credentials/gogcli-client.json`，沙箱启动时
-     `read_gogcli_client_config` 读出来注入 env（`GOG_CLIENT_ID` /
-     `GOG_CLIENT_SECRET` 只是内部名，实际传给 `gog auth credentials` 子命令的
-     时候走 stdin / tempfile；见 `gogcli_client_config_set` 工具）。
+  1. **OAuth client_secret.json 的读/写/生成**：默认从部署级
+     `server.gogcli_oauth.client` 生成标准 Google client_secret.json，再落到
+     `sandboxes/<uid>/credentials/gogcli-client.json`；`GoogleWorkspaceClientConfigSet`
+     只作为 per-user 手工 JSON fallback。
   2. **keyring backend=file 的加密密码**：ripple 在 user 首次 gog 鉴权动作前
      随机生成 32B 密码落到 `sandboxes/<uid>/credentials/gogcli-keyring.pass`
      (mode 0600)，沙箱启动时作为 env `GOG_KEYRING_PASSWORD` 注入。密码对
@@ -21,6 +19,7 @@ import secrets
 from typing import NamedTuple
 
 from ripple.sandbox.config import SandboxConfig
+from ripple.utils.config import Config, get_config
 from ripple.utils.logger import get_logger
 
 logger = get_logger("sandbox.gogcli")
@@ -31,6 +30,28 @@ class GogcliClientConfig(NamedTuple):
 
     client_id: str
     client_secret: str
+
+
+_GOOGLE_AUTH_URI = "https://accounts.google.com/o/oauth2/auth"
+_GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token"
+_GOOGLE_CERT_URL = "https://www.googleapis.com/oauth2/v1/certs"
+GOGCLI_BASIC_SERVICES = ("gmail", "drive", "calendar", "docs", "sheets", "slides")
+GOGCLI_BASIC_SERVICES_ARG = ",".join(GOGCLI_BASIC_SERVICES)
+
+
+def _clean_string(value: object) -> str:
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _clean_string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    out: list[str] = []
+    for item in value:
+        cleaned = _clean_string(item)
+        if cleaned and cleaned not in out:
+            out.append(cleaned)
+    return out
 
 
 def _extract_bucket(data: dict) -> dict | None:
@@ -48,6 +69,68 @@ def _extract_bucket(data: dict) -> dict | None:
     if data.get("client_id"):
         return data
     return None
+
+
+def configured_gogcli_client_secret_json(
+    config: Config | None = None,
+    *,
+    callback_url: str | None = None,
+) -> str | None:
+    """Build gogcli client_secret.json from deployment-level settings.
+
+    Preferred operator config:
+
+        server:
+          gogcli_oauth:
+            client:
+              client_id: "..."
+              client_secret: "..."
+
+    `client_secret_json` is also accepted for deployments that want to paste the
+    downloaded Google JSON verbatim into settings.yaml.
+    """
+    cfg = config or get_config()
+    if cfg.get("server.gogcli_oauth.auto_register_client", True) is False:
+        return None
+
+    raw_json = _clean_string(cfg.get("server.gogcli_oauth.client_secret_json"))
+    if raw_json:
+        parsed = json.loads(raw_json)
+        if not isinstance(parsed, dict) or _extract_bucket(parsed) is None:
+            raise ValueError("server.gogcli_oauth.client_secret_json 缺少 web/installed client_id")
+        return json.dumps(parsed, indent=2, ensure_ascii=False)
+
+    client = cfg.get("server.gogcli_oauth.client", {}) or {}
+    if not isinstance(client, dict):
+        return None
+
+    client_id = _clean_string(client.get("client_id"))
+    client_secret = _clean_string(client.get("client_secret"))
+    if not client_id or not client_secret:
+        return None
+
+    client_type = _clean_string(client.get("type")).lower()
+    bucket_name = "installed" if client_type in {"desktop", "installed"} else "web"
+    bucket: dict[str, object] = {
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "auth_uri": _clean_string(client.get("auth_uri")) or _GOOGLE_AUTH_URI,
+        "token_uri": _clean_string(client.get("token_uri")) or _GOOGLE_TOKEN_URI,
+        "auth_provider_x509_cert_url": _clean_string(client.get("auth_provider_x509_cert_url")) or _GOOGLE_CERT_URL,
+    }
+
+    project_id = _clean_string(client.get("project_id"))
+    if project_id:
+        bucket["project_id"] = project_id
+
+    redirect_uris = _clean_string_list(client.get("redirect_uris"))
+    clean_callback_url = _clean_string(callback_url)
+    if clean_callback_url and clean_callback_url not in redirect_uris:
+        redirect_uris.append(clean_callback_url)
+    if redirect_uris:
+        bucket["redirect_uris"] = redirect_uris
+
+    return json.dumps({bucket_name: bucket}, indent=2, ensure_ascii=False)
 
 
 def read_gogcli_client_config(config: SandboxConfig, user_id: str) -> GogcliClientConfig | None:

@@ -66,7 +66,9 @@ skills/                # 共享 Skills（Markdown）
         ├── nsjail.cfg               # user 级沙箱配置
         ├── credentials/
         │   ├── feishu.json          # 可选：飞书凭证
-        │   └── notion.json          # 可选：Notion Integration Token
+        │   ├── notion.json          # 可选：Notion Integration Token
+        │   ├── gogcli-client.json   # 可选：Google OAuth Client（由服务端配置自动注册）
+        │   └── gogcli-keyring.pass  # 可选：gogcli file keyring 加密密码
         └── sessions/
             └── <session_id>/        # 每个 session 的运行时状态
                 ├── meta.json        # 会话元数据
@@ -228,16 +230,17 @@ Skills 是带 YAML frontmatter 的 Markdown 文件，定义特定领域的任务
 |-----|----------|-------------|----------|---------|
 | `lark-cli`（飞书） | `bash scripts/install-feishu-cli.sh` | `vendor/lark-cli/v<X.Y.Z>/bin/` | `/opt/lark-cli/current/bin/lark-cli` | per-user：`lark-cli auth login`（OAuth），凭证落在 `sandboxes/<uid>/workspace/.lark-cli/` |
 | `ntn`（Notion） | `bash scripts/install-notion-cli.sh` | `vendor/notion-cli/v<X.Y.Z>/bin/` | `/opt/notion-cli/current/bin/ntn` | per-user：用户对话粘贴 token → 模型调内置工具 `NotionTokenSet` → `sandboxes/<uid>/credentials/notion.json` → `NOTION_API_TOKEN` env |
-| `gog`（gogcli, Google Suite CLI） | `bash scripts/install-gogcli-cli.sh` | `vendor/gogcli-cli/v<X.Y.Z>/bin/` | `/opt/gogcli-cli/current/bin/gog` | per-user 独立 GCP 项目 + **远程 2-step OAuth**：用户 GCP Console 建 OAuth Client → 粘 `client_secret.json` → `GoogleWorkspaceClientConfigSet` → `GoogleWorkspaceLoginStart` 拿 URL → 用户浏览器 Allow → 若可解析浏览器可访问的 Ripple callback URL（显式配置或当前 API 请求 origin），Ripple 自动接 callback 并完成 step 2；否则用户复制地址栏回调 URL → `GoogleWorkspaceLoginComplete` → 加密 refresh_token 存到 `/workspace/.config/gogcli/keyring/`（backend=file，keyring 密码由 ripple 在首次 gog 鉴权动作前懒生成） |
+| `gog`（gogcli, Google Suite CLI） | `bash scripts/install-gogcli-cli.sh` | `vendor/gogcli-cli/v<X.Y.Z>/bin/` | `/opt/gogcli-cli/current/bin/gog` | 部署级 Google Web OAuth Client + **per-user refresh_token**：管理员在 `config/settings.yaml` 配 `server.gogcli_oauth.client` → `GoogleWorkspaceLoginStart` 自动把部署级 client 注册到当前 user → 用户浏览器 Allow → 若可解析浏览器可访问的 Ripple callback URL，Ripple 自动接 callback 并完成 step 2；否则用户复制地址栏回调 URL → `GoogleWorkspaceLoginComplete` → 加密 refresh_token 存到 `/workspace/.config/gogcli/keyring/`（backend=file，keyring 密码由 ripple 在首次 gog 鉴权动作前懒生成） |
 
 - 下载失败都会打印手工安装指引，**不会自动重试**
 - 版本切换：`bash scripts/use-<name>-cli.sh <version>`
 - 相关 skill 分别在 `skills/lark/`、`skills/notion/`、`skills/gog/` 下（首次使用前必读对应 `*-shared/SKILL.md`）
-- `gog` 的鉴权涉及两个独立状态：`has_gogcli_client_config`（OAuth Client 绑定）+ `has_gogcli_login`（远程 2-step 授权完成），前端 SettingsModal 分两个 badge 展示 + 列出已绑账号（通过 `GET /v1/sandboxes/gogcli-accounts`）
-- **`gog` 不要求 ripple server 和用户浏览器同机**：remote step 1/2 保留手工复制 fallback；Web UI/反向代理场景默认会从当前 API 请求 Host 自动推断 callback URL。远程 HTTPS 部署通常要用 GCP **Web application** OAuth Client 并把该 callback URL 加入 Authorized redirect URIs；如果自动推断的 Host 不可由用户浏览器访问，可配置 `server.public_base_url` / `server.gogcli_oauth.callback_url`，或设 `server.gogcli_oauth.auto_from_request: false` 回到手工模式。
-- gogcli 内置工具共 5 个（按使用顺序）：`GoogleWorkspaceClientConfigSet` → `GoogleWorkspaceLoginStart` → `GoogleWorkspaceLoginComplete`（首次绑定三件套），`GoogleWorkspaceAuthStatus`（运行时查已绑账号 / 可选 `check=true` 验活），`GoogleWorkspaceLogout`（⚠️ 解绑，由 skill 层负责 AskUser）
-- `skills/gog/` 下按 service 拆 skill：`gog-shared`（鉴权 + 纪律，**必读**）、`gog-gmail` / `gog-drive` / `gog-calendar` / `gog-sheets` / `gog-docs` / `gog-tasks` / `gog-slides` / `gog-people`；其它服务（chat/keep/forms/classroom/appscript/admin）走 `gog <service> --help` self-document
-- 破坏性 gog 子命令（gmail send / drive delete / sheets clear / admin.* 等）**必须先调 `AskUser` 工具让用户显式确认**后才能通过 `Bash` 执行；详见 `skills/gog/gog-shared/SKILL.md`
+- `gog` 的鉴权涉及两个独立状态：`has_gogcli_client_config`（当前 user 已注册 OAuth Client）+ `has_gogcli_login`（当前 user 已完成远程 2-step 授权），前端 SettingsModal 分两个 badge 展示 + 列出已绑账号（通过 `GET /v1/sandboxes/gogcli-accounts`）
+- **`gog` 不要求 ripple server 和用户浏览器同机**：remote step 1/2 保留手工复制 fallback；Web UI/反向代理场景默认会从当前 API 请求 Host 自动推断 callback URL。远程 HTTPS 部署通常要用 Google **Web application** OAuth Client 并把该 callback URL 加入 Authorized redirect URIs；如果自动推断的 Host 不可由用户浏览器访问，可配置 `server.public_base_url` / `server.gogcli_oauth.callback_url`，或设 `server.gogcli_oauth.auto_from_request: false` 回到手工模式。
+- 当前 gog 授权只保留基础 Workspace 服务：`gmail,drive,calendar,docs,sheets,slides`；授权命令使用 `--services gmail,drive,calendar,docs,sheets,slides`，不要回退到 `--services user` 全量授权。
+- gogcli 内置工具共 5 个：`GoogleWorkspaceClientConfigSet`（管理员/开发调试专用；正常用户路径不要调用）、`GoogleWorkspaceLoginStart`（自动注册部署级 OAuth Client 并拿授权 URL）、`GoogleWorkspaceLoginComplete`（manual fallback 的 step 2）、`GoogleWorkspaceAuthStatus`（运行时查已绑账号 / 可选 `check=true` 验活）、`GoogleWorkspaceLogout`（⚠️ 解绑，由 skill 层负责 AskUser）
+- `skills/gog/` 下按基础 service 拆 skill：`gog-shared`（鉴权 + 纪律，**必读**）、`gog-gmail` / `gog-drive` / `gog-calendar` / `gog-sheets` / `gog-docs` / `gog-slides`；`gog-tasks`、`gog-people`、Contacts、Classroom、Admin 等暂不保留。
+- 破坏性 gog 子命令（gmail send / drive delete / sheets clear / calendar update / docs write / slides batch-update 等）**必须先调 `AskUser` 工具让用户显式确认**后才能通过 `Bash` 执行；详见 `skills/gog/gog-shared/SKILL.md`
 
 ### 安全
 

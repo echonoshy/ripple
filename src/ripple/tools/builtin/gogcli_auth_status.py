@@ -46,15 +46,18 @@ class GoogleWorkspaceAuthStatusTool(Tool):
             "Returns:\n"
             "  {\n"
             "    ok: true,\n"
-            "    has_client_config: bool,  // whether GoogleWorkspaceClientConfigSet was called\n"
+            "    has_client_config: bool,  // whether gogcli has an OAuth client registered\n"
             "    accounts: [{email, alias, valid}],  // valid only meaningful when check=true\n"
             "    count: int,\n"
             "    checked: bool,  // echoes the check input\n"
             "  }\n\n"
-            "If `has_client_config=false`, the user hasn't bound a Desktop OAuth client yet — "
-            "guide them through `GoogleWorkspaceClientConfigSet`. If `accounts=[]` but "
-            "`has_client_config=true`, they need to call `GoogleWorkspaceLoginStart` for the "
-            "account they want.\n"
+            "If `has_client_config=false`, call `GoogleWorkspaceLoginStart`; it will auto-register "
+            "the deployment-level OAuth client when configured. If login reports "
+            "`[GOGCLI_SERVER_OAUTH_CLIENT_REQUIRED]`, tell the user Google Workspace authorization "
+            "is not configured server-side yet and ask an administrator/operator to configure "
+            "`server.gogcli_oauth.client`. Do not request OAuth credential material from normal users. "
+            "If `accounts=[]` but `has_client_config=true`, call `GoogleWorkspaceLoginStart` for "
+            "the account they want.\n"
         )
         self.risk_level = ToolRiskLevel.SAFE
 

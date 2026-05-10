@@ -877,7 +877,7 @@ async def gogcli_oauth_callback(request: Request) -> HTMLResponse:
     """
     from ripple.sandbox.config import GOGCLI_CLI_SANDBOX_BIN  # noqa: PLC0415
     from ripple.sandbox.executor import execute_in_sandbox  # noqa: PLC0415
-    from ripple.sandbox.gogcli import ensure_gogcli_keyring_password  # noqa: PLC0415
+    from ripple.sandbox.gogcli import GOGCLI_BASIC_SERVICES_ARG, ensure_gogcli_keyring_password  # noqa: PLC0415
     from ripple.sandbox.gogcli_oauth import build_gogcli_callback_auth_url, pop_pending_gogcli_oauth  # noqa: PLC0415
     from ripple.sandbox.nsjail_config import write_nsjail_config  # noqa: PLC0415
     from ripple.tools.builtin.bash import _sandbox_config  # noqa: PLC0415
@@ -922,7 +922,7 @@ async def gogcli_oauth_callback(request: Request) -> HTMLResponse:
     callback_url = build_gogcli_callback_auth_url(pending.redirect_uri, query)
     cmd = (
         f"{GOGCLI_CLI_SANDBOX_BIN} auth add {_shq(pending.email)} "
-        f"--services user --remote --step 2 --auth-url {_shq(callback_url)}"
+        f"--services {GOGCLI_BASIC_SERVICES_ARG} --remote --step 2 --auth-url {_shq(callback_url)}"
     )
     stdout, stderr, code = await execute_in_sandbox(cmd, _sandbox_config, pending.user_id, timeout=60)
     if code != 0:

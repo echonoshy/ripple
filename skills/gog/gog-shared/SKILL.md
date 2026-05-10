@@ -1,7 +1,7 @@
 ---
 name: gog-shared
-version: 1.0.0
-description: "gogcli（gog 二进制）在 ripple 沙箱中的本地约定：per-user 独立 GCP OAuth Client、assisted/manual 远程授权、破坏性操作走 AskUser 二次确认、self-document 原则、安全规则。**首次使用 gog 必读**。当用户第一次调用 gog、遇到 [GOGCLI_CLIENT_CONFIG_REQUIRED] / [GOGCLI_LOGIN_REQUIRED]、需要绑定/重新授权、或问到 gog 鉴权问题时触发。"
+version: 1.2.0
+description: "gogcli（gog 二进制）在 ripple 沙箱中的本地约定：部署级 Google OAuth Client 自动注册、用户级 refresh_token 隔离、仅授权基础 Workspace 服务（Gmail/Drive/Calendar/Docs/Sheets/Slides）、assisted/manual 远程授权、破坏性操作走 AskUser 二次确认、self-document 原则、安全规则。**首次使用 gog 必读**。当用户第一次调用 gog、遇到 [GOGCLI_SERVER_OAUTH_CLIENT_REQUIRED] / [GOGCLI_LOGIN_REQUIRED]、需要绑定/重新授权、或问到 gog 鉴权问题时触发。"
 metadata:
   requires:
     bins: ["gog"]
@@ -12,24 +12,25 @@ metadata:
 
 > ⚠️ **开始任何 gog 业务操作前必读本文件**。
 
-## 🏗 整体鉴权模型（per-user 独立 GCP + remote step 1/2）
+## 🏗 整体鉴权模型（部署级 OAuth Client + user 级 token）
 
-每个 ripple user 独立持有自己的 GCP 项目 / OAuth Client / refresh_token。跨 user 零共享。
-**ripple server 和用户浏览器可以不在同一台机器**（与之前 gws 方案的核心区别）。
+默认模式：部署方在 `config/settings.yaml` 里配置一次 Google OAuth Client；每个 ripple user 只持有自己的 refresh_token。跨 user 的账号授权、workspace、keyring 仍然零共享。
+**最终用户只需要打开授权 URL 点 Allow；所有 Google 开发者项目配置由服务端管理员完成。**
+**ripple server 和用户浏览器可以不在同一台机器**。
+当前只授权基础 Workspace 服务：Gmail、Drive、Calendar、Docs、Sheets、Slides。
 
 ```
 ┌────────────────────────┐          ┌────────────────────────────┐
 │ user 本机              │          │ ripple sandbox (per-user)  │
 ├────────────────────────┤          ├────────────────────────────┤
-│ ① GCP Console 建       │          │ gog 二进制（预装）         │
-│   OAuth Client         │ ─json──▶ │ credentials/               │
-│   下载 JSON            │          │   gogcli-client.json (600) │
+│ ① 浏览器打开授权 URL    │ ◀─URL──  │ gog 二进制（预装）         │
+│   点 Allow             │          │ credentials/               │
+│                        │          │   gogcli-client.json (600) │
+│                        │          │   ↑ 从部署级配置自动注册   │
 │                        │          │                            │
-│ ② 浏览器打开授权 URL    │ ◀─URL──  │ gog auth add --remote      │
-│   点 Allow             │          │   --step 1 → 打印 URL      │
+│ ② Google callback      │ ───────▶ │ Ripple callback 自动完成   │
+│   显示授权完成          │          │   step 2 --auth-url ...    │
 │                        │          │                            │
-│ ③ Google callback      │ ──URL──▶ │ Ripple callback 或用户回贴 │
-│   自动或手工完成        │          │   step 2 --auth-url ...    │
 │                        │          │ 加密存 refresh_token 到    │
 │                        │          │ /workspace/.config/gogcli/ │
 └────────────────────────┘          └────────────────────────────┘
@@ -48,37 +49,11 @@ gog <service> --help               # 每个 service 都有完整的 --help
 
 不确定的地方先 `--help`，别硬拼。
 
-## ✅ 首次使用 gog 的标准流程（3 步 + 1 次点击）
+## ✅ 首次使用 gog 的标准流程（1 个工具 + 1 次点击）
 
-### 步骤 1：用户在 GCP Console 建 OAuth Client（**只做一次**）
+### 步骤 1：agent 调 `GoogleWorkspaceLoginStart`
 
-当你第一次遇到 `[GOGCLI_CLIENT_CONFIG_REQUIRED]`，用一段自然语言引导用户：
-
-1. 打开 <https://console.cloud.google.com/apis/credentials>，选项目（没有就新建）。
-2. `Create Credentials` → `OAuth client ID`：
-   - 本机开发 / Ripple server 与用户浏览器同机：Application type 选 **Desktop app**。
-   - 远程部署且希望免复制 callback URL：Application type 选 **Web application**，并把实际 Ripple callback URL 加入 Authorized redirect URIs。该 URL 来自 `server.gogcli_oauth.callback_url`、`<server.public_base_url>/v1/sandboxes/gogcli/oauth/callback`，或默认自动推断的当前 API origin + `/v1/sandboxes/gogcli/oauth/callback`。
-   - 未配置 Ripple callback URL 时，Desktop app + 手工复制地址栏 callback URL 仍然可用。
-   给个名字（如 `ripple-gog`）→ Create。
-3. 弹窗里点 `Download JSON`。文件名形如 `client_secret_<number>-<hash>.apps.googleusercontent.com.json`。
-4. 配置 OAuth consent screen：
-   - User type `Internal`（Workspace 组织账号）：组织内用户开箱即用。
-   - User type `External`（个人 gmail 账号）：把要登录的 Google 账号加入 **Test users** 列表。
-5. `Enabled APIs & Services` 里**一次性**启用下面全部 API（因为我们这次就全量授权，不再二次来回）：
-   Gmail / Drive / Calendar / Docs / Sheets / Slides / Tasks / People / Chat / Forms / Apps Script / Classroom。
-6. **把下载的 JSON 文件全部内容** 粘贴进对话。
-
-### 步骤 2：agent 调 `GoogleWorkspaceClientConfigSet`
-
-用户贴出 JSON 后**立刻**调：
-
-```
-GoogleWorkspaceClientConfigSet(client_secret_json="<用户贴的原文>")
-```
-
-回复里**可以**提 `client_id`，**不要**回显完整 `client_secret`。
-
-### 步骤 3：agent 调 `GoogleWorkspaceLoginStart`
+默认部署应已在 `config/settings.yaml` 配好 `server.gogcli_oauth.client`。当前 user 第一次登录时，`GoogleWorkspaceLoginStart` 会自动把部署级 OAuth Client 注册到该 user 的 gogcli 配置里，然后生成基础 Workspace 服务的授权 URL。
 
 ```
 GoogleWorkspaceLoginStart(email="user@gmail.com")
@@ -86,7 +61,7 @@ GoogleWorkspaceLoginStart(email="user@gmail.com")
 
 工具返回 `{ok: true, oauth_url: "https://accounts.google.com/o/oauth2/...", callback_mode, email, expires_in_seconds: 600}`。
 
-### 步骤 4：把 URL **完整原样**给用户
+### 步骤 2：把 URL **完整原样**给用户
 
 如果 `callback_mode == "assisted"`：
 
@@ -121,7 +96,7 @@ https://accounts.google.com/o/oauth2/auth?...<完整 URL>...
 - 帮用户 decode URL / 把参数"解读一遍"（没用、可能误导）
 - 主动说"这个 URL 有风险"（sandbox 隔离，授权本来就是这么工作的）
 
-### 步骤 5：完成授权
+### 步骤 3：完成授权
 
 如果是 `assisted` 模式，用户说"好了"后调 `GoogleWorkspaceAuthStatus(check=true)` 确认账号已绑定，然后继续业务。
 
@@ -133,15 +108,33 @@ GoogleWorkspaceLoginComplete(email="user@gmail.com", callback_url="<用户粘贴
 
 工具内部跑 step 2，把 code 换 token，加密存 refresh_token。成功后业务命令就能用了。
 
+### 服务端未配置 OAuth Client 时的处理
+
+如果 `GoogleWorkspaceLoginStart` 返回 `[GOGCLI_SERVER_OAUTH_CLIENT_REQUIRED]`，说明部署级 Google OAuth 还没配置完成。
+
+这不是终端用户能解决的问题。回复用户时只说：
+
+```
+Google Workspace 授权还没有在服务端配置完成。请管理员配置后，我再帮你发起授权。
+```
+
+然后停止 gog 授权流程，等待管理员修复 `config/settings.yaml` 里的 `server.gogcli_oauth.client`，并把实际 callback URL 加入 Google Web 授权应用的 Authorized redirect URIs。通常 callback URL 是：
+
+```
+<server.public_base_url>/v1/sandboxes/gogcli/oauth/callback
+```
+
+**不要**要求终端用户提供任何 Google 开发者项目配置或凭据 JSON。`GoogleWorkspaceClientConfigSet` 只保留给管理员/开发调试，不属于正常用户路径。
+
 ## ❌ 授权失败 / 超时怎么办
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
 | step 2 报 "state expired" / "state mismatch" | 用户点 Allow 距 step 1 > 10 分钟 | 重跑 `GoogleWorkspaceLoginStart` 拿新 URL |
-| step 2 报 "access_denied" | External+Testing、用户没在 Test users | 让用户去 consent screen 把自己加进 Test users |
-| step 2 报 "redirect_uri_mismatch" | OAuth Client 类型 / Authorized redirect URI 与当前模式不匹配 | assisted 远程部署用 Web OAuth Client 并登记 Ripple callback URL；manual/本机 loopback 可用 Desktop Client |
+| step 2 报 "access_denied" | External+Testing、账号不在 Test users 或用户拒绝授权 | 让管理员检查 OAuth consent screen/Test users；如果是用户主动拒绝，重新发起授权 |
+| step 2 报 "redirect_uri_mismatch" | 部署级 OAuth Client 的 Authorized redirect URI 与当前 Ripple callback URL 不匹配 | 让管理员把实际 callback URL 加入 Google OAuth Client；通常是 `<server.public_base_url>/v1/sandboxes/gogcli/oauth/callback` |
 | `gog auth status` 后来报 invalid_grant / refresh_token 失效 | token 被 revoke / 项目变更 | 重跑 `GoogleWorkspaceLoginStart` + `Complete` |
-| Login 工具返回 "没抓到 URL" | client_id/secret 无效；gog 启动异常 | 让用户重发 client_secret.json + 重新 `ClientConfigSet` |
+| Login 工具返回 "没抓到 URL" | 服务端 OAuth client 配置无效；gog 启动异常 | 让管理员检查 `server.gogcli_oauth.client` 和 gogcli 安装 |
 
 ## ⚠️ API 未启用（403 `accessNotConfigured`）
 
@@ -152,7 +145,7 @@ GoogleWorkspaceLoginComplete(email="user@gmail.com", callback_url="<用户粘贴
  "enable_url": "https://console.developers.google.com/apis/api/gmail.googleapis.com/..."}}
 ```
 
-把 `enable_url` 给用户，让他去 GCP Console 点 **Enable**；等 ~10 秒生效再重试。**不要**反复自动重试。
+这是服务端 Google 项目配置问题。告诉用户"服务端 Google API 还没启用，请管理员处理"，把 `enable_url` 留给管理员排查；不要要求终端用户处理 Google 项目配置。等管理员启用后再重试，**不要**反复自动重试。
 
 ## 🔍 运行时检查 & 账号管理
 
@@ -172,8 +165,8 @@ GoogleWorkspaceLoginComplete(email="user@gmail.com", callback_url="<用户粘贴
 
 | 用途 | 工具 | 何时调 |
 |---|---|---|
-| 绑 OAuth client | `GoogleWorkspaceClientConfigSet` | 首次、或用户换了 GCP 项目 |
-| 拿授权 URL | `GoogleWorkspaceLoginStart` | 每次新账号 / refresh token 失效 |
+| 绑 OAuth client | `GoogleWorkspaceClientConfigSet` | 管理员/开发调试专用；正常用户授权不要调用 |
+| 拿授权 URL | `GoogleWorkspaceLoginStart` | 每次新账号 / refresh token 失效；会自动注册部署级 OAuth Client |
 | 吃 callback URL 换 token | `GoogleWorkspaceLoginComplete` | 紧跟 LoginStart 之后 |
 | 列已绑账号 / 验活 | `GoogleWorkspaceAuthStatus` | 开局、可疑 token 错误 |
 | 解绑账号 | `GoogleWorkspaceLogout` | 用户明确要求解绑（⚠️ 先 AskUser） |
@@ -192,10 +185,6 @@ GoogleWorkspaceLoginComplete(email="user@gmail.com", callback_url="<用户粘贴
 | sheets | `delete-tab` / `clear` / `update`（覆盖已有数据）/ `chart delete` |
 | docs | `sed`（修改文档）/ `write --replace` / `find-replace` |
 | calendar | `delete` / `update` / `respond` |
-| contacts | `delete` / `update`（覆盖字段时） |
-| tasks | `delete` / `clear` / `done` / `undo` |
-| classroom | `courses delete` / `courses archive` |
-| admin | **所有 admin.* 操作**（groups members add/remove、users suspend、etc） |
 
 `AskUser` 调用形态：
 
@@ -234,13 +223,8 @@ AskUser(
 | 写 Sheet（⚠️ 破坏性） | `gog sheets update/append/clear` | |
 | 读 Doc | `gog docs info/cat/list-tabs` | |
 | 写 Doc（⚠️ 破坏性） | `gog docs update/write/sed/find-replace` | |
-| 列 Tasks | `gog tasks lists/list/get` | 见 `gog-tasks` skill |
-| 修改 Tasks（⚠️ 破坏性） | `gog tasks add/update/done/delete` | 见 `gog-tasks` skill |
 | Slides 读 / 导出 | `gog slides info/slide/export` | 见 `gog-slides` skill |
 | Slides 写（⚠️ 破坏性） | `gog slides create/copy/find-replace/batch-update` | 见 `gog-slides` skill（优先 `--dry-run`） |
-| Contacts 读 / 搜 | `gog people list/search/me` | 见 `gog-people` skill |
-| Contacts 写（⚠️ 破坏性） | `gog people create/update/delete/merge` | 见 `gog-people` skill |
-| 其他：chat / keep / forms / classroom / appscript | `gog <service> --help` | self-document，暂无专门 skill |
 
 ## 🧭 账号选择
 

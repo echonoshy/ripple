@@ -57,8 +57,7 @@ def test_resolve_gogcli_oauth_callback_url_preserves_public_base_path():
     )
 
     assert (  # type: ignore[arg-type]
-        resolve_gogcli_oauth_callback_url(cfg)
-        == "https://ripple.example/api-root" + GOGCLI_OAUTH_CALLBACK_PATH
+        resolve_gogcli_oauth_callback_url(cfg) == "https://ripple.example/api-root" + GOGCLI_OAUTH_CALLBACK_PATH
     )
 
 
@@ -100,8 +99,7 @@ def test_gogcli_oauth_request_base_url_prefers_forwarded_headers():
     }
 
     assert (
-        gogcli_oauth_request_base_url(headers, "http://127.0.0.1:8810/v1/chat/completions")
-        == "https://ripple.example"
+        gogcli_oauth_request_base_url(headers, "http://127.0.0.1:8810/v1/chat/completions") == "https://ripple.example"
     )
 
 

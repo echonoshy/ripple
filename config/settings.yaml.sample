@@ -110,9 +110,27 @@ server:
   # callback URL 加到 Authorized redirect URIs。
   # public_base_url: "http://localhost:8810"
   gogcli_oauth:
+    # 推荐：部署方配置一次 Google OAuth Client，最终用户只需要打开授权 URL 点 Allow。
+    # Google Cloud Console 中创建 OAuth Client 时使用 Web application，并把下面 callback URL
+    # 加到 Authorized redirect URIs:
+    #   <server.public_base_url>/v1/sandboxes/gogcli/oauth/callback
+    #
+    # client:
+    #   type: "web"
+    #   client_id: "<GOOGLE_OAUTH_CLIENT_ID>.apps.googleusercontent.com"
+    #   client_secret: "<GOOGLE_OAUTH_CLIENT_SECRET>"
+    #   project_id: "<GCP_PROJECT_ID>"  # 可选，仅用于生成标准 client_secret.json 形状
+    #
+    # 也支持直接粘贴 Google 下载的 client_secret JSON（管理员侧配置，不让最终用户粘贴）:
+    # client_secret_json: |
+    #   {"web":{"client_id":"...","client_secret":"..."}}
+    #
+    # 通常保持 true。设为 false 会禁用全局 client 自动注册；普通用户授权会返回服务端配置错误。
+    auto_register_client: true
     # 未显式配置 public_base_url/callback_url 时，自动使用当前 API 请求的 Host
     # 生成 callback URL。Web UI、localhost、端口转发、常规反向代理通常都适用；
-    # 如果你的 API Host 不是用户浏览器可访问地址，可设为 false 强制回到手工复制模式。
+    # 如果你的 API Host 不是用户浏览器可访问地址，可设为 false，并显式配置
+    # public_base_url 或 callback_url。
     auto_from_request: true
     # 优先级高于 public_base_url。通常保持注释，让系统使用:
     #   <server.public_base_url>/v1/sandboxes/gogcli/oauth/callback

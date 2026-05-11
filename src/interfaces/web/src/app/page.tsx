@@ -596,28 +596,31 @@ export default function Home() {
   // ═══════════════════════════════════════════════════════
   if (authState !== "authenticated") {
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-black">
+      <div className="playful-canvas border-ripple-ink flex h-screen w-screen items-center justify-center border-t-2 p-4">
         {authState === "needs_auth" && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             className="mx-4 w-full max-w-sm"
           >
-            <div className="surface-panel rounded-2xl p-8">
+            <div className="surface-elevated p-8">
               <div className="mb-8 flex flex-col items-center">
-                <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-black/5">
-                  <RippleIcon size={28} className="text-[#ededed]" />
+                <div
+                  className="border-ripple-ink bg-ripple-yellow mb-4 flex h-16 w-16 rotate-2 items-center justify-center rounded-lg border-2 shadow-[4px_4px_0_#111111]"
+                  style={{ animation: "float-breathe 3s ease-in-out infinite" }}
+                >
+                  <RippleIcon size={48} className="text-ripple-ink" />
                 </div>
-                <h1 className="text-xl font-semibold text-[#ededed]">RIPPLE</h1>
-                <p className="mt-3 text-center text-sm text-[#888888]">
+                <h1 className="text-ripple-ink text-2xl font-bold">RIPPLE</h1>
+                <p className="text-ripple-ink/70 mt-3 text-center text-sm font-bold">
                   Enter your API key to continue
                 </p>
-                <p className="mt-1 text-center font-[family-name:var(--font-cjk)] text-sm text-[#666666]">
+                <p className="text-ripple-ink/55 mt-1 text-center font-[family-name:var(--font-cjk)] text-sm">
                   请输入 API Key 以访问服务
                 </p>
               </div>
               {authErrorMsg && (
-                <div className="mb-4 flex items-center gap-2 rounded-lg border border-[#ff4444]/20 bg-[#ff4444]/10 p-3 text-sm text-[#ff4444]">
+                <div className="border-ripple-ink bg-ripple-red/20 text-ripple-ink mb-4 flex items-center gap-2 rounded-md border-2 p-3 text-sm font-bold shadow-[2px_2px_0_#111111]">
                   <AlertTriangle size={16} />
                   <span>{authErrorMsg}</span>
                 </div>
@@ -626,14 +629,14 @@ export default function Home() {
                 <div className="relative mb-4">
                   <KeyRound
                     size={18}
-                    className="absolute top-1/2 left-4 -translate-y-1/2 text-[#666666]"
+                    className="text-ripple-ink/55 absolute top-1/2 left-4 -translate-y-1/2"
                   />
                   <input
                     type="password"
                     value={keyInput}
                     onChange={(e) => setKeyInput(e.target.value)}
                     placeholder="Enter API key..."
-                    className="w-full rounded-lg border border-white/10 bg-[#0a0a0a] py-3 pr-4 pl-11 font-[family-name:var(--font-mono)] text-sm text-[#ededed] placeholder:text-[#666666] focus:border-[#ededed]/50 focus:ring-2 focus:ring-[#10b981]/15 focus:outline-none"
+                    className="brutal-input w-full py-3 pr-4 pl-11 font-[family-name:var(--font-mono)] text-sm"
                   />
                 </div>
                 <button
@@ -655,7 +658,7 @@ export default function Home() {
   // MAIN APP
   // ═══════════════════════════════════════════════════════
   return (
-    <div className="h-screen w-screen overflow-hidden bg-black">
+    <div className="playful-canvas border-ripple-ink h-screen w-screen overflow-hidden border-t-2">
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -682,12 +685,12 @@ export default function Home() {
         {/* Main chat area */}
         <main className="relative flex min-w-0 flex-1 flex-col">
           {/* Header */}
-          <header className="surface-panel z-20 flex h-14 items-center justify-between rounded-none border-t-0 border-r-0 border-b border-l-0 px-4 md:px-6">
+          <header className="border-ripple-ink bg-ripple-yellow text-ripple-ink z-20 flex h-16 items-center justify-between border-b-2 px-4 shadow-[0_3px_0_#111111] md:px-6">
             <div className="flex items-center gap-2">
               {/* Mobile menu */}
               <button
                 onClick={() => setIsSidebarOpen(true)}
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-[#888888] hover:bg-white/5 hover:text-[#ededed] md:hidden"
+                className="btn-icon h-9 w-9 md:!hidden"
               >
                 <Menu size={18} />
               </button>
@@ -696,15 +699,15 @@ export default function Home() {
               <div className="relative">
                 <button
                   onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
-                  className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-[#0a0a0a] px-2.5 py-1.5 text-sm text-[#ededed] transition-colors hover:border-white/20"
+                  className="border-ripple-ink text-ripple-ink flex items-center gap-1.5 rounded-md border-2 bg-white px-2.5 py-1.5 text-sm font-bold shadow-[2px_2px_0_#111111] transition-all hover:-translate-y-0.5 hover:shadow-[4px_4px_0_#111111]"
                 >
-                  <Cpu size={14} className="text-[#ededed]" />
+                  <Cpu size={14} className="text-ripple-ink" />
                   <span className="font-[family-name:var(--font-mono)] text-sm font-medium">
                     {selectedModel}
                   </span>
                   <ChevronDown
                     size={12}
-                    className={`text-[#666666] transition-transform ${isModelDropdownOpen ? "rotate-180" : ""}`}
+                    className={`text-ripple-ink/60 transition-transform ${isModelDropdownOpen ? "rotate-180" : ""}`}
                   />
                 </button>
                 <AnimatePresence>
@@ -714,7 +717,7 @@ export default function Home() {
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: 4 }}
                       transition={{ duration: 0.1 }}
-                      className="absolute top-full left-0 z-50 mt-1 w-44 overflow-hidden rounded-xl border border-white/10 bg-[#0a0a0a] shadow-lg"
+                      className="border-ripple-ink absolute top-full left-0 z-50 mt-2 w-44 overflow-hidden rounded-md border-2 bg-white shadow-[4px_4px_0_#111111]"
                     >
                       <div className="p-1">
                         {models.map((m) => (
@@ -724,10 +727,10 @@ export default function Home() {
                               setSelectedModel(m.id);
                               setIsModelDropdownOpen(false);
                             }}
-                            className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left font-[family-name:var(--font-mono)] text-sm transition-colors ${
+                            className={`flex w-full items-center justify-between px-3 py-2 text-left font-[family-name:var(--font-mono)] text-sm font-bold transition-colors ${
                               selectedModel === m.id
-                                ? "bg-[#ededed]/10 font-medium text-[#ededed]"
-                                : "text-[#888888] hover:bg-[#0a0a0a] hover:text-[#ededed]"
+                                ? "bg-ripple-lavender text-ripple-ink"
+                                : "text-ripple-ink/65 hover:bg-ripple-yellow hover:text-ripple-ink"
                             }`}
                           >
                             {m.id}
@@ -740,7 +743,7 @@ export default function Home() {
               </div>
 
               {thinkingEnabled && (
-                <div className="flex items-center gap-1 rounded-md border border-white/10 bg-black/5 px-2 py-1 text-[#ededed]">
+                <div className="brutal-stamp bg-ripple-lavender">
                   <Brain size={11} />
                   <span className="text-xs font-medium">Think</span>
                 </div>
@@ -750,16 +753,16 @@ export default function Home() {
             <div className="flex items-center gap-2">
               {tokenUsage.total_tokens > 0 && (
                 <div
-                  className={`hidden items-center gap-1.5 rounded-lg border px-2.5 py-1 font-[family-name:var(--font-mono)] text-xs sm:flex ${
+                  className={`border-ripple-ink hidden items-center gap-1.5 rounded-md border-2 px-2.5 py-1 font-[family-name:var(--font-mono)] text-xs font-bold shadow-[2px_2px_0_#111111] sm:flex ${
                     isContextWarning
-                      ? "border-[#ff4444]/20 bg-[#ff4444]/10 text-[#ff4444]"
-                      : "border-white/10 bg-[#0a0a0a] text-[#888888]"
+                      ? "bg-ripple-red/30 text-ripple-ink"
+                      : "text-ripple-ink/70 bg-white"
                   }`}
                 >
                   {isContextWarning && <AlertTriangle size={11} />}
-                  <span className="text-[#ededed]">↑{formatTokens(tokenUsage.prompt_tokens)}</span>
-                  <span className="text-[#666666]">|</span>
-                  <span className="text-[#ededed]">
+                  <span className="text-ripple-ink">↑{formatTokens(tokenUsage.prompt_tokens)}</span>
+                  <span className="text-ripple-ink/45">|</span>
+                  <span className="text-ripple-ink">
                     ↓{formatTokens(tokenUsage.completion_tokens)}
                   </span>
                 </div>
@@ -769,14 +772,14 @@ export default function Home() {
                   type="button"
                   onClick={handleCopySessionId}
                   title={sessionIdCopied ? "已复制" : `点击复制 Session ID: ${sessionId}`}
-                  className="hidden items-center gap-1.5 rounded-lg border border-white/10 bg-[#0a0a0a] px-2.5 py-1 font-[family-name:var(--font-mono)] text-xs text-[#888888] transition-colors hover:border-[#ededed]/40 hover:text-[#ededed] sm:flex"
+                  className="border-ripple-ink text-ripple-ink/70 hover:bg-ripple-cyan/40 hover:text-ripple-ink hidden items-center gap-1.5 rounded-md border-2 bg-white px-2.5 py-1 font-[family-name:var(--font-mono)] text-xs font-bold shadow-[2px_2px_0_#111111] transition-colors sm:flex"
                 >
-                  <span className="text-[#666666]">ID</span>
+                  <span className="text-ripple-ink/55">ID</span>
                   <span className="max-w-[140px] truncate">{sessionId}</span>
                   {sessionIdCopied ? (
-                    <Check size={12} className="text-[#ededed]" />
+                    <Check size={12} className="text-ripple-ink" />
                   ) : (
-                    <Copy size={12} className="text-[#666666]" />
+                    <Copy size={12} className="text-ripple-ink/55" />
                   )}
                 </button>
               )}
@@ -784,10 +787,10 @@ export default function Home() {
                 type="button"
                 onClick={() => setIsSettingsOpen(true)}
                 title="Click to change user in Settings"
-                className={`group hidden items-center gap-1.5 rounded-lg border px-2.5 py-1 font-[family-name:var(--font-mono)] text-xs transition-all duration-300 sm:flex ${
+                className={`group border-ripple-ink hidden items-center gap-1.5 rounded-md border-2 px-2.5 py-1 font-[family-name:var(--font-mono)] text-xs font-bold shadow-[2px_2px_0_#111111] transition-all duration-100 hover:-translate-y-0.5 hover:shadow-[4px_4px_0_#111111] sm:flex ${
                   userId === "default"
-                    ? "border-[#ff9d2a]/30 bg-gradient-to-r from-[#ff9d2a]/10 to-transparent text-[#ff9d2a] hover:border-[#ff9d2a]/60 hover:shadow-[0_0_10px_rgba(255,157,42,0.1)]"
-                    : "border-white/20 bg-gradient-to-r from-white/5 to-transparent text-[#ededed] hover:border-white/40 hover:shadow-[0_0_10px_rgba(255,255,255,0.05)]"
+                    ? "bg-ripple-yellow text-ripple-ink"
+                    : "bg-ripple-pink/15 text-ripple-ink"
                 }`}
               >
                 <UserRound
@@ -800,42 +803,42 @@ export default function Home() {
                 type="button"
                 onClick={() => setIsScheduledTasksOpen(true)}
                 title="Open scheduled tasks"
-                className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-[#0a0a0a] text-[#888888] transition-colors hover:border-[#ededed]/40 hover:text-[#ededed]"
+                className="btn-icon h-9 w-9"
               >
                 <CalendarClock size={14} />
               </button>
               <div
-                className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 ${
-                  sessionId
-                    ? "border-white/10 bg-black/5 text-[#ededed]"
-                    : "border-white/10 bg-[#0a0a0a] text-[#666666]"
+                className={`border-ripple-ink flex items-center gap-1.5 rounded-md border-2 px-2.5 py-1 text-xs font-bold shadow-[2px_2px_0_#111111] ${
+                  sessionId ? "bg-ripple-lime text-ripple-ink" : "text-ripple-ink/55 bg-white"
                 }`}
               >
                 <div
-                  className={`h-2 w-2 rounded-full ${sessionId ? "glow-white bg-transparent" : "bg-[#71717a]"}`}
+                  className={`border-ripple-ink h-2.5 w-2.5 border ${sessionId ? "bg-ripple-ink" : "bg-ripple-ink/35"}`}
                   style={
                     sessionId ? { animation: "glow-pulse 2s ease-in-out infinite" } : undefined
                   }
                 />
-                <span className="text-xs font-medium">{sessionId ? "Online" : "Ready"}</span>
+                <span>{sessionId ? "Online" : "Ready"}</span>
               </div>
             </div>
           </header>
 
           {/* Messages */}
-          <div className="flex-1 overflow-y-auto px-4 pt-6 pb-4 md:px-6">
+          <div className="playful-canvas flex-1 overflow-y-auto px-4 pt-6 pb-4 md:px-6">
             <div className="mx-auto max-w-5xl space-y-3">
               {messages.length === 0 && (
-                <div className="flex h-[50vh] flex-col items-center justify-center text-[#666666]">
+                <div className="text-ripple-ink/65 flex h-[50vh] flex-col items-center justify-center">
                   <div
-                    className="mb-6 flex h-20 w-20 items-center justify-center rounded-2xl border border-white/10 bg-black/5"
+                    className="border-ripple-ink bg-ripple-yellow mb-6 flex h-24 w-24 -rotate-2 items-center justify-center rounded-lg border-2 shadow-[6px_6px_0_#111111]"
                     style={{ animation: "float-breathe 3s ease-in-out infinite" }}
                   >
-                    <RippleIcon size={40} className="text-white/50" />
+                    <RippleIcon size={72} className="text-ripple-ink" />
                   </div>
-                  <p className="text-lg font-semibold text-[#ededed]">Ripple</p>
-                  <p className="mt-2 text-sm text-[#888888]">Start a conversation</p>
-                  <p className="mt-1 font-[family-name:var(--font-cjk)] text-sm text-[#666666]">
+                  <p className="text-ripple-ink text-2xl font-bold">Ripple</p>
+                  <p className="border-ripple-ink text-ripple-ink mt-2 rounded-md border-2 bg-white px-3 py-1 text-sm font-bold shadow-[2px_2px_0_#111111]">
+                    Start a conversation
+                  </p>
+                  <p className="text-ripple-ink/60 mt-3 font-[family-name:var(--font-cjk)] text-sm">
                     输入消息开始对话
                   </p>
                 </div>
@@ -858,7 +861,7 @@ export default function Home() {
 
           {/* Input */}
           {showMobileTaskPanel && (
-            <div className="surface-panel mx-4 mb-3 max-h-72 overflow-hidden rounded-xl md:mx-6 lg:hidden">
+            <div className="surface-elevated mx-4 mb-3 max-h-72 overflow-hidden md:mx-6 lg:hidden">
               <TaskExecutionPanel
                 tasks={tasks}
                 taskProgress={taskProgress}
@@ -881,15 +884,15 @@ export default function Home() {
 
         {/* Resize handle */}
         <div
-          className="z-30 hidden w-1.5 shrink-0 cursor-col-resize items-center justify-center bg-black transition-colors hover:bg-[#ededed]/15 lg:flex"
+          className="border-ripple-ink bg-ripple-yellow hover:bg-ripple-pink z-30 hidden w-2 shrink-0 cursor-col-resize items-center justify-center border-x-2 transition-colors lg:flex"
           onMouseDown={handleResizeStart}
         >
-          <div className="h-12 w-0.5 rounded-full bg-[#27272a]" />
+          <div className="bg-ripple-ink h-12 w-0.5" />
         </div>
 
         {/* Right panel */}
         <aside
-          className="surface-panel hidden shrink-0 flex-col rounded-none border-t-0 border-r-0 border-b-0 border-l lg:flex"
+          className="border-ripple-ink bg-ripple-sidebar hidden shrink-0 flex-col border-l-2 lg:flex"
           style={{ width: rightPanelWidth }}
         >
           <TaskExecutionPanel

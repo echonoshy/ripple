@@ -105,7 +105,7 @@ export default function Sidebar({
   const sidebarContent = (
     <>
       {/* Logo */}
-      <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+      <div className="border-ripple-ink bg-ripple-yellow flex items-center justify-between border-b-2 px-5 py-4">
         <a
           href="https://github.com/echonoshy/ripple"
           target="_blank"
@@ -113,24 +113,20 @@ export default function Sidebar({
           className="group flex items-center gap-3 transition-all"
           title="View on GitHub"
         >
-          <div className="relative flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 bg-gradient-to-b from-white/10 to-transparent shadow-[0_0_15px_rgba(255,255,255,0.05)] transition-all group-hover:border-white/20 group-hover:shadow-[0_0_20px_rgba(255,255,255,0.1)]">
-            <div className="absolute inset-0 rounded-xl bg-white/5 opacity-0 transition-opacity group-hover:opacity-100" />
+          <div className="border-ripple-ink relative flex h-9 w-9 items-center justify-center border-2 bg-white shadow-[3px_3px_0_#111111] transition-transform group-hover:-translate-y-0.5">
             <RippleIcon
-              size={16}
-              className="relative z-10 text-[#ededed] transition-transform duration-500 group-hover:scale-110"
+              size={28}
+              className="text-ripple-ink relative z-10 transition-transform duration-500 group-hover:scale-110"
             />
           </div>
           <div className="flex items-center gap-2.5">
-            <h1 className="bg-gradient-to-br from-white to-white/50 bg-clip-text font-[family-name:var(--font-mono)] text-[17px] font-bold tracking-tighter text-transparent">
+            <h1 className="text-ripple-ink font-[family-name:var(--font-mono)] text-[18px] font-bold">
               Ripple
             </h1>
           </div>
         </a>
         <div className="flex items-center gap-1">
-          <button
-            onClick={onCloseMobile}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-[#888888] transition-colors hover:bg-white/5 hover:text-[#ededed] md:hidden"
-          >
+          <button onClick={onCloseMobile} className="btn-icon h-8 w-8 md:!hidden">
             <X size={18} />
           </button>
         </div>
@@ -143,49 +139,28 @@ export default function Sidebar({
           type="button"
           onClick={onOpenSettings}
           title="Click to change user in Settings"
-          className={`group relative mb-4 flex w-full items-center gap-3 overflow-hidden rounded-xl border p-3 text-left transition-all duration-300 ${
-            isDefaultUser
-              ? "border-[#ff9d2a]/20 bg-gradient-to-br from-[#ff9d2a]/[0.08] to-transparent hover:border-[#ff9d2a]/40 hover:shadow-[0_0_15px_rgba(255,157,42,0.1)]"
-              : "border-white/10 bg-gradient-to-br from-white/[0.04] to-transparent hover:border-white/20 hover:shadow-[0_0_15px_rgba(255,255,255,0.05)]"
+          className={`group border-ripple-ink relative mb-4 flex w-full items-center gap-3 overflow-hidden border-2 p-3 text-left shadow-[3px_3px_0_#111111] transition-all duration-100 hover:-translate-y-0.5 hover:shadow-[5px_5px_0_#111111] ${
+            isDefaultUser ? "bg-ripple-yellow/75" : "bg-ripple-pink/15"
           }`}
         >
-          {/* Subtle background glow on hover */}
           <div
-            className={`absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100 ${
-              isDefaultUser
-                ? "bg-gradient-to-r from-[#ff9d2a]/10 to-transparent"
-                : "bg-gradient-to-r from-white/10 to-transparent"
-            }`}
-          />
-
-          <div
-            className={`relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border shadow-sm transition-transform duration-300 group-hover:scale-105 ${
-              isDefaultUser
-                ? "border-[#ff9d2a]/30 bg-[#ff9d2a]/10 text-[#ff9d2a]"
-                : "border-white/20 bg-white/5 text-[#ededed]"
+            className={`border-ripple-ink text-ripple-ink relative flex h-9 w-9 shrink-0 items-center justify-center border-2 transition-transform duration-300 group-hover:scale-105 ${
+              isDefaultUser ? "bg-white" : "bg-ripple-pink"
             }`}
           >
             <UserRound size={16} />
           </div>
           <div className="relative min-w-0 flex-1">
-            <p
-              className={`text-[10px] font-medium tracking-wider uppercase ${
-                isDefaultUser ? "text-[#ff9d2a]/80" : "text-[#888888]"
-              }`}
-            >
+            <p className="text-ripple-ink/60 text-[10px] font-bold tracking-wider uppercase">
               {isDefaultUser ? "Default user" : "Signed in as"}
             </p>
-            <p className="truncate font-[family-name:var(--font-mono)] text-sm font-semibold text-[#ededed] transition-colors group-hover:text-white">
+            <p className="text-ripple-ink truncate font-[family-name:var(--font-mono)] text-sm font-bold">
               {userId}
             </p>
           </div>
           <Settings
             size={14}
-            className={`relative transition-all duration-300 group-hover:rotate-90 ${
-              isDefaultUser
-                ? "text-[#ff9d2a]/50 group-hover:text-[#ff9d2a]"
-                : "text-[#666666] group-hover:text-[#ededed]"
-            }`}
+            className="text-ripple-ink relative transition-all duration-300 group-hover:rotate-90"
           />
         </button>
 
@@ -202,15 +177,17 @@ export default function Sidebar({
 
         {/* Session List */}
         <div className="mb-6 space-y-1">
-          <h2 className="mb-2 px-2 text-xs font-medium tracking-wider text-[#666666] uppercase">
+          <h2 className="text-ripple-ink/60 mb-2 px-2 text-xs font-bold tracking-wider uppercase">
             Sessions
           </h2>
           {isLoadingSessions && sessions.length === 0 ? (
             <div className="flex justify-center p-4">
-              <Loader2 size={16} className="animate-spin text-[#ededed]" />
+              <Loader2 size={16} className="text-ripple-ink animate-spin" />
             </div>
           ) : sessions.length === 0 ? (
-            <div className="px-3 py-4 text-center text-sm text-[#666666]">No sessions yet</div>
+            <div className="border-ripple-ink/50 text-ripple-ink/55 border-2 border-dashed bg-white px-3 py-4 text-center text-sm font-bold">
+              No sessions yet
+            </div>
           ) : (
             sessions.map((session, index) => (
               <motion.div
@@ -221,29 +198,29 @@ export default function Sidebar({
               >
                 <div
                   onClick={() => onSwitchSession(session.session_id)}
-                  className={`group flex cursor-pointer items-center justify-between rounded-lg p-2.5 transition-all duration-150 ${
+                  className={`group flex cursor-pointer items-center justify-between border-2 p-2.5 transition-all duration-100 ${
                     session.session_id === currentSessionId
-                      ? "border-l-2 border-white bg-white/5"
-                      : "border-l-2 border-transparent hover:translate-x-0.5 hover:bg-white/5"
+                      ? "border-ripple-ink bg-ripple-yellow shadow-[3px_3px_0_#111111]"
+                      : "hover:border-ripple-ink border-transparent hover:bg-white hover:shadow-[2px_2px_0_#111111]"
                   }`}
                 >
                   <div className="flex min-w-0 items-center gap-2.5">
                     <div
-                      className={`h-1.5 w-1.5 rounded-full ${
-                        session.session_id === currentSessionId ? "bg-[#ededed]" : "bg-[#71717a]"
+                      className={`border-ripple-ink h-2 w-2 border ${
+                        session.session_id === currentSessionId ? "bg-ripple-ink" : "bg-white"
                       }`}
                     />
                     <div className="min-w-0">
                       <p
                         className={`truncate text-sm ${
                           session.session_id === currentSessionId
-                            ? "font-medium text-[#ededed]"
-                            : "text-[#888888]"
+                            ? "text-ripple-ink font-bold"
+                            : "text-ripple-ink/65 font-bold"
                         }`}
                       >
                         {session.title || session.session_id.substring(0, 12) + "..."}
                       </p>
-                      <p className="mt-0.5 flex items-center gap-1 text-xs text-[#666666]">
+                      <p className="text-ripple-ink/50 mt-0.5 flex items-center gap-1 font-[family-name:var(--font-mono)] text-xs">
                         <Clock size={9} />
                         {formatSessionTime(session.last_active)}
                         <span className="mx-0.5">·</span>
@@ -253,7 +230,7 @@ export default function Sidebar({
                   </div>
                   <button
                     onClick={(e) => onDeleteSession(session.session_id, e)}
-                    className="shrink-0 rounded-md p-1.5 text-[#666666] opacity-0 transition-all group-hover:opacity-100 hover:text-[#ff4444]"
+                    className="text-ripple-ink/45 hover:border-ripple-ink hover:bg-ripple-red/30 hover:text-ripple-ink shrink-0 border-2 border-transparent p-1.5 opacity-0 transition-all group-hover:opacity-100"
                     title="Delete"
                   >
                     <Trash2 size={13} />
@@ -267,37 +244,39 @@ export default function Sidebar({
         {/* Token Usage */}
         {tokenUsage.total_tokens > 0 && (
           <div className="space-y-2">
-            <h2 className="px-2 text-xs font-medium tracking-wider text-[#666666] uppercase">
+            <h2 className="text-ripple-ink/60 px-2 text-xs font-bold tracking-wider uppercase">
               Stats
             </h2>
-            <div className="space-y-2 rounded-lg border border-white/10 bg-[#0a0a0a] p-3">
+            <div className="border-ripple-ink space-y-2 border-2 bg-white p-3 shadow-[3px_3px_0_#111111]">
               {lastContextTokens > 0 && (
                 <div>
                   <div className="mb-1 flex justify-between font-[family-name:var(--font-mono)] text-xs">
-                    <span className="text-[#666666]">CTX</span>
+                    <span className="text-ripple-ink/60 font-bold">CTX</span>
                     <span
-                      className={`font-medium ${isContextWarning ? "text-[#ff4444]" : "text-[#ededed]"}`}
+                      className={`font-bold ${isContextWarning ? "text-ripple-red" : "text-ripple-ink"}`}
                     >
                       {contextPercent.toFixed(0)}%
                     </span>
                   </div>
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+                  <div className="border-ripple-ink flex h-3 w-full gap-0.5 border-2 bg-white p-0.5">
                     <div
-                      className={`h-full rounded-full transition-all ${isContextWarning ? "bg-[#ff4444]" : "bg-[#ededed]"}`}
+                      className={`h-full transition-all ${isContextWarning ? "bg-ripple-red" : "bg-ripple-lime"}`}
                       style={{ width: `${contextPercent}%` }}
                     />
                   </div>
-                  <p className="mt-1 font-[family-name:var(--font-mono)] text-xs text-[#666666]">
+                  <p className="text-ripple-ink/55 mt-1 font-[family-name:var(--font-mono)] text-xs">
                     {formatTokens(lastContextTokens)} / {formatTokens(MAX_CONTEXT_TOKENS)}
                   </p>
                 </div>
               )}
               <div className="flex justify-between font-[family-name:var(--font-mono)] text-xs">
-                <span className="text-[#666666]">Tokens</span>
+                <span className="text-ripple-ink/60 font-bold">Tokens</span>
                 <span className="font-medium">
-                  <span className="text-[#ededed]">↑{formatTokens(tokenUsage.prompt_tokens)}</span>
-                  <span className="mx-1 text-[#666666]">/</span>
-                  <span className="text-[#ededed]">
+                  <span className="text-ripple-ink font-bold">
+                    ↑{formatTokens(tokenUsage.prompt_tokens)}
+                  </span>
+                  <span className="text-ripple-ink/45 mx-1">/</span>
+                  <span className="text-ripple-ink font-bold">
                     ↓{formatTokens(tokenUsage.completion_tokens)}
                   </span>
                 </span>
@@ -309,11 +288,11 @@ export default function Sidebar({
 
       {/* Settings */}
       <div
-        className="mx-3 mb-3 flex cursor-pointer items-center gap-3 rounded-lg p-3 text-[#888888] transition-colors hover:bg-white/5 hover:text-[#ededed]"
+        className="border-ripple-ink text-ripple-ink hover:bg-ripple-lavender mx-3 mb-3 flex cursor-pointer items-center gap-3 border-2 bg-white p-3 font-bold shadow-[3px_3px_0_#111111] transition-all hover:-translate-y-0.5 hover:shadow-[5px_5px_0_#111111]"
         onClick={onOpenSettings}
       >
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-[#0a0a0a]">
-          <Settings size={15} className="text-[#888888]" />
+        <div className="border-ripple-ink bg-ripple-sidebar flex h-8 w-8 items-center justify-center border-2">
+          <Settings size={15} className="text-ripple-ink" />
         </div>
         <span className="text-sm">Settings</span>
       </div>
@@ -324,15 +303,15 @@ export default function Sidebar({
     <>
       {/* Desktop sidebar */}
       <div className="relative hidden shrink-0 md:flex" style={{ width: width }}>
-        <aside className="surface-panel flex h-full w-full flex-col rounded-none border-t-0 border-r border-b-0 border-l-0">
+        <aside className="border-ripple-ink bg-ripple-sidebar flex h-full w-full flex-col border-r-2">
           {sidebarContent}
         </aside>
         {/* Resize handle */}
         <div
-          className="group absolute top-0 right-0 bottom-0 z-30 flex w-1.5 translate-x-1/2 cursor-col-resize items-center justify-center bg-transparent transition-colors hover:bg-[#ededed]/15"
+          className="group hover:bg-ripple-pink absolute top-0 right-0 bottom-0 z-30 flex w-2 translate-x-1/2 cursor-col-resize items-center justify-center bg-transparent transition-colors"
           onMouseDown={handleResizeStart}
         >
-          <div className="h-12 w-0.5 rounded-full bg-[#27272a] opacity-0 transition-opacity group-hover:opacity-100" />
+          <div className="bg-ripple-ink h-12 w-0.5 opacity-0 transition-opacity group-hover:opacity-100" />
         </div>
       </div>
 
@@ -340,10 +319,10 @@ export default function Sidebar({
       {isMobileOpen && (
         <>
           <div
-            className="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm md:hidden"
+            className="bg-ripple-ink/35 fixed inset-0 z-40 backdrop-blur-sm md:hidden"
             onClick={onCloseMobile}
           />
-          <aside className="fixed inset-y-0 left-0 z-50 flex w-72 flex-col border-r border-white/10 bg-[#0a0a0a] md:hidden">
+          <aside className="border-ripple-ink bg-ripple-sidebar fixed inset-y-0 left-0 z-50 flex w-72 flex-col border-r-2 md:hidden">
             {sidebarContent}
           </aside>
         </>

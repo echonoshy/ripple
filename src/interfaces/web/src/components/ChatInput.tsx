@@ -56,11 +56,11 @@ export default function ChatInput({
   };
 
   return (
-    <div className="z-20 shrink-0 border-t border-white/10 bg-black/90 px-4 pt-3 pb-6 backdrop-blur-sm md:px-6">
+    <div className="border-ripple-ink bg-ripple-paper z-20 shrink-0 border-t-2 px-4 pt-3 pb-6 md:px-6">
       <div className="mx-auto max-w-5xl">
-        <div className="relative flex items-end gap-2 rounded-xl border border-white/10 bg-[#0a0a0a] p-1.5 transition-all duration-200 focus-within:border-white/20 focus-within:border-white/40 focus-within:shadow-[0_0_15px_rgba(255,255,255,0.05)] focus-within:ring-0">
+        <div className="border-ripple-ink focus-within:bg-ripple-yellow/20 relative flex items-end gap-2 border-2 bg-white p-1.5 shadow-[4px_4px_0_#111111] transition-all duration-100 focus-within:translate-x-0.5 focus-within:translate-y-0.5 focus-within:shadow-[2px_2px_0_#111111]">
           {/* Terminal prompt prefix */}
-          <span className="flex shrink-0 items-center pb-3 pl-3 font-[family-name:var(--font-mono)] text-sm font-medium text-[#ededed]">
+          <span className="border-ripple-ink bg-ripple-lavender text-ripple-ink mb-1 flex shrink-0 items-center border-2 px-2 py-1 font-[family-name:var(--font-mono)] text-sm font-bold">
             {">_"}
           </span>
           <textarea
@@ -71,7 +71,7 @@ export default function ChatInput({
             disabled={isGenerating}
             rows={1}
             placeholder={isGenerating ? "Thinking..." : "Ask anything..."}
-            className="max-h-[400px] min-h-[44px] flex-1 resize-none bg-transparent py-3 pr-2 text-sm leading-relaxed text-[#ededed] placeholder:text-[#666666] focus:outline-none disabled:opacity-60 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:bg-transparent"
+            className="text-ripple-ink placeholder:text-ripple-ink/45 [&::-webkit-scrollbar-thumb]:bg-ripple-ink max-h-[400px] min-h-[44px] flex-1 resize-none bg-transparent py-3 pr-2 text-sm leading-relaxed font-medium focus:outline-none disabled:opacity-60 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent"
           />
           <div className="flex shrink-0 items-center gap-1.5 pr-1 pb-1">
             {isGenerating ? (
@@ -80,7 +80,7 @@ export default function ChatInput({
                 whileTap={{ scale: 0.95 }}
                 type="button"
                 onClick={onStop}
-                className="flex h-9 w-9 items-center justify-center rounded-lg border border-[#ff4444]/40 bg-[#ff4444]/10 text-[#ff4444] transition-colors hover:bg-[#ff4444]/15"
+                className="btn-icon bg-ripple-red/35 h-9 w-9"
                 title="Stop generation"
               >
                 <Square size={14} fill="currentColor" />
@@ -92,7 +92,7 @@ export default function ChatInput({
                 type="button"
                 onClick={onSend}
                 disabled={!value.trim()}
-                className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-black/5 text-[#ededed] transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-30"
+                className="btn-icon disabled:text-ripple-ink/35 h-9 w-9 disabled:cursor-not-allowed disabled:bg-white disabled:opacity-60"
               >
                 <Send size={14} className="ml-0.5" />
               </motion.button>
@@ -100,19 +100,19 @@ export default function ChatInput({
           </div>
         </div>
 
-        <div className="mt-2 flex justify-center gap-4 text-xs text-[#666666]">
+        <div className="text-ripple-ink/55 mt-3 flex justify-center gap-4 text-xs font-bold">
           <span className="flex items-center gap-1">
-            <kbd className="rounded border border-white/10 bg-[#0a0a0a] px-1.5 py-0.5 font-[family-name:var(--font-mono)] text-[10px] text-[#888888]">
+            <kbd className="border-ripple-ink text-ripple-ink border-2 bg-white px-1.5 py-0.5 font-[family-name:var(--font-mono)] text-[10px] shadow-[1px_1px_0_#111111]">
               Shift
             </kbd>{" "}
             +{" "}
-            <kbd className="rounded border border-white/10 bg-[#0a0a0a] px-1.5 py-0.5 font-[family-name:var(--font-mono)] text-[10px] text-[#888888]">
+            <kbd className="border-ripple-ink text-ripple-ink border-2 bg-white px-1.5 py-0.5 font-[family-name:var(--font-mono)] text-[10px] shadow-[1px_1px_0_#111111]">
               Enter
             </kbd>{" "}
             换行
           </span>
           <span className="flex items-center gap-1">
-            <kbd className="rounded border border-white/10 bg-[#0a0a0a] px-1.5 py-0.5 font-[family-name:var(--font-mono)] text-[10px] text-[#888888]">
+            <kbd className="border-ripple-ink text-ripple-ink border-2 bg-white px-1.5 py-0.5 font-[family-name:var(--font-mono)] text-[10px] shadow-[1px_1px_0_#111111]">
               Enter
             </kbd>{" "}
             发送

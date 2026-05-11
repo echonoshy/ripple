@@ -133,36 +133,28 @@ function FeishuCard({ tag, url }: { tag: FeishuTag; url: string }) {
     ? "该 session 尚未配置飞书应用。点击下方按钮在浏览器中完成创建。"
     : "AI Agent 请求访问你的飞书数据。点击下方按钮完成授权。";
   const Icon = isSetup ? Settings2 : KeyRound;
-  const accent = isSetup ? "#3b82f6" : "#10b981";
+  const accentClass = isSetup ? "bg-ripple-cyan/35" : "bg-ripple-lime/45";
 
   return (
-    <div
-      className="my-2 overflow-hidden rounded-xl border bg-[#0a0a0a]"
-      style={{ borderColor: `${accent}40` }}
-    >
-      <div className="flex items-center gap-2 px-4 py-3" style={{ backgroundColor: `${accent}14` }}>
-        <Icon size={16} style={{ color: accent }} />
-        <span className="text-sm font-medium" style={{ color: accent }}>
-          {title}
-        </span>
+    <div className="border-ripple-ink my-2 overflow-hidden border-2 bg-white shadow-[3px_3px_0_#111111]">
+      <div
+        className={`border-ripple-ink flex items-center gap-2 border-b-2 px-4 py-3 ${accentClass}`}
+      >
+        <Icon size={16} className="text-ripple-ink" />
+        <span className="text-ripple-ink text-sm font-bold">{title}</span>
       </div>
       <div className="space-y-3 px-4 py-3">
-        <p className="text-sm text-[#888888]">{subtitle}</p>
+        <p className="text-ripple-ink/65 text-sm font-medium">{subtitle}</p>
         <a
           href={url}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors"
-          style={{
-            borderColor: `${accent}66`,
-            color: accent,
-            backgroundColor: `${accent}0d`,
-          }}
+          className="btn-ghost inline-flex items-center gap-1.5 px-3 py-2 text-sm"
         >
           {isSetup ? "打开配置链接" : "打开授权链接"}
           <ExternalLink size={13} />
         </a>
-        <div className="font-[family-name:var(--font-mono)] text-[11px] break-all text-[#52525b]">
+        <div className="text-ripple-ink/50 font-[family-name:var(--font-mono)] text-[11px] break-all">
           {url}
         </div>
       </div>
@@ -174,19 +166,19 @@ function ThinkingBlock({ content }: { content: string }) {
   const [isExpanded, setIsExpanded] = useState(false);
 
   return (
-    <div className="my-2 overflow-hidden rounded-xl border border-white/10 bg-black/5">
+    <div className="border-ripple-ink bg-ripple-lavender/35 my-2 overflow-hidden border-2 shadow-[3px_3px_0_#111111]">
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className="flex w-full items-center gap-2 rounded-t-xl px-4 py-2.5 text-left transition-colors hover:bg-white/10"
+        className="hover:bg-ripple-lavender/60 flex w-full items-center gap-2 px-4 py-2.5 text-left transition-colors"
       >
-        <Brain size={14} className="shrink-0 text-[#ededed]" />
-        <span className="text-xs font-medium text-[#ededed]">Thought Process</span>
+        <Brain size={14} className="text-ripple-ink shrink-0" />
+        <span className="text-ripple-ink text-xs font-bold">Thought Process</span>
         <motion.div
           animate={{ rotate: isExpanded ? 90 : 0 }}
           transition={{ duration: 0.1 }}
           className="ml-auto"
         >
-          <ChevronRight size={14} className="text-[#ededed]/50" />
+          <ChevronRight size={14} className="text-ripple-ink/50" />
         </motion.div>
       </button>
       <AnimatePresence>
@@ -198,8 +190,8 @@ function ThinkingBlock({ content }: { content: string }) {
             transition={{ duration: 0.15 }}
             className="overflow-hidden"
           >
-            <div className="border-t border-white/10 px-4 pb-3">
-              <div className="markdown-body mt-2 text-sm leading-relaxed text-[#888888]">
+            <div className="border-ripple-ink border-t-2 px-4 pb-3">
+              <div className="markdown-body text-ripple-ink/65 mt-2 text-sm leading-relaxed">
                 <MarkdownContent content={content} />
               </div>
             </div>
@@ -220,7 +212,7 @@ function MarkdownContent({ content }: { content: string }) {
       components={{
         pre({ children }) {
           return (
-            <pre className="not-prose my-3 overflow-x-auto rounded-lg border border-white/5 bg-black p-4 font-[family-name:var(--font-mono)] text-[13px]">
+            <pre className="not-prose border-ripple-ink bg-ripple-terminal my-4 max-w-full overflow-x-auto overflow-y-hidden border-2 p-4 font-[family-name:var(--font-mono)] text-[13px] [overflow-wrap:normal] whitespace-pre text-[#d7d7d7] shadow-[4px_4px_0_#ffd83d]">
               {children}
             </pre>
           );
@@ -230,7 +222,7 @@ function MarkdownContent({ content }: { content: string }) {
           if (isInline) {
             return (
               <code
-                className="rounded-md border border-white/10 bg-white/5 px-1.5 py-0.5 font-[family-name:var(--font-mono)] text-[13px] text-[#ededed]"
+                className="border-ripple-ink bg-ripple-yellow/50 text-ripple-ink border-2 px-1.5 py-0.5 font-[family-name:var(--font-mono)] text-[13px]"
                 {...props}
               >
                 {children}
@@ -238,7 +230,7 @@ function MarkdownContent({ content }: { content: string }) {
             );
           }
           return (
-            <code className={`${className} text-[13px] leading-relaxed`} {...props}>
+            <code className={`${className} text-[13px] leading-relaxed whitespace-pre`} {...props}>
               {children}
             </code>
           );
@@ -249,33 +241,45 @@ function MarkdownContent({ content }: { content: string }) {
               href={resolveBackendUrl(href)}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-[#ededed] underline underline-offset-2 hover:text-[#60a5fa]"
+              className="text-ripple-pink hover:bg-ripple-pink font-bold break-words underline underline-offset-4 hover:text-white"
             >
               {children}
             </a>
           );
         },
-        img({ src, alt, ...rest }) {
+        img({ src, alt, className, ...rest }) {
           const resolved = typeof src === "string" ? resolveBackendUrl(src) : src;
-          // eslint-disable-next-line @next/next/no-img-element -- 后端相对路径图片（如 B 站扫码 QR）跨 origin，Next <Image> 会强行要求域名白名单；这里允许原生 img 并手动约束尺寸
-          return <img src={resolved} alt={alt ?? ""} loading="lazy" {...rest} />;
+          return (
+            // eslint-disable-next-line @next/next/no-img-element -- 后端相对路径图片（如 B 站扫码 QR）跨 origin，Next <Image> 会强行要求域名白名单；这里允许原生 img 并手动约束尺寸
+            <img
+              src={resolved}
+              alt={alt ?? ""}
+              loading="lazy"
+              className={`border-ripple-ink my-4 block max-h-[420px] max-w-full border-2 bg-white object-contain shadow-[4px_4px_0_#111111] ${className ?? ""}`}
+              {...rest}
+            />
+          );
         },
         table({ children }) {
           return (
-            <div className="my-3 overflow-x-auto">
-              <table className="min-w-full border-collapse text-sm">{children}</table>
+            <div className="my-4 max-w-full overflow-x-auto pb-1">
+              <table className="min-w-full border-collapse text-sm shadow-[4px_4px_0_#111111]">
+                {children}
+              </table>
             </div>
           );
         },
         th({ children }) {
           return (
-            <th className="border border-white/10 bg-[#27272a] px-3 py-2 text-left text-sm font-medium text-[#ededed]">
+            <th className="border-ripple-ink bg-ripple-lavender text-ripple-ink border-2 px-3 py-2 text-left text-sm font-black">
               {children}
             </th>
           );
         },
         td({ children }) {
-          return <td className="border border-white/10 px-3 py-2 text-[#ededed]">{children}</td>;
+          return (
+            <td className="border-ripple-ink text-ripple-ink border-2 px-3 py-2">{children}</td>
+          );
         },
       }}
     >

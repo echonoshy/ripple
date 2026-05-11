@@ -85,12 +85,12 @@ function formatDuration(ms: number | null): string {
 }
 
 function statusClass(status: string | null): string {
-  if (status === "success") return "border-emerald-500/20 bg-emerald-500/10 text-emerald-300";
+  if (status === "success") return "border-ripple-ink bg-ripple-lime text-ripple-ink";
   if (status === "failed" || status === "timeout") {
-    return "border-[#ff4444]/20 bg-[#ff4444]/10 text-[#ff7777]";
+    return "border-ripple-ink bg-ripple-red/45 text-ripple-ink";
   }
-  if (status === "running") return "border-white/20 bg-white/10 text-[#ededed]";
-  return "border-white/10 bg-black text-[#888888]";
+  if (status === "running") return "border-ripple-ink bg-ripple-yellow text-ripple-ink";
+  return "border-ripple-ink bg-white text-ripple-ink/65";
 }
 
 function runHasDetails(run: ScheduledRun): boolean {
@@ -255,49 +255,63 @@ export default function ScheduledTasksPanel({ sandboxReady, userId }: ScheduledT
 
   return (
     <div>
-      <h3 className="mb-3 flex items-center gap-2 text-xs font-medium tracking-wider text-[#666666] uppercase">
+      <h3 className="text-ripple-ink/60 mb-3 flex items-center gap-2 text-xs font-bold tracking-wider uppercase">
         <CalendarClock size={14} />
         Scheduled Tasks
       </h3>
-      <div className="rounded-xl border border-white/10 bg-[#0a0a0a] p-4">
+      <div className="border-ripple-ink border-2 bg-white p-4 shadow-[3px_3px_0_#111111]">
         {!sandboxReady ? (
-          <div className="text-sm text-[#888888]">Create the current user sandbox first.</div>
+          <div className="text-ripple-ink/60 text-sm font-bold">
+            Create the current user sandbox first.
+          </div>
         ) : (
           <div className="space-y-4">
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-              <div className="rounded-md border border-white/10 bg-black px-2.5 py-2">
-                <p className="text-[10px] tracking-wider text-[#666666] uppercase">Total</p>
-                <p className="mt-1 font-[family-name:var(--font-mono)] text-sm text-[#ededed]">
+              <div className="border-ripple-ink bg-ripple-yellow/40 border-2 px-2.5 py-2">
+                <p className="text-ripple-ink/60 text-[10px] font-bold tracking-wider uppercase">
+                  Total
+                </p>
+                <p className="text-ripple-ink mt-1 font-[family-name:var(--font-mono)] text-sm font-bold">
                   {jobSummary.total}
                 </p>
               </div>
-              <div className="rounded-md border border-white/10 bg-black px-2.5 py-2">
-                <p className="text-[10px] tracking-wider text-[#666666] uppercase">Enabled</p>
-                <p className="mt-1 font-[family-name:var(--font-mono)] text-sm text-[#ededed]">
+              <div className="border-ripple-ink bg-ripple-lime/45 border-2 px-2.5 py-2">
+                <p className="text-ripple-ink/60 text-[10px] font-bold tracking-wider uppercase">
+                  Enabled
+                </p>
+                <p className="text-ripple-ink mt-1 font-[family-name:var(--font-mono)] text-sm font-bold">
                   {jobSummary.enabled}
                 </p>
               </div>
-              <div className="rounded-md border border-white/10 bg-black px-2.5 py-2">
-                <p className="text-[10px] tracking-wider text-[#666666] uppercase">Once</p>
-                <p className="mt-1 font-[family-name:var(--font-mono)] text-sm text-[#ededed]">
+              <div className="border-ripple-ink bg-ripple-cyan/35 border-2 px-2.5 py-2">
+                <p className="text-ripple-ink/60 text-[10px] font-bold tracking-wider uppercase">
+                  Once
+                </p>
+                <p className="text-ripple-ink mt-1 font-[family-name:var(--font-mono)] text-sm font-bold">
                   {jobSummary.once}
                 </p>
               </div>
-              <div className="rounded-md border border-white/10 bg-black px-2.5 py-2">
-                <p className="text-[10px] tracking-wider text-[#666666] uppercase">Loop</p>
-                <p className="mt-1 font-[family-name:var(--font-mono)] text-sm text-[#ededed]">
+              <div className="border-ripple-ink bg-ripple-lavender/45 border-2 px-2.5 py-2">
+                <p className="text-ripple-ink/60 text-[10px] font-bold tracking-wider uppercase">
+                  Loop
+                </p>
+                <p className="text-ripple-ink mt-1 font-[family-name:var(--font-mono)] text-sm font-bold">
                   {jobSummary.interval}
                 </p>
               </div>
-              <div className="rounded-md border border-white/10 bg-black px-2.5 py-2">
-                <p className="text-[10px] tracking-wider text-[#666666] uppercase">Running</p>
-                <p className="mt-1 font-[family-name:var(--font-mono)] text-sm text-[#ededed]">
+              <div className="border-ripple-ink bg-ripple-orange/45 border-2 px-2.5 py-2">
+                <p className="text-ripple-ink/60 text-[10px] font-bold tracking-wider uppercase">
+                  Running
+                </p>
+                <p className="text-ripple-ink mt-1 font-[family-name:var(--font-mono)] text-sm font-bold">
                   {jobSummary.running}
                 </p>
               </div>
-              <div className="rounded-md border border-white/10 bg-black px-2.5 py-2">
-                <p className="text-[10px] tracking-wider text-[#666666] uppercase">Failed</p>
-                <p className="mt-1 font-[family-name:var(--font-mono)] text-sm text-[#ededed]">
+              <div className="border-ripple-ink bg-ripple-red/25 border-2 px-2.5 py-2">
+                <p className="text-ripple-ink/60 text-[10px] font-bold tracking-wider uppercase">
+                  Failed
+                </p>
+                <p className="text-ripple-ink mt-1 font-[family-name:var(--font-mono)] text-sm font-bold">
                   {jobSummary.failed}
                 </p>
               </div>
@@ -310,16 +324,16 @@ export default function ScheduledTasksPanel({ sandboxReady, userId }: ScheduledT
                   value={form.name}
                   onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
                   placeholder="Task name"
-                  className="rounded-md border border-white/10 bg-black px-3 py-2 text-sm text-[#ededed] placeholder:text-[#666666] focus:border-[#ededed]/50 focus:outline-none"
+                  className="brutal-input px-3 py-2 text-sm"
                 />
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
                     onClick={() => setForm((prev) => ({ ...prev, executionType: "agent" }))}
-                    className={`rounded-md border px-3 py-2 text-sm ${
+                    className={`border-ripple-ink border-2 px-3 py-2 text-sm font-bold shadow-[2px_2px_0_#111111] transition-all ${
                       form.executionType === "agent"
-                        ? "border-white/30 bg-white/10 text-[#ededed]"
-                        : "border-white/10 bg-black text-[#888888]"
+                        ? "bg-ripple-yellow text-ripple-ink"
+                        : "text-ripple-ink/60 bg-white"
                     }`}
                   >
                     Agent
@@ -327,10 +341,10 @@ export default function ScheduledTasksPanel({ sandboxReady, userId }: ScheduledT
                   <button
                     type="button"
                     onClick={() => setForm((prev) => ({ ...prev, executionType: "command" }))}
-                    className={`rounded-md border px-3 py-2 text-sm ${
+                    className={`border-ripple-ink border-2 px-3 py-2 text-sm font-bold shadow-[2px_2px_0_#111111] transition-all ${
                       form.executionType === "command"
-                        ? "border-white/30 bg-white/10 text-[#ededed]"
-                        : "border-white/10 bg-black text-[#888888]"
+                        ? "bg-ripple-yellow text-ripple-ink"
+                        : "text-ripple-ink/60 bg-white"
                     }`}
                   >
                     Command
@@ -343,7 +357,7 @@ export default function ScheduledTasksPanel({ sandboxReady, userId }: ScheduledT
                   onChange={(e) => setForm((prev) => ({ ...prev, prompt: e.target.value }))}
                   placeholder="At run time, use Feishu to send me a hydration reminder."
                   rows={3}
-                  className="w-full resize-none rounded-md border border-white/10 bg-black px-3 py-2 text-xs text-[#ededed] placeholder:text-[#666666] focus:border-[#ededed]/50 focus:outline-none"
+                  className="brutal-input w-full resize-none px-3 py-2 text-xs"
                 />
               ) : (
                 <textarea
@@ -351,7 +365,7 @@ export default function ScheduledTasksPanel({ sandboxReady, userId }: ScheduledT
                   onChange={(e) => setForm((prev) => ({ ...prev, command: e.target.value }))}
                   placeholder="python scripts/daily_news.py"
                   rows={2}
-                  className="w-full resize-none rounded-md border border-white/10 bg-black px-3 py-2 font-[family-name:var(--font-mono)] text-xs text-[#ededed] placeholder:text-[#666666] focus:border-[#ededed]/50 focus:outline-none"
+                  className="brutal-input w-full resize-none px-3 py-2 font-[family-name:var(--font-mono)] text-xs"
                 />
               )}
               <div className="grid gap-2 sm:grid-cols-4">
@@ -359,10 +373,10 @@ export default function ScheduledTasksPanel({ sandboxReady, userId }: ScheduledT
                   <button
                     type="button"
                     onClick={() => setForm((prev) => ({ ...prev, scheduleType: "interval" }))}
-                    className={`mt-5 rounded-md border px-3 py-2 text-sm ${
+                    className={`border-ripple-ink mt-5 border-2 px-3 py-2 text-sm font-bold shadow-[2px_2px_0_#111111] ${
                       form.scheduleType === "interval"
-                        ? "border-white/30 bg-white/10 text-[#ededed]"
-                        : "border-white/10 bg-black text-[#888888]"
+                        ? "bg-ripple-lavender text-ripple-ink"
+                        : "text-ripple-ink/60 bg-white"
                     }`}
                   >
                     Interval
@@ -370,10 +384,10 @@ export default function ScheduledTasksPanel({ sandboxReady, userId }: ScheduledT
                   <button
                     type="button"
                     onClick={() => setForm((prev) => ({ ...prev, scheduleType: "once" }))}
-                    className={`mt-5 rounded-md border px-3 py-2 text-sm ${
+                    className={`border-ripple-ink mt-5 border-2 px-3 py-2 text-sm font-bold shadow-[2px_2px_0_#111111] ${
                       form.scheduleType === "once"
-                        ? "border-white/30 bg-white/10 text-[#ededed]"
-                        : "border-white/10 bg-black text-[#888888]"
+                        ? "bg-ripple-lavender text-ripple-ink"
+                        : "text-ripple-ink/60 bg-white"
                     }`}
                   >
                     Once
@@ -381,7 +395,7 @@ export default function ScheduledTasksPanel({ sandboxReady, userId }: ScheduledT
                 </div>
                 {form.scheduleType === "interval" ? (
                   <label className="block">
-                    <span className="mb-1 block text-[10px] tracking-wider text-[#666666] uppercase">
+                    <span className="text-ripple-ink/60 mb-1 block text-[10px] font-bold tracking-wider uppercase">
                       Every seconds
                     </span>
                     <input
@@ -391,24 +405,24 @@ export default function ScheduledTasksPanel({ sandboxReady, userId }: ScheduledT
                       onChange={(e) =>
                         setForm((prev) => ({ ...prev, intervalSeconds: e.target.value }))
                       }
-                      className="w-full rounded-md border border-white/10 bg-black px-3 py-2 font-[family-name:var(--font-mono)] text-xs text-[#ededed] focus:border-[#ededed]/50 focus:outline-none"
+                      className="brutal-input w-full px-3 py-2 font-[family-name:var(--font-mono)] text-xs"
                     />
                   </label>
                 ) : (
                   <label className="block">
-                    <span className="mb-1 block text-[10px] tracking-wider text-[#666666] uppercase">
+                    <span className="text-ripple-ink/60 mb-1 block text-[10px] font-bold tracking-wider uppercase">
                       Run at
                     </span>
                     <input
                       type="datetime-local"
                       value={form.runAtLocal}
                       onChange={(e) => setForm((prev) => ({ ...prev, runAtLocal: e.target.value }))}
-                      className="w-full rounded-md border border-white/10 bg-black px-3 py-2 font-[family-name:var(--font-mono)] text-xs text-[#ededed] focus:border-[#ededed]/50 focus:outline-none"
+                      className="brutal-input w-full px-3 py-2 font-[family-name:var(--font-mono)] text-xs"
                     />
                   </label>
                 )}
                 <label className="block">
-                  <span className="mb-1 block text-[10px] tracking-wider text-[#666666] uppercase">
+                  <span className="text-ripple-ink/60 mb-1 block text-[10px] font-bold tracking-wider uppercase">
                     Max runs
                   </span>
                   <input
@@ -418,11 +432,11 @@ export default function ScheduledTasksPanel({ sandboxReady, userId }: ScheduledT
                     onChange={(e) => setForm((prev) => ({ ...prev, maxRuns: e.target.value }))}
                     disabled={form.scheduleType !== "interval"}
                     placeholder="∞"
-                    className="w-full rounded-md border border-white/10 bg-black px-3 py-2 font-[family-name:var(--font-mono)] text-xs text-[#ededed] placeholder:text-[#666666] focus:border-[#ededed]/50 focus:outline-none disabled:opacity-40"
+                    className="brutal-input w-full px-3 py-2 font-[family-name:var(--font-mono)] text-xs disabled:opacity-40"
                   />
                 </label>
                 <label className="block">
-                  <span className="mb-1 block text-[10px] tracking-wider text-[#666666] uppercase">
+                  <span className="text-ripple-ink/60 mb-1 block text-[10px] font-bold tracking-wider uppercase">
                     Timeout
                   </span>
                   <input
@@ -432,7 +446,7 @@ export default function ScheduledTasksPanel({ sandboxReady, userId }: ScheduledT
                     onChange={(e) =>
                       setForm((prev) => ({ ...prev, timeoutSeconds: e.target.value }))
                     }
-                    className="w-full rounded-md border border-white/10 bg-black px-3 py-2 font-[family-name:var(--font-mono)] text-xs text-[#ededed] focus:border-[#ededed]/50 focus:outline-none"
+                    className="brutal-input w-full px-3 py-2 font-[family-name:var(--font-mono)] text-xs"
                   />
                 </label>
                 <div className="flex items-end gap-2">
@@ -441,7 +455,7 @@ export default function ScheduledTasksPanel({ sandboxReady, userId }: ScheduledT
                     onClick={refresh}
                     disabled={loading}
                     title="Refresh, also auto-refreshes every 5 seconds"
-                    className="flex h-9 w-9 items-center justify-center rounded-md border border-white/10 bg-black text-[#888888] transition-colors hover:border-white/20 hover:text-[#ededed] disabled:opacity-50"
+                    className="btn-icon h-9 w-9 disabled:opacity-50"
                   >
                     <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
                   </button>
@@ -457,7 +471,7 @@ export default function ScheduledTasksPanel({ sandboxReady, userId }: ScheduledT
             </form>
 
             {error && (
-              <div className="flex items-start gap-2 rounded-md border border-[#ff4444]/20 bg-[#ff4444]/10 p-2 text-xs text-[#ff7777]">
+              <div className="border-ripple-ink bg-ripple-red/25 text-ripple-ink flex items-start gap-2 border-2 p-2 text-xs font-bold">
                 <AlertTriangle size={12} className="mt-0.5 shrink-0" />
                 <span className="break-all">{error}</span>
               </div>
@@ -465,12 +479,12 @@ export default function ScheduledTasksPanel({ sandboxReady, userId }: ScheduledT
 
             <div className="space-y-2">
               {loading && jobs.length === 0 ? (
-                <div className="flex items-center gap-2 py-3 text-sm text-[#666666]">
+                <div className="text-ripple-ink/60 flex items-center gap-2 py-3 text-sm font-bold">
                   <Loader2 size={14} className="animate-spin" />
                   <span>Loading tasks...</span>
                 </div>
               ) : jobs.length === 0 ? (
-                <div className="rounded-md border border-white/10 bg-black p-3 text-sm text-[#666666]">
+                <div className="border-ripple-ink/50 bg-ripple-paper text-ripple-ink/55 border-2 border-dashed p-3 text-sm font-bold">
                   No scheduled tasks.
                 </div>
               ) : (
@@ -481,34 +495,35 @@ export default function ScheduledTasksPanel({ sandboxReady, userId }: ScheduledT
                     Boolean(job.running_at || job.current_run_id) ||
                     runs.some((run) => run.status === "running");
                   return (
-                    <div key={job.id} className="rounded-lg border border-white/10 bg-black p-3">
+                    <div
+                      key={job.id}
+                      className="border-ripple-ink bg-ripple-paper border-2 p-3 shadow-[3px_3px_0_#111111]"
+                    >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
-                            <p className="truncate text-sm font-medium text-[#ededed]">
-                              {job.name}
-                            </p>
+                            <p className="text-ripple-ink truncate text-sm font-bold">{job.name}</p>
                             <span
-                              className={`rounded-md border px-1.5 py-0.5 text-[10px] uppercase ${statusClass(
+                              className={`border-2 px-1.5 py-0.5 text-[10px] font-bold uppercase ${statusClass(
                                 job.last_status
                               )}`}
                             >
                               {job.last_status || "new"}
                             </span>
                             {!job.enabled && (
-                              <span className="rounded-md border border-white/10 px-1.5 py-0.5 text-[10px] text-[#888888] uppercase">
+                              <span className="border-ripple-ink text-ripple-ink/60 border-2 bg-white px-1.5 py-0.5 text-[10px] font-bold uppercase">
                                 disabled
                               </span>
                             )}
                             {hasRunningRun && (
-                              <span className="inline-flex items-center gap-1 rounded-md border border-white/20 px-1.5 py-0.5 text-[10px] text-[#ededed] uppercase">
+                              <span className="border-ripple-ink bg-ripple-yellow text-ripple-ink inline-flex items-center gap-1 border-2 px-1.5 py-0.5 text-[10px] font-bold uppercase">
                                 <Loader2 size={10} className="animate-spin" />
                                 running
                               </span>
                             )}
                           </div>
-                          <p className="mt-1 text-xs break-all text-[#888888]">
-                            <span className="mr-2 rounded border border-white/10 px-1.5 py-0.5 font-[family-name:var(--font-mono)] text-[10px] text-[#666666] uppercase">
+                          <p className="text-ripple-ink/65 mt-1 text-xs break-all">
+                            <span className="border-ripple-ink text-ripple-ink mr-2 border-2 bg-white px-1.5 py-0.5 font-[family-name:var(--font-mono)] text-[10px] font-bold uppercase">
                               {job.execution_type}
                             </span>
                             <span
@@ -521,7 +536,7 @@ export default function ScheduledTasksPanel({ sandboxReady, userId }: ScheduledT
                               {job.execution_type === "agent" ? job.prompt : job.command}
                             </span>
                           </p>
-                          <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-[#666666]">
+                          <div className="text-ripple-ink/55 mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs font-medium">
                             <span className="flex items-center gap-1">
                               <Clock3 size={11} />
                               {job.schedule_type === "interval"
@@ -544,7 +559,7 @@ export default function ScheduledTasksPanel({ sandboxReady, userId }: ScheduledT
                             <span>from {job.created_from}</span>
                           </div>
                           {job.last_error && (
-                            <p className="mt-2 rounded-md border border-[#ff4444]/20 bg-[#ff4444]/10 px-2 py-1 font-[family-name:var(--font-mono)] text-[11px] break-all whitespace-pre-wrap text-[#ff7777]">
+                            <p className="border-ripple-ink bg-ripple-red/25 text-ripple-ink mt-2 border-2 px-2 py-1 font-[family-name:var(--font-mono)] text-[11px] break-all whitespace-pre-wrap">
                               {job.last_error}
                             </p>
                           )}
@@ -555,7 +570,7 @@ export default function ScheduledTasksPanel({ sandboxReady, userId }: ScheduledT
                             onClick={() => handleToggle(job)}
                             disabled={busy}
                             title={job.enabled ? "Disable" : "Enable"}
-                            className="flex h-8 w-8 items-center justify-center rounded-md border border-white/10 text-[#888888] transition-colors hover:border-white/20 hover:text-[#ededed] disabled:opacity-50"
+                            className="btn-icon h-8 w-8 disabled:opacity-50"
                           >
                             {busy ? (
                               <Loader2 size={13} className="animate-spin" />
@@ -568,7 +583,7 @@ export default function ScheduledTasksPanel({ sandboxReady, userId }: ScheduledT
                             onClick={() => handleRunNow(job)}
                             disabled={busy}
                             title="Run now"
-                            className="flex h-8 w-8 items-center justify-center rounded-md border border-white/10 text-[#888888] transition-colors hover:border-white/20 hover:text-[#ededed] disabled:opacity-50"
+                            className="btn-icon h-8 w-8 disabled:opacity-50"
                           >
                             <Play size={13} />
                           </button>
@@ -577,7 +592,7 @@ export default function ScheduledTasksPanel({ sandboxReady, userId }: ScheduledT
                             onClick={() => handleDelete(job)}
                             disabled={busy}
                             title="Delete"
-                            className="flex h-8 w-8 items-center justify-center rounded-md border border-[#ff4444]/20 text-[#ff7777] transition-colors hover:bg-[#ff4444]/10 disabled:opacity-50"
+                            className="btn-icon bg-ripple-red/25 h-8 w-8 disabled:opacity-50"
                           >
                             <Trash2 size={13} />
                           </button>
@@ -585,9 +600,12 @@ export default function ScheduledTasksPanel({ sandboxReady, userId }: ScheduledT
                       </div>
 
                       {runs.length > 0 && (
-                        <div className="mt-3 space-y-1 border-t border-white/10 pt-2">
+                        <div className="border-ripple-ink mt-3 space-y-1 border-t-2 pt-2">
                           {runs.map((run) => (
-                            <div key={run.id} className="rounded-md bg-white/[0.03] text-xs">
+                            <div
+                              key={run.id}
+                              className="border-ripple-ink border-2 bg-white text-xs"
+                            >
                               <button
                                 type="button"
                                 onClick={() =>
@@ -599,12 +617,18 @@ export default function ScheduledTasksPanel({ sandboxReady, userId }: ScheduledT
                               >
                                 <div className="flex min-w-0 items-center gap-2">
                                   {expandedRunId === run.id ? (
-                                    <ChevronDown size={12} className="shrink-0 text-[#888888]" />
+                                    <ChevronDown
+                                      size={12}
+                                      className="text-ripple-ink/60 shrink-0"
+                                    />
                                   ) : (
-                                    <ChevronRight size={12} className="shrink-0 text-[#888888]" />
+                                    <ChevronRight
+                                      size={12}
+                                      className="text-ripple-ink/60 shrink-0"
+                                    />
                                   )}
                                   <span
-                                    className={`inline-flex rounded border px-1.5 py-0.5 text-[10px] uppercase ${statusClass(
+                                    className={`inline-flex border-2 px-1.5 py-0.5 text-[10px] font-bold uppercase ${statusClass(
                                       run.status
                                     )}`}
                                   >
@@ -616,49 +640,49 @@ export default function ScheduledTasksPanel({ sandboxReady, userId }: ScheduledT
                                     )}
                                     {run.status}
                                   </span>
-                                  <span className="text-[#666666]">
+                                  <span className="text-ripple-ink/60 font-medium">
                                     {formatDateTime(run.started_at)}
                                   </span>
                                   {run.finished_at && (
-                                    <span className="hidden text-[#52525b] sm:inline">
+                                    <span className="text-ripple-ink/45 hidden sm:inline">
                                       finished {formatDateTime(run.finished_at)}
                                     </span>
                                   )}
                                   {run.duration_ms !== null && (
-                                    <span className="hidden text-[#52525b] sm:inline">
+                                    <span className="text-ripple-ink/45 hidden sm:inline">
                                       {formatDuration(run.duration_ms)}
                                     </span>
                                   )}
                                 </div>
-                                <span className="shrink-0 font-[family-name:var(--font-mono)] text-[#888888]">
+                                <span className="text-ripple-ink/55 shrink-0 font-[family-name:var(--font-mono)] font-bold">
                                   code {run.exit_code ?? "—"}
                                 </span>
                               </button>
                               {expandedRunId === run.id && (
-                                <div className="space-y-2 border-t border-white/10 px-2 py-2">
+                                <div className="border-ripple-ink space-y-2 border-t-2 px-2 py-2">
                                   {!runHasDetails(run) ? (
-                                    <p className="text-[#666666]">
+                                    <p className="text-ripple-ink/55 font-medium">
                                       No output captured yet. Running tasks refresh every 5 seconds.
                                     </p>
                                   ) : (
                                     <>
                                       {run.error && (
-                                        <pre className="max-h-40 overflow-auto rounded border border-[#ff4444]/20 bg-[#ff4444]/10 p-2 font-[family-name:var(--font-mono)] text-[11px] whitespace-pre-wrap text-[#ff7777]">
+                                        <pre className="border-ripple-ink bg-ripple-red/25 text-ripple-ink max-h-40 overflow-auto border-2 p-2 font-[family-name:var(--font-mono)] text-[11px] whitespace-pre-wrap">
                                           {run.error}
                                         </pre>
                                       )}
                                       {run.stdout_tail && (
-                                        <pre className="max-h-52 overflow-auto rounded border border-white/10 bg-black p-2 font-[family-name:var(--font-mono)] text-[11px] whitespace-pre-wrap text-[#d4d4d8]">
+                                        <pre className="border-ripple-ink bg-ripple-terminal max-h-52 overflow-auto border-2 p-2 font-[family-name:var(--font-mono)] text-[11px] whitespace-pre-wrap text-[#d4d4d8]">
                                           {run.stdout_tail}
                                         </pre>
                                       )}
                                       {run.summary && !run.stdout_tail && (
-                                        <pre className="max-h-52 overflow-auto rounded border border-white/10 bg-black p-2 text-[11px] whitespace-pre-wrap text-[#d4d4d8]">
+                                        <pre className="border-ripple-ink bg-ripple-terminal max-h-52 overflow-auto border-2 p-2 text-[11px] whitespace-pre-wrap text-[#d4d4d8]">
                                           {run.summary}
                                         </pre>
                                       )}
                                       {run.stderr_tail && (
-                                        <pre className="max-h-52 overflow-auto rounded border border-[#ff4444]/20 bg-black p-2 font-[family-name:var(--font-mono)] text-[11px] whitespace-pre-wrap text-[#ff9f9f]">
+                                        <pre className="border-ripple-ink bg-ripple-terminal max-h-52 overflow-auto border-2 p-2 font-[family-name:var(--font-mono)] text-[11px] whitespace-pre-wrap text-[#ff9f9f]">
                                           {run.stderr_tail}
                                         </pre>
                                       )}

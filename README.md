@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="src/interfaces/web/src/app/icon.svg" alt="Ripple Logo" width="120" />
+<img src="assets/ripple-icon.svg" alt="Ripple Logo" width="120" />
 
 # Ripple 涟漪
 

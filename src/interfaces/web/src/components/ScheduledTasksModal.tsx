@@ -42,7 +42,7 @@ export default function ScheduledTasksModal({ isOpen, onClose, userId }: Schedul
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm"
+            className="bg-ripple-ink/35 fixed inset-0 z-40 backdrop-blur-sm"
             onClick={onClose}
           />
           <motion.div
@@ -52,20 +52,20 @@ export default function ScheduledTasksModal({ isOpen, onClose, userId }: Schedul
             transition={{ type: "spring", stiffness: 400, damping: 30 }}
             className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center p-4"
           >
-            <div className="pointer-events-auto max-h-[84vh] w-full max-w-5xl overflow-hidden rounded-2xl border border-white/10 bg-black shadow-2xl">
-              <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+            <div className="border-ripple-ink bg-ripple-paper pointer-events-auto max-h-[84vh] w-full max-w-5xl overflow-hidden border-2 shadow-[6px_6px_0_#111111]">
+              <div className="border-ripple-ink bg-ripple-yellow flex items-center justify-between border-b-2 px-5 py-4">
                 <div className="flex items-center gap-3">
-                  <CalendarClock size={18} className="text-[#ededed]" />
+                  <CalendarClock size={18} className="text-ripple-ink" />
                   <div>
-                    <h2 className="text-sm font-semibold text-[#ededed]">Scheduled Tasks</h2>
-                    <p className="font-[family-name:var(--font-mono)] text-xs text-[#666666]">
+                    <h2 className="text-ripple-ink text-sm font-bold">Scheduled Tasks</h2>
+                    <p className="text-ripple-ink/55 font-[family-name:var(--font-mono)] text-xs font-bold">
                       {userId}
                     </p>
                   </div>
                 </div>
                 <button
                   onClick={onClose}
-                  className="rounded-lg p-2 text-[#666666] transition-colors hover:bg-white/10 hover:text-[#ededed]"
+                  className="btn-icon h-9 w-9"
                   aria-label="Close scheduled tasks"
                 >
                   <X size={18} />
@@ -73,7 +73,7 @@ export default function ScheduledTasksModal({ isOpen, onClose, userId }: Schedul
               </div>
               <div className="max-h-[calc(84vh-73px)] overflow-y-auto p-5">
                 {loading && !sandbox ? (
-                  <div className="flex items-center gap-2 text-sm text-[#666666]">
+                  <div className="text-ripple-ink/60 flex items-center gap-2 text-sm font-bold">
                     <Loader2 size={14} className="animate-spin" />
                     <span>Loading scheduled tasks...</span>
                   </div>

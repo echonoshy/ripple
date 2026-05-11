@@ -2,10 +2,11 @@
 
 import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Loader2 } from "lucide-react";
+import { Loader2, UserRound } from "lucide-react";
 import { Message } from "@/types";
 import MarkdownRenderer from "./MarkdownRenderer";
 import { shouldRenderAssistantMessage } from "@/lib/chatState";
+import RippleIcon from "./icons/RippleIcon";
 
 function ThinkingIndicator({ hasContent }: { hasContent: boolean }) {
   const [elapsed, setElapsed] = useState(0);
@@ -25,12 +26,12 @@ function ThinkingIndicator({ hasContent }: { hasContent: boolean }) {
 
   if (hasContent) {
     return (
-      <div className="flex items-center gap-2 px-1 py-1.5 text-sm text-[#888888]">
+      <div className="text-ripple-ink/65 flex items-center gap-2 px-1 py-1.5 text-sm font-bold">
         <div className="flex gap-1">
           {[0, 1, 2].map((i) => (
             <span
               key={i}
-              className="inline-block h-1.5 w-1.5 rounded-full bg-[#ededed]"
+              className="border-ripple-ink bg-ripple-yellow inline-block h-1.5 w-1.5 border"
               style={{
                 animation: "bounce-dot 1.4s ease-in-out infinite",
                 animationDelay: `${i * 160}ms`,
@@ -44,12 +45,12 @@ function ThinkingIndicator({ hasContent }: { hasContent: boolean }) {
   }
 
   return (
-    <div className="inline-flex items-center gap-3 rounded-xl border border-white/10 bg-[#0a0a0a] px-5 py-4">
+    <div className="border-ripple-ink inline-flex items-center gap-3 border-2 bg-white px-5 py-4 shadow-[3px_3px_0_#111111]">
       <div className="relative flex h-5 w-5 items-center justify-center">
-        <Loader2 size={16} className="relative animate-spin text-[#ededed]" />
+        <Loader2 size={16} className="text-ripple-ink relative animate-spin" />
       </div>
       <div className="flex flex-col">
-        <span className="text-sm text-[#ededed]">
+        <span className="text-ripple-ink text-sm font-bold">
           {elapsed < 5
             ? "Thinking..."
             : elapsed < 30
@@ -57,7 +58,7 @@ function ThinkingIndicator({ hasContent }: { hasContent: boolean }) {
               : "Still processing..."}
         </span>
         {elapsed >= 3 && (
-          <span className="font-[family-name:var(--font-mono)] text-xs text-[#666666]">
+          <span className="text-ripple-ink/55 font-[family-name:var(--font-mono)] text-xs font-bold">
             {formatTime(elapsed)}
           </span>
         )}
@@ -110,6 +111,8 @@ export default function ChatMessage({
   const showThinking = isGenerating && isLast && msg.role === "assistant";
   const isEmptyAssistant = !msg.content && (!msg.toolCalls || msg.toolCalls.length === 0);
   const messageTime = isUser ? formatMessageTime(msg.created_at) : "";
+  const avatarBg = isUser ? "bg-blue-200" : "bg-ripple-lavender";
+  const messageBg = isUser ? "bg-blue-200/30" : "bg-white";
 
   if (!shouldRenderAssistantMessage(msg, isGenerating, isLast)) {
     return null;
@@ -120,41 +123,42 @@ export default function ChatMessage({
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ type: "spring", stiffness: 400, damping: 30 }}
-      className="mb-0 flex flex-col gap-0.5"
+      className="mb-0 flex gap-3"
     >
-      {/* Label */}
-      <div className="mb-1 flex items-center gap-2 px-1 text-xs font-medium text-[#888888]">
-        {isUser ? "User" : "Ripple"}
-        {messageTime && (
-          <span className="font-[family-name:var(--font-mono)] font-normal text-[#666666]">
-            {messageTime}
-          </span>
-        )}
+      <div
+        className={`border-ripple-ink text-ripple-ink mt-1 flex h-10 w-10 shrink-0 items-center justify-center border-2 ${avatarBg} shadow-[3px_3px_0_#111111]`}
+      >
+        {isUser ? <UserRound size={24} /> : <RippleIcon size={40} />}
       </div>
-
-      {isUser ? (
-        /* User message - Subtle gradient background */
-        <div className="user-message-bg text-[14px] leading-relaxed text-[#ededed]">
-          <div className="break-words whitespace-pre-wrap">{msg.content}</div>
+      <div className="min-w-0 flex-1">
+        {/* Label */}
+        <div className="text-ripple-ink/65 mb-1 flex items-center gap-2 px-1 text-xs font-bold">
+          {isUser ? "User" : "Ripple"}
+          {messageTime && (
+            <span className="text-ripple-ink/50 font-[family-name:var(--font-mono)] font-normal">
+              {messageTime}
+            </span>
+          )}
         </div>
-      ) : (
-        /* Assistant message - Simple left border */
-        <div className="ml-1 max-w-full min-w-0 flex-1 space-y-2 border-l-[3px] border-white/20 py-1 pl-5">
+
+        <div
+          className={`border-ripple-ink max-w-full min-w-0 space-y-2 border-2 ${messageBg} text-ripple-ink p-4 text-[14px] leading-relaxed shadow-[3px_3px_0_#111111]`}
+        >
           {showThinking && isEmptyAssistant && <ThinkingIndicator hasContent={false} />}
 
           {msg.content && (
-            <div className="text-[14px] leading-relaxed text-[#ededed]">
+            <div className="text-ripple-ink min-w-0 overflow-hidden text-[14px] leading-relaxed">
               <MarkdownRenderer content={msg.content} />
             </div>
           )}
 
           {msg.askUser && !isGenerating && isLast && onQuickReply && (
-            <div className="mt-4 rounded-xl border border-white/10 bg-[#0a0a0a] px-4 py-3">
-              <div className="mb-2 flex items-center gap-2 text-xs font-medium text-[#ededed]">
+            <div className="border-ripple-ink bg-ripple-yellow/35 mt-4 border-2 px-4 py-3 shadow-[2px_2px_0_#111111]">
+              <div className="text-ripple-ink mb-2 flex items-center gap-2 text-xs font-bold">
                 <span>{">"}</span>
                 <span>Select an option</span>
               </div>
-              <p className="mb-3 text-sm text-[#ededed]">{msg.askUser.question}</p>
+              <p className="text-ripple-ink mb-3 text-sm font-medium">{msg.askUser.question}</p>
               {msg.askUser.options && msg.askUser.options.length > 0 && (
                 <div className="flex flex-wrap gap-2">
                   {msg.askUser.options.map((option, i) => (
@@ -174,16 +178,18 @@ export default function ChatMessage({
           )}
 
           {msg.permissionRequest && !isGenerating && isLast && onPermissionResolve && (
-            <div className="mt-4 rounded-xl border border-[#ff4444]/20 bg-[#ff4444]/[0.03] px-4 py-3">
-              <div className="mb-2 flex items-center gap-2 text-xs font-medium text-[#ff4444]">
+            <div className="border-ripple-ink bg-ripple-orange/30 mt-4 border-2 px-4 py-3 shadow-[2px_2px_0_#111111]">
+              <div className="text-ripple-ink mb-2 flex items-center gap-2 text-xs font-bold">
                 <span>!</span>
                 <span>Permission Required</span>
               </div>
-              <p className="mb-2 text-sm text-[#ededed]">
+              <p className="text-ripple-ink mb-2 text-sm font-medium">
                 Tool:{" "}
-                <span className="font-medium text-[#ededed]">{msg.permissionRequest.tool}</span>
+                <span className="font-[family-name:var(--font-mono)] font-bold">
+                  {msg.permissionRequest.tool}
+                </span>
               </p>
-              <div className="mb-3 overflow-x-auto rounded-lg border border-white/10 bg-[#0a0a0a] p-3 font-[family-name:var(--font-mono)] text-xs text-[#ededed]">
+              <div className="border-ripple-ink bg-ripple-terminal mb-3 overflow-x-auto border-2 p-3 font-[family-name:var(--font-mono)] text-xs text-[#d7d7d7]">
                 {typeof msg.permissionRequest.params === "string"
                   ? msg.permissionRequest.params
                   : JSON.stringify(msg.permissionRequest.params, null, 2)}
@@ -193,7 +199,7 @@ export default function ChatMessage({
                   whileHover={{ scale: 1.01 }}
                   whileTap={{ scale: 0.99 }}
                   onClick={() => onPermissionResolve("allow")}
-                  className="rounded-lg border border-[#ededed]/40 bg-[#ededed]/10 px-4 py-2 text-sm text-[#ededed] transition-colors hover:bg-[#ededed]/15"
+                  className="btn-ghost bg-ripple-lime px-4 py-2 text-sm"
                 >
                   Allow Once
                 </motion.button>
@@ -201,7 +207,7 @@ export default function ChatMessage({
                   whileHover={{ scale: 1.01 }}
                   whileTap={{ scale: 0.99 }}
                   onClick={() => onPermissionResolve("always")}
-                  className="rounded-lg border border-white/10 bg-black/5 px-4 py-2 text-sm text-[#ededed] transition-colors hover:bg-[#ededed]/10"
+                  className="btn-ghost px-4 py-2 text-sm"
                 >
                   Always Allow
                 </motion.button>
@@ -209,7 +215,7 @@ export default function ChatMessage({
                   whileHover={{ scale: 1.01 }}
                   whileTap={{ scale: 0.99 }}
                   onClick={() => onPermissionResolve("deny")}
-                  className="rounded-lg border border-[#ff4444]/20 bg-[#ff4444]/10 px-4 py-2 text-sm text-[#ff4444] transition-colors hover:bg-[#ff4444]/10"
+                  className="btn-ghost bg-ripple-red/40 px-4 py-2 text-sm"
                 >
                   Deny
                 </motion.button>
@@ -219,10 +225,10 @@ export default function ChatMessage({
 
           {showThinking && !isEmptyAssistant && <ThinkingIndicator hasContent={true} />}
         </div>
-      )}
 
-      {/* Separator (except for the very last message being generated) */}
-      {!isLast && <div className="separator-glow mt-3 mb-1" />}
+        {/* Separator (except for the very last message being generated) */}
+        {!isLast && <div className="separator-glow mt-4 mb-1" />}
+      </div>
     </motion.div>
   );
 }

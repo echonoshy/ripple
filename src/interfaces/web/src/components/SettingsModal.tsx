@@ -47,10 +47,8 @@ function formatBytes(n: number): string {
 function ReadyBadge({ label, ready }: { label: string; ready: boolean }) {
   return (
     <div
-      className={`flex items-center justify-between rounded-md border px-2.5 py-1.5 text-xs ${
-        ready
-          ? "border-white/10 bg-black/5 text-[#ededed]"
-          : "border-white/10 bg-[#0a0a0a] text-[#666666]"
+      className={`border-ripple-ink flex items-center justify-between border-2 px-2.5 py-1.5 text-xs font-bold shadow-[2px_2px_0_#111111] ${
+        ready ? "bg-ripple-lime/60 text-ripple-ink" : "text-ripple-ink/45 bg-white"
       }`}
     >
       <span className="font-[family-name:var(--font-mono)]">{label}</span>
@@ -205,7 +203,7 @@ export default function SettingsModal({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm"
+            className="bg-ripple-ink/35 fixed inset-0 z-40 backdrop-blur-sm"
             onClick={onClose}
           />
           <motion.div
@@ -215,14 +213,11 @@ export default function SettingsModal({
             transition={{ type: "spring", stiffness: 400, damping: 30 }}
             className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center p-4"
           >
-            <div className="pointer-events-auto max-h-[84vh] w-full max-w-4xl overflow-hidden rounded-2xl border border-white/10 bg-black shadow-2xl">
+            <div className="border-ripple-ink bg-ripple-paper pointer-events-auto max-h-[84vh] w-full max-w-4xl overflow-hidden border-2 shadow-[6px_6px_0_#111111]">
               {/* Header */}
-              <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
-                <h2 className="text-base font-semibold text-[#ededed]">Settings</h2>
-                <button
-                  onClick={onClose}
-                  className="flex h-8 w-8 items-center justify-center rounded-lg text-[#888888] transition-colors hover:bg-[#0a0a0a] hover:text-[#ededed]"
-                >
+              <div className="border-ripple-ink bg-ripple-lavender flex items-center justify-between border-b-2 px-6 py-4">
+                <h2 className="text-ripple-ink text-base font-bold">Settings</h2>
+                <button onClick={onClose} className="btn-icon h-8 w-8">
                   <X size={16} />
                 </button>
               </div>
@@ -230,44 +225,42 @@ export default function SettingsModal({
               <div className="max-h-[calc(84vh-64px)] space-y-6 overflow-y-auto p-6">
                 {/* Config */}
                 <div>
-                  <h3 className="mb-3 text-xs font-medium tracking-wider text-[#666666] uppercase">
+                  <h3 className="text-ripple-ink/60 mb-3 text-xs font-bold tracking-wider uppercase">
                     Config
                   </h3>
-                  <div className="flex items-center justify-between rounded-xl border border-white/10 bg-[#0a0a0a] p-4">
+                  <div className="border-ripple-ink flex items-center justify-between border-2 bg-white p-4 shadow-[3px_3px_0_#111111]">
                     <div className="flex items-center gap-3">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-black/5">
-                        <Brain size={18} className="text-[#ededed]" />
+                      <div className="border-ripple-ink bg-ripple-yellow flex h-9 w-9 items-center justify-center border-2">
+                        <Brain size={18} className="text-ripple-ink" />
                       </div>
                       <div>
-                        <p className="text-sm text-[#ededed]">Thinking Mode</p>
-                        <p className="text-xs text-[#666666]">Show reasoning process</p>
+                        <p className="text-ripple-ink text-sm font-bold">Thinking Mode</p>
+                        <p className="text-ripple-ink/55 text-xs">Show reasoning process</p>
                       </div>
                     </div>
                     <button
                       onClick={() => onThinkingToggle(!thinkingEnabled)}
-                      className={`relative h-7 w-14 rounded-full transition-colors ${
-                        thinkingEnabled
-                          ? "border border-white/30 bg-[#ededed]/40"
-                          : "border border-white/10 bg-[#27272a]"
+                      className={`border-ripple-ink relative h-7 w-14 border-2 transition-colors ${
+                        thinkingEnabled ? "bg-ripple-lime" : "bg-white"
                       }`}
                     >
                       <motion.div
                         animate={{ x: thinkingEnabled ? 26 : 2 }}
                         transition={{ type: "tween", duration: 0.1 }}
-                        className={`absolute top-[3px] h-[22px] w-[22px] rounded-full ${
-                          thinkingEnabled ? "bg-[#ededed]" : "bg-[#71717a]"
+                        className={`border-ripple-ink absolute top-[3px] h-[18px] w-[18px] border-2 ${
+                          thinkingEnabled ? "bg-ripple-ink" : "bg-ripple-ink/35"
                         }`}
                       />
                     </button>
                   </div>
-                  <div className="mt-3 flex items-center justify-between rounded-xl border border-white/10 bg-[#0a0a0a] p-4">
+                  <div className="border-ripple-ink mt-3 flex items-center justify-between border-2 bg-white p-4 shadow-[3px_3px_0_#111111]">
                     <div className="flex items-center gap-3">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-black/5">
-                        <KeyRound size={18} className="text-[#ededed]" />
+                      <div className="border-ripple-ink bg-ripple-cyan/45 flex h-9 w-9 items-center justify-center border-2">
+                        <KeyRound size={18} className="text-ripple-ink" />
                       </div>
                       <div>
-                        <p className="text-sm text-[#ededed]">API Key</p>
-                        <p className="font-[family-name:var(--font-mono)] text-xs text-[#666666]">
+                        <p className="text-ripple-ink text-sm font-bold">API Key</p>
+                        <p className="text-ripple-ink/55 font-[family-name:var(--font-mono)] text-xs font-bold">
                           {apiKey ? `${apiKey.slice(0, 6)}${"*".repeat(8)}` : "Not set"}
                         </p>
                       </div>
@@ -280,17 +273,17 @@ export default function SettingsModal({
 
                 {/* User */}
                 <div>
-                  <h3 className="mb-3 text-xs font-medium tracking-wider text-[#666666] uppercase">
+                  <h3 className="text-ripple-ink/60 mb-3 text-xs font-bold tracking-wider uppercase">
                     User
                   </h3>
-                  <div className="rounded-xl border border-white/10 bg-[#0a0a0a] p-4">
+                  <div className="border-ripple-ink border-2 bg-white p-4 shadow-[3px_3px_0_#111111]">
                     <div className="flex items-center justify-between">
                       <div className="flex min-w-0 items-center gap-3">
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-black/5">
-                          <UserRound size={18} className="text-[#ededed]" />
+                        <div className="border-ripple-ink bg-ripple-pink flex h-9 w-9 shrink-0 items-center justify-center border-2">
+                          <UserRound size={18} className="text-ripple-ink" />
                         </div>
                         <div className="min-w-0">
-                          <p className="text-sm text-[#ededed]">User ID</p>
+                          <p className="text-ripple-ink text-sm font-bold">User ID</p>
                           {isEditingUserId ? (
                             <div className="mt-1 flex items-center gap-2">
                               <input
@@ -303,11 +296,11 @@ export default function SettingsModal({
                                   if (e.key === "Escape") handleCancelEditUserId();
                                 }}
                                 placeholder="e.g. alice"
-                                className="w-48 rounded-md border border-white/10 bg-black px-2 py-1 font-[family-name:var(--font-mono)] text-xs text-[#ededed] placeholder:text-[#666666] focus:border-[#ededed]/50 focus:outline-none"
+                                className="brutal-input w-48 px-2 py-1 font-[family-name:var(--font-mono)] text-xs"
                               />
                             </div>
                           ) : (
-                            <p className="truncate font-[family-name:var(--font-mono)] text-xs text-[#666666]">
+                            <p className="text-ripple-ink/55 truncate font-[family-name:var(--font-mono)] text-xs font-bold">
                               {userId}
                             </p>
                           )}
@@ -340,9 +333,9 @@ export default function SettingsModal({
                       </div>
                     </div>
                     {userIdError && (
-                      <p className="mt-2 pl-12 text-xs text-[#ff4444]">{userIdError}</p>
+                      <p className="text-ripple-red mt-2 pl-12 text-xs font-bold">{userIdError}</p>
                     )}
-                    <p className="mt-2 pl-12 text-[11px] text-[#52525b]">
+                    <p className="text-ripple-ink/50 mt-2 pl-12 text-[11px] font-medium">
                       Switching user will reset current session state and reload sessions.
                     </p>
                   </div>
@@ -350,32 +343,32 @@ export default function SettingsModal({
 
                 {/* Sandbox */}
                 <div>
-                  <h3 className="mb-3 flex items-center gap-2 text-xs font-medium tracking-wider text-[#666666] uppercase">
+                  <h3 className="text-ripple-ink/60 mb-3 flex items-center gap-2 text-xs font-bold tracking-wider uppercase">
                     <Box size={14} />
                     Sandbox
                   </h3>
-                  <div className="rounded-xl border border-white/10 bg-[#0a0a0a] p-4">
+                  <div className="border-ripple-ink border-2 bg-white p-4 shadow-[3px_3px_0_#111111]">
                     {sandboxLoading ? (
-                      <div className="flex items-center gap-2 text-sm text-[#666666]">
+                      <div className="text-ripple-ink/60 flex items-center gap-2 text-sm font-bold">
                         <Loader2 size={14} className="animate-spin" />
                         <span>Loading sandbox...</span>
                       </div>
                     ) : sandbox ? (
                       <div className="space-y-3">
                         <div className="grid grid-cols-2 gap-2 text-xs">
-                          <div className="rounded-md border border-white/10 bg-black p-2">
-                            <p className="text-[10px] tracking-wider text-[#666666] uppercase">
+                          <div className="border-ripple-ink bg-ripple-yellow/40 border-2 p-2">
+                            <p className="text-ripple-ink/60 text-[10px] font-bold tracking-wider uppercase">
                               Workspace
                             </p>
-                            <p className="mt-1 font-[family-name:var(--font-mono)] text-sm text-[#ededed]">
+                            <p className="text-ripple-ink mt-1 font-[family-name:var(--font-mono)] text-sm font-bold">
                               {formatBytes(sandbox.workspace_size_bytes)}
                             </p>
                           </div>
-                          <div className="rounded-md border border-white/10 bg-black p-2">
-                            <p className="text-[10px] tracking-wider text-[#666666] uppercase">
+                          <div className="border-ripple-ink bg-ripple-lavender/50 border-2 p-2">
+                            <p className="text-ripple-ink/60 text-[10px] font-bold tracking-wider uppercase">
                               Sessions
                             </p>
-                            <p className="mt-1 font-[family-name:var(--font-mono)] text-sm text-[#ededed]">
+                            <p className="text-ripple-ink mt-1 font-[family-name:var(--font-mono)] text-sm font-bold">
                               {sandbox.session_count}
                             </p>
                           </div>
@@ -390,17 +383,19 @@ export default function SettingsModal({
                         </div>
                         {gogAccounts && gogAccounts.accounts.length > 0 && (
                           <div>
-                            <p className="mb-1 text-[10px] tracking-wider text-[#666666] uppercase">
+                            <p className="text-ripple-ink/60 mb-1 text-[10px] font-bold tracking-wider uppercase">
                               Google 已绑账号
                             </p>
                             <ul className="space-y-1">
                               {gogAccounts.accounts.map((a) => (
                                 <li
                                   key={a.email}
-                                  className="flex items-center gap-2 rounded-md border border-white/10 bg-black/5 px-2.5 py-1.5 font-[family-name:var(--font-mono)] text-xs text-[#ededed]"
+                                  className="border-ripple-ink bg-ripple-paper text-ripple-ink flex items-center gap-2 border-2 px-2.5 py-1.5 font-[family-name:var(--font-mono)] text-xs font-bold"
                                 >
                                   <span className="truncate">{a.email}</span>
-                                  {a.alias && <span className="text-[#888]">({a.alias})</span>}
+                                  {a.alias && (
+                                    <span className="text-ripple-ink/55">({a.alias})</span>
+                                  )}
                                 </li>
                               ))}
                             </ul>
@@ -409,9 +404,9 @@ export default function SettingsModal({
                       </div>
                     ) : (
                       <div className="flex items-center justify-between gap-3">
-                        <p className="text-sm text-[#888888]">
+                        <p className="text-ripple-ink/65 text-sm font-medium">
                           No sandbox yet for{" "}
-                          <span className="font-[family-name:var(--font-mono)] text-[#ededed]">
+                          <span className="text-ripple-ink font-[family-name:var(--font-mono)] font-bold">
                             {userId}
                           </span>
                           .
@@ -427,7 +422,7 @@ export default function SettingsModal({
                     )}
 
                     {sandboxError && (
-                      <div className="mt-3 flex items-start gap-2 rounded-md border border-[#ff4444]/20 bg-[#ff4444]/10 p-2 text-xs text-[#ff4444]">
+                      <div className="border-ripple-ink bg-ripple-red/25 text-ripple-ink mt-3 flex items-start gap-2 border-2 p-2 text-xs font-bold">
                         <AlertTriangle size={12} className="mt-0.5 shrink-0" />
                         <span className="break-all">{sandboxError}</span>
                       </div>
@@ -436,11 +431,11 @@ export default function SettingsModal({
 
                   {/* Danger zone */}
                   {sandbox && (
-                    <div className="mt-3 rounded-xl border border-[#ff4444]/20 bg-[#ff4444]/[0.03] p-4">
+                    <div className="border-ripple-ink bg-ripple-red/20 mt-3 border-2 p-4 shadow-[3px_3px_0_#111111]">
                       <div className="flex items-center justify-between gap-3">
                         <div className="min-w-0">
-                          <p className="text-sm font-medium text-[#ff4444]">Delete Sandbox</p>
-                          <p className="mt-0.5 text-xs text-[#888888]">
+                          <p className="text-ripple-ink text-sm font-bold">Delete Sandbox</p>
+                          <p className="text-ripple-ink/65 mt-0.5 text-xs">
                             Permanently destroys workspace, credentials and all sessions for this
                             user.
                           </p>
@@ -457,7 +452,7 @@ export default function SettingsModal({
                             <button
                               onClick={handleDeleteSandbox}
                               disabled={sandboxBusy}
-                              className="flex items-center gap-1.5 rounded-md border border-[#ff4444] bg-[#ff4444]/10 px-3 py-1.5 text-xs font-medium text-[#ff4444] transition-colors hover:bg-[#ff4444]/20 disabled:opacity-50"
+                              className="border-ripple-ink bg-ripple-red/45 text-ripple-ink hover:bg-ripple-red/60 flex items-center gap-1.5 border-2 px-3 py-1.5 text-xs font-bold shadow-[2px_2px_0_#111111] transition-colors disabled:opacity-50"
                             >
                               {sandboxBusy ? (
                                 <Loader2 size={12} className="animate-spin" />
@@ -474,7 +469,7 @@ export default function SettingsModal({
                             title={
                               isDefaultUser ? "default user cannot be deleted" : "Delete sandbox"
                             }
-                            className="flex shrink-0 items-center gap-1.5 rounded-md border border-[#ff4444]/40 px-3 py-1.5 text-xs font-medium text-[#ff4444] transition-colors hover:bg-[#ff4444]/10 disabled:cursor-not-allowed disabled:opacity-40"
+                            className="border-ripple-ink text-ripple-ink hover:bg-ripple-red/35 flex shrink-0 items-center gap-1.5 border-2 bg-white px-3 py-1.5 text-xs font-bold shadow-[2px_2px_0_#111111] transition-colors disabled:cursor-not-allowed disabled:opacity-40"
                           >
                             <Trash2 size={12} />
                             Delete
@@ -487,23 +482,20 @@ export default function SettingsModal({
 
                 {/* System Info */}
                 {loading ? (
-                  <div className="py-8 text-center text-sm text-[#666666]">
+                  <div className="text-ripple-ink/60 py-8 text-center text-sm font-bold">
                     Loading system info...
                   </div>
                 ) : systemInfo ? (
                   <>
                     {/* Tools */}
                     <div>
-                      <h3 className="mb-3 flex items-center gap-2 text-xs font-medium tracking-wider text-[#666666] uppercase">
+                      <h3 className="text-ripple-ink/60 mb-3 flex items-center gap-2 text-xs font-bold tracking-wider uppercase">
                         <Wrench size={14} />
                         Tools
                       </h3>
                       <div className="flex flex-wrap gap-2">
                         {systemInfo.tools.map((tool) => (
-                          <span
-                            key={tool}
-                            className="rounded-md border border-[#ededed]/20 bg-[#ededed]/[0.06] px-3 py-1.5 font-[family-name:var(--font-mono)] text-xs text-[#ededed]"
-                          >
+                          <span key={tool} className="brutal-tag bg-ripple-cyan/35 px-3 py-1.5">
                             {tool}
                           </span>
                         ))}
@@ -512,7 +504,7 @@ export default function SettingsModal({
 
                     {/* Skills */}
                     <div>
-                      <h3 className="mb-3 flex items-center gap-2 text-xs font-medium tracking-wider text-[#666666] uppercase">
+                      <h3 className="text-ripple-ink/60 mb-3 flex items-center gap-2 text-xs font-bold tracking-wider uppercase">
                         <Sparkles size={14} />
                         Skills
                       </h3>
@@ -521,23 +513,23 @@ export default function SettingsModal({
                           {systemInfo.skills.map((skill) => (
                             <div
                               key={skill.name}
-                              className="rounded-lg border border-white/10 bg-[#0a0a0a] p-3"
+                              className="border-ripple-ink border-2 bg-white p-3 shadow-[2px_2px_0_#111111]"
                             >
-                              <p className="text-sm font-medium text-[#ededed]">{skill.name}</p>
-                              <p className="mt-0.5 line-clamp-2 text-xs text-[#666666]">
+                              <p className="text-ripple-ink text-sm font-bold">{skill.name}</p>
+                              <p className="text-ripple-ink/55 mt-0.5 line-clamp-2 text-xs">
                                 {skill.description}
                               </p>
                             </div>
                           ))}
                         </div>
                       ) : (
-                        <p className="text-sm text-[#666666]">No skills available</p>
+                        <p className="text-ripple-ink/55 text-sm font-bold">No skills available</p>
                       )}
                     </div>
 
                     {/* Model Presets */}
                     <div>
-                      <h3 className="mb-3 flex items-center gap-2 text-xs font-medium tracking-wider text-[#666666] uppercase">
+                      <h3 className="text-ripple-ink/60 mb-3 flex items-center gap-2 text-xs font-bold tracking-wider uppercase">
                         <Server size={14} />
                         Models
                       </h3>
@@ -545,12 +537,12 @@ export default function SettingsModal({
                         {Object.entries(systemInfo.model_presets).map(([alias, model]) => (
                           <div
                             key={alias}
-                            className="flex items-center justify-between rounded-lg border border-white/10 bg-[#0a0a0a] px-3 py-2"
+                            className="border-ripple-ink flex items-center justify-between border-2 bg-white px-3 py-2 shadow-[2px_2px_0_#111111]"
                           >
-                            <span className="font-[family-name:var(--font-mono)] text-sm font-medium text-[#ededed]">
+                            <span className="text-ripple-ink font-[family-name:var(--font-mono)] text-sm font-bold">
                               {alias}
                             </span>
-                            <span className="ml-4 max-w-[250px] truncate font-[family-name:var(--font-mono)] text-xs text-[#666666]">
+                            <span className="text-ripple-ink/55 ml-4 max-w-[250px] truncate font-[family-name:var(--font-mono)] text-xs font-bold">
                               {model}
                             </span>
                           </div>
@@ -559,7 +551,7 @@ export default function SettingsModal({
                     </div>
                   </>
                 ) : (
-                  <div className="py-8 text-center text-sm text-[#666666]">
+                  <div className="text-ripple-ink/60 py-8 text-center text-sm font-bold">
                     Connection error. Is the server online?
                   </div>
                 )}

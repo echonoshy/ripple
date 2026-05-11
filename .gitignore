@@ -155,7 +155,8 @@ config/settings.yaml
 .ropeproject
 
 # mkdocs documentation
-/site
+# Ripple uses /site as the checked-in GitHub Pages promotional site.
+# If MkDocs is reintroduced, configure its build output to another ignored path.
 
 # mypy
 .mypy_cache/
@@ -222,4 +223,4 @@ tmp/
 .outputs/
 
 # codex
-.codex 
+.codex

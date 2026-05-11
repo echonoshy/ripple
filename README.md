@@ -20,7 +20,7 @@
 ## 预览
 
 <p align="center">
-  <img src="assets/web.png" width="80%" alt="Ripple Web 界面" style="border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);" />
+  <img src="assets/use-case.png" width="80%" alt="Ripple Web 界面" style="border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);" />
 </p>
 
 ## 文档

@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Ripple is an Agent system with an agentic loop, tools, Skills, Hooks, FastAPI Server, and a Next.js Web interface."
+    />
+    <title>Ripple 涟漪 | Agent System</title>
+    <link rel="icon" href="assets/ripple-icon.svg" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="#top" aria-label="Ripple home">
+        <img src="assets/ripple-icon.svg" alt="" />
+        <span>Ripple</span>
+      </a>
+      <nav class="nav-links" aria-label="Primary navigation">
+        <a href="#features">Features</a>
+        <a href="#flow">Flow</a>
+        <a href="#quickstart">Quickstart</a>
+        <a href="https://github.com/echonoshy/ripple">GitHub</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="stamp">WIP Agent Runtime</p>
+          <h1>Ripple <span style="white-space: nowrap;">涟漪</span></h1>
+          <p class="hero-lede">
+            一个面向本地工具调用、Skill 工作流和 user sandbox 的 Python Agent 系统。
+          </p>
+          <p class="hero-note">
+            Ripple 把 agentic loop、工具编排、权限 Hook、上下文压缩和 FastAPI Server
+            收在同一个工程里，让一次提问可以稳定地扩展成可追踪、可验证的执行过程。
+          </p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="#quickstart">Start locally</a>
+            <a class="button button-ghost" href="#architecture">View architecture</a>
+          </div>
+        </div>
+
+        <div class="hero-visual" aria-label="Ripple interface preview">
+          <div class="window-bar">
+            <span></span>
+            <span></span>
+            <span></span>
+            <strong>ripple://agent-loop</strong>
+          </div>
+          <div class="interface-frame">
+            <img src="assets/use-case.png" alt="Ripple Web interface preview" />
+          </div>
+        </div>
+      </section>
+
+      <section class="section-strip" aria-label="Project summary">
+        <div>
+          <strong>Python 3.13+</strong>
+          <span>后端核心</span>
+        </div>
+        <div>
+          <strong>FastAPI + Next.js</strong>
+          <span>服务与 Web 界面</span>
+        </div>
+        <div>
+          <strong>Skills + Hooks</strong>
+          <span>可复用流程与执行验证</span>
+        </div>
+      </section>
+
+      <section id="features" class="content-section">
+        <div class="section-heading">
+          <p class="eyebrow">What makes Ripple different</p>
+          <h2>不是一个聊天壳，而是一套 Agent 运行系统。</h2>
+        </div>
+        <div class="feature-grid">
+          <article class="feature-card accent-pink">
+            <span class="feature-index">01</span>
+            <h3>Agentic loop</h3>
+            <p>多轮对话、工具调用、状态转换和停止条件共同组成主循环。</p>
+          </article>
+          <article class="feature-card accent-yellow">
+            <span class="feature-index">02</span>
+            <h3>Skills</h3>
+            <p>用 Markdown + YAML frontmatter 定义可复用任务模板和领域流程。</p>
+          </article>
+          <article class="feature-card accent-cyan">
+            <span class="feature-index">03</span>
+            <h3>Hooks</h3>
+            <p>在工具调用前后做验证、拦截和权限判断，让执行链路更可控。</p>
+          </article>
+          <article class="feature-card accent-lime">
+            <span class="feature-index">04</span>
+            <h3>User sandbox</h3>
+            <p>以 user_id 隔离长期 workspace，同一用户的多个 session 共享上下文。</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="flow" class="flow-section">
+        <div class="section-heading">
+          <p class="eyebrow">How it works</p>
+          <h2>一次请求，从上下文进入，到工具结果回流。</h2>
+        </div>
+        <div class="flow-list">
+          <div class="flow-item">
+            <span>1</span>
+            <h3>Session starts</h3>
+            <p>Server 根据 user_id 准备 sandbox、会话状态和可用工具。</p>
+          </div>
+          <div class="flow-item">
+            <span>2</span>
+            <h3>Agent decides</h3>
+            <p>核心 loop 读取上下文，决定回复、调用工具或继续推理。</p>
+          </div>
+          <div class="flow-item">
+            <span>3</span>
+            <h3>Tools run</h3>
+            <p>工具系统处理并发、权限、Hook 和执行结果。</p>
+          </div>
+          <div class="flow-item">
+            <span>4</span>
+            <h3>State returns</h3>
+            <p>消息、任务进度和输出回写到会话，前端持续更新。</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="architecture" class="content-section architecture-section">
+        <div class="section-heading">
+          <p class="eyebrow">Architecture</p>
+          <h2>核心能力清晰拆在几个边界里。</h2>
+        </div>
+        <div class="architecture-grid">
+          <div>core / agent_loop</div>
+          <div>tools / orchestration</div>
+          <div>skills / executor</div>
+          <div>hooks / validation</div>
+          <div>sandbox / nsjail</div>
+          <div>interfaces / server</div>
+          <div>interfaces / web</div>
+          <div>compact / context</div>
+        </div>
+      </section>
+
+      <section id="quickstart" class="quickstart-section">
+        <div class="quickstart-copy">
+          <p class="eyebrow">Quickstart</p>
+          <h2>本地启动只保留必要步骤。</h2>
+          <p>
+            主页只做介绍，完整配置细节仍然放在 README 和项目文档里。Ripple 当前仍处于快速开发阶段，
+            接口和机制可能持续调整。
+          </p>
+        </div>
+        <pre class="terminal"><code>uv sync
+cp config/settings.yaml.sample config/settings.yaml
+uv run ripple
+
+cd src/interfaces/web
+bun run dev</code></pre>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <span>Ripple 涟漪</span>
+      <a href="https://github.com/echonoshy/ripple">github.com/echonoshy/ripple</a>
+    </footer>
+  </body>
+</html>

@@ -1,7 +1,6 @@
 """Anthropic Messages API 兼容客户端
 
 适用于：
-- 万界（wjark / wanjiedata）的 `/api/anthropic` 端点
 - 其他 Anthropic Messages API 兼容的第三方 provider
 - （理论上）Anthropic 官方 API（本代码不使用官方 SDK，直接走 httpx）
 
@@ -48,7 +47,7 @@ class AnthropicClient(LLMClient):
         self,
         api_key: str | None = None,
         base_url: str | None = None,
-        provider_name: str = "wanjiedata",
+        provider_name: str = "anthropic",
     ):
         config = get_config()
 

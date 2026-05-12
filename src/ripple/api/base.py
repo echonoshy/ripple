@@ -66,7 +66,7 @@ class LLMClient(ABC):
     # provider 类型标识："openai" 或 "anthropic"
     provider_type: str = "openai"
 
-    # provider 实例名称（从配置读出，例如 "openrouter" / "wanjiedata"）
+    # provider 实例名称（从配置读出，例如 "openrouter"）
     provider_name: str = ""
 
     @abstractmethod

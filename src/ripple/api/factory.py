@@ -16,7 +16,7 @@ def create_client(provider: str | None = None) -> LLMClient:
     """创建 LLM 客户端
 
     Args:
-        provider: 可选的 provider 名称（例如 "openrouter" / "wanjiedata"）；
+        provider: 可选的 provider 名称（例如 "openrouter"）；
                   None 表示使用配置里 `api.provider` 指定的默认值。
 
     Returns:

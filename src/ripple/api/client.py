@@ -3,7 +3,7 @@
 为了兼容历史代码，这里重新导出：
 - `LLMClient`：所有 client 的抽象基类
 - `OpenRouterClient`：OpenAI 兼容 provider 的 client（旧默认）
-- `AnthropicClient`：Anthropic Messages API 兼容 provider 的 client（万界/wjark 等）
+- `AnthropicClient`：Anthropic Messages API 兼容 provider 的 client
 - `create_client()`：工厂函数，按配置自动选择
 
 推荐新代码使用 `create_client()`；直接实例化 `OpenRouterClient()` 的老用法依然工作，

@@ -28,11 +28,6 @@ api:
 
   # 多 provider 配置；切换只需改上方 api.provider
   providers:
-    wanjiedata:
-      type: "anthropic"  # Anthropic Messages API 兼容
-      api_key: "<WANJIEDATA_API_KEY>"
-      base_url: "https://maas-openapi.wanjiedata.com/api/anthropic"
-
     openrouter:
       type: "openai"  # OpenAI Chat Completions 兼容
       api_key: "<OPENROUTER_API_KEY>"
@@ -55,13 +50,10 @@ model:
   # 每个别名下按 provider 给出对应的模型 ID
   presets:
     opus:
-      wanjiedata: "claude-opus-4-7-stable"
       openrouter: "anthropic/claude-opus-4.7"
     sonnet:
-      wanjiedata: "claude-sonnet-4-5-20250929"
       openrouter: "anthropic/claude-sonnet-4.6"
     haiku:
-      wanjiedata: "claude-haiku-4-5-20251001"
       openrouter: "anthropic/claude-haiku-4.5"
 
 # Agent 配置

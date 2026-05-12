@@ -110,8 +110,8 @@ class Config:
            → 在所有 presets 中找出它归属的别名，再换算到当前 provider 的值
         3. **兜底**：原样返回
 
-        这样可以保证：切 provider 后，老持久化 session 里带的 OpenRouter 格式 model ID
-        也能被自动重映射到万界的格式，不需要手动清 session。
+        这样可以保证：切 provider 后，老持久化 session 里带的某个 provider 格式 model ID
+        也能被自动重映射到当前 provider 的格式，不需要手动清 session。
 
         Args:
             name_or_alias: 模型名称或预设别名

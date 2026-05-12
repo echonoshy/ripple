@@ -37,7 +37,8 @@ async def run_scheduled_agent_job(
         return run
 
     config = get_config()
-    model = config.resolve_model(config.get("model.default", "sonnet"))
+    resolved = config.resolve_model_info(config.get("model.default", "sonnet"))
+    model = resolved.model
     internal_session_id = f"sched-{uuid4().hex[:12]}"
 
     sandbox_manager.ensure_sandbox(job.user_id)
@@ -48,6 +49,8 @@ async def run_scheduled_agent_job(
     context, client = _create_session_context(
         model,
         internal_session_id,
+        provider=resolved.provider,
+        reasoning_effort=resolved.reasoning_effort,
         workspace_root=workspace_root,
         sandbox_session_id=None,
         session_runtime_dir=session_runtime_dir,
@@ -66,6 +69,7 @@ async def run_scheduled_agent_job(
             model=model,
             max_turns=10,
             system_prompt=system_prompt,
+            reasoning_effort=resolved.reasoning_effort,
         ):
             if isinstance(item, AssistantMessage):
                 text = _assistant_text(item)

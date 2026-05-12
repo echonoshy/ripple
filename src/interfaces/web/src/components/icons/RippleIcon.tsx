@@ -15,6 +15,7 @@ export default function RippleIcon({ size = 24, className = "" }: RippleIconProp
       height={size}
       className={className}
       draggable={false}
+      loading="eager"
       unoptimized
     />
   );

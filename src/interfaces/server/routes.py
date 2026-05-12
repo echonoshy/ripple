@@ -237,7 +237,6 @@ async def chat_completions(
     manager = get_session_manager()
     config = get_config()
 
-    resolved_model = config.resolve_model(request.model)
     max_turns = request.max_turns or config.get("agent.max_turns", 10)
     user_input = _extract_user_input(request)
     caller_system_prompt = _extract_caller_system_prompt(request)
@@ -253,6 +252,8 @@ async def chat_completions(
         caller_system_prompt=caller_system_prompt,
     )
     set_current_session_id(session.session_id)
+    resolved_model = manager.configure_session_model(session, request.model)
+    reasoning_effort = session.context.options.reasoning_effort if session.context else None
 
     # 对已存在的 session：本轮带了 system 就覆盖，没带就清空 caller 段（仅默认 prompt 生效）
     if not is_new:
@@ -267,6 +268,7 @@ async def chat_completions(
                 resolved_model,
                 max_turns,
                 request.thinking,
+                reasoning_effort,
                 manager,
                 temperature=request.temperature,
                 max_tokens=request.max_tokens,
@@ -285,6 +287,7 @@ async def chat_completions(
             resolved_model,
             max_turns,
             request.thinking,
+            reasoning_effort,
             manager,
             temperature=request.temperature,
             max_tokens=request.max_tokens,
@@ -297,6 +300,7 @@ async def _stream_chat(
     model: str,
     max_turns: int,
     thinking: bool | None = None,
+    reasoning_effort: str | None = None,
     manager: SessionManager | None = None,
     *,
     temperature: float | None = None,
@@ -336,6 +340,7 @@ async def _stream_chat(
                         model_history_messages=session.model_messages,
                         system_prompt=merged_system_prompt,
                         thinking=thinking,
+                        reasoning_effort=reasoning_effort,
                         context_manager=session.context_manager,
                         temperature=temperature,
                         max_tokens=max_tokens,
@@ -395,6 +400,7 @@ async def _non_stream_chat(
     model: str,
     max_turns: int,
     thinking: bool | None = None,
+    reasoning_effort: str | None = None,
     manager: SessionManager | None = None,
     *,
     temperature: float | None = None,
@@ -432,6 +438,7 @@ async def _non_stream_chat(
                         model_history_messages=session.model_messages,
                         system_prompt=merged_system_prompt,
                         thinking=thinking,
+                        reasoning_effort=reasoning_effort,
                         context_manager=session.context_manager,
                         temperature=temperature,
                         max_tokens=max_tokens,

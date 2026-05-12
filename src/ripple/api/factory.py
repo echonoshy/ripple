@@ -5,6 +5,7 @@
 
 from ripple.api.anthropic import AnthropicClient
 from ripple.api.base import LLMClient
+from ripple.api.openai_codex import OpenAICodexClient
 from ripple.api.openrouter import OpenRouterClient
 from ripple.utils.config import get_config
 from ripple.utils.logger import get_logger
@@ -12,7 +13,7 @@ from ripple.utils.logger import get_logger
 logger = get_logger("api.factory")
 
 
-def create_client(provider: str | None = None) -> LLMClient:
+def create_client(provider: str | None = None, *, credentials_file=None) -> LLMClient:
     """创建 LLM 客户端
 
     Args:
@@ -34,6 +35,8 @@ def create_client(provider: str | None = None) -> LLMClient:
 
     if ptype == "anthropic":
         return AnthropicClient(provider_name=provider)
+    if ptype == "openai-codex-responses":
+        return OpenAICodexClient(provider_name=provider, credentials_file=credentials_file)
     if ptype == "openai":
         return OpenRouterClient(provider_name=provider)
 

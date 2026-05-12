@@ -13,6 +13,7 @@
 from ripple.api.anthropic import AnthropicClient
 from ripple.api.base import LLMClient
 from ripple.api.factory import create_client
+from ripple.api.openai_codex import OpenAICodexClient
 from ripple.api.openrouter import OpenRouterClient
 
-__all__ = ["LLMClient", "OpenRouterClient", "AnthropicClient", "create_client"]
+__all__ = ["LLMClient", "OpenRouterClient", "AnthropicClient", "OpenAICodexClient", "create_client"]

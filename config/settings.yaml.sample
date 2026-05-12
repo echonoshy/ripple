@@ -32,6 +32,13 @@ api:
       type: "openai"  # OpenAI Chat Completions 兼容
       api_key: "<OPENROUTER_API_KEY>"
       base_url: "https://openrouter.ai/api/v1"
+    # ChatGPT/Codex 订阅登录路线：不需要 API key；管理员运行
+    # `uv run python scripts/authorize-openai-codex.py` 完成一次 shared 授权。
+    openai-codex:
+      type: "openai-codex-responses"
+      base_url: "https://chatgpt.com/backend-api/codex"
+      auth: "oauth"
+      credentials_mode: "shared"
 
 # 模型配置
 model:
@@ -55,6 +62,18 @@ model:
       openrouter: "anthropic/claude-sonnet-4.6"
     haiku:
       openrouter: "anthropic/claude-haiku-4.5"
+    codex-low:
+      openai-codex: "gpt-5.5"
+      reasoning_effort: "low"
+    codex-medium:
+      openai-codex: "gpt-5.5"
+      reasoning_effort: "medium"
+    codex-high:
+      openai-codex: "gpt-5.5"
+      reasoning_effort: "high"
+    codex-xhigh:
+      openai-codex: "gpt-5.5"
+      reasoning_effort: "xhigh"
 
 # Agent 配置
 agent:

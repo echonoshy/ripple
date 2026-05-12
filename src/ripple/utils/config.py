@@ -1,9 +1,30 @@
 """配置管理模块"""
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+_MODEL_PRESET_METADATA_KEYS = {
+    "display_name",
+    "reasoning_effort",
+}
+
+_OPENAI_CODEX_REASONING_EFFORTS = {"low", "medium", "high", "xhigh"}
+_OPENAI_CODEX_CREDENTIALS_MODES = {"shared"}
+
+
+@dataclass(frozen=True)
+class ResolvedModel:
+    """一次模型选择解析后的 provider-aware 结果。"""
+
+    provider: str
+    provider_type: str
+    model: str
+    requested: str
+    alias: str | None = None
+    reasoning_effort: str | None = None
 
 
 class Config:
@@ -99,6 +120,130 @@ class Config:
 
         raise ValueError(f"Provider '{name}' 未在配置文件中找到，请检查 config/settings.yaml 的 api.providers")
 
+    def _provider_names_for_preset(self, preset: dict[str, Any]) -> list[str]:
+        providers = self.get("api.providers", {}) or {}
+        out: list[str] = []
+        for key, value in preset.items():
+            if key in _MODEL_PRESET_METADATA_KEYS:
+                continue
+            if key in providers and isinstance(value, str) and value.strip():
+                out.append(key)
+        return out
+
+    def _normalize_reasoning_effort(self, value: Any) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("model preset reasoning_effort 必须是字符串")
+        effort = value.strip().lower()
+        if not effort:
+            return None
+        if effort not in _OPENAI_CODEX_REASONING_EFFORTS:
+            allowed = ", ".join(sorted(_OPENAI_CODEX_REASONING_EFFORTS))
+            raise ValueError(f"未知 reasoning_effort: {value!r}，可选值: {allowed}")
+        return effort
+
+    def openai_codex_credentials_mode(self, provider: str | None = None) -> str:
+        """Return the Codex OAuth credential mode.
+
+        Codex is shared-only in Ripple: one server-side credential is authorized
+        by an administrator and reused by all team users.
+        """
+        provider_cfg = self.get_provider_config(provider)
+        mode = provider_cfg.get("credentials_mode", "shared")
+        if not isinstance(mode, str):
+            raise ValueError("openai-codex credentials_mode 必须是字符串")
+        normalized = mode.strip().lower().replace("-", "_")
+        if not normalized:
+            return "shared"
+        if normalized not in _OPENAI_CODEX_CREDENTIALS_MODES:
+            raise ValueError("openai-codex credentials_mode is shared-only; omit it or set credentials_mode: shared")
+        return "shared"
+
+    def resolve_model_info(self, name_or_alias: str, provider: str | None = None) -> ResolvedModel:
+        """解析模型选择，返回 provider / transport / model 参数。
+
+        兼容旧的 alias → 字符串模型解析，同时允许新 alias 携带
+        `reasoning_effort` 等 provider 参数。若 alias 只属于一个 provider，即使当前
+        `api.provider` 是其他 provider，也会解析到该 provider，方便新增 Codex alias
+        而不影响 Anthropic 默认流程。
+        """
+        if provider is None:
+            provider = self.get_current_provider()
+
+        providers = self.get("api.providers", {}) or {}
+        presets = self.get("model.presets", {}) or {}
+        requested = name_or_alias
+
+        # 1. 别名直接命中
+        if name_or_alias in presets and isinstance(presets[name_or_alias], dict):
+            preset = presets[name_or_alias] or {}
+            provider_names = self._provider_names_for_preset(preset)
+            resolved_provider = provider
+            if provider not in provider_names and len(provider_names) == 1:
+                resolved_provider = provider_names[0]
+
+            model = preset.get(resolved_provider) or preset.get("model")
+            if isinstance(model, str) and model.strip():
+                provider_cfg = self.get_provider_config(resolved_provider)
+                return ResolvedModel(
+                    provider=resolved_provider,
+                    provider_type=(provider_cfg.get("type") or "openai").lower(),
+                    model=model,
+                    requested=requested,
+                    alias=name_or_alias,
+                    reasoning_effort=self._normalize_reasoning_effort(preset.get("reasoning_effort")),
+                )
+
+        # 2. 反向查找：看 name_or_alias 是否是某个 preset 下某个 provider 的值
+        for alias, preset in presets.items():
+            if not isinstance(preset, dict):
+                continue
+            matched_provider: str | None = None
+            matched = False
+            for p_name, p_value in preset.items():
+                if p_name in _MODEL_PRESET_METADATA_KEYS:
+                    continue
+                if p_name == "model":
+                    if p_value == name_or_alias:
+                        matched = True
+                        break
+                    continue
+                if p_value == name_or_alias:
+                    matched = True
+                    matched_provider = p_name
+                    break
+            if matched:
+                provider_names = self._provider_names_for_preset(preset)
+                resolved_provider = provider
+                if provider in provider_names:
+                    resolved_provider = provider
+                elif matched_provider and matched_provider in providers:
+                    resolved_provider = matched_provider
+                elif len(provider_names) == 1:
+                    resolved_provider = provider_names[0]
+
+                model = preset.get(resolved_provider) or preset.get("model")
+                if isinstance(model, str) and model.strip():
+                    provider_cfg = self.get_provider_config(resolved_provider)
+                    return ResolvedModel(
+                        provider=resolved_provider,
+                        provider_type=(provider_cfg.get("type") or "openai").lower(),
+                        model=model,
+                        requested=requested,
+                        alias=alias,
+                        reasoning_effort=self._normalize_reasoning_effort(preset.get("reasoning_effort")),
+                    )
+
+        # 3. 原样返回，保持旧行为
+        provider_cfg = self.get_provider_config(provider)
+        return ResolvedModel(
+            provider=provider,
+            provider_type=(provider_cfg.get("type") or "openai").lower(),
+            model=name_or_alias,
+            requested=requested,
+        )
+
     def resolve_model(self, name_or_alias: str, provider: str | None = None) -> str:
         """解析模型名称或别名为完整模型 ID
 
@@ -120,44 +265,7 @@ class Config:
         Returns:
             完整模型 ID
         """
-        if provider is None:
-            provider = self.get_current_provider()
-
-        presets = self.get("model.presets", {}) or {}
-
-        # 1. 别名直接命中
-        if name_or_alias in presets:
-            preset = presets[name_or_alias] or {}
-            if isinstance(preset, dict):
-                if provider in preset:
-                    return preset[provider]
-                if "model" in preset:
-                    return preset["model"]
-
-        # 2. 反向查找：看 name_or_alias 是否是某个 preset 下某个 provider 的值
-        for preset in presets.values():
-            if not isinstance(preset, dict):
-                continue
-            matched = False
-            for p_name, p_value in preset.items():
-                if p_name == "model":
-                    # 旧结构的 fallback 也参与匹配
-                    if p_value == name_or_alias:
-                        matched = True
-                        break
-                    continue
-                if p_value == name_or_alias:
-                    matched = True
-                    break
-            if matched:
-                if provider in preset:
-                    return preset[provider]
-                if "model" in preset:
-                    return preset["model"]
-                break
-
-        # 3. 原样返回
-        return name_or_alias
+        return self.resolve_model_info(name_or_alias, provider=provider).model
 
     def get_model_presets(self) -> dict[str, dict]:
         """获取所有模型预设

@@ -278,6 +278,8 @@ def _create_session_context(
     model: str,
     session_id: str,
     *,
+    provider: str | None = None,
+    reasoning_effort: str | None = None,
     workspace_root: Path | None = None,
     sandbox_session_id: str | None = None,
     session_runtime_dir: Path | None = None,
@@ -292,7 +294,7 @@ def _create_session_context(
     cwd = workspace_root if workspace_root else Path.cwd()
 
     context = ToolUseContext(
-        options=ToolOptions(tools=tools, model=model),
+        options=ToolOptions(tools=tools, model=model, provider=provider, reasoning_effort=reasoning_effort),
         session_id=session_id,
         cwd=cwd,
         abort_signal=AbortSignal(),
@@ -305,8 +307,26 @@ def _create_session_context(
         sandboxed=workspace_root is not None and sandbox_manager is not None,
     )
 
-    client = create_client()
+    credentials_file = _credentials_file_for_provider(provider, sandbox_manager=sandbox_manager, user_id=user_id)
+
+    client = create_client(provider, credentials_file=credentials_file)
     return context, client
+
+
+def _credentials_file_for_provider(
+    provider: str | None,
+    *,
+    sandbox_manager: SandboxManager | None,
+    user_id: str | None,
+) -> Path | None:
+    if not provider or sandbox_manager is None:
+        return None
+    provider_cfg = get_config().get_provider_config(provider)
+    provider_type = (provider_cfg.get("type") or "openai").lower()
+    if provider_type == "openai-codex-responses":
+        get_config().openai_codex_credentials_mode(provider)
+        return sandbox_manager.config.openai_codex_shared_credentials_file()
+    return None
 
 
 class SessionManager:
@@ -410,7 +430,9 @@ class SessionManager:
         feishu: "FeishuConfig | None" = None,
     ) -> Session:
         config = get_config()
-        resolved_model = config.resolve_model(model or config.get("model.default", "sonnet"))
+        selected_model = model or config.get("model.default", "sonnet")
+        resolved = config.resolve_model_info(selected_model)
+        resolved_model = resolved.model
         resolved_max_turns = max_turns or config.get("agent.max_turns", 10)
 
         session_id = f"srv-{uuid4().hex[:12]}"
@@ -430,6 +452,8 @@ class SessionManager:
         context, client = _create_session_context(
             resolved_model,
             internal_sid,
+            provider=resolved.provider,
+            reasoning_effort=resolved.reasoning_effort,
             workspace_root=workspace_root,
             sandbox_session_id=session_id if self._sandbox_manager else None,
             session_runtime_dir=session_runtime_dir,
@@ -442,20 +466,57 @@ class SessionManager:
             user_id=user_id,
             context=context,
             client=client,
-            model=resolved_model,
+            model=selected_model,
             caller_system_prompt=caller_system_prompt,
             max_turns=resolved_max_turns,
             context_manager=ContextManager(),
         )
         self._sessions[(user_id, session_id)] = session
         logger.info(
-            "event=session.create target_user={} target_session={} model={} workspace={}",
+            "event=session.create target_user={} target_session={} model={} resolved_model={} workspace={}",
             user_id,
             session_id,
+            selected_model,
             resolved_model,
             workspace_root or "none",
         )
         return session
+
+    def configure_session_model(self, session: Session, model: str | None) -> str:
+        """Apply a user-facing model choice to an existing session.
+
+        `Session.model` preserves the selection that the UI/API sent, while
+        `context.options.model` stores the raw provider model ID used on the
+        wire. Provider changes recreate only the LLM client; conversation and
+        tool state remain intact.
+        """
+        config = get_config()
+        selected_model = model or session.model or config.get("model.default", "sonnet")
+        resolved = config.resolve_model_info(selected_model)
+
+        current_provider = session.context.options.provider if session.context else None
+        current_client_provider = getattr(session.client, "provider_name", None)
+        needs_client = (
+            session.client is None
+            or current_provider != resolved.provider
+            or current_client_provider != resolved.provider
+        )
+
+        if session.context is not None:
+            session.context.options.model = resolved.model
+            session.context.options.provider = resolved.provider
+            session.context.options.reasoning_effort = resolved.reasoning_effort
+
+        if needs_client:
+            credentials_file = _credentials_file_for_provider(
+                resolved.provider,
+                sandbox_manager=self._sandbox_manager,
+                user_id=session.user_id,
+            )
+            session.client = create_client(resolved.provider, credentials_file=credentials_file)
+
+        session.model = selected_model
+        return resolved.model
 
     def get_session(self, session_id: str, *, user_id: str = "default") -> Session | None:
         return self._sessions.get((user_id, session_id))
@@ -535,7 +596,9 @@ class SessionManager:
             return None
 
         config = get_config()
-        resolved_model = config.resolve_model(state.get("model", config.get("model.default", "sonnet")))
+        selected_model = state.get("model", config.get("model.default", "sonnet"))
+        resolved = config.resolve_model_info(selected_model)
+        resolved_model = resolved.model
         workspace_root = self._sandbox_manager.config.workspace_dir(user_id)
         if not workspace_root.exists():
             workspace_root = None
@@ -545,6 +608,8 @@ class SessionManager:
         context, client = _create_session_context(
             resolved_model,
             internal_sid,
+            provider=resolved.provider,
+            reasoning_effort=resolved.reasoning_effort,
             workspace_root=workspace_root,
             sandbox_session_id=session_id,
             session_runtime_dir=session_runtime_dir,
@@ -572,7 +637,7 @@ class SessionManager:
             model_messages=state.get("model_messages", []),
             context=context,
             client=client,
-            model=resolved_model,
+            model=selected_model,
             caller_system_prompt=state.get("caller_system_prompt"),
             max_turns=state.get("max_turns", 10),
             created_at=created_at,

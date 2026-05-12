@@ -14,6 +14,7 @@ from ripple.core.fork import build_forked_messages, is_in_fork_child
 from ripple.messages.types import AssistantMessage
 from ripple.permissions.levels import ToolRiskLevel
 from ripple.tools.base import Tool, ToolResult
+from ripple.utils.config import get_config
 
 
 class AgentToolInput(BaseModel):
@@ -79,12 +80,22 @@ class AgentTool(Tool[AgentToolInput, AgentToolOutput]):
         parent_message: AssistantMessage,
     ) -> ToolResult[AgentToolOutput]:
         fork_messages = build_forked_messages(args.prompt, parent_message)
+        model = context.options.model
+        provider = context.options.provider
+        reasoning_effort = context.options.reasoning_effort
+        if args.model:
+            resolved = get_config().resolve_model_info(args.model)
+            model = resolved.model
+            provider = resolved.provider
+            reasoning_effort = resolved.reasoning_effort
 
         sub_context = ToolUseContext(
             options=ToolOptions(
                 tools=context.options.tools,
-                model=args.model or context.options.model,
+                model=model,
                 max_tokens=context.options.max_tokens,
+                provider=provider,
+                reasoning_effort=reasoning_effort,
             ),
             session_id=f"{context.session_id}/fork-{uuid4().hex[:8]}",
             cwd=context.cwd,
@@ -115,13 +126,24 @@ class AgentTool(Tool[AgentToolInput, AgentToolOutput]):
         from ripple.api.client import create_client
         from ripple.core.agent_loop import QueryParams, query_loop
 
-        client = create_client()
+        credentials_file = None
+        if (
+            sub_context.options.provider
+            and context.sandbox_manager is not None
+            and context.user_id
+            and (get_config().get_provider_config(sub_context.options.provider).get("type") or "openai").lower()
+            == "openai-codex-responses"
+        ):
+            get_config().openai_codex_credentials_mode(sub_context.options.provider)
+            credentials_file = context.sandbox_manager.config.openai_codex_shared_credentials_file()
+        client = create_client(sub_context.options.provider, credentials_file=credentials_file)
         params = QueryParams(
             messages=full_messages,
             tool_use_context=sub_context,
             model=sub_context.options.model,
             max_turns=20,
             thinking=context.thinking,
+            reasoning_effort=sub_context.options.reasoning_effort,
         )
 
         registry.start_task(task, query_loop(params, client))

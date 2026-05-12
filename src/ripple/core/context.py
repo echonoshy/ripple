@@ -17,6 +17,8 @@ class ToolOptions:
     tools: list[Any] = field(default_factory=list)
     model: str = "anthropic/claude-sonnet-4.6"
     max_tokens: int | None = None
+    provider: str | None = None
+    reasoning_effort: str | None = None
 
 
 class AbortSignal:

@@ -104,6 +104,8 @@ class SubAgentTool(Tool[SubAgentInput, SubAgentOutput]):
                     tools=sub_tools,
                     model=context.options.model,
                     max_tokens=context.options.max_tokens,
+                    provider=context.options.provider,
+                    reasoning_effort=context.options.reasoning_effort,
                 ),
                 session_id=f"{context.session_id}/sub-{uuid4().hex[:8]}",
                 cwd=context.cwd,
@@ -123,7 +125,17 @@ class SubAgentTool(Tool[SubAgentInput, SubAgentOutput]):
             from ripple.api.client import create_client
             from ripple.core.agent_loop import QueryParams, query_loop
 
-            client = create_client()
+            credentials_file = None
+            if (
+                context.options.provider
+                and context.sandbox_manager is not None
+                and context.user_id
+                and (get_config().get_provider_config(context.options.provider).get("type") or "openai").lower()
+                == "openai-codex-responses"
+            ):
+                config.openai_codex_credentials_mode(context.options.provider)
+                credentials_file = context.sandbox_manager.config.openai_codex_shared_credentials_file()
+            client = create_client(context.options.provider, credentials_file=credentials_file)
 
             sub_params = QueryParams(
                 messages=[create_user_message(args.prompt)],
@@ -132,6 +144,7 @@ class SubAgentTool(Tool[SubAgentInput, SubAgentOutput]):
                 max_turns=max_turns,
                 max_tokens=context.options.max_tokens,
                 thinking=context.thinking,
+                reasoning_effort=context.options.reasoning_effort,
             )
 
             # 5. 收集输出和执行日志

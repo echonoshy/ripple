@@ -183,6 +183,8 @@ async def query_loop(
             stream_kwargs: dict[str, Any] = {}
             if params.temperature is not None:
                 stream_kwargs["temperature"] = params.temperature
+            if params.reasoning_effort is not None:
+                stream_kwargs["reasoning_effort"] = params.reasoning_effort
 
             async for item in client.stream(
                 messages=state.messages,
@@ -540,6 +542,7 @@ async def query(
     model: str = "anthropic/claude-sonnet-4.6",
     max_turns: int | None = None,
     thinking: bool | None = None,
+    reasoning_effort: str | None = None,
     history_messages: list[Message] | None = None,
     system_prompt: str | None = None,
     compactor: "AutoCompactor | None" = None,
@@ -579,6 +582,7 @@ async def query(
         model=model,
         max_turns=max_turns,
         thinking=thinking,
+        reasoning_effort=reasoning_effort,
         compactor=compactor,
         temperature=temperature,
         max_tokens=max_tokens,

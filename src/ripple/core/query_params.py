@@ -20,6 +20,7 @@ class QueryParams:
         max_turns: int | None = None,
         max_tokens: int | None = None,
         thinking: bool | None = None,
+        reasoning_effort: str | None = None,
         compactor: "AutoCompactor | None" = None,
         temperature: float | None = None,
     ):
@@ -29,5 +30,6 @@ class QueryParams:
         self.max_turns = max_turns
         self.max_tokens = max_tokens
         self.thinking = thinking
+        self.reasoning_effort = reasoning_effort
         self.compactor = compactor
         self.temperature = temperature

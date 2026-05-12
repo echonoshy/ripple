@@ -86,6 +86,12 @@ def _default_sandboxes_root() -> Path:
     return SANDBOXES_DIR
 
 
+def _default_shared_credentials_root() -> Path:
+    from ripple.utils.paths import RIPPLE_HOME
+
+    return RIPPLE_HOME / "credentials"
+
+
 def _discover_uv_bin_dir() -> str | None:
     """自动发现 uv 二进制所在目录"""
     uv_path = shutil.which("uv")
@@ -244,6 +250,7 @@ class SandboxConfig:
 
     sandboxes_root: Path = field(default_factory=lambda: _default_sandboxes_root())
     caches_root: Path = field(default_factory=lambda: _default_caches_root())
+    shared_credentials_root: Path = field(default_factory=lambda: _default_shared_credentials_root())
 
     resource_limits: ResourceLimits = field(default_factory=ResourceLimits)
 
@@ -399,6 +406,10 @@ class SandboxConfig:
         validate_user_id(user_id)
         return self.sandbox_dir(user_id) / "credentials" / "gogcli-keyring.pass"
 
+    def openai_codex_shared_credentials_file(self) -> Path:
+        """服务端共享 ChatGPT/Codex OAuth token 的宿主侧落盘路径。"""
+        return self.shared_credentials_root / "openai-codex.json"
+
     def session_dir(self, user_id: str, session_id: str) -> Path:
         return self.sandbox_dir(user_id) / "sessions" / session_id
 
@@ -516,10 +527,30 @@ class SandboxConfig:
             return False
         return False
 
+    def has_openai_codex_login(self, user_id: str) -> bool:
+        """判定依据：共享 credentials/openai-codex.json 存在且有非空 access token。"""
+        validate_user_id(user_id)
+        f = self.openai_codex_shared_credentials_file()
+        if not f.exists():
+            return False
+        try:
+            import json
+
+            data = json.loads(f.read_text(encoding="utf-8"))
+            access = data.get("access", "") if isinstance(data, dict) else ""
+            return isinstance(access, str) and bool(access.strip())
+        except (json.JSONDecodeError, OSError):
+            return False
+
     @classmethod
     def from_dict(cls, data: dict) -> "SandboxConfig":
         sandboxes_root = Path(data["sandboxes_root"]) if "sandboxes_root" in data else _default_sandboxes_root()
         caches_root = Path(data["caches_root"]) if "caches_root" in data else _default_caches_root()
+        shared_credentials_root = (
+            Path(data["shared_credentials_root"])
+            if "shared_credentials_root" in data
+            else _default_shared_credentials_root()
+        )
 
         limits_data = data.get("resource_limits", {})
         limits = ResourceLimits(
@@ -545,6 +576,7 @@ class SandboxConfig:
         return cls(
             sandboxes_root=sandboxes_root,
             caches_root=caches_root,
+            shared_credentials_root=shared_credentials_root,
             resource_limits=limits,
             idle_suspend_seconds=data.get("idle_suspend_seconds", 1800),
             retention_seconds=data.get("retention_seconds", 86400 * 7),

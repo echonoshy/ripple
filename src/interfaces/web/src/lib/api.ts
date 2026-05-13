@@ -14,6 +14,8 @@ import {
   TaskInfo,
   TaskProgress,
   AgentStopData,
+  WorkspaceFilePreview,
+  WorkspaceListing,
 } from "@/types";
 
 function getApiUrl(): string {
@@ -458,6 +460,34 @@ export async function deleteCurrentSandbox(): Promise<{ ok: boolean; error?: str
     /* ignore parse error */
   }
   return { ok: false, error: message };
+}
+
+function encodeWorkspacePath(path: string): string {
+  return encodeURIComponent(path || "/workspace");
+}
+
+export async function fetchWorkspaceListing(
+  path: string = "/workspace"
+): Promise<WorkspaceListing> {
+  const res = await fetch(`${API_URL}/workspace?path=${encodeWorkspacePath(path)}`, {
+    headers: { ...authHeaders() },
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) throw new Error(`Failed to fetch workspace (${res.status})`);
+  return (await res.json()) as WorkspaceListing;
+}
+
+export async function fetchWorkspaceFilePreview(
+  path: string,
+  limit: number = 64 * 1024
+): Promise<WorkspaceFilePreview> {
+  const qs = new URLSearchParams({ path, limit: String(limit) });
+  const res = await fetch(`${API_URL}/workspace/file?${qs.toString()}`, {
+    headers: { ...authHeaders() },
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) throw new Error(`Failed to preview file (${res.status})`);
+  return (await res.json()) as WorkspaceFilePreview;
 }
 
 export async function fetchSchedules(): Promise<ScheduledJob[]> {

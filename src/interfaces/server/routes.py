@@ -37,6 +37,12 @@ from interfaces.server.schemas import (
 )
 from interfaces.server.sessions import SessionManager
 from interfaces.server.sse import collect_query_response, stream_query_as_sse
+from interfaces.server.workspace_browser import (
+    BinaryFileError,
+    browse_workspace_directory,
+    preview_workspace_file,
+)
+from ripple.agent_runners.manager import get_external_agent_manager
 from ripple.messages.utils import serialize_messages
 from ripple.scheduler.manager import ScheduledJobRunningError, SchedulerManager, compute_initial_next_run
 from ripple.scheduler.models import ScheduledJob, utc_now
@@ -794,6 +800,8 @@ async def delete_sandbox(
     for uid, sid in [k for k in list(manager._sessions.keys()) if k[0] == user_id]:
         manager.delete_session(sid, user_id=uid)
 
+    await get_external_agent_manager().stop_user(user_id)
+
     try:
         ok = manager.sandbox_manager.teardown_sandbox(user_id, allow_default=False)
     except PermissionError as e:
@@ -801,6 +809,59 @@ async def delete_sandbox(
     if not ok:
         raise HTTPException(status_code=404, detail=f"Sandbox for user {user_id!r} not found")
     return {"ok": True, "user_id": user_id}
+
+
+@router.get("/v1/workspace")
+async def list_workspace(
+    path: str = Query(default="/workspace"),
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+):
+    """List one directory in the current user's sandbox workspace."""
+    manager = get_session_manager()
+    if not manager.sandbox_manager:
+        raise HTTPException(status_code=500, detail="sandbox disabled")
+
+    workspace_root = manager.sandbox_manager.config.workspace_dir(user_id)
+    if not workspace_root.exists():
+        raise HTTPException(status_code=404, detail=f"Sandbox for user {user_id!r} not found")
+
+    try:
+        return browse_workspace_directory(workspace_root, path)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail="Access denied") from e
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail="Path not found") from e
+    except NotADirectoryError as e:
+        raise HTTPException(status_code=400, detail="Path is not a directory") from e
+
+
+@router.get("/v1/workspace/file")
+async def get_workspace_file(
+    path: str = Query(...),
+    limit: int = Query(default=64 * 1024, ge=1, le=256 * 1024),
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+):
+    """Preview one text file in the current user's sandbox workspace."""
+    manager = get_session_manager()
+    if not manager.sandbox_manager:
+        raise HTTPException(status_code=500, detail="sandbox disabled")
+
+    workspace_root = manager.sandbox_manager.config.workspace_dir(user_id)
+    if not workspace_root.exists():
+        raise HTTPException(status_code=404, detail=f"Sandbox for user {user_id!r} not found")
+
+    try:
+        return preview_workspace_file(workspace_root, path, limit_bytes=limit)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail="Access denied") from e
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail="Path not found") from e
+    except IsADirectoryError as e:
+        raise HTTPException(status_code=400, detail="Path is not a file") from e
+    except BinaryFileError as e:
+        raise HTTPException(status_code=415, detail="Binary files cannot be previewed") from e
 
 
 @router.get("/v1/sandboxes/gogcli-accounts")

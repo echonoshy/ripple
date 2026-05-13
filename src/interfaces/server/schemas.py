@@ -190,6 +190,32 @@ class SandboxListResponse(BaseModel):
     count: int = 0
 
 
+class WorkspaceEntry(BaseModel):
+    name: str
+    path: str
+    kind: Literal["directory", "file"]
+    size_bytes: int
+    modified_at: str
+    is_hidden: bool = False
+
+
+class WorkspaceListingResponse(BaseModel):
+    path: str
+    parent_path: str | None = None
+    entries: list[WorkspaceEntry] = Field(default_factory=list)
+
+
+class WorkspaceFilePreviewResponse(BaseModel):
+    path: str
+    name: str
+    size_bytes: int
+    modified_at: str
+    mime_type: str
+    encoding: str
+    content: str
+    truncated: bool = False
+
+
 class GogcliAccountInfo(BaseModel):
     email: str
     alias: str | None = None

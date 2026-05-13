@@ -10,6 +10,7 @@ from interfaces.server.middleware import RequestContextMiddleware
 from interfaces.server.routes import router, set_scheduler_manager, set_session_manager
 from interfaces.server.scheduler_agent import run_scheduled_agent_job
 from interfaces.server.sessions import SessionManager
+from ripple.agent_runners.manager import get_external_agent_manager
 from ripple.sandbox.config import SandboxConfig
 from ripple.sandbox.manager import SandboxManager
 from ripple.scheduler.manager import SchedulerManager
@@ -61,6 +62,7 @@ def create_app() -> FastAPI:
         )
         yield
         await scheduler.stop()
+        await get_external_agent_manager().stop_all()
         manager.stop_cleanup_loop()
         logger.info("Ripple Server 已关闭")
 

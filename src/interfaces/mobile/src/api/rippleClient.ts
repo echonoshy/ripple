@@ -181,6 +181,17 @@ function dispatchSseEvent(data: JsonObject, callbacks: StreamChatCallbacks): voi
   }
 }
 
+function dispatchBufferedSse(buffer: string, callbacks: StreamChatCallbacks, flush = false): string {
+  const frames = buffer.split(/\r?\n\r?\n/);
+  const tail = flush ? "" : (frames.pop() ?? "");
+  for (const frame of frames) {
+    for (const event of parseSseEvents(`${frame}\n\n`)) {
+      dispatchSseEvent(event, callbacks);
+    }
+  }
+  return tail;
+}
+
 async function readStreamResponse(response: Response, callbacks: StreamChatCallbacks): Promise<void> {
   const body = response.body as unknown;
   const reader =
@@ -202,19 +213,113 @@ async function readStreamResponse(response: Response, callbacks: StreamChatCallb
     const { done, value } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
-    const frames = buffer.split(/\r?\n\r?\n/);
-    buffer = frames.pop() ?? "";
-    for (const frame of frames) {
-      for (const event of parseSseEvents(`${frame}\n\n`)) {
-        dispatchSseEvent(event, callbacks);
-      }
-    }
+    buffer = dispatchBufferedSse(buffer, callbacks);
   }
   buffer += decoder.decode();
-  for (const event of parseSseEvents(buffer)) {
-    dispatchSseEvent(event, callbacks);
-  }
+  dispatchBufferedSse(buffer, callbacks, true);
   callbacks.onComplete?.();
+}
+
+function shouldUseXhrStreaming(config: RippleClientConfig): boolean {
+  if (config.fetchImpl) return false;
+  if (typeof XMLHttpRequest === "undefined") return false;
+  const product = typeof navigator === "object" && "product" in navigator ? navigator.product : "";
+  return product === "ReactNative";
+}
+
+function xhrErrorMessage(xhr: XMLHttpRequest): string {
+  try {
+    const body = JSON.parse(xhr.responseText || "{}") as { detail?: unknown; error?: unknown };
+    if (typeof body.detail === "string") return body.detail;
+    if (typeof body.error === "string") return body.error;
+  } catch {
+    if (xhr.responseText) return xhr.responseText;
+  }
+  return `Ripple API request failed (${xhr.status})`;
+}
+
+function streamChatWithXhr(
+  config: RippleClientConfig,
+  input: SendChatInput,
+  callbacks: StreamChatCallbacks,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    let settled = false;
+    let cursor = 0;
+    let buffer = "";
+
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      input.signal?.removeEventListener("abort", abort);
+      resolve();
+    };
+
+    const fail = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      input.signal?.removeEventListener("abort", abort);
+      reject(error);
+    };
+
+    const completeAbort = () => {
+      if (settled) return;
+      callbacks.onComplete?.();
+      finish();
+    };
+
+    const abort = () => {
+      if (settled) return;
+      xhr.onabort = completeAbort;
+      xhr.abort();
+      completeAbort();
+    };
+
+    const consumeProgress = () => {
+      if (xhr.status && (xhr.status < 200 || xhr.status >= 300)) return;
+      const nextChunk = xhr.responseText.slice(cursor);
+      if (!nextChunk) return;
+      cursor = xhr.responseText.length;
+      buffer += nextChunk;
+      buffer = dispatchBufferedSse(buffer, callbacks);
+    };
+
+    xhr.open("POST", createUrl(config, "/chat/completions"), true);
+    for (const [key, value] of Object.entries(makeHeaders(config, true))) {
+      xhr.setRequestHeader(key, value);
+    }
+
+    xhr.onprogress = consumeProgress;
+    xhr.onload = () => {
+      if (xhr.status === 401) {
+        fail(new RippleAuthError());
+        return;
+      }
+      if (xhr.status < 200 || xhr.status >= 300) {
+        fail(new RippleApiError(xhrErrorMessage(xhr), xhr.status));
+        return;
+      }
+      consumeProgress();
+      dispatchBufferedSse(buffer, callbacks, true);
+      callbacks.onComplete?.();
+      finish();
+    };
+    xhr.onerror = () => fail(new RippleApiError("Network error while connecting to Ripple Server"));
+    xhr.ontimeout = () => fail(new RippleApiError("Ripple API request timed out"));
+    xhr.onabort = completeAbort;
+
+    input.signal?.addEventListener("abort", abort);
+    xhr.send(
+      JSON.stringify({
+        model: input.model,
+        messages: [{ role: "user", content: input.content }],
+        stream: true,
+        session_id: input.sessionId,
+        thinking: Boolean(input.thinking),
+      }),
+    );
+  });
 }
 
 export function createRippleClient(config: RippleClientConfig) {
@@ -265,6 +370,11 @@ export function createRippleClient(config: RippleClientConfig) {
 
     streamChat: async (input: SendChatInput, callbacks: StreamChatCallbacks): Promise<void> => {
       try {
+        if (shouldUseXhrStreaming(config)) {
+          await streamChatWithXhr(config, input, callbacks);
+          return;
+        }
+
         const response = await asFetch(config)(createUrl(config, "/chat/completions"), {
           method: "POST",
           signal: input.signal,

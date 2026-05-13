@@ -14,8 +14,21 @@
     },
     "scheme": "ripple-mobile",
     "ios": {
-      "bundleIdentifier": "com.ripple.mobile",
-      "supportsTablet": true
+      "bundleIdentifier": "com.lake.ripple.mobile",
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true,
+          "NSAllowsLocalNetworking": true,
+          "NSExceptionDomains": {
+            "140.143.229.103": {
+              "NSExceptionAllowsInsecureHTTPLoads": true,
+              "NSIncludesSubdomains": true
+            }
+          }
+        },
+        "NSLocalNetworkUsageDescription": "Ripple Mobile connects to your local Ripple server on this network."
+      }
     },
     "android": {
       "package": "com.lake.ripple.mobile",

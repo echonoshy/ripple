@@ -1,6 +1,6 @@
-<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+<svg width="512" height="512" viewBox="32 32 448 448" fill="none" xmlns="http://www.w3.org/2000/svg">
   <title>r favicon</title>
-  <rect x="32" y="32" width="448" height="448" rx="24" fill="#DA7859"/>
+  <rect x="32" y="32" width="448" height="448" fill="#DA7859"/>
 
   <path
     d="M157 136C136 137 128 151 126 184L123 222C122 239 113 247 99 249C113 252 122 261 123 278L126 339C128 363 137 374 157 376"

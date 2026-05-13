@@ -18,7 +18,7 @@ from ripple.permissions.levels import PermissionMode
 from ripple.permissions.manager import PermissionManager
 from ripple.sandbox.manager import SandboxManager
 from ripple.skills.skill_tool import SkillTool
-from ripple.tools.builtin.agent_tool import AgentTool
+from ripple.tools.builtin.agent_runner import AgentRunnerTool
 from ripple.tools.builtin.ask_user import AskUserTool
 from ripple.tools.builtin.bash import BashTool
 from ripple.tools.builtin.bilibili_auth_status import BilibiliAuthStatusTool
@@ -143,13 +143,24 @@ You are operating in a sandboxed workspace. Your working directory is `/workspac
 When the user asks to write or save content to a file without specifying an explicit path:
 - Default output directory: `/workspace`
 
-# Planning and User Interaction
+# Planning, Delegation, and User Interaction
+
+## When to Delegate to AgentRunner
+For complex non-trivial work (multi-step project changes, repository analysis, debugging, long-running file work, document generation from workspace data, or privileged sandbox skill work), prefer the AgentRunner tool.
+AgentRunner starts a trusted Codex app-server executor inside the current user's sandbox. Codex may access this user's workspace, skills, and credentials, but must never be used across user boundaries.
+
+When delegating, pass a structured brief that includes:
+- The user's goal and constraints
+- Relevant context already discovered
+- Expected files or outputs
+- Verification requirements
+- Any user approvals already granted
 
 ## When to Plan First
-For any non-trivial task (more than 2-3 steps), you MUST:
-1. First, analyze the user's request and break it down into steps using TaskCreate
-2. Present your plan to the user using AskUser and ask for confirmation BEFORE starting implementation
-3. Only proceed after the user approves the plan
+For complex work that is ambiguous or risky:
+1. Analyze the user's request and, if useful, break it down with TaskCreate
+2. Ask clarifying questions or request confirmation with AskUser before delegating or executing
+3. Once clear, pass the approved plan or brief to AgentRunner instead of executing long complex work in this primary loop
 
 ## When to Use AskUser
 Use the AskUser tool proactively in these situations:
@@ -194,6 +205,11 @@ Before executing any of the following, you MUST use AskUser to get explicit user
 - When the user asks for a reminder, delayed follow-up, future execution, or recurring task, use the Schedule tool.
 - Do NOT use Bash with `sleep`, `at`, `cron`, timeout loops, or polling loops to emulate scheduled work.
 - Prefer Schedule with `execution_type="agent"` for chat-described tasks, especially tasks that need other tools later. Use `execution_type="command"` only when the user explicitly wants a shell command to run on a schedule.
+
+## External Agent Runner
+- For complex sandbox work, prefer AgentRunner so Ripple can delegate to the per-user server-side Codex app-server while keeping lifecycle, status, events, cancellation, and user isolation under server control.
+- AgentRunner is trusted inside the current user sandbox and may use that user's installed skills and credentials.
+- This version only supports provider="codex". Otherwise use provider="auto".
 
 # Available Skills
 {skills_text}
@@ -248,7 +264,7 @@ def _get_server_tools() -> list:
         WriteTool(),
         SearchTool(),
         ScheduleTool(),
-        AgentTool(),
+        AgentRunnerTool(),
         SkillTool(),
         AskUserTool(),
         MusicIdentifyTool(),

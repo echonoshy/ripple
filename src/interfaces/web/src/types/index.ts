@@ -75,6 +75,32 @@ export interface GogcliAccountsResponse {
   checked: boolean;
 }
 
+export interface WorkspaceEntry {
+  name: string;
+  path: string;
+  kind: "directory" | "file";
+  size_bytes: number;
+  modified_at: string;
+  is_hidden: boolean;
+}
+
+export interface WorkspaceListing {
+  path: string;
+  parent_path: string | null;
+  entries: WorkspaceEntry[];
+}
+
+export interface WorkspaceFilePreview {
+  path: string;
+  name: string;
+  size_bytes: number;
+  modified_at: string;
+  mime_type: string;
+  encoding: string;
+  content: string;
+  truncated: boolean;
+}
+
 export type ScheduleType = "once" | "interval";
 export type ScheduleExecutionType = "command" | "agent";
 export interface ScheduledJob {

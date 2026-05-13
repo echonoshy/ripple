@@ -95,6 +95,31 @@ tools:
     default_allowed_tools: []
     permission_mode: "allow"
 
+# Codex app-server runner 配置
+#
+# Ripple 会保留基础工具、user sandbox、任务状态和生命周期管理；复杂任务可交给
+# 服务端预装的 Codex app-server。当前版本只接入 Codex，不接 Claude Code。
+#
+# Codex 由管理员在服务端安装一次。Ripple 会为每个 user_id 懒启动独立
+# app-server 进程，每个任务创建独立 thread/turn。
+#
+# 开发/MVP 模式下 Codex 是当前 user sandbox 内的受信执行器：可访问该
+# user 的 workspace、skills、credentials，但不应看到其他 user 的 sandbox。
+external_agents:
+  default_provider: "codex"
+  codex:
+    enabled: true
+    codex_executable: "codex"
+    app_server_args: ["app-server", "--listen", "stdio://"]
+    approval_policy: "never"
+    sandbox_type: "workspaceWrite"
+    network_access: true
+    idle_timeout_seconds: 1800
+    # 可选：控制 Codex app-server 子进程环境。不要传入 server 级密钥；
+    # user 级 token 应放在当前 user sandbox 可见的 credentials/workspace 配置中。
+    # env:
+    #   PATH: "/usr/local/bin:/usr/bin:/bin"
+
 # 日志配置
 #   ripple.log — 唯一主日志。HTTP / session / agent / LLM / tool / sandbox 事件
 #                按同一请求时间线写入，方便用 req= 或 session= grep 排查。

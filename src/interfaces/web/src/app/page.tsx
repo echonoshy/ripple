@@ -13,6 +13,8 @@ import {
   Check,
   UserRound,
   CalendarClock,
+  Activity,
+  FolderOpen,
 } from "lucide-react";
 import { Message, UsageInfo, Session, SessionDetail, TaskInfo, TaskProgress } from "@/types";
 import {
@@ -36,6 +38,7 @@ import Sidebar from "@/components/Sidebar";
 import ChatInput from "@/components/ChatInput";
 import ChatMessage from "@/components/ChatMessage";
 import TaskExecutionPanel from "@/components/TaskExecutionPanel";
+import WorkspaceExplorer from "@/components/WorkspaceExplorer";
 import SettingsModal from "@/components/SettingsModal";
 import ScheduledTasksModal from "@/components/ScheduledTasksModal";
 import { applyTaskUpdate, upsertTask } from "@/lib/chatState";
@@ -85,6 +88,8 @@ export default function Home() {
   const [thinkingEnabled, setThinkingEnabled] = useState(false);
   const [inputFocusToken, setInputFocusToken] = useState(0);
   const [sessionIdCopied, setSessionIdCopied] = useState(false);
+  const [rightPanelTab, setRightPanelTab] = useState<"activity" | "workspace">("activity");
+  const [workspaceRefreshToken, setWorkspaceRefreshToken] = useState(0);
 
   // ── Token tracking ──
   const [tokenUsage, setTokenUsage] = useState<UsageInfo>({
@@ -476,6 +481,7 @@ export default function Home() {
             setIsGenerating(false);
             setInputFocusToken((prev) => bumpInputFocusToken(prev));
             loadSessions();
+            setWorkspaceRefreshToken((prev) => prev + 1);
           },
           onError: (err) => {
             if (isStaleRequest()) return;
@@ -895,12 +901,42 @@ export default function Home() {
           className="border-ripple-ink bg-ripple-sidebar hidden shrink-0 flex-col border-l-2 lg:flex"
           style={{ width: rightPanelWidth }}
         >
-          <TaskExecutionPanel
-            tasks={tasks}
-            taskProgress={taskProgress}
-            toolCalls={allToolCalls}
-            isGenerating={isGenerating}
-          />
+          <div className="border-ripple-ink bg-ripple-yellow flex shrink-0 gap-2 border-b-2 p-2">
+            <button
+              type="button"
+              onClick={() => setRightPanelTab("activity")}
+              className={`border-ripple-ink text-ripple-ink flex items-center gap-1.5 rounded-md border-2 px-3 py-1.5 text-xs font-bold shadow-[2px_2px_0_#111111] transition-colors ${
+                rightPanelTab === "activity" ? "bg-ripple-pink" : "hover:bg-ripple-lime/55 bg-white"
+              }`}
+            >
+              <Activity size={13} />
+              Activity
+            </button>
+            <button
+              type="button"
+              onClick={() => setRightPanelTab("workspace")}
+              className={`border-ripple-ink text-ripple-ink flex items-center gap-1.5 rounded-md border-2 px-3 py-1.5 text-xs font-bold shadow-[2px_2px_0_#111111] transition-colors ${
+                rightPanelTab === "workspace"
+                  ? "bg-ripple-pink"
+                  : "hover:bg-ripple-lime/55 bg-white"
+              }`}
+            >
+              <FolderOpen size={13} />
+              Workspace
+            </button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-hidden">
+            {rightPanelTab === "activity" ? (
+              <TaskExecutionPanel
+                tasks={tasks}
+                taskProgress={taskProgress}
+                toolCalls={allToolCalls}
+                isGenerating={isGenerating}
+              />
+            ) : (
+              <WorkspaceExplorer userId={userId} refreshToken={workspaceRefreshToken} />
+            )}
+          </div>
         </aside>
       </motion.div>
 

@@ -17,6 +17,9 @@ This app is only a front-end caller. It does not run the agent loop, tools, sand
 
 ## Run On iOS
 
+For a fuller command reference, including Release builds and CocoaPods/codegen notes, see [`docs/MOBILE_IOS.md`](../../../docs/MOBILE_IOS.md).
+For recent mobile UI and Markdown rendering changes, see [`docs/MOBILE_APP_CHANGES.md`](../../../docs/MOBILE_APP_CHANGES.md).
+
 From the repository root:
 
 ```bash

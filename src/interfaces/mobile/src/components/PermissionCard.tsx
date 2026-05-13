@@ -12,8 +12,12 @@ export function PermissionCard({ request, disabled, onResolve }: PermissionCardP
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Permission required</Text>
-      <Text style={styles.tool}>Tool: {request.tool}</Text>
-      <Text style={styles.params}>{formatParams(request.params)}</Text>
+      <Text selectable style={styles.tool}>
+        Tool: {request.tool}
+      </Text>
+      <Text selectable style={styles.params}>
+        {formatParams(request.params)}
+      </Text>
       <View style={styles.actions}>
         <ActionButton label="Allow once" disabled={disabled} onPress={() => onResolve("allow")} primary />
         <ActionButton label="Always" disabled={disabled} onPress={() => onResolve("always")} />
@@ -61,39 +65,39 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff4c2",
     borderColor: "#111",
     borderWidth: 2,
-    marginTop: 12,
-    padding: 12,
+    marginTop: 8,
+    padding: 9,
   },
   title: {
     color: "#111",
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: "900",
     textTransform: "uppercase",
   },
   tool: {
     color: "#111",
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "700",
-    marginTop: 8,
+    marginTop: 6,
   },
   params: {
     backgroundColor: "#050505",
     color: "#d7d7d7",
     fontFamily: "Menlo",
-    fontSize: 11,
-    marginTop: 8,
-    padding: 10,
+    fontSize: 10,
+    marginTop: 6,
+    padding: 8,
   },
   actions: {
-    gap: 8,
-    marginTop: 12,
+    gap: 6,
+    marginTop: 8,
   },
   button: {
     alignItems: "center",
     backgroundColor: "#fff",
     borderColor: "#111",
     borderWidth: 2,
-    padding: 10,
+    padding: 8,
   },
   primaryButton: {
     backgroundColor: "#00e676",
@@ -106,7 +110,7 @@ const styles = StyleSheet.create({
   },
   buttonText: {
     color: "#111",
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "900",
   },
 });

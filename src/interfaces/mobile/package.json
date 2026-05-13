@@ -4,10 +4,12 @@
   "main": "index.ts",
   "scripts": {
     "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "ios:codegen": "node node_modules/react-native/scripts/generate-codegen-artifacts.js -p . -t ios -o ios",
+    "ios:release": "npm run ios:codegen && expo run:ios --configuration Release --device",
     "web": "expo start --web",
-    "test": "node --import tsx --test src/api/*.test.ts src/storage/*.test.ts",
+    "test": "node --import tsx --test src/api/*.test.ts src/storage/*.test.ts src/markdown/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

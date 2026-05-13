@@ -15,7 +15,7 @@ import {
   View,
 } from "react-native";
 
-import { createRippleClient, RippleApiError, RippleAuthError } from "./src/api/rippleClient";
+import { createRippleClient, normalizeApiBaseUrl, RippleApiError, RippleAuthError } from "./src/api/rippleClient";
 import { ModelInfo, PermissionAction, SessionDetail, SessionSummary, ToolCallUpdate } from "./src/api/types";
 import { ChatMessageItem } from "./src/chat/types";
 import { ChatInput } from "./src/components/ChatInput";
@@ -41,6 +41,8 @@ export default function App() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [loading, setLoading] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [diagnostics, setDiagnostics] = useState<string>("");
+  const [testingConnection, setTestingConnection] = useState(false);
 
   const client = useMemo(
     () =>
@@ -120,6 +122,46 @@ export default function App() {
     setSettingsOpen(false);
   }, [settingsDraft, settingsStore]);
 
+  const testConnection = useCallback(async (draft: MobileSettings) => {
+    const normalized = normalizeSettings(draft);
+    const root = normalized.serverUrl.trim().replace(/\/+$/, "");
+    const apiBase = normalizeApiBaseUrl(normalized.serverUrl);
+
+    if (!root || !apiBase) {
+      setDiagnostics("Server URL is empty.");
+      return;
+    }
+
+    setTestingConnection(true);
+    setDiagnostics(`Testing ${root} ...`);
+
+    const headers: Record<string, string> = {
+      "X-Ripple-User-Id": normalized.userId,
+    };
+    if (normalized.apiKey) {
+      headers.Authorization = `Bearer ${normalized.apiKey}`;
+    }
+
+    const lines = [
+      `Time: ${new Date().toLocaleString()}`,
+      `Server: ${root}`,
+      `API: ${apiBase}`,
+      `Auth header: ${normalized.apiKey ? "set" : "missing"}`,
+      "",
+    ];
+
+    try {
+      lines.push(await probeUrl(`${root}/docs`, {}));
+      lines.push("");
+      lines.push(await probeUrl(`${apiBase}/models`, headers));
+    } finally {
+      const report = lines.join("\n");
+      console.log(report);
+      setDiagnostics(report);
+      setTestingConnection(false);
+    }
+  }, []);
+
   const ensureSession = useCallback(async (): Promise<string> => {
     if (sessionId) return sessionId;
     const created = await client.createSession(settings.model);
@@ -161,15 +203,31 @@ export default function App() {
           content,
           createdAt: new Date().toISOString(),
         };
-        const assistantMessage: ChatMessageItem = {
+        let assistantTurn = 0;
+        const createAssistantMessage = (): ChatMessageItem => ({
           id: `${Date.now()}-assistant`,
           role: "assistant",
           content: "",
           toolCalls: [],
+          createdAt: new Date().toISOString(),
+        });
+        const appendAssistantTurn = () => {
+          assistantTurn += 1;
+          const nextAssistant = {
+            ...createAssistantMessage(),
+            id: `${Date.now()}-assistant-${assistantTurn}`,
+          };
+          setMessages((current) => [...current, nextAssistant]);
+        };
+
+        const assistantMessage: ChatMessageItem = {
+          ...createAssistantMessage(),
+          id: `${Date.now()}-assistant-${assistantTurn}`,
         };
         setMessages((current) => [...current, userMessage, assistantMessage]);
 
         let accumulated = "";
+        let shouldStartPostToolMessage = false;
         await client.streamChat(
           {
             sessionId: activeSessionId,
@@ -180,8 +238,18 @@ export default function App() {
           },
           {
             onMessageDelta: (delta) => {
+              if (shouldStartPostToolMessage) {
+                accumulated = "";
+                shouldStartPostToolMessage = false;
+                appendAssistantTurn();
+              }
               accumulated += delta;
               updateLastAssistant((message) => ({ ...message, content: accumulated }));
+            },
+            onNewTurn: () => {
+              accumulated = "";
+              shouldStartPostToolMessage = false;
+              appendAssistantTurn();
             },
             onToolCall: (toolCall) => {
               updateLastAssistant((message) => ({
@@ -190,6 +258,7 @@ export default function App() {
               }));
             },
             onToolResult: (toolUseId, result, isError) => {
+              shouldStartPostToolMessage = true;
               updateLastAssistant((message) => ({
                 ...message,
                 toolCalls: (message.toolCalls ?? []).map((tool) =>
@@ -353,9 +422,12 @@ export default function App() {
         visible={settingsOpen}
         settingsDraft={settingsDraft}
         models={models}
+        diagnostics={diagnostics}
+        testingConnection={testingConnection}
         onChange={setSettingsDraft}
         onClose={() => setSettingsOpen(false)}
         onSave={saveSettings}
+        onTestConnection={testConnection}
       />
       <SessionsModal
         visible={sessionsOpen}
@@ -472,19 +544,25 @@ function SettingsModal({
   visible,
   settingsDraft,
   models,
+  diagnostics,
+  testingConnection,
   onChange,
   onClose,
   onSave,
+  onTestConnection,
 }: {
   visible: boolean;
   settingsDraft: MobileSettings;
   models: ModelInfo[];
+  diagnostics: string;
+  testingConnection: boolean;
   onChange: (settings: MobileSettings) => void;
   onClose: () => void;
   onSave: () => void;
+  onTestConnection: (settings: MobileSettings) => void;
 }) {
   return (
-    <Modal animationType="slide" visible={visible} presentationStyle="pageSheet">
+    <Modal animationType="slide" visible={visible} presentationStyle="fullScreen">
       <SafeAreaView style={styles.modal}>
         <View style={styles.modalHeader}>
           <Text style={styles.modalTitle}>Settings</Text>
@@ -541,6 +619,14 @@ function SettingsModal({
           <Pressable style={styles.saveButton} onPress={onSave}>
             <Text style={styles.saveButtonText}>Save and connect</Text>
           </Pressable>
+          <Pressable
+            style={[styles.diagnosticButton, testingConnection && styles.disabledButton]}
+            disabled={testingConnection}
+            onPress={() => onTestConnection(settingsDraft)}
+          >
+            <Text style={styles.diagnosticButtonText}>{testingConnection ? "Testing..." : "Test connection"}</Text>
+          </Pressable>
+          {diagnostics ? <Text selectable style={styles.diagnosticsBox}>{diagnostics}</Text> : null}
           <Text style={styles.hint}>On a phone, use a LAN, Tailscale, or HTTPS URL. The phone cannot reach your laptop's localhost.</Text>
         </ScrollView>
       </SafeAreaView>
@@ -566,7 +652,7 @@ function SessionsModal({
   onSelect: (sessionId: string) => void;
 }) {
   return (
-    <Modal animationType="slide" visible={visible} presentationStyle="pageSheet">
+    <Modal animationType="slide" visible={visible} presentationStyle="fullScreen">
       <SafeAreaView style={styles.modal}>
         <View style={styles.modalHeader}>
           <Text style={styles.modalTitle}>Sessions</Text>
@@ -641,6 +727,33 @@ function formatSessionTime(value: string): string {
   return date.toLocaleString([], { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
+async function probeUrl(url: string, headers: Record<string, string>): Promise<string> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10000);
+
+  try {
+    const response = await fetch(url, {
+      headers,
+      signal: controller.signal,
+    });
+    const contentType = response.headers.get("content-type") ?? "unknown";
+    const body = await response.text();
+    const preview = body.replace(/\s+/g, " ").slice(0, 180);
+    return [`GET ${url}`, `Status: ${response.status}`, `Content-Type: ${contentType}`, `Body: ${preview}`].join("\n");
+  } catch (error) {
+    return [`GET ${url}`, `Error: ${formatProbeError(error)}`].join("\n");
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function formatProbeError(error: unknown): string {
+  if (error instanceof Error) {
+    return `${error.name}: ${error.message}`;
+  }
+  return String(error);
+}
+
 const styles = StyleSheet.create({
   safeArea: {
     backgroundColor: "#fdfbf7",
@@ -657,9 +770,9 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     color: "#111",
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: "800",
-    marginTop: 10,
+    marginTop: 8,
   },
   header: {
     alignItems: "center",
@@ -668,34 +781,34 @@ const styles = StyleSheet.create({
     borderBottomWidth: 2,
     flexDirection: "row",
     justifyContent: "space-between",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
   },
   headerButton: {
     backgroundColor: "#fff",
     borderColor: "#111",
     borderWidth: 2,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
   },
   headerButtonText: {
     color: "#111",
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "900",
   },
   titleBlock: {
     alignItems: "center",
     flex: 1,
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
   },
   title: {
     color: "#111",
-    fontSize: 20,
+    fontSize: 17,
     fontWeight: "900",
   },
   subtitle: {
     color: "#555",
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "700",
     maxWidth: 180,
   },
@@ -704,37 +817,37 @@ const styles = StyleSheet.create({
     borderBottomColor: "#111",
     borderBottomWidth: 2,
     color: "#111",
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "800",
-    padding: 10,
+    padding: 8,
   },
   messages: {
     flex: 1,
   },
   messagesContent: {
-    padding: 14,
-    paddingBottom: 24,
+    padding: 10,
+    paddingBottom: 16,
   },
   emptyState: {
     alignItems: "center",
     justifyContent: "center",
-    minHeight: 360,
-    padding: 24,
+    minHeight: 300,
+    padding: 18,
   },
   emptyTitle: {
     color: "#111",
-    fontSize: 28,
+    fontSize: 22,
     fontWeight: "900",
   },
   emptyText: {
     color: "#555",
-    fontSize: 15,
-    lineHeight: 22,
-    marginTop: 8,
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 6,
     textAlign: "center",
   },
   inlineLoader: {
-    marginVertical: 18,
+    marginVertical: 12,
   },
   modal: {
     backgroundColor: "#fdfbf7",
@@ -747,36 +860,36 @@ const styles = StyleSheet.create({
     borderBottomWidth: 2,
     flexDirection: "row",
     justifyContent: "space-between",
-    padding: 14,
+    padding: 10,
   },
   modalTitle: {
     color: "#111",
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: "900",
   },
   smallButton: {
     backgroundColor: "#fff",
     borderColor: "#111",
     borderWidth: 2,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
   },
   smallButtonText: {
     color: "#111",
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "900",
   },
   modalContent: {
-    padding: 16,
+    padding: 12,
   },
   field: {
-    marginBottom: 14,
+    marginBottom: 10,
   },
   fieldLabel: {
     color: "#555",
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "900",
-    marginBottom: 6,
+    marginBottom: 4,
     textTransform: "uppercase",
   },
   fieldInput: {
@@ -784,28 +897,28 @@ const styles = StyleSheet.create({
     borderColor: "#111",
     borderWidth: 2,
     color: "#111",
-    fontSize: 15,
-    padding: 12,
+    fontSize: 13,
+    padding: 9,
   },
   modelGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
-    marginBottom: 14,
+    gap: 6,
+    marginBottom: 10,
   },
   modelChip: {
     backgroundColor: "#fff",
     borderColor: "#111",
     borderWidth: 2,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
   },
   modelChipActive: {
     backgroundColor: "#ffd83d",
   },
   modelChipText: {
     color: "#111",
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "900",
   },
   toggle: {
@@ -815,17 +928,17 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: 16,
-    padding: 12,
+    marginBottom: 10,
+    padding: 9,
   },
   toggleText: {
     color: "#111",
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: "800",
   },
   toggleState: {
     color: "#111",
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: "900",
   },
   saveButton: {
@@ -833,34 +946,59 @@ const styles = StyleSheet.create({
     backgroundColor: "#ff4911",
     borderColor: "#111",
     borderWidth: 2,
-    padding: 14,
+    padding: 11,
   },
   saveButtonText: {
     color: "#111",
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: "900",
+  },
+  diagnosticButton: {
+    alignItems: "center",
+    backgroundColor: "#fff",
+    borderColor: "#111",
+    borderWidth: 2,
+    marginTop: 8,
+    padding: 10,
+  },
+  diagnosticButtonText: {
+    color: "#111",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  diagnosticsBox: {
+    backgroundColor: "#111",
+    color: "#f9f5ed",
+    fontFamily: "Menlo",
+    fontSize: 10,
+    lineHeight: 15,
+    marginTop: 8,
+    padding: 8,
+  },
+  disabledButton: {
+    opacity: 0.5,
   },
   hint: {
     color: "#555",
-    fontSize: 13,
-    lineHeight: 20,
-    marginTop: 14,
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 10,
   },
   sessionActions: {
     flexDirection: "row",
-    gap: 10,
-    padding: 14,
+    gap: 8,
+    padding: 10,
   },
   secondaryButton: {
     backgroundColor: "#fff",
     borderColor: "#111",
     borderWidth: 2,
     flex: 1,
-    padding: 12,
+    padding: 9,
   },
   secondaryButtonText: {
     color: "#111",
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "900",
     textAlign: "center",
   },
@@ -868,21 +1006,21 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderColor: "#111",
     borderWidth: 2,
-    marginBottom: 10,
-    padding: 12,
+    marginBottom: 8,
+    padding: 9,
   },
   sessionRowActive: {
     backgroundColor: "#ffd83d",
   },
   sessionTitle: {
     color: "#111",
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "900",
   },
   sessionMeta: {
     color: "#555",
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "700",
-    marginTop: 5,
+    marginTop: 3,
   },
 });

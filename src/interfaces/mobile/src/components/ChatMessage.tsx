@@ -2,6 +2,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { PermissionAction } from "../api/types";
 import { ChatMessageItem } from "../chat/types";
+import { MarkdownText } from "./MarkdownText";
 import { PermissionCard } from "./PermissionCard";
 import { ToolCallSummary } from "./ToolCallSummary";
 
@@ -25,14 +26,24 @@ export function ChatMessage({
 
   return (
     <View style={[styles.row, isUser && styles.userRow]}>
-      <View style={[styles.bubble, isUser ? styles.userBubble : styles.assistantBubble]}>
+      <View style={[styles.bubble, isUser ? styles.userBubble : styles.assistantBubble, !isUser && styles.assistantWidth]}>
         <Text style={styles.label}>{isUser ? "You" : "Ripple"}</Text>
-        {message.content ? <Text style={styles.content}>{message.content}</Text> : null}
+        {message.content ? (
+          isUser ? (
+            <Text selectable style={styles.content}>
+              {message.content}
+            </Text>
+          ) : (
+            <MarkdownText value={message.content} />
+          )
+        ) : null}
         {!message.content && !isUser && isGenerating ? <Text style={styles.thinking}>Thinking...</Text> : null}
-        {message.toolCalls ? <ToolCallSummary toolCalls={message.toolCalls} /> : null}
+        {message.toolCalls ? <ToolCallSummary toolCalls={message.toolCalls} autoExpand={isGenerating && !isUser} /> : null}
         {showPrompts && message.askUser ? (
           <View style={styles.askBox}>
-            <Text style={styles.askTitle}>{message.askUser.question}</Text>
+            <Text selectable style={styles.askTitle}>
+              {message.askUser.question}
+            </Text>
             {message.askUser.options.map((option) => (
               <Pressable key={option} style={styles.option} onPress={() => onQuickReply(option)}>
                 <Text style={styles.optionText}>{option}</Text>
@@ -51,7 +62,8 @@ export function ChatMessage({
 const styles = StyleSheet.create({
   row: {
     alignItems: "flex-start",
-    marginBottom: 14,
+    marginBottom: 9,
+    width: "100%",
   },
   userRow: {
     alignItems: "flex-end",
@@ -59,60 +71,64 @@ const styles = StyleSheet.create({
   bubble: {
     borderColor: "#111",
     borderWidth: 2,
-    maxWidth: "92%",
-    padding: 13,
+    maxWidth: "95%",
+    minWidth: 0,
+    padding: 9,
     shadowColor: "#111",
-    shadowOffset: { width: 3, height: 3 },
+    shadowOffset: { width: 2, height: 2 },
     shadowOpacity: 1,
     shadowRadius: 0,
   },
   assistantBubble: {
     backgroundColor: "#fff",
   },
+  assistantWidth: {
+    width: "95%",
+  },
   userBubble: {
     backgroundColor: "#d8e8ff",
   },
   label: {
     color: "#666",
-    fontSize: 11,
+    fontSize: 9,
     fontWeight: "900",
     letterSpacing: 0.5,
-    marginBottom: 6,
+    marginBottom: 4,
     textTransform: "uppercase",
   },
   content: {
     color: "#111",
-    fontSize: 15,
-    lineHeight: 22,
+    fontSize: 13,
+    lineHeight: 19,
   },
   thinking: {
     color: "#555",
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: "700",
   },
   askBox: {
     backgroundColor: "#fff7ce",
     borderColor: "#111",
     borderWidth: 2,
-    marginTop: 12,
-    padding: 10,
+    marginTop: 8,
+    padding: 8,
   },
   askTitle: {
     color: "#111",
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: "800",
-    marginBottom: 8,
+    marginBottom: 6,
   },
   option: {
     backgroundColor: "#fff",
     borderColor: "#111",
     borderWidth: 2,
-    marginTop: 8,
-    padding: 10,
+    marginTop: 6,
+    padding: 8,
   },
   optionText: {
     color: "#111",
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "800",
   },
 });

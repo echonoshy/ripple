@@ -1,14 +1,19 @@
-import { useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useEffect, useState } from "react";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { ToolCallUpdate } from "../api/types";
 
 interface ToolCallSummaryProps {
   toolCalls: ToolCallUpdate[];
+  autoExpand?: boolean;
 }
 
-export function ToolCallSummary({ toolCalls }: ToolCallSummaryProps) {
-  const [expanded, setExpanded] = useState(false);
+export function ToolCallSummary({ toolCalls, autoExpand }: ToolCallSummaryProps) {
+  const [expanded, setExpanded] = useState(Boolean(autoExpand));
+
+  useEffect(() => {
+    setExpanded(Boolean(autoExpand && toolCalls.length > 0));
+  }, [autoExpand, toolCalls.length]);
 
   if (toolCalls.length === 0) return null;
 
@@ -25,13 +30,25 @@ export function ToolCallSummary({ toolCalls }: ToolCallSummaryProps) {
         toolCalls.map((tool) => (
           <View key={tool.id} style={styles.tool}>
             <View style={styles.toolHeader}>
-              <Text style={styles.toolName}>{tool.name}</Text>
+              <Text selectable style={styles.toolName}>
+                {tool.name}
+              </Text>
               <Text style={[styles.status, tool.status === "running" ? styles.running : styles.done]}>
                 {tool.status}
               </Text>
             </View>
-            <Text style={styles.code}>{stringifyCompact(tool.arguments)}</Text>
-            {tool.result ? <Text style={styles.result}>{tool.result}</Text> : null}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.outputScroller}>
+              <Text selectable style={styles.code}>
+                {stringifyCompact(tool.arguments)}
+              </Text>
+            </ScrollView>
+            {tool.result ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.outputScroller}>
+                <Text selectable style={styles.result}>
+                  {tool.result}
+                </Text>
+              </ScrollView>
+            ) : null}
           </View>
         ))}
     </View>
@@ -51,29 +68,32 @@ const styles = StyleSheet.create({
   container: {
     borderColor: "#111",
     borderWidth: 1,
-    marginTop: 10,
+    marginTop: 7,
+    width: "100%",
   },
   header: {
     alignItems: "center",
     backgroundColor: "#f4f0ea",
     flexDirection: "row",
     justifyContent: "space-between",
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
   },
   headerText: {
     color: "#111",
-    fontSize: 12,
+    flex: 1,
+    flexShrink: 1,
+    fontSize: 11,
     fontWeight: "700",
   },
   chevron: {
     color: "#555",
-    fontSize: 11,
+    fontSize: 10,
   },
   tool: {
     borderTopColor: "#111",
     borderTopWidth: 1,
-    padding: 10,
+    padding: 8,
   },
   toolHeader: {
     alignItems: "center",
@@ -82,17 +102,19 @@ const styles = StyleSheet.create({
   },
   toolName: {
     color: "#111",
-    fontSize: 12,
+    flex: 1,
+    flexShrink: 1,
+    fontSize: 11,
     fontWeight: "800",
   },
   status: {
     borderColor: "#111",
     borderWidth: 1,
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: "800",
     overflow: "hidden",
     paddingHorizontal: 6,
-    paddingVertical: 2,
+    paddingVertical: 1,
     textTransform: "uppercase",
   },
   running: {
@@ -104,13 +126,15 @@ const styles = StyleSheet.create({
   code: {
     color: "#333",
     fontFamily: "Menlo",
-    fontSize: 11,
-    marginTop: 8,
+    fontSize: 10,
   },
   result: {
     color: "#555",
     fontFamily: "Menlo",
-    fontSize: 11,
-    marginTop: 8,
+    fontSize: 10,
+  },
+  outputScroller: {
+    marginTop: 6,
+    maxWidth: "100%",
   },
 });

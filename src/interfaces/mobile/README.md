@@ -41,11 +41,25 @@ The client automatically calls the `/v1` API under that base URL.
 
 ## Android
 
-The same client can run on Android:
+The same client can run on Android. For a fuller command reference, including IP-only builds and EAS release profiles, see [`docs/MOBILE_ANDROID.md`](../../../docs/MOBILE_ANDROID.md).
 
 ```bash
 npm run android
 ```
+
+If the Ripple Server is only reachable through an `http://<ip>:<port>` URL, enable Android cleartext traffic for the local run:
+
+```bash
+RIPPLE_ANDROID_USES_CLEARTEXT=true npm run android
+```
+
+For an installable Android test APK while there is no HTTPS domain yet:
+
+```bash
+eas build --platform android --profile preview
+```
+
+The `production` EAS profile keeps Android cleartext traffic disabled and is intended for the later HTTPS-domain path.
 
 ## Verification
 

@@ -1,6 +1,6 @@
 # Ripple Mobile App Changes
 
-这份文档记录近期 iOS 移动端界面与对话渲染相关改动，方便后续排查和回顾。
+这份文档记录近期移动端界面、对话渲染与平台打包相关改动，方便后续排查和回顾。
 
 ## iOS 弹窗圆角
 
@@ -65,6 +65,18 @@ presentationStyle="fullScreen"
 iOS 模拟器启动、后端启动、`ios:codegen`、`pod install`、`ios:release` 的说明记录在：
 
 - `docs/MOBILE_IOS.md`
+
+## Android IP-only 与发布配置
+
+Android 增加独立 package id，并通过 EAS profile 区分当前 IP-only 测试包和后续 HTTPS 正式包：
+
+- `src/interfaces/mobile/app.json`：配置 `android.package`。
+- `src/interfaces/mobile/app.config.js`：按 `RIPPLE_ANDROID_USES_CLEARTEXT` 注入 Android cleartext build property。
+- `src/interfaces/mobile/eas.json`：新增 `preview` 和 `production` Android 构建策略。
+
+Android 本地运行、预览 APK 和正式 AAB 的说明记录在：
+
+- `docs/MOBILE_ANDROID.md`
 
 移动端 README 也增加了该文档入口：
 

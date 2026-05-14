@@ -593,7 +593,7 @@ function SettingsModal({
           <LabeledInput
             label="Model"
             value={settingsDraft.model}
-            placeholder="sonnet"
+            placeholder="codex-medium"
             onChangeText={(model) => onChange({ ...settingsDraft, model })}
           />
           {models.length > 0 ? (

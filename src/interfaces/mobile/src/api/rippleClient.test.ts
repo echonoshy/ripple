@@ -29,13 +29,13 @@ test("sends Ripple auth headers and user id on API requests", async () => {
         url: String(input),
         headers: init?.headers as Record<string, string>,
       });
-      return jsonResponse({ data: [{ id: "sonnet", owned_by: "ripple" }] });
+      return jsonResponse({ data: [{ id: "codex-medium", owned_by: "ripple" }] });
     },
   });
 
   const models = await client.listModels();
 
-  assert.deepEqual(models, [{ id: "sonnet", owned_by: "ripple" }]);
+  assert.deepEqual(models, [{ id: "codex-medium", owned_by: "ripple" }]);
   assert.equal(requests[0].url, "http://ripple.local:8810/v1/models");
   assert.equal(requests[0].headers.Authorization, "Bearer secret-key");
   assert.equal(requests[0].headers["X-Ripple-User-Id"], "lake");

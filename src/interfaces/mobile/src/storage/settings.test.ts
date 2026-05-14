@@ -17,14 +17,14 @@ test("normalizes settings with mobile-safe defaults", () => {
       serverUrl: " http://192.168.1.8:8810/ ",
       apiKey: " key ",
       userId: " lake ",
-      model: "opus",
+      model: "codex-high",
       thinkingEnabled: true,
     }),
     {
       serverUrl: "http://192.168.1.8:8810",
       apiKey: "key",
       userId: "lake",
-      model: "opus",
+      model: "codex-high",
       thinkingEnabled: true,
     },
   );
@@ -47,7 +47,7 @@ test("settings store persists normalized settings through an async adapter", asy
     serverUrl: " http://10.0.0.2:8810 ",
     apiKey: " dev ",
     userId: " lake ",
-    model: "sonnet",
+      model: "codex-medium",
     thinkingEnabled: false,
   });
 
@@ -55,7 +55,7 @@ test("settings store persists normalized settings through an async adapter", asy
     serverUrl: "http://10.0.0.2:8810",
     apiKey: "dev",
     userId: "lake",
-    model: "sonnet",
+    model: "codex-medium",
     thinkingEnabled: false,
   });
 

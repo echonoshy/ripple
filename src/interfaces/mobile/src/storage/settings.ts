@@ -16,7 +16,7 @@ export const DEFAULT_SETTINGS: MobileSettings = {
   serverUrl: "",
   apiKey: "",
   userId: "default",
-  model: "sonnet",
+  model: "codex-medium",
   thinkingEnabled: false,
 };
 

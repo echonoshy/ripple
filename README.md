@@ -9,7 +9,7 @@
 [![Python 3.13+](https://img.shields.io/badge/Python-3.13%2B-blue?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![Status: WIP](https://img.shields.io/badge/Status-WIP-red?style=for-the-badge)](https://github.com/echonoshy/ripple)
 
-**Ripple** 是一个受 [claude-code](https://docs.anthropic.com/en/docs/agents-and-tools/claude-code/overview) 启发而构建的 Python Agent 系统。
+**Ripple** 是一个面向多用户 sandbox 与 connector 调度的 Agent 控制面，默认把实际执行委托给服务端 Codex app-server。
 
 ⚠️ **注意：本项目目前处于快速开发（WIP）阶段，核心机制随时可能调整，功能尚不稳定。**
 
@@ -29,8 +29,9 @@
 
 ## 功能概览
 
-- 完整的 agentic loop：支持多轮对话、工具调用和停止条件判断。
-- 内置工具系统：包含 Bash、Read、Write、Skill、SubAgent 等工具。
+- 控制面：负责用户、session、sandbox、connector 授权、权限校验和任务生命周期。
+- Codex 执行面：`/v1/chat/completions` 默认转接到当前 user sandbox 内的 Codex app-server。
+- 内置工具系统：包含 Bash、Read、Write、Skill、AgentRunner 等工具。
 - Skill 系统：通过 Markdown + YAML frontmatter 定义可复用的任务模板。
 - Hook 与权限机制：用于工具调用前后的验证、拦截和授权。
 - user 级沙箱：按 `user_id` 隔离长期 workspace，一个 user 可拥有多个 session。
@@ -59,10 +60,10 @@ uv sync
 cp config/settings.yaml.sample config/settings.yaml
 ```
 
-至少需要配置：
+默认 Codex 主链至少需要配置：
 
-- `api.provider`：当前启用的模型 provider。
-- `api.providers.<provider>.api_key`：对应 provider 的 API key。
+- `external_agents.codex.codex_executable`：服务端可用的 Codex CLI。
+- Codex CLI 登录态：用运行 Ripple 后端的同一个系统用户执行 `codex login` 或 `codex login --device-auth`。
 - `server.api_keys`：访问 Ripple Server 的 API key。
 
 `config/settings.yaml` 已被 `.gitignore` 忽略，请不要提交包含真实密钥的配置文件。
@@ -141,15 +142,15 @@ X-Ripple-User-Id: <uid>
 ```text
 src/
   ripple/              # Python 核心库
-    core/              # Agent Loop 核心
-    api/               # API 客户端
+    core/              # 工具上下文与运行时基础类型
+    agent_runners/     # Codex app-server 执行面
+    connectors/        # 授权与外部账号连接
     tools/             # 工具系统
     skills/            # Skill 系统
-    hooks/             # Hook 系统
     messages/          # 消息类型
     permissions/       # 权限管理
     sandbox/           # nsjail 沙箱管理
-    compact/           # 上下文压缩
+    scheduler/         # 定时任务
     tasks/             # 后台任务管理
   interfaces/
     server/            # FastAPI Server
@@ -196,10 +197,10 @@ bun run build
 
 配置包含：
 
-- `api`：provider、API key、base URL、超时与重试。
-- `model`：默认模型、输出 token、模型别名。
+- `api`：Codex 账号授权与 provider 元数据。
+- `model`：默认 Codex 预设与模型别名。
 - `agent`：最大轮次和 session 前缀。
-- `tools`：启用的内置工具与 SubAgent 配置。
+- `tools`：启用的内置工具配置。
 - `logging`：日志级别、轮转和保留策略。
 - `server`：HTTP 地址、访问密钥和沙箱配置。
 - `services`：第三方服务配置。

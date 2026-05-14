@@ -519,7 +519,7 @@ assisted 模式下，ripple callback 会自动完成 step 2，并把 refresh tok
 ## 9. 验证授权结果
 
 ```bash
-curl "$API/v1/sandboxes/gogcli-accounts?check=true" \
+curl "$API/v1/connectors/google_workspace/accounts?check=true" \
   -H "Authorization: Bearer $KEY" \
   -H "X-Ripple-User-Id: alice"
 ```

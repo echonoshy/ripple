@@ -8,6 +8,9 @@ import {
   ScheduledJob,
   ScheduledRun,
   ScheduleUpdateInput,
+  ConnectorActionResponse,
+  ConnectorInfo,
+  ConnectorStatus,
   GogcliAccountsResponse,
   Session,
   SessionDetail,
@@ -427,12 +430,80 @@ export async function fetchGogcliAccounts(
   check: boolean = false
 ): Promise<GogcliAccountsResponse | null> {
   const qs = check ? "?check=true" : "";
-  const res = await fetch(`${API_URL}/sandboxes/gogcli-accounts${qs}`, {
+  const res = await fetch(`${API_URL}/connectors/google_workspace/accounts${qs}`, {
     headers: { ...authHeaders() },
   });
   if (res.status === 401) throw new AuthError();
   if (!res.ok) return null;
   return (await res.json()) as GogcliAccountsResponse;
+}
+
+export async function fetchConnectors(): Promise<ConnectorInfo[]> {
+  const res = await fetch(`${API_URL}/connectors`, { headers: { ...authHeaders() } });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) throw new Error(`Failed to fetch connectors (${res.status})`);
+  const body = (await res.json()) as { connectors: ConnectorInfo[] };
+  return body.connectors || [];
+}
+
+export async function fetchConnectorStatus(name: string): Promise<ConnectorStatus | null> {
+  const res = await fetch(`${API_URL}/connectors/${encodeURIComponent(name)}/status`, {
+    headers: { ...authHeaders() },
+  });
+  if (res.status === 401) throw new AuthError();
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Failed to fetch connector ${name} (${res.status})`);
+  return (await res.json()) as ConnectorStatus;
+}
+
+export async function fetchConnectorStatuses(
+  connectors: ConnectorInfo[]
+): Promise<Record<string, ConnectorStatus>> {
+  const pairs = await Promise.all(
+    connectors.map(async (connector) => {
+      const status = await fetchConnectorStatus(connector.name);
+      return [connector.name, status] as const;
+    })
+  );
+  return Object.fromEntries(
+    pairs.filter((pair): pair is [string, ConnectorStatus] => pair[1] !== null)
+  );
+}
+
+async function postConnectorAction(
+  name: string,
+  action: "auth/start" | "auth/complete" | "disconnect",
+  payload: Record<string, unknown> = {}
+): Promise<ConnectorActionResponse> {
+  const res = await fetch(`${API_URL}/connectors/${encodeURIComponent(name)}/${action}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(payload),
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) throw new Error(`Connector ${name} action failed (${res.status})`);
+  return (await res.json()) as ConnectorActionResponse;
+}
+
+export function startConnectorAuth(
+  name: string,
+  payload: Record<string, unknown> = {}
+): Promise<ConnectorActionResponse> {
+  return postConnectorAction(name, "auth/start", payload);
+}
+
+export function completeConnectorAuth(
+  name: string,
+  payload: Record<string, unknown> = {}
+): Promise<ConnectorActionResponse> {
+  return postConnectorAction(name, "auth/complete", payload);
+}
+
+export function disconnectConnector(
+  name: string,
+  payload: Record<string, unknown> = {}
+): Promise<ConnectorActionResponse> {
+  return postConnectorAction(name, "disconnect", payload);
 }
 
 export async function createCurrentSandbox(): Promise<SandboxInfo> {

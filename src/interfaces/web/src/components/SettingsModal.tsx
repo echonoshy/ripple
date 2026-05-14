@@ -16,10 +16,18 @@ import {
   Check,
   Loader2,
 } from "lucide-react";
-import { GogcliAccountsResponse, SandboxInfo, SystemInfo } from "@/types";
+import {
+  ConnectorInfo,
+  ConnectorStatus,
+  GogcliAccountsResponse,
+  SandboxInfo,
+  SystemInfo,
+} from "@/types";
 import {
   createCurrentSandbox,
   deleteCurrentSandbox,
+  fetchConnectors,
+  fetchConnectorStatuses,
   fetchCurrentSandbox,
   fetchGogcliAccounts,
   fetchSystemInfo,
@@ -47,11 +55,11 @@ function formatBytes(n: number): string {
 function ReadyBadge({ label, ready }: { label: string; ready: boolean }) {
   return (
     <div
-      className={`border-ripple-ink flex items-center justify-between border-2 px-2.5 py-1.5 text-xs font-bold shadow-[2px_2px_0_#111111] ${
+      className={`border-ripple-ink flex min-w-0 items-center justify-between gap-2 border-2 px-2.5 py-1.5 text-xs font-bold shadow-[2px_2px_0_#111111] ${
         ready ? "bg-ripple-lime/60 text-ripple-ink" : "text-ripple-ink/45 bg-white"
       }`}
     >
-      <span className="font-[family-name:var(--font-mono)]">{label}</span>
+      <span className="truncate font-[family-name:var(--font-mono)]">{label}</span>
       {ready ? <Check size={12} /> : <span className="text-[10px]">—</span>}
     </div>
   );
@@ -81,7 +89,11 @@ export default function SettingsModal({
   const [sandboxError, setSandboxError] = useState<string | null>(null);
   const [sandboxBusy, setSandboxBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [connectors, setConnectors] = useState<ConnectorInfo[]>([]);
+  const [connectorStatuses, setConnectorStatuses] = useState<Record<string, ConnectorStatus>>({});
   const [gogAccounts, setGogAccounts] = useState<GogcliAccountsResponse | null>(null);
+  const googleStatus = connectorStatuses.google_workspace;
+  const hasGoogleClientConfig = Boolean(googleStatus?.metadata?.has_client_config);
 
   const refreshSandbox = useCallback(async () => {
     setSandboxLoading(true);
@@ -123,7 +135,43 @@ export default function SettingsModal({
   }, [isOpen, userId, refreshSandbox]);
 
   useEffect(() => {
-    if (!sandbox?.has_gogcli_client_config) {
+    if (!isOpen) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await fetchConnectors();
+        if (!cancelled) setConnectors(data);
+      } catch {
+        if (!cancelled) setConnectors([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !sandbox || connectors.length === 0) {
+      setConnectorStatuses({});
+      setGogAccounts(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const statuses = await fetchConnectorStatuses(connectors);
+        if (!cancelled) setConnectorStatuses(statuses);
+      } catch {
+        if (!cancelled) setConnectorStatuses({});
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, sandbox, connectors]);
+
+  useEffect(() => {
+    if (!hasGoogleClientConfig) {
       setGogAccounts(null);
       return;
     }
@@ -139,7 +187,7 @@ export default function SettingsModal({
     return () => {
       cancelled = true;
     };
-  }, [sandbox?.has_gogcli_client_config]);
+  }, [hasGoogleClientConfig]);
 
   const handleStartEditUserId = () => {
     setUserIdInput(userId);
@@ -190,6 +238,8 @@ export default function SettingsModal({
       return;
     }
     setSandbox(null);
+    setConnectorStatuses({});
+    setGogAccounts(null);
     onUserIdChange(userId);
   };
 
@@ -376,11 +426,23 @@ export default function SettingsModal({
                         <div className="grid grid-cols-2 gap-2">
                           <ReadyBadge label="python venv" ready={sandbox.has_python_venv} />
                           <ReadyBadge label="pnpm" ready={sandbox.has_pnpm_setup} />
-                          <ReadyBadge label="lark-cli" ready={sandbox.has_lark_cli_config} />
-                          <ReadyBadge label="notion token" ready={sandbox.has_notion_token} />
-                          <ReadyBadge label="gog client" ready={sandbox.has_gogcli_client_config} />
-                          <ReadyBadge label="gog login" ready={sandbox.has_gogcli_login} />
                         </div>
+                        {connectors.length > 0 && (
+                          <div className="grid grid-cols-2 gap-2">
+                            {connectors.map((connector) => (
+                              <ReadyBadge
+                                key={connector.name}
+                                label={connector.display_name}
+                                ready={Boolean(connectorStatuses[connector.name]?.connected)}
+                              />
+                            ))}
+                          </div>
+                        )}
+                        {googleStatus && !googleStatus.connected && hasGoogleClientConfig && (
+                          <p className="text-ripple-ink/55 text-xs font-bold">
+                            Google client configured; account login is still pending.
+                          </p>
+                        )}
                         {gogAccounts && gogAccounts.accounts.length > 0 && (
                           <div>
                             <p className="text-ripple-ink/60 mb-1 text-[10px] font-bold tracking-wider uppercase">

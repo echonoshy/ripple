@@ -161,9 +161,9 @@ export default function TaskExecutionPanel({
           <Wrench size={13} className="text-ripple-ink" />
           <span className="text-[13px] font-bold tracking-wider uppercase">Terminal</span>
         </div>
-        <div className="bg-ripple-paper flex-1 overflow-y-auto p-4 font-[family-name:var(--font-mono)] text-[13px] leading-relaxed text-ripple-ink/80">
+        <div className="bg-ripple-paper text-ripple-ink/80 flex-1 overflow-y-auto p-4 font-[family-name:var(--font-mono)] text-[13px] leading-relaxed">
           {toolCalls.length === 0 ? (
-            <div className="flex h-full items-center justify-center text-[13px] text-ripple-ink/50">
+            <div className="text-ripple-ink/50 flex h-full items-center justify-center text-[13px]">
               {">"} Ready
               <span
                 className="bg-ripple-yellow ml-1 inline-block h-[15px] w-0.5"
@@ -184,7 +184,7 @@ export default function TaskExecutionPanel({
                     transition={{ duration: 0.2 }}
                     className="hover-glow-card border-ripple-ink rounded-md border-2 bg-white p-3 font-mono text-[12px]"
                   >
-                    <div className="flex items-center gap-2 text-ripple-ink">
+                    <div className="text-ripple-ink flex items-center gap-2">
                       <Settings size={12} className="text-ripple-pink" />
                       <span className="font-bold">{tool.name}</span>
                       <span
@@ -202,7 +202,9 @@ export default function TaskExecutionPanel({
                     </div>
                     <div className="border-ripple-ink/20 mt-2 ml-4 space-y-2 border-l-2 pl-3">
                       <div>
-                        <span className="text-ripple-ink/40 select-none font-bold">{"// args"}</span>
+                        <span className="text-ripple-ink/40 font-bold select-none">
+                          {"// args"}
+                        </span>
                         <pre className="text-ripple-ink/75 mt-1 overflow-x-auto break-all whitespace-pre-wrap">
                           {typeof tool.arguments === "string"
                             ? tool.arguments
@@ -211,7 +213,9 @@ export default function TaskExecutionPanel({
                       </div>
                       {resultPreview && (
                         <div>
-                          <span className="text-ripple-ink/40 select-none font-bold">{"// result"}</span>
+                          <span className="text-ripple-ink/40 font-bold select-none">
+                            {"// result"}
+                          </span>
                           <pre className="text-ripple-ink/65 mt-1 overflow-x-auto break-all whitespace-pre-wrap">
                             {resultPreview.text}
                           </pre>

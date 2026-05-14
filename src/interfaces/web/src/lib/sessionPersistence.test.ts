@@ -28,7 +28,7 @@ function makeSession(session_id: string): Session {
   return {
     session_id,
     title: session_id,
-    model: "sonnet",
+    model: "codex-medium",
     created_at: "2026-04-13T00:00:00+00:00",
     last_active: "2026-04-13T00:00:00+00:00",
     message_count: 3,

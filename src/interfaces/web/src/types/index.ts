@@ -75,6 +75,33 @@ export interface GogcliAccountsResponse {
   checked: boolean;
 }
 
+export interface ConnectorInfo {
+  name: string;
+  display_name: string;
+  description: string;
+  auth_type: string;
+  auth_start_path: string | null;
+  auth_complete_path: string | null;
+  disconnect_path: string | null;
+  accounts_path: string | null;
+}
+
+export interface ConnectorStatus {
+  name: string;
+  connected: boolean;
+  required: boolean;
+  detail: string;
+  metadata: Record<string, unknown>;
+}
+
+export interface ConnectorActionResponse {
+  name: string;
+  ok: boolean;
+  stage: string;
+  detail: string;
+  data: Record<string, unknown>;
+}
+
 export interface WorkspaceEntry {
   name: string;
   path: string;

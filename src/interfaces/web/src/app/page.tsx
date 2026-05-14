@@ -75,7 +75,7 @@ export default function Home() {
 
   // ── Model state ──
   const [models, setModels] = useState<{ id: string; owned_by: string }[]>([]);
-  const [selectedModel, setSelectedModel] = useState("sonnet");
+  const [selectedModel, setSelectedModel] = useState("codex-medium");
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
 
   // ── User identity ──
@@ -203,7 +203,7 @@ export default function Home() {
         const fetched = await fetchModels();
         setModels(fetched);
         if (fetched.length > 0) {
-          setSelectedModel(fetched.find((m) => m.id === "sonnet")?.id || fetched[0].id);
+          setSelectedModel(fetched.find((m) => m.id === "codex-medium")?.id || fetched[0].id);
         }
         const loadedSessions = await loadSessions();
         if (loadedSessions.length > 0) {

@@ -15,7 +15,7 @@ class ToolOptions:
     """工具选项"""
 
     tools: list[Any] = field(default_factory=list)
-    model: str = "anthropic/claude-sonnet-4.6"
+    model: str = "gpt-5.5"
     max_tokens: int | None = None
     provider: str | None = None
     reasoning_effort: str | None = None

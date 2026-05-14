@@ -64,7 +64,7 @@ class MessageUpdate:
 
     message: Message | None = None
     new_context: ToolUseContext | None = None
-    stop_agent_loop: bool = False
+    stop_execution: bool = False
     stop_reason: str | None = None
     stop_metadata: dict[str, Any] | None = None
 
@@ -378,7 +378,7 @@ async def execute_tool(
                 )
                 yield MessageUpdate(
                     message=permission_msg,
-                    stop_agent_loop=True,
+                    stop_execution=True,
                     stop_reason="permission_request",
                     stop_metadata=permission_request,
                 )
@@ -431,7 +431,7 @@ async def execute_tool(
         )
         yield MessageUpdate(
             message=result_msg,
-            stop_agent_loop=result.stop_agent_loop,
+            stop_execution=result.stop_execution,
             stop_reason=result.stop_reason,
         )
 

@@ -13,7 +13,7 @@ logger = get_logger("permissions.manager")
 class PermissionManager:
     """权限管理器
 
-    所有危险操作通过 `stop_agent_loop` 挂起 agent loop 并向前端发出权限请求，
+    所有危险操作都会挂起当前执行并向前端发出权限请求，
     由前端交互完成确认后再恢复。
     """
 

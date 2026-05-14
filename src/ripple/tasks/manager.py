@@ -41,8 +41,7 @@ class TaskManager:
     负责生命周期管理与持久化（`.ripple/tasks.json`）。
 
     Note:
-        不要与 `ripple.core.background.BackgroundTaskRegistry` 混淆 ——
-        后者管理的是 AgentTool 启动的 subagent 后台任务（内存态）。
+        这里管理的是持久化 todo/task 状态，不是外部 Codex runner job。
     """
 
     def __init__(self, storage_path: Path | None = None):

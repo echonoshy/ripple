@@ -11,8 +11,6 @@ from uuid import uuid4
 if TYPE_CHECKING:
     from interfaces.server.schemas import FeishuConfig
 
-from ripple.api.client import LLMClient, create_client
-from ripple.compact.context_manager import ContextManager
 from ripple.core.context import AbortSignal, ToolOptions, ToolUseContext
 from ripple.permissions.levels import PermissionMode
 from ripple.permissions.manager import PermissionManager
@@ -64,7 +62,6 @@ class Session:
     messages: list = field(default_factory=list)
     model_messages: list = field(default_factory=list)
     context: ToolUseContext | None = None
-    client: LLMClient | None = None
     model: str = ""
     caller_system_prompt: str | None = None
     max_turns: int = 10
@@ -79,7 +76,6 @@ class Session:
     pending_question: str | None = None
     pending_options: list[str] | None = None
     pending_permission_request: dict[str, object] | None = None
-    context_manager: ContextManager | None = None
 
 
 def _build_default_system_prompt(workspace_dir: Path | None = None) -> str:
@@ -301,8 +297,8 @@ def _create_session_context(
     session_runtime_dir: Path | None = None,
     user_id: str | None = None,
     sandbox_manager: SandboxManager | None = None,
-) -> tuple[ToolUseContext, LLMClient]:
-    """为一个 session 创建工具上下文和 API 客户端"""
+) -> ToolUseContext:
+    """为一个 session 创建工具上下文"""
     tools = _get_server_tools()
 
     permission_manager = PermissionManager(mode=PermissionMode.SMART)
@@ -323,26 +319,7 @@ def _create_session_context(
         sandboxed=workspace_root is not None and sandbox_manager is not None,
     )
 
-    credentials_file = _credentials_file_for_provider(provider, sandbox_manager=sandbox_manager, user_id=user_id)
-
-    client = create_client(provider, credentials_file=credentials_file)
-    return context, client
-
-
-def _credentials_file_for_provider(
-    provider: str | None,
-    *,
-    sandbox_manager: SandboxManager | None,
-    user_id: str | None,
-) -> Path | None:
-    if not provider or sandbox_manager is None:
-        return None
-    provider_cfg = get_config().get_provider_config(provider)
-    provider_type = (provider_cfg.get("type") or "openai").lower()
-    if provider_type == "openai-codex-responses":
-        get_config().openai_codex_credentials_mode(provider)
-        return sandbox_manager.config.openai_codex_shared_credentials_file()
-    return None
+    return context
 
 
 class SessionManager:
@@ -418,7 +395,6 @@ class SessionManager:
             pending_question=session.pending_question,
             pending_options=session.pending_options,
             pending_permission_request=session.pending_permission_request,
-            compactor_state=session.context_manager.get_compactor_state() if session.context_manager else None,
         )
 
     def _write_feishu_config(self, user_id: str, feishu: "FeishuConfig") -> None:
@@ -446,7 +422,7 @@ class SessionManager:
         feishu: "FeishuConfig | None" = None,
     ) -> Session:
         config = get_config()
-        selected_model = model or config.get("model.default", "sonnet")
+        selected_model = model or config.get("model.default", "codex-medium")
         resolved = config.resolve_model_info(selected_model)
         resolved_model = resolved.model
         resolved_max_turns = max_turns or config.get("agent.max_turns", 10)
@@ -465,7 +441,7 @@ class SessionManager:
             if feishu:
                 self._write_feishu_config(user_id, feishu)
 
-        context, client = _create_session_context(
+        context = _create_session_context(
             resolved_model,
             internal_sid,
             provider=resolved.provider,
@@ -481,11 +457,9 @@ class SessionManager:
             session_id=session_id,
             user_id=user_id,
             context=context,
-            client=client,
             model=selected_model,
             caller_system_prompt=caller_system_prompt,
             max_turns=resolved_max_turns,
-            context_manager=ContextManager(),
         )
         self._sessions[(user_id, session_id)] = session
         logger.info(
@@ -502,34 +476,17 @@ class SessionManager:
         """Apply a user-facing model choice to an existing session.
 
         `Session.model` preserves the selection that the UI/API sent, while
-        `context.options.model` stores the raw provider model ID used on the
-        wire. Provider changes recreate only the LLM client; conversation and
-        tool state remain intact.
+        `context.options.model` stores the raw provider model ID used by the
+        Codex execution plane. Conversation and tool state remain intact.
         """
         config = get_config()
-        selected_model = model or session.model or config.get("model.default", "sonnet")
+        selected_model = model or session.model or config.get("model.default", "codex-medium")
         resolved = config.resolve_model_info(selected_model)
-
-        current_provider = session.context.options.provider if session.context else None
-        current_client_provider = getattr(session.client, "provider_name", None)
-        needs_client = (
-            session.client is None
-            or current_provider != resolved.provider
-            or current_client_provider != resolved.provider
-        )
 
         if session.context is not None:
             session.context.options.model = resolved.model
             session.context.options.provider = resolved.provider
             session.context.options.reasoning_effort = resolved.reasoning_effort
-
-        if needs_client:
-            credentials_file = _credentials_file_for_provider(
-                resolved.provider,
-                sandbox_manager=self._sandbox_manager,
-                user_id=session.user_id,
-            )
-            session.client = create_client(resolved.provider, credentials_file=credentials_file)
 
         session.model = selected_model
         return resolved.model
@@ -597,7 +554,12 @@ class SessionManager:
         logger.info("手动挂起 session: {}/{}", user_id, session_id)
         return True
 
-    def resume_session(self, session_id: str, *, user_id: str = "default") -> Session | None:
+    def resume_session(
+        self,
+        session_id: str,
+        *,
+        user_id: str = "default",
+    ) -> Session | None:
         """从磁盘恢复已挂起的 session 到内存"""
         _validate_session_id(session_id)
         key = (user_id, session_id)
@@ -612,7 +574,7 @@ class SessionManager:
             return None
 
         config = get_config()
-        selected_model = state.get("model", config.get("model.default", "sonnet"))
+        selected_model = state.get("model", config.get("model.default", "codex-medium"))
         resolved = config.resolve_model_info(selected_model)
         resolved_model = resolved.model
         workspace_root = self._sandbox_manager.config.workspace_dir(user_id)
@@ -621,7 +583,7 @@ class SessionManager:
         session_runtime_dir = self._sandbox_manager.config.session_dir(user_id, session_id)
 
         internal_sid = uuid4().hex[:12]
-        context, client = _create_session_context(
+        context = _create_session_context(
             resolved_model,
             internal_sid,
             provider=resolved.provider,
@@ -652,7 +614,6 @@ class SessionManager:
             messages=state.get("messages", []),
             model_messages=state.get("model_messages", []),
             context=context,
-            client=client,
             model=selected_model,
             caller_system_prompt=state.get("caller_system_prompt"),
             max_turns=state.get("max_turns", 10),
@@ -664,7 +625,6 @@ class SessionManager:
             pending_question=state.get("pending_question"),
             pending_options=state.get("pending_options"),
             pending_permission_request=state.get("pending_permission_request"),
-            context_manager=ContextManager.from_persisted_state(state.get("compactor_state", {})),
         )
         self._sessions[key] = session
         logger.info(

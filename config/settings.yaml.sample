@@ -3,65 +3,24 @@
 # 复制本文件为 config/settings.yaml 后，填入本地真实密钥。
 # 不要把包含真实密钥的 config/settings.yaml 提交到仓库。
 
-# API 配置
+# Codex 账号与模型元数据配置
 api:
-  # 当前启用的 provider（见下方 providers 定义）
-  provider: "openrouter"
+  # 当前只保留 Codex provider 元数据；实际执行通过 external_agents.codex app-server。
+  provider: "openai-codex"
 
-  # 请求超时（秒）
-  # - connect: TLS 握手超时，代理不通时越短越好（走重试更快）
-  # - read: 单次 chunk 读取超时，长 Markdown 生成场景请放宽到 300s+
-  timeout:
-    connect: 15
-    read: 300
-    write: 30
-    pool: 30
-
-  # SDK 原生重试次数（覆盖"流建立之前"的瞬时错误：APIConnectionError / 429 / 5xx）
-  max_retries: 3
-
-  # agent_loop 层的二次重试（覆盖 SDK 无法自动续、但流尚未产出任何消息的场景）
-  connection_retry:
-    max_retries: 3
-    # 指数退避基数（秒）：delay = base * 2^(attempt-1)，attempt 从 1 开始
-    backoff_base: 1.0
-
-  # 多 provider 配置；切换只需改上方 api.provider
   providers:
-    openrouter:
-      type: "openai"  # OpenAI Chat Completions 兼容
-      api_key: "<OPENROUTER_API_KEY>"
-      base_url: "https://openrouter.ai/api/v1"
-    # ChatGPT/Codex 订阅登录路线：不需要 API key；管理员运行
-    # `uv run python scripts/authorize-openai-codex.py` 完成一次 shared 授权。
+    # 仅作为模型 preset 的 provider 元数据；真实授权由服务端 Codex CLI 登录态提供。
     openai-codex:
-      type: "openai-codex-responses"
-      base_url: "https://chatgpt.com/backend-api/codex"
-      auth: "oauth"
-      credentials_mode: "shared"
+      type: "codex-app-server"
 
 # 模型配置
 model:
-  # 默认模型（可以用预设别名：opus / sonnet / haiku）
-  default: "sonnet"
-  # 上下文窗口最大 tokens（接近上限时自动丢弃历史消息）
-  max_tokens: 200000
-  # 单次输出最大 tokens
-  max_output_tokens: 60000
-
-  # 思考模式（Claude 4.6 使用 adaptive thinking，通过 OpenRouter reasoning API）
-  thinking:
-    enabled: false
+  # 默认 Codex 预设
+  default: "codex-medium"
 
   # 模型预设（/models 查看，/model <别名> 切换）
-  # 每个别名下按 provider 给出对应的模型 ID
+  # reasoning_effort 目前作为 UI/响应元数据保留，实际执行由 Codex app-server 处理。
   presets:
-    opus:
-      openrouter: "anthropic/claude-opus-4.7"
-    sonnet:
-      openrouter: "anthropic/claude-sonnet-4.6"
-    haiku:
-      openrouter: "anthropic/claude-haiku-4.5"
     codex-low:
       openai-codex: "gpt-5.5"
       reasoning_effort: "low"
@@ -87,13 +46,6 @@ tools:
     - read
     - write
     - skill
-    - subagent
-
-  # SubAgent 工具配置
-  subagent:
-    default_max_turns: 5
-    default_allowed_tools: []
-    permission_mode: "allow"
 
 # Codex app-server runner 配置
 #
@@ -112,7 +64,7 @@ external_agents:
     codex_executable: "codex"
     app_server_args: ["app-server", "--listen", "stdio://"]
     approval_policy: "never"
-    sandbox_type: "workspaceWrite"
+    sandbox_type: "workspace-write"
     network_access: true
     idle_timeout_seconds: 1800
     # 可选：控制 Codex app-server 子进程环境。不要传入 server 级密钥；
@@ -139,6 +91,9 @@ logging:
 server:
   host: "0.0.0.0"
   port: 8810
+  # /v1/chat/completions 直接启动当前 user sandbox 内的 Codex app-server。
+  codex_chat:
+    max_runtime_seconds: 3600
   # 浏览器能访问到的后端根地址。配置后 gogcli Google OAuth 可以由后端自动接收
   # callback 并完成授权，用户不再需要复制 127.0.0.1 回调 URL。
   # 本机开发可用: "http://localhost:8810"

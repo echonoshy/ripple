@@ -6,6 +6,8 @@
 from pathlib import Path
 from typing import Any
 
+from ripple.agent_runners.manager import get_external_agent_manager
+from ripple.agent_runners.service import start_agent_run
 from ripple.core.context import ToolUseContext
 from ripple.messages.types import AssistantMessage
 from ripple.skills.types import Skill
@@ -52,54 +54,49 @@ async def execute_forked_skill(
     skill: Skill,
     args: str,
     context: ToolUseContext,
-    parent_message: AssistantMessage,
+    parent_message: AssistantMessage | None,
 ) -> ToolResult[dict[str, Any]]:
-    """Fork 模式执行 Skill
-
-    在独立的子代理中执行 Skill，通过 Agent tool 实现。
-    """
+    """Run a fork-mode skill through the trusted Codex AgentRunner."""
     content = skill.substitute_arguments(args)
 
     skill_dir = _get_skill_dir(skill)
     if skill_dir:
         content = f"Base directory for this skill: {skill_dir}\n\n{content}"
 
-    from ripple.tools.builtin.agent_tool import AgentTool, AgentToolInput
-
-    agent_tool = AgentTool()
-
-    agent_input = AgentToolInput(
-        description=f"Running skill: {skill.name}",
-        prompt=content,
-        run_in_background=True,
-    )
-
-    if skill.is_all_tools_allowed:
-        fork_context = context
-    elif skill.allowed_tools:
-        fork_context = context.with_allowed_tools(skill.allowed_tools)
-    else:
-        fork_context = context
-
-    result = await agent_tool.call(agent_input, fork_context, parent_message)
-
-    if result.data and hasattr(result.data, "status"):
+    workspace_root = context.workspace_root or context.cwd
+    runtime_dir = context.session_runtime_dir or (context.cwd / ".ripple")
+    sandbox_config = context.sandbox_manager.config if context.is_sandboxed and context.sandbox_manager else None
+    try:
+        job = start_agent_run(
+            prompt=content,
+            provider_name="codex",
+            raw_cwd=None,
+            max_runtime_seconds=1800,
+            user_id=context.user_id,
+            session_id=context.session_id,
+            workspace_root=workspace_root,
+            runtime_dir=runtime_dir,
+            manager=get_external_agent_manager(),
+            sandbox_config=sandbox_config,
+            require_agent_route=False,
+        )
         return ToolResult(
             data={
                 "success": True,
                 "skill_name": skill.name,
-                "status": "fork",
-                "task_id": result.data.task_id,
-                "output_file": result.data.output_file,
+                "status": "agent_runner",
+                "job_id": job.job_id,
+                "provider": job.provider,
+                "output_file": str(job.output_file) if job.output_file else None,
+                "events_file": str(job.events_file) if job.events_file else None,
             },
-            new_messages=result.new_messages,
         )
-    else:
+    except Exception as exc:  # noqa: BLE001
         return ToolResult(
             data={
                 "success": False,
                 "skill_name": skill.name,
-                "status": "fork",
-                "error": "Failed to launch fork agent",
+                "status": "agent_runner",
+                "error": str(exc),
             },
         )

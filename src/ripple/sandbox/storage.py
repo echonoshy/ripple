@@ -113,7 +113,6 @@ def save_session_state(
     pending_question: str | None = None,
     pending_options: list[str] | None = None,
     pending_permission_request: dict | None = None,
-    compactor_state: dict | None = None,
 ) -> Path:
     """保存 session 状态到磁盘（meta.json + messages.jsonl）
 
@@ -139,9 +138,7 @@ def save_session_state(
     if new_count > old_count > 0 and messages_file.exists():
         # 增量追加路径：诊断"prompt 重复注入" bug 的主要现场。
         # 1) 给追加的每条消息算指纹；
-        # 2) 对比历史最后 K 条指纹，若本批追加的新消息指纹命中历史，上报 warning——
-        #    真要是 LLM 输出偶然撞了某条旧消息的概率极低，更可能是 agent_loop
-        #    在异步 tool 阻塞后把上一轮 user prompt 又塞了一遍。
+        # 2) 对比历史最后 K 条指纹，若本批追加的新消息指纹命中历史，上报 warning。
         appended_serialized = serialized_messages[old_count:]
         appended_fps = [_message_fingerprint(m) for m in appended_serialized]
 
@@ -182,9 +179,7 @@ def save_session_state(
         # 疑似重复注入时升到 warning——方便线上直接用 grep 抓
         if duplicates:
             logger.warning(
-                "疑似 prompt 重复注入 {}/{}：本次追加 {} 条里有 {} 条指纹命中历史最后"
-                " {} 条。追加={} 命中={}。若频繁出现说明 agent_loop 某处在 async tool"
-                " 阻塞后重复入队 user prompt。",
+                "疑似 prompt 重复注入 {}/{}：本次追加 {} 条里有 {} 条指纹命中历史最后 {} 条。追加={} 命中={}。",
                 user_id,
                 session_id,
                 len(appended_fps),
@@ -224,7 +219,6 @@ def save_session_state(
         "pending_question": pending_question,
         "pending_options": pending_options,
         "pending_permission_request": pending_permission_request,
-        "compactor_state": compactor_state,
         "message_count": new_count,
         "model_message_count": len(serialized_model_messages),
     }

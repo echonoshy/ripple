@@ -7,13 +7,21 @@ import html
 import time
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
 
 from interfaces.server.auth import verify_api_key
+from interfaces.server.codex_chat import collect_codex_chat_response, stream_codex_chat_as_sse
 from interfaces.server.deps import get_user_id
 from interfaces.server.schemas import (
+    AgentRunCreateRequest,
+    AgentRunInfo,
+    AgentRunSteerRequest,
     ChatCompletionRequest,
+    ConnectorActionResponse,
+    ConnectorInfo,
+    ConnectorListResponse,
+    ConnectorStatusResponse,
     CreateSessionRequest,
     GogcliAccountInfo,
     GogcliAccountsResponse,
@@ -35,20 +43,23 @@ from interfaces.server.schemas import (
     ToolInvokeRequest,
     ToolInvokeResponse,
 )
-from interfaces.server.sessions import SessionManager
-from interfaces.server.sse import collect_query_response, stream_query_as_sse
+from interfaces.server.sessions import SessionManager, _merge_system_prompt
 from interfaces.server.workspace_browser import (
     BinaryFileError,
     browse_workspace_directory,
     preview_workspace_file,
 )
 from ripple.agent_runners.manager import get_external_agent_manager
+from ripple.agent_runners.service import start_agent_run
+from ripple.connectors.base import ConnectorActionResult, ConnectorUnsupportedError
+from ripple.connectors.registry import get_connector as get_registered_connector
+from ripple.connectors.registry import list_connectors
 from ripple.messages.utils import serialize_messages
 from ripple.scheduler.manager import ScheduledJobRunningError, SchedulerManager, compute_initial_next_run
 from ripple.scheduler.models import ScheduledJob, utc_now
 from ripple.tools.orchestration import execute_tool, find_tool_by_name
 from ripple.utils.config import get_config
-from ripple.utils.logger import get_logger, session_context, set_current_session_id
+from ripple.utils.logger import get_logger, set_current_session_id
 
 logger = get_logger("server.routes")
 
@@ -83,9 +94,8 @@ def set_scheduler_manager(manager: SchedulerManager):
 def _display_model(raw_id: str) -> str:
     """把存储层的 raw model ID 反映射回前端友好的别名
 
-    前端下拉菜单用的是 "sonnet"/"opus"/"haiku" 这类 alias，
-    但 session.model 存的是 resolve 后的 raw ID（如 "claude-sonnet-4-6"
-    或 "anthropic/claude-sonnet-4.6"）。直接透传给前端会导致下拉框选中状态丢失。
+    前端下拉菜单用的是 "codex-medium" 这类 alias，但历史 session 里可能
+    保存的是某个 provider 的 raw ID。直接透传给前端会导致下拉框选中状态丢失。
 
     反查策略：如果 raw_id 命中任何 preset 的 provider 值，返回对应 alias；
     否则原样返回（兼容自定义 model）。
@@ -144,7 +154,7 @@ async def get_system_info(_api_key: str = Depends(verify_api_key)):
         tools=tool_names,
         skills=skills,
         model_presets=model_presets,
-        default_model=config.get("model.default", "sonnet"),
+        default_model=config.get("model.default", "codex-medium"),
         max_turns=config.get("agent.max_turns", 10),
     )
 
@@ -259,25 +269,25 @@ async def chat_completions(
     )
     set_current_session_id(session.session_id)
     resolved_model = manager.configure_session_model(session, request.model)
-    reasoning_effort = session.context.options.reasoning_effort if session.context else None
 
     # 对已存在的 session：本轮带了 system 就覆盖，没带就清空 caller 段（仅默认 prompt 生效）
     if not is_new:
         session.caller_system_prompt = caller_system_prompt
     session.context.request_public_base_url = _request_public_base_url(http_request)
 
+    workspace_root = session.context.workspace_root if session.context else None
+    merged_system_prompt = _merge_system_prompt(workspace_root, session.caller_system_prompt)
+    agent_manager = get_external_agent_manager()
     if request.stream:
         return StreamingResponse(
-            _stream_chat(
-                session,
-                user_input,
-                resolved_model,
-                max_turns,
-                request.thinking,
-                reasoning_effort,
-                manager,
-                temperature=request.temperature,
-                max_tokens=request.max_tokens,
+            stream_codex_chat_as_sse(
+                session=session,
+                user_input=user_input,
+                model=resolved_model,
+                system_prompt=merged_system_prompt,
+                manager=manager,
+                agent_manager=agent_manager,
+                config=config,
             ),
             media_type="text/event-stream",
             headers={
@@ -286,200 +296,15 @@ async def chat_completions(
                 "X-Ripple-Session-Id": session.session_id,
             },
         )
-    else:
-        return await _non_stream_chat(
-            session,
-            user_input,
-            resolved_model,
-            max_turns,
-            request.thinking,
-            reasoning_effort,
-            manager,
-            temperature=request.temperature,
-            max_tokens=request.max_tokens,
-        )
-
-
-async def _stream_chat(
-    session,
-    user_input: str,
-    model: str,
-    max_turns: int,
-    thinking: bool | None = None,
-    reasoning_effort: str | None = None,
-    manager: SessionManager | None = None,
-    *,
-    temperature: float | None = None,
-    max_tokens: int | None = None,
-):
-    """流式聊天：返回 SSE 事件生成器"""
-    import asyncio
-    import json as _json
-
-    from interfaces.server.sessions import _merge_system_prompt
-
-    with session_context(session.session_id):
-        try:
-            async with session.lock:
-                session.current_task = asyncio.current_task()
-                session.status = "running"
-                if manager:
-                    manager.touch_session(session)
-                session.pending_question = None
-                session.pending_options = None
-                session.pending_permission_request = None
-                if session.context and session.context.abort_signal:
-                    from ripple.core.context import AbortSignal
-
-                    session.context.abort_signal = AbortSignal()
-                # 每轮动态合并：默认 prompt（刷新日期和 skill 列表） + caller 段
-                workspace_root = session.context.workspace_root if session.context else None
-                merged_system_prompt = _merge_system_prompt(workspace_root, session.caller_system_prompt)
-                try:
-                    async for sse_line in stream_query_as_sse(
-                        user_input=user_input,
-                        context=session.context,
-                        client=session.client,
-                        model=model,
-                        max_turns=max_turns,
-                        history_messages=session.messages,
-                        model_history_messages=session.model_messages,
-                        system_prompt=merged_system_prompt,
-                        thinking=thinking,
-                        reasoning_effort=reasoning_effort,
-                        context_manager=session.context_manager,
-                        temperature=temperature,
-                        max_tokens=max_tokens,
-                    ):
-                        if sse_line.startswith("data: ") and sse_line.strip() not in ("data: [DONE]",):
-                            try:
-                                payload = _json.loads(sse_line[6:].strip())
-                                usage = payload.get("usage", {})
-                                if usage:
-                                    session.total_input_tokens += usage.get("prompt_tokens", 0)
-                                    session.total_output_tokens += usage.get("completion_tokens", 0)
-                                    session.last_input_tokens = usage.get("prompt_tokens", 0)
-                                event_type = payload.get("type")
-                                if event_type == "agent_stop":
-                                    stop_reason = payload.get("stop_reason", "")
-                                    metadata = payload.get("metadata", {})
-                                    if stop_reason == "ask_user":
-                                        session.status = "awaiting_user_input"
-                                        session.pending_question = metadata.get("question")
-                                        options = metadata.get("options")
-                                        session.pending_options = options if isinstance(options, list) else None
-                                    elif stop_reason == "permission_request":
-                                        session.status = "awaiting_permission"
-                                        session.pending_question = metadata.get("question")
-                                        session.pending_permission_request = (
-                                            metadata if isinstance(metadata, dict) and metadata else None
-                                        )
-                            except (_json.JSONDecodeError, AttributeError):
-                                pass
-                        yield sse_line
-                finally:
-                    session.current_task = None
-                    if session.status == "running":
-                        session.status = "idle"
-                    if manager:
-                        manager.touch_session(session)
-                        manager.persist_session(session)
-        except asyncio.CancelledError:
-            logger.info("流式聊天被取消: {}", session.session_id)
-            session.status = "idle"
-            import json
-
-            yield f"data: {json.dumps({'error': {'message': 'Request cancelled', 'type': 'cancelled'}})}\n\n"
-            yield "data: [DONE]\n\n"
-        except Exception as e:
-            logger.exception("流式聊天异常: {}", e)
-            import json
-
-            error_data = {"error": {"message": str(e), "type": "server_error"}}
-            yield f"data: {json.dumps(error_data)}\n\n"
-            yield "data: [DONE]\n\n"
-
-
-async def _non_stream_chat(
-    session,
-    user_input: str,
-    model: str,
-    max_turns: int,
-    thinking: bool | None = None,
-    reasoning_effort: str | None = None,
-    manager: SessionManager | None = None,
-    *,
-    temperature: float | None = None,
-    max_tokens: int | None = None,
-) -> dict[str, Any]:
-    """非流式聊天：收集完整响应"""
-    import asyncio
-
-    from interfaces.server.sessions import _merge_system_prompt
-
-    with session_context(session.session_id):
-        try:
-            async with session.lock:
-                session.current_task = asyncio.current_task()
-                session.status = "running"
-                if manager:
-                    manager.touch_session(session)
-                session.pending_question = None
-                session.pending_options = None
-                session.pending_permission_request = None
-                if session.context and session.context.abort_signal:
-                    from ripple.core.context import AbortSignal
-
-                    session.context.abort_signal = AbortSignal()
-                workspace_root = session.context.workspace_root if session.context else None
-                merged_system_prompt = _merge_system_prompt(workspace_root, session.caller_system_prompt)
-                try:
-                    result = await collect_query_response(
-                        user_input=user_input,
-                        context=session.context,
-                        client=session.client,
-                        model=model,
-                        max_turns=max_turns,
-                        history_messages=session.messages,
-                        model_history_messages=session.model_messages,
-                        system_prompt=merged_system_prompt,
-                        thinking=thinking,
-                        reasoning_effort=reasoning_effort,
-                        context_manager=session.context_manager,
-                        temperature=temperature,
-                        max_tokens=max_tokens,
-                    )
-                    usage = result.get("usage", {})
-                    if usage:
-                        session.total_input_tokens += usage.get("prompt_tokens", 0)
-                        session.total_output_tokens += usage.get("completion_tokens", 0)
-                        session.last_input_tokens = usage.get("prompt_tokens", 0)
-                    finish_reason = result.get("choices", [{}])[0].get("finish_reason", "stop")
-                    stop_metadata = result.get("stop_metadata", {})
-                    if finish_reason == "ask_user":
-                        session.status = "awaiting_user_input"
-                        session.pending_question = stop_metadata.get("question")
-                        options = stop_metadata.get("options")
-                        session.pending_options = options if isinstance(options, list) else None
-                    elif finish_reason == "permission_request":
-                        session.status = "awaiting_permission"
-                        session.pending_permission_request = stop_metadata if isinstance(stop_metadata, dict) else None
-                    result["session_id"] = session.session_id
-                    return result
-                finally:
-                    session.current_task = None
-                    if session.status == "running":
-                        session.status = "idle"
-                    if manager:
-                        manager.touch_session(session)
-                        manager.persist_session(session)
-        except asyncio.CancelledError:
-            logger.info("非流式聊天被取消: {}", session.session_id)
-            session.status = "idle"
-            raise HTTPException(status_code=499, detail="Request cancelled")
-        except Exception as e:
-            logger.exception("非流式聊天异常: {}", e)
-            raise HTTPException(status_code=500, detail=str(e))
+    return await collect_codex_chat_response(
+        session=session,
+        user_input=user_input,
+        model=resolved_model,
+        system_prompt=merged_system_prompt,
+        manager=manager,
+        agent_manager=agent_manager,
+        config=config,
+    )
 
 
 # ─── Sessions ───
@@ -811,6 +636,243 @@ async def delete_sandbox(
     return {"ok": True, "user_id": user_id}
 
 
+# ─── External Agent Runs (Codex execution plane) ───
+
+
+def _agent_run_info(job) -> AgentRunInfo:
+    return AgentRunInfo(
+        job_id=job.job_id,
+        provider=job.provider,
+        status=job.status.value,
+        output_file=str(job.output_file) if job.output_file else None,
+        events_file=str(job.events_file) if job.events_file else None,
+        stdout_tail=job.stdout_tail,
+        stderr_tail=job.stderr_tail,
+        error=job.error,
+    )
+
+
+def _get_user_agent_job_or_404(job_id: str, user_id: str):
+    job = get_external_agent_manager().get(job_id)
+    if job is None or job.user_id != user_id:
+        raise HTTPException(status_code=404, detail="Agent run not found")
+    return job
+
+
+@router.post("/v1/runs")
+async def create_agent_run(
+    request: AgentRunCreateRequest,
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+) -> AgentRunInfo:
+    """Start a Codex-backed execution job in the current user's sandbox."""
+    manager = get_session_manager()
+    if not manager.sandbox_manager:
+        raise HTTPException(status_code=500, detail="sandbox disabled")
+    workspace_root = manager.sandbox_manager.ensure_sandbox(user_id)
+    runtime_dir = manager.sandbox_manager.config.sandbox_dir(user_id) / "agent-runs"
+
+    try:
+        job = start_agent_run(
+            prompt=request.prompt,
+            provider_name=request.provider,
+            raw_cwd=request.cwd,
+            max_runtime_seconds=request.max_runtime_seconds,
+            user_id=user_id,
+            session_id=None,
+            workspace_root=workspace_root,
+            runtime_dir=runtime_dir,
+            manager=get_external_agent_manager(),
+            sandbox_config=manager.sandbox_manager.config,
+            require_agent_route=False,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _agent_run_info(job)
+
+
+@router.get("/v1/runs/{job_id}")
+async def get_agent_run(
+    job_id: str,
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+) -> AgentRunInfo:
+    return _agent_run_info(_get_user_agent_job_or_404(job_id, user_id))
+
+
+@router.post("/v1/runs/{job_id}/steer")
+async def steer_agent_run(
+    job_id: str,
+    request: AgentRunSteerRequest,
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+) -> AgentRunInfo:
+    _get_user_agent_job_or_404(job_id, user_id)
+    get_external_agent_manager().steer(job_id, request.prompt)
+    return _agent_run_info(_get_user_agent_job_or_404(job_id, user_id))
+
+
+@router.post("/v1/runs/{job_id}/cancel")
+async def cancel_agent_run(
+    job_id: str,
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+) -> AgentRunInfo:
+    _get_user_agent_job_or_404(job_id, user_id)
+    agent_manager = get_external_agent_manager()
+    if agent_manager.cancel(job_id):
+        await agent_manager.wait(job_id)
+    return _agent_run_info(_get_user_agent_job_or_404(job_id, user_id))
+
+
+# ─── Connectors ───
+
+
+@router.get("/v1/connectors")
+async def get_connectors(
+    _api_key: str = Depends(verify_api_key),
+) -> ConnectorListResponse:
+    return ConnectorListResponse(
+        connectors=[
+            ConnectorInfo(
+                name=connector.info.name,
+                display_name=connector.info.display_name,
+                description=connector.info.description,
+                auth_type=connector.info.auth_type,
+                auth_start_path=connector.info.auth_start_path,
+                auth_complete_path=connector.info.auth_complete_path,
+                disconnect_path=connector.info.disconnect_path,
+                accounts_path=connector.info.accounts_path,
+            )
+            for connector in list_connectors()
+        ]
+    )
+
+
+def _connector_or_404(connector_name: str):
+    connector = get_registered_connector(connector_name)
+    if connector is None:
+        raise HTTPException(status_code=404, detail=f"Connector {connector_name!r} not found")
+    return connector
+
+
+def _connector_action_response(result: ConnectorActionResult) -> ConnectorActionResponse:
+    return ConnectorActionResponse(
+        name=result.name,
+        ok=result.ok,
+        stage=result.stage,
+        detail=result.detail,
+        data=result.data,
+    )
+
+
+def _sandbox_manager_or_500():
+    manager = get_session_manager()
+    if not manager.sandbox_manager:
+        raise HTTPException(status_code=500, detail="sandbox disabled")
+    return manager.sandbox_manager
+
+
+@router.get("/v1/connectors/{connector_name}/status")
+async def get_connector_status(
+    connector_name: str,
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+) -> ConnectorStatusResponse:
+    manager = get_session_manager()
+    if not manager.sandbox_manager:
+        raise HTTPException(status_code=500, detail="sandbox disabled")
+    if manager.sandbox_manager.sandbox_summary(user_id) is None:
+        raise HTTPException(status_code=404, detail=f"Sandbox for user {user_id!r} not found")
+
+    connector = _connector_or_404(connector_name)
+    status = connector.status(manager.sandbox_manager.config, user_id)
+    return ConnectorStatusResponse(
+        name=status.name,
+        connected=status.connected,
+        required=status.required,
+        detail=status.detail,
+        metadata=status.metadata,
+    )
+
+
+@router.post("/v1/connectors/{connector_name}/auth/start")
+async def start_connector_auth(
+    connector_name: str,
+    http_request: Request,
+    payload: dict[str, Any] | None = Body(default=None),
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+) -> ConnectorActionResponse:
+    sandbox_manager = _sandbox_manager_or_500()
+    sandbox_manager.ensure_sandbox(user_id)
+    connector = _connector_or_404(connector_name)
+    try:
+        async with sandbox_manager.user_lock(user_id):
+            result = await connector.auth_start(
+                sandbox_manager.config,
+                user_id,
+                payload or {},
+                request_base_url=_request_public_base_url(http_request),
+            )
+    except ConnectorUnsupportedError as exc:
+        raise HTTPException(status_code=405, detail=str(exc)) from exc
+    return _connector_action_response(result)
+
+
+@router.post("/v1/connectors/{connector_name}/auth/complete")
+async def complete_connector_auth(
+    connector_name: str,
+    payload: dict[str, Any] | None = Body(default=None),
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+) -> ConnectorActionResponse:
+    sandbox_manager = _sandbox_manager_or_500()
+    sandbox_manager.ensure_sandbox(user_id)
+    connector = _connector_or_404(connector_name)
+    try:
+        async with sandbox_manager.user_lock(user_id):
+            result = await connector.auth_complete(sandbox_manager.config, user_id, payload or {})
+    except ConnectorUnsupportedError as exc:
+        raise HTTPException(status_code=405, detail=str(exc)) from exc
+    return _connector_action_response(result)
+
+
+@router.post("/v1/connectors/{connector_name}/disconnect")
+async def disconnect_connector(
+    connector_name: str,
+    payload: dict[str, Any] | None = Body(default=None),
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+) -> ConnectorActionResponse:
+    sandbox_manager = _sandbox_manager_or_500()
+    sandbox_manager.ensure_sandbox(user_id)
+    connector = _connector_or_404(connector_name)
+    try:
+        async with sandbox_manager.user_lock(user_id):
+            result = await connector.disconnect(sandbox_manager.config, user_id, payload or {})
+    except ConnectorUnsupportedError as exc:
+        raise HTTPException(status_code=405, detail=str(exc)) from exc
+    return _connector_action_response(result)
+
+
+@router.get("/v1/connectors/{connector_name}/accounts")
+async def get_connector_accounts(
+    connector_name: str,
+    check: bool = False,
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+):
+    sandbox_manager = _sandbox_manager_or_500()
+    if sandbox_manager.sandbox_summary(user_id) is None:
+        raise HTTPException(status_code=404, detail=f"Sandbox for user {user_id!r} not found")
+    connector = _connector_or_404(connector_name)
+    accounts = getattr(connector, "accounts", None)
+    if accounts is None:
+        raise HTTPException(status_code=405, detail=f"Connector {connector_name!r} does not support accounts")
+    return await accounts(sandbox_manager.config, user_id, check=check)
+
+
 @router.get("/v1/workspace")
 async def list_workspace(
     path: str = Query(default="/workspace"),
@@ -870,32 +932,14 @@ async def get_gogcli_accounts(
     user_id: str = Depends(get_user_id),
     _api_key: str = Depends(verify_api_key),
 ) -> GogcliAccountsResponse:
-    """列出当前 user 已绑的 Google 账号（共享 GoogleWorkspaceAuthStatus 工具的解析逻辑）。"""
-    from ripple.sandbox.config import GOGCLI_CLI_SANDBOX_BIN  # noqa: PLC0415
-    from ripple.sandbox.executor import execute_in_sandbox  # noqa: PLC0415
-    from ripple.sandbox.gogcli import parse_auth_list_output  # noqa: PLC0415
-    from ripple.tools.builtin.bash import _sandbox_config  # noqa: PLC0415
-
-    if _sandbox_config is None or not _sandbox_config.gogcli_cli_install_root:
-        return GogcliAccountsResponse()
-
-    has_client = _sandbox_config.has_gogcli_client_config(user_id)
-    cmd = f"{GOGCLI_CLI_SANDBOX_BIN} auth list --json"
-    if check:
-        cmd += " --check"
-
-    stdout, _stderr, code = await execute_in_sandbox(cmd, _sandbox_config, user_id, timeout=30 if check else 10)
-    if code != 0:
-        return GogcliAccountsResponse(has_client_config=has_client, checked=check)
-
-    try:
-        raw = parse_auth_list_output(stdout)
-    except ValueError:
-        return GogcliAccountsResponse(has_client_config=has_client, checked=check)
-
-    accounts = [GogcliAccountInfo(**a) for a in raw]
+    """列出当前 user 已绑的 Google 账号；兼容旧 sandbox 路径，实际委托 connector。"""
+    sandbox_manager = _sandbox_manager_or_500()
+    connector = _connector_or_404("google_workspace")
+    accounts_fn = getattr(connector, "accounts")
+    data = await accounts_fn(sandbox_manager.config, user_id, check=check)
+    accounts = [GogcliAccountInfo(**a) for a in data.get("accounts", [])]
     return GogcliAccountsResponse(
-        has_client_config=has_client,
+        has_client_config=bool(data.get("has_client_config")),
         accounts=accounts,
         count=len(accounts),
         checked=check,

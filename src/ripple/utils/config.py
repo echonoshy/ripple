@@ -12,7 +12,6 @@ _MODEL_PRESET_METADATA_KEYS = {
 }
 
 _OPENAI_CODEX_REASONING_EFFORTS = {"low", "medium", "high", "xhigh"}
-_OPENAI_CODEX_CREDENTIALS_MODES = {"shared"}
 
 
 @dataclass(frozen=True)
@@ -83,16 +82,14 @@ class Config:
         return value
 
     def get_current_provider(self) -> str:
-        """获取当前启用的 API provider 名称
+        """获取当前启用的 provider 名称
 
-        优先读取 `api.provider`；若未配置但有老式 `api.base_url`，返回 "openrouter"（兼容旧配置）。
+        Ripple 当前只把 provider 当作 Codex 模型预设和授权元数据使用。
         """
         provider = self.get("api.provider")
         if provider:
             return provider
-        if self.get("api.base_url") or self.get("api.api_key"):
-            return "openrouter"
-        return "openrouter"
+        return "openai-codex"
 
     def get_provider_config(self, name: str | None = None) -> dict[str, Any]:
         """获取指定 provider 的配置
@@ -101,7 +98,7 @@ class Config:
             name: provider 名称，None 表示使用当前 provider
 
         Returns:
-            {"type": "openai"|"anthropic", "api_key": ..., "base_url": ...}
+            provider 配置字典。
         """
         if name is None:
             name = self.get_current_provider()
@@ -111,12 +108,6 @@ class Config:
             cfg = dict(providers[name])
             cfg.setdefault("type", "openai")
             return cfg
-
-        # 回退：如果没有新的 providers 配置，把老的 api.api_key/api.base_url 当作 openrouter
-        legacy_key = self.get("api.api_key")
-        legacy_url = self.get("api.base_url", "https://openrouter.ai/api/v1")
-        if legacy_key:
-            return {"type": "openai", "api_key": legacy_key, "base_url": legacy_url}
 
         raise ValueError(f"Provider '{name}' 未在配置文件中找到，请检查 config/settings.yaml 的 api.providers")
 
@@ -143,30 +134,12 @@ class Config:
             raise ValueError(f"未知 reasoning_effort: {value!r}，可选值: {allowed}")
         return effort
 
-    def openai_codex_credentials_mode(self, provider: str | None = None) -> str:
-        """Return the Codex OAuth credential mode.
-
-        Codex is shared-only in Ripple: one server-side credential is authorized
-        by an administrator and reused by all team users.
-        """
-        provider_cfg = self.get_provider_config(provider)
-        mode = provider_cfg.get("credentials_mode", "shared")
-        if not isinstance(mode, str):
-            raise ValueError("openai-codex credentials_mode 必须是字符串")
-        normalized = mode.strip().lower().replace("-", "_")
-        if not normalized:
-            return "shared"
-        if normalized not in _OPENAI_CODEX_CREDENTIALS_MODES:
-            raise ValueError("openai-codex credentials_mode is shared-only; omit it or set credentials_mode: shared")
-        return "shared"
-
     def resolve_model_info(self, name_or_alias: str, provider: str | None = None) -> ResolvedModel:
         """解析模型选择，返回 provider / transport / model 参数。
 
         兼容旧的 alias → 字符串模型解析，同时允许新 alias 携带
         `reasoning_effort` 等 provider 参数。若 alias 只属于一个 provider，即使当前
-        `api.provider` 是其他 provider，也会解析到该 provider，方便新增 Codex alias
-        而不影响 Anthropic 默认流程。
+        `api.provider` 是其他 provider，也会解析到该 provider，方便逐步迁移旧配置。
         """
         if provider is None:
             provider = self.get_current_provider()
@@ -248,10 +221,10 @@ class Config:
         """解析模型名称或别名为完整模型 ID
 
         查找顺序：
-        1. **别名直接命中**：`name_or_alias` 就是 presets 的 key（如 "sonnet"）
+        1. **别名直接命中**：`name_or_alias` 就是 presets 的 key（如 "codex-medium"）
            → 取 `presets[alias][provider]`，回退到 `presets[alias]["model"]`
         2. **反向查找（跨 provider 重映射）**：`name_or_alias` 已经是某个 provider 的全限定 model ID
-           （比如 "anthropic/claude-sonnet-4.6" 来自 OpenRouter 旧 session、或 Web 前端缓存）
+           （比如来自旧 session 或 Web 前端缓存）
            → 在所有 presets 中找出它归属的别名，再换算到当前 provider 的值
         3. **兜底**：原样返回
 
@@ -278,8 +251,7 @@ class Config:
     def alias_for_model(self, model_id: str, provider: str | None = None) -> str | None:
         """反向查找：给定一个模型 ID，返回它在 presets 里的别名（如果有）
 
-        用于把存储层的 raw model ID（如 "claude-sonnet-4-6" 或
-        "anthropic/claude-sonnet-4.6"）反映射回 "sonnet" 这样的别名，
+        用于把存储层的 raw model ID 反映射回 "codex-medium" 这样的别名，
         便于前端 UI 下拉框匹配。
 
         Args:

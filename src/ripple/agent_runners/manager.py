@@ -189,7 +189,7 @@ def build_external_agent_manager_from_config() -> ExternalAgentManager:
             if isinstance(app_server_args, list)
             else ["app-server", "--listen", "stdio://"],
             approval_policy=str(codex_config.get("approval_policy") or "never"),
-            sandbox_type=str(codex_config.get("sandbox_type") or "workspaceWrite"),
+            sandbox_type=str(codex_config.get("sandbox_type") or "workspace-write"),
             network_access=bool(codex_config.get("network_access", True)),
             env=codex_config.get("env") if isinstance(codex_config.get("env"), dict) else None,
             idle_timeout_seconds=int(codex_config.get("idle_timeout_seconds") or 1800),

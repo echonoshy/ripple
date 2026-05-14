@@ -15,4 +15,4 @@ class PermissionMode(Enum):
     """权限模式"""
 
     ALLOW_ALL = "allow"  # 自动允许所有（子 agent / 自动化场景）
-    SMART = "smart"  # 安全操作自动允许，危险操作通过 stop_agent_loop 挂起待前端确认
+    SMART = "smart"  # 安全操作自动允许，危险操作挂起待前端确认

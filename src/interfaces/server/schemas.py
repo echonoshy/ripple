@@ -19,17 +19,14 @@ class ChatMessage(BaseModel):
 
 
 class ChatCompletionRequest(BaseModel):
-    model: str = "sonnet"
+    model: str = "codex-medium"
     messages: list[ChatMessage]
     stream: bool = False
     max_turns: int | None = None
     session_id: str | None = None
     temperature: float | None = None
     max_tokens: int | None = None
-    # 说明：thinking 三态语义
-    #   True  → 显式开启 reasoning（OpenRouter `reasoning.enabled=true` / Anthropic thinking block）
-    #   False → 显式关闭
-    #   None  → 调用方未指定，回落到 config/settings.yaml 的 model.thinking.enabled
+    # 兼容旧 OpenAI-compatible 调用方；Codex app-server 当前不读取该字段。
     thinking: bool | None = None
     # 说明：messages 中的 role="system" 条目会被提取并作为 "caller system prompt"，
     # 追加到 ripple 默认 system prompt 之后（而非替换）。若本次请求未带任何 system
@@ -227,6 +224,65 @@ class GogcliAccountsResponse(BaseModel):
     accounts: list[GogcliAccountInfo] = []
     count: int = 0
     checked: bool = False
+
+
+# ─── External Agent Runs ───
+
+
+class AgentRunCreateRequest(BaseModel):
+    prompt: str = Field(min_length=1)
+    provider: Literal["auto", "codex"] = "codex"
+    cwd: str | None = None
+    max_runtime_seconds: int = Field(default=1800, ge=1, le=86_400)
+
+
+class AgentRunSteerRequest(BaseModel):
+    prompt: str = Field(min_length=1)
+
+
+class AgentRunInfo(BaseModel):
+    job_id: str
+    provider: str
+    status: str
+    output_file: str | None = None
+    events_file: str | None = None
+    stdout_tail: str = ""
+    stderr_tail: str = ""
+    error: str | None = None
+
+
+# ─── Connectors ───
+
+
+class ConnectorInfo(BaseModel):
+    name: str
+    display_name: str
+    description: str
+    auth_type: str
+    auth_start_path: str | None = None
+    auth_complete_path: str | None = None
+    disconnect_path: str | None = None
+    accounts_path: str | None = None
+
+
+class ConnectorListResponse(BaseModel):
+    connectors: list[ConnectorInfo]
+
+
+class ConnectorStatusResponse(BaseModel):
+    name: str
+    connected: bool
+    required: bool
+    detail: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ConnectorActionResponse(BaseModel):
+    name: str
+    ok: bool
+    stage: str = ""
+    detail: str = ""
+    data: dict[str, Any] = Field(default_factory=dict)
 
 
 # ─── Scheduled Sandbox Jobs ───

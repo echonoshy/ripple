@@ -47,11 +47,42 @@ for raw_line in sys.stdin:
     elif method == "initialized":
         pass
     elif method == "thread/start":
+        allowed_sandboxes = {"workspaceWrite", "readOnly", "dangerFullAccess", "externalSandbox"}
+        if params.get("sandbox") not in allowed_sandboxes:
+            emit({
+                "jsonrpc": "2.0",
+                "id": message["id"],
+                "error": {
+                    "code": -32600,
+                    "message": (
+                        "Invalid request: unknown variant "
+                        f"`{params.get('sandbox')}`, expected one of `dangerFullAccess`, "
+                        "`readOnly`, `externalSandbox`, `workspaceWrite`"
+                    ),
+                },
+            })
+            continue
         thread_counter += 1
         thread_id = f"thr-{thread_counter}"
         emit({"jsonrpc": "2.0", "id": message["id"], "result": {"thread": {"id": thread_id}}})
         emit({"jsonrpc": "2.0", "method": "thread/started", "params": {"thread": {"id": thread_id}}})
     elif method == "turn/start":
+        allowed_sandbox_policy_types = {"read-only", "workspace-write", "danger-full-access"}
+        sandbox_policy = params.get("sandboxPolicy") or {}
+        if sandbox_policy.get("type") not in allowed_sandbox_policy_types:
+            emit({
+                "jsonrpc": "2.0",
+                "id": message["id"],
+                "error": {
+                    "code": -32600,
+                    "message": (
+                        "Invalid request: unknown variant "
+                        f"`{sandbox_policy.get('type')}`, expected one of `read-only`, "
+                        "`workspace-write`, `danger-full-access`"
+                    ),
+                },
+            })
+            continue
         turn_counter += 1
         thread_id = params["threadId"]
         turn_id = f"turn-{turn_counter}"
@@ -141,10 +172,12 @@ async def test_app_server_provider_runs_thread_turn_and_records_events(tmp_path)
     calls = _read_jsonl(tmp_path / "app-server.jsonl")
     assert [call["method"] for call in calls] == ["initialize", "initialized", "thread/start", "turn/start"]
     assert all(call["has_jsonrpc"] is False for call in calls)
+    thread_start = calls[2]["params"]
+    assert thread_start["sandbox"] == "workspaceWrite"
     turn_start = calls[3]["params"]
     assert turn_start["cwd"] == str(request.cwd)
     assert turn_start["approvalPolicy"] == "never"
-    assert turn_start["sandboxPolicy"]["type"] == "workspaceWrite"
+    assert turn_start["sandboxPolicy"]["type"] == "workspace-write"
     assert turn_start["sandboxPolicy"]["writableRoots"] == [str(request.cwd)]
     assert turn_start["sandboxPolicy"]["networkAccess"] is True
 
@@ -168,6 +201,31 @@ async def test_app_server_provider_uses_sandbox_cwd_when_present(tmp_path):
     turn_start = next(call for call in calls if call["method"] == "turn/start")
     assert turn_start["params"]["cwd"] == "/workspace/nested"
     assert turn_start["params"]["sandboxPolicy"]["writableRoots"] == ["/workspace/nested"]
+
+
+@pytest.mark.asyncio
+async def test_app_server_provider_normalizes_legacy_workspace_write_sandbox_type(tmp_path):
+    provider = CodexAppServerAgentProvider(
+        codex_executable=sys.executable,
+        app_server_args=[str(tmp_path / "fake_app_server.py")],
+        sandbox_type="workspaceWrite",
+        env={
+            "FAKE_APP_SERVER_LOG": str(tmp_path / "app-server.jsonl"),
+            "FAKE_APP_SERVER_PROCESSES": str(tmp_path / "processes.txt"),
+        },
+    )
+    _write_fake_app_server(tmp_path / "fake_app_server.py")
+    request = _request(tmp_path, prompt="inspect project")
+    request.cwd.mkdir(parents=True)
+
+    result = await provider.run(request, job_dir=tmp_path / "job")
+
+    assert result.status == AgentRunnerStatus.COMPLETED
+    calls = _read_jsonl(tmp_path / "app-server.jsonl")
+    thread_start = next(call for call in calls if call["method"] == "thread/start")
+    turn_start = next(call for call in calls if call["method"] == "turn/start")
+    assert thread_start["params"]["sandbox"] == "workspaceWrite"
+    assert turn_start["params"]["sandboxPolicy"]["type"] == "workspace-write"
 
 
 @pytest.mark.asyncio

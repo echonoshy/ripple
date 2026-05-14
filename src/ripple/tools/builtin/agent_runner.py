@@ -1,13 +1,12 @@
 """Tool for launching server-side external agent runners."""
 
-from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 from ripple.agent_runners.manager import ExternalAgentManager, get_external_agent_manager
-from ripple.agent_runners.models import AgentRunnerRequest, AgentRunnerStatus
-from ripple.agent_runners.router import ExecutionRoute, choose_route
+from ripple.agent_runners.models import AgentRunnerStatus
+from ripple.agent_runners.service import AgentRunNotRoutedError, start_agent_run
 from ripple.core.context import ToolUseContext
 from ripple.messages.types import AssistantMessage
 from ripple.permissions.levels import ToolRiskLevel
@@ -77,64 +76,45 @@ class AgentRunnerTool(Tool[AgentRunnerInput, AgentRunnerOutput]):
         if not prompt:
             return ToolResult(data=AgentRunnerOutput(status="error", message="prompt is required for start"))
 
-        explicit_provider = None if args.provider == "auto" else args.provider
-        if explicit_provider is not None and explicit_provider != "codex":
-            return ToolResult(
-                data=AgentRunnerOutput(
-                    status="error",
-                    message="Only the codex provider is supported in this version",
-                    provider=explicit_provider,
-                )
-            )
-        decision = choose_route(prompt, explicit_provider=explicit_provider)
-        if explicit_provider is None and decision.route != ExecutionRoute.AGENT_RUNNER:
-            return ToolResult(
-                data=AgentRunnerOutput(
-                    status="not_routed",
-                    message=decision.reason,
-                    route=decision.route.value,
-                )
-            )
-        provider = decision.provider or "codex"
         manager = self._manager_or_default()
-        if not manager.has_provider(provider):
-            return ToolResult(
-                data=AgentRunnerOutput(
-                    status="error",
-                    message=f"external agent provider '{provider}' is not configured",
-                    provider=provider,
-                    route=decision.route.value,
-                )
-            )
-
-        cwd = self._resolve_cwd(args.cwd, context)
         runtime_dir = context.session_runtime_dir or (context.cwd / ".ripple")
-        runtime_dir.mkdir(parents=True, exist_ok=True)
-        metadata: dict[str, Any] = {"route": decision.route.value, "signals": decision.signals}
-        if context.is_sandboxed and context.workspace_root is not None:
-            relative_cwd = cwd.relative_to(context.workspace_root.resolve())
-            metadata["sandbox_cwd"] = PurePosixPath("/workspace", *relative_cwd.parts).as_posix()
-            if context.sandbox_manager is not None:
-                metadata["sandbox_config"] = context.sandbox_manager.config
-        job = manager.start(
-            AgentRunnerRequest(
-                provider=provider,
+        workspace_root = context.workspace_root or context.cwd
+        sandbox_config = context.sandbox_manager.config if context.is_sandboxed and context.sandbox_manager else None
+        try:
+            job = start_agent_run(
                 prompt=prompt,
-                cwd=cwd,
+                provider_name=args.provider,
+                raw_cwd=args.cwd,
                 max_runtime_seconds=args.max_runtime_seconds,
                 user_id=context.user_id,
                 session_id=context.session_id,
-                metadata=metadata,
-            ),
-            runtime_dir=runtime_dir,
-        )
+                workspace_root=workspace_root,
+                runtime_dir=runtime_dir,
+                manager=manager,
+                sandbox_config=sandbox_config,
+            )
+        except AgentRunNotRoutedError as exc:
+            return ToolResult(
+                data=AgentRunnerOutput(
+                    status="not_routed",
+                    message=exc.decision.reason,
+                    route=exc.decision.route.value,
+                )
+            )
+        except ValueError as exc:
+            return ToolResult(
+                data=AgentRunnerOutput(
+                    status="error",
+                    message=str(exc),
+                    provider=None if args.provider == "auto" else args.provider,
+                )
+            )
         return ToolResult(
             data=AgentRunnerOutput(
                 status="started",
-                message=decision.reason,
+                message="Codex agent run started.",
                 job_id=job.job_id,
-                provider=provider,
-                route=decision.route.value,
+                provider=job.provider,
                 output_file=str(job.output_file) if job.output_file else None,
                 events_file=str(job.events_file) if job.events_file else None,
             )
@@ -193,19 +173,6 @@ class AgentRunnerTool(Tool[AgentRunnerInput, AgentRunnerOutput]):
                 provider=job.provider,
             )
         )
-
-    def _resolve_cwd(self, raw_cwd: str | None, context: ToolUseContext) -> Path:
-        root = (context.workspace_root or context.cwd).resolve()
-        if raw_cwd:
-            candidate = Path(raw_cwd)
-            if not candidate.is_absolute():
-                candidate = root / candidate
-            candidate = candidate.resolve()
-        else:
-            candidate = root
-        if not candidate.is_relative_to(root):
-            raise ValueError("cwd must stay inside the user workspace")
-        return candidate
 
     def _output_from_job(self, job, *, message: str) -> AgentRunnerOutput:
         return AgentRunnerOutput(

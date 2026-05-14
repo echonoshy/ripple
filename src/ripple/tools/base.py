@@ -56,7 +56,7 @@ OutputT = TypeVar("OutputT")
 
 
 class StopReason:
-    """Agent loop 暂停原因"""
+    """执行暂停原因"""
 
     COMPLETED = "completed"
     ASK_USER = "ask_user"
@@ -70,7 +70,7 @@ class ToolResult(Generic[OutputT]):
     data: OutputT
     new_messages: list[Message] | None = None
     context_modifier: Callable[[ToolUseContext], ToolUseContext] | None = None
-    stop_agent_loop: bool = False
+    stop_execution: bool = False
     stop_reason: str | None = None
 
 

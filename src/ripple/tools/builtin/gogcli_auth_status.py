@@ -4,7 +4,7 @@
   * agent 开局不确定当前 user 绑了哪个 Google 账号，先调一次本工具再决定 --account=
   * 业务命令报 `invalid_grant` / `unauthorized_client` 之类可疑 token 问题时，
     调 `check=True` 真验一下，确认是 refresh_token 失效再引导用户重走 LoginStart
-  * 前端通过 `GET /v1/sandboxes/gogcli-accounts` 展示账号列表（共享同一 helper）
+  * 前端通过 `GET /v1/connectors/google_workspace/accounts` 展示账号列表
 
 默认 `check=False`——只列本地 keyring 里已绑条目，不打 Google 的 token endpoint；
 `check=True` 会为每个账号调一次 refresh token exchange（有网络成本和 quota 消耗），

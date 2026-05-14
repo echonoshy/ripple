@@ -22,6 +22,20 @@ from ripple.agent_runners.models import (
 )
 
 _TAIL_CHARS = 64_000
+_VALID_SANDBOX_TYPES = ("read-only", "workspace-write", "danger-full-access")
+_SANDBOX_TYPE_ALIASES = {
+    "readOnly": "read-only",
+    "read_only": "read-only",
+    "workspaceWrite": "workspace-write",
+    "workspace_write": "workspace-write",
+    "dangerFullAccess": "danger-full-access",
+    "danger_full_access": "danger-full-access",
+}
+_SANDBOX_POLICY_TYPES = {
+    "read-only": "readOnly",
+    "workspace-write": "workspaceWrite",
+    "danger-full-access": "dangerFullAccess",
+}
 
 
 def _tail(text: str) -> str:
@@ -34,6 +48,18 @@ def _decode_line(data: bytes) -> str:
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _normalize_sandbox_type(value: str) -> str:
+    normalized = _SANDBOX_TYPE_ALIASES.get(value.strip(), value.strip())
+    if normalized not in _VALID_SANDBOX_TYPES:
+        expected = ", ".join(_VALID_SANDBOX_TYPES)
+        raise ValueError(f"unknown Codex sandbox type {value!r}; expected one of: {expected}")
+    return normalized
+
+
+def _sandbox_policy_type(sandbox_type: str) -> str:
+    return _SANDBOX_POLICY_TYPES[sandbox_type]
 
 
 class JsonRpcError(RuntimeError):
@@ -258,14 +284,15 @@ class CodexAppServerAgentProvider:
         codex_executable: str = "codex",
         app_server_args: list[str] | None = None,
         approval_policy: str = "never",
-        sandbox_type: str = "workspaceWrite",
+        sandbox_type: str = "workspace-write",
         network_access: bool = True,
         env: dict[str, str] | None = None,
         idle_timeout_seconds: int = 1800,
     ):
         self.name = "codex"
         self.approval_policy = approval_policy
-        self.sandbox_type = sandbox_type
+        self.sandbox_type = _normalize_sandbox_type(sandbox_type)
+        self.sandbox_policy_type = _sandbox_policy_type(self.sandbox_type)
         self.network_access = network_access
         self.pool = CodexAppServerPool(
             codex_executable=codex_executable,
@@ -314,7 +341,7 @@ class CodexAppServerAgentProvider:
                     {
                         "cwd": runner_cwd,
                         "approvalPolicy": self.approval_policy,
-                        "sandbox": self.sandbox_type,
+                        "sandbox": self.sandbox_policy_type,
                         "serviceName": "ripple",
                     },
                 )

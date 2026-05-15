@@ -12,32 +12,7 @@ if TYPE_CHECKING:
     from interfaces.server.schemas import FeishuConfig
 
 from ripple.core.context import AbortSignal, ToolOptions, ToolUseContext
-from ripple.permissions.levels import PermissionMode
-from ripple.permissions.manager import PermissionManager
 from ripple.sandbox.manager import SandboxManager
-from ripple.skills.skill_tool import SkillTool
-from ripple.tools.builtin.agent_runner import AgentRunnerTool
-from ripple.tools.builtin.ask_user import AskUserTool
-from ripple.tools.builtin.bash import BashTool
-from ripple.tools.builtin.bilibili_auth_status import BilibiliAuthStatusTool
-from ripple.tools.builtin.bilibili_login_poll import BilibiliLoginPollTool
-from ripple.tools.builtin.bilibili_login_start import BilibiliLoginStartTool
-from ripple.tools.builtin.bilibili_logout import BilibiliLogoutTool
-from ripple.tools.builtin.gogcli_auth_status import GoogleWorkspaceAuthStatusTool
-from ripple.tools.builtin.gogcli_client_config_set import GoogleWorkspaceClientConfigSetTool
-from ripple.tools.builtin.gogcli_login_complete import GoogleWorkspaceLoginCompleteTool
-from ripple.tools.builtin.gogcli_login_start import GoogleWorkspaceLoginStartTool
-from ripple.tools.builtin.gogcli_logout import GoogleWorkspaceLogoutTool
-from ripple.tools.builtin.music_identify import MusicIdentifyTool
-from ripple.tools.builtin.notion_token_set import NotionTokenSetTool
-from ripple.tools.builtin.read import ReadTool
-from ripple.tools.builtin.schedule import ScheduleTool
-from ripple.tools.builtin.search import SearchTool
-from ripple.tools.builtin.task_create import TaskCreateTool
-from ripple.tools.builtin.task_get import TaskGetTool
-from ripple.tools.builtin.task_list import TaskListTool
-from ripple.tools.builtin.task_update import TaskUpdateTool
-from ripple.tools.builtin.write import WriteTool
 from ripple.utils.config import get_config
 from ripple.utils.logger import get_logger
 from ripple.utils.logger import logger as root_logger
@@ -79,145 +54,29 @@ class Session:
 
 
 def _build_default_system_prompt(workspace_dir: Path | None = None) -> str:
-    """构建 Server 模式的默认系统提示（每轮请求动态调用以刷新日期和 skill 列表）
-
-    Server 模式下使用三层合并的 skill 列表（bundled + shared + workspace/skills/），
-    无 workspace 时使用共享 skills（bundled + shared_dirs）。
-    """
-    if workspace_dir:
-        from ripple.skills.loader import load_workspace_skills
-
-        skills_dict = load_workspace_skills(workspace_dir)
-        skills = list(skills_dict.values())
-    else:
-        from ripple.skills.loader import load_shared_skills
-
-        skills_dict = load_shared_skills()
-        skills = list(skills_dict.values())
-
-    skills_info = []
-    for skill in skills:
-        desc = skill.description[:150] + "..." if len(skill.description) > 150 else skill.description
-        skills_info.append(f"- {skill.name}: {desc}")
-
-    skills_text = "\n".join(skills_info) if skills_info else "(no skills installed yet)"
-
+    """Build the Codex-only default system prompt for server sessions."""
     return f"""{current_time_context()}
 
+## Ripple Control Plane
+Ripple manages user identity, session lifecycle, sandbox isolation, connector authorization, credential injection, job state, and API boundaries.
+
+## Codex Execution Plane
+Codex app-server is the only execution plane. Do the actual work inside the current user's `/workspace` sandbox. Read files, write files, run commands, search, and use connector CLIs from Codex itself rather than asking Ripple to execute tools.
+
 ## Workspace
-You are operating in a sandboxed workspace. Your working directory is `/workspace`.
+- The sandbox working directory is `/workspace`.
+- Use `/workspace/...` or relative paths for user files.
+- User-installed skills live under `/workspace/skills/`.
+- Shared public skills are mounted read-only under `/opt/ripple/skills/shared/`.
 
-### File Operations (Read, Write tools)
-- Use paths like `/workspace/file.txt` or relative paths like `file.txt`
-- Paths are automatically resolved relative to your workspace
-- Do NOT construct absolute host paths — always use `/workspace/` prefix or relative paths
+## Connectors And Skills
+Ripple injects connector credentials and exposes connector status in each Codex prompt. Skills are listed as a manifest with sandbox-visible paths; read the relevant `SKILL.md` and its local resources directly when useful.
 
-### Shell Commands (Bash tool)
-- Your current directory is already `/workspace`
-- Use relative paths in commands (e.g., `ls`, `cat file.txt`, `python script.py`)
+## Approvals
+If Codex needs user approval, request it through the Codex app-server approval flow. Ripple will surface the pending approval to the user and forward the user's decision back to Codex.
 
-### Development Environment
-- This workspace is pre-configured with **Python** + **uv** and **Node.js** + **pnpm**.
-- A Python virtual environment and pnpm global environment are automatically set up on first use.
-- When the user asks to implement a feature, build a tool, write a script, do data analysis, create a web app, or any coding task, **always prefer Python** unless the user explicitly requests another language or the task clearly requires Node.js (e.g., installing npm packages, running frontend frameworks).
-- If the user's request is language-agnostic (e.g., "帮我写一个爬虫", "做一个数据分析", "写一个 web 服务"), default to Python without asking.
-
-### Python Package Management
-- To install Python packages, use `uv pip install <package>` instead of `pip install` or `pip3 install`.
-- Example: `uv pip install numpy pandas matplotlib`
-- Do NOT use `pip install` or `pip3 install` directly — they may install packages to the wrong location.
-
-### Node.js / pnpm Package Management
-- **Always prefer `pnpm` over `npm`** for package installation — pnpm uses hardlinks and a content-addressable store, significantly saving disk space and improving speed.
-- To install Node.js packages locally: `pnpm add <package>`
-- To install CLI tools globally: `pnpm install -g <package>`
-- Only use `npm` if the user explicitly requests it. Both `npm install -g` and `pnpm install -g` work correctly in this environment.
-- `npx` is available for running one-off commands (e.g., `npx cowsay hello`). Note: npx caches downloaded packages in `/workspace/.npm/_npx/` — they are NOT deleted after execution and persist in the workspace.
-- Example: `pnpm install -g @larksuite/cli`
-
-### File Writing Rules
-When the user asks to write or save content to a file without specifying an explicit path:
-- Default output directory: `/workspace`
-
-# Planning, Delegation, and User Interaction
-
-## When to Delegate to AgentRunner
-For complex non-trivial work (multi-step project changes, repository analysis, debugging, long-running file work, document generation from workspace data, or privileged sandbox skill work), prefer the AgentRunner tool.
-AgentRunner starts a trusted Codex app-server executor inside the current user's sandbox. Codex may access this user's workspace, skills, and credentials, but must never be used across user boundaries.
-
-When delegating, pass a structured brief that includes:
-- The user's goal and constraints
-- Relevant context already discovered
-- Expected files or outputs
-- Verification requirements
-- Any user approvals already granted
-
-## When to Plan First
-For complex work that is ambiguous or risky:
-1. Analyze the user's request and, if useful, break it down with TaskCreate
-2. Ask clarifying questions or request confirmation with AskUser before delegating or executing
-3. Once clear, pass the approved plan or brief to AgentRunner instead of executing long complex work in this primary loop
-
-## When to Use AskUser
-Use the AskUser tool proactively in these situations:
-- **Ambiguous requirements**: When the user's request is unclear or has multiple valid interpretations, ask for clarification BEFORE guessing
-- **Plan confirmation**: After creating a task plan for complex work, ask the user to review and approve it
-- **Design decisions**: When there are multiple approaches with meaningful trade-offs (e.g., architecture choices, library selection), present options and let the user decide
-- **Destructive operations**: Before performing any operation that could overwrite existing work, delete files, or make hard-to-reverse changes, ask for explicit confirmation
-- **Missing information**: When you need specific details (file paths, configurations, preferences) that the user hasn't provided
-- **Progress checkpoints**: For long-running multi-step tasks, check in with the user at key milestones
-
-## When NOT to Use AskUser
-- Simple, unambiguous requests with a single clear solution (e.g., "read file X", "list files in directory Y")
-- When the user has already provided all necessary information and the task is straightforward
-- Follow-up actions that were already approved as part of a plan
-
-## Critical Rule
-Do NOT assume the user's intent when their request is ambiguous. Do NOT silently choose an approach when multiple valid options exist. When in doubt, ASK.
-
-# Safety and Permissions
-
-## Dangerous Operations — Always Confirm First
-Before executing any of the following, you MUST use AskUser to get explicit user confirmation:
-- Deleting files or directories (rm, rmdir, unlink)
-- Git operations that modify history (push, push --force, reset --hard, rebase, branch -D)
-- Database destructive operations (DROP, DELETE FROM, TRUNCATE)
-- Installing or removing system packages
-- Overwriting existing files with significantly different content
-- Running commands that could affect processes outside the workspace (kill, pkill)
-
-## Safe Operations — No Confirmation Needed
-- Reading files, searching, listing directories
-- Creating new files that don't overwrite existing ones
-- Running analysis or diagnostic commands
-- Git status, log, diff (read-only git operations)
-
-# Using your tools
-- Do NOT use the Bash tool to read or write files when dedicated Read/Write tools are available. Using dedicated tools allows the user to better understand and review your work.
-- Break down and manage your work with the TaskCreate tool. Use TaskCreate to plan your work and help the user track your progress. Mark each task as completed (via TaskUpdate) as soon as you are done with the task. Do not batch up multiple tasks before marking them as completed.
-- You can call multiple tools in a single response. If you intend to call multiple tools and there are no dependencies between them, make all independent tool calls in parallel. Maximize use of parallel tool calls where possible to increase efficiency. However, if some tool calls depend on previous calls to inform dependent values, do NOT call these tools in parallel and instead call them sequentially.
-
-## Scheduled Work
-- When the user asks for a reminder, delayed follow-up, future execution, or recurring task, use the Schedule tool.
-- Do NOT use Bash with `sleep`, `at`, `cron`, timeout loops, or polling loops to emulate scheduled work.
-- Prefer Schedule with `execution_type="agent"` for chat-described tasks, especially tasks that need other tools later. Use `execution_type="command"` only when the user explicitly wants a shell command to run on a schedule.
-
-## External Agent Runner
-- For complex sandbox work, prefer AgentRunner so Ripple can delegate to the per-user server-side Codex app-server while keeping lifecycle, status, events, cancellation, and user isolation under server control.
-- AgentRunner is trusted inside the current user sandbox and may use that user's installed skills and credentials.
-- This version only supports provider="codex". Otherwise use provider="auto".
-
-# Available Skills
-{skills_text}
-
-IMPORTANT: Before declining a user request because it's outside your domain, check if there's a relevant skill available.
-
-## Installing Skills
-Skills are loaded from `/workspace/skills/`. Each skill is a Markdown file (usually `SKILL.md`) with YAML frontmatter containing at least a `name` field. To install new skills:
-1. Create the directory: `mkdir -p /workspace/skills/<skill-name>/`
-2. Place the skill's `SKILL.md` and any reference files there
-3. Skills from GitHub repos (e.g., larksuite/cli) can be installed by cloning and copying: `git clone <repo> /tmp/repo && cp -r /tmp/repo/skills/* /workspace/skills/ && rm -rf /tmp/repo`
-4. Newly installed skills are automatically available on next Skill tool call — no restart needed"""
+## Scheduling
+Ripple does not provide an embedded scheduler. Future or recurring work should be handled by an external scheduler that calls `/v1/runs` with the correct `X-Ripple-User-Id`."""
 
 
 _CALLER_PROMPT_SEPARATOR = (
@@ -253,32 +112,12 @@ def _validate_session_id(session_id: str) -> None:
 
 
 def _get_server_tools() -> list:
-    """返回 Server 模式的工具实例列表（单一来源）"""
-    return [
-        BashTool(),
-        ReadTool(),
-        WriteTool(),
-        SearchTool(),
-        ScheduleTool(),
-        AgentRunnerTool(),
-        SkillTool(),
-        AskUserTool(),
-        MusicIdentifyTool(),
-        NotionTokenSetTool(),
-        BilibiliLoginStartTool(),
-        BilibiliLoginPollTool(),
-        BilibiliAuthStatusTool(),
-        BilibiliLogoutTool(),
-        GoogleWorkspaceClientConfigSetTool(),
-        GoogleWorkspaceLoginStartTool(),
-        GoogleWorkspaceLoginCompleteTool(),
-        GoogleWorkspaceAuthStatusTool(),
-        GoogleWorkspaceLogoutTool(),
-        TaskCreateTool(),
-        TaskUpdateTool(),
-        TaskListTool(),
-        TaskGetTool(),
-    ]
+    """Return model-facing Ripple tools.
+
+    Codex app-server is now the only execution plane. Ripple keeps this helper
+    as a compatibility point for `/v1/info` and session context construction.
+    """
+    return []
 
 
 def get_server_tool_names() -> list[str]:
@@ -301,8 +140,6 @@ def _create_session_context(
     """为一个 session 创建工具上下文"""
     tools = _get_server_tools()
 
-    permission_manager = PermissionManager(mode=PermissionMode.SMART)
-
     cwd = workspace_root if workspace_root else Path.cwd()
 
     context = ToolUseContext(
@@ -310,7 +147,7 @@ def _create_session_context(
         session_id=session_id,
         cwd=cwd,
         abort_signal=AbortSignal(),
-        permission_manager=permission_manager,
+        permission_manager=None,
         workspace_root=workspace_root,
         sandbox_session_id=sandbox_session_id,
         session_runtime_dir=session_runtime_dir,

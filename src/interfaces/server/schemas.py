@@ -1,7 +1,6 @@
 """OpenAI 兼容的请求/响应 Pydantic 模型"""
 
 import time
-from datetime import datetime
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -249,6 +248,7 @@ class AgentRunInfo(BaseModel):
     stdout_tail: str = ""
     stderr_tail: str = ""
     error: str | None = None
+    pending_approval: dict[str, Any] | None = None
 
 
 # ─── Connectors ───
@@ -283,91 +283,6 @@ class ConnectorActionResponse(BaseModel):
     stage: str = ""
     detail: str = ""
     data: dict[str, Any] = Field(default_factory=dict)
-
-
-# ─── Scheduled Sandbox Jobs ───
-
-
-class ScheduleCreateRequest(BaseModel):
-    name: str = Field(min_length=1, max_length=120)
-    command: str | None = Field(default=None, min_length=1)
-    prompt: str | None = Field(default=None, min_length=1)
-    execution_type: Literal["command", "agent"] = "command"
-    created_from: Literal["chat", "ui", "api"] = "api"
-    schedule_type: Literal["once", "interval"]
-    run_at: datetime | None = None
-    interval_seconds: int | None = Field(default=None, ge=1)
-    max_runs: int | None = Field(default=None, ge=1)
-    enabled: bool = True
-    timeout_seconds: int = Field(default=300, ge=1, le=86_400)
-
-
-class ScheduleUpdateRequest(BaseModel):
-    name: str | None = Field(default=None, min_length=1, max_length=120)
-    command: str | None = Field(default=None, min_length=1)
-    prompt: str | None = Field(default=None, min_length=1)
-    execution_type: Literal["command", "agent"] | None = None
-    created_from: Literal["chat", "ui", "api"] | None = None
-    schedule_type: Literal["once", "interval"] | None = None
-    run_at: datetime | None = None
-    interval_seconds: int | None = Field(default=None, ge=1)
-    max_runs: int | None = Field(default=None, ge=1)
-    enabled: bool | None = None
-    timeout_seconds: int | None = Field(default=None, ge=1, le=86_400)
-
-
-class ScheduledJobInfo(BaseModel):
-    id: str
-    user_id: str
-    name: str
-    command: str
-    prompt: str | None = None
-    execution_type: str = "command"
-    created_from: str = "api"
-    schedule_type: str
-    run_at: datetime | None = None
-    interval_seconds: int | None = None
-    max_runs: int | None = None
-    enabled: bool
-    timeout_seconds: int
-    next_run_at: datetime | None = None
-    running_at: datetime | None = None
-    current_run_id: str | None = None
-    last_run_at: datetime | None = None
-    last_status: str | None = None
-    last_error: str | None = None
-    last_duration_ms: int | None = None
-    run_count: int = 0
-    consecutive_errors: int = 0
-    consecutive_skipped: int = 0
-    schedule_error_count: int = 0
-    created_at: datetime
-    updated_at: datetime
-
-
-class ScheduledJobListResponse(BaseModel):
-    jobs: list[ScheduledJobInfo] = []
-    count: int = 0
-
-
-class ScheduledRunInfo(BaseModel):
-    id: str
-    job_id: str
-    user_id: str
-    status: str
-    started_at: datetime
-    finished_at: datetime | None = None
-    exit_code: int | None = None
-    stdout_tail: str = ""
-    stderr_tail: str = ""
-    error: str | None = None
-    summary: str | None = None
-    duration_ms: int | None = None
-
-
-class ScheduledRunListResponse(BaseModel):
-    runs: list[ScheduledRunInfo] = []
-    count: int = 0
 
 
 # ─── Tools Invoke ───

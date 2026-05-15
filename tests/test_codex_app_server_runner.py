@@ -128,6 +128,76 @@ for raw_line in sys.stdin:
     )
 
 
+def _write_fake_approval_app_server(path: Path) -> None:
+    path.write_text(
+        """
+import json
+import os
+import sys
+
+log_file = os.environ["FAKE_APP_SERVER_LOG"]
+process_file = os.environ["FAKE_APP_SERVER_PROCESSES"]
+
+
+def emit(payload):
+    sys.stdout.write(json.dumps(payload) + "\\n")
+    sys.stdout.flush()
+
+
+def record(payload):
+    with open(log_file, "a", encoding="utf-8") as f:
+        f.write(json.dumps({"pid": os.getpid(), **payload}) + "\\n")
+
+
+with open(process_file, "a", encoding="utf-8") as f:
+    f.write(str(os.getpid()) + "\\n")
+
+thread_id = "thr-approval"
+turn_id = "turn-approval"
+
+for raw_line in sys.stdin:
+    message = json.loads(raw_line)
+    method = message.get("method")
+    params = message.get("params", {})
+    record({"method": method, "params": params, "id": message.get("id"), "result": message.get("result")})
+
+    if method == "initialize":
+        emit({"jsonrpc": "2.0", "id": message["id"], "result": {"serverInfo": {"name": "fake-codex"}}})
+    elif method == "initialized":
+        pass
+    elif method == "thread/start":
+        emit({"jsonrpc": "2.0", "id": message["id"], "result": {"thread": {"id": thread_id}}})
+    elif method == "turn/start":
+        emit({"jsonrpc": "2.0", "id": message["id"], "result": {"turn": {"id": turn_id, "status": "inProgress"}}})
+        emit({
+            "jsonrpc": "2.0",
+            "id": "approval-1",
+            "method": "item/commandExecution/requestApproval",
+            "params": {
+                "threadId": thread_id,
+                "turnId": turn_id,
+                "itemId": "item-approval",
+                "command": "rm -rf build",
+                "cwd": "/workspace",
+                "reason": "needs confirmation"
+            }
+        })
+    elif message.get("id") == "approval-1":
+        emit({
+            "jsonrpc": "2.0",
+            "method": "item/agentMessage/delta",
+            "params": {"threadId": thread_id, "turnId": turn_id, "delta": f"approval:{message.get('result')}"},
+        })
+        emit({
+            "jsonrpc": "2.0",
+            "method": "turn/completed",
+            "params": {"threadId": thread_id, "turn": {"id": turn_id, "status": "completed"}},
+        })
+""",
+        encoding="utf-8",
+    )
+
+
 def _provider(tmp_path: Path) -> CodexAppServerAgentProvider:
     script = tmp_path / "fake_app_server.py"
     _write_fake_app_server(script)
@@ -332,3 +402,37 @@ async def test_manager_steer_sends_turn_steer_to_app_server(tmp_path):
     steer_call = next(call for call in calls if call["method"] == "turn/steer")
     assert steer_call["params"]["input"] == [{"type": "text", "text": "focus on the failing tests"}]
     assert steer_call["params"]["expectedTurnId"].startswith("turn-")
+
+
+@pytest.mark.asyncio
+async def test_manager_resolves_codex_command_approval(tmp_path):
+    script = tmp_path / "fake_approval_app_server.py"
+    _write_fake_approval_app_server(script)
+    provider = CodexAppServerAgentProvider(
+        codex_executable=sys.executable,
+        app_server_args=[str(script)],
+        env={
+            "FAKE_APP_SERVER_LOG": str(tmp_path / "app-server.jsonl"),
+            "FAKE_APP_SERVER_PROCESSES": str(tmp_path / "processes.txt"),
+        },
+        idle_timeout_seconds=60,
+    )
+    manager = ExternalAgentManager(providers={"codex": provider})
+    request = _request(tmp_path, prompt="needs approval")
+    request.cwd.mkdir(parents=True)
+
+    job = manager.start(request, runtime_dir=tmp_path / "runtime")
+    pending = await manager.wait_for_pending_approval(job.job_id, timeout=2)
+
+    assert pending["source"] == "codex"
+    assert pending["request_id"] == "approval-1"
+    assert pending["description"] == "rm -rf build"
+    assert manager.resolve_approval(job.job_id, "approval-1", "allow") is True
+
+    result = await manager.wait(job.job_id)
+
+    assert result is not None
+    assert result.status == AgentRunnerStatus.COMPLETED
+    calls = _read_jsonl(tmp_path / "app-server.jsonl")
+    approval_response = next(call for call in calls if call["id"] == "approval-1" and call["result"] is not None)
+    assert approval_response["result"] == {"decision": "accept"}

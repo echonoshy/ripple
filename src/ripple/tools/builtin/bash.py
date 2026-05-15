@@ -57,7 +57,8 @@ class BashTool(Tool[BashInput, BashOutput]):
         self.name = "Bash"
         self.description = (
             "Execute a bash command and return the output. Do not use Bash to schedule future work; "
-            "use the Schedule tool for reminders, delayed follow-ups, run-later work, and recurring tasks."
+            "use an external scheduler to call /v1/runs for reminders, delayed follow-ups, run-later work, "
+            "and recurring tasks."
         )
         self.max_result_size_chars = 100_000
         self.risk_level = ToolRiskLevel.DANGEROUS
@@ -107,7 +108,7 @@ class BashTool(Tool[BashInput, BashOutput]):
         if self._looks_like_scheduling_emulation(tokens, command):
             return (
                 "Error: do not emulate scheduled work with Bash sleep/at/cron/background loops. "
-                "Use the Schedule tool so the job is persisted and visible in scheduled task history."
+                "Use an external scheduler to call /v1/runs with the desired X-Ripple-User-Id."
             )
         return None
 

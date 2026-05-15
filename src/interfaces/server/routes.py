@@ -4,6 +4,7 @@
 """
 
 import html
+import shlex
 import time
 from typing import Any
 
@@ -29,19 +30,12 @@ from interfaces.server.schemas import (
     ModelsResponse,
     PermissionResolveRequest,
     SandboxInfo,
-    ScheduleCreateRequest,
-    ScheduledJobInfo,
-    ScheduledJobListResponse,
-    ScheduledRunInfo,
-    ScheduledRunListResponse,
-    ScheduleUpdateRequest,
     SessionDetailResponse,
     SessionInfo,
     SessionListResponse,
     SuspendedSessionInfo,
     SystemInfoResponse,
     ToolInvokeRequest,
-    ToolInvokeResponse,
 )
 from interfaces.server.sessions import SessionManager, _merge_system_prompt
 from interfaces.server.workspace_browser import (
@@ -55,9 +49,6 @@ from ripple.connectors.base import ConnectorActionResult, ConnectorUnsupportedEr
 from ripple.connectors.registry import get_connector as get_registered_connector
 from ripple.connectors.registry import list_connectors
 from ripple.messages.utils import serialize_messages
-from ripple.scheduler.manager import ScheduledJobRunningError, SchedulerManager, compute_initial_next_run
-from ripple.scheduler.models import ScheduledJob, utc_now
-from ripple.tools.orchestration import execute_tool, find_tool_by_name
 from ripple.utils.config import get_config
 from ripple.utils.logger import get_logger, set_current_session_id
 
@@ -66,7 +57,6 @@ logger = get_logger("server.routes")
 router = APIRouter()
 
 _session_manager: SessionManager | None = None
-_scheduler_manager: SchedulerManager | None = None
 
 
 def get_session_manager() -> SessionManager:
@@ -78,17 +68,6 @@ def get_session_manager() -> SessionManager:
 def set_session_manager(manager: SessionManager):
     global _session_manager
     _session_manager = manager
-
-
-def get_scheduler_manager() -> SchedulerManager:
-    if _scheduler_manager is None:
-        raise RuntimeError("SchedulerManager not initialized")
-    return _scheduler_manager
-
-
-def set_scheduler_manager(manager: SchedulerManager):
-    global _scheduler_manager
-    _scheduler_manager = manager
 
 
 def _display_model(raw_id: str) -> str:
@@ -197,44 +176,6 @@ def _extract_caller_system_prompt(request: ChatCompletionRequest) -> str | None:
     if not parts:
         return None
     return "\n\n".join(parts)
-
-
-def _find_parent_assistant_message(messages: list[Any], tool_use_id: str, source_uuid: str | None = None):
-    for msg in reversed(messages):
-        if getattr(msg, "type", None) != "assistant":
-            continue
-        if source_uuid and getattr(msg, "uuid", None) == source_uuid:
-            return msg
-        for block in msg.message.get("content", []):
-            if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("id") == tool_use_id:
-                return msg
-    return None
-
-
-def _replace_tool_result(messages: list[Any], tool_use_id: str, replacement_messages: list[Any]) -> None:
-    """用实际执行结果替换权限等待占位 tool_result。"""
-    if not replacement_messages:
-        return
-
-    for idx, msg in enumerate(messages):
-        if getattr(msg, "type", None) != "user":
-            continue
-        content = msg.message.get("content", [])
-        if not isinstance(content, list):
-            continue
-        for block in content:
-            if not isinstance(block, dict) or block.get("type") != "tool_result":
-                continue
-            if block.get("tool_use_id") != tool_use_id:
-                continue
-            if "Awaiting user permission" not in str(block.get("content", "")):
-                continue
-            messages[idx] = replacement_messages[0]
-            if len(replacement_messages) > 1:
-                messages[idx + 1 : idx + 1] = replacement_messages[1:]
-            return
-
-    messages.extend(replacement_messages)
 
 
 def _request_public_base_url(request: Request) -> str | None:
@@ -420,69 +361,31 @@ async def resolve_permission_request(
         raise HTTPException(status_code=409, detail="No pending permission request")
 
     async with session.lock:
-        permission_manager = session.context.permission_manager if session.context else None
-        if not permission_manager:
-            raise HTTPException(status_code=500, detail="Permission manager unavailable")
-
-        tool_name = permission_request.get("tool", "")
-        tool_use_id = permission_request.get("tool_use_id") or ""
-        source_uuid = permission_request.get("source_assistant_uuid")
-        params = permission_request.get("params", {})
-        params = params if isinstance(params, dict) else {}
-
-        if not isinstance(tool_name, str) or not tool_name:
-            raise HTTPException(status_code=400, detail="Invalid permission request")
-        if not isinstance(tool_use_id, str) or not tool_use_id:
-            raise HTTPException(status_code=400, detail="Permission request is missing tool_use_id")
-
-        tool = find_tool_by_name(session.context.options.tools, tool_name)
-        if not tool:
-            raise HTTPException(status_code=404, detail="Requested tool not found")
-
-        replay_messages: list[Any] = []
-        if request.action in ("allow", "always"):
-            permission_manager.grant_permission(
-                tool,
-                params,
-                scope="once" if request.action == "allow" else "session",
-            )
-            parent_message = _find_parent_assistant_message(session.messages, tool_use_id, source_uuid)
-            async for update in execute_tool(
-                {"id": tool_use_id, "name": tool_name, "input": params},
-                parent_message,
-                session.context,
-            ):
-                if update.message:
-                    replay_messages.append(update.message)
-                if update.new_context:
-                    session.context = update.new_context
-        else:
-            from ripple.messages.utils import create_tool_result_message
-
-            replay_messages.append(
-                create_tool_result_message(
-                    tool_use_id=tool_use_id,
-                    content="Permission denied by user. Do not retry this tool call unless the user explicitly asks.",
-                    is_error=True,
-                    tool_name=tool_name,
-                    source_assistant_uuid=source_uuid if isinstance(source_uuid, str) else None,
-                )
+        if permission_request.get("source") != "codex":
+            raise HTTPException(
+                status_code=410,
+                detail="Legacy Ripple tool permission replay has been removed. Only Codex approvals are supported.",
             )
 
-        _replace_tool_result(session.messages, tool_use_id, replay_messages)
-        if session.model_messages:
-            _replace_tool_result(session.model_messages, tool_use_id, replay_messages)
-        else:
-            session.model_messages = list(session.messages)
+        job_id = permission_request.get("job_id")
+        request_id = permission_request.get("request_id")
+        if not isinstance(job_id, str) or not job_id:
+            raise HTTPException(status_code=400, detail="Codex permission request is missing job_id")
+        if request_id is None:
+            raise HTTPException(status_code=400, detail="Codex permission request is missing request_id")
+
+        forwarded = get_external_agent_manager().resolve_approval(job_id, request_id, request.action)
+        if not forwarded:
+            raise HTTPException(status_code=409, detail="Codex approval request is no longer pending")
 
         session.pending_permission_request = None
         session.pending_question = None
         session.pending_options = None
-        session.status = "idle"
+        session.status = "running"
         manager.touch_session(session)
         manager.persist_session(session)
 
-    return {"ok": True, "action": request.action, "replayed": request.action in ("allow", "always")}
+    return {"ok": True, "action": request.action, "forwarded": True}
 
 
 @router.get("/v1/sessions/{session_id}/usage")
@@ -640,6 +543,7 @@ async def delete_sandbox(
 
 
 def _agent_run_info(job) -> AgentRunInfo:
+    pending_approval = get_external_agent_manager().get_pending_approval(job.job_id)
     return AgentRunInfo(
         job_id=job.job_id,
         provider=job.provider,
@@ -649,6 +553,7 @@ def _agent_run_info(job) -> AgentRunInfo:
         stdout_tail=job.stdout_tail,
         stderr_tail=job.stderr_tail,
         error=job.error,
+        pending_approval=pending_approval,
     )
 
 
@@ -992,8 +897,6 @@ async def gogcli_oauth_callback(request: Request) -> HTMLResponse:
     from ripple.sandbox.gogcli import GOGCLI_BASIC_SERVICES_ARG, ensure_gogcli_keyring_password  # noqa: PLC0415
     from ripple.sandbox.gogcli_oauth import build_gogcli_callback_auth_url, pop_pending_gogcli_oauth  # noqa: PLC0415
     from ripple.sandbox.nsjail_config import write_nsjail_config  # noqa: PLC0415
-    from ripple.tools.builtin.bash import _sandbox_config  # noqa: PLC0415
-    from ripple.tools.builtin.gogcli_login_complete import _shq  # noqa: PLC0415
 
     state = (request.query_params.get("state") or "").strip()
     if not state:
@@ -1019,13 +922,15 @@ async def gogcli_oauth_callback(request: Request) -> HTMLResponse:
     if "code" not in request.query_params:
         return _gogcli_oauth_html("Google 授权失败", "OAuth 回调缺少 code 参数。", status_code=400)
 
-    if _sandbox_config is None:
+    try:
+        sandbox_config = _sandbox_manager_or_500().config
+    except HTTPException:
         return _gogcli_oauth_html("Google 授权失败", "Ripple sandbox 未启用，无法保存 gogcli 凭证。", status_code=500)
-    if not _sandbox_config.gogcli_cli_install_root:
+    if not sandbox_config.gogcli_cli_install_root:
         return _gogcli_oauth_html("Google 授权失败", "gogcli 未预装，无法保存 Google 凭证。", status_code=500)
 
-    ensure_gogcli_keyring_password(_sandbox_config, pending.user_id)
-    write_nsjail_config(_sandbox_config, pending.user_id)
+    ensure_gogcli_keyring_password(sandbox_config, pending.user_id)
+    write_nsjail_config(sandbox_config, pending.user_id)
     query_string = request.scope.get("query_string", b"")
     if isinstance(query_string, bytes):
         query = query_string.decode("ascii", errors="ignore")
@@ -1033,10 +938,10 @@ async def gogcli_oauth_callback(request: Request) -> HTMLResponse:
         query = str(query_string)
     callback_url = build_gogcli_callback_auth_url(pending.redirect_uri, query)
     cmd = (
-        f"{GOGCLI_CLI_SANDBOX_BIN} auth add {_shq(pending.email)} "
-        f"--services {GOGCLI_BASIC_SERVICES_ARG} --remote --step 2 --auth-url {_shq(callback_url)}"
+        f"{GOGCLI_CLI_SANDBOX_BIN} auth add {shlex.quote(pending.email)} "
+        f"--services {GOGCLI_BASIC_SERVICES_ARG} --remote --step 2 --auth-url {shlex.quote(callback_url)}"
     )
-    stdout, stderr, code = await execute_in_sandbox(cmd, _sandbox_config, pending.user_id, timeout=60)
+    stdout, stderr, code = await execute_in_sandbox(cmd, sandbox_config, pending.user_id, timeout=60)
     if code != 0:
         detail = (stderr or stdout)[-500:] or "unknown error"
         logger.warning(
@@ -1058,178 +963,22 @@ async def gogcli_oauth_callback(request: Request) -> HTMLResponse:
     )
 
 
-# ─── Scheduled Sandbox Jobs (user-scoped) ───
+# ─── Removed Embedded Scheduler ───
 
 
-def _job_info(job: ScheduledJob) -> ScheduledJobInfo:
-    return ScheduledJobInfo(**job.model_dump())
+SCHEDULES_REMOVED_DETAIL = (
+    "Ripple embedded scheduling has been removed. Use an external scheduler to call /v1/runs "
+    "with the desired X-Ripple-User-Id."
+)
 
 
-def _run_info(run) -> ScheduledRunInfo:
-    return ScheduledRunInfo(**run.model_dump())
-
-
-def _validate_schedule_fields(
-    schedule_type: str,
-    *,
-    run_at,
-    interval_seconds: int | None,
-    execution_type: str = "command",
-    command: str | None = None,
-    prompt: str | None = None,
-) -> None:
-    if schedule_type == "once" and run_at is None:
-        raise HTTPException(status_code=400, detail="run_at is required for once schedules")
-    if schedule_type == "interval" and interval_seconds is None:
-        raise HTTPException(status_code=400, detail="interval_seconds is required for interval schedules")
-    if execution_type == "command" and not (command or "").strip():
-        raise HTTPException(status_code=400, detail="command is required for command schedules")
-    if execution_type == "agent" and not (prompt or "").strip():
-        raise HTTPException(status_code=400, detail="prompt is required for agent schedules")
-
-
-@router.post("/v1/sandbox/schedules")
-async def create_schedule(
-    request: ScheduleCreateRequest,
-    user_id: str = Depends(get_user_id),
-    _api_key: str = Depends(verify_api_key),
-) -> ScheduledJobInfo:
-    """Create a user-scoped scheduled sandbox command."""
-    _validate_schedule_fields(
-        request.schedule_type,
-        run_at=request.run_at,
-        interval_seconds=request.interval_seconds,
-        execution_type=request.execution_type,
-        command=request.command,
-        prompt=request.prompt,
-    )
-    scheduler = get_scheduler_manager()
-    job = ScheduledJob(
-        user_id=user_id,
-        name=request.name,
-        command=request.command or "",
-        prompt=request.prompt,
-        execution_type=request.execution_type,
-        created_from=request.created_from,
-        schedule_type=request.schedule_type,
-        run_at=request.run_at,
-        interval_seconds=request.interval_seconds,
-        max_runs=request.max_runs,
-        enabled=request.enabled,
-        timeout_seconds=request.timeout_seconds,
-    )
-    created = scheduler.create_job(job)
-    return _job_info(created)
-
-
-@router.get("/v1/sandbox/schedules")
-async def list_schedules(
-    user_id: str = Depends(get_user_id),
-    _api_key: str = Depends(verify_api_key),
-) -> ScheduledJobListResponse:
-    scheduler = get_scheduler_manager()
-    jobs = [_job_info(job) for job in scheduler.list_jobs(user_id)]
-    return ScheduledJobListResponse(jobs=jobs, count=len(jobs))
-
-
-@router.get("/v1/sandbox/schedules/{job_id}")
-async def get_schedule(
-    job_id: str,
-    user_id: str = Depends(get_user_id),
-    _api_key: str = Depends(verify_api_key),
-) -> ScheduledJobInfo:
-    scheduler = get_scheduler_manager()
-    job = scheduler.get_job(user_id, job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="Scheduled job not found")
-    return _job_info(job)
-
-
-@router.patch("/v1/sandbox/schedules/{job_id}")
-async def update_schedule(
-    job_id: str,
-    request: ScheduleUpdateRequest,
-    user_id: str = Depends(get_user_id),
-    _api_key: str = Depends(verify_api_key),
-) -> ScheduledJobInfo:
-    scheduler = get_scheduler_manager()
-    job = scheduler.get_job(user_id, job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="Scheduled job not found")
-
-    update = request.model_dump(exclude_unset=True)
-    for key, value in update.items():
-        setattr(job, key, value)
-    _validate_schedule_fields(
-        job.schedule_type,
-        run_at=job.run_at,
-        interval_seconds=job.interval_seconds,
-        execution_type=job.execution_type,
-        command=job.command,
-        prompt=job.prompt,
-    )
-    job.next_run_at = compute_initial_next_run(job, now=utc_now())
-    updated = scheduler.update_job(job)
-    return _job_info(updated)
-
-
-@router.delete("/v1/sandbox/schedules/{job_id}")
-async def delete_schedule(
-    job_id: str,
-    user_id: str = Depends(get_user_id),
+@router.api_route("/v1/sandbox/schedules", methods=["GET", "POST", "PATCH", "DELETE"])
+@router.api_route("/v1/sandbox/schedules/{path:path}", methods=["GET", "POST", "PATCH", "DELETE"])
+async def schedules_removed(
+    path: str | None = None,
     _api_key: str = Depends(verify_api_key),
 ):
-    scheduler = get_scheduler_manager()
-    try:
-        removed = scheduler.delete_job(user_id, job_id)
-    except ScheduledJobRunningError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    if not removed:
-        raise HTTPException(status_code=404, detail="Scheduled job not found")
-    return {"ok": True}
-
-
-@router.post("/v1/sandbox/schedules/{job_id}/run")
-async def run_schedule_now(
-    job_id: str,
-    user_id: str = Depends(get_user_id),
-    _api_key: str = Depends(verify_api_key),
-) -> ScheduledRunInfo:
-    scheduler = get_scheduler_manager()
-    run = await scheduler.run_job(user_id, job_id)
-    if run is None:
-        raise HTTPException(status_code=404, detail="Scheduled job not found or already running")
-    return _run_info(run)
-
-
-@router.get("/v1/sandbox/schedules/{job_id}/runs")
-async def list_schedule_runs(
-    job_id: str,
-    limit: int = Query(default=50, ge=1, le=200),
-    user_id: str = Depends(get_user_id),
-    _api_key: str = Depends(verify_api_key),
-) -> ScheduledRunListResponse:
-    scheduler = get_scheduler_manager()
-    if scheduler.get_job(user_id, job_id) is None:
-        raise HTTPException(status_code=404, detail="Scheduled job not found")
-    runs = [_run_info(run) for run in scheduler.list_runs(user_id, job_id, limit=limit)]
-    return ScheduledRunListResponse(runs=runs, count=len(runs))
-
-
-@router.get("/v1/sandbox/schedules/{job_id}/runs/{run_id}")
-async def get_schedule_run(
-    job_id: str,
-    run_id: str,
-    user_id: str = Depends(get_user_id),
-    _api_key: str = Depends(verify_api_key),
-) -> ScheduledRunInfo:
-    scheduler = get_scheduler_manager()
-    if scheduler.get_job(user_id, job_id) is None:
-        raise HTTPException(status_code=404, detail="Scheduled job not found")
-    run = scheduler.get_run(user_id, job_id, run_id)
-    if run is None:
-        raise HTTPException(status_code=404, detail="Scheduled run not found")
-    return _run_info(run)
+    raise HTTPException(status_code=410, detail=SCHEDULES_REMOVED_DETAIL)
 
 
 # ─── Bilibili 扫码二维码图片 ───
@@ -1317,33 +1066,7 @@ async def invoke_tool(
     user_id: str = Depends(get_user_id),
     _api_key: str = Depends(verify_api_key),
 ):
-    manager = get_session_manager()
-
-    if request.session_id:
-        session = manager.get_session(request.session_id, user_id=user_id)
-        if not session:
-            raise HTTPException(status_code=404, detail="Session not found")
-    else:
-        session = manager.create_session(user_id=user_id)
-
-    context = session.context
-    context.request_public_base_url = _request_public_base_url(http_request)
-    tool_instance = None
-    for t in context.options.tools:
-        if t.name == request.tool:
-            tool_instance = t
-            break
-
-    if not tool_instance:
-        available = [t.name for t in context.options.tools]
-        raise HTTPException(
-            status_code=404,
-            detail=f"Tool '{request.tool}' not found. Available: {available}",
-        )
-
-    try:
-        result = await tool_instance.call(args=request.args, context=context, parent_message=None)
-        return ToolInvokeResponse(ok=True, result=str(result.data))
-    except Exception as e:
-        logger.exception("工具调用异常: {}", e)
-        return ToolInvokeResponse(ok=False, error=str(e))
+    raise HTTPException(
+        status_code=410,
+        detail="Ripple tool execution has been removed. Agent execution is handled by Codex app-server.",
+    )

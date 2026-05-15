@@ -1,7 +1,7 @@
 """Shared sandbox command runner.
 
 This module keeps the preparation semantics used by BashTool available to
-non-chat callers such as scheduled jobs.
+other internal callers that need direct sandbox command execution.
 """
 
 import re

@@ -18,16 +18,6 @@ class RoutingDecision(BaseModel):
     signals: list[str] = Field(default_factory=list)
 
 
-_BASIC_TOOL_TERMS = {
-    "alarm",
-    "remind",
-    "reminder",
-    "schedule",
-    "timer",
-    "定时",
-    "提醒",
-}
-
 _COMPLEX_ACTION_TERMS = {
     "analyze",
     "build",
@@ -106,14 +96,6 @@ def choose_route(
             provider=explicit_provider,
             signals=signals,
             reason=f"User or caller explicitly requested external provider '{explicit_provider}'.",
-        )
-
-    if _contains_any(normalized, _BASIC_TOOL_TERMS):
-        signals.append("basic_tool")
-        return RoutingDecision(
-            route=ExecutionRoute.RIPPLE_TOOLS,
-            signals=signals,
-            reason="Request appears to need a basic Ripple tool such as scheduling.",
         )
 
     skill_terms = {name.casefold() for name in skill_names or []}

@@ -113,6 +113,36 @@ class ExternalAgentManager:
             return False
         return bool(steer(job_id, text))
 
+    def get_pending_approval(self, job_id: str) -> dict | None:
+        job = self.jobs.get(job_id)
+        if job is None:
+            return None
+        provider = self.providers.get(job.provider)
+        get_pending = getattr(provider, "get_pending_approval", None)
+        if not callable(get_pending):
+            return None
+        return get_pending(job_id)
+
+    async def wait_for_pending_approval(self, job_id: str, *, timeout: float) -> dict:
+        job = self.jobs.get(job_id)
+        if job is None:
+            raise KeyError(f"agent run not found: {job_id}")
+        provider = self.providers.get(job.provider)
+        wait_for_pending = getattr(provider, "wait_for_pending_approval", None)
+        if not callable(wait_for_pending):
+            raise RuntimeError(f"provider '{job.provider}' does not support approval waiting")
+        return await wait_for_pending(job_id, timeout=timeout)
+
+    def resolve_approval(self, job_id: str, request_id: object, action: str) -> bool:
+        job = self.jobs.get(job_id)
+        if job is None:
+            return False
+        provider = self.providers.get(job.provider)
+        resolve = getattr(provider, "resolve_approval", None)
+        if not callable(resolve):
+            return False
+        return bool(resolve(job_id, request_id, action))
+
     async def stop_user(self, user_id: str) -> None:
         tasks = []
         for job in self.jobs.values():

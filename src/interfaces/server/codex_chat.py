@@ -16,13 +16,14 @@ from uuid import uuid4
 
 from fastapi import HTTPException
 
-from interfaces.server.sessions import Session, SessionManager
+from interfaces.server.sessions import Session, SessionManager, SessionStatus
 from ripple.agent_runners.manager import ExternalAgentJob, ExternalAgentManager
 from ripple.agent_runners.models import AgentRunnerResult, AgentRunnerStatus
 from ripple.agent_runners.service import start_agent_run
 from ripple.connectors.registry import list_connectors
 from ripple.messages.types import Message
 from ripple.messages.utils import create_assistant_message, create_user_message
+from ripple.skills.manifest import render_skill_manifest
 from ripple.utils.config import Config
 from ripple.utils.logger import get_logger, session_context
 
@@ -100,6 +101,7 @@ def build_codex_chat_prompt(
 
     transcript = _conversation_transcript(session.messages)
     history_section = transcript if transcript else "(no previous turns in this Ripple session)"
+    workspace_root = session.context.workspace_root if session.context else None
     return (
         "You are Codex, running as Ripple's trusted execution plane.\n"
         "Ripple is the control plane: it owns user identity, sandbox isolation, connector state, "
@@ -110,6 +112,8 @@ def build_codex_chat_prompt(
         "- workspace: /workspace\n\n"
         "## Connector Status\n"
         f"{_connector_manifest(session)}\n\n"
+        "## Available Skills\n"
+        f"{render_skill_manifest(workspace_root)}\n\n"
         "## System Instructions\n"
         f"{system_prompt or '(none)'}\n\n"
         "## Conversation So Far\n"
@@ -209,6 +213,22 @@ def _extract_event_delta(event: dict[str, Any]) -> str:
     return ""
 
 
+def _extract_approval(event: dict[str, Any]) -> dict[str, Any] | None:
+    if event.get("type") != "codex.approval_request":
+        return None
+    data = event.get("data")
+    data = data if isinstance(data, dict) else {}
+    approval = data.get("approval")
+    return approval if isinstance(approval, dict) else None
+
+
+def _mark_session_awaiting_approval(session: Session, approval: dict[str, Any]) -> None:
+    session.status = SessionStatus.AWAITING_PERMISSION
+    session.pending_permission_request = approval
+    session.pending_question = None
+    session.pending_options = None
+
+
 def _read_new_events(events_file: Path, offset: int) -> tuple[list[dict[str, Any]], int]:
     if not events_file.exists():
         return [], offset
@@ -249,7 +269,18 @@ async def collect_codex_chat_response(
 
                 prompt = build_codex_chat_prompt(session=session, user_input=user_input, system_prompt=system_prompt)
                 job = _start_chat_run(session=session, prompt=prompt, config=config, agent_manager=agent_manager)
+                offset = 0
                 try:
+                    while job.status == AgentRunnerStatus.RUNNING:
+                        events, offset = _read_new_events(job.events_file, offset) if job.events_file else ([], offset)
+                        for event in events:
+                            approval = _extract_approval(event)
+                            if approval is not None:
+                                _mark_session_awaiting_approval(session, approval)
+                                manager.touch_session(session)
+                                manager.persist_session(session)
+                                raise HTTPException(status_code=409, detail="Codex approval required")
+                        await asyncio.sleep(0.05)
                     result = await agent_manager.wait(job.job_id)
                 except asyncio.CancelledError:
                     agent_manager.cancel(job.job_id)
@@ -280,6 +311,8 @@ async def collect_codex_chat_response(
         except asyncio.CancelledError:
             session.status = "idle"
             raise HTTPException(status_code=499, detail="Request cancelled")
+        except HTTPException:
+            raise
         except Exception as exc:
             logger.exception("Codex chat failed: {}", exc)
             raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -324,6 +357,13 @@ async def stream_codex_chat_as_sse(
                 while job.status == AgentRunnerStatus.RUNNING:
                     events, offset = _read_new_events(job.events_file, offset) if job.events_file else ([], offset)
                     for event in events:
+                        approval = _extract_approval(event)
+                        if approval is not None:
+                            _mark_session_awaiting_approval(session, approval)
+                            manager.touch_session(session)
+                            manager.persist_session(session)
+                            yield f"data: {json.dumps({'type': 'approval_required', 'approval': approval}, ensure_ascii=False)}\n\n"
+                            continue
                         delta = _extract_event_delta(event)
                         if delta:
                             emitted_text += delta
@@ -338,6 +378,13 @@ async def stream_codex_chat_as_sse(
                 if job.events_file:
                     events, offset = _read_new_events(job.events_file, offset)
                     for event in events:
+                        approval = _extract_approval(event)
+                        if approval is not None:
+                            _mark_session_awaiting_approval(session, approval)
+                            manager.touch_session(session)
+                            manager.persist_session(session)
+                            yield f"data: {json.dumps({'type': 'approval_required', 'approval': approval}, ensure_ascii=False)}\n\n"
+                            continue
                         delta = _extract_event_delta(event)
                         if delta:
                             emitted_text += delta

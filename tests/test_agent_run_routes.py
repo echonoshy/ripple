@@ -18,6 +18,9 @@ class DummySessionManager:
 
 
 class SlowProvider:
+    def __init__(self):
+        self.pending_approval = None
+
     async def run(self, request: AgentRunnerRequest, *, job_dir):
         await asyncio.sleep(30)
         return AgentRunnerResult(
@@ -27,6 +30,9 @@ class SlowProvider:
             events_file=job_dir / "events.jsonl",
             output_file=job_dir / "output.txt",
         )
+
+    def get_pending_approval(self, job_id: str):
+        return self.pending_approval
 
 
 def _client(tmp_path: Path, monkeypatch, user_id: str = "alice") -> tuple[TestClient, ExternalAgentManager]:
@@ -90,3 +96,22 @@ def test_agent_run_routes_are_user_scoped(tmp_path: Path, monkeypatch):
     response = bob_client.get(f"/v1/runs/{job_id}")
 
     assert response.status_code == 404
+
+
+def test_agent_run_status_includes_pending_approval(tmp_path: Path, monkeypatch):
+    client, agent_manager = _client(tmp_path, monkeypatch)
+    start = client.post("/v1/runs", json={"prompt": "needs approval", "provider": "codex"})
+    job_id = start.json()["job_id"]
+    provider = agent_manager.providers["codex"]
+    provider.pending_approval = {
+        "source": "codex",
+        "job_id": job_id,
+        "request_id": "approval-1",
+        "description": "rm -rf build",
+    }
+
+    response = client.get(f"/v1/runs/{job_id}")
+
+    assert response.status_code == 200
+    assert response.json()["pending_approval"]["request_id"] == "approval-1"
+    client.post(f"/v1/runs/{job_id}/cancel")

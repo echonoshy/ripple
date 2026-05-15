@@ -17,12 +17,12 @@ def test_routes_complex_privileged_skill_task_to_agent_runner():
     assert "complex_task" in decision.signals
 
 
-def test_routes_basic_tool_task_to_ripple_tools():
+def test_scheduler_request_no_longer_routes_to_ripple_tools():
     decision = choose_route("明天上午 9 点提醒我开会")
 
-    assert decision.route == ExecutionRoute.RIPPLE_TOOLS
+    assert decision.route == ExecutionRoute.DIRECT
     assert decision.provider is None
-    assert "basic_tool" in decision.signals
+    assert "basic_tool" not in decision.signals
 
 
 def test_routes_simple_question_to_direct_answer():

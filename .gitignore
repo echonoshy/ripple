@@ -226,3 +226,4 @@ tmp/
 # codex
 .codex
 .codex/
+.agents/

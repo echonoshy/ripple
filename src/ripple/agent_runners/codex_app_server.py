@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from ripple.agent_runners.approvals import codex_approval_response_for_action, parse_codex_approval_request
 from ripple.agent_runners.models import (
     AgentRunnerEvent,
     AgentRunnerRequest,
@@ -178,6 +179,15 @@ class CodexAppServerSession:
         await self._write(payload)
         self.last_active_at = _now()
 
+    async def respond(self, request_id: Any, result: dict[str, Any]) -> None:
+        await self.ensure_started()
+        payload = {
+            "id": request_id,
+            "result": result,
+        }
+        await self._write(payload)
+        self.last_active_at = _now()
+
     async def _write(self, payload: dict[str, Any]) -> None:
         if self.process is None or self.process.stdin is None:
             raise RuntimeError("codex app-server process is not writable")
@@ -301,6 +311,7 @@ class CodexAppServerAgentProvider:
             idle_timeout_seconds=idle_timeout_seconds,
         )
         self.active_turns: dict[str, ActiveTurn] = {}
+        self.pending_approvals: dict[str, dict[str, Any]] = {}
 
     async def run(self, request: AgentRunnerRequest, *, job_dir: Path) -> AgentRunnerResult:
         job_id = request.job_id or "agent-job"
@@ -436,6 +447,30 @@ class CodexAppServerAgentProvider:
         asyncio.create_task(self._steer_turn(active_turn, text))
         return True
 
+    def get_pending_approval(self, job_id: str) -> dict[str, Any] | None:
+        return self.pending_approvals.get(job_id)
+
+    async def wait_for_pending_approval(self, job_id: str, *, timeout: float) -> dict[str, Any]:
+        deadline = asyncio.get_running_loop().time() + timeout
+        while True:
+            approval = self.pending_approvals.get(job_id)
+            if approval is not None:
+                return approval
+            if asyncio.get_running_loop().time() >= deadline:
+                raise TimeoutError(f"timed out waiting for pending approval for {job_id}")
+            await asyncio.sleep(0.01)
+
+    def resolve_approval(self, job_id: str, request_id: Any, action: str) -> bool:
+        approval = self.pending_approvals.get(job_id)
+        active_turn = self.active_turns.get(job_id)
+        if approval is None or active_turn is None:
+            return False
+        if approval.get("request_id") != request_id:
+            return False
+        response = codex_approval_response_for_action(approval, action)  # type: ignore[arg-type]
+        asyncio.create_task(self._resolve_approval(active_turn.session, job_id, request_id, response))
+        return True
+
     async def stop_user(self, user_id: str) -> None:
         await self.pool.stop_user(user_id)
 
@@ -452,6 +487,19 @@ class CodexAppServerAgentProvider:
                     "input": [{"type": "text", "text": text}],
                 },
             )
+        except Exception:  # noqa: BLE001
+            return
+
+    async def _resolve_approval(
+        self,
+        session: CodexAppServerSession,
+        job_id: str,
+        request_id: Any,
+        response: dict[str, Any],
+    ) -> None:
+        try:
+            await session.respond(request_id, response)
+            self.pending_approvals.pop(job_id, None)
         except Exception:  # noqa: BLE001
             return
 
@@ -478,6 +526,25 @@ class CodexAppServerAgentProvider:
                         data={"message": message},
                     ),
                 )
+                approval = parse_codex_approval_request(
+                    message,
+                    job_id=job_id,
+                    user_id=request.user_id,
+                    session_id=request.session_id,
+                )
+                if approval is not None:
+                    self.pending_approvals[job_id] = approval
+                    await self._append_event(
+                        events_file,
+                        AgentRunnerEvent(
+                            type="codex.approval_request",
+                            job_id=job_id,
+                            provider=request.provider,
+                            message=approval.get("description"),
+                            data={"approval": approval},
+                        ),
+                    )
+                    continue
                 text = self._extract_text(message)
                 if text:
                     output_parts.append(text)

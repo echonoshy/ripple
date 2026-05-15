@@ -10,7 +10,13 @@
 
 ## 项目速览
 
-**ripple** 是 Agent 系统，包含 agentic loop、工具调用、Skill 系统、Hook 验证、FastAPI Server 和 Next.js Web 前端。
+**ripple** 是运行在 Codex app-server 之上的 Agent 控制面，包含 FastAPI Server、user 级 nsjail 沙箱、Session/Run 状态管理、Connector 鉴权、Skill manifest 注入和 Next.js Web 前端。
+
+当前主链路是 **Codex-only runtime**：
+
+- Ripple 管理控制面：用户、会话、沙箱、凭证、权限桥接、任务状态、API 边界。
+- Codex app-server 管理执行面：读写文件、运行命令、搜索代码、调用 CLI、使用 skills、完成实际任务。
+- Ripple 不再运行旧版内置 `agent_loop`，也不再把 Bash/Read/Write 作为 server model-facing tools 暴露给模型。
 
 仓库信息：
 
@@ -24,16 +30,15 @@
 ```text
 src/
   ripple/              # Python 核心库
-    core/              # Agent Loop 核心
-    api/               # API 客户端
-    tools/             # 工具系统
+    agent_runners/     # Codex app-server 外部执行器
+    connectors/        # Connector 元数据、状态和鉴权动作
+    core/              # ToolUseContext 等共享上下文；不含旧 Agent Loop
+    tools/             # 工具抽象和兼容/内部工具；Server chat 主链不直接暴露
     skills/            # Skill 系统
-    hooks/             # Hook 系统
     messages/          # 消息类型
     utils/             # 工具函数
     permissions/       # 权限管理
     sandbox/           # nsjail 沙箱管理
-    compact/           # 上下文压缩
     tasks/             # 后台任务管理
   interfaces/
     server/            # FastAPI Server
@@ -92,11 +97,43 @@ proxy_on
 - API key、模型设置、agent 参数等放在 `config/` 下。
 - 前端配置集中在 `src/interfaces/web/package.json`、`eslint.config.mjs`、`tsconfig.json`。
 
+## Server / Codex 当前链路
+
+当前 Server 端采用控制面 / 执行面分离：
+
+- **Ripple Control Plane**：FastAPI、鉴权、`X-Ripple-User-Id`、session lifecycle、sandbox lifecycle、connector auth/status、skill manifest、approval bridge、job/event/output 状态。
+- **Codex Execution Plane**：服务端预装的 `codex app-server --listen stdio://`，由 Ripple 按 user 懒启动；Codex 在当前 user 的 `/workspace` 内执行实际工作。
+
+`/v1/chat/completions` 主链路：
+
+1. `interfaces.server.app:create_app` 启动 FastAPI，创建 `SandboxManager` 和 `SessionManager`。
+2. `routes.chat_completions` 校验 API key，读取 `X-Ripple-User-Id`，提取最后一条 user message 和 caller system prompt。
+3. `SessionManager.get_or_create_session` 创建或恢复 session；首次使用会创建当前 user 的 sandbox，并绑定 `workspace_root`、`session_runtime_dir`、`sandbox_manager`。
+4. `interfaces.server.codex_chat.build_codex_chat_prompt` 生成给 Codex 的单轮 prompt，包含 Ripple/Codex 职责说明、user/session、connector 状态、skill manifest、历史对话和当前请求。
+5. `ripple.agent_runners.service.start_agent_run` 校验 cwd 必须在 user workspace 内，转换为 sandbox 可见路径 `/workspace/...`，并把 `sandbox_config` 写入 metadata。
+6. `ExternalAgentManager` 启动 job，provider 目前只支持 `codex`。
+7. `CodexAppServerAgentProvider` 为每个 user 懒启动一个 Codex app-server 进程；存在 `sandbox_config` 时，app-server 进程本身通过 nsjail 运行。
+8. Provider 通过 JSON-RPC 调用 Codex：`initialize`、`thread/start`、`turn/start`；`turn/start` 传入 `cwd`、`approvalPolicy`、`sandboxPolicy`、`writableRoots`、`networkAccess`。
+9. Codex app-server 在 `/workspace` 内读写文件、运行命令、调用 CLI、读取 skills，完成后把 delta/event/output 写回 Ripple。
+10. Ripple 把结果转换为 OpenAI-compatible response 或 SSE，并把 user/assistant 消息持久化到 session。
+
+`/v1/runs` 是独立的 Codex job API，适合外部调度器或前端直接发起长任务；它同样落到 `start_agent_run(... provider=codex ...)`。
+
+当前明确移除或不在主链使用的内容：
+
+- `src/ripple/core/agent_loop.py`、`QueryState`、旧 OpenRouter/OpenAI client 主循环等 legacy runtime 已移除。
+- `/v1/tools/invoke` 返回 `410`，不再提供 Ripple tool execution。
+- `get_server_tool_names()` 返回空数组；Server chat 主链没有 model-facing Ripple tools。
+- `max_turns`、`thinking`、token `usage` 等字段主要为兼容 OpenAI-compatible 调用方保留，实际执行由 Codex app-server 决定。
+- 内嵌 scheduler API 已移除；未来/周期任务应由外部调度器调用 `/v1/runs` 并携带正确的 `X-Ripple-User-Id`。
+
 ## User 沙箱层
 
 沙箱以 **user_id** 为隔离单位，而不是 session_id。一个 user 对应一个长期存在的 workspace，其下可开多个 session；同一 user 的多个 session 共享 workspace，通过 user 级 `asyncio.Lock` 保证工具调用互斥。
 
 调用方通过 HTTP header `X-Ripple-User-Id: <uid>` 传入 user_id；缺失时回落到 `default`。user_id 合法字符集为 `[a-zA-Z0-9_-]{1,64}`。ripple 不做身份鉴权，由上游业务系统保证 user_id 的有效性与隔离语义。
+
+Codex app-server 的工作目录在沙箱内表现为 `/workspace`，对应宿主侧 `.ripple/sandboxes/<user_id>/workspace/`。同一 user 的不同 session 会共享这个 workspace；session 目录只保存对话和运行时状态。
 
 管理端点：
 
@@ -146,33 +183,55 @@ Skill 文件格式：
 - 常用 frontmatter 字段：`name`、`description`、`arguments`、`allowed-tools`、`context`、`when-to-use`。
 - 详细文档见 `docs/SKILLS.md`。
 
+Codex-only runtime 下，Ripple 主要把 skill 作为 manifest 注入 prompt，而不是通过 `SkillTool` 让模型回调 Server：
+
+- Shared Skills readonly mount 到 `/opt/ripple/skills/shared/<index>-<name>/...`。
+- Workspace Skills 位于 `/workspace/skills/...`。
+- Codex 看到 manifest 后，应自行读取对应 `SKILL.md` 和相邻资源文件。
+
 ## 架构索引
 
-核心 Agent Loop：
+Server 控制面：
 
-- `src/ripple/core/agent_loop.py`：主查询循环。
-- `src/ripple/core/state.py`：QueryState 跟踪对话历史和轮次计数。
-- `src/ripple/core/context.py`：ToolUseContext 管理工具、会话信息和工作目录。
-- `src/ripple/core/transitions.py`：状态机转换。
+- `src/interfaces/server/app.py`：FastAPI 入口，创建 `SandboxManager` / `SessionManager`。
+- `src/interfaces/server/routes.py`：OpenAI-compatible API、session、sandbox、runs、connectors、workspace 路由。
+- `src/interfaces/server/sessions.py`：Session 内存/磁盘生命周期、默认 system prompt、sandbox context。
+- `src/interfaces/server/codex_chat.py`：Chat Completions 到 Codex runner 的桥接。
+- `src/interfaces/server/workspace_browser.py`：workspace 目录浏览和文本预览。
+- `src/interfaces/server/middleware.py`：request/user/session 日志上下文。
+
+Codex 执行面：
+
+- `src/ripple/agent_runners/service.py`：创建 Codex run，校验 cwd，注入 sandbox metadata。
+- `src/ripple/agent_runners/manager.py`：内存 job 管理、取消、steer、approval 转发。
+- `src/ripple/agent_runners/codex_app_server.py`：Codex app-server JSON-RPC provider，每 user 懒启动进程。
+- `src/ripple/agent_runners/approvals.py`：Codex approval request 解析和响应映射。
+
+沙箱与 Connector：
+
+- `src/ripple/sandbox/config.py`：user sandbox 路径、资源限制、CLI 发现、凭证路径。
+- `src/ripple/sandbox/manager.py`：user sandbox/session 生命周期。
+- `src/ripple/sandbox/nsjail_config.py`：nsjail cfg、mount、env 注入。
+- `src/ripple/sandbox/executor.py`：内部需要时执行短命令的 nsjail runner。
+- `src/ripple/connectors/registry.py`：Google Workspace、Notion、Feishu、Bilibili、Codex CLI connector。
 
 工具系统：
 
 - `src/ripple/tools/base.py`：BaseTool 抽象类。
-- `src/ripple/tools/orchestration.py`：处理并发/串行工具执行。
-- `src/ripple/tools/builtin/`：内置工具。
+- `src/ripple/tools/orchestration.py`：兼容工具执行编排；Server chat 主链不使用。
+- `src/ripple/tools/builtin/`：内置/兼容工具；不要假设它们会暴露给 Codex chat。
 
 Skill 系统：
 
 - `src/ripple/skills/loader.py`：加载 shared 和 workspace skills。
 - `src/ripple/skills/executor.py`：执行 skills。
 - `src/ripple/skills/skill_tool.py`：SkillTool 包装器。
+- `src/ripple/skills/manifest.py`：生成 Codex-facing skill manifest 和 shared skill mount。
 
-消息与 API：
+消息：
 
 - `src/ripple/messages/types.py`：消息类型。
 - `src/ripple/messages/utils.py`：消息规范化。
-- `src/ripple/api/client.py`：OpenRouterClient 封装。
-- `src/ripple/api/streaming.py`：流式响应处理。
 
 接口层：
 
@@ -206,11 +265,12 @@ gmail, drive, calendar, docs, sheets, slides
 授权模型：
 
 - 管理员在 `config/settings.yaml` 配置一次 `server.gogcli_oauth.client`。
-- `GoogleWorkspaceLoginStart` 会把部署级 OAuth Client 自动注册到当前 `user_id` 的 gogcli 配置。
+- 前端或调用方通过 `/v1/connectors/google_workspace/auth/start` 发起授权；Server 会把部署级 OAuth Client 自动注册到当前 `user_id` 的 gogcli 配置。
 - 授权命令只请求基础服务：`--services gmail,drive,calendar,docs,sheets,slides`。
 - 用户仍需在浏览器打开授权 URL 并点击 Allow。
 - assisted callback 成功后，refresh token 加密保存到当前 user workspace 的 `/workspace/.config/gogcli/keyring/`。
-- `GoogleWorkspaceAuthStatus(check=true)` 用于查看/验活当前 user 已绑账号。
+- `/v1/connectors/google_workspace/accounts?check=true` 用于查看/验活当前 user 已绑账号。
+- Codex 执行业务时直接在 `/workspace` 内调用 `gog` CLI；Ripple 只负责授权、凭证注入、状态展示和 sandbox mount/env。
 
 当前 gog skills：
 
@@ -246,3 +306,4 @@ gog --account <email> --json gmail search "newer_than:7d" --max 5
 ## 本地参考项目
 
 - OpenClaw 源码：`/home/lake/workspace/openclaw`
+- Codex 源码： `/home/lake/workspace/codex`

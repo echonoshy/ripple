@@ -314,5 +314,4 @@ gog --account <email> --json gmail search "newer_than:7d" --max 5
 
 ## 本地参考项目
 
-- OpenClaw 源码：`/home/lake/workspace/openclaw`
 - Codex 源码： `/home/lake/workspace/codex`

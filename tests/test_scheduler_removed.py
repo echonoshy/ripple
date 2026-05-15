@@ -13,18 +13,16 @@ def _client() -> TestClient:
     return TestClient(app, headers={"X-Ripple-User-Id": "alice"})
 
 
-def test_schedule_collection_endpoint_returns_gone():
+def test_schedule_collection_endpoint_is_removed():
     response = _client().get("/v1/sandbox/schedules")
 
-    assert response.status_code == 410
-    assert "/v1/runs" in response.json()["detail"]
+    assert response.status_code == 404
 
 
-def test_schedule_nested_endpoint_returns_gone():
+def test_schedule_nested_endpoint_is_removed():
     response = _client().post("/v1/sandbox/schedules/job-123/run")
 
-    assert response.status_code == 410
-    assert "/v1/runs" in response.json()["detail"]
+    assert response.status_code == 404
 
 
 def test_schedule_tool_is_not_model_facing():

@@ -43,11 +43,10 @@ def test_info_reports_no_model_facing_tools(tmp_path):
     assert response.json()["tools"] == []
 
 
-def test_tools_invoke_is_gone(tmp_path):
+def test_tools_invoke_route_is_removed(tmp_path):
     response = _client(tmp_path).post("/v1/tools/invoke", json={"tool": "Bash", "args": {"command": "pwd"}})
 
-    assert response.status_code == 410
-    assert "Codex app-server" in response.json()["detail"]
+    assert response.status_code == 404
 
 
 def test_codex_prompt_includes_shared_and_workspace_skill_manifest(tmp_path):

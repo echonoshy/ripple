@@ -135,7 +135,7 @@ Testing 状态下，未加入 Test users 的账号不能稳定完成授权。长
 2. 确认应用仍是 `External` + `Testing`。
 3. 在 `Test users` 中加入当前授权使用的 Google 账号。
 4. 保存后等待几分钟。
-5. 回到 ripple 重新发起 `GoogleWorkspaceLoginStart`，使用新生成的 `oauth_url`，不要复用旧 URL。
+5. 回到 ripple 重新调用 `POST /v1/connectors/google_workspace/auth/start`，使用新生成的 `oauth_url`，不要复用旧 URL。
 
 ## 4. 创建 Web OAuth Client
 
@@ -224,7 +224,7 @@ server:
 |---|---|
 | `server.public_base_url` | 浏览器能访问到的 ripple API 根地址 |
 | `server.gogcli_oauth.callback_url` | Google 回调到 ripple 的完整 URL |
-| `server.gogcli_oauth.auto_register_client` | 允许 `GoogleWorkspaceLoginStart` 自动把部署级 OAuth Client 注册到当前 user |
+| `server.gogcli_oauth.auto_register_client` | 允许 Google Workspace connector 自动把部署级 OAuth Client 注册到当前 user |
 | `server.gogcli_oauth.client.type` | 固定使用 `web` |
 | `server.gogcli_oauth.client.client_id` | Google OAuth Client ID |
 | `server.gogcli_oauth.client.client_secret` | Google OAuth Client secret |
@@ -478,16 +478,11 @@ curl -X POST "$API/v1/sandboxes" \
 发起 Google 授权：
 
 ```bash
-curl -X POST "$API/v1/tools/invoke" \
+curl -X POST "$API/v1/connectors/google_workspace/auth/start" \
   -H "Authorization: Bearer $KEY" \
   -H "X-Ripple-User-Id: alice" \
   -H "Content-Type: application/json" \
-  -d '{
-    "tool": "GoogleWorkspaceLoginStart",
-    "args": {
-      "email": "alice@gmail.com"
-    }
-  }'
+  -d '{"email":"alice@gmail.com"}'
 ```
 
 返回结果中会包含：
@@ -541,7 +536,7 @@ curl "$API/v1/connectors/google_workspace/accounts?check=true" \
 }
 ```
 
-如果 `valid` 是 `false`，通常表示 refresh token 已失效或被撤销，需要重新发起 `GoogleWorkspaceLoginStart`。
+如果 `valid` 是 `false`，通常表示 refresh token 已失效或被撤销，需要重新调用 Google Workspace connector 授权入口。
 
 ## 10. 授权后如何使用
 
@@ -585,7 +580,7 @@ Google OAuth Client 的 Authorized redirect URI 与 ripple 实际使用的 callb
 
 1. 查看 `config/settings.yaml` 中的 `server.public_base_url` 和 `server.gogcli_oauth.callback_url`。
 2. 在 Google Auth Platform → Clients → 当前 Web OAuth Client 中，把完全一致的 callback URL 加入 Authorized redirect URIs。
-3. 重新发起 `GoogleWorkspaceLoginStart`。
+3. 重新调用 `POST /v1/connectors/google_workspace/auth/start`。
 
 ### `access_denied` 或用户无法进入授权
 
@@ -600,7 +595,7 @@ Google OAuth Client 的 Authorized redirect URI 与 ripple 实际使用的 callb
 
 1. 如果页面提示“此应用正在测试中，仅供已获开发者批准的测试人员使用”，进入 Google Auth Platform → Audience / OAuth consent screen → Test users，把该 Google 账号加入测试用户。
 2. 保存后等待几分钟。
-3. 重新发起 `GoogleWorkspaceLoginStart`，不要复用旧的 `oauth_url`。
+3. 重新调用 `POST /v1/connectors/google_workspace/auth/start`，不要复用旧的 `oauth_url`。
 4. 如果已经发布到 Production，但仍提示“尚未完成 Google 验证流程”，检查 OAuth verification 是否完成，以及当前请求的 scopes 是否已经通过验证。
 
 ### “尚未完成 Google 验证流程”是否可以直接发布 Production？

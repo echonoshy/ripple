@@ -289,18 +289,3 @@ class ConnectorActionResponse(BaseModel):
     stage: str = ""
     detail: str = ""
     data: dict[str, Any] = Field(default_factory=dict)
-
-
-# ─── Tools Invoke ───
-
-
-class ToolInvokeRequest(BaseModel):
-    tool: str
-    args: dict[str, Any] = {}
-    session_id: str | None = None
-
-
-class ToolInvokeResponse(BaseModel):
-    ok: bool = True
-    result: Any = None
-    error: str | None = None

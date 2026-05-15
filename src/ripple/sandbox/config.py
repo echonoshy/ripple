@@ -384,8 +384,8 @@ class SandboxConfig:
     def gogcli_client_config_file(self, user_id: str) -> Path:
         """Desktop OAuth client_secret.json 的宿主侧落盘路径（不入沙箱）。
 
-        默认由 `GoogleWorkspaceLoginStart` 从部署级 `server.gogcli_oauth.client`
-        自动注册后写这里；`GoogleWorkspaceClientConfigSet` 手工 fallback 也写这里。
+        默认由 Google Workspace connector 从部署级 `server.gogcli_oauth.client`
+        自动注册后写这里。
         """
         validate_user_id(user_id)
         return self.sandbox_dir(user_id) / "credentials" / "gogcli-client.json"

@@ -1,6 +1,7 @@
 """API 路由定义
 
-包含 chat completions、models、health、sessions、tools/invoke 等端点。
+包含 chat completions、models、health、sessions、connectors、workspace、sandbox
+以及 Codex app-server run 管理端点。
 """
 
 import html
@@ -35,7 +36,6 @@ from interfaces.server.schemas import (
     SessionListResponse,
     SuspendedSessionInfo,
     SystemInfoResponse,
-    ToolInvokeRequest,
     WorkspaceFileSaveRequest,
 )
 from interfaces.server.sessions import SessionManager, _merge_system_prompt
@@ -929,7 +929,7 @@ async def gogcli_oauth_callback(request: Request) -> HTMLResponse:
 
     Google cannot send Ripple API auth headers during OAuth redirects. This
     endpoint is therefore protected by gogcli's random `state`; the route only
-    works when `GoogleWorkspaceLoginStart` has registered a matching pending
+    works when the Google Workspace connector has registered a matching pending
     state in this process.
     """
     from ripple.sandbox.config import GOGCLI_CLI_SANDBOX_BIN  # noqa: PLC0415
@@ -1001,24 +1001,6 @@ async def gogcli_oauth_callback(request: Request) -> HTMLResponse:
         "Google 授权完成",
         "Ripple 已保存 Google Workspace 授权。可以关闭这个页面，回到对话继续。",
     )
-
-
-# ─── Removed Embedded Scheduler ───
-
-
-SCHEDULES_REMOVED_DETAIL = (
-    "Ripple embedded scheduling has been removed. Use an external scheduler to call /v1/runs "
-    "with the desired X-Ripple-User-Id."
-)
-
-
-@router.api_route("/v1/sandbox/schedules", methods=["GET", "POST", "PATCH", "DELETE"])
-@router.api_route("/v1/sandbox/schedules/{path:path}", methods=["GET", "POST", "PATCH", "DELETE"])
-async def schedules_removed(
-    path: str | None = None,
-    _api_key: str = Depends(verify_api_key),
-):
-    raise HTTPException(status_code=410, detail=SCHEDULES_REMOVED_DETAIL)
 
 
 # ─── Bilibili 扫码二维码图片 ───
@@ -1094,19 +1076,3 @@ async def get_sandbox_info(
         "active_sessions": len(manager.list_sessions()),
         "suspended_sessions": len(manager.list_suspended_sessions()),
     }
-
-
-# ─── Tools Invoke ───
-
-
-@router.post("/v1/tools/invoke")
-async def invoke_tool(
-    request: ToolInvokeRequest,
-    http_request: Request,
-    user_id: str = Depends(get_user_id),
-    _api_key: str = Depends(verify_api_key),
-):
-    raise HTTPException(
-        status_code=410,
-        detail="Ripple tool execution has been removed. Agent execution is handled by Codex app-server.",
-    )

@@ -32,6 +32,9 @@ export interface UsageInfo {
   completion_tokens: number;
   total_tokens: number;
   last_prompt_tokens?: number;
+  cached_input_tokens?: number;
+  reasoning_output_tokens?: number;
+  model_context_window?: number;
 }
 
 export interface SessionUsage {
@@ -128,80 +131,6 @@ export interface WorkspaceFilePreview {
   truncated: boolean;
 }
 
-export type ScheduleType = "once" | "interval";
-export type ScheduleExecutionType = "command" | "agent";
-export interface ScheduledJob {
-  id: string;
-  user_id: string;
-  name: string;
-  command: string;
-  prompt: string | null;
-  execution_type: ScheduleExecutionType;
-  created_from: "chat" | "ui" | "api";
-  schedule_type: ScheduleType;
-  run_at: string | null;
-  interval_seconds: number | null;
-  max_runs: number | null;
-  enabled: boolean;
-  timeout_seconds: number;
-  next_run_at: string | null;
-  running_at: string | null;
-  current_run_id: string | null;
-  last_run_at: string | null;
-  last_status: string | null;
-  last_error: string | null;
-  last_duration_ms: number | null;
-  run_count: number;
-  consecutive_errors: number;
-  consecutive_skipped: number;
-  schedule_error_count: number;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface ScheduledRun {
-  id: string;
-  job_id: string;
-  user_id: string;
-  status: string;
-  started_at: string;
-  finished_at: string | null;
-  exit_code: number | null;
-  stdout_tail: string;
-  stderr_tail: string;
-  error: string | null;
-  summary: string | null;
-  duration_ms: number | null;
-}
-
-export interface ScheduleCreateInput {
-  name: string;
-  command?: string | null;
-  prompt?: string | null;
-  execution_type?: ScheduleExecutionType;
-  created_from?: "chat" | "ui" | "api";
-  schedule_type: ScheduleType;
-  run_at?: string | null;
-  interval_seconds?: number | null;
-  max_runs?: number | null;
-  enabled?: boolean;
-  timeout_seconds?: number;
-}
-
-export interface ScheduleUpdateInput {
-  name?: string;
-  command?: string | null;
-  prompt?: string | null;
-  execution_type?: ScheduleExecutionType;
-  created_from?: "chat" | "ui" | "api";
-  schedule_type?: ScheduleType;
-  run_at?: string | null;
-  interval_seconds?: number | null;
-  max_runs?: number | null;
-  enabled?: boolean;
-  timeout_seconds?: number;
-}
-
 export interface Session {
   session_id: string;
   title: string;
@@ -262,7 +191,6 @@ export interface WorkbenchTaskSummary {
 export type WorkbenchTimelineEventType =
   | "user_message"
   | "assistant_message"
-  | "tool_call"
   | "approval_request"
   | "final_summary";
 

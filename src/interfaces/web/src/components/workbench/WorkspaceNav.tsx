@@ -2,18 +2,19 @@
 
 import React from "react";
 import {
-  GitPullRequest,
+  Files,
   Loader2,
+  MessageSquareText,
   Plus,
   Search,
   Settings,
   Trash2,
   UserRound,
-  Workflow,
-  Zap,
 } from "lucide-react";
 import type { WorkbenchTaskSummary } from "@/types";
 import StatusChip from "./StatusChip";
+
+export type WorkbenchView = "chat" | "files";
 
 function formatSessionTime(value: string): string {
   const date = new Date(value);
@@ -36,6 +37,8 @@ interface WorkspaceNavProps {
   isLoading: boolean;
   isGenerating: boolean;
   userId: string;
+  activeView: WorkbenchView;
+  onViewChange: (view: WorkbenchView) => void;
   onNewTask: () => void;
   onSelectTask: (id: string) => void;
   onDeleteTask: (id: string, event: React.MouseEvent) => void;
@@ -48,15 +51,13 @@ export default function WorkspaceNav({
   isLoading,
   isGenerating,
   userId,
+  activeView,
+  onViewChange,
   onNewTask,
   onSelectTask,
   onDeleteTask,
   onOpenSettings,
 }: WorkspaceNavProps) {
-  const reviewCount = tasks.filter(
-    (task) => task.status === "waiting_for_approval" || task.status === "review"
-  ).length;
-
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="border-b border-[#d0d7de] p-3">
@@ -96,29 +97,38 @@ export default function WorkspaceNav({
 
         <div className="mb-5">
           <div className="mb-2 px-2 text-xs font-semibold tracking-wide text-[#6e7781] uppercase">
-            Command center
+            Views
           </div>
           <div className="space-y-1">
-            <button className="flex w-full items-center justify-between rounded-md bg-[#eaeef2] px-2 py-2 text-sm font-semibold text-[#24292f]">
+            <button
+              type="button"
+              onClick={() => onViewChange("chat")}
+              className={`flex w-full items-center justify-between rounded-md px-2 py-2 text-sm ${
+                activeView === "chat"
+                  ? "bg-[#eaeef2] font-semibold text-[#24292f]"
+                  : "text-[#57606a] hover:bg-[#eaeef2]"
+              }`}
+            >
               <span className="flex items-center gap-2">
-                <Workflow size={15} />
-                Active tasks
+                <MessageSquareText size={15} />
+                Chat
               </span>
               <span className="text-xs text-[#57606a]">{tasks.length}</span>
             </button>
-            <button className="flex w-full items-center justify-between rounded-md px-2 py-2 text-sm text-[#57606a] hover:bg-[#eaeef2]">
+            <button
+              type="button"
+              onClick={() => onViewChange("files")}
+              className={`flex w-full items-center justify-between rounded-md px-2 py-2 text-sm ${
+                activeView === "files"
+                  ? "bg-[#eaeef2] font-semibold text-[#24292f]"
+                  : "text-[#57606a] hover:bg-[#eaeef2]"
+              }`}
+            >
               <span className="flex items-center gap-2">
-                <GitPullRequest size={15} />
-                Review queue
+                <Files size={15} />
+                Files
               </span>
-              <span className="text-xs text-[#57606a]">{reviewCount}</span>
-            </button>
-            <button className="flex w-full items-center justify-between rounded-md px-2 py-2 text-sm text-[#57606a] hover:bg-[#eaeef2]">
-              <span className="flex items-center gap-2">
-                <Zap size={15} />
-                Automations
-              </span>
-              <span className="text-xs text-[#57606a]">API</span>
+              <span className="text-xs text-[#57606a]">workspace</span>
             </button>
           </div>
         </div>

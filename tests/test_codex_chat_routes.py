@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -54,7 +55,166 @@ class InstantCodexProvider:
         )
 
 
-def _client(tmp_path: Path, monkeypatch, provider: InstantCodexProvider) -> TestClient:
+class CodexToolEventProvider:
+    def __init__(self):
+        self.requests: list[AgentRunnerRequest] = []
+
+    async def run(self, request: AgentRunnerRequest, *, job_dir: Path) -> AgentRunnerResult:
+        self.requests.append(request)
+        job_dir.mkdir(parents=True, exist_ok=True)
+        events_file = job_dir / "events.jsonl"
+        output_file = job_dir / "output.txt"
+        events = [
+            AgentRunnerEvent(
+                type="codex.notification",
+                job_id=request.job_id or "job-test",
+                provider=request.provider,
+                data={
+                    "message": {
+                        "method": "item/started",
+                        "params": {
+                            "threadId": "thread-1",
+                            "turnId": "turn-1",
+                            "item": {
+                                "type": "commandExecution",
+                                "id": "cmd-1",
+                                "command": "pwd",
+                                "cwd": "/workspace",
+                                "processId": None,
+                                "source": "agent",
+                                "status": "inProgress",
+                                "commandActions": [],
+                                "aggregatedOutput": None,
+                                "exitCode": None,
+                                "durationMs": None,
+                            },
+                        },
+                    }
+                },
+            ),
+            AgentRunnerEvent(
+                type="codex.notification",
+                job_id=request.job_id or "job-test",
+                provider=request.provider,
+                data={
+                    "message": {
+                        "method": "item/completed",
+                        "params": {
+                            "threadId": "thread-1",
+                            "turnId": "turn-1",
+                            "item": {
+                                "type": "commandExecution",
+                                "id": "cmd-1",
+                                "command": "pwd",
+                                "cwd": "/workspace",
+                                "processId": "proc-1",
+                                "source": "agent",
+                                "status": "completed",
+                                "commandActions": [],
+                                "aggregatedOutput": "/workspace\n",
+                                "exitCode": 0,
+                                "durationMs": 12,
+                            },
+                        },
+                    }
+                },
+            ),
+            AgentRunnerEvent(
+                type="codex.notification",
+                job_id=request.job_id or "job-test",
+                provider=request.provider,
+                data={
+                    "message": {
+                        "method": "item/agentMessage/delta",
+                        "params": {"delta": "done"},
+                    }
+                },
+            ),
+        ]
+        events_file.write_text(
+            "".join(json.dumps(event.model_dump(mode="json"), ensure_ascii=False) + "\n" for event in events),
+            encoding="utf-8",
+        )
+        output_file.write_text("done", encoding="utf-8")
+        return AgentRunnerResult(
+            job_id=request.job_id or "job-test",
+            provider=request.provider,
+            status=AgentRunnerStatus.COMPLETED,
+            events_file=events_file,
+            output_file=output_file,
+            stdout_tail="done",
+        )
+
+
+class CodexUsageEventProvider:
+    def __init__(self):
+        self.requests: list[AgentRunnerRequest] = []
+
+    async def run(self, request: AgentRunnerRequest, *, job_dir: Path) -> AgentRunnerResult:
+        self.requests.append(request)
+        job_dir.mkdir(parents=True, exist_ok=True)
+        events_file = job_dir / "events.jsonl"
+        output_file = job_dir / "output.txt"
+        events = [
+            AgentRunnerEvent(
+                type="codex.notification",
+                job_id=request.job_id or "job-test",
+                provider=request.provider,
+                data={
+                    "message": {
+                        "method": "thread/tokenUsage/updated",
+                        "params": {
+                            "threadId": "thread-1",
+                            "turnId": "turn-1",
+                            "tokenUsage": {
+                                "total": {
+                                    "totalTokens": 180,
+                                    "inputTokens": 120,
+                                    "cachedInputTokens": 10,
+                                    "outputTokens": 30,
+                                    "reasoningOutputTokens": 30,
+                                },
+                                "last": {
+                                    "totalTokens": 180,
+                                    "inputTokens": 120,
+                                    "cachedInputTokens": 10,
+                                    "outputTokens": 30,
+                                    "reasoningOutputTokens": 30,
+                                },
+                                "modelContextWindow": 200000,
+                            },
+                        },
+                    }
+                },
+            ),
+            AgentRunnerEvent(
+                type="codex.notification",
+                job_id=request.job_id or "job-test",
+                provider=request.provider,
+                data={
+                    "message": {
+                        "method": "item/agentMessage/delta",
+                        "params": {"delta": "done"},
+                    }
+                },
+            ),
+        ]
+        events_file.write_text(
+            "".join(json.dumps(event.model_dump(mode="json"), ensure_ascii=False) + "\n" for event in events),
+            encoding="utf-8",
+        )
+        output_file.write_text("done", encoding="utf-8")
+        return AgentRunnerResult(
+            job_id=request.job_id or "job-test",
+            provider=request.provider,
+            status=AgentRunnerStatus.COMPLETED,
+            events_file=events_file,
+            output_file=output_file,
+            stdout_tail="done",
+        )
+
+
+def _client(tmp_path: Path, monkeypatch, provider: Any) -> TestClient:
     sandbox_config = SandboxConfig(sandboxes_root=tmp_path / "sandboxes", caches_root=tmp_path / "cache")
     sandbox_manager = SandboxManager(sandbox_config)
     session_manager = SessionManager(sandbox_manager=sandbox_manager)
@@ -184,3 +344,51 @@ def test_chat_completions_stream_bridges_codex_output_to_sse(tmp_path: Path, mon
     assert '"finish_reason": "stop"' in body
     assert "data: [DONE]" in body
     assert provider.requests
+
+
+def test_chat_completions_stream_bridges_codex_tool_items_to_sse(tmp_path: Path, monkeypatch):
+    provider = CodexToolEventProvider()
+    client = _client(tmp_path, monkeypatch, provider)
+
+    with client.stream(
+        "POST",
+        "/v1/chat/completions",
+        json={
+            "model": "codex-medium",
+            "stream": True,
+            "messages": [{"role": "user", "content": "Run pwd"}],
+        },
+    ) as response:
+        body = response.read().decode("utf-8")
+
+    assert response.status_code == 200
+    assert '"type": "tool_call"' in body
+    assert '"id": "cmd-1"' in body
+    assert '"name": "command_execution"' in body
+    assert '"command": "pwd"' in body
+    assert '"type": "tool_result"' in body
+    assert '"tool_use_id": "cmd-1"' in body
+    assert "/workspace" in body
+
+
+def test_chat_completions_stream_bridges_codex_token_usage_to_sse(tmp_path: Path, monkeypatch):
+    provider = CodexUsageEventProvider()
+    client = _client(tmp_path, monkeypatch, provider)
+
+    with client.stream(
+        "POST",
+        "/v1/chat/completions",
+        json={
+            "model": "codex-medium",
+            "stream": True,
+            "messages": [{"role": "user", "content": "Hello"}],
+        },
+    ) as response:
+        body = response.read().decode("utf-8")
+
+    assert response.status_code == 200
+    assert '"type": "usage"' in body
+    assert '"prompt_tokens": 120' in body
+    assert '"completion_tokens": 30' in body
+    assert '"total_tokens": 180' in body
+    assert '"last_prompt_tokens": 180' in body

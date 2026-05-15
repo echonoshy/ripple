@@ -1,7 +1,6 @@
 import type {
   Message,
   Session,
-  ToolCall,
   WorkbenchTaskStatus,
   WorkbenchTaskSummary,
   WorkbenchTimelineEvent,
@@ -64,12 +63,6 @@ export function createWorkbenchTasks(sessions: Session[]): WorkbenchTaskSummary[
   return sortWorkbenchTasks(mapSessionsToWorkbenchTasks(sessions));
 }
 
-export function summarizeToolCall(tool: ToolCall): string {
-  const args = typeof tool.arguments === "string" ? tool.arguments : JSON.stringify(tool.arguments);
-  const result = tool.result ? `\n\n${tool.result}` : "";
-  return `${args}${result}`;
-}
-
 export function messagesToTimelineEvents(messages: Message[]): WorkbenchTimelineEvent[] {
   const events: WorkbenchTimelineEvent[] = [];
 
@@ -82,17 +75,6 @@ export function messagesToTimelineEvents(messages: Message[]): WorkbenchTimeline
         title: message.role === "user" ? "User request" : "Codex update",
         body: message.content,
         createdAt: message.created_at,
-      });
-    }
-
-    for (const tool of message.toolCalls || []) {
-      events.push({
-        id: `${id}-${tool.id}`,
-        type: "tool_call",
-        title: tool.name,
-        body: summarizeToolCall(tool),
-        createdAt: message.created_at,
-        status: tool.status,
       });
     }
 

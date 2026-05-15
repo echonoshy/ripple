@@ -12,9 +12,18 @@ from ripple.sandbox.workspace import SANDBOX_VIRTUAL_ROOT, validate_path
 
 DEFAULT_PREVIEW_LIMIT_BYTES = 64 * 1024
 MAX_PREVIEW_LIMIT_BYTES = 256 * 1024
+MAX_SAVE_BYTES = 1024 * 1024
 
 
 class BinaryFileError(ValueError):
+    pass
+
+
+class WorkspaceFileConflictError(ValueError):
+    pass
+
+
+class WorkspaceFileTooLargeError(ValueError):
     pass
 
 
@@ -75,6 +84,40 @@ def preview_workspace_file(
         encoding="utf-8",
         content=content,
         truncated=truncated,
+    )
+
+
+def save_workspace_text_file(
+    workspace_root: Path,
+    requested_path: str | Path,
+    *,
+    content: str,
+    expected_modified_at: str | None = None,
+) -> WorkspaceFilePreviewResponse:
+    resolved = _resolve_workspace_path(workspace_root, requested_path)
+    if not resolved.host_path.exists():
+        raise FileNotFoundError(resolved.virtual_path)
+    if not resolved.host_path.is_file():
+        raise IsADirectoryError(resolved.virtual_path)
+
+    stat = resolved.host_path.stat()
+    current_modified_at = _format_mtime(stat.st_mtime)
+    if expected_modified_at is not None and expected_modified_at != current_modified_at:
+        raise WorkspaceFileConflictError(resolved.virtual_path)
+
+    existing_sample = resolved.host_path.read_bytes()[: min(stat.st_size, 4096)]
+    if _looks_binary(existing_sample):
+        raise BinaryFileError(resolved.virtual_path)
+
+    raw = content.encode("utf-8")
+    if len(raw) > MAX_SAVE_BYTES:
+        raise WorkspaceFileTooLargeError(resolved.virtual_path)
+
+    resolved.host_path.write_bytes(raw)
+    return preview_workspace_file(
+        workspace_root,
+        resolved.virtual_path,
+        limit_bytes=min(max(len(raw), 1), MAX_PREVIEW_LIMIT_BYTES),
     )
 
 

@@ -134,8 +134,37 @@ def _chunk(chunk_id: str, model: str, created: int, delta: dict[str, Any], finis
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
-def _usage() -> dict[str, int]:
-    return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "last_prompt_tokens": 0}
+def _usage(
+    *,
+    prompt_tokens: int = 0,
+    completion_tokens: int = 0,
+    total_tokens: int = 0,
+    last_prompt_tokens: int = 0,
+    cached_input_tokens: int = 0,
+    reasoning_output_tokens: int = 0,
+    model_context_window: int | None = None,
+) -> dict[str, int]:
+    usage = {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+        "last_prompt_tokens": last_prompt_tokens,
+        "cached_input_tokens": cached_input_tokens,
+        "reasoning_output_tokens": reasoning_output_tokens,
+    }
+    if model_context_window is not None:
+        usage["model_context_window"] = model_context_window
+    return usage
+
+
+def _int_value(value: Any) -> int:
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    return 0
 
 
 def _read_output(result: AgentRunnerResult | None) -> str:
@@ -213,6 +242,184 @@ def _extract_event_delta(event: dict[str, Any]) -> str:
     return ""
 
 
+def _extract_usage_event(event: dict[str, Any]) -> dict[str, int] | None:
+    if event.get("type") != "codex.notification":
+        return None
+    message = (event.get("data") or {}).get("message")
+    if not isinstance(message, dict) or message.get("method") != "thread/tokenUsage/updated":
+        return None
+    params = message.get("params", {})
+    if not isinstance(params, dict):
+        return None
+    token_usage = params.get("tokenUsage")
+    if not isinstance(token_usage, dict):
+        return None
+    total = token_usage.get("total")
+    last = token_usage.get("last")
+    if not isinstance(total, dict) or not isinstance(last, dict):
+        return None
+    model_context_window = token_usage.get("modelContextWindow")
+    return _usage(
+        prompt_tokens=_int_value(last.get("inputTokens")),
+        completion_tokens=_int_value(last.get("outputTokens")),
+        total_tokens=_int_value(last.get("totalTokens")),
+        last_prompt_tokens=_int_value(total.get("totalTokens")),
+        cached_input_tokens=_int_value(last.get("cachedInputTokens")),
+        reasoning_output_tokens=_int_value(last.get("reasoningOutputTokens")),
+        model_context_window=_int_value(model_context_window) if model_context_window is not None else None,
+    )
+
+
+def _tool_name_for_codex_item(item: dict[str, Any]) -> str:
+    item_type = item.get("type")
+    if item_type == "commandExecution":
+        return "command_execution"
+    if item_type == "fileChange":
+        return "file_change"
+    if item_type == "mcpToolCall":
+        server = item.get("server")
+        tool = item.get("tool")
+        if isinstance(server, str) and isinstance(tool, str):
+            return f"{server}.{tool}"
+        return "mcp_tool_call"
+    if item_type == "dynamicToolCall":
+        namespace = item.get("namespace")
+        tool = item.get("tool")
+        if isinstance(namespace, str) and namespace and isinstance(tool, str):
+            return f"{namespace}.{tool}"
+        return tool if isinstance(tool, str) and tool else "dynamic_tool_call"
+    if item_type == "collabAgentToolCall":
+        tool = item.get("tool")
+        return f"agent.{tool}" if isinstance(tool, str) and tool else "agent_tool_call"
+    if item_type == "webSearch":
+        return "web_search"
+    if item_type == "imageView":
+        return "view_image"
+    if item_type == "imageGeneration":
+        return "image_generation"
+    return str(item_type or "codex_item")
+
+
+def _tool_arguments_for_codex_item(item: dict[str, Any]) -> dict[str, Any]:
+    item_type = item.get("type")
+    if item_type == "commandExecution":
+        return {
+            "command": item.get("command"),
+            "cwd": item.get("cwd"),
+            "source": item.get("source"),
+        }
+    if item_type == "mcpToolCall":
+        return {
+            "server": item.get("server"),
+            "tool": item.get("tool"),
+            "arguments": item.get("arguments") or {},
+        }
+    if item_type == "dynamicToolCall":
+        return {
+            "namespace": item.get("namespace"),
+            "tool": item.get("tool"),
+            "arguments": item.get("arguments") or {},
+        }
+    if item_type == "fileChange":
+        return {"changes": item.get("changes") or []}
+    if item_type == "webSearch":
+        return {"query": item.get("query"), "action": item.get("action")}
+    if item_type == "imageView":
+        return {"path": item.get("path")}
+    if item_type == "imageGeneration":
+        return {"status": item.get("status"), "revised_prompt": item.get("revisedPrompt")}
+    if item_type == "collabAgentToolCall":
+        return {
+            "tool": item.get("tool"),
+            "prompt": item.get("prompt"),
+            "model": item.get("model"),
+            "receiver_thread_ids": item.get("receiverThreadIds") or [],
+        }
+    return dict(item)
+
+
+def _tool_result_for_codex_item(item: dict[str, Any]) -> str | dict[str, Any]:
+    item_type = item.get("type")
+    if item_type == "commandExecution":
+        return {
+            "status": item.get("status"),
+            "exit_code": item.get("exitCode"),
+            "duration_ms": item.get("durationMs"),
+            "output": item.get("aggregatedOutput") or "",
+        }
+    if item_type == "mcpToolCall":
+        return {
+            "status": item.get("status"),
+            "result": item.get("result"),
+            "error": item.get("error"),
+            "duration_ms": item.get("durationMs"),
+        }
+    if item_type == "dynamicToolCall":
+        return {
+            "status": item.get("status"),
+            "success": item.get("success"),
+            "content_items": item.get("contentItems") or [],
+            "duration_ms": item.get("durationMs"),
+        }
+    if item_type == "fileChange":
+        return {"status": item.get("status"), "changes": item.get("changes") or []}
+    if item_type == "webSearch":
+        return {"query": item.get("query"), "action": item.get("action")}
+    if item_type == "imageView":
+        return {"path": item.get("path")}
+    if item_type == "imageGeneration":
+        return {
+            "status": item.get("status"),
+            "revised_prompt": item.get("revisedPrompt"),
+            "saved_path": item.get("savedPath"),
+        }
+    if item_type == "collabAgentToolCall":
+        return {
+            "status": item.get("status"),
+            "receiver_thread_ids": item.get("receiverThreadIds") or [],
+            "agents_states": item.get("agentsStates") or {},
+        }
+    return dict(item)
+
+
+def _extract_tool_event(event: dict[str, Any]) -> dict[str, Any] | None:
+    if event.get("type") != "codex.notification":
+        return None
+    message = (event.get("data") or {}).get("message")
+    if not isinstance(message, dict):
+        return None
+    method = message.get("method")
+    params = message.get("params", {})
+    if not isinstance(params, dict):
+        return None
+    item = params.get("item")
+    if not isinstance(item, dict):
+        return None
+    item_id = item.get("id")
+    if not isinstance(item_id, str) or not item_id:
+        return None
+
+    item_type = item.get("type")
+    if item_type in {"userMessage", "agentMessage", "plan", "reasoning", "hookPrompt", "contextCompaction"}:
+        return None
+
+    if method == "item/started":
+        return {
+            "type": "tool_call",
+            "id": item_id,
+            "name": _tool_name_for_codex_item(item),
+            "input": _tool_arguments_for_codex_item(item),
+            "status": "running",
+        }
+    if method == "item/completed":
+        return {
+            "type": "tool_result",
+            "tool_use_id": item_id,
+            "content": _tool_result_for_codex_item(item),
+        }
+    return None
+
+
 def _extract_approval(event: dict[str, Any]) -> dict[str, Any] | None:
     if event.get("type") != "codex.approval_request":
         return None
@@ -270,10 +477,15 @@ async def collect_codex_chat_response(
                 prompt = build_codex_chat_prompt(session=session, user_input=user_input, system_prompt=system_prompt)
                 job = _start_chat_run(session=session, prompt=prompt, config=config, agent_manager=agent_manager)
                 offset = 0
+                usage = _usage()
                 try:
                     while job.status == AgentRunnerStatus.RUNNING:
                         events, offset = _read_new_events(job.events_file, offset) if job.events_file else ([], offset)
                         for event in events:
+                            usage_event = _extract_usage_event(event)
+                            if usage_event is not None:
+                                usage = usage_event
+                                continue
                             approval = _extract_approval(event)
                             if approval is not None:
                                 _mark_session_awaiting_approval(session, approval)
@@ -282,6 +494,19 @@ async def collect_codex_chat_response(
                                 raise HTTPException(status_code=409, detail="Codex approval required")
                         await asyncio.sleep(0.05)
                     result = await agent_manager.wait(job.job_id)
+                    if job.events_file:
+                        events, offset = _read_new_events(job.events_file, offset)
+                        for event in events:
+                            usage_event = _extract_usage_event(event)
+                            if usage_event is not None:
+                                usage = usage_event
+                                continue
+                            approval = _extract_approval(event)
+                            if approval is not None:
+                                _mark_session_awaiting_approval(session, approval)
+                                manager.touch_session(session)
+                                manager.persist_session(session)
+                                raise HTTPException(status_code=409, detail="Codex approval required")
                 except asyncio.CancelledError:
                     agent_manager.cancel(job.job_id)
                     await agent_manager.wait(job.job_id)
@@ -305,7 +530,7 @@ async def collect_codex_chat_response(
                             "finish_reason": "stop",
                         }
                     ],
-                    "usage": _usage(),
+                    "usage": usage,
                     "session_id": session.session_id,
                 }
         except asyncio.CancelledError:
@@ -353,16 +578,25 @@ async def stream_codex_chat_as_sse(
                 job = _start_chat_run(session=session, prompt=prompt, config=config, agent_manager=agent_manager)
 
                 offset = 0
+                latest_usage = _usage()
                 last_heartbeat = time.monotonic()
                 while job.status == AgentRunnerStatus.RUNNING:
                     events, offset = _read_new_events(job.events_file, offset) if job.events_file else ([], offset)
                     for event in events:
+                        usage_event = _extract_usage_event(event)
+                        if usage_event is not None:
+                            latest_usage = usage_event
+                            continue
                         approval = _extract_approval(event)
                         if approval is not None:
                             _mark_session_awaiting_approval(session, approval)
                             manager.touch_session(session)
                             manager.persist_session(session)
                             yield f"data: {json.dumps({'type': 'approval_required', 'approval': approval}, ensure_ascii=False)}\n\n"
+                            continue
+                        tool_event = _extract_tool_event(event)
+                        if tool_event is not None:
+                            yield f"data: {json.dumps(tool_event, ensure_ascii=False)}\n\n"
                             continue
                         delta = _extract_event_delta(event)
                         if delta:
@@ -378,12 +612,20 @@ async def stream_codex_chat_as_sse(
                 if job.events_file:
                     events, offset = _read_new_events(job.events_file, offset)
                     for event in events:
+                        usage_event = _extract_usage_event(event)
+                        if usage_event is not None:
+                            latest_usage = usage_event
+                            continue
                         approval = _extract_approval(event)
                         if approval is not None:
                             _mark_session_awaiting_approval(session, approval)
                             manager.touch_session(session)
                             manager.persist_session(session)
                             yield f"data: {json.dumps({'type': 'approval_required', 'approval': approval}, ensure_ascii=False)}\n\n"
+                            continue
+                        tool_event = _extract_tool_event(event)
+                        if tool_event is not None:
+                            yield f"data: {json.dumps(tool_event, ensure_ascii=False)}\n\n"
                             continue
                         delta = _extract_event_delta(event)
                         if delta:
@@ -400,6 +642,8 @@ async def stream_codex_chat_as_sse(
                     yield _chunk(chunk_id, model, created, {"content": output_text})
 
                 _append_session_messages(session, user_input, output_text or emitted_text)
+                if latest_usage["total_tokens"] > 0:
+                    yield f"data: {json.dumps({'type': 'usage', 'usage': latest_usage}, ensure_ascii=False)}\n\n"
                 finish_chunk = {
                     "id": chunk_id,
                     "object": "chat.completion.chunk",

@@ -6,8 +6,7 @@ import { X } from "lucide-react";
 interface WorkbenchShellProps {
   topBar: React.ReactNode;
   nav: React.ReactNode;
-  taskPage: React.ReactNode;
-  inspector: React.ReactNode;
+  content: React.ReactNode;
   isNavOpen: boolean;
   onCloseNav: () => void;
 }
@@ -15,8 +14,7 @@ interface WorkbenchShellProps {
 export default function WorkbenchShell({
   topBar,
   nav,
-  taskPage,
-  inspector,
+  content,
   isNavOpen,
   onCloseNav,
 }: WorkbenchShellProps) {
@@ -54,11 +52,7 @@ export default function WorkbenchShell({
           </div>
         )}
 
-        <main className="min-w-0 flex-1 bg-white">{taskPage}</main>
-
-        <aside className="hidden w-[380px] shrink-0 border-l border-[#d0d7de] bg-[#f6f8fa] xl:block">
-          {inspector}
-        </aside>
+        <main className="min-w-0 flex-1 bg-white">{content}</main>
       </div>
     </div>
   );

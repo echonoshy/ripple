@@ -4,7 +4,6 @@ import React, { useCallback, useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   X,
-  Brain,
   Wrench,
   Sparkles,
   Server,
@@ -37,8 +36,6 @@ import {
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  thinkingEnabled: boolean;
-  onThinkingToggle: (enabled: boolean) => void;
   apiKey: string | null;
   onApiKeyChange: () => void;
   userId: string;
@@ -68,8 +65,6 @@ function ReadyBadge({ label, ready }: { label: string; ready: boolean }) {
 export default function SettingsModal({
   isOpen,
   onClose,
-  thinkingEnabled,
-  onThinkingToggle,
   apiKey,
   onApiKeyChange,
   userId,
@@ -279,31 +274,6 @@ export default function SettingsModal({
                     Config
                   </h3>
                   <div className="border-ripple-ink flex items-center justify-between border-2 bg-white p-4 shadow-[3px_3px_0_#111111]">
-                    <div className="flex items-center gap-3">
-                      <div className="border-ripple-ink bg-ripple-yellow flex h-9 w-9 items-center justify-center border-2">
-                        <Brain size={18} className="text-ripple-ink" />
-                      </div>
-                      <div>
-                        <p className="text-ripple-ink text-sm font-bold">Thinking Mode</p>
-                        <p className="text-ripple-ink/55 text-xs">Show reasoning process</p>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => onThinkingToggle(!thinkingEnabled)}
-                      className={`border-ripple-ink relative h-7 w-14 border-2 transition-colors ${
-                        thinkingEnabled ? "bg-ripple-lime" : "bg-white"
-                      }`}
-                    >
-                      <motion.div
-                        animate={{ x: thinkingEnabled ? 26 : 2 }}
-                        transition={{ type: "tween", duration: 0.1 }}
-                        className={`border-ripple-ink absolute top-[3px] h-[18px] w-[18px] border-2 ${
-                          thinkingEnabled ? "bg-ripple-ink" : "bg-ripple-ink/35"
-                        }`}
-                      />
-                    </button>
-                  </div>
-                  <div className="border-ripple-ink mt-3 flex items-center justify-between border-2 bg-white p-4 shadow-[3px_3px_0_#111111]">
                     <div className="flex items-center gap-3">
                       <div className="border-ripple-ink bg-ripple-cyan/45 flex h-9 w-9 items-center justify-center border-2">
                         <KeyRound size={18} className="text-ripple-ink" />

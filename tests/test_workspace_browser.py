@@ -4,8 +4,10 @@ import pytest
 
 from interfaces.server.workspace_browser import (
     BinaryFileError,
+    WorkspaceFileConflictError,
     browse_workspace_directory,
     preview_workspace_file,
+    save_workspace_text_file,
 )
 
 
@@ -72,3 +74,40 @@ def test_preview_workspace_file_rejects_binary_files(tmp_path: Path):
 
     with pytest.raises(BinaryFileError):
         preview_workspace_file(workspace, "/workspace/image.bin")
+
+
+def test_save_workspace_text_file_updates_utf8_content(tmp_path: Path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    target = workspace / "notes.md"
+    target.write_text("before", encoding="utf-8")
+    previous = preview_workspace_file(workspace, "/workspace/notes.md")
+
+    saved = save_workspace_text_file(
+        workspace,
+        "/workspace/notes.md",
+        content="after\n",
+        expected_modified_at=previous.modified_at,
+    )
+
+    assert target.read_text(encoding="utf-8") == "after\n"
+    assert saved.path == "/workspace/notes.md"
+    assert saved.content == "after\n"
+    assert saved.truncated is False
+
+
+def test_save_workspace_text_file_rejects_stale_modified_at(tmp_path: Path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    target = workspace / "notes.md"
+    target.write_text("current", encoding="utf-8")
+
+    with pytest.raises(WorkspaceFileConflictError):
+        save_workspace_text_file(
+            workspace,
+            "/workspace/notes.md",
+            content="overwrite",
+            expected_modified_at="2000-01-01T00:00:00+00:00",
+        )
+
+    assert target.read_text(encoding="utf-8") == "current"

@@ -21,12 +21,11 @@ import {
 } from "@/lib/api";
 import RippleIcon from "@/components/icons/RippleIcon";
 import SettingsModal from "@/components/SettingsModal";
-import ScheduledTasksModal from "@/components/ScheduledTasksModal";
-import InspectorPanel from "@/components/workbench/InspectorPanel";
 import TaskPage from "@/components/workbench/TaskPage";
 import WorkbenchShell from "@/components/workbench/WorkbenchShell";
 import WorkbenchTopBar from "@/components/workbench/WorkbenchTopBar";
-import WorkspaceNav from "@/components/workbench/WorkspaceNav";
+import WorkspaceExplorer from "@/components/WorkspaceExplorer";
+import WorkspaceNav, { WorkbenchView } from "@/components/workbench/WorkspaceNav";
 import { applyTaskUpdate, upsertTask } from "@/lib/chatState";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { bumpInputFocusToken } from "@/lib/inputFocus";
@@ -64,9 +63,8 @@ export default function Home() {
 
   // ── UI state ──
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isScheduledTasksOpen, setIsScheduledTasksOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [thinkingEnabled, setThinkingEnabled] = useState(false);
+  const [activeView, setActiveView] = useState<WorkbenchView>("chat");
   const [inputFocusToken, setInputFocusToken] = useState(0);
   const [sessionIdCopied, setSessionIdCopied] = useState(false);
   const [workspaceRefreshToken, setWorkspaceRefreshToken] = useState(0);
@@ -207,6 +205,7 @@ export default function Home() {
       const details = await fetchSessionDetails(id);
       if (!details) return;
       applySessionDetails(details);
+      setActiveView("chat");
       setIsSidebarOpen(false);
     } catch (err) {
       console.error("Error switching session:", err);
@@ -216,6 +215,7 @@ export default function Home() {
   // ── New chat ──
   const handleNewChat = async () => {
     if (isGenerating) return;
+    setActiveView("chat");
     setMessages([]);
     setTokenUsage({ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
     setLastContextTokens(0);
@@ -309,7 +309,6 @@ export default function Home() {
         activeSessionId,
         text,
         selectedModel,
-        thinkingEnabled,
         {
           onMessageDelta: (delta) => {
             if (isStaleRequest()) return;
@@ -483,7 +482,7 @@ export default function Home() {
         { signal: abortController.signal }
       );
     },
-    [input, isGenerating, sessionId, selectedModel, thinkingEnabled, loadSessions]
+    [input, isGenerating, sessionId, selectedModel, loadSessions]
   );
 
   const handleQuickReply = useCallback(
@@ -635,7 +634,11 @@ export default function Home() {
         onCloseNav={() => setIsSidebarOpen(false)}
         topBar={
           <WorkbenchTopBar
-            taskTitle={selectedWorkbenchTask?.title || "Ripple Workbench"}
+            taskTitle={
+              activeView === "files"
+                ? "Workspace Files"
+                : selectedWorkbenchTask?.title || "Ripple Workbench"
+            }
             userId={userId}
             selectedModel={selectedModel}
             models={models}
@@ -653,7 +656,6 @@ export default function Home() {
             pendingApprovalCount={pendingApprovalCount}
             onCopySessionId={handleCopySessionId}
             onOpenSettings={() => setIsSettingsOpen(true)}
-            onOpenSchedules={() => setIsScheduledTasksOpen(true)}
             onOpenNav={() => setIsSidebarOpen(true)}
           />
         }
@@ -664,6 +666,11 @@ export default function Home() {
             isLoading={isLoadingSessions}
             isGenerating={isGenerating}
             userId={userId}
+            activeView={activeView}
+            onViewChange={(view) => {
+              setActiveView(view);
+              setIsSidebarOpen(false);
+            }}
             onNewTask={handleNewChat}
             onSelectTask={(id) => {
               void handleSwitchSession(id);
@@ -673,47 +680,36 @@ export default function Home() {
             onOpenSettings={() => setIsSettingsOpen(true)}
           />
         }
-        taskPage={
-          <TaskPage
-            task={selectedWorkbenchTask}
-            sessionId={sessionId}
-            messages={messages}
-            timelineEvents={timelineEvents}
-            taskProgress={taskProgress}
-            taskSteps={tasks}
-            tokenUsage={tokenUsage}
-            lastContextTokens={lastContextTokens}
-            input={input}
-            isGenerating={isGenerating}
-            focusToken={inputFocusToken}
-            onInputChange={setInput}
-            onSend={handleSendMessage}
-            onStop={handleStop}
-            onNewTask={handleNewChat}
-            onQuickReply={handleQuickReply}
-            onPermissionResolve={handlePermissionResolve}
-          />
-        }
-        inspector={
-          <InspectorPanel
-            messages={messages}
-            task={selectedWorkbenchTask}
-            taskSteps={tasks}
-            taskProgress={taskProgress}
-            userId={userId}
-            selectedModel={selectedModel}
-            sessionId={sessionId}
-            workspaceRefreshToken={workspaceRefreshToken}
-            onPermissionResolve={handlePermissionResolve}
-          />
+        content={
+          activeView === "files" ? (
+            <WorkspaceExplorer userId={userId} refreshToken={workspaceRefreshToken} />
+          ) : (
+            <TaskPage
+              task={selectedWorkbenchTask}
+              sessionId={sessionId}
+              messages={messages}
+              timelineEvents={timelineEvents}
+              taskProgress={taskProgress}
+              taskSteps={tasks}
+              tokenUsage={tokenUsage}
+              lastContextTokens={lastContextTokens}
+              input={input}
+              isGenerating={isGenerating}
+              focusToken={inputFocusToken}
+              onInputChange={setInput}
+              onSend={handleSendMessage}
+              onStop={handleStop}
+              onNewTask={handleNewChat}
+              onQuickReply={handleQuickReply}
+              onPermissionResolve={handlePermissionResolve}
+            />
+          )
         }
       />
 
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
-        thinkingEnabled={thinkingEnabled}
-        onThinkingToggle={setThinkingEnabled}
         apiKey={getApiKey()}
         userId={userId}
         onUserIdChange={handleUserIdChange}
@@ -723,11 +719,6 @@ export default function Home() {
           setIsSettingsOpen(false);
           setAuthState("needs_auth");
         }}
-      />
-      <ScheduledTasksModal
-        isOpen={isScheduledTasksOpen}
-        onClose={() => setIsScheduledTasksOpen(false)}
-        userId={userId}
       />
     </>
   );

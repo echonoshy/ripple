@@ -212,6 +212,12 @@ class WorkspaceFilePreviewResponse(BaseModel):
     truncated: bool = False
 
 
+class WorkspaceFileSaveRequest(BaseModel):
+    path: str = Field(min_length=1)
+    content: str
+    expected_modified_at: str | None = None
+
+
 class GogcliAccountInfo(BaseModel):
     email: str
     alias: str | None = None

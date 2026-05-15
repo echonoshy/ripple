@@ -36,12 +36,16 @@ from interfaces.server.schemas import (
     SuspendedSessionInfo,
     SystemInfoResponse,
     ToolInvokeRequest,
+    WorkspaceFileSaveRequest,
 )
 from interfaces.server.sessions import SessionManager, _merge_system_prompt
 from interfaces.server.workspace_browser import (
     BinaryFileError,
+    WorkspaceFileConflictError,
+    WorkspaceFileTooLargeError,
     browse_workspace_directory,
     preview_workspace_file,
+    save_workspace_text_file,
 )
 from ripple.agent_runners.manager import get_external_agent_manager
 from ripple.agent_runners.service import start_agent_run
@@ -829,6 +833,42 @@ async def get_workspace_file(
         raise HTTPException(status_code=400, detail="Path is not a file") from e
     except BinaryFileError as e:
         raise HTTPException(status_code=415, detail="Binary files cannot be previewed") from e
+
+
+@router.put("/v1/workspace/file")
+async def save_workspace_file(
+    request: WorkspaceFileSaveRequest,
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+):
+    """Save one UTF-8 text file in the current user's sandbox workspace."""
+    manager = get_session_manager()
+    if not manager.sandbox_manager:
+        raise HTTPException(status_code=500, detail="sandbox disabled")
+
+    workspace_root = manager.sandbox_manager.config.workspace_dir(user_id)
+    if not workspace_root.exists():
+        raise HTTPException(status_code=404, detail=f"Sandbox for user {user_id!r} not found")
+
+    try:
+        return save_workspace_text_file(
+            workspace_root,
+            request.path,
+            content=request.content,
+            expected_modified_at=request.expected_modified_at,
+        )
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail="Access denied") from e
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail="Path not found") from e
+    except IsADirectoryError as e:
+        raise HTTPException(status_code=400, detail="Path is not a file") from e
+    except WorkspaceFileConflictError as e:
+        raise HTTPException(status_code=409, detail="File changed on disk") from e
+    except WorkspaceFileTooLargeError as e:
+        raise HTTPException(status_code=413, detail="File is too large to save from the web editor") from e
+    except BinaryFileError as e:
+        raise HTTPException(status_code=415, detail="Binary files cannot be edited") from e
 
 
 @router.get("/v1/sandboxes/gogcli-accounts")

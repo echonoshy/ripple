@@ -1,10 +1,9 @@
 "use client";
 
 import React from "react";
-import { Bot, CheckCircle2, Clock3, GitCommit, ShieldAlert, UserRound, Wrench } from "lucide-react";
+import { Bot, CheckCircle2, Clock3, ShieldAlert, UserRound } from "lucide-react";
 import MarkdownRenderer from "@/components/MarkdownRenderer";
 import type { Message, WorkbenchTimelineEvent } from "@/types";
-import { formatTerminalOutputPreview } from "@/lib/terminalOutput";
 
 function formatTime(value: string | undefined): string {
   if (!value) return "";
@@ -15,7 +14,6 @@ function formatTime(value: string | undefined): string {
 
 function EventIcon({ type }: { type: WorkbenchTimelineEvent["type"] }) {
   if (type === "user_message") return <UserRound size={15} />;
-  if (type === "tool_call") return <Wrench size={15} />;
   if (type === "approval_request") return <ShieldAlert size={15} />;
   if (type === "final_summary") return <CheckCircle2 size={15} />;
   return <Bot size={15} />;
@@ -44,7 +42,7 @@ export default function TaskTimeline({
   if (events.length === 0 && !isGenerating) {
     return (
       <div className="flex h-full min-h-[280px] items-center justify-center rounded-md border border-dashed border-[#d0d7de] bg-[#f6f8fa] p-8 text-center text-sm text-[#6e7781]">
-        Start a task and Codex activity will appear here.
+        Ready for a new Codex task.
       </div>
     );
   }
@@ -76,9 +74,9 @@ export default function TaskTimeline({
               </div>
             </div>
             <div className="min-w-0 px-3 py-3 text-sm text-[#24292f]">
-              {event.type === "tool_call" || event.type === "approval_request" ? (
+              {event.type === "approval_request" ? (
                 <pre className="max-h-64 overflow-auto rounded-md bg-[#0d1117] p-3 font-[family-name:var(--font-mono)] text-xs leading-relaxed whitespace-pre-wrap text-[#c9d1d9]">
-                  {formatTerminalOutputPreview(event.body).text}
+                  {event.body}
                 </pre>
               ) : (
                 <div className="markdown-body workbench-markdown">
@@ -154,13 +152,6 @@ export default function TaskTimeline({
               Deny
             </button>
           </div>
-        </div>
-      )}
-
-      {events.length > 0 && (
-        <div className="flex items-center gap-2 py-2 text-xs text-[#6e7781]">
-          <GitCommit size={13} />
-          Timeline is derived from the current session transcript and live Codex events.
         </div>
       )}
     </div>

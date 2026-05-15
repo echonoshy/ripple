@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Bell, CalendarClock, Check, ChevronDown, Copy, Cpu, Menu, Settings } from "lucide-react";
+import { Check, ChevronDown, Copy, Cpu, Menu, Settings } from "lucide-react";
 import RippleIcon from "@/components/icons/RippleIcon";
 import type { UsageInfo, WorkbenchTaskStatus } from "@/types";
 import StatusChip from "./StatusChip";
@@ -28,7 +28,6 @@ interface WorkbenchTopBarProps {
   pendingApprovalCount: number;
   onCopySessionId: () => void;
   onOpenSettings: () => void;
-  onOpenSchedules: () => void;
   onOpenNav: () => void;
 }
 
@@ -48,7 +47,6 @@ export default function WorkbenchTopBar({
   pendingApprovalCount,
   onCopySessionId,
   onOpenSettings,
-  onOpenSchedules,
   onOpenNav,
 }: WorkbenchTopBarProps) {
   return (
@@ -144,23 +142,6 @@ export default function WorkbenchTopBar({
 
         <StatusChip status={status} />
 
-        <button
-          type="button"
-          aria-label="Notifications"
-          title="Notifications"
-          className="hidden h-8 w-8 items-center justify-center rounded-md border border-[#d0d7de] bg-white text-[#57606a] hover:bg-[#f6f8fa] hover:text-[#24292f] md:inline-flex"
-        >
-          <Bell size={15} />
-        </button>
-        <button
-          type="button"
-          aria-label="Scheduled tasks"
-          title="Scheduled tasks"
-          onClick={onOpenSchedules}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#d0d7de] bg-white text-[#57606a] hover:bg-[#f6f8fa] hover:text-[#24292f]"
-        >
-          <CalendarClock size={15} />
-        </button>
         <button
           type="button"
           aria-label="Settings"

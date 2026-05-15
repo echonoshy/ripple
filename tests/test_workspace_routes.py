@@ -57,3 +57,45 @@ def test_workspace_file_route_previews_text(tmp_path: Path):
     body = response.json()
     assert body["content"] == "abc"
     assert body["truncated"] is True
+
+
+def test_workspace_file_route_saves_text_with_modified_at_guard(tmp_path: Path):
+    client, sandbox_manager = _client(tmp_path)
+    workspace = sandbox_manager.ensure_sandbox("alice")
+    target = workspace / "notes.txt"
+    target.write_text("before", encoding="utf-8")
+    preview = client.get("/v1/workspace/file", params={"path": "/workspace/notes.txt"}).json()
+
+    response = client.put(
+        "/v1/workspace/file",
+        json={
+            "path": "/workspace/notes.txt",
+            "content": "after\n",
+            "expected_modified_at": preview["modified_at"],
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["content"] == "after\n"
+    assert body["truncated"] is False
+    assert target.read_text(encoding="utf-8") == "after\n"
+
+
+def test_workspace_file_route_rejects_stale_save(tmp_path: Path):
+    client, sandbox_manager = _client(tmp_path)
+    workspace = sandbox_manager.ensure_sandbox("alice")
+    target = workspace / "notes.txt"
+    target.write_text("current", encoding="utf-8")
+
+    response = client.put(
+        "/v1/workspace/file",
+        json={
+            "path": "/workspace/notes.txt",
+            "content": "overwrite",
+            "expected_modified_at": "2000-01-01T00:00:00+00:00",
+        },
+    )
+
+    assert response.status_code == 409
+    assert target.read_text(encoding="utf-8") == "current"

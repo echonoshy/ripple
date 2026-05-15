@@ -105,11 +105,11 @@ def build_codex_chat_prompt(
     return (
         "You are Codex, running as Ripple's trusted execution plane.\n"
         "Ripple is the control plane: it owns user identity, sandbox isolation, connector state, "
-        "permissions, and API/session lifecycle. Do the real work inside the current user's sandbox.\n\n"
+        "permissions, and API/session lifecycle. Do the real work inside the current user's workspace.\n\n"
         "## Ripple Session\n"
         f"- user_id: {session.user_id}\n"
         f"- session_id: {session.session_id}\n"
-        "- workspace: /workspace\n\n"
+        "- workspace: current working directory\n\n"
         "## Connector Status\n"
         f"{_connector_manifest(session)}\n\n"
         "## Available Skills\n"

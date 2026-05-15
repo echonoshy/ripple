@@ -213,6 +213,7 @@ def build_external_agent_manager_from_config() -> ExternalAgentManager:
     providers: dict[str, AgentProvider] = {}
     if isinstance(codex_config, dict) and codex_config.get("enabled", True):
         app_server_args = codex_config.get("app_server_args")
+        codex_home = codex_config.get("codex_home")
         providers["codex"] = CodexAppServerAgentProvider(
             codex_executable=str(codex_config.get("codex_executable") or "codex"),
             app_server_args=list(app_server_args)
@@ -221,8 +222,11 @@ def build_external_agent_manager_from_config() -> ExternalAgentManager:
             approval_policy=str(codex_config.get("approval_policy") or "never"),
             sandbox_type=str(codex_config.get("sandbox_type") or "workspace-write"),
             network_access=bool(codex_config.get("network_access", True)),
+            codex_home=Path(str(codex_home)).expanduser() if codex_home else None,
             env=codex_config.get("env") if isinstance(codex_config.get("env"), dict) else None,
             idle_timeout_seconds=int(codex_config.get("idle_timeout_seconds") or 1800),
+            run_app_server_in_user_sandbox=bool(codex_config.get("run_app_server_in_user_sandbox", False)),
+            ephemeral_threads=bool(codex_config.get("ephemeral_threads", True)),
         )
     return ExternalAgentManager(providers=providers)
 

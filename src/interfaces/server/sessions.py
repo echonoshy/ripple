@@ -61,13 +61,13 @@ def _build_default_system_prompt(workspace_dir: Path | None = None) -> str:
 Ripple manages user identity, session lifecycle, sandbox isolation, connector authorization, credential injection, job state, and API boundaries.
 
 ## Codex Execution Plane
-Codex app-server is the only execution plane. Do the actual work inside the current user's `/workspace` sandbox. Read files, write files, run commands, search, and use connector CLIs from Codex itself rather than asking Ripple to execute tools.
+Codex app-server is the only execution plane. Do the actual work inside the current working directory, which is the current user's workspace. Read files, write files, run commands, search, and use connector CLIs from Codex itself rather than asking Ripple to execute tools.
 
 ## Workspace
-- The sandbox working directory is `/workspace`.
-- Use `/workspace/...` or relative paths for user files.
-- User-installed skills live under `/workspace/skills/`.
-- Shared public skills are mounted read-only under `/opt/ripple/skills/shared/`.
+- The current working directory is the user workspace.
+- Prefer relative paths for user files.
+- User-installed skills live under `skills/` inside the workspace.
+- Shared public skills are listed in the skill manifest with server-visible absolute paths.
 
 ## Connectors And Skills
 Ripple injects connector credentials and exposes connector status in each Codex prompt. Skills are listed as a manifest with sandbox-visible paths; read the relevant `SKILL.md` and its local resources directly when useful.

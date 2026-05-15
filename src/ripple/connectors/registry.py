@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -137,23 +138,39 @@ class StatusConnector(BaseConnector):
         )
 
 
-def _configured_codex_executable() -> str:
+def _configured_codex_runtime() -> tuple[str, dict[str, str], str | None]:
+    executable = "codex"
+    extra_env: dict[str, str] = {}
+    codex_home: str | None = None
     try:
         from ripple.utils.config import get_config
 
-        return str(get_config().get("external_agents.codex.codex_executable", "codex") or "codex")
+        config = get_config()
+        executable = str(config.get("external_agents.codex.codex_executable", "codex") or "codex")
+        configured_env = config.get("external_agents.codex.env", {}) or {}
+        if isinstance(configured_env, dict):
+            extra_env.update({str(key): str(value) for key, value in configured_env.items() if value is not None})
+        configured_home = config.get("external_agents.codex.codex_home")
+        if configured_home:
+            path = Path(str(configured_home)).expanduser()
+            path.mkdir(parents=True, exist_ok=True)
+            codex_home = str(path)
+            extra_env["CODEX_HOME"] = codex_home
     except Exception:  # noqa: BLE001
-        return "codex"
+        pass
+    return executable, extra_env, codex_home
 
 
 def codex_cli_login_status() -> tuple[bool, str, dict[str, Any]]:
     """Return the real server-side Codex CLI login state used by app-server."""
 
-    executable = _configured_codex_executable()
+    executable, extra_env, codex_home = _configured_codex_runtime()
     metadata: dict[str, Any] = {
         "auth_source": "codex_cli",
         "codex_executable": executable,
     }
+    if codex_home:
+        metadata["codex_home"] = codex_home
     resolved = shutil.which(executable) if not Path(executable).is_absolute() else executable
     if not resolved or not Path(resolved).exists():
         metadata["status"] = "missing_cli"
@@ -167,6 +184,7 @@ def codex_cli_login_status() -> tuple[bool, str, dict[str, Any]]:
             text=True,
             timeout=10,
             check=False,
+            env={**os.environ, **extra_env},
         )
     except subprocess.TimeoutExpired:
         metadata["status"] = "timeout"

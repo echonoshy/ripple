@@ -70,25 +70,27 @@ def _workspace_skill_sandbox_path(skill_path: Path, workspace_root: Path) -> str
 def _entry_for_skill(skill: Skill, *, workspace_root: Path | None) -> SkillManifestEntry | None:
     skill_path = Path(skill.file_path)
     if workspace_root is not None:
-        workspace_path = _workspace_skill_sandbox_path(skill_path, workspace_root)
-        if workspace_path is not None:
+        try:
+            skill_path.relative_to(workspace_root / WORKSPACE_SKILLS_DIRNAME)
+        except ValueError:
+            pass
+        else:
             return SkillManifestEntry(
                 name=skill.name,
                 description=skill.description,
                 source="workspace",
-                path=workspace_path,
+                path=str(skill_path),
                 when_to_use=skill.when_to_use,
                 version=skill.version,
             )
 
-    shared_path = _shared_skill_sandbox_path(skill_path)
-    if shared_path is None:
+    if _shared_skill_sandbox_path(skill_path) is None:
         return None
     return SkillManifestEntry(
         name=skill.name,
         description=skill.description,
         source="shared",
-        path=shared_path,
+        path=str(skill_path),
         when_to_use=skill.when_to_use,
         version=skill.version,
     )

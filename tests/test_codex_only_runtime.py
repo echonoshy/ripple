@@ -84,9 +84,9 @@ def test_codex_prompt_includes_shared_and_workspace_skill_manifest(tmp_path):
 
         assert "## Available Skills" in prompt
         assert "public-skill (shared)" in prompt
-        assert "/opt/ripple/skills/shared/0-shared-skills/public-skill/SKILL.md" in prompt
+        assert str(shared_skill / "SKILL.md") in prompt
         assert "custom-skill (workspace)" in prompt
-        assert "/workspace/skills/custom-skill/SKILL.md" in prompt
+        assert str(workspace_skill / "SKILL.md") in prompt
     finally:
         skills_config["shared_dirs"] = previous_shared_dirs
         invalidate_shared_cache()

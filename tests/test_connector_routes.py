@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from interfaces.server.auth import verify_api_key
 from interfaces.server.routes import router, set_session_manager
+from ripple.connectors.registry import codex_cli_login_status
 from ripple.sandbox.config import SandboxConfig
 from ripple.sandbox.manager import SandboxManager
 
@@ -117,6 +118,37 @@ def test_codex_connector_status_uses_cli_login_not_legacy_shared_credentials(tmp
     assert body["required"] is True
     assert body["detail"] == "Codex CLI is not logged in."
     assert body["metadata"]["auth_source"] == "codex_cli"
+
+
+def test_codex_cli_login_status_uses_configured_service_codex_home(tmp_path: Path, monkeypatch):
+    codex_home = tmp_path / "codex-home"
+    probe_file = tmp_path / "probe.txt"
+    fake_codex = tmp_path / "codex"
+    fake_codex.write_text(
+        f"""#!/bin/sh
+printf '%s' "$CODEX_HOME" > {probe_file}
+echo "Logged in using ChatGPT"
+""",
+        encoding="utf-8",
+    )
+    fake_codex.chmod(0o755)
+
+    class FakeConfig:
+        def get(self, key: str, default=None):
+            values = {
+                "external_agents.codex.codex_executable": str(fake_codex),
+                "external_agents.codex.codex_home": str(codex_home),
+            }
+            return values.get(key, default)
+
+    monkeypatch.setattr("ripple.utils.config.get_config", lambda: FakeConfig())
+
+    connected, detail, metadata = codex_cli_login_status()
+
+    assert connected is True
+    assert detail == "Codex CLI is logged in for the server user."
+    assert metadata["codex_home"] == str(codex_home)
+    assert probe_file.read_text(encoding="utf-8") == str(codex_home)
 
 
 def test_connector_status_returns_404_for_unknown_connector(tmp_path: Path):

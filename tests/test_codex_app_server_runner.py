@@ -7,6 +7,7 @@ import pytest
 from ripple.agent_runners.codex_app_server import CodexAppServerAgentProvider
 from ripple.agent_runners.manager import ExternalAgentManager
 from ripple.agent_runners.models import AgentRunnerRequest, AgentRunnerStatus
+from ripple.sandbox.config import SandboxConfig
 
 
 def _write_fake_app_server(path: Path) -> None:
@@ -30,7 +31,16 @@ def emit(payload):
 
 def record(payload):
     with open(log_file, "a", encoding="utf-8") as f:
-        f.write(json.dumps({"pid": os.getpid(), **payload}) + "\\n")
+        f.write(json.dumps({
+            "pid": os.getpid(),
+            "codex_home": os.environ.get("CODEX_HOME"),
+            "home": os.environ.get("HOME"),
+            "path": os.environ.get("PATH"),
+            "xdg_config_home": os.environ.get("XDG_CONFIG_HOME"),
+            "notion_api_token": os.environ.get("NOTION_API_TOKEN"),
+            "gog_keyring_password": os.environ.get("GOG_KEYRING_PASSWORD"),
+            **payload,
+        }) + "\\n")
 
 
 with open(process_file, "a", encoding="utf-8") as f:
@@ -47,18 +57,31 @@ for raw_line in sys.stdin:
     elif method == "initialized":
         pass
     elif method == "thread/start":
-        allowed_sandboxes = {"workspaceWrite", "readOnly", "dangerFullAccess", "externalSandbox"}
-        if params.get("sandbox") not in allowed_sandboxes:
+        permission_profile = params.get("config", {}).get("permissions", {}).get("ripple_workspace", {})
+        filesystem = permission_profile.get("filesystem", {})
+        if params.get("permissions") != {"type": "profile", "id": "ripple_workspace"}:
             emit({
                 "jsonrpc": "2.0",
                 "id": message["id"],
                 "error": {
                     "code": -32600,
-                    "message": (
-                        "Invalid request: unknown variant "
-                        f"`{params.get('sandbox')}`, expected one of `dangerFullAccess`, "
-                        "`readOnly`, `externalSandbox`, `workspaceWrite`"
-                    ),
+                    "message": "thread/start missing ripple permissions profile",
+                },
+            })
+            continue
+        project_roots = filesystem.get(":project_roots")
+        if filesystem.get(":root") != "read" or project_roots != {
+            ".": "write",
+            ".git": "read",
+            ".agents": "read",
+            ".codex": "read",
+        }:
+            emit({
+                "jsonrpc": "2.0",
+                "id": message["id"],
+                "error": {
+                    "code": -32600,
+                    "message": "thread/start missing filesystem profile roots",
                 },
             })
             continue
@@ -67,19 +90,13 @@ for raw_line in sys.stdin:
         emit({"jsonrpc": "2.0", "id": message["id"], "result": {"thread": {"id": thread_id}}})
         emit({"jsonrpc": "2.0", "method": "thread/started", "params": {"thread": {"id": thread_id}}})
     elif method == "turn/start":
-        allowed_sandbox_policy_types = {"read-only", "workspace-write", "danger-full-access"}
-        sandbox_policy = params.get("sandboxPolicy") or {}
-        if sandbox_policy.get("type") not in allowed_sandbox_policy_types:
+        if "sandboxPolicy" in params:
             emit({
                 "jsonrpc": "2.0",
                 "id": message["id"],
                 "error": {
                     "code": -32600,
-                    "message": (
-                        "Invalid request: unknown variant "
-                        f"`{sandbox_policy.get('type')}`, expected one of `read-only`, "
-                        "`workspace-write`, `danger-full-access`"
-                    ),
+                    "message": "turn/start must use thread permission profile, not sandboxPolicy",
                 },
             })
             continue
@@ -146,7 +163,16 @@ def emit(payload):
 
 def record(payload):
     with open(log_file, "a", encoding="utf-8") as f:
-        f.write(json.dumps({"pid": os.getpid(), **payload}) + "\\n")
+        f.write(json.dumps({
+            "pid": os.getpid(),
+            "codex_home": os.environ.get("CODEX_HOME"),
+            "home": os.environ.get("HOME"),
+            "path": os.environ.get("PATH"),
+            "xdg_config_home": os.environ.get("XDG_CONFIG_HOME"),
+            "notion_api_token": os.environ.get("NOTION_API_TOKEN"),
+            "gog_keyring_password": os.environ.get("GOG_KEYRING_PASSWORD"),
+            **payload,
+        }) + "\\n")
 
 
 with open(process_file, "a", encoding="utf-8") as f:
@@ -201,9 +227,12 @@ for raw_line in sys.stdin:
 def _provider(tmp_path: Path) -> CodexAppServerAgentProvider:
     script = tmp_path / "fake_app_server.py"
     _write_fake_app_server(script)
+    codex_home = tmp_path / "codex-home"
+    codex_home.mkdir()
     return CodexAppServerAgentProvider(
         codex_executable=sys.executable,
         app_server_args=[str(script)],
+        codex_home=codex_home,
         env={
             "FAKE_APP_SERVER_LOG": str(tmp_path / "app-server.jsonl"),
             "FAKE_APP_SERVER_PROCESSES": str(tmp_path / "processes.txt"),
@@ -242,14 +271,29 @@ async def test_app_server_provider_runs_thread_turn_and_records_events(tmp_path)
     calls = _read_jsonl(tmp_path / "app-server.jsonl")
     assert [call["method"] for call in calls] == ["initialize", "initialized", "thread/start", "turn/start"]
     assert all(call["has_jsonrpc"] is False for call in calls)
+    assert {call["codex_home"] for call in calls} == {str(tmp_path / "codex-home")}
     thread_start = calls[2]["params"]
-    assert thread_start["sandbox"] == "workspaceWrite"
+    assert thread_start["cwd"] == str(request.cwd)
+    assert "sandbox" not in thread_start
+    assert thread_start["permissions"] == {"type": "profile", "id": "ripple_workspace"}
+    assert thread_start["ephemeral"] is True
+    config = thread_start["config"]
+    assert config["default_permissions"] == "ripple_workspace"
+    assert config["shell_environment_policy"]["exclude"] == ["CODEX_HOME"]
+    profile = config["permissions"]["ripple_workspace"]
+    assert profile["network"] == {"enabled": True}
+    assert profile["filesystem"][":root"] == "read"
+    assert profile["filesystem"][":project_roots"] == {
+        ".": "write",
+        ".git": "read",
+        ".agents": "read",
+        ".codex": "read",
+    }
+    assert profile["filesystem"][str(tmp_path / "codex-home")] == "none"
     turn_start = calls[3]["params"]
     assert turn_start["cwd"] == str(request.cwd)
     assert turn_start["approvalPolicy"] == "never"
-    assert turn_start["sandboxPolicy"]["type"] == "workspace-write"
-    assert turn_start["sandboxPolicy"]["writableRoots"] == [str(request.cwd)]
-    assert turn_start["sandboxPolicy"]["networkAccess"] is True
+    assert "sandboxPolicy" not in turn_start
 
     events = _read_jsonl(result.events_file)
     assert "runner.started" in [event["type"] for event in events]
@@ -258,7 +302,7 @@ async def test_app_server_provider_runs_thread_turn_and_records_events(tmp_path)
 
 
 @pytest.mark.asyncio
-async def test_app_server_provider_uses_sandbox_cwd_when_present(tmp_path):
+async def test_app_server_provider_uses_host_cwd_even_when_sandbox_cwd_is_present(tmp_path):
     provider = _provider(tmp_path)
     request = _request(tmp_path, prompt="inspect nested project")
     request.cwd.mkdir(parents=True)
@@ -268,9 +312,17 @@ async def test_app_server_provider_uses_sandbox_cwd_when_present(tmp_path):
 
     assert result.status == AgentRunnerStatus.COMPLETED
     calls = _read_jsonl(tmp_path / "app-server.jsonl")
+    thread_start = next(call for call in calls if call["method"] == "thread/start")
     turn_start = next(call for call in calls if call["method"] == "turn/start")
-    assert turn_start["params"]["cwd"] == "/workspace/nested"
-    assert turn_start["params"]["sandboxPolicy"]["writableRoots"] == ["/workspace/nested"]
+    assert thread_start["params"]["cwd"] == str(request.cwd)
+    assert turn_start["params"]["cwd"] == str(request.cwd)
+    assert thread_start["params"]["config"]["permissions"]["ripple_workspace"]["filesystem"][":project_roots"] == {
+        ".": "write",
+        ".git": "read",
+        ".agents": "read",
+        ".codex": "read",
+    }
+    assert "sandboxPolicy" not in turn_start["params"]
 
 
 @pytest.mark.asyncio
@@ -294,27 +346,23 @@ async def test_app_server_provider_normalizes_legacy_workspace_write_sandbox_typ
     calls = _read_jsonl(tmp_path / "app-server.jsonl")
     thread_start = next(call for call in calls if call["method"] == "thread/start")
     turn_start = next(call for call in calls if call["method"] == "turn/start")
-    assert thread_start["params"]["sandbox"] == "workspaceWrite"
-    assert turn_start["params"]["sandboxPolicy"]["type"] == "workspace-write"
+    assert thread_start["params"]["permissions"] == {"type": "profile", "id": "ripple_workspace"}
+    assert "sandboxPolicy" not in turn_start["params"]
 
 
 @pytest.mark.asyncio
-async def test_app_server_provider_wraps_process_with_nsjail_when_sandbox_config_is_present(tmp_path, monkeypatch):
+async def test_app_server_provider_does_not_wrap_process_with_nsjail_by_default(tmp_path, monkeypatch):
     script = tmp_path / "fake_app_server.py"
     _write_fake_app_server(script)
-    captured = {}
 
     def fake_build_nsjail_argv(config, user_id, command):
-        captured["config"] = config
-        captured["user_id"] = user_id
-        captured["command"] = command
-        return [sys.executable, str(script)]
+        raise AssertionError("trusted Codex app-server must not run inside the user nsjail by default")
 
     monkeypatch.setattr("ripple.sandbox.nsjail_config.build_nsjail_argv", fake_build_nsjail_argv)
-    sandbox_config = object()
+    sandbox_config = SandboxConfig(sandboxes_root=tmp_path / "sandboxes", caches_root=tmp_path / "cache")
     provider = CodexAppServerAgentProvider(
-        codex_executable="codex",
-        app_server_args=["app-server", "--listen", "stdio://"],
+        codex_executable=sys.executable,
+        app_server_args=[str(script)],
         env={
             "FAKE_APP_SERVER_LOG": str(tmp_path / "app-server.jsonl"),
             "FAKE_APP_SERVER_PROCESSES": str(tmp_path / "processes.txt"),
@@ -327,11 +375,50 @@ async def test_app_server_provider_wraps_process_with_nsjail_when_sandbox_config
     result = await provider.run(request, job_dir=tmp_path / "job")
 
     assert result.status == AgentRunnerStatus.COMPLETED
-    assert captured == {
-        "config": sandbox_config,
-        "user_id": "user-a",
-        "command": "codex app-server --listen stdio://",
-    }
+    calls = _read_jsonl(tmp_path / "app-server.jsonl")
+    turn_start = next(call for call in calls if call["method"] == "turn/start")
+    assert turn_start["params"]["cwd"] == str(request.cwd)
+
+
+@pytest.mark.asyncio
+async def test_app_server_provider_starts_trusted_process_with_user_workspace_environment(tmp_path):
+    provider = _provider(tmp_path)
+    sandbox_config = SandboxConfig(
+        sandboxes_root=tmp_path / "sandboxes",
+        caches_root=tmp_path / "cache",
+        uv_bin_dir=str(tmp_path / "uv-bin"),
+        node_dir=str(tmp_path / "node"),
+        lark_cli_install_root=str(tmp_path / "vendor" / "lark-cli"),
+        notion_cli_install_root=str(tmp_path / "vendor" / "notion-cli"),
+        gogcli_cli_install_root=str(tmp_path / "vendor" / "gogcli-cli"),
+    )
+    for root in (
+        tmp_path / "vendor" / "lark-cli",
+        tmp_path / "vendor" / "notion-cli",
+        tmp_path / "vendor" / "gogcli-cli",
+    ):
+        (root / "current" / "bin").mkdir(parents=True)
+    request = _request(tmp_path, prompt="inspect connector env")
+    request.cwd.mkdir(parents=True)
+    notion_file = sandbox_config.notion_config_file("user-a")
+    notion_file.parent.mkdir(parents=True, exist_ok=True)
+    notion_file.write_text(json.dumps({"api_token": "ntn_user_token"}), encoding="utf-8")
+    gog_pass_file = sandbox_config.gogcli_keyring_pass_file("user-a")
+    gog_pass_file.parent.mkdir(parents=True, exist_ok=True)
+    gog_pass_file.write_text("gog-pass", encoding="utf-8")
+    request = request.model_copy(update={"metadata": {"sandbox_config": sandbox_config, "sandbox_cwd": "/workspace"}})
+
+    result = await provider.run(request, job_dir=tmp_path / "job")
+
+    assert result.status == AgentRunnerStatus.COMPLETED
+    calls = _read_jsonl(tmp_path / "app-server.jsonl")
+    initialize = next(call for call in calls if call["method"] == "initialize")
+    assert initialize["home"] == str(request.cwd)
+    assert initialize["xdg_config_home"] == str(request.cwd / ".config")
+    assert initialize["notion_api_token"] == "ntn_user_token"
+    assert initialize["gog_keyring_password"] == "gog-pass"
+    assert f"{tmp_path}/vendor/gogcli-cli/current/bin" in initialize["path"]
+    assert "/opt/gogcli-cli/current/bin" not in initialize["path"]
 
 
 @pytest.mark.asyncio

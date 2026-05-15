@@ -102,7 +102,15 @@ proxy_on
 当前 Server 端采用控制面 / 执行面分离：
 
 - **Ripple Control Plane**：FastAPI、鉴权、`X-Ripple-User-Id`、session lifecycle、sandbox lifecycle、connector auth/status、skill manifest、approval bridge、job/event/output 状态。
-- **Codex Execution Plane**：服务端预装的 `codex app-server --listen stdio://`，由 Ripple 按 user 懒启动；Codex 在当前 user 的 `/workspace` 内执行实际工作。
+- **Codex Execution Plane**：服务端预装的 `codex app-server --listen stdio://`，由 Ripple 按 user 懒启动为可信服务端进程；Codex 使用服务端统一 `CODEX_HOME`/登录态，实际任务限定在当前 user 的宿主侧 workspace。
+
+Codex 授权是服务端统一授权，不是 per-user 授权：
+
+- `external_agents.codex.codex_home` 为 `null` 时使用服务端进程的 `CODEX_HOME` 或 `~/.codex`；生产建议配置为独立的服务端目录，如 `.ripple/codex-service-home`。
+- 不要把 Codex `auth.json` 复制、挂载或保存到 `sandboxes/<uid>/workspace/`；user sandbox 只保存用户文件和 per-user connector 凭证。
+- `run_app_server_in_user_sandbox` 默认必须为 `false`。仅为兼容/实验目的打开时，才允许把 app-server 进程本身放进 nsjail。
+- Connector 状态检查应使用与 app-server 相同的 `codex_home` / env，避免“状态已登录、执行未登录”。
+- 真实探针确认：仅使用 legacy `workspaceWrite` 时，Codex command 执行层仍可读取服务端 `CODEX_HOME/auth.json` 和宿主 `~/.codex/auth.json`。因此默认链路必须使用 Codex managed permissions profile：`:root = read`、`:project_roots` 下 `.` 可写但 `.git` / `.agents` / `.codex` 只读、服务端 `codex_home` 与宿主 `.codex` 显式 `none` deny-read，并通过 `shell_environment_policy.exclude = ["CODEX_HOME"]` 避免把服务端 auth 路径传给命令环境。
 
 `/v1/chat/completions` 主链路：
 
@@ -110,11 +118,11 @@ proxy_on
 2. `routes.chat_completions` 校验 API key，读取 `X-Ripple-User-Id`，提取最后一条 user message 和 caller system prompt。
 3. `SessionManager.get_or_create_session` 创建或恢复 session；首次使用会创建当前 user 的 sandbox，并绑定 `workspace_root`、`session_runtime_dir`、`sandbox_manager`。
 4. `interfaces.server.codex_chat.build_codex_chat_prompt` 生成给 Codex 的单轮 prompt，包含 Ripple/Codex 职责说明、user/session、connector 状态、skill manifest、历史对话和当前请求。
-5. `ripple.agent_runners.service.start_agent_run` 校验 cwd 必须在 user workspace 内，转换为 sandbox 可见路径 `/workspace/...`，并把 `sandbox_config` 写入 metadata。
+5. `ripple.agent_runners.service.start_agent_run` 校验 cwd 必须在 user workspace 内，把宿主 workspace 路径写入 request，并把 `sandbox_config` 写入 metadata 供 app-server 进程构建 per-user connector/env。
 6. `ExternalAgentManager` 启动 job，provider 目前只支持 `codex`。
-7. `CodexAppServerAgentProvider` 为每个 user 懒启动一个 Codex app-server 进程；存在 `sandbox_config` 时，app-server 进程本身通过 nsjail 运行。
-8. Provider 通过 JSON-RPC 调用 Codex：`initialize`、`thread/start`、`turn/start`；`turn/start` 传入 `cwd`、`approvalPolicy`、`sandboxPolicy`、`writableRoots`、`networkAccess`。
-9. Codex app-server 在 `/workspace` 内读写文件、运行命令、调用 CLI、读取 skills，完成后把 delta/event/output 写回 Ripple。
+7. `CodexAppServerAgentProvider` 为每个 user 懒启动一个可信服务端 Codex app-server 进程；默认不套 user nsjail，但会注入服务端 `CODEX_HOME` 和 user workspace 语义的 `HOME` / connector env。
+8. Provider 通过 JSON-RPC 调用 Codex：`initialize`、`thread/start`、`turn/start`；`thread/start` 通过 request `config` 注入 `ripple_workspace` permissions profile，并用 `permissions: {type: "profile", id: "ripple_workspace"}` 选中它。
+9. Codex app-server 以宿主侧 user workspace 为 `cwd`，通过 Codex managed permissions profile 限制读写：根目录只读、当前 project roots 可写、服务端 Codex auth 目录不可读；完成后把 delta/event/output 写回 Ripple。
 10. Ripple 把结果转换为 OpenAI-compatible response 或 SSE，并把 user/assistant 消息持久化到 session。
 
 `/v1/runs` 是独立的 Codex job API，适合外部调度器或前端直接发起长任务；它同样落到 `start_agent_run(... provider=codex ...)`。
@@ -133,7 +141,7 @@ proxy_on
 
 调用方通过 HTTP header `X-Ripple-User-Id: <uid>` 传入 user_id；缺失时回落到 `default`。user_id 合法字符集为 `[a-zA-Z0-9_-]{1,64}`。ripple 不做身份鉴权，由上游业务系统保证 user_id 的有效性与隔离语义。
 
-Codex app-server 的工作目录在沙箱内表现为 `/workspace`，对应宿主侧 `.ripple/sandboxes/<user_id>/workspace/`。同一 user 的不同 session 会共享这个 workspace；session 目录只保存对话和运行时状态。
+Codex app-server 的工作目录是宿主侧 `.ripple/sandboxes/<user_id>/workspace/`。同一 user 的不同 session 会共享这个 workspace；session 目录只保存对话和运行时状态。对 Codex prompt 应优先描述“current working directory / relative paths”，不要假设 `/workspace` 在可信 app-server 进程中存在。
 
 管理端点：
 
@@ -187,6 +195,7 @@ Codex-only runtime 下，Ripple 主要把 skill 作为 manifest 注入 prompt，
 
 - Shared Skills readonly mount 到 `/opt/ripple/skills/shared/<index>-<name>/...`。
 - Workspace Skills 位于 `/workspace/skills/...`。
+- nsjail 短命令仍会使用上述沙箱路径；Codex app-server prompt 的 skill manifest 应提供服务端可见的宿主路径。
 - Codex 看到 manifest 后，应自行读取对应 `SKILL.md` 和相邻资源文件。
 
 ## 架构索引
@@ -204,7 +213,7 @@ Codex 执行面：
 
 - `src/ripple/agent_runners/service.py`：创建 Codex run，校验 cwd，注入 sandbox metadata。
 - `src/ripple/agent_runners/manager.py`：内存 job 管理、取消、steer、approval 转发。
-- `src/ripple/agent_runners/codex_app_server.py`：Codex app-server JSON-RPC provider，每 user 懒启动进程。
+- `src/ripple/agent_runners/codex_app_server.py`：Codex app-server JSON-RPC provider，每 user 懒启动可信服务端进程，统一服务端 Codex auth。
 - `src/ripple/agent_runners/approvals.py`：Codex approval request 解析和响应映射。
 
 沙箱与 Connector：
@@ -270,7 +279,7 @@ gmail, drive, calendar, docs, sheets, slides
 - 用户仍需在浏览器打开授权 URL 并点击 Allow。
 - assisted callback 成功后，refresh token 加密保存到当前 user workspace 的 `/workspace/.config/gogcli/keyring/`。
 - `/v1/connectors/google_workspace/accounts?check=true` 用于查看/验活当前 user 已绑账号。
-- Codex 执行业务时直接在 `/workspace` 内调用 `gog` CLI；Ripple 只负责授权、凭证注入、状态展示和 sandbox mount/env。
+- Codex 执行业务时在当前 user workspace 内调用 `gog` CLI；Ripple 只负责授权、凭证注入、状态展示和执行环境/env。
 
 当前 gog skills：
 

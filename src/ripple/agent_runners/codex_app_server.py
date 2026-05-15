@@ -37,6 +37,76 @@ _SANDBOX_POLICY_TYPES = {
     "workspace-write": "workspaceWrite",
     "danger-full-access": "dangerFullAccess",
 }
+_RIPPLE_CODEX_PERMISSION_PROFILE = "ripple_workspace"
+
+
+def _prepend_path_entries(existing_path: str, entries: list[str]) -> str:
+    clean_entries = [entry for entry in entries if entry]
+    return ":".join([*clean_entries, existing_path]) if existing_path else ":".join(clean_entries)
+
+
+def _host_app_server_env_from_sandbox(config: Any, user_id: str, workspace: Path, current_path: str) -> dict[str, str]:
+    """Translate per-user sandbox env semantics to host-visible app-server env."""
+
+    workspace = workspace.resolve()
+    path_entries = [str(workspace / ".local" / "bin")]
+
+    if getattr(config, "uv_bin_dir", None):
+        path_entries.append(str(config.uv_bin_dir))
+    if getattr(config, "node_dir", None):
+        path_entries.append(str(Path(str(config.node_dir)) / "bin"))
+    for attr in ("lark_cli_install_root", "notion_cli_install_root", "gogcli_cli_install_root"):
+        root = getattr(config, attr, None)
+        if root:
+            path_entries.append(str(Path(str(root)) / "current" / "bin"))
+
+    env = {
+        "PATH": _prepend_path_entries(current_path, path_entries),
+        "HOME": str(workspace),
+        "USER": "sandbox",
+        "SHELL": os.environ.get("SHELL", "/bin/bash"),
+        "TERM": os.environ.get("TERM", "xterm-256color"),
+        "LANG": os.environ.get("LANG", "C.UTF-8"),
+        "XDG_CONFIG_HOME": str(workspace / ".config"),
+    }
+
+    if getattr(config, "uv_cache_dir", None):
+        config.uv_cache_dir.mkdir(parents=True, exist_ok=True)
+        env["UV_CACHE_DIR"] = str(config.uv_cache_dir)
+        env["UV_LINK_MODE"] = "hardlink"
+    if getattr(config, "pypi_mirror_url", None):
+        env["UV_INDEX_URL"] = str(config.pypi_mirror_url)
+        env["PIP_INDEX_URL"] = str(config.pypi_mirror_url)
+    if getattr(config, "node_dir", None):
+        env["PNPM_HOME"] = str(workspace / ".local" / "bin")
+        env["NPM_CONFIG_PREFIX"] = str(workspace / ".local")
+        if getattr(config, "pnpm_cache_dir", None):
+            config.pnpm_cache_dir.mkdir(parents=True, exist_ok=True)
+            env["PNPM_STORE_DIR"] = str(config.pnpm_cache_dir)
+        if getattr(config, "corepack_cache_dir", None):
+            config.corepack_cache_dir.mkdir(parents=True, exist_ok=True)
+            env["COREPACK_HOME"] = str(config.corepack_cache_dir)
+        if getattr(config, "npm_registry_url", None):
+            env["NPM_CONFIG_REGISTRY"] = str(config.npm_registry_url)
+            env["COREPACK_NPM_REGISTRY"] = str(config.npm_registry_url)
+        env["COREPACK_ENABLE_AUTO_PIN"] = "0"
+        env["COREPACK_ENABLE_DOWNLOAD_PROMPT"] = "0"
+
+    from ripple.sandbox.notion import read_notion_token
+
+    notion_token = read_notion_token(config, user_id)
+    if notion_token:
+        env["NOTION_API_TOKEN"] = notion_token
+
+    if getattr(config, "gogcli_cli_install_root", None):
+        env["GOG_KEYRING_BACKEND"] = "file"
+        pass_file = config.gogcli_keyring_pass_file(user_id)
+        if pass_file.exists():
+            password = pass_file.read_text(encoding="utf-8").strip()
+            if password:
+                env["GOG_KEYRING_PASSWORD"] = password
+
+    return env
 
 
 def _tail(text: str) -> str:
@@ -63,6 +133,31 @@ def _sandbox_policy_type(sandbox_type: str) -> str:
     return _SANDBOX_POLICY_TYPES[sandbox_type]
 
 
+def _dedupe_paths(paths: list[Path]) -> list[Path]:
+    seen: set[str] = set()
+    result: list[Path] = []
+    for path in paths:
+        try:
+            normalized = path.expanduser().resolve()
+        except OSError:
+            normalized = path.expanduser().absolute()
+        key = str(normalized)
+        if key not in seen:
+            seen.add(key)
+            result.append(normalized)
+    return result
+
+
+def _codex_auth_deny_read_paths(codex_home: Path | None) -> list[Path]:
+    paths: list[Path] = []
+    if codex_home is not None:
+        paths.append(codex_home)
+    paths.append(Path.home() / ".codex")
+    if os.environ.get("CODEX_HOME"):
+        paths.append(Path(os.environ["CODEX_HOME"]))
+    return _dedupe_paths(paths)
+
+
 class JsonRpcError(RuntimeError):
     """Raised when app-server returns a JSON-RPC error."""
 
@@ -84,15 +179,19 @@ class CodexAppServerSession:
         codex_executable: str,
         app_server_args: list[str],
         cwd: Path,
+        codex_home: Path | None = None,
         sandbox_config: Any | None = None,
         env: dict[str, str] | None = None,
+        run_in_user_sandbox: bool = False,
     ):
         self.user_key = user_key
         self.codex_executable = codex_executable
         self.app_server_args = app_server_args
         self.cwd = cwd
+        self.codex_home = codex_home
         self.sandbox_config = sandbox_config
         self.env = env or {}
+        self.run_in_user_sandbox = run_in_user_sandbox
         self.process: asyncio.subprocess.Process | None = None
         self.notifications: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self.run_lock = asyncio.Lock()
@@ -114,9 +213,17 @@ class CodexAppServerSession:
         self.cwd.mkdir(parents=True, exist_ok=True)
         env = dict(os.environ)
         env.update(self.env)
+        codex_home = self.codex_home or Path(env.get("CODEX_HOME", Path.home() / ".codex")).expanduser()
+        codex_home.mkdir(parents=True, exist_ok=True)
+        self.codex_home = codex_home
+        if self.sandbox_config is not None and not self.run_in_user_sandbox:
+            env.update(
+                _host_app_server_env_from_sandbox(self.sandbox_config, self.user_key, self.cwd, env.get("PATH", ""))
+            )
+        env["CODEX_HOME"] = str(codex_home)
         argv = [self.codex_executable, *self.app_server_args]
         process_cwd = str(self.cwd)
-        if self.sandbox_config is not None:
+        if self.sandbox_config is not None and self.run_in_user_sandbox:
             from ripple.sandbox.nsjail_config import build_nsjail_argv
 
             argv = build_nsjail_argv(self.sandbox_config, self.user_key, shlex.join(argv))
@@ -240,8 +347,10 @@ class CodexAppServerSession:
 class CodexAppServerPool:
     codex_executable: str = "codex"
     app_server_args: list[str] = field(default_factory=lambda: ["app-server", "--listen", "stdio://"])
+    codex_home: Path | None = None
     env: dict[str, str] | None = None
     idle_timeout_seconds: int = 1800
+    run_in_user_sandbox: bool = False
     sessions: dict[str, CodexAppServerSession] = field(default_factory=dict)
 
     async def get(
@@ -259,8 +368,10 @@ class CodexAppServerPool:
                 codex_executable=self.codex_executable,
                 app_server_args=self.app_server_args,
                 cwd=cwd,
+                codex_home=self.codex_home,
                 sandbox_config=sandbox_config,
                 env=self.env,
+                run_in_user_sandbox=self.run_in_user_sandbox,
             )
             self.sessions[user_key] = session
         await session.ensure_started()
@@ -296,22 +407,74 @@ class CodexAppServerAgentProvider:
         approval_policy: str = "never",
         sandbox_type: str = "workspace-write",
         network_access: bool = True,
+        codex_home: str | Path | None = None,
         env: dict[str, str] | None = None,
         idle_timeout_seconds: int = 1800,
+        run_app_server_in_user_sandbox: bool = False,
+        ephemeral_threads: bool = True,
     ):
         self.name = "codex"
         self.approval_policy = approval_policy
         self.sandbox_type = _normalize_sandbox_type(sandbox_type)
         self.sandbox_policy_type = _sandbox_policy_type(self.sandbox_type)
         self.network_access = network_access
+        self.run_app_server_in_user_sandbox = run_app_server_in_user_sandbox
+        self.ephemeral_threads = ephemeral_threads
         self.pool = CodexAppServerPool(
             codex_executable=codex_executable,
             app_server_args=app_server_args or ["app-server", "--listen", "stdio://"],
+            codex_home=Path(codex_home) if codex_home else None,
             env=env,
             idle_timeout_seconds=idle_timeout_seconds,
+            run_in_user_sandbox=run_app_server_in_user_sandbox,
         )
         self.active_turns: dict[str, ActiveTurn] = {}
         self.pending_approvals: dict[str, dict[str, Any]] = {}
+
+    def _uses_managed_permission_profile(self) -> bool:
+        return self.sandbox_type in {"workspace-write", "read-only"}
+
+    def _thread_permission_config(self, codex_home: Path | None) -> dict[str, Any]:
+        filesystem: dict[str, Any] = {":root": "read"}
+        if self.sandbox_type == "workspace-write":
+            filesystem[":project_roots"] = {
+                ".": "write",
+                ".git": "read",
+                ".agents": "read",
+                ".codex": "read",
+            }
+        for path in _codex_auth_deny_read_paths(codex_home):
+            filesystem[str(path)] = "none"
+
+        return {
+            "default_permissions": _RIPPLE_CODEX_PERMISSION_PROFILE,
+            "permissions": {
+                _RIPPLE_CODEX_PERMISSION_PROFILE: {
+                    "filesystem": filesystem,
+                    "network": {"enabled": self.network_access},
+                }
+            },
+            "shell_environment_policy": {"exclude": ["CODEX_HOME"]},
+        }
+
+    def _thread_start_permission_params(self, session: CodexAppServerSession) -> dict[str, Any]:
+        if not self._uses_managed_permission_profile():
+            return {"sandbox": self.sandbox_type}
+        return {
+            "config": self._thread_permission_config(session.codex_home),
+            "permissions": {"type": "profile", "id": _RIPPLE_CODEX_PERMISSION_PROFILE},
+        }
+
+    def _turn_start_permission_params(self, runner_cwd: str) -> dict[str, Any]:
+        if self._uses_managed_permission_profile():
+            return {}
+        return {
+            "sandboxPolicy": {
+                "type": self.sandbox_policy_type,
+                "writableRoots": [runner_cwd],
+                "networkAccess": self.network_access,
+            },
+        }
 
     async def run(self, request: AgentRunnerRequest, *, job_dir: Path) -> AgentRunnerResult:
         job_id = request.job_id or "agent-job"
@@ -322,6 +485,9 @@ class CodexAppServerAgentProvider:
         exit_code: int | None = None
         status = AgentRunnerStatus.FAILED
         error: str | None = None
+        runner_cwd = str(request.cwd)
+        if self.run_app_server_in_user_sandbox:
+            runner_cwd = str(request.metadata.get("sandbox_cwd") or request.cwd)
 
         await self._append_event(
             events_file,
@@ -330,15 +496,15 @@ class CodexAppServerAgentProvider:
                 job_id=job_id,
                 provider=request.provider,
                 data={
-                    "cwd": str(request.metadata.get("sandbox_cwd") or request.cwd),
+                    "cwd": runner_cwd,
                     "host_cwd": str(request.cwd),
                     "runner": "codex-app-server",
                     "user_id": request.user_id,
+                    "trusted_app_server": not self.run_app_server_in_user_sandbox,
                 },
             ),
         )
 
-        runner_cwd = str(request.metadata.get("sandbox_cwd") or request.cwd)
         session = await self.pool.get(
             user_id=request.user_id,
             cwd=request.cwd,
@@ -352,8 +518,9 @@ class CodexAppServerAgentProvider:
                     {
                         "cwd": runner_cwd,
                         "approvalPolicy": self.approval_policy,
-                        "sandbox": self.sandbox_policy_type,
+                        "ephemeral": self.ephemeral_threads,
                         "serviceName": "ripple",
+                        **self._thread_start_permission_params(session),
                     },
                 )
                 thread_id = thread_result.get("thread", {}).get("id")
@@ -367,11 +534,7 @@ class CodexAppServerAgentProvider:
                         "input": [{"type": "text", "text": request.prompt}],
                         "cwd": runner_cwd,
                         "approvalPolicy": self.approval_policy,
-                        "sandboxPolicy": {
-                            "type": self.sandbox_type,
-                            "writableRoots": [runner_cwd],
-                            "networkAccess": self.network_access,
-                        },
+                        **self._turn_start_permission_params(runner_cwd),
                     },
                 )
                 turn_id = turn_result.get("turn", {}).get("id")

@@ -173,8 +173,8 @@
 }
 
 body {
-  background-color: #fdfbf7;
-  color: #111111;
+  background-color: #ffffff;
+  color: #24292f;
   overflow: hidden;
 }
 
@@ -229,6 +229,22 @@ body {
 
 .markdown-body > *:last-child {
   margin-bottom: 0;
+}
+
+.workbench-markdown {
+  color: #24292f;
+}
+
+.workbench-markdown code:not(pre code) {
+  border: 1px solid #d0d7de;
+  background-color: #f6f8fa;
+  color: #24292f !important;
+  font-weight: 500;
+}
+
+.workbench-markdown pre {
+  border: 1px solid #30363d !important;
+  box-shadow: none;
 }
 
 .markdown-body p {

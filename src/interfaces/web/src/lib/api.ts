@@ -330,6 +330,37 @@ export async function sendChatMessage(
             return;
           }
 
+          if (data.type === "approval_required") {
+            const approval =
+              data.approval && typeof data.approval === "object"
+                ? (data.approval as Record<string, unknown>)
+                : {};
+            const metadata =
+              approval.metadata && typeof approval.metadata === "object"
+                ? (approval.metadata as Record<string, unknown>)
+                : approval;
+            const action =
+              typeof approval.action === "string"
+                ? approval.action
+                : typeof approval.method === "string"
+                  ? approval.method
+                  : "codex_approval";
+            callbacks.onPermissionRequest?.({
+              tool: action,
+              params: metadata,
+              riskLevel: action.includes("command") ? "medium" : "dangerous",
+            });
+            callbacks.onAgentStop?.({
+              stop_reason: "permission_request",
+              metadata: {
+                tool: action,
+                params: metadata,
+                riskLevel: action.includes("command") ? "medium" : "dangerous",
+              },
+            });
+            return;
+          }
+
           if (data.type === "tool_call") {
             callbacks.onToolCall({
               id: data.id,

@@ -85,20 +85,20 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
   };
 
   return (
-    <div className="bg-ripple-sidebar flex h-full flex-col overflow-hidden">
-      <div className="border-ripple-ink flex shrink-0 items-center justify-between border-b-2 bg-white px-4 py-3">
+    <div className="flex h-full flex-col overflow-hidden bg-[#f6f8fa] text-[#24292f]">
+      <div className="flex shrink-0 items-center justify-between border-b border-[#d0d7de] bg-white px-4 py-3">
         <div className="min-w-0">
-          <p className="text-ripple-ink/55 text-[10px] font-bold tracking-wider uppercase">
+          <p className="text-[10px] font-semibold tracking-wider text-[#6e7781] uppercase">
             Workspace
           </p>
-          <p className="text-ripple-ink truncate font-[family-name:var(--font-mono)] text-sm font-bold">
+          <p className="truncate font-[family-name:var(--font-mono)] text-sm font-semibold text-[#24292f]">
             {listing?.path || currentPath}
           </p>
         </div>
         <button
           type="button"
           onClick={() => void loadDirectory(currentPath)}
-          className="btn-icon h-8 w-8 shrink-0"
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#d0d7de] bg-white text-[#57606a] hover:bg-[#f6f8fa] hover:text-[#24292f]"
           title="Refresh workspace"
           disabled={loading}
         >
@@ -107,23 +107,23 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
       </div>
 
       {error && (
-        <div className="border-ripple-ink bg-ripple-red/20 text-ripple-ink m-4 mb-0 flex items-start gap-2 border-2 p-3 text-xs font-bold shadow-[2px_2px_0_#111111]">
+        <div className="m-4 mb-0 flex items-start gap-2 rounded-md border border-[#cf222e]/25 bg-[#ffebe9] p-3 text-xs font-medium text-[#cf222e]">
           <AlertTriangle size={14} className="mt-0.5 shrink-0" />
           <span className="break-words">{displayError(error)}</span>
         </div>
       )}
 
       <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_minmax(160px,42%)] gap-3 p-4">
-        <div className="border-ripple-ink min-h-0 overflow-hidden border-2 bg-white shadow-[4px_4px_0_#111111]">
-          <div className="border-ripple-ink bg-ripple-lime/35 flex items-center justify-between border-b-2 px-3 py-2">
-            <span className="text-ripple-ink text-xs font-bold tracking-wider uppercase">
+        <div className="min-h-0 overflow-hidden rounded-md border border-[#d0d7de] bg-white">
+          <div className="flex items-center justify-between border-b border-[#d0d7de] bg-[#f6f8fa] px-3 py-2">
+            <span className="text-xs font-semibold tracking-wider text-[#6e7781] uppercase">
               Files
             </span>
             {listing?.parent_path && (
               <button
                 type="button"
                 onClick={() => void loadDirectory(listing.parent_path || "/workspace")}
-                className="border-ripple-ink hover:bg-ripple-yellow flex items-center gap-1 border-2 bg-white px-2 py-1 text-[11px] font-bold"
+                className="flex items-center gap-1 rounded-md border border-[#d0d7de] bg-white px-2 py-1 text-[11px] font-medium text-[#57606a] hover:bg-[#f6f8fa] hover:text-[#24292f]"
               >
                 <ArrowUp size={12} />
                 Up
@@ -132,41 +132,41 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
           </div>
           <div className="h-full overflow-y-auto pb-10">
             {loading && !listing ? (
-              <div className="text-ripple-ink/50 flex h-40 items-center justify-center gap-2 text-sm font-bold">
+              <div className="flex h-40 items-center justify-center gap-2 text-sm font-medium text-[#6e7781]">
                 <Loader2 size={16} className="animate-spin" />
                 Loading
               </div>
             ) : listing && listing.entries.length === 0 ? (
-              <div className="text-ripple-ink/50 flex h-40 items-center justify-center px-4 text-center text-sm font-bold">
+              <div className="flex h-40 items-center justify-center px-4 text-center text-sm font-medium text-[#6e7781]">
                 Empty workspace
               </div>
             ) : (
-              <div className="divide-ripple-ink/10 divide-y">
+              <div className="divide-y divide-[#d8dee4]">
                 {listing?.entries.map((entry) => (
                   <button
                     key={entry.path}
                     type="button"
                     onClick={() => void openEntry(entry)}
-                    className={`hover:bg-ripple-yellow/30 flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors ${
-                      preview?.path === entry.path ? "bg-ripple-yellow/45" : "bg-white"
+                    className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-[#f6f8fa] ${
+                      preview?.path === entry.path ? "bg-[#ddf4ff]" : "bg-white"
                     }`}
                   >
                     <span
-                      className={`border-ripple-ink flex h-8 w-8 shrink-0 items-center justify-center border-2 ${
-                        entry.kind === "directory" ? "bg-ripple-lavender/65" : "bg-ripple-cyan/20"
+                      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#d0d7de] ${
+                        entry.kind === "directory" ? "bg-[#f6f8fa]" : "bg-white"
                       }`}
                     >
                       {entry.kind === "directory" ? <Folder size={15} /> : <FileText size={15} />}
                     </span>
                     <span className="min-w-0 flex-1">
                       <span
-                        className={`text-ripple-ink block truncate font-[family-name:var(--font-mono)] text-sm font-bold ${
+                        className={`block truncate font-[family-name:var(--font-mono)] text-sm font-medium text-[#24292f] ${
                           entry.is_hidden ? "opacity-55" : ""
                         }`}
                       >
                         {entry.name}
                       </span>
-                      <span className="text-ripple-ink/45 mt-0.5 block truncate font-[family-name:var(--font-mono)] text-[11px]">
+                      <span className="mt-0.5 block truncate font-[family-name:var(--font-mono)] text-[11px] text-[#6e7781]">
                         {entry.kind === "directory" ? "folder" : formatBytes(entry.size_bytes)}
                         {formatModified(entry.modified_at)
                           ? ` · ${formatModified(entry.modified_at)}`
@@ -180,32 +180,30 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
           </div>
         </div>
 
-        <div className="border-ripple-ink flex min-h-0 flex-col overflow-hidden border-2 bg-white shadow-[4px_4px_0_#111111]">
-          <div className="terminal-titlebar shrink-0">
+        <div className="flex min-h-0 flex-col overflow-hidden rounded-md border border-[#d0d7de] bg-white">
+          <div className="flex shrink-0 items-center gap-2 border-b border-[#d0d7de] bg-[#f6f8fa] px-3 py-2 text-[#57606a]">
             <FileText size={13} />
-            <span className="text-[13px] font-bold tracking-wider uppercase">
-              {preview?.name || "Preview"}
-            </span>
+            <span className="truncate text-[13px] font-semibold">{preview?.name || "Preview"}</span>
             {previewLoading && <Loader2 size={12} className="ml-auto animate-spin" />}
           </div>
-          <div className="bg-ripple-paper min-h-0 flex-1 overflow-auto p-3">
+          <div className="min-h-0 flex-1 overflow-auto bg-white p-3">
             {preview ? (
               <div className="space-y-2">
-                <div className="text-ripple-ink/55 flex flex-wrap items-center gap-2 font-[family-name:var(--font-mono)] text-[11px] font-bold">
+                <div className="flex flex-wrap items-center gap-2 font-[family-name:var(--font-mono)] text-[11px] font-medium text-[#6e7781]">
                   <span>{formatBytes(preview.size_bytes)}</span>
                   <span>{preview.mime_type}</span>
                   {preview.truncated && (
-                    <span className="border-ripple-pink text-ripple-pink border-2 bg-white px-1.5 py-0.5 text-[10px] uppercase">
+                    <span className="rounded-full border border-[#bf8700]/35 bg-[#fff8c5] px-1.5 py-0.5 text-[10px] text-[#7d4e00] uppercase">
                       truncated
                     </span>
                   )}
                 </div>
-                <pre className="text-ripple-ink overflow-x-auto font-[family-name:var(--font-mono)] text-[12px] leading-relaxed break-words whitespace-pre-wrap">
+                <pre className="overflow-x-auto font-[family-name:var(--font-mono)] text-[12px] leading-relaxed break-words whitespace-pre-wrap text-[#24292f]">
                   {preview.content}
                 </pre>
               </div>
             ) : (
-              <div className="text-ripple-ink/45 flex h-full items-center justify-center px-4 text-center text-sm font-bold">
+              <div className="flex h-full items-center justify-center px-4 text-center text-sm font-medium text-[#6e7781]">
                 Select a text file
               </div>
             )}

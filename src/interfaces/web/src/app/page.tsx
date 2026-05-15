@@ -1,21 +1,7 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import {
-  Cpu,
-  ChevronDown,
-  Brain,
-  AlertTriangle,
-  KeyRound,
-  Menu,
-  Copy,
-  Check,
-  UserRound,
-  CalendarClock,
-  Activity,
-  FolderOpen,
-} from "lucide-react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { AlertTriangle, KeyRound } from "lucide-react";
 import { Message, UsageInfo, Session, SessionDetail, TaskInfo, TaskProgress } from "@/types";
 import {
   createSession,
@@ -34,13 +20,13 @@ import {
   resolvePermissionRequest,
 } from "@/lib/api";
 import RippleIcon from "@/components/icons/RippleIcon";
-import Sidebar from "@/components/Sidebar";
-import ChatInput from "@/components/ChatInput";
-import ChatMessage from "@/components/ChatMessage";
-import TaskExecutionPanel from "@/components/TaskExecutionPanel";
-import WorkspaceExplorer from "@/components/WorkspaceExplorer";
 import SettingsModal from "@/components/SettingsModal";
 import ScheduledTasksModal from "@/components/ScheduledTasksModal";
+import InspectorPanel from "@/components/workbench/InspectorPanel";
+import TaskPage from "@/components/workbench/TaskPage";
+import WorkbenchShell from "@/components/workbench/WorkbenchShell";
+import WorkbenchTopBar from "@/components/workbench/WorkbenchTopBar";
+import WorkspaceNav from "@/components/workbench/WorkspaceNav";
 import { applyTaskUpdate, upsertTask } from "@/lib/chatState";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { bumpInputFocusToken } from "@/lib/inputFocus";
@@ -50,12 +36,7 @@ import {
   pickRestorableSessionId,
   setStoredCurrentSessionId,
 } from "@/lib/sessionPersistence";
-
-function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return n.toLocaleString();
-}
+import { createWorkbenchTasks, messagesToTimelineEvents } from "@/lib/workbench";
 
 export default function Home() {
   // ── Auth state ──
@@ -88,7 +69,6 @@ export default function Home() {
   const [thinkingEnabled, setThinkingEnabled] = useState(false);
   const [inputFocusToken, setInputFocusToken] = useState(0);
   const [sessionIdCopied, setSessionIdCopied] = useState(false);
-  const [rightPanelTab, setRightPanelTab] = useState<"activity" | "workspace">("activity");
   const [workspaceRefreshToken, setWorkspaceRefreshToken] = useState(0);
 
   // ── Token tracking ──
@@ -103,18 +83,8 @@ export default function Home() {
   const [tasks, setTasks] = useState<TaskInfo[]>([]);
   const [taskProgress, setTaskProgress] = useState<TaskProgress | null>(null);
 
-  // ── Resizable right panel ──
-  const [rightPanelWidth, setRightPanelWidth] = useState(820);
-  const isResizingRef = useRef(false);
-
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const activeRequestIdRef = useRef(0);
   const abortControllerRef = useRef<AbortController | null>(null);
-
-  // ── Scroll to bottom on new messages ──
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
 
   // ── Auth check ──
   useEffect(() => {
@@ -458,6 +428,8 @@ export default function Home() {
           },
           onPermissionRequest: (request) => {
             if (isStaleRequest()) return;
+            setIsGenerating(false);
+            setInputFocusToken((prev) => bumpInputFocusToken(prev));
             setMessages((prev) => {
               const msgs = [...prev];
               const last = msgs[msgs.length - 1];
@@ -563,38 +535,38 @@ export default function Home() {
     [handleSendMessage, isGenerating, sessionId]
   );
 
-  // ── Resize right panel ──
-  const handleResizeStart = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      isResizingRef.current = true;
-      const startX = e.clientX;
-      const startWidth = rightPanelWidth;
-      const onMove = (ev: MouseEvent) => {
-        if (!isResizingRef.current) return;
-        setRightPanelWidth(Math.min(1200, Math.max(300, startWidth + startX - ev.clientX)));
-      };
-      const onUp = () => {
-        isResizingRef.current = false;
-        document.removeEventListener("mousemove", onMove);
-        document.removeEventListener("mouseup", onUp);
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
-      };
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
-      document.addEventListener("mousemove", onMove);
-      document.addEventListener("mouseup", onUp);
-    },
-    [rightPanelWidth]
-  );
-
-  // ── Collect tool calls for execution panel ──
-  const allToolCalls = messages.flatMap((m) =>
-    m.role === "assistant" && m.toolCalls ? m.toolCalls : []
-  );
-  const showMobileTaskPanel = tasks.length > 0 || allToolCalls.length > 0;
-
+  const workbenchTasks = useMemo(() => createWorkbenchTasks(sessions), [sessions]);
+  const selectedExistingTask = sessionId
+    ? workbenchTasks.find((task) => task.id === sessionId) || null
+    : null;
+  const inferredCurrentTask =
+    sessionId && !selectedExistingTask
+      ? {
+          id: sessionId,
+          title: "Current Codex task",
+          status: isGenerating ? ("running" as const) : ("idle" as const),
+          model: selectedModel,
+          lastActivityAt: new Date().toISOString(),
+          messageCount: messages.length,
+          changedFileCount: 0,
+          pendingApprovalCount: 0,
+        }
+      : null;
+  const selectedWorkbenchTask = selectedExistingTask || inferredCurrentTask;
+  const displayWorkbenchTasks =
+    inferredCurrentTask && !workbenchTasks.some((task) => task.id === inferredCurrentTask.id)
+      ? [inferredCurrentTask, ...workbenchTasks]
+      : workbenchTasks;
+  const timelineEvents = useMemo(() => messagesToTimelineEvents(messages), [messages]);
+  const pendingApprovalCount = messages.some((message) => Boolean(message.permissionRequest))
+    ? 1
+    : selectedWorkbenchTask?.pendingApprovalCount || 0;
+  const workbenchStatus =
+    pendingApprovalCount > 0
+      ? "waiting_for_approval"
+      : isGenerating
+        ? "running"
+        : selectedWorkbenchTask?.status || "idle";
   const isContextWarning = lastContextTokens > 150_000;
 
   // ═══════════════════════════════════════════════════════
@@ -602,31 +574,24 @@ export default function Home() {
   // ═══════════════════════════════════════════════════════
   if (authState !== "authenticated") {
     return (
-      <div className="playful-canvas border-ripple-ink flex h-screen w-screen items-center justify-center border-t-2 p-4">
+      <div className="flex h-screen w-screen items-center justify-center bg-[#f6f8fa] p-4 text-[#24292f]">
         {authState === "needs_auth" && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mx-4 w-full max-w-sm"
-          >
-            <div className="surface-elevated p-8">
+          <div className="mx-4 w-full max-w-sm">
+            <div className="rounded-lg border border-[#d0d7de] bg-white p-8 shadow-sm">
               <div className="mb-8 flex flex-col items-center">
-                <div
-                  className="border-ripple-ink bg-ripple-yellow mb-4 flex h-16 w-16 rotate-2 items-center justify-center rounded-lg border-2 shadow-[4px_4px_0_#111111]"
-                  style={{ animation: "float-breathe 3s ease-in-out infinite" }}
-                >
-                  <RippleIcon size={48} className="text-ripple-ink" />
+                <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-lg border border-[#d0d7de] bg-[#f6f8fa] text-[#0969da]">
+                  <RippleIcon size={42} />
                 </div>
-                <h1 className="text-ripple-ink text-2xl font-bold">RIPPLE</h1>
-                <p className="text-ripple-ink/70 mt-3 text-center text-sm font-bold">
+                <h1 className="text-xl font-semibold">Ripple Workbench</h1>
+                <p className="mt-3 text-center text-sm text-[#57606a]">
                   Enter your API key to continue
                 </p>
-                <p className="text-ripple-ink/55 mt-1 text-center font-[family-name:var(--font-cjk)] text-sm">
+                <p className="mt-1 text-center font-[family-name:var(--font-cjk)] text-sm text-[#6e7781]">
                   请输入 API Key 以访问服务
                 </p>
               </div>
               {authErrorMsg && (
-                <div className="border-ripple-ink bg-ripple-red/20 text-ripple-ink mb-4 flex items-center gap-2 rounded-md border-2 p-3 text-sm font-bold shadow-[2px_2px_0_#111111]">
+                <div className="mb-4 flex items-center gap-2 rounded-md border border-[#cf222e]/25 bg-[#ffebe9] p-3 text-sm font-medium text-[#cf222e]">
                   <AlertTriangle size={16} />
                   <span>{authErrorMsg}</span>
                 </div>
@@ -635,26 +600,26 @@ export default function Home() {
                 <div className="relative mb-4">
                   <KeyRound
                     size={18}
-                    className="text-ripple-ink/55 absolute top-1/2 left-4 -translate-y-1/2"
+                    className="absolute top-1/2 left-4 -translate-y-1/2 text-[#6e7781]"
                   />
                   <input
                     type="password"
                     value={keyInput}
                     onChange={(e) => setKeyInput(e.target.value)}
                     placeholder="Enter API key..."
-                    className="brutal-input w-full py-3 pr-4 pl-11 font-[family-name:var(--font-mono)] text-sm"
+                    className="w-full rounded-md border border-[#d0d7de] bg-white py-3 pr-4 pl-11 font-[family-name:var(--font-mono)] text-sm text-[#24292f] outline-none focus:border-[#0969da]"
                   />
                 </div>
                 <button
                   type="submit"
                   disabled={!keyInput.trim()}
-                  className="btn-primary w-full py-3 text-sm"
+                  className="w-full rounded-md border border-[#0969da] bg-[#0969da] py-3 text-sm font-semibold text-white hover:bg-[#075dbd] disabled:cursor-not-allowed disabled:border-[#d0d7de] disabled:bg-[#f6f8fa] disabled:text-[#8c959f]"
                 >
                   Connect
                 </button>
               </form>
             </div>
-          </motion.div>
+          </div>
         )}
       </div>
     );
@@ -664,283 +629,86 @@ export default function Home() {
   // MAIN APP
   // ═══════════════════════════════════════════════════════
   return (
-    <div className="playful-canvas border-ripple-ink h-screen w-screen overflow-hidden border-t-2">
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.3 }}
-        className="flex h-full w-full"
-      >
-        {/* Sidebar */}
-        <Sidebar
-          sessions={sessions}
-          currentSessionId={sessionId}
-          isLoadingSessions={isLoadingSessions}
-          isGenerating={isGenerating}
-          tokenUsage={tokenUsage}
-          lastContextTokens={lastContextTokens}
-          isMobileOpen={isSidebarOpen}
-          userId={userId}
-          onNewChat={handleNewChat}
-          onSwitchSession={handleSwitchSession}
-          onDeleteSession={handleDeleteSession}
-          onOpenSettings={() => setIsSettingsOpen(true)}
-          onCloseMobile={() => setIsSidebarOpen(false)}
-        />
-
-        {/* Main chat area */}
-        <main className="relative flex min-w-0 flex-1 flex-col">
-          {/* Header */}
-          <header className="border-ripple-ink bg-ripple-yellow text-ripple-ink z-20 flex h-16 items-center justify-between border-b-2 px-4 shadow-[0_3px_0_#111111] md:px-6">
-            <div className="flex items-center gap-2">
-              {/* Mobile menu */}
-              <button
-                onClick={() => setIsSidebarOpen(true)}
-                className="btn-icon h-9 w-9 md:!hidden"
-              >
-                <Menu size={18} />
-              </button>
-
-              {/* Model selector */}
-              <div className="relative">
-                <button
-                  onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
-                  className="border-ripple-ink text-ripple-ink flex items-center gap-1.5 rounded-md border-2 bg-white px-2.5 py-1.5 text-sm font-bold shadow-[2px_2px_0_#111111] transition-all hover:-translate-y-0.5 hover:shadow-[4px_4px_0_#111111]"
-                >
-                  <Cpu size={14} className="text-ripple-ink" />
-                  <span className="font-[family-name:var(--font-mono)] text-sm font-medium">
-                    {selectedModel}
-                  </span>
-                  <ChevronDown
-                    size={12}
-                    className={`text-ripple-ink/60 transition-transform ${isModelDropdownOpen ? "rotate-180" : ""}`}
-                  />
-                </button>
-                <AnimatePresence>
-                  {isModelDropdownOpen && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 4 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: 4 }}
-                      transition={{ duration: 0.1 }}
-                      className="border-ripple-ink absolute top-full left-0 z-50 mt-2 w-44 overflow-hidden rounded-md border-2 bg-white shadow-[4px_4px_0_#111111]"
-                    >
-                      <div className="p-1">
-                        {models.map((m) => (
-                          <button
-                            key={m.id}
-                            onClick={() => {
-                              setSelectedModel(m.id);
-                              setIsModelDropdownOpen(false);
-                            }}
-                            className={`flex w-full items-center justify-between px-3 py-2 text-left font-[family-name:var(--font-mono)] text-sm font-bold transition-colors ${
-                              selectedModel === m.id
-                                ? "bg-ripple-lavender text-ripple-ink"
-                                : "text-ripple-ink/65 hover:bg-ripple-yellow hover:text-ripple-ink"
-                            }`}
-                          >
-                            {m.id}
-                          </button>
-                        ))}
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-
-              {thinkingEnabled && (
-                <div className="brutal-stamp bg-ripple-lavender">
-                  <Brain size={11} />
-                  <span className="text-xs font-medium">Think</span>
-                </div>
-              )}
-            </div>
-
-            <div className="flex items-center gap-2">
-              {tokenUsage.total_tokens > 0 && (
-                <div
-                  className={`border-ripple-ink hidden items-center gap-1.5 rounded-md border-2 px-2.5 py-1 font-[family-name:var(--font-mono)] text-xs font-bold shadow-[2px_2px_0_#111111] sm:flex ${
-                    isContextWarning
-                      ? "bg-ripple-red/30 text-ripple-ink"
-                      : "text-ripple-ink/70 bg-white"
-                  }`}
-                >
-                  {isContextWarning && <AlertTriangle size={11} />}
-                  <span className="text-ripple-ink">↑{formatTokens(tokenUsage.prompt_tokens)}</span>
-                  <span className="text-ripple-ink/45">|</span>
-                  <span className="text-ripple-ink">
-                    ↓{formatTokens(tokenUsage.completion_tokens)}
-                  </span>
-                </div>
-              )}
-              {sessionId && (
-                <button
-                  type="button"
-                  onClick={handleCopySessionId}
-                  title={sessionIdCopied ? "已复制" : `点击复制 Session ID: ${sessionId}`}
-                  className="border-ripple-ink text-ripple-ink/70 hover:bg-ripple-cyan/40 hover:text-ripple-ink hidden items-center gap-1.5 rounded-md border-2 bg-white px-2.5 py-1 font-[family-name:var(--font-mono)] text-xs font-bold shadow-[2px_2px_0_#111111] transition-colors sm:flex"
-                >
-                  <span className="text-ripple-ink/55">ID</span>
-                  <span className="max-w-[140px] truncate">{sessionId}</span>
-                  {sessionIdCopied ? (
-                    <Check size={12} className="text-ripple-ink" />
-                  ) : (
-                    <Copy size={12} className="text-ripple-ink/55" />
-                  )}
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => setIsSettingsOpen(true)}
-                title="Click to change user in Settings"
-                className={`group border-ripple-ink hidden items-center gap-1.5 rounded-md border-2 px-2.5 py-1 font-[family-name:var(--font-mono)] text-xs font-bold shadow-[2px_2px_0_#111111] transition-all duration-100 hover:-translate-y-0.5 hover:shadow-[4px_4px_0_#111111] sm:flex ${
-                  userId === "default"
-                    ? "bg-ripple-yellow text-ripple-ink"
-                    : "bg-ripple-pink/15 text-ripple-ink"
-                }`}
-              >
-                <UserRound
-                  size={12}
-                  className="transition-transform duration-300 group-hover:scale-110"
-                />
-                <span className="max-w-[120px] truncate font-semibold">{userId}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsScheduledTasksOpen(true)}
-                title="Open scheduled tasks"
-                className="btn-icon h-9 w-9"
-              >
-                <CalendarClock size={14} />
-              </button>
-              <div
-                className={`border-ripple-ink flex items-center gap-1.5 rounded-md border-2 px-2.5 py-1 text-xs font-bold shadow-[2px_2px_0_#111111] ${
-                  sessionId ? "bg-ripple-lime text-ripple-ink" : "text-ripple-ink/55 bg-white"
-                }`}
-              >
-                <div
-                  className={`border-ripple-ink h-2.5 w-2.5 border ${sessionId ? "bg-ripple-ink" : "bg-ripple-ink/35"}`}
-                  style={
-                    sessionId ? { animation: "glow-pulse 2s ease-in-out infinite" } : undefined
-                  }
-                />
-                <span>{sessionId ? "Online" : "Ready"}</span>
-              </div>
-            </div>
-          </header>
-
-          {/* Messages */}
-          <div className="playful-canvas flex-1 overflow-y-auto px-4 pt-6 pb-4 md:px-6">
-            <div className="mx-auto max-w-5xl space-y-3">
-              {messages.length === 0 && (
-                <div className="text-ripple-ink/65 flex h-[50vh] flex-col items-center justify-center">
-                  <div
-                    className="border-ripple-ink bg-ripple-yellow mb-6 flex h-24 w-24 -rotate-2 items-center justify-center rounded-lg border-2 shadow-[6px_6px_0_#111111]"
-                    style={{ animation: "float-breathe 3s ease-in-out infinite" }}
-                  >
-                    <RippleIcon size={72} className="text-ripple-ink" />
-                  </div>
-                  <p className="text-ripple-ink text-2xl font-bold">Ripple</p>
-                  <p className="border-ripple-ink text-ripple-ink mt-2 rounded-md border-2 bg-white px-3 py-1 text-sm font-bold shadow-[2px_2px_0_#111111]">
-                    Start a conversation
-                  </p>
-                  <p className="text-ripple-ink/60 mt-3 font-[family-name:var(--font-cjk)] text-sm">
-                    输入消息开始对话
-                  </p>
-                </div>
-              )}
-              <AnimatePresence initial={false}>
-                {messages.map((msg, i) => (
-                  <ChatMessage
-                    key={msg.id}
-                    msg={msg}
-                    isGenerating={isGenerating}
-                    isLast={i === messages.length - 1}
-                    onQuickReply={handleQuickReply}
-                    onPermissionResolve={handlePermissionResolve}
-                  />
-                ))}
-              </AnimatePresence>
-              <div ref={messagesEndRef} />
-            </div>
-          </div>
-
-          {/* Input */}
-          {showMobileTaskPanel && (
-            <div className="surface-elevated mx-4 mb-3 max-h-72 overflow-hidden md:mx-6 lg:hidden">
-              <TaskExecutionPanel
-                tasks={tasks}
-                taskProgress={taskProgress}
-                toolCalls={allToolCalls}
-                isGenerating={isGenerating}
-              />
-            </div>
-          )}
-
-          <ChatInput
-            value={input}
-            onChange={setInput}
+    <>
+      <WorkbenchShell
+        isNavOpen={isSidebarOpen}
+        onCloseNav={() => setIsSidebarOpen(false)}
+        topBar={
+          <WorkbenchTopBar
+            taskTitle={selectedWorkbenchTask?.title || "Ripple Workbench"}
+            userId={userId}
+            selectedModel={selectedModel}
+            models={models}
+            isModelDropdownOpen={isModelDropdownOpen}
+            onToggleModelDropdown={() => setIsModelDropdownOpen((open) => !open)}
+            onSelectModel={(model) => {
+              setSelectedModel(model);
+              setIsModelDropdownOpen(false);
+            }}
+            status={workbenchStatus}
+            tokenUsage={tokenUsage}
+            isContextWarning={isContextWarning}
+            sessionId={sessionId}
+            sessionIdCopied={sessionIdCopied}
+            pendingApprovalCount={pendingApprovalCount}
+            onCopySessionId={handleCopySessionId}
+            onOpenSettings={() => setIsSettingsOpen(true)}
+            onOpenSchedules={() => setIsScheduledTasksOpen(true)}
+            onOpenNav={() => setIsSidebarOpen(true)}
+          />
+        }
+        nav={
+          <WorkspaceNav
+            tasks={displayWorkbenchTasks}
+            selectedTaskId={sessionId}
+            isLoading={isLoadingSessions}
+            isGenerating={isGenerating}
+            userId={userId}
+            onNewTask={handleNewChat}
+            onSelectTask={(id) => {
+              void handleSwitchSession(id);
+              setIsSidebarOpen(false);
+            }}
+            onDeleteTask={handleDeleteSession}
+            onOpenSettings={() => setIsSettingsOpen(true)}
+          />
+        }
+        taskPage={
+          <TaskPage
+            task={selectedWorkbenchTask}
+            sessionId={sessionId}
+            messages={messages}
+            timelineEvents={timelineEvents}
+            taskProgress={taskProgress}
+            taskSteps={tasks}
+            tokenUsage={tokenUsage}
+            lastContextTokens={lastContextTokens}
+            input={input}
+            isGenerating={isGenerating}
+            focusToken={inputFocusToken}
+            onInputChange={setInput}
             onSend={handleSendMessage}
             onStop={handleStop}
-            isGenerating={isGenerating}
-            hasSession={!!sessionId}
-            focusToken={inputFocusToken}
+            onNewTask={handleNewChat}
+            onQuickReply={handleQuickReply}
+            onPermissionResolve={handlePermissionResolve}
           />
-        </main>
+        }
+        inspector={
+          <InspectorPanel
+            messages={messages}
+            task={selectedWorkbenchTask}
+            taskSteps={tasks}
+            taskProgress={taskProgress}
+            userId={userId}
+            selectedModel={selectedModel}
+            sessionId={sessionId}
+            workspaceRefreshToken={workspaceRefreshToken}
+            onPermissionResolve={handlePermissionResolve}
+          />
+        }
+      />
 
-        {/* Resize handle */}
-        <div
-          className="border-ripple-ink bg-ripple-yellow hover:bg-ripple-pink z-30 hidden w-2 shrink-0 cursor-col-resize items-center justify-center border-x-2 transition-colors lg:flex"
-          onMouseDown={handleResizeStart}
-        >
-          <div className="bg-ripple-ink h-12 w-0.5" />
-        </div>
-
-        {/* Right panel */}
-        <aside
-          className="border-ripple-ink bg-ripple-sidebar hidden shrink-0 flex-col border-l-2 lg:flex"
-          style={{ width: rightPanelWidth }}
-        >
-          <div className="border-ripple-ink bg-ripple-yellow flex shrink-0 gap-2 border-b-2 p-2">
-            <button
-              type="button"
-              onClick={() => setRightPanelTab("activity")}
-              className={`border-ripple-ink text-ripple-ink flex items-center gap-1.5 rounded-md border-2 px-3 py-1.5 text-xs font-bold shadow-[2px_2px_0_#111111] transition-colors ${
-                rightPanelTab === "activity" ? "bg-ripple-pink" : "hover:bg-ripple-lime/55 bg-white"
-              }`}
-            >
-              <Activity size={13} />
-              Activity
-            </button>
-            <button
-              type="button"
-              onClick={() => setRightPanelTab("workspace")}
-              className={`border-ripple-ink text-ripple-ink flex items-center gap-1.5 rounded-md border-2 px-3 py-1.5 text-xs font-bold shadow-[2px_2px_0_#111111] transition-colors ${
-                rightPanelTab === "workspace"
-                  ? "bg-ripple-pink"
-                  : "hover:bg-ripple-lime/55 bg-white"
-              }`}
-            >
-              <FolderOpen size={13} />
-              Workspace
-            </button>
-          </div>
-          <div className="min-h-0 flex-1 overflow-hidden">
-            {rightPanelTab === "activity" ? (
-              <TaskExecutionPanel
-                tasks={tasks}
-                taskProgress={taskProgress}
-                toolCalls={allToolCalls}
-                isGenerating={isGenerating}
-              />
-            ) : (
-              <WorkspaceExplorer userId={userId} refreshToken={workspaceRefreshToken} />
-            )}
-          </div>
-        </aside>
-      </motion.div>
-
-      {/* Settings modal */}
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
@@ -961,7 +729,7 @@ export default function Home() {
         onClose={() => setIsScheduledTasksOpen(false)}
         userId={userId}
       />
-    </div>
+    </>
   );
 }
 

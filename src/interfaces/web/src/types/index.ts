@@ -236,3 +236,41 @@ export interface AgentStopData {
   stop_reason: "completed" | "ask_user" | "permission_request" | "tool_requested" | string;
   metadata: Record<string, unknown>;
 }
+
+export type WorkbenchTaskStatus =
+  | "queued"
+  | "running"
+  | "waiting_for_user"
+  | "waiting_for_approval"
+  | "review"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "idle";
+
+export interface WorkbenchTaskSummary {
+  id: string;
+  title: string;
+  status: WorkbenchTaskStatus;
+  model: string;
+  lastActivityAt: string;
+  messageCount: number;
+  changedFileCount: number;
+  pendingApprovalCount: number;
+}
+
+export type WorkbenchTimelineEventType =
+  | "user_message"
+  | "assistant_message"
+  | "tool_call"
+  | "approval_request"
+  | "final_summary";
+
+export interface WorkbenchTimelineEvent {
+  id: string;
+  type: WorkbenchTimelineEventType;
+  title: string;
+  body: string;
+  createdAt?: string;
+  status?: string;
+}

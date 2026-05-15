@@ -26,9 +26,9 @@ presentationStyle="fullScreen"
 - 用户消息正文。
 - Assistant Markdown 正文。
 - Markdown 标题、段落、引用、列表、表格、代码块。
-- AskUser 问题文本。
+- Codex approval / permission 提示文本。
 - 工具调用名称、参数、结果。
-- 权限请求中的工具名和参数。
+- 权限请求中的命令或操作信息。
 - Settings 诊断输出。
 
 按钮文案没有强制设为可选中，因为按钮主要负责点击操作，可选中文本容易影响按钮交互手感。

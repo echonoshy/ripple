@@ -43,10 +43,16 @@ def test_info_reports_no_model_facing_tools(tmp_path):
     assert response.json()["tools"] == []
 
 
-def test_tools_invoke_route_is_removed(tmp_path):
-    response = _client(tmp_path).post("/v1/tools/invoke", json={"tool": "Bash", "args": {"command": "pwd"}})
+def test_removed_legacy_execution_routes_return_404(tmp_path):
+    client = _client(tmp_path)
 
-    assert response.status_code == 404
+    responses = [
+        client.post("/v1/tools/invoke", json={"tool": "Bash", "args": {"command": "pwd"}}),
+        client.get("/v1/sandbox/schedules"),
+        client.post("/v1/sandbox/schedules/job-123/run"),
+    ]
+
+    assert [response.status_code for response in responses] == [404, 404, 404]
 
 
 def test_codex_prompt_includes_shared_and_workspace_skill_manifest(tmp_path):

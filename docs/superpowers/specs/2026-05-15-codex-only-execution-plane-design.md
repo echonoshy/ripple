@@ -12,7 +12,7 @@ Ripple remains responsible for user identity, session lifecycle, sandbox lifecyc
 - Keep Ripple as the multi-user control plane for `user_id`, sessions, sandboxes, connectors, credentials, and jobs.
 - Preserve public skills and user-provided skills by turning skills into discoverable Codex resources instead of Ripple tools.
 - Add a Codex approval bridge so Codex permission or approval requests can be surfaced through Ripple and resolved by the user.
-- Remove or deprecate Ripple's own model-facing execution tools, including Bash, Read, Write, Search, SkillTool, Task tools, AskUser, AgentRunnerTool, and the old PermissionManager flow.
+- Remove Ripple's own model-facing execution tools, including Bash, Read, Write, Search, SkillTool, Task tools, AskUser, AgentRunnerTool, and the old PermissionManager flow.
 
 ## Non-Goals
 
@@ -28,7 +28,7 @@ Ripple currently has two execution concepts:
 - Codex app-server, which already powers `/v1/chat/completions` and `/v1/runs`.
 - Ripple tools, including Bash, Read, Write, Search, SkillTool, Task tools, AskUser, and AgentRunnerTool.
 
-The old agent loop has already been removed, but the Ripple tool layer still exists in prompts, route schemas, permission handling, tests, and some skill instructions. This creates overlapping responsibility: Codex is the real executor, while Ripple still contains a partially active tool execution model.
+The old agent loop has already been removed, and the public tool and scheduler routes are no longer mounted. Some internal compatibility modules and historical docs may still reference the old tool model, but they are no longer part of the public execution surface.
 
 ## Target Architecture
 
@@ -81,18 +81,16 @@ The following API areas remain part of Ripple:
 
 The retained APIs should describe Ripple as a control plane, not as a tool execution engine.
 
-## Deprecated Or Removed Server APIs
+## Removed Server APIs
 
-The following should be removed or explicitly deprecated:
+The following APIs are removed and should not be reintroduced as compatibility shims:
 
 - `/v1/tools/invoke`
 - `/v1/sandbox/schedules*`
 - session permission resolve semantics that replay Ripple tool calls
 - any API response field that is only meaningful for Ripple's old tool execution flow, unless it is reused for Codex approval forwarding
 
-If backward compatibility is needed briefly, `/v1/tools/invoke` can return a clear 410-style error explaining that agent execution is handled by Codex app-server.
-
-If backward compatibility is needed briefly, `/v1/sandbox/schedules*` can return a clear 410-style error explaining that scheduling should be owned by an external scheduler that calls `/v1/runs`.
+Requests to removed routes should miss normal FastAPI routing and return `404`. New integrations should use `/v1/runs` for long-running Codex jobs and external scheduling.
 
 ## Codex Approval Bridge
 
@@ -289,7 +287,7 @@ Server-level secrets must not be passed to Codex. User-level credentials should 
 
 - Remove model-facing use of Bash, Read, Write, Search, SkillTool, AskUser, Task tools, and AgentRunnerTool.
 - Remove old PermissionManager replay logic.
-- Remove `/v1/tools/invoke` or turn it into a deprecation response.
+- Remove `/v1/tools/invoke`.
 - Update tests to assert Codex-only execution.
 
 ### Phase 4: Skill and Connector Cleanup
@@ -319,8 +317,8 @@ Tests should cover:
 - Workspace skill manifest includes `/workspace/skills` skills and shows workspace override.
 - Codex approval notifications create pending approval state.
 - Approval resolution forwards to Codex instead of replaying a Ripple tool.
-- Direct `/v1/tools/invoke` no longer executes tools.
-- `/v1/sandbox/schedules*` no longer executes scheduled work.
+- Direct `/v1/tools/invoke` is not mounted.
+- `/v1/sandbox/schedules*` is not mounted.
 - External schedulers can trigger work through `/v1/runs` for the desired `user_id`.
 
 ## Risks
@@ -336,7 +334,7 @@ Tests should cover:
 - Ripple no longer presents its own Bash, Read, Write, Search, Skill, Task, AskUser, or AgentRunner tools to model execution.
 - Codex app-server remains the only user-task execution plane.
 - Sessions, sandboxes, connectors, runs, and workspace management still work.
-- Embedded scheduling is removed or returns a deprecation response that does not execute work.
+- Embedded scheduling is removed; schedule routes are absent.
 - Skills are discoverable by Codex through a manifest and readable through stable sandbox paths.
 - User workspace skills are supported from `/workspace/skills/`.
 - Codex-originated approval requests can be surfaced to the user and resolved through Ripple.

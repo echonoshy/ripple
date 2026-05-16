@@ -2,6 +2,7 @@
 
 import React from "react";
 import { X } from "lucide-react";
+import RippleIcon from "@/components/icons/RippleIcon";
 
 interface WorkbenchShellProps {
   topBar: React.ReactNode;
@@ -21,10 +22,9 @@ export default function WorkbenchShell({
   onCloseNav,
 }: WorkbenchShellProps) {
   return (
-    <div className="h-screen w-screen overflow-hidden bg-white text-[#24292f]">
-      {topBar}
-      <div className="flex h-[calc(100vh-56px)] min-h-0">
-        <div className="hidden w-[280px] shrink-0 border-r border-[#d0d7de] bg-[#f6f8fa] lg:block">
+    <div className="h-screen w-screen overflow-hidden bg-white text-[#171a1f]">
+      <div className="flex h-full min-h-0">
+        <div className="hidden w-[284px] shrink-0 border-r border-[#dde2ea] bg-[#f7f8fa] lg:block">
           {nav}
         </div>
 
@@ -33,18 +33,21 @@ export default function WorkbenchShell({
             <button
               type="button"
               aria-label="Close navigation"
-              className="absolute inset-0 bg-[#24292f]/28"
+              className="absolute inset-0 bg-[#171a1f]/28"
               onClick={onCloseNav}
             />
-            <div className="absolute top-0 bottom-0 left-0 w-[min(86vw,320px)] border-r border-[#d0d7de] bg-[#f6f8fa] shadow-xl">
-              <div className="flex h-12 items-center justify-between border-b border-[#d0d7de] px-3">
-                <span className="text-sm font-semibold">Workspace</span>
+            <div className="absolute top-0 bottom-0 left-0 w-[min(86vw,320px)] border-r border-[#dde2ea] bg-[#f7f8fa] shadow-xl">
+              <div className="flex h-12 items-center justify-between border-b border-[#dde2ea] px-3">
+                <span className="flex items-center gap-2 text-sm font-semibold">
+                  <RippleIcon size={26} className="h-[26px] w-[26px] rounded-md" />
+                  Ripple
+                </span>
                 <button
                   type="button"
                   aria-label="Close navigation"
                   title="Close navigation"
                   onClick={onCloseNav}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#d0d7de] bg-white text-[#57606a] hover:bg-[#f6f8fa] hover:text-[#24292f]"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#dde2ea] bg-white text-[#68707d] hover:bg-[#f7f8fa] hover:text-[#171a1f]"
                 >
                   <X size={15} />
                 </button>
@@ -54,8 +57,11 @@ export default function WorkbenchShell({
           </div>
         )}
 
-        <main className="min-w-0 flex-1 bg-white">{content}</main>
-        <div className="hidden w-[420px] shrink-0 xl:block">{inspector}</div>
+        <main className="flex min-w-0 flex-1 flex-col bg-white">
+          {topBar}
+          <div className="min-h-0 flex-1">{content}</div>
+        </main>
+        <div className="hidden w-[360px] shrink-0 xl:block">{inspector}</div>
       </div>
     </div>
   );

@@ -49,9 +49,11 @@ export default function SettingsModal({
 
   useEffect(() => {
     if (!isOpen) return;
-    setIsEditingUserId(false);
-    setUserIdError(null);
-    void refreshSandbox();
+    queueMicrotask(() => {
+      setIsEditingUserId(false);
+      setUserIdError(null);
+      void refreshSandbox();
+    });
   }, [isOpen, refreshSandbox, userId]);
 
   const handleStartEditUserId = () => {

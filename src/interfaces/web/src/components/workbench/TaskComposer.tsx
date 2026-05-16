@@ -50,8 +50,8 @@ export default function TaskComposer({
   };
 
   return (
-    <div className="shrink-0 border-t border-[#d0d7de] bg-white px-4 py-3">
-      <div className="rounded-lg border border-[#d0d7de] bg-white p-2 shadow-sm focus-within:border-[#0969da]">
+    <div className="shrink-0 border-t border-[#dde2ea] bg-white px-5 pt-3 pb-5 md:px-10 lg:px-[72px]">
+      <div className="mx-auto max-w-4xl rounded-xl border border-[#cfd6e2] bg-white p-2 shadow-[0_10px_30px_rgba(23,26,31,0.08)] transition-colors focus-within:border-[#9aa7b7]">
         <textarea
           ref={textareaRef}
           value={value}
@@ -63,33 +63,32 @@ export default function TaskComposer({
             isGenerating
               ? "Codex is working..."
               : hasSession
-                ? "Steer Codex, approve a direction, or add context..."
-                : "Describe the task you want Codex to work on..."
+                ? "Message Codex..."
+                : "Ask Codex to work on something..."
           }
-          className="max-h-[220px] min-h-16 w-full resize-none bg-transparent px-1 py-1 text-sm leading-relaxed text-[#24292f] outline-none placeholder:text-[#8c959f] disabled:opacity-60"
+          className="max-h-[220px] min-h-[58px] w-full resize-none bg-transparent px-2 py-2 text-[15px] leading-6 text-[#171a1f] outline-none placeholder:text-[#8b8f94] disabled:opacity-60"
         />
-        <div className="flex items-center justify-between gap-3 border-t border-[#d8dee4] pt-2">
-          <div className="hidden text-xs text-[#6e7781] sm:block">
-            Enter sends · Shift+Enter adds a newline
-          </div>
+        <div className="flex items-center justify-end gap-2 pt-1">
           {isGenerating ? (
             <button
               type="button"
               onClick={onStop}
-              className="inline-flex h-8 items-center gap-2 rounded-md border border-[#cf222e]/30 bg-[#ffebe9] px-3 text-sm font-semibold text-[#cf222e] hover:bg-[#ffd7d5]"
+              aria-label="Stop generation"
+              title="Stop generation"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#cf222e]/25 bg-[#ffebe9] text-[#cf222e] hover:bg-[#ffd7d5]"
             >
               <Square size={13} fill="currentColor" />
-              Stop
             </button>
           ) : (
             <button
               type="button"
               onClick={onSend}
               disabled={!value.trim()}
-              className="inline-flex h-8 items-center gap-2 rounded-md border border-[#0969da] bg-[#0969da] px-3 text-sm font-semibold text-white hover:bg-[#075dbd] disabled:cursor-not-allowed disabled:border-[#d0d7de] disabled:bg-[#f6f8fa] disabled:text-[#8c959f]"
+              aria-label="Send message"
+              title="Send message"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#2463eb] bg-[#2463eb] text-white shadow-[0_8px_24px_rgba(36,99,235,0.18)] hover:bg-[#1d56d8] disabled:cursor-not-allowed disabled:border-[#dde2ea] disabled:bg-[#f7f8fa] disabled:text-[#8b8f94] disabled:shadow-none"
             >
               <Send size={14} />
-              Send
             </button>
           )}
         </div>

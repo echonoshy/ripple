@@ -78,12 +78,15 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
   }, []);
 
   useEffect(() => {
-    setCurrentPath("/workspace");
-    void loadDirectory("/workspace");
+    queueMicrotask(() => {
+      void loadDirectory("/workspace");
+    });
   }, [loadDirectory, userId]);
 
   useEffect(() => {
-    void loadDirectory(currentPath);
+    queueMicrotask(() => {
+      void loadDirectory(currentPath);
+    });
   }, [currentPath, loadDirectory, refreshToken]);
 
   const openEntry = async (entry: WorkspaceEntry) => {
@@ -132,20 +135,18 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
   };
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-[#f6f8fa] text-[#24292f]">
-      <div className="flex shrink-0 items-center justify-between border-b border-[#d0d7de] bg-white px-4 py-3">
+    <div className="flex h-full flex-col overflow-hidden bg-[#f7f8fa] text-[#171a1f]">
+      <div className="flex shrink-0 items-center justify-between border-b border-[#dde2ea] bg-white px-4 py-3">
         <div className="min-w-0">
-          <p className="text-[10px] font-semibold tracking-wider text-[#6e7781] uppercase">
-            Workspace
-          </p>
-          <p className="truncate font-[family-name:var(--font-mono)] text-sm font-semibold text-[#24292f]">
+          <p className="text-[10px] font-semibold tracking-wider text-[#68707d] uppercase">Files</p>
+          <p className="truncate font-[family-name:var(--font-mono)] text-sm font-semibold text-[#171a1f]">
             {listing?.path || currentPath}
           </p>
         </div>
         <button
           type="button"
           onClick={() => void loadDirectory(currentPath)}
-          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#d0d7de] bg-white text-[#57606a] hover:bg-[#f6f8fa] hover:text-[#24292f]"
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#dde2ea] bg-white text-[#68707d] hover:bg-[#f7f8fa] hover:text-[#171a1f]"
           title="Refresh workspace"
           disabled={loading}
         >
@@ -160,17 +161,17 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
         </div>
       )}
 
-      <div className="grid min-h-0 flex-1 grid-rows-[minmax(220px,40%)_minmax(0,1fr)] lg:grid-cols-[minmax(280px,360px)_minmax(0,1fr)] lg:grid-rows-none">
-        <div className="min-h-0 overflow-hidden border-b border-[#d0d7de] bg-white lg:border-r lg:border-b-0">
-          <div className="flex items-center justify-between border-b border-[#d0d7de] bg-[#f6f8fa] px-3 py-2">
-            <span className="text-xs font-semibold tracking-wider text-[#6e7781] uppercase">
-              Files
+      <div className="grid min-h-0 flex-1 grid-rows-[minmax(220px,42%)_minmax(0,1fr)]">
+        <div className="min-h-0 overflow-hidden border-b border-[#dde2ea] bg-white">
+          <div className="flex items-center justify-between border-b border-[#dde2ea] bg-[#f7f8fa] px-3 py-2">
+            <span className="text-xs font-semibold tracking-wider text-[#68707d] uppercase">
+              Browser
             </span>
             {listing?.parent_path && (
               <button
                 type="button"
                 onClick={() => void loadDirectory(listing.parent_path || "/workspace")}
-                className="flex items-center gap-1 rounded-md border border-[#d0d7de] bg-white px-2 py-1 text-[11px] font-medium text-[#57606a] hover:bg-[#f6f8fa] hover:text-[#24292f]"
+                className="flex items-center gap-1 rounded-md border border-[#dde2ea] bg-white px-2 py-1 text-[11px] font-medium text-[#68707d] hover:bg-[#f7f8fa] hover:text-[#171a1f]"
               >
                 <ArrowUp size={12} />
                 Up
@@ -179,41 +180,41 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
           </div>
           <div className="h-full overflow-y-auto pb-10">
             {loading && !listing ? (
-              <div className="flex h-40 items-center justify-center gap-2 text-sm font-medium text-[#6e7781]">
+              <div className="flex h-40 items-center justify-center gap-2 text-sm font-medium text-[#68707d]">
                 <Loader2 size={16} className="animate-spin" />
                 Loading
               </div>
             ) : listing && listing.entries.length === 0 ? (
-              <div className="flex h-40 items-center justify-center px-4 text-center text-sm font-medium text-[#6e7781]">
+              <div className="flex h-40 items-center justify-center px-4 text-center text-sm font-medium text-[#68707d]">
                 Empty workspace
               </div>
             ) : (
-              <div className="divide-y divide-[#d8dee4]">
+              <div className="divide-y divide-[#dde2ea]">
                 {listing?.entries.map((entry) => (
                   <button
                     key={entry.path}
                     type="button"
                     onClick={() => void openEntry(entry)}
-                    className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-[#f6f8fa] ${
-                      preview?.path === entry.path ? "bg-[#ddf4ff]" : "bg-white"
+                    className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-[#f7f8fa] ${
+                      preview?.path === entry.path ? "bg-[#eef1f5]" : "bg-white"
                     }`}
                   >
                     <span
-                      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#d0d7de] ${
-                        entry.kind === "directory" ? "bg-[#f6f8fa]" : "bg-white"
+                      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#dde2ea] text-[#68707d] ${
+                        entry.kind === "directory" ? "bg-[#f7f8fa]" : "bg-white"
                       }`}
                     >
                       {entry.kind === "directory" ? <Folder size={15} /> : <FileText size={15} />}
                     </span>
                     <span className="min-w-0 flex-1">
                       <span
-                        className={`block truncate font-[family-name:var(--font-mono)] text-sm font-medium text-[#24292f] ${
+                        className={`block truncate font-[family-name:var(--font-mono)] text-sm font-medium text-[#171a1f] ${
                           entry.is_hidden ? "opacity-55" : ""
                         }`}
                       >
                         {entry.name}
                       </span>
-                      <span className="mt-0.5 block truncate font-[family-name:var(--font-mono)] text-[11px] text-[#6e7781]">
+                      <span className="mt-0.5 block truncate font-[family-name:var(--font-mono)] text-[11px] text-[#68707d]">
                         {entry.kind === "directory" ? "folder" : formatBytes(entry.size_bytes)}
                         {formatModified(entry.modified_at)
                           ? ` · ${formatModified(entry.modified_at)}`
@@ -228,9 +229,9 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
         </div>
 
         <div className="flex min-h-0 flex-col overflow-hidden bg-white">
-          <div className="flex shrink-0 items-center gap-2 border-b border-[#d0d7de] bg-[#f6f8fa] px-3 py-2 text-[#57606a]">
+          <div className="flex shrink-0 items-center gap-2 border-b border-[#dde2ea] bg-[#f7f8fa] px-3 py-2 text-[#68707d]">
             <FileText size={13} />
-            <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-[#24292f]">
+            <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-[#171a1f]">
               {preview?.path || "Select a file"}
             </span>
             {previewLoading && <Loader2 size={12} className="animate-spin" />}
@@ -241,8 +242,8 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
                   onClick={() => setIsEditing(false)}
                   className={`inline-flex h-7 items-center gap-1 rounded-md border px-2 text-xs font-medium ${
                     !isEditing
-                      ? "border-[#0969da] bg-white text-[#0969da]"
-                      : "border-[#d0d7de] bg-white text-[#57606a] hover:bg-[#f6f8fa]"
+                      ? "border-[#171a1f] bg-white text-[#171a1f]"
+                      : "border-[#dde2ea] bg-white text-[#68707d] hover:bg-[#f7f8fa]"
                   }`}
                   title="Preview"
                 >
@@ -255,8 +256,8 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
                   onClick={() => setIsEditing(true)}
                   className={`inline-flex h-7 items-center gap-1 rounded-md border px-2 text-xs font-medium ${
                     isEditing
-                      ? "border-[#0969da] bg-white text-[#0969da]"
-                      : "border-[#d0d7de] bg-white text-[#57606a] hover:bg-[#f6f8fa] disabled:cursor-not-allowed disabled:text-[#8c959f]"
+                      ? "border-[#171a1f] bg-white text-[#171a1f]"
+                      : "border-[#dde2ea] bg-white text-[#68707d] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:text-[#8b8f94]"
                   }`}
                   title={preview.truncated ? "Truncated files cannot be edited safely" : "Edit"}
                 >
@@ -269,7 +270,7 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
           <div className="min-h-0 flex-1 overflow-auto bg-white">
             {preview ? (
               <div className="flex min-h-full flex-col">
-                <div className="flex flex-wrap items-center gap-2 border-b border-[#d8dee4] px-3 py-2 font-[family-name:var(--font-mono)] text-[11px] font-medium text-[#6e7781]">
+                <div className="flex flex-wrap items-center gap-2 border-b border-[#dde2ea] px-3 py-2 font-[family-name:var(--font-mono)] text-[11px] font-medium text-[#68707d]">
                   <span>{formatBytes(preview.size_bytes)}</span>
                   <span>{preview.mime_type}</span>
                   <span>{formatModified(preview.modified_at)}</span>
@@ -289,7 +290,7 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
                         type="button"
                         onClick={handleRevert}
                         disabled={!isDirty || saving}
-                        className="inline-flex h-7 items-center gap-1 rounded-md border border-[#d0d7de] bg-white px-2 text-xs font-medium text-[#57606a] hover:bg-[#f6f8fa] disabled:cursor-not-allowed disabled:text-[#8c959f]"
+                        className="inline-flex h-7 items-center gap-1 rounded-md border border-[#dde2ea] bg-white px-2 text-xs font-medium text-[#68707d] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:text-[#8b8f94]"
                       >
                         <Undo2 size={12} />
                         Revert
@@ -298,7 +299,7 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
                         type="button"
                         onClick={() => void handleSave()}
                         disabled={!isDirty || saving || preview.truncated}
-                        className="inline-flex h-7 items-center gap-1 rounded-md border border-[#0969da] bg-[#0969da] px-2 text-xs font-semibold text-white hover:bg-[#075dbd] disabled:cursor-not-allowed disabled:border-[#d0d7de] disabled:bg-[#f6f8fa] disabled:text-[#8c959f]"
+                        className="inline-flex h-7 items-center gap-1 rounded-md border border-[#171a1f] bg-[#171a1f] px-2 text-xs font-semibold text-white hover:bg-[#2a2f37] disabled:cursor-not-allowed disabled:border-[#dde2ea] disabled:bg-[#f7f8fa] disabled:text-[#8b8f94]"
                       >
                         {saving ? (
                           <Loader2 size={12} className="animate-spin" />
@@ -321,16 +322,16 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
                     value={draft}
                     onChange={(event) => setDraft(event.target.value)}
                     spellCheck={false}
-                    className="min-h-0 flex-1 resize-none overflow-auto border-0 bg-white p-3 font-[family-name:var(--font-mono)] text-[12px] leading-relaxed text-[#24292f] outline-none"
+                    className="min-h-0 flex-1 resize-none overflow-auto border-0 bg-white p-3 font-[family-name:var(--font-mono)] text-[12px] leading-relaxed text-[#171a1f] outline-none"
                   />
                 ) : (
-                  <pre className="min-h-0 flex-1 overflow-auto p-3 font-[family-name:var(--font-mono)] text-[12px] leading-relaxed break-words whitespace-pre-wrap text-[#24292f]">
+                  <pre className="min-h-0 flex-1 overflow-auto p-3 font-[family-name:var(--font-mono)] text-[12px] leading-relaxed break-words whitespace-pre-wrap text-[#171a1f]">
                     {preview.content}
                   </pre>
                 )}
               </div>
             ) : (
-              <div className="flex h-full items-center justify-center px-4 text-center text-sm font-medium text-[#6e7781]">
+              <div className="flex h-full items-center justify-center px-4 text-center text-sm font-medium text-[#68707d]">
                 Select a text file
               </div>
             )}

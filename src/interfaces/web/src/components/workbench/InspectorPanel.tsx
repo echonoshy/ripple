@@ -52,45 +52,53 @@ export default function InspectorPanel({
   );
 
   return (
-    <aside className="flex h-full min-h-0 flex-col border-l border-[#d0d7de] bg-[#f6f8fa]">
-      <div className="flex h-11 shrink-0 items-center border-b border-[#d0d7de] bg-white px-2">
-        {tabs.map((tab) => {
-          const Icon = tab.icon;
-          const selected = activeTab === tab.id;
-          const badge = tab.id === "approvals" && pendingPermission ? 1 : 0;
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveTab(tab.id)}
-              className={`relative inline-flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-semibold ${
-                selected ? "bg-[#eaeef2] text-[#24292f]" : "text-[#57606a] hover:bg-[#f6f8fa]"
-              }`}
-            >
-              <Icon size={14} />
-              <span className="truncate">{tab.label}</span>
-              {badge > 0 && <span className="h-1.5 w-1.5 rounded-full bg-[#bf8700]" />}
-            </button>
-          );
-        })}
+    <aside className="flex h-full min-h-0 flex-col border-l border-[#dde2ea] bg-[#f7f8fa]">
+      <div className="shrink-0 border-b border-[#dde2ea] bg-white px-4 py-3">
+        <div className="mb-3">
+          <div className="text-[15px] font-semibold text-[#171a1f]">Files and activity</div>
+          <div className="text-xs text-[#68707d]">Workspace state for the current task</div>
+        </div>
+        <div className="flex rounded-lg border border-[#dde2ea] bg-[#eef1f5] p-1">
+          {tabs.map((tab) => {
+            const Icon = tab.icon;
+            const selected = activeTab === tab.id;
+            const badge = tab.id === "approvals" && pendingPermission ? 1 : 0;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`relative inline-flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-semibold ${
+                  selected
+                    ? "bg-white text-[#171a1f] shadow-sm"
+                    : "text-[#68707d] hover:bg-white/70"
+                }`}
+              >
+                <Icon size={14} />
+                <span className="truncate">{tab.label}</span>
+                {badge > 0 && <span className="h-1.5 w-1.5 rounded-full bg-[#bf8700]" />}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-hidden">
         {activeTab === "files" && <WorkspaceExplorer userId={userId} refreshToken={refreshToken} />}
 
         {activeTab === "activity" && (
-          <div className="h-full overflow-y-auto p-3">
+          <div className="h-full overflow-y-auto p-4">
             {changedFiles.length > 0 && (
-              <section className="mb-3 rounded-md border border-[#d0d7de] bg-white">
-                <div className="flex items-center gap-2 border-b border-[#d8dee4] px-3 py-2 text-sm font-semibold text-[#24292f]">
+              <section className="mb-3 rounded-lg border border-[#dde2ea] bg-white">
+                <div className="flex items-center gap-2 border-b border-[#dde2ea] px-3 py-2 text-sm font-semibold text-[#171a1f]">
                   <Code2 size={14} />
                   Changed files
                 </div>
-                <div className="divide-y divide-[#d8dee4]">
+                <div className="divide-y divide-[#dde2ea]">
                   {changedFiles.map((path) => (
                     <div
                       key={path}
-                      className="truncate px-3 py-2 font-[family-name:var(--font-mono)] text-xs text-[#57606a]"
+                      className="truncate px-3 py-2 font-[family-name:var(--font-mono)] text-xs text-[#68707d]"
                       title={path}
                     >
                       {path}
@@ -101,25 +109,25 @@ export default function InspectorPanel({
             )}
 
             {activityEvents.length === 0 ? (
-              <div className="flex h-40 items-center justify-center rounded-md border border-dashed border-[#d0d7de] bg-white px-4 text-center text-sm text-[#6e7781]">
+              <div className="flex h-40 items-center justify-center rounded-lg border border-dashed border-[#dde2ea] bg-white px-4 text-center text-sm text-[#68707d]">
                 Codex activity will appear here while it reads files, runs commands, or changes
                 files.
               </div>
             ) : (
               <div className="space-y-2">
                 {activityEvents.map((event) => (
-                  <article key={event.id} className="rounded-md border border-[#d0d7de] bg-white">
-                    <div className="flex items-center justify-between gap-2 border-b border-[#d8dee4] px-3 py-2">
-                      <div className="truncate text-sm font-semibold text-[#24292f]">
+                  <article key={event.id} className="rounded-lg border border-[#dde2ea] bg-white">
+                    <div className="flex items-center justify-between gap-2 border-b border-[#dde2ea] px-3 py-2">
+                      <div className="truncate text-sm font-semibold text-[#171a1f]">
                         {event.title}
                       </div>
                       {event.status && (
-                        <span className="rounded-full border border-[#d0d7de] bg-[#f6f8fa] px-2 py-0.5 font-[family-name:var(--font-mono)] text-[11px] text-[#57606a]">
+                        <span className="rounded-md border border-[#dde2ea] bg-[#f7f8fa] px-2 py-0.5 font-[family-name:var(--font-mono)] text-[11px] text-[#68707d]">
                           {event.status}
                         </span>
                       )}
                     </div>
-                    <pre className="max-h-56 overflow-auto p-3 font-[family-name:var(--font-mono)] text-xs leading-relaxed whitespace-pre-wrap text-[#57606a]">
+                    <pre className="max-h-56 overflow-auto p-3 font-[family-name:var(--font-mono)] text-xs leading-relaxed whitespace-pre-wrap text-[#68707d]">
                       {formatBody(event.body)}
                     </pre>
                   </article>
@@ -130,9 +138,9 @@ export default function InspectorPanel({
         )}
 
         {activeTab === "approvals" && (
-          <div className="h-full overflow-y-auto p-3">
+          <div className="h-full overflow-y-auto p-4">
             {pendingPermission ? (
-              <div className="rounded-md border border-[#bf8700]/35 bg-[#fff8c5] p-3">
+              <div className="rounded-lg border border-[#bf8700]/35 bg-[#fff8c5] p-3">
                 <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-[#7d4e00]">
                   <ShieldAlert size={15} />
                   Permission required: {pendingPermission.tool}
@@ -167,7 +175,7 @@ export default function InspectorPanel({
                 </div>
               </div>
             ) : (
-              <div className="flex h-40 items-center justify-center gap-2 rounded-md border border-dashed border-[#d0d7de] bg-white px-4 text-center text-sm text-[#6e7781]">
+              <div className="flex h-40 items-center justify-center gap-2 rounded-lg border border-dashed border-[#dde2ea] bg-white px-4 text-center text-sm text-[#68707d]">
                 <CheckCircle2 size={16} />
                 No pending approvals
               </div>

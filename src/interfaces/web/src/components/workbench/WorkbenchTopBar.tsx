@@ -33,7 +33,6 @@ interface WorkbenchTopBarProps {
 
 export default function WorkbenchTopBar({
   taskTitle,
-  userId,
   selectedModel,
   models,
   isModelDropdownOpen,
@@ -50,23 +49,21 @@ export default function WorkbenchTopBar({
   onOpenNav,
 }: WorkbenchTopBarProps) {
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between border-b border-[#d0d7de] bg-[#f6f8fa] px-3 text-[#24292f] md:px-4">
+    <header className="flex h-[58px] shrink-0 items-center justify-between border-b border-[#dde2ea] bg-white px-4 text-[#171a1f] md:px-6">
       <div className="flex min-w-0 items-center gap-3">
         <button
           type="button"
           aria-label="Open navigation"
           title="Open navigation"
           onClick={onOpenNav}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#d0d7de] bg-white text-[#57606a] hover:bg-[#f6f8fa] hover:text-[#24292f] lg:hidden"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#dde2ea] bg-white text-[#68707d] hover:bg-[#f7f8fa] hover:text-[#171a1f] lg:hidden"
         >
           <Menu size={16} />
         </button>
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#d0d7de] bg-white text-[#0969da]">
-          <RippleIcon size={25} />
-        </div>
+        <RippleIcon size={28} className="h-7 w-7 shrink-0 rounded-md lg:hidden" />
         <div className="min-w-0">
-          <div className="truncate text-sm font-semibold">{taskTitle || "Ripple Workbench"}</div>
-          <div className="truncate text-xs text-[#57606a]">Agent workspace · {userId}</div>
+          <div className="truncate text-[15px] font-semibold">{taskTitle || "New Codex task"}</div>
+          <div className="truncate text-xs text-[#68707d]">Codex is working in your files</div>
         </div>
       </div>
 
@@ -79,25 +76,25 @@ export default function WorkbenchTopBar({
           <button
             type="button"
             onClick={onToggleModelDropdown}
-            className="hidden h-8 items-center gap-1.5 rounded-md border border-[#d0d7de] bg-white px-2 text-xs font-medium text-[#24292f] hover:bg-[#f6f8fa] sm:inline-flex"
+            className="hidden h-8 items-center gap-1.5 rounded-md border border-[#dde2ea] bg-white px-2 text-xs font-medium text-[#171a1f] hover:bg-[#f7f8fa] sm:inline-flex"
           >
-            <Cpu size={14} className="text-[#57606a]" />
+            <Cpu size={14} className="text-[#68707d]" />
             <span className="font-[family-name:var(--font-mono)]">{selectedModel}</span>
             <ChevronDown
               size={12}
-              className={`text-[#6e7781] transition-transform ${isModelDropdownOpen ? "rotate-180" : ""}`}
+              className={`text-[#68707d] transition-transform ${isModelDropdownOpen ? "rotate-180" : ""}`}
             />
           </button>
           {isModelDropdownOpen && (
-            <div className="absolute top-full right-0 z-30 mt-2 w-48 overflow-hidden rounded-md border border-[#d0d7de] bg-white shadow-lg">
+            <div className="absolute top-full right-0 z-30 mt-2 w-48 overflow-hidden rounded-md border border-[#dde2ea] bg-white shadow-lg">
               <div className="p-1">
                 {models.map((model) => (
                   <button
                     key={model.id}
                     type="button"
                     onClick={() => onSelectModel(model.id)}
-                    className={`flex w-full items-center rounded px-3 py-2 text-left font-[family-name:var(--font-mono)] text-xs hover:bg-[#f6f8fa] ${
-                      selectedModel === model.id ? "bg-[#ddf4ff] text-[#0969da]" : "text-[#24292f]"
+                    className={`flex w-full items-center rounded px-3 py-2 text-left font-[family-name:var(--font-mono)] text-xs hover:bg-[#f7f8fa] ${
+                      selectedModel === model.id ? "bg-[#e7eeff] text-[#174ea6]" : "text-[#171a1f]"
                     }`}
                   >
                     {model.id}
@@ -113,11 +110,11 @@ export default function WorkbenchTopBar({
             className={`hidden h-8 items-center gap-1.5 rounded-md border px-2 font-[family-name:var(--font-mono)] text-xs md:flex ${
               isContextWarning
                 ? "border-[#bf8700]/35 bg-[#fff8c5] text-[#7d4e00]"
-                : "border-[#d0d7de] bg-white text-[#57606a]"
+                : "border-[#dde2ea] bg-white text-[#68707d]"
             }`}
           >
             <span>in {formatTokens(tokenUsage.prompt_tokens)}</span>
-            <span className="text-[#8c959f]">/</span>
+            <span className="text-[#8b8f94]">/</span>
             <span>out {formatTokens(tokenUsage.completion_tokens)}</span>
           </div>
         )}
@@ -127,7 +124,7 @@ export default function WorkbenchTopBar({
             type="button"
             onClick={onCopySessionId}
             title={sessionIdCopied ? "Copied" : `Copy session ID: ${sessionId}`}
-            className="hidden h-8 items-center gap-1.5 rounded-md border border-[#d0d7de] bg-white px-2 font-[family-name:var(--font-mono)] text-xs text-[#57606a] hover:bg-[#f6f8fa] hover:text-[#24292f] xl:inline-flex"
+            className="hidden h-8 items-center gap-1.5 rounded-md border border-[#dde2ea] bg-white px-2 font-[family-name:var(--font-mono)] text-xs text-[#68707d] hover:bg-[#f7f8fa] hover:text-[#171a1f] xl:inline-flex"
           >
             <span className="max-w-[120px] truncate">{sessionId}</span>
             {sessionIdCopied ? <Check size={12} /> : <Copy size={12} />}
@@ -141,7 +138,7 @@ export default function WorkbenchTopBar({
           aria-label="Settings"
           title="Settings"
           onClick={onOpenSettings}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#d0d7de] bg-white text-[#57606a] hover:bg-[#f6f8fa] hover:text-[#24292f]"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#dde2ea] bg-white text-[#68707d] hover:bg-[#f7f8fa] hover:text-[#171a1f]"
         >
           <Settings size={15} />
         </button>

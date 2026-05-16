@@ -41,8 +41,8 @@ import {
 
 export default function Home() {
   // ── Auth state ──
-  const [authState, setAuthState] = useState<"checking" | "needs_auth" | "authenticated">(
-    "checking"
+  const [authState, setAuthState] = useState<"checking" | "needs_auth" | "authenticated">(() =>
+    getApiKey() ? "authenticated" : "needs_auth"
   );
   const [authErrorMsg, setAuthErrorMsg] = useState("");
   const [keyInput, setKeyInput] = useState("");
@@ -84,11 +84,6 @@ export default function Home() {
 
   const activeRequestIdRef = useRef(0);
   const abortControllerRef = useRef<AbortController | null>(null);
-
-  // ── Auth check ──
-  useEffect(() => {
-    setAuthState(getApiKey() ? "authenticated" : "needs_auth");
-  }, []);
 
   // ── Load sessions ──
   const loadSessions = useCallback(async (): Promise<Session[]> => {
@@ -575,19 +570,20 @@ export default function Home() {
   // ═══════════════════════════════════════════════════════
   if (authState !== "authenticated") {
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-[#f6f8fa] p-4 text-[#24292f]">
+      <div className="flex h-screen w-screen items-center justify-center bg-white p-4 text-[#171a1f]">
         {authState === "needs_auth" && (
           <div className="mx-4 w-full max-w-sm">
-            <div className="rounded-lg border border-[#d0d7de] bg-white p-8 shadow-sm">
+            <div className="rounded-2xl border border-[#e5e7eb] bg-white p-8 shadow-[0_24px_70px_rgba(13,13,13,0.08)]">
               <div className="mb-8 flex flex-col items-center">
-                <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-lg border border-[#d0d7de] bg-[#f6f8fa] text-[#0969da]">
-                  <RippleIcon size={42} />
-                </div>
-                <h1 className="text-xl font-semibold">Ripple Workbench</h1>
-                <p className="mt-3 text-center text-sm text-[#57606a]">
+                <RippleIcon
+                  size={72}
+                  className="mb-5 h-[72px] w-[72px] rounded-2xl shadow-[0_18px_45px_rgba(13,13,13,0.18)]"
+                />
+                <h1 className="text-[28px] leading-tight font-semibold tracking-normal">Ripple</h1>
+                <p className="mt-3 text-center text-sm text-[#687280]">
                   Enter your API key to continue
                 </p>
-                <p className="mt-1 text-center font-[family-name:var(--font-cjk)] text-sm text-[#6e7781]">
+                <p className="mt-1 text-center font-[family-name:var(--font-cjk)] text-sm text-[#687280]">
                   请输入 API Key 以访问服务
                 </p>
               </div>
@@ -608,13 +604,13 @@ export default function Home() {
                     value={keyInput}
                     onChange={(e) => setKeyInput(e.target.value)}
                     placeholder="Enter API key..."
-                    className="w-full rounded-md border border-[#d0d7de] bg-white py-3 pr-4 pl-11 font-[family-name:var(--font-mono)] text-sm text-[#24292f] outline-none focus:border-[#0969da]"
+                    className="w-full rounded-lg border border-[#e5e7eb] bg-white py-3 pr-4 pl-11 font-[family-name:var(--font-mono)] text-sm text-[#171a1f] outline-none focus:border-[#2463eb]"
                   />
                 </div>
                 <button
                   type="submit"
                   disabled={!keyInput.trim()}
-                  className="w-full rounded-md border border-[#0969da] bg-[#0969da] py-3 text-sm font-semibold text-white hover:bg-[#075dbd] disabled:cursor-not-allowed disabled:border-[#d0d7de] disabled:bg-[#f6f8fa] disabled:text-[#8c959f]"
+                  className="w-full rounded-lg border border-[#2463eb] bg-[#2463eb] py-3 text-sm font-semibold text-white shadow-[0_10px_28px_rgba(36,99,235,0.18)] hover:bg-[#1d56d8] disabled:cursor-not-allowed disabled:border-[#dde2ea] disabled:bg-[#f7f8fa] disabled:text-[#8b8f94] disabled:shadow-none"
                 >
                   Connect
                 </button>
@@ -676,7 +672,6 @@ export default function Home() {
         content={
           <TaskPage
             task={selectedWorkbenchTask}
-            sessionId={sessionId}
             messages={messages}
             timelineEvents={timelineEvents}
             taskProgress={taskProgress}
@@ -689,7 +684,6 @@ export default function Home() {
             onInputChange={setInput}
             onSend={handleSendMessage}
             onStop={handleStop}
-            onNewTask={handleNewChat}
             onQuickReply={handleQuickReply}
             onPermissionResolve={handlePermissionResolve}
           />

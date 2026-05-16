@@ -53,67 +53,101 @@ export default function TaskTimeline({
 
   if (events.length === 0 && !isGenerating) {
     return (
-      <div className="flex h-full min-h-[280px] items-center justify-center rounded-md border border-dashed border-[#d0d7de] bg-[#f6f8fa] p-8 text-center text-sm text-[#6e7781]">
-        Ready for a new Codex task.
+      <div className="flex min-h-[180px] items-center justify-center rounded-lg border border-dashed border-[#dde2ea] bg-[#f7f8fa] p-8 text-center text-sm text-[#68707d]">
+        Ready.
       </div>
     );
   }
 
   return (
-    <div className="space-y-3">
-      {events.map((event) => (
-        <article key={event.id} className="flex gap-3">
-          <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#d0d7de] bg-white text-[#57606a]">
-            <EventIcon type={event.type} />
-          </div>
-          <div className="min-w-0 flex-1 rounded-md border border-[#d0d7de] bg-white">
-            <div className="flex items-center justify-between gap-3 border-b border-[#d8dee4] px-3 py-2">
-              <div className="min-w-0 truncate text-sm font-semibold text-[#24292f]">
-                {event.title}
+    <div className="space-y-4">
+      {events.map((event) => {
+        const isToolEvent = ["approval_request", "command", "file_change", "tool_call"].includes(
+          event.type
+        );
+        const eventTime = formatTime(event.createdAt);
+
+        if (event.type === "user_message") {
+          return (
+            <article key={event.id} className="flex justify-end">
+              <div className="max-w-[78%] rounded-xl bg-[#eef1f5] px-4 py-3 text-sm leading-6 text-[#171a1f]">
+                <div className="markdown-body workbench-markdown">
+                  <MarkdownRenderer content={event.body} />
+                </div>
               </div>
-              <div className="flex shrink-0 items-center gap-1.5 text-xs text-[#6e7781]">
+            </article>
+          );
+        }
+
+        if (!isToolEvent) {
+          return (
+            <article
+              key={event.id}
+              className="rounded-xl border border-[#dde2ea] bg-white px-4 py-3"
+            >
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-sm font-semibold text-[#171a1f]">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-md bg-[#171a1f] text-white">
+                    <Bot size={13} />
+                  </span>
+                  Codex
+                </div>
+                {eventTime && (
+                  <div className="flex shrink-0 items-center gap-1 text-xs text-[#8b8f94]">
+                    <Clock3 size={12} />
+                    {eventTime}
+                  </div>
+                )}
+              </div>
+              <div className="markdown-body workbench-markdown text-sm">
+                <MarkdownRenderer content={event.body} />
+              </div>
+            </article>
+          );
+        }
+
+        return (
+          <article key={event.id} className="rounded-lg border border-[#dde2ea] bg-[#f7f8fa] p-3">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-2 text-xs font-semibold text-[#68707d]">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-[#dde2ea] bg-white">
+                  <EventIcon type={event.type} />
+                </span>
+                <span className="truncate">{event.title}</span>
+              </div>
+              <div className="flex shrink-0 items-center gap-1.5 text-xs text-[#8b8f94]">
                 {event.status && (
-                  <span className="rounded-full border border-[#d0d7de] bg-[#f6f8fa] px-2 py-0.5 font-[family-name:var(--font-mono)]">
+                  <span className="rounded-md border border-[#dde2ea] bg-white px-1.5 py-0.5 font-[family-name:var(--font-mono)]">
                     {event.status}
                   </span>
                 )}
-                {formatTime(event.createdAt) && (
+                {eventTime && (
                   <>
                     <Clock3 size={12} />
-                    {formatTime(event.createdAt)}
+                    {eventTime}
                   </>
                 )}
               </div>
             </div>
-            <div className="min-w-0 px-3 py-3 text-sm text-[#24292f]">
-              {["approval_request", "command", "file_change", "tool_call"].includes(event.type) ? (
-                <pre className="max-h-64 overflow-auto rounded-md bg-[#0d1117] p-3 font-[family-name:var(--font-mono)] text-xs leading-relaxed whitespace-pre-wrap text-[#c9d1d9]">
-                  {event.body}
-                </pre>
-              ) : (
-                <div className="markdown-body workbench-markdown">
-                  <MarkdownRenderer content={event.body} />
-                </div>
-              )}
-            </div>
-          </div>
-        </article>
-      ))}
+            <pre className="max-h-64 overflow-auto rounded-md border border-[#dde2ea] bg-white p-3 font-[family-name:var(--font-mono)] text-xs leading-relaxed whitespace-pre-wrap text-[#394150]">
+              {event.body}
+            </pre>
+          </article>
+        );
+      })}
 
       {isGenerating && lastMessage?.role === "assistant" && !lastMessage.content && (
-        <article className="flex gap-3">
-          <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#d0d7de] bg-white text-[#57606a]">
+        <article className="rounded-xl border border-[#dde2ea] bg-white px-4 py-3">
+          <div className="flex items-center gap-2 text-sm text-[#68707d]">
             <Bot size={15} />
-          </div>
-          <div className="flex min-w-0 flex-1 items-center gap-2 rounded-md border border-[#d0d7de] bg-white px-3 py-3 text-sm text-[#57606a]">
-            <span className="h-2 w-2 animate-pulse rounded-full bg-[#0969da]" />
+            <span className="h-2 w-2 animate-pulse rounded-full bg-[#2f6bff]" />
             Codex is starting work...
           </div>
         </article>
       )}
 
       {pendingAskUser && (
-        <div className="rounded-md border border-[#bf8700]/35 bg-[#fff8c5] p-3">
+        <div className="rounded-lg border border-[#bf8700]/35 bg-[#fff8c5] p-3">
           <div className="mb-2 text-sm font-semibold text-[#7d4e00]">{pendingAskUser.question}</div>
           <div className="flex flex-wrap gap-2">
             {pendingAskUser.options.map((option) => (
@@ -121,7 +155,7 @@ export default function TaskTimeline({
                 key={option}
                 type="button"
                 onClick={() => onQuickReply(option)}
-                className="rounded-md border border-[#d0d7de] bg-white px-3 py-1.5 text-sm font-medium text-[#24292f] hover:bg-[#f6f8fa]"
+                className="rounded-md border border-[#dde2ea] bg-white px-3 py-1.5 text-sm font-medium text-[#171a1f] hover:bg-[#f7f8fa]"
               >
                 {option}
               </button>
@@ -131,7 +165,7 @@ export default function TaskTimeline({
       )}
 
       {pendingPermission && (
-        <div className="rounded-md border border-[#bf8700]/35 bg-[#fff8c5] p-3">
+        <div className="rounded-lg border border-[#bf8700]/35 bg-[#fff8c5] p-3">
           <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-[#7d4e00]">
             <ShieldAlert size={15} />
             Permission required: {pendingPermission.tool}

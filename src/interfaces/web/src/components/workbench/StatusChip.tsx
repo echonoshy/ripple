@@ -28,7 +28,7 @@ const STATUS_TONES: Record<WorkbenchTaskStatus, StatusTone> = {
 };
 
 const TONE_CLASSES: Record<StatusTone, string> = {
-  blue: "border-[#0969da]/25 bg-[#ddf4ff] text-[#0969da]",
+  blue: "border-[#2463eb]/20 bg-[#eef4ff] text-[#2463eb]",
   green: "border-[#1a7f37]/25 bg-[#dafbe1] text-[#1a7f37]",
   yellow: "border-[#bf8700]/30 bg-[#fff8c5] text-[#7d4e00]",
   red: "border-[#cf222e]/25 bg-[#ffebe9] text-[#cf222e]",
@@ -47,17 +47,19 @@ export default function StatusChip({
   status,
   label,
   tone,
+  compact = false,
 }: {
   status?: WorkbenchTaskStatus;
   label?: string;
   tone?: StatusTone;
+  compact?: boolean;
 }) {
   const resolvedTone = tone || (status ? statusTone(status) : "gray");
   const resolvedLabel = label || (status ? statusLabel(status) : "Ready");
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium ${TONE_CLASSES[resolvedTone]}`}
+      className={`inline-flex items-center gap-1.5 rounded-md border font-medium ${compact ? "px-1.5 py-0.5 text-[11px]" : "px-2 py-0.5 text-xs"} ${TONE_CLASSES[resolvedTone]}`}
     >
       <span className="h-1.5 w-1.5 rounded-full bg-current" />
       {resolvedLabel}

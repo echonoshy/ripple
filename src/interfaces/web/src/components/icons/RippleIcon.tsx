@@ -6,7 +6,7 @@ interface RippleIconProps {
 export default function RippleIcon({ size = 24, className = "" }: RippleIconProps) {
   return (
     <img
-      src="/ripple-icon.svg?v=20260516-r6"
+      src="/ripple-icon.svg?v=20260516-r8"
       alt=""
       aria-hidden="true"
       width={size}

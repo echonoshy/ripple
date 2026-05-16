@@ -182,15 +182,7 @@ export function messagesToTimelineEvents(messages: Message[]): WorkbenchTimeline
 
   for (const message of messages) {
     const id = String(message.id);
-    if (message.content) {
-      events.push({
-        id,
-        type: message.role === "user" ? "user_message" : "assistant_message",
-        title: message.role === "user" ? "User request" : "Codex update",
-        body: message.content,
-        createdAt: message.created_at,
-      });
-    }
+    const toolCalls = message.toolCalls || [];
 
     if (message.permissionRequest) {
       events.push({
@@ -206,8 +198,29 @@ export function messagesToTimelineEvents(messages: Message[]): WorkbenchTimeline
       });
     }
 
-    for (const tool of message.toolCalls || []) {
+    if (message.role === "user" && message.content) {
+      events.push({
+        id,
+        type: "user_message",
+        title: "User request",
+        body: message.content,
+        createdAt: message.created_at,
+      });
+    }
+
+    for (const tool of toolCalls) {
       events.push(toolEvent(message, tool));
+    }
+
+    if (message.role === "assistant" && message.content) {
+      const hasTools = toolCalls.length > 0;
+      events.push({
+        id,
+        type: hasTools ? "final_summary" : "assistant_message",
+        title: hasTools ? "Final answer" : "Codex update",
+        body: message.content,
+        createdAt: message.created_at,
+      });
     }
   }
 

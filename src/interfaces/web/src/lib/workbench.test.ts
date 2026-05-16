@@ -157,6 +157,33 @@ function testMapsToolCallsIntoTimelineEvents() {
   assert.match(events[1].body, /InspectorPanel/);
 }
 
+function testPlacesAssistantContentAfterItsToolCalls() {
+  const messages: Message[] = [
+    {
+      id: "assistant-1",
+      role: "assistant",
+      content: "Done.\n\n- One\n- Two",
+      toolCalls: [
+        {
+          id: "tool-1",
+          name: "command_execution",
+          arguments: { command: "bun run build" },
+          status: "success",
+          result: "ok",
+        },
+      ],
+    },
+  ];
+
+  const events = messagesToTimelineEvents(messages);
+
+  assert.equal(events.length, 2);
+  assert.equal(events[0].type, "command");
+  assert.equal(events[1].type, "final_summary");
+  assert.equal(events[1].title, "Final answer");
+  assert.equal(events[1].body, "Done.\n\n- One\n- Two");
+}
+
 function testExtractsChangedFilesFromToolCalls() {
   const messages: Message[] = [
     {
@@ -187,6 +214,7 @@ testMapsSessionsToTaskSummaries();
 testMapsBackendTasksToWorkbenchSummaries();
 testSortsApprovalTasksBeforeOrdinaryRunningTasks();
 testMapsToolCallsIntoTimelineEvents();
+testPlacesAssistantContentAfterItsToolCalls();
 testExtractsChangedFilesFromToolCalls();
 
 console.log("workbench tests passed");

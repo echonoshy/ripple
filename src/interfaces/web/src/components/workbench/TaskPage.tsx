@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { useEffect, useRef } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -57,6 +58,7 @@ export default function TaskPage({
   onQuickReply,
   onPermissionResolve,
 }: TaskPageProps) {
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const hasMessages = messages.length > 0;
   const taskTitle = task?.title || (hasMessages ? "Codex task" : "New Codex task");
   const taskStatus: WorkbenchTaskSummary["status"] = isGenerating
@@ -65,6 +67,20 @@ export default function TaskPage({
   const contextPercent = lastContextTokens
     ? Math.min(Math.round((lastContextTokens / 200_000) * 100), 100)
     : 0;
+
+  useEffect(() => {
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      scrollContainer.scrollTo({
+        top: scrollContainer.scrollHeight,
+        behavior: isGenerating ? "auto" : "smooth",
+      });
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [isGenerating, messages.length, taskSteps.length, timelineEvents, tokenUsage.total_tokens]);
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-white">
@@ -135,7 +151,10 @@ export default function TaskPage({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto bg-white px-5 py-5 md:px-8">
+      <div
+        ref={scrollContainerRef}
+        className="min-h-0 flex-1 overflow-y-auto bg-white px-5 py-5 md:px-8"
+      >
         <div className="mx-auto max-w-4xl space-y-5">
           {taskSteps.length > 0 && (
             <section className="rounded-lg border border-[#e5e7eb] bg-[#f7f8fa]">

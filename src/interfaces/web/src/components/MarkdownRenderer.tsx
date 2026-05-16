@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeHighlight from "rehype-highlight";
@@ -207,7 +208,7 @@ function MarkdownContent({ content }: { content: string }) {
 
   return (
     <ReactMarkdown
-      remarkPlugins={[remarkGfm, remarkMath]}
+      remarkPlugins={[remarkGfm, remarkBreaks, remarkMath]}
       rehypePlugins={[rehypeKatex, rehypeHighlight]}
       components={{
         pre({ children }) {

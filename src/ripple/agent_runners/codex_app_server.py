@@ -450,7 +450,7 @@ class CodexAppServerAgentProvider:
         if self.sandbox_type == "workspace-write":
             filesystem[":project_roots"] = {
                 ".": "write",
-                ".git": "read",
+                ".git": "write",
                 ".agents": "read",
                 ".codex": "read",
             }

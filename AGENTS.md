@@ -117,7 +117,7 @@ Codex 授权是服务端统一授权，不是 per-user 授权：
 - 不要把 Codex `auth.json` 复制、挂载或保存到 `sandboxes/<uid>/workspace/`；user sandbox 只保存用户文件和 per-user connector 凭证。
 - `run_app_server_in_user_sandbox` 默认必须为 `false`。仅为兼容/实验目的打开时，才允许把 app-server 进程本身放进 nsjail。
 - Connector 状态检查应使用与 app-server 相同的 `codex_home` / env，避免“状态已登录、执行未登录”。
-- 真实探针确认：仅使用 legacy `workspaceWrite` 时，Codex command 执行层仍可读取服务端 `CODEX_HOME/auth.json` 和宿主 `~/.codex/auth.json`。因此默认链路必须使用 Codex managed permissions profile：`:root = read`、`:project_roots` 下 `.` 可写但 `.git` / `.agents` / `.codex` 只读、服务端 `codex_home` 与宿主 `.codex` 显式 `none` deny-read，并通过 `shell_environment_policy.exclude = ["CODEX_HOME"]` 避免把服务端 auth 路径传给命令环境。
+- 真实探针确认：仅使用 legacy `workspaceWrite` 时，Codex command 执行层仍可读取服务端 `CODEX_HOME/auth.json` 和宿主 `~/.codex/auth.json`。因此默认链路必须使用 Codex managed permissions profile：`:root = read`、`:project_roots` 下 `.` 和 `.git` 可写但 `.agents` / `.codex` 只读、服务端 `codex_home` 与宿主 `.codex` 显式 `none` deny-read，并通过 `shell_environment_policy.exclude = ["CODEX_HOME"]` 避免把服务端 auth 路径传给命令环境。
 
 `/v1/chat/completions` 主链路：
 

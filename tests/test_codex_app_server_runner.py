@@ -72,7 +72,7 @@ for raw_line in sys.stdin:
         project_roots = filesystem.get(":project_roots")
         if filesystem.get(":root") != "read" or project_roots != {
             ".": "write",
-            ".git": "read",
+            ".git": "write",
             ".agents": "read",
             ".codex": "read",
         }:
@@ -287,7 +287,7 @@ async def test_app_server_provider_runs_thread_turn_and_records_events(tmp_path)
     assert profile["filesystem"][":root"] == "read"
     assert profile["filesystem"][":project_roots"] == {
         ".": "write",
-        ".git": "read",
+        ".git": "write",
         ".agents": "read",
         ".codex": "read",
     }
@@ -346,7 +346,7 @@ async def test_app_server_provider_uses_host_cwd_even_when_sandbox_cwd_is_presen
     assert turn_start["params"]["cwd"] == str(request.cwd)
     assert thread_start["params"]["config"]["permissions"]["ripple_workspace"]["filesystem"][":project_roots"] == {
         ".": "write",
-        ".git": "read",
+        ".git": "write",
         ".agents": "read",
         ".codex": "read",
     }

@@ -1,7 +1,16 @@
 "use client";
 
 import React from "react";
-import { Bot, CheckCircle2, Clock3, ShieldAlert, UserRound } from "lucide-react";
+import {
+  Bot,
+  CheckCircle2,
+  Clock3,
+  FileCode2,
+  ShieldAlert,
+  Terminal,
+  UserRound,
+  Wrench,
+} from "lucide-react";
 import MarkdownRenderer from "@/components/MarkdownRenderer";
 import type { Message, WorkbenchTimelineEvent } from "@/types";
 
@@ -15,6 +24,9 @@ function formatTime(value: string | undefined): string {
 function EventIcon({ type }: { type: WorkbenchTimelineEvent["type"] }) {
   if (type === "user_message") return <UserRound size={15} />;
   if (type === "approval_request") return <ShieldAlert size={15} />;
+  if (type === "command") return <Terminal size={15} />;
+  if (type === "file_change") return <FileCode2 size={15} />;
+  if (type === "tool_call") return <Wrench size={15} />;
   if (type === "final_summary") return <CheckCircle2 size={15} />;
   return <Bot size={15} />;
 }
@@ -74,7 +86,7 @@ export default function TaskTimeline({
               </div>
             </div>
             <div className="min-w-0 px-3 py-3 text-sm text-[#24292f]">
-              {event.type === "approval_request" ? (
+              {["approval_request", "command", "file_change", "tool_call"].includes(event.type) ? (
                 <pre className="max-h-64 overflow-auto rounded-md bg-[#0d1117] p-3 font-[family-name:var(--font-mono)] text-xs leading-relaxed whitespace-pre-wrap text-[#c9d1d9]">
                   {event.body}
                 </pre>

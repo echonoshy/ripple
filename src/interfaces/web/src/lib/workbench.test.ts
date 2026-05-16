@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 
-import { mapSessionsToWorkbenchTasks, sortWorkbenchTasks } from "./workbench";
-import type { Session } from "@/types";
+import {
+  extractChangedFilePaths,
+  mapSessionsToWorkbenchTasks,
+  messagesToTimelineEvents,
+  sortWorkbenchTasks,
+} from "./workbench";
+import type { Message, Session } from "@/types";
 
 function makeSession(overrides: Partial<Session>): Session {
   return {
@@ -66,7 +71,75 @@ function testSortsApprovalTasksBeforeOrdinaryRunningTasks() {
   assert.equal(sorted[1].id, "running");
 }
 
+function testMapsToolCallsIntoTimelineEvents() {
+  const messages: Message[] = [
+    {
+      id: "assistant-1",
+      role: "assistant",
+      content: "",
+      toolCalls: [
+        {
+          id: "tool-1",
+          name: "command_execution",
+          arguments: { command: "bun run lint", cwd: "/workspace/src/interfaces/web" },
+          status: "success",
+          result: JSON.stringify({ success: true, duration_ms: 1200 }),
+        },
+        {
+          id: "tool-2",
+          name: "file_change",
+          arguments: {
+            changes: [
+              { path: "/workspace/src/interfaces/web/src/App.tsx" },
+              { path: "src/interfaces/web/src/components/workbench/InspectorPanel.tsx" },
+            ],
+          },
+          status: "success",
+        },
+      ],
+    },
+  ];
+
+  const events = messagesToTimelineEvents(messages);
+
+  assert.equal(events.length, 2);
+  assert.equal(events[0].type, "command");
+  assert.equal(events[0].title, "Ran command");
+  assert.match(events[0].body, /bun run lint/);
+  assert.equal(events[1].type, "file_change");
+  assert.equal(events[1].title, "Changed files");
+  assert.match(events[1].body, /InspectorPanel/);
+}
+
+function testExtractsChangedFilesFromToolCalls() {
+  const messages: Message[] = [
+    {
+      id: "assistant-1",
+      role: "assistant",
+      content: "",
+      toolCalls: [
+        {
+          id: "tool-1",
+          name: "file_change",
+          arguments: {
+            changes: [
+              { path: "/workspace/a.ts" },
+              { path: "/workspace/b.ts" },
+              { path: "/workspace/a.ts" },
+            ],
+          },
+          status: "success",
+        },
+      ],
+    },
+  ];
+
+  assert.deepEqual(extractChangedFilePaths(messages), ["/workspace/a.ts", "/workspace/b.ts"]);
+}
+
 testMapsSessionsToTaskSummaries();
 testSortsApprovalTasksBeforeOrdinaryRunningTasks();
+testMapsToolCallsIntoTimelineEvents();
+testExtractsChangedFilesFromToolCalls();
 
 console.log("workbench tests passed");

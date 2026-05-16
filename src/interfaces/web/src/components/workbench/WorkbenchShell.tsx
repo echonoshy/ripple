@@ -7,6 +7,7 @@ interface WorkbenchShellProps {
   topBar: React.ReactNode;
   nav: React.ReactNode;
   content: React.ReactNode;
+  inspector: React.ReactNode;
   isNavOpen: boolean;
   onCloseNav: () => void;
 }
@@ -15,6 +16,7 @@ export default function WorkbenchShell({
   topBar,
   nav,
   content,
+  inspector,
   isNavOpen,
   onCloseNav,
 }: WorkbenchShellProps) {
@@ -53,6 +55,7 @@ export default function WorkbenchShell({
         )}
 
         <main className="min-w-0 flex-1 bg-white">{content}</main>
+        <div className="hidden w-[420px] shrink-0 xl:block">{inspector}</div>
       </div>
     </div>
   );

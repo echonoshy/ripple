@@ -94,9 +94,9 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
     setPreviewLoading(true);
     setError(null);
     try {
-      const nextPreview = await fetchWorkspaceFilePreview(entry.path, 256 * 1024);
-      setPreview(nextPreview);
-      setDraft(nextPreview.content);
+      const filePreview = await fetchWorkspaceFilePreview(entry.path, 256 * 1024);
+      setPreview(filePreview);
+      setDraft(filePreview.content);
       setIsEditing(false);
       setSaveError(null);
     } catch (err) {

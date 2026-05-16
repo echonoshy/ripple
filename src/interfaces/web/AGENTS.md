@@ -1,5 +1,8 @@
-<!-- BEGIN:nextjs-agent-rules -->
-# This is NOT the Next.js you know
+# Web Frontend Notes
 
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
-<!-- END:nextjs-agent-rules -->
+This frontend is a Vite + React single-page client for Ripple.
+
+- Use `bun run dev` for local development on port `8820`.
+- Use `bun run build` for TypeScript and production bundle verification.
+- Runtime API configuration uses `VITE_RIPPLE_API_URL`; when unset, the client falls back to `http://<current-host>:8810/v1`.
+- Keep this app as a browser client. Do not add server-only framework patterns, API routes, server actions, or framework-specific auth flows here.

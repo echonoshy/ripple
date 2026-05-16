@@ -250,7 +250,6 @@ function MarkdownContent({ content }: { content: string }) {
         img({ src, alt, className, ...rest }) {
           const resolved = typeof src === "string" ? resolveBackendUrl(src) : src;
           return (
-            // eslint-disable-next-line @next/next/no-img-element -- 后端相对路径图片（如 B 站扫码 QR）跨 origin，Next <Image> 会强行要求域名白名单；这里允许原生 img 并手动约束尺寸
             <img
               src={resolved}
               alt={alt ?? ""}

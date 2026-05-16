@@ -1,5 +1,3 @@
-import Image from "next/image";
-
 interface RippleIconProps {
   size?: number;
   className?: string;
@@ -7,7 +5,7 @@ interface RippleIconProps {
 
 export default function RippleIcon({ size = 24, className = "" }: RippleIconProps) {
   return (
-    <Image
+    <img
       src="/ripple-icon.svg"
       alt=""
       aria-hidden="true"
@@ -16,7 +14,6 @@ export default function RippleIcon({ size = 24, className = "" }: RippleIconProp
       className={className}
       draggable={false}
       loading="eager"
-      unoptimized
     />
   );
 }

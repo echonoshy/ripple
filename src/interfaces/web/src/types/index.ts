@@ -191,6 +191,9 @@ export interface WorkbenchTaskSummary {
 export type WorkbenchTimelineEventType =
   | "user_message"
   | "assistant_message"
+  | "tool_call"
+  | "command"
+  | "file_change"
   | "approval_request"
   | "final_summary";
 

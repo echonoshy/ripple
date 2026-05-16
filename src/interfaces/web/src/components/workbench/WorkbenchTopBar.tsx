@@ -61,18 +61,12 @@ export default function WorkbenchTopBar({
         >
           <Menu size={16} />
         </button>
-        <a
-          href="https://github.com/echonoshy/ripple"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#d0d7de] bg-white text-[#0969da]"
-          title="View Ripple on GitHub"
-        >
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#d0d7de] bg-white text-[#0969da]">
           <RippleIcon size={25} />
-        </a>
+        </div>
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold">{taskTitle || "Ripple Workbench"}</div>
-          <div className="truncate text-xs text-[#57606a]">echonoshy/ripple · {userId}</div>
+          <div className="truncate text-xs text-[#57606a]">Agent workspace · {userId}</div>
         </div>
       </div>
 

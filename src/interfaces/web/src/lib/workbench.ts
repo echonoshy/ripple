@@ -1,6 +1,7 @@
 import type {
   Message,
   Session,
+  ToolCall,
   WorkbenchTaskStatus,
   WorkbenchTaskSummary,
   WorkbenchTimelineEvent,
@@ -63,6 +64,99 @@ export function createWorkbenchTasks(sessions: Session[]): WorkbenchTaskSummary[
   return sortWorkbenchTasks(mapSessionsToWorkbenchTasks(sessions));
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function toolArgs(tool: ToolCall): Record<string, unknown> {
+  if (typeof tool.arguments === "string") {
+    try {
+      const parsed: unknown = JSON.parse(tool.arguments);
+      return isRecord(parsed) ? parsed : {};
+    } catch {
+      return { input: tool.arguments };
+    }
+  }
+  return tool.arguments;
+}
+
+function stringifyToolBody(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value === undefined || value === null) return "";
+  return JSON.stringify(value, null, 2);
+}
+
+function commandBody(args: Record<string, unknown>, result: string | undefined): string {
+  const command = stringifyToolBody(args.command);
+  const cwd = typeof args.cwd === "string" && args.cwd ? `\n\ncwd: ${args.cwd}` : "";
+  const output = result ? `\n\nresult:\n${result}` : "";
+  return `${command || stringifyToolBody(args)}${cwd}${output}`;
+}
+
+function changedPathsFromValue(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((change) => {
+      if (typeof change === "string") return change;
+      if (isRecord(change) && typeof change.path === "string") return change.path;
+      if (isRecord(change) && typeof change.file === "string") return change.file;
+      return "";
+    })
+    .filter(Boolean);
+}
+
+function changedPathsFromTool(tool: ToolCall): string[] {
+  const args = toolArgs(tool);
+  const fromArgs = changedPathsFromValue(args.changes);
+  if (fromArgs.length > 0) return fromArgs;
+
+  if (!tool.result) return [];
+  try {
+    const parsed: unknown = JSON.parse(tool.result);
+    if (!isRecord(parsed)) return [];
+    return changedPathsFromValue(parsed.changes);
+  } catch {
+    return [];
+  }
+}
+
+function toolEvent(message: Message, tool: ToolCall): WorkbenchTimelineEvent {
+  const args = toolArgs(tool);
+  if (tool.name === "command_execution" || tool.name === "exec_command") {
+    return {
+      id: `${message.id}-${tool.id}`,
+      type: "command",
+      title: "Ran command",
+      body: commandBody(args, tool.result),
+      createdAt: message.created_at,
+      status: tool.status,
+    };
+  }
+
+  if (tool.name === "file_change" || tool.name === "apply_patch") {
+    const paths = changedPathsFromTool(tool);
+    return {
+      id: `${message.id}-${tool.id}`,
+      type: "file_change",
+      title: "Changed files",
+      body: paths.length > 0 ? paths.join("\n") : stringifyToolBody(args),
+      createdAt: message.created_at,
+      status: tool.status,
+    };
+  }
+
+  return {
+    id: `${message.id}-${tool.id}`,
+    type: "tool_call",
+    title: `Used ${tool.name}`,
+    body: tool.result
+      ? `${stringifyToolBody(args)}\n\nresult:\n${tool.result}`
+      : stringifyToolBody(args),
+    createdAt: message.created_at,
+    status: tool.status,
+  };
+}
+
 export function messagesToTimelineEvents(messages: Message[]): WorkbenchTimelineEvent[] {
   const events: WorkbenchTimelineEvent[] = [];
 
@@ -91,7 +185,23 @@ export function messagesToTimelineEvents(messages: Message[]): WorkbenchTimeline
         status: message.permissionRequest.riskLevel,
       });
     }
+
+    for (const tool of message.toolCalls || []) {
+      events.push(toolEvent(message, tool));
+    }
   }
 
   return events;
+}
+
+export function extractChangedFilePaths(messages: Message[]): string[] {
+  const paths = new Set<string>();
+  for (const message of messages) {
+    for (const tool of message.toolCalls || []) {
+      for (const path of changedPathsFromTool(tool)) {
+        paths.add(path);
+      }
+    }
+  }
+  return [...paths];
 }

@@ -35,7 +35,7 @@
 - Skill 系统：通过 Markdown + YAML frontmatter 定义可复用的任务模板。
 - Hook 与权限机制：用于工具调用前后的验证、拦截和授权。
 - user 级沙箱：按 `user_id` 隔离长期 workspace，一个 user 可拥有多个 session。
-- Web 界面：基于 Next.js + React 的交互式前端。
+- Web 界面：基于 Vite + React 的交互式前端。
 
 ## 快速开始
 
@@ -154,7 +154,7 @@ src/
     tasks/             # 后台任务管理
   interfaces/
     server/            # FastAPI Server
-    web/               # Next.js + React 前端
+    web/               # Vite + React 前端
 tests/                 # 测试
 scripts/               # 辅助脚本
 config/                # 配置文件

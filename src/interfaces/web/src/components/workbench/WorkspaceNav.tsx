@@ -1,20 +1,9 @@
 "use client";
 
 import React from "react";
-import {
-  Files,
-  Loader2,
-  MessageSquareText,
-  Plus,
-  Search,
-  Settings,
-  Trash2,
-  UserRound,
-} from "lucide-react";
+import { Loader2, Plus, Settings, Trash2, UserRound } from "lucide-react";
 import type { WorkbenchTaskSummary } from "@/types";
 import StatusChip from "./StatusChip";
-
-export type WorkbenchView = "chat" | "files";
 
 function formatSessionTime(value: string): string {
   const date = new Date(value);
@@ -37,8 +26,6 @@ interface WorkspaceNavProps {
   isLoading: boolean;
   isGenerating: boolean;
   userId: string;
-  activeView: WorkbenchView;
-  onViewChange: (view: WorkbenchView) => void;
   onNewTask: () => void;
   onSelectTask: (id: string) => void;
   onDeleteTask: (id: string, event: React.MouseEvent) => void;
@@ -51,8 +38,6 @@ export default function WorkspaceNav({
   isLoading,
   isGenerating,
   userId,
-  activeView,
-  onViewChange,
   onNewTask,
   onSelectTask,
   onDeleteTask,
@@ -77,11 +62,6 @@ export default function WorkspaceNav({
           </span>
           <Settings size={14} className="text-[#6e7781]" />
         </button>
-
-        <button className="flex w-full items-center gap-2 rounded-md border border-[#d0d7de] bg-white px-3 py-2 text-left text-sm text-[#57606a]">
-          <Search size={15} />
-          Search tasks, files, skills
-        </button>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
@@ -95,48 +75,10 @@ export default function WorkspaceNav({
           New task
         </button>
 
-        <div className="mb-5">
-          <div className="mb-2 px-2 text-xs font-semibold tracking-wide text-[#6e7781] uppercase">
-            Views
-          </div>
-          <div className="space-y-1">
-            <button
-              type="button"
-              onClick={() => onViewChange("chat")}
-              className={`flex w-full items-center justify-between rounded-md px-2 py-2 text-sm ${
-                activeView === "chat"
-                  ? "bg-[#eaeef2] font-semibold text-[#24292f]"
-                  : "text-[#57606a] hover:bg-[#eaeef2]"
-              }`}
-            >
-              <span className="flex items-center gap-2">
-                <MessageSquareText size={15} />
-                Chat
-              </span>
-              <span className="text-xs text-[#57606a]">{tasks.length}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onViewChange("files")}
-              className={`flex w-full items-center justify-between rounded-md px-2 py-2 text-sm ${
-                activeView === "files"
-                  ? "bg-[#eaeef2] font-semibold text-[#24292f]"
-                  : "text-[#57606a] hover:bg-[#eaeef2]"
-              }`}
-            >
-              <span className="flex items-center gap-2">
-                <Files size={15} />
-                Files
-              </span>
-              <span className="text-xs text-[#57606a]">workspace</span>
-            </button>
-          </div>
-        </div>
-
         <div>
           <div className="mb-2 flex items-center justify-between px-2">
             <span className="text-xs font-semibold tracking-wide text-[#6e7781] uppercase">
-              Recent tasks
+              Recent chats
             </span>
             {isLoading && <Loader2 size={13} className="animate-spin text-[#6e7781]" />}
           </div>
@@ -150,20 +92,22 @@ export default function WorkspaceNav({
               {tasks.map((task) => {
                 const selected = task.id === selectedTaskId;
                 return (
-                  <button
+                  <div
                     key={task.id}
-                    type="button"
-                    onClick={() => onSelectTask(task.id)}
-                    className={`group w-full rounded-md border p-3 text-left transition-colors ${
+                    className={`group rounded-md border bg-white transition-colors ${
                       selected
-                        ? "border-[#0969da] bg-white"
-                        : "border-[#d0d7de] bg-white hover:bg-[#f6f8fa]"
+                        ? "border-[#0969da]"
+                        : "border-[#d0d7de] hover:border-[#afb8c1] hover:bg-[#f6f8fa]"
                     }`}
                   >
-                    <div className="mb-2 flex items-start justify-between gap-2">
-                      <span className="min-w-0 flex-1 truncate text-sm font-semibold text-[#24292f]">
+                    <div className="flex items-start justify-between gap-2 px-3 pt-3">
+                      <button
+                        type="button"
+                        onClick={() => onSelectTask(task.id)}
+                        className="min-w-0 flex-1 truncate text-left text-sm font-semibold text-[#24292f]"
+                      >
                         {task.title}
-                      </span>
+                      </button>
                       <button
                         type="button"
                         onClick={(event) => onDeleteTask(task.id, event)}
@@ -173,16 +117,25 @@ export default function WorkspaceNav({
                         <Trash2 size={13} />
                       </button>
                     </div>
-                    <div className="mb-2 flex flex-wrap gap-1.5">
-                      <StatusChip status={task.status} />
-                      {task.pendingApprovalCount > 0 && (
-                        <StatusChip tone="yellow" label={`${task.pendingApprovalCount} approval`} />
-                      )}
-                    </div>
-                    <div className="truncate font-[family-name:var(--font-mono)] text-xs text-[#6e7781]">
-                      {task.messageCount} msgs · {formatSessionTime(task.lastActivityAt)}
-                    </div>
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => onSelectTask(task.id)}
+                      className="block w-full px-3 pt-2 pb-3 text-left"
+                    >
+                      <div className="mb-2 flex flex-wrap gap-1.5">
+                        <StatusChip status={task.status} />
+                        {task.pendingApprovalCount > 0 && (
+                          <StatusChip
+                            tone="yellow"
+                            label={`${task.pendingApprovalCount} approval`}
+                          />
+                        )}
+                      </div>
+                      <div className="truncate font-[family-name:var(--font-mono)] text-xs text-[#6e7781]">
+                        {task.messageCount} msgs · {formatSessionTime(task.lastActivityAt)}
+                      </div>
+                    </button>
+                  </div>
                 );
               })}
             </div>

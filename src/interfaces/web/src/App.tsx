@@ -1,5 +1,3 @@
-"use client";
-
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { AlertTriangle, KeyRound } from "lucide-react";
 import { Message, UsageInfo, Session, SessionDetail, TaskInfo, TaskProgress } from "@/types";
@@ -21,11 +19,11 @@ import {
 } from "@/lib/api";
 import RippleIcon from "@/components/icons/RippleIcon";
 import SettingsModal from "@/components/SettingsModal";
+import InspectorPanel from "@/components/workbench/InspectorPanel";
 import TaskPage from "@/components/workbench/TaskPage";
 import WorkbenchShell from "@/components/workbench/WorkbenchShell";
 import WorkbenchTopBar from "@/components/workbench/WorkbenchTopBar";
-import WorkspaceExplorer from "@/components/WorkspaceExplorer";
-import WorkspaceNav, { WorkbenchView } from "@/components/workbench/WorkspaceNav";
+import WorkspaceNav from "@/components/workbench/WorkspaceNav";
 import { applyTaskUpdate, upsertTask } from "@/lib/chatState";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { bumpInputFocusToken } from "@/lib/inputFocus";
@@ -35,7 +33,11 @@ import {
   pickRestorableSessionId,
   setStoredCurrentSessionId,
 } from "@/lib/sessionPersistence";
-import { createWorkbenchTasks, messagesToTimelineEvents } from "@/lib/workbench";
+import {
+  createWorkbenchTasks,
+  extractChangedFilePaths,
+  messagesToTimelineEvents,
+} from "@/lib/workbench";
 
 export default function Home() {
   // ── Auth state ──
@@ -64,7 +66,6 @@ export default function Home() {
   // ── UI state ──
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [activeView, setActiveView] = useState<WorkbenchView>("chat");
   const [inputFocusToken, setInputFocusToken] = useState(0);
   const [sessionIdCopied, setSessionIdCopied] = useState(false);
   const [workspaceRefreshToken, setWorkspaceRefreshToken] = useState(0);
@@ -205,7 +206,6 @@ export default function Home() {
       const details = await fetchSessionDetails(id);
       if (!details) return;
       applySessionDetails(details);
-      setActiveView("chat");
       setIsSidebarOpen(false);
     } catch (err) {
       console.error("Error switching session:", err);
@@ -215,7 +215,6 @@ export default function Home() {
   // ── New chat ──
   const handleNewChat = async () => {
     if (isGenerating) return;
-    setActiveView("chat");
     setMessages([]);
     setTokenUsage({ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
     setLastContextTokens(0);
@@ -560,6 +559,9 @@ export default function Home() {
   const pendingApprovalCount = messages.some((message) => Boolean(message.permissionRequest))
     ? 1
     : selectedWorkbenchTask?.pendingApprovalCount || 0;
+  const pendingPermission =
+    [...messages].reverse().find((message) => message.permissionRequest)?.permissionRequest || null;
+  const changedFiles = useMemo(() => extractChangedFilePaths(messages), [messages]);
   const workbenchStatus =
     pendingApprovalCount > 0
       ? "waiting_for_approval"
@@ -634,11 +636,7 @@ export default function Home() {
         onCloseNav={() => setIsSidebarOpen(false)}
         topBar={
           <WorkbenchTopBar
-            taskTitle={
-              activeView === "files"
-                ? "Workspace Files"
-                : selectedWorkbenchTask?.title || "Ripple Workbench"
-            }
+            taskTitle={selectedWorkbenchTask?.title || "Ripple"}
             userId={userId}
             selectedModel={selectedModel}
             models={models}
@@ -666,11 +664,6 @@ export default function Home() {
             isLoading={isLoadingSessions}
             isGenerating={isGenerating}
             userId={userId}
-            activeView={activeView}
-            onViewChange={(view) => {
-              setActiveView(view);
-              setIsSidebarOpen(false);
-            }}
             onNewTask={handleNewChat}
             onSelectTask={(id) => {
               void handleSwitchSession(id);
@@ -681,29 +674,35 @@ export default function Home() {
           />
         }
         content={
-          activeView === "files" ? (
-            <WorkspaceExplorer userId={userId} refreshToken={workspaceRefreshToken} />
-          ) : (
-            <TaskPage
-              task={selectedWorkbenchTask}
-              sessionId={sessionId}
-              messages={messages}
-              timelineEvents={timelineEvents}
-              taskProgress={taskProgress}
-              taskSteps={tasks}
-              tokenUsage={tokenUsage}
-              lastContextTokens={lastContextTokens}
-              input={input}
-              isGenerating={isGenerating}
-              focusToken={inputFocusToken}
-              onInputChange={setInput}
-              onSend={handleSendMessage}
-              onStop={handleStop}
-              onNewTask={handleNewChat}
-              onQuickReply={handleQuickReply}
-              onPermissionResolve={handlePermissionResolve}
-            />
-          )
+          <TaskPage
+            task={selectedWorkbenchTask}
+            sessionId={sessionId}
+            messages={messages}
+            timelineEvents={timelineEvents}
+            taskProgress={taskProgress}
+            taskSteps={tasks}
+            tokenUsage={tokenUsage}
+            lastContextTokens={lastContextTokens}
+            input={input}
+            isGenerating={isGenerating}
+            focusToken={inputFocusToken}
+            onInputChange={setInput}
+            onSend={handleSendMessage}
+            onStop={handleStop}
+            onNewTask={handleNewChat}
+            onQuickReply={handleQuickReply}
+            onPermissionResolve={handlePermissionResolve}
+          />
+        }
+        inspector={
+          <InspectorPanel
+            userId={userId}
+            refreshToken={workspaceRefreshToken}
+            events={timelineEvents}
+            changedFiles={changedFiles}
+            pendingPermission={pendingPermission}
+            onPermissionResolve={handlePermissionResolve}
+          />
         }
       />
 

@@ -1,4 +1,4 @@
-import type { Message, TaskInfo } from "@/types";
+import type { Message, TaskInfo, TaskPlanUpdate, TaskProgress } from "@/types";
 
 function hasVisibleAssistantContent(message: Message): boolean {
   if (message.role !== "assistant") return false;
@@ -61,4 +61,15 @@ export function applyTaskUpdate(tasks: TaskInfo[], incoming: TaskInfo): TaskInfo
   }
 
   return [...tasks, incoming];
+}
+
+export function applyTaskPlanUpdate(
+  currentTasks: TaskInfo[],
+  update: TaskPlanUpdate
+): { taskSteps: TaskInfo[]; taskProgress: TaskProgress | null } {
+  const nextSteps = update.allCompleted ? [] : update.steps;
+  return {
+    taskSteps: currentTasks === nextSteps ? [...nextSteps] : nextSteps,
+    taskProgress: update.allCompleted ? null : update.progress,
+  };
 }

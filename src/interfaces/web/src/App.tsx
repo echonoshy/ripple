@@ -28,7 +28,7 @@ import TaskPage from "@/components/workbench/TaskPage";
 import WorkbenchShell from "@/components/workbench/WorkbenchShell";
 import WorkbenchTopBar from "@/components/workbench/WorkbenchTopBar";
 import WorkspaceNav from "@/components/workbench/WorkspaceNav";
-import { applyTaskUpdate, upsertTask } from "@/lib/chatState";
+import { applyTaskPlanUpdate, applyTaskUpdate, upsertTask } from "@/lib/chatState";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { bumpInputFocusToken } from "@/lib/inputFocus";
 import {
@@ -402,6 +402,12 @@ export default function Home() {
           onTaskProgress: (progress) => {
             if (isStaleRequest()) return;
             setTaskProgress(progress);
+          },
+          onTaskPlanUpdated: (update) => {
+            if (isStaleRequest()) return;
+            const next = applyTaskPlanUpdate([], update);
+            setTaskSteps(next.taskSteps);
+            setTaskProgress(next.taskProgress);
           },
           onAgentStop: (data) => {
             if (isStaleRequest()) return;

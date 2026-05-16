@@ -237,6 +237,15 @@ export interface TaskProgress {
   currentTask?: string;
 }
 
+export interface TaskPlanUpdate {
+  thread_id?: string | null;
+  turn_id?: string;
+  explanation?: string | null;
+  steps: TaskInfo[];
+  progress: TaskProgress;
+  allCompleted: boolean;
+}
+
 export interface AgentStopData {
   stop_reason: "completed" | "ask_user" | "permission_request" | "tool_requested" | string;
   metadata: Record<string, unknown>;

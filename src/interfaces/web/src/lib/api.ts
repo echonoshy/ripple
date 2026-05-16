@@ -12,6 +12,7 @@ import {
   SessionDetail,
   TaskDetail,
   TaskInfo,
+  TaskPlanUpdate,
   TaskProgress,
   TaskSummary,
   AgentStopData,
@@ -113,6 +114,43 @@ function authHeaders(): Record<string, string> {
   const key = getApiKey();
   if (key) headers.Authorization = `Bearer ${key}`;
   return headers;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseTaskStatus(value: unknown): TaskInfo["status"] {
+  if (value === "completed" || value === "in_progress" || value === "pending") {
+    return value;
+  }
+  return "pending";
+}
+
+function parseTaskPlanUpdate(data: Record<string, unknown>): TaskPlanUpdate {
+  const rawSteps = Array.isArray(data.steps) ? data.steps : [];
+  const steps = rawSteps.filter(isRecord).map((step, index) => ({
+    id:
+      typeof step.id === "string" && step.id
+        ? step.id
+        : `codex-plan:${typeof data.turn_id === "string" ? data.turn_id : "unknown"}:${index}`,
+    subject: typeof step.subject === "string" ? step.subject : "",
+    status: parseTaskStatus(step.status),
+  }));
+  const rawProgress = isRecord(data.progress) ? data.progress : {};
+  return {
+    thread_id: typeof data.thread_id === "string" ? data.thread_id : null,
+    turn_id: typeof data.turn_id === "string" ? data.turn_id : undefined,
+    explanation: typeof data.explanation === "string" ? data.explanation : null,
+    steps,
+    progress: {
+      completed: typeof rawProgress.completed === "number" ? rawProgress.completed : 0,
+      total: typeof rawProgress.total === "number" ? rawProgress.total : steps.length,
+      currentTask:
+        typeof rawProgress.currentTask === "string" ? rawProgress.currentTask : undefined,
+    },
+    allCompleted: data.allCompleted === true,
+  };
 }
 
 export async function fetchModels(): Promise<{ id: string; owned_by: string }[]> {
@@ -316,6 +354,7 @@ export async function sendChatMessage(
     onTaskCreated?: (task: TaskInfo) => void;
     onTaskUpdated?: (task: TaskInfo) => void;
     onTaskProgress?: (progress: TaskProgress) => void;
+    onTaskPlanUpdated?: (update: TaskPlanUpdate) => void;
     onAgentStop?: (data: AgentStopData) => void;
     onPermissionRequest?: (request: {
       tool: string;
@@ -487,6 +526,11 @@ export async function sendChatMessage(
               total: data.total || 0,
               currentTask: data.currentTask,
             });
+            return;
+          }
+
+          if (data.type === "task_plan_updated") {
+            callbacks.onTaskPlanUpdated?.(parseTaskPlanUpdate(data));
             return;
           }
 

@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 
-import { applyTaskUpdate, shouldRenderAssistantMessage, upsertTask } from "./chatState";
-import type { Message, TaskInfo } from "@/types";
+import * as chatState from "./chatState";
+import type { Message, TaskInfo, TaskPlanUpdate } from "@/types";
+
+const { applyTaskUpdate, shouldRenderAssistantMessage, upsertTask } = chatState;
 
 function testShouldHideEmptyAssistantWithOnlyToolCalls() {
   const message: Message = {
@@ -85,10 +87,58 @@ function testShouldShowAssistantWithPermissionRequest() {
   assert.equal(shouldRenderAssistantMessage(message, false, false), true);
 }
 
+function testApplyTaskPlanUpdateReplacesCurrentPlanSnapshot() {
+  const update: TaskPlanUpdate = {
+    steps: [
+      { id: "codex-plan:turn-1:0", subject: "Inspect current bridge", status: "completed" },
+      { id: "codex-plan:turn-1:1", subject: "Map event to UI", status: "in_progress" },
+    ],
+    progress: {
+      completed: 1,
+      total: 2,
+      currentTask: "Map event to UI",
+    },
+    allCompleted: false,
+  };
+
+  const next = chatState.applyTaskPlanUpdate?.(
+    [{ id: "old", subject: "Old plan item", status: "pending" }],
+    update
+  ) ?? { taskSteps: [], taskProgress: null };
+
+  assert.deepEqual(next.taskSteps, update.steps);
+  assert.deepEqual(next.taskProgress, update.progress);
+}
+
+function testApplyTaskPlanUpdateClearsPlanWhenAllStepsComplete() {
+  const update: TaskPlanUpdate = {
+    steps: [{ id: "codex-plan:turn-1:0", subject: "Verify behavior", status: "completed" }],
+    progress: {
+      completed: 1,
+      total: 1,
+      currentTask: undefined,
+    },
+    allCompleted: true,
+  };
+
+  const next = chatState.applyTaskPlanUpdate?.(
+    [{ id: "codex-plan:turn-1:0", subject: "Verify behavior", status: "in_progress" }],
+    update
+  ) ?? {
+    taskSteps: [{ id: "fallback", subject: "missing implementation", status: "pending" }],
+    taskProgress: update.progress,
+  };
+
+  assert.deepEqual(next.taskSteps, []);
+  assert.equal(next.taskProgress, null);
+}
+
 testShouldHideEmptyAssistantWithOnlyToolCalls();
 testShouldShowAssistantWithAskUser();
 testShouldShowAssistantWithPermissionRequest();
 testUpsertTaskReplacesPlaceholderWithRealTask();
 testApplyTaskUpdateFallsBackToSameSubjectPlaceholder();
+testApplyTaskPlanUpdateReplacesCurrentPlanSnapshot();
+testApplyTaskPlanUpdateClearsPlanWhenAllStepsComplete();
 
 console.log("chatState tests passed");

@@ -127,7 +127,15 @@ export default function TaskPage({
                               : "text-[#8b8f94]"
                         }`}
                       />
-                      <span className="text-[#0d0d0d]">{step.subject}</span>
+                      <span
+                        className={
+                          step.status === "completed"
+                            ? "text-[#6b7280] line-through decoration-[#8b8f94]"
+                            : "text-[#0d0d0d]"
+                        }
+                      >
+                        {step.subject}
+                      </span>
                     </div>
                   );
                 })}

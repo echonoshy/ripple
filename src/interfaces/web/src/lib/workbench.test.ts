@@ -2,11 +2,12 @@ import assert from "node:assert/strict";
 
 import {
   extractChangedFilePaths,
+  mapTasksToWorkbenchTasks,
   mapSessionsToWorkbenchTasks,
   messagesToTimelineEvents,
   sortWorkbenchTasks,
 } from "./workbench";
-import type { Message, Session } from "@/types";
+import type { Message, Session, TaskSummary } from "@/types";
 
 function makeSession(overrides: Partial<Session>): Session {
   return {
@@ -45,6 +46,51 @@ function testMapsSessionsToTaskSummaries() {
   assert.equal(tasks[0].messageCount, 4);
   assert.equal(tasks[1].title, "Session srv-untitled");
   assert.equal(tasks[1].status, "idle");
+}
+
+function makeTask(overrides: Partial<TaskSummary>): TaskSummary {
+  return {
+    task_id: "task-default",
+    session_id: "task-default",
+    title: "",
+    model: "codex-medium",
+    created_at: "2026-05-15T01:00:00.000Z",
+    last_active: "2026-05-15T01:00:00.000Z",
+    message_count: 0,
+    status: "idle",
+    changed_file_count: 0,
+    pending_approval_count: 0,
+    ...overrides,
+  };
+}
+
+function testMapsBackendTasksToWorkbenchSummaries() {
+  const tasks = mapTasksToWorkbenchTasks([
+    makeTask({
+      task_id: "task-auth",
+      session_id: "task-auth",
+      title: "Refactor auth flow",
+      status: "waiting_for_approval",
+      message_count: 3,
+      changed_file_count: 2,
+      pending_approval_count: 1,
+    }),
+    makeTask({
+      task_id: "task-empty",
+      session_id: "task-empty",
+      title: "",
+      status: "idle",
+    }),
+  ]);
+
+  assert.equal(tasks.length, 2);
+  assert.equal(tasks[0].id, "task-auth");
+  assert.equal(tasks[0].title, "Refactor auth flow");
+  assert.equal(tasks[0].status, "waiting_for_approval");
+  assert.equal(tasks[0].messageCount, 3);
+  assert.equal(tasks[0].changedFileCount, 2);
+  assert.equal(tasks[0].pendingApprovalCount, 1);
+  assert.equal(tasks[1].title, "Task task-empty");
 }
 
 function testSortsApprovalTasksBeforeOrdinaryRunningTasks() {
@@ -138,6 +184,7 @@ function testExtractsChangedFilesFromToolCalls() {
 }
 
 testMapsSessionsToTaskSummaries();
+testMapsBackendTasksToWorkbenchSummaries();
 testSortsApprovalTasksBeforeOrdinaryRunningTasks();
 testMapsToolCallsIntoTimelineEvents();
 testExtractsChangedFilesFromToolCalls();

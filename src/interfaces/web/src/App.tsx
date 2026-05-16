@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { AlertTriangle, KeyRound } from "lucide-react";
-import { Message, UsageInfo, Session, SessionDetail, TaskInfo, TaskProgress } from "@/types";
+import { Message, UsageInfo, TaskDetail, TaskInfo, TaskProgress, TaskSummary } from "@/types";
 import {
-  createSession,
+  createTask,
   sendChatMessage,
-  stopSession,
+  stopTask,
   fetchModels,
   getApiKey,
   setApiKey,
@@ -12,10 +12,10 @@ import {
   getUserId,
   setUserId,
   AuthError,
-  fetchSessions,
-  fetchSessionDetails,
-  deleteSession,
-  resolvePermissionRequest,
+  fetchTasks,
+  fetchTaskDetails,
+  deleteTask,
+  resolveTaskPermissionRequest,
 } from "@/lib/api";
 import RippleIcon from "@/components/icons/RippleIcon";
 import SettingsModal from "@/components/SettingsModal";
@@ -35,7 +35,7 @@ import {
   setStoredCurrentSessionId,
 } from "@/lib/sessionPersistence";
 import {
-  createWorkbenchTasks,
+  createWorkbenchTasksFromTaskSummaries,
   extractChangedFilePaths,
   messagesToTimelineEvents,
 } from "@/lib/workbench";
@@ -48,13 +48,13 @@ export default function Home() {
   const [authErrorMsg, setAuthErrorMsg] = useState("");
   const [keyInput, setKeyInput] = useState("");
 
-  // ── Session & chat state ──
+  // ── Task & chat state ──
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [sessions, setSessions] = useState<Session[]>([]);
-  const [isLoadingSessions, setIsLoadingSessions] = useState(false);
+  const [taskSummaries, setTaskSummaries] = useState<TaskSummary[]>([]);
+  const [isLoadingTasks, setIsLoadingTasks] = useState(false);
 
   // ── Model state ──
   const [models, setModels] = useState<{ id: string; owned_by: string }[]>([]);
@@ -80,24 +80,24 @@ export default function Home() {
   const [lastContextTokens, setLastContextTokens] = useState(0);
 
   // ── Task tracking ──
-  const [tasks, setTasks] = useState<TaskInfo[]>([]);
+  const [taskSteps, setTaskSteps] = useState<TaskInfo[]>([]);
   const [taskProgress, setTaskProgress] = useState<TaskProgress | null>(null);
 
   const activeRequestIdRef = useRef(0);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // ── Load sessions ──
-  const loadSessions = useCallback(async (): Promise<Session[]> => {
+  // ── Load tasks ──
+  const loadTasks = useCallback(async (): Promise<TaskSummary[]> => {
     if (authState !== "authenticated") return [];
     try {
-      setIsLoadingSessions(true);
-      const loadedSessions = await fetchSessions();
-      setSessions(loadedSessions);
-      return loadedSessions;
+      setIsLoadingTasks(true);
+      const loadedTasks = await fetchTasks();
+      setTaskSummaries(loadedTasks);
+      return loadedTasks;
     } catch {
       return [];
     } finally {
-      setIsLoadingSessions(false);
+      setIsLoadingTasks(false);
     }
   }, [authState]);
 
@@ -113,51 +113,62 @@ export default function Home() {
       activeRequestIdRef.current += 1;
       setSessionId(null);
       setMessages([]);
-      setSessions([]);
-      setTasks([]);
+      setTaskSummaries([]);
+      setTaskSteps([]);
       setTaskProgress(null);
       setTokenUsage({ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
       setLastContextTokens(0);
       setIsGenerating(false);
       clearStoredCurrentSessionId();
       if (authState === "authenticated") {
-        const loaded = await loadSessions();
-        console.info(`[ripple] switched to user "${newUid}", loaded ${loaded.length} sessions`);
+        const loaded = await loadTasks();
+        console.info(`[ripple] switched to user "${newUid}", loaded ${loaded.length} tasks`);
       }
     },
-    [authState, loadSessions]
+    [authState, loadTasks]
   );
 
-  const applySessionDetails = useCallback((details: SessionDetail) => {
+  const applyTaskDetails = useCallback((details: TaskDetail) => {
     setSessionId(details.session_id);
     setSelectedModel(details.model);
     setMessages(mapBackendMessages(details));
     setTokenUsage({ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
     setLastContextTokens(0);
-    setTasks([]);
+    setTaskSteps([]);
     setTaskProgress(null);
     setStoredCurrentSessionId(undefined, details.session_id);
   }, []);
 
   const restoreStoredSession = useCallback(
-    async (availableSessions: Session[]) => {
+    async (availableTasks: TaskSummary[]) => {
       const storedSessionId = getStoredCurrentSessionId();
-      const restorableSessionId = pickRestorableSessionId(storedSessionId, availableSessions);
+      const restorableSessionId = pickRestorableSessionId(
+        storedSessionId,
+        availableTasks.map((task) => ({
+          session_id: task.session_id,
+          title: task.title,
+          model: task.model,
+          created_at: task.created_at,
+          last_active: task.last_active,
+          message_count: task.message_count,
+          status: task.status,
+        }))
+      );
 
       if (!restorableSessionId) {
         clearStoredCurrentSessionId();
         return;
       }
 
-      const details = await fetchSessionDetails(restorableSessionId);
+      const details = await fetchTaskDetails(restorableSessionId);
       if (!details) {
         clearStoredCurrentSessionId();
         return;
       }
 
-      applySessionDetails(details);
+      applyTaskDetails(details);
     },
-    [applySessionDetails]
+    [applyTaskDetails]
   );
 
   // ── Init on auth ──
@@ -170,9 +181,9 @@ export default function Home() {
         if (fetched.length > 0) {
           setSelectedModel(fetched.find((m) => m.id === "codex-medium")?.id || fetched[0].id);
         }
-        const loadedSessions = await loadSessions();
-        if (loadedSessions.length > 0) {
-          await restoreStoredSession(loadedSessions);
+        const loadedTasks = await loadTasks();
+        if (loadedTasks.length > 0) {
+          await restoreStoredSession(loadedTasks);
         }
       } catch (err) {
         if (err instanceof AuthError) {
@@ -183,7 +194,7 @@ export default function Home() {
         }
       }
     })();
-  }, [authState, loadSessions, restoreStoredSession]);
+  }, [authState, loadTasks, restoreStoredSession]);
 
   // ── Auth submit ──
   const handleAuthSubmit = (e: React.FormEvent) => {
@@ -195,32 +206,32 @@ export default function Home() {
     setAuthState("authenticated");
   };
 
-  // ── Session switch ──
-  const handleSwitchSession = async (id: string) => {
+  // ── Task switch ──
+  const handleSwitchTask = async (id: string) => {
     if (id === sessionId || isGenerating) return;
     try {
-      const details = await fetchSessionDetails(id);
+      const details = await fetchTaskDetails(id);
       if (!details) return;
-      applySessionDetails(details);
+      applyTaskDetails(details);
       setIsSidebarOpen(false);
     } catch (err) {
-      console.error("Error switching session:", err);
+      console.error("Error switching task:", err);
     }
   };
 
-  // ── New chat ──
-  const handleNewChat = async () => {
+  // ── New task ──
+  const handleNewTask = async () => {
     if (isGenerating) return;
     setMessages([]);
     setTokenUsage({ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
     setLastContextTokens(0);
-    setTasks([]);
+    setTaskSteps([]);
     setTaskProgress(null);
     try {
-      const id = await createSession();
-      setSessionId(id);
-      setStoredCurrentSessionId(undefined, id);
-      await loadSessions();
+      const task = await createTask();
+      setSessionId(task.session_id);
+      setStoredCurrentSessionId(undefined, task.session_id);
+      await loadTasks();
     } catch (err) {
       if (err instanceof AuthError) {
         clearApiKey();
@@ -231,19 +242,19 @@ export default function Home() {
     }
   };
 
-  // ── Delete session ──
-  const handleDeleteSession = async (id: string, e: React.MouseEvent) => {
+  // ── Delete task ──
+  const handleDeleteTask = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (isGenerating) return;
-    if (await deleteSession(id)) {
-      setSessions((prev) => prev.filter((s) => s.session_id !== id));
+    if (await deleteTask(id)) {
+      setTaskSummaries((prev) => prev.filter((task) => task.task_id !== id));
       if (getStoredCurrentSessionId() === id) {
         clearStoredCurrentSessionId();
       }
       if (id === sessionId) {
         setSessionId(null);
         setMessages([]);
-        setTasks([]);
+        setTaskSteps([]);
         setTaskProgress(null);
       }
     }
@@ -255,7 +266,7 @@ export default function Home() {
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
     if (sessionId) {
-      await stopSession(sessionId);
+      await stopTask(sessionId);
     }
     setIsGenerating(false);
     setInputFocusToken((prev) => bumpInputFocusToken(prev));
@@ -276,7 +287,8 @@ export default function Home() {
       let activeSessionId = sessionId;
       if (!activeSessionId) {
         try {
-          activeSessionId = await createSession();
+          const task = await createTask();
+          activeSessionId = task.session_id;
           setSessionId(activeSessionId);
           setStoredCurrentSessionId(undefined, activeSessionId);
         } catch (err) {
@@ -374,11 +386,11 @@ export default function Home() {
           },
           onTaskCreated: (task) => {
             if (isStaleRequest()) return;
-            setTasks((prev) => upsertTask(prev, task));
+            setTaskSteps((prev) => upsertTask(prev, task));
           },
           onTaskUpdated: (task) => {
             if (isStaleRequest()) return;
-            setTasks((prev) => applyTaskUpdate(prev, task));
+            setTaskSteps((prev) => applyTaskUpdate(prev, task));
           },
           onTaskProgress: (progress) => {
             if (isStaleRequest()) return;
@@ -446,7 +458,7 @@ export default function Home() {
             abortControllerRef.current = null;
             setIsGenerating(false);
             setInputFocusToken((prev) => bumpInputFocusToken(prev));
-            loadSessions();
+            loadTasks();
             setWorkspaceRefreshToken((prev) => prev + 1);
           },
           onError: (err) => {
@@ -477,7 +489,7 @@ export default function Home() {
         { signal: abortController.signal }
       );
     },
-    [input, isGenerating, sessionId, selectedModel, loadSessions]
+    [input, isGenerating, sessionId, selectedModel, loadTasks]
   );
 
   const handleQuickReply = useCallback(
@@ -501,7 +513,7 @@ export default function Home() {
       if (!sessionId || isGenerating) return;
 
       try {
-        const ok = await resolvePermissionRequest(sessionId, action);
+        const ok = await resolveTaskPermissionRequest(sessionId, action);
         if (!ok) {
           throw new Error("Failed to resolve permission request");
         }
@@ -510,7 +522,7 @@ export default function Home() {
           action === "deny"
             ? "Denied."
             : action === "always"
-              ? "Approved for this session. Please proceed."
+              ? "Approved for this task. Please proceed."
               : "Approved. Please proceed.";
         setInput(text);
         await handleSendMessage(text);
@@ -529,7 +541,10 @@ export default function Home() {
     [handleSendMessage, isGenerating, sessionId]
   );
 
-  const workbenchTasks = useMemo(() => createWorkbenchTasks(sessions), [sessions]);
+  const workbenchTasks = useMemo(
+    () => createWorkbenchTasksFromTaskSummaries(taskSummaries),
+    [taskSummaries]
+  );
   const selectedExistingTask = sessionId
     ? workbenchTasks.find((task) => task.id === sessionId) || null
     : null;
@@ -658,15 +673,15 @@ export default function Home() {
           <WorkspaceNav
             tasks={displayWorkbenchTasks}
             selectedTaskId={sessionId}
-            isLoading={isLoadingSessions}
+            isLoading={isLoadingTasks}
             isGenerating={isGenerating}
             userId={userId}
-            onNewTask={handleNewChat}
+            onNewTask={handleNewTask}
             onSelectTask={(id) => {
-              void handleSwitchSession(id);
+              void handleSwitchTask(id);
               setIsSidebarOpen(false);
             }}
-            onDeleteTask={handleDeleteSession}
+            onDeleteTask={handleDeleteTask}
             onOpenSettings={() => setIsSettingsOpen(true)}
           />
         }
@@ -676,7 +691,7 @@ export default function Home() {
             messages={messages}
             timelineEvents={timelineEvents}
             taskProgress={taskProgress}
-            taskSteps={tasks}
+            taskSteps={taskSteps}
             tokenUsage={tokenUsage}
             lastContextTokens={lastContextTokens}
             input={input}
@@ -729,7 +744,7 @@ export default function Home() {
 // ═══════════════════════════════════════════════════════
 
 function mapBackendMessages(
-  details: SessionDetail | { messages: Record<string, unknown>[] }
+  details: TaskDetail | { messages: Record<string, unknown>[] }
 ): Message[] {
   const result: Message[] = [];
   let id = Date.now();

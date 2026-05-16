@@ -123,7 +123,7 @@ export default function WorkbenchTopBar({
           <button
             type="button"
             onClick={onCopySessionId}
-            title={sessionIdCopied ? "Copied" : `Copy session ID: ${sessionId}`}
+            title={sessionIdCopied ? "Copied" : `Copy task ID: ${sessionId}`}
             className="hidden h-8 items-center gap-1.5 rounded-md border border-[#e5e7eb] bg-white px-2 font-[family-name:var(--font-mono)] text-xs text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d] 2xl:inline-flex"
           >
             <span className="max-w-[120px] truncate">{sessionId}</span>

@@ -6,7 +6,6 @@ import {
   FileText,
   Home,
   Loader2,
-  MessageSquare,
   Plug,
   Plus,
   Settings,
@@ -31,7 +30,6 @@ interface WorkspaceNavProps {
 const primaryNavItems = [
   { label: "Home", icon: Home },
   { label: "Tasks", icon: BriefcaseBusiness, selected: true },
-  { label: "Sessions", icon: MessageSquare },
   { label: "Files", icon: FileText },
   { label: "Connectors", icon: Plug },
   { label: "Settings", icon: Settings },
@@ -109,7 +107,7 @@ export default function WorkspaceNav({
         <div className="mt-10">
           <div className="mb-2 flex items-center justify-between px-2">
             <span className="text-[11px] font-medium tracking-wide text-[#6b7280] uppercase">
-              Projects
+              Tasks
             </span>
             {isLoading ? (
               <Loader2 size={13} className="animate-spin text-[#6b7280]" />
@@ -164,7 +162,7 @@ export default function WorkspaceNav({
               type="button"
               className="mt-3 px-2 text-xs font-medium text-[#6b7280] hover:text-[#0d0d0d]"
             >
-              View all projects
+              View all tasks
             </button>
           )}
         </div>

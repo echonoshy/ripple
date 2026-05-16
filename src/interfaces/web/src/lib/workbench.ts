@@ -1,6 +1,7 @@
 import type {
   Message,
   Session,
+  TaskSummary,
   ToolCall,
   WorkbenchTaskStatus,
   WorkbenchTaskSummary,
@@ -52,6 +53,19 @@ export function mapSessionsToWorkbenchTasks(sessions: Session[]): WorkbenchTaskS
   });
 }
 
+export function mapTasksToWorkbenchTasks(tasks: TaskSummary[]): WorkbenchTaskSummary[] {
+  return tasks.map((task) => ({
+    id: task.task_id,
+    title: task.title?.trim() || `Task ${task.task_id}`,
+    status: sessionStatusToWorkbenchStatus(task.status),
+    model: task.model,
+    lastActivityAt: task.last_active,
+    messageCount: task.message_count,
+    changedFileCount: task.changed_file_count,
+    pendingApprovalCount: task.pending_approval_count,
+  }));
+}
+
 export function sortWorkbenchTasks(tasks: WorkbenchTaskSummary[]): WorkbenchTaskSummary[] {
   return [...tasks].sort((a, b) => {
     const priority = STATUS_PRIORITY[a.status] - STATUS_PRIORITY[b.status];
@@ -62,6 +76,10 @@ export function sortWorkbenchTasks(tasks: WorkbenchTaskSummary[]): WorkbenchTask
 
 export function createWorkbenchTasks(sessions: Session[]): WorkbenchTaskSummary[] {
   return sortWorkbenchTasks(mapSessionsToWorkbenchTasks(sessions));
+}
+
+export function createWorkbenchTasksFromTaskSummaries(tasks: TaskSummary[]): WorkbenchTaskSummary[] {
+  return sortWorkbenchTasks(mapTasksToWorkbenchTasks(tasks));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -10,8 +10,10 @@ import {
   GogcliAccountsResponse,
   Session,
   SessionDetail,
+  TaskDetail,
   TaskInfo,
   TaskProgress,
+  TaskSummary,
   AgentStopData,
   AgentRunInfo,
   AgentRunListResponse,
@@ -146,6 +148,17 @@ export async function createSession(): Promise<string> {
   return data.session_id;
 }
 
+export async function createTask(): Promise<TaskSummary> {
+  const res = await fetch(`${API_URL}/tasks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({}),
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) throw new Error("Failed to create task");
+  return (await res.json()) as TaskSummary;
+}
+
 export async function fetchSessions(): Promise<Session[]> {
   try {
     const res = await fetch(`${API_URL}/sessions`, { headers: { ...authHeaders() } });
@@ -156,6 +169,20 @@ export async function fetchSessions(): Promise<Session[]> {
   } catch (error) {
     if (error instanceof AuthError) throw error;
     console.error("Error fetching sessions:", error);
+    return [];
+  }
+}
+
+export async function fetchTasks(): Promise<TaskSummary[]> {
+  try {
+    const res = await fetch(`${API_URL}/tasks`, { headers: { ...authHeaders() } });
+    if (res.status === 401) throw new AuthError();
+    if (!res.ok) return [];
+    const data = (await res.json()) as { tasks?: TaskSummary[] };
+    return data.tasks || [];
+  } catch (error) {
+    if (error instanceof AuthError) throw error;
+    console.error("Error fetching tasks:", error);
     return [];
   }
 }
@@ -175,9 +202,37 @@ export async function fetchSessionDetails(sessionId: string): Promise<SessionDet
   }
 }
 
+export async function fetchTaskDetails(taskId: string): Promise<TaskDetail | null> {
+  try {
+    const res = await fetch(`${API_URL}/tasks/${taskId}`, {
+      headers: { ...authHeaders() },
+    });
+    if (res.status === 401) throw new AuthError();
+    if (!res.ok) return null;
+    return (await res.json()) as TaskDetail;
+  } catch (error) {
+    if (error instanceof AuthError) throw error;
+    console.error("Error fetching task details:", error);
+    return null;
+  }
+}
+
 export async function deleteSession(sessionId: string): Promise<boolean> {
   try {
     const res = await fetch(`${API_URL}/sessions/${sessionId}`, {
+      method: "DELETE",
+      headers: { ...authHeaders() },
+    });
+    if (res.status === 401) throw new AuthError();
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function deleteTask(taskId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_URL}/tasks/${taskId}`, {
       method: "DELETE",
       headers: { ...authHeaders() },
     });
@@ -200,12 +255,42 @@ export async function stopSession(sessionId: string): Promise<boolean> {
   }
 }
 
+export async function stopTask(taskId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_URL}/tasks/${taskId}/stop`, {
+      method: "POST",
+      headers: { ...authHeaders() },
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export async function resolvePermissionRequest(
   sessionId: string,
   action: "allow" | "always" | "deny"
 ): Promise<boolean> {
   try {
     const res = await fetch(`${API_URL}/sessions/${sessionId}/permissions/resolve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ action }),
+    });
+    if (res.status === 401) throw new AuthError();
+    return res.ok;
+  } catch (error) {
+    if (error instanceof AuthError) throw error;
+    return false;
+  }
+}
+
+export async function resolveTaskPermissionRequest(
+  taskId: string,
+  action: "allow" | "always" | "deny"
+): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_URL}/tasks/${taskId}/permissions/resolve`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ action }),

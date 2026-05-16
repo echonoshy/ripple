@@ -157,7 +157,7 @@ export default function InspectorPanel({
                     onClick={() => onPermissionResolve("always")}
                     className="rounded-md border border-[#0969da]/25 bg-[#ddf4ff] px-3 py-1.5 text-sm font-semibold text-[#0969da] hover:bg-[#cbeeff]"
                   >
-                    Allow session
+                    Allow task
                   </button>
                   <button
                     type="button"

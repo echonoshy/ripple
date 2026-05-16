@@ -204,6 +204,26 @@ export interface SessionDetail extends Session {
   pending_permission_request?: PermissionRequestData | null;
 }
 
+export interface TaskSummary {
+  task_id: string;
+  session_id: string;
+  title: string;
+  model: string;
+  created_at: string;
+  last_active: string;
+  message_count: number;
+  status: string;
+  changed_file_count: number;
+  pending_approval_count: number;
+}
+
+export interface TaskDetail extends TaskSummary {
+  messages: Record<string, unknown>[];
+  pending_question?: string | null;
+  pending_options?: string[] | null;
+  pending_permission_request?: PermissionRequestData | null;
+}
+
 export interface TaskInfo {
   id: string;
   subject: string;

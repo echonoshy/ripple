@@ -1,47 +1,35 @@
 "use client";
 
 import React from "react";
-import {
-  BriefcaseBusiness,
-  FileText,
-  Home,
-  Loader2,
-  Plug,
-  Plus,
-  Settings,
-  Trash2,
-} from "lucide-react";
+import { Loader2, Plus, Settings, Trash2 } from "lucide-react";
 import RippleIcon from "@/components/icons/RippleIcon";
 import type { WorkbenchTaskSummary } from "@/types";
+import { mainNavItems, type WorkspaceView } from "@/lib/workspaceViews";
 import StatusChip from "./StatusChip";
 
 interface WorkspaceNavProps {
   tasks: WorkbenchTaskSummary[];
   selectedTaskId: string | null;
+  activeView: WorkspaceView;
   isLoading: boolean;
   isGenerating: boolean;
   userId: string;
   onNewTask: () => void;
+  onSelectView: (view: WorkspaceView) => void;
   onSelectTask: (id: string) => void;
   onDeleteTask: (id: string, event: React.MouseEvent) => void;
   onOpenSettings: () => void;
 }
 
-const primaryNavItems = [
-  { label: "Home", icon: Home },
-  { label: "Tasks", icon: BriefcaseBusiness, selected: true },
-  { label: "Files", icon: FileText },
-  { label: "Connectors", icon: Plug },
-  { label: "Settings", icon: Settings },
-];
-
 export default function WorkspaceNav({
   tasks,
   selectedTaskId,
+  activeView,
   isLoading,
   isGenerating,
   userId,
   onNewTask,
+  onSelectView,
   onSelectTask,
   onDeleteTask,
   onOpenSettings,
@@ -83,25 +71,33 @@ export default function WorkspaceNav({
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
         <nav className="space-y-1">
-          {primaryNavItems.map((item) => {
+          {mainNavItems.map((item) => {
             const Icon = item.icon;
-            const isSettingsItem = item.label === "Settings";
+            const selected = item.id === activeView;
             return (
               <button
-                key={item.label}
+                key={item.id}
                 type="button"
-                onClick={isSettingsItem ? onOpenSettings : undefined}
+                onClick={() => onSelectView(item.id)}
                 className={`flex h-9 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-medium transition-colors ${
-                  item.selected
+                  selected
                     ? "bg-[#eef4ff] text-[#0b57d0]"
                     : "text-[#374151] hover:bg-white hover:text-[#0d0d0d]"
                 }`}
               >
-                <Icon size={16} className={item.selected ? "text-[#2463eb]" : "text-[#6b7280]"} />
+                <Icon size={16} className={selected ? "text-[#2463eb]" : "text-[#6b7280]"} />
                 {item.label}
               </button>
             );
           })}
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            className="flex h-9 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-medium text-[#374151] transition-colors hover:bg-white hover:text-[#0d0d0d]"
+          >
+            <Settings size={16} className="text-[#6b7280]" />
+            Settings
+          </button>
         </nav>
 
         <div className="mt-10">

@@ -329,6 +329,9 @@ def get_suspended_session_info(config: SandboxConfig, user_id: str, session_id: 
         "created_at": meta.get("created_at", ""),
         "last_active": meta.get("last_active", ""),
         "suspended_at": meta.get("suspended_at", ""),
+        "pending_question": meta.get("pending_question"),
+        "pending_options": meta.get("pending_options"),
+        "pending_permission_request": meta.get("pending_permission_request"),
         "source": meta.get("source", "chat"),
         "hidden_from_session_list": meta.get("hidden_from_session_list", False),
     }

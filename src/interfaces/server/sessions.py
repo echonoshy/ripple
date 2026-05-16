@@ -524,6 +524,9 @@ class SessionManager:
                 "created_at": s.created_at.isoformat(),
                 "last_active": s.last_active.isoformat(),
                 "status": s.status,
+                "pending_question": s.pending_question,
+                "pending_options": s.pending_options,
+                "pending_permission_request": s.pending_permission_request,
                 "total_input_tokens": s.total_input_tokens,
                 "total_output_tokens": s.total_output_tokens,
             }

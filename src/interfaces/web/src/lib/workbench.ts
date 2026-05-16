@@ -78,7 +78,9 @@ export function createWorkbenchTasks(sessions: Session[]): WorkbenchTaskSummary[
   return sortWorkbenchTasks(mapSessionsToWorkbenchTasks(sessions));
 }
 
-export function createWorkbenchTasksFromTaskSummaries(tasks: TaskSummary[]): WorkbenchTaskSummary[] {
+export function createWorkbenchTasksFromTaskSummaries(
+  tasks: TaskSummary[]
+): WorkbenchTaskSummary[] {
   return sortWorkbenchTasks(mapTasksToWorkbenchTasks(tasks));
 }
 

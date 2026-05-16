@@ -49,13 +49,16 @@ from interfaces.server.schemas import (
     SessionListResponse,
     SuspendedSessionInfo,
     SystemInfoResponse,
+    TaskDetailResponse,
+    TaskInfo,
+    TaskListResponse,
     UserProfileResponse,
     UserQuotaStatusResponse,
     UserQuotaUpdateRequest,
     WorkspaceAttachmentResponse,
     WorkspaceFileSaveRequest,
 )
-from interfaces.server.sessions import SessionManager, _merge_system_prompt
+from interfaces.server.sessions import Session, SessionManager, SessionStatus, _merge_system_prompt
 from interfaces.server.workspace_browser import (
     BinaryFileError,
     WorkspaceFileConflictError,
@@ -79,6 +82,7 @@ from ripple.documents.store import (
     update_document,
 )
 from ripple.messages.utils import serialize_messages
+from ripple.sandbox.storage import extract_title_from_messages
 from ripple.sandbox.workspace import validate_path
 from ripple.users.quota import (
     assert_can_create_run,
@@ -121,6 +125,119 @@ def _display_model(raw_id: str) -> str:
         return raw_id
     alias = get_config().alias_for_model(raw_id)
     return alias or raw_id
+
+
+def _task_status(session_status: str | None, pending_permission_request: dict[str, Any] | None = None) -> str:
+    if pending_permission_request:
+        return "waiting_for_approval"
+
+    normalized = (session_status or "").strip().lower()
+    return {
+        SessionStatus.IDLE: "idle",
+        SessionStatus.RUNNING: "running",
+        SessionStatus.AWAITING_USER_INPUT: "waiting_for_user",
+        SessionStatus.AWAITING_PERMISSION: "waiting_for_approval",
+        "active": "idle",
+        "suspended": "idle",
+        "queued": "queued",
+        "waiting_for_user": "waiting_for_user",
+        "waiting_for_approval": "waiting_for_approval",
+        "review": "review",
+        "completed": "completed",
+        "error": "failed",
+        "failed": "failed",
+        "cancelled": "cancelled",
+        "canceled": "cancelled",
+    }.get(normalized, "idle")
+
+
+def _task_info_from_record(record: dict[str, Any]) -> TaskInfo:
+    session_id = str(record.get("session_id") or "")
+    pending_permission_request = record.get("pending_permission_request")
+    if not isinstance(pending_permission_request, dict):
+        pending_permission_request = None
+    return TaskInfo(
+        task_id=session_id,
+        session_id=session_id,
+        title=str(record.get("title") or ""),
+        model=_display_model(str(record.get("model") or "")),
+        created_at=str(record.get("created_at") or ""),
+        last_active=str(record.get("last_active") or ""),
+        message_count=int(record.get("message_count") or 0),
+        status=_task_status(str(record.get("status") or ""), pending_permission_request),
+        changed_file_count=0,
+        pending_approval_count=1 if pending_permission_request else 0,
+    )
+
+
+def _task_info_from_session(session: Session) -> TaskInfo:
+    pending_permission_request = session.pending_permission_request
+    return TaskInfo(
+        task_id=session.session_id,
+        session_id=session.session_id,
+        title=extract_title_from_messages(session.messages),
+        model=_display_model(session.model),
+        created_at=session.created_at.isoformat(),
+        last_active=session.last_active.isoformat(),
+        message_count=len(session.messages),
+        status=_task_status(session.status, pending_permission_request),
+        changed_file_count=0,
+        pending_approval_count=1 if pending_permission_request else 0,
+    )
+
+
+def _task_detail_from_session(session: Session) -> TaskDetailResponse:
+    return TaskDetailResponse(
+        **_task_info_from_session(session).model_dump(),
+        messages=serialize_messages(session.messages),
+        pending_question=session.pending_question,
+        pending_options=session.pending_options,
+        pending_permission_request=session.pending_permission_request,
+    )
+
+
+def _get_or_resume_task_session(manager: SessionManager, task_id: str, *, user_id: str) -> Session | None:
+    session = manager.get_session(task_id, user_id=user_id)
+    if not session:
+        session = manager.resume_session(task_id, user_id=user_id)
+    return session
+
+
+async def _resolve_session_permission(
+    manager: SessionManager,
+    session: Session,
+    request: PermissionResolveRequest,
+) -> dict[str, Any]:
+    permission_request = session.pending_permission_request
+    if not permission_request:
+        raise HTTPException(status_code=409, detail="No pending permission request")
+
+    async with session.lock:
+        if permission_request.get("source") != "codex":
+            raise HTTPException(
+                status_code=410,
+                detail="Legacy Ripple tool permission replay has been removed. Only Codex approvals are supported.",
+            )
+
+        job_id = permission_request.get("job_id")
+        request_id = permission_request.get("request_id")
+        if not isinstance(job_id, str) or not job_id:
+            raise HTTPException(status_code=400, detail="Codex permission request is missing job_id")
+        if request_id is None:
+            raise HTTPException(status_code=400, detail="Codex permission request is missing request_id")
+
+        forwarded = get_external_agent_manager().resolve_approval(job_id, request_id, request.action)
+        if not forwarded:
+            raise HTTPException(status_code=409, detail="Codex approval request is no longer pending")
+
+        session.pending_permission_request = None
+        session.pending_question = None
+        session.pending_options = None
+        session.status = SessionStatus.RUNNING
+        manager.touch_session(session)
+        manager.persist_session(session)
+
+    return {"ok": True, "action": request.action, "forwarded": True}
 
 
 # ─── Health ───
@@ -413,6 +530,97 @@ async def chat_completions(
     )
 
 
+# ─── Tasks (product-facing session-backed API) ───
+
+
+@router.get("/v1/tasks")
+async def list_tasks(
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+):
+    manager = get_session_manager()
+    tasks = [_task_info_from_record(record) for record in manager.list_all_sessions(user_id=user_id)]
+    return TaskListResponse(tasks=tasks, count=len(tasks))
+
+
+@router.post("/v1/tasks")
+async def create_task(
+    request: CreateSessionRequest,
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+):
+    manager = get_session_manager()
+    if manager.sandbox_manager:
+        manager.sandbox_manager.ensure_sandbox(user_id)
+        assert_can_create_session(manager.sandbox_manager.config, user_id)
+    session = manager.create_session(
+        user_id=user_id,
+        model=request.model,
+        max_turns=request.max_turns,
+        caller_system_prompt=request.system_prompt,
+        feishu=request.feishu,
+    )
+    set_current_session_id(session.session_id)
+    return _task_info_from_session(session)
+
+
+@router.get("/v1/tasks/{task_id}")
+async def get_task(
+    task_id: str,
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+):
+    manager = get_session_manager()
+    session = _get_or_resume_task_session(manager, task_id, user_id=user_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return _task_detail_from_session(session)
+
+
+@router.delete("/v1/tasks/{task_id}")
+async def delete_task(
+    task_id: str,
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+):
+    manager = get_session_manager()
+    session = _get_or_resume_task_session(manager, task_id, user_id=user_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if not manager.delete_session(task_id, user_id=user_id):
+        raise HTTPException(status_code=404, detail="Task not found")
+    return {"ok": True, "task_id": task_id, "session_id": task_id}
+
+
+@router.post("/v1/tasks/{task_id}/stop")
+async def stop_task(
+    task_id: str,
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+):
+    manager = get_session_manager()
+    session = _get_or_resume_task_session(manager, task_id, user_id=user_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Task not found")
+    stopped = manager.stop_session(task_id, user_id=user_id)
+    return {"ok": True, "stopped": stopped, "task_id": task_id, "session_id": task_id}
+
+
+@router.post("/v1/tasks/{task_id}/permissions/resolve")
+async def resolve_task_permission_request(
+    task_id: str,
+    request: PermissionResolveRequest,
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+):
+    manager = get_session_manager()
+    session = _get_or_resume_task_session(manager, task_id, user_id=user_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Task not found")
+    result = await _resolve_session_permission(manager, session, request)
+    return {**result, "task_id": task_id, "session_id": task_id}
+
+
 # ─── Sessions ───
 
 
@@ -524,36 +732,7 @@ async def resolve_permission_request(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    permission_request = session.pending_permission_request
-    if not permission_request:
-        raise HTTPException(status_code=409, detail="No pending permission request")
-
-    async with session.lock:
-        if permission_request.get("source") != "codex":
-            raise HTTPException(
-                status_code=410,
-                detail="Legacy Ripple tool permission replay has been removed. Only Codex approvals are supported.",
-            )
-
-        job_id = permission_request.get("job_id")
-        request_id = permission_request.get("request_id")
-        if not isinstance(job_id, str) or not job_id:
-            raise HTTPException(status_code=400, detail="Codex permission request is missing job_id")
-        if request_id is None:
-            raise HTTPException(status_code=400, detail="Codex permission request is missing request_id")
-
-        forwarded = get_external_agent_manager().resolve_approval(job_id, request_id, request.action)
-        if not forwarded:
-            raise HTTPException(status_code=409, detail="Codex approval request is no longer pending")
-
-        session.pending_permission_request = None
-        session.pending_question = None
-        session.pending_options = None
-        session.status = "running"
-        manager.touch_session(session)
-        manager.persist_session(session)
-
-    return {"ok": True, "action": request.action, "forwarded": True}
+    return await _resolve_session_permission(manager, session, request)
 
 
 @router.get("/v1/sessions/{session_id}/usage")

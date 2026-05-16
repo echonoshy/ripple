@@ -19,6 +19,9 @@ import {
 } from "@/lib/api";
 import RippleIcon from "@/components/icons/RippleIcon";
 import SettingsModal from "@/components/SettingsModal";
+import ConnectorsPage from "@/components/workbench/ConnectorsPage";
+import FilesPage from "@/components/workbench/FilesPage";
+import HomePage from "@/components/workbench/HomePage";
 import InspectorPanel from "@/components/workbench/InspectorPanel";
 import MobileTabBar from "@/components/workbench/MobileTabBar";
 import TaskPage from "@/components/workbench/TaskPage";
@@ -39,6 +42,7 @@ import {
   extractChangedFilePaths,
   messagesToTimelineEvents,
 } from "@/lib/workbench";
+import { shouldShowInspector, viewTitle, type WorkspaceView } from "@/lib/workspaceViews";
 
 export default function Home() {
   // ── Auth state ──
@@ -70,6 +74,7 @@ export default function Home() {
   const [inputFocusToken, setInputFocusToken] = useState(0);
   const [sessionIdCopied, setSessionIdCopied] = useState(false);
   const [workspaceRefreshToken, setWorkspaceRefreshToken] = useState(0);
+  const [activeView, setActiveView] = useState<WorkspaceView>("tasks");
 
   // ── Token tracking ──
   const [tokenUsage, setTokenUsage] = useState<UsageInfo>({
@@ -213,6 +218,7 @@ export default function Home() {
       const details = await fetchTaskDetails(id);
       if (!details) return;
       applyTaskDetails(details);
+      setActiveView("tasks");
       setIsSidebarOpen(false);
     } catch (err) {
       console.error("Error switching task:", err);
@@ -231,6 +237,7 @@ export default function Home() {
       const task = await createTask();
       setSessionId(task.session_id);
       setStoredCurrentSessionId(undefined, task.session_id);
+      setActiveView("tasks");
       await loadTasks();
     } catch (err) {
       if (err instanceof AuthError) {
@@ -508,6 +515,11 @@ export default function Home() {
     window.setTimeout(() => setSessionIdCopied(false), 1600);
   }, [sessionId]);
 
+  const handleSelectView = useCallback((view: WorkspaceView) => {
+    setActiveView(view);
+    setIsSidebarOpen(false);
+  }, []);
+
   const handlePermissionResolve = useCallback(
     async (action: "allow" | "always" | "deny") => {
       if (!sessionId || isGenerating) return;
@@ -580,6 +592,39 @@ export default function Home() {
         ? "running"
         : selectedWorkbenchTask?.status || "idle";
   const isContextWarning = lastContextTokens > 150_000;
+  const mainContent =
+    activeView === "home" ? (
+      <HomePage
+        userId={userId}
+        tasks={displayWorkbenchTasks}
+        isLoadingTasks={isLoadingTasks}
+        onNewTask={handleNewTask}
+        onSelectTask={(id) => void handleSwitchTask(id)}
+        onSelectView={handleSelectView}
+      />
+    ) : activeView === "files" ? (
+      <FilesPage userId={userId} refreshToken={workspaceRefreshToken} />
+    ) : activeView === "connectors" ? (
+      <ConnectorsPage />
+    ) : (
+      <TaskPage
+        task={selectedWorkbenchTask}
+        messages={messages}
+        timelineEvents={timelineEvents}
+        taskProgress={taskProgress}
+        taskSteps={taskSteps}
+        tokenUsage={tokenUsage}
+        lastContextTokens={lastContextTokens}
+        input={input}
+        isGenerating={isGenerating}
+        focusToken={inputFocusToken}
+        onInputChange={setInput}
+        onSend={handleSendMessage}
+        onStop={handleStop}
+        onQuickReply={handleQuickReply}
+        onPermissionResolve={handlePermissionResolve}
+      />
+    );
 
   // ═══════════════════════════════════════════════════════
   // AUTH SCREEN
@@ -648,7 +693,11 @@ export default function Home() {
         onCloseNav={() => setIsSidebarOpen(false)}
         topBar={
           <WorkbenchTopBar
-            taskTitle={selectedWorkbenchTask?.title || "Ripple"}
+            taskTitle={
+              activeView === "tasks"
+                ? selectedWorkbenchTask?.title || "Ripple"
+                : viewTitle(activeView)
+            }
             userId={userId}
             selectedModel={selectedModel}
             models={models}
@@ -673,10 +722,12 @@ export default function Home() {
           <WorkspaceNav
             tasks={displayWorkbenchTasks}
             selectedTaskId={sessionId}
+            activeView={activeView}
             isLoading={isLoadingTasks}
             isGenerating={isGenerating}
             userId={userId}
             onNewTask={handleNewTask}
+            onSelectView={handleSelectView}
             onSelectTask={(id) => {
               void handleSwitchTask(id);
               setIsSidebarOpen(false);
@@ -685,38 +736,23 @@ export default function Home() {
             onOpenSettings={() => setIsSettingsOpen(true)}
           />
         }
-        content={
-          <TaskPage
-            task={selectedWorkbenchTask}
-            messages={messages}
-            timelineEvents={timelineEvents}
-            taskProgress={taskProgress}
-            taskSteps={taskSteps}
-            tokenUsage={tokenUsage}
-            lastContextTokens={lastContextTokens}
-            input={input}
-            isGenerating={isGenerating}
-            focusToken={inputFocusToken}
-            onInputChange={setInput}
-            onSend={handleSendMessage}
-            onStop={handleStop}
-            onQuickReply={handleQuickReply}
-            onPermissionResolve={handlePermissionResolve}
-          />
-        }
+        content={mainContent}
         inspector={
-          <InspectorPanel
-            userId={userId}
-            refreshToken={workspaceRefreshToken}
-            events={timelineEvents}
-            changedFiles={changedFiles}
-            pendingPermission={pendingPermission}
-            onPermissionResolve={handlePermissionResolve}
-          />
+          shouldShowInspector(activeView) ? (
+            <InspectorPanel
+              userId={userId}
+              refreshToken={workspaceRefreshToken}
+              events={timelineEvents}
+              changedFiles={changedFiles}
+              pendingPermission={pendingPermission}
+              onPermissionResolve={handlePermissionResolve}
+            />
+          ) : null
         }
         mobileNav={
           <MobileTabBar
-            onOpenNav={() => setIsSidebarOpen(true)}
+            activeView={activeView}
+            onSelectView={handleSelectView}
             onOpenSettings={() => setIsSettingsOpen(true)}
           />
         }

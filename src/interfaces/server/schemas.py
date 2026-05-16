@@ -133,6 +133,31 @@ class SessionDetailResponse(SessionInfo):
     pending_permission_request: dict[str, Any] | None = None
 
 
+class TaskInfo(BaseModel):
+    task_id: str
+    session_id: str
+    title: str = ""
+    model: str
+    created_at: str
+    last_active: str
+    message_count: int
+    status: str = "idle"
+    changed_file_count: int = 0
+    pending_approval_count: int = 0
+
+
+class TaskDetailResponse(TaskInfo):
+    messages: list[dict[str, Any]] = []
+    pending_question: str | None = None
+    pending_options: list[str] | None = None
+    pending_permission_request: dict[str, Any] | None = None
+
+
+class TaskListResponse(BaseModel):
+    tasks: list[TaskInfo]
+    count: int
+
+
 class PermissionResolveRequest(BaseModel):
     action: Literal["allow", "always", "deny"]
 

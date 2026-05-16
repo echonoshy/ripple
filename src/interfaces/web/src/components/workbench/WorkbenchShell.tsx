@@ -63,7 +63,7 @@ export default function WorkbenchShell({
           {topBar}
           <div className="min-h-0 flex-1">{content}</div>
         </main>
-        <div className="hidden w-[300px] shrink-0 xl:block">{inspector}</div>
+        {inspector && <div className="hidden w-[300px] shrink-0 xl:block">{inspector}</div>}
       </div>
       {mobileNav}
     </div>

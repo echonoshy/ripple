@@ -113,7 +113,7 @@ export default function TaskTimeline({
                 {event.body}
               </pre>
             ) : (
-              <div className="markdown-body workbench-markdown max-w-2xl text-sm leading-6 text-[#374151]">
+              <div className="markdown-body workbench-markdown max-w-4xl text-sm leading-6 text-[#374151]">
                 <MarkdownRenderer content={event.body} />
               </div>
             )}

@@ -585,12 +585,6 @@ export default function Home() {
   const pendingPermission =
     [...messages].reverse().find((message) => message.permissionRequest)?.permissionRequest || null;
   const changedFiles = useMemo(() => extractChangedFilePaths(messages), [messages]);
-  const workbenchStatus =
-    pendingApprovalCount > 0
-      ? "waiting_for_approval"
-      : isGenerating
-        ? "running"
-        : selectedWorkbenchTask?.status || "idle";
   const isContextWarning = lastContextTokens > 150_000;
   const mainContent =
     activeView === "home" ? (
@@ -698,7 +692,6 @@ export default function Home() {
                 ? selectedWorkbenchTask?.title || "Ripple"
                 : viewTitle(activeView)
             }
-            userId={userId}
             selectedModel={selectedModel}
             models={models}
             isModelDropdownOpen={isModelDropdownOpen}
@@ -707,14 +700,12 @@ export default function Home() {
               setSelectedModel(model);
               setIsModelDropdownOpen(false);
             }}
-            status={workbenchStatus}
             tokenUsage={tokenUsage}
             isContextWarning={isContextWarning}
             sessionId={sessionId}
             sessionIdCopied={sessionIdCopied}
             pendingApprovalCount={pendingApprovalCount}
             onCopySessionId={handleCopySessionId}
-            onOpenSettings={() => setIsSettingsOpen(true)}
             onOpenNav={() => setIsSidebarOpen(true)}
           />
         }

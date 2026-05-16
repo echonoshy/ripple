@@ -1,9 +1,9 @@
 "use client";
 
 import React from "react";
-import { Check, ChevronDown, Copy, Menu, MoreHorizontal } from "lucide-react";
+import { Check, ChevronDown, Copy, Menu } from "lucide-react";
 import RippleIcon from "@/components/icons/RippleIcon";
-import type { UsageInfo, WorkbenchTaskStatus } from "@/types";
+import type { UsageInfo } from "@/types";
 import StatusChip from "./StatusChip";
 
 function formatTokens(n: number): string {
@@ -14,39 +14,33 @@ function formatTokens(n: number): string {
 
 interface WorkbenchTopBarProps {
   taskTitle: string;
-  userId: string;
   selectedModel: string;
   models: { id: string; owned_by: string }[];
   isModelDropdownOpen: boolean;
   onToggleModelDropdown: () => void;
   onSelectModel: (model: string) => void;
-  status: WorkbenchTaskStatus;
   tokenUsage: UsageInfo;
   isContextWarning: boolean;
   sessionId: string | null;
   sessionIdCopied: boolean;
   pendingApprovalCount: number;
   onCopySessionId: () => void;
-  onOpenSettings: () => void;
   onOpenNav: () => void;
 }
 
 export default function WorkbenchTopBar({
   taskTitle,
-  userId,
   selectedModel,
   models,
   isModelDropdownOpen,
   onToggleModelDropdown,
   onSelectModel,
-  status,
   tokenUsage,
   isContextWarning,
   sessionId,
   sessionIdCopied,
   pendingApprovalCount,
   onCopySessionId,
-  onOpenSettings,
   onOpenNav,
 }: WorkbenchTopBarProps) {
   return (
@@ -130,36 +124,6 @@ export default function WorkbenchTopBar({
             {sessionIdCopied ? <Check size={12} /> : <Copy size={12} />}
           </button>
         )}
-
-        <StatusChip status={status} />
-
-        <button
-          type="button"
-          onClick={sessionId ? onCopySessionId : undefined}
-          className="hidden h-8 items-center rounded-md border border-[#e5e7eb] bg-white px-3 text-xs font-semibold text-[#0d0d0d] hover:bg-[#f7f8fa] sm:inline-flex"
-        >
-          Share
-        </button>
-
-        <button
-          type="button"
-          aria-label="Settings"
-          title="Settings"
-          onClick={onOpenSettings}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#2463eb] text-xs font-semibold text-white shadow-sm"
-        >
-          {userId.slice(0, 2).toUpperCase()}
-        </button>
-
-        <button
-          type="button"
-          aria-label="More options"
-          title="More options"
-          onClick={onOpenSettings}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#e5e7eb] bg-white text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d] sm:hidden"
-        >
-          <MoreHorizontal size={16} />
-        </button>
       </div>
     </header>
   );

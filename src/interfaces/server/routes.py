@@ -8,11 +8,17 @@ import html
 import shlex
 import time
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
 
+from interfaces.server.attachments import (
+    detect_mime_type,
+    host_path_for_workspace_path,
+    is_image_mime_type,
+    save_uploaded_attachment,
+)
 from interfaces.server.auth import verify_api_key
 from interfaces.server.codex_chat import collect_codex_chat_response, stream_codex_chat_as_sse
 from interfaces.server.deps import get_user_id
@@ -46,6 +52,7 @@ from interfaces.server.schemas import (
     UserProfileResponse,
     UserQuotaStatusResponse,
     UserQuotaUpdateRequest,
+    WorkspaceAttachmentResponse,
     WorkspaceFileSaveRequest,
 )
 from interfaces.server.sessions import SessionManager, _merge_system_prompt
@@ -173,15 +180,129 @@ async def get_system_info(_api_key: str = Depends(verify_api_key)):
 
 
 def _extract_user_input(request: ChatCompletionRequest) -> str:
-    """从 OpenAI 格式的 messages 中提取最后一条用户消息的文本"""
+    """从 OpenAI 格式的 messages 中提取最后一条用户消息的文本。"""
+    text, _input_items, _user_content = _extract_user_input_and_items(request, workspace_root=None)
+    return text
+
+
+def _extract_user_input_and_items(
+    request: ChatCompletionRequest,
+    *,
+    workspace_root: Path | None,
+) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]]]:
+    """Extract user text plus Codex-native image items from the last user message."""
     for msg in reversed(request.messages):
-        if msg.role == "user":
-            if isinstance(msg.content, str):
-                return msg.content
-            if isinstance(msg.content, list):
-                texts = [b.get("text", "") for b in msg.content if isinstance(b, dict) and b.get("type") == "text"]
-                return "\n".join(texts)
-    return ""
+        if msg.role != "user":
+            continue
+        if isinstance(msg.content, str):
+            text = msg.content
+            content = [{"type": "text", "text": text}] if text.strip() else []
+            return text, [], content
+        if not isinstance(msg.content, list):
+            return "", [], []
+
+        texts: list[str] = []
+        input_items: list[dict[str, Any]] = []
+        user_content: list[dict[str, Any]] = []
+        for block in msg.content:
+            if not isinstance(block, dict):
+                continue
+            block_type = block.get("type")
+            if block_type == "text":
+                text = str(block.get("text") or "")
+                if text:
+                    texts.append(text)
+                    user_content.append({"type": "text", "text": text})
+                continue
+            if block_type in {"image_url", "input_image"}:
+                url = _image_url_from_block(block)
+                if url:
+                    input_items.append({"type": "image", "url": url})
+                    user_content.append({"type": "image", "url": url})
+                continue
+            if block_type == "file":
+                file_item = _input_item_from_file_block(block, workspace_root=workspace_root)
+                if file_item is None:
+                    continue
+                input_items.append(file_item)
+                user_content.append(_user_content_for_file_item(file_item))
+
+        return "\n".join(texts), input_items, user_content
+    return "", [], []
+
+
+def _image_url_from_block(block: dict[str, Any]) -> str | None:
+    image_url = block.get("image_url")
+    if image_url is None:
+        image_url = block.get("imageUrl")
+    if isinstance(image_url, dict):
+        url = image_url.get("url") or image_url.get("image_url") or image_url.get("imageUrl")
+    else:
+        url = image_url
+    return url if isinstance(url, str) and url else None
+
+
+def _input_item_from_file_block(
+    block: dict[str, Any],
+    *,
+    workspace_root: Path | None,
+) -> dict[str, Any] | None:
+    file_info = block.get("file")
+    if not isinstance(file_info, dict):
+        return None
+
+    path = file_info.get("path")
+    if not isinstance(path, str) or not path:
+        return None
+    name = str(file_info.get("name") or Path(path).name)
+    mime_type = detect_mime_type(name, str(file_info.get("mime_type") or file_info.get("mimeType") or ""))
+    if path.startswith("/workspace/"):
+        if workspace_root is None:
+            raise PermissionError("workspace is unavailable")
+        host_path = host_path_for_workspace_path(workspace_root, path)
+        if not host_path.exists() or not host_path.is_file():
+            raise FileNotFoundError(path)
+        if is_image_mime_type(mime_type):
+            return {
+                "type": "localImage",
+                "path": str(host_path),
+                "workspace_path": path,
+                "name": name,
+                "mime_type": mime_type,
+            }
+        return {
+            "type": "attachment",
+            "path": str(host_path),
+            "workspace_path": path,
+            "name": name,
+            "mime_type": mime_type,
+        }
+
+    url = file_info.get("url")
+    if isinstance(url, str) and url and is_image_mime_type(mime_type):
+        return {"type": "image", "url": url, "name": name, "mime_type": mime_type}
+    return None
+
+
+def _user_content_for_file_item(item: dict[str, Any]) -> dict[str, Any]:
+    item_type = item.get("type")
+    if item_type == "localImage":
+        return {
+            "type": "localImage",
+            "path": item.get("workspace_path"),
+            "name": item.get("name"),
+            "mime_type": item.get("mime_type"),
+        }
+    if item_type == "attachment":
+        return {
+            "type": "attachment",
+            "path": item.get("workspace_path"),
+            "name": item.get("name"),
+            "mime_type": item.get("mime_type"),
+        }
+    if item_type == "image":
+        return {"type": "image", "url": item.get("url")}
+    return dict(item)
 
 
 def _extract_caller_system_prompt(request: ChatCompletionRequest) -> str | None:
@@ -226,11 +347,7 @@ async def chat_completions(
     config = get_config()
 
     max_turns = request.max_turns or config.get("agent.max_turns", 10)
-    user_input = _extract_user_input(request)
     caller_system_prompt = _extract_caller_system_prompt(request)
-
-    if not user_input:
-        raise HTTPException(status_code=400, detail="No user message found in messages")
 
     session, is_new = manager.get_or_create_session(
         session_id=request.session_id,
@@ -248,6 +365,17 @@ async def chat_completions(
     session.context.request_public_base_url = _request_public_base_url(http_request)
 
     workspace_root = session.context.workspace_root if session.context else None
+    try:
+        user_input, input_items, user_content = _extract_user_input_and_items(request, workspace_root=workspace_root)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail="Access denied") from e
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=f"Attachment not found: {e}") from e
+    if not user_input.strip() and not input_items:
+        raise HTTPException(status_code=400, detail="No user message found in messages")
+
+    attachment_items = [item for item in input_items if item.get("type") == "attachment"]
+    codex_input_items = [item for item in input_items if item.get("type") != "attachment"]
     merged_system_prompt = _merge_system_prompt(workspace_root, session.caller_system_prompt)
     agent_manager = get_external_agent_manager()
     if request.stream:
@@ -255,6 +383,9 @@ async def chat_completions(
             stream_codex_chat_as_sse(
                 session=session,
                 user_input=user_input,
+                input_items=codex_input_items,
+                user_content=user_content,
+                attachment_items=attachment_items,
                 model=resolved_model,
                 system_prompt=merged_system_prompt,
                 manager=manager,
@@ -271,6 +402,9 @@ async def chat_completions(
     return await collect_codex_chat_response(
         session=session,
         user_input=user_input,
+        input_items=codex_input_items,
+        user_content=user_content,
+        attachment_items=attachment_items,
         model=resolved_model,
         system_prompt=merged_system_prompt,
         manager=manager,
@@ -1064,6 +1198,40 @@ async def get_connector_accounts(
     if accounts is None:
         raise HTTPException(status_code=405, detail=f"Connector {connector_name!r} does not support accounts")
     return await accounts(sandbox_manager.config, user_id, check=check)
+
+
+@router.post("/v1/workspace/attachments", response_model=WorkspaceAttachmentResponse)
+async def upload_workspace_attachment(
+    file: UploadFile = File(...),
+    kind: Annotated[str, Form()] = "attachment",
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+):
+    """Save an uploaded image or attachment in the current user's workspace."""
+    manager = get_session_manager()
+    if not manager.sandbox_manager:
+        raise HTTPException(status_code=500, detail="sandbox disabled")
+    if kind not in {"image", "attachment"}:
+        raise HTTPException(status_code=400, detail="kind must be image or attachment")
+
+    workspace_root = manager.sandbox_manager.ensure_sandbox(user_id)
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
+    try:
+        attachment = save_uploaded_attachment(
+            config=manager.sandbox_manager.config,
+            user_id=user_id,
+            workspace_root=workspace_root,
+            filename=file.filename,
+            content_type=file.content_type,
+            data=data,
+            kind=kind,
+        )
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail="Access denied") from e
+    return attachment.to_response()
 
 
 @router.get("/v1/workspace")

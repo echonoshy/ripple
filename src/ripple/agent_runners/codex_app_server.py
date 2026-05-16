@@ -38,11 +38,22 @@ _SANDBOX_POLICY_TYPES = {
     "danger-full-access": "dangerFullAccess",
 }
 _RIPPLE_CODEX_PERMISSION_PROFILE = "ripple_workspace"
+_CODEX_NATIVE_INPUT_TYPES = {"text", "image", "localImage", "skill", "mention"}
 
 
 def _prepend_path_entries(existing_path: str, entries: list[str]) -> str:
     clean_entries = [entry for entry in entries if entry]
     return ":".join([*clean_entries, existing_path]) if existing_path else ":".join(clean_entries)
+
+
+def _codex_input_items(request: AgentRunnerRequest) -> list[dict[str, Any]]:
+    items = request.input_items or [{"type": "text", "text": request.prompt}]
+    native_items = [
+        dict(item) for item in items if isinstance(item, dict) and item.get("type") in _CODEX_NATIVE_INPUT_TYPES
+    ]
+    if not native_items or not any(item.get("type") == "text" for item in native_items):
+        native_items.append({"type": "text", "text": request.prompt})
+    return native_items
 
 
 def _host_app_server_env_from_sandbox(config: Any, user_id: str, workspace: Path, current_path: str) -> dict[str, str]:
@@ -531,7 +542,7 @@ class CodexAppServerAgentProvider:
                     "turn/start",
                     {
                         "threadId": thread_id,
-                        "input": [{"type": "text", "text": request.prompt}],
+                        "input": _codex_input_items(request),
                         "cwd": runner_cwd,
                         "approvalPolicy": self.approval_policy,
                         **self._turn_start_permission_params(runner_cwd),

@@ -103,7 +103,8 @@ for raw_line in sys.stdin:
         turn_counter += 1
         thread_id = params["threadId"]
         turn_id = f"turn-{turn_counter}"
-        text = params["input"][0]["text"]
+        text_items = [item.get("text", "") for item in params["input"] if item.get("type") == "text"]
+        text = text_items[-1] if text_items else ""
         turns[turn_id] = thread_id
         emit({
             "jsonrpc": "2.0",
@@ -133,7 +134,8 @@ for raw_line in sys.stdin:
     elif method == "turn/steer":
         turn_id = params["expectedTurnId"]
         thread_id = params["threadId"]
-        text = params["input"][0]["text"]
+        text_items = [item.get("text", "") for item in params["input"] if item.get("type") == "text"]
+        text = text_items[-1] if text_items else ""
         emit({"jsonrpc": "2.0", "id": message["id"], "result": {"turnId": turn_id}})
         emit({
             "jsonrpc": "2.0",
@@ -299,6 +301,32 @@ async def test_app_server_provider_runs_thread_turn_and_records_events(tmp_path)
     assert "runner.started" in [event["type"] for event in events]
     assert "codex.notification" in [event["type"] for event in events]
     assert "runner.completed" in [event["type"] for event in events]
+
+
+@pytest.mark.asyncio
+async def test_app_server_provider_forwards_multimodal_input_items(tmp_path):
+    provider = _provider(tmp_path)
+    image_path = tmp_path / "diagram.png"
+    image_path.write_bytes(b"fake-png")
+    request = _request(tmp_path, prompt="inspect image").model_copy(
+        update={
+            "input_items": [
+                {"type": "localImage", "path": str(image_path)},
+                {"type": "text", "text": "inspect image"},
+            ]
+        }
+    )
+    request.cwd.mkdir(parents=True)
+
+    result = await provider.run(request, job_dir=tmp_path / "job")
+
+    assert result.status == AgentRunnerStatus.COMPLETED
+    calls = _read_jsonl(tmp_path / "app-server.jsonl")
+    turn_start = next(call for call in calls if call["method"] == "turn/start")
+    assert turn_start["params"]["input"] == [
+        {"type": "localImage", "path": str(image_path)},
+        {"type": "text", "text": "inspect image"},
+    ]
 
 
 @pytest.mark.asyncio

@@ -218,6 +218,14 @@ class WorkspaceFileSaveRequest(BaseModel):
     expected_modified_at: str | None = None
 
 
+class WorkspaceAttachmentResponse(BaseModel):
+    path: str
+    name: str
+    mime_type: str
+    size: int
+    kind: Literal["image", "attachment"]
+
+
 class GogcliAccountInfo(BaseModel):
     email: str
     alias: str | None = None

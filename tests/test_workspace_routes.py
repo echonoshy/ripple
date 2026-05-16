@@ -99,3 +99,48 @@ def test_workspace_file_route_rejects_stale_save(tmp_path: Path):
 
     assert response.status_code == 409
     assert target.read_text(encoding="utf-8") == "current"
+
+
+def test_upload_workspace_attachment_saves_file_under_user_workspace(tmp_path: Path):
+    client, sandbox_manager = _client(tmp_path)
+
+    response = client.post(
+        "/v1/workspace/attachments",
+        files={"file": ("photo.png", b"\x89PNG\r\n\x1a\nimage-bytes", "image/png")},
+        data={"kind": "image"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["path"].startswith("/workspace/.ripple/uploads/")
+    assert body["path"].endswith("-photo.png")
+    assert body["name"] == "photo.png"
+    assert body["mime_type"] == "image/png"
+    assert body["size"] == len(b"\x89PNG\r\n\x1a\nimage-bytes")
+    assert body["kind"] == "image"
+    assert "host_path" not in body
+
+    workspace = sandbox_manager.config.workspace_dir("alice")
+    host_path = workspace / body["path"].removeprefix("/workspace/")
+    assert host_path.is_file()
+    assert host_path.read_bytes() == b"\x89PNG\r\n\x1a\nimage-bytes"
+
+
+def test_upload_workspace_attachment_sanitizes_path_traversal_filename(tmp_path: Path):
+    client, sandbox_manager = _client(tmp_path)
+
+    response = client.post(
+        "/v1/workspace/attachments",
+        files={"file": ("../secret.txt", b"secret", "text/plain")},
+        data={"kind": "attachment"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert ".." not in body["path"]
+    assert body["path"].endswith("-secret.txt")
+
+    workspace = sandbox_manager.config.workspace_dir("alice")
+    host_path = workspace / body["path"].removeprefix("/workspace/")
+    assert host_path.is_file()
+    assert host_path.read_bytes() == b"secret"

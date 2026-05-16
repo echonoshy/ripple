@@ -575,6 +575,15 @@ wheels = [
 ]
 
 [[package]]
+name = "python-multipart"
+version = "0.0.28"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/82/54/a85eb421fbdd5007bc5af39d0f4ed9fa609e0fedbfdc2adcf0b34526870e/python_multipart-0.0.28.tar.gz", hash = "sha256:8550da197eac0f7ab748961fc9509b999fa2662ea25cef857f05249f6893c0f8" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/f3/a2/43bbc5860b5034e2af4ef99a0e04d726ff329c43e192ef3abaa8d7ecfce5/python_multipart-0.0.28-py3-none-any.whl", hash = "sha256:10faac07eb966c3f48dc415f9dee46c04cb10d58d30a35677db8027c825ed9b6" },
+]
+
+[[package]]
 name = "python-nsjail"
 version = "0.3.0"
 source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
@@ -721,6 +730,7 @@ dependencies = [
     { name = "openai" },
     { name = "pydantic" },
     { name = "python-frontmatter" },
+    { name = "python-multipart" },
     { name = "python-nsjail" },
     { name = "pyyaml" },
     { name = "segno" },
@@ -745,6 +755,7 @@ requires-dist = [
     { name = "openai", specifier = ">=1.0" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "python-frontmatter", specifier = ">=1.0" },
+    { name = "python-multipart", specifier = ">=0.0.20" },
     { name = "python-nsjail", specifier = ">=0.3.0" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "segno", specifier = ">=1.6.6" },

@@ -55,6 +55,7 @@ def sandbox_cwd_for_host_path(cwd: Path, workspace_root: Path) -> str:
 def start_agent_run(
     *,
     prompt: str,
+    input_items: list[dict[str, Any]] | None = None,
     provider_name: str,
     raw_cwd: str | None,
     max_runtime_seconds: int,
@@ -96,6 +97,7 @@ def start_agent_run(
             provider=provider,
             prompt=clean_prompt,
             cwd=cwd,
+            input_items=input_items or [],
             max_runtime_seconds=max_runtime_seconds,
             user_id=user_id,
             session_id=session_id,

@@ -16,6 +16,11 @@ from uuid import uuid4
 
 from fastapi import HTTPException
 
+from interfaces.server.attachments import (
+    decode_base64_image_payload,
+    import_generated_image,
+    workspace_path_for_host_path,
+)
 from interfaces.server.sessions import Session, SessionManager, SessionStatus
 from ripple.agent_runners.manager import ExternalAgentJob, ExternalAgentManager
 from ripple.agent_runners.models import AgentRunnerResult, AgentRunnerStatus
@@ -96,12 +101,21 @@ def build_codex_chat_prompt(
     session: Session,
     user_input: str,
     system_prompt: str | None,
+    attachment_items: list[dict[str, Any]] | None = None,
 ) -> str:
     """Build a single Codex turn prompt with Ripple control-plane context."""
 
     transcript = _conversation_transcript(session.messages)
     history_section = transcript if transcript else "(no previous turns in this Ripple session)"
     workspace_root = session.context.workspace_root if session.context else None
+    attachments = attachment_items or []
+    attachment_lines = [
+        f"- {item.get('name')}: {item.get('workspace_path')} ({item.get('mime_type')})"
+        for item in attachments
+        if item.get("type") == "attachment"
+    ]
+    attachment_section = "\n".join(attachment_lines) if attachment_lines else "(none)"
+    current_request = user_input.strip() or "(The user provided image input without additional text.)"
     return (
         "You are Codex, running as Ripple's trusted execution plane.\n"
         "Ripple is the control plane: it owns user identity, sandbox isolation, connector state, "
@@ -118,8 +132,10 @@ def build_codex_chat_prompt(
         f"{system_prompt or '(none)'}\n\n"
         "## Conversation So Far\n"
         f"{history_section}\n\n"
+        "## Attachments\n"
+        f"{attachment_section}\n\n"
         "## Current User Request\n"
-        f"{user_input.strip()}\n"
+        f"{current_request}\n"
     )
 
 
@@ -175,9 +191,16 @@ def _read_output(result: AgentRunnerResult | None) -> str:
     return result.stdout_tail or ""
 
 
-def _append_session_messages(session: Session, user_input: str, assistant_text: str) -> None:
+def _append_session_messages(
+    session: Session,
+    user_input: str,
+    assistant_text: str,
+    *,
+    user_content: list[dict[str, Any]] | None = None,
+) -> None:
     user_created_at = datetime.now(timezone.utc).isoformat()
-    session.messages.append(create_user_message(content=user_input, created_at=user_created_at))
+    content: str | list[dict[str, Any]] = user_content if user_content else user_input
+    session.messages.append(create_user_message(content=content, created_at=user_created_at))
     session.messages.append(create_assistant_message(content=[{"type": "text", "text": assistant_text}]))
     session.model_messages = list(session.messages)
 
@@ -203,12 +226,14 @@ def _start_chat_run(
     *,
     session: Session,
     prompt: str,
+    input_items: list[dict[str, Any]],
     config: Config,
     agent_manager: ExternalAgentManager,
 ) -> ExternalAgentJob:
     workspace_root, runtime_dir, sandbox_config = _require_workspace(session)
     return start_agent_run(
         prompt=prompt,
+        input_items=input_items,
         provider_name="codex",
         raw_cwd="/workspace",
         max_runtime_seconds=_max_runtime_seconds(config),
@@ -220,6 +245,10 @@ def _start_chat_run(
         sandbox_config=sandbox_config,
         require_agent_route=False,
     )
+
+
+def _codex_turn_input_items(multimodal_items: list[dict[str, Any]], prompt: str) -> list[dict[str, Any]]:
+    return [*multimodal_items, {"type": "text", "text": prompt}]
 
 
 def _extract_event_delta(event: dict[str, Any]) -> str:
@@ -420,6 +449,89 @@ def _extract_tool_event(event: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
+def _workspace_path_or_none(workspace_root: Path | None, path: str | None) -> str | None:
+    if workspace_root is None or not path:
+        return None
+    try:
+        return workspace_path_for_host_path(workspace_root, Path(path))
+    except (PermissionError, ValueError):
+        return None
+
+
+def _extract_image_event(
+    event: dict[str, Any],
+    *,
+    session: Session,
+    config: Config,
+) -> dict[str, Any] | None:
+    if event.get("type") != "codex.notification":
+        return None
+    message = (event.get("data") or {}).get("message")
+    if not isinstance(message, dict) or message.get("method") != "item/completed":
+        return None
+    params = message.get("params", {})
+    if not isinstance(params, dict):
+        return None
+    item = params.get("item")
+    if not isinstance(item, dict):
+        return None
+
+    workspace_root = session.context.workspace_root if session.context else None
+    item_type = item.get("type")
+    if item_type == "imageView":
+        return {
+            "type": "image_view",
+            "id": item.get("id"),
+            "workspace_path": _workspace_path_or_none(workspace_root, item.get("path")),
+        }
+    if item_type != "imageGeneration":
+        return None
+
+    payload: dict[str, Any] = {
+        "type": "image_generation",
+        "id": item.get("id"),
+        "status": item.get("status"),
+        "revised_prompt": item.get("revisedPrompt"),
+    }
+    sandbox_manager = session.context.sandbox_manager if session.context else None
+    sandbox_config = sandbox_manager.config if sandbox_manager else None
+    if workspace_root is None or sandbox_config is None:
+        return payload
+
+    try:
+        imported = None
+        saved_path = item.get("savedPath")
+        if isinstance(saved_path, str) and Path(saved_path).is_file():
+            imported = import_generated_image(
+                config=sandbox_config,
+                user_id=session.user_id,
+                workspace_root=workspace_root,
+                source_path=Path(saved_path),
+                item_id=str(item.get("id") or "generated-image"),
+            )
+        else:
+            result = item.get("result")
+            if isinstance(result, str) and result:
+                imported = import_generated_image(
+                    config=sandbox_config,
+                    user_id=session.user_id,
+                    workspace_root=workspace_root,
+                    data=decode_base64_image_payload(result),
+                    item_id=str(item.get("id") or "generated-image"),
+                )
+        if imported is not None:
+            payload.update(
+                {
+                    "workspace_path": imported.path,
+                    "mime_type": imported.mime_type,
+                    "size": imported.size,
+                }
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not import Codex generated image: {}", exc)
+    return payload
+
+
 def _extract_approval(event: dict[str, Any]) -> dict[str, Any] | None:
     if event.get("type") != "codex.approval_request":
         return None
@@ -456,6 +568,9 @@ async def collect_codex_chat_response(
     *,
     session: Session,
     user_input: str,
+    input_items: list[dict[str, Any]],
+    user_content: list[dict[str, Any]],
+    attachment_items: list[dict[str, Any]],
     model: str,
     system_prompt: str | None,
     manager: SessionManager,
@@ -474,8 +589,19 @@ async def collect_codex_chat_response(
                 session.pending_permission_request = None
                 manager.touch_session(session)
 
-                prompt = build_codex_chat_prompt(session=session, user_input=user_input, system_prompt=system_prompt)
-                job = _start_chat_run(session=session, prompt=prompt, config=config, agent_manager=agent_manager)
+                prompt = build_codex_chat_prompt(
+                    session=session,
+                    user_input=user_input,
+                    system_prompt=system_prompt,
+                    attachment_items=attachment_items,
+                )
+                job = _start_chat_run(
+                    session=session,
+                    prompt=prompt,
+                    input_items=_codex_turn_input_items(input_items, prompt),
+                    config=config,
+                    agent_manager=agent_manager,
+                )
                 offset = 0
                 usage = _usage()
                 try:
@@ -517,7 +643,7 @@ async def collect_codex_chat_response(
                     raise RuntimeError(error or "Codex run failed")
 
                 output_text = _read_output(result)
-                _append_session_messages(session, user_input, output_text)
+                _append_session_messages(session, user_input, output_text, user_content=user_content)
                 return {
                     "id": chunk_id,
                     "object": "chat.completion",
@@ -553,6 +679,9 @@ async def stream_codex_chat_as_sse(
     *,
     session: Session,
     user_input: str,
+    input_items: list[dict[str, Any]],
+    user_content: list[dict[str, Any]],
+    attachment_items: list[dict[str, Any]],
     model: str,
     system_prompt: str | None,
     manager: SessionManager,
@@ -574,8 +703,19 @@ async def stream_codex_chat_as_sse(
                 manager.touch_session(session)
 
                 yield _chunk(chunk_id, model, created, {"role": "assistant"})
-                prompt = build_codex_chat_prompt(session=session, user_input=user_input, system_prompt=system_prompt)
-                job = _start_chat_run(session=session, prompt=prompt, config=config, agent_manager=agent_manager)
+                prompt = build_codex_chat_prompt(
+                    session=session,
+                    user_input=user_input,
+                    system_prompt=system_prompt,
+                    attachment_items=attachment_items,
+                )
+                job = _start_chat_run(
+                    session=session,
+                    prompt=prompt,
+                    input_items=_codex_turn_input_items(input_items, prompt),
+                    config=config,
+                    agent_manager=agent_manager,
+                )
 
                 offset = 0
                 latest_usage = _usage()
@@ -593,6 +733,10 @@ async def stream_codex_chat_as_sse(
                             manager.touch_session(session)
                             manager.persist_session(session)
                             yield f"data: {json.dumps({'type': 'approval_required', 'approval': approval}, ensure_ascii=False)}\n\n"
+                            continue
+                        image_event = _extract_image_event(event, session=session, config=config)
+                        if image_event is not None:
+                            yield f"data: {json.dumps(image_event, ensure_ascii=False)}\n\n"
                             continue
                         tool_event = _extract_tool_event(event)
                         if tool_event is not None:
@@ -623,6 +767,10 @@ async def stream_codex_chat_as_sse(
                             manager.persist_session(session)
                             yield f"data: {json.dumps({'type': 'approval_required', 'approval': approval}, ensure_ascii=False)}\n\n"
                             continue
+                        image_event = _extract_image_event(event, session=session, config=config)
+                        if image_event is not None:
+                            yield f"data: {json.dumps(image_event, ensure_ascii=False)}\n\n"
+                            continue
                         tool_event = _extract_tool_event(event)
                         if tool_event is not None:
                             yield f"data: {json.dumps(tool_event, ensure_ascii=False)}\n\n"
@@ -641,7 +789,7 @@ async def stream_codex_chat_as_sse(
                     emitted_text = output_text
                     yield _chunk(chunk_id, model, created, {"content": output_text})
 
-                _append_session_messages(session, user_input, output_text or emitted_text)
+                _append_session_messages(session, user_input, output_text or emitted_text, user_content=user_content)
                 if latest_usage["total_tokens"] > 0:
                     yield f"data: {json.dumps({'type': 'usage', 'usage': latest_usage}, ensure_ascii=False)}\n\n"
                 finish_chunk = {

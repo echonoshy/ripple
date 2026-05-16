@@ -227,3 +227,7 @@ tmp/
 .codex
 .codex/
 .agents/
+
+# pencil
+.pencil/
+.pencil-sandbox/

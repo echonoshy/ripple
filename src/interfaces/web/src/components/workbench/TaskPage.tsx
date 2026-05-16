@@ -26,7 +26,12 @@ interface TaskPageProps {
   input: string;
   isGenerating: boolean;
   focusToken: number;
+  selectedModel: string;
+  models: { id: string; owned_by: string }[];
+  isModelDropdownOpen: boolean;
   onInputChange: (value: string) => void;
+  onToggleModelDropdown: () => void;
+  onSelectModel: (model: string) => void;
   onSend: () => void;
   onStop: () => void;
   onQuickReply: (option: string) => void;
@@ -44,7 +49,12 @@ export default function TaskPage({
   input,
   isGenerating,
   focusToken,
+  selectedModel,
+  models,
+  isModelDropdownOpen,
   onInputChange,
+  onToggleModelDropdown,
+  onSelectModel,
   onSend,
   onStop,
   onQuickReply,
@@ -151,18 +161,23 @@ export default function TaskPage({
           )}
 
           {!hasMessages && (
-            <div className="grid gap-2 sm:grid-cols-3">
-              {["Refactor this app", "Analyze my files", "Draft a document"].map((suggestion) => (
-                <button
-                  key={suggestion}
-                  type="button"
-                  onClick={() => onQuickReply(suggestion)}
-                  className="rounded-lg border border-[#e5e7eb] bg-[#f7f8fa] px-3 py-2 text-left text-sm font-medium text-[#0d0d0d] hover:border-[#c8d0dc] hover:bg-white"
-                >
-                  {suggestion}
-                </button>
-              ))}
-            </div>
+            <section className="rounded-lg border border-[#e5e7eb] bg-[#fbfbfc] px-4 py-3">
+              <div className="text-sm font-semibold text-[#0d0d0d]">Workspace briefing</div>
+              <div className="mt-3 grid gap-3 text-sm leading-6 text-[#6b7280] md:grid-cols-3">
+                <div>
+                  <div className="font-medium text-[#0d0d0d]">Open the Files view</div>
+                  Browse, preview, and edit workspace files before starting.
+                </div>
+                <div>
+                  <div className="font-medium text-[#0d0d0d]">Review recent tasks</div>
+                  Pick up an existing run from the sidebar when context already exists.
+                </div>
+                <div>
+                  <div className="font-medium text-[#0d0d0d]">Ask Codex from the composer</div>
+                  New activity, plans, and approvals will appear here once the task starts.
+                </div>
+              </div>
+            </section>
           )}
 
           <TaskTimeline
@@ -190,6 +205,11 @@ export default function TaskPage({
         isGenerating={isGenerating}
         hasSession={hasMessages || Boolean(task)}
         focusToken={focusToken}
+        selectedModel={selectedModel}
+        models={models}
+        isModelDropdownOpen={isModelDropdownOpen}
+        onToggleModelDropdown={onToggleModelDropdown}
+        onSelectModel={onSelectModel}
       />
     </div>
   );

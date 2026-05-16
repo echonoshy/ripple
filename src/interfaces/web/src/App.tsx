@@ -63,7 +63,7 @@ export default function Home() {
   // ── Model state ──
   const [models, setModels] = useState<{ id: string; owned_by: string }[]>([]);
   const [selectedModel, setSelectedModel] = useState("codex-medium");
-  const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
+  const [openModelDropdown, setOpenModelDropdown] = useState<"topbar" | "composer" | null>(null);
 
   // ── User identity ──
   const [userId, setUserIdState] = useState<string>(() => getUserId());
@@ -618,7 +618,17 @@ export default function Home() {
         input={input}
         isGenerating={isGenerating}
         focusToken={inputFocusToken}
+        selectedModel={selectedModel}
+        models={models}
+        isModelDropdownOpen={openModelDropdown === "composer"}
         onInputChange={setInput}
+        onToggleModelDropdown={() =>
+          setOpenModelDropdown((open) => (open === "composer" ? null : "composer"))
+        }
+        onSelectModel={(model) => {
+          setSelectedModel(model);
+          setOpenModelDropdown(null);
+        }}
         onSend={handleSendMessage}
         onStop={handleStop}
         onQuickReply={handleQuickReply}
@@ -700,11 +710,13 @@ export default function Home() {
             }
             selectedModel={selectedModel}
             models={models}
-            isModelDropdownOpen={isModelDropdownOpen}
-            onToggleModelDropdown={() => setIsModelDropdownOpen((open) => !open)}
+            isModelDropdownOpen={openModelDropdown === "topbar"}
+            onToggleModelDropdown={() =>
+              setOpenModelDropdown((open) => (open === "topbar" ? null : "topbar"))
+            }
             onSelectModel={(model) => {
               setSelectedModel(model);
-              setIsModelDropdownOpen(false);
+              setOpenModelDropdown(null);
             }}
             tokenUsage={tokenUsage}
             isContextWarning={isContextWarning}

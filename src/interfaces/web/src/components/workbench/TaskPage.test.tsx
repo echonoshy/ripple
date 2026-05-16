@@ -19,7 +19,12 @@ function renderTaskPage() {
       input=""
       isGenerating={false}
       focusToken={0}
+      selectedModel="codex-medium"
+      models={[{ id: "codex-medium", owned_by: "ripple" }]}
+      isModelDropdownOpen={false}
       onInputChange={noop}
+      onToggleModelDropdown={noop}
+      onSelectModel={noop}
       onSend={noop}
       onStop={noop}
       onQuickReply={noop}
@@ -48,7 +53,12 @@ function renderTaskPageWithTimelineContent() {
       input=""
       isGenerating={false}
       focusToken={0}
+      selectedModel="codex-medium"
+      models={[{ id: "codex-medium", owned_by: "ripple" }]}
+      isModelDropdownOpen={false}
       onInputChange={noop}
+      onToggleModelDropdown={noop}
+      onSelectModel={noop}
       onSend={noop}
       onStop={noop}
       onQuickReply={noop}
@@ -67,6 +77,12 @@ function testOmitsPlaceholderTaskHeaderControls() {
   assert.doesNotMatch(html, />Checks</);
   assert.doesNotMatch(html, />main</);
   assert.doesNotMatch(html, /Task focus/);
+  assert.doesNotMatch(html, /Refactor this app/);
+  assert.doesNotMatch(html, /Analyze my files/);
+  assert.doesNotMatch(html, /Draft a document/);
+  assert.match(html, /Workspace briefing/);
+  assert.match(html, /Open the Files view/);
+  assert.match(html, /Ask Codex from the composer/);
 }
 
 function testGivesTaskContentMoreHorizontalRoom() {

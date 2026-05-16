@@ -12,6 +12,11 @@ interface TaskComposerProps {
   isGenerating: boolean;
   hasSession: boolean;
   focusToken: number;
+  selectedModel: string;
+  models: { id: string; owned_by: string }[];
+  isModelDropdownOpen: boolean;
+  onToggleModelDropdown: () => void;
+  onSelectModel: (model: string) => void;
 }
 
 export default function TaskComposer({
@@ -22,6 +27,11 @@ export default function TaskComposer({
   isGenerating,
   hasSession,
   focusToken,
+  selectedModel,
+  models,
+  isModelDropdownOpen,
+  onToggleModelDropdown,
+  onSelectModel,
 }: TaskComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -92,14 +102,43 @@ export default function TaskComposer({
           </div>
 
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => textareaRef.current?.focus()}
-              className="hidden h-8 items-center gap-1.5 rounded-md px-2 text-sm font-medium text-[#0d0d0d] hover:bg-[#f7f8fa] sm:inline-flex"
-            >
-              Codex
-              <ChevronDown size={13} className="text-[#6b7280]" />
-            </button>
+            <div className="relative">
+              <button
+                type="button"
+                aria-label="Select model"
+                title={`Model: ${selectedModel}`}
+                onClick={onToggleModelDropdown}
+                className="hidden h-8 max-w-[180px] items-center gap-1.5 rounded-md px-2 font-[family-name:var(--font-mono)] text-xs font-medium text-[#0d0d0d] hover:bg-[#f7f8fa] sm:inline-flex"
+              >
+                <span className="truncate">{selectedModel}</span>
+                <ChevronDown
+                  size={13}
+                  className={`shrink-0 text-[#6b7280] transition-transform ${
+                    isModelDropdownOpen ? "rotate-180" : ""
+                  }`}
+                />
+              </button>
+              {isModelDropdownOpen && (
+                <div className="absolute right-0 bottom-full z-30 mb-2 w-48 overflow-hidden rounded-lg border border-[#e5e7eb] bg-white shadow-lg">
+                  <div className="p-1">
+                    {models.map((model) => (
+                      <button
+                        key={model.id}
+                        type="button"
+                        onClick={() => onSelectModel(model.id)}
+                        className={`flex w-full items-center rounded px-3 py-2 text-left font-[family-name:var(--font-mono)] text-xs hover:bg-[#f7f8fa] ${
+                          selectedModel === model.id
+                            ? "bg-[#eef4ff] text-[#0b57d0]"
+                            : "text-[#0d0d0d]"
+                        }`}
+                      >
+                        {model.id}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
             {isGenerating ? (
               <button
                 type="button"

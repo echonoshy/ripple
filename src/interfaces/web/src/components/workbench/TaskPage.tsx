@@ -1,7 +1,15 @@
 "use client";
 
 import React from "react";
-import { AlertTriangle, CheckCircle2, Circle, Loader2 } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Circle,
+  Clock3,
+  GitBranch,
+  Loader2,
+  Square,
+} from "lucide-react";
 import type {
   Message,
   TaskInfo,
@@ -12,6 +20,7 @@ import type {
 } from "@/types";
 import TaskComposer from "./TaskComposer";
 import TaskTimeline from "./TaskTimeline";
+import StatusChip from "./StatusChip";
 
 interface TaskPageProps {
   task: WorkbenchTaskSummary | null;
@@ -49,36 +58,96 @@ export default function TaskPage({
   onPermissionResolve,
 }: TaskPageProps) {
   const hasMessages = messages.length > 0;
+  const taskTitle = task?.title || (hasMessages ? "Codex task" : "New Codex task");
+  const taskStatus: WorkbenchTaskSummary["status"] = isGenerating
+    ? "running"
+    : task?.status || "idle";
   const contextPercent = lastContextTokens
     ? Math.min(Math.round((lastContextTokens / 200_000) * 100), 100)
     : 0;
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto bg-white px-5 py-7 md:px-10 lg:px-[72px]">
-        <div className="mx-auto max-w-4xl space-y-5">
-          <section className="space-y-2">
-            <h1 className="text-[26px] leading-tight font-semibold tracking-normal text-[#171a1f]">
-              {hasMessages ? task?.title || "Codex task" : "What should Codex work on?"}
-            </h1>
-            <p className="max-w-3xl text-sm leading-6 text-[#68707d]">
+    <div className="flex h-full min-h-0 flex-col bg-white">
+      <div className="shrink-0 border-b border-[#e5e7eb] bg-white px-5 py-5 md:px-8">
+        <div className="flex items-start justify-between gap-4">
+          <section className="min-w-0 space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="truncate text-[24px] leading-tight font-semibold tracking-normal text-[#0d0d0d]">
+                {taskTitle}
+              </h1>
+              <StatusChip status={taskStatus} />
+            </div>
+            <p className="max-w-3xl text-sm leading-6 text-[#6b7280]">
               {hasMessages
                 ? "Codex keeps the task, files, activity, and approvals connected while it works."
-                : "Ask for changes, analysis, document work, or anything that should happen inside your workspace."}
+                : "Ask Codex to refactor, debug, write, or inspect anything inside your workspace."}
             </p>
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <span className="inline-flex h-7 items-center gap-1.5 rounded-md border border-[#e5e7eb] bg-[#f7f8fa] px-2 text-xs font-medium text-[#374151]">
+                <Square size={13} />
+                Codex
+              </span>
+              <span className="inline-flex h-7 items-center gap-1.5 rounded-md border border-[#e5e7eb] bg-[#f7f8fa] px-2 text-xs font-medium text-[#374151]">
+                <GitBranch size={13} />
+                main
+              </span>
+              <span className="inline-flex h-7 items-center gap-1.5 rounded-md border border-[#e5e7eb] bg-[#f7f8fa] px-2 text-xs font-medium text-[#374151]">
+                <Clock3 size={13} />
+                {isGenerating ? "Running" : hasMessages ? "Recent" : "Ready"}
+              </span>
+              <span className="inline-flex h-7 items-center gap-2 rounded-md px-2 text-xs font-medium text-[#6b7280]">
+                {contextPercent || (isGenerating ? 75 : 0)}%
+                <span className="h-1 w-12 overflow-hidden rounded-full bg-[#e5e7eb]">
+                  <span
+                    className="block h-full rounded-full bg-[#2463eb]"
+                    style={{ width: `${contextPercent || (isGenerating ? 75 : 0)}%` }}
+                  />
+                </span>
+              </span>
+            </div>
           </section>
+          <div className="hidden shrink-0 items-center gap-2 md:flex">
+            <button
+              type="button"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#e5e7eb] bg-white text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
+              aria-label="Task focus"
+              title="Task focus"
+            >
+              <Square size={14} />
+            </button>
+          </div>
+        </div>
 
+        <div className="mt-5 flex h-9 items-end gap-5 border-b border-[#e5e7eb] text-sm font-medium">
+          {["Timeline", "Diff", "Logs", "Checks"].map((tab, index) => (
+            <button
+              key={tab}
+              type="button"
+              className={`h-full border-b-2 px-0.5 ${
+                index === 0
+                  ? "border-[#2463eb] text-[#2463eb]"
+                  : "border-transparent text-[#374151] hover:text-[#0d0d0d]"
+              }`}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto bg-white px-5 py-5 md:px-8">
+        <div className="mx-auto max-w-4xl space-y-5">
           {taskSteps.length > 0 && (
-            <section className="rounded-lg border border-[#dde2ea] bg-[#f7f8fa]">
-              <div className="flex items-center justify-between border-b border-[#dde2ea] px-3 py-2">
-                <div className="text-sm font-semibold text-[#171a1f]">Current plan</div>
+            <section className="rounded-lg border border-[#e5e7eb] bg-[#f7f8fa]">
+              <div className="flex items-center justify-between border-b border-[#e5e7eb] px-3 py-2">
+                <div className="text-sm font-semibold text-[#0d0d0d]">Current plan</div>
                 {taskProgress && (
-                  <div className="font-[family-name:var(--font-mono)] text-xs text-[#68707d]">
+                  <div className="font-[family-name:var(--font-mono)] text-xs text-[#6b7280]">
                     {taskProgress.completed}/{taskProgress.total}
                   </div>
                 )}
               </div>
-              <div className="divide-y divide-[#dde2ea]">
+              <div className="divide-y divide-[#e5e7eb]">
                 {taskSteps.map((step) => {
                   const Icon =
                     step.status === "completed"
@@ -98,7 +167,7 @@ export default function TaskPage({
                               : "text-[#8b8f94]"
                         }`}
                       />
-                      <span className="text-[#171a1f]">{step.subject}</span>
+                      <span className="text-[#0d0d0d]">{step.subject}</span>
                     </div>
                   );
                 })}
@@ -120,7 +189,7 @@ export default function TaskPage({
                   key={suggestion}
                   type="button"
                   onClick={() => onQuickReply(suggestion)}
-                  className="rounded-lg border border-[#dde2ea] bg-[#f7f8fa] px-3 py-2 text-left text-sm font-medium text-[#171a1f] hover:border-[#c8d0dc] hover:bg-white"
+                  className="rounded-lg border border-[#e5e7eb] bg-[#f7f8fa] px-3 py-2 text-left text-sm font-medium text-[#0d0d0d] hover:border-[#c8d0dc] hover:bg-white"
                 >
                   {suggestion}
                 </button>
@@ -138,7 +207,7 @@ export default function TaskPage({
         </div>
 
         {tokenUsage.total_tokens > 0 && (
-          <div className="mx-auto mt-4 max-w-4xl font-[family-name:var(--font-mono)] text-xs text-[#68707d]">
+          <div className="mx-auto mt-4 max-w-4xl font-[family-name:var(--font-mono)] text-xs text-[#6b7280]">
             tokens in {tokenUsage.prompt_tokens.toLocaleString()} / out{" "}
             {tokenUsage.completion_tokens.toLocaleString()}
           </div>

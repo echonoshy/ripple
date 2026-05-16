@@ -4,7 +4,6 @@ import React from "react";
 import {
   Bot,
   CheckCircle2,
-  Clock3,
   FileCode2,
   ShieldAlert,
   Terminal,
@@ -53,101 +52,89 @@ export default function TaskTimeline({
 
   if (events.length === 0 && !isGenerating) {
     return (
-      <div className="flex min-h-[180px] items-center justify-center rounded-lg border border-dashed border-[#dde2ea] bg-[#f7f8fa] p-8 text-center text-sm text-[#68707d]">
-        Ready.
+      <div className="relative min-h-[180px] pl-8">
+        <div className="absolute top-2 bottom-2 left-[9px] w-px bg-[#e5e7eb]" />
+        <div className="relative py-2">
+          <span className="absolute top-3 -left-8 flex h-5 w-5 items-center justify-center rounded-full border border-[#2463eb] bg-white text-[#2463eb]">
+            <span className="h-2 w-2 rounded-full bg-current" />
+          </span>
+          <div className="text-sm font-semibold text-[#0d0d0d]">Ready</div>
+          <div className="mt-1 max-w-xl text-sm leading-6 text-[#6b7280]">
+            Start a task and Codex activity will appear here as a timeline.
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-4">
+    <div className="relative pl-8">
+      <div className="absolute top-3 bottom-3 left-[9px] w-px bg-[#e5e7eb]" />
       {events.map((event) => {
         const isToolEvent = ["approval_request", "command", "file_change", "tool_call"].includes(
           event.type
         );
         const eventTime = formatTime(event.createdAt);
 
-        if (event.type === "user_message") {
-          return (
-            <article key={event.id} className="flex justify-end">
-              <div className="max-w-[78%] rounded-xl bg-[#eef1f5] px-4 py-3 text-sm leading-6 text-[#171a1f]">
-                <div className="markdown-body workbench-markdown">
-                  <MarkdownRenderer content={event.body} />
-                </div>
-              </div>
-            </article>
-          );
-        }
-
-        if (!isToolEvent) {
-          return (
-            <article
-              key={event.id}
-              className="rounded-xl border border-[#dde2ea] bg-white px-4 py-3"
+        return (
+          <article
+            key={event.id}
+            className="relative border-b border-[#edf0f4] py-4 last:border-b-0"
+          >
+            <span
+              className={`absolute top-4 -left-8 flex h-5 w-5 items-center justify-center rounded-full border bg-white ${
+                isToolEvent ? "border-[#e5e7eb] text-[#374151]" : "border-[#2463eb] text-[#2463eb]"
+              }`}
             >
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2 text-sm font-semibold text-[#171a1f]">
-                  <span className="flex h-6 w-6 items-center justify-center rounded-md bg-[#171a1f] text-white">
-                    <Bot size={13} />
-                  </span>
-                  Codex
-                </div>
-                {eventTime && (
-                  <div className="flex shrink-0 items-center gap-1 text-xs text-[#8b8f94]">
-                    <Clock3 size={12} />
-                    {eventTime}
-                  </div>
+              {isToolEvent ? (
+                <EventIcon type={event.type} />
+              ) : (
+                <span className="h-2 w-2 rounded-full bg-current" />
+              )}
+            </span>
+            <div className="mb-1.5 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold text-[#0d0d0d]">{event.title}</div>
+                {event.type === "user_message" && (
+                  <div className="mt-0.5 text-xs font-medium text-[#6b7280]">User request</div>
                 )}
               </div>
-              <div className="markdown-body workbench-markdown text-sm">
-                <MarkdownRenderer content={event.body} />
-              </div>
-            </article>
-          );
-        }
-
-        return (
-          <article key={event.id} className="rounded-lg border border-[#dde2ea] bg-[#f7f8fa] p-3">
-            <div className="mb-2 flex items-center justify-between gap-3">
-              <div className="flex min-w-0 items-center gap-2 text-xs font-semibold text-[#68707d]">
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-[#dde2ea] bg-white">
-                  <EventIcon type={event.type} />
-                </span>
-                <span className="truncate">{event.title}</span>
-              </div>
-              <div className="flex shrink-0 items-center gap-1.5 text-xs text-[#8b8f94]">
+              <div className="flex shrink-0 items-center gap-2 text-xs text-[#6b7280]">
                 {event.status && (
-                  <span className="rounded-md border border-[#dde2ea] bg-white px-1.5 py-0.5 font-[family-name:var(--font-mono)]">
+                  <span className="rounded-md border border-[#e5e7eb] bg-[#f7f8fa] px-1.5 py-0.5 font-[family-name:var(--font-mono)]">
                     {event.status}
                   </span>
                 )}
-                {eventTime && (
-                  <>
-                    <Clock3 size={12} />
-                    {eventTime}
-                  </>
-                )}
+                {eventTime && <span>{eventTime}</span>}
               </div>
             </div>
-            <pre className="max-h-64 overflow-auto rounded-md border border-[#dde2ea] bg-white p-3 font-[family-name:var(--font-mono)] text-xs leading-relaxed whitespace-pre-wrap text-[#394150]">
-              {event.body}
-            </pre>
+            {isToolEvent ? (
+              <pre className="mt-2 max-h-36 overflow-auto rounded-md border border-[#e5e7eb] bg-[#f7f8fa] p-2.5 font-[family-name:var(--font-mono)] text-xs leading-relaxed whitespace-pre-wrap text-[#374151]">
+                {event.body}
+              </pre>
+            ) : (
+              <div className="markdown-body workbench-markdown max-w-2xl text-sm leading-6 text-[#374151]">
+                <MarkdownRenderer content={event.body} />
+              </div>
+            )}
           </article>
         );
       })}
 
       {isGenerating && lastMessage?.role === "assistant" && !lastMessage.content && (
-        <article className="rounded-xl border border-[#dde2ea] bg-white px-4 py-3">
-          <div className="flex items-center gap-2 text-sm text-[#68707d]">
+        <article className="relative border-b border-[#edf0f4] py-4">
+          <span className="absolute top-4 -left-8 flex h-5 w-5 items-center justify-center rounded-full border border-[#2463eb] bg-white text-[#2463eb]">
+            <span className="h-2 w-2 animate-pulse rounded-full bg-current" />
+          </span>
+          <div className="flex items-center gap-2 text-sm text-[#6b7280]">
             <Bot size={15} />
-            <span className="h-2 w-2 animate-pulse rounded-full bg-[#2f6bff]" />
             Codex is starting work...
           </div>
         </article>
       )}
 
       {pendingAskUser && (
-        <div className="rounded-lg border border-[#bf8700]/35 bg-[#fff8c5] p-3">
+        <div className="mt-4 rounded-lg border border-[#bf8700]/35 bg-[#fff8c5] p-3">
           <div className="mb-2 text-sm font-semibold text-[#7d4e00]">{pendingAskUser.question}</div>
           <div className="flex flex-wrap gap-2">
             {pendingAskUser.options.map((option) => (
@@ -155,7 +142,7 @@ export default function TaskTimeline({
                 key={option}
                 type="button"
                 onClick={() => onQuickReply(option)}
-                className="rounded-md border border-[#dde2ea] bg-white px-3 py-1.5 text-sm font-medium text-[#171a1f] hover:bg-[#f7f8fa]"
+                className="rounded-md border border-[#e5e7eb] bg-white px-3 py-1.5 text-sm font-medium text-[#0d0d0d] hover:bg-[#f7f8fa]"
               >
                 {option}
               </button>
@@ -165,7 +152,7 @@ export default function TaskTimeline({
       )}
 
       {pendingPermission && (
-        <div className="rounded-lg border border-[#bf8700]/35 bg-[#fff8c5] p-3">
+        <div className="mt-4 rounded-lg border border-[#bf8700]/35 bg-[#fff8c5] p-3">
           <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-[#7d4e00]">
             <ShieldAlert size={15} />
             Permission required: {pendingPermission.tool}

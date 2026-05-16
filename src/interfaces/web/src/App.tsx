@@ -20,6 +20,7 @@ import {
 import RippleIcon from "@/components/icons/RippleIcon";
 import SettingsModal from "@/components/SettingsModal";
 import InspectorPanel from "@/components/workbench/InspectorPanel";
+import MobileTabBar from "@/components/workbench/MobileTabBar";
 import TaskPage from "@/components/workbench/TaskPage";
 import WorkbenchShell from "@/components/workbench/WorkbenchShell";
 import WorkbenchTopBar from "@/components/workbench/WorkbenchTopBar";
@@ -696,6 +697,12 @@ export default function Home() {
             changedFiles={changedFiles}
             pendingPermission={pendingPermission}
             onPermissionResolve={handlePermissionResolve}
+          />
+        }
+        mobileNav={
+          <MobileTabBar
+            onOpenNav={() => setIsSidebarOpen(true)}
+            onOpenSettings={() => setIsSettingsOpen(true)}
           />
         }
       />

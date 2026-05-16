@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef } from "react";
-import { Send, Square } from "lucide-react";
+import { AtSign, ChevronDown, Paperclip, Plus, Send, Square } from "lucide-react";
 import { shouldApplyInputFocus } from "@/lib/inputFocus";
 
 interface TaskComposerProps {
@@ -50,8 +50,8 @@ export default function TaskComposer({
   };
 
   return (
-    <div className="shrink-0 border-t border-[#dde2ea] bg-white px-5 pt-3 pb-5 md:px-10 lg:px-[72px]">
-      <div className="mx-auto max-w-4xl rounded-xl border border-[#cfd6e2] bg-white p-2 shadow-[0_10px_30px_rgba(23,26,31,0.08)] transition-colors focus-within:border-[#9aa7b7]">
+    <div className="shrink-0 border-t border-[#e5e7eb] bg-white px-5 pt-3 pb-[92px] md:px-8 lg:pb-5">
+      <div className="mx-auto max-w-4xl rounded-xl border border-[#d7dce3] bg-white p-2 shadow-[0_10px_30px_rgba(23,26,31,0.06)] transition-colors focus-within:border-[#aab4c2]">
         <textarea
           ref={textareaRef}
           value={value}
@@ -63,34 +63,66 @@ export default function TaskComposer({
             isGenerating
               ? "Codex is working..."
               : hasSession
-                ? "Message Codex..."
-                : "Ask Codex to work on something..."
+                ? "Ask Codex anything about your codebase..."
+                : "Ask Codex anything about your codebase..."
           }
-          className="max-h-[220px] min-h-[58px] w-full resize-none bg-transparent px-2 py-2 text-[15px] leading-6 text-[#171a1f] outline-none placeholder:text-[#8b8f94] disabled:opacity-60"
+          className="max-h-[220px] min-h-[46px] w-full resize-none bg-transparent px-2 py-2 text-[14px] leading-6 text-[#0d0d0d] outline-none placeholder:text-[#8b8f94] disabled:opacity-60"
         />
-        <div className="flex items-center justify-end gap-2 pt-1">
-          {isGenerating ? (
+        <div className="flex items-center justify-between gap-2 pt-1">
+          <div className="flex items-center gap-1">
+            {[
+              { label: "Add", icon: Plus },
+              { label: "Attach", icon: Paperclip },
+              { label: "Mention", icon: AtSign },
+            ].map((item) => {
+              const Icon = item.icon;
+              return (
+                <button
+                  key={item.label}
+                  type="button"
+                  aria-label={item.label}
+                  title={item.label}
+                  onClick={() => textareaRef.current?.focus()}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#e5e7eb] bg-white text-[#374151] hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
+                >
+                  <Icon size={15} />
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={onStop}
-              aria-label="Stop generation"
-              title="Stop generation"
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#cf222e]/25 bg-[#ffebe9] text-[#cf222e] hover:bg-[#ffd7d5]"
+              onClick={() => textareaRef.current?.focus()}
+              className="hidden h-8 items-center gap-1.5 rounded-md px-2 text-sm font-medium text-[#0d0d0d] hover:bg-[#f7f8fa] sm:inline-flex"
             >
-              <Square size={13} fill="currentColor" />
+              Codex
+              <ChevronDown size={13} className="text-[#6b7280]" />
             </button>
-          ) : (
-            <button
-              type="button"
-              onClick={onSend}
-              disabled={!value.trim()}
-              aria-label="Send message"
-              title="Send message"
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#2463eb] bg-[#2463eb] text-white shadow-[0_8px_24px_rgba(36,99,235,0.18)] hover:bg-[#1d56d8] disabled:cursor-not-allowed disabled:border-[#dde2ea] disabled:bg-[#f7f8fa] disabled:text-[#8b8f94] disabled:shadow-none"
-            >
-              <Send size={14} />
-            </button>
-          )}
+            {isGenerating ? (
+              <button
+                type="button"
+                onClick={onStop}
+                aria-label="Stop generation"
+                title="Stop generation"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#cf222e]/25 bg-[#ffebe9] text-[#cf222e] hover:bg-[#ffd7d5]"
+              >
+                <Square size={13} fill="currentColor" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={onSend}
+                disabled={!value.trim()}
+                aria-label="Send message"
+                title="Send message"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#2463eb] bg-[#2463eb] text-white shadow-[0_8px_24px_rgba(36,99,235,0.18)] hover:bg-[#1d56d8] disabled:cursor-not-allowed disabled:border-[#e5e7eb] disabled:bg-[#f7f8fa] disabled:text-[#8b8f94] disabled:shadow-none"
+              >
+                <Send size={14} />
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>

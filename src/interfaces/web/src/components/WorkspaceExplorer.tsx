@@ -11,6 +11,8 @@ import {
   Loader2,
   RefreshCw,
   Save,
+  Search,
+  SlidersHorizontal,
   Undo2,
 } from "lucide-react";
 import { fetchWorkspaceFilePreview, fetchWorkspaceListing, saveWorkspaceFile } from "@/lib/api";
@@ -55,9 +57,16 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
   const [loading, setLoading] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const isDirty = useMemo(() => Boolean(preview && draft !== preview.content), [draft, preview]);
+  const visibleEntries = useMemo(() => {
+    if (!listing) return [];
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) return listing.entries;
+    return listing.entries.filter((entry) => entry.name.toLowerCase().includes(normalized));
+  }, [listing, query]);
 
   const loadDirectory = useCallback(async (path: string) => {
     setLoading(true);
@@ -135,23 +144,43 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
   };
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-[#f7f8fa] text-[#171a1f]">
-      <div className="flex shrink-0 items-center justify-between border-b border-[#dde2ea] bg-white px-4 py-3">
-        <div className="min-w-0">
-          <p className="text-[10px] font-semibold tracking-wider text-[#68707d] uppercase">Files</p>
-          <p className="truncate font-[family-name:var(--font-mono)] text-sm font-semibold text-[#171a1f]">
+    <div className="flex h-full flex-col overflow-hidden bg-white text-[#0d0d0d]">
+      <div className="shrink-0 border-b border-[#e5e7eb] bg-white px-4 py-3">
+        <div className="mb-2 flex items-center gap-2">
+          <div className="relative min-w-0 flex-1">
+            <Search
+              size={14}
+              className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-[#8b8f94]"
+            />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search files..."
+              className="h-8 w-full rounded-md border border-[#e5e7eb] bg-white pr-2 pl-8 text-sm text-[#0d0d0d] outline-none placeholder:text-[#8b8f94] focus:border-[#2463eb]"
+            />
+          </div>
+          <button
+            type="button"
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#e5e7eb] bg-white text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
+            title="Filter files"
+          >
+            <SlidersHorizontal size={14} />
+          </button>
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <p className="min-w-0 truncate font-[family-name:var(--font-mono)] text-[11px] text-[#6b7280]">
             {listing?.path || currentPath}
           </p>
+          <button
+            type="button"
+            onClick={() => void loadDirectory(currentPath)}
+            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-transparent text-[#6b7280] hover:border-[#e5e7eb] hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
+            title="Refresh workspace"
+            disabled={loading}
+          >
+            {loading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={() => void loadDirectory(currentPath)}
-          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#dde2ea] bg-white text-[#68707d] hover:bg-[#f7f8fa] hover:text-[#171a1f]"
-          title="Refresh workspace"
-          disabled={loading}
-        >
-          {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-        </button>
       </div>
 
       {error && (
@@ -161,17 +190,17 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
         </div>
       )}
 
-      <div className="grid min-h-0 flex-1 grid-rows-[minmax(220px,42%)_minmax(0,1fr)]">
-        <div className="min-h-0 overflow-hidden border-b border-[#dde2ea] bg-white">
-          <div className="flex items-center justify-between border-b border-[#dde2ea] bg-[#f7f8fa] px-3 py-2">
-            <span className="text-xs font-semibold tracking-wider text-[#68707d] uppercase">
-              Browser
+      <div className="grid min-h-0 flex-1 grid-rows-[minmax(240px,48%)_minmax(0,1fr)]">
+        <div className="min-h-0 overflow-hidden border-b border-[#e5e7eb] bg-white">
+          <div className="flex items-center justify-between border-b border-[#e5e7eb] bg-white px-3 py-2">
+            <span className="text-xs font-semibold tracking-wider text-[#6b7280] uppercase">
+              Workspace
             </span>
             {listing?.parent_path && (
               <button
                 type="button"
                 onClick={() => void loadDirectory(listing.parent_path || "/workspace")}
-                className="flex items-center gap-1 rounded-md border border-[#dde2ea] bg-white px-2 py-1 text-[11px] font-medium text-[#68707d] hover:bg-[#f7f8fa] hover:text-[#171a1f]"
+                className="flex items-center gap-1 rounded-md border border-[#e5e7eb] bg-white px-2 py-1 text-[11px] font-medium text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
               >
                 <ArrowUp size={12} />
                 Up
@@ -184,37 +213,37 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
                 <Loader2 size={16} className="animate-spin" />
                 Loading
               </div>
-            ) : listing && listing.entries.length === 0 ? (
-              <div className="flex h-40 items-center justify-center px-4 text-center text-sm font-medium text-[#68707d]">
+            ) : listing && visibleEntries.length === 0 ? (
+              <div className="flex h-40 items-center justify-center px-4 text-center text-sm font-medium text-[#6b7280]">
                 Empty workspace
               </div>
             ) : (
-              <div className="divide-y divide-[#dde2ea]">
-                {listing?.entries.map((entry) => (
+              <div>
+                {visibleEntries.map((entry) => (
                   <button
                     key={entry.path}
                     type="button"
                     onClick={() => void openEntry(entry)}
-                    className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-[#f7f8fa] ${
-                      preview?.path === entry.path ? "bg-[#eef1f5]" : "bg-white"
+                    className={`flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-[#f7f8fa] ${
+                      preview?.path === entry.path ? "bg-[#eef4ff]" : "bg-white"
                     }`}
                   >
                     <span
-                      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#dde2ea] text-[#68707d] ${
+                      className={`flex h-5 w-5 shrink-0 items-center justify-center text-[#374151] ${
                         entry.kind === "directory" ? "bg-[#f7f8fa]" : "bg-white"
                       }`}
                     >
-                      {entry.kind === "directory" ? <Folder size={15} /> : <FileText size={15} />}
+                      {entry.kind === "directory" ? <Folder size={14} /> : <FileText size={14} />}
                     </span>
                     <span className="min-w-0 flex-1">
                       <span
-                        className={`block truncate font-[family-name:var(--font-mono)] text-sm font-medium text-[#171a1f] ${
+                        className={`block truncate font-[family-name:var(--font-mono)] text-[13px] font-medium text-[#0d0d0d] ${
                           entry.is_hidden ? "opacity-55" : ""
                         }`}
                       >
                         {entry.name}
                       </span>
-                      <span className="mt-0.5 block truncate font-[family-name:var(--font-mono)] text-[11px] text-[#68707d]">
+                      <span className="mt-0.5 block truncate font-[family-name:var(--font-mono)] text-[10px] text-[#6b7280]">
                         {entry.kind === "directory" ? "folder" : formatBytes(entry.size_bytes)}
                         {formatModified(entry.modified_at)
                           ? ` · ${formatModified(entry.modified_at)}`
@@ -229,9 +258,9 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
         </div>
 
         <div className="flex min-h-0 flex-col overflow-hidden bg-white">
-          <div className="flex shrink-0 items-center gap-2 border-b border-[#dde2ea] bg-[#f7f8fa] px-3 py-2 text-[#68707d]">
+          <div className="flex shrink-0 items-center gap-2 border-b border-[#e5e7eb] bg-white px-3 py-2 text-[#6b7280]">
             <FileText size={13} />
-            <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-[#171a1f]">
+            <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-[#0d0d0d]">
               {preview?.path || "Select a file"}
             </span>
             {previewLoading && <Loader2 size={12} className="animate-spin" />}

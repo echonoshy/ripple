@@ -52,13 +52,9 @@ export default function InspectorPanel({
   );
 
   return (
-    <aside className="flex h-full min-h-0 flex-col border-l border-[#dde2ea] bg-[#f7f8fa]">
-      <div className="shrink-0 border-b border-[#dde2ea] bg-white px-4 py-3">
-        <div className="mb-3">
-          <div className="text-[15px] font-semibold text-[#171a1f]">Files and activity</div>
-          <div className="text-xs text-[#68707d]">Workspace state for the current task</div>
-        </div>
-        <div className="flex rounded-lg border border-[#dde2ea] bg-[#eef1f5] p-1">
+    <aside className="flex h-full min-h-0 flex-col border-l border-[#e5e7eb] bg-white">
+      <div className="shrink-0 border-b border-[#e5e7eb] bg-white px-4">
+        <div className="flex h-[52px] items-end gap-6">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const selected = activeTab === tab.id;
@@ -68,14 +64,12 @@ export default function InspectorPanel({
                 key={tab.id}
                 type="button"
                 onClick={() => setActiveTab(tab.id)}
-                className={`relative inline-flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-semibold ${
-                  selected
-                    ? "bg-white text-[#171a1f] shadow-sm"
-                    : "text-[#68707d] hover:bg-white/70"
+                className={`relative inline-flex h-9 items-center gap-1.5 border-b-2 text-sm font-medium ${
+                  selected ? "border-[#2463eb] text-[#2463eb]" : "border-transparent text-[#374151]"
                 }`}
               >
                 <Icon size={14} />
-                <span className="truncate">{tab.label}</span>
+                {tab.label}
                 {badge > 0 && <span className="h-1.5 w-1.5 rounded-full bg-[#bf8700]" />}
               </button>
             );
@@ -89,16 +83,16 @@ export default function InspectorPanel({
         {activeTab === "activity" && (
           <div className="h-full overflow-y-auto p-4">
             {changedFiles.length > 0 && (
-              <section className="mb-3 rounded-lg border border-[#dde2ea] bg-white">
-                <div className="flex items-center gap-2 border-b border-[#dde2ea] px-3 py-2 text-sm font-semibold text-[#171a1f]">
+              <section className="mb-3 rounded-lg border border-[#e5e7eb] bg-white">
+                <div className="flex items-center gap-2 border-b border-[#e5e7eb] px-3 py-2 text-sm font-semibold text-[#0d0d0d]">
                   <Code2 size={14} />
                   Changed files
                 </div>
-                <div className="divide-y divide-[#dde2ea]">
+                <div className="divide-y divide-[#e5e7eb]">
                   {changedFiles.map((path) => (
                     <div
                       key={path}
-                      className="truncate px-3 py-2 font-[family-name:var(--font-mono)] text-xs text-[#68707d]"
+                      className="truncate px-3 py-2 font-[family-name:var(--font-mono)] text-xs text-[#6b7280]"
                       title={path}
                     >
                       {path}
@@ -109,25 +103,25 @@ export default function InspectorPanel({
             )}
 
             {activityEvents.length === 0 ? (
-              <div className="flex h-40 items-center justify-center rounded-lg border border-dashed border-[#dde2ea] bg-white px-4 text-center text-sm text-[#68707d]">
+              <div className="flex h-40 items-center justify-center rounded-lg border border-dashed border-[#e5e7eb] bg-white px-4 text-center text-sm text-[#6b7280]">
                 Codex activity will appear here while it reads files, runs commands, or changes
                 files.
               </div>
             ) : (
               <div className="space-y-2">
                 {activityEvents.map((event) => (
-                  <article key={event.id} className="rounded-lg border border-[#dde2ea] bg-white">
-                    <div className="flex items-center justify-between gap-2 border-b border-[#dde2ea] px-3 py-2">
-                      <div className="truncate text-sm font-semibold text-[#171a1f]">
+                  <article key={event.id} className="rounded-lg border border-[#e5e7eb] bg-white">
+                    <div className="flex items-center justify-between gap-2 border-b border-[#e5e7eb] px-3 py-2">
+                      <div className="truncate text-sm font-semibold text-[#0d0d0d]">
                         {event.title}
                       </div>
                       {event.status && (
-                        <span className="rounded-md border border-[#dde2ea] bg-[#f7f8fa] px-2 py-0.5 font-[family-name:var(--font-mono)] text-[11px] text-[#68707d]">
+                        <span className="rounded-md border border-[#e5e7eb] bg-[#f7f8fa] px-2 py-0.5 font-[family-name:var(--font-mono)] text-[11px] text-[#6b7280]">
                           {event.status}
                         </span>
                       )}
                     </div>
-                    <pre className="max-h-56 overflow-auto p-3 font-[family-name:var(--font-mono)] text-xs leading-relaxed whitespace-pre-wrap text-[#68707d]">
+                    <pre className="max-h-56 overflow-auto p-3 font-[family-name:var(--font-mono)] text-xs leading-relaxed whitespace-pre-wrap text-[#6b7280]">
                       {formatBody(event.body)}
                     </pre>
                   </article>
@@ -175,7 +169,7 @@ export default function InspectorPanel({
                 </div>
               </div>
             ) : (
-              <div className="flex h-40 items-center justify-center gap-2 rounded-lg border border-dashed border-[#dde2ea] bg-white px-4 text-center text-sm text-[#68707d]">
+              <div className="flex h-40 items-center justify-center gap-2 rounded-lg border border-dashed border-[#e5e7eb] bg-white px-4 text-center text-sm text-[#6b7280]">
                 <CheckCircle2 size={16} />
                 No pending approvals
               </div>

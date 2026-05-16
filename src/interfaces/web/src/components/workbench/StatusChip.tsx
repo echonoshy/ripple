@@ -17,7 +17,7 @@ const STATUS_LABELS: Record<WorkbenchTaskStatus, string> = {
 
 const STATUS_TONES: Record<WorkbenchTaskStatus, StatusTone> = {
   queued: "gray",
-  running: "blue",
+  running: "green",
   waiting_for_user: "yellow",
   waiting_for_approval: "yellow",
   review: "blue",
@@ -29,7 +29,7 @@ const STATUS_TONES: Record<WorkbenchTaskStatus, StatusTone> = {
 
 const TONE_CLASSES: Record<StatusTone, string> = {
   blue: "border-[#2463eb]/20 bg-[#eef4ff] text-[#2463eb]",
-  green: "border-[#1a7f37]/25 bg-[#dafbe1] text-[#1a7f37]",
+  green: "border-[#cfeedd] bg-[#e8f6ed] text-[#166534]",
   yellow: "border-[#bf8700]/30 bg-[#fff8c5] text-[#7d4e00]",
   red: "border-[#cf222e]/25 bg-[#ffebe9] text-[#cf222e]",
   gray: "border-[#d0d7de] bg-[#f6f8fa] text-[#57606a]",
@@ -59,9 +59,8 @@ export default function StatusChip({
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-md border font-medium ${compact ? "px-1.5 py-0.5 text-[11px]" : "px-2 py-0.5 text-xs"} ${TONE_CLASSES[resolvedTone]}`}
+      className={`inline-flex items-center rounded-md border font-medium ${compact ? "px-1.5 py-0.5 text-[11px]" : "px-2 py-0.5 text-xs"} ${TONE_CLASSES[resolvedTone]}`}
     >
-      <span className="h-1.5 w-1.5 rounded-full bg-current" />
       {resolvedLabel}
     </span>
   );

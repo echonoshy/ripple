@@ -13,6 +13,11 @@ import {
   TaskInfo,
   TaskProgress,
   AgentStopData,
+  AgentRunInfo,
+  AgentRunListResponse,
+  DocumentInfo,
+  DocumentListResponse,
+  UserQuotaStatus,
   WorkspaceFilePreview,
   WorkspaceListing,
 } from "@/types";
@@ -604,4 +609,143 @@ export async function saveWorkspaceFile(
   if (res.status === 409) throw new Error("File changed on disk. Refresh before saving.");
   if (!res.ok) throw new Error(`Failed to save file (${res.status})`);
   return (await res.json()) as WorkspaceFilePreview;
+}
+
+export async function fetchRuns(): Promise<AgentRunInfo[]> {
+  const res = await fetch(`${API_URL}/runs`, { headers: { ...authHeaders() } });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) throw new Error(`Failed to fetch runs (${res.status})`);
+  const body = (await res.json()) as AgentRunListResponse;
+  return body.runs || [];
+}
+
+export async function fetchRun(jobId: string): Promise<AgentRunInfo | null> {
+  const res = await fetch(`${API_URL}/runs/${encodeURIComponent(jobId)}`, {
+    headers: { ...authHeaders() },
+  });
+  if (res.status === 401) throw new AuthError();
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Failed to fetch run (${res.status})`);
+  return (await res.json()) as AgentRunInfo;
+}
+
+export async function streamRunEvents(
+  jobId: string,
+  callbacks: {
+    onEvent: (event: Record<string, unknown>) => void;
+    onHeartbeat?: (event: Record<string, unknown>) => void;
+    onComplete: () => void;
+    onError: (error: Error) => void;
+  },
+  options?: { signal?: AbortSignal; fromStart?: boolean; follow?: boolean }
+) {
+  const qs = new URLSearchParams({
+    from_start: String(options?.fromStart ?? true),
+    follow: String(options?.follow ?? true),
+  });
+  let completed = false;
+  const markComplete = () => {
+    if (completed) return;
+    completed = true;
+    callbacks.onComplete();
+  };
+
+  try {
+    await fetchEventSource(`${API_URL}/runs/${encodeURIComponent(jobId)}/events?${qs.toString()}`, {
+      method: "GET",
+      signal: options?.signal,
+      headers: { ...authHeaders() },
+      async onopen(response) {
+        if (response.status === 401) throw new AuthError();
+        if (!response.ok) throw new Error(`Server responded with ${response.status}`);
+      },
+      onmessage(message) {
+        if (message.data === "[DONE]") {
+          markComplete();
+          return;
+        }
+        try {
+          const event = JSON.parse(message.data) as Record<string, unknown>;
+          if (event.type === "heartbeat") {
+            callbacks.onHeartbeat?.(event);
+          } else {
+            callbacks.onEvent(event);
+          }
+        } catch (error) {
+          callbacks.onError(error as Error);
+        }
+      },
+      onerror(error) {
+        throw error;
+      },
+      onclose() {
+        markComplete();
+      },
+    });
+  } catch (error) {
+    if (options?.signal?.aborted) {
+      markComplete();
+      return;
+    }
+    if (!completed) callbacks.onError(error as Error);
+  }
+}
+
+export async function fetchUserQuota(): Promise<UserQuotaStatus> {
+  const res = await fetch(`${API_URL}/users/me/quota`, { headers: { ...authHeaders() } });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) throw new Error(`Failed to fetch quota (${res.status})`);
+  return (await res.json()) as UserQuotaStatus;
+}
+
+export async function fetchDocuments(query?: string): Promise<DocumentInfo[]> {
+  const qs = query ? `?${new URLSearchParams({ q: query }).toString()}` : "";
+  const res = await fetch(`${API_URL}/documents${qs}`, { headers: { ...authHeaders() } });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) throw new Error(`Failed to fetch documents (${res.status})`);
+  const body = (await res.json()) as DocumentListResponse;
+  return body.documents || [];
+}
+
+export async function createDocument(payload: {
+  title: string;
+  path: string;
+  linked_session_id?: string | null;
+  summary?: string;
+}): Promise<DocumentInfo> {
+  const res = await fetch(`${API_URL}/documents`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(payload),
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) throw new Error(`Failed to create document (${res.status})`);
+  return (await res.json()) as DocumentInfo;
+}
+
+export async function updateDocument(
+  documentId: string,
+  payload: {
+    title?: string;
+    linked_session_id?: string | null;
+    summary?: string | null;
+  }
+): Promise<DocumentInfo> {
+  const res = await fetch(`${API_URL}/documents/${encodeURIComponent(documentId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(payload),
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) throw new Error(`Failed to update document (${res.status})`);
+  return (await res.json()) as DocumentInfo;
+}
+
+export async function deleteDocument(documentId: string): Promise<boolean> {
+  const res = await fetch(`${API_URL}/documents/${encodeURIComponent(documentId)}`, {
+    method: "DELETE",
+    headers: { ...authHeaders() },
+  });
+  if (res.status === 401) throw new AuthError();
+  return res.ok;
 }

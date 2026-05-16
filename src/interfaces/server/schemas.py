@@ -251,10 +251,78 @@ class AgentRunInfo(BaseModel):
     status: str
     output_file: str | None = None
     events_file: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    exit_code: int | None = None
+    prompt_preview: str | None = None
+    sandbox_cwd: str | None = None
     stdout_tail: str = ""
     stderr_tail: str = ""
     error: str | None = None
     pending_approval: dict[str, Any] | None = None
+
+
+class AgentRunListResponse(BaseModel):
+    runs: list[AgentRunInfo] = Field(default_factory=list)
+    count: int = 0
+
+
+# ─── Internal Users / Quota ───
+
+
+class UserQuotaUpdateRequest(BaseModel):
+    max_workspace_mb: int | None = Field(default=None, ge=0)
+    max_sessions: int | None = Field(default=None, ge=0)
+    max_runs_per_day: int | None = Field(default=None, ge=0)
+    max_run_runtime_seconds: int | None = Field(default=None, ge=0)
+
+
+class UserQuotaStatusResponse(BaseModel):
+    user_id: str
+    quota: dict[str, int]
+    usage: dict[str, int]
+
+
+class UserProfileResponse(BaseModel):
+    user_id: str
+    display_name: str
+    created_at: str
+    updated_at: str
+    quota: dict[str, int]
+
+
+# ─── Documents ───
+
+
+class DocumentCreateRequest(BaseModel):
+    title: str = Field(min_length=1)
+    path: str = Field(min_length=1)
+    linked_session_id: str | None = None
+    summary: str = ""
+
+
+class DocumentUpdateRequest(BaseModel):
+    title: str | None = Field(default=None, min_length=1)
+    linked_session_id: str | None = None
+    summary: str | None = None
+
+
+class DocumentInfo(BaseModel):
+    document_id: str
+    title: str
+    path: str
+    kind: str
+    source: str
+    linked_session_id: str | None = None
+    summary: str = ""
+    created_at: str
+    updated_at: str
+    last_modified_at: str
+
+
+class DocumentListResponse(BaseModel):
+    documents: list[DocumentInfo] = Field(default_factory=list)
+    count: int = 0
 
 
 # ─── Connectors ───

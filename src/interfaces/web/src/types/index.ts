@@ -131,6 +131,62 @@ export interface WorkspaceFilePreview {
   truncated: boolean;
 }
 
+export interface AgentRunInfo {
+  job_id: string;
+  provider: string;
+  status: string;
+  output_file: string | null;
+  events_file: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  exit_code: number | null;
+  prompt_preview: string | null;
+  sandbox_cwd: string | null;
+  stdout_tail: string;
+  stderr_tail: string;
+  error: string | null;
+  pending_approval?: Record<string, unknown> | null;
+}
+
+export interface AgentRunListResponse {
+  runs: AgentRunInfo[];
+  count: number;
+}
+
+export interface UserQuotaStatus {
+  user_id: string;
+  quota: {
+    max_workspace_mb: number;
+    max_sessions: number;
+    max_runs_per_day: number;
+    max_run_runtime_seconds: number;
+  };
+  usage: {
+    workspace_size_bytes: number;
+    session_count: number;
+    runs_today: number;
+    active_runs: number;
+  };
+}
+
+export interface DocumentInfo {
+  document_id: string;
+  title: string;
+  path: string;
+  kind: string;
+  source: string;
+  linked_session_id: string | null;
+  summary: string;
+  created_at: string;
+  updated_at: string;
+  last_modified_at: string;
+}
+
+export interface DocumentListResponse {
+  documents: DocumentInfo[];
+  count: number;
+}
+
 export interface Session {
   session_id: string;
   title: string;

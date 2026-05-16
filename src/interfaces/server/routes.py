@@ -7,6 +7,7 @@
 import html
 import shlex
 import time
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
@@ -15,9 +16,11 @@ from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from interfaces.server.auth import verify_api_key
 from interfaces.server.codex_chat import collect_codex_chat_response, stream_codex_chat_as_sse
 from interfaces.server.deps import get_user_id
+from interfaces.server.run_events import stream_run_events
 from interfaces.server.schemas import (
     AgentRunCreateRequest,
     AgentRunInfo,
+    AgentRunListResponse,
     AgentRunSteerRequest,
     ChatCompletionRequest,
     ConnectorActionResponse,
@@ -25,6 +28,10 @@ from interfaces.server.schemas import (
     ConnectorListResponse,
     ConnectorStatusResponse,
     CreateSessionRequest,
+    DocumentCreateRequest,
+    DocumentInfo,
+    DocumentListResponse,
+    DocumentUpdateRequest,
     GogcliAccountInfo,
     GogcliAccountsResponse,
     ModelInfo,
@@ -36,6 +43,9 @@ from interfaces.server.schemas import (
     SessionListResponse,
     SuspendedSessionInfo,
     SystemInfoResponse,
+    UserProfileResponse,
+    UserQuotaStatusResponse,
+    UserQuotaUpdateRequest,
     WorkspaceFileSaveRequest,
 )
 from interfaces.server.sessions import SessionManager, _merge_system_prompt
@@ -47,12 +57,29 @@ from interfaces.server.workspace_browser import (
     preview_workspace_file,
     save_workspace_text_file,
 )
+from ripple.agent_runners.job_store import find_user_job_record, list_user_job_records
 from ripple.agent_runners.manager import get_external_agent_manager
+from ripple.agent_runners.models import AgentRunnerStatus
 from ripple.agent_runners.service import start_agent_run
 from ripple.connectors.base import ConnectorActionResult, ConnectorUnsupportedError
 from ripple.connectors.registry import get_connector as get_registered_connector
 from ripple.connectors.registry import list_connectors
+from ripple.documents.store import (
+    create_document,
+    delete_document,
+    get_document,
+    list_documents,
+    update_document,
+)
 from ripple.messages.utils import serialize_messages
+from ripple.sandbox.workspace import validate_path
+from ripple.users.quota import (
+    assert_can_create_run,
+    assert_can_create_session,
+    assert_workspace_save_within_quota,
+    quota_status,
+)
+from ripple.users.store import ensure_user_record, update_user_quota
 from ripple.utils.config import get_config
 from ripple.utils.logger import get_logger, set_current_session_id
 
@@ -285,6 +312,9 @@ async def create_session(
     _api_key: str = Depends(verify_api_key),
 ):
     manager = get_session_manager()
+    if manager.sandbox_manager:
+        manager.sandbox_manager.ensure_sandbox(user_id)
+        assert_can_create_session(manager.sandbox_manager.config, user_id)
     session = manager.create_session(
         user_id=user_id,
         model=request.model,
@@ -554,10 +584,40 @@ def _agent_run_info(job) -> AgentRunInfo:
         status=job.status.value,
         output_file=str(job.output_file) if job.output_file else None,
         events_file=str(job.events_file) if job.events_file else None,
+        created_at=job.created_at.isoformat(),
+        updated_at=job.updated_at.isoformat(),
+        exit_code=job.exit_code,
+        prompt_preview=job.prompt[:240],
+        sandbox_cwd=(job.metadata or {}).get("sandbox_cwd"),
         stdout_tail=job.stdout_tail,
         stderr_tail=job.stderr_tail,
         error=job.error,
         pending_approval=pending_approval,
+    )
+
+
+def _agent_runs_dir(user_id: str):
+    manager = get_session_manager()
+    if not manager.sandbox_manager:
+        raise HTTPException(status_code=500, detail="sandbox disabled")
+    return manager.sandbox_manager.config.sandbox_dir(user_id) / "agent-runs"
+
+
+def _agent_run_info_from_record(record: dict[str, Any]) -> AgentRunInfo:
+    return AgentRunInfo(
+        job_id=str(record.get("job_id") or ""),
+        provider=str(record.get("provider") or ""),
+        status=str(record.get("status") or ""),
+        output_file=record.get("output_file") if isinstance(record.get("output_file"), str) else None,
+        events_file=record.get("events_file") if isinstance(record.get("events_file"), str) else None,
+        created_at=record.get("created_at") if isinstance(record.get("created_at"), str) else None,
+        updated_at=record.get("updated_at") if isinstance(record.get("updated_at"), str) else None,
+        exit_code=record.get("exit_code") if isinstance(record.get("exit_code"), int) else None,
+        prompt_preview=record.get("prompt_preview") if isinstance(record.get("prompt_preview"), str) else None,
+        sandbox_cwd=record.get("sandbox_cwd") if isinstance(record.get("sandbox_cwd"), str) else None,
+        stdout_tail=record.get("stdout_tail") if isinstance(record.get("stdout_tail"), str) else "",
+        stderr_tail=record.get("stderr_tail") if isinstance(record.get("stderr_tail"), str) else "",
+        error=record.get("error") if isinstance(record.get("error"), str) else None,
     )
 
 
@@ -566,6 +626,39 @@ def _get_user_agent_job_or_404(job_id: str, user_id: str):
     if job is None or job.user_id != user_id:
         raise HTTPException(status_code=404, detail="Agent run not found")
     return job
+
+
+def _get_user_agent_record_or_404(job_id: str, user_id: str) -> AgentRunInfo:
+    job = get_external_agent_manager().get(job_id)
+    if job is not None and job.user_id == user_id:
+        return _agent_run_info(job)
+    record = find_user_job_record(_agent_runs_dir(user_id), job_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Agent run not found")
+    return _agent_run_info_from_record(record)
+
+
+def _get_live_user_agent_job_or_conflict(job_id: str, user_id: str):
+    job = get_external_agent_manager().get(job_id)
+    if job is not None and job.user_id == user_id:
+        return job
+    if find_user_job_record(_agent_runs_dir(user_id), job_id) is not None:
+        raise HTTPException(status_code=409, detail="Agent run is not active")
+    raise HTTPException(status_code=404, detail="Agent run not found")
+
+
+def _get_user_agent_event_source_or_404(job_id: str, user_id: str) -> tuple[Path, Any]:
+    job = get_external_agent_manager().get(job_id)
+    if job is not None and job.user_id == user_id and job.events_file is not None:
+        return job.events_file, lambda: job.status
+    record = find_user_job_record(_agent_runs_dir(user_id), job_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Agent run not found")
+    events_file = record.get("events_file")
+    if not isinstance(events_file, str):
+        raise HTTPException(status_code=404, detail="Agent run events not found")
+    status = str(record.get("status") or AgentRunnerStatus.COMPLETED.value)
+    return Path(events_file), lambda: status
 
 
 @router.post("/v1/runs")
@@ -579,6 +672,7 @@ async def create_agent_run(
     if not manager.sandbox_manager:
         raise HTTPException(status_code=500, detail="sandbox disabled")
     workspace_root = manager.sandbox_manager.ensure_sandbox(user_id)
+    assert_can_create_run(manager.sandbox_manager.config, user_id, request.max_runtime_seconds)
     runtime_dir = manager.sandbox_manager.config.sandbox_dir(user_id) / "agent-runs"
 
     try:
@@ -600,13 +694,203 @@ async def create_agent_run(
     return _agent_run_info(job)
 
 
+# ─── Internal Users / Quota ───
+
+
+@router.get("/v1/users/me")
+async def get_current_user_profile(
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+) -> UserProfileResponse:
+    manager = get_session_manager()
+    if not manager.sandbox_manager:
+        raise HTTPException(status_code=500, detail="sandbox disabled")
+    manager.sandbox_manager.ensure_sandbox(user_id)
+    record = ensure_user_record(manager.sandbox_manager.config, user_id)
+    return UserProfileResponse(**record)
+
+
+@router.get("/v1/users/me/quota")
+async def get_current_user_quota(
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+) -> UserQuotaStatusResponse:
+    manager = get_session_manager()
+    if not manager.sandbox_manager:
+        raise HTTPException(status_code=500, detail="sandbox disabled")
+    manager.sandbox_manager.ensure_sandbox(user_id)
+    return UserQuotaStatusResponse(**quota_status(manager.sandbox_manager.config, user_id))
+
+
+@router.put("/v1/users/{target_user_id}/quota")
+async def update_user_quota_route(
+    target_user_id: str,
+    request: UserQuotaUpdateRequest,
+    _user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+) -> UserQuotaStatusResponse:
+    manager = get_session_manager()
+    if not manager.sandbox_manager:
+        raise HTTPException(status_code=500, detail="sandbox disabled")
+    manager.sandbox_manager.ensure_sandbox(target_user_id)
+    update_user_quota(
+        manager.sandbox_manager.config,
+        target_user_id,
+        request.model_dump(exclude_none=True),
+    )
+    return UserQuotaStatusResponse(**quota_status(manager.sandbox_manager.config, target_user_id))
+
+
+# ─── Documents ───
+
+
+def _workspace_root_or_404(user_id: str) -> Path:
+    manager = get_session_manager()
+    if not manager.sandbox_manager:
+        raise HTTPException(status_code=500, detail="sandbox disabled")
+    workspace_root = manager.sandbox_manager.config.workspace_dir(user_id)
+    if not workspace_root.exists():
+        raise HTTPException(status_code=404, detail=f"Sandbox for user {user_id!r} not found")
+    return workspace_root
+
+
+@router.get("/v1/documents")
+async def list_document_metadata(
+    q: str | None = Query(default=None),
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+) -> DocumentListResponse:
+    manager = get_session_manager()
+    if not manager.sandbox_manager:
+        raise HTTPException(status_code=500, detail="sandbox disabled")
+    docs = [DocumentInfo(**doc) for doc in list_documents(manager.sandbox_manager.config, user_id, q)]
+    return DocumentListResponse(documents=docs, count=len(docs))
+
+
+@router.post("/v1/documents")
+async def create_document_metadata(
+    request: DocumentCreateRequest,
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+) -> DocumentInfo:
+    workspace_root = _workspace_root_or_404(user_id)
+    manager = get_session_manager()
+    try:
+        target = validate_path(request.path, workspace_root)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail="Access denied") from e
+    if not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail="Path not found")
+    doc = create_document(
+        manager.sandbox_manager.config,
+        user_id,
+        title=request.title,
+        path=request.path,
+        linked_session_id=request.linked_session_id,
+        summary=request.summary,
+    )
+    return DocumentInfo(**doc)
+
+
+@router.get("/v1/documents/{document_id}")
+async def get_document_metadata(
+    document_id: str,
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+) -> DocumentInfo:
+    manager = get_session_manager()
+    if not manager.sandbox_manager:
+        raise HTTPException(status_code=500, detail="sandbox disabled")
+    doc = get_document(manager.sandbox_manager.config, user_id, document_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return DocumentInfo(**doc)
+
+
+@router.patch("/v1/documents/{document_id}")
+async def update_document_metadata(
+    document_id: str,
+    request: DocumentUpdateRequest,
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+) -> DocumentInfo:
+    manager = get_session_manager()
+    if not manager.sandbox_manager:
+        raise HTTPException(status_code=500, detail="sandbox disabled")
+    doc = update_document(
+        manager.sandbox_manager.config,
+        user_id,
+        document_id,
+        request.model_dump(exclude_unset=True),
+    )
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return DocumentInfo(**doc)
+
+
+@router.delete("/v1/documents/{document_id}")
+async def delete_document_metadata(
+    document_id: str,
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+):
+    manager = get_session_manager()
+    if not manager.sandbox_manager:
+        raise HTTPException(status_code=500, detail="sandbox disabled")
+    if not delete_document(manager.sandbox_manager.config, user_id, document_id):
+        raise HTTPException(status_code=404, detail="Document not found")
+    return {"ok": True, "document_id": document_id}
+
+
+@router.get("/v1/runs")
+async def list_agent_runs(
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+) -> AgentRunListResponse:
+    records = list_user_job_records(_agent_runs_dir(user_id))
+    live_jobs = {job.job_id: job for job in get_external_agent_manager().jobs.values() if job.user_id == user_id}
+    merged: dict[str, AgentRunInfo] = {
+        str(record.get("job_id")): _agent_run_info_from_record(record) for record in records if record.get("job_id")
+    }
+    for job_id, job in live_jobs.items():
+        merged[job_id] = _agent_run_info(job)
+    runs = sorted(
+        merged.values(),
+        key=lambda run: run.updated_at or run.created_at or "",
+        reverse=True,
+    )
+    return AgentRunListResponse(runs=runs, count=len(runs))
+
+
+@router.get("/v1/runs/{job_id}/events")
+async def stream_agent_run_events(
+    job_id: str,
+    from_start: bool = Query(default=True),
+    follow: bool = Query(default=True),
+    heartbeat_seconds: int = Query(default=8, ge=1, le=60),
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+):
+    events_file, get_status = _get_user_agent_event_source_or_404(job_id, user_id)
+    return StreamingResponse(
+        stream_run_events(
+            events_file=events_file,
+            get_status=get_status,
+            from_start=from_start,
+            follow=follow,
+            heartbeat_seconds=heartbeat_seconds,
+        ),
+        media_type="text/event-stream",
+    )
+
+
 @router.get("/v1/runs/{job_id}")
 async def get_agent_run(
     job_id: str,
     user_id: str = Depends(get_user_id),
     _api_key: str = Depends(verify_api_key),
 ) -> AgentRunInfo:
-    return _agent_run_info(_get_user_agent_job_or_404(job_id, user_id))
+    return _get_user_agent_record_or_404(job_id, user_id)
 
 
 @router.post("/v1/runs/{job_id}/steer")
@@ -616,9 +900,9 @@ async def steer_agent_run(
     user_id: str = Depends(get_user_id),
     _api_key: str = Depends(verify_api_key),
 ) -> AgentRunInfo:
-    _get_user_agent_job_or_404(job_id, user_id)
+    _get_live_user_agent_job_or_conflict(job_id, user_id)
     get_external_agent_manager().steer(job_id, request.prompt)
-    return _agent_run_info(_get_user_agent_job_or_404(job_id, user_id))
+    return _agent_run_info(_get_live_user_agent_job_or_conflict(job_id, user_id))
 
 
 @router.post("/v1/runs/{job_id}/cancel")
@@ -627,11 +911,11 @@ async def cancel_agent_run(
     user_id: str = Depends(get_user_id),
     _api_key: str = Depends(verify_api_key),
 ) -> AgentRunInfo:
-    _get_user_agent_job_or_404(job_id, user_id)
+    _get_live_user_agent_job_or_conflict(job_id, user_id)
     agent_manager = get_external_agent_manager()
     if agent_manager.cancel(job_id):
         await agent_manager.wait(job_id)
-    return _agent_run_info(_get_user_agent_job_or_404(job_id, user_id))
+    return _agent_run_info(_get_live_user_agent_job_or_conflict(job_id, user_id))
 
 
 # ─── Connectors ───
@@ -851,6 +1135,13 @@ async def save_workspace_file(
         raise HTTPException(status_code=404, detail=f"Sandbox for user {user_id!r} not found")
 
     try:
+        target = validate_path(request.path, workspace_root)
+        assert_workspace_save_within_quota(
+            manager.sandbox_manager.config,
+            user_id,
+            target,
+            len(request.content.encode("utf-8")),
+        )
         return save_workspace_text_file(
             workspace_root,
             request.path,

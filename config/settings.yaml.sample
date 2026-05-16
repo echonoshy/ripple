@@ -39,18 +39,18 @@ agent:
   max_turns: 200
   session_prefix: "ripple"
 
-# 工具配置
-tools:
-  builtin:
-    - bash
-    - read
-    - write
-    - skill
+# 内部用户配额配置（非 billing）
+users:
+  quota_defaults:
+    max_workspace_mb: 2048
+    max_sessions: 200
+    max_runs_per_day: 200
+    max_run_runtime_seconds: 3600
 
 # Codex app-server runner 配置
 #
-# Ripple 会保留基础工具、user sandbox、任务状态和生命周期管理；复杂任务可交给
-# 服务端预装的 Codex app-server。当前版本只接入 Codex，不接 Claude Code。
+# Ripple 管理 user sandbox、任务状态、事件日志和生命周期；实际执行交给
+# 服务端预装的 Codex app-server。当前版本只接入 Codex。
 #
 # Codex 由管理员在服务端安装一次。Ripple 会为每个 user_id 懒启动独立
 # app-server 进程，每个任务创建独立 thread/turn。
@@ -73,7 +73,7 @@ external_agents:
     #   PATH: "/usr/local/bin:/usr/bin:/bin"
 
 # 日志配置
-#   ripple.log — 唯一主日志。HTTP / session / agent / LLM / tool / sandbox 事件
+#   ripple.log — 唯一主日志。HTTP / session / agent / Codex / sandbox 事件
 #                按同一请求时间线写入，方便用 req= 或 session= grep 排查。
 #
 # 格式固定为人类可读：

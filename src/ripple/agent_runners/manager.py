@@ -8,6 +8,7 @@ from typing import Protocol
 from uuid import uuid4
 
 from ripple.agent_runners.codex_app_server import CodexAppServerAgentProvider
+from ripple.agent_runners.job_store import write_job_meta
 from ripple.agent_runners.models import AgentRunnerRequest, AgentRunnerResult, AgentRunnerStatus
 
 
@@ -26,6 +27,8 @@ class ExternalAgentJob:
     prompt: str
     cwd: Path
     user_id: str | None = None
+    session_id: str | None = None
+    metadata: dict = field(default_factory=dict)
     status: AgentRunnerStatus = AgentRunnerStatus.QUEUED
     created_at: datetime = field(default_factory=_now)
     updated_at: datetime = field(default_factory=_now)
@@ -85,11 +88,14 @@ class ExternalAgentManager:
             prompt=request.prompt,
             cwd=request.cwd,
             user_id=request.user_id,
+            session_id=request.session_id,
+            metadata=request.metadata,
             status=AgentRunnerStatus.RUNNING,
             events_file=job_dir / "events.jsonl",
             output_file=job_dir / "output.txt",
         )
         self.jobs[job_id] = job
+        write_job_meta(job)
         job.task = asyncio.create_task(self._run_job(job, provider, request, job_dir))
         return job
 
@@ -196,13 +202,16 @@ class ExternalAgentManager:
             job.status = AgentRunnerStatus.CANCELLED
             job.error = "runner cancelled"
             job.updated_at = _now()
+            write_job_meta(job)
             return
         except Exception as exc:  # noqa: BLE001
             job.status = AgentRunnerStatus.FAILED
             job.error = str(exc)
             job.updated_at = _now()
+            write_job_meta(job)
             return
         job.apply_result(result)
+        write_job_meta(job)
 
 
 def build_external_agent_manager_from_config() -> ExternalAgentManager:

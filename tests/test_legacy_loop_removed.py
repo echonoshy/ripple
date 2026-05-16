@@ -42,3 +42,16 @@ def test_legacy_agent_loop_terms_are_not_used_in_runtime_source():
                     offenders.append(f"{path}:{term}")
 
     assert offenders == []
+
+
+def test_readme_does_not_present_removed_scheduler_or_tools_as_active_runtime():
+    readme = Path("README.md").read_text(encoding="utf-8")
+
+    forbidden_phrases = (
+        "内置工具系统：包含 Bash、Read、Write、Skill、AgentRunner 等工具。",
+        "scheduler/         # 定时任务",
+        "`tools`：启用的内置工具配置。",
+    )
+
+    offenders = [phrase for phrase in forbidden_phrases if phrase in readme]
+    assert offenders == []

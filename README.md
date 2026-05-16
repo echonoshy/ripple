@@ -31,9 +31,10 @@
 
 - 控制面：负责用户、session、sandbox、connector 授权、权限校验和任务生命周期。
 - Codex 执行面：`/v1/chat/completions` 默认转接到当前 user sandbox 内的 Codex app-server。
-- 内置工具系统：包含 Bash、Read、Write、Skill、AgentRunner 等工具。
+- Runs API：`/v1/runs` 提供独立 Codex job 启动、状态、事件流、steer 和 cancel，适合 Web 长任务详情和外部调度器接入。
+- 文件/文档：workspace 文件 API 是当前文件内容基座，documents API 提供轻量 metadata/index。
 - Skill 系统：通过 Markdown + YAML frontmatter 定义可复用的任务模板。
-- Hook 与权限机制：用于工具调用前后的验证、拦截和授权。
+- 内部用户配额：按 `user_id` 记录 workspace、session、run 等 quota；不包含 billing。
 - user 级沙箱：按 `user_id` 隔离长期 workspace，一个 user 可拥有多个 session。
 - Web 界面：基于 Vite + React 的交互式前端。
 
@@ -145,12 +146,12 @@ src/
     core/              # 工具上下文与运行时基础类型
     agent_runners/     # Codex app-server 执行面
     connectors/        # 授权与外部账号连接
-    tools/             # 工具系统
+    documents/          # workspace 文档 metadata/index
     skills/            # Skill 系统
     messages/          # 消息类型
     permissions/       # 权限管理
     sandbox/           # nsjail 沙箱管理
-    scheduler/         # 定时任务
+    users/             # 内部用户 profile/quota
     tasks/             # 后台任务管理
   interfaces/
     server/            # FastAPI Server
@@ -199,10 +200,10 @@ bun run build
 
 - `api`：Codex 账号授权与 provider 元数据。
 - `model`：默认 Codex 预设与模型别名。
-- `agent`：最大轮次和 session 前缀。
-- `tools`：启用的内置工具配置。
+- `agent`：兼容字段，主要保留 session 前缀等默认值。
 - `logging`：日志级别、轮转和保留策略。
-- `server`：HTTP 地址、访问密钥和沙箱配置。
+- `server`：HTTP 地址、访问密钥、Codex chat 和沙箱配置。
+- `users`：内部用户 quota 默认值。
 - `services`：第三方服务配置。
 - `skills`：共享 Skill 目录。
 

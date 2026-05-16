@@ -1,4 +1,5 @@
 import asyncio
+import json
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -6,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from interfaces.server.auth import verify_api_key
 from interfaces.server.routes import router, set_session_manager
+from ripple.agent_runners.job_store import write_job_meta
 from ripple.agent_runners.manager import ExternalAgentManager
 from ripple.agent_runners.models import AgentRunnerRequest, AgentRunnerResult, AgentRunnerStatus
 from ripple.sandbox.config import SandboxConfig
@@ -115,3 +117,122 @@ def test_agent_run_status_includes_pending_approval(tmp_path: Path, monkeypatch)
     assert response.status_code == 200
     assert response.json()["pending_approval"]["request_id"] == "approval-1"
     client.post(f"/v1/runs/{job_id}/cancel")
+
+
+def test_agent_run_list_returns_current_user_runs(tmp_path: Path, monkeypatch):
+    alice_client, _agent_manager = _client(tmp_path, monkeypatch, user_id="alice")
+    bob_client = TestClient(alice_client.app, headers={"X-Ripple-User-Id": "bob"})
+
+    alice_start = alice_client.post("/v1/runs", json={"prompt": "alice run", "provider": "codex"})
+    bob_start = bob_client.post("/v1/runs", json={"prompt": "bob run", "provider": "codex"})
+
+    alice_response = alice_client.get("/v1/runs")
+
+    assert alice_start.status_code == 200
+    assert bob_start.status_code == 200
+    assert alice_response.status_code == 200
+    jobs = alice_response.json()["runs"]
+    assert [job["job_id"] for job in jobs] == [alice_start.json()["job_id"]]
+
+    alice_client.post(f"/v1/runs/{alice_start.json()['job_id']}/cancel")
+    bob_client.post(f"/v1/runs/{bob_start.json()['job_id']}/cancel")
+
+
+def test_agent_run_status_survives_missing_live_registry(tmp_path: Path, monkeypatch):
+    client, agent_manager = _client(tmp_path, monkeypatch)
+    start = client.post("/v1/runs", json={"prompt": "durable run", "provider": "codex"})
+    job_id = start.json()["job_id"]
+    job = agent_manager.get(job_id)
+    assert job is not None
+    job.status = AgentRunnerStatus.COMPLETED
+    write_job_meta(job)
+    agent_manager.jobs.clear()
+
+    response = client.get(f"/v1/runs/{job_id}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["job_id"] == job_id
+    assert body["status"] == "completed"
+
+
+def test_agent_run_cancel_and_steer_require_live_job(tmp_path: Path, monkeypatch):
+    client, agent_manager = _client(tmp_path, monkeypatch)
+    start = client.post("/v1/runs", json={"prompt": "durable run", "provider": "codex"})
+    job_id = start.json()["job_id"]
+    job = agent_manager.get(job_id)
+    assert job is not None
+    write_job_meta(job)
+    agent_manager.jobs.clear()
+
+    steer = client.post(f"/v1/runs/{job_id}/steer", json={"prompt": "continue"})
+    cancel = client.post(f"/v1/runs/{job_id}/cancel")
+
+    assert steer.status_code == 409
+    assert cancel.status_code == 409
+
+
+def test_agent_run_events_replays_existing_events(tmp_path: Path, monkeypatch):
+    client, agent_manager = _client(tmp_path, monkeypatch)
+    start = client.post("/v1/runs", json={"prompt": "events run", "provider": "codex"})
+    job_id = start.json()["job_id"]
+    job = agent_manager.get(job_id)
+    assert job is not None
+    job.events_file.parent.mkdir(parents=True, exist_ok=True)
+    job.events_file.write_text(
+        "\n".join(
+            [
+                json.dumps({"type": "started", "job_id": job_id}),
+                "{not-json",
+                json.dumps({"type": "completed", "job_id": job_id}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    job.status = AgentRunnerStatus.COMPLETED
+    write_job_meta(job)
+
+    with client.stream("GET", f"/v1/runs/{job_id}/events?follow=false") as response:
+        body = response.read().decode()
+
+    assert response.status_code == 200
+    assert '"type": "started"' in body
+    assert '"type": "completed"' in body
+    assert "{not-json" not in body
+    assert "data: [DONE]" in body
+
+
+def test_agent_run_events_replay_disk_only_run(tmp_path: Path, monkeypatch):
+    client, agent_manager = _client(tmp_path, monkeypatch)
+    start = client.post("/v1/runs", json={"prompt": "events run", "provider": "codex"})
+    job_id = start.json()["job_id"]
+    job = agent_manager.get(job_id)
+    assert job is not None
+    job.events_file.parent.mkdir(parents=True, exist_ok=True)
+    job.events_file.write_text(
+        json.dumps({"type": "disk_event", "job_id": job_id}) + "\n",
+        encoding="utf-8",
+    )
+    job.status = AgentRunnerStatus.COMPLETED
+    write_job_meta(job)
+    agent_manager.jobs.clear()
+
+    with client.stream("GET", f"/v1/runs/{job_id}/events") as response:
+        body = response.read().decode()
+
+    assert response.status_code == 200
+    assert '"type": "disk_event"' in body
+    assert "data: [DONE]" in body
+
+
+def test_agent_run_events_are_user_scoped(tmp_path: Path, monkeypatch):
+    alice_client, _agent_manager = _client(tmp_path, monkeypatch, user_id="alice")
+    bob_client = TestClient(alice_client.app, headers={"X-Ripple-User-Id": "bob"})
+    start = alice_client.post("/v1/runs", json={"prompt": "events run", "provider": "codex"})
+    job_id = start.json()["job_id"]
+
+    response = bob_client.get(f"/v1/runs/{job_id}/events")
+
+    assert response.status_code == 404
+    alice_client.post(f"/v1/runs/{job_id}/cancel")

@@ -84,7 +84,10 @@ export default function HomePage({
       <div className="mx-auto max-w-5xl space-y-6">
         <header className="flex flex-wrap items-start justify-between gap-3 border-b border-[#e5e7eb] pb-5">
           <div>
-            <h1 className="text-[24px] leading-tight font-semibold tracking-normal">Home</h1>
+            <h1 className="text-[24px] leading-tight font-semibold tracking-normal">
+              <span className="sm:hidden">Workspace</span>
+              <span className="hidden sm:inline">Home</span>
+            </h1>
             <div className="mt-2 font-[family-name:var(--font-mono)] text-xs text-[#6b7280]">
               {userId}
             </div>
@@ -95,7 +98,8 @@ export default function HomePage({
             className="inline-flex h-9 items-center gap-2 rounded-md bg-[#2463eb] px-3 text-sm font-semibold text-white hover:bg-[#1d56d8]"
           >
             <Plus size={15} />
-            New Task
+            <span className="sm:hidden">New</span>
+            <span className="hidden sm:inline">New Task</span>
           </button>
         </header>
 
@@ -126,7 +130,10 @@ export default function HomePage({
             <div className="text-2xl font-semibold">
               {sandbox ? formatBytes(sandbox.workspace_size_bytes) : "0 B"}
             </div>
-            <div className="mt-1 text-xs text-[#6b7280]">Workspace size</div>
+            <div className="mt-1 text-xs text-[#6b7280]">
+              <span className="sm:hidden">Size</span>
+              <span className="hidden sm:inline">Workspace size</span>
+            </div>
           </button>
           <button
             type="button"
@@ -135,25 +142,33 @@ export default function HomePage({
           >
             <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
               <Plug size={15} />
-              Connectors
+              <span className="sm:hidden">Apps</span>
+              <span className="hidden sm:inline">Connectors</span>
             </div>
             <div className="text-2xl font-semibold">
               {connected}/{connectors.length || 0}
             </div>
-            <div className="mt-1 text-xs text-[#6b7280]">Connected</div>
+            <div className="mt-1 text-xs text-[#6b7280]">
+              <span className="sm:hidden">Ready</span>
+              <span className="hidden sm:inline">Connected</span>
+            </div>
           </button>
         </section>
 
         <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
           <div className="min-w-0 rounded-lg border border-[#e5e7eb] bg-white">
             <div className="flex h-11 items-center justify-between border-b border-[#e5e7eb] px-4">
-              <div className="text-sm font-semibold">Recent tasks</div>
+              <div className="text-sm font-semibold">
+                <span className="sm:hidden">Recent</span>
+                <span className="hidden sm:inline">Recent tasks</span>
+              </div>
               <button
                 type="button"
                 onClick={() => onSelectView("tasks")}
                 className="inline-flex items-center gap-1 text-xs font-medium text-[#6b7280] hover:text-[#0d0d0d]"
               >
-                View all
+                <span className="sm:hidden">All</span>
+                <span className="hidden sm:inline">View all</span>
                 <ArrowRight size={12} />
               </button>
             </div>
@@ -185,7 +200,10 @@ export default function HomePage({
 
           <div className="rounded-lg border border-[#e5e7eb] bg-white">
             <div className="flex h-11 items-center justify-between border-b border-[#e5e7eb] px-4">
-              <div className="text-sm font-semibold">Connector status</div>
+              <div className="text-sm font-semibold">
+                <span className="sm:hidden">Apps</span>
+                <span className="hidden sm:inline">Connector status</span>
+              </div>
               {isLoadingSummary && <Loader2 size={14} className="animate-spin text-[#6b7280]" />}
             </div>
             <div className="divide-y divide-[#e5e7eb]">
@@ -207,7 +225,17 @@ export default function HomePage({
                         {connector.display_name}
                       </span>
                       <span className="mt-0.5 block text-xs text-[#6b7280]">
-                        {status?.connected ? "Connected" : "Needs setup"}
+                        {status?.connected ? (
+                          <>
+                            <span className="sm:hidden">Ready</span>
+                            <span className="hidden sm:inline">Connected</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="sm:hidden">Setup</span>
+                            <span className="hidden sm:inline">Needs setup</span>
+                          </>
+                        )}
                       </span>
                     </span>
                   </div>
@@ -215,7 +243,14 @@ export default function HomePage({
               })}
               {connectors.length === 0 && (
                 <div className="flex h-32 items-center justify-center text-sm text-[#6b7280]">
-                  {isLoadingSummary ? "Loading" : "No connectors"}
+                  {isLoadingSummary ? (
+                    "Loading"
+                  ) : (
+                    <>
+                      <span className="sm:hidden">No apps yet</span>
+                      <span className="hidden sm:inline">No connectors</span>
+                    </>
+                  )}
                 </div>
               )}
             </div>

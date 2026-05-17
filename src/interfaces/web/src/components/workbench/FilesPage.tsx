@@ -17,7 +17,8 @@ export default function FilesPage({ userId, refreshToken }: FilesPageProps) {
               Files
             </h1>
             <div className="font-[family-name:var(--font-mono)] text-xs text-[#6b7280]">
-              /workspace
+              <span className="sm:hidden">Workspace</span>
+              <span className="hidden sm:inline">/workspace</span>
             </div>
           </div>
         </div>

@@ -12,7 +12,8 @@ function testFilesHeaderDoesNotRenderTaskScopedActions() {
   const html = renderFilesPage();
 
   assert.match(html, />Files</);
-  assert.match(html, />\/workspace</);
+  assert.match(html, /sm:hidden[^>]*>Workspace</);
+  assert.match(html, /hidden sm:inline[^>]*>\/workspace</);
   assert.doesNotMatch(html, />Header actions</);
   assert.doesNotMatch(html, /Copy task ID/);
   assert.match(html, /border-b border-\[#e5e7eb\] bg-white px-4 py-3 md:px-5/);

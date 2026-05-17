@@ -10,6 +10,13 @@ interface MobileTabBarProps {
   onOpenSettings: () => void;
 }
 
+const mobileNavLabels: Record<WorkspaceView, string> = {
+  home: "Home",
+  tasks: "Tasks",
+  files: "Files",
+  connectors: "Apps",
+};
+
 export default function MobileTabBar({
   activeView,
   onSelectView,
@@ -25,18 +32,20 @@ export default function MobileTabBar({
             <button
               key={item.id}
               type="button"
+              aria-label={`Open ${mobileNavLabels[item.id]}`}
               onClick={() => onSelectView(item.id)}
               className={`flex flex-col items-center justify-center gap-1 text-[11px] font-medium ${
                 selected ? "text-[#2463eb]" : "text-[#374151]"
               }`}
             >
               <Icon size={18} />
-              {item.label}
+              {mobileNavLabels[item.id]}
             </button>
           );
         })}
         <button
           type="button"
+          aria-label="Open Settings"
           onClick={onOpenSettings}
           className="flex flex-col items-center justify-center gap-1 text-[11px] font-medium text-[#374151]"
         >

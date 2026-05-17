@@ -178,19 +178,40 @@ export default function TaskPage({
 
           {!hasMessages && (
             <section className="rounded-lg border border-[#e5e7eb] bg-[#fbfbfc] px-4 py-3">
-              <div className="text-sm font-semibold text-[#0d0d0d]">Workspace briefing</div>
+              <div className="text-sm font-semibold text-[#0d0d0d]">
+                <span className="sm:hidden">Start here</span>
+                <span className="hidden sm:inline">Workspace briefing</span>
+              </div>
               <div className="mt-3 grid gap-3 text-sm leading-6 text-[#6b7280] md:grid-cols-3">
                 <div>
-                  <div className="font-medium text-[#0d0d0d]">Open the Files view</div>
-                  Browse, preview, and edit workspace files before starting.
+                  <div className="font-medium text-[#0d0d0d]">
+                    <span className="sm:hidden">Files</span>
+                    <span className="hidden sm:inline">Open the Files view</span>
+                  </div>
+                  <span className="sm:hidden">Review files before edits.</span>
+                  <span className="hidden sm:inline">
+                    Browse, preview, and edit workspace files before starting.
+                  </span>
                 </div>
                 <div>
-                  <div className="font-medium text-[#0d0d0d]">Review recent tasks</div>
-                  Pick up an existing run from the sidebar when context already exists.
+                  <div className="font-medium text-[#0d0d0d]">
+                    <span className="sm:hidden">Tasks</span>
+                    <span className="hidden sm:inline">Review recent tasks</span>
+                  </div>
+                  <span className="sm:hidden">Reopen work with context.</span>
+                  <span className="hidden sm:inline">
+                    Pick up an existing run from the sidebar when context already exists.
+                  </span>
                 </div>
                 <div>
-                  <div className="font-medium text-[#0d0d0d]">Ask Codex from the composer</div>
-                  New activity, plans, and approvals will appear here once the task starts.
+                  <div className="font-medium text-[#0d0d0d]">
+                    <span className="sm:hidden">Ask</span>
+                    <span className="hidden sm:inline">Ask Codex from the composer</span>
+                  </div>
+                  <span className="sm:hidden">Updates and approvals land here.</span>
+                  <span className="hidden sm:inline">
+                    New activity, plans, and approvals will appear here once the task starts.
+                  </span>
                 </div>
               </div>
             </section>

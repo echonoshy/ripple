@@ -104,9 +104,10 @@ function testOmitsPlaceholderTaskHeaderControls() {
   assert.doesNotMatch(html, /Refactor this app/);
   assert.doesNotMatch(html, /Analyze my files/);
   assert.doesNotMatch(html, /Draft a document/);
-  assert.match(html, /Workspace briefing/);
-  assert.match(html, /Open the Files view/);
-  assert.match(html, /Ask Codex from the composer/);
+  assert.match(html, /sm:hidden[^>]*>Start here</);
+  assert.match(html, /hidden sm:inline[^>]*>Workspace briefing</);
+  assert.match(html, />Files</);
+  assert.match(html, />Ask</);
 }
 
 function testGivesTaskContentMoreHorizontalRoom() {

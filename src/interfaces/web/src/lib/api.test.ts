@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { renameWorkspaceEntry } from "./api";
+import { getApiOrigin, renameWorkspaceEntry } from "./api";
 
 function response(status: number, detail: string): Response {
   return new Response(JSON.stringify({ detail }), {
@@ -55,6 +55,11 @@ async function testRenameConflictUsesFriendlyMessage() {
   );
 }
 
+function testDefaultApiOriginUsesPublicBaseUrl() {
+  assert.equal(getApiOrigin(), "https://test-oauth.weilai.ai");
+}
+
+testDefaultApiOriginUsesPublicBaseUrl();
 await testRenameEndpointNotFoundAsksForServerRestart();
 await testRenamePathNotFoundStaysFileSpecific();
 await testRenameConflictUsesFriendlyMessage();

@@ -55,6 +55,11 @@ function statusLabel(status: ConnectorStatus | null | undefined): string {
   return status.connected ? "Connected" : "Needs setup";
 }
 
+function mobileStatusLabel(status: ConnectorStatus | null | undefined): string {
+  if (!status) return "Unknown";
+  return status.connected ? "Ready" : "Setup";
+}
+
 function fieldLabel(connector: ConnectorInfo, key: string): string {
   if (connector.name === "google_workspace" && key === "email") return "Google account";
   if (key === "token") return "Token";
@@ -284,9 +289,17 @@ export default function ConnectorsPage() {
       <div className="mx-auto max-w-5xl space-y-5">
         <header className="flex flex-wrap items-start justify-between gap-3 border-b border-[#e5e7eb] pb-5">
           <div>
-            <h1 className="text-[24px] leading-tight font-semibold tracking-normal">Connectors</h1>
+            <h1 className="text-[24px] leading-tight font-semibold tracking-normal">
+              <span className="sm:hidden">Apps</span>
+              <span className="hidden sm:inline">Connectors</span>
+            </h1>
             <div className="mt-2 text-sm text-[#6b7280]">
-              {connected}/{connectors.length || 0} connected
+              <span className="sm:hidden">
+                {connected}/{connectors.length || 0} ready
+              </span>
+              <span className="hidden sm:inline">
+                {connected}/{connectors.length || 0} connected
+              </span>
             </div>
           </div>
           <button
@@ -295,7 +308,8 @@ export default function ConnectorsPage() {
             className="inline-flex h-9 items-center gap-2 rounded-md border border-[#e5e7eb] bg-white px-3 text-sm font-medium text-[#374151] hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
           >
             {isLoading ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
-            Refresh
+            <span className="sm:hidden">Sync</span>
+            <span className="hidden sm:inline">Refresh</span>
           </button>
         </header>
 
@@ -337,7 +351,8 @@ export default function ConnectorsPage() {
                     <div className="flex flex-wrap items-center gap-2">
                       <h2 className="truncate text-sm font-semibold">{connector.display_name}</h2>
                       <span className="rounded-md border border-[#e5e7eb] bg-[#f7f8fa] px-2 py-0.5 text-[11px] font-medium text-[#6b7280]">
-                        {statusLabel(status)}
+                        <span className="sm:hidden">{mobileStatusLabel(status)}</span>
+                        <span className="hidden sm:inline">{statusLabel(status)}</span>
                       </span>
                     </div>
                     <p className="mt-1 text-sm leading-5 text-[#6b7280]">{connector.description}</p>
@@ -384,7 +399,8 @@ export default function ConnectorsPage() {
                       className="inline-flex h-8 items-center gap-2 rounded-md border border-[#0969da]/25 bg-[#ddf4ff] px-3 text-sm font-medium text-[#0969da] hover:bg-[#cbeeff]"
                     >
                       <ExternalLink size={14} />
-                      Open authorization
+                      <span className="sm:hidden">Authorize</span>
+                      <span className="hidden sm:inline">Open authorization</span>
                     </a>
                   )}
 
@@ -501,7 +517,8 @@ export default function ConnectorsPage() {
 
         {connectors.length === 0 && !isLoading && (
           <div className="flex h-40 items-center justify-center rounded-lg border border-dashed border-[#e5e7eb] text-sm text-[#6b7280]">
-            No connectors
+            <span className="sm:hidden">No apps yet</span>
+            <span className="hidden sm:inline">No connectors</span>
           </div>
         )}
       </div>

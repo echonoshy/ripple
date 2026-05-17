@@ -88,12 +88,14 @@ def test_feishu_connector_auth_start_returns_device_flow_url(tmp_path: Path, mon
     client, sandbox_manager = _client(tmp_path)
     sandbox_manager.config.lark_cli_bin = str(tmp_path / "lark-cli")
 
-    async def fake_ensure_lark_cli_config(config, user_id):
+    async def fake_ensure_lark_cli_config(config, user_id, *, force_new_setup=False):
         assert user_id == "alice"
+        assert force_new_setup is True
         return True, ""
 
-    async def fake_start_lark_user_auth(config, user_id):
+    async def fake_start_lark_user_auth(config, user_id, *, force_new=False):
         assert user_id == "alice"
+        assert force_new is True
         return True, {
             "oauth_url": "https://accounts.feishu.cn/device",
             "device_code": "device-123",
@@ -112,6 +114,39 @@ def test_feishu_connector_auth_start_returns_device_flow_url(tmp_path: Path, mon
     assert body["stage"] == "awaiting_user_auth"
     assert body["data"]["oauth_url"] == "https://accounts.feishu.cn/device"
     assert body["data"]["device_code"] == "device-123"
+
+
+def test_feishu_connector_auth_start_requests_fresh_device_flow_each_click(tmp_path: Path, monkeypatch):
+    client, sandbox_manager = _client(tmp_path)
+    sandbox_manager.config.lark_cli_bin = str(tmp_path / "lark-cli")
+    calls: list[bool] = []
+
+    async def fake_ensure_lark_cli_config(config, user_id, *, force_new_setup=False):
+        assert user_id == "alice"
+        assert force_new_setup is True
+        return True, ""
+
+    async def fake_start_lark_user_auth(config, user_id, *, force_new=False):
+        assert user_id == "alice"
+        calls.append(force_new)
+        index = len(calls)
+        return True, {
+            "oauth_url": f"https://accounts.feishu.cn/device/{index}",
+            "device_code": f"device-{index}",
+            "expires_in_seconds": 600,
+        }
+
+    monkeypatch.setattr(registry, "ensure_lark_cli_config", fake_ensure_lark_cli_config)
+    monkeypatch.setattr(registry, "start_lark_user_auth", fake_start_lark_user_auth, raising=False)
+
+    first = client.post("/v1/connectors/feishu/auth/start", json={})
+    second = client.post("/v1/connectors/feishu/auth/start", json={})
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert calls == [True, True]
+    assert first.json()["data"]["oauth_url"] == "https://accounts.feishu.cn/device/1"
+    assert second.json()["data"]["oauth_url"] == "https://accounts.feishu.cn/device/2"
 
 
 def test_feishu_connector_auth_complete_exchanges_device_code(tmp_path: Path, monkeypatch):

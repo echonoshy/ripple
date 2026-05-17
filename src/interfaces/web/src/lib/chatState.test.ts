@@ -133,6 +133,16 @@ function testApplyTaskPlanUpdateClearsPlanWhenAllStepsComplete() {
   assert.equal(next.taskProgress, null);
 }
 
+function testClearTaskPlanStateReturnsEmptySnapshot() {
+  const next = chatState.clearTaskPlanState?.() ?? {
+    taskSteps: [{ id: "fallback", subject: "missing implementation", status: "pending" }],
+    taskProgress: { completed: 0, total: 1 },
+  };
+
+  assert.deepEqual(next.taskSteps, []);
+  assert.equal(next.taskProgress, null);
+}
+
 testShouldHideEmptyAssistantWithOnlyToolCalls();
 testShouldShowAssistantWithAskUser();
 testShouldShowAssistantWithPermissionRequest();
@@ -140,5 +150,6 @@ testUpsertTaskReplacesPlaceholderWithRealTask();
 testApplyTaskUpdateFallsBackToSameSubjectPlaceholder();
 testApplyTaskPlanUpdateReplacesCurrentPlanSnapshot();
 testApplyTaskPlanUpdateClearsPlanWhenAllStepsComplete();
+testClearTaskPlanStateReturnsEmptySnapshot();
 
 console.log("chatState tests passed");

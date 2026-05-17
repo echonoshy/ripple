@@ -21,6 +21,7 @@ from interfaces.server.attachments import (
     import_generated_image,
     workspace_path_for_host_path,
 )
+from interfaces.server.codex_plan_events import extract_task_plan_update_event
 from interfaces.server.sessions import Session, SessionManager, SessionStatus
 from ripple.agent_runners.manager import ExternalAgentJob, ExternalAgentManager
 from ripple.agent_runners.models import AgentRunnerResult, AgentRunnerStatus
@@ -257,18 +258,75 @@ def _extract_event_delta(event: dict[str, Any]) -> str:
     message = (event.get("data") or {}).get("message")
     if not isinstance(message, dict):
         return ""
+    if message.get("method") != "item/agentMessage/delta":
+        return ""
     params = message.get("params", {})
     if not isinstance(params, dict):
+        return ""
+    item_id = params.get("itemId") or params.get("item_id")
+    if isinstance(item_id, str) and item_id:
         return ""
     delta = params.get("delta")
     if isinstance(delta, str):
         return delta
-    item = params.get("item")
-    if isinstance(item, dict):
-        text = item.get("text") or item.get("content")
-        if isinstance(text, str):
-            return text
     return ""
+
+
+def _codex_notification_message(event: dict[str, Any]) -> dict[str, Any] | None:
+    if event.get("type") != "codex.notification":
+        return None
+    message = (event.get("data") or {}).get("message")
+    return message if isinstance(message, dict) else None
+
+
+def _codex_notification_method(event: dict[str, Any]) -> str:
+    message = _codex_notification_message(event)
+    method = message.get("method") if message else None
+    return method if isinstance(method, str) else ""
+
+
+def _agent_message_item(event: dict[str, Any]) -> dict[str, Any] | None:
+    message = _codex_notification_message(event)
+    if message is None:
+        return None
+    params = message.get("params", {})
+    if not isinstance(params, dict):
+        return None
+    item = params.get("item")
+    if isinstance(item, dict) and item.get("type") == "agentMessage":
+        return item
+    return None
+
+
+def _agent_message_item_id(item: dict[str, Any]) -> str | None:
+    item_id = item.get("id")
+    return item_id if isinstance(item_id, str) and item_id else None
+
+
+def _agent_message_phase(item: dict[str, Any]) -> str | None:
+    phase = item.get("phase")
+    return phase if isinstance(phase, str) else None
+
+
+def _agent_message_text(item: dict[str, Any]) -> str:
+    text = item.get("text") or item.get("content")
+    return text if isinstance(text, str) else ""
+
+
+def _agent_message_delta(event: dict[str, Any]) -> tuple[str | None, str] | None:
+    if event.get("type") != "codex.notification":
+        return None
+    message = (event.get("data") or {}).get("message")
+    if not isinstance(message, dict) or message.get("method") != "item/agentMessage/delta":
+        return None
+    params = message.get("params", {})
+    if not isinstance(params, dict):
+        return None
+    delta = params.get("delta")
+    if not isinstance(delta, str) or not delta:
+        return None
+    item_id = params.get("itemId") or params.get("item_id")
+    return item_id if isinstance(item_id, str) and item_id else None, delta
 
 
 def _extract_usage_event(event: dict[str, Any]) -> dict[str, int] | None:
@@ -299,64 +357,23 @@ def _extract_usage_event(event: dict[str, Any]) -> dict[str, int] | None:
     )
 
 
-def _normalize_plan_step_status(status: Any) -> str:
-    if status == "completed":
-        return "completed"
-    if status in {"inProgress", "in_progress"}:
-        return "in_progress"
-    return "pending"
-
-
 def _extract_plan_update_event(event: dict[str, Any]) -> dict[str, Any] | None:
-    if event.get("type") != "codex.notification":
-        return None
-    message = (event.get("data") or {}).get("message")
-    if not isinstance(message, dict) or message.get("method") != "turn/plan/updated":
-        return None
-    params = message.get("params", {})
-    if not isinstance(params, dict):
-        return None
-    raw_plan = params.get("plan")
-    if not isinstance(raw_plan, list):
-        return None
+    return extract_task_plan_update_event(event)
 
-    turn_id = params.get("turnId")
-    turn_id = turn_id if isinstance(turn_id, str) and turn_id else "unknown-turn"
-    steps: list[dict[str, str]] = []
-    for index, item in enumerate(raw_plan):
-        if not isinstance(item, dict):
-            continue
-        step = item.get("step")
-        if not isinstance(step, str) or not step.strip():
-            continue
-        steps.append(
-            {
-                "id": f"codex-plan:{turn_id}:{index}",
-                "subject": step,
-                "status": _normalize_plan_step_status(item.get("status")),
-            }
-        )
 
-    completed = sum(1 for step in steps if step["status"] == "completed")
-    current_task = next((step["subject"] for step in steps if step["status"] == "in_progress"), None)
-    if current_task is None:
-        current_task = next((step["subject"] for step in steps if step["status"] == "pending"), None)
-    total = len(steps)
-    thread_id = params.get("threadId")
-    explanation = params.get("explanation")
-    return {
-        "type": "task_plan_updated",
-        "thread_id": thread_id if isinstance(thread_id, str) else None,
-        "turn_id": turn_id,
-        "explanation": explanation if isinstance(explanation, str) else None,
-        "steps": steps,
-        "progress": {
-            "completed": completed,
-            "total": total,
-            "currentTask": current_task,
-        },
-        "allCompleted": completed == total,
-    }
+def _clear_session_plan(session: Session) -> None:
+    session.task_steps = []
+    session.task_progress = None
+
+
+def _record_session_plan_update(session: Session, update: dict[str, Any]) -> None:
+    if update.get("allCompleted") is True:
+        _clear_session_plan(session)
+        return
+    steps = update.get("steps")
+    progress = update.get("progress")
+    session.task_steps = steps if isinstance(steps, list) else []
+    session.task_progress = progress if isinstance(progress, dict) else None
 
 
 def _tool_name_for_codex_item(item: dict[str, Any]) -> str:
@@ -647,6 +664,7 @@ async def collect_codex_chat_response(
                 session.pending_question = None
                 session.pending_options = None
                 session.pending_permission_request = None
+                _clear_session_plan(session)
                 manager.touch_session(session)
 
                 prompt = build_codex_chat_prompt(
@@ -678,6 +696,12 @@ async def collect_codex_chat_response(
                                 manager.touch_session(session)
                                 manager.persist_session(session)
                                 raise HTTPException(status_code=409, detail="Codex approval required")
+                            plan_event = _extract_plan_update_event(event)
+                            if plan_event is not None:
+                                _record_session_plan_update(session, plan_event)
+                                manager.touch_session(session)
+                                manager.persist_session(session)
+                                continue
                         await asyncio.sleep(0.05)
                     result = await agent_manager.wait(job.job_id)
                     if job.events_file:
@@ -693,6 +717,12 @@ async def collect_codex_chat_response(
                                 manager.touch_session(session)
                                 manager.persist_session(session)
                                 raise HTTPException(status_code=409, detail="Codex approval required")
+                            plan_event = _extract_plan_update_event(event)
+                            if plan_event is not None:
+                                _record_session_plan_update(session, plan_event)
+                                manager.touch_session(session)
+                                manager.persist_session(session)
+                                continue
                 except asyncio.CancelledError:
                     agent_manager.cancel(job.job_id)
                     await agent_manager.wait(job.job_id)
@@ -704,6 +734,7 @@ async def collect_codex_chat_response(
 
                 output_text = _read_output(result)
                 _append_session_messages(session, user_input, output_text, user_content=user_content)
+                _clear_session_plan(session)
                 return {
                     "id": chunk_id,
                     "object": "chat.completion",
@@ -760,6 +791,7 @@ async def stream_codex_chat_as_sse(
                 session.pending_question = None
                 session.pending_options = None
                 session.pending_permission_request = None
+                _clear_session_plan(session)
                 manager.touch_session(session)
 
                 yield _chunk(chunk_id, model, created, {"role": "assistant"})
@@ -780,6 +812,9 @@ async def stream_codex_chat_as_sse(
                 offset = 0
                 latest_usage = _usage()
                 last_heartbeat = time.monotonic()
+                agent_message_phases: dict[str, str | None] = {}
+                final_delta_item_ids: set[str] = set()
+                update_delta_item_ids: set[str] = set()
                 while job.status == AgentRunnerStatus.RUNNING:
                     events, offset = _read_new_events(job.events_file, offset) if job.events_file else ([], offset)
                     for event in events:
@@ -800,11 +835,46 @@ async def stream_codex_chat_as_sse(
                             continue
                         plan_event = _extract_plan_update_event(event)
                         if plan_event is not None:
+                            _record_session_plan_update(session, plan_event)
+                            manager.touch_session(session)
+                            manager.persist_session(session)
                             yield f"data: {json.dumps(plan_event, ensure_ascii=False)}\n\n"
                             continue
                         tool_event = _extract_tool_event(event)
                         if tool_event is not None:
                             yield f"data: {json.dumps(tool_event, ensure_ascii=False)}\n\n"
+                            continue
+                        agent_delta = _agent_message_delta(event)
+                        if agent_delta is not None:
+                            item_id, delta = agent_delta
+                            phase = agent_message_phases.get(item_id) if item_id else None
+                            if item_id and phase == "commentary":
+                                update_delta_item_ids.add(item_id)
+                                yield f"data: {json.dumps({'type': 'assistant_update_delta', 'id': item_id, 'phase': phase, 'delta': delta}, ensure_ascii=False)}\n\n"
+                                continue
+                            if item_id:
+                                final_delta_item_ids.add(item_id)
+                            emitted_text += delta
+                            yield _chunk(chunk_id, model, created, {"content": delta})
+                            continue
+                        agent_item = _agent_message_item(event)
+                        if agent_item is not None:
+                            item_id = _agent_message_item_id(agent_item)
+                            phase = _agent_message_phase(agent_item)
+                            if item_id:
+                                agent_message_phases[item_id] = phase
+                            if _codex_notification_method(event) != "item/completed":
+                                continue
+                            text = _agent_message_text(agent_item)
+                            if not text:
+                                continue
+                            if phase == "commentary":
+                                if item_id not in update_delta_item_ids:
+                                    yield f"data: {json.dumps({'type': 'assistant_update', 'id': item_id, 'phase': phase, 'content': text}, ensure_ascii=False)}\n\n"
+                                continue
+                            if item_id not in final_delta_item_ids:
+                                emitted_text += text
+                                yield _chunk(chunk_id, model, created, {"content": text})
                             continue
                         delta = _extract_event_delta(event)
                         if delta:
@@ -837,11 +907,46 @@ async def stream_codex_chat_as_sse(
                             continue
                         plan_event = _extract_plan_update_event(event)
                         if plan_event is not None:
+                            _record_session_plan_update(session, plan_event)
+                            manager.touch_session(session)
+                            manager.persist_session(session)
                             yield f"data: {json.dumps(plan_event, ensure_ascii=False)}\n\n"
                             continue
                         tool_event = _extract_tool_event(event)
                         if tool_event is not None:
                             yield f"data: {json.dumps(tool_event, ensure_ascii=False)}\n\n"
+                            continue
+                        agent_delta = _agent_message_delta(event)
+                        if agent_delta is not None:
+                            item_id, delta = agent_delta
+                            phase = agent_message_phases.get(item_id) if item_id else None
+                            if item_id and phase == "commentary":
+                                update_delta_item_ids.add(item_id)
+                                yield f"data: {json.dumps({'type': 'assistant_update_delta', 'id': item_id, 'phase': phase, 'delta': delta}, ensure_ascii=False)}\n\n"
+                                continue
+                            if item_id:
+                                final_delta_item_ids.add(item_id)
+                            emitted_text += delta
+                            yield _chunk(chunk_id, model, created, {"content": delta})
+                            continue
+                        agent_item = _agent_message_item(event)
+                        if agent_item is not None:
+                            item_id = _agent_message_item_id(agent_item)
+                            phase = _agent_message_phase(agent_item)
+                            if item_id:
+                                agent_message_phases[item_id] = phase
+                            if _codex_notification_method(event) != "item/completed":
+                                continue
+                            text = _agent_message_text(agent_item)
+                            if not text:
+                                continue
+                            if phase == "commentary":
+                                if item_id not in update_delta_item_ids:
+                                    yield f"data: {json.dumps({'type': 'assistant_update', 'id': item_id, 'phase': phase, 'content': text}, ensure_ascii=False)}\n\n"
+                                continue
+                            if item_id not in final_delta_item_ids:
+                                emitted_text += text
+                                yield _chunk(chunk_id, model, created, {"content": text})
                             continue
                         delta = _extract_event_delta(event)
                         if delta:
@@ -858,6 +963,7 @@ async def stream_codex_chat_as_sse(
                     yield _chunk(chunk_id, model, created, {"content": output_text})
 
                 _append_session_messages(session, user_input, output_text or emitted_text, user_content=user_content)
+                _clear_session_plan(session)
                 if latest_usage["total_tokens"] > 0:
                     yield f"data: {json.dumps({'type': 'usage', 'usage': latest_usage}, ensure_ascii=False)}\n\n"
                 finish_chunk = {

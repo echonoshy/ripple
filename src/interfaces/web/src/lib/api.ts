@@ -375,6 +375,8 @@ export async function sendChatMessage(
   model: string,
   callbacks: {
     onMessageDelta: (delta: string) => void;
+    onAssistantUpdateDelta?: (id: string, delta: string) => void;
+    onAssistantUpdate?: (id: string, content: string) => void;
     onToolCall: (toolCall: ToolCall) => void;
     onToolResult: (toolId: string, result: string) => void;
     onUsage: (usage: UsageInfo) => void;
@@ -460,6 +462,20 @@ export async function sendChatMessage(
 
           if (data.type === "heartbeat") {
             callbacks.onHeartbeat?.();
+            return;
+          }
+
+          if (data.type === "assistant_update_delta") {
+            if (typeof data.id === "string" && typeof data.delta === "string") {
+              callbacks.onAssistantUpdateDelta?.(data.id, data.delta);
+            }
+            return;
+          }
+
+          if (data.type === "assistant_update") {
+            if (typeof data.id === "string" && typeof data.content === "string") {
+              callbacks.onAssistantUpdate?.(data.id, data.content);
+            }
             return;
           }
 

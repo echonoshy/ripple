@@ -186,6 +186,22 @@ async def _check_feishu_setup(
     return True, ""
 
 
+async def _cancel_feishu_setup(user_id: str) -> None:
+    state = _feishu_setup_states.pop(user_id, None)
+    if not state or state.process.returncode is not None:
+        return
+
+    try:
+        state.process.kill()
+    except ProcessLookupError:
+        return
+
+    try:
+        await asyncio.wait_for(state.process.wait(), timeout=5)
+    except asyncio.TimeoutError:
+        logger.warning("user {} 飞书配置流程取消后进程仍未退出", user_id)
+
+
 async def _inject_feishu_credentials(
     config: SandboxConfig,
     user_id: str,
@@ -231,6 +247,8 @@ async def _inject_feishu_credentials(
 async def ensure_lark_cli_config(
     config: SandboxConfig,
     user_id: str,
+    *,
+    force_new_setup: bool = False,
 ) -> tuple[bool, str]:
     """确保 user 沙箱内 lark-cli 已配置 app 凭证。
 
@@ -243,6 +261,9 @@ async def ensure_lark_cli_config(
         (True, "")          — 配置就绪
         (False, setup_url)  — 需要用户点击链接完成配置
         (False, error_msg)  — 错误
+
+    `force_new_setup=True` 用于用户显式重新点击连接时丢弃未完成的旧 setup URL，
+    避免浏览器拿到已经过期的授权链接。
     """
     if not config.lark_cli_bin:
         return False, ("lark-cli 未预装（宿主机）。请管理员执行: bash scripts/install-feishu-cli.sh")
@@ -254,6 +275,9 @@ async def ensure_lark_cli_config(
     async with lock:
         if config.has_lark_cli_config(user_id):
             return True, ""
+
+        if force_new_setup:
+            await _cancel_feishu_setup(user_id)
 
         creds = _get_feishu_credentials(config, user_id) or _get_server_feishu_credentials()
         if creds:
@@ -315,10 +339,28 @@ def _auth_start_payload(data: dict[str, Any]) -> dict[str, Any] | None:
 async def start_lark_user_auth(
     config: SandboxConfig,
     user_id: str,
+    *,
+    force_new: bool = False,
 ) -> tuple[bool, dict[str, Any]]:
     """启动飞书 user 身份 device-flow 授权，返回浏览器 URL 与 device_code。"""
     if not config.lark_cli_bin:
         return False, {"error": "lark-cli 未预装（宿主机）。请管理员执行: bash scripts/install-feishu-cli.sh"}
+
+    if force_new:
+        stdout, stderr, code = await execute_in_sandbox(
+            "lark-cli auth logout",
+            config,
+            user_id,
+            timeout=10,
+        )
+        if code != 0:
+            merged = (stdout + "\n" + stderr).strip()
+            logger.warning(
+                "user {} lark-cli auth logout before new device flow failed (exit={}): {}",
+                user_id,
+                code,
+                merged[-300:],
+            )
 
     stdout, stderr, code = await execute_in_sandbox(
         "lark-cli auth login --no-wait --json --domain all",

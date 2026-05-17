@@ -151,6 +151,8 @@ class TaskDetailResponse(TaskInfo):
     pending_question: str | None = None
     pending_options: list[str] | None = None
     pending_permission_request: dict[str, Any] | None = None
+    task_steps: list[dict[str, Any]] = []
+    task_progress: dict[str, Any] | None = None
 
 
 class TaskListResponse(BaseModel):

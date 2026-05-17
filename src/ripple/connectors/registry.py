@@ -407,7 +407,7 @@ class FeishuConnector(BaseConnector):
             )
             seed_file.chmod(0o600)
 
-        ok, msg = await ensure_lark_cli_config(config, user_id)
+        ok, msg = await ensure_lark_cli_config(config, user_id, force_new_setup=True)
         write_nsjail_config(config, user_id)
         if msg.startswith("http://") or msg.startswith("https://"):
             return ConnectorActionResult(
@@ -420,7 +420,7 @@ class FeishuConnector(BaseConnector):
         if not ok:
             return ConnectorActionResult(self.info.name, False, "auth_failed", msg)
 
-        auth_ok, data = await start_lark_user_auth(config, user_id)
+        auth_ok, data = await start_lark_user_auth(config, user_id, force_new=True)
         if not auth_ok:
             return ConnectorActionResult(
                 self.info.name,

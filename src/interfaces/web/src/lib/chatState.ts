@@ -73,3 +73,10 @@ export function applyTaskPlanUpdate(
     taskProgress: update.allCompleted ? null : update.progress,
   };
 }
+
+export function clearTaskPlanState(): { taskSteps: TaskInfo[]; taskProgress: TaskProgress | null } {
+  return {
+    taskSteps: [],
+    taskProgress: null,
+  };
+}

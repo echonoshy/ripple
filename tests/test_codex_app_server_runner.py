@@ -111,11 +111,59 @@ for raw_line in sys.stdin:
             "id": message["id"],
             "result": {"turn": {"id": turn_id, "status": "inProgress", "items": [], "error": None}},
         })
-        emit({
-            "jsonrpc": "2.0",
-            "method": "item/agentMessage/delta",
-            "params": {"threadId": thread_id, "turnId": turn_id, "delta": f"reply:{text}"},
-        })
+        if "phase-test" in text:
+            emit({
+                "jsonrpc": "2.0",
+                "method": "item/started",
+                "params": {
+                    "threadId": thread_id,
+                    "turnId": turn_id,
+                    "item": {"type": "agentMessage", "id": "msg-commentary", "text": "", "phase": "commentary"},
+                },
+            })
+            emit({
+                "jsonrpc": "2.0",
+                "method": "item/agentMessage/delta",
+                "params": {"threadId": thread_id, "turnId": turn_id, "itemId": "msg-commentary", "delta": "working"},
+            })
+            emit({
+                "jsonrpc": "2.0",
+                "method": "item/completed",
+                "params": {
+                    "threadId": thread_id,
+                    "turnId": turn_id,
+                    "item": {"type": "agentMessage", "id": "msg-commentary", "text": "working", "phase": "commentary"},
+                },
+            })
+            emit({
+                "jsonrpc": "2.0",
+                "method": "item/started",
+                "params": {
+                    "threadId": thread_id,
+                    "turnId": turn_id,
+                    "item": {"type": "agentMessage", "id": "msg-final", "text": "", "phase": "final_answer"},
+                },
+            })
+            emit({
+                "jsonrpc": "2.0",
+                "method": "item/agentMessage/delta",
+                "params": {"threadId": thread_id, "turnId": turn_id, "itemId": "msg-final", "delta": "final"},
+            })
+            emit({
+                "jsonrpc": "2.0",
+                "method": "item/completed",
+                "params": {
+                    "threadId": thread_id,
+                    "turnId": turn_id,
+                    "item": {"type": "agentMessage", "id": "msg-final", "text": "final", "phase": "final_answer"},
+                },
+            })
+        else:
+            emit({
+                "jsonrpc": "2.0",
+                "method": "item/agentMessage/delta",
+                "params": {"threadId": thread_id, "turnId": turn_id, "delta": f"reply:{text}"},
+            })
         if "sleep" not in text:
             emit({
                 "jsonrpc": "2.0",
@@ -301,6 +349,19 @@ async def test_app_server_provider_runs_thread_turn_and_records_events(tmp_path)
     assert "runner.started" in [event["type"] for event in events]
     assert "codex.notification" in [event["type"] for event in events]
     assert "runner.completed" in [event["type"] for event in events]
+
+
+@pytest.mark.asyncio
+async def test_app_server_provider_output_uses_final_answer_without_commentary_or_duplicates(tmp_path):
+    provider = _provider(tmp_path)
+    request = _request(tmp_path, prompt="phase-test")
+    request.cwd.mkdir(parents=True)
+
+    result = await provider.run(request, job_dir=tmp_path / "job")
+
+    assert result.status == AgentRunnerStatus.COMPLETED
+    assert result.output_file is not None
+    assert result.output_file.read_text(encoding="utf-8") == "final"
 
 
 @pytest.mark.asyncio

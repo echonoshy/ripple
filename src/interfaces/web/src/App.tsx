@@ -31,7 +31,12 @@ import TaskPage from "@/components/workbench/TaskPage";
 import WorkbenchShell from "@/components/workbench/WorkbenchShell";
 import WorkspaceNav from "@/components/workbench/WorkspaceNav";
 import { describeChatFilesForDisplay, type ChatFileRef } from "@/lib/chatInput";
-import { applyTaskPlanUpdate, applyTaskUpdate, upsertTask } from "@/lib/chatState";
+import {
+  applyTaskPlanUpdate,
+  applyTaskUpdate,
+  clearTaskPlanState,
+  upsertTask,
+} from "@/lib/chatState";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { bumpInputFocusToken } from "@/lib/inputFocus";
 import {
@@ -145,8 +150,8 @@ export default function Home() {
     setPendingFiles([]);
     setTokenUsage({ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
     setLastContextTokens(0);
-    setTaskSteps([]);
-    setTaskProgress(null);
+    setTaskSteps(details.task_steps || []);
+    setTaskProgress(details.task_progress || null);
     setStoredCurrentSessionId(undefined, details.session_id);
   }, []);
 
@@ -400,16 +405,46 @@ export default function Home() {
 
       const sentAt = new Date().toISOString();
       const displayText = describeChatFilesForDisplay(text, filesForSend);
+      const userMessageId = Date.now();
+      const assistantMessageId = `${userMessageId}-assistant`;
       setMessages((prev) => [
         ...prev,
-        { id: Date.now(), role: "user", content: displayText, created_at: sentAt },
-        { id: Date.now() + 1, role: "assistant", content: "", toolCalls: [] },
+        { id: userMessageId, role: "user", content: displayText, created_at: sentAt },
+        { id: assistantMessageId, role: "assistant", content: "", toolCalls: [] },
       ]);
       setInput("");
       setPendingFiles([]);
       setIsGenerating(true);
 
       let currentContent = "";
+      const assistantUpdates = new Map<string, string>();
+      const upsertAssistantUpdate = (id: string, content: string) => {
+        setMessages((prev) => {
+          const updateId = `assistant-update-${id}`;
+          const existingIndex = prev.findIndex((message) => message.id === updateId);
+          if (existingIndex >= 0) {
+            return prev.map((message, index) =>
+              index === existingIndex ? { ...message, content } : message
+            );
+          }
+
+          const updateMessage: Message = {
+            id: updateId,
+            role: "assistant",
+            content,
+            created_at: new Date().toISOString(),
+          };
+          const placeholderIndex = prev.findIndex((message) => message.id === assistantMessageId);
+          if (placeholderIndex < 0) {
+            return [...prev, updateMessage];
+          }
+          return [
+            ...prev.slice(0, placeholderIndex),
+            updateMessage,
+            ...prev.slice(placeholderIndex),
+          ];
+        });
+      };
 
       await sendChatMessage(
         activeSessionId,
@@ -425,6 +460,17 @@ export default function Home() {
               if (last.role === "assistant") last.content = currentContent;
               return msgs;
             });
+          },
+          onAssistantUpdateDelta: (id, delta) => {
+            if (isStaleRequest()) return;
+            const next = (assistantUpdates.get(id) || "") + delta;
+            assistantUpdates.set(id, next);
+            upsertAssistantUpdate(id, next);
+          },
+          onAssistantUpdate: (id, content) => {
+            if (isStaleRequest()) return;
+            assistantUpdates.set(id, content);
+            upsertAssistantUpdate(id, content);
           },
           onToolCall: (toolCall) => {
             if (isStaleRequest()) return;
@@ -562,6 +608,9 @@ export default function Home() {
             if (isStaleRequest()) return;
             abortControllerRef.current = null;
             setIsGenerating(false);
+            const nextPlan = clearTaskPlanState();
+            setTaskSteps(nextPlan.taskSteps);
+            setTaskProgress(nextPlan.taskProgress);
             setInputFocusToken((prev) => bumpInputFocusToken(prev));
             loadTasks();
             setWorkspaceRefreshToken((prev) => prev + 1);

@@ -203,6 +203,49 @@ def test_agent_run_events_replays_existing_events(tmp_path: Path, monkeypatch):
     assert "data: [DONE]" in body
 
 
+def test_agent_run_events_emit_normalized_plan_updates(tmp_path: Path, monkeypatch):
+    client, agent_manager = _client(tmp_path, monkeypatch)
+    start = client.post("/v1/runs", json={"prompt": "events run", "provider": "codex"})
+    job_id = start.json()["job_id"]
+    job = agent_manager.get(job_id)
+    assert job is not None
+    job.events_file.parent.mkdir(parents=True, exist_ok=True)
+    job.events_file.write_text(
+        json.dumps(
+            {
+                "type": "codex.notification",
+                "job_id": job_id,
+                "data": {
+                    "message": {
+                        "method": "turn/plan/updated",
+                        "params": {
+                            "threadId": "thread-1",
+                            "turnId": "turn-1",
+                            "plan": [
+                                {"step": "Inspect", "status": "completed"},
+                                {"step": "Implement", "status": "inProgress"},
+                            ],
+                        },
+                    }
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    job.status = AgentRunnerStatus.COMPLETED
+    write_job_meta(job)
+
+    with client.stream("GET", f"/v1/runs/{job_id}/events?follow=false") as response:
+        body = response.read().decode()
+
+    assert response.status_code == 200
+    assert '"type": "codex.notification"' in body
+    assert '"type": "task_plan_updated"' in body
+    assert '"currentTask": "Implement"' in body
+    assert '"allCompleted": false' in body
+
+
 def test_agent_run_events_replay_disk_only_run(tmp_path: Path, monkeypatch):
     client, agent_manager = _client(tmp_path, monkeypatch)
     start = client.post("/v1/runs", json={"prompt": "events run", "provider": "codex"})

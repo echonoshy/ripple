@@ -198,6 +198,8 @@ def _task_detail_from_session(session: Session) -> TaskDetailResponse:
         pending_question=session.pending_question,
         pending_options=session.pending_options,
         pending_permission_request=session.pending_permission_request,
+        task_steps=session.task_steps,
+        task_progress=session.task_progress,
     )
 
 
@@ -255,6 +257,8 @@ async def _clear_session_context(manager: SessionManager, session: Session) -> N
         session.pending_question = None
         session.pending_options = None
         session.pending_permission_request = None
+        session.task_steps = []
+        session.task_progress = None
         session.last_input_tokens = 0
         session.total_input_tokens = 0
         session.total_output_tokens = 0
@@ -735,6 +739,8 @@ async def get_session(
         pending_question=session.pending_question,
         pending_options=session.pending_options,
         pending_permission_request=session.pending_permission_request,
+        task_steps=session.task_steps,
+        task_progress=session.task_progress,
     )
 
 

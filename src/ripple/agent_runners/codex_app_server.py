@@ -687,7 +687,9 @@ class CodexAppServerAgentProvider:
         thread_id: str,
         turn_id: str,
     ) -> tuple[AgentRunnerStatus, str]:
-        output_parts: list[str] = []
+        legacy_output_parts: list[str] = []
+        final_output_text = ""
+        agent_message_phases: dict[str, str | None] = {}
         async with asyncio.timeout(request.max_runtime_seconds):
             while True:
                 message = await session.notifications.get()
@@ -719,14 +721,20 @@ class CodexAppServerAgentProvider:
                         ),
                     )
                     continue
-                text = self._extract_text(message)
-                if text:
-                    output_parts.append(text)
+                self._record_agent_message_phase(message, agent_message_phases)
+                completed_text = self._extract_completed_final_agent_message(message)
+                if completed_text:
+                    final_output_text = completed_text
+                else:
+                    delta = self._extract_streamable_final_delta(message, agent_message_phases)
+                    if delta:
+                        legacy_output_parts.append(delta)
                 if self._is_turn_completed(message, thread_id=thread_id, turn_id=turn_id):
+                    output_text = final_output_text or "".join(legacy_output_parts)
                     turn_status = message.get("params", {}).get("turn", {}).get("status")
                     if turn_status == "interrupted":
-                        return AgentRunnerStatus.CANCELLED, "".join(output_parts)
-                    return AgentRunnerStatus.COMPLETED, "".join(output_parts)
+                        return AgentRunnerStatus.CANCELLED, output_text
+                    return AgentRunnerStatus.COMPLETED, output_text
 
     async def _interrupt_turn(self, active_turn: ActiveTurn) -> None:
         try:
@@ -742,17 +750,47 @@ class CodexAppServerAgentProvider:
         except Exception:  # noqa: BLE001
             return
 
-    def _extract_text(self, message: dict[str, Any]) -> str:
+    def _agent_message_item(self, message: dict[str, Any]) -> dict[str, Any] | None:
+        params = message.get("params", {})
+        item = params.get("item")
+        if isinstance(item, dict) and item.get("type") == "agentMessage":
+            return item
+        return None
+
+    def _record_agent_message_phase(self, message: dict[str, Any], phases: dict[str, str | None]) -> None:
+        if message.get("method") not in {"item/started", "item/completed"}:
+            return
+        item = self._agent_message_item(message)
+        if item is None:
+            return
+        item_id = item.get("id")
+        if isinstance(item_id, str) and item_id:
+            phase = item.get("phase")
+            phases[item_id] = phase if isinstance(phase, str) else None
+
+    def _extract_completed_final_agent_message(self, message: dict[str, Any]) -> str:
+        if message.get("method") != "item/completed":
+            return ""
+        item = self._agent_message_item(message)
+        if item is None or item.get("phase") == "commentary":
+            return ""
+        text = item.get("text") or item.get("content")
+        return text if isinstance(text, str) else ""
+
+    def _extract_streamable_final_delta(self, message: dict[str, Any], phases: dict[str, str | None]) -> str:
+        if message.get("method") != "item/agentMessage/delta":
+            return ""
         params = message.get("params", {})
         delta = params.get("delta")
-        if isinstance(delta, str):
+        if not isinstance(delta, str):
+            return ""
+        item_id = params.get("itemId") or params.get("item_id")
+        if not isinstance(item_id, str) or not item_id:
             return delta
-        item = params.get("item")
-        if isinstance(item, dict):
-            text = item.get("text") or item.get("content")
-            if isinstance(text, str):
-                return text
-        return ""
+        if phases.get(item_id) == "commentary":
+            return ""
+        # If no phase metadata was seen, preserve the legacy behavior and treat it as final text.
+        return delta
 
     def _is_turn_completed(self, message: dict[str, Any], *, thread_id: str, turn_id: str) -> bool:
         if message.get("method") != "turn/completed":

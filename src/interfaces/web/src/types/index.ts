@@ -237,6 +237,8 @@ export interface TaskDetail extends TaskSummary {
   pending_question?: string | null;
   pending_options?: string[] | null;
   pending_permission_request?: PermissionRequestData | null;
+  task_steps?: TaskInfo[];
+  task_progress?: TaskProgress | null;
 }
 
 export interface TaskInfo {

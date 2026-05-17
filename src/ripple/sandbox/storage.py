@@ -113,6 +113,8 @@ def save_session_state(
     pending_question: str | None = None,
     pending_options: list[str] | None = None,
     pending_permission_request: dict | None = None,
+    task_steps: list[dict] | None = None,
+    task_progress: dict | None = None,
 ) -> Path:
     """保存 session 状态到磁盘（meta.json + messages.jsonl）
 
@@ -219,6 +221,8 @@ def save_session_state(
         "pending_question": pending_question,
         "pending_options": pending_options,
         "pending_permission_request": pending_permission_request,
+        "task_steps": task_steps or [],
+        "task_progress": task_progress,
         "message_count": new_count,
         "model_message_count": len(serialized_model_messages),
     }

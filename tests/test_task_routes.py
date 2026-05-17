@@ -72,6 +72,26 @@ def test_task_detail_returns_messages_and_pending_permission(tmp_path: Path, mon
     assert body["pending_options"] is None
 
 
+def test_task_detail_returns_persisted_plan_state(tmp_path: Path, monkeypatch):
+    client, session_manager = _client(tmp_path, monkeypatch)
+    session = session_manager.create_session(user_id="alice", model="codex-medium")
+    session.messages.append(create_user_message("Implement a multi-step feature"))
+    session.task_steps = [
+        {"id": "codex-plan:turn-1:0", "subject": "Inspect code", "status": "completed"},
+        {"id": "codex-plan:turn-1:1", "subject": "Implement feature", "status": "in_progress"},
+    ]
+    session.task_progress = {"completed": 1, "total": 2, "currentTask": "Implement feature"}
+    session_manager.persist_session(session)
+    session_manager.suspend_session(session.session_id, user_id="alice")
+
+    response = client.get(f"/v1/tasks/{session.session_id}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["task_steps"] == session.task_steps
+    assert body["task_progress"] == session.task_progress
+
+
 def test_task_create_returns_session_backed_summary_and_ensures_sandbox(tmp_path: Path, monkeypatch):
     client, session_manager = _client(tmp_path, monkeypatch)
 
@@ -109,6 +129,8 @@ def test_task_clear_context_removes_messages_model_messages_and_pending_state(tm
     session.pending_question = "Continue?"
     session.pending_options = ["yes", "no"]
     session.pending_permission_request = {"source": "codex", "job_id": "job-1", "request_id": "approval-1"}
+    session.task_steps = [{"id": "codex-plan:turn-1:0", "subject": "Inspect code", "status": "in_progress"}]
+    session.task_progress = {"completed": 0, "total": 1, "currentTask": "Inspect code"}
     session.total_input_tokens = 123
     session.total_output_tokens = 45
     session_manager.persist_session(session)
@@ -127,6 +149,8 @@ def test_task_clear_context_removes_messages_model_messages_and_pending_state(tm
     assert session.pending_question is None
     assert session.pending_options is None
     assert session.pending_permission_request is None
+    assert session.task_steps == []
+    assert session.task_progress is None
     assert session.total_input_tokens == 0
     assert session.total_output_tokens == 0
 
@@ -139,6 +163,8 @@ def test_task_clear_context_removes_messages_model_messages_and_pending_state(tm
     assert resumed is not None
     assert resumed.messages == []
     assert resumed.model_messages == []
+    assert resumed.task_steps == []
+    assert resumed.task_progress is None
 
 
 def test_task_stop_delegates_to_session_stop(tmp_path: Path, monkeypatch):

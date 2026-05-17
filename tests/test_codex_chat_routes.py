@@ -146,6 +146,126 @@ class CodexToolEventProvider:
         )
 
 
+class CodexPhasedMessageProvider:
+    def __init__(self):
+        self.requests: list[AgentRunnerRequest] = []
+
+    async def run(self, request: AgentRunnerRequest, *, job_dir: Path) -> AgentRunnerResult:
+        self.requests.append(request)
+        job_dir.mkdir(parents=True, exist_ok=True)
+        events_file = job_dir / "events.jsonl"
+        output_file = job_dir / "output.txt"
+        events = [
+            AgentRunnerEvent(
+                type="codex.notification",
+                job_id=request.job_id or "job-test",
+                provider=request.provider,
+                data={
+                    "message": {
+                        "method": "item/started",
+                        "params": {
+                            "item": {
+                                "type": "agentMessage",
+                                "id": "msg-commentary",
+                                "text": "",
+                                "phase": "commentary",
+                            }
+                        },
+                    }
+                },
+            ),
+            AgentRunnerEvent(
+                type="codex.notification",
+                job_id=request.job_id or "job-test",
+                provider=request.provider,
+                data={
+                    "message": {
+                        "method": "item/agentMessage/delta",
+                        "params": {"itemId": "msg-commentary", "delta": "working"},
+                    }
+                },
+            ),
+            AgentRunnerEvent(
+                type="codex.notification",
+                job_id=request.job_id or "job-test",
+                provider=request.provider,
+                data={
+                    "message": {
+                        "method": "item/completed",
+                        "params": {
+                            "item": {
+                                "type": "agentMessage",
+                                "id": "msg-commentary",
+                                "text": "working",
+                                "phase": "commentary",
+                            }
+                        },
+                    }
+                },
+            ),
+            AgentRunnerEvent(
+                type="codex.notification",
+                job_id=request.job_id or "job-test",
+                provider=request.provider,
+                data={
+                    "message": {
+                        "method": "item/started",
+                        "params": {
+                            "item": {
+                                "type": "agentMessage",
+                                "id": "msg-final",
+                                "text": "",
+                                "phase": "final_answer",
+                            }
+                        },
+                    }
+                },
+            ),
+            AgentRunnerEvent(
+                type="codex.notification",
+                job_id=request.job_id or "job-test",
+                provider=request.provider,
+                data={
+                    "message": {
+                        "method": "item/agentMessage/delta",
+                        "params": {"itemId": "msg-final", "delta": "final"},
+                    }
+                },
+            ),
+            AgentRunnerEvent(
+                type="codex.notification",
+                job_id=request.job_id or "job-test",
+                provider=request.provider,
+                data={
+                    "message": {
+                        "method": "item/completed",
+                        "params": {
+                            "item": {
+                                "type": "agentMessage",
+                                "id": "msg-final",
+                                "text": "final",
+                                "phase": "final_answer",
+                            }
+                        },
+                    }
+                },
+            ),
+        ]
+        events_file.write_text(
+            "".join(json.dumps(event.model_dump(mode="json"), ensure_ascii=False) + "\n" for event in events),
+            encoding="utf-8",
+        )
+        output_file.write_text("final", encoding="utf-8")
+        return AgentRunnerResult(
+            job_id=request.job_id or "job-test",
+            provider=request.provider,
+            status=AgentRunnerStatus.COMPLETED,
+            events_file=events_file,
+            output_file=output_file,
+            stdout_tail="final",
+        )
+
+
 class CodexUsageEventProvider:
     def __init__(self):
         self.requests: list[AgentRunnerRequest] = []
@@ -440,6 +560,29 @@ def test_chat_completions_stream_bridges_codex_tool_items_to_sse(tmp_path: Path,
     assert '"type": "tool_result"' in body
     assert '"tool_use_id": "cmd-1"' in body
     assert "/workspace" in body
+
+
+def test_chat_completions_stream_keeps_commentary_out_of_final_content(tmp_path: Path, monkeypatch):
+    provider = CodexPhasedMessageProvider()
+    client = _client(tmp_path, monkeypatch, provider)
+
+    with client.stream(
+        "POST",
+        "/v1/chat/completions",
+        json={
+            "model": "codex-medium",
+            "stream": True,
+            "messages": [{"role": "user", "content": "Stream phased messages"}],
+        },
+    ) as response:
+        body = response.read().decode("utf-8")
+
+    assert response.status_code == 200
+    assert '"type": "assistant_update_delta"' in body
+    assert '"delta": "working"' in body
+    assert '"content": "final"' in body
+    assert '"content": "working"' not in body
+    assert '"content": "workingfinal"' not in body
 
 
 def test_chat_completions_stream_bridges_codex_token_usage_to_sse(tmp_path: Path, monkeypatch):

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -26,6 +26,8 @@ import {
   actionDataString,
   connectorAuthMode,
   connectorStatusTone,
+  feishuAuthFollowup,
+  navigateExternalAuthWindow,
   needsCallbackInput,
   needsDeviceFlowComplete,
 } from "@/lib/connectors";
@@ -38,6 +40,11 @@ import type {
 
 type ConnectorInputs = Record<string, Record<string, string>>;
 type ConnectorActions = Record<string, ConnectorActionResponse | null>;
+
+const FEISHU_SETUP_POLL_INTERVAL_MS = 2000;
+const FEISHU_SETUP_MAX_POLLS = 90;
+const FEISHU_AUTH_COMPLETE_DELAY_MS = 1000;
+const FEISHU_AUTH_MAX_POLLS = 5;
 
 function inputValue(inputs: ConnectorInputs, name: string, key: string): string {
   return inputs[name]?.[key] || "";
@@ -55,9 +62,24 @@ function fieldLabel(connector: ConnectorInfo, key: string): string {
   return key;
 }
 
-function openExternalUrl(url: string) {
-  if (typeof window === "undefined" || !url) return;
-  window.open(url, "_blank", "noopener,noreferrer");
+function openExternalUrl(url: string): Window | null {
+  if (typeof window === "undefined" || !url) return null;
+  return window.open(url, "_blank", "noopener,noreferrer");
+}
+
+function openReusableAuthWindow(): Window | null {
+  if (typeof window === "undefined") return null;
+  const authWindow = window.open("about:blank", "_blank");
+  if (!authWindow) return null;
+  try {
+    authWindow.opener = null;
+    authWindow.document.title = "Feishu authorization";
+    authWindow.document.body.innerHTML =
+      '<div style="font: 14px system-ui, sans-serif; padding: 24px;">Preparing Feishu authorization...</div>';
+  } catch {
+    /* The blank window may be unavailable in strict browser modes. */
+  }
+  return authWindow;
 }
 
 export default function ConnectorsPage() {
@@ -69,6 +91,8 @@ export default function ConnectorsPage() {
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [pageError, setPageError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const feishuTimersRef = useRef<number[]>([]);
+  const feishuAuthWindowRef = useRef<Window | null>(null);
 
   const loadConnectors = useCallback(async () => {
     setIsLoading(true);
@@ -94,6 +118,25 @@ export default function ConnectorsPage() {
       void loadConnectors();
     });
   }, [loadConnectors]);
+
+  const clearFeishuFollowups = useCallback(() => {
+    if (typeof window === "undefined") return;
+    for (const timer of feishuTimersRef.current) {
+      window.clearTimeout(timer);
+    }
+    feishuTimersRef.current = [];
+  }, []);
+
+  const scheduleFeishuFollowup = useCallback((callback: () => void, delayMs: number) => {
+    if (typeof window === "undefined") return;
+    const timer = window.setTimeout(() => {
+      feishuTimersRef.current = feishuTimersRef.current.filter((item) => item !== timer);
+      callback();
+    }, delayMs);
+    feishuTimersRef.current.push(timer);
+  }, []);
+
+  useEffect(() => clearFeishuFollowups, [clearFeishuFollowups]);
 
   const setInput = (connectorName: string, key: string, value: string) => {
     setInputs((prev) => ({
@@ -128,6 +171,58 @@ export default function ConnectorsPage() {
     }
   };
 
+  const pollFeishuUserAuth = (connector: ConnectorInfo, deviceCode: string, attempt = 0): void => {
+    if (!deviceCode || attempt >= FEISHU_AUTH_MAX_POLLS) return;
+    scheduleFeishuFollowup(() => {
+      void (async () => {
+        const result = await runConnectorAction(connector, () =>
+          completeConnectorAuth(connector.name, { device_code: deviceCode })
+        );
+        if (result?.stage === "pending") {
+          pollFeishuUserAuth(connector, deviceCode, attempt + 1);
+        }
+      })();
+    }, FEISHU_AUTH_COMPLETE_DELAY_MS);
+  };
+
+  const pollFeishuSetup = (connector: ConnectorInfo, attempt = 0): void => {
+    if (attempt >= FEISHU_SETUP_MAX_POLLS) return;
+    scheduleFeishuFollowup(() => {
+      void (async () => {
+        const result = await runConnectorAction(connector, () =>
+          startConnectorAuth(connector.name, { force_new: false })
+        );
+        if (!result?.ok) return;
+        handleFeishuAuthResult(connector, result, {
+          openUrl: result.stage !== "awaiting_setup",
+          setupAttempt: attempt + 1,
+        });
+      })();
+    }, FEISHU_SETUP_POLL_INTERVAL_MS);
+  };
+
+  const handleFeishuAuthResult = (
+    connector: ConnectorInfo,
+    result: ConnectorActionResponse,
+    options: { openUrl?: boolean; setupAttempt?: number } = {}
+  ): void => {
+    const followup = feishuAuthFollowup(result);
+    if (options.openUrl !== false) {
+      feishuAuthWindowRef.current = navigateExternalAuthWindow(
+        feishuAuthWindowRef.current,
+        actionUrl(result),
+        openExternalUrl
+      ) as Window | null;
+    }
+    if (followup === "poll_setup") {
+      pollFeishuSetup(connector, options.setupAttempt || 0);
+      return;
+    }
+    if (followup === "poll_user_auth") {
+      pollFeishuUserAuth(connector, actionDataString(result, "device_code"));
+    }
+  };
+
   const startAuth = async (connector: ConnectorInfo) => {
     const mode = connectorAuthMode(connector);
     const payload: Record<string, string> = {};
@@ -137,11 +232,15 @@ export default function ConnectorsPage() {
     if (connector.name === "google_workspace") {
       payload.email = inputValue(inputs, connector.name, "email");
     }
+    if (connector.name === "feishu") {
+      clearFeishuFollowups();
+      feishuAuthWindowRef.current = openReusableAuthWindow();
+    }
     const result = await runConnectorAction(connector, () =>
       startConnectorAuth(connector.name, payload)
     );
     if (connector.name === "feishu" && result?.ok) {
-      openExternalUrl(actionUrl(result));
+      handleFeishuAuthResult(connector, result);
     }
   };
 
@@ -164,6 +263,10 @@ export default function ConnectorsPage() {
   };
 
   const disconnect = async (connector: ConnectorInfo) => {
+    if (connector.name === "feishu") {
+      clearFeishuFollowups();
+      feishuAuthWindowRef.current = null;
+    }
     const payload: Record<string, string> = {};
     if (connector.name === "google_workspace") {
       payload.email = inputValue(inputs, connector.name, "email") || accounts[0]?.email || "";

@@ -1,3 +1,4 @@
+import asyncio
 import json
 
 import pytest
@@ -17,6 +18,44 @@ class FakeProcess:
 
     async def wait(self):
         return self.returncode
+
+
+class PendingProcess:
+    def __init__(self):
+        self.returncode = None
+        self.killed = False
+
+    def kill(self):
+        self.killed = True
+        self.returncode = -9
+
+    async def wait(self):
+        if self.returncode is not None:
+            return self.returncode
+        await asyncio.sleep(10)
+        return self.returncode
+
+
+@pytest.mark.asyncio
+async def test_check_feishu_setup_detects_config_before_process_exit(tmp_path):
+    config = SandboxConfig(sandboxes_root=tmp_path / "sandboxes", caches_root=tmp_path / "cache")
+    process = PendingProcess()
+    feishu._feishu_setup_states["alice"] = feishu._FeishuSetupState(
+        process=process,
+        url="https://setup.example/pending",
+    )
+    lark_config = config.workspace_dir("alice") / ".lark-cli" / "config.json"
+    lark_config.parent.mkdir(parents=True, exist_ok=True)
+    lark_config.write_text(json.dumps({"app_id": "cli_a"}), encoding="utf-8")
+
+    try:
+        ok, msg = await feishu._check_feishu_setup(config, "alice")
+    finally:
+        feishu._feishu_setup_states.pop("alice", None)
+
+    assert ok is True
+    assert msg == ""
+    assert "alice" not in feishu._feishu_setup_states
 
 
 @pytest.mark.asyncio

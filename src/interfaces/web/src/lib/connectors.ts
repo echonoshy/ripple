@@ -2,6 +2,12 @@ import type { ConnectorActionResponse, ConnectorInfo, ConnectorStatus } from "@/
 
 export type ConnectorAuthMode = "token" | "oauth" | "qr" | "status_only";
 export type ConnectorStatusTone = "connected" | "needs_setup" | "unknown";
+export type FeishuAuthFollowup = "none" | "poll_setup" | "poll_user_auth";
+export interface ExternalAuthWindow {
+  closed?: boolean;
+  location: { href: string };
+  focus?: () => void;
+}
 
 export function connectorAuthMode(connector: ConnectorInfo): ConnectorAuthMode {
   if (connector.auth_type === "token") return "token";
@@ -38,6 +44,29 @@ export function actionDataString(
 ): string {
   const value = action?.data?.[key];
   return typeof value === "string" ? value : "";
+}
+
+export function feishuAuthFollowup(
+  action: ConnectorActionResponse | null | undefined
+): FeishuAuthFollowup {
+  if (action?.name !== "feishu" || action.ok !== true) return "none";
+  if (action.stage === "awaiting_setup" && actionUrl(action)) return "poll_setup";
+  if (needsDeviceFlowComplete(action)) return "poll_user_auth";
+  return "none";
+}
+
+export function navigateExternalAuthWindow(
+  authWindow: ExternalAuthWindow | null | undefined,
+  url: string,
+  fallbackOpen: (url: string) => ExternalAuthWindow | null | undefined
+): ExternalAuthWindow | null {
+  if (!url) return authWindow || null;
+  if (authWindow && authWindow.closed !== true) {
+    authWindow.location.href = url;
+    authWindow.focus?.();
+    return authWindow;
+  }
+  return fallbackOpen(url) || null;
 }
 
 export function extractFeishuDeviceCode(text: string): string {

@@ -90,7 +90,7 @@ def test_feishu_connector_auth_start_returns_device_flow_url(tmp_path: Path, mon
 
     async def fake_ensure_lark_cli_config(config, user_id, *, force_new_setup=False):
         assert user_id == "alice"
-        assert force_new_setup is True
+        assert force_new_setup is False
         return True, ""
 
     async def fake_start_lark_user_auth(config, user_id, *, force_new=False):
@@ -123,7 +123,7 @@ def test_feishu_connector_auth_start_requests_fresh_device_flow_each_click(tmp_p
 
     async def fake_ensure_lark_cli_config(config, user_id, *, force_new_setup=False):
         assert user_id == "alice"
-        assert force_new_setup is True
+        assert force_new_setup is False
         return True, ""
 
     async def fake_start_lark_user_auth(config, user_id, *, force_new=False):
@@ -147,6 +147,57 @@ def test_feishu_connector_auth_start_requests_fresh_device_flow_each_click(tmp_p
     assert calls == [True, True]
     assert first.json()["data"]["oauth_url"] == "https://accounts.feishu.cn/device/1"
     assert second.json()["data"]["oauth_url"] == "https://accounts.feishu.cn/device/2"
+
+
+def test_feishu_connector_auth_start_reuses_pending_setup_by_default(tmp_path: Path, monkeypatch):
+    client, sandbox_manager = _client(tmp_path)
+    sandbox_manager.config.lark_cli_bin = str(tmp_path / "lark-cli")
+    force_new_setup_values: list[bool] = []
+
+    async def fake_ensure_lark_cli_config(config, user_id, *, force_new_setup=False):
+        assert user_id == "alice"
+        force_new_setup_values.append(force_new_setup)
+        return False, "https://open.feishu.cn/page/cli?user_code=SETUP"
+
+    monkeypatch.setattr(registry, "ensure_lark_cli_config", fake_ensure_lark_cli_config)
+
+    response = client.post("/v1/connectors/feishu/auth/start", json={})
+
+    assert response.status_code == 200
+    assert force_new_setup_values == [False]
+    body = response.json()
+    assert body["stage"] == "awaiting_setup"
+    assert body["data"]["setup_url"] == "https://open.feishu.cn/page/cli?user_code=SETUP"
+
+
+def test_feishu_connector_auth_start_can_resume_pending_setup_without_restart(tmp_path: Path, monkeypatch):
+    client, sandbox_manager = _client(tmp_path)
+    sandbox_manager.config.lark_cli_bin = str(tmp_path / "lark-cli")
+    force_new_setup_values: list[bool] = []
+
+    async def fake_ensure_lark_cli_config(config, user_id, *, force_new_setup=False):
+        assert user_id == "alice"
+        force_new_setup_values.append(force_new_setup)
+        return True, ""
+
+    async def fake_start_lark_user_auth(config, user_id, *, force_new=False):
+        assert user_id == "alice"
+        assert force_new is True
+        return True, {
+            "oauth_url": "https://accounts.feishu.cn/device/resumed",
+            "device_code": "device-resumed",
+        }
+
+    monkeypatch.setattr(registry, "ensure_lark_cli_config", fake_ensure_lark_cli_config)
+    monkeypatch.setattr(registry, "start_lark_user_auth", fake_start_lark_user_auth, raising=False)
+
+    response = client.post("/v1/connectors/feishu/auth/start", json={"force_new": False})
+
+    assert response.status_code == 200
+    assert force_new_setup_values == [False]
+    body = response.json()
+    assert body["stage"] == "awaiting_user_auth"
+    assert body["data"]["device_code"] == "device-resumed"
 
 
 def test_feishu_connector_auth_complete_exchanges_device_code(tmp_path: Path, monkeypatch):

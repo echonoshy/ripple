@@ -5,6 +5,8 @@ import {
   connectorAuthMode,
   connectorStatusTone,
   extractFeishuDeviceCode,
+  feishuAuthFollowup,
+  navigateExternalAuthWindow,
   needsCallbackInput,
   needsDeviceFlowComplete,
 } from "./connectors";
@@ -112,11 +114,86 @@ function testExtractFeishuDeviceCodeFromChatText() {
   assert.equal(extractFeishuDeviceCode("[FEISHU_AUTH]\nhttps://accounts.feishu.cn/x"), "");
 }
 
+function testFeishuFollowupAdvancesSetupAndUserAuthAutomatically() {
+  assert.equal(
+    feishuAuthFollowup(
+      action({
+        name: "feishu",
+        stage: "awaiting_setup",
+        data: { setup_url: "https://setup.example" },
+      })
+    ),
+    "poll_setup"
+  );
+  assert.equal(
+    feishuAuthFollowup(
+      action({
+        name: "feishu",
+        stage: "awaiting_user_auth",
+        data: {
+          oauth_url: "https://accounts.feishu.cn/device",
+          device_code: "device-123",
+        },
+      })
+    ),
+    "poll_user_auth"
+  );
+  assert.equal(feishuAuthFollowup(action({ name: "notion", stage: "awaiting_user_auth" })), "none");
+  assert.equal(
+    feishuAuthFollowup(action({ name: "feishu", ok: false, stage: "auth_failed" })),
+    "none"
+  );
+}
+
+function testNavigateExternalAuthWindowReusesOpenWindow() {
+  let fallbackUrl = "";
+  let focused = false;
+  const authWindow = {
+    closed: false,
+    location: { href: "about:blank" },
+    focus: () => {
+      focused = true;
+    },
+  };
+
+  const result = navigateExternalAuthWindow(
+    authWindow,
+    "https://accounts.feishu.cn/device",
+    (url) => {
+      fallbackUrl = url;
+      return null;
+    }
+  );
+
+  assert.equal(result, authWindow);
+  assert.equal(authWindow.location.href, "https://accounts.feishu.cn/device");
+  assert.equal(focused, true);
+  assert.equal(fallbackUrl, "");
+}
+
+function testNavigateExternalAuthWindowFallsBackWhenWindowClosed() {
+  const fallbackWindow = { closed: false, location: { href: "about:blank" } };
+  const result = navigateExternalAuthWindow(
+    { closed: true, location: { href: "about:blank" } },
+    "https://accounts.feishu.cn/device",
+    (url) => {
+      fallbackWindow.location.href = url;
+      return fallbackWindow;
+    }
+  );
+
+  assert.equal(result, fallbackWindow);
+  assert.equal(fallbackWindow.location.href, "https://accounts.feishu.cn/device");
+}
+
 testConnectorAuthModeFollowsBackendAuthType();
 testConnectorStatusToneUsesConnectionState();
 testGoogleOauthActionCanRequireCallbackInput();
 testDeviceFlowActionCanRequireComplete();
 testActionUrlPrefersOauthThenSetup();
 testExtractFeishuDeviceCodeFromChatText();
+testFeishuFollowupAdvancesSetupAndUserAuthAutomatically();
+testNavigateExternalAuthWindowReusesOpenWindow();
+testNavigateExternalAuthWindowFallsBackWhenWindowClosed();
 
 console.log("connectors tests passed");

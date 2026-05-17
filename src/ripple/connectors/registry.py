@@ -121,6 +121,13 @@ def _mask_secret(value: str) -> str:
     return f"{value[:6]}...({len(value)} chars)"
 
 
+def _payload_bool(payload: dict[str, Any], key: str, default: bool = False) -> bool:
+    value = payload.get(key, default)
+    if isinstance(value, str):
+        return value.strip().lower() not in {"0", "false", "no"}
+    return bool(value)
+
+
 def _safe_unlink(path: Path) -> bool:
     try:
         if path.exists():
@@ -407,7 +414,9 @@ class FeishuConnector(BaseConnector):
             )
             seed_file.chmod(0o600)
 
-        ok, msg = await ensure_lark_cli_config(config, user_id, force_new_setup=True)
+        force_new_setup = _payload_bool(payload, "force_new_setup", _payload_bool(payload, "force_new", False))
+
+        ok, msg = await ensure_lark_cli_config(config, user_id, force_new_setup=force_new_setup)
         write_nsjail_config(config, user_id)
         if msg.startswith("http://") or msg.startswith("https://"):
             return ConnectorActionResult(

@@ -167,6 +167,11 @@ async def _check_feishu_setup(
     if not state:
         return False, ""
 
+    if config.has_lark_cli_config(user_id):
+        await _cancel_feishu_setup(user_id)
+        logger.info("user {} 飞书 app 配置文件已生成，结束 setup 轮询", user_id)
+        return True, ""
+
     if state.process.returncode is None:
         try:
             await asyncio.wait_for(state.process.wait(), timeout=0.1)

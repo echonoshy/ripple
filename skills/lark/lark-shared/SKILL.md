@@ -53,12 +53,17 @@ lark-cli config show 2>&1 && lark-cli auth status 2>&1
 
 app 凭证配置是**全自动**的：
 
-1. 首次运行 `lark-cli` 命令时，系统检测到未配置会自动启动 `config init --new`
+1. 首次运行 `lark-cli` 命令时，系统检测到未配置会自动启动 `config init --new --force-init`
 2. 系统返回一个配置链接（`[FEISHU_SETUP]` 标记）
 3. **将链接发给用户**，用户点击链接即可完成飞书应用创建
 4. 用户完成后，重新执行命令即可正常使用
 
 **重要**：不要让用户手动编辑配置文件或填写 app_id/app_secret。配置流程对用户来说只需要点击一个链接。
+
+新版 `lark-cli` 在 `OPENCLAW_HOME` / `HERMES_HOME` 等 Agent 环境里会默认拒绝
+`config init --new`，提示使用 `config bind` 绑定已有 Agent app。Ripple 的正常路径是
+服务端统一配置 Feishu app 后由 connector 注入；只有没有服务端 app、且确实要为当前
+workspace 单独创建 app 时，才使用 `--force-init` 兜底。
 
 ## 认证
 
@@ -136,6 +141,15 @@ lark-cli auth login --no-wait --json --domain all
 - `verification_url` / `url` — 把这个链接标注为 `[FEISHU_AUTH]` 发给用户
 - `device_code` — 保存，第 2 步会用到
 
+发给用户时，把 `device_code` 放在同一个 `[FEISHU_AUTH]` 块里，便于 Web 聊天卡片在
+用户点完浏览器授权后调用 connector 的 complete endpoint：
+
+```text
+[FEISHU_AUTH]
+device_code: <DEVICE_CODE>
+https://accounts.feishu.cn/...
+```
+
 **第 2 步**：用户在浏览器完成授权后，用 device_code 轮询完成登录
 
 ```bash
@@ -147,6 +161,7 @@ lark-cli auth login --device-code <DEVICE_CODE>
 **规则**：
 - 同一 session 里同一次授权流程的 device_code 不要重复使用
 - 若第 2 步报 `pending` / `not yet completed`，说明用户还没完成浏览器端操作，**等待用户明确告知"已授权"后**再重试（不要自行循环轮询）
+- 新版 `auth login` 支持 `--exclude <scope>`，仅当用户明确要求排除某些权限，或管理员给出明确排除项时使用；默认仍然使用 `--domain all`。
 
 #### 错误识别：pending approval ≠ 用户没点击
 

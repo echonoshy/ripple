@@ -100,6 +100,47 @@ def test_task_delete_removes_backing_session(tmp_path: Path, monkeypatch):
     assert session_manager.get_session(session.session_id, user_id="alice") is None
 
 
+def test_task_clear_context_removes_messages_model_messages_and_pending_state(tmp_path: Path, monkeypatch):
+    client, session_manager = _client(tmp_path, monkeypatch)
+    session = session_manager.create_session(user_id="alice", model="codex-medium")
+    session.messages.append(create_user_message("Keep this only until clear"))
+    session.messages.append(create_assistant_message([{"type": "text", "text": "Done"}]))
+    session.model_messages = list(session.messages)
+    session.pending_question = "Continue?"
+    session.pending_options = ["yes", "no"]
+    session.pending_permission_request = {"source": "codex", "job_id": "job-1", "request_id": "approval-1"}
+    session.total_input_tokens = 123
+    session.total_output_tokens = 45
+    session_manager.persist_session(session)
+
+    response = client.post(f"/v1/tasks/{session.session_id}/context/clear")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "ok": True,
+        "task_id": session.session_id,
+        "session_id": session.session_id,
+        "message_count": 0,
+    }
+    assert session.messages == []
+    assert session.model_messages == []
+    assert session.pending_question is None
+    assert session.pending_options is None
+    assert session.pending_permission_request is None
+    assert session.total_input_tokens == 0
+    assert session.total_output_tokens == 0
+
+    detail = client.get(f"/v1/tasks/{session.session_id}").json()
+    assert detail["message_count"] == 0
+    assert detail["messages"] == []
+
+    session_manager.suspend_session(session.session_id, user_id="alice")
+    resumed = session_manager.resume_session(session.session_id, user_id="alice")
+    assert resumed is not None
+    assert resumed.messages == []
+    assert resumed.model_messages == []
+
+
 def test_task_stop_delegates_to_session_stop(tmp_path: Path, monkeypatch):
     client, session_manager = _client(tmp_path, monkeypatch)
     session = session_manager.create_session(user_id="alice", model="codex-medium")

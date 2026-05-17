@@ -100,6 +100,15 @@ server:
   # 远程部署请填写公网 HTTPS 地址，并在 GCP Web OAuth Client 里把下方完整
   # callback URL 加到 Authorized redirect URIs。
   # public_base_url: "http://localhost:8810"
+  feishu:
+    # 推荐：部署方统一配置一次 Feishu/Lark app，普通用户只需要在浏览器里登录授权。
+    # 不配置时，Feishu connector 会 fallback 到 lark-cli 的 setup URL，让管理员/高级用户
+    # 点击链接创建当前 workspace 专用 app。
+    #
+    # app:
+    #   app_id: "<FEISHU_APP_ID>"
+    #   app_secret: "<FEISHU_APP_SECRET>"
+    #   brand: "feishu"
   gogcli_oauth:
     # 推荐：部署方配置一次 Google OAuth Client，最终用户只需要打开授权 URL 点 Allow。
     # Google Cloud Console 中创建 OAuth Client 时使用 Web application，并把下面 callback URL

@@ -41,7 +41,6 @@ function initialInspectorWidth(): number {
 }
 
 interface WorkbenchShellProps {
-  topBar: React.ReactNode;
   nav: React.ReactNode;
   content: React.ReactNode;
   inspector: React.ReactNode;
@@ -51,7 +50,6 @@ interface WorkbenchShellProps {
 }
 
 export default function WorkbenchShell({
-  topBar,
   nav,
   content,
   inspector,
@@ -209,7 +207,6 @@ export default function WorkbenchShell({
         )}
 
         <main className="flex min-w-0 flex-1 flex-col bg-white">
-          {topBar}
           <div className="min-h-0 flex-1">{content}</div>
         </main>
         {inspector && (

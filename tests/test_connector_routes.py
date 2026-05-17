@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from interfaces.server.auth import verify_api_key
 from interfaces.server.routes import router, set_session_manager
+from ripple.connectors import registry
 from ripple.connectors.registry import codex_cli_login_status
 from ripple.sandbox.config import SandboxConfig
 from ripple.sandbox.manager import SandboxManager
@@ -44,6 +45,8 @@ def test_connector_list_exposes_supported_connector_names(tmp_path: Path):
     assert notion["disconnect_path"] == "/v1/connectors/notion/disconnect"
     google = next(connector for connector in connectors if connector["name"] == "google_workspace")
     assert google["accounts_path"] == "/v1/connectors/google_workspace/accounts"
+    feishu = next(connector for connector in connectors if connector["name"] == "feishu")
+    assert feishu["auth_complete_path"] == "/v1/connectors/feishu/auth/complete"
 
 
 def test_notion_connector_auth_start_binds_token_without_echoing_it(tmp_path: Path):
@@ -79,6 +82,58 @@ def test_notion_connector_disconnect_removes_token(tmp_path: Path):
     assert response.json()["ok"] is True
     assert response.json()["data"]["credential_removed"] is True
     assert sandbox_manager.config.has_notion_token("alice") is False
+
+
+def test_feishu_connector_auth_start_returns_device_flow_url(tmp_path: Path, monkeypatch):
+    client, sandbox_manager = _client(tmp_path)
+    sandbox_manager.config.lark_cli_bin = str(tmp_path / "lark-cli")
+
+    async def fake_ensure_lark_cli_config(config, user_id):
+        assert user_id == "alice"
+        return True, ""
+
+    async def fake_start_lark_user_auth(config, user_id):
+        assert user_id == "alice"
+        return True, {
+            "oauth_url": "https://accounts.feishu.cn/device",
+            "device_code": "device-123",
+            "expires_in_seconds": 600,
+        }
+
+    monkeypatch.setattr(registry, "ensure_lark_cli_config", fake_ensure_lark_cli_config)
+    monkeypatch.setattr(registry, "start_lark_user_auth", fake_start_lark_user_auth, raising=False)
+
+    response = client.post("/v1/connectors/feishu/auth/start", json={})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["name"] == "feishu"
+    assert body["ok"] is True
+    assert body["stage"] == "awaiting_user_auth"
+    assert body["data"]["oauth_url"] == "https://accounts.feishu.cn/device"
+    assert body["data"]["device_code"] == "device-123"
+
+
+def test_feishu_connector_auth_complete_exchanges_device_code(tmp_path: Path, monkeypatch):
+    client, sandbox_manager = _client(tmp_path)
+    sandbox_manager.config.lark_cli_bin = str(tmp_path / "lark-cli")
+    captured: dict[str, str] = {}
+
+    async def fake_complete_lark_user_auth(config, user_id, device_code):
+        captured["user_id"] = user_id
+        captured["device_code"] = device_code
+        return True, "authorized"
+
+    monkeypatch.setattr(registry, "complete_lark_user_auth", fake_complete_lark_user_auth, raising=False)
+
+    response = client.post("/v1/connectors/feishu/auth/complete", json={"device_code": "device-123"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["name"] == "feishu"
+    assert body["ok"] is True
+    assert body["stage"] == "authorized"
+    assert captured == {"user_id": "alice", "device_code": "device-123"}
 
 
 def test_connector_status_reads_current_user_sandbox_credentials(tmp_path: Path):

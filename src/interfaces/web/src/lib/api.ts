@@ -21,9 +21,13 @@ import {
   DocumentInfo,
   DocumentListResponse,
   UserQuotaStatus,
+  WorkspaceAttachmentResponse,
+  WorkspaceEntry,
   WorkspaceFilePreview,
   WorkspaceListing,
+  WorkspaceSearchResponse,
 } from "@/types";
+import { buildChatMessageContent, type ChatFileRef } from "@/lib/chatInput";
 
 function getApiUrl(): string {
   if (import.meta.env.VITE_RIPPLE_API_URL) {
@@ -118,6 +122,16 @@ function authHeaders(): Record<string, string> {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+async function responseDetail(res: Response): Promise<string> {
+  try {
+    const body = (await res.clone().json()) as unknown;
+    if (isRecord(body) && typeof body.detail === "string") return body.detail;
+  } catch {
+    /* ignore parse error */
+  }
+  return "";
 }
 
 function parseTaskStatus(value: unknown): TaskInfo["status"] {
@@ -281,6 +295,20 @@ export async function deleteTask(taskId: string): Promise<boolean> {
   }
 }
 
+export async function clearTaskContext(taskId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_URL}/tasks/${encodeURIComponent(taskId)}/context/clear`, {
+      method: "POST",
+      headers: { ...authHeaders() },
+    });
+    if (res.status === 401) throw new AuthError();
+    return res.ok;
+  } catch (error) {
+    if (error instanceof AuthError) throw error;
+    return false;
+  }
+}
+
 export async function stopSession(sessionId: string): Promise<boolean> {
   try {
     const res = await fetch(`${API_URL}/sessions/${sessionId}/stop`, {
@@ -365,7 +393,7 @@ export async function sendChatMessage(
     onComplete: () => void;
     onError: (error: Error) => void;
   },
-  options?: { signal?: AbortSignal }
+  options?: { signal?: AbortSignal; files?: ChatFileRef[] }
 ) {
   let completed = false;
   const markComplete = () => {
@@ -402,7 +430,9 @@ export async function sendChatMessage(
       },
       body: JSON.stringify({
         model,
-        messages: [{ role: "user", content }],
+        messages: [
+          { role: "user", content: buildChatMessageContent(content, options?.files || []) },
+        ],
         stream: true,
         session_id: sessionId,
       }),
@@ -707,6 +737,39 @@ export async function fetchWorkspaceListing(
   return (await res.json()) as WorkspaceListing;
 }
 
+export interface WorkspaceSearchOptions {
+  limit?: number;
+  scope?: "all" | "name" | "content";
+  kind?: "all" | "file" | "directory";
+  fileType?: "all" | "code" | "markdown" | "text" | "image";
+  includeHidden?: boolean;
+  maxFileBytes?: number;
+}
+
+export async function searchWorkspaceFiles(
+  query: string,
+  options: WorkspaceSearchOptions | number = {}
+): Promise<WorkspaceEntry[]> {
+  const normalizedOptions: WorkspaceSearchOptions =
+    typeof options === "number" ? { limit: options } : options;
+  const qs = new URLSearchParams({
+    q: query,
+    limit: String(normalizedOptions.limit ?? 20),
+    scope: normalizedOptions.scope ?? "all",
+    kind: normalizedOptions.kind ?? "all",
+    file_type: normalizedOptions.fileType ?? "all",
+    include_hidden: String(normalizedOptions.includeHidden ?? false),
+    max_file_bytes: String(normalizedOptions.maxFileBytes ?? 1024 * 1024),
+  });
+  const res = await fetch(`${API_URL}/workspace/search?${qs.toString()}`, {
+    headers: { ...authHeaders() },
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) throw new Error(`Failed to search workspace (${res.status})`);
+  const body = (await res.json()) as WorkspaceSearchResponse;
+  return body.entries || [];
+}
+
 export async function fetchWorkspaceFilePreview(
   path: string,
   limit: number = 64 * 1024
@@ -718,6 +781,45 @@ export async function fetchWorkspaceFilePreview(
   if (res.status === 401) throw new AuthError();
   if (!res.ok) throw new Error(`Failed to preview file (${res.status})`);
   return (await res.json()) as WorkspaceFilePreview;
+}
+
+export async function uploadWorkspaceAttachment(file: File): Promise<WorkspaceAttachmentResponse> {
+  const body = new FormData();
+  body.append("file", file);
+  body.append("kind", file.type.startsWith("image/") ? "image" : "attachment");
+
+  const res = await fetch(`${API_URL}/workspace/attachments`, {
+    method: "POST",
+    headers: { ...authHeaders() },
+    body,
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) throw new Error(`Failed to upload attachment (${res.status})`);
+  return (await res.json()) as WorkspaceAttachmentResponse;
+}
+
+export async function renameWorkspaceEntry(path: string, name: string): Promise<WorkspaceEntry> {
+  const res = await fetch(`${API_URL}/workspace/rename`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ path, name }),
+  });
+  if (res.status === 401) throw new AuthError();
+  if (res.status === 404) {
+    const detail = await responseDetail(res);
+    if (detail === "Not Found") {
+      throw new Error("Workspace rename API is unavailable. Restart Ripple server.");
+    }
+    if (detail.includes("Sandbox for user")) {
+      throw new Error("Workspace is not ready for this user.");
+    }
+    throw new Error("File or folder no longer exists. Refresh workspace.");
+  }
+  if (res.status === 409) {
+    throw new Error("A file or folder with that name already exists.");
+  }
+  if (!res.ok) throw new Error(`Failed to rename entry (${res.status})`);
+  return (await res.json()) as WorkspaceEntry;
 }
 
 export async function saveWorkspaceFile(

@@ -31,7 +31,7 @@ from ripple.sandbox.bilibili import (
 from ripple.sandbox.bilibili_gate import acquire_gate, release_gate
 from ripple.sandbox.config import GOGCLI_CLI_SANDBOX_BIN, SandboxConfig
 from ripple.sandbox.executor import execute_in_sandbox
-from ripple.sandbox.feishu import ensure_lark_cli_config
+from ripple.sandbox.feishu import complete_lark_user_auth, ensure_lark_cli_config, start_lark_user_auth
 from ripple.sandbox.gogcli import (
     GOGCLI_BASIC_SERVICES_ARG,
     configured_gogcli_client_secret_json,
@@ -45,7 +45,7 @@ from ripple.sandbox.gogcli_oauth import (
 )
 from ripple.sandbox.gogcli_registration import GogcliClientRegistrationError, register_gogcli_client_config
 from ripple.sandbox.notion import write_notion_token
-from ripple.sandbox.nsjail_config import write_nsjail_config
+from ripple.sandbox.nsjail_config import build_nsjail_argv, write_nsjail_config
 from ripple.utils.logger import get_logger
 
 logger = get_logger("connectors.registry")
@@ -53,6 +53,54 @@ logger = get_logger("connectors.registry")
 _GOOGLE_OAUTH_URL_RE = re.compile(r"https://accounts\.google\.com/o/oauth2/[^\s]+")
 _GOOGLE_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _GOOGLE_CALLBACK_URL_RE = re.compile(r"^https?://[^\s]+\?[^\s]+$")
+
+
+def feishu_cli_login_status(config: SandboxConfig, user_id: str) -> tuple[bool, str, dict[str, Any]]:
+    """Check whether lark-cli has a configured app and a user login."""
+    if not config.lark_cli_bin:
+        return False, "lark-cli is not installed for this server.", {"has_app_config": False}
+    has_app_config = config.has_lark_cli_config(user_id)
+    if not has_app_config:
+        return False, "Feishu CLI app configuration is missing for this user.", {"has_app_config": False}
+
+    try:
+        write_nsjail_config(config, user_id)
+        proc = subprocess.run(
+            build_nsjail_argv(config, user_id, "lark-cli auth status 2>&1"),
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return False, f"Feishu auth status check failed: {exc}", {"has_app_config": True}
+
+    output = (proc.stdout or "") + "\n" + (proc.stderr or "")
+    metadata: dict[str, Any] = {"has_app_config": True}
+    try:
+        parsed = json.loads(output)
+    except json.JSONDecodeError:
+        parsed = None
+    if isinstance(parsed, dict):
+        for source, target in (
+            ("identity", "identity"),
+            ("open_id", "open_id"),
+            ("openId", "open_id"),
+            ("userOpenId", "open_id"),
+            ("tenant_key", "tenant_key"),
+            ("tenantKey", "tenant_key"),
+        ):
+            value = parsed.get(source)
+            if isinstance(value, str) and value:
+                metadata[target] = value
+        error = parsed.get("error")
+        if parsed.get("ok") is False:
+            message = error.get("message") if isinstance(error, dict) else ""
+            return False, message or "Feishu user authorization is missing.", metadata
+    if proc.returncode == 0:
+        return True, "Feishu user authorization is ready.", metadata
+    detail = output.strip()[-500:] or "Feishu user authorization is missing."
+    return False, detail, metadata
 
 
 def _shq(s: str) -> str:
@@ -312,24 +360,24 @@ class FeishuConnector(BaseConnector):
             ConnectorInfo(
                 name="feishu",
                 display_name="Feishu",
-                description="Feishu/Lark CLI access through per-user app credentials.",
+                description="Feishu/Lark access through browser authorization.",
                 auth_type="oauth",
                 auth_start_path=_connector_path("feishu", "auth/start"),
+                auth_complete_path=_connector_path("feishu", "auth/complete"),
                 disconnect_path=_connector_path("feishu", "disconnect"),
             )
         )
 
     def status(self, config: SandboxConfig, user_id: str) -> ConnectorStatus:
-        connected = config.has_lark_cli_config(user_id)
+        connected, detail, metadata = feishu_cli_login_status(config, user_id)
         seed_file = config.feishu_config_file(user_id)
+        metadata = {**metadata, "has_seed_credentials": seed_file.exists()}
         return ConnectorStatus(
             name=self.info.name,
             connected=connected,
             required=not connected,
-            detail="Feishu CLI is configured for this user."
-            if connected
-            else "Feishu CLI is not configured for this user.",
-            metadata={"has_seed_credentials": seed_file.exists()},
+            detail=detail,
+            metadata=metadata,
         )
 
     async def auth_start(
@@ -361,22 +409,53 @@ class FeishuConnector(BaseConnector):
 
         ok, msg = await ensure_lark_cli_config(config, user_id)
         write_nsjail_config(config, user_id)
+        if msg.startswith("http://") or msg.startswith("https://"):
+            return ConnectorActionResult(
+                self.info.name,
+                True,
+                "awaiting_setup",
+                "Open the setup URL to finish Feishu configuration.",
+                {"setup_url": msg},
+            )
+        if not ok:
+            return ConnectorActionResult(self.info.name, False, "auth_failed", msg)
+
+        auth_ok, data = await start_lark_user_auth(config, user_id)
+        if not auth_ok:
+            return ConnectorActionResult(
+                self.info.name,
+                False,
+                "auth_failed",
+                str(data.get("error") or "Failed to start Feishu user authorization."),
+            )
+        return ConnectorActionResult(
+            self.info.name,
+            True,
+            "awaiting_user_auth",
+            "Open oauth_url in a browser, finish Feishu authorization, then complete the auth flow.",
+            data,
+        )
+
+    async def auth_complete(
+        self,
+        config: SandboxConfig,
+        user_id: str,
+        payload: dict[str, Any],
+    ) -> ConnectorActionResult:
+        device_code = str(payload.get("device_code") or "").strip()
+        if not device_code:
+            return ConnectorActionResult(self.info.name, False, "invalid_request", "device_code is required.")
+        ok, msg = await complete_lark_user_auth(config, user_id, device_code)
+        write_nsjail_config(config, user_id)
         if ok:
             return ConnectorActionResult(
                 self.info.name,
                 True,
                 "authorized",
-                "Feishu CLI configuration is ready for this user.",
+                "Feishu user authorization completed for this user.",
             )
-        if msg.startswith("http://") or msg.startswith("https://"):
-            return ConnectorActionResult(
-                self.info.name,
-                True,
-                "awaiting_user",
-                "Open the setup URL to finish Feishu configuration.",
-                {"setup_url": msg},
-            )
-        return ConnectorActionResult(self.info.name, False, "auth_failed", msg)
+        stage = "pending" if "pending" in msg.lower() or "not yet" in msg.lower() else "auth_failed"
+        return ConnectorActionResult(self.info.name, stage == "pending", stage, msg)
 
     async def disconnect(
         self,

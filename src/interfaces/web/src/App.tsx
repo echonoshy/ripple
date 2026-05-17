@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { AlertTriangle, KeyRound } from "lucide-react";
 import { Message, UsageInfo, TaskDetail, TaskInfo, TaskProgress, TaskSummary } from "@/types";
 import {
+  clearTaskContext,
   createTask,
   sendChatMessage,
   stopTask,
@@ -16,6 +17,8 @@ import {
   fetchTaskDetails,
   deleteTask,
   resolveTaskPermissionRequest,
+  searchWorkspaceFiles,
+  uploadWorkspaceAttachment,
 } from "@/lib/api";
 import RippleIcon from "@/components/icons/RippleIcon";
 import SettingsModal from "@/components/SettingsModal";
@@ -26,8 +29,8 @@ import InspectorPanel from "@/components/workbench/InspectorPanel";
 import MobileTabBar from "@/components/workbench/MobileTabBar";
 import TaskPage from "@/components/workbench/TaskPage";
 import WorkbenchShell from "@/components/workbench/WorkbenchShell";
-import WorkbenchTopBar from "@/components/workbench/WorkbenchTopBar";
 import WorkspaceNav from "@/components/workbench/WorkspaceNav";
+import { describeChatFilesForDisplay, type ChatFileRef } from "@/lib/chatInput";
 import { applyTaskPlanUpdate, applyTaskUpdate, upsertTask } from "@/lib/chatState";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { bumpInputFocusToken } from "@/lib/inputFocus";
@@ -42,7 +45,7 @@ import {
   extractChangedFilePaths,
   messagesToTimelineEvents,
 } from "@/lib/workbench";
-import { shouldShowInspector, viewTitle, type WorkspaceView } from "@/lib/workspaceViews";
+import { shouldShowInspector, type WorkspaceView } from "@/lib/workspaceViews";
 
 export default function Home() {
   // ── Auth state ──
@@ -56,6 +59,7 @@ export default function Home() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
+  const [pendingFiles, setPendingFiles] = useState<ChatFileRef[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [taskSummaries, setTaskSummaries] = useState<TaskSummary[]>([]);
   const [isLoadingTasks, setIsLoadingTasks] = useState(false);
@@ -63,7 +67,7 @@ export default function Home() {
   // ── Model state ──
   const [models, setModels] = useState<{ id: string; owned_by: string }[]>([]);
   const [selectedModel, setSelectedModel] = useState("codex-medium");
-  const [openModelDropdown, setOpenModelDropdown] = useState<"topbar" | "composer" | null>(null);
+  const [openModelDropdown, setOpenModelDropdown] = useState<"composer" | null>(null);
 
   // ── User identity ──
   const [userId, setUserIdState] = useState<string>(() => getUserId());
@@ -118,6 +122,7 @@ export default function Home() {
       activeRequestIdRef.current += 1;
       setSessionId(null);
       setMessages([]);
+      setPendingFiles([]);
       setTaskSummaries([]);
       setTaskSteps([]);
       setTaskProgress(null);
@@ -137,6 +142,7 @@ export default function Home() {
     setSessionId(details.session_id);
     setSelectedModel(details.model);
     setMessages(mapBackendMessages(details));
+    setPendingFiles([]);
     setTokenUsage({ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
     setLastContextTokens(0);
     setTaskSteps([]);
@@ -229,6 +235,7 @@ export default function Home() {
   const handleNewTask = async () => {
     if (isGenerating) return;
     setMessages([]);
+    setPendingFiles([]);
     setTokenUsage({ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
     setLastContextTokens(0);
     setTaskSteps([]);
@@ -261,6 +268,7 @@ export default function Home() {
       if (id === sessionId) {
         setSessionId(null);
         setMessages([]);
+        setPendingFiles([]);
         setTaskSteps([]);
         setTaskProgress(null);
       }
@@ -279,11 +287,93 @@ export default function Home() {
     setInputFocusToken((prev) => bumpInputFocusToken(prev));
   }, [sessionId]);
 
+  const resetCurrentContextView = useCallback(() => {
+    setMessages([]);
+    setPendingFiles([]);
+    setInput("");
+    setTaskSteps([]);
+    setTaskProgress(null);
+    setTokenUsage({ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
+    setLastContextTokens(0);
+  }, []);
+
+  const handleClearContext = useCallback(async () => {
+    if (isGenerating) return;
+    try {
+      if (sessionId) {
+        const ok = await clearTaskContext(sessionId);
+        if (!ok) throw new Error("Failed to clear task context");
+      }
+      resetCurrentContextView();
+      setInputFocusToken((prev) => bumpInputFocusToken(prev));
+      await loadTasks();
+    } catch (err) {
+      if (err instanceof AuthError) {
+        clearApiKey();
+        setAuthState("needs_auth");
+        setAuthErrorMsg("API Key 已失效");
+        clearStoredCurrentSessionId();
+        return;
+      }
+      console.error("Clear context error:", err);
+    }
+  }, [isGenerating, loadTasks, resetCurrentContextView, sessionId]);
+
+  const handleAttachFiles = useCallback(
+    async (files: File[]) => {
+      if (isGenerating || files.length === 0) return;
+      try {
+        const uploaded = await Promise.all(files.map((file) => uploadWorkspaceAttachment(file)));
+        setPendingFiles((prev) => {
+          const next = new Map(prev.map((file) => [file.path, file]));
+          for (const file of uploaded) {
+            next.set(file.path, {
+              path: file.path,
+              name: file.name,
+              mime_type: file.mime_type,
+              kind: file.kind,
+            });
+          }
+          return [...next.values()];
+        });
+        setWorkspaceRefreshToken((prev) => prev + 1);
+        setInputFocusToken((prev) => bumpInputFocusToken(prev));
+      } catch (err) {
+        if (err instanceof AuthError) {
+          clearApiKey();
+          setAuthState("needs_auth");
+          setAuthErrorMsg("API Key 已失效");
+          clearStoredCurrentSessionId();
+          return;
+        }
+        console.error("Attachment upload error:", err);
+      }
+    },
+    [isGenerating]
+  );
+
+  const handleAddWorkspaceFile = useCallback((file: ChatFileRef) => {
+    setPendingFiles((prev) => {
+      if (prev.some((item) => item.path === file.path)) return prev;
+      return [...prev, file];
+    });
+    setInputFocusToken((prev) => bumpInputFocusToken(prev));
+  }, []);
+
+  const handleRemovePendingFile = useCallback((path: string) => {
+    setPendingFiles((prev) => prev.filter((file) => file.path !== path));
+  }, []);
+
   // ── Send message ──
   const handleSendMessage = useCallback(
     async (overrideText?: string) => {
       const text = typeof overrideText === "string" ? overrideText.trim() : input.trim();
-      if (!text || isGenerating) return;
+      const filesForSend = typeof overrideText === "string" ? [] : pendingFiles;
+      if (text === "/clear") {
+        await handleClearContext();
+        return;
+      }
+      if ((!text && filesForSend.length === 0) || isGenerating) return;
       const requestId = activeRequestIdRef.current + 1;
       activeRequestIdRef.current = requestId;
       abortControllerRef.current?.abort();
@@ -309,12 +399,14 @@ export default function Home() {
       }
 
       const sentAt = new Date().toISOString();
+      const displayText = describeChatFilesForDisplay(text, filesForSend);
       setMessages((prev) => [
         ...prev,
-        { id: Date.now(), role: "user", content: text, created_at: sentAt },
+        { id: Date.now(), role: "user", content: displayText, created_at: sentAt },
         { id: Date.now() + 1, role: "assistant", content: "", toolCalls: [] },
       ]);
       setInput("");
+      setPendingFiles([]);
       setIsGenerating(true);
 
       let currentContent = "";
@@ -499,10 +591,10 @@ export default function Home() {
             });
           },
         },
-        { signal: abortController.signal }
+        { signal: abortController.signal, files: filesForSend }
       );
     },
-    [input, isGenerating, sessionId, selectedModel, loadTasks]
+    [handleClearContext, input, isGenerating, loadTasks, pendingFiles, selectedModel, sessionId]
   );
 
   const handleQuickReply = useCallback(
@@ -585,13 +677,9 @@ export default function Home() {
       ? [inferredCurrentTask, ...workbenchTasks]
       : workbenchTasks;
   const timelineEvents = useMemo(() => messagesToTimelineEvents(messages), [messages]);
-  const pendingApprovalCount = messages.some((message) => Boolean(message.permissionRequest))
-    ? 1
-    : selectedWorkbenchTask?.pendingApprovalCount || 0;
   const pendingPermission =
     [...messages].reverse().find((message) => message.permissionRequest)?.permissionRequest || null;
   const changedFiles = useMemo(() => extractChangedFilePaths(messages), [messages]);
-  const isContextWarning = lastContextTokens > 150_000;
   const mainContent =
     activeView === "home" ? (
       <HomePage
@@ -616,12 +704,20 @@ export default function Home() {
         tokenUsage={tokenUsage}
         lastContextTokens={lastContextTokens}
         input={input}
+        pendingFiles={pendingFiles}
         isGenerating={isGenerating}
         focusToken={inputFocusToken}
         selectedModel={selectedModel}
         models={models}
         isModelDropdownOpen={openModelDropdown === "composer"}
+        sessionId={sessionId}
+        sessionIdCopied={sessionIdCopied}
         onInputChange={setInput}
+        onClearContext={handleClearContext}
+        onAttachFiles={handleAttachFiles}
+        onSearchWorkspaceFiles={searchWorkspaceFiles}
+        onAddWorkspaceFile={handleAddWorkspaceFile}
+        onRemovePendingFile={handleRemovePendingFile}
         onToggleModelDropdown={() =>
           setOpenModelDropdown((open) => (open === "composer" ? null : "composer"))
         }
@@ -629,6 +725,7 @@ export default function Home() {
           setSelectedModel(model);
           setOpenModelDropdown(null);
         }}
+        onCopySessionId={handleCopySessionId}
         onSend={handleSendMessage}
         onStop={handleStop}
         onQuickReply={handleQuickReply}
@@ -701,32 +798,6 @@ export default function Home() {
       <WorkbenchShell
         isNavOpen={isSidebarOpen}
         onCloseNav={() => setIsSidebarOpen(false)}
-        topBar={
-          <WorkbenchTopBar
-            taskTitle={
-              activeView === "tasks"
-                ? selectedWorkbenchTask?.title || "Ripple"
-                : viewTitle(activeView)
-            }
-            selectedModel={selectedModel}
-            models={models}
-            isModelDropdownOpen={openModelDropdown === "topbar"}
-            onToggleModelDropdown={() =>
-              setOpenModelDropdown((open) => (open === "topbar" ? null : "topbar"))
-            }
-            onSelectModel={(model) => {
-              setSelectedModel(model);
-              setOpenModelDropdown(null);
-            }}
-            tokenUsage={tokenUsage}
-            isContextWarning={isContextWarning}
-            sessionId={sessionId}
-            sessionIdCopied={sessionIdCopied}
-            pendingApprovalCount={pendingApprovalCount}
-            onCopySessionId={handleCopySessionId}
-            onOpenNav={() => setIsSidebarOpen(true)}
-          />
-        }
         nav={
           <WorkspaceNav
             tasks={displayWorkbenchTasks}
@@ -967,10 +1038,35 @@ function extractText(content: unknown): string {
     return content;
   }
   if (Array.isArray(content)) {
-    return (content as Array<{ type: string; text?: string }>)
-      .filter((c) => c.type === "text")
-      .map((c) => c.text || "")
-      .join("\n");
+    const textParts: string[] = [];
+    const fileParts: string[] = [];
+    for (const item of content) {
+      if (!isRecord(item)) continue;
+      if (item.type === "text" && typeof item.text === "string") {
+        textParts.push(item.text);
+        continue;
+      }
+      if (
+        (item.type === "file" || item.type === "attachment" || item.type === "localImage") &&
+        isRecord(item.file)
+      ) {
+        const name = typeof item.file.name === "string" ? item.file.name : "file";
+        const path = typeof item.file.path === "string" ? item.file.path : "";
+        fileParts.push(path ? `- ${name} (${path})` : `- ${name}`);
+        continue;
+      }
+      if (item.type === "attachment" || item.type === "localImage") {
+        const name = typeof item.name === "string" ? item.name : "file";
+        const path = typeof item.path === "string" ? item.path : "";
+        fileParts.push(path ? `- ${name} (${path})` : `- ${name}`);
+      }
+    }
+    return [
+      textParts.join("\n"),
+      fileParts.length ? `Attached files:\n${fileParts.join("\n")}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
   }
   return content ? JSON.stringify(content) : "";
 }

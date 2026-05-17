@@ -21,10 +21,26 @@ export function needsCallbackInput(action: ConnectorActionResponse | null | unde
   return action?.stage === "awaiting_user_callback_url";
 }
 
+export function needsDeviceFlowComplete(
+  action: ConnectorActionResponse | null | undefined
+): boolean {
+  const deviceCode = actionDataString(action, "device_code");
+  return action?.stage === "awaiting_user_auth" && deviceCode.length > 0;
+}
+
+export function actionUrl(action: ConnectorActionResponse | null | undefined): string {
+  return actionDataString(action, "oauth_url") || actionDataString(action, "setup_url");
+}
+
 export function actionDataString(
   action: ConnectorActionResponse | null | undefined,
   key: string
 ): string {
   const value = action?.data?.[key];
   return typeof value === "string" ? value : "";
+}
+
+export function extractFeishuDeviceCode(text: string): string {
+  const match = text.match(/(?:device[_\s-]*code|设备码|授权码)\s*[:：]\s*([A-Za-z0-9._-]+)/i);
+  return match?.[1] || "";
 }

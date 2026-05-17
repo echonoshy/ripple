@@ -38,12 +38,114 @@ def test_workspace_route_lists_current_user_workspace(tmp_path: Path):
     assert [entry["name"] for entry in body["entries"]] == ["src", "README.md"]
 
 
-def test_workspace_route_returns_404_before_sandbox_exists(tmp_path: Path):
-    client, _sandbox_manager = _client(tmp_path)
+def test_workspace_route_creates_empty_workspace_before_sandbox_exists(tmp_path: Path):
+    client, sandbox_manager = _client(tmp_path)
 
     response = client.get("/v1/workspace")
 
+    assert response.status_code == 200
+    body = response.json()
+    assert body["path"] == "/workspace"
+    assert body["entries"] == []
+    assert sandbox_manager.config.workspace_dir("alice").is_dir()
+
+
+def test_workspace_search_route_returns_matching_files(tmp_path: Path):
+    client, sandbox_manager = _client(tmp_path)
+    workspace = sandbox_manager.ensure_sandbox("alice")
+    (workspace / "src").mkdir()
+    (workspace / "src" / "TaskComposer.tsx").write_text("export default null", encoding="utf-8")
+    (workspace / "README.md").write_text("# Hello", encoding="utf-8")
+
+    response = client.get("/v1/workspace/search", params={"q": "composer"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["query"] == "composer"
+    assert body["count"] == 1
+    assert body["entries"][0]["path"] == "/workspace/src/TaskComposer.tsx"
+
+
+def test_workspace_search_route_accepts_filter_params(tmp_path: Path):
+    client, sandbox_manager = _client(tmp_path)
+    workspace = sandbox_manager.ensure_sandbox("alice")
+    (workspace / "src").mkdir()
+    (workspace / "docs").mkdir()
+    (workspace / "src" / "app.ts").write_text("shared needle", encoding="utf-8")
+    (workspace / "docs" / "guide.md").write_text("shared needle", encoding="utf-8")
+
+    response = client.get(
+        "/v1/workspace/search",
+        params={"q": "shared", "scope": "content", "file_type": "markdown"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [entry["path"] for entry in body["entries"]] == ["/workspace/docs/guide.md"]
+
+
+def test_workspace_search_route_creates_empty_workspace_before_sandbox_exists(tmp_path: Path):
+    client, sandbox_manager = _client(tmp_path)
+
+    response = client.get("/v1/workspace/search", params={"q": "anything"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["query"] == "anything"
+    assert body["count"] == 0
+    assert body["entries"] == []
+    assert sandbox_manager.config.workspace_dir("alice").is_dir()
+
+
+def test_workspace_rename_route_supports_files_and_directories(tmp_path: Path):
+    client, sandbox_manager = _client(tmp_path)
+    workspace = sandbox_manager.ensure_sandbox("alice")
+    (workspace / "notes.txt").write_text("hello", encoding="utf-8")
+    (workspace / "drafts").mkdir()
+
+    file_response = client.post(
+        "/v1/workspace/rename",
+        json={"path": "/workspace/notes.txt", "name": "README.md"},
+    )
+    dir_response = client.post(
+        "/v1/workspace/rename",
+        json={"path": "/workspace/drafts", "name": "docs"},
+    )
+
+    assert file_response.status_code == 200
+    assert file_response.json()["path"] == "/workspace/README.md"
+    assert (workspace / "README.md").read_text(encoding="utf-8") == "hello"
+    assert dir_response.status_code == 200
+    assert dir_response.json()["path"] == "/workspace/docs"
+    assert (workspace / "docs").is_dir()
+
+
+def test_workspace_rename_route_rejects_conflicting_names(tmp_path: Path):
+    client, sandbox_manager = _client(tmp_path)
+    workspace = sandbox_manager.ensure_sandbox("alice")
+    (workspace / "notes.txt").write_text("hello", encoding="utf-8")
+    (workspace / "README.md").write_text("existing", encoding="utf-8")
+
+    response = client.post(
+        "/v1/workspace/rename",
+        json={"path": "/workspace/notes.txt", "name": "README.md"},
+    )
+
+    assert response.status_code == 409
+    assert (workspace / "notes.txt").read_text(encoding="utf-8") == "hello"
+
+
+def test_workspace_rename_route_creates_workspace_before_reporting_missing_path(tmp_path: Path):
+    client, sandbox_manager = _client(tmp_path)
+
+    response = client.post(
+        "/v1/workspace/rename",
+        json={"path": "/workspace/missing.txt", "name": "README.md"},
+    )
+
     assert response.status_code == 404
+    assert response.json()["detail"] == "Path not found"
+    assert sandbox_manager.config.workspace_dir("alice").is_dir()
 
 
 def test_workspace_file_route_previews_text(tmp_path: Path):

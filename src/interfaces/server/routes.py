@@ -56,7 +56,10 @@ from interfaces.server.schemas import (
     UserQuotaStatusResponse,
     UserQuotaUpdateRequest,
     WorkspaceAttachmentResponse,
+    WorkspaceEntry,
     WorkspaceFileSaveRequest,
+    WorkspaceRenameRequest,
+    WorkspaceSearchResponse,
 )
 from interfaces.server.sessions import Session, SessionManager, SessionStatus, _merge_system_prompt
 from interfaces.server.workspace_browser import (
@@ -65,7 +68,9 @@ from interfaces.server.workspace_browser import (
     WorkspaceFileTooLargeError,
     browse_workspace_directory,
     preview_workspace_file,
+    rename_workspace_entry,
     save_workspace_text_file,
+    search_workspace_files,
 )
 from ripple.agent_runners.job_store import find_user_job_record, list_user_job_records
 from ripple.agent_runners.manager import get_external_agent_manager
@@ -238,6 +243,24 @@ async def _resolve_session_permission(
         manager.persist_session(session)
 
     return {"ok": True, "action": request.action, "forwarded": True}
+
+
+async def _clear_session_context(manager: SessionManager, session: Session) -> None:
+    async with session.lock:
+        if session.current_task and not session.current_task.done():
+            raise HTTPException(status_code=409, detail="Task is currently running")
+
+        session.messages.clear()
+        session.model_messages.clear()
+        session.pending_question = None
+        session.pending_options = None
+        session.pending_permission_request = None
+        session.last_input_tokens = 0
+        session.total_input_tokens = 0
+        session.total_output_tokens = 0
+        session.status = SessionStatus.IDLE
+        manager.touch_session(session)
+        manager.persist_session(session)
 
 
 # ─── Health ───
@@ -592,6 +615,20 @@ async def delete_task(
     return {"ok": True, "task_id": task_id, "session_id": task_id}
 
 
+@router.post("/v1/tasks/{task_id}/context/clear")
+async def clear_task_context(
+    task_id: str,
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+):
+    manager = get_session_manager()
+    session = _get_or_resume_task_session(manager, task_id, user_id=user_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Task not found")
+    await _clear_session_context(manager, session)
+    return {"ok": True, "task_id": task_id, "session_id": task_id, "message_count": len(session.messages)}
+
+
 @router.post("/v1/tasks/{task_id}/stop")
 async def stop_task(
     task_id: str,
@@ -766,6 +803,22 @@ async def delete_session(
     if not manager.delete_session(session_id, user_id=user_id):
         raise HTTPException(status_code=404, detail="Session not found")
     return {"ok": True}
+
+
+@router.post("/v1/sessions/{session_id}/context/clear")
+async def clear_session_context(
+    session_id: str,
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+):
+    manager = get_session_manager()
+    session = manager.get_session(session_id, user_id=user_id)
+    if not session:
+        session = manager.resume_session(session_id, user_id=user_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    await _clear_session_context(manager, session)
+    return {"ok": True, "session_id": session_id, "message_count": len(session.messages)}
 
 
 # ─── Session Suspend / Resume ───
@@ -1424,9 +1477,7 @@ async def list_workspace(
     if not manager.sandbox_manager:
         raise HTTPException(status_code=500, detail="sandbox disabled")
 
-    workspace_root = manager.sandbox_manager.config.workspace_dir(user_id)
-    if not workspace_root.exists():
-        raise HTTPException(status_code=404, detail=f"Sandbox for user {user_id!r} not found")
+    workspace_root = manager.sandbox_manager.ensure_sandbox(user_id)
 
     try:
         return browse_workspace_directory(workspace_root, path)
@@ -1436,6 +1487,65 @@ async def list_workspace(
         raise HTTPException(status_code=404, detail="Path not found") from e
     except NotADirectoryError as e:
         raise HTTPException(status_code=400, detail="Path is not a directory") from e
+
+
+@router.get("/v1/workspace/search", response_model=WorkspaceSearchResponse)
+async def search_workspace(
+    q: str = Query(default="", max_length=200),
+    limit: int = Query(default=20, ge=1, le=50),
+    scope: str = Query(default="all"),
+    kind: str = Query(default="all"),
+    file_type: str = Query(default="all"),
+    include_hidden: bool = Query(default=False),
+    max_file_bytes: int = Query(default=1024 * 1024, ge=1, le=5 * 1024 * 1024),
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+):
+    """Search file paths in the current user's sandbox workspace."""
+    manager = get_session_manager()
+    if not manager.sandbox_manager:
+        raise HTTPException(status_code=500, detail="sandbox disabled")
+
+    workspace_root = manager.sandbox_manager.ensure_sandbox(user_id)
+
+    try:
+        return search_workspace_files(
+            workspace_root,
+            q,
+            limit=limit,
+            scope=scope,
+            kind=kind,
+            file_type=file_type,
+            include_hidden=include_hidden,
+            max_file_bytes=max_file_bytes,
+        )
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail="Access denied") from e
+
+
+@router.post("/v1/workspace/rename", response_model=WorkspaceEntry)
+async def rename_workspace(
+    request: WorkspaceRenameRequest,
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+):
+    """Rename one file or directory in the current user's sandbox workspace."""
+    manager = get_session_manager()
+    if not manager.sandbox_manager:
+        raise HTTPException(status_code=500, detail="sandbox disabled")
+
+    workspace_root = manager.sandbox_manager.ensure_sandbox(user_id)
+
+    try:
+        return rename_workspace_entry(workspace_root, request.path, new_name=request.name)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail="Access denied") from e
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail="Path not found") from e
+    except FileExistsError as e:
+        raise HTTPException(status_code=409, detail="A file or folder with that name already exists") from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.get("/v1/workspace/file")

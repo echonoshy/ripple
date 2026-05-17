@@ -112,11 +112,18 @@ export interface WorkspaceEntry {
   size_bytes: number;
   modified_at: string;
   is_hidden: boolean;
+  mime_type?: string | null;
 }
 
 export interface WorkspaceListing {
   path: string;
   parent_path: string | null;
+  entries: WorkspaceEntry[];
+}
+
+export interface WorkspaceSearchResponse {
+  query: string;
+  count: number;
   entries: WorkspaceEntry[];
 }
 
@@ -129,6 +136,14 @@ export interface WorkspaceFilePreview {
   encoding: string;
   content: string;
   truncated: boolean;
+}
+
+export interface WorkspaceAttachmentResponse {
+  path: string;
+  name: string;
+  mime_type: string;
+  size: number;
+  kind: "image" | "attachment";
 }
 
 export interface AgentRunInfo {

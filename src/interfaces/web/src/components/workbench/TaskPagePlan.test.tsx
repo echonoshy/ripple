@@ -20,14 +20,23 @@ function renderTaskPageWithPlan() {
       tokenUsage={{ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }}
       lastContextTokens={0}
       input=""
+      pendingFiles={[]}
       isGenerating={false}
       focusToken={0}
       selectedModel="codex-medium"
       models={[{ id: "codex-medium", owned_by: "ripple" }]}
       isModelDropdownOpen={false}
+      sessionId="srv-plan"
+      sessionIdCopied={false}
       onInputChange={noop}
+      onClearContext={noop}
+      onAttachFiles={noop}
+      onSearchWorkspaceFiles={async () => []}
+      onAddWorkspaceFile={noop}
+      onRemovePendingFile={noop}
       onToggleModelDropdown={noop}
       onSelectModel={noop}
+      onCopySessionId={noop}
       onSend={noop}
       onStop={noop}
       onQuickReply={noop}

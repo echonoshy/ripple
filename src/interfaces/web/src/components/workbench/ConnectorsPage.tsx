@@ -22,10 +22,12 @@ import {
   startConnectorAuth,
 } from "@/lib/api";
 import {
+  actionUrl,
   actionDataString,
   connectorAuthMode,
   connectorStatusTone,
   needsCallbackInput,
+  needsDeviceFlowComplete,
 } from "@/lib/connectors";
 import type {
   ConnectorActionResponse,
@@ -48,11 +50,14 @@ function statusLabel(status: ConnectorStatus | null | undefined): string {
 
 function fieldLabel(connector: ConnectorInfo, key: string): string {
   if (connector.name === "google_workspace" && key === "email") return "Google account";
-  if (connector.name === "feishu" && key === "app_id") return "App ID";
-  if (connector.name === "feishu" && key === "app_secret") return "App secret";
   if (key === "token") return "Token";
   if (key === "callback_url") return "Callback URL";
   return key;
+}
+
+function openExternalUrl(url: string) {
+  if (typeof window === "undefined" || !url) return;
+  window.open(url, "_blank", "noopener,noreferrer");
 }
 
 export default function ConnectorsPage() {
@@ -107,15 +112,17 @@ export default function ConnectorsPage() {
   const runConnectorAction = async (
     connector: ConnectorInfo,
     action: () => Promise<ConnectorActionResponse>
-  ) => {
+  ): Promise<ConnectorActionResponse | null> => {
     setConnectorBusy(connector.name, true);
     setPageError(null);
     try {
       const result = await action();
       setActions((prev) => ({ ...prev, [connector.name]: result }));
       await loadConnectors();
+      return result;
     } catch (error) {
       setPageError(error instanceof Error ? error.message : String(error));
+      return null;
     } finally {
       setConnectorBusy(connector.name, false);
     }
@@ -130,13 +137,12 @@ export default function ConnectorsPage() {
     if (connector.name === "google_workspace") {
       payload.email = inputValue(inputs, connector.name, "email");
     }
-    if (connector.name === "feishu") {
-      const appId = inputValue(inputs, connector.name, "app_id");
-      const appSecret = inputValue(inputs, connector.name, "app_secret");
-      if (appId) payload.app_id = appId;
-      if (appSecret) payload.app_secret = appSecret;
+    const result = await runConnectorAction(connector, () =>
+      startConnectorAuth(connector.name, payload)
+    );
+    if (connector.name === "feishu" && result?.ok) {
+      openExternalUrl(actionUrl(result));
     }
-    await runConnectorAction(connector, () => startConnectorAuth(connector.name, payload));
   };
 
   const completeAuth = async (connector: ConnectorInfo) => {
@@ -150,6 +156,9 @@ export default function ConnectorsPage() {
     if (connector.name === "bilibili") {
       payload.qrcode_key = actionDataString(previous, "qrcode_key");
       payload.max_wait_seconds = 30;
+    }
+    if (connector.name === "feishu") {
+      payload.device_code = actionDataString(previous, "device_code");
     }
     await runConnectorAction(connector, () => completeConnectorAuth(connector.name, payload));
   };
@@ -201,8 +210,7 @@ export default function ConnectorsPage() {
             const tone = connectorStatusTone(status);
             const action = actions[connector.name] || null;
             const isBusy = busy[connector.name] || false;
-            const oauthUrl =
-              actionDataString(action, "oauth_url") || actionDataString(action, "setup_url");
+            const oauthUrl = actionUrl(action);
             const qrImageUrl = resolveBackendUrl(actionDataString(action, "qrcode_image_url"));
 
             return (
@@ -254,24 +262,6 @@ export default function ConnectorsPage() {
                       value={inputValue(inputs, connector.name, "email")}
                       onChange={setInput}
                     />
-                  )}
-
-                  {connector.name === "feishu" && (
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      <ConnectorField
-                        connector={connector}
-                        fieldKey="app_id"
-                        value={inputValue(inputs, connector.name, "app_id")}
-                        onChange={setInput}
-                      />
-                      <ConnectorField
-                        connector={connector}
-                        fieldKey="app_secret"
-                        type="password"
-                        value={inputValue(inputs, connector.name, "app_secret")}
-                        onChange={setInput}
-                      />
-                    </div>
                   )}
 
                   {needsCallbackInput(action) && (
@@ -359,6 +349,21 @@ export default function ConnectorsPage() {
                       </button>
                     )}
                     {connector.auth_complete_path && needsCallbackInput(action) && (
+                      <button
+                        type="button"
+                        onClick={() => void completeAuth(connector)}
+                        disabled={isBusy}
+                        className="inline-flex h-9 items-center gap-2 rounded-md border border-[#1a7f37]/30 bg-[#dafbe1] px-3 text-sm font-semibold text-[#1a7f37] hover:bg-[#c7f7d1] disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {isBusy ? (
+                          <Loader2 size={15} className="animate-spin" />
+                        ) : (
+                          <CheckCircle2 size={15} />
+                        )}
+                        Complete
+                      </button>
+                    )}
+                    {connector.auth_complete_path && needsDeviceFlowComplete(action) && (
                       <button
                         type="button"
                         onClick={() => void completeAuth(connector)}

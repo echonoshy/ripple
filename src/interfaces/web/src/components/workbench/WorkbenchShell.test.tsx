@@ -9,7 +9,6 @@ function noop() {}
 function renderShell() {
   return renderToStaticMarkup(
     <WorkbenchShell
-      topBar={<div>Top bar</div>}
       nav={<div>Navigation</div>}
       content={<div>Content</div>}
       inspector={null}
@@ -22,7 +21,6 @@ function renderShell() {
 function renderShellWithInspector() {
   return renderToStaticMarkup(
     <WorkbenchShell
-      topBar={<div>Top bar</div>}
       nav={<div>Navigation</div>}
       content={<div>Content</div>}
       inspector={<div>Inspector</div>}
@@ -63,6 +61,7 @@ function renderShellWithStoredInspectorWidth(storedValue: string) {
 function testDesktopNavigationDefaultsWiderAndResizable() {
   const html = renderShell();
 
+  assert.doesNotMatch(html, />Top bar</);
   assert.match(html, /style="width:300px"/);
   assert.match(html, /role="separator"/);
   assert.match(html, /aria-label="Resize navigation"/);

@@ -7,7 +7,9 @@ from interfaces.server.workspace_browser import (
     WorkspaceFileConflictError,
     browse_workspace_directory,
     preview_workspace_file,
+    rename_workspace_entry,
     save_workspace_text_file,
+    search_workspace_files,
 )
 
 
@@ -111,3 +113,89 @@ def test_save_workspace_text_file_rejects_stale_modified_at(tmp_path: Path):
         )
 
     assert target.read_text(encoding="utf-8") == "current"
+
+
+def test_search_workspace_files_matches_paths_and_skips_system_dirs(tmp_path: Path):
+    workspace = tmp_path / "workspace"
+    (workspace / "src" / "components").mkdir(parents=True)
+    (workspace / ".git").mkdir(parents=True)
+    (workspace / ".ripple" / "uploads").mkdir(parents=True)
+    (workspace / "node_modules" / "pkg").mkdir(parents=True)
+    (workspace / "src" / "components" / "TaskComposer.tsx").write_text("export {}", encoding="utf-8")
+    (workspace / ".git" / "TaskComposer.tsx").write_text("ignored", encoding="utf-8")
+    (workspace / ".ripple" / "uploads" / "TaskComposer.tsx").write_text("ignored", encoding="utf-8")
+    (workspace / "node_modules" / "pkg" / "TaskComposer.tsx").write_text("ignored", encoding="utf-8")
+
+    results = search_workspace_files(workspace, "taskcomposer")
+
+    assert [entry.path for entry in results.entries] == ["/workspace/src/components/TaskComposer.tsx"]
+    assert results.query == "taskcomposer"
+
+
+def test_search_workspace_files_supports_scope_type_and_hidden_filters(tmp_path: Path):
+    workspace = tmp_path / "workspace"
+    (workspace / "src").mkdir(parents=True)
+    (workspace / "docs").mkdir()
+    (workspace / ".hidden").mkdir()
+    (workspace / "src" / "notes.ts").write_text("needle in code", encoding="utf-8")
+    (workspace / "docs" / "notes.md").write_text("needle in markdown", encoding="utf-8")
+    (workspace / "image.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    (workspace / ".hidden" / "notes.txt").write_text("needle hidden", encoding="utf-8")
+
+    code_results = search_workspace_files(workspace, "needle", scope="content", file_type="code")
+    hidden_results = search_workspace_files(workspace, "needle", scope="content", include_hidden=True)
+    directory_results = search_workspace_files(workspace, "doc", scope="name", kind="directory")
+
+    assert [entry.path for entry in code_results.entries] == ["/workspace/src/notes.ts"]
+    assert [entry.path for entry in hidden_results.entries] == [
+        "/workspace/.hidden/notes.txt",
+        "/workspace/docs/notes.md",
+        "/workspace/src/notes.ts",
+    ]
+    assert [entry.path for entry in directory_results.entries] == ["/workspace/docs"]
+
+
+def test_rename_workspace_entry_supports_files_and_directories(tmp_path: Path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "notes.txt").write_text("hello", encoding="utf-8")
+    (workspace / "drafts").mkdir()
+
+    renamed_file = rename_workspace_entry(workspace, "/workspace/notes.txt", new_name="README.md")
+    renamed_dir = rename_workspace_entry(workspace, "/workspace/drafts", new_name="docs")
+
+    assert renamed_file.name == "README.md"
+    assert renamed_file.path == "/workspace/README.md"
+    assert (workspace / "README.md").read_text(encoding="utf-8") == "hello"
+    assert not (workspace / "notes.txt").exists()
+    assert renamed_dir.name == "docs"
+    assert renamed_dir.path == "/workspace/docs"
+    assert (workspace / "docs").is_dir()
+
+
+def test_rename_workspace_entry_rejects_conflicts_and_path_segments(tmp_path: Path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "notes.txt").write_text("hello", encoding="utf-8")
+    (workspace / "README.md").write_text("existing", encoding="utf-8")
+
+    with pytest.raises(FileExistsError):
+        rename_workspace_entry(workspace, "/workspace/notes.txt", new_name="README.md")
+
+    with pytest.raises(ValueError):
+        rename_workspace_entry(workspace, "/workspace/notes.txt", new_name="../escape.txt")
+
+    assert (workspace / "notes.txt").read_text(encoding="utf-8") == "hello"
+
+
+def test_rename_workspace_entry_is_idempotent_after_successful_duplicate_submit(tmp_path: Path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "notes.txt").write_text("hello", encoding="utf-8")
+
+    first = rename_workspace_entry(workspace, "/workspace/notes.txt", new_name="README.md")
+    second = rename_workspace_entry(workspace, "/workspace/notes.txt", new_name="README.md")
+
+    assert first.path == "/workspace/README.md"
+    assert second.path == "/workspace/README.md"
+    assert (workspace / "README.md").read_text(encoding="utf-8") == "hello"

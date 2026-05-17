@@ -218,11 +218,18 @@ class WorkspaceEntry(BaseModel):
     size_bytes: int
     modified_at: str
     is_hidden: bool = False
+    mime_type: str | None = None
 
 
 class WorkspaceListingResponse(BaseModel):
     path: str
     parent_path: str | None = None
+    entries: list[WorkspaceEntry] = Field(default_factory=list)
+
+
+class WorkspaceSearchResponse(BaseModel):
+    query: str
+    count: int = 0
     entries: list[WorkspaceEntry] = Field(default_factory=list)
 
 
@@ -241,6 +248,11 @@ class WorkspaceFileSaveRequest(BaseModel):
     path: str = Field(min_length=1)
     content: str
     expected_modified_at: str | None = None
+
+
+class WorkspaceRenameRequest(BaseModel):
+    path: str = Field(min_length=1)
+    name: str = Field(min_length=1, max_length=255)
 
 
 class WorkspaceAttachmentResponse(BaseModel):

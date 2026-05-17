@@ -13,6 +13,12 @@ function renderComposer() {
       onChange={noop}
       onSend={noop}
       onStop={noop}
+      onClearContext={noop}
+      onAttachFiles={noop}
+      onSearchWorkspaceFiles={async () => []}
+      onAddWorkspaceFile={noop}
+      onRemovePendingFile={noop}
+      pendingFiles={[]}
       isGenerating={false}
       hasSession={false}
       focusToken={0}
@@ -36,6 +42,15 @@ function testShowsSelectedModelAndMenuOptions() {
   assert.doesNotMatch(html, />Codex</);
 }
 
+function testComposerToolbarNamesRealActions() {
+  const html = renderComposer();
+
+  assert.match(html, /aria-label="Quick actions"/);
+  assert.match(html, /aria-label="Attach files"/);
+  assert.match(html, /aria-label="Mention workspace file"/);
+}
+
 testShowsSelectedModelAndMenuOptions();
+testComposerToolbarNamesRealActions();
 
 console.log("task composer tests passed");

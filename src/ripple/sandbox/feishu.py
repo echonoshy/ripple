@@ -19,9 +19,12 @@ import json
 import re
 import shlex
 from dataclasses import dataclass
+from typing import Any
 
 from ripple.sandbox.config import SandboxConfig
+from ripple.sandbox.executor import execute_in_sandbox
 from ripple.sandbox.nsjail_config import build_nsjail_argv, write_nsjail_config
+from ripple.utils.config import get_config
 from ripple.utils.logger import get_logger
 
 logger = get_logger("sandbox.feishu")
@@ -54,6 +57,36 @@ def _get_feishu_credentials(config: SandboxConfig, user_id: str) -> tuple[str, s
                 return app_id, app_secret, data.get("brand", "feishu")
         except (json.JSONDecodeError, OSError) as e:
             logger.warning("user {} feishu.json 读取失败: {}", user_id, e)
+    return None
+
+
+def _clean_config_string(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    value = value.strip()
+    if not value or value.startswith("<"):
+        return ""
+    return value
+
+
+def _get_server_feishu_credentials() -> tuple[str, str, str] | None:
+    """读取部署级飞书 app 凭证，返回 (app_id, app_secret, brand) 或 None。
+
+    普通用户不需要提供 app_id/app_secret；部署方可在 settings.yaml 里配置：
+    `server.feishu.app.app_id` / `server.feishu.app.app_secret` / `server.feishu.app.brand`。
+    为兼容早期草案，也接受 `server.feishu.app_id` / `server.feishu.app_secret`。
+    """
+    cfg = get_config()
+    root = cfg.get("server.feishu", {}) or {}
+    app = root.get("app", {}) if isinstance(root, dict) else {}
+    if not isinstance(app, dict):
+        app = {}
+
+    app_id = _clean_config_string(app.get("app_id") or root.get("app_id"))
+    app_secret = _clean_config_string(app.get("app_secret") or root.get("app_secret"))
+    brand = _clean_config_string(app.get("brand") or root.get("brand")) or "feishu"
+    if app_id and app_secret:
+        return app_id, app_secret, brand
     return None
 
 
@@ -99,7 +132,7 @@ async def _start_feishu_setup(
     if not config.nsjail_cfg_file(user_id).exists():
         write_nsjail_config(config, user_id)
 
-    argv = build_nsjail_argv(config, user_id, "lark-cli config init --new 2>&1")
+    argv = build_nsjail_argv(config, user_id, "lark-cli config init --new --force-init 2>&1")
 
     proc = await asyncio.create_subprocess_exec(
         *argv,
@@ -222,7 +255,7 @@ async def ensure_lark_cli_config(
         if config.has_lark_cli_config(user_id):
             return True, ""
 
-        creds = _get_feishu_credentials(config, user_id)
+        creds = _get_feishu_credentials(config, user_id) or _get_server_feishu_credentials()
         if creds:
             app_id, app_secret, brand = creds
             return await _inject_feishu_credentials(config, user_id, app_id, app_secret, brand)
@@ -234,3 +267,97 @@ async def ensure_lark_cli_config(
             return False, msg
 
         return await _start_feishu_setup(config, user_id)
+
+
+def _first_json_object(text: str) -> dict[str, Any] | None:
+    decoder = json.JSONDecoder()
+    for index, char in enumerate(text):
+        if char != "{":
+            continue
+        try:
+            value, _end = decoder.raw_decode(text[index:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            return value
+    return None
+
+
+def _nested_data(data: dict[str, Any]) -> dict[str, Any]:
+    nested = data.get("data")
+    return nested if isinstance(nested, dict) else data
+
+
+def _auth_start_payload(data: dict[str, Any]) -> dict[str, Any] | None:
+    data = _nested_data(data)
+    url = (
+        data.get("verification_url")
+        or data.get("verification_uri")
+        or data.get("oauth_url")
+        or data.get("auth_url")
+        or data.get("url")
+    )
+    device_code = data.get("device_code") or data.get("deviceCode")
+    if not isinstance(url, str) or not url.strip() or not isinstance(device_code, str) or not device_code.strip():
+        return None
+    expires = data.get("expires_in_seconds") or data.get("expires_in") or data.get("expiresIn")
+    out: dict[str, Any] = {
+        "oauth_url": url.strip(),
+        "device_code": device_code.strip(),
+    }
+    if isinstance(expires, int):
+        out["expires_in_seconds"] = expires
+    elif isinstance(expires, float):
+        out["expires_in_seconds"] = int(expires)
+    return out
+
+
+async def start_lark_user_auth(
+    config: SandboxConfig,
+    user_id: str,
+) -> tuple[bool, dict[str, Any]]:
+    """启动飞书 user 身份 device-flow 授权，返回浏览器 URL 与 device_code。"""
+    if not config.lark_cli_bin:
+        return False, {"error": "lark-cli 未预装（宿主机）。请管理员执行: bash scripts/install-feishu-cli.sh"}
+
+    stdout, stderr, code = await execute_in_sandbox(
+        "lark-cli auth login --no-wait --json --domain all",
+        config,
+        user_id,
+        timeout=20,
+    )
+    merged = stdout + "\n" + stderr
+    if code != 0:
+        return False, {"error": f"lark-cli auth login --no-wait 失败 (exit={code}): {merged.strip()[-500:]}"}
+
+    parsed = _first_json_object(merged)
+    if not parsed:
+        return False, {"error": "无法解析 lark-cli auth login --no-wait 的 JSON 输出"}
+    payload = _auth_start_payload(parsed)
+    if not payload:
+        return False, {"error": "lark-cli auth login --no-wait 输出缺少授权链接或 device_code"}
+    return True, payload
+
+
+async def complete_lark_user_auth(
+    config: SandboxConfig,
+    user_id: str,
+    device_code: str,
+) -> tuple[bool, str]:
+    """用 device_code 完成飞书 user 授权。"""
+    device_code = device_code.strip()
+    if not device_code:
+        return False, "device_code is required."
+    if not config.lark_cli_bin:
+        return False, "lark-cli 未预装（宿主机）。请管理员执行: bash scripts/install-feishu-cli.sh"
+
+    stdout, stderr, code = await execute_in_sandbox(
+        f"lark-cli auth login --device-code {shlex.quote(device_code)}",
+        config,
+        user_id,
+        timeout=60,
+    )
+    merged = (stdout + "\n" + stderr).strip()
+    if code == 0:
+        return True, merged or "authorized"
+    return False, merged[-500:] or f"lark-cli auth login --device-code 失败 (exit={code})"

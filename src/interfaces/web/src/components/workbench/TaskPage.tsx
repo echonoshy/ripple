@@ -1,19 +1,19 @@
 "use client";
 
-import React from "react";
 import { useEffect, useRef } from "react";
-import { AlertTriangle, CheckCircle2, Circle, Loader2 } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, Circle, Copy, Loader2 } from "lucide-react";
 import type {
   Message,
   TaskInfo,
   TaskProgress,
   UsageInfo,
+  WorkspaceEntry,
   WorkbenchTaskSummary,
   WorkbenchTimelineEvent,
 } from "@/types";
+import type { ChatFileRef } from "@/lib/chatInput";
 import TaskComposer from "./TaskComposer";
 import TaskTimeline from "./TaskTimeline";
-import StatusChip from "./StatusChip";
 
 interface TaskPageProps {
   task: WorkbenchTaskSummary | null;
@@ -24,14 +24,23 @@ interface TaskPageProps {
   tokenUsage: UsageInfo;
   lastContextTokens: number;
   input: string;
+  pendingFiles: ChatFileRef[];
   isGenerating: boolean;
   focusToken: number;
   selectedModel: string;
   models: { id: string; owned_by: string }[];
   isModelDropdownOpen: boolean;
+  sessionId: string | null;
+  sessionIdCopied: boolean;
   onInputChange: (value: string) => void;
+  onClearContext: () => void;
+  onAttachFiles: (files: File[]) => void | Promise<void>;
+  onSearchWorkspaceFiles: (query: string) => Promise<WorkspaceEntry[]>;
+  onAddWorkspaceFile: (file: ChatFileRef) => void;
+  onRemovePendingFile: (path: string) => void;
   onToggleModelDropdown: () => void;
   onSelectModel: (model: string) => void;
+  onCopySessionId: () => void;
   onSend: () => void;
   onStop: () => void;
   onQuickReply: (option: string) => void;
@@ -47,14 +56,23 @@ export default function TaskPage({
   tokenUsage,
   lastContextTokens,
   input,
+  pendingFiles,
   isGenerating,
   focusToken,
   selectedModel,
   models,
   isModelDropdownOpen,
+  sessionId,
+  sessionIdCopied,
   onInputChange,
+  onClearContext,
+  onAttachFiles,
+  onSearchWorkspaceFiles,
+  onAddWorkspaceFile,
+  onRemovePendingFile,
   onToggleModelDropdown,
   onSelectModel,
+  onCopySessionId,
   onSend,
   onStop,
   onQuickReply,
@@ -62,10 +80,6 @@ export default function TaskPage({
 }: TaskPageProps) {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const hasMessages = messages.length > 0;
-  const taskTitle = task?.title || (hasMessages ? "Codex task" : "New Codex task");
-  const taskStatus: WorkbenchTaskSummary["status"] = isGenerating
-    ? "running"
-    : task?.status || "idle";
   const contextPercent = lastContextTokens
     ? Math.min(Math.round((lastContextTokens / 200_000) * 100), 100)
     : 0;
@@ -85,22 +99,24 @@ export default function TaskPage({
   }, [isGenerating, messages.length, taskSteps.length, timelineEvents, tokenUsage.total_tokens]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-white">
-      <div className="shrink-0 border-b border-[#e5e7eb] bg-white px-5 py-5 md:px-8">
-        <section className="min-w-0 space-y-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="truncate text-[24px] leading-tight font-semibold tracking-normal text-[#0d0d0d]">
-              {taskTitle}
-            </h1>
-            <StatusChip status={taskStatus} />
-          </div>
-          <p className="max-w-3xl text-sm leading-6 text-[#6b7280]">
-            {hasMessages
-              ? "Codex keeps the task, files, activity, and approvals connected while it works."
-              : "Ask Codex to refactor, debug, write, or inspect anything inside your workspace."}
-          </p>
-        </section>
-      </div>
+    <div className="relative flex h-full min-h-0 flex-col bg-white">
+      {sessionId && (
+        <div className="pointer-events-none absolute top-3 right-4 z-30">
+          <button
+            type="button"
+            onClick={onCopySessionId}
+            title={sessionIdCopied ? "Copied" : `Copy task ID: ${sessionId}`}
+            className="pointer-events-auto inline-flex h-8 max-w-[180px] items-center gap-1.5 rounded-md border border-[#e5e7eb] bg-white/95 px-2 font-[family-name:var(--font-mono)] text-xs text-[#6b7280] shadow-[0_8px_24px_rgba(23,26,31,0.08)] backdrop-blur hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
+          >
+            <span className="truncate">{sessionId}</span>
+            {sessionIdCopied ? (
+              <Check size={12} className="shrink-0" />
+            ) : (
+              <Copy size={12} className="shrink-0" />
+            )}
+          </button>
+        </div>
+      )}
 
       <div
         ref={scrollContainerRef}
@@ -202,6 +218,12 @@ export default function TaskPage({
         onChange={onInputChange}
         onSend={onSend}
         onStop={onStop}
+        onClearContext={onClearContext}
+        onAttachFiles={onAttachFiles}
+        onSearchWorkspaceFiles={onSearchWorkspaceFiles}
+        onAddWorkspaceFile={onAddWorkspaceFile}
+        onRemovePendingFile={onRemovePendingFile}
+        pendingFiles={pendingFiles}
         isGenerating={isGenerating}
         hasSession={hasMessages || Boolean(task)}
         focusToken={focusToken}

@@ -29,14 +29,13 @@ import {
 } from "@/types";
 import { buildChatMessageContent, type ChatFileRef } from "@/lib/chatInput";
 
+const DEFAULT_PUBLIC_API_URL = "https://test-oauth.weilai.ai/v1";
+
 function getApiUrl(): string {
   if (import.meta.env.VITE_RIPPLE_API_URL) {
     return import.meta.env.VITE_RIPPLE_API_URL;
   }
-  if (typeof window !== "undefined") {
-    return `${window.location.protocol}//${window.location.hostname}:8810/v1`;
-  }
-  return "http://localhost:8810/v1";
+  return DEFAULT_PUBLIC_API_URL;
 }
 
 const API_URL = getApiUrl();

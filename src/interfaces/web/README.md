@@ -15,7 +15,7 @@ The development server listens on:
 http://localhost:8820
 ```
 
-By default the client calls `http://<current-host>:8810/v1`. To point at another Ripple server, set:
+By default the client calls `https://test-oauth.weilai.ai/v1`. To point at another Ripple server, set:
 
 ```bash
 VITE_RIPPLE_API_URL=http://localhost:8810/v1

@@ -13,6 +13,7 @@ from ripple.agent_runners.manager import get_external_agent_manager
 from ripple.sandbox.config import SandboxConfig
 from ripple.sandbox.manager import SandboxManager
 from ripple.sandbox.reconcile import reconcile_stale_runtime_state
+from ripple.schedules import ScheduleTriggerService
 from ripple.utils.config import get_config
 from ripple.utils.logger import get_logger, setup_logging
 
@@ -42,12 +43,19 @@ def create_app() -> FastAPI:
         manager = SessionManager(sandbox_manager=sandbox_mgr)
         set_session_manager(manager)
         manager.start_cleanup_loop()
+        schedule_trigger = ScheduleTriggerService(
+            sandbox_manager=sandbox_mgr,
+            agent_manager=get_external_agent_manager(),
+            poll_interval_seconds=float(config.get("server.schedules.poll_interval_seconds", 15)),
+        )
+        schedule_trigger.start()
         logger.info(
             "Ripple Server 启动完成 (sandbox=nsjail, sandboxes={}, caches={})",
             sandbox_mgr.config.sandboxes_root,
             sandbox_mgr.config.caches_root,
         )
         yield
+        await schedule_trigger.stop()
         await get_external_agent_manager().stop_all()
         manager.stop_cleanup_loop()
         logger.info("Ripple Server 已关闭")

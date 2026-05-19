@@ -17,6 +17,8 @@ function testUsesShortMobileNavigationLabels() {
 
   assert.match(html, />Sessions</);
   assert.match(html, /aria-label="Open Sessions"/);
+  assert.match(html, />Auto</);
+  assert.match(html, /aria-label="Open Auto"/);
   assert.match(html, />Apps</);
   assert.match(html, /aria-label="Open Apps"/);
   assert.match(html, /aria-label="Open Settings"/);

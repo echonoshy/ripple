@@ -11,6 +11,7 @@ import {
 } from "@/lib/api";
 import RippleIcon from "@/components/icons/RippleIcon";
 import SettingsModal from "@/components/SettingsModal";
+import AutomationsPage from "@/components/workbench/AutomationsPage";
 import ConnectorsPage from "@/components/workbench/ConnectorsPage";
 import FilesPage from "@/components/workbench/FilesPage";
 import HomePage from "@/components/workbench/HomePage";
@@ -276,6 +277,8 @@ export default function Home() {
       />
     ) : activeView === "files" ? (
       <FilesPage userId={userId} refreshToken={workspaceRefreshToken} />
+    ) : activeView === "automations" ? (
+      <AutomationsPage selectedModel={selectedModel} onAuthExpired={handleAuthExpired} />
     ) : activeView === "connectors" ? (
       <ConnectorsPage />
     ) : (

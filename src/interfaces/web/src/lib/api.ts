@@ -7,7 +7,9 @@ import {
   ConnectorActionResponse,
   ConnectorInfo,
   ConnectorStatus,
+  AgentRunInfo,
   GogcliAccountsResponse,
+  ScheduleInfo,
   SessionDetail,
   SessionSummary,
   TaskInfo,
@@ -94,6 +96,21 @@ export class WorkspaceUploadConflictError extends Error {
     this.conflicts = conflicts;
   }
 }
+
+export interface ScheduleCreateInput {
+  title: string;
+  prompt: string;
+  kind: "once" | "interval";
+  timezone: string;
+  run_at?: string | null;
+  interval_seconds?: number | null;
+  enabled?: boolean;
+  model?: string | null;
+  cwd?: string | null;
+  max_runtime_seconds?: number;
+}
+
+export type ScheduleUpdateInput = Partial<ScheduleCreateInput>;
 
 export function getApiKey(): string | null {
   if (typeof window === "undefined") return null;
@@ -260,6 +277,70 @@ export async function fetchModels(): Promise<{ id: string; owned_by: string }[]>
   if (!res.ok) throw new Error("Failed to fetch models");
   const data = await res.json();
   return data.data || [];
+}
+
+export async function fetchSchedules(): Promise<ScheduleInfo[]> {
+  const res = await fetch(`${API_URL}/schedules`, { headers: { ...authHeaders() } });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to fetch schedules (${res.status})`);
+  }
+  const data = (await res.json()) as { schedules?: ScheduleInfo[] };
+  return data.schedules || [];
+}
+
+export async function createSchedule(input: ScheduleCreateInput): Promise<ScheduleInfo> {
+  const res = await fetch(`${API_URL}/schedules`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(input),
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to create schedule (${res.status})`);
+  }
+  return (await res.json()) as ScheduleInfo;
+}
+
+export async function updateSchedule(
+  scheduleId: string,
+  input: ScheduleUpdateInput
+): Promise<ScheduleInfo> {
+  const res = await fetch(`${API_URL}/schedules/${encodeURIComponent(scheduleId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(input),
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to update schedule (${res.status})`);
+  }
+  return (await res.json()) as ScheduleInfo;
+}
+
+export async function deleteSchedule(scheduleId: string): Promise<boolean> {
+  const res = await fetch(`${API_URL}/schedules/${encodeURIComponent(scheduleId)}`, {
+    method: "DELETE",
+    headers: { ...authHeaders() },
+  });
+  if (res.status === 401) throw new AuthError();
+  return res.ok;
+}
+
+export async function runScheduleNow(scheduleId: string): Promise<AgentRunInfo> {
+  const res = await fetch(`${API_URL}/schedules/${encodeURIComponent(scheduleId)}/run-now`, {
+    method: "POST",
+    headers: { ...authHeaders() },
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to run schedule (${res.status})`);
+  }
+  return (await res.json()) as AgentRunInfo;
 }
 
 export async function createSession(): Promise<SessionSummary> {

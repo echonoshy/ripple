@@ -149,6 +149,51 @@ export interface WorkspaceUploadResponse {
   entries: WorkspaceEntry[];
 }
 
+export type ScheduleKind = "once" | "interval";
+export type ScheduleStatus = "active" | "paused" | "completed" | "error" | string;
+
+export interface AgentRunInfo {
+  job_id: string;
+  provider: string;
+  status: string;
+  output_file: string | null;
+  events_file: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  exit_code: number | null;
+  prompt_preview: string | null;
+  sandbox_cwd: string | null;
+  stdout_tail: string;
+  stderr_tail: string;
+  error: string | null;
+  pending_approval?: Record<string, unknown> | null;
+}
+
+export interface ScheduleInfo {
+  schedule_id: string;
+  user_id: string;
+  title: string;
+  prompt: string;
+  kind: ScheduleKind;
+  timezone: string;
+  run_at: string | null;
+  interval_seconds: number | null;
+  enabled: boolean;
+  status: ScheduleStatus;
+  next_run_at: string | null;
+  last_run_at: string | null;
+  last_run_id: string | null;
+  last_error: string | null;
+  cwd: string | null;
+  model: string | null;
+  effort: string | null;
+  summary: string | null;
+  output_schema: Record<string, unknown> | null;
+  max_runtime_seconds: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface SessionSummary {
   sessionId: string;
   title: string;

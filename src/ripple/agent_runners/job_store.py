@@ -25,7 +25,7 @@ def record_from_job(job: Any) -> dict[str, Any]:
     metadata = getattr(job, "metadata", {}) or {}
     status = getattr(job, "status", "")
     status_value = getattr(status, "value", str(status))
-    return {
+    record = {
         "version": STATE_VERSION,
         "job_id": job.job_id,
         "provider": job.provider,
@@ -44,6 +44,11 @@ def record_from_job(job: Any) -> dict[str, Any]:
         "stderr_tail": job.stderr_tail,
         "error": job.error,
     }
+    for key in ("schedule_id", "schedule_title", "schedule_trigger"):
+        value = metadata.get(key)
+        if isinstance(value, str):
+            record[key] = value
+    return record
 
 
 def write_job_meta(job: Any) -> None:

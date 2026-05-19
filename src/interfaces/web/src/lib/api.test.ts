@@ -2,16 +2,21 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import {
+  createSchedule,
   createSession,
+  deleteSchedule,
   deleteSession,
+  fetchSchedules,
   fetchSessions,
   fetchSessionDetails,
   getApiOrigin,
   renameWorkspaceEntry,
   resolveSessionPermissionRequest,
   resolveApiUrl,
+  runScheduleNow,
   searchWorkspaceFiles,
   stopSession,
+  updateSchedule,
 } from "./api";
 
 function response(status: number, detail: string): Response {
@@ -92,6 +97,94 @@ async function testSessionIdIsEncodedInPath() {
     "https://test-oauth.weilai.ai/v1/tasks/session%2Fwith%20space",
     "https://test-oauth.weilai.ai/v1/tasks/session%2Fwith%20space/stop",
     "https://test-oauth.weilai.ai/v1/tasks/session%2Fwith%20space/permissions/resolve",
+  ]);
+}
+
+async function testScheduleIdIsEncodedInPath() {
+  const urls: string[] = [];
+  const scheduleId = "schedule/with space";
+
+  await withFetch(
+    async (input) => {
+      urls.push(String(input));
+      return new Response(JSON.stringify({ schedule_id: scheduleId }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    },
+    async () => {
+      await updateSchedule(scheduleId, { enabled: false });
+      await deleteSchedule(scheduleId);
+      await runScheduleNow(scheduleId);
+    }
+  );
+
+  assert.deepEqual(urls, [
+    "https://test-oauth.weilai.ai/v1/schedules/schedule%2Fwith%20space",
+    "https://test-oauth.weilai.ai/v1/schedules/schedule%2Fwith%20space",
+    "https://test-oauth.weilai.ai/v1/schedules/schedule%2Fwith%20space/run-now",
+  ]);
+}
+
+async function testScheduleApiUsesExpectedBackendShape() {
+  const urls: string[] = [];
+  const methods: string[] = [];
+
+  await withFetch(
+    async (input, init) => {
+      urls.push(String(input));
+      methods.push(init?.method || "GET");
+      if (String(input).endsWith("/schedules") && init?.method === "POST") {
+        return new Response(
+          JSON.stringify({
+            schedule_id: "sch-created",
+            user_id: "alice",
+            title: "Digest",
+            prompt: "Summarize",
+            kind: "once",
+            timezone: "UTC",
+            run_at: "2026-05-19T00:00:00+00:00",
+            interval_seconds: null,
+            enabled: true,
+            status: "active",
+            next_run_at: "2026-05-19T00:00:00+00:00",
+            last_run_at: null,
+            last_run_id: null,
+            last_error: null,
+            cwd: null,
+            model: "codex-medium",
+            effort: null,
+            summary: null,
+            output_schema: null,
+            max_runtime_seconds: 1800,
+            created_at: "2026-05-18T00:00:00+00:00",
+            updated_at: "2026-05-18T00:00:00+00:00",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      return new Response(JSON.stringify({ schedules: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    },
+    async () => {
+      assert.deepEqual(await fetchSchedules(), []);
+      const created = await createSchedule({
+        title: "Digest",
+        prompt: "Summarize",
+        kind: "once",
+        timezone: "UTC",
+        run_at: "2026-05-19T00:00",
+      });
+      assert.equal(created.schedule_id, "sch-created");
+    }
+  );
+
+  assert.deepEqual(methods, ["GET", "POST"]);
+  assert.deepEqual(urls, [
+    "https://test-oauth.weilai.ai/v1/schedules",
+    "https://test-oauth.weilai.ai/v1/schedules",
   ]);
 }
 
@@ -287,6 +380,8 @@ await testRenameEndpointNotFoundAsksForServerRestart();
 await testRenamePathNotFoundStaysFileSpecific();
 await testRenameConflictUsesFriendlyMessage();
 await testSessionIdIsEncodedInPath();
+await testScheduleIdIsEncodedInPath();
+await testScheduleApiUsesExpectedBackendShape();
 await testFetchSessionsNormalizesBackendShape();
 await testCreateSessionNormalizesBackendShape();
 await testFetchSessionDetailsNormalizesBackendShape();

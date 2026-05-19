@@ -51,6 +51,11 @@ from interfaces.server.schemas import (
     ModelsResponse,
     PermissionResolveRequest,
     SandboxInfo,
+    ScheduleCreateRequest,
+    ScheduleInfo,
+    ScheduleListResponse,
+    ScheduleRunListResponse,
+    ScheduleUpdateRequest,
     SessionDetailResponse,
     SessionInfo,
     SessionListResponse,
@@ -100,6 +105,15 @@ from ripple.documents.store import (
 from ripple.messages.utils import serialize_messages
 from ripple.sandbox.storage import extract_title_from_messages
 from ripple.sandbox.workspace import validate_path
+from ripple.schedules import (
+    create_schedule,
+    delete_schedule,
+    get_schedule,
+    list_schedule_run_records,
+    list_schedules,
+    trigger_schedule_now,
+    update_schedule,
+)
 from ripple.users.quota import (
     assert_can_create_run,
     assert_can_create_session,
@@ -1255,6 +1269,130 @@ async def create_agent_run(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _agent_run_info(job)
+
+
+# ─── Schedules (control-plane triggers for Codex runs) ───
+
+
+def _schedule_sandbox_config(user_id: str):
+    manager = get_session_manager()
+    if not manager.sandbox_manager:
+        raise HTTPException(status_code=500, detail="sandbox disabled")
+    manager.sandbox_manager.ensure_sandbox(user_id)
+    return manager.sandbox_manager.config
+
+
+def _schedule_info_from_record(record: dict[str, Any]) -> ScheduleInfo:
+    return ScheduleInfo(**record)
+
+
+@router.get("/v1/schedules")
+async def list_user_schedules(
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+) -> ScheduleListResponse:
+    config = _schedule_sandbox_config(user_id)
+    schedules = [_schedule_info_from_record(record) for record in list_schedules(config, user_id)]
+    return ScheduleListResponse(schedules=schedules, count=len(schedules))
+
+
+@router.post("/v1/schedules")
+async def create_user_schedule(
+    request: ScheduleCreateRequest,
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+) -> ScheduleInfo:
+    config = _schedule_sandbox_config(user_id)
+    try:
+        record = create_schedule(config, user_id, request.model_dump(by_alias=False))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _schedule_info_from_record(record)
+
+
+@router.get("/v1/schedules/{schedule_id}/runs")
+async def list_user_schedule_runs(
+    schedule_id: str,
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+) -> ScheduleRunListResponse:
+    config = _schedule_sandbox_config(user_id)
+    if get_schedule(config, user_id, schedule_id) is None:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    runs = [_agent_run_info_from_record(record) for record in list_schedule_run_records(config, user_id, schedule_id)]
+    return ScheduleRunListResponse(runs=runs, count=len(runs))
+
+
+@router.get("/v1/schedules/{schedule_id}")
+async def get_user_schedule(
+    schedule_id: str,
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+) -> ScheduleInfo:
+    config = _schedule_sandbox_config(user_id)
+    record = get_schedule(config, user_id, schedule_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    return _schedule_info_from_record(record)
+
+
+@router.patch("/v1/schedules/{schedule_id}")
+async def update_user_schedule(
+    schedule_id: str,
+    request: ScheduleUpdateRequest,
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+) -> ScheduleInfo:
+    config = _schedule_sandbox_config(user_id)
+    try:
+        record = update_schedule(
+            config,
+            user_id,
+            schedule_id,
+            request.model_dump(exclude_unset=True, by_alias=False),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if record is None:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    return _schedule_info_from_record(record)
+
+
+@router.delete("/v1/schedules/{schedule_id}")
+async def delete_user_schedule(
+    schedule_id: str,
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+):
+    config = _schedule_sandbox_config(user_id)
+    if not delete_schedule(config, user_id, schedule_id):
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    return {"ok": True, "schedule_id": schedule_id}
+
+
+@router.post("/v1/schedules/{schedule_id}/run-now")
+async def run_user_schedule_now(
+    schedule_id: str,
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+) -> AgentRunInfo:
+    manager = get_session_manager()
+    if not manager.sandbox_manager:
+        raise HTTPException(status_code=500, detail="sandbox disabled")
+    manager.sandbox_manager.ensure_sandbox(user_id)
+    try:
+        job = trigger_schedule_now(
+            config=manager.sandbox_manager.config,
+            sandbox_manager=manager.sandbox_manager,
+            agent_manager=get_external_agent_manager(),
+            user_id=user_id,
+            schedule_id=schedule_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if job is None:
+        raise HTTPException(status_code=404, detail="Schedule not found")
     return _agent_run_info(job)
 
 

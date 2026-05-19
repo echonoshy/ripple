@@ -331,6 +331,80 @@ class AgentRunListResponse(BaseModel):
     count: int = 0
 
 
+# ─── Schedules ───
+
+
+class ScheduleCreateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    title: str = Field(min_length=1, max_length=200)
+    prompt: str = Field(min_length=1)
+    kind: Literal["once", "interval"] = "once"
+    timezone: str = "UTC"
+    run_at: str | None = None
+    interval_seconds: int | None = Field(default=None, ge=1)
+    enabled: bool = True
+    cwd: str | None = None
+    model: str | None = None
+    effort: str | None = None
+    summary: str | None = None
+    output_schema: dict[str, Any] | None = Field(default=None, alias="outputSchema")
+    max_runtime_seconds: int = Field(default=1800, ge=1, le=86_400)
+
+
+class ScheduleUpdateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    prompt: str | None = Field(default=None, min_length=1)
+    kind: Literal["once", "interval"] | None = None
+    timezone: str | None = None
+    run_at: str | None = None
+    interval_seconds: int | None = Field(default=None, ge=1)
+    enabled: bool | None = None
+    cwd: str | None = None
+    model: str | None = None
+    effort: str | None = None
+    summary: str | None = None
+    output_schema: dict[str, Any] | None = Field(default=None, alias="outputSchema")
+    max_runtime_seconds: int | None = Field(default=None, ge=1, le=86_400)
+
+
+class ScheduleInfo(BaseModel):
+    schedule_id: str
+    user_id: str
+    title: str
+    prompt: str
+    kind: str
+    timezone: str
+    run_at: str | None = None
+    interval_seconds: int | None = None
+    enabled: bool = True
+    status: str = "active"
+    next_run_at: str | None = None
+    last_run_at: str | None = None
+    last_run_id: str | None = None
+    last_error: str | None = None
+    cwd: str | None = None
+    model: str | None = None
+    effort: str | None = None
+    summary: str | None = None
+    output_schema: dict[str, Any] | None = None
+    max_runtime_seconds: int = 1800
+    created_at: str
+    updated_at: str
+
+
+class ScheduleListResponse(BaseModel):
+    schedules: list[ScheduleInfo] = Field(default_factory=list)
+    count: int = 0
+
+
+class ScheduleRunListResponse(BaseModel):
+    runs: list[AgentRunInfo] = Field(default_factory=list)
+    count: int = 0
+
+
 # ─── Internal Users / Quota ───
 
 

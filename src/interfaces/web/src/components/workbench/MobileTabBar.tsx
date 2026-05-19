@@ -13,6 +13,7 @@ interface MobileTabBarProps {
 const mobileNavLabels: Record<WorkspaceView, string> = {
   home: "Home",
   sessions: "Sessions",
+  automations: "Auto",
   files: "Files",
   connectors: "Apps",
 };
@@ -24,7 +25,7 @@ export default function MobileTabBar({
 }: MobileTabBarProps) {
   return (
     <nav className="fixed right-0 bottom-0 left-0 z-30 border-t border-[#e5e7eb] bg-white/96 px-3 pb-[max(env(safe-area-inset-bottom),10px)] shadow-[0_-10px_30px_rgba(23,26,31,0.06)] backdrop-blur lg:hidden">
-      <div className="mx-auto grid h-16 max-w-md grid-cols-5">
+      <div className="mx-auto grid h-16 max-w-md grid-cols-6">
         {mainNavItems.map((item) => {
           const Icon = item.icon;
           const selected = item.id === activeView;

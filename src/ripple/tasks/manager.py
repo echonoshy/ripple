@@ -3,15 +3,16 @@
 负责任务的创建、更新、查询和持久化。
 """
 
-import json
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from ripple.tasks.models import Task, TaskStatus
+from ripple.utils.file_state import atomic_write_json, read_json_or_default
 from ripple.utils.logger import get_logger
 
 logger = get_logger("tasks.manager")
+STATE_VERSION = 1
 
 _instances: dict[str, "TaskManager"] = {}
 
@@ -64,10 +65,14 @@ class TaskManager:
             return
 
         try:
-            with open(self.storage_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
+            data = read_json_or_default(self.storage_path, {})
+            if not isinstance(data, dict):
+                data = {}
+            tasks_data = data.get("tasks") if isinstance(data.get("tasks"), dict) else data
 
-            for task_id, task_data in data.items():
+            for task_id, task_data in tasks_data.items():
+                if task_id == "version" or not isinstance(task_data, dict):
+                    continue
                 self.tasks[task_id] = Task(**task_data)
 
             logger.info("加载了 {} 个任务", len(self.tasks))
@@ -78,15 +83,12 @@ class TaskManager:
     def _save_tasks(self):
         """保存任务到磁盘"""
         try:
-            # 确保目录存在
-            self.storage_path.parent.mkdir(parents=True, exist_ok=True)
-
             # 序列化任务
-            data = {task_id: task.model_dump(mode="json") for task_id, task in self.tasks.items()}
-
-            # 写入文件
-            with open(self.storage_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
+            data = {
+                "version": STATE_VERSION,
+                "tasks": {task_id: task.model_dump(mode="json") for task_id, task in self.tasks.items()},
+            }
+            atomic_write_json(self.storage_path, data)
 
             logger.debug("保存了 {} 个任务到 {}", len(self.tasks), self.storage_path)
         except Exception as e:

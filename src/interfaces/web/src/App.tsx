@@ -53,6 +53,7 @@ import {
   setStoredCurrentSessionId,
 } from "@/lib/sessionPersistence";
 import {
+  applyCurrentSessionRuntimeStatus,
   codexRuntimeEventToTimelineEvent,
   createWorkbenchSessionsFromTaskSummaries,
   extractChangedFilePaths,
@@ -712,9 +713,27 @@ export default function Home() {
     [handleSendMessage, isGenerating, sessionId]
   );
 
+  const pendingInteractionMessage = useMemo(
+    () => [...messages].reverse().find((message) => message.permissionRequest || message.askUser),
+    [messages]
+  );
+  const pendingPermission = pendingInteractionMessage?.permissionRequest || null;
+  const currentSessionRuntimeStatus = isGenerating
+    ? ("running" as const)
+    : pendingInteractionMessage?.permissionRequest
+      ? ("waiting_for_approval" as const)
+      : pendingInteractionMessage?.askUser
+        ? ("waiting_for_user" as const)
+        : null;
+
   const workbenchSessions = useMemo(
-    () => createWorkbenchSessionsFromTaskSummaries(sessionSummaries),
-    [sessionSummaries]
+    () =>
+      applyCurrentSessionRuntimeStatus(
+        createWorkbenchSessionsFromTaskSummaries(sessionSummaries),
+        sessionId,
+        currentSessionRuntimeStatus
+      ),
+    [currentSessionRuntimeStatus, sessionId, sessionSummaries]
   );
   const selectedExistingSession = sessionId
     ? workbenchSessions.find((session) => session.sessionId === sessionId) || null
@@ -724,7 +743,7 @@ export default function Home() {
       ? {
           sessionId,
           title: "Current Codex session",
-          status: isGenerating ? ("running" as const) : ("idle" as const),
+          status: currentSessionRuntimeStatus || ("idle" as const),
           model: selectedModel,
           lastActivityAt: new Date().toISOString(),
           messageCount: messages.length,
@@ -742,8 +761,6 @@ export default function Home() {
     () => [...messagesToTimelineEvents(messages), ...runtimeTimelineEvents],
     [messages, runtimeTimelineEvents]
   );
-  const pendingPermission =
-    [...messages].reverse().find((message) => message.permissionRequest)?.permissionRequest || null;
   const changedFiles = useMemo(() => extractChangedFilePaths(messages), [messages]);
   const mainContent =
     activeView === "home" ? (

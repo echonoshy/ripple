@@ -54,6 +54,10 @@ export default function StatusChip({
   tone?: StatusTone;
   compact?: boolean;
 }) {
+  if (status === "idle" && !label) {
+    return null;
+  }
+
   const resolvedTone = tone || (status ? statusTone(status) : "gray");
   const resolvedLabel = label || (status ? statusLabel(status) : "Ready");
 

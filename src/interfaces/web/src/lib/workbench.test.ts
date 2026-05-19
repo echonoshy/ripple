@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 import {
+  applyCurrentSessionRuntimeStatus,
   codexRuntimeEventToTimelineEvent,
   extractChangedFilePaths,
   mapTaskSummariesToWorkbenchSessions,
@@ -79,6 +80,44 @@ function testSortsApprovalTasksBeforeOrdinaryRunningTasks() {
   assert.equal(sorted[0].status, "waiting_for_approval");
   assert.equal(sorted[0].pendingApprovalCount, 1);
   assert.equal(sorted[1].sessionId, "running");
+}
+
+function testAppliesCurrentRunningStatusToExistingSession() {
+  const sessions = mapTaskSummariesToWorkbenchSessions([
+    makeTask({
+      task_id: "legacy-task-current",
+      session_id: "srv-current",
+      title: "Current session",
+      status: "idle",
+    }),
+    makeTask({
+      task_id: "legacy-task-other",
+      session_id: "srv-other",
+      title: "Other session",
+      status: "idle",
+    }),
+  ]);
+
+  const updated = applyCurrentSessionRuntimeStatus(sessions, "srv-current", "running");
+
+  assert.equal(updated[0].sessionId, "srv-current");
+  assert.equal(updated[0].status, "running");
+  assert.equal(updated[1].status, "idle");
+}
+
+function testAppliesCurrentApprovalStatusToExistingSession() {
+  const sessions = mapTaskSummariesToWorkbenchSessions([
+    makeTask({
+      task_id: "legacy-task-current",
+      session_id: "srv-current",
+      title: "Current session",
+      status: "idle",
+    }),
+  ]);
+
+  const updated = applyCurrentSessionRuntimeStatus(sessions, "srv-current", "waiting_for_approval");
+
+  assert.equal(updated[0].status, "waiting_for_approval");
 }
 
 function testMapsToolCallsIntoTimelineEvents() {
@@ -231,6 +270,8 @@ function testMapsCodexRuntimeEventsIntoTimelineEvents() {
 
 testMapsBackendTasksToWorkbenchSummaries();
 testSortsApprovalTasksBeforeOrdinaryRunningTasks();
+testAppliesCurrentRunningStatusToExistingSession();
+testAppliesCurrentApprovalStatusToExistingSession();
 testMapsToolCallsIntoTimelineEvents();
 testPlacesAssistantContentAfterItsToolCalls();
 testExtractsChangedFilesFromToolCalls();

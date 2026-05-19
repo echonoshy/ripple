@@ -40,6 +40,7 @@ class AgentRunnerEvent(BaseModel):
     type: str
     job_id: str
     provider: str
+    sequence: int | None = None
     message: str | None = None
     data: dict[str, Any] = Field(default_factory=dict)
     created_at: str = Field(default_factory=utc_now_iso)

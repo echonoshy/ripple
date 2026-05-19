@@ -62,6 +62,23 @@ export function sortWorkbenchSessions(
   });
 }
 
+export function applyCurrentSessionRuntimeStatus(
+  sessions: WorkbenchSessionSummary[],
+  currentSessionId: string | null,
+  runtimeStatus: WorkbenchSessionStatus | null
+): WorkbenchSessionSummary[] {
+  if (!currentSessionId || !runtimeStatus) return sessions;
+
+  let changed = false;
+  const updated = sessions.map((session) => {
+    if (session.sessionId !== currentSessionId) return session;
+    changed = true;
+    return session.status === runtimeStatus ? session : { ...session, status: runtimeStatus };
+  });
+
+  return changed ? sortWorkbenchSessions(updated) : sessions;
+}
+
 export function createWorkbenchSessionsFromTaskSummaries(
   tasks: TaskSummary[]
 ): WorkbenchSessionSummary[] {

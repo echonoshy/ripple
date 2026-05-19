@@ -1,11 +1,13 @@
 """Lightweight document metadata index backed by workspace files."""
 
-import json
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
 from ripple.sandbox.config import SandboxConfig
+from ripple.utils.file_state import atomic_write_json, read_json_or_default
+
+STATE_VERSION = 1
 
 
 def utc_now_iso() -> str:
@@ -19,20 +21,18 @@ def index_path(config: SandboxConfig, user_id: str) -> Path:
 def load_index(config: SandboxConfig, user_id: str) -> dict:
     path = index_path(config, user_id)
     if not path.exists():
-        return {"documents": []}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return {"documents": []}
+        return {"version": STATE_VERSION, "documents": []}
+    data = read_json_or_default(path, {})
     if not isinstance(data, dict) or not isinstance(data.get("documents"), list):
-        return {"documents": []}
+        return {"version": STATE_VERSION, "documents": []}
+    data.setdefault("version", STATE_VERSION)
     return data
 
 
 def save_index(config: SandboxConfig, user_id: str, data: dict) -> None:
     path = index_path(config, user_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    data.setdefault("version", STATE_VERSION)
+    atomic_write_json(path, data)
 
 
 def infer_kind(path: str) -> str:

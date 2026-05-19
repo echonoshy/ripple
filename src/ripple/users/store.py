@@ -1,11 +1,13 @@
 """Internal user profile and quota metadata store."""
 
-import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from ripple.sandbox.config import SandboxConfig, validate_user_id
+from ripple.utils.file_state import atomic_write_json, read_json_or_default
+
+STATE_VERSION = 1
 
 DEFAULT_QUOTA = {
     "max_workspace_mb": 2048,
@@ -27,6 +29,7 @@ def user_meta_path(config: SandboxConfig, user_id: str) -> Path:
 def default_user_record(user_id: str) -> dict[str, Any]:
     now = utc_now_iso()
     return {
+        "version": STATE_VERSION,
         "user_id": user_id,
         "display_name": user_id,
         "created_at": now,
@@ -35,16 +38,21 @@ def default_user_record(user_id: str) -> dict[str, Any]:
     }
 
 
+def _safe_version(value: object) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return STATE_VERSION
+
+
 def load_user_record(config: SandboxConfig, user_id: str) -> dict[str, Any]:
     path = user_meta_path(config, user_id)
     if path.exists():
-        try:
-            record = json.loads(path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            record = {}
+        record = read_json_or_default(path, {})
         if isinstance(record, dict):
             merged = default_user_record(user_id)
             merged.update(record)
+            merged["version"] = _safe_version(record.get("version"))
             quota = dict(DEFAULT_QUOTA)
             if isinstance(record.get("quota"), dict):
                 quota.update(record["quota"])
@@ -56,9 +64,9 @@ def load_user_record(config: SandboxConfig, user_id: str) -> dict[str, Any]:
 def save_user_record(config: SandboxConfig, record: dict[str, Any]) -> dict[str, Any]:
     user_id = str(record["user_id"])
     path = user_meta_path(config, user_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    record.setdefault("version", STATE_VERSION)
     record["updated_at"] = utc_now_iso()
-    path.write_text(json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    atomic_write_json(path, record)
     return record
 
 

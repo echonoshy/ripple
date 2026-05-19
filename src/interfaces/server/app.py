@@ -12,6 +12,7 @@ from interfaces.server.sessions import SessionManager
 from ripple.agent_runners.manager import get_external_agent_manager
 from ripple.sandbox.config import SandboxConfig
 from ripple.sandbox.manager import SandboxManager
+from ripple.sandbox.reconcile import reconcile_stale_runtime_state
 from ripple.utils.config import get_config
 from ripple.utils.logger import get_logger, setup_logging
 
@@ -36,6 +37,7 @@ def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         sandbox_mgr = _create_sandbox_manager()
+        reconcile_stale_runtime_state(sandbox_mgr.config)
 
         manager = SessionManager(sandbox_manager=sandbox_mgr)
         set_session_manager(manager)

@@ -1,8 +1,11 @@
 """Durable metadata helpers for external agent runs."""
 
-import json
 from pathlib import Path
 from typing import Any
+
+from ripple.utils.file_state import atomic_write_json, read_json_or_default
+
+STATE_VERSION = 1
 
 
 def _meta_path(job_dir: Path) -> Path:
@@ -23,6 +26,7 @@ def record_from_job(job: Any) -> dict[str, Any]:
     status = getattr(job, "status", "")
     status_value = getattr(status, "value", str(status))
     return {
+        "version": STATE_VERSION,
         "job_id": job.job_id,
         "provider": job.provider,
         "user_id": job.user_id,
@@ -49,19 +53,14 @@ def write_job_meta(job: Any) -> None:
         job_dir = job.output_file.parent
     else:
         return
-    job_dir.mkdir(parents=True, exist_ok=True)
-    _meta_path(job_dir).write_text(
-        json.dumps(record_from_job(job), ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    atomic_write_json(_meta_path(job_dir), record_from_job(job))
 
 
 def read_job_meta(job_dir: Path) -> dict[str, Any] | None:
-    try:
-        raw = _meta_path(job_dir).read_text(encoding="utf-8")
-        record = json.loads(raw)
-    except (OSError, json.JSONDecodeError):
+    record = read_json_or_default(_meta_path(job_dir), None)
+    if not isinstance(record, dict):
         return None
+    record.setdefault("version", STATE_VERSION)
     return record if isinstance(record, dict) else None
 
 

@@ -874,6 +874,36 @@ async def test_manager_cancel_sends_turn_interrupt_to_app_server(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_same_user_runs_can_have_active_turns_concurrently(tmp_path):
+    provider = _provider(tmp_path)
+    manager = ExternalAgentManager(providers={"codex": provider})
+    first = _request(tmp_path, prompt="sleep first turn")
+    second = _request(tmp_path, prompt="sleep second turn")
+    first.cwd.mkdir(parents=True)
+    second.cwd.mkdir(parents=True, exist_ok=True)
+
+    first_job = manager.start(first, runtime_dir=tmp_path / "runtime")
+    await provider.wait_for_active_turn(first_job.job_id, timeout=2)
+
+    second_job = manager.start(second, runtime_dir=tmp_path / "runtime")
+    second_active = await provider.wait_for_active_turn(second_job.job_id, timeout=0.5)
+
+    assert second_active.turn_id.startswith("turn-")
+
+    assert manager.cancel(first_job.job_id) is True
+    assert manager.cancel(second_job.job_id) is True
+    first_result = await manager.wait(first_job.job_id)
+    second_result = await manager.wait(second_job.job_id)
+
+    assert first_result is not None
+    assert second_result is not None
+    assert first_result.status == AgentRunnerStatus.CANCELLED
+    assert second_result.status == AgentRunnerStatus.CANCELLED
+    calls = _read_jsonl(tmp_path / "app-server.jsonl")
+    assert [call["method"] for call in calls].count("turn/start") == 2
+
+
+@pytest.mark.asyncio
 async def test_manager_steer_sends_turn_steer_to_app_server(tmp_path):
     provider = _provider(tmp_path)
     manager = ExternalAgentManager(providers={"codex": provider})

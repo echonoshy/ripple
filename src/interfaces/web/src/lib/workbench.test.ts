@@ -4,73 +4,68 @@ import {
   applyCurrentSessionRuntimeStatus,
   codexRuntimeEventToTimelineEvent,
   extractChangedFilePaths,
-  mapTaskSummariesToWorkbenchSessions,
+  mapSessionSummariesToWorkbenchSessions,
   messagesToTimelineEvents,
   sortWorkbenchSessions,
 } from "./workbench";
-import type { CodexRuntimeEvent, Message, TaskSummary } from "@/types";
+import type { CodexRuntimeEvent, Message, SessionSummary } from "@/types";
 
-function makeTask(overrides: Partial<TaskSummary>): TaskSummary {
+function makeSession(overrides: Partial<SessionSummary>): SessionSummary {
   return {
-    task_id: "task-default",
-    session_id: "task-default",
+    sessionId: "session-default",
     title: "",
     model: "codex-medium",
-    created_at: "2026-05-15T01:00:00.000Z",
-    last_active: "2026-05-15T01:00:00.000Z",
-    message_count: 0,
+    createdAt: "2026-05-15T01:00:00.000Z",
+    lastActiveAt: "2026-05-15T01:00:00.000Z",
+    messageCount: 0,
     status: "idle",
-    changed_file_count: 0,
-    pending_approval_count: 0,
+    changedFileCount: 0,
+    pendingApprovalCount: 0,
     ...overrides,
   };
 }
 
-function testMapsBackendTasksToWorkbenchSummaries() {
-  const tasks = mapTaskSummariesToWorkbenchSessions([
-    makeTask({
-      task_id: "legacy-task-auth",
-      session_id: "srv-auth",
+function testMapsSessionSummariesToWorkbenchSummaries() {
+  const sessions = mapSessionSummariesToWorkbenchSessions([
+    makeSession({
+      sessionId: "srv-auth",
       title: "Refactor auth flow",
       status: "waiting_for_approval",
-      message_count: 3,
-      changed_file_count: 2,
-      pending_approval_count: 1,
+      messageCount: 3,
+      changedFileCount: 2,
+      pendingApprovalCount: 1,
     }),
-    makeTask({
-      task_id: "legacy-task-empty",
-      session_id: "srv-empty",
+    makeSession({
+      sessionId: "srv-empty",
       title: "",
       status: "idle",
     }),
   ]);
 
-  assert.equal(tasks.length, 2);
-  assert.equal(tasks[0].sessionId, "srv-auth");
-  assert.equal(tasks[0].title, "Refactor auth flow");
-  assert.equal(tasks[0].status, "waiting_for_approval");
-  assert.equal(tasks[0].messageCount, 3);
-  assert.equal(tasks[0].changedFileCount, 2);
-  assert.equal(tasks[0].pendingApprovalCount, 1);
-  assert.equal(tasks[1].title, "Session srv-empty");
+  assert.equal(sessions.length, 2);
+  assert.equal(sessions[0].sessionId, "srv-auth");
+  assert.equal(sessions[0].title, "Refactor auth flow");
+  assert.equal(sessions[0].status, "waiting_for_approval");
+  assert.equal(sessions[0].messageCount, 3);
+  assert.equal(sessions[0].changedFileCount, 2);
+  assert.equal(sessions[0].pendingApprovalCount, 1);
+  assert.equal(sessions[1].title, "Session srv-empty");
 }
 
-function testSortsApprovalTasksBeforeOrdinaryRunningTasks() {
-  const sessions = mapTaskSummariesToWorkbenchSessions([
-    makeTask({
-      task_id: "legacy-task-running",
-      session_id: "running",
+function testSortsApprovalSessionsBeforeOrdinaryRunningSessions() {
+  const sessions = mapSessionSummariesToWorkbenchSessions([
+    makeSession({
+      sessionId: "running",
       title: "Running session",
       status: "running",
-      last_active: "2026-05-15T02:00:00.000Z",
+      lastActiveAt: "2026-05-15T02:00:00.000Z",
     }),
-    makeTask({
-      task_id: "legacy-task-approval",
-      session_id: "approval",
+    makeSession({
+      sessionId: "approval",
       title: "Approval session",
       status: "awaiting_permission",
-      last_active: "2026-05-15T01:00:00.000Z",
-      pending_approval_count: 1,
+      lastActiveAt: "2026-05-15T01:00:00.000Z",
+      pendingApprovalCount: 1,
     }),
   ]);
 
@@ -83,16 +78,14 @@ function testSortsApprovalTasksBeforeOrdinaryRunningTasks() {
 }
 
 function testAppliesCurrentRunningStatusToExistingSession() {
-  const sessions = mapTaskSummariesToWorkbenchSessions([
-    makeTask({
-      task_id: "legacy-task-current",
-      session_id: "srv-current",
+  const sessions = mapSessionSummariesToWorkbenchSessions([
+    makeSession({
+      sessionId: "srv-current",
       title: "Current session",
       status: "idle",
     }),
-    makeTask({
-      task_id: "legacy-task-other",
-      session_id: "srv-other",
+    makeSession({
+      sessionId: "srv-other",
       title: "Other session",
       status: "idle",
     }),
@@ -106,10 +99,9 @@ function testAppliesCurrentRunningStatusToExistingSession() {
 }
 
 function testAppliesCurrentApprovalStatusToExistingSession() {
-  const sessions = mapTaskSummariesToWorkbenchSessions([
-    makeTask({
-      task_id: "legacy-task-current",
-      session_id: "srv-current",
+  const sessions = mapSessionSummariesToWorkbenchSessions([
+    makeSession({
+      sessionId: "srv-current",
       title: "Current session",
       status: "idle",
     }),
@@ -268,8 +260,8 @@ function testMapsCodexRuntimeEventsIntoTimelineEvents() {
   assert.equal(compactEvent.status, "completed");
 }
 
-testMapsBackendTasksToWorkbenchSummaries();
-testSortsApprovalTasksBeforeOrdinaryRunningTasks();
+testMapsSessionSummariesToWorkbenchSummaries();
+testSortsApprovalSessionsBeforeOrdinaryRunningSessions();
 testAppliesCurrentRunningStatusToExistingSession();
 testAppliesCurrentApprovalStatusToExistingSession();
 testMapsToolCallsIntoTimelineEvents();

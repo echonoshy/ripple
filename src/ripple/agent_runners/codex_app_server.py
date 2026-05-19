@@ -232,7 +232,6 @@ class CodexAppServerSession:
         self.request_timeout_seconds = request_timeout_seconds
         self.process: asyncio.subprocess.Process | None = None
         self.notifications: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
-        self.run_lock = asyncio.Lock()
         self.last_active_at = _now()
         self.stderr_tail = ""
         self._next_id = 0
@@ -240,6 +239,12 @@ class CodexAppServerSession:
         self._reader_task: asyncio.Task | None = None
         self._stderr_task: asyncio.Task | None = None
         self._initialized = False
+        self._start_lock = asyncio.Lock()
+        self._initialize_lock = asyncio.Lock()
+        self._notification_lock = asyncio.Lock()
+        self._turn_notifications: dict[tuple[str, str], asyncio.Queue[dict[str, Any]]] = {}
+        self._pending_turn_notifications: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        self._pending_thread_notifications: dict[str, list[dict[str, Any]]] = {}
         self.loaded_thread_ids: set[str] = set()
 
     @property
@@ -247,53 +252,60 @@ class CodexAppServerSession:
         return self.process is not None and self.process.returncode is None
 
     async def ensure_started(self) -> None:
-        if self.is_running:
-            return
-        self.cwd.mkdir(parents=True, exist_ok=True)
-        env = dict(os.environ)
-        env.update(self.env)
-        codex_home = self.codex_home or Path(env.get("CODEX_HOME", Path.home() / ".codex")).expanduser()
-        codex_home.mkdir(parents=True, exist_ok=True)
-        self.codex_home = codex_home
-        if self.sandbox_config is not None and not self.run_in_user_sandbox:
-            env.update(
-                _host_app_server_env_from_sandbox(self.sandbox_config, self.user_key, self.cwd, env.get("PATH", ""))
-            )
-        env["CODEX_HOME"] = str(codex_home)
-        argv = [self.codex_executable, *self.app_server_args]
-        process_cwd = str(self.cwd)
-        if self.sandbox_config is not None and self.run_in_user_sandbox:
-            from ripple.sandbox.nsjail_config import build_nsjail_argv
+        async with self._start_lock:
+            if self.is_running:
+                return
+            self.cwd.mkdir(parents=True, exist_ok=True)
+            env = dict(os.environ)
+            env.update(self.env)
+            codex_home = self.codex_home or Path(env.get("CODEX_HOME", Path.home() / ".codex")).expanduser()
+            codex_home.mkdir(parents=True, exist_ok=True)
+            self.codex_home = codex_home
+            if self.sandbox_config is not None and not self.run_in_user_sandbox:
+                env.update(
+                    _host_app_server_env_from_sandbox(
+                        self.sandbox_config,
+                        self.user_key,
+                        self.cwd,
+                        env.get("PATH", ""),
+                    )
+                )
+            env["CODEX_HOME"] = str(codex_home)
+            argv = [self.codex_executable, *self.app_server_args]
+            process_cwd = str(self.cwd)
+            if self.sandbox_config is not None and self.run_in_user_sandbox:
+                from ripple.sandbox.nsjail_config import build_nsjail_argv
 
-            argv = build_nsjail_argv(self.sandbox_config, self.user_key, shlex.join(argv))
-            process_cwd = None
-        self.process = await asyncio.create_subprocess_exec(
-            *argv,
-            cwd=process_cwd,
-            env=env,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            start_new_session=True,
-        )
-        self._reader_task = asyncio.create_task(self._read_stdout())
-        self._stderr_task = asyncio.create_task(self._read_stderr())
-        self._initialized = False
-        self.loaded_thread_ids.clear()
+                argv = build_nsjail_argv(self.sandbox_config, self.user_key, shlex.join(argv))
+                process_cwd = None
+            self.process = await asyncio.create_subprocess_exec(
+                *argv,
+                cwd=process_cwd,
+                env=env,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                start_new_session=True,
+            )
+            self._reader_task = asyncio.create_task(self._read_stdout())
+            self._stderr_task = asyncio.create_task(self._read_stderr())
+            self._initialized = False
+            self.loaded_thread_ids.clear()
 
     async def ensure_initialized(self) -> None:
         await self.ensure_started()
-        if self._initialized:
-            return
-        await self.request(
-            "initialize",
-            {
-                "clientInfo": {"name": "ripple", "version": "0.1.0"},
-                "capabilities": {"experimentalApi": True},
-            },
-        )
-        await self.notify("initialized")
-        self._initialized = True
+        async with self._initialize_lock:
+            if self._initialized:
+                return
+            await self.request(
+                "initialize",
+                {
+                    "clientInfo": {"name": "ripple", "version": "0.1.0"},
+                    "capabilities": {"experimentalApi": True},
+                },
+            )
+            await self.notify("initialized")
+            self._initialized = True
 
     async def request(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         await self.ensure_started()
@@ -373,6 +385,97 @@ class CodexAppServerSession:
         for task in (self._reader_task, self._stderr_task):
             if task is not None and not task.done():
                 task.cancel()
+        async with self._notification_lock:
+            self._turn_notifications.clear()
+            self._pending_turn_notifications.clear()
+            self._pending_thread_notifications.clear()
+
+    def has_active_turns(self) -> bool:
+        return bool(self._turn_notifications)
+
+    async def register_turn_notifications(self, *, thread_id: str, turn_id: str) -> asyncio.Queue[dict[str, Any]]:
+        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        key = (thread_id, turn_id)
+        async with self._notification_lock:
+            for message in self._pending_thread_notifications.pop(thread_id, []):
+                queue.put_nowait(message)
+            for message in self._pending_turn_notifications.pop(key, []):
+                queue.put_nowait(message)
+            self._turn_notifications[key] = queue
+        return queue
+
+    async def unregister_turn_notifications(
+        self,
+        *,
+        thread_id: str,
+        turn_id: str,
+        queue: asyncio.Queue[dict[str, Any]],
+    ) -> None:
+        async with self._notification_lock:
+            key = (thread_id, turn_id)
+            if self._turn_notifications.get(key) is queue:
+                del self._turn_notifications[key]
+
+    async def dispatch_notification(self, message: dict[str, Any]) -> None:
+        async with self._notification_lock:
+            thread_id = self._notification_thread_id(message)
+            turn_id = self._notification_turn_id(message)
+            if thread_id and turn_id:
+                key = (thread_id, turn_id)
+                queue = self._turn_notifications.get(key)
+                if queue is not None:
+                    queue.put_nowait(message)
+                else:
+                    self._pending_turn_notifications.setdefault(key, []).append(message)
+                return
+            if thread_id:
+                queues = [
+                    queue
+                    for (active_thread_id, _), queue in self._turn_notifications.items()
+                    if active_thread_id == thread_id
+                ]
+                if queues:
+                    for queue in queues:
+                        queue.put_nowait(message)
+                else:
+                    self._pending_thread_notifications.setdefault(thread_id, []).append(message)
+                return
+            queues = list(self._turn_notifications.values())
+            if queues:
+                if "id" in message and isinstance(message.get("method"), str):
+                    queues = queues[:1]
+                for queue in queues:
+                    queue.put_nowait(message)
+                return
+            await self.notifications.put(message)
+
+    def _notification_thread_id(self, message: dict[str, Any]) -> str | None:
+        params = message.get("params", {})
+        if not isinstance(params, dict):
+            return None
+        thread_id = params.get("threadId") or params.get("thread_id")
+        if isinstance(thread_id, str) and thread_id:
+            return thread_id
+        thread = params.get("thread")
+        if isinstance(thread, dict):
+            thread_id = thread.get("id")
+            if isinstance(thread_id, str) and thread_id:
+                return thread_id
+        return None
+
+    def _notification_turn_id(self, message: dict[str, Any]) -> str | None:
+        params = message.get("params", {})
+        if not isinstance(params, dict):
+            return None
+        turn_id = params.get("turnId") or params.get("turn_id")
+        if isinstance(turn_id, str) and turn_id:
+            return turn_id
+        turn = params.get("turn")
+        if isinstance(turn, dict):
+            turn_id = turn.get("id")
+            if isinstance(turn_id, str) and turn_id:
+                return turn_id
+        return None
 
     async def _read_stdout(self) -> None:
         if self.process is None or self.process.stdout is None:
@@ -384,7 +487,7 @@ class CodexAppServerSession:
             try:
                 message = json.loads(line)
             except json.JSONDecodeError:
-                await self.notifications.put({"method": "codex/stdout", "params": {"text": line}})
+                await self.dispatch_notification({"method": "codex/stdout", "params": {"text": line}})
                 continue
             message_id = message.get("id")
             if message_id in self._pending and ("result" in message or "error" in message):
@@ -392,7 +495,7 @@ class CodexAppServerSession:
                 if not future.done():
                     future.set_result(message)
             elif "method" in message:
-                await self.notifications.put(message)
+                await self.dispatch_notification(message)
         error = RuntimeError(f"codex app-server process exited before responding; stderr={self.stderr_tail[-1000:]}")
         for future in list(self._pending.values()):
             if not future.done():
@@ -427,7 +530,7 @@ class CodexAppServerPool:
     ) -> CodexAppServerSession:
         user_key = user_id or "default"
         session = self.sessions.get(user_key)
-        if session is None or not session.is_running:
+        if session is None or (session.process is not None and session.process.returncode is not None):
             session = CodexAppServerSession(
                 user_key=user_key,
                 codex_executable=self.codex_executable,
@@ -447,7 +550,7 @@ class CodexAppServerPool:
         now = _now()
         for user_key, session in list(self.sessions.items()):
             idle_for = (now - session.last_active_at).total_seconds()
-            if idle_for >= self.idle_timeout_seconds and not session.run_lock.locked():
+            if idle_for >= self.idle_timeout_seconds and not session.has_active_turns():
                 await session.stop()
                 del self.sessions[user_key]
 
@@ -603,6 +706,10 @@ class CodexAppServerAgentProvider:
         status = AgentRunnerStatus.FAILED
         error: str | None = None
         thread_id: str | None = None
+        turn_id: str | None = None
+        turn_notifications: asyncio.Queue[dict[str, Any]] | None = None
+        stop_session_when_idle = False
+        force_stop_session = False
         thread_resumed = False
         persistent_thread = bool(request.metadata.get("codex_persistent_thread"))
         runner_cwd = str(request.cwd)
@@ -631,59 +738,69 @@ class CodexAppServerAgentProvider:
             sandbox_config=request.metadata.get("sandbox_config"),
         )
         try:
-            async with session.run_lock:
-                await session.ensure_initialized()
-                thread_id, thread_resumed = await self._ensure_thread(
-                    session=session,
-                    request=request,
-                    runner_cwd=runner_cwd,
-                    persistent_thread=persistent_thread,
-                )
+            await session.ensure_initialized()
+            thread_id, thread_resumed = await self._ensure_thread(
+                session=session,
+                request=request,
+                runner_cwd=runner_cwd,
+                persistent_thread=persistent_thread,
+            )
 
-                turn_result = await session.request(
-                    "turn/start",
-                    {
-                        "threadId": thread_id,
-                        "input": _codex_input_items(request),
-                        "cwd": runner_cwd,
-                        "approvalPolicy": self.approval_policy,
-                        **_codex_turn_config_params(request),
-                        **self._turn_start_permission_params(runner_cwd),
-                    },
-                )
-                turn_id = turn_result.get("turn", {}).get("id")
-                if not isinstance(turn_id, str) or not turn_id:
-                    raise RuntimeError("codex app-server did not return a turn id")
+            turn_result = await session.request(
+                "turn/start",
+                {
+                    "threadId": thread_id,
+                    "input": _codex_input_items(request),
+                    "cwd": runner_cwd,
+                    "approvalPolicy": self.approval_policy,
+                    **_codex_turn_config_params(request),
+                    **self._turn_start_permission_params(runner_cwd),
+                },
+            )
+            returned_turn_id = turn_result.get("turn", {}).get("id")
+            if not isinstance(returned_turn_id, str) or not returned_turn_id:
+                raise RuntimeError("codex app-server did not return a turn id")
+            turn_id = returned_turn_id
 
-                self.active_turns[job_id] = ActiveTurn(session=session, thread_id=thread_id, turn_id=turn_id)
-                status, output_text = await self._collect_turn(
-                    session=session,
-                    events_file=events_file,
-                    request=request,
-                    job_id=job_id,
-                    thread_id=thread_id,
-                    turn_id=turn_id,
-                )
+            turn_notifications = await session.register_turn_notifications(thread_id=thread_id, turn_id=turn_id)
+            self.active_turns[job_id] = ActiveTurn(session=session, thread_id=thread_id, turn_id=turn_id)
+            status, output_text = await self._collect_turn(
+                session=session,
+                events_file=events_file,
+                request=request,
+                job_id=job_id,
+                thread_id=thread_id,
+                turn_id=turn_id,
+                notifications=turn_notifications,
+            )
         except asyncio.CancelledError:
             active_turn = self.active_turns.get(job_id)
             if active_turn is not None:
                 await self._interrupt_turn(active_turn)
-            await self.pool.stop_user(request.user_id or "default")
             status = AgentRunnerStatus.CANCELLED
             error = "runner cancelled"
+            stop_session_when_idle = True
         except JsonRpcTimeoutError as exc:
-            await self.pool.stop_user(request.user_id or "default")
             status = AgentRunnerStatus.FAILED
             error = str(exc)
+            force_stop_session = True
         except TimeoutError:
-            await self.pool.stop_user(request.user_id or "default")
             status = AgentRunnerStatus.FAILED
             error = f"runner timed out after {request.max_runtime_seconds}s"
+            force_stop_session = True
         except Exception as exc:  # noqa: BLE001
             status = AgentRunnerStatus.FAILED
             error = str(exc)
         finally:
+            if thread_id and turn_id and turn_notifications is not None:
+                await session.unregister_turn_notifications(
+                    thread_id=thread_id,
+                    turn_id=turn_id,
+                    queue=turn_notifications,
+                )
             self.active_turns.pop(job_id, None)
+            if force_stop_session or (stop_session_when_idle and not self._session_has_active_turns(session)):
+                await self.pool.stop_user(request.user_id or "default")
 
         if status == AgentRunnerStatus.COMPLETED:
             final_event = "runner.completed"
@@ -740,6 +857,9 @@ class CodexAppServerAgentProvider:
 
     def get_pending_approval(self, job_id: str) -> dict[str, Any] | None:
         return self.pending_approvals.get(job_id)
+
+    def _session_has_active_turns(self, session: CodexAppServerSession) -> bool:
+        return any(active_turn.session is session for active_turn in self.active_turns.values())
 
     async def wait_for_pending_approval(self, job_id: str, *, timeout: float) -> dict[str, Any]:
         deadline = asyncio.get_running_loop().time() + timeout
@@ -803,13 +923,14 @@ class CodexAppServerAgentProvider:
         job_id: str,
         thread_id: str,
         turn_id: str,
+        notifications: asyncio.Queue[dict[str, Any]],
     ) -> tuple[AgentRunnerStatus, str]:
         legacy_output_parts: list[str] = []
         final_output_text = ""
         agent_message_phases: dict[str, str | None] = {}
         async with asyncio.timeout(request.max_runtime_seconds):
             while True:
-                message = await session.notifications.get()
+                message = await notifications.get()
                 await self._append_event(
                     events_file,
                     AgentRunnerEvent(

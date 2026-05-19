@@ -24,18 +24,18 @@ class MemoryStorage implements Pick<Storage, "getItem" | "setItem" | "removeItem
   }
 }
 
-function makeSession(session_id: string): { session_id: string } {
-  return { session_id };
+function makeSession(sessionId: string): { sessionId: string } {
+  return { sessionId };
 }
 
 function makeRecentSession(
-  session_id: string,
-  last_active: string
+  sessionId: string,
+  lastActiveAt: string
 ): {
-  session_id: string;
-  last_active: string;
+  sessionId: string;
+  lastActiveAt: string;
 } {
-  return { session_id, last_active };
+  return { sessionId, lastActiveAt };
 }
 
 function testStorageRoundTrip() {

@@ -1,7 +1,7 @@
 import type {
   CodexRuntimeEvent,
   Message,
-  TaskSummary,
+  SessionSummary,
   ToolCall,
   WorkbenchSessionStatus,
   WorkbenchSessionSummary,
@@ -37,18 +37,18 @@ export function sessionStatusToWorkbenchStatus(status: string): WorkbenchSession
   return "idle";
 }
 
-export function mapTaskSummariesToWorkbenchSessions(
-  tasks: TaskSummary[]
+export function mapSessionSummariesToWorkbenchSessions(
+  sessions: SessionSummary[]
 ): WorkbenchSessionSummary[] {
-  return tasks.map((task) => ({
-    sessionId: task.session_id || task.task_id,
-    title: task.title?.trim() || `Session ${task.session_id || task.task_id}`,
-    status: sessionStatusToWorkbenchStatus(task.status),
-    model: task.model,
-    lastActivityAt: task.last_active,
-    messageCount: task.message_count,
-    changedFileCount: task.changed_file_count,
-    pendingApprovalCount: task.pending_approval_count,
+  return sessions.map((session) => ({
+    sessionId: session.sessionId,
+    title: session.title?.trim() || `Session ${session.sessionId}`,
+    status: sessionStatusToWorkbenchStatus(session.status),
+    model: session.model,
+    lastActivityAt: session.lastActiveAt,
+    messageCount: session.messageCount,
+    changedFileCount: session.changedFileCount,
+    pendingApprovalCount: session.pendingApprovalCount,
   }));
 }
 
@@ -79,10 +79,10 @@ export function applyCurrentSessionRuntimeStatus(
   return changed ? sortWorkbenchSessions(updated) : sessions;
 }
 
-export function createWorkbenchSessionsFromTaskSummaries(
-  tasks: TaskSummary[]
+export function createWorkbenchSessionsFromSessionSummaries(
+  sessions: SessionSummary[]
 ): WorkbenchSessionSummary[] {
-  return sortWorkbenchSessions(mapTaskSummariesToWorkbenchSessions(tasks));
+  return sortWorkbenchSessions(mapSessionSummariesToWorkbenchSessions(sessions));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

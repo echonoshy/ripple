@@ -2,15 +2,16 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import {
-  deleteTask,
-  fetchTasks,
-  fetchTaskDetails,
+  createSession,
+  deleteSession,
+  fetchSessions,
+  fetchSessionDetails,
   getApiOrigin,
   renameWorkspaceEntry,
-  resolveTaskPermissionRequest,
+  resolveSessionPermissionRequest,
   resolveApiUrl,
   searchWorkspaceFiles,
-  stopTask,
+  stopSession,
 } from "./api";
 
 function response(status: number, detail: string): Response {
@@ -66,7 +67,7 @@ async function testRenameConflictUsesFriendlyMessage() {
   );
 }
 
-async function testTaskSessionIdIsEncodedInPath() {
+async function testSessionIdIsEncodedInPath() {
   const urls: string[] = [];
   const sessionId = "session/with space";
 
@@ -79,10 +80,10 @@ async function testTaskSessionIdIsEncodedInPath() {
       });
     },
     async () => {
-      await fetchTaskDetails(sessionId);
-      await deleteTask(sessionId);
-      await stopTask(sessionId);
-      await resolveTaskPermissionRequest(sessionId, "allow");
+      await fetchSessionDetails(sessionId);
+      await deleteSession(sessionId);
+      await stopSession(sessionId);
+      await resolveSessionPermissionRequest(sessionId, "allow");
     }
   );
 
@@ -94,26 +95,136 @@ async function testTaskSessionIdIsEncodedInPath() {
   ]);
 }
 
-async function testFetchTasksRejectsServerFailures() {
+async function testFetchSessionsNormalizesBackendShape() {
+  await withFetch(
+    async () =>
+      new Response(
+        JSON.stringify({
+          tasks: [
+            {
+              task_id: "legacy-task-id",
+              session_id: "srv-normalized",
+              title: "Normalized session",
+              model: "codex-medium",
+              created_at: "2026-05-18T00:00:00.000Z",
+              last_active: "2026-05-19T00:00:00.000Z",
+              message_count: 4,
+              status: "running",
+              changed_file_count: 2,
+              pending_approval_count: 1,
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      ),
+    async () => {
+      assert.deepEqual(await fetchSessions(), [
+        {
+          sessionId: "srv-normalized",
+          title: "Normalized session",
+          model: "codex-medium",
+          createdAt: "2026-05-18T00:00:00.000Z",
+          lastActiveAt: "2026-05-19T00:00:00.000Z",
+          messageCount: 4,
+          status: "running",
+          changedFileCount: 2,
+          pendingApprovalCount: 1,
+        },
+      ]);
+    }
+  );
+}
+
+async function testCreateSessionNormalizesBackendShape() {
+  await withFetch(
+    async () =>
+      new Response(
+        JSON.stringify({
+          task_id: "legacy-new-task",
+          session_id: "srv-created",
+          title: "",
+          model: "codex-medium",
+          created_at: "2026-05-19T00:00:00.000Z",
+          last_active: "2026-05-19T00:00:00.000Z",
+          message_count: 0,
+          status: "idle",
+          changed_file_count: 0,
+          pending_approval_count: 0,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      ),
+    async () => {
+      assert.equal((await createSession()).sessionId, "srv-created");
+    }
+  );
+}
+
+async function testFetchSessionDetailsNormalizesBackendShape() {
+  await withFetch(
+    async () =>
+      new Response(
+        JSON.stringify({
+          task_id: "legacy-detail-task",
+          session_id: "srv-detail",
+          title: "Detail session",
+          model: "codex-high",
+          created_at: "2026-05-18T00:00:00.000Z",
+          last_active: "2026-05-19T00:00:00.000Z",
+          message_count: 2,
+          status: "waiting_for_approval",
+          changed_file_count: 1,
+          pending_approval_count: 1,
+          messages: [],
+          pending_question: "Continue?",
+          pending_options: ["Yes", "No"],
+          pending_permission_request: { tool: "exec", params: {}, riskLevel: "medium" },
+          task_steps: [{ id: "step-1", subject: "Inspect", status: "completed" }],
+          task_progress: { completed: 1, total: 1 },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      ),
+    async () => {
+      assert.deepEqual(await fetchSessionDetails("srv-detail"), {
+        sessionId: "srv-detail",
+        title: "Detail session",
+        model: "codex-high",
+        createdAt: "2026-05-18T00:00:00.000Z",
+        lastActiveAt: "2026-05-19T00:00:00.000Z",
+        messageCount: 2,
+        status: "waiting_for_approval",
+        changedFileCount: 1,
+        pendingApprovalCount: 1,
+        messages: [],
+        pendingQuestion: "Continue?",
+        pendingOptions: ["Yes", "No"],
+        pendingPermissionRequest: { tool: "exec", params: {}, riskLevel: "medium" },
+        taskSteps: [{ id: "step-1", subject: "Inspect", status: "completed" }],
+        taskProgress: { completed: 1, total: 1 },
+      });
+    }
+  );
+}
+
+async function testFetchSessionsRejectsServerFailures() {
   await withFetch(
     async () => response(500, "session store unavailable"),
     async () => {
       await assert.rejects(
-        () => fetchTasks(),
+        () => fetchSessions(),
         (error) => error instanceof Error && error.message === "session store unavailable"
       );
     }
   );
 }
 
-async function testFetchTasksRejectsNetworkFailures() {
+async function testFetchSessionsRejectsNetworkFailures() {
   await withFetch(
     async () => {
       throw new TypeError("Failed to fetch");
     },
     async () => {
       await assert.rejects(
-        () => fetchTasks(),
+        () => fetchSessions(),
         (error) =>
           error instanceof Error &&
           error.message === "无法连接到 Ripple 服务。请确认后端服务正在运行，或检查 /v1 代理配置。"
@@ -175,9 +286,12 @@ testChatStreamingStaysOpenWhenPageIsHidden();
 await testRenameEndpointNotFoundAsksForServerRestart();
 await testRenamePathNotFoundStaysFileSpecific();
 await testRenameConflictUsesFriendlyMessage();
-await testTaskSessionIdIsEncodedInPath();
-await testFetchTasksRejectsServerFailures();
-await testFetchTasksRejectsNetworkFailures();
+await testSessionIdIsEncodedInPath();
+await testFetchSessionsNormalizesBackendShape();
+await testCreateSessionNormalizesBackendShape();
+await testFetchSessionDetailsNormalizesBackendShape();
+await testFetchSessionsRejectsServerFailures();
+await testFetchSessionsRejectsNetworkFailures();
 await testWorkspaceSearchDefaultsToNameScope();
 
 console.log("api tests passed");

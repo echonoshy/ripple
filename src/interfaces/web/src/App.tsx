@@ -1,19 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { AlertTriangle, KeyRound } from "lucide-react";
 import {
-  Message,
-  UsageInfo,
-  TaskDetail,
-  TaskInfo,
-  TaskProgress,
-  TaskSummary,
-  WorkbenchTimelineEvent,
-} from "@/types";
-import {
-  clearTaskContext,
-  createTask,
-  sendChatMessage,
-  stopTask,
   fetchModels,
   getApiKey,
   setApiKey,
@@ -21,11 +8,6 @@ import {
   getUserId,
   setUserId,
   AuthError,
-  fetchTasks,
-  fetchTaskDetails,
-  deleteTask,
-  resolveTaskPermissionRequest,
-  uploadWorkspaceAttachment,
 } from "@/lib/api";
 import RippleIcon from "@/components/icons/RippleIcon";
 import SettingsModal from "@/components/SettingsModal";
@@ -37,29 +19,13 @@ import MobileTabBar from "@/components/workbench/MobileTabBar";
 import TaskPage from "@/components/workbench/TaskPage";
 import WorkbenchShell from "@/components/workbench/WorkbenchShell";
 import WorkspaceNav from "@/components/workbench/WorkspaceNav";
-import { describeChatFilesForDisplay, type ChatFileRef } from "@/lib/chatInput";
-import {
-  applyTaskPlanUpdate,
-  applyTaskUpdate,
-  clearTaskPlanState,
-  upsertTask,
-} from "@/lib/chatState";
-import { readableApiErrorMessage } from "@/lib/apiErrors";
-import { chatErrorContent } from "@/lib/chatErrors";
 import { copyTextToClipboard } from "@/lib/clipboard";
-import { bumpInputFocusToken } from "@/lib/inputFocus";
-import {
-  clearStoredCurrentSessionId,
-  getStoredCurrentSessionId,
-  pickInitialSessionId,
-  setStoredCurrentSessionId,
-} from "@/lib/sessionPersistence";
+import { type ChatRunSessionActions, useChatRun } from "@/hooks/useChatRun";
+import { useSessionLifecycle } from "@/hooks/useSessionLifecycle";
+import { clearStoredCurrentSessionId } from "@/lib/sessionPersistence";
 import {
   applyCurrentSessionRuntimeStatus,
-  codexRuntimeEventToTimelineEvent,
-  createWorkbenchSessionsFromTaskSummaries,
-  extractChangedFilePaths,
-  messagesToTimelineEvents,
+  createWorkbenchSessionsFromSessionSummaries,
 } from "@/lib/workbench";
 import { shouldShowInspector, type WorkspaceView } from "@/lib/workspaceViews";
 
@@ -70,17 +36,6 @@ export default function Home() {
   );
   const [authErrorMsg, setAuthErrorMsg] = useState("");
   const [keyInput, setKeyInput] = useState("");
-
-  // ── Session & chat state ──
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [input, setInput] = useState("");
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [pendingFiles, setPendingFiles] = useState<ChatFileRef[]>([]);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [sessionSummaries, setSessionSummaries] = useState<TaskSummary[]>([]);
-  const [isLoadingSessions, setIsLoadingSessions] = useState(false);
-  const [sessionLoadError, setSessionLoadError] = useState<string | null>(null);
-  const [runtimeTimelineEvents, setRuntimeTimelineEvents] = useState<WorkbenchTimelineEvent[]>([]);
 
   // ── Model state ──
   const [models, setModels] = useState<{ id: string; owned_by: string }[]>([]);
@@ -93,84 +48,96 @@ export default function Home() {
   // ── UI state ──
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [inputFocusToken, setInputFocusToken] = useState(0);
   const [sessionIdCopied, setSessionIdCopied] = useState(false);
   const [workspaceRefreshToken, setWorkspaceRefreshToken] = useState(0);
   const [activeView, setActiveView] = useState<WorkspaceView>("sessions");
 
-  // ── Token tracking ──
-  const [tokenUsage, setTokenUsage] = useState<UsageInfo>({
-    prompt_tokens: 0,
-    completion_tokens: 0,
-    total_tokens: 0,
+  const sessionActionsRef = useRef<ChatRunSessionActions>({
+    getSessionId: () => null,
+    ensureSession: async () => null,
+    loadSessions: async () => [],
+    clearCurrentSessionContext: async () => true,
+    stopCurrentSession: async () => false,
   });
-  const [lastContextTokens, setLastContextTokens] = useState(0);
 
-  // ── Plan tracking ──
-  const [taskSteps, setTaskSteps] = useState<TaskInfo[]>([]);
-  const [taskProgress, setTaskProgress] = useState<TaskProgress | null>(null);
-
-  const activeRequestIdRef = useRef(0);
-  const abortControllerRef = useRef<AbortController | null>(null);
-
-  // ── Load sessions ──
-  const loadSessions = useCallback(async (): Promise<TaskSummary[]> => {
-    if (authState !== "authenticated") return [];
-    try {
-      setIsLoadingSessions(true);
-      setSessionLoadError(null);
-      const loadedSessions = await fetchTasks();
-      setSessionSummaries(loadedSessions);
-      return loadedSessions;
-    } catch (err) {
-      if (err instanceof AuthError) {
-        clearApiKey();
-        setAuthState("needs_auth");
-        setAuthErrorMsg("API Key 已失效");
-        clearStoredCurrentSessionId();
-        return [];
-      }
-      setSessionLoadError(readableApiErrorMessage(err));
-      return [];
-    } finally {
-      setIsLoadingSessions(false);
-    }
-  }, [authState]);
-
-  const applyTaskDetails = useCallback((details: TaskDetail) => {
-    setSessionId(details.session_id);
-    setSelectedModel(details.model);
-    setMessages(mapBackendMessages(details));
-    setRuntimeTimelineEvents([]);
-    setPendingFiles([]);
-    setTokenUsage({ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
-    setLastContextTokens(0);
-    setTaskSteps(details.task_steps || []);
-    setTaskProgress(details.task_progress || null);
-    setStoredCurrentSessionId(undefined, details.session_id);
-    setWorkspaceRefreshToken((prev) => prev + 1);
+  const handleAuthExpired = useCallback((message: string) => {
+    clearApiKey();
+    setAuthState("needs_auth");
+    setAuthErrorMsg(message);
+    clearStoredCurrentSessionId();
   }, []);
 
-  const restoreStoredSession = useCallback(
-    async (availableSessions: TaskSummary[]) => {
-      const storedSessionId = getStoredCurrentSessionId();
-      const restorableSessionId = pickInitialSessionId(storedSessionId, availableSessions);
+  const {
+    input,
+    setInput,
+    messages,
+    pendingFiles,
+    isGenerating,
+    inputFocusToken,
+    tokenUsage,
+    lastContextTokens,
+    taskSteps,
+    taskProgress,
+    pendingPermission,
+    currentSessionRuntimeStatus,
+    timelineEvents,
+    changedFiles,
+    resetSessionView,
+    abortRunAndResetSessionView,
+    applySessionDetails,
+    handleStop,
+    handleClearContext,
+    handleAttachFiles,
+    handleRemovePendingFile,
+    handleSendMessage,
+    handleQuickReply,
+    handlePermissionResolve,
+  } = useChatRun({
+    selectedModel,
+    onSelectedModelChange: setSelectedModel,
+    onAuthExpired: handleAuthExpired,
+    onWorkspaceRefresh: () => setWorkspaceRefreshToken((prev) => prev + 1),
+    getSessionActions: () => sessionActionsRef.current,
+  });
 
-      if (!restorableSessionId) {
-        clearStoredCurrentSessionId();
-        return;
-      }
+  const handleSessionActivated = useCallback(() => {
+    setActiveView("sessions");
+    setIsSidebarOpen(false);
+  }, []);
 
-      const details = await fetchTaskDetails(restorableSessionId);
-      if (!details) {
-        clearStoredCurrentSessionId();
-        return;
-      }
+  const {
+    sessionId,
+    sessionSummaries,
+    isLoadingSessions,
+    sessionLoadError,
+    loadSessions,
+    restoreStoredSession,
+    resetSessionsForUserChange,
+    ensureSession,
+    createNewSession,
+    switchSession,
+    deleteSessionById,
+    stopCurrentSession,
+    clearCurrentSessionContext,
+  } = useSessionLifecycle({
+    authState,
+    isGenerating,
+    onAuthExpired: handleAuthExpired,
+    onApplySessionDetails: applySessionDetails,
+    onNewSessionView: resetSessionView,
+    onDeleteCurrentSession: resetSessionView,
+    onSessionActivated: handleSessionActivated,
+  });
 
-      applyTaskDetails(details);
-    },
-    [applyTaskDetails]
-  );
+  useEffect(() => {
+    sessionActionsRef.current = {
+      getSessionId: () => sessionId,
+      ensureSession,
+      loadSessions,
+      clearCurrentSessionContext,
+      stopCurrentSession,
+    };
+  }, [clearCurrentSessionContext, ensureSession, loadSessions, sessionId, stopCurrentSession]);
 
   const handleUserIdChange = useCallback(
     async (newUid: string) => {
@@ -180,20 +147,8 @@ export default function Home() {
         return;
       }
       setUserIdState(newUid);
-      abortControllerRef.current?.abort();
-      activeRequestIdRef.current += 1;
-      setSessionId(null);
-      setMessages([]);
-      setRuntimeTimelineEvents([]);
-      setPendingFiles([]);
-      setSessionSummaries([]);
-      setSessionLoadError(null);
-      setTaskSteps([]);
-      setTaskProgress(null);
-      setTokenUsage({ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
-      setLastContextTokens(0);
-      setIsGenerating(false);
-      clearStoredCurrentSessionId();
+      abortRunAndResetSessionView();
+      resetSessionsForUserChange();
       if (authState === "authenticated") {
         const loaded = await loadSessions();
         console.info(`[ripple] switched to user "${newUid}", loaded ${loaded.length} sessions`);
@@ -202,7 +157,13 @@ export default function Home() {
         }
       }
     },
-    [authState, loadSessions, restoreStoredSession]
+    [
+      authState,
+      abortRunAndResetSessionView,
+      loadSessions,
+      resetSessionsForUserChange,
+      restoreStoredSession,
+    ]
   );
 
   // ── Init on auth ──
@@ -221,14 +182,11 @@ export default function Home() {
         }
       } catch (err) {
         if (err instanceof AuthError) {
-          clearApiKey();
-          setAuthState("needs_auth");
-          setAuthErrorMsg("API Key 无效，请重新输入");
-          clearStoredCurrentSessionId();
+          handleAuthExpired("API Key 无效，请重新输入");
         }
       }
     })();
-  }, [authState, loadSessions, restoreStoredSession]);
+  }, [authState, handleAuthExpired, loadSessions, restoreStoredSession]);
 
   // ── Auth submit ──
   const handleAuthSubmit = (e: React.FormEvent) => {
@@ -242,443 +200,19 @@ export default function Home() {
 
   // ── Session switch ──
   const handleSwitchSession = async (targetSessionId: string) => {
-    if (targetSessionId === sessionId || isGenerating) return;
-    try {
-      const details = await fetchTaskDetails(targetSessionId);
-      if (!details) return;
-      applyTaskDetails(details);
-      setActiveView("sessions");
-      setIsSidebarOpen(false);
-    } catch (err) {
-      console.error("Error switching session:", err);
-    }
+    await switchSession(targetSessionId);
   };
 
   // ── New session ──
   const handleNewSession = async () => {
-    if (isGenerating) return;
-    setMessages([]);
-    setRuntimeTimelineEvents([]);
-    setPendingFiles([]);
-    setTokenUsage({ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
-    setLastContextTokens(0);
-    setTaskSteps([]);
-    setTaskProgress(null);
-    try {
-      const task = await createTask();
-      setSessionId(task.session_id);
-      setStoredCurrentSessionId(undefined, task.session_id);
-      setActiveView("sessions");
-      await loadSessions();
-    } catch (err) {
-      if (err instanceof AuthError) {
-        clearApiKey();
-        setAuthState("needs_auth");
-        setAuthErrorMsg("API Key 已失效");
-        clearStoredCurrentSessionId();
-      }
-    }
+    await createNewSession();
   };
 
   // ── Delete session ──
   const handleDeleteSession = async (targetSessionId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (isGenerating) return;
-    if (await deleteTask(targetSessionId)) {
-      setSessionSummaries((prev) =>
-        prev.filter((session) => session.session_id !== targetSessionId)
-      );
-      if (getStoredCurrentSessionId() === targetSessionId) {
-        clearStoredCurrentSessionId();
-      }
-      if (targetSessionId === sessionId) {
-        setSessionId(null);
-        setMessages([]);
-        setRuntimeTimelineEvents([]);
-        setPendingFiles([]);
-        setTaskSteps([]);
-        setTaskProgress(null);
-      }
-    }
+    await deleteSessionById(targetSessionId);
   };
-
-  // ── Stop generation ──
-  const handleStop = useCallback(async () => {
-    activeRequestIdRef.current += 1;
-    abortControllerRef.current?.abort();
-    abortControllerRef.current = null;
-    if (sessionId) {
-      await stopTask(sessionId);
-    }
-    setIsGenerating(false);
-    setInputFocusToken((prev) => bumpInputFocusToken(prev));
-  }, [sessionId]);
-
-  const resetCurrentContextView = useCallback(() => {
-    setMessages([]);
-    setRuntimeTimelineEvents([]);
-    setPendingFiles([]);
-    setInput("");
-    setTaskSteps([]);
-    setTaskProgress(null);
-    setTokenUsage({ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
-    setLastContextTokens(0);
-  }, []);
-
-  const handleClearContext = useCallback(async () => {
-    if (isGenerating) return;
-    try {
-      if (sessionId) {
-        const ok = await clearTaskContext(sessionId);
-        if (!ok) throw new Error("Failed to clear session context");
-      }
-      resetCurrentContextView();
-      setInputFocusToken((prev) => bumpInputFocusToken(prev));
-      await loadSessions();
-    } catch (err) {
-      if (err instanceof AuthError) {
-        clearApiKey();
-        setAuthState("needs_auth");
-        setAuthErrorMsg("API Key 已失效");
-        clearStoredCurrentSessionId();
-        return;
-      }
-      console.error("Clear context error:", err);
-    }
-  }, [isGenerating, loadSessions, resetCurrentContextView, sessionId]);
-
-  const handleAttachFiles = useCallback(
-    async (files: File[]) => {
-      if (isGenerating || files.length === 0) return;
-      try {
-        const uploaded = await Promise.all(files.map((file) => uploadWorkspaceAttachment(file)));
-        setPendingFiles((prev) => {
-          const next = new Map(prev.map((file) => [file.path, file]));
-          for (const file of uploaded) {
-            next.set(file.path, {
-              path: file.path,
-              name: file.name,
-              mime_type: file.mime_type,
-              kind: file.kind,
-            });
-          }
-          return [...next.values()];
-        });
-        setWorkspaceRefreshToken((prev) => prev + 1);
-        setInputFocusToken((prev) => bumpInputFocusToken(prev));
-      } catch (err) {
-        if (err instanceof AuthError) {
-          clearApiKey();
-          setAuthState("needs_auth");
-          setAuthErrorMsg("API Key 已失效");
-          clearStoredCurrentSessionId();
-          return;
-        }
-        console.error("Attachment upload error:", err);
-      }
-    },
-    [isGenerating]
-  );
-
-  const handleRemovePendingFile = useCallback((path: string) => {
-    setPendingFiles((prev) => prev.filter((file) => file.path !== path));
-  }, []);
-
-  // ── Send message ──
-  const handleSendMessage = useCallback(
-    async (overrideText?: string) => {
-      const text = typeof overrideText === "string" ? overrideText.trim() : input.trim();
-      const filesForSend = typeof overrideText === "string" ? [] : pendingFiles;
-      if (text === "/clear") {
-        await handleClearContext();
-        return;
-      }
-      if ((!text && filesForSend.length === 0) || isGenerating) return;
-      const requestId = activeRequestIdRef.current + 1;
-      activeRequestIdRef.current = requestId;
-      abortControllerRef.current?.abort();
-      const abortController = new AbortController();
-      abortControllerRef.current = abortController;
-      const isStaleRequest = () => activeRequestIdRef.current !== requestId;
-
-      let activeSessionId = sessionId;
-      if (!activeSessionId) {
-        try {
-          const task = await createTask();
-          activeSessionId = task.session_id;
-          setSessionId(activeSessionId);
-          setStoredCurrentSessionId(undefined, activeSessionId);
-        } catch (err) {
-          if (err instanceof AuthError) {
-            clearApiKey();
-            setAuthState("needs_auth");
-            clearStoredCurrentSessionId();
-          }
-          return;
-        }
-      }
-
-      const sentAt = new Date().toISOString();
-      const displayText = describeChatFilesForDisplay(text, filesForSend);
-      const userMessageId = Date.now();
-      const assistantMessageId = `${userMessageId}-assistant`;
-      setMessages((prev) => [
-        ...prev,
-        { id: userMessageId, role: "user", content: displayText, created_at: sentAt },
-        { id: assistantMessageId, role: "assistant", content: "", toolCalls: [] },
-      ]);
-      setInput("");
-      setPendingFiles([]);
-      setIsGenerating(true);
-
-      let currentContent = "";
-      const assistantUpdates = new Map<string, string>();
-      const upsertAssistantUpdate = (id: string, content: string) => {
-        setMessages((prev) => {
-          const updateId = `assistant-update-${id}`;
-          const existingIndex = prev.findIndex((message) => message.id === updateId);
-          if (existingIndex >= 0) {
-            return prev.map((message, index) =>
-              index === existingIndex ? { ...message, content } : message
-            );
-          }
-
-          const updateMessage: Message = {
-            id: updateId,
-            role: "assistant",
-            content,
-            created_at: new Date().toISOString(),
-          };
-          const placeholderIndex = prev.findIndex((message) => message.id === assistantMessageId);
-          if (placeholderIndex < 0) {
-            return [...prev, updateMessage];
-          }
-          return [
-            ...prev.slice(0, placeholderIndex),
-            updateMessage,
-            ...prev.slice(placeholderIndex),
-          ];
-        });
-      };
-
-      await sendChatMessage(
-        activeSessionId,
-        text,
-        selectedModel,
-        {
-          onMessageDelta: (delta) => {
-            if (isStaleRequest()) return;
-            currentContent += delta;
-            setMessages((prev) => {
-              const msgs = [...prev];
-              const last = msgs[msgs.length - 1];
-              if (last.role === "assistant") last.content = currentContent;
-              return msgs;
-            });
-          },
-          onAssistantUpdateDelta: (id, delta) => {
-            if (isStaleRequest()) return;
-            const next = (assistantUpdates.get(id) || "") + delta;
-            assistantUpdates.set(id, next);
-            upsertAssistantUpdate(id, next);
-          },
-          onAssistantUpdate: (id, content) => {
-            if (isStaleRequest()) return;
-            assistantUpdates.set(id, content);
-            upsertAssistantUpdate(id, content);
-          },
-          onToolCall: (toolCall) => {
-            if (isStaleRequest()) return;
-            setMessages((prev) => {
-              const msgs = [...prev];
-              const last = msgs[msgs.length - 1];
-              if (last.role === "assistant") {
-                const idx = last.toolCalls?.findIndex((t) => t.id === toolCall.id) ?? -1;
-                if (idx >= 0 && last.toolCalls) {
-                  last.toolCalls[idx] = toolCall;
-                } else {
-                  last.toolCalls = [...(last.toolCalls || []), toolCall];
-                }
-                if (toolCall.name === "AskUser") {
-                  try {
-                    const args =
-                      typeof toolCall.arguments === "string"
-                        ? JSON.parse(toolCall.arguments)
-                        : toolCall.arguments;
-                    if (args?.question) {
-                      last.askUser = { question: args.question, options: args.options || [] };
-                    }
-                  } catch {
-                    /* ignore parse error */
-                  }
-                }
-              }
-              return msgs;
-            });
-          },
-          onNewTurn: () => {
-            if (isStaleRequest()) return;
-            currentContent = "";
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: Date.now() + Math.random(),
-                role: "assistant",
-                content: "",
-                toolCalls: [],
-              },
-            ]);
-          },
-          onToolResult: (toolId, result) => {
-            if (isStaleRequest()) return;
-            setMessages((prev) => {
-              const msgs = [...prev];
-              const last = msgs[msgs.length - 1];
-              if (last.role === "assistant") {
-                const tc = last.toolCalls?.find((t) => t.id === toolId);
-                if (tc) {
-                  tc.status = "success";
-                  tc.result = result;
-                }
-              }
-              return msgs;
-            });
-          },
-          onTaskCreated: (task) => {
-            if (isStaleRequest()) return;
-            setTaskSteps((prev) => upsertTask(prev, task));
-          },
-          onTaskUpdated: (task) => {
-            if (isStaleRequest()) return;
-            setTaskSteps((prev) => applyTaskUpdate(prev, task));
-          },
-          onTaskProgress: (progress) => {
-            if (isStaleRequest()) return;
-            setTaskProgress(progress);
-          },
-          onTaskPlanUpdated: (update) => {
-            if (isStaleRequest()) return;
-            const next = applyTaskPlanUpdate([], update);
-            setTaskSteps(next.taskSteps);
-            setTaskProgress(next.taskProgress);
-          },
-          onRuntimeEvent: (event) => {
-            if (isStaleRequest()) return;
-            const createdAt = new Date().toISOString();
-            setRuntimeTimelineEvents((prev) => [
-              ...prev,
-              codexRuntimeEventToTimelineEvent(event, {
-                id: `runtime-${requestId}-${prev.length}`,
-                createdAt,
-              }),
-            ]);
-          },
-          onAgentStop: (data) => {
-            if (isStaleRequest()) return;
-            setMessages((prev) => {
-              const msgs = [...prev];
-              const last = msgs[msgs.length - 1];
-              if (last.role !== "assistant") return msgs;
-
-              if (data.stop_reason === "ask_user" && typeof data.metadata.question === "string") {
-                last.askUser = {
-                  question: data.metadata.question,
-                  options: Array.isArray(data.metadata.options)
-                    ? data.metadata.options.filter(
-                        (option): option is string => typeof option === "string"
-                      )
-                    : [],
-                };
-              }
-
-              if (data.stop_reason === "permission_request") {
-                last.permissionRequest = {
-                  tool: typeof data.metadata.tool === "string" ? data.metadata.tool : "unknown",
-                  params:
-                    typeof data.metadata.params === "string" ||
-                    (data.metadata.params && typeof data.metadata.params === "object")
-                      ? (data.metadata.params as Record<string, unknown> | string)
-                      : {},
-                  riskLevel:
-                    typeof data.metadata.riskLevel === "string"
-                      ? data.metadata.riskLevel
-                      : "dangerous",
-                };
-              }
-
-              return msgs;
-            });
-          },
-          onPermissionRequest: (request) => {
-            if (isStaleRequest()) return;
-            setIsGenerating(false);
-            setInputFocusToken((prev) => bumpInputFocusToken(prev));
-            setMessages((prev) => {
-              const msgs = [...prev];
-              const last = msgs[msgs.length - 1];
-              if (last.role === "assistant") last.permissionRequest = request;
-              return msgs;
-            });
-          },
-          onUsage: (usage) => {
-            if (isStaleRequest()) return;
-            setTokenUsage((prev) => ({
-              prompt_tokens: prev.prompt_tokens + usage.prompt_tokens,
-              completion_tokens: prev.completion_tokens + usage.completion_tokens,
-              total_tokens: prev.total_tokens + usage.total_tokens,
-            }));
-            const ctx = usage.last_prompt_tokens ?? usage.prompt_tokens;
-            if (ctx > 0) setLastContextTokens(ctx);
-          },
-          onComplete: () => {
-            if (isStaleRequest()) return;
-            abortControllerRef.current = null;
-            setIsGenerating(false);
-            const nextPlan = clearTaskPlanState();
-            setTaskSteps(nextPlan.taskSteps);
-            setTaskProgress(nextPlan.taskProgress);
-            setInputFocusToken((prev) => bumpInputFocusToken(prev));
-            loadSessions();
-            setWorkspaceRefreshToken((prev) => prev + 1);
-          },
-          onError: (err) => {
-            if (isStaleRequest()) return;
-            abortControllerRef.current = null;
-            if (err instanceof AuthError) {
-              clearApiKey();
-              setAuthState("needs_auth");
-              setAuthErrorMsg("API Key 已失效");
-              clearStoredCurrentSessionId();
-              setIsGenerating(false);
-              setInputFocusToken((prev) => bumpInputFocusToken(prev));
-              return;
-            }
-            console.error("Chat error:", err);
-            setIsGenerating(false);
-            setInputFocusToken((prev) => bumpInputFocusToken(prev));
-            setMessages((prev) => {
-              const msgs = [...prev];
-              const last = msgs[msgs.length - 1];
-              if (last.role === "assistant" && !last.content) {
-                last.content = chatErrorContent(err);
-              }
-              return msgs;
-            });
-          },
-        },
-        { signal: abortController.signal, files: filesForSend }
-      );
-    },
-    [handleClearContext, input, isGenerating, loadSessions, pendingFiles, selectedModel, sessionId]
-  );
-
-  const handleQuickReply = useCallback(
-    (option: string) => {
-      setInput(option);
-      handleSendMessage(option);
-    },
-    [handleSendMessage]
-  );
 
   const handleCopySessionId = useCallback(async () => {
     if (!sessionId) return;
@@ -693,56 +227,10 @@ export default function Home() {
     setIsSidebarOpen(false);
   }, []);
 
-  const handlePermissionResolve = useCallback(
-    async (action: "allow" | "always" | "deny") => {
-      if (!sessionId || isGenerating) return;
-
-      try {
-        const ok = await resolveTaskPermissionRequest(sessionId, action);
-        if (!ok) {
-          throw new Error("Failed to resolve permission request");
-        }
-
-        const text =
-          action === "deny"
-            ? "Denied."
-            : action === "always"
-              ? "Approved for this session. Please proceed."
-              : "Approved. Please proceed.";
-        setInput(text);
-        await handleSendMessage(text);
-      } catch (err) {
-        if (err instanceof AuthError) {
-          clearApiKey();
-          setAuthState("needs_auth");
-          setAuthErrorMsg("API Key 已失效");
-          clearStoredCurrentSessionId();
-          return;
-        }
-
-        console.error("Permission resolve error:", err);
-      }
-    },
-    [handleSendMessage, isGenerating, sessionId]
-  );
-
-  const pendingInteractionMessage = useMemo(
-    () => [...messages].reverse().find((message) => message.permissionRequest || message.askUser),
-    [messages]
-  );
-  const pendingPermission = pendingInteractionMessage?.permissionRequest || null;
-  const currentSessionRuntimeStatus = isGenerating
-    ? ("running" as const)
-    : pendingInteractionMessage?.permissionRequest
-      ? ("waiting_for_approval" as const)
-      : pendingInteractionMessage?.askUser
-        ? ("waiting_for_user" as const)
-        : null;
-
   const workbenchSessions = useMemo(
     () =>
       applyCurrentSessionRuntimeStatus(
-        createWorkbenchSessionsFromTaskSummaries(sessionSummaries),
+        createWorkbenchSessionsFromSessionSummaries(sessionSummaries),
         sessionId,
         currentSessionRuntimeStatus
       ),
@@ -770,11 +258,6 @@ export default function Home() {
     !workbenchSessions.some((session) => session.sessionId === inferredCurrentSession.sessionId)
       ? [inferredCurrentSession, ...workbenchSessions]
       : workbenchSessions;
-  const timelineEvents = useMemo(
-    () => [...messagesToTimelineEvents(messages), ...runtimeTimelineEvents],
-    [messages, runtimeTimelineEvents]
-  );
-  const changedFiles = useMemo(() => extractChangedFilePaths(messages), [messages]);
   const mainContent =
     activeView === "home" ? (
       <HomePage
@@ -947,220 +430,4 @@ export default function Home() {
       />
     </>
   );
-}
-
-// ═══════════════════════════════════════════════════════
-// HELPERS
-// ═══════════════════════════════════════════════════════
-
-function mapBackendMessages(
-  details: TaskDetail | { messages: Record<string, unknown>[] }
-): Message[] {
-  const result: Message[] = [];
-  let id = Date.now();
-  const raw = details.messages;
-  const pendingQuestion = "pending_question" in details ? details.pending_question : null;
-  const pendingOptions = "pending_options" in details ? details.pending_options : null;
-  const pendingPermissionRequest =
-    "pending_permission_request" in details ? details.pending_permission_request : null;
-
-  for (const msg of raw) {
-    const internalType = typeof msg.type === "string" ? msg.type : null;
-    const role = typeof msg.role === "string" ? msg.role : null;
-
-    if (internalType === "user") {
-      const createdAt = typeof msg.created_at === "string" ? msg.created_at : undefined;
-      const content = getInternalMessageContent(msg);
-      const textContent = extractText(content);
-      if (textContent) {
-        result.push({ id: id++, role: "user", content: textContent, created_at: createdAt });
-      }
-
-      for (const block of content) {
-        if (!isRecord(block) || block.type !== "tool_result") continue;
-
-        for (let i = result.length - 1; i >= 0; i--) {
-          const message = result[i];
-          if (message.role !== "assistant" || !message.toolCalls) continue;
-
-          const toolCall = message.toolCalls.find((tool) => tool.id === block.tool_use_id);
-          if (toolCall) {
-            toolCall.result =
-              typeof block.content === "string" ? block.content : JSON.stringify(block.content);
-            toolCall.status = block.is_error ? "error" : "success";
-            break;
-          }
-        }
-      }
-      continue;
-    }
-
-    if (internalType === "assistant") {
-      const createdAt = typeof msg.created_at === "string" ? msg.created_at : undefined;
-      const content = getInternalMessageContent(msg);
-      const toolCalls = content
-        .filter(
-          (block): block is Record<string, unknown> => isRecord(block) && block.type === "tool_use"
-        )
-        .map((block) => ({
-          id: typeof block.id === "string" ? block.id : `tool-${id}`,
-          name: typeof block.name === "string" ? block.name : "unknown",
-          arguments: isRecord(block.input) ? block.input : {},
-          status: "success" as const,
-          result: "",
-        }));
-      const assistantMessage: Message = {
-        id: id++,
-        role: "assistant",
-        content: extractText(content),
-        created_at: createdAt,
-        toolCalls,
-      };
-
-      const askUserTool = content.find(
-        (block) => isRecord(block) && block.type === "tool_use" && block.name === "AskUser"
-      );
-      if (
-        isRecord(askUserTool) &&
-        isRecord(askUserTool.input) &&
-        typeof askUserTool.input.question === "string"
-      ) {
-        assistantMessage.askUser = {
-          question: askUserTool.input.question,
-          options: Array.isArray(askUserTool.input.options)
-            ? askUserTool.input.options.filter(
-                (option): option is string => typeof option === "string"
-              )
-            : [],
-        };
-      }
-
-      result.push(assistantMessage);
-      continue;
-    }
-
-    if (role === "user") {
-      const createdAt = typeof msg.created_at === "string" ? msg.created_at : undefined;
-      result.push({
-        id: id++,
-        role: "user",
-        content: extractText(msg.content),
-        created_at: createdAt,
-      });
-    } else if (role === "assistant") {
-      const createdAt = typeof msg.created_at === "string" ? msg.created_at : undefined;
-      const toolCalls =
-        (
-          msg.tool_calls as
-            | Array<{
-                id: string;
-                function?: { name: string; arguments: string | Record<string, unknown> };
-              }>
-            | undefined
-        )?.map((tc) => ({
-          id: tc.id,
-          name: tc.function?.name || "unknown",
-          arguments: tc.function?.arguments || {},
-          status: "success" as const,
-          result: "",
-        })) || [];
-      const assistantMessage: Message = {
-        id: id++,
-        role: "assistant",
-        content: extractText(msg.content),
-        created_at: createdAt,
-        toolCalls,
-      };
-      result.push(assistantMessage);
-    } else if (role === "tool") {
-      for (let i = result.length - 1; i >= 0; i--) {
-        const m = result[i];
-        if (m.role === "assistant" && m.toolCalls) {
-          const tc = m.toolCalls.find((t) => t.id === (msg.tool_call_id as string));
-          if (tc) {
-            tc.result = typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content);
-            break;
-          }
-        }
-      }
-    }
-  }
-
-  if (pendingQuestion) {
-    const lastAssistant = [...result].reverse().find((message) => message.role === "assistant");
-    if (lastAssistant) {
-      lastAssistant.askUser = {
-        question: pendingQuestion,
-        options: Array.isArray(pendingOptions) ? pendingOptions : [],
-      };
-    }
-  }
-
-  if (pendingPermissionRequest) {
-    const lastAssistant = [...result].reverse().find((message) => message.role === "assistant");
-    if (lastAssistant) {
-      lastAssistant.permissionRequest = pendingPermissionRequest;
-    }
-  }
-
-  return result;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function getInternalMessageContent(message: Record<string, unknown>): Record<string, unknown>[] {
-  if (!isRecord(message.message)) return [];
-  const content = message.message.content;
-  return Array.isArray(content) ? content.filter(isRecord) : [];
-}
-
-function extractText(content: unknown): string {
-  if (typeof content === "string") {
-    try {
-      const parsed = JSON.parse(content);
-      if (Array.isArray(parsed)) {
-        return parsed
-          .filter((c: { type: string }) => c.type === "text")
-          .map((c: { text?: string }) => c.text || "")
-          .join("\n");
-      }
-    } catch {
-      /* not JSON, use as-is */
-    }
-    return content;
-  }
-  if (Array.isArray(content)) {
-    const textParts: string[] = [];
-    const fileParts: string[] = [];
-    for (const item of content) {
-      if (!isRecord(item)) continue;
-      if (item.type === "text" && typeof item.text === "string") {
-        textParts.push(item.text);
-        continue;
-      }
-      if (
-        (item.type === "file" || item.type === "attachment" || item.type === "localImage") &&
-        isRecord(item.file)
-      ) {
-        const name = typeof item.file.name === "string" ? item.file.name : "file";
-        const path = typeof item.file.path === "string" ? item.file.path : "";
-        fileParts.push(path ? `- ${name} (${path})` : `- ${name}`);
-        continue;
-      }
-      if (item.type === "attachment" || item.type === "localImage") {
-        const name = typeof item.name === "string" ? item.name : "file";
-        const path = typeof item.path === "string" ? item.path : "";
-        fileParts.push(path ? `- ${name} (${path})` : `- ${name}`);
-      }
-    }
-    return [
-      textParts.join("\n"),
-      fileParts.length ? `Attached files:\n${fileParts.join("\n")}` : "",
-    ]
-      .filter(Boolean)
-      .join("\n\n");
-  }
-  return content ? JSON.stringify(content) : "";
 }

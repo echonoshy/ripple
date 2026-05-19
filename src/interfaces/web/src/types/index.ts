@@ -38,11 +38,11 @@ export interface UsageInfo {
 }
 
 export interface SessionUsage {
-  total_input_tokens: number;
-  total_output_tokens: number;
-  total_tokens: number;
-  last_input_tokens: number;
-  message_count: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalTokens: number;
+  lastInputTokens: number;
+  messageCount: number;
 }
 
 export interface SandboxInfo {
@@ -149,26 +149,25 @@ export interface WorkspaceUploadResponse {
   entries: WorkspaceEntry[];
 }
 
-export interface TaskSummary {
-  task_id: string;
-  session_id: string;
+export interface SessionSummary {
+  sessionId: string;
   title: string;
   model: string;
-  created_at: string;
-  last_active: string;
-  message_count: number;
+  createdAt: string;
+  lastActiveAt: string;
+  messageCount: number;
   status: string;
-  changed_file_count: number;
-  pending_approval_count: number;
+  changedFileCount: number;
+  pendingApprovalCount: number;
 }
 
-export interface TaskDetail extends TaskSummary {
+export interface SessionDetail extends SessionSummary {
   messages: Record<string, unknown>[];
-  pending_question?: string | null;
-  pending_options?: string[] | null;
-  pending_permission_request?: PermissionRequestData | null;
-  task_steps?: TaskInfo[];
-  task_progress?: TaskProgress | null;
+  pendingQuestion?: string | null;
+  pendingOptions?: string[] | null;
+  pendingPermissionRequest?: PermissionRequestData | null;
+  taskSteps?: TaskInfo[];
+  taskProgress?: TaskProgress | null;
 }
 
 export interface TaskInfo {

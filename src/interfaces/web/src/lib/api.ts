@@ -8,11 +8,11 @@ import {
   ConnectorInfo,
   ConnectorStatus,
   GogcliAccountsResponse,
-  TaskDetail,
+  SessionDetail,
+  SessionSummary,
   TaskInfo,
   TaskPlanUpdate,
   TaskProgress,
-  TaskSummary,
   AgentStopData,
   WorkspaceAttachmentResponse,
   WorkspaceEntry,
@@ -206,6 +206,54 @@ function parseTaskPlanUpdate(data: Record<string, unknown>): TaskPlanUpdate {
   };
 }
 
+interface RawSessionSummary {
+  task_id?: string;
+  session_id: string;
+  title: string;
+  model: string;
+  created_at: string;
+  last_active: string;
+  message_count: number;
+  status: string;
+  changed_file_count: number;
+  pending_approval_count: number;
+}
+
+interface RawSessionDetail extends RawSessionSummary {
+  messages?: Record<string, unknown>[];
+  pending_question?: string | null;
+  pending_options?: string[] | null;
+  pending_permission_request?: SessionDetail["pendingPermissionRequest"];
+  task_steps?: TaskInfo[];
+  task_progress?: TaskProgress | null;
+}
+
+function normalizeSessionSummary(raw: RawSessionSummary): SessionSummary {
+  return {
+    sessionId: raw.session_id,
+    title: raw.title,
+    model: raw.model,
+    createdAt: raw.created_at,
+    lastActiveAt: raw.last_active,
+    messageCount: raw.message_count,
+    status: raw.status,
+    changedFileCount: raw.changed_file_count,
+    pendingApprovalCount: raw.pending_approval_count,
+  };
+}
+
+function normalizeSessionDetail(raw: RawSessionDetail): SessionDetail {
+  return {
+    ...normalizeSessionSummary(raw),
+    messages: raw.messages || [],
+    pendingQuestion: raw.pending_question ?? null,
+    pendingOptions: raw.pending_options ?? null,
+    pendingPermissionRequest: raw.pending_permission_request ?? null,
+    taskSteps: raw.task_steps || [],
+    taskProgress: raw.task_progress ?? null,
+  };
+}
+
 export async function fetchModels(): Promise<{ id: string; owned_by: string }[]> {
   const res = await fetch(`${API_URL}/models`, { headers: { ...authHeaders() } });
   if (res.status === 401) throw new AuthError();
@@ -214,18 +262,18 @@ export async function fetchModels(): Promise<{ id: string; owned_by: string }[]>
   return data.data || [];
 }
 
-export async function createTask(): Promise<TaskSummary> {
+export async function createSession(): Promise<SessionSummary> {
   const res = await fetch(`${API_URL}/tasks`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify({}),
   });
   if (res.status === 401) throw new AuthError();
-  if (!res.ok) throw new Error("Failed to create task");
-  return (await res.json()) as TaskSummary;
+  if (!res.ok) throw new Error("Failed to create session");
+  return normalizeSessionSummary((await res.json()) as RawSessionSummary);
 }
 
-export async function fetchTasks(): Promise<TaskSummary[]> {
+export async function fetchSessions(): Promise<SessionSummary[]> {
   try {
     const res = await fetch(`${API_URL}/tasks`, { headers: { ...authHeaders() } });
     if (res.status === 401) throw new AuthError();
@@ -233,30 +281,30 @@ export async function fetchTasks(): Promise<TaskSummary[]> {
       const detail = await responseDetail(res);
       throw new Error(detail || `Failed to fetch sessions (${res.status})`);
     }
-    const data = (await res.json()) as { tasks?: TaskSummary[] };
-    return data.tasks || [];
+    const data = (await res.json()) as { tasks?: RawSessionSummary[] };
+    return (data.tasks || []).map(normalizeSessionSummary);
   } catch (error) {
     if (error instanceof AuthError) throw error;
     throw new Error(readableApiErrorMessage(error));
   }
 }
 
-export async function fetchTaskDetails(sessionId: string): Promise<TaskDetail | null> {
+export async function fetchSessionDetails(sessionId: string): Promise<SessionDetail | null> {
   try {
     const res = await fetch(`${API_URL}/tasks/${encodeURIComponent(sessionId)}`, {
       headers: { ...authHeaders() },
     });
     if (res.status === 401) throw new AuthError();
     if (!res.ok) return null;
-    return (await res.json()) as TaskDetail;
+    return normalizeSessionDetail((await res.json()) as RawSessionDetail);
   } catch (error) {
     if (error instanceof AuthError) throw error;
-    console.error("Error fetching task details:", error);
+    console.error("Error fetching session details:", error);
     return null;
   }
 }
 
-export async function deleteTask(sessionId: string): Promise<boolean> {
+export async function deleteSession(sessionId: string): Promise<boolean> {
   try {
     const res = await fetch(`${API_URL}/tasks/${encodeURIComponent(sessionId)}`, {
       method: "DELETE",
@@ -269,7 +317,7 @@ export async function deleteTask(sessionId: string): Promise<boolean> {
   }
 }
 
-export async function clearTaskContext(sessionId: string): Promise<boolean> {
+export async function clearSessionContext(sessionId: string): Promise<boolean> {
   try {
     const res = await fetch(`${API_URL}/tasks/${encodeURIComponent(sessionId)}/context/clear`, {
       method: "POST",
@@ -283,7 +331,7 @@ export async function clearTaskContext(sessionId: string): Promise<boolean> {
   }
 }
 
-export async function stopTask(sessionId: string): Promise<boolean> {
+export async function stopSession(sessionId: string): Promise<boolean> {
   try {
     const res = await fetch(`${API_URL}/tasks/${encodeURIComponent(sessionId)}/stop`, {
       method: "POST",
@@ -295,7 +343,7 @@ export async function stopTask(sessionId: string): Promise<boolean> {
   }
 }
 
-export async function resolveTaskPermissionRequest(
+export async function resolveSessionPermissionRequest(
   sessionId: string,
   action: "allow" | "always" | "deny"
 ): Promise<boolean> {

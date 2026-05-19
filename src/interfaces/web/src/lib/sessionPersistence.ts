@@ -1,7 +1,7 @@
 const CURRENT_SESSION_STORAGE_KEY = "ripple-current-session-id";
 
 type StorageLike = Pick<Storage, "getItem" | "setItem" | "removeItem">;
-type SessionRef = { session_id: string; last_active?: string };
+type SessionRef = { sessionId: string; lastActiveAt?: string };
 
 function getStorage(storage?: StorageLike): StorageLike | null {
   if (storage) {
@@ -38,9 +38,7 @@ export function pickRestorableSessionId(
     return null;
   }
 
-  return sessions.some((session) => session.session_id === storedSessionId)
-    ? storedSessionId
-    : null;
+  return sessions.some((session) => session.sessionId === storedSessionId) ? storedSessionId : null;
 }
 
 export function pickInitialSessionId(
@@ -53,10 +51,10 @@ export function pickInitialSessionId(
   }
 
   const latest = [...sessions].sort((a, b) => {
-    const aTime = Date.parse(a.last_active || "");
-    const bTime = Date.parse(b.last_active || "");
+    const aTime = Date.parse(a.lastActiveAt || "");
+    const bTime = Date.parse(b.lastActiveAt || "");
     return (Number.isNaN(bTime) ? 0 : bTime) - (Number.isNaN(aTime) ? 0 : aTime);
   })[0];
 
-  return latest?.session_id || null;
+  return latest?.sessionId || null;
 }

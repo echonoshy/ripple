@@ -21,6 +21,7 @@ from ripple.agent_runners.models import (
     AgentRunnerResult,
     AgentRunnerStatus,
 )
+from ripple.utils.file_state import append_jsonl, atomic_write_text, count_jsonl_records
 
 _TAIL_CHARS = 64_000
 _VALID_SANDBOX_TYPES = ("read-only", "workspace-write", "danger-full-access")
@@ -180,6 +181,13 @@ def _codex_auth_deny_read_paths(codex_home: Path | None) -> list[Path]:
     if os.environ.get("CODEX_HOME"):
         paths.append(Path(os.environ["CODEX_HOME"]))
     return _dedupe_paths(paths)
+
+
+def _resolved_path(path: Path) -> str:
+    try:
+        return str(path.expanduser().resolve())
+    except OSError:
+        return str(path.expanduser().absolute())
 
 
 class JsonRpcError(RuntimeError):
@@ -492,7 +500,7 @@ class CodexAppServerAgentProvider:
     def _uses_managed_permission_profile(self) -> bool:
         return self.sandbox_type in {"workspace-write", "read-only"}
 
-    def _thread_permission_config(self, codex_home: Path | None) -> dict[str, Any]:
+    def _thread_permission_config(self, session: CodexAppServerSession) -> dict[str, Any]:
         filesystem: dict[str, Any] = {":root": "read"}
         if self.sandbox_type == "workspace-write":
             filesystem[":project_roots"] = {
@@ -501,7 +509,13 @@ class CodexAppServerAgentProvider:
                 ".agents": "read",
                 ".codex": "read",
             }
-        for path in _codex_auth_deny_read_paths(codex_home):
+        if session.sandbox_config is not None:
+            sandboxes_root = getattr(session.sandbox_config, "sandboxes_root", None)
+            if sandboxes_root:
+                filesystem[_resolved_path(Path(str(sandboxes_root)))] = "none"
+                filesystem[_resolved_path(session.cwd)] = "write" if self.sandbox_type == "workspace-write" else "read"
+
+        for path in _codex_auth_deny_read_paths(session.codex_home):
             filesystem[str(path)] = "none"
 
         return {
@@ -519,7 +533,7 @@ class CodexAppServerAgentProvider:
         if not self._uses_managed_permission_profile():
             return {"sandbox": self.sandbox_type}
         return {
-            "config": self._thread_permission_config(session.codex_home),
+            "config": self._thread_permission_config(session),
             "permissions": {"type": "profile", "id": _RIPPLE_CODEX_PERMISSION_PROFILE},
         }
 
@@ -644,7 +658,7 @@ class CodexAppServerAgentProvider:
             ),
         )
 
-        output_file.write_text(output_text, encoding="utf-8")
+        atomic_write_text(output_file, output_text)
         return AgentRunnerResult(
             job_id=job_id,
             provider=request.provider,
@@ -892,5 +906,6 @@ class CodexAppServerAgentProvider:
         )
 
     async def _append_event(self, events_file: Path, event: AgentRunnerEvent) -> None:
-        with events_file.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(event.model_dump(mode="json"), ensure_ascii=False) + "\n")
+        if event.sequence is None:
+            event = event.model_copy(update={"sequence": count_jsonl_records(events_file) + 1})
+        append_jsonl(events_file, event.model_dump(mode="json"))

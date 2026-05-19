@@ -102,11 +102,7 @@ export default function WorkspaceNav({
             <span className="text-[11px] font-medium tracking-wide text-[#6b7280] uppercase">
               Sessions
             </span>
-            {isLoading ? (
-              <Loader2 size={13} className="animate-spin text-[#6b7280]" />
-            ) : (
-              <Plus size={13} className="text-[#6b7280]" />
-            )}
+            {isLoading ? <Loader2 size={13} className="animate-spin text-[#6b7280]" /> : null}
           </div>
 
           {sessions.length === 0 && !isLoading ? (

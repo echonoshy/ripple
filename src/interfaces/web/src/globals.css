@@ -17,6 +17,11 @@ body {
   outline-offset: 2px;
 }
 
+.task-composer-input:focus-visible {
+  outline: none;
+  outline-offset: 0;
+}
+
 .markdown-body {
   line-height: 1.65;
   color: #171a1f;

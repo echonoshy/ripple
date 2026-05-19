@@ -51,6 +51,7 @@ class Session:
     pending_question: str | None = None
     pending_options: list[str] | None = None
     pending_permission_request: dict[str, object] | None = None
+    pending_connector_auth: dict[str, object] | None = None
     task_steps: list[dict[str, object]] = field(default_factory=list)
     task_progress: dict[str, object] | None = None
 
@@ -234,6 +235,7 @@ class SessionManager:
             pending_question=session.pending_question,
             pending_options=session.pending_options,
             pending_permission_request=session.pending_permission_request,
+            pending_connector_auth=session.pending_connector_auth,
             task_steps=session.task_steps,
             task_progress=session.task_progress,
         )
@@ -466,6 +468,7 @@ class SessionManager:
             pending_question=state.get("pending_question"),
             pending_options=state.get("pending_options"),
             pending_permission_request=state.get("pending_permission_request"),
+            pending_connector_auth=state.get("pending_connector_auth"),
             task_steps=state.get("task_steps", []),
             task_progress=state.get("task_progress"),
         )
@@ -533,6 +536,7 @@ class SessionManager:
                 "pending_question": s.pending_question,
                 "pending_options": s.pending_options,
                 "pending_permission_request": s.pending_permission_request,
+                "pending_connector_auth": s.pending_connector_auth,
                 "total_input_tokens": s.total_input_tokens,
                 "total_output_tokens": s.total_output_tokens,
             }

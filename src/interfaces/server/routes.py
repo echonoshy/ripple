@@ -5,13 +5,15 @@
 """
 
 import html
+import json
 import shlex
 import time
 from pathlib import Path
 from typing import Annotated, Any
+from uuid import uuid4
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import HTMLResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 
 from interfaces.server.attachments import (
     detect_mime_type,
@@ -20,7 +22,12 @@ from interfaces.server.attachments import (
     save_uploaded_attachment,
 )
 from interfaces.server.auth import verify_api_key
-from interfaces.server.codex_chat import collect_codex_chat_response, stream_codex_chat_as_sse
+from interfaces.server.codex_chat import (
+    _append_session_messages,
+    collect_codex_chat_response,
+    stream_codex_chat_as_sse,
+)
+from interfaces.server.connector_chat_auth import maybe_handle_connector_chat_auth
 from interfaces.server.deps import get_user_id
 from interfaces.server.run_events import stream_run_events
 from interfaces.server.schemas import (
@@ -60,16 +67,20 @@ from interfaces.server.schemas import (
     WorkspaceFileSaveRequest,
     WorkspaceRenameRequest,
     WorkspaceSearchResponse,
+    WorkspaceUploadResponse,
 )
 from interfaces.server.sessions import Session, SessionManager, SessionStatus, _merge_system_prompt
 from interfaces.server.workspace_browser import (
     BinaryFileError,
     WorkspaceFileConflictError,
     WorkspaceFileTooLargeError,
+    WorkspaceUploadConflictError,
+    WorkspaceUploadItem,
     browse_workspace_directory,
     preview_workspace_file,
     rename_workspace_entry,
     save_workspace_text_file,
+    save_workspace_uploaded_files,
     search_workspace_files,
 )
 from ripple.agent_runners.job_store import find_user_job_record, list_user_job_records
@@ -257,6 +268,7 @@ async def _clear_session_context(manager: SessionManager, session: Session) -> N
         session.pending_question = None
         session.pending_options = None
         session.pending_permission_request = None
+        session.pending_connector_auth = None
         session.task_steps = []
         session.task_progress = None
         session.last_input_tokens = 0
@@ -490,6 +502,119 @@ def _codex_chat_max_runtime_seconds(config) -> int:
     )
 
 
+def _public_connector_auth_event(event: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in event.items() if key != "user_content" and value is not None}
+
+
+def _connector_auth_status(event: dict[str, Any]) -> str:
+    if event.get("type") == "connector_auth_required":
+        return SessionStatus.AWAITING_USER_INPUT
+    return SessionStatus.IDLE
+
+
+async def _persist_connector_auth_chat_event(
+    *,
+    manager: SessionManager,
+    session: Session,
+    user_input: str,
+    user_content: list[dict[str, Any]],
+    event: dict[str, Any],
+) -> dict[str, Any]:
+    public_event = _public_connector_auth_event(event)
+    assistant_text = str(event.get("message") or "")
+    persisted_user_content = event.get("user_content") if isinstance(event.get("user_content"), list) else user_content
+    async with session.lock:
+        if session.current_task is not None and not session.current_task.done():
+            raise HTTPException(status_code=409, detail="Session already has a running task")
+        session.status = _connector_auth_status(event)
+        session.pending_question = None
+        session.pending_options = None
+        session.pending_permission_request = None
+        _append_session_messages(session, user_input, assistant_text, user_content=persisted_user_content)
+        manager.touch_session(session)
+        manager.persist_session(session)
+    return public_event
+
+
+async def _connector_auth_chat_response(
+    *,
+    manager: SessionManager,
+    session: Session,
+    request: ChatCompletionRequest,
+    user_input: str,
+    user_content: list[dict[str, Any]],
+    model: str,
+    event: dict[str, Any],
+):
+    public_event = await _persist_connector_auth_chat_event(
+        manager=manager,
+        session=session,
+        user_input=user_input,
+        user_content=user_content,
+        event=event,
+    )
+    assistant_text = str(event.get("message") or "")
+    chunk_id = f"chatcmpl-{uuid4().hex[:24]}"
+    created = int(time.time())
+    if request.stream:
+
+        async def stream():
+            role_chunk = {
+                "id": chunk_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": model,
+                "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}],
+            }
+            yield f"data: {json.dumps(role_chunk, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps(public_event, ensure_ascii=False)}\n\n"
+            content_chunk = {
+                "id": chunk_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": model,
+                "choices": [{"index": 0, "delta": {"content": assistant_text}, "finish_reason": None}],
+            }
+            yield f"data: {json.dumps(content_chunk, ensure_ascii=False)}\n\n"
+            finish_chunk = {
+                "id": chunk_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": model,
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            }
+            yield f"data: {json.dumps(finish_chunk, ensure_ascii=False)}\n\n"
+            yield "data: [DONE]\n\n"
+
+        return StreamingResponse(
+            stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Ripple-Session-Id": session.session_id,
+            },
+        )
+
+    return {
+        "id": chunk_id,
+        "object": "chat.completion",
+        "created": created,
+        "model": model,
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": assistant_text},
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        "session_id": session.session_id,
+        "connector_auth": public_event,
+    }
+
+
 def _resolve_agent_run_turn_config(request: AgentRunCreateRequest) -> tuple[str | None, str | None]:
     if not request.model:
         return None, request.effort
@@ -555,6 +680,22 @@ async def chat_completions(
         raise HTTPException(status_code=404, detail=f"Attachment not found: {e}") from e
     if not user_input.strip() and not input_items:
         raise HTTPException(status_code=400, detail="No user message found in messages")
+
+    connector_auth_event = await maybe_handle_connector_chat_auth(
+        session=session,
+        user_input=user_input,
+        request_base_url=session.context.request_public_base_url if session.context else None,
+    )
+    if connector_auth_event is not None:
+        return await _connector_auth_chat_response(
+            manager=manager,
+            session=session,
+            request=request,
+            user_input=user_input,
+            user_content=user_content,
+            model=resolved_model,
+            event=connector_auth_event,
+        )
 
     attachment_items = [item for item in input_items if item.get("type") == "attachment"]
     codex_input_items = [item for item in input_items if item.get("type") != "attachment"]
@@ -1354,6 +1495,9 @@ async def get_connectors(
                 display_name=connector.info.display_name,
                 description=connector.info.description,
                 auth_type=connector.info.auth_type,
+                kind=connector.info.kind,
+                auth_flow=connector.info.auth_flow,
+                auth_surfaces=connector.info.auth_surfaces,
                 auth_start_path=connector.info.auth_start_path,
                 auth_complete_path=connector.info.auth_complete_path,
                 disconnect_path=connector.info.disconnect_path,
@@ -1520,6 +1664,100 @@ async def upload_workspace_attachment(
     except PermissionError as e:
         raise HTTPException(status_code=403, detail="Access denied") from e
     return attachment.to_response()
+
+
+@router.post("/v1/workspace/upload", response_model=WorkspaceUploadResponse)
+async def upload_workspace_files(
+    files: list[UploadFile] = File(...),
+    path: Annotated[str, Form()] = "/workspace",
+    overwrite: Annotated[bool, Form()] = False,
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+):
+    """Save uploaded files directly into one workspace directory."""
+    manager = get_session_manager()
+    if not manager.sandbox_manager:
+        raise HTTPException(status_code=500, detail="sandbox disabled")
+    if not files:
+        raise HTTPException(status_code=400, detail="No files uploaded")
+
+    workspace_root = manager.sandbox_manager.ensure_sandbox(user_id)
+    uploads = [WorkspaceUploadItem(filename=file.filename, data=await file.read()) for file in files]
+
+    def assert_uploads_within_quota(targets: list[tuple[Path, int]]) -> None:
+        status = quota_status(manager.sandbox_manager.config, user_id)
+        max_bytes = int(status["quota"]["max_workspace_mb"]) * 1024 * 1024
+        current_size = int(status["usage"]["workspace_size_bytes"])
+        final_sizes = dict(targets)
+        replaced_size = sum(target.stat().st_size for target in final_sizes if target.exists() and target.is_file())
+        projected_size = current_size - replaced_size + sum(final_sizes.values())
+        if projected_size > max_bytes:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "quota_exceeded",
+                    "resource": "workspace_bytes",
+                    "limit": max_bytes,
+                    "used": projected_size,
+                },
+            )
+
+    try:
+        entries = save_workspace_uploaded_files(
+            workspace_root,
+            path,
+            uploads,
+            overwrite=overwrite,
+            before_write=assert_uploads_within_quota,
+        )
+    except WorkspaceUploadConflictError as e:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "workspace_upload_conflict", "conflicts": e.conflicts},
+        ) from e
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail="Access denied") from e
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail="Path not found") from e
+    except NotADirectoryError as e:
+        raise HTTPException(status_code=400, detail="Path is not a directory") from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return WorkspaceUploadResponse(entries=entries)
+
+
+@router.get("/v1/workspace/download")
+async def download_workspace_file(
+    path: str = Query(...),
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+):
+    """Download one file from the current user's sandbox workspace."""
+    manager = get_session_manager()
+    if not manager.sandbox_manager:
+        raise HTTPException(status_code=500, detail="sandbox disabled")
+
+    workspace_root = manager.sandbox_manager.config.workspace_dir(user_id)
+    if not workspace_root.exists():
+        raise HTTPException(status_code=404, detail=f"Sandbox for user {user_id!r} not found")
+
+    try:
+        target = validate_path(path, workspace_root)
+        if not target.exists():
+            raise FileNotFoundError(path)
+        if not target.is_file():
+            raise IsADirectoryError(path)
+        return FileResponse(
+            target,
+            media_type=detect_mime_type(target.name),
+            filename=target.name,
+        )
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail="Access denied") from e
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail="Path not found") from e
+    except IsADirectoryError as e:
+        raise HTTPException(status_code=400, detail="Path is not a file") from e
 
 
 @router.get("/v1/workspace")

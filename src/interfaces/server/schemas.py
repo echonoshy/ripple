@@ -262,6 +262,10 @@ class WorkspaceRenameRequest(BaseModel):
     name: str = Field(min_length=1, max_length=255)
 
 
+class WorkspaceUploadResponse(BaseModel):
+    entries: list[WorkspaceEntry] = Field(default_factory=list)
+
+
 class WorkspaceAttachmentResponse(BaseModel):
     path: str
     name: str
@@ -392,6 +396,9 @@ class ConnectorInfo(BaseModel):
     display_name: str
     description: str
     auth_type: str
+    kind: Literal["user_connector", "runtime_capability"] = "user_connector"
+    auth_flow: str = "none"
+    auth_surfaces: dict[str, bool] = Field(default_factory=lambda: {"web": False, "chat": False})
     auth_start_path: str | None = None
     auth_complete_path: str | None = None
     disconnect_path: str | None = None

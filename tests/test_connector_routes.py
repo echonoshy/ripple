@@ -39,14 +39,34 @@ def test_connector_list_exposes_supported_connector_names(tmp_path: Path):
     assert response.status_code == 200
     connectors = response.json()["connectors"]
     names = [connector["name"] for connector in connectors]
-    assert names == ["google_workspace", "notion", "feishu", "bilibili", "openai_codex"]
+    assert names == [
+        "google_workspace",
+        "notion",
+        "feishu",
+        "bilibili",
+        "openai_codex",
+        "codex_image_generation",
+        "codex_image_input",
+        "codex_web_search",
+    ]
     notion = next(connector for connector in connectors if connector["name"] == "notion")
     assert notion["auth_start_path"] == "/v1/connectors/notion/auth/start"
     assert notion["disconnect_path"] == "/v1/connectors/notion/disconnect"
+    assert notion["kind"] == "user_connector"
+    assert notion["auth_flow"] == "token"
+    assert notion["auth_surfaces"] == {"web": True, "chat": True}
     google = next(connector for connector in connectors if connector["name"] == "google_workspace")
     assert google["accounts_path"] == "/v1/connectors/google_workspace/accounts"
+    assert google["auth_flow"] == "oauth_assisted"
     feishu = next(connector for connector in connectors if connector["name"] == "feishu")
     assert feishu["auth_complete_path"] == "/v1/connectors/feishu/auth/complete"
+    assert feishu["auth_flow"] == "oauth_device"
+    codex = next(connector for connector in connectors if connector["name"] == "openai_codex")
+    assert codex["kind"] == "runtime_capability"
+    assert codex["auth_surfaces"] == {"web": False, "chat": False}
+    image_generation = next(connector for connector in connectors if connector["name"] == "codex_image_generation")
+    assert image_generation["kind"] == "runtime_capability"
+    assert image_generation["auth_flow"] == "none"
 
 
 def test_notion_connector_auth_start_binds_token_without_echoing_it(tmp_path: Path):

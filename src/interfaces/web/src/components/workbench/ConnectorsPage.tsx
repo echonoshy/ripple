@@ -25,6 +25,7 @@ import {
   actionUrl,
   actionDataString,
   connectorAuthMode,
+  connectorGroupSections,
   connectorStatusTone,
   feishuAuthFollowup,
   navigateExternalAuthWindow,
@@ -283,6 +284,7 @@ export default function ConnectorsPage() {
     () => connectors.filter((connector) => statuses[connector.name]?.connected).length,
     [connectors, statuses]
   );
+  const connectorSections = useMemo(() => connectorGroupSections(connectors), [connectors]);
 
   return (
     <div className="h-full min-h-0 overflow-y-auto bg-white px-5 py-5 text-[#0d0d0d] md:px-8">
@@ -320,199 +322,226 @@ export default function ConnectorsPage() {
           </div>
         )}
 
-        <div className="grid gap-4 lg:grid-cols-2">
-          {connectors.map((connector) => {
-            const mode = connectorAuthMode(connector);
-            const status = statuses[connector.name] || null;
-            const tone = connectorStatusTone(status);
-            const action = actions[connector.name] || null;
-            const isBusy = busy[connector.name] || false;
-            const oauthUrl = actionUrl(action);
-            const qrImageUrl = resolveBackendUrl(actionDataString(action, "qrcode_image_url"));
-
-            return (
-              <section
-                key={connector.name}
-                className="min-w-0 rounded-lg border border-[#e5e7eb] bg-white"
-              >
-                <div className="flex items-start gap-3 border-b border-[#e5e7eb] p-4">
-                  <span
-                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md border ${
-                      tone === "connected"
-                        ? "border-[#1a7f37]/25 bg-[#dafbe1] text-[#1a7f37]"
-                        : tone === "needs_setup"
-                          ? "border-[#bf8700]/25 bg-[#fff8c5] text-[#7d4e00]"
-                          : "border-[#e5e7eb] bg-[#f7f8fa] text-[#6b7280]"
-                    }`}
-                  >
-                    {tone === "connected" ? <ShieldCheck size={17} /> : <Plug size={17} />}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h2 className="truncate text-sm font-semibold">{connector.display_name}</h2>
-                      <span className="rounded-md border border-[#e5e7eb] bg-[#f7f8fa] px-2 py-0.5 text-[11px] font-medium text-[#6b7280]">
-                        <span className="sm:hidden">{mobileStatusLabel(status)}</span>
-                        <span className="hidden sm:inline">{statusLabel(status)}</span>
-                      </span>
-                    </div>
-                    <p className="mt-1 text-sm leading-5 text-[#6b7280]">{connector.description}</p>
-                    {status?.detail && (
-                      <div className="mt-2 text-xs leading-5 text-[#6b7280]">{status.detail}</div>
-                    )}
-                  </div>
+        <div className="space-y-6">
+          {connectorSections.map((section) => (
+            <section key={section.kind} className="space-y-3">
+              <div className="flex items-end justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-semibold text-[#0d0d0d]">{section.title}</h2>
+                  <p className="mt-1 text-xs leading-5 text-[#6b7280]">
+                    {section.kind === "runtime_capability"
+                      ? "Server-side Codex capabilities shared by the runtime."
+                      : "Per-user credentials stored inside the current sandbox boundary."}
+                  </p>
                 </div>
+                <span className="text-xs font-medium text-[#6b7280]">
+                  {section.connectors.length}
+                </span>
+              </div>
+              <div className="grid gap-4 lg:grid-cols-2">
+                {section.connectors.map((connector) => {
+                  const mode = connectorAuthMode(connector);
+                  const status = statuses[connector.name] || null;
+                  const tone = connectorStatusTone(status);
+                  const action = actions[connector.name] || null;
+                  const isBusy = busy[connector.name] || false;
+                  const oauthUrl = actionUrl(action);
+                  const qrImageUrl = resolveBackendUrl(
+                    actionDataString(action, "qrcode_image_url")
+                  );
 
-                <div className="space-y-3 p-4">
-                  {mode === "token" && (
-                    <ConnectorField
-                      connector={connector}
-                      fieldKey="token"
-                      type="password"
-                      value={inputValue(inputs, connector.name, "token")}
-                      onChange={setInput}
-                    />
-                  )}
-
-                  {connector.name === "google_workspace" && (
-                    <ConnectorField
-                      connector={connector}
-                      fieldKey="email"
-                      value={inputValue(inputs, connector.name, "email")}
-                      onChange={setInput}
-                    />
-                  )}
-
-                  {needsCallbackInput(action) && (
-                    <ConnectorField
-                      connector={connector}
-                      fieldKey="callback_url"
-                      value={inputValue(inputs, connector.name, "callback_url")}
-                      onChange={setInput}
-                    />
-                  )}
-
-                  {oauthUrl && (
-                    <a
-                      href={oauthUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex h-8 items-center gap-2 rounded-md border border-[#0969da]/25 bg-[#ddf4ff] px-3 text-sm font-medium text-[#0969da] hover:bg-[#cbeeff]"
+                  return (
+                    <section
+                      key={connector.name}
+                      className="min-w-0 rounded-lg border border-[#e5e7eb] bg-white"
                     >
-                      <ExternalLink size={14} />
-                      <span className="sm:hidden">Authorize</span>
-                      <span className="hidden sm:inline">Open authorization</span>
-                    </a>
-                  )}
-
-                  {qrImageUrl && (
-                    <div className="flex flex-wrap items-center gap-4">
-                      <img
-                        src={qrImageUrl}
-                        alt={`${connector.display_name} QR code`}
-                        className="h-36 w-36 rounded-md border border-[#e5e7eb] bg-white object-contain"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => void completeAuth(connector)}
-                        disabled={isBusy}
-                        className="inline-flex h-9 items-center gap-2 rounded-md border border-[#1a7f37]/30 bg-[#dafbe1] px-3 text-sm font-semibold text-[#1a7f37] hover:bg-[#c7f7d1] disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        {isBusy ? (
-                          <Loader2 size={15} className="animate-spin" />
-                        ) : (
-                          <CheckCircle2 size={15} />
-                        )}
-                        Complete
-                      </button>
-                    </div>
-                  )}
-
-                  {action?.detail && (
-                    <div className="rounded-md border border-[#e5e7eb] bg-[#f7f8fa] p-3 text-xs leading-5 text-[#374151]">
-                      {action.detail}
-                    </div>
-                  )}
-
-                  {connector.name === "google_workspace" && accounts.length > 0 && (
-                    <div className="rounded-md border border-[#e5e7eb] bg-white">
-                      {accounts.map((account) => (
-                        <div
-                          key={account.email}
-                          className="flex items-center justify-between gap-2 px-3 py-2 text-xs"
+                      <div className="flex items-start gap-3 border-b border-[#e5e7eb] p-4">
+                        <span
+                          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md border ${
+                            tone === "connected"
+                              ? "border-[#1a7f37]/25 bg-[#dafbe1] text-[#1a7f37]"
+                              : tone === "needs_setup"
+                                ? "border-[#bf8700]/25 bg-[#fff8c5] text-[#7d4e00]"
+                                : "border-[#e5e7eb] bg-[#f7f8fa] text-[#6b7280]"
+                          }`}
                         >
-                          <span className="truncate font-[family-name:var(--font-mono)]">
-                            {account.email}
-                          </span>
-                          <span className="text-[#6b7280]">
-                            {account.valid === false ? "Invalid" : "Ready"}
-                          </span>
+                          {tone === "connected" ? <ShieldCheck size={17} /> : <Plug size={17} />}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="truncate text-sm font-semibold">
+                              {connector.display_name}
+                            </h3>
+                            <span className="rounded-md border border-[#e5e7eb] bg-[#f7f8fa] px-2 py-0.5 text-[11px] font-medium text-[#6b7280]">
+                              <span className="sm:hidden">{mobileStatusLabel(status)}</span>
+                              <span className="hidden sm:inline">{statusLabel(status)}</span>
+                            </span>
+                          </div>
+                          <p className="mt-1 text-sm leading-5 text-[#6b7280]">
+                            {connector.description}
+                          </p>
+                          {status?.detail && (
+                            <div className="mt-2 text-xs leading-5 text-[#6b7280]">
+                              {status.detail}
+                            </div>
+                          )}
                         </div>
-                      ))}
-                    </div>
-                  )}
+                      </div>
 
-                  <div className="flex flex-wrap gap-2">
-                    {connector.auth_start_path && mode !== "status_only" && (
-                      <button
-                        type="button"
-                        onClick={() => void startAuth(connector)}
-                        disabled={isBusy}
-                        className="inline-flex h-9 items-center gap-2 rounded-md bg-[#2463eb] px-3 text-sm font-semibold text-white hover:bg-[#1d56d8] disabled:cursor-not-allowed disabled:bg-[#e5e7eb] disabled:text-[#8b8f94]"
-                      >
-                        {isBusy ? (
-                          <Loader2 size={15} className="animate-spin" />
-                        ) : (
-                          <KeyRound size={15} />
+                      <div className="space-y-3 p-4">
+                        {mode === "token" && (
+                          <ConnectorField
+                            connector={connector}
+                            fieldKey="token"
+                            type="password"
+                            value={inputValue(inputs, connector.name, "token")}
+                            onChange={setInput}
+                          />
                         )}
-                        {status?.connected ? "Update" : "Connect"}
-                      </button>
-                    )}
-                    {connector.auth_complete_path && needsCallbackInput(action) && (
-                      <button
-                        type="button"
-                        onClick={() => void completeAuth(connector)}
-                        disabled={isBusy}
-                        className="inline-flex h-9 items-center gap-2 rounded-md border border-[#1a7f37]/30 bg-[#dafbe1] px-3 text-sm font-semibold text-[#1a7f37] hover:bg-[#c7f7d1] disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        {isBusy ? (
-                          <Loader2 size={15} className="animate-spin" />
-                        ) : (
-                          <CheckCircle2 size={15} />
+
+                        {connector.name === "google_workspace" && (
+                          <ConnectorField
+                            connector={connector}
+                            fieldKey="email"
+                            value={inputValue(inputs, connector.name, "email")}
+                            onChange={setInput}
+                          />
                         )}
-                        Complete
-                      </button>
-                    )}
-                    {connector.auth_complete_path && needsDeviceFlowComplete(action) && (
-                      <button
-                        type="button"
-                        onClick={() => void completeAuth(connector)}
-                        disabled={isBusy}
-                        className="inline-flex h-9 items-center gap-2 rounded-md border border-[#1a7f37]/30 bg-[#dafbe1] px-3 text-sm font-semibold text-[#1a7f37] hover:bg-[#c7f7d1] disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        {isBusy ? (
-                          <Loader2 size={15} className="animate-spin" />
-                        ) : (
-                          <CheckCircle2 size={15} />
+
+                        {needsCallbackInput(action) && (
+                          <ConnectorField
+                            connector={connector}
+                            fieldKey="callback_url"
+                            value={inputValue(inputs, connector.name, "callback_url")}
+                            onChange={setInput}
+                          />
                         )}
-                        Complete
-                      </button>
-                    )}
-                    {connector.disconnect_path && status?.connected && (
-                      <button
-                        type="button"
-                        onClick={() => void disconnect(connector)}
-                        disabled={isBusy}
-                        className="inline-flex h-9 items-center gap-2 rounded-md border border-[#cf222e]/25 bg-white px-3 text-sm font-medium text-[#cf222e] hover:bg-[#ffebe9] disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        <Unplug size={15} />
-                        Disconnect
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </section>
-            );
-          })}
+
+                        {oauthUrl && (
+                          <a
+                            href={oauthUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex h-8 items-center gap-2 rounded-md border border-[#0969da]/25 bg-[#ddf4ff] px-3 text-sm font-medium text-[#0969da] hover:bg-[#cbeeff]"
+                          >
+                            <ExternalLink size={14} />
+                            <span className="sm:hidden">Authorize</span>
+                            <span className="hidden sm:inline">Open authorization</span>
+                          </a>
+                        )}
+
+                        {qrImageUrl && (
+                          <div className="flex flex-wrap items-center gap-4">
+                            <img
+                              src={qrImageUrl}
+                              alt={`${connector.display_name} QR code`}
+                              className="h-36 w-36 rounded-md border border-[#e5e7eb] bg-white object-contain"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => void completeAuth(connector)}
+                              disabled={isBusy}
+                              className="inline-flex h-9 items-center gap-2 rounded-md border border-[#1a7f37]/30 bg-[#dafbe1] px-3 text-sm font-semibold text-[#1a7f37] hover:bg-[#c7f7d1] disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {isBusy ? (
+                                <Loader2 size={15} className="animate-spin" />
+                              ) : (
+                                <CheckCircle2 size={15} />
+                              )}
+                              Complete
+                            </button>
+                          </div>
+                        )}
+
+                        {action?.detail && (
+                          <div className="rounded-md border border-[#e5e7eb] bg-[#f7f8fa] p-3 text-xs leading-5 text-[#374151]">
+                            {action.detail}
+                          </div>
+                        )}
+
+                        {connector.name === "google_workspace" && accounts.length > 0 && (
+                          <div className="rounded-md border border-[#e5e7eb] bg-white">
+                            {accounts.map((account) => (
+                              <div
+                                key={account.email}
+                                className="flex items-center justify-between gap-2 px-3 py-2 text-xs"
+                              >
+                                <span className="truncate font-[family-name:var(--font-mono)]">
+                                  {account.email}
+                                </span>
+                                <span className="text-[#6b7280]">
+                                  {account.valid === false ? "Invalid" : "Ready"}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        <div className="flex flex-wrap gap-2">
+                          {connector.auth_start_path && mode !== "status_only" && (
+                            <button
+                              type="button"
+                              onClick={() => void startAuth(connector)}
+                              disabled={isBusy}
+                              className="inline-flex h-9 items-center gap-2 rounded-md bg-[#2463eb] px-3 text-sm font-semibold text-white hover:bg-[#1d56d8] disabled:cursor-not-allowed disabled:bg-[#e5e7eb] disabled:text-[#8b8f94]"
+                            >
+                              {isBusy ? (
+                                <Loader2 size={15} className="animate-spin" />
+                              ) : (
+                                <KeyRound size={15} />
+                              )}
+                              {status?.connected ? "Update" : "Connect"}
+                            </button>
+                          )}
+                          {connector.auth_complete_path && needsCallbackInput(action) && (
+                            <button
+                              type="button"
+                              onClick={() => void completeAuth(connector)}
+                              disabled={isBusy}
+                              className="inline-flex h-9 items-center gap-2 rounded-md border border-[#1a7f37]/30 bg-[#dafbe1] px-3 text-sm font-semibold text-[#1a7f37] hover:bg-[#c7f7d1] disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {isBusy ? (
+                                <Loader2 size={15} className="animate-spin" />
+                              ) : (
+                                <CheckCircle2 size={15} />
+                              )}
+                              Complete
+                            </button>
+                          )}
+                          {connector.auth_complete_path && needsDeviceFlowComplete(action) && (
+                            <button
+                              type="button"
+                              onClick={() => void completeAuth(connector)}
+                              disabled={isBusy}
+                              className="inline-flex h-9 items-center gap-2 rounded-md border border-[#1a7f37]/30 bg-[#dafbe1] px-3 text-sm font-semibold text-[#1a7f37] hover:bg-[#c7f7d1] disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {isBusy ? (
+                                <Loader2 size={15} className="animate-spin" />
+                              ) : (
+                                <CheckCircle2 size={15} />
+                              )}
+                              Complete
+                            </button>
+                          )}
+                          {connector.disconnect_path && status?.connected && (
+                            <button
+                              type="button"
+                              onClick={() => void disconnect(connector)}
+                              disabled={isBusy}
+                              className="inline-flex h-9 items-center gap-2 rounded-md border border-[#cf222e]/25 bg-white px-3 text-sm font-medium text-[#cf222e] hover:bg-[#ffebe9] disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              <Unplug size={15} />
+                              Disconnect
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </section>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
         </div>
 
         {connectors.length === 0 && !isLoading && (

@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   ArrowUp,
   ChevronDown,
+  Download,
   Edit3,
   Eye,
   FileText,
@@ -15,13 +16,17 @@ import {
   Search,
   SlidersHorizontal,
   Undo2,
+  Upload,
 } from "lucide-react";
 import {
+  downloadWorkspaceFile,
   fetchWorkspaceFilePreview,
   fetchWorkspaceListing,
   renameWorkspaceEntry,
   saveWorkspaceFile,
   searchWorkspaceFiles,
+  uploadWorkspaceFiles,
+  WorkspaceUploadConflictError,
   type WorkspaceSearchOptions,
 } from "@/lib/api";
 import { WorkspaceEntry, WorkspaceFilePreview, WorkspaceListing } from "@/types";
@@ -116,8 +121,13 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
   const [renameDraft, setRenameDraft] = useState("");
   const [renameSaving, setRenameSaving] = useState(false);
   const [splitPercent, setSplitPercent] = useState(initialSplitPercent);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [isDraggingUpload, setIsDraggingUpload] = useState(false);
+  const [downloadingPath, setDownloadingPath] = useState<string | null>(null);
   const splitPercentRef = useRef(splitPercent);
   const splitContainerRef = useRef<HTMLDivElement | null>(null);
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const renameInputRef = useRef<HTMLInputElement | null>(null);
   const renameCommitKeyRef = useRef<string | null>(null);
   const isDirty = useMemo(() => Boolean(preview && draft !== preview.content), [draft, preview]);
@@ -362,6 +372,109 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
     setDraft(preview.content);
     setSaveError(null);
   };
+
+  const refreshAfterUpload = useCallback(async () => {
+    setQuery("");
+    setSearchResults([]);
+    await loadDirectory(currentPath);
+  }, [currentPath, loadDirectory]);
+
+  const uploadFilesToCurrentDirectory = useCallback(
+    async (files: File[], overwrite: boolean = false) => {
+      if (files.length === 0 || uploading) return;
+      setUploading(true);
+      setUploadError(null);
+      setError(null);
+      try {
+        await uploadWorkspaceFiles(files, currentPath, overwrite);
+        await refreshAfterUpload();
+      } catch (err) {
+        if (err instanceof WorkspaceUploadConflictError && !overwrite) {
+          const conflictNames = err.conflicts.map((conflict) => conflict.name).join(", ");
+          const confirmed = window.confirm(
+            `Overwrite existing file${err.conflicts.length === 1 ? "" : "s"}: ${conflictNames}?`
+          );
+          if (confirmed) {
+            try {
+              await uploadWorkspaceFiles(files, currentPath, true);
+              await refreshAfterUpload();
+            } catch (overwriteErr) {
+              setUploadError(
+                overwriteErr instanceof Error ? overwriteErr.message : String(overwriteErr)
+              );
+            }
+            return;
+          }
+        } else {
+          setUploadError(err instanceof Error ? err.message : String(err));
+        }
+      } finally {
+        setUploading(false);
+      }
+    },
+    [currentPath, refreshAfterUpload, uploading]
+  );
+
+  const handleUploadInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    event.target.value = "";
+    void uploadFilesToCurrentDirectory(files);
+  };
+
+  const hasDraggedFiles = (event: React.DragEvent<HTMLDivElement>) =>
+    Array.from(event.dataTransfer.types).includes("Files");
+
+  const handleDragEnter = (event: React.DragEvent<HTMLDivElement>) => {
+    if (!hasDraggedFiles(event)) return;
+    event.preventDefault();
+    setIsDraggingUpload(true);
+  };
+
+  const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+    if (!hasDraggedFiles(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    setIsDraggingUpload(true);
+  };
+
+  const handleDragLeave = (event: React.DragEvent<HTMLDivElement>) => {
+    const nextTarget = event.relatedTarget;
+    if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return;
+    setIsDraggingUpload(false);
+  };
+
+  const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    if (!hasDraggedFiles(event)) return;
+    event.preventDefault();
+    setIsDraggingUpload(false);
+    void uploadFilesToCurrentDirectory(Array.from(event.dataTransfer.files || []));
+  };
+
+  const saveDownloadedBlob = (blob: Blob, filename: string) => {
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadFile = async (path: string) => {
+    if (downloadingPath) return;
+    setDownloadingPath(path);
+    setError(null);
+    try {
+      const downloaded = await downloadWorkspaceFile(path);
+      saveDownloadedBlob(downloaded.blob, downloaded.filename);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDownloadingPath(null);
+    }
+  };
+
   const handleQueryChange = (value: string) => {
     setQuery(value);
     if (!value.trim()) {
@@ -381,7 +494,27 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
     : `minmax(0,${splitPercent}%) minmax(0,1fr)`;
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-white text-[#0d0d0d]">
+    <div
+      className="relative flex h-full flex-col overflow-hidden bg-white text-[#0d0d0d]"
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      <input
+        ref={uploadInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={handleUploadInputChange}
+      />
+      {isDraggingUpload && (
+        <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center bg-white/85 p-4 backdrop-blur-sm">
+          <div className="rounded-lg border border-dashed border-[#2463eb] bg-[#eef4ff] px-4 py-3 text-sm font-semibold text-[#0b57d0] shadow-lg">
+            Drop files to upload
+          </div>
+        </div>
+      )}
       <div className="shrink-0 border-b border-[#e5e7eb] bg-white px-4 py-3">
         <div className="mb-2 flex items-center gap-2">
           <div className="relative min-w-0 flex-1">
@@ -408,6 +541,16 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
             onClick={() => setIsFilterOpen((open) => !open)}
           >
             <SlidersHorizontal size={14} />
+          </button>
+          <button
+            type="button"
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#e5e7eb] bg-white text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d] disabled:cursor-not-allowed disabled:opacity-50"
+            title="Upload files"
+            aria-label="Upload files"
+            disabled={uploading}
+            onClick={() => uploadInputRef.current?.click()}
+          >
+            {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
           </button>
         </div>
         {isFilterOpen && (
@@ -503,6 +646,12 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
         <div className="m-4 mb-0 flex items-start gap-2 rounded-md border border-[#cf222e]/25 bg-[#ffebe9] p-3 text-xs font-medium text-[#cf222e]">
           <AlertTriangle size={14} className="mt-0.5 shrink-0" />
           <span className="break-words">{displayError(searchError)}</span>
+        </div>
+      )}
+      {uploadError && (
+        <div className="m-4 mb-0 flex items-start gap-2 rounded-md border border-[#cf222e]/25 bg-[#ffebe9] p-3 text-xs font-medium text-[#cf222e]">
+          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+          <span className="break-words">{displayError(uploadError)}</span>
         </div>
       )}
 
@@ -653,6 +802,22 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
                       >
                         <Edit3 size={12} />
                       </button>
+                      {entry.kind === "file" && (
+                        <button
+                          type="button"
+                          aria-label={`Download ${entry.name}`}
+                          title="Download"
+                          onClick={() => void handleDownloadFile(entry.path)}
+                          disabled={downloadingPath === entry.path}
+                          className="mr-2 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-transparent text-[#6b7280] opacity-0 transition-opacity group-hover:opacity-100 hover:border-[#dde2ea] hover:bg-white hover:text-[#0d0d0d] focus:opacity-100 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {downloadingPath === entry.path ? (
+                            <Loader2 size={12} className="animate-spin" />
+                          ) : (
+                            <Download size={12} />
+                          )}
+                        </button>
+                      )}
                     </div>
                   )
                 )}
@@ -686,6 +851,20 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
               {previewLoading && <Loader2 size={12} className="animate-spin" />}
               {preview && (
                 <div className="flex shrink-0 items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => void handleDownloadFile(preview.path)}
+                    disabled={downloadingPath === preview.path}
+                    className="inline-flex h-7 items-center gap-1 rounded-md border border-[#dde2ea] bg-white px-2 text-xs font-medium text-[#68707d] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:text-[#8b8f94]"
+                    title="Download"
+                  >
+                    {downloadingPath === preview.path ? (
+                      <Loader2 size={12} className="animate-spin" />
+                    ) : (
+                      <Download size={12} />
+                    )}
+                    Download
+                  </button>
                   <button
                     type="button"
                     disabled={preview.truncated}

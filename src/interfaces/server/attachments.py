@@ -12,7 +12,7 @@ from uuid import uuid4
 from ripple.sandbox.workspace import SANDBOX_VIRTUAL_ROOT, validate_path
 from ripple.users.quota import assert_workspace_save_within_quota
 
-SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
+UNSAFE_FILENAME_CHARS_RE = re.compile(r"[\x00-\x1f\x7f/\\]+")
 
 
 @dataclass(frozen=True)
@@ -35,8 +35,9 @@ class StoredAttachment:
 
 
 def sanitize_filename(filename: str | None) -> str:
-    name = Path(filename or "upload.bin").name
-    name = SAFE_FILENAME_RE.sub("-", name).strip(".-")
+    raw_name = filename or "upload.bin"
+    name = re.split(r"[/\\]+", raw_name)[-1]
+    name = UNSAFE_FILENAME_CHARS_RE.sub("-", name).strip(" .-")
     return name or "upload.bin"
 
 
@@ -79,7 +80,7 @@ def save_uploaded_attachment(
     mime_type = detect_mime_type(safe_name, content_type)
     resolved_kind = "image" if kind == "image" or is_image_mime_type(mime_type) else "attachment"
     today = datetime.now(timezone.utc)
-    target_dir = workspace_root / ".ripple" / "uploads" / f"{today:%Y}" / f"{today:%m}" / f"{today:%d}"
+    target_dir = workspace_root / "uploads" / f"{today:%Y}" / f"{today:%m}"
     target = target_dir / f"{uuid4().hex}-{safe_name}"
 
     assert_workspace_save_within_quota(config, user_id, target, len(data))

@@ -8,12 +8,18 @@
 import hashlib
 import json
 import shutil
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
 from ripple.messages.utils import deserialize_message, serialize_messages
 from ripple.sandbox.config import SandboxConfig
+from ripple.utils.file_state import (
+    append_lines,
+    atomic_write_json,
+    atomic_write_lines,
+    count_jsonl_records,
+    read_json_or_default,
+)
 from ripple.utils.logger import get_logger
 
 logger = get_logger("sandbox.storage")
@@ -38,6 +44,13 @@ def _message_fingerprint(serialized_msg: dict) -> tuple[str, str, str]:
         canonical = repr(serialized_msg)
     h = hashlib.sha1(canonical.encode("utf-8")).hexdigest()[:8]
     return role, mtype, h
+
+
+def _safe_int(value: object, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def extract_title_from_messages(messages: list) -> str:
@@ -68,33 +81,6 @@ def extract_title_from_messages(messages: list) -> str:
     return ""
 
 
-def _atomic_write_json(path: Path, data: dict) -> None:
-    """原子写 JSON 文件（写临时文件 + rename）"""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
-    try:
-        with open(fd, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2, default=str)
-        Path(tmp_path).rename(path)
-    except Exception:
-        Path(tmp_path).unlink(missing_ok=True)
-        raise
-
-
-def _atomic_write_lines(path: Path, lines: list[str]) -> None:
-    """原子写多行文本文件"""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
-    try:
-        with open(fd, "w", encoding="utf-8") as f:
-            for line in lines:
-                f.write(line + "\n")
-        Path(tmp_path).rename(path)
-    except Exception:
-        Path(tmp_path).unlink(missing_ok=True)
-        raise
-
-
 def save_session_state(
     config: SandboxConfig,
     user_id: str,
@@ -113,6 +99,7 @@ def save_session_state(
     pending_question: str | None = None,
     pending_options: list[str] | None = None,
     pending_permission_request: dict | None = None,
+    pending_connector_auth: dict | None = None,
     task_steps: list[dict] | None = None,
     task_progress: dict | None = None,
 ) -> Path:
@@ -129,12 +116,21 @@ def save_session_state(
     model_messages_file = config.model_messages_file(user_id, session_id)
 
     old_count = 0
+    meta_count = 0
     if meta_file.exists():
-        try:
-            with open(meta_file, encoding="utf-8") as f:
-                old_count = json.load(f).get("message_count", 0)
-        except (json.JSONDecodeError, OSError):
-            old_count = 0
+        meta = read_json_or_default(meta_file, {})
+        if isinstance(meta, dict):
+            meta_count = _safe_int(meta.get("message_count"), 0)
+    file_count = count_jsonl_records(messages_file)
+    old_count = max(meta_count, file_count)
+    if file_count and file_count != meta_count:
+        logger.warning(
+            "messages count mismatch {}/{}: meta={} file={}; using file count",
+            user_id,
+            session_id,
+            meta_count,
+            file_count,
+        )
 
     new_lines = [json.dumps(msg, ensure_ascii=False) for msg in serialized_messages]
     if new_count > old_count > 0 and messages_file.exists():
@@ -164,9 +160,7 @@ def save_session_state(
         history_hashes = {fp[2] for fp in recent_history_fps}
         duplicates = [fp for fp in appended_fps if fp[2] in history_hashes]
 
-        with open(messages_file, "a", encoding="utf-8") as f:
-            for line in new_lines[old_count:]:
-                f.write(line + "\n")
+        append_lines(messages_file, new_lines[old_count:])
 
         # 常规诊断日志（debug 级）：每次追加都记录 role/type/hash 序列
         logger.debug(
@@ -191,7 +185,7 @@ def save_session_state(
                 [f"{r}:{t}:{h}" for r, t, h in duplicates],
             )
     else:
-        _atomic_write_lines(messages_file, new_lines)
+        atomic_write_lines(messages_file, new_lines)
         logger.debug(
             "full-rewrite messages: {}/{} old={} new={} (trim/first-write)",
             user_id,
@@ -202,7 +196,7 @@ def save_session_state(
 
     serialized_model_messages = serialize_messages(model_messages or messages)
     model_lines = [json.dumps(msg, ensure_ascii=False) for msg in serialized_model_messages]
-    _atomic_write_lines(model_messages_file, model_lines)
+    atomic_write_lines(model_messages_file, model_lines)
 
     meta = {
         "version": STATE_VERSION,
@@ -221,12 +215,13 @@ def save_session_state(
         "pending_question": pending_question,
         "pending_options": pending_options,
         "pending_permission_request": pending_permission_request,
+        "pending_connector_auth": pending_connector_auth,
         "task_steps": task_steps or [],
         "task_progress": task_progress,
         "message_count": new_count,
         "model_message_count": len(serialized_model_messages),
     }
-    _atomic_write_json(meta_file, meta)
+    atomic_write_json(meta_file, meta, default=str)
     logger.info(
         "event=session.persist target_user={} target_session={} messages={} appended={}",
         user_id,
@@ -336,6 +331,7 @@ def get_suspended_session_info(config: SandboxConfig, user_id: str, session_id: 
         "pending_question": meta.get("pending_question"),
         "pending_options": meta.get("pending_options"),
         "pending_permission_request": meta.get("pending_permission_request"),
+        "pending_connector_auth": meta.get("pending_connector_auth"),
         "source": meta.get("source", "chat"),
         "hidden_from_session_list": meta.get("hidden_from_session_list", False),
     }

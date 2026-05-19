@@ -75,6 +75,12 @@ export interface ConnectorInfo {
   display_name: string;
   description: string;
   auth_type: string;
+  kind: "user_connector" | "runtime_capability";
+  auth_flow: string;
+  auth_surfaces: {
+    web: boolean;
+    chat: boolean;
+  };
   auth_start_path: string | null;
   auth_complete_path: string | null;
   disconnect_path: string | null;
@@ -136,6 +142,10 @@ export interface WorkspaceAttachmentResponse {
   mime_type: string;
   size: number;
   kind: "image" | "attachment";
+}
+
+export interface WorkspaceUploadResponse {
+  entries: WorkspaceEntry[];
 }
 
 export interface TaskSummary {

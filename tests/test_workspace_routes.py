@@ -203,29 +203,101 @@ def test_workspace_file_route_rejects_stale_save(tmp_path: Path):
     assert target.read_text(encoding="utf-8") == "current"
 
 
+def test_workspace_upload_route_saves_multiple_files_to_requested_directory(tmp_path: Path):
+    client, sandbox_manager = _client(tmp_path)
+    workspace = sandbox_manager.ensure_sandbox("alice")
+    (workspace / "docs").mkdir()
+
+    response = client.post(
+        "/v1/workspace/upload",
+        data={"path": "/workspace/docs"},
+        files=[
+            ("files", ("a.txt", b"alpha", "text/plain")),
+            ("files", ("b.json", b'{"ok": true}', "application/json")),
+        ],
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [entry["path"] for entry in body["entries"]] == [
+        "/workspace/docs/a.txt",
+        "/workspace/docs/b.json",
+    ]
+    assert (workspace / "docs" / "a.txt").read_bytes() == b"alpha"
+    assert (workspace / "docs" / "b.json").read_bytes() == b'{"ok": true}'
+
+
+def test_workspace_upload_route_requires_overwrite_confirmation_for_conflicts(tmp_path: Path):
+    client, sandbox_manager = _client(tmp_path)
+    workspace = sandbox_manager.ensure_sandbox("alice")
+    target = workspace / "notes.txt"
+    target.write_text("old", encoding="utf-8")
+
+    conflict = client.post(
+        "/v1/workspace/upload",
+        data={"path": "/workspace"},
+        files=[("files", ("notes.txt", b"new", "text/plain"))],
+    )
+
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"] == {
+        "code": "workspace_upload_conflict",
+        "conflicts": [{"name": "notes.txt", "path": "/workspace/notes.txt"}],
+    }
+    assert target.read_text(encoding="utf-8") == "old"
+
+    overwrite = client.post(
+        "/v1/workspace/upload",
+        data={"path": "/workspace", "overwrite": "true"},
+        files=[("files", ("notes.txt", b"new", "text/plain"))],
+    )
+
+    assert overwrite.status_code == 200
+    assert overwrite.json()["entries"][0]["path"] == "/workspace/notes.txt"
+    assert target.read_text(encoding="utf-8") == "new"
+
+
+def test_workspace_download_route_streams_one_file_as_attachment(tmp_path: Path):
+    client, sandbox_manager = _client(tmp_path)
+    workspace = sandbox_manager.ensure_sandbox("alice")
+    (workspace / "report.txt").write_bytes(b"download me")
+
+    response = client.get("/v1/workspace/download", params={"path": "/workspace/report.txt"})
+
+    assert response.status_code == 200
+    assert response.content == b"download me"
+    assert response.headers["content-type"].startswith("text/plain")
+    assert "attachment" in response.headers["content-disposition"]
+    assert "report.txt" in response.headers["content-disposition"]
+
+
 def test_upload_workspace_attachment_saves_file_under_user_workspace(tmp_path: Path):
     client, sandbox_manager = _client(tmp_path)
 
     response = client.post(
         "/v1/workspace/attachments",
-        files={"file": ("photo.png", b"\x89PNG\r\n\x1a\nimage-bytes", "image/png")},
+        files={"file": ("2025年总结.pdf", b"%PDF-1.4\nbytes", "application/pdf")},
         data={"kind": "image"},
     )
 
     assert response.status_code == 200
     body = response.json()
-    assert body["path"].startswith("/workspace/.ripple/uploads/")
-    assert body["path"].endswith("-photo.png")
-    assert body["name"] == "photo.png"
-    assert body["mime_type"] == "image/png"
-    assert body["size"] == len(b"\x89PNG\r\n\x1a\nimage-bytes")
+    path_parts = body["path"].split("/")
+    assert path_parts[:3] == ["", "workspace", "uploads"]
+    assert len(path_parts) == 6
+    assert body["path"].endswith("-2025年总结.pdf")
+    assert "/.ripple/" not in body["path"]
+    assert body["name"] == "2025年总结.pdf"
+    assert body["mime_type"] == "application/pdf"
+    assert body["size"] == len(b"%PDF-1.4\nbytes")
     assert body["kind"] == "image"
     assert "host_path" not in body
 
     workspace = sandbox_manager.config.workspace_dir("alice")
     host_path = workspace / body["path"].removeprefix("/workspace/")
     assert host_path.is_file()
-    assert host_path.read_bytes() == b"\x89PNG\r\n\x1a\nimage-bytes"
+    assert host_path.name.endswith("-2025年总结.pdf")
+    assert host_path.read_bytes() == b"%PDF-1.4\nbytes"
 
 
 def test_upload_workspace_attachment_sanitizes_path_traversal_filename(tmp_path: Path):
@@ -240,6 +312,7 @@ def test_upload_workspace_attachment_sanitizes_path_traversal_filename(tmp_path:
     assert response.status_code == 200
     body = response.json()
     assert ".." not in body["path"]
+    assert body["path"].startswith("/workspace/uploads/")
     assert body["path"].endswith("-secret.txt")
 
     workspace = sandbox_manager.config.workspace_dir("alice")

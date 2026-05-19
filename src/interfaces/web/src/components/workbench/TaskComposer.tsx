@@ -225,7 +225,7 @@ export default function TaskComposer({
                 ? "Ask Codex anything about your codebase..."
                 : "Ask Codex anything about your codebase..."
           }
-          className="max-h-[220px] min-h-[46px] w-full resize-none bg-transparent px-2 py-2 text-[14px] leading-6 text-[#0d0d0d] outline-none placeholder:text-[#8b8f94] disabled:opacity-60"
+          className="task-composer-input max-h-[220px] min-h-[46px] w-full resize-none bg-transparent px-2 py-2 text-[14px] leading-6 text-[#0d0d0d] outline-none placeholder:text-[#8b8f94] disabled:opacity-60"
         />
         {pendingFiles.length > 0 && (
           <div className="flex flex-wrap gap-1.5 px-1 pb-2">

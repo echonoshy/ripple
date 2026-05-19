@@ -3,6 +3,12 @@ import type { ConnectorActionResponse, ConnectorInfo, ConnectorStatus } from "@/
 export type ConnectorAuthMode = "token" | "oauth" | "qr" | "status_only";
 export type ConnectorStatusTone = "connected" | "needs_setup" | "unknown";
 export type FeishuAuthFollowup = "none" | "poll_setup" | "poll_user_auth";
+export type ConnectorKind = ConnectorInfo["kind"];
+export interface ConnectorGroupSection {
+  kind: ConnectorKind;
+  title: string;
+  connectors: ConnectorInfo[];
+}
 export interface ExternalAuthWindow {
   closed?: boolean;
   location: { href: string };
@@ -10,10 +16,25 @@ export interface ExternalAuthWindow {
 }
 
 export function connectorAuthMode(connector: ConnectorInfo): ConnectorAuthMode {
+  if (connector.kind === "runtime_capability") return "status_only";
   if (connector.auth_type === "token") return "token";
   if (connector.auth_type === "oauth") return "oauth";
   if (connector.auth_type === "qr") return "qr";
   return "status_only";
+}
+
+export function connectorKindLabel(kind: ConnectorKind): string {
+  return kind === "runtime_capability" ? "Runtime Capability" : "User Connector";
+}
+
+export function connectorGroupSections(connectors: ConnectorInfo[]): ConnectorGroupSection[] {
+  const runtime = connectors.filter((connector) => connector.kind === "runtime_capability");
+  const user = connectors.filter((connector) => connector.kind !== "runtime_capability");
+  const sections: ConnectorGroupSection[] = [
+    { kind: "runtime_capability", title: "Runtime Capabilities", connectors: runtime },
+    { kind: "user_connector", title: "User Connectors", connectors: user },
+  ];
+  return sections.filter((section) => section.connectors.length > 0);
 }
 
 export function connectorStatusTone(

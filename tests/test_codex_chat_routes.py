@@ -575,6 +575,46 @@ def test_chat_completions_forwards_codex_turn_configuration(tmp_path: Path, monk
     assert request.output_schema == output_schema
 
 
+def test_chat_auth_preflight_captures_notion_token_without_starting_codex(tmp_path: Path, monkeypatch):
+    provider = InstantCodexProvider(output="should not run")
+    client = _client(tmp_path, monkeypatch, provider)
+
+    first = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "codex-medium",
+            "stream": False,
+            "messages": [{"role": "user", "content": "帮我查一下 Notion 里的项目计划"}],
+        },
+    )
+
+    assert first.status_code == 200
+    first_body = first.json()
+    assert first_body["connector_auth"]["connector"] == "notion"
+    assert first_body["connector_auth"]["stage"] == "awaiting_token"
+    assert "Notion" in first_body["choices"][0]["message"]["content"]
+    assert provider.requests == []
+
+    token = "ntn_" + "x" * 40
+    second = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "codex-medium",
+            "session_id": first_body["session_id"],
+            "stream": False,
+            "messages": [{"role": "user", "content": token}],
+        },
+    )
+
+    assert second.status_code == 200
+    second_body = second.json()
+    assert second_body["connector_auth"]["connector"] == "notion"
+    assert second_body["connector_auth"]["stage"] == "authorized"
+    assert token not in second.text
+    assert get_session_manager().sandbox_manager.config.has_notion_token("alice") is True
+    assert provider.requests == []
+
+
 def test_chat_completions_rejects_new_session_when_session_quota_is_exhausted(tmp_path: Path, monkeypatch):
     provider = InstantCodexProvider(output="should not run")
     client = _client(tmp_path, monkeypatch, provider)

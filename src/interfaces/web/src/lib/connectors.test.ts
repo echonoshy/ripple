@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import {
   actionUrl,
   connectorAuthMode,
+  connectorGroupSections,
+  connectorKindLabel,
   connectorStatusTone,
   extractFeishuDeviceCode,
   feishuAuthFollowup,
@@ -18,6 +20,9 @@ function connector(overrides: Partial<ConnectorInfo>): ConnectorInfo {
     display_name: "Notion",
     description: "Notion API access",
     auth_type: "token",
+    kind: "user_connector",
+    auth_flow: "token",
+    auth_surfaces: { web: true, chat: true },
     auth_start_path: "/v1/connectors/notion/auth/start",
     auth_complete_path: null,
     disconnect_path: "/v1/connectors/notion/disconnect",
@@ -53,6 +58,31 @@ function testConnectorAuthModeFollowsBackendAuthType() {
   assert.equal(connectorAuthMode(connector({ auth_type: "oauth" })), "oauth");
   assert.equal(connectorAuthMode(connector({ auth_type: "qr" })), "qr");
   assert.equal(connectorAuthMode(connector({ auth_type: "cli" })), "status_only");
+}
+
+function testConnectorGroupsSeparateRuntimeCapabilitiesFromUserConnectors() {
+  const sections = connectorGroupSections([
+    connector({ name: "notion", display_name: "Notion", kind: "user_connector" }),
+    connector({
+      name: "codex_image_generation",
+      display_name: "Image Generation",
+      auth_type: "runtime",
+      kind: "runtime_capability",
+      auth_flow: "none",
+      auth_surfaces: { web: false, chat: false },
+      auth_start_path: null,
+      disconnect_path: null,
+    }),
+  ]);
+
+  assert.equal(sections[0].kind, "runtime_capability");
+  assert.equal(sections[0].title, "Runtime Capabilities");
+  assert.equal(sections[0].connectors[0].name, "codex_image_generation");
+  assert.equal(sections[1].kind, "user_connector");
+  assert.equal(sections[1].title, "User Connectors");
+  assert.equal(sections[1].connectors[0].name, "notion");
+  assert.equal(connectorKindLabel("runtime_capability"), "Runtime Capability");
+  assert.equal(connectorKindLabel("user_connector"), "User Connector");
 }
 
 function testConnectorStatusToneUsesConnectionState() {
@@ -187,6 +217,7 @@ function testNavigateExternalAuthWindowFallsBackWhenWindowClosed() {
 }
 
 testConnectorAuthModeFollowsBackendAuthType();
+testConnectorGroupsSeparateRuntimeCapabilitiesFromUserConnectors();
 testConnectorStatusToneUsesConnectionState();
 testGoogleOauthActionCanRequireCallbackInput();
 testDeviceFlowActionCanRequireComplete();

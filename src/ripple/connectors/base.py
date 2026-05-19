@@ -12,6 +12,9 @@ class ConnectorInfo:
     display_name: str
     description: str
     auth_type: str
+    kind: str = "user_connector"
+    auth_flow: str = "none"
+    auth_surfaces: dict[str, bool] = field(default_factory=lambda: {"web": False, "chat": False})
     auth_start_path: str | None = None
     auth_complete_path: str | None = None
     disconnect_path: str | None = None

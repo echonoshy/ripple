@@ -1,4 +1,5 @@
 import mimetypes
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -85,10 +86,22 @@ class WorkspaceFileTooLargeError(ValueError):
     pass
 
 
+class WorkspaceUploadConflictError(ValueError):
+    def __init__(self, conflicts: list[dict[str, str]]):
+        super().__init__("Workspace upload conflicts")
+        self.conflicts = conflicts
+
+
 @dataclass(frozen=True)
 class ResolvedWorkspacePath:
     host_path: Path
     virtual_path: str
+
+
+@dataclass(frozen=True)
+class WorkspaceUploadItem:
+    filename: str | None
+    data: bytes
 
 
 def browse_workspace_directory(
@@ -283,6 +296,50 @@ def save_workspace_text_file(
     )
 
 
+def save_workspace_uploaded_files(
+    workspace_root: Path,
+    requested_directory: str | Path,
+    uploads: list[WorkspaceUploadItem],
+    *,
+    overwrite: bool = False,
+    before_write: Callable[[list[tuple[Path, int]]], None] | None = None,
+) -> list[WorkspaceEntry]:
+    resolved_directory = _resolve_workspace_path(workspace_root, requested_directory)
+    if not resolved_directory.host_path.exists():
+        raise FileNotFoundError(resolved_directory.virtual_path)
+    if not resolved_directory.host_path.is_dir():
+        raise NotADirectoryError(resolved_directory.virtual_path)
+    if not uploads:
+        return []
+
+    prepared: list[tuple[Path, bytes]] = []
+    conflicts: list[dict[str, str]] = []
+    seen_targets: set[Path] = set()
+
+    for upload in uploads:
+        filename = _clean_upload_filename(upload.filename)
+        target = resolved_directory.host_path / filename
+        validate_path(target, workspace_root)
+        virtual_path = _virtual_path(workspace_root, target)
+        if target in seen_targets or target.exists():
+            if target.is_dir() or not overwrite:
+                conflicts.append({"name": filename, "path": virtual_path})
+        seen_targets.add(target)
+        prepared.append((target, upload.data))
+
+    if conflicts:
+        raise WorkspaceUploadConflictError(conflicts)
+
+    if before_write:
+        before_write([(target, len(data)) for target, data in prepared])
+
+    entries: list[WorkspaceEntry] = []
+    for target, data in prepared:
+        target.write_bytes(data)
+        entries.append(_entry_for_path(workspace_root, target))
+    return entries
+
+
 def _resolve_workspace_path(workspace_root: Path, requested_path: str | Path) -> ResolvedWorkspacePath:
     host_path = validate_path(requested_path, workspace_root)
     return ResolvedWorkspacePath(host_path=host_path, virtual_path=_virtual_path(workspace_root, host_path))
@@ -295,6 +352,13 @@ def _validate_new_entry_name(new_name: str) -> str:
     if Path(clean_name).name != clean_name or "/" in clean_name or "\\" in clean_name:
         raise ValueError("Name must not contain path separators")
     return clean_name
+
+
+def _clean_upload_filename(filename: str | None) -> str:
+    clean_name = Path(filename or "upload.bin").name.strip()
+    if not clean_name or clean_name in {".", ".."}:
+        clean_name = "upload.bin"
+    return _validate_new_entry_name(clean_name)
 
 
 def _is_hidden_workspace_path(workspace_root: Path, path: Path) -> bool:

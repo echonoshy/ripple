@@ -269,6 +269,9 @@ class CodexCliConnector(BaseConnector):
                 display_name="OpenAI Codex",
                 description="Server-side Codex CLI login used by the app-server executor.",
                 auth_type="cli",
+                kind="runtime_capability",
+                auth_flow="none",
+                auth_surfaces={"web": False, "chat": False},
             )
         )
 
@@ -291,6 +294,9 @@ class NotionConnector(BaseConnector):
                 display_name="Notion",
                 description="Notion API access through a per-user integration token.",
                 auth_type="token",
+                kind="user_connector",
+                auth_flow="token",
+                auth_surfaces={"web": True, "chat": True},
                 auth_start_path=_connector_path("notion", "auth/start"),
                 disconnect_path=_connector_path("notion", "disconnect"),
             )
@@ -369,6 +375,9 @@ class FeishuConnector(BaseConnector):
                 display_name="Feishu",
                 description="Feishu/Lark access through browser authorization.",
                 auth_type="oauth",
+                kind="user_connector",
+                auth_flow="oauth_device",
+                auth_surfaces={"web": True, "chat": True},
                 auth_start_path=_connector_path("feishu", "auth/start"),
                 auth_complete_path=_connector_path("feishu", "auth/complete"),
                 disconnect_path=_connector_path("feishu", "disconnect"),
@@ -496,6 +505,9 @@ class BilibiliConnector(BaseConnector):
                 display_name="Bilibili",
                 description="Bilibili session access through QR login credentials.",
                 auth_type="qr",
+                kind="user_connector",
+                auth_flow="qr",
+                auth_surfaces={"web": True, "chat": True},
                 auth_start_path=_connector_path("bilibili", "auth/start"),
                 auth_complete_path=_connector_path("bilibili", "auth/complete"),
                 disconnect_path=_connector_path("bilibili", "disconnect"),
@@ -674,6 +686,9 @@ class GoogleWorkspaceConnector(BaseConnector):
                 display_name="Google Workspace",
                 description="Gmail, Drive, Docs, Sheets, Slides, and Calendar through gogcli.",
                 auth_type="oauth",
+                kind="user_connector",
+                auth_flow="oauth_assisted",
+                auth_surfaces={"web": True, "chat": True},
                 auth_start_path=_connector_path("google_workspace", "auth/start"),
                 auth_complete_path=_connector_path("google_workspace", "auth/complete"),
                 disconnect_path=_connector_path("google_workspace", "disconnect"),
@@ -869,6 +884,31 @@ class GoogleWorkspaceConnector(BaseConnector):
         return {"has_client_config": has_client, "accounts": raw, "count": len(raw), "checked": check}
 
 
+class RuntimeCapabilityConnector(BaseConnector):
+    def __init__(self, *, name: str, display_name: str, description: str, metadata: dict[str, Any] | None = None):
+        super().__init__(
+            ConnectorInfo(
+                name=name,
+                display_name=display_name,
+                description=description,
+                auth_type="runtime",
+                kind="runtime_capability",
+                auth_flow="none",
+                auth_surfaces={"web": False, "chat": False},
+            )
+        )
+        self._metadata = metadata or {}
+
+    def status(self, config: SandboxConfig, user_id: str) -> ConnectorStatus:
+        return ConnectorStatus(
+            name=self.info.name,
+            connected=True,
+            required=False,
+            detail=f"{self.info.display_name} is provided by the server-side Codex runtime.",
+            metadata={"auth_source": "codex_runtime", **self._metadata},
+        )
+
+
 def _looks_like_google_callback_url(callback_url: str) -> bool:
     if not _GOOGLE_CALLBACK_URL_RE.match(callback_url):
         return False
@@ -886,6 +926,21 @@ def _builtins() -> list[BaseConnector]:
         FeishuConnector(),
         BilibiliConnector(),
         CodexCliConnector(),
+        RuntimeCapabilityConnector(
+            name="codex_image_generation",
+            display_name="Image Generation",
+            description="Generate images through the server-side Codex runtime without per-user third-party auth.",
+        ),
+        RuntimeCapabilityConnector(
+            name="codex_image_input",
+            display_name="Image Input",
+            description="Accept and inspect uploaded or remote images through Codex native input items.",
+        ),
+        RuntimeCapabilityConnector(
+            name="codex_web_search",
+            display_name="Web Search",
+            description="Use Codex runtime web/search capabilities when available to the service account.",
+        ),
     ]
 
 

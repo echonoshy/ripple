@@ -19,6 +19,7 @@ import {
   WorkspaceFilePreview,
   WorkspaceListing,
   WorkspaceSearchResponse,
+  WorkspaceUploadResponse,
 } from "@/types";
 import { buildChatMessageContent, type ChatFileRef } from "@/lib/chatInput";
 
@@ -75,6 +76,21 @@ export class AuthError extends Error {
   constructor(message = "Authentication required") {
     super(message);
     this.name = "AuthError";
+  }
+}
+
+export interface WorkspaceUploadConflict {
+  name: string;
+  path: string;
+}
+
+export class WorkspaceUploadConflictError extends Error {
+  conflicts: WorkspaceUploadConflict[];
+
+  constructor(conflicts: WorkspaceUploadConflict[]) {
+    super("Workspace upload conflicts");
+    this.name = "WorkspaceUploadConflictError";
+    this.conflicts = conflicts;
   }
 }
 
@@ -746,6 +762,73 @@ export async function uploadWorkspaceAttachment(file: File): Promise<WorkspaceAt
   if (res.status === 401) throw new AuthError();
   if (!res.ok) throw new Error(`Failed to upload attachment (${res.status})`);
   return (await res.json()) as WorkspaceAttachmentResponse;
+}
+
+function parseWorkspaceUploadConflicts(value: unknown): WorkspaceUploadConflict[] {
+  if (!isRecord(value)) return [];
+  const detail = value.detail;
+  if (!isRecord(detail) || detail.code !== "workspace_upload_conflict") return [];
+  const conflicts = Array.isArray(detail.conflicts) ? detail.conflicts : [];
+  return conflicts.filter(isRecord).flatMap((conflict) => {
+    if (typeof conflict.name !== "string" || typeof conflict.path !== "string") return [];
+    return [{ name: conflict.name, path: conflict.path }];
+  });
+}
+
+export async function uploadWorkspaceFiles(
+  files: File[],
+  path: string,
+  overwrite: boolean = false
+): Promise<WorkspaceEntry[]> {
+  const body = new FormData();
+  for (const file of files) {
+    body.append("files", file);
+  }
+  body.append("path", path);
+  body.append("overwrite", String(overwrite));
+
+  const res = await fetch(`${API_URL}/workspace/upload`, {
+    method: "POST",
+    headers: { ...authHeaders() },
+    body,
+  });
+  if (res.status === 401) throw new AuthError();
+  if (res.status === 409) {
+    let parsed: unknown = {};
+    try {
+      parsed = await res.clone().json();
+    } catch {
+      /* ignore parse error */
+    }
+    throw new WorkspaceUploadConflictError(parseWorkspaceUploadConflicts(parsed));
+  }
+  if (!res.ok) throw new Error(`Failed to upload files (${res.status})`);
+  const response = (await res.json()) as WorkspaceUploadResponse;
+  return response.entries || [];
+}
+
+function filenameFromContentDisposition(header: string | null, fallback: string): string {
+  if (!header) return fallback;
+  const utf8Match = header.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) return decodeURIComponent(utf8Match[1].replace(/^"|"$/g, ""));
+  const match = header.match(/filename="?([^";]+)"?/i);
+  return match?.[1] || fallback;
+}
+
+export async function downloadWorkspaceFile(
+  path: string
+): Promise<{ blob: Blob; filename: string }> {
+  const qs = new URLSearchParams({ path });
+  const res = await fetch(`${API_URL}/workspace/download?${qs.toString()}`, {
+    headers: { ...authHeaders() },
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) throw new Error(`Failed to download file (${res.status})`);
+  const fallback = path.split("/").filter(Boolean).at(-1) || "download";
+  return {
+    blob: await res.blob(),
+    filename: filenameFromContentDisposition(res.headers.get("content-disposition"), fallback),
+  };
 }
 
 export async function renameWorkspaceEntry(path: string, name: string): Promise<WorkspaceEntry> {

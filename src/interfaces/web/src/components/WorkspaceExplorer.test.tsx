@@ -58,6 +58,28 @@ function testWorkspaceExplorerSplitIsResizable() {
 
 testWorkspaceExplorerSplitIsResizable();
 
+function testWorkspaceExplorerExposesUploadControl() {
+  const html = renderExplorer();
+
+  assert.match(html, /aria-label="Upload files"/);
+  assert.match(html, /title="Upload files"/);
+  assert.match(html, /type="file"/);
+  assert.match(html, /multiple/);
+}
+
+testWorkspaceExplorerExposesUploadControl();
+
+function testWorkspaceExplorerSourceSupportsDropUploadAndFileDownload() {
+  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /onDrop/);
+  assert.match(source, /onDragOver/);
+  assert.match(source, /downloadWorkspaceFile/);
+  assert.match(source, /aria-label=\{`Download \$\{entry\.name\}`\}/);
+}
+
+testWorkspaceExplorerSourceSupportsDropUploadAndFileDownload();
+
 function testWorkspaceExplorerSplitStaysInsidePanelBounds() {
   const html = renderExplorerWithStoredSplitPercent("120");
 

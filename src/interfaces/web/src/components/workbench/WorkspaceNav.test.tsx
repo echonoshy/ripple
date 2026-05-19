@@ -40,6 +40,7 @@ function testRendersAllSessionsWithoutDeadViewAllButton() {
   const html = renderWorkspaceNav();
 
   assert.match(html, /Session 9/);
+  assert.doesNotMatch(html, />Idle</);
   assert.doesNotMatch(html, /View all tasks/);
   assert.doesNotMatch(html, />Tasks</);
   assert.match(html, />Sessions</);
@@ -53,7 +54,14 @@ function testUsesSessionIdSelectionNaming() {
   assert.match(html, /bg-\[#eef4ff\]/);
 }
 
+function testSessionsHeaderDoesNotDuplicateNewSessionAction() {
+  const html = renderWorkspaceNav();
+
+  assert.equal((html.match(/lucide-plus/g) || []).length, 1);
+}
+
 testRendersAllSessionsWithoutDeadViewAllButton();
 testUsesSessionIdSelectionNaming();
+testSessionsHeaderDoesNotDuplicateNewSessionAction();
 
 console.log("workspace nav tests passed");

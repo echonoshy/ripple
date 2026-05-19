@@ -447,6 +447,7 @@ async def test_app_server_provider_runs_thread_turn_and_records_events(tmp_path)
     assert "runner.started" in [event["type"] for event in events]
     assert "codex.notification" in [event["type"] for event in events]
     assert "runner.completed" in [event["type"] for event in events]
+    assert [event["sequence"] for event in events] == list(range(1, len(events) + 1))
 
 
 @pytest.mark.asyncio
@@ -646,6 +647,29 @@ async def test_app_server_provider_does_not_wrap_process_with_nsjail_by_default(
     calls = _read_jsonl(tmp_path / "app-server.jsonl")
     turn_start = next(call for call in calls if call["method"] == "turn/start")
     assert turn_start["params"]["cwd"] == str(request.cwd)
+
+
+@pytest.mark.asyncio
+async def test_app_server_permission_profile_denies_sibling_user_sandboxes(tmp_path):
+    provider = _provider(tmp_path)
+    sandbox_config = SandboxConfig(sandboxes_root=tmp_path / "sandboxes", caches_root=tmp_path / "cache")
+    request = _request(tmp_path, prompt="inspect sandboxed project")
+    request = request.model_copy(
+        update={
+            "cwd": sandbox_config.workspace_dir("user-a"),
+            "metadata": {"sandbox_config": sandbox_config, "sandbox_cwd": "/workspace"},
+        }
+    )
+    request.cwd.mkdir(parents=True)
+
+    result = await provider.run(request, job_dir=tmp_path / "job")
+
+    assert result.status == AgentRunnerStatus.COMPLETED
+    calls = _read_jsonl(tmp_path / "app-server.jsonl")
+    thread_start = next(call for call in calls if call["method"] == "thread/start")
+    filesystem = thread_start["params"]["config"]["permissions"]["ripple_workspace"]["filesystem"]
+    assert filesystem[str(sandbox_config.sandboxes_root.resolve())] == "none"
+    assert filesystem[str(request.cwd.resolve())] == "write"
 
 
 @pytest.mark.asyncio

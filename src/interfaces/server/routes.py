@@ -269,6 +269,7 @@ async def _clear_session_context(manager: SessionManager, session: Session) -> N
         session.pending_options = None
         session.pending_permission_request = None
         session.pending_connector_auth = None
+        session.codex_thread_id = None
         session.task_steps = []
         session.task_progress = None
         session.last_input_tokens = 0
@@ -1787,7 +1788,7 @@ async def list_workspace(
 async def search_workspace(
     q: str = Query(default="", max_length=200),
     limit: int = Query(default=20, ge=1, le=50),
-    scope: str = Query(default="all"),
+    scope: str = Query(default="name"),
     kind: str = Query(default="all"),
     file_type: str = Query(default="all"),
     include_hidden: bool = Query(default=False),
@@ -1795,7 +1796,7 @@ async def search_workspace(
     user_id: str = Depends(get_user_id),
     _api_key: str = Depends(verify_api_key),
 ):
-    """Search file paths in the current user's sandbox workspace."""
+    """Search the current user's sandbox workspace by name/path or file content."""
     manager = get_session_manager()
     if not manager.sandbox_manager:
         raise HTTPException(status_code=500, detail="sandbox disabled")

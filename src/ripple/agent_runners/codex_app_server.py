@@ -240,6 +240,7 @@ class CodexAppServerSession:
         self._reader_task: asyncio.Task | None = None
         self._stderr_task: asyncio.Task | None = None
         self._initialized = False
+        self.loaded_thread_ids: set[str] = set()
 
     @property
     def is_running(self) -> bool:
@@ -278,6 +279,7 @@ class CodexAppServerSession:
         self._reader_task = asyncio.create_task(self._read_stdout())
         self._stderr_task = asyncio.create_task(self._read_stderr())
         self._initialized = False
+        self.loaded_thread_ids.clear()
 
     async def ensure_initialized(self) -> None:
         await self.ensure_started()
@@ -537,6 +539,49 @@ class CodexAppServerAgentProvider:
             "permissions": {"type": "profile", "id": _RIPPLE_CODEX_PERMISSION_PROFILE},
         }
 
+    async def _ensure_thread(
+        self,
+        *,
+        session: CodexAppServerSession,
+        request: AgentRunnerRequest,
+        runner_cwd: str,
+        persistent_thread: bool,
+    ) -> tuple[str, bool]:
+        requested_thread_id = request.metadata.get("codex_thread_id") if persistent_thread else None
+        if isinstance(requested_thread_id, str) and requested_thread_id:
+            if requested_thread_id in session.loaded_thread_ids:
+                return requested_thread_id, False
+            thread_result = await session.request(
+                "thread/resume",
+                {
+                    "threadId": requested_thread_id,
+                    "cwd": runner_cwd,
+                    "approvalPolicy": self.approval_policy,
+                    **self._thread_start_permission_params(session),
+                },
+            )
+            thread_id = thread_result.get("thread", {}).get("id") or requested_thread_id
+            if not isinstance(thread_id, str) or not thread_id:
+                raise RuntimeError("codex app-server did not return a thread id")
+            session.loaded_thread_ids.add(thread_id)
+            return thread_id, True
+
+        thread_result = await session.request(
+            "thread/start",
+            {
+                "cwd": runner_cwd,
+                "approvalPolicy": self.approval_policy,
+                "ephemeral": False if persistent_thread else self.ephemeral_threads,
+                "serviceName": "ripple",
+                **self._thread_start_permission_params(session),
+            },
+        )
+        thread_id = thread_result.get("thread", {}).get("id")
+        if not isinstance(thread_id, str) or not thread_id:
+            raise RuntimeError("codex app-server did not return a thread id")
+        session.loaded_thread_ids.add(thread_id)
+        return thread_id, False
+
     def _turn_start_permission_params(self, runner_cwd: str) -> dict[str, Any]:
         if self._uses_managed_permission_profile():
             return {}
@@ -557,6 +602,9 @@ class CodexAppServerAgentProvider:
         exit_code: int | None = None
         status = AgentRunnerStatus.FAILED
         error: str | None = None
+        thread_id: str | None = None
+        thread_resumed = False
+        persistent_thread = bool(request.metadata.get("codex_persistent_thread"))
         runner_cwd = str(request.cwd)
         if self.run_app_server_in_user_sandbox:
             runner_cwd = str(request.metadata.get("sandbox_cwd") or request.cwd)
@@ -585,19 +633,12 @@ class CodexAppServerAgentProvider:
         try:
             async with session.run_lock:
                 await session.ensure_initialized()
-                thread_result = await session.request(
-                    "thread/start",
-                    {
-                        "cwd": runner_cwd,
-                        "approvalPolicy": self.approval_policy,
-                        "ephemeral": self.ephemeral_threads,
-                        "serviceName": "ripple",
-                        **self._thread_start_permission_params(session),
-                    },
+                thread_id, thread_resumed = await self._ensure_thread(
+                    session=session,
+                    request=request,
+                    runner_cwd=runner_cwd,
+                    persistent_thread=persistent_thread,
                 )
-                thread_id = thread_result.get("thread", {}).get("id")
-                if not isinstance(thread_id, str) or not thread_id:
-                    raise RuntimeError("codex app-server did not return a thread id")
 
                 turn_result = await session.request(
                     "turn/start",
@@ -627,12 +668,15 @@ class CodexAppServerAgentProvider:
             active_turn = self.active_turns.get(job_id)
             if active_turn is not None:
                 await self._interrupt_turn(active_turn)
+            await self.pool.stop_user(request.user_id or "default")
             status = AgentRunnerStatus.CANCELLED
             error = "runner cancelled"
         except JsonRpcTimeoutError as exc:
+            await self.pool.stop_user(request.user_id or "default")
             status = AgentRunnerStatus.FAILED
             error = str(exc)
         except TimeoutError:
+            await self.pool.stop_user(request.user_id or "default")
             status = AgentRunnerStatus.FAILED
             error = f"runner timed out after {request.max_runtime_seconds}s"
         except Exception as exc:  # noqa: BLE001
@@ -659,6 +703,13 @@ class CodexAppServerAgentProvider:
         )
 
         atomic_write_text(output_file, output_text)
+        result_metadata: dict[str, Any] = {}
+        if persistent_thread and thread_id:
+            result_metadata = {
+                "codex_thread_id": thread_id,
+                "codex_thread_resumed": thread_resumed,
+                "codex_persistent_thread": True,
+            }
         return AgentRunnerResult(
             job_id=job_id,
             provider=request.provider,
@@ -669,6 +720,7 @@ class CodexAppServerAgentProvider:
             stdout_tail=_tail(output_text),
             stderr_tail=session.stderr_tail,
             error=error,
+            metadata=result_metadata,
         )
 
     async def wait_for_active_turn(self, job_id: str, *, timeout: float) -> ActiveTurn:

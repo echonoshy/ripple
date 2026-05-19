@@ -500,6 +500,16 @@ class CodexRuntimeEventProvider:
         )
 
 
+class PersistentThreadProvider(InstantCodexProvider):
+    def __init__(self, output: str = "threaded answer", thread_id: str = "thread-1"):
+        super().__init__(output=output)
+        self.thread_id = thread_id
+
+    async def run(self, request: AgentRunnerRequest, *, job_dir: Path) -> AgentRunnerResult:
+        result = await super().run(request, job_dir=job_dir)
+        return result.model_copy(update={"metadata": {"codex_thread_id": self.thread_id}})
+
+
 def _client(tmp_path: Path, monkeypatch, provider: Any) -> TestClient:
     sandbox_config = SandboxConfig(sandboxes_root=tmp_path / "sandboxes", caches_root=tmp_path / "cache")
     sandbox_manager = SandboxManager(sandbox_config)
@@ -573,6 +583,43 @@ def test_chat_completions_forwards_codex_turn_configuration(tmp_path: Path, monk
     assert request.effort == "high"
     assert request.summary == "detailed"
     assert request.output_schema == output_schema
+
+
+def test_chat_completions_reuses_codex_thread_without_reinjecting_history(tmp_path: Path, monkeypatch):
+    provider = PersistentThreadProvider(output="threaded answer", thread_id="thread-1")
+    client = _client(tmp_path, monkeypatch, provider)
+
+    first = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "codex-medium",
+            "stream": False,
+            "messages": [{"role": "user", "content": "First question only for history"}],
+        },
+    )
+
+    assert first.status_code == 200
+    session_id = first.json()["session_id"]
+    assert provider.requests[0].metadata["codex_persistent_thread"] is True
+    assert "codex_thread_id" not in provider.requests[0].metadata
+
+    second = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "codex-medium",
+            "session_id": session_id,
+            "stream": False,
+            "messages": [{"role": "user", "content": "Second question"}],
+        },
+    )
+
+    assert second.status_code == 200
+    assert provider.requests[1].metadata["codex_persistent_thread"] is True
+    assert provider.requests[1].metadata["codex_thread_id"] == "thread-1"
+    assert "Second question" in provider.requests[1].prompt
+    assert "First question only for history" not in provider.requests[1].prompt
+    assert "threaded answer" not in provider.requests[1].prompt
+    assert "## Conversation So Far" not in provider.requests[1].prompt
 
 
 def test_chat_auth_preflight_captures_notion_token_without_starting_codex(tmp_path: Path, monkeypatch):

@@ -49,6 +49,7 @@ class ExternalAgentJob:
         self.stdout_tail = result.stdout_tail
         self.stderr_tail = result.stderr_tail
         self.error = result.error
+        self.metadata = {**self.metadata, **result.metadata}
 
     def to_result(self) -> AgentRunnerResult | None:
         if self.events_file is None:
@@ -63,6 +64,7 @@ class ExternalAgentJob:
             stdout_tail=self.stdout_tail,
             stderr_tail=self.stderr_tail,
             error=self.error,
+            metadata=self.metadata,
         )
 
 

@@ -44,6 +44,8 @@ import {
   clearTaskPlanState,
   upsertTask,
 } from "@/lib/chatState";
+import { readableApiErrorMessage } from "@/lib/apiErrors";
+import { chatErrorContent } from "@/lib/chatErrors";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { bumpInputFocusToken } from "@/lib/inputFocus";
 import {
@@ -77,6 +79,7 @@ export default function Home() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [sessionSummaries, setSessionSummaries] = useState<TaskSummary[]>([]);
   const [isLoadingSessions, setIsLoadingSessions] = useState(false);
+  const [sessionLoadError, setSessionLoadError] = useState<string | null>(null);
   const [runtimeTimelineEvents, setRuntimeTimelineEvents] = useState<WorkbenchTimelineEvent[]>([]);
 
   // ── Model state ──
@@ -115,10 +118,19 @@ export default function Home() {
     if (authState !== "authenticated") return [];
     try {
       setIsLoadingSessions(true);
+      setSessionLoadError(null);
       const loadedSessions = await fetchTasks();
       setSessionSummaries(loadedSessions);
       return loadedSessions;
-    } catch {
+    } catch (err) {
+      if (err instanceof AuthError) {
+        clearApiKey();
+        setAuthState("needs_auth");
+        setAuthErrorMsg("API Key 已失效");
+        clearStoredCurrentSessionId();
+        return [];
+      }
+      setSessionLoadError(readableApiErrorMessage(err));
       return [];
     } finally {
       setIsLoadingSessions(false);
@@ -175,6 +187,7 @@ export default function Home() {
       setRuntimeTimelineEvents([]);
       setPendingFiles([]);
       setSessionSummaries([]);
+      setSessionLoadError(null);
       setTaskSteps([]);
       setTaskProgress(null);
       setTokenUsage({ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
@@ -647,7 +660,7 @@ export default function Home() {
               const msgs = [...prev];
               const last = msgs[msgs.length - 1];
               if (last.role === "assistant" && !last.content) {
-                last.content = "无法连接到 Ripple 服务。请确认服务端正在运行。";
+                last.content = chatErrorContent(err);
               }
               return msgs;
             });
@@ -884,6 +897,7 @@ export default function Home() {
             selectedSessionId={sessionId}
             activeView={activeView}
             isLoading={isLoadingSessions}
+            sessionLoadError={sessionLoadError}
             isGenerating={isGenerating}
             userId={userId}
             onNewSession={handleNewSession}

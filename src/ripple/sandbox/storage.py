@@ -100,6 +100,7 @@ def save_session_state(
     pending_options: list[str] | None = None,
     pending_permission_request: dict | None = None,
     pending_connector_auth: dict | None = None,
+    codex_thread_id: str | None = None,
     task_steps: list[dict] | None = None,
     task_progress: dict | None = None,
 ) -> Path:
@@ -216,6 +217,7 @@ def save_session_state(
         "pending_options": pending_options,
         "pending_permission_request": pending_permission_request,
         "pending_connector_auth": pending_connector_auth,
+        "codex_thread_id": codex_thread_id,
         "task_steps": task_steps or [],
         "task_progress": task_progress,
         "message_count": new_count,
@@ -332,6 +334,7 @@ def get_suspended_session_info(config: SandboxConfig, user_id: str, session_id: 
         "pending_options": meta.get("pending_options"),
         "pending_permission_request": meta.get("pending_permission_request"),
         "pending_connector_auth": meta.get("pending_connector_auth"),
+        "codex_thread_id": meta.get("codex_thread_id"),
         "source": meta.get("source", "chat"),
         "hidden_from_session_list": meta.get("hidden_from_session_list", False),
     }

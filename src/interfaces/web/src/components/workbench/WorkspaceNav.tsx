@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Loader2, Plus, Settings, Trash2 } from "lucide-react";
+import { AlertTriangle, Loader2, Plus, Settings, Trash2 } from "lucide-react";
 import RippleIcon from "@/components/icons/RippleIcon";
 import type { WorkbenchSessionSummary } from "@/types";
 import { mainNavItems, type WorkspaceView } from "@/lib/workspaceViews";
@@ -12,6 +12,7 @@ interface WorkspaceNavProps {
   selectedSessionId: string | null;
   activeView: WorkspaceView;
   isLoading: boolean;
+  sessionLoadError?: string | null;
   isGenerating: boolean;
   userId: string;
   onNewSession: () => void;
@@ -26,6 +27,7 @@ export default function WorkspaceNav({
   selectedSessionId,
   activeView,
   isLoading,
+  sessionLoadError,
   isGenerating,
   userId,
   onNewSession,
@@ -105,7 +107,12 @@ export default function WorkspaceNav({
             {isLoading ? <Loader2 size={13} className="animate-spin text-[#6b7280]" /> : null}
           </div>
 
-          {sessions.length === 0 && !isLoading ? (
+          {sessionLoadError && !isLoading ? (
+            <div className="flex items-start gap-2 rounded-lg border border-[#cf222e]/25 bg-[#ffebe9] px-3 py-3 text-sm font-medium text-[#cf222e]">
+              <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+              <span className="min-w-0 break-words">{sessionLoadError}</span>
+            </div>
+          ) : sessions.length === 0 && !isLoading ? (
             <div className="rounded-lg border border-dashed border-[#e5e7eb] bg-white px-3 py-5 text-center text-sm text-[#6b7280]">
               No sessions yet
             </div>

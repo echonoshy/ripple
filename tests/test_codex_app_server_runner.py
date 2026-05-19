@@ -89,6 +89,38 @@ for raw_line in sys.stdin:
         thread_id = f"thr-{thread_counter}"
         emit({"jsonrpc": "2.0", "id": message["id"], "result": {"thread": {"id": thread_id}}})
         emit({"jsonrpc": "2.0", "method": "thread/started", "params": {"thread": {"id": thread_id}}})
+    elif method == "thread/resume":
+        permission_profile = params.get("config", {}).get("permissions", {}).get("ripple_workspace", {})
+        filesystem = permission_profile.get("filesystem", {})
+        if params.get("permissions") != {"type": "profile", "id": "ripple_workspace"}:
+            emit({
+                "jsonrpc": "2.0",
+                "id": message["id"],
+                "error": {
+                    "code": -32600,
+                    "message": "thread/resume missing ripple permissions profile",
+                },
+            })
+            continue
+        project_roots = filesystem.get(":project_roots")
+        if filesystem.get(":root") != "read" or project_roots != {
+            ".": "write",
+            ".git": "write",
+            ".agents": "read",
+            ".codex": "read",
+        }:
+            emit({
+                "jsonrpc": "2.0",
+                "id": message["id"],
+                "error": {
+                    "code": -32600,
+                    "message": "thread/resume missing filesystem profile roots",
+                },
+            })
+            continue
+        thread_id = params["threadId"]
+        emit({"jsonrpc": "2.0", "id": message["id"], "result": {"thread": {"id": thread_id}}})
+        emit({"jsonrpc": "2.0", "method": "thread/resumed", "params": {"thread": {"id": thread_id}}})
     elif method == "turn/start":
         if "sandboxPolicy" in params:
             emit({
@@ -472,6 +504,7 @@ async def test_app_server_provider_fails_when_json_rpc_request_times_out(tmp_pat
     assert result.error is not None
     assert "timed out waiting for Codex app-server response to initialize" in result.error
     assert "runner.failed" in [event["type"] for event in _read_jsonl(result.events_file)]
+    assert "user-a" not in provider.pool.sessions
 
 
 @pytest.mark.asyncio
@@ -539,6 +572,83 @@ async def test_app_server_provider_forwards_turn_configuration(tmp_path):
     assert turn_start["params"]["effort"] == "high"
     assert turn_start["params"]["summary"] == "detailed"
     assert turn_start["params"]["outputSchema"] == {"type": "object", "properties": {"ok": {"type": "boolean"}}}
+
+
+@pytest.mark.asyncio
+async def test_app_server_provider_starts_persistent_thread_and_reuses_loaded_thread(tmp_path):
+    provider = _provider(tmp_path)
+    first = _request(tmp_path, prompt="first persistent turn").model_copy(
+        update={"metadata": {"codex_persistent_thread": True}}
+    )
+    first.cwd.mkdir(parents=True)
+
+    first_result = await provider.run(first, job_dir=tmp_path / "job-1")
+
+    assert first_result.status == AgentRunnerStatus.COMPLETED
+    assert first_result.metadata["codex_thread_id"] == "thr-1"
+    assert first_result.metadata["codex_thread_resumed"] is False
+
+    second = _request(tmp_path, prompt="second persistent turn").model_copy(
+        update={"metadata": {"codex_persistent_thread": True, "codex_thread_id": "thr-1"}}
+    )
+    second.cwd.mkdir(parents=True, exist_ok=True)
+
+    second_result = await provider.run(second, job_dir=tmp_path / "job-2")
+
+    assert second_result.status == AgentRunnerStatus.COMPLETED
+    assert second_result.metadata["codex_thread_id"] == "thr-1"
+    assert second_result.metadata["codex_thread_resumed"] is False
+    calls = _read_jsonl(tmp_path / "app-server.jsonl")
+    assert [call["method"] for call in calls] == [
+        "initialize",
+        "initialized",
+        "thread/start",
+        "turn/start",
+        "turn/start",
+    ]
+    thread_start = next(call for call in calls if call["method"] == "thread/start")
+    assert thread_start["params"]["ephemeral"] is False
+    turn_starts = [call for call in calls if call["method"] == "turn/start"]
+    assert [call["params"]["threadId"] for call in turn_starts] == ["thr-1", "thr-1"]
+
+
+@pytest.mark.asyncio
+async def test_app_server_provider_resumes_persistent_thread_after_process_restart(tmp_path):
+    provider = _provider(tmp_path)
+    first = _request(tmp_path, prompt="first persistent turn").model_copy(
+        update={"metadata": {"codex_persistent_thread": True}}
+    )
+    first.cwd.mkdir(parents=True)
+    first_result = await provider.run(first, job_dir=tmp_path / "job-1")
+    assert first_result.metadata["codex_thread_id"] == "thr-1"
+
+    await provider.stop_user("user-a")
+
+    second = _request(tmp_path, prompt="second persistent turn").model_copy(
+        update={"metadata": {"codex_persistent_thread": True, "codex_thread_id": "thr-1"}}
+    )
+    second.cwd.mkdir(parents=True, exist_ok=True)
+
+    second_result = await provider.run(second, job_dir=tmp_path / "job-2")
+
+    assert second_result.status == AgentRunnerStatus.COMPLETED
+    assert second_result.metadata["codex_thread_id"] == "thr-1"
+    assert second_result.metadata["codex_thread_resumed"] is True
+    calls = _read_jsonl(tmp_path / "app-server.jsonl")
+    assert [call["method"] for call in calls] == [
+        "initialize",
+        "initialized",
+        "thread/start",
+        "turn/start",
+        "initialize",
+        "initialized",
+        "thread/resume",
+        "turn/start",
+    ]
+    thread_resume = next(call for call in calls if call["method"] == "thread/resume")
+    assert thread_resume["params"]["threadId"] == "thr-1"
+    assert thread_resume["params"]["cwd"] == str(second.cwd)
+    assert thread_resume["params"]["permissions"] == {"type": "profile", "id": "ripple_workspace"}
 
 
 @pytest.mark.asyncio
@@ -760,6 +870,7 @@ async def test_manager_cancel_sends_turn_interrupt_to_app_server(tmp_path):
     assert result.status == AgentRunnerStatus.CANCELLED
     calls = _read_jsonl(tmp_path / "app-server.jsonl")
     assert "turn/interrupt" in [call["method"] for call in calls]
+    assert "user-a" not in provider.pool.sessions
 
 
 @pytest.mark.asyncio

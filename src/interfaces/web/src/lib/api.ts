@@ -22,6 +22,7 @@ import {
   WorkspaceUploadResponse,
 } from "@/types";
 import { buildChatMessageContent, type ChatFileRef } from "@/lib/chatInput";
+import { readableApiErrorMessage } from "@/lib/apiErrors";
 
 const DEFAULT_PUBLIC_API_URL = "https://test-oauth.weilai.ai/v1";
 
@@ -228,13 +229,15 @@ export async function fetchTasks(): Promise<TaskSummary[]> {
   try {
     const res = await fetch(`${API_URL}/tasks`, { headers: { ...authHeaders() } });
     if (res.status === 401) throw new AuthError();
-    if (!res.ok) return [];
+    if (!res.ok) {
+      const detail = await responseDetail(res);
+      throw new Error(detail || `Failed to fetch sessions (${res.status})`);
+    }
     const data = (await res.json()) as { tasks?: TaskSummary[] };
     return data.tasks || [];
   } catch (error) {
     if (error instanceof AuthError) throw error;
-    console.error("Error fetching tasks:", error);
-    return [];
+    throw new Error(readableApiErrorMessage(error));
   }
 }
 
@@ -370,6 +373,7 @@ export async function sendChatMessage(
 
     await fetchEventSource(`${API_URL}/chat/completions`, {
       method: "POST",
+      openWhenHidden: true,
       signal: options?.signal,
       headers: {
         "Content-Type": "application/json",
@@ -721,7 +725,7 @@ export async function searchWorkspaceFiles(
   const qs = new URLSearchParams({
     q: query,
     limit: String(normalizedOptions.limit ?? 20),
-    scope: normalizedOptions.scope ?? "all",
+    scope: normalizedOptions.scope ?? "name",
     kind: normalizedOptions.kind ?? "all",
     file_type: normalizedOptions.fileType ?? "all",
     include_hidden: String(normalizedOptions.includeHidden ?? false),

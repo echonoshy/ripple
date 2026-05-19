@@ -56,3 +56,4 @@ class AgentRunnerResult(BaseModel):
     stdout_tail: str = ""
     stderr_tail: str = ""
     error: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)

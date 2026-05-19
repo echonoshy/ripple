@@ -70,6 +70,8 @@ def start_agent_run(
     manager: ExternalAgentManager,
     sandbox_config: Any | None,
     require_agent_route: bool = True,
+    codex_thread_id: str | None = None,
+    codex_persistent_thread: bool = False,
 ) -> ExternalAgentJob:
     """Start a Codex-backed agent run in the current user's workspace."""
 
@@ -92,6 +94,10 @@ def start_agent_run(
     cwd = resolve_workspace_cwd(raw_cwd, workspace_root)
     metadata: dict[str, Any] = {"route": decision.route.value, "signals": decision.signals}
     metadata["sandbox_cwd"] = sandbox_cwd_for_host_path(cwd, workspace_root)
+    if codex_persistent_thread:
+        metadata["codex_persistent_thread"] = True
+    if codex_thread_id:
+        metadata["codex_thread_id"] = codex_thread_id
     if sandbox_config is not None:
         metadata["sandbox_config"] = sandbox_config
 

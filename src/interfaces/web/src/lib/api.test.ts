@@ -3,11 +3,13 @@ import { readFileSync } from "node:fs";
 
 import {
   deleteTask,
+  fetchTasks,
   fetchTaskDetails,
   getApiOrigin,
   renameWorkspaceEntry,
   resolveTaskPermissionRequest,
   resolveApiUrl,
+  searchWorkspaceFiles,
   stopTask,
 } from "./api";
 
@@ -92,6 +94,53 @@ async function testTaskSessionIdIsEncodedInPath() {
   ]);
 }
 
+async function testFetchTasksRejectsServerFailures() {
+  await withFetch(
+    async () => response(500, "session store unavailable"),
+    async () => {
+      await assert.rejects(
+        () => fetchTasks(),
+        (error) => error instanceof Error && error.message === "session store unavailable"
+      );
+    }
+  );
+}
+
+async function testFetchTasksRejectsNetworkFailures() {
+  await withFetch(
+    async () => {
+      throw new TypeError("Failed to fetch");
+    },
+    async () => {
+      await assert.rejects(
+        () => fetchTasks(),
+        (error) =>
+          error instanceof Error &&
+          error.message === "无法连接到 Ripple 服务。请确认后端服务正在运行，或检查 /v1 代理配置。"
+      );
+    }
+  );
+}
+
+async function testWorkspaceSearchDefaultsToNameScope() {
+  let requestedUrl = "";
+
+  await withFetch(
+    async (input) => {
+      requestedUrl = String(input);
+      return new Response(JSON.stringify({ query: "json", count: 0, entries: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    },
+    async () => {
+      await searchWorkspaceFiles("json");
+    }
+  );
+
+  assert.match(requestedUrl, /[?&]scope=name(?:&|$)/);
+}
+
 function testDefaultApiOriginUsesPublicBaseUrl() {
   assert.equal(getApiOrigin(), "https://test-oauth.weilai.ai");
 }
@@ -113,12 +162,22 @@ function testViteDevServerProxiesV1ToLocalRippleServer() {
   assert.match(config, new RegExp(String.raw`http://127\.0\.0\.1:8810`));
 }
 
+function testChatStreamingStaysOpenWhenPageIsHidden() {
+  const source = readFileSync(new URL("./api.ts", import.meta.url), "utf8");
+
+  assert.match(source, /openWhenHidden:\s*true/);
+}
+
 testDefaultApiOriginUsesPublicBaseUrl();
 testDevDefaultApiUrlUsesSameOriginProxy();
 testViteDevServerProxiesV1ToLocalRippleServer();
+testChatStreamingStaysOpenWhenPageIsHidden();
 await testRenameEndpointNotFoundAsksForServerRestart();
 await testRenamePathNotFoundStaysFileSpecific();
 await testRenameConflictUsesFriendlyMessage();
 await testTaskSessionIdIsEncodedInPath();
+await testFetchTasksRejectsServerFailures();
+await testFetchTasksRejectsNetworkFailures();
+await testWorkspaceSearchDefaultsToNameScope();
 
 console.log("api tests passed");

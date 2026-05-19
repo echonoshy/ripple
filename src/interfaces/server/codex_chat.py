@@ -28,7 +28,6 @@ from ripple.agent_runners.manager import ExternalAgentJob, ExternalAgentManager
 from ripple.agent_runners.models import AgentRunnerResult, AgentRunnerStatus
 from ripple.agent_runners.service import start_agent_run
 from ripple.connectors.registry import list_connectors
-from ripple.messages.types import Message
 from ripple.messages.utils import create_assistant_message, create_user_message
 from ripple.skills.manifest import render_skill_manifest
 from ripple.users.quota import assert_can_create_run
@@ -38,46 +37,6 @@ from ripple.utils.logger import get_logger, session_context
 logger = get_logger("server.codex_chat")
 
 _HEARTBEAT_SECONDS = 8.0
-
-
-def _message_text(message: Message) -> str:
-    if message.type == "user":
-        content = message.message.get("content", [])
-    elif message.type == "assistant":
-        content = message.message.get("content", [])
-    else:
-        return ""
-
-    parts: list[str] = []
-    if isinstance(content, str):
-        return content
-    if not isinstance(content, list):
-        return ""
-    for block in content:
-        if not isinstance(block, dict):
-            continue
-        if block.get("type") == "text":
-            text = block.get("text", "")
-            if isinstance(text, str) and text.strip():
-                parts.append(text)
-        elif block.get("type") == "tool_result":
-            text = block.get("content", "")
-            if isinstance(text, str) and text.strip():
-                parts.append(f"[tool_result] {text}")
-    return "\n".join(parts).strip()
-
-
-def _conversation_transcript(messages: list[Message], *, max_messages: int = 20) -> str:
-    lines: list[str] = []
-    for message in messages[-max_messages:]:
-        if message.type not in {"user", "assistant"}:
-            continue
-        text = _message_text(message)
-        if not text:
-            continue
-        role = "User" if message.type == "user" else "Assistant"
-        lines.append(f"{role}: {text}")
-    return "\n\n".join(lines)
 
 
 def _connector_manifest(session: Session) -> str:
@@ -108,8 +67,6 @@ def build_codex_chat_prompt(
 ) -> str:
     """Build a single Codex turn prompt with Ripple control-plane context."""
 
-    transcript = _conversation_transcript(session.messages)
-    history_section = transcript if transcript else "(no previous turns in this Ripple session)"
     workspace_root = session.context.workspace_root if session.context else None
     attachments = attachment_items or []
     attachment_lines = [
@@ -144,8 +101,9 @@ def build_codex_chat_prompt(
         f"{render_skill_manifest(workspace_root)}\n\n"
         "## System Instructions\n"
         f"{system_prompt or '(none)'}\n\n"
-        "## Conversation So Far\n"
-        f"{history_section}\n\n"
+        "## Conversation State\n"
+        "- The Codex persistent thread is the authoritative execution context and conversation history. "
+        "Ripple may store display messages, but it does not replay prior turns into this prompt.\n\n"
         "## Attachments\n"
         f"{attachment_section}\n\n"
         "## Current User Request\n"
@@ -203,6 +161,12 @@ def _read_output(result: AgentRunnerResult | None) -> str:
     if result.output_file and result.output_file.exists():
         return result.output_file.read_text(encoding="utf-8")
     return result.stdout_tail or ""
+
+
+def _record_codex_thread(session: Session, result: AgentRunnerResult) -> None:
+    thread_id = result.metadata.get("codex_thread_id")
+    if isinstance(thread_id, str) and thread_id:
+        session.codex_thread_id = thread_id
 
 
 def _append_session_messages(
@@ -307,6 +271,8 @@ def _start_chat_run(
         manager=agent_manager,
         sandbox_config=sandbox_config,
         require_agent_route=False,
+        codex_thread_id=session.codex_thread_id,
+        codex_persistent_thread=True,
     )
 
 
@@ -801,6 +767,7 @@ async def collect_codex_chat_response(
                     error = result.error if result else "Codex run disappeared"
                     raise RuntimeError(error or "Codex run failed")
 
+                _record_codex_thread(session, result)
                 output_text = _read_output(result)
                 _append_session_messages(session, user_input, output_text, user_content=user_content)
                 _clear_session_plan(session)
@@ -972,6 +939,7 @@ async def stream_codex_chat_as_sse(
                 yield _chunk(chunk_id, model, created, {"content": output_text})
 
             async with session.lock:
+                _record_codex_thread(session, result)
                 _append_session_messages(session, user_input, output_text or emitted_text, user_content=user_content)
                 _clear_session_plan(session)
             if latest_usage["total_tokens"] > 0:

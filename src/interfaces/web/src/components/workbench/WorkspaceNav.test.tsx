@@ -18,22 +18,23 @@ const sessions: WorkbenchSessionSummary[] = Array.from({ length: 9 }, (_, index)
   pendingApprovalCount: 0,
 }));
 
-function renderWorkspaceNav() {
-  return renderToStaticMarkup(
-    <WorkspaceNav
-      sessions={sessions}
-      selectedSessionId="srv-9"
-      activeView="sessions"
-      isLoading={false}
-      isGenerating={false}
-      userId="default"
-      onNewSession={noop}
-      onSelectView={noop}
-      onSelectSession={noop}
-      onDeleteSession={noop}
-      onOpenSettings={noop}
-    />
-  );
+function renderWorkspaceNav(overrides: Partial<React.ComponentProps<typeof WorkspaceNav>> = {}) {
+  const props = {
+    sessions,
+    selectedSessionId: "srv-9",
+    activeView: "sessions" as const,
+    isLoading: false,
+    isGenerating: false,
+    userId: "default",
+    onNewSession: noop,
+    onSelectView: noop,
+    onSelectSession: noop,
+    onDeleteSession: noop,
+    onOpenSettings: noop,
+    ...overrides,
+  } as React.ComponentProps<typeof WorkspaceNav> & { sessionLoadError?: string | null };
+
+  return renderToStaticMarkup(<WorkspaceNav {...props} />);
 }
 
 function testRendersAllSessionsWithoutDeadViewAllButton() {
@@ -60,8 +61,20 @@ function testSessionsHeaderDoesNotDuplicateNewSessionAction() {
   assert.equal((html.match(/lucide-plus/g) || []).length, 1);
 }
 
+function testSessionLoadErrorDoesNotLookLikeEmptyState() {
+  const html = renderWorkspaceNav({
+    sessions: [],
+    selectedSessionId: null,
+    sessionLoadError: "无法加载历史 session",
+  } as Partial<React.ComponentProps<typeof WorkspaceNav>>);
+
+  assert.match(html, /无法加载历史 session/);
+  assert.doesNotMatch(html, /No sessions yet/);
+}
+
 testRendersAllSessionsWithoutDeadViewAllButton();
 testUsesSessionIdSelectionNaming();
 testSessionsHeaderDoesNotDuplicateNewSessionAction();
+testSessionLoadErrorDoesNotLookLikeEmptyState();
 
 console.log("workspace nav tests passed");

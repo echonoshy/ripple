@@ -4,6 +4,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import WorkspaceExplorer, {
+  displayError,
   getBoundedSplitPercent,
   getSplitPercentAfterFileDoubleClick,
 } from "./WorkspaceExplorer";
@@ -114,5 +115,24 @@ function testPreviewModeButtonIsRemoved() {
 }
 
 testPreviewModeButtonIsRemoved();
+
+function testWorkspaceNetworkErrorIsActionable() {
+  assert.equal(
+    displayError("Failed to fetch"),
+    "无法连接到 Ripple 服务。请确认后端服务正在运行，或检查 /v1 代理配置。"
+  );
+}
+
+testWorkspaceNetworkErrorIsActionable();
+
+function testWorkspaceSearchDefaultsToNameAndShowsMatchSource() {
+  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /useState<NonNullable<WorkspaceSearchOptions\["scope"\]>>\(\s*"name"\s*\)/);
+  assert.match(source, /placeholder="Find files by name\.\.\."/);
+  assert.match(source, /searchMatchLabel/);
+}
+
+testWorkspaceSearchDefaultsToNameAndShowsMatchSource();
 
 console.log("workspace explorer tests passed");

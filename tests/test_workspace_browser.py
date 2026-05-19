@@ -130,6 +130,38 @@ def test_search_workspace_files_matches_paths_and_skips_system_dirs(tmp_path: Pa
 
     assert [entry.path for entry in results.entries] == ["/workspace/src/components/TaskComposer.tsx"]
     assert results.query == "taskcomposer"
+    assert results.entries[0].match == "name"
+
+
+def test_search_workspace_files_defaults_to_name_scope(tmp_path: Path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "config.json").write_text("{}", encoding="utf-8")
+    (workspace / "AGENTS.md").write_text("mentions json in content", encoding="utf-8")
+
+    results = search_workspace_files(workspace, "json")
+
+    assert [entry.path for entry in results.entries] == ["/workspace/config.json"]
+    assert results.entries[0].match == "name"
+
+
+def test_search_workspace_files_ranks_name_path_and_content_matches(tmp_path: Path):
+    workspace = tmp_path / "workspace"
+    (workspace / "docs" / "json-guide").mkdir(parents=True)
+    (workspace / "src").mkdir()
+    (workspace / "config.json").write_text("{}", encoding="utf-8")
+    (workspace / "docs" / "json-guide" / "notes.md").write_text("notes", encoding="utf-8")
+    (workspace / "AGENTS.md").write_text("mentions json in content", encoding="utf-8")
+
+    results = search_workspace_files(workspace, "json", scope="all")
+
+    assert [entry.path for entry in results.entries] == [
+        "/workspace/config.json",
+        "/workspace/docs/json-guide",
+        "/workspace/docs/json-guide/notes.md",
+        "/workspace/AGENTS.md",
+    ]
+    assert [entry.match for entry in results.entries] == ["name", "name", "path", "content"]
 
 
 def test_search_workspace_files_supports_scope_type_and_hidden_filters(tmp_path: Path):

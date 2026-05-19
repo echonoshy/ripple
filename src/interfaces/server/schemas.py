@@ -226,6 +226,7 @@ class WorkspaceEntry(BaseModel):
     modified_at: str
     is_hidden: bool = False
     mime_type: str | None = None
+    match: Literal["name", "path", "content"] | None = None
 
 
 class WorkspaceListingResponse(BaseModel):

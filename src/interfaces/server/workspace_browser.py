@@ -129,7 +129,7 @@ def search_workspace_files(
     query: str,
     *,
     limit: int = DEFAULT_SEARCH_LIMIT,
-    scope: str = "all",
+    scope: str = "name",
     kind: str = "all",
     file_type: str = "all",
     include_hidden: bool = False,
@@ -137,7 +137,7 @@ def search_workspace_files(
 ) -> WorkspaceSearchResponse:
     normalized_query = query.strip().lower()
     capped_limit = max(1, min(limit, MAX_SEARCH_LIMIT))
-    normalized_scope = scope if scope in SEARCH_SCOPES else "all"
+    normalized_scope = scope if scope in SEARCH_SCOPES else "name"
     normalized_kind = kind if kind in SEARCH_KINDS else "all"
     normalized_file_type = file_type if file_type in SEARCH_FILE_TYPES else "all"
     capped_max_file_bytes = max(1, max_file_bytes)
@@ -147,7 +147,7 @@ def search_workspace_files(
     root = validate_path(SANDBOX_VIRTUAL_ROOT, workspace_root)
     matches: list[WorkspaceEntry] = []
     stack = [root]
-    while stack and len(matches) < capped_limit:
+    while stack:
         current = stack.pop()
         try:
             children = sorted(current.iterdir(), key=lambda path: (not path.is_dir(), path.name.lower()))
@@ -155,8 +155,6 @@ def search_workspace_files(
             continue
 
         for child in children:
-            if len(matches) >= capped_limit:
-                break
             if child.name in SEARCH_SKIP_DIRS:
                 continue
             if not include_hidden and _is_hidden_workspace_path(workspace_root, child):
@@ -166,16 +164,15 @@ def search_workspace_files(
             except PermissionError:
                 continue
             entry = _entry_for_path(workspace_root, child)
+            path_match = _path_match_type(entry, normalized_query) if normalized_scope != "content" else None
             if child.is_dir():
                 if (
                     normalized_kind != "file"
                     and normalized_file_type == "all"
                     and normalized_scope != "content"
-                    and _path_matches_query(entry, normalized_query)
+                    and path_match is not None
                 ):
-                    matches.append(entry)
-                    if len(matches) >= capped_limit:
-                        break
+                    matches.append(_entry_for_path(workspace_root, child, match=path_match))
                 if not child.is_symlink():
                     stack.append(child)
                 continue
@@ -186,16 +183,18 @@ def search_workspace_files(
             if not _file_type_matches(child, normalized_file_type):
                 continue
 
-            path_match = normalized_scope != "content" and _path_matches_query(entry, normalized_query)
             content_match = normalized_scope != "name" and _file_content_matches(
                 child,
                 normalized_query,
                 max_file_bytes=capped_max_file_bytes,
             )
-            if path_match or content_match:
-                matches.append(entry)
+            if path_match is not None:
+                matches.append(_entry_for_path(workspace_root, child, match=path_match))
+            elif content_match:
+                matches.append(_entry_for_path(workspace_root, child, match="content"))
 
-    matches.sort(key=lambda entry: entry.path.lower())
+    matches.sort(key=lambda entry: (_search_match_rank(entry.match), entry.path.lower()))
+    matches = matches[:capped_limit]
     return WorkspaceSearchResponse(query=query, count=len(matches), entries=matches)
 
 
@@ -369,8 +368,22 @@ def _is_hidden_workspace_path(workspace_root: Path, path: Path) -> bool:
     return any(part.startswith(".") for part in relative.parts)
 
 
-def _path_matches_query(entry: WorkspaceEntry, normalized_query: str) -> bool:
-    return normalized_query in f"{entry.name}\n{entry.path}".lower()
+def _path_match_type(entry: WorkspaceEntry, normalized_query: str) -> str | None:
+    if normalized_query in entry.name.lower():
+        return "name"
+    if normalized_query in entry.path.lower():
+        return "path"
+    return None
+
+
+def _search_match_rank(match: str | None) -> int:
+    if match == "name":
+        return 0
+    if match == "path":
+        return 1
+    if match == "content":
+        return 2
+    return 3
 
 
 def _file_type_matches(path: Path, file_type: str) -> bool:
@@ -402,7 +415,7 @@ def _file_content_matches(path: Path, normalized_query: str, *, max_file_bytes: 
     return normalized_query in raw.decode("utf-8", errors="replace").lower()
 
 
-def _entry_for_path(workspace_root: Path, path: Path) -> WorkspaceEntry:
+def _entry_for_path(workspace_root: Path, path: Path, *, match: str | None = None) -> WorkspaceEntry:
     stat = path.stat()
     kind = "directory" if path.is_dir() else "file"
     return WorkspaceEntry(
@@ -413,6 +426,7 @@ def _entry_for_path(workspace_root: Path, path: Path) -> WorkspaceEntry:
         modified_at=_format_mtime(stat.st_mtime),
         is_hidden=path.name.startswith("."),
         mime_type=None if kind == "directory" else mimetypes.guess_type(path.name)[0],
+        match=match,
     )
 
 

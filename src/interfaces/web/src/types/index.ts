@@ -111,6 +111,7 @@ export interface WorkspaceEntry {
   modified_at: string;
   is_hidden: boolean;
   mime_type?: string | null;
+  match?: "name" | "path" | "content" | null;
 }
 
 export interface WorkspaceListing {

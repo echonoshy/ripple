@@ -29,6 +29,7 @@ import {
   WorkspaceUploadConflictError,
   type WorkspaceSearchOptions,
 } from "@/lib/api";
+import { readableApiErrorMessage } from "@/lib/apiErrors";
 import { WorkspaceEntry, WorkspaceFilePreview, WorkspaceListing } from "@/types";
 
 interface WorkspaceExplorerProps {
@@ -82,6 +83,33 @@ function formatModified(value: string): string {
   });
 }
 
+function searchMatchLabel(match: WorkspaceEntry["match"]): string | null {
+  if (match === "name") return "Name";
+  if (match === "path") return "Path";
+  if (match === "content") return "Content";
+  return null;
+}
+
+function SearchResultMeta({ entry }: { entry: WorkspaceEntry }) {
+  const label = searchMatchLabel(entry.match);
+  return (
+    <span className="mt-0.5 flex min-w-0 items-center gap-1 font-[family-name:var(--font-mono)] text-[10px] text-[#6b7280]">
+      <span className="truncate">{entry.path}</span>
+      {label && (
+        <span className="shrink-0 rounded border border-[#d0d7de] bg-[#f6f8fa] px-1 py-0.5 text-[9px] font-semibold text-[#57606a] uppercase">
+          {label}
+        </span>
+      )}
+    </span>
+  );
+}
+
+function searchModeLabel(scope: WorkspaceSearchOptions["scope"]): string {
+  if (scope === "content") return "Find content in /workspace";
+  if (scope === "all") return "Find names + content in /workspace";
+  return "Find names in /workspace";
+}
+
 export function displayError(error: string): string {
   if (
     error.includes("Failed to rename entry (404)") ||
@@ -92,7 +120,7 @@ export function displayError(error: string): string {
   if (error.includes("(404)")) return "Workspace is not ready for this user.";
   if (error.includes("(415)")) return "This file cannot be previewed as text.";
   if (error.includes("(403)")) return "Access denied for this path.";
-  return error;
+  return readableApiErrorMessage(error);
 }
 
 export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExplorerProps) {
@@ -110,7 +138,7 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
   const [searchError, setSearchError] = useState<string | null>(null);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [searchScope, setSearchScope] =
-    useState<NonNullable<WorkspaceSearchOptions["scope"]>>("all");
+    useState<NonNullable<WorkspaceSearchOptions["scope"]>>("name");
   const [searchKind, setSearchKind] = useState<NonNullable<WorkspaceSearchOptions["kind"]>>("all");
   const [fileType, setFileType] = useState<NonNullable<WorkspaceSearchOptions["fileType"]>>("all");
   const [includeHidden, setIncludeHidden] = useState(false);
@@ -525,7 +553,7 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
             <input
               value={query}
               onChange={(event) => handleQueryChange(event.target.value)}
-              placeholder="Find in workspace..."
+              placeholder="Find files by name..."
               className="h-8 w-full rounded-md border border-[#e5e7eb] bg-white pr-2 pl-8 text-sm text-[#0d0d0d] outline-none placeholder:text-[#8b8f94] focus:border-[#2463eb]"
             />
           </div>
@@ -564,8 +592,8 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
                 }
                 className="h-7 min-w-0 flex-1 rounded border border-[#d7dce3] bg-white px-2 text-xs"
               >
+                <option value="name">Name/path (default)</option>
                 <option value="all">Name and content</option>
-                <option value="name">Name/path</option>
                 <option value="content">Content</option>
               </select>
             </label>
@@ -622,7 +650,7 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
         )}
         <div className="flex items-center justify-between gap-2">
           <p className="min-w-0 truncate font-[family-name:var(--font-mono)] text-[11px] text-[#6b7280]">
-            {isSearchMode ? "Search in /workspace" : listing?.path || currentPath}
+            {isSearchMode ? searchModeLabel(searchScope) : listing?.path || currentPath}
           </p>
           <button
             type="button"
@@ -732,15 +760,17 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
                           spellCheck={false}
                           className="h-7 w-full rounded-md border border-[#2463eb] bg-white px-2 font-[family-name:var(--font-mono)] text-[13px] font-medium text-[#0d0d0d] outline-none"
                         />
-                        <span className="mt-0.5 block truncate font-[family-name:var(--font-mono)] text-[10px] text-[#6b7280]">
-                          {isSearchMode
-                            ? entry.path
-                            : `${entry.kind === "directory" ? "folder" : formatBytes(entry.size_bytes)}${
-                                formatModified(entry.modified_at)
-                                  ? ` · ${formatModified(entry.modified_at)}`
-                                  : ""
-                              }`}
-                        </span>
+                        {isSearchMode ? (
+                          <SearchResultMeta entry={entry} />
+                        ) : (
+                          <span className="mt-0.5 block truncate font-[family-name:var(--font-mono)] text-[10px] text-[#6b7280]">
+                            {`${entry.kind === "directory" ? "folder" : formatBytes(entry.size_bytes)}${
+                              formatModified(entry.modified_at)
+                                ? ` · ${formatModified(entry.modified_at)}`
+                                : ""
+                            }`}
+                          </span>
+                        )}
                       </span>
                       {renameSaving && <Loader2 size={13} className="shrink-0 animate-spin" />}
                     </form>
@@ -782,15 +812,17 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
                           >
                             {entry.name}
                           </span>
-                          <span className="mt-0.5 block truncate font-[family-name:var(--font-mono)] text-[10px] text-[#6b7280]">
-                            {isSearchMode
-                              ? entry.path
-                              : `${entry.kind === "directory" ? "folder" : formatBytes(entry.size_bytes)}${
-                                  formatModified(entry.modified_at)
-                                    ? ` · ${formatModified(entry.modified_at)}`
-                                    : ""
-                                }`}
-                          </span>
+                          {isSearchMode ? (
+                            <SearchResultMeta entry={entry} />
+                          ) : (
+                            <span className="mt-0.5 block truncate font-[family-name:var(--font-mono)] text-[10px] text-[#6b7280]">
+                              {`${entry.kind === "directory" ? "folder" : formatBytes(entry.size_bytes)}${
+                                formatModified(entry.modified_at)
+                                  ? ` · ${formatModified(entry.modified_at)}`
+                                  : ""
+                              }`}
+                            </span>
+                          )}
                         </span>
                       </button>
                       <button

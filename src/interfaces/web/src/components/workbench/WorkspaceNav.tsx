@@ -3,35 +3,35 @@
 import React from "react";
 import { Loader2, Plus, Settings, Trash2 } from "lucide-react";
 import RippleIcon from "@/components/icons/RippleIcon";
-import type { WorkbenchTaskSummary } from "@/types";
+import type { WorkbenchSessionSummary } from "@/types";
 import { mainNavItems, type WorkspaceView } from "@/lib/workspaceViews";
 import StatusChip from "./StatusChip";
 
 interface WorkspaceNavProps {
-  tasks: WorkbenchTaskSummary[];
-  selectedTaskId: string | null;
+  sessions: WorkbenchSessionSummary[];
+  selectedSessionId: string | null;
   activeView: WorkspaceView;
   isLoading: boolean;
   isGenerating: boolean;
   userId: string;
-  onNewTask: () => void;
+  onNewSession: () => void;
   onSelectView: (view: WorkspaceView) => void;
-  onSelectTask: (id: string) => void;
-  onDeleteTask: (id: string, event: React.MouseEvent) => void;
+  onSelectSession: (sessionId: string) => void;
+  onDeleteSession: (sessionId: string, event: React.MouseEvent) => void;
   onOpenSettings: () => void;
 }
 
 export default function WorkspaceNav({
-  tasks,
-  selectedTaskId,
+  sessions,
+  selectedSessionId,
   activeView,
   isLoading,
   isGenerating,
   userId,
-  onNewTask,
+  onNewSession,
   onSelectView,
-  onSelectTask,
-  onDeleteTask,
+  onSelectSession,
+  onDeleteSession,
   onOpenSettings,
 }: WorkspaceNavProps) {
   return (
@@ -55,16 +55,13 @@ export default function WorkspaceNav({
 
         <button
           type="button"
-          onClick={onNewTask}
+          onClick={onNewSession}
           disabled={isGenerating}
           className="flex h-9 w-full items-center justify-between gap-2 rounded-lg bg-[#2463eb] px-3 text-sm font-semibold text-white shadow-[0_8px_24px_rgba(36,99,235,0.18)] hover:bg-[#1d56d8] disabled:cursor-not-allowed disabled:bg-[#e5e7eb] disabled:text-[#8b8f94] disabled:shadow-none"
         >
           <span className="inline-flex items-center gap-2">
             <Plus size={15} />
-            New Task
-          </span>
-          <span className="hidden rounded bg-white/15 px-1.5 py-0.5 font-[family-name:var(--font-mono)] text-[11px] font-semibold sm:inline">
-            ⌘K
+            New Session
           </span>
         </button>
       </div>
@@ -103,7 +100,7 @@ export default function WorkspaceNav({
         <div className="mt-10">
           <div className="mb-2 flex items-center justify-between px-2">
             <span className="text-[11px] font-medium tracking-wide text-[#6b7280] uppercase">
-              Tasks
+              Sessions
             </span>
             {isLoading ? (
               <Loader2 size={13} className="animate-spin text-[#6b7280]" />
@@ -112,17 +109,17 @@ export default function WorkspaceNav({
             )}
           </div>
 
-          {tasks.length === 0 && !isLoading ? (
+          {sessions.length === 0 && !isLoading ? (
             <div className="rounded-lg border border-dashed border-[#e5e7eb] bg-white px-3 py-5 text-center text-sm text-[#6b7280]">
-              No tasks yet
+              No sessions yet
             </div>
           ) : (
             <div className="space-y-1">
-              {tasks.slice(0, 8).map((task) => {
-                const selected = task.id === selectedTaskId;
+              {sessions.map((session) => {
+                const selected = session.sessionId === selectedSessionId;
                 return (
                   <div
-                    key={task.id}
+                    key={session.sessionId}
                     className={`group flex items-center gap-2 rounded-lg px-2.5 py-1.5 transition-colors ${
                       selected
                         ? "bg-[#eef4ff] text-[#0b57d0]"
@@ -132,19 +129,19 @@ export default function WorkspaceNav({
                     <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-current opacity-70" />
                     <button
                       type="button"
-                      onClick={() => onSelectTask(task.id)}
+                      onClick={() => onSelectSession(session.sessionId)}
                       className="min-w-0 flex-1 truncate py-0.5 text-left text-sm font-medium"
                     >
-                      {task.title}
+                      {session.title}
                     </button>
                     <span className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100">
-                      <StatusChip status={task.status} compact />
+                      <StatusChip status={session.status} compact />
                     </span>
                     <button
                       type="button"
-                      onClick={(event) => onDeleteTask(task.id, event)}
+                      onClick={(event) => onDeleteSession(session.sessionId, event)}
                       className="hidden h-6 w-6 shrink-0 items-center justify-center rounded border border-transparent text-[#8b8f94] group-hover:flex hover:border-[#e5e7eb] hover:bg-white hover:text-[#cf222e]"
-                      title="Delete task"
+                      title="Delete session"
                     >
                       <Trash2 size={13} />
                     </button>
@@ -152,14 +149,6 @@ export default function WorkspaceNav({
                 );
               })}
             </div>
-          )}
-          {tasks.length > 8 && (
-            <button
-              type="button"
-              className="mt-3 px-2 text-xs font-medium text-[#6b7280] hover:text-[#0d0d0d]"
-            >
-              View all tasks
-            </button>
           )}
         </div>
       </div>

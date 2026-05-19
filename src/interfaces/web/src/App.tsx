@@ -42,11 +42,11 @@ import { bumpInputFocusToken } from "@/lib/inputFocus";
 import {
   clearStoredCurrentSessionId,
   getStoredCurrentSessionId,
-  pickRestorableSessionId,
+  pickInitialSessionId,
   setStoredCurrentSessionId,
 } from "@/lib/sessionPersistence";
 import {
-  createWorkbenchTasksFromTaskSummaries,
+  createWorkbenchSessionsFromTaskSummaries,
   extractChangedFilePaths,
   messagesToTimelineEvents,
 } from "@/lib/workbench";
@@ -60,14 +60,14 @@ export default function Home() {
   const [authErrorMsg, setAuthErrorMsg] = useState("");
   const [keyInput, setKeyInput] = useState("");
 
-  // ── Task & chat state ──
+  // ── Session & chat state ──
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [pendingFiles, setPendingFiles] = useState<ChatFileRef[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [taskSummaries, setTaskSummaries] = useState<TaskSummary[]>([]);
-  const [isLoadingTasks, setIsLoadingTasks] = useState(false);
+  const [sessionSummaries, setSessionSummaries] = useState<TaskSummary[]>([]);
+  const [isLoadingSessions, setIsLoadingSessions] = useState(false);
 
   // ── Model state ──
   const [models, setModels] = useState<{ id: string; owned_by: string }[]>([]);
@@ -83,7 +83,7 @@ export default function Home() {
   const [inputFocusToken, setInputFocusToken] = useState(0);
   const [sessionIdCopied, setSessionIdCopied] = useState(false);
   const [workspaceRefreshToken, setWorkspaceRefreshToken] = useState(0);
-  const [activeView, setActiveView] = useState<WorkspaceView>("tasks");
+  const [activeView, setActiveView] = useState<WorkspaceView>("sessions");
 
   // ── Token tracking ──
   const [tokenUsage, setTokenUsage] = useState<UsageInfo>({
@@ -93,55 +93,27 @@ export default function Home() {
   });
   const [lastContextTokens, setLastContextTokens] = useState(0);
 
-  // ── Task tracking ──
+  // ── Plan tracking ──
   const [taskSteps, setTaskSteps] = useState<TaskInfo[]>([]);
   const [taskProgress, setTaskProgress] = useState<TaskProgress | null>(null);
 
   const activeRequestIdRef = useRef(0);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // ── Load tasks ──
-  const loadTasks = useCallback(async (): Promise<TaskSummary[]> => {
+  // ── Load sessions ──
+  const loadSessions = useCallback(async (): Promise<TaskSummary[]> => {
     if (authState !== "authenticated") return [];
     try {
-      setIsLoadingTasks(true);
-      const loadedTasks = await fetchTasks();
-      setTaskSummaries(loadedTasks);
-      return loadedTasks;
+      setIsLoadingSessions(true);
+      const loadedSessions = await fetchTasks();
+      setSessionSummaries(loadedSessions);
+      return loadedSessions;
     } catch {
       return [];
     } finally {
-      setIsLoadingTasks(false);
+      setIsLoadingSessions(false);
     }
   }, [authState]);
-
-  const handleUserIdChange = useCallback(
-    async (newUid: string) => {
-      try {
-        setUserId(newUid);
-      } catch {
-        return;
-      }
-      setUserIdState(newUid);
-      abortControllerRef.current?.abort();
-      activeRequestIdRef.current += 1;
-      setSessionId(null);
-      setMessages([]);
-      setPendingFiles([]);
-      setTaskSummaries([]);
-      setTaskSteps([]);
-      setTaskProgress(null);
-      setTokenUsage({ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
-      setLastContextTokens(0);
-      setIsGenerating(false);
-      clearStoredCurrentSessionId();
-      if (authState === "authenticated") {
-        const loaded = await loadTasks();
-        console.info(`[ripple] switched to user "${newUid}", loaded ${loaded.length} tasks`);
-      }
-    },
-    [authState, loadTasks]
-  );
 
   const applyTaskDetails = useCallback((details: TaskDetail) => {
     setSessionId(details.session_id);
@@ -153,23 +125,13 @@ export default function Home() {
     setTaskSteps(details.task_steps || []);
     setTaskProgress(details.task_progress || null);
     setStoredCurrentSessionId(undefined, details.session_id);
+    setWorkspaceRefreshToken((prev) => prev + 1);
   }, []);
 
   const restoreStoredSession = useCallback(
-    async (availableTasks: TaskSummary[]) => {
+    async (availableSessions: TaskSummary[]) => {
       const storedSessionId = getStoredCurrentSessionId();
-      const restorableSessionId = pickRestorableSessionId(
-        storedSessionId,
-        availableTasks.map((task) => ({
-          session_id: task.session_id,
-          title: task.title,
-          model: task.model,
-          created_at: task.created_at,
-          last_active: task.last_active,
-          message_count: task.message_count,
-          status: task.status,
-        }))
-      );
+      const restorableSessionId = pickInitialSessionId(storedSessionId, availableSessions);
 
       if (!restorableSessionId) {
         clearStoredCurrentSessionId();
@@ -187,6 +149,37 @@ export default function Home() {
     [applyTaskDetails]
   );
 
+  const handleUserIdChange = useCallback(
+    async (newUid: string) => {
+      try {
+        setUserId(newUid);
+      } catch {
+        return;
+      }
+      setUserIdState(newUid);
+      abortControllerRef.current?.abort();
+      activeRequestIdRef.current += 1;
+      setSessionId(null);
+      setMessages([]);
+      setPendingFiles([]);
+      setSessionSummaries([]);
+      setTaskSteps([]);
+      setTaskProgress(null);
+      setTokenUsage({ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
+      setLastContextTokens(0);
+      setIsGenerating(false);
+      clearStoredCurrentSessionId();
+      if (authState === "authenticated") {
+        const loaded = await loadSessions();
+        console.info(`[ripple] switched to user "${newUid}", loaded ${loaded.length} sessions`);
+        if (loaded.length > 0) {
+          await restoreStoredSession(loaded);
+        }
+      }
+    },
+    [authState, loadSessions, restoreStoredSession]
+  );
+
   // ── Init on auth ──
   useEffect(() => {
     if (authState !== "authenticated") return;
@@ -197,9 +190,9 @@ export default function Home() {
         if (fetched.length > 0) {
           setSelectedModel(fetched.find((m) => m.id === "codex-medium")?.id || fetched[0].id);
         }
-        const loadedTasks = await loadTasks();
-        if (loadedTasks.length > 0) {
-          await restoreStoredSession(loadedTasks);
+        const loadedSessions = await loadSessions();
+        if (loadedSessions.length > 0) {
+          await restoreStoredSession(loadedSessions);
         }
       } catch (err) {
         if (err instanceof AuthError) {
@@ -210,7 +203,7 @@ export default function Home() {
         }
       }
     })();
-  }, [authState, loadTasks, restoreStoredSession]);
+  }, [authState, loadSessions, restoreStoredSession]);
 
   // ── Auth submit ──
   const handleAuthSubmit = (e: React.FormEvent) => {
@@ -222,22 +215,22 @@ export default function Home() {
     setAuthState("authenticated");
   };
 
-  // ── Task switch ──
-  const handleSwitchTask = async (id: string) => {
-    if (id === sessionId || isGenerating) return;
+  // ── Session switch ──
+  const handleSwitchSession = async (targetSessionId: string) => {
+    if (targetSessionId === sessionId || isGenerating) return;
     try {
-      const details = await fetchTaskDetails(id);
+      const details = await fetchTaskDetails(targetSessionId);
       if (!details) return;
       applyTaskDetails(details);
-      setActiveView("tasks");
+      setActiveView("sessions");
       setIsSidebarOpen(false);
     } catch (err) {
-      console.error("Error switching task:", err);
+      console.error("Error switching session:", err);
     }
   };
 
-  // ── New task ──
-  const handleNewTask = async () => {
+  // ── New session ──
+  const handleNewSession = async () => {
     if (isGenerating) return;
     setMessages([]);
     setPendingFiles([]);
@@ -249,8 +242,8 @@ export default function Home() {
       const task = await createTask();
       setSessionId(task.session_id);
       setStoredCurrentSessionId(undefined, task.session_id);
-      setActiveView("tasks");
-      await loadTasks();
+      setActiveView("sessions");
+      await loadSessions();
     } catch (err) {
       if (err instanceof AuthError) {
         clearApiKey();
@@ -261,16 +254,18 @@ export default function Home() {
     }
   };
 
-  // ── Delete task ──
-  const handleDeleteTask = async (id: string, e: React.MouseEvent) => {
+  // ── Delete session ──
+  const handleDeleteSession = async (targetSessionId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (isGenerating) return;
-    if (await deleteTask(id)) {
-      setTaskSummaries((prev) => prev.filter((task) => task.task_id !== id));
-      if (getStoredCurrentSessionId() === id) {
+    if (await deleteTask(targetSessionId)) {
+      setSessionSummaries((prev) =>
+        prev.filter((session) => session.session_id !== targetSessionId)
+      );
+      if (getStoredCurrentSessionId() === targetSessionId) {
         clearStoredCurrentSessionId();
       }
-      if (id === sessionId) {
+      if (targetSessionId === sessionId) {
         setSessionId(null);
         setMessages([]);
         setPendingFiles([]);
@@ -307,11 +302,11 @@ export default function Home() {
     try {
       if (sessionId) {
         const ok = await clearTaskContext(sessionId);
-        if (!ok) throw new Error("Failed to clear task context");
+        if (!ok) throw new Error("Failed to clear session context");
       }
       resetCurrentContextView();
       setInputFocusToken((prev) => bumpInputFocusToken(prev));
-      await loadTasks();
+      await loadSessions();
     } catch (err) {
       if (err instanceof AuthError) {
         clearApiKey();
@@ -322,7 +317,7 @@ export default function Home() {
       }
       console.error("Clear context error:", err);
     }
-  }, [isGenerating, loadTasks, resetCurrentContextView, sessionId]);
+  }, [isGenerating, loadSessions, resetCurrentContextView, sessionId]);
 
   const handleAttachFiles = useCallback(
     async (files: File[]) => {
@@ -612,7 +607,7 @@ export default function Home() {
             setTaskSteps(nextPlan.taskSteps);
             setTaskProgress(nextPlan.taskProgress);
             setInputFocusToken((prev) => bumpInputFocusToken(prev));
-            loadTasks();
+            loadSessions();
             setWorkspaceRefreshToken((prev) => prev + 1);
           },
           onError: (err) => {
@@ -643,7 +638,7 @@ export default function Home() {
         { signal: abortController.signal, files: filesForSend }
       );
     },
-    [handleClearContext, input, isGenerating, loadTasks, pendingFiles, selectedModel, sessionId]
+    [handleClearContext, input, isGenerating, loadSessions, pendingFiles, selectedModel, sessionId]
   );
 
   const handleQuickReply = useCallback(
@@ -681,7 +676,7 @@ export default function Home() {
           action === "deny"
             ? "Denied."
             : action === "always"
-              ? "Approved for this task. Please proceed."
+              ? "Approved for this session. Please proceed."
               : "Approved. Please proceed.";
         setInput(text);
         await handleSendMessage(text);
@@ -700,18 +695,18 @@ export default function Home() {
     [handleSendMessage, isGenerating, sessionId]
   );
 
-  const workbenchTasks = useMemo(
-    () => createWorkbenchTasksFromTaskSummaries(taskSummaries),
-    [taskSummaries]
+  const workbenchSessions = useMemo(
+    () => createWorkbenchSessionsFromTaskSummaries(sessionSummaries),
+    [sessionSummaries]
   );
-  const selectedExistingTask = sessionId
-    ? workbenchTasks.find((task) => task.id === sessionId) || null
+  const selectedExistingSession = sessionId
+    ? workbenchSessions.find((session) => session.sessionId === sessionId) || null
     : null;
-  const inferredCurrentTask =
-    sessionId && !selectedExistingTask
+  const inferredCurrentSession =
+    sessionId && !selectedExistingSession
       ? {
-          id: sessionId,
-          title: "Current Codex task",
+          sessionId,
+          title: "Current Codex session",
           status: isGenerating ? ("running" as const) : ("idle" as const),
           model: selectedModel,
           lastActivityAt: new Date().toISOString(),
@@ -720,11 +715,12 @@ export default function Home() {
           pendingApprovalCount: 0,
         }
       : null;
-  const selectedWorkbenchTask = selectedExistingTask || inferredCurrentTask;
-  const displayWorkbenchTasks =
-    inferredCurrentTask && !workbenchTasks.some((task) => task.id === inferredCurrentTask.id)
-      ? [inferredCurrentTask, ...workbenchTasks]
-      : workbenchTasks;
+  const selectedWorkbenchSession = selectedExistingSession || inferredCurrentSession;
+  const displayWorkbenchSessions =
+    inferredCurrentSession &&
+    !workbenchSessions.some((session) => session.sessionId === inferredCurrentSession.sessionId)
+      ? [inferredCurrentSession, ...workbenchSessions]
+      : workbenchSessions;
   const timelineEvents = useMemo(() => messagesToTimelineEvents(messages), [messages]);
   const pendingPermission =
     [...messages].reverse().find((message) => message.permissionRequest)?.permissionRequest || null;
@@ -733,10 +729,10 @@ export default function Home() {
     activeView === "home" ? (
       <HomePage
         userId={userId}
-        tasks={displayWorkbenchTasks}
-        isLoadingTasks={isLoadingTasks}
-        onNewTask={handleNewTask}
-        onSelectTask={(id) => void handleSwitchTask(id)}
+        sessions={displayWorkbenchSessions}
+        isLoadingSessions={isLoadingSessions}
+        onNewSession={handleNewSession}
+        onSelectSession={(selectedSessionId) => void handleSwitchSession(selectedSessionId)}
         onSelectView={handleSelectView}
       />
     ) : activeView === "files" ? (
@@ -745,7 +741,7 @@ export default function Home() {
       <ConnectorsPage />
     ) : (
       <TaskPage
-        task={selectedWorkbenchTask}
+        session={selectedWorkbenchSession}
         messages={messages}
         timelineEvents={timelineEvents}
         taskProgress={taskProgress}
@@ -849,19 +845,19 @@ export default function Home() {
         onCloseNav={() => setIsSidebarOpen(false)}
         nav={
           <WorkspaceNav
-            tasks={displayWorkbenchTasks}
-            selectedTaskId={sessionId}
+            sessions={displayWorkbenchSessions}
+            selectedSessionId={sessionId}
             activeView={activeView}
-            isLoading={isLoadingTasks}
+            isLoading={isLoadingSessions}
             isGenerating={isGenerating}
             userId={userId}
-            onNewTask={handleNewTask}
+            onNewSession={handleNewSession}
             onSelectView={handleSelectView}
-            onSelectTask={(id) => {
-              void handleSwitchTask(id);
+            onSelectSession={(selectedSessionId) => {
+              void handleSwitchSession(selectedSessionId);
               setIsSidebarOpen(false);
             }}
-            onDeleteTask={handleDeleteTask}
+            onDeleteSession={handleDeleteSession}
             onOpenSettings={() => setIsSettingsOpen(true)}
           />
         }

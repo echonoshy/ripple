@@ -155,7 +155,7 @@ function FeishuCard({
     ? "该 session 尚未配置飞书应用。点击下方按钮在浏览器中完成创建。"
     : "AI Agent 请求访问你的飞书数据。点击下方按钮完成授权。";
   const Icon = isSetup ? Settings2 : KeyRound;
-  const accentClass = isSetup ? "bg-ripple-cyan/35" : "bg-ripple-lime/45";
+  const accentClass = isSetup ? "bg-[#ddf4ff] text-[#0969da]" : "bg-[#dafbe1] text-[#1a7f37]";
   const [isCompleting, setIsCompleting] = useState(false);
   const [completeDetail, setCompleteDetail] = useState<string | null>(null);
 
@@ -174,20 +174,18 @@ function FeishuCard({
   };
 
   return (
-    <div className="border-ripple-ink my-2 overflow-hidden border-2 bg-white shadow-[3px_3px_0_#111111]">
-      <div
-        className={`border-ripple-ink flex items-center gap-2 border-b-2 px-4 py-3 ${accentClass}`}
-      >
-        <Icon size={16} className="text-ripple-ink" />
-        <span className="text-ripple-ink text-sm font-bold">{title}</span>
+    <div className="my-2 overflow-hidden rounded-lg border border-[#e5e7eb] bg-white">
+      <div className={`flex items-center gap-2 border-b border-[#e5e7eb] px-4 py-3 ${accentClass}`}>
+        <Icon size={16} />
+        <span className="text-sm font-semibold">{title}</span>
       </div>
       <div className="space-y-3 px-4 py-3">
-        <p className="text-ripple-ink/65 text-sm font-medium">{subtitle}</p>
+        <p className="text-sm font-medium text-[#374151]">{subtitle}</p>
         <a
           href={url}
           target="_blank"
           rel="noopener noreferrer"
-          className="btn-ghost inline-flex items-center gap-1.5 px-3 py-2 text-sm"
+          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[#0969da]/25 bg-[#ddf4ff] px-3 text-sm font-medium text-[#0969da] hover:bg-[#cbeeff]"
         >
           {isSetup ? "打开配置链接" : "打开授权链接"}
           <ExternalLink size={13} />
@@ -197,7 +195,7 @@ function FeishuCard({
             type="button"
             onClick={() => void completeAuth()}
             disabled={isCompleting}
-            className="btn-ghost inline-flex items-center gap-1.5 px-3 py-2 text-sm"
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[#1a7f37]/30 bg-[#dafbe1] px-3 text-sm font-semibold text-[#1a7f37] hover:bg-[#c7f7d1] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isCompleting ? (
               <Loader2 size={13} className="animate-spin" />
@@ -207,10 +205,8 @@ function FeishuCard({
             授权完成
           </button>
         )}
-        {completeDetail && (
-          <p className="text-ripple-ink/65 text-xs font-medium">{completeDetail}</p>
-        )}
-        <div className="text-ripple-ink/50 font-[family-name:var(--font-mono)] text-[11px] break-all">
+        {completeDetail && <p className="text-xs font-medium text-[#6b7280]">{completeDetail}</p>}
+        <div className="font-[family-name:var(--font-mono)] text-[11px] break-all text-[#6b7280]">
           {url}
         </div>
       </div>
@@ -222,19 +218,19 @@ function ThinkingBlock({ content }: { content: string }) {
   const [isExpanded, setIsExpanded] = useState(false);
 
   return (
-    <div className="border-ripple-ink bg-ripple-lavender/35 my-2 overflow-hidden border-2 shadow-[3px_3px_0_#111111]">
+    <div className="my-2 overflow-hidden rounded-lg border border-[#d7dce3] bg-[#f7f8fa]">
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className="hover:bg-ripple-lavender/60 flex w-full items-center gap-2 px-4 py-2.5 text-left transition-colors"
+        className="flex w-full items-center gap-2 px-4 py-2.5 text-left transition-colors hover:bg-[#eef4ff]"
       >
-        <Brain size={14} className="text-ripple-ink shrink-0" />
-        <span className="text-ripple-ink text-xs font-bold">Thought Process</span>
+        <Brain size={14} className="shrink-0 text-[#2463eb]" />
+        <span className="text-xs font-semibold text-[#374151]">Thought Process</span>
         <motion.div
           animate={{ rotate: isExpanded ? 90 : 0 }}
           transition={{ duration: 0.1 }}
           className="ml-auto"
         >
-          <ChevronRight size={14} className="text-ripple-ink/50" />
+          <ChevronRight size={14} className="text-[#6b7280]" />
         </motion.div>
       </button>
       <AnimatePresence>
@@ -246,8 +242,8 @@ function ThinkingBlock({ content }: { content: string }) {
             transition={{ duration: 0.15 }}
             className="overflow-hidden"
           >
-            <div className="border-ripple-ink border-t-2 px-4 pb-3">
-              <div className="markdown-body text-ripple-ink/65 mt-2 text-sm leading-relaxed">
+            <div className="border-t border-[#d7dce3] px-4 pb-3">
+              <div className="markdown-body mt-2 text-sm leading-relaxed text-[#374151]">
                 <MarkdownContent content={content} />
               </div>
             </div>
@@ -268,7 +264,7 @@ function MarkdownContent({ content }: { content: string }) {
       components={{
         pre({ children }) {
           return (
-            <pre className="not-prose border-ripple-ink bg-ripple-terminal my-4 max-w-full overflow-x-auto overflow-y-hidden border-2 p-4 font-[family-name:var(--font-mono)] text-[13px] [overflow-wrap:normal] whitespace-pre text-[#d7d7d7] shadow-[4px_4px_0_#ffd83d]">
+            <pre className="not-prose my-4 max-w-full overflow-x-auto overflow-y-hidden rounded-md border border-[#30363d] bg-[#0d1117] p-4 font-[family-name:var(--font-mono)] text-[13px] [overflow-wrap:normal] whitespace-pre text-[#c9d1d9]">
               {children}
             </pre>
           );
@@ -278,7 +274,7 @@ function MarkdownContent({ content }: { content: string }) {
           if (isInline) {
             return (
               <code
-                className="border-ripple-ink bg-ripple-yellow/50 text-ripple-ink border-2 px-1.5 py-0.5 font-[family-name:var(--font-mono)] text-[13px]"
+                className="rounded border border-[#dde2ea] bg-[#f7f8fa] px-1.5 py-0.5 font-[family-name:var(--font-mono)] text-[13px] text-[#171a1f]"
                 {...props}
               >
                 {children}
@@ -297,7 +293,7 @@ function MarkdownContent({ content }: { content: string }) {
               href={resolveBackendUrl(href)}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-ripple-pink hover:bg-ripple-pink font-bold break-words underline underline-offset-4 hover:text-white"
+              className="font-semibold break-words text-[#2463eb] underline underline-offset-4 hover:text-[#174ea6]"
             >
               {children}
             </a>
@@ -310,7 +306,7 @@ function MarkdownContent({ content }: { content: string }) {
               src={resolved}
               alt={alt ?? ""}
               loading="lazy"
-              className={`border-ripple-ink my-4 block max-h-[420px] max-w-full border-2 bg-white object-contain shadow-[4px_4px_0_#111111] ${className ?? ""}`}
+              className={`my-4 block max-h-[420px] max-w-full rounded-lg border border-[#dde2ea] bg-white object-contain ${className ?? ""}`}
               {...rest}
             />
           );
@@ -318,23 +314,19 @@ function MarkdownContent({ content }: { content: string }) {
         table({ children }) {
           return (
             <div className="my-4 max-w-full overflow-x-auto pb-1">
-              <table className="min-w-full border-collapse text-sm shadow-[4px_4px_0_#111111]">
-                {children}
-              </table>
+              <table className="min-w-full border-collapse text-sm">{children}</table>
             </div>
           );
         },
         th({ children }) {
           return (
-            <th className="border-ripple-ink bg-ripple-lavender text-ripple-ink border-2 px-3 py-2 text-left text-sm font-black">
+            <th className="border border-[#dde2ea] bg-[#f7f8fa] px-3 py-2 text-left text-sm font-semibold text-[#171a1f]">
               {children}
             </th>
           );
         },
         td({ children }) {
-          return (
-            <td className="border-ripple-ink text-ripple-ink border-2 px-3 py-2">{children}</td>
-          );
+          return <td className="border border-[#dde2ea] px-3 py-2 text-[#171a1f]">{children}</td>;
         },
       }}
     >

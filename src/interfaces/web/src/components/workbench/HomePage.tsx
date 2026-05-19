@@ -11,16 +11,16 @@ import {
   Plus,
 } from "lucide-react";
 import { fetchConnectorStatuses, fetchConnectors, fetchCurrentSandbox } from "@/lib/api";
-import type { ConnectorInfo, ConnectorStatus, SandboxInfo, WorkbenchTaskSummary } from "@/types";
+import type { ConnectorInfo, ConnectorStatus, SandboxInfo, WorkbenchSessionSummary } from "@/types";
 import type { WorkspaceView } from "@/lib/workspaceViews";
 import StatusChip from "./StatusChip";
 
 interface HomePageProps {
   userId: string;
-  tasks: WorkbenchTaskSummary[];
-  isLoadingTasks: boolean;
-  onNewTask: () => void;
-  onSelectTask: (id: string) => void;
+  sessions: WorkbenchSessionSummary[];
+  isLoadingSessions: boolean;
+  onNewSession: () => void;
+  onSelectSession: (sessionId: string) => void;
   onSelectView: (view: WorkspaceView) => void;
 }
 
@@ -40,10 +40,10 @@ function connectedCount(
 
 export default function HomePage({
   userId,
-  tasks,
-  isLoadingTasks,
-  onNewTask,
-  onSelectTask,
+  sessions,
+  isLoadingSessions,
+  onNewSession,
+  onSelectSession,
   onSelectView,
 }: HomePageProps) {
   const [sandbox, setSandbox] = useState<SandboxInfo | null>(null);
@@ -76,7 +76,7 @@ export default function HomePage({
     });
   }, [loadSummary, userId]);
 
-  const recentTasks = useMemo(() => tasks.slice(0, 5), [tasks]);
+  const recentSessions = useMemo(() => sessions.slice(0, 5), [sessions]);
   const connected = connectedCount(connectors, connectorStatuses);
 
   return (
@@ -94,28 +94,28 @@ export default function HomePage({
           </div>
           <button
             type="button"
-            onClick={onNewTask}
+            onClick={onNewSession}
             className="inline-flex h-9 items-center gap-2 rounded-md bg-[#2463eb] px-3 text-sm font-semibold text-white hover:bg-[#1d56d8]"
           >
             <Plus size={15} />
             <span className="sm:hidden">New</span>
-            <span className="hidden sm:inline">New Task</span>
+            <span className="hidden sm:inline">New Session</span>
           </button>
         </header>
 
         <section className="grid gap-3 md:grid-cols-3">
           <button
             type="button"
-            onClick={() => onSelectView("tasks")}
+            onClick={() => onSelectView("sessions")}
             className="min-w-0 rounded-lg border border-[#e5e7eb] bg-white p-4 text-left hover:bg-[#f7f8fa]"
           >
             <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
               <BriefcaseBusiness size={15} />
-              Tasks
+              Sessions
             </div>
-            <div className="text-2xl font-semibold">{tasks.length}</div>
+            <div className="text-2xl font-semibold">{sessions.length}</div>
             <div className="mt-1 text-xs text-[#6b7280]">
-              {isLoadingTasks ? "Loading" : "Total"}
+              {isLoadingSessions ? "Loading" : "Total"}
             </div>
           </button>
           <button
@@ -160,11 +160,11 @@ export default function HomePage({
             <div className="flex h-11 items-center justify-between border-b border-[#e5e7eb] px-4">
               <div className="text-sm font-semibold">
                 <span className="sm:hidden">Recent</span>
-                <span className="hidden sm:inline">Recent tasks</span>
+                <span className="hidden sm:inline">Recent sessions</span>
               </div>
               <button
                 type="button"
-                onClick={() => onSelectView("tasks")}
+                onClick={() => onSelectView("sessions")}
                 className="inline-flex items-center gap-1 text-xs font-medium text-[#6b7280] hover:text-[#0d0d0d]"
               >
                 <span className="sm:hidden">All</span>
@@ -173,25 +173,25 @@ export default function HomePage({
               </button>
             </div>
             <div className="divide-y divide-[#e5e7eb]">
-              {recentTasks.length === 0 ? (
+              {recentSessions.length === 0 ? (
                 <div className="flex h-32 items-center justify-center text-sm text-[#6b7280]">
-                  {isLoadingTasks ? "Loading" : "No tasks yet"}
+                  {isLoadingSessions ? "Loading" : "No sessions yet"}
                 </div>
               ) : (
-                recentTasks.map((task) => (
+                recentSessions.map((session) => (
                   <button
-                    key={task.id}
+                    key={session.sessionId}
                     type="button"
-                    onClick={() => onSelectTask(task.id)}
+                    onClick={() => onSelectSession(session.sessionId)}
                     className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-[#f7f8fa]"
                   >
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium">{task.title}</span>
+                      <span className="block truncate text-sm font-medium">{session.title}</span>
                       <span className="mt-1 block text-xs text-[#6b7280]">
-                        {task.messageCount} messages
+                        {session.messageCount} messages
                       </span>
                     </span>
-                    <StatusChip status={task.status} compact />
+                    <StatusChip status={session.status} compact />
                   </button>
                 ))
               )}

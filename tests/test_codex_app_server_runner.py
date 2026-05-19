@@ -274,6 +274,29 @@ for raw_line in sys.stdin:
     )
 
 
+def _write_fake_silent_app_server(path: Path) -> None:
+    path.write_text(
+        """
+import json
+import os
+import sys
+
+log_file = os.environ["FAKE_APP_SERVER_LOG"]
+process_file = os.environ["FAKE_APP_SERVER_PROCESSES"]
+
+with open(process_file, "a", encoding="utf-8") as f:
+    f.write(str(os.getpid()) + "\\n")
+
+for raw_line in sys.stdin:
+    message = json.loads(raw_line)
+    with open(log_file, "a", encoding="utf-8") as f:
+        f.write(json.dumps({"method": message.get("method"), "id": message.get("id")}) + "\\n")
+    sys.stdout.flush()
+""",
+        encoding="utf-8",
+    )
+
+
 def _provider(tmp_path: Path) -> CodexAppServerAgentProvider:
     script = tmp_path / "fake_app_server.py"
     _write_fake_app_server(script)
@@ -349,6 +372,30 @@ async def test_app_server_provider_runs_thread_turn_and_records_events(tmp_path)
     assert "runner.started" in [event["type"] for event in events]
     assert "codex.notification" in [event["type"] for event in events]
     assert "runner.completed" in [event["type"] for event in events]
+
+
+@pytest.mark.asyncio
+async def test_app_server_provider_fails_when_json_rpc_request_times_out(tmp_path):
+    script = tmp_path / "fake_silent_app_server.py"
+    _write_fake_silent_app_server(script)
+    provider = CodexAppServerAgentProvider(
+        codex_executable=sys.executable,
+        app_server_args=[str(script)],
+        env={
+            "FAKE_APP_SERVER_LOG": str(tmp_path / "app-server.jsonl"),
+            "FAKE_APP_SERVER_PROCESSES": str(tmp_path / "processes.txt"),
+        },
+        request_timeout_seconds=0.1,
+    )
+    request = _request(tmp_path, prompt="inspect project")
+    request.cwd.mkdir(parents=True)
+
+    result = await provider.run(request, job_dir=tmp_path / "job")
+
+    assert result.status == AgentRunnerStatus.FAILED
+    assert result.error is not None
+    assert "timed out waiting for Codex app-server response to initialize" in result.error
+    assert "runner.failed" in [event["type"] for event in _read_jsonl(result.events_file)]
 
 
 @pytest.mark.asyncio

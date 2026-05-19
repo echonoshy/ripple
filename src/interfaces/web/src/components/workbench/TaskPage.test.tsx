@@ -9,7 +9,7 @@ function noop() {}
 function renderTaskPage() {
   return renderToStaticMarkup(
     <TaskPage
-      task={null}
+      session={null}
       messages={[]}
       timelineEvents={[]}
       taskProgress={null}
@@ -45,7 +45,7 @@ function renderTaskPage() {
 function renderTaskPageWithTimelineContent() {
   return renderToStaticMarkup(
     <TaskPage
-      task={null}
+      session={null}
       messages={[]}
       timelineEvents={[
         {
@@ -88,7 +88,7 @@ function renderTaskPageWithTimelineContent() {
 function testOmitsPlaceholderTaskHeaderControls() {
   const html = renderTaskPage();
 
-  assert.match(html, /title="Copy task ID: srv-test"/);
+  assert.match(html, /title="Copy session ID: srv-test"/);
   assert.match(html, /absolute top-3 right-4/);
   assert.doesNotMatch(html, />New Codex task</);
   assert.doesNotMatch(html, /border-b border-\[#e5e7eb\] bg-white px-4 py-3 md:px-5/);
@@ -107,7 +107,10 @@ function testOmitsPlaceholderTaskHeaderControls() {
   assert.match(html, /sm:hidden[^>]*>Start here</);
   assert.match(html, /hidden sm:inline[^>]*>Workspace briefing</);
   assert.match(html, />Files</);
+  assert.match(html, />Sessions</);
   assert.match(html, />Ask</);
+  assert.doesNotMatch(html, />Tasks</);
+  assert.doesNotMatch(html, /Review recent tasks/);
 }
 
 function testGivesTaskContentMoreHorizontalRoom() {

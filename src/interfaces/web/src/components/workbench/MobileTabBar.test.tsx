@@ -15,10 +15,13 @@ function renderMobileTabBar() {
 function testUsesShortMobileNavigationLabels() {
   const html = renderMobileTabBar();
 
+  assert.match(html, />Sessions</);
+  assert.match(html, /aria-label="Open Sessions"/);
   assert.match(html, />Apps</);
   assert.match(html, /aria-label="Open Apps"/);
   assert.match(html, /aria-label="Open Settings"/);
   assert.doesNotMatch(html, />Connectors</);
+  assert.doesNotMatch(html, />Tasks</);
 }
 
 testUsesShortMobileNavigationLabels();

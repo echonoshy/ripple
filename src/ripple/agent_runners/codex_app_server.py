@@ -173,6 +173,10 @@ class JsonRpcError(RuntimeError):
     """Raised when app-server returns a JSON-RPC error."""
 
 
+class JsonRpcTimeoutError(TimeoutError):
+    """Raised when app-server does not answer one JSON-RPC request in time."""
+
+
 @dataclass
 class ActiveTurn:
     session: "CodexAppServerSession"
@@ -194,6 +198,7 @@ class CodexAppServerSession:
         sandbox_config: Any | None = None,
         env: dict[str, str] | None = None,
         run_in_user_sandbox: bool = False,
+        request_timeout_seconds: float = 30.0,
     ):
         self.user_key = user_key
         self.codex_executable = codex_executable
@@ -203,6 +208,7 @@ class CodexAppServerSession:
         self.sandbox_config = sandbox_config
         self.env = env or {}
         self.run_in_user_sandbox = run_in_user_sandbox
+        self.request_timeout_seconds = request_timeout_seconds
         self.process: asyncio.subprocess.Process | None = None
         self.notifications: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self.run_lock = asyncio.Lock()
@@ -280,9 +286,16 @@ class CodexAppServerSession:
             "method": method,
             "params": params or {},
         }
-        await self._write(payload)
-        self.last_active_at = _now()
-        response = await future
+        try:
+            await self._write(payload)
+            self.last_active_at = _now()
+            response = await asyncio.wait_for(future, timeout=self.request_timeout_seconds)
+        except TimeoutError as exc:
+            self._pending.pop(request_id, None)
+            raise JsonRpcTimeoutError(f"timed out waiting for Codex app-server response to {method}") from exc
+        except Exception:
+            self._pending.pop(request_id, None)
+            raise
         if "error" in response:
             raise JsonRpcError(json.dumps(response["error"], ensure_ascii=False))
         result = response.get("result")
@@ -345,6 +358,11 @@ class CodexAppServerSession:
                     future.set_result(message)
             elif "method" in message:
                 await self.notifications.put(message)
+        error = RuntimeError(f"codex app-server process exited before responding; stderr={self.stderr_tail[-1000:]}")
+        for future in list(self._pending.values()):
+            if not future.done():
+                future.set_exception(error)
+        self._pending.clear()
 
     async def _read_stderr(self) -> None:
         if self.process is None or self.process.stderr is None:
@@ -362,6 +380,7 @@ class CodexAppServerPool:
     env: dict[str, str] | None = None
     idle_timeout_seconds: int = 1800
     run_in_user_sandbox: bool = False
+    request_timeout_seconds: float = 30.0
     sessions: dict[str, CodexAppServerSession] = field(default_factory=dict)
 
     async def get(
@@ -383,6 +402,7 @@ class CodexAppServerPool:
                 sandbox_config=sandbox_config,
                 env=self.env,
                 run_in_user_sandbox=self.run_in_user_sandbox,
+                request_timeout_seconds=self.request_timeout_seconds,
             )
             self.sessions[user_key] = session
         await session.ensure_started()
@@ -423,6 +443,7 @@ class CodexAppServerAgentProvider:
         idle_timeout_seconds: int = 1800,
         run_app_server_in_user_sandbox: bool = False,
         ephemeral_threads: bool = True,
+        request_timeout_seconds: float = 30.0,
     ):
         self.name = "codex"
         self.approval_policy = approval_policy
@@ -438,6 +459,7 @@ class CodexAppServerAgentProvider:
             env=env,
             idle_timeout_seconds=idle_timeout_seconds,
             run_in_user_sandbox=run_app_server_in_user_sandbox,
+            request_timeout_seconds=request_timeout_seconds,
         )
         self.active_turns: dict[str, ActiveTurn] = {}
         self.pending_approvals: dict[str, dict[str, Any]] = {}
@@ -567,6 +589,9 @@ class CodexAppServerAgentProvider:
                 await self._interrupt_turn(active_turn)
             status = AgentRunnerStatus.CANCELLED
             error = "runner cancelled"
+        except JsonRpcTimeoutError as exc:
+            status = AgentRunnerStatus.FAILED
+            error = str(exc)
         except TimeoutError:
             status = AgentRunnerStatus.FAILED
             error = f"runner timed out after {request.max_runtime_seconds}s"

@@ -1,9 +1,9 @@
 import React from "react";
-import type { WorkbenchTaskStatus } from "@/types";
+import type { WorkbenchSessionStatus } from "@/types";
 
 type StatusTone = "blue" | "green" | "yellow" | "red" | "gray";
 
-const STATUS_LABELS: Record<WorkbenchTaskStatus, string> = {
+const STATUS_LABELS: Record<WorkbenchSessionStatus, string> = {
   queued: "Queued",
   running: "Running",
   waiting_for_user: "Needs input",
@@ -15,7 +15,7 @@ const STATUS_LABELS: Record<WorkbenchTaskStatus, string> = {
   idle: "Idle",
 };
 
-const STATUS_TONES: Record<WorkbenchTaskStatus, StatusTone> = {
+const STATUS_TONES: Record<WorkbenchSessionStatus, StatusTone> = {
   queued: "gray",
   running: "green",
   waiting_for_user: "yellow",
@@ -35,11 +35,11 @@ const TONE_CLASSES: Record<StatusTone, string> = {
   gray: "border-[#d0d7de] bg-[#f6f8fa] text-[#57606a]",
 };
 
-export function statusLabel(status: WorkbenchTaskStatus): string {
+export function statusLabel(status: WorkbenchSessionStatus): string {
   return STATUS_LABELS[status];
 }
 
-export function statusTone(status: WorkbenchTaskStatus): StatusTone {
+export function statusTone(status: WorkbenchSessionStatus): StatusTone {
   return STATUS_TONES[status];
 }
 
@@ -49,7 +49,7 @@ export default function StatusChip({
   tone,
   compact = false,
 }: {
-  status?: WorkbenchTaskStatus;
+  status?: WorkbenchSessionStatus;
   label?: string;
   tone?: StatusTone;
   compact?: boolean;

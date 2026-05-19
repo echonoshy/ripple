@@ -9,7 +9,7 @@ function noop() {}
 function renderTaskPageWithPlan() {
   return renderToStaticMarkup(
     <TaskPage
-      task={null}
+      session={null}
       messages={[]}
       timelineEvents={[]}
       taskProgress={{ completed: 1, total: 2, currentTask: "Map event to UI" }}

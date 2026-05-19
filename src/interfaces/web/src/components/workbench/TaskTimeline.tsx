@@ -60,7 +60,7 @@ export default function TaskTimeline({
           </span>
           <div className="text-sm font-semibold text-[#0d0d0d]">Ready</div>
           <div className="mt-1 max-w-xl text-sm leading-6 text-[#6b7280]">
-            Start a task and Codex activity will appear here as a timeline.
+            Start a session and Codex activity will appear here as a timeline.
           </div>
         </div>
       </div>
@@ -109,9 +109,13 @@ export default function TaskTimeline({
               </div>
             </div>
             {isToolEvent ? (
-              <pre className="mt-2 max-h-36 overflow-auto rounded-md border border-[#e5e7eb] bg-[#f7f8fa] p-2.5 font-[family-name:var(--font-mono)] text-xs leading-relaxed whitespace-pre-wrap text-[#374151]">
-                {event.body}
-              </pre>
+              <div className="mt-2 rounded-md border border-[#e5e7eb] bg-[#f7f8fa] px-3 py-2 font-[family-name:var(--font-mono)] text-xs leading-5 text-[#374151]">
+                {event.body.split("\n").map((line, index) => (
+                  <div key={`${event.id}-${index}`} className="truncate" title={line}>
+                    {line}
+                  </div>
+                ))}
+              </div>
             ) : (
               <div className="markdown-body workbench-markdown max-w-4xl text-sm leading-6 text-[#374151]">
                 <MarkdownRenderer content={event.body} />
@@ -175,7 +179,7 @@ export default function TaskTimeline({
               onClick={() => onPermissionResolve("always")}
               className="rounded-md border border-[#0969da]/25 bg-[#ddf4ff] px-3 py-1.5 text-sm font-semibold text-[#0969da] hover:bg-[#cbeeff]"
             >
-              Allow for task
+              Allow for session
             </button>
             <button
               type="button"

@@ -8,7 +8,7 @@ import type {
   TaskProgress,
   UsageInfo,
   WorkspaceEntry,
-  WorkbenchTaskSummary,
+  WorkbenchSessionSummary,
   WorkbenchTimelineEvent,
 } from "@/types";
 import type { ChatFileRef } from "@/lib/chatInput";
@@ -16,7 +16,7 @@ import TaskComposer from "./TaskComposer";
 import TaskTimeline from "./TaskTimeline";
 
 interface TaskPageProps {
-  task: WorkbenchTaskSummary | null;
+  session: WorkbenchSessionSummary | null;
   messages: Message[];
   timelineEvents: WorkbenchTimelineEvent[];
   taskProgress: TaskProgress | null;
@@ -48,7 +48,7 @@ interface TaskPageProps {
 }
 
 export default function TaskPage({
-  task,
+  session,
   messages,
   timelineEvents,
   taskProgress,
@@ -105,7 +105,7 @@ export default function TaskPage({
           <button
             type="button"
             onClick={onCopySessionId}
-            title={sessionIdCopied ? "Copied" : `Copy task ID: ${sessionId}`}
+            title={sessionIdCopied ? "Copied" : `Copy session ID: ${sessionId}`}
             className="pointer-events-auto inline-flex h-8 max-w-[180px] items-center gap-1.5 rounded-md border border-[#e5e7eb] bg-white/95 px-2 font-[family-name:var(--font-mono)] text-xs text-[#6b7280] shadow-[0_8px_24px_rgba(23,26,31,0.08)] backdrop-blur hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
           >
             <span className="truncate">{sessionId}</span>
@@ -172,7 +172,7 @@ export default function TaskPage({
           {contextPercent > 75 && (
             <div className="flex items-start gap-2 rounded-lg border border-[#bf8700]/35 bg-[#fff8c5] p-3 text-sm text-[#7d4e00]">
               <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-              Context usage is around {contextPercent}%. Consider starting a new task soon.
+              Context usage is around {contextPercent}%. Consider starting a new session soon.
             </div>
           )}
 
@@ -195,8 +195,8 @@ export default function TaskPage({
                 </div>
                 <div>
                   <div className="font-medium text-[#0d0d0d]">
-                    <span className="sm:hidden">Tasks</span>
-                    <span className="hidden sm:inline">Review recent tasks</span>
+                    <span className="sm:hidden">Sessions</span>
+                    <span className="hidden sm:inline">Review recent sessions</span>
                   </div>
                   <span className="sm:hidden">Reopen work with context.</span>
                   <span className="hidden sm:inline">
@@ -210,7 +210,7 @@ export default function TaskPage({
                   </div>
                   <span className="sm:hidden">Updates and approvals land here.</span>
                   <span className="hidden sm:inline">
-                    New activity, plans, and approvals will appear here once the task starts.
+                    New activity, plans, and approvals will appear here once the session starts.
                   </span>
                 </div>
               </div>
@@ -246,7 +246,7 @@ export default function TaskPage({
         onRemovePendingFile={onRemovePendingFile}
         pendingFiles={pendingFiles}
         isGenerating={isGenerating}
-        hasSession={hasMessages || Boolean(task)}
+        hasSession={hasMessages || Boolean(session)}
         focusToken={focusToken}
         selectedModel={selectedModel}
         models={models}

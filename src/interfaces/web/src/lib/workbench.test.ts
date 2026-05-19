@@ -2,51 +2,11 @@ import assert from "node:assert/strict";
 
 import {
   extractChangedFilePaths,
-  mapTasksToWorkbenchTasks,
-  mapSessionsToWorkbenchTasks,
+  mapTaskSummariesToWorkbenchSessions,
   messagesToTimelineEvents,
-  sortWorkbenchTasks,
+  sortWorkbenchSessions,
 } from "./workbench";
-import type { Message, Session, TaskSummary } from "@/types";
-
-function makeSession(overrides: Partial<Session>): Session {
-  return {
-    session_id: "session-default",
-    title: "",
-    model: "codex-medium",
-    created_at: "2026-05-15T01:00:00.000Z",
-    last_active: "2026-05-15T01:00:00.000Z",
-    message_count: 0,
-    status: "idle",
-    ...overrides,
-  };
-}
-
-function testMapsSessionsToTaskSummaries() {
-  const tasks = mapSessionsToWorkbenchTasks([
-    makeSession({
-      session_id: "srv-123456789",
-      title: "Update web workbench",
-      status: "running",
-      message_count: 4,
-    }),
-    makeSession({
-      session_id: "srv-untitled",
-      title: "",
-      status: "active",
-      message_count: 1,
-    }),
-  ]);
-
-  assert.equal(tasks.length, 2);
-  assert.equal(tasks[0].id, "srv-123456789");
-  assert.equal(tasks[0].title, "Update web workbench");
-  assert.equal(tasks[0].status, "running");
-  assert.equal(tasks[0].model, "codex-medium");
-  assert.equal(tasks[0].messageCount, 4);
-  assert.equal(tasks[1].title, "Session srv-untitled");
-  assert.equal(tasks[1].status, "idle");
-}
+import type { Message, TaskSummary } from "@/types";
 
 function makeTask(overrides: Partial<TaskSummary>): TaskSummary {
   return {
@@ -65,10 +25,10 @@ function makeTask(overrides: Partial<TaskSummary>): TaskSummary {
 }
 
 function testMapsBackendTasksToWorkbenchSummaries() {
-  const tasks = mapTasksToWorkbenchTasks([
+  const tasks = mapTaskSummariesToWorkbenchSessions([
     makeTask({
-      task_id: "task-auth",
-      session_id: "task-auth",
+      task_id: "legacy-task-auth",
+      session_id: "srv-auth",
       title: "Refactor auth flow",
       status: "waiting_for_approval",
       message_count: 3,
@@ -76,45 +36,48 @@ function testMapsBackendTasksToWorkbenchSummaries() {
       pending_approval_count: 1,
     }),
     makeTask({
-      task_id: "task-empty",
-      session_id: "task-empty",
+      task_id: "legacy-task-empty",
+      session_id: "srv-empty",
       title: "",
       status: "idle",
     }),
   ]);
 
   assert.equal(tasks.length, 2);
-  assert.equal(tasks[0].id, "task-auth");
+  assert.equal(tasks[0].sessionId, "srv-auth");
   assert.equal(tasks[0].title, "Refactor auth flow");
   assert.equal(tasks[0].status, "waiting_for_approval");
   assert.equal(tasks[0].messageCount, 3);
   assert.equal(tasks[0].changedFileCount, 2);
   assert.equal(tasks[0].pendingApprovalCount, 1);
-  assert.equal(tasks[1].title, "Task task-empty");
+  assert.equal(tasks[1].title, "Session srv-empty");
 }
 
 function testSortsApprovalTasksBeforeOrdinaryRunningTasks() {
-  const tasks = mapSessionsToWorkbenchTasks([
-    makeSession({
+  const sessions = mapTaskSummariesToWorkbenchSessions([
+    makeTask({
+      task_id: "legacy-task-running",
       session_id: "running",
       title: "Running session",
       status: "running",
       last_active: "2026-05-15T02:00:00.000Z",
     }),
-    makeSession({
+    makeTask({
+      task_id: "legacy-task-approval",
       session_id: "approval",
       title: "Approval session",
       status: "awaiting_permission",
       last_active: "2026-05-15T01:00:00.000Z",
+      pending_approval_count: 1,
     }),
   ]);
 
-  const sorted = sortWorkbenchTasks(tasks);
+  const sorted = sortWorkbenchSessions(sessions);
 
-  assert.equal(sorted[0].id, "approval");
+  assert.equal(sorted[0].sessionId, "approval");
   assert.equal(sorted[0].status, "waiting_for_approval");
   assert.equal(sorted[0].pendingApprovalCount, 1);
-  assert.equal(sorted[1].id, "running");
+  assert.equal(sorted[1].sessionId, "running");
 }
 
 function testMapsToolCallsIntoTimelineEvents() {
@@ -129,7 +92,7 @@ function testMapsToolCallsIntoTimelineEvents() {
           name: "command_execution",
           arguments: { command: "bun run lint", cwd: "/workspace/src/interfaces/web" },
           status: "success",
-          result: JSON.stringify({ success: true, duration_ms: 1200 }),
+          result: "very long command output that should not be shown in the main timeline",
         },
         {
           id: "tool-2",
@@ -148,13 +111,12 @@ function testMapsToolCallsIntoTimelineEvents() {
 
   const events = messagesToTimelineEvents(messages);
 
-  assert.equal(events.length, 2);
-  assert.equal(events[0].type, "command");
-  assert.equal(events[0].title, "Ran command");
+  assert.equal(events.length, 1);
+  assert.equal(events[0].type, "tool_call");
+  assert.equal(events[0].title, "Used 2 tools");
   assert.match(events[0].body, /bun run lint/);
-  assert.equal(events[1].type, "file_change");
-  assert.equal(events[1].title, "Changed files");
-  assert.match(events[1].body, /InspectorPanel/);
+  assert.match(events[0].body, /InspectorPanel/);
+  assert.doesNotMatch(events[0].body, /very long command output/);
 }
 
 function testPlacesAssistantContentAfterItsToolCalls() {
@@ -178,7 +140,7 @@ function testPlacesAssistantContentAfterItsToolCalls() {
   const events = messagesToTimelineEvents(messages);
 
   assert.equal(events.length, 2);
-  assert.equal(events[0].type, "command");
+  assert.equal(events[0].type, "tool_call");
   assert.equal(events[1].type, "final_summary");
   assert.equal(events[1].title, "Final answer");
   assert.equal(events[1].body, "Done.\n\n- One\n- Two");
@@ -210,7 +172,6 @@ function testExtractsChangedFilesFromToolCalls() {
   assert.deepEqual(extractChangedFilePaths(messages), ["/workspace/a.ts", "/workspace/b.ts"]);
 }
 
-testMapsSessionsToTaskSummaries();
 testMapsBackendTasksToWorkbenchSummaries();
 testSortsApprovalTasksBeforeOrdinaryRunningTasks();
 testMapsToolCallsIntoTimelineEvents();

@@ -12,7 +12,7 @@ interface MobileTabBarProps {
 
 const mobileNavLabels: Record<WorkspaceView, string> = {
   home: "Home",
-  tasks: "Tasks",
+  sessions: "Sessions",
   files: "Files",
   connectors: "Apps",
 };

@@ -1,13 +1,16 @@
+import asyncio
 import json
 from pathlib import Path
 from typing import Any
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from interfaces.server import codex_chat
 from interfaces.server import sessions as session_module
 from interfaces.server.auth import verify_api_key
-from interfaces.server.routes import router, set_session_manager
+from interfaces.server.routes import get_session_manager, router, set_session_manager
 from interfaces.server.sessions import SessionManager
 from ripple.agent_runners.manager import ExternalAgentManager
 from ripple.agent_runners.models import AgentRunnerEvent, AgentRunnerRequest, AgentRunnerResult, AgentRunnerStatus
@@ -454,6 +457,65 @@ def test_chat_completions_non_stream_uses_codex_runner_and_persists_messages(tmp
     assert messages[1]["message"]["content"][0]["text"] == "codex wrote the answer"
 
 
+def test_chat_completions_rejects_new_session_when_session_quota_is_exhausted(tmp_path: Path, monkeypatch):
+    provider = InstantCodexProvider(output="should not run")
+    client = _client(tmp_path, monkeypatch, provider)
+    update = client.put("/v1/users/alice/quota", json={"max_sessions": 0})
+    assert update.status_code == 200
+
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "codex-medium",
+            "stream": False,
+            "messages": [{"role": "user", "content": "Hello"}],
+        },
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["resource"] == "sessions"
+    assert provider.requests == []
+
+
+def test_chat_completions_rejects_when_daily_run_quota_is_exhausted(tmp_path: Path, monkeypatch):
+    provider = InstantCodexProvider(output="should not run")
+    client = _client(tmp_path, monkeypatch, provider)
+    update = client.put("/v1/users/alice/quota", json={"max_runs_per_day": 0})
+    assert update.status_code == 200
+
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "codex-medium",
+            "stream": False,
+            "messages": [{"role": "user", "content": "Hello"}],
+        },
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["resource"] == "runs_per_day"
+    assert provider.requests == []
+
+
+def test_chat_completion_runs_are_counted_in_user_quota_usage(tmp_path: Path, monkeypatch):
+    provider = InstantCodexProvider(output="counted")
+    client = _client(tmp_path, monkeypatch, provider)
+
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "codex-medium",
+            "stream": False,
+            "messages": [{"role": "user", "content": "Hello"}],
+        },
+    )
+    assert response.status_code == 200
+
+    quota = client.get("/v1/users/me/quota")
+    assert quota.status_code == 200
+    assert quota.json()["usage"]["runs_today"] == 1
+
+
 def test_chat_completions_codex_mode_does_not_require_legacy_llm_client(tmp_path: Path, monkeypatch):
     provider = InstantCodexProvider(output="codex works without legacy client")
     client = _client(tmp_path, monkeypatch, provider)
@@ -512,6 +574,66 @@ def test_create_session_does_not_require_legacy_llm_client(tmp_path: Path, monke
 
     assert response.status_code == 200
     assert response.json()["session_id"].startswith("srv-")
+
+
+@pytest.mark.asyncio
+async def test_streaming_approval_event_does_not_hold_session_lock(tmp_path: Path, monkeypatch):
+    provider = InstantCodexProvider(output="unused")
+    _client(tmp_path, monkeypatch, provider)
+    manager = get_session_manager()
+    session = manager.create_session(user_id="alice", model="codex-medium")
+
+    events_file = tmp_path / "approval-events.jsonl"
+    events_file.write_text(
+        json.dumps(
+            AgentRunnerEvent(
+                type="codex.approval_request",
+                job_id="job-approval",
+                provider="codex",
+                data={
+                    "approval": {
+                        "source": "codex",
+                        "job_id": "job-approval",
+                        "request_id": "approval-1",
+                        "description": "Run command",
+                    }
+                },
+            ).model_dump(mode="json"),
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    class RunningJob:
+        job_id = "job-approval"
+        status = AgentRunnerStatus.RUNNING
+
+    RunningJob.events_file = events_file
+
+    monkeypatch.setattr(codex_chat, "_start_chat_run", lambda **_kwargs: RunningJob())
+
+    generator = codex_chat.stream_codex_chat_as_sse(
+        session=session,
+        user_input="Needs approval",
+        input_items=[],
+        user_content=[{"type": "text", "text": "Needs approval"}],
+        attachment_items=[],
+        model="gpt-5.5",
+        system_prompt="system",
+        manager=manager,
+        agent_manager=ExternalAgentManager(providers={}),
+        config=get_config(),
+    )
+    try:
+        assert '"role": "assistant"' in await asyncio.wait_for(generator.__anext__(), timeout=1)
+        approval_chunk = await asyncio.wait_for(generator.__anext__(), timeout=1)
+        assert '"type": "approval_required"' in approval_chunk
+
+        await asyncio.wait_for(session.lock.acquire(), timeout=0.2)
+        session.lock.release()
+    finally:
+        await generator.aclose()
 
 
 def test_chat_completions_stream_bridges_codex_output_to_sse(tmp_path: Path, monkeypatch):

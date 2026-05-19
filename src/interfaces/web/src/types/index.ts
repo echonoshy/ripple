@@ -45,14 +45,6 @@ export interface SessionUsage {
   message_count: number;
 }
 
-export interface SystemInfo {
-  tools: string[];
-  skills: { name: string; description: string }[];
-  model_presets: Record<string, string>;
-  default_model: string;
-  max_turns: number;
-}
-
 export interface SandboxInfo {
   user_id: string;
   workspace_size_bytes: number;
@@ -146,79 +138,6 @@ export interface WorkspaceAttachmentResponse {
   kind: "image" | "attachment";
 }
 
-export interface AgentRunInfo {
-  job_id: string;
-  provider: string;
-  status: string;
-  output_file: string | null;
-  events_file: string | null;
-  created_at: string | null;
-  updated_at: string | null;
-  exit_code: number | null;
-  prompt_preview: string | null;
-  sandbox_cwd: string | null;
-  stdout_tail: string;
-  stderr_tail: string;
-  error: string | null;
-  pending_approval?: Record<string, unknown> | null;
-}
-
-export interface AgentRunListResponse {
-  runs: AgentRunInfo[];
-  count: number;
-}
-
-export interface UserQuotaStatus {
-  user_id: string;
-  quota: {
-    max_workspace_mb: number;
-    max_sessions: number;
-    max_runs_per_day: number;
-    max_run_runtime_seconds: number;
-  };
-  usage: {
-    workspace_size_bytes: number;
-    session_count: number;
-    runs_today: number;
-    active_runs: number;
-  };
-}
-
-export interface DocumentInfo {
-  document_id: string;
-  title: string;
-  path: string;
-  kind: string;
-  source: string;
-  linked_session_id: string | null;
-  summary: string;
-  created_at: string;
-  updated_at: string;
-  last_modified_at: string;
-}
-
-export interface DocumentListResponse {
-  documents: DocumentInfo[];
-  count: number;
-}
-
-export interface Session {
-  session_id: string;
-  title: string;
-  model: string;
-  created_at: string;
-  last_active: string;
-  message_count: number;
-  status: string;
-}
-
-export interface SessionDetail extends Session {
-  messages: Record<string, unknown>[];
-  pending_question?: string | null;
-  pending_options?: string[] | null;
-  pending_permission_request?: PermissionRequestData | null;
-}
-
 export interface TaskSummary {
   task_id: string;
   session_id: string;
@@ -268,7 +187,7 @@ export interface AgentStopData {
   metadata: Record<string, unknown>;
 }
 
-export type WorkbenchTaskStatus =
+export type WorkbenchSessionStatus =
   | "queued"
   | "running"
   | "waiting_for_user"
@@ -279,10 +198,10 @@ export type WorkbenchTaskStatus =
   | "cancelled"
   | "idle";
 
-export interface WorkbenchTaskSummary {
-  id: string;
+export interface WorkbenchSessionSummary {
+  sessionId: string;
   title: string;
-  status: WorkbenchTaskStatus;
+  status: WorkbenchSessionStatus;
   model: string;
   lastActivityAt: string;
   messageCount: number;

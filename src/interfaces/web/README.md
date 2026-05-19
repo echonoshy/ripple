@@ -15,11 +15,15 @@ The development server listens on:
 http://localhost:8820
 ```
 
-By default the client calls `https://test-oauth.weilai.ai/v1`. To point at another Ripple server, set:
+In development, the client calls `/v1` on the Vite origin, and Vite proxies it to
+`http://127.0.0.1:8810`. To point at another Ripple server, set:
 
 ```bash
 VITE_RIPPLE_API_URL=http://localhost:8810/v1
 ```
+
+Production builds without `VITE_RIPPLE_API_URL` fall back to
+`https://test-oauth.weilai.ai/v1`.
 
 ## Verification
 

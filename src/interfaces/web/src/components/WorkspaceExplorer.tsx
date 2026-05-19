@@ -78,7 +78,10 @@ function formatModified(value: string): string {
 }
 
 export function displayError(error: string): string {
-  if (error.includes("Failed to rename entry (404)") || error.includes("File or folder no longer exists")) {
+  if (
+    error.includes("Failed to rename entry (404)") ||
+    error.includes("File or folder no longer exists")
+  ) {
     return "File or folder no longer exists. Refresh workspace.";
   }
   if (error.includes("(404)")) return "Workspace is not ready for this user.";

@@ -30,6 +30,7 @@ from ripple.connectors.registry import list_connectors
 from ripple.messages.types import Message
 from ripple.messages.utils import create_assistant_message, create_user_message
 from ripple.skills.manifest import render_skill_manifest
+from ripple.users.quota import assert_can_create_run
 from ripple.utils.config import Config
 from ripple.utils.logger import get_logger, session_context
 
@@ -223,6 +224,45 @@ def _max_runtime_seconds(config: Config) -> int:
     )
 
 
+async def _begin_session_run(session: Session, manager: SessionManager) -> None:
+    async with session.lock:
+        if session.current_task is not None and not session.current_task.done():
+            raise HTTPException(status_code=409, detail="Session already has a running task")
+        session.current_task = asyncio.current_task()
+        session.status = SessionStatus.RUNNING
+        session.pending_question = None
+        session.pending_options = None
+        session.pending_permission_request = None
+        _clear_session_plan(session)
+        manager.touch_session(session)
+
+
+async def _persist_session_approval(session: Session, manager: SessionManager, approval: dict[str, Any]) -> None:
+    async with session.lock:
+        _mark_session_awaiting_approval(session, approval)
+        manager.touch_session(session)
+        manager.persist_session(session)
+
+
+async def _persist_session_plan_update(session: Session, manager: SessionManager, plan_event: dict[str, Any]) -> None:
+    async with session.lock:
+        _record_session_plan_update(session, plan_event)
+        manager.touch_session(session)
+        manager.persist_session(session)
+
+
+async def _finish_session_run(session: Session, manager: SessionManager) -> None:
+    current_task = asyncio.current_task()
+    async with session.lock:
+        owns_current_run = session.current_task is current_task
+        if owns_current_run:
+            session.current_task = None
+        if owns_current_run and session.status == SessionStatus.RUNNING:
+            session.status = SessionStatus.IDLE
+        manager.touch_session(session)
+        manager.persist_session(session)
+
+
 def _start_chat_run(
     *,
     session: Session,
@@ -232,12 +272,14 @@ def _start_chat_run(
     agent_manager: ExternalAgentManager,
 ) -> ExternalAgentJob:
     workspace_root, runtime_dir, sandbox_config = _require_workspace(session)
+    max_runtime_seconds = _max_runtime_seconds(config)
+    assert_can_create_run(sandbox_config, session.user_id, max_runtime_seconds)
     return start_agent_run(
         prompt=prompt,
         input_items=input_items,
         provider_name="codex",
         raw_cwd="/workspace",
-        max_runtime_seconds=_max_runtime_seconds(config),
+        max_runtime_seconds=max_runtime_seconds,
         user_id=session.user_id,
         session_id=session.session_id,
         workspace_root=workspace_root,
@@ -785,202 +827,141 @@ async def stream_codex_chat_as_sse(
     with session_context(session.session_id):
         job: ExternalAgentJob | None = None
         try:
+            await _begin_session_run(session, manager)
+            prompt = build_codex_chat_prompt(
+                session=session,
+                user_input=user_input,
+                system_prompt=system_prompt,
+                attachment_items=attachment_items,
+            )
+            job = _start_chat_run(
+                session=session,
+                prompt=prompt,
+                input_items=_codex_turn_input_items(input_items, prompt),
+                config=config,
+                agent_manager=agent_manager,
+            )
+
+            yield _chunk(chunk_id, model, created, {"role": "assistant"})
+
+            offset = 0
+            latest_usage = _usage()
+            last_heartbeat = time.monotonic()
+            agent_message_phases: dict[str, str | None] = {}
+            final_delta_item_ids: set[str] = set()
+            update_delta_item_ids: set[str] = set()
+
+            async def handle_event(event: dict[str, Any]) -> list[str]:
+                nonlocal emitted_text, latest_usage
+                usage_event = _extract_usage_event(event)
+                if usage_event is not None:
+                    latest_usage = usage_event
+                    return []
+                approval = _extract_approval(event)
+                if approval is not None:
+                    await _persist_session_approval(session, manager, approval)
+                    return [
+                        f"data: {json.dumps({'type': 'approval_required', 'approval': approval}, ensure_ascii=False)}\n\n"
+                    ]
+                image_event = _extract_image_event(event, session=session, config=config)
+                if image_event is not None:
+                    return [f"data: {json.dumps(image_event, ensure_ascii=False)}\n\n"]
+                plan_event = _extract_plan_update_event(event)
+                if plan_event is not None:
+                    await _persist_session_plan_update(session, manager, plan_event)
+                    return [f"data: {json.dumps(plan_event, ensure_ascii=False)}\n\n"]
+                tool_event = _extract_tool_event(event)
+                if tool_event is not None:
+                    return [f"data: {json.dumps(tool_event, ensure_ascii=False)}\n\n"]
+                agent_delta = _agent_message_delta(event)
+                if agent_delta is not None:
+                    item_id, delta = agent_delta
+                    phase = agent_message_phases.get(item_id) if item_id else None
+                    if item_id and phase == "commentary":
+                        update_delta_item_ids.add(item_id)
+                        return [
+                            f"data: {json.dumps({'type': 'assistant_update_delta', 'id': item_id, 'phase': phase, 'delta': delta}, ensure_ascii=False)}\n\n"
+                        ]
+                    if item_id:
+                        final_delta_item_ids.add(item_id)
+                    emitted_text += delta
+                    return [_chunk(chunk_id, model, created, {"content": delta})]
+                agent_item = _agent_message_item(event)
+                if agent_item is not None:
+                    item_id = _agent_message_item_id(agent_item)
+                    phase = _agent_message_phase(agent_item)
+                    if item_id:
+                        agent_message_phases[item_id] = phase
+                    if _codex_notification_method(event) != "item/completed":
+                        return []
+                    text = _agent_message_text(agent_item)
+                    if not text:
+                        return []
+                    if phase == "commentary":
+                        if item_id not in update_delta_item_ids:
+                            return [
+                                f"data: {json.dumps({'type': 'assistant_update', 'id': item_id, 'phase': phase, 'content': text}, ensure_ascii=False)}\n\n"
+                            ]
+                        return []
+                    if item_id not in final_delta_item_ids:
+                        emitted_text += text
+                        return [_chunk(chunk_id, model, created, {"content": text})]
+                    return []
+                delta = _extract_event_delta(event)
+                if delta:
+                    emitted_text += delta
+                    return [_chunk(chunk_id, model, created, {"content": delta})]
+                return []
+
+            while job.status == AgentRunnerStatus.RUNNING:
+                events, offset = _read_new_events(job.events_file, offset) if job.events_file else ([], offset)
+                for event in events:
+                    for chunk in await handle_event(event):
+                        yield chunk
+                now = time.monotonic()
+                if now - last_heartbeat >= _HEARTBEAT_SECONDS:
+                    yield f"data: {json.dumps({'type': 'heartbeat', 'ts': int(time.time())})}\n\n"
+                    last_heartbeat = now
+                await asyncio.sleep(0.05)
+
+            result = await agent_manager.wait(job.job_id)
+            if job.events_file:
+                events, offset = _read_new_events(job.events_file, offset)
+                for event in events:
+                    for chunk in await handle_event(event):
+                        yield chunk
+
+            if result is None or result.status != AgentRunnerStatus.COMPLETED:
+                error = result.error if result else "Codex run disappeared"
+                raise RuntimeError(error or "Codex run failed")
+
+            output_text = _read_output(result)
+            if not emitted_text and output_text:
+                emitted_text = output_text
+                yield _chunk(chunk_id, model, created, {"content": output_text})
+
             async with session.lock:
-                session.current_task = asyncio.current_task()
-                session.status = "running"
-                session.pending_question = None
-                session.pending_options = None
-                session.pending_permission_request = None
-                _clear_session_plan(session)
-                manager.touch_session(session)
-
-                yield _chunk(chunk_id, model, created, {"role": "assistant"})
-                prompt = build_codex_chat_prompt(
-                    session=session,
-                    user_input=user_input,
-                    system_prompt=system_prompt,
-                    attachment_items=attachment_items,
-                )
-                job = _start_chat_run(
-                    session=session,
-                    prompt=prompt,
-                    input_items=_codex_turn_input_items(input_items, prompt),
-                    config=config,
-                    agent_manager=agent_manager,
-                )
-
-                offset = 0
-                latest_usage = _usage()
-                last_heartbeat = time.monotonic()
-                agent_message_phases: dict[str, str | None] = {}
-                final_delta_item_ids: set[str] = set()
-                update_delta_item_ids: set[str] = set()
-                while job.status == AgentRunnerStatus.RUNNING:
-                    events, offset = _read_new_events(job.events_file, offset) if job.events_file else ([], offset)
-                    for event in events:
-                        usage_event = _extract_usage_event(event)
-                        if usage_event is not None:
-                            latest_usage = usage_event
-                            continue
-                        approval = _extract_approval(event)
-                        if approval is not None:
-                            _mark_session_awaiting_approval(session, approval)
-                            manager.touch_session(session)
-                            manager.persist_session(session)
-                            yield f"data: {json.dumps({'type': 'approval_required', 'approval': approval}, ensure_ascii=False)}\n\n"
-                            continue
-                        image_event = _extract_image_event(event, session=session, config=config)
-                        if image_event is not None:
-                            yield f"data: {json.dumps(image_event, ensure_ascii=False)}\n\n"
-                            continue
-                        plan_event = _extract_plan_update_event(event)
-                        if plan_event is not None:
-                            _record_session_plan_update(session, plan_event)
-                            manager.touch_session(session)
-                            manager.persist_session(session)
-                            yield f"data: {json.dumps(plan_event, ensure_ascii=False)}\n\n"
-                            continue
-                        tool_event = _extract_tool_event(event)
-                        if tool_event is not None:
-                            yield f"data: {json.dumps(tool_event, ensure_ascii=False)}\n\n"
-                            continue
-                        agent_delta = _agent_message_delta(event)
-                        if agent_delta is not None:
-                            item_id, delta = agent_delta
-                            phase = agent_message_phases.get(item_id) if item_id else None
-                            if item_id and phase == "commentary":
-                                update_delta_item_ids.add(item_id)
-                                yield f"data: {json.dumps({'type': 'assistant_update_delta', 'id': item_id, 'phase': phase, 'delta': delta}, ensure_ascii=False)}\n\n"
-                                continue
-                            if item_id:
-                                final_delta_item_ids.add(item_id)
-                            emitted_text += delta
-                            yield _chunk(chunk_id, model, created, {"content": delta})
-                            continue
-                        agent_item = _agent_message_item(event)
-                        if agent_item is not None:
-                            item_id = _agent_message_item_id(agent_item)
-                            phase = _agent_message_phase(agent_item)
-                            if item_id:
-                                agent_message_phases[item_id] = phase
-                            if _codex_notification_method(event) != "item/completed":
-                                continue
-                            text = _agent_message_text(agent_item)
-                            if not text:
-                                continue
-                            if phase == "commentary":
-                                if item_id not in update_delta_item_ids:
-                                    yield f"data: {json.dumps({'type': 'assistant_update', 'id': item_id, 'phase': phase, 'content': text}, ensure_ascii=False)}\n\n"
-                                continue
-                            if item_id not in final_delta_item_ids:
-                                emitted_text += text
-                                yield _chunk(chunk_id, model, created, {"content": text})
-                            continue
-                        delta = _extract_event_delta(event)
-                        if delta:
-                            emitted_text += delta
-                            yield _chunk(chunk_id, model, created, {"content": delta})
-                    now = time.monotonic()
-                    if now - last_heartbeat >= _HEARTBEAT_SECONDS:
-                        yield f"data: {json.dumps({'type': 'heartbeat', 'ts': int(time.time())})}\n\n"
-                        last_heartbeat = now
-                    await asyncio.sleep(0.05)
-
-                result = await agent_manager.wait(job.job_id)
-                if job.events_file:
-                    events, offset = _read_new_events(job.events_file, offset)
-                    for event in events:
-                        usage_event = _extract_usage_event(event)
-                        if usage_event is not None:
-                            latest_usage = usage_event
-                            continue
-                        approval = _extract_approval(event)
-                        if approval is not None:
-                            _mark_session_awaiting_approval(session, approval)
-                            manager.touch_session(session)
-                            manager.persist_session(session)
-                            yield f"data: {json.dumps({'type': 'approval_required', 'approval': approval}, ensure_ascii=False)}\n\n"
-                            continue
-                        image_event = _extract_image_event(event, session=session, config=config)
-                        if image_event is not None:
-                            yield f"data: {json.dumps(image_event, ensure_ascii=False)}\n\n"
-                            continue
-                        plan_event = _extract_plan_update_event(event)
-                        if plan_event is not None:
-                            _record_session_plan_update(session, plan_event)
-                            manager.touch_session(session)
-                            manager.persist_session(session)
-                            yield f"data: {json.dumps(plan_event, ensure_ascii=False)}\n\n"
-                            continue
-                        tool_event = _extract_tool_event(event)
-                        if tool_event is not None:
-                            yield f"data: {json.dumps(tool_event, ensure_ascii=False)}\n\n"
-                            continue
-                        agent_delta = _agent_message_delta(event)
-                        if agent_delta is not None:
-                            item_id, delta = agent_delta
-                            phase = agent_message_phases.get(item_id) if item_id else None
-                            if item_id and phase == "commentary":
-                                update_delta_item_ids.add(item_id)
-                                yield f"data: {json.dumps({'type': 'assistant_update_delta', 'id': item_id, 'phase': phase, 'delta': delta}, ensure_ascii=False)}\n\n"
-                                continue
-                            if item_id:
-                                final_delta_item_ids.add(item_id)
-                            emitted_text += delta
-                            yield _chunk(chunk_id, model, created, {"content": delta})
-                            continue
-                        agent_item = _agent_message_item(event)
-                        if agent_item is not None:
-                            item_id = _agent_message_item_id(agent_item)
-                            phase = _agent_message_phase(agent_item)
-                            if item_id:
-                                agent_message_phases[item_id] = phase
-                            if _codex_notification_method(event) != "item/completed":
-                                continue
-                            text = _agent_message_text(agent_item)
-                            if not text:
-                                continue
-                            if phase == "commentary":
-                                if item_id not in update_delta_item_ids:
-                                    yield f"data: {json.dumps({'type': 'assistant_update', 'id': item_id, 'phase': phase, 'content': text}, ensure_ascii=False)}\n\n"
-                                continue
-                            if item_id not in final_delta_item_ids:
-                                emitted_text += text
-                                yield _chunk(chunk_id, model, created, {"content": text})
-                            continue
-                        delta = _extract_event_delta(event)
-                        if delta:
-                            emitted_text += delta
-                            yield _chunk(chunk_id, model, created, {"content": delta})
-
-                if result is None or result.status != AgentRunnerStatus.COMPLETED:
-                    error = result.error if result else "Codex run disappeared"
-                    raise RuntimeError(error or "Codex run failed")
-
-                output_text = _read_output(result)
-                if not emitted_text and output_text:
-                    emitted_text = output_text
-                    yield _chunk(chunk_id, model, created, {"content": output_text})
-
                 _append_session_messages(session, user_input, output_text or emitted_text, user_content=user_content)
                 _clear_session_plan(session)
-                if latest_usage["total_tokens"] > 0:
-                    yield f"data: {json.dumps({'type': 'usage', 'usage': latest_usage}, ensure_ascii=False)}\n\n"
-                finish_chunk = {
-                    "id": chunk_id,
-                    "object": "chat.completion.chunk",
-                    "created": created,
-                    "model": model,
-                    "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
-                    "usage": _usage(),
-                }
-                yield f"data: {json.dumps(finish_chunk, ensure_ascii=False)}\n\n"
-                yield "data: [DONE]\n\n"
+            if latest_usage["total_tokens"] > 0:
+                yield f"data: {json.dumps({'type': 'usage', 'usage': latest_usage}, ensure_ascii=False)}\n\n"
+            finish_chunk = {
+                "id": chunk_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": model,
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                "usage": _usage(),
+            }
+            yield f"data: {json.dumps(finish_chunk, ensure_ascii=False)}\n\n"
+            yield "data: [DONE]\n\n"
         except asyncio.CancelledError:
             if job is not None:
                 agent_manager.cancel(job.job_id)
                 await agent_manager.wait(job.job_id)
-            session.status = "idle"
+            async with session.lock:
+                if session.current_task is asyncio.current_task():
+                    session.status = SessionStatus.IDLE
             yield f"data: {json.dumps({'error': {'message': 'Request cancelled', 'type': 'cancelled'}})}\n\n"
             yield "data: [DONE]\n\n"
         except Exception as exc:
@@ -989,8 +970,4 @@ async def stream_codex_chat_as_sse(
             yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
             yield "data: [DONE]\n\n"
         finally:
-            session.current_task = None
-            if session.status == "running":
-                session.status = "idle"
-            manager.touch_session(session)
-            manager.persist_session(session)
+            await _finish_session_run(session, manager)

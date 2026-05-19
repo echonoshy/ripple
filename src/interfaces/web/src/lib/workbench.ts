@@ -1,14 +1,13 @@
 import type {
   Message,
-  Session,
   TaskSummary,
   ToolCall,
-  WorkbenchTaskStatus,
-  WorkbenchTaskSummary,
+  WorkbenchSessionStatus,
+  WorkbenchSessionSummary,
   WorkbenchTimelineEvent,
 } from "@/types";
 
-const STATUS_PRIORITY: Record<WorkbenchTaskStatus, number> = {
+const STATUS_PRIORITY: Record<WorkbenchSessionStatus, number> = {
   waiting_for_approval: 0,
   waiting_for_user: 1,
   failed: 2,
@@ -20,7 +19,7 @@ const STATUS_PRIORITY: Record<WorkbenchTaskStatus, number> = {
   cancelled: 8,
 };
 
-export function sessionStatusToWorkbenchStatus(status: string): WorkbenchTaskStatus {
+export function sessionStatusToWorkbenchStatus(status: string): WorkbenchSessionStatus {
   const normalized = status.toLowerCase();
   if (normalized === "awaiting_permission" || normalized === "waiting_for_approval") {
     return "waiting_for_approval";
@@ -37,26 +36,12 @@ export function sessionStatusToWorkbenchStatus(status: string): WorkbenchTaskSta
   return "idle";
 }
 
-export function mapSessionsToWorkbenchTasks(sessions: Session[]): WorkbenchTaskSummary[] {
-  return sessions.map((session) => {
-    const status = sessionStatusToWorkbenchStatus(session.status);
-    return {
-      id: session.session_id,
-      title: session.title?.trim() || `Session ${session.session_id}`,
-      status,
-      model: session.model,
-      lastActivityAt: session.last_active,
-      messageCount: session.message_count,
-      changedFileCount: 0,
-      pendingApprovalCount: status === "waiting_for_approval" ? 1 : 0,
-    };
-  });
-}
-
-export function mapTasksToWorkbenchTasks(tasks: TaskSummary[]): WorkbenchTaskSummary[] {
+export function mapTaskSummariesToWorkbenchSessions(
+  tasks: TaskSummary[]
+): WorkbenchSessionSummary[] {
   return tasks.map((task) => ({
-    id: task.task_id,
-    title: task.title?.trim() || `Task ${task.task_id}`,
+    sessionId: task.session_id || task.task_id,
+    title: task.title?.trim() || `Session ${task.session_id || task.task_id}`,
     status: sessionStatusToWorkbenchStatus(task.status),
     model: task.model,
     lastActivityAt: task.last_active,
@@ -66,22 +51,20 @@ export function mapTasksToWorkbenchTasks(tasks: TaskSummary[]): WorkbenchTaskSum
   }));
 }
 
-export function sortWorkbenchTasks(tasks: WorkbenchTaskSummary[]): WorkbenchTaskSummary[] {
-  return [...tasks].sort((a, b) => {
+export function sortWorkbenchSessions(
+  sessions: WorkbenchSessionSummary[]
+): WorkbenchSessionSummary[] {
+  return [...sessions].sort((a, b) => {
     const priority = STATUS_PRIORITY[a.status] - STATUS_PRIORITY[b.status];
     if (priority !== 0) return priority;
     return Date.parse(b.lastActivityAt) - Date.parse(a.lastActivityAt);
   });
 }
 
-export function createWorkbenchTasks(sessions: Session[]): WorkbenchTaskSummary[] {
-  return sortWorkbenchTasks(mapSessionsToWorkbenchTasks(sessions));
-}
-
-export function createWorkbenchTasksFromTaskSummaries(
+export function createWorkbenchSessionsFromTaskSummaries(
   tasks: TaskSummary[]
-): WorkbenchTaskSummary[] {
-  return sortWorkbenchTasks(mapTasksToWorkbenchTasks(tasks));
+): WorkbenchSessionSummary[] {
+  return sortWorkbenchSessions(mapTaskSummariesToWorkbenchSessions(tasks));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -106,11 +89,10 @@ function stringifyToolBody(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
-function commandBody(args: Record<string, unknown>, result: string | undefined): string {
-  const command = stringifyToolBody(args.command);
-  const cwd = typeof args.cwd === "string" && args.cwd ? `\n\ncwd: ${args.cwd}` : "";
-  const output = result ? `\n\nresult:\n${result}` : "";
-  return `${command || stringifyToolBody(args)}${cwd}${output}`;
+function compactLine(value: string, maxLength = 180): string {
+  const line = value.replace(/\s+/g, " ").trim();
+  if (line.length <= maxLength) return line;
+  return `${line.slice(0, maxLength - 1)}...`;
 }
 
 function changedPathsFromValue(value: unknown): string[] {
@@ -140,40 +122,51 @@ function changedPathsFromTool(tool: ToolCall): string[] {
   }
 }
 
-function toolEvent(message: Message, tool: ToolCall): WorkbenchTimelineEvent {
+function toolStatus(tools: ToolCall[]): string | undefined {
+  if (tools.some((tool) => tool.status === "error")) return "error";
+  if (tools.some((tool) => tool.status === "running")) return "running";
+  if (tools.length > 0 && tools.every((tool) => tool.status === "success")) return "success";
+  return tools[0]?.status;
+}
+
+function toolSummaryLine(tool: ToolCall): string {
   const args = toolArgs(tool);
   if (tool.name === "command_execution" || tool.name === "exec_command") {
-    return {
-      id: `${message.id}-${tool.id}`,
-      type: "command",
-      title: "Ran command",
-      body: commandBody(args, tool.result),
-      createdAt: message.created_at,
-      status: tool.status,
-    };
+    const command = compactLine(stringifyToolBody(args.command) || stringifyToolBody(args));
+    return command ? `$ ${command}` : tool.name;
   }
 
   if (tool.name === "file_change" || tool.name === "apply_patch") {
     const paths = changedPathsFromTool(tool);
-    return {
-      id: `${message.id}-${tool.id}`,
-      type: "file_change",
-      title: "Changed files",
-      body: paths.length > 0 ? paths.join("\n") : stringifyToolBody(args),
-      createdAt: message.created_at,
-      status: tool.status,
-    };
+    if (paths.length > 0) {
+      const visiblePaths = paths.slice(0, 3).join(", ");
+      const suffix = paths.length > 3 ? `, +${paths.length - 3} more` : "";
+      return `changed ${paths.length} file${paths.length === 1 ? "" : "s"}: ${visiblePaths}${suffix}`;
+    }
+    return "changed files";
   }
 
+  const firstArg = compactLine(stringifyToolBody(args), 120);
+  return firstArg ? `${tool.name}: ${firstArg}` : tool.name;
+}
+
+function toolsEvent(message: Message, tools: ToolCall[]): WorkbenchTimelineEvent {
+  const visibleTools = tools.slice(0, 8);
+  const hiddenCount = tools.length - visibleTools.length;
+  const body = [
+    ...visibleTools.map(toolSummaryLine),
+    hiddenCount > 0 ? `+${hiddenCount} more tool${hiddenCount === 1 ? "" : "s"}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
   return {
-    id: `${message.id}-${tool.id}`,
+    id: `${message.id}-tools`,
     type: "tool_call",
-    title: `Used ${tool.name}`,
-    body: tool.result
-      ? `${stringifyToolBody(args)}\n\nresult:\n${tool.result}`
-      : stringifyToolBody(args),
+    title: `Used ${tools.length} tool${tools.length === 1 ? "" : "s"}`,
+    body,
     createdAt: message.created_at,
-    status: tool.status,
+    status: toolStatus(tools),
   };
 }
 
@@ -208,8 +201,8 @@ export function messagesToTimelineEvents(messages: Message[]): WorkbenchTimeline
       });
     }
 
-    for (const tool of toolCalls) {
-      events.push(toolEvent(message, tool));
+    if (toolCalls.length > 0) {
+      events.push(toolsEvent(message, toolCalls));
     }
 
     if (message.role === "assistant" && message.content) {

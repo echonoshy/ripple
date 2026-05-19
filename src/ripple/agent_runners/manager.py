@@ -236,6 +236,7 @@ def build_external_agent_manager_from_config() -> ExternalAgentManager:
             idle_timeout_seconds=int(codex_config.get("idle_timeout_seconds") or 1800),
             run_app_server_in_user_sandbox=bool(codex_config.get("run_app_server_in_user_sandbox", False)),
             ephemeral_threads=bool(codex_config.get("ephemeral_threads", True)),
+            request_timeout_seconds=float(codex_config.get("request_timeout_seconds") or 30.0),
         )
     return ExternalAgentManager(providers=providers)
 

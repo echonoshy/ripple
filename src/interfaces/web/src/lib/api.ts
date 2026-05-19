@@ -2,25 +2,17 @@ import { fetchEventSource } from "@microsoft/fetch-event-source";
 import {
   ToolCall,
   UsageInfo,
-  SystemInfo,
   SandboxInfo,
   ConnectorActionResponse,
   ConnectorInfo,
   ConnectorStatus,
   GogcliAccountsResponse,
-  Session,
-  SessionDetail,
   TaskDetail,
   TaskInfo,
   TaskPlanUpdate,
   TaskProgress,
   TaskSummary,
   AgentStopData,
-  AgentRunInfo,
-  AgentRunListResponse,
-  DocumentInfo,
-  DocumentListResponse,
-  UserQuotaStatus,
   WorkspaceAttachmentResponse,
   WorkspaceEntry,
   WorkspaceFilePreview,
@@ -31,11 +23,24 @@ import { buildChatMessageContent, type ChatFileRef } from "@/lib/chatInput";
 
 const DEFAULT_PUBLIC_API_URL = "https://test-oauth.weilai.ai/v1";
 
-function getApiUrl(): string {
-  if (import.meta.env.VITE_RIPPLE_API_URL) {
-    return import.meta.env.VITE_RIPPLE_API_URL;
+type ApiUrlEnv = {
+  DEV?: boolean;
+  PROD?: boolean;
+  VITE_RIPPLE_API_URL?: string;
+};
+
+export function resolveApiUrl(env: ApiUrlEnv): string {
+  if (env.VITE_RIPPLE_API_URL) {
+    return env.VITE_RIPPLE_API_URL;
+  }
+  if (env.DEV) {
+    return "/v1";
   }
   return DEFAULT_PUBLIC_API_URL;
+}
+
+function getApiUrl(): string {
+  return resolveApiUrl(import.meta.env);
 }
 
 const API_URL = getApiUrl();
@@ -174,31 +179,6 @@ export async function fetchModels(): Promise<{ id: string; owned_by: string }[]>
   return data.data || [];
 }
 
-export async function fetchSystemInfo(): Promise<SystemInfo | null> {
-  try {
-    const res = await fetch(`${API_URL}/info`, { headers: { ...authHeaders() } });
-    if (res.status === 401) throw new AuthError();
-    if (!res.ok) return null;
-    return await res.json();
-  } catch (error) {
-    if (error instanceof AuthError) throw error;
-    console.error("Error fetching system info:", error);
-    return null;
-  }
-}
-
-export async function createSession(): Promise<string> {
-  const res = await fetch(`${API_URL}/sessions`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify({}),
-  });
-  if (res.status === 401) throw new AuthError();
-  if (!res.ok) throw new Error("Failed to create session");
-  const data = await res.json();
-  return data.session_id;
-}
-
 export async function createTask(): Promise<TaskSummary> {
   const res = await fetch(`${API_URL}/tasks`, {
     method: "POST",
@@ -208,20 +188,6 @@ export async function createTask(): Promise<TaskSummary> {
   if (res.status === 401) throw new AuthError();
   if (!res.ok) throw new Error("Failed to create task");
   return (await res.json()) as TaskSummary;
-}
-
-export async function fetchSessions(): Promise<Session[]> {
-  try {
-    const res = await fetch(`${API_URL}/sessions`, { headers: { ...authHeaders() } });
-    if (res.status === 401) throw new AuthError();
-    if (!res.ok) return [];
-    const data = await res.json();
-    return data.sessions || [];
-  } catch (error) {
-    if (error instanceof AuthError) throw error;
-    console.error("Error fetching sessions:", error);
-    return [];
-  }
 }
 
 export async function fetchTasks(): Promise<TaskSummary[]> {
@@ -238,24 +204,9 @@ export async function fetchTasks(): Promise<TaskSummary[]> {
   }
 }
 
-export async function fetchSessionDetails(sessionId: string): Promise<SessionDetail | null> {
+export async function fetchTaskDetails(sessionId: string): Promise<TaskDetail | null> {
   try {
-    const res = await fetch(`${API_URL}/sessions/${sessionId}`, {
-      headers: { ...authHeaders() },
-    });
-    if (res.status === 401) throw new AuthError();
-    if (!res.ok) return null;
-    return await res.json();
-  } catch (error) {
-    if (error instanceof AuthError) throw error;
-    console.error("Error fetching session details:", error);
-    return null;
-  }
-}
-
-export async function fetchTaskDetails(taskId: string): Promise<TaskDetail | null> {
-  try {
-    const res = await fetch(`${API_URL}/tasks/${taskId}`, {
+    const res = await fetch(`${API_URL}/tasks/${encodeURIComponent(sessionId)}`, {
       headers: { ...authHeaders() },
     });
     if (res.status === 401) throw new AuthError();
@@ -268,9 +219,9 @@ export async function fetchTaskDetails(taskId: string): Promise<TaskDetail | nul
   }
 }
 
-export async function deleteSession(sessionId: string): Promise<boolean> {
+export async function deleteTask(sessionId: string): Promise<boolean> {
   try {
-    const res = await fetch(`${API_URL}/sessions/${sessionId}`, {
+    const res = await fetch(`${API_URL}/tasks/${encodeURIComponent(sessionId)}`, {
       method: "DELETE",
       headers: { ...authHeaders() },
     });
@@ -281,22 +232,9 @@ export async function deleteSession(sessionId: string): Promise<boolean> {
   }
 }
 
-export async function deleteTask(taskId: string): Promise<boolean> {
+export async function clearTaskContext(sessionId: string): Promise<boolean> {
   try {
-    const res = await fetch(`${API_URL}/tasks/${taskId}`, {
-      method: "DELETE",
-      headers: { ...authHeaders() },
-    });
-    if (res.status === 401) throw new AuthError();
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
-export async function clearTaskContext(taskId: string): Promise<boolean> {
-  try {
-    const res = await fetch(`${API_URL}/tasks/${encodeURIComponent(taskId)}/context/clear`, {
+    const res = await fetch(`${API_URL}/tasks/${encodeURIComponent(sessionId)}/context/clear`, {
       method: "POST",
       headers: { ...authHeaders() },
     });
@@ -308,58 +246,31 @@ export async function clearTaskContext(taskId: string): Promise<boolean> {
   }
 }
 
-export async function stopSession(sessionId: string): Promise<boolean> {
+export async function stopTask(sessionId: string): Promise<boolean> {
   try {
-    const res = await fetch(`${API_URL}/sessions/${sessionId}/stop`, {
+    const res = await fetch(`${API_URL}/tasks/${encodeURIComponent(sessionId)}/stop`, {
       method: "POST",
       headers: { ...authHeaders() },
     });
     return res.ok;
   } catch {
-    return false;
-  }
-}
-
-export async function stopTask(taskId: string): Promise<boolean> {
-  try {
-    const res = await fetch(`${API_URL}/tasks/${taskId}/stop`, {
-      method: "POST",
-      headers: { ...authHeaders() },
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
-export async function resolvePermissionRequest(
-  sessionId: string,
-  action: "allow" | "always" | "deny"
-): Promise<boolean> {
-  try {
-    const res = await fetch(`${API_URL}/sessions/${sessionId}/permissions/resolve`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify({ action }),
-    });
-    if (res.status === 401) throw new AuthError();
-    return res.ok;
-  } catch (error) {
-    if (error instanceof AuthError) throw error;
     return false;
   }
 }
 
 export async function resolveTaskPermissionRequest(
-  taskId: string,
+  sessionId: string,
   action: "allow" | "always" | "deny"
 ): Promise<boolean> {
   try {
-    const res = await fetch(`${API_URL}/tasks/${taskId}/permissions/resolve`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify({ action }),
-    });
+    const res = await fetch(
+      `${API_URL}/tasks/${encodeURIComponent(sessionId)}/permissions/resolve`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ action }),
+      }
+    );
     if (res.status === 401) throw new AuthError();
     return res.ok;
   } catch (error) {
@@ -855,143 +766,4 @@ export async function saveWorkspaceFile(
   if (res.status === 409) throw new Error("File changed on disk. Refresh before saving.");
   if (!res.ok) throw new Error(`Failed to save file (${res.status})`);
   return (await res.json()) as WorkspaceFilePreview;
-}
-
-export async function fetchRuns(): Promise<AgentRunInfo[]> {
-  const res = await fetch(`${API_URL}/runs`, { headers: { ...authHeaders() } });
-  if (res.status === 401) throw new AuthError();
-  if (!res.ok) throw new Error(`Failed to fetch runs (${res.status})`);
-  const body = (await res.json()) as AgentRunListResponse;
-  return body.runs || [];
-}
-
-export async function fetchRun(jobId: string): Promise<AgentRunInfo | null> {
-  const res = await fetch(`${API_URL}/runs/${encodeURIComponent(jobId)}`, {
-    headers: { ...authHeaders() },
-  });
-  if (res.status === 401) throw new AuthError();
-  if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`Failed to fetch run (${res.status})`);
-  return (await res.json()) as AgentRunInfo;
-}
-
-export async function streamRunEvents(
-  jobId: string,
-  callbacks: {
-    onEvent: (event: Record<string, unknown>) => void;
-    onHeartbeat?: (event: Record<string, unknown>) => void;
-    onComplete: () => void;
-    onError: (error: Error) => void;
-  },
-  options?: { signal?: AbortSignal; fromStart?: boolean; follow?: boolean }
-) {
-  const qs = new URLSearchParams({
-    from_start: String(options?.fromStart ?? true),
-    follow: String(options?.follow ?? true),
-  });
-  let completed = false;
-  const markComplete = () => {
-    if (completed) return;
-    completed = true;
-    callbacks.onComplete();
-  };
-
-  try {
-    await fetchEventSource(`${API_URL}/runs/${encodeURIComponent(jobId)}/events?${qs.toString()}`, {
-      method: "GET",
-      signal: options?.signal,
-      headers: { ...authHeaders() },
-      async onopen(response) {
-        if (response.status === 401) throw new AuthError();
-        if (!response.ok) throw new Error(`Server responded with ${response.status}`);
-      },
-      onmessage(message) {
-        if (message.data === "[DONE]") {
-          markComplete();
-          return;
-        }
-        try {
-          const event = JSON.parse(message.data) as Record<string, unknown>;
-          if (event.type === "heartbeat") {
-            callbacks.onHeartbeat?.(event);
-          } else {
-            callbacks.onEvent(event);
-          }
-        } catch (error) {
-          callbacks.onError(error as Error);
-        }
-      },
-      onerror(error) {
-        throw error;
-      },
-      onclose() {
-        markComplete();
-      },
-    });
-  } catch (error) {
-    if (options?.signal?.aborted) {
-      markComplete();
-      return;
-    }
-    if (!completed) callbacks.onError(error as Error);
-  }
-}
-
-export async function fetchUserQuota(): Promise<UserQuotaStatus> {
-  const res = await fetch(`${API_URL}/users/me/quota`, { headers: { ...authHeaders() } });
-  if (res.status === 401) throw new AuthError();
-  if (!res.ok) throw new Error(`Failed to fetch quota (${res.status})`);
-  return (await res.json()) as UserQuotaStatus;
-}
-
-export async function fetchDocuments(query?: string): Promise<DocumentInfo[]> {
-  const qs = query ? `?${new URLSearchParams({ q: query }).toString()}` : "";
-  const res = await fetch(`${API_URL}/documents${qs}`, { headers: { ...authHeaders() } });
-  if (res.status === 401) throw new AuthError();
-  if (!res.ok) throw new Error(`Failed to fetch documents (${res.status})`);
-  const body = (await res.json()) as DocumentListResponse;
-  return body.documents || [];
-}
-
-export async function createDocument(payload: {
-  title: string;
-  path: string;
-  linked_session_id?: string | null;
-  summary?: string;
-}): Promise<DocumentInfo> {
-  const res = await fetch(`${API_URL}/documents`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify(payload),
-  });
-  if (res.status === 401) throw new AuthError();
-  if (!res.ok) throw new Error(`Failed to create document (${res.status})`);
-  return (await res.json()) as DocumentInfo;
-}
-
-export async function updateDocument(
-  documentId: string,
-  payload: {
-    title?: string;
-    linked_session_id?: string | null;
-    summary?: string | null;
-  }
-): Promise<DocumentInfo> {
-  const res = await fetch(`${API_URL}/documents/${encodeURIComponent(documentId)}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify(payload),
-  });
-  if (res.status === 401) throw new AuthError();
-  if (!res.ok) throw new Error(`Failed to update document (${res.status})`);
-  return (await res.json()) as DocumentInfo;
-}
-
-export async function deleteDocument(documentId: string): Promise<boolean> {
-  const res = await fetch(`${API_URL}/documents/${encodeURIComponent(documentId)}`, {
-    method: "DELETE",
-    headers: { ...authHeaders() },
-  });
-  if (res.status === 401) throw new AuthError();
-  return res.ok;
 }

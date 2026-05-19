@@ -14,6 +14,11 @@ from ripple.users.store import ensure_user_record
 
 def user_usage(config: SandboxConfig, user_id: str) -> dict[str, int]:
     records = list_user_job_records(config.sandbox_dir(user_id) / "agent-runs")
+    sessions_dir = config.sandbox_dir(user_id) / "sessions"
+    if sessions_dir.exists():
+        for session_dir in sessions_dir.iterdir():
+            if session_dir.is_dir():
+                records.extend(list_user_job_records(session_dir))
     today = datetime.now(timezone.utc).date()
     runs_today = 0
     active_runs = 0
@@ -27,7 +32,6 @@ def user_usage(config: SandboxConfig, user_id: str) -> dict[str, int]:
             runs_today += 1
         if record.get("status") == "running":
             active_runs += 1
-    sessions_dir = config.sandbox_dir(user_id) / "sessions"
     session_count = len([d for d in sessions_dir.iterdir() if d.is_dir()]) if sessions_dir.exists() else 0
     return {
         "workspace_size_bytes": get_workspace_size_bytes(config, user_id),

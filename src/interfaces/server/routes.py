@@ -480,6 +480,16 @@ def _request_public_base_url(request: Request) -> str | None:
     return gogcli_oauth_request_base_url(dict(request.headers), str(request.url))
 
 
+def _codex_chat_max_runtime_seconds(config) -> int:
+    return int(
+        config.get(
+            "server.codex_chat.max_runtime_seconds",
+            config.get("external_agents.codex.max_runtime_seconds", 3600),
+        )
+        or 3600
+    )
+
+
 @router.post("/v1/chat/completions")
 async def chat_completions(
     request: ChatCompletionRequest,
@@ -492,14 +502,27 @@ async def chat_completions(
 
     max_turns = request.max_turns or config.get("agent.max_turns", 10)
     caller_system_prompt = _extract_caller_system_prompt(request)
+    if manager.sandbox_manager:
+        manager.sandbox_manager.ensure_sandbox(user_id)
+        assert_can_create_run(manager.sandbox_manager.config, user_id, _codex_chat_max_runtime_seconds(config))
 
-    session, is_new = manager.get_or_create_session(
-        session_id=request.session_id,
-        user_id=user_id,
-        model=request.model,
-        max_turns=max_turns,
-        caller_system_prompt=caller_system_prompt,
-    )
+    session = None
+    is_new = False
+    if request.session_id:
+        session = manager.get_session(request.session_id, user_id=user_id)
+        if not session:
+            session = manager.resume_session(request.session_id, user_id=user_id)
+    if session is None:
+        if manager.sandbox_manager:
+            manager.sandbox_manager.ensure_sandbox(user_id)
+            assert_can_create_session(manager.sandbox_manager.config, user_id)
+        session = manager.create_session(
+            user_id=user_id,
+            model=request.model,
+            max_turns=max_turns,
+            caller_system_prompt=caller_system_prompt,
+        )
+        is_new = True
     set_current_session_id(session.session_id)
     resolved_model = manager.configure_session_model(session, request.model)
 
@@ -715,6 +738,28 @@ async def create_session(
     )
 
 
+@router.get("/v1/sessions/suspended")
+async def list_suspended_sessions(
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+):
+    """列出所有已挂起的 session（仅当前 user）"""
+    manager = get_session_manager()
+    suspended = manager.list_suspended_sessions(user_id=user_id)
+
+    sessions_out = []
+    for s in suspended:
+        entry = dict(s)
+        if "model" in entry:
+            entry["model"] = _display_model(entry["model"])
+        sessions_out.append(SuspendedSessionInfo(**entry))
+
+    return {
+        "sessions": sessions_out,
+        "count": len(suspended),
+    }
+
+
 @router.get("/v1/sessions/{session_id}")
 async def get_session(
     session_id: str,
@@ -863,28 +908,6 @@ async def resume_session(
         message_count=len(session.messages),
         status="active",
     )
-
-
-@router.get("/v1/sessions/suspended")
-async def list_suspended_sessions(
-    user_id: str = Depends(get_user_id),
-    _api_key: str = Depends(verify_api_key),
-):
-    """列出所有已挂起的 session（仅当前 user）"""
-    manager = get_session_manager()
-    suspended = manager.list_suspended_sessions(user_id=user_id)
-
-    sessions_out = []
-    for s in suspended:
-        entry = dict(s)
-        if "model" in entry:
-            entry["model"] = _display_model(entry["model"])
-        sessions_out.append(SuspendedSessionInfo(**entry))
-
-    return {
-        "sessions": sessions_out,
-        "count": len(suspended),
-    }
 
 
 # ─── Sandboxes (user-scoped) ───

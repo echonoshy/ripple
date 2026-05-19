@@ -2,14 +2,14 @@ import assert from "node:assert/strict";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import type { WorkbenchTaskSummary } from "@/types";
+import type { WorkbenchSessionSummary } from "@/types";
 import HomePage from "./HomePage";
 
 function noop() {}
 
-const tasks: WorkbenchTaskSummary[] = [
+const sessions: WorkbenchSessionSummary[] = [
   {
-    id: "task-1",
+    sessionId: "srv-1",
     title: "Review mobile copy",
     status: "idle",
     model: "codex-medium",
@@ -24,10 +24,10 @@ function renderHomePage() {
   return renderToStaticMarkup(
     <HomePage
       userId="default"
-      tasks={tasks}
-      isLoadingTasks={false}
-      onNewTask={noop}
-      onSelectTask={noop}
+      sessions={sessions}
+      isLoadingSessions={false}
+      onNewSession={noop}
+      onSelectSession={noop}
       onSelectView={noop}
     />
   );
@@ -39,11 +39,13 @@ function testHomeHasMobileSpecificCopy() {
   assert.match(html, /sm:hidden[^>]*>Workspace</);
   assert.match(html, /hidden sm:inline[^>]*>Home</);
   assert.match(html, /sm:hidden[^>]*>New</);
-  assert.match(html, /hidden sm:inline[^>]*>New Task</);
+  assert.match(html, /hidden sm:inline[^>]*>New Session</);
   assert.match(html, /sm:hidden[^>]*>Apps</);
   assert.match(html, /sm:hidden[^>]*>Ready</);
   assert.match(html, /sm:hidden[^>]*>Recent</);
-  assert.match(html, /hidden sm:inline[^>]*>Recent tasks</);
+  assert.match(html, /hidden sm:inline[^>]*>Recent sessions</);
+  assert.doesNotMatch(html, />Tasks</);
+  assert.doesNotMatch(html, /tasks yet/);
 }
 
 testHomeHasMobileSpecificCopy();

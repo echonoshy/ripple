@@ -13,7 +13,12 @@ function testTaskDetailsRestorePersistedPlan() {
   assert.match(source, /details\.task_progress/);
 }
 
+function testRestoringSessionRefreshesWorkspaceViews() {
+  assert.match(source, /applyTaskDetails[\s\S]*setWorkspaceRefreshToken/);
+}
+
 testChatCompletionClearsResidualPlan();
 testTaskDetailsRestorePersistedPlan();
+testRestoringSessionRefreshesWorkspaceViews();
 
 console.log("app plan tests passed");

@@ -92,6 +92,21 @@ def test_task_detail_returns_persisted_plan_state(tmp_path: Path, monkeypatch):
     assert body["task_progress"] == session.task_progress
 
 
+def test_list_suspended_sessions_route_is_not_shadowed_by_session_detail(tmp_path: Path, monkeypatch):
+    client, session_manager = _client(tmp_path, monkeypatch)
+    session = session_manager.create_session(user_id="alice", model="codex-medium")
+    session.messages.append(create_user_message("Suspend me"))
+    session_manager.persist_session(session)
+    assert session_manager.suspend_session(session.session_id, user_id="alice") is True
+
+    response = client.get("/v1/sessions/suspended")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["count"] == 1
+    assert body["sessions"][0]["session_id"] == session.session_id
+
+
 def test_task_create_returns_session_backed_summary_and_ensures_sandbox(tmp_path: Path, monkeypatch):
     client, session_manager = _client(tmp_path, monkeypatch)
 

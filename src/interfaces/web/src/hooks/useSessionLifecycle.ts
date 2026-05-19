@@ -143,7 +143,11 @@ export function useSessionLifecycle({
 
   const switchSession = useCallback(
     async (targetSessionId: string): Promise<boolean> => {
-      if (targetSessionId === sessionId || isGenerating) return false;
+      if (targetSessionId === sessionId) {
+        onSessionActivated();
+        return true;
+      }
+      if (isGenerating) return false;
       try {
         const details = await fetchSessionDetails(targetSessionId);
         if (!details) return false;

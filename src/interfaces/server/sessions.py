@@ -52,6 +52,7 @@ class Session:
     pending_options: list[str] | None = None
     pending_permission_request: dict[str, object] | None = None
     pending_connector_auth: dict[str, object] | None = None
+    pending_schedule_request: dict[str, object] | None = None
     codex_thread_id: str | None = None
     task_steps: list[dict[str, object]] = field(default_factory=list)
     task_progress: dict[str, object] | None = None
@@ -80,7 +81,10 @@ Ripple injects connector credentials and exposes connector status in each Codex 
 If Codex needs user approval, request it through the Codex app-server approval flow. Ripple will surface the pending approval to the user and forward the user's decision back to Codex.
 
 ## Scheduling
-Ripple does not provide an embedded scheduler. Future or recurring work should be handled by an external scheduler that calls `/v1/runs` with the correct `X-Ripple-User-Id`."""
+Ripple owns schedule extraction, confirmation, metadata, and triggering. Most requests to create a future or recurring
+task are intercepted by Ripple before normal Codex chat. If a scheduling request reaches normal Codex chat, answer in
+plain language or ask for clarification; do not output schedule JSON, call Ripple schedule APIs, or implement scheduling
+with cron, sleep loops, or background daemons."""
 
 
 _CALLER_PROMPT_SEPARATOR = (
@@ -237,6 +241,7 @@ class SessionManager:
             pending_options=session.pending_options,
             pending_permission_request=session.pending_permission_request,
             pending_connector_auth=session.pending_connector_auth,
+            pending_schedule_request=session.pending_schedule_request,
             codex_thread_id=session.codex_thread_id,
             task_steps=session.task_steps,
             task_progress=session.task_progress,
@@ -471,6 +476,7 @@ class SessionManager:
             pending_options=state.get("pending_options"),
             pending_permission_request=state.get("pending_permission_request"),
             pending_connector_auth=state.get("pending_connector_auth"),
+            pending_schedule_request=state.get("pending_schedule_request"),
             codex_thread_id=state.get("codex_thread_id"),
             task_steps=state.get("task_steps", []),
             task_progress=state.get("task_progress"),
@@ -540,6 +546,7 @@ class SessionManager:
                 "pending_options": s.pending_options,
                 "pending_permission_request": s.pending_permission_request,
                 "pending_connector_auth": s.pending_connector_auth,
+                "pending_schedule_request": s.pending_schedule_request,
                 "codex_thread_id": s.codex_thread_id,
                 "total_input_tokens": s.total_input_tokens,
                 "total_output_tokens": s.total_output_tokens,

@@ -25,6 +25,7 @@ interface TaskPageProps {
   input: string;
   pendingFiles: ChatFileRef[];
   isGenerating: boolean;
+  isComposerBlocked?: boolean;
   focusToken: number;
   selectedModel: string;
   models: { id: string; owned_by: string }[];
@@ -55,6 +56,7 @@ export default function TaskPage({
   input,
   pendingFiles,
   isGenerating,
+  isComposerBlocked = false,
   focusToken,
   selectedModel,
   models,
@@ -239,6 +241,7 @@ export default function TaskPage({
         onRemovePendingFile={onRemovePendingFile}
         pendingFiles={pendingFiles}
         isGenerating={isGenerating}
+        isBlocked={isComposerBlocked}
         hasSession={hasMessages || Boolean(session)}
         focusToken={focusToken}
         selectedModel={selectedModel}

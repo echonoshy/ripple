@@ -147,7 +147,6 @@ export function useSessionLifecycle({
         onSessionActivated();
         return true;
       }
-      if (isGenerating) return false;
       try {
         const details = await fetchSessionDetails(targetSessionId);
         if (!details) return false;
@@ -159,7 +158,7 @@ export function useSessionLifecycle({
         return false;
       }
     },
-    [applySessionDetails, isGenerating, onSessionActivated, sessionId]
+    [applySessionDetails, onSessionActivated, sessionId]
   );
 
   const deleteSessionById = useCallback(
@@ -187,6 +186,10 @@ export function useSessionLifecycle({
     return stopSession(sessionId);
   }, [sessionId]);
 
+  const stopSessionById = useCallback(async (targetSessionId: string): Promise<boolean> => {
+    return stopSession(targetSessionId);
+  }, []);
+
   const clearCurrentSessionContext = useCallback(async (): Promise<boolean> => {
     if (!sessionId) return true;
     try {
@@ -213,6 +216,7 @@ export function useSessionLifecycle({
     switchSession,
     deleteSessionById,
     stopCurrentSession,
+    stopSessionById,
     clearCurrentSessionContext,
   };
 }

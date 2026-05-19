@@ -30,6 +30,27 @@ from interfaces.server.codex_chat import (
 from interfaces.server.connector_chat_auth import maybe_handle_connector_chat_auth
 from interfaces.server.deps import get_user_id
 from interfaces.server.run_events import stream_run_events
+from interfaces.server.schedule_chat import (
+    SCHEDULE_EXTRACTION_MAX_RUNTIME_SECONDS,
+    SCHEDULE_EXTRACTION_OUTPUT_SCHEMA,
+    agent_stop_ask_user_event,
+    build_schedule_cancelled_message,
+    build_schedule_created_message,
+    build_schedule_extraction_prompt,
+    build_schedule_pending_message,
+    is_schedule_cancellation,
+    is_schedule_confirmation,
+    is_schedule_intent,
+    parse_schedule_extraction_output,
+    schedule_cancelled_event,
+    schedule_clarification_event,
+    schedule_created_event,
+    schedule_extraction_clarification,
+    schedule_extraction_failed_event,
+    schedule_pending_event,
+    schedule_proposal_event,
+    schedule_proposal_from_extraction,
+)
 from interfaces.server.schemas import (
     AgentRunCreateRequest,
     AgentRunInfo,
@@ -223,6 +244,7 @@ def _task_detail_from_session(session: Session) -> TaskDetailResponse:
         pending_question=session.pending_question,
         pending_options=session.pending_options,
         pending_permission_request=session.pending_permission_request,
+        pending_schedule_request=session.pending_schedule_request,
         task_steps=session.task_steps,
         task_progress=session.task_progress,
     )
@@ -283,6 +305,7 @@ async def _clear_session_context(manager: SessionManager, session: Session) -> N
         session.pending_options = None
         session.pending_permission_request = None
         session.pending_connector_auth = None
+        session.pending_schedule_request = None
         session.codex_thread_id = None
         session.task_steps = []
         session.task_progress = None
@@ -551,6 +574,145 @@ async def _persist_connector_auth_chat_event(
     return public_event
 
 
+def _public_chat_event(event: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in event.items() if key != "user_content" and value is not None}
+
+
+async def _persist_control_plane_chat_event(
+    *,
+    manager: SessionManager,
+    session: Session,
+    user_input: str,
+    user_content: list[dict[str, Any]],
+    event: dict[str, Any],
+    status: str = SessionStatus.IDLE,
+    clear_pending_schedule: bool = False,
+    pending_schedule_request: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    public_event = _public_chat_event(event)
+    assistant_text = str(event.get("message") or "")
+    persisted_user_content = event.get("user_content") if isinstance(event.get("user_content"), list) else user_content
+    async with session.lock:
+        if session.current_task is not None and not session.current_task.done():
+            raise HTTPException(status_code=409, detail="Session already has a running task")
+        session.status = status
+        if status == SessionStatus.AWAITING_USER_INPUT:
+            question = event.get("question")
+            options = event.get("options")
+            session.pending_question = question if isinstance(question, str) else None
+            session.pending_options = options if isinstance(options, list) else None
+        else:
+            session.pending_question = None
+            session.pending_options = None
+        session.pending_permission_request = None
+        if clear_pending_schedule:
+            session.pending_schedule_request = None
+        elif pending_schedule_request is not None:
+            session.pending_schedule_request = pending_schedule_request
+        _append_session_messages(session, user_input, assistant_text, user_content=persisted_user_content)
+        manager.touch_session(session)
+        manager.persist_session(session)
+    return public_event
+
+
+async def _control_plane_chat_response(
+    *,
+    manager: SessionManager,
+    session: Session,
+    request: ChatCompletionRequest,
+    user_input: str,
+    user_content: list[dict[str, Any]],
+    model: str,
+    event: dict[str, Any],
+    status: str = SessionStatus.IDLE,
+    clear_pending_schedule: bool = False,
+    pending_schedule_request: dict[str, Any] | None = None,
+):
+    public_event = await _persist_control_plane_chat_event(
+        manager=manager,
+        session=session,
+        user_input=user_input,
+        user_content=user_content,
+        event=event,
+        status=status,
+        clear_pending_schedule=clear_pending_schedule,
+        pending_schedule_request=pending_schedule_request,
+    )
+    assistant_text = str(event.get("message") or "")
+    chunk_id = f"chatcmpl-{uuid4().hex[:24]}"
+    created = int(time.time())
+    if request.stream:
+
+        async def stream():
+            role_chunk = {
+                "id": chunk_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": model,
+                "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}],
+            }
+            yield f"data: {json.dumps(role_chunk, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps(public_event, ensure_ascii=False)}\n\n"
+            question = public_event.get("question")
+            options = public_event.get("options")
+            if isinstance(question, str):
+                schedule = public_event.get("schedule")
+                schedule_metadata = schedule if isinstance(schedule, dict) else None
+                option_values = options if isinstance(options, list) else []
+                stop_event = agent_stop_ask_user_event(
+                    assistant_text,
+                    question,
+                    option_values,
+                    schedule_metadata,
+                )
+                yield (f"data: {json.dumps(stop_event, ensure_ascii=False)}\n\n")
+            content_chunk = {
+                "id": chunk_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": model,
+                "choices": [{"index": 0, "delta": {"content": assistant_text}, "finish_reason": None}],
+            }
+            yield f"data: {json.dumps(content_chunk, ensure_ascii=False)}\n\n"
+            finish_chunk = {
+                "id": chunk_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": model,
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            }
+            yield f"data: {json.dumps(finish_chunk, ensure_ascii=False)}\n\n"
+            yield "data: [DONE]\n\n"
+
+        return StreamingResponse(
+            stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Ripple-Session-Id": session.session_id,
+            },
+        )
+
+    return {
+        "id": chunk_id,
+        "object": "chat.completion",
+        "created": created,
+        "model": model,
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": assistant_text},
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        "session_id": session.session_id,
+        "event": public_event,
+    }
+
+
 async def _connector_auth_chat_response(
     *,
     manager: SessionManager,
@@ -630,6 +792,221 @@ async def _connector_auth_chat_response(
     }
 
 
+async def _maybe_handle_pending_schedule_confirmation(
+    *,
+    manager: SessionManager,
+    session: Session,
+    request: ChatCompletionRequest,
+    user_input: str,
+    user_content: list[dict[str, Any]],
+    model: str,
+):
+    pending = session.pending_schedule_request
+    if not isinstance(pending, dict):
+        return None
+
+    if is_schedule_cancellation(user_input):
+        message = build_schedule_cancelled_message(pending)
+        return await _control_plane_chat_response(
+            manager=manager,
+            session=session,
+            request=request,
+            user_input=user_input,
+            user_content=user_content,
+            model=model,
+            event=schedule_cancelled_event(message),
+            clear_pending_schedule=True,
+        )
+
+    if is_schedule_confirmation(user_input):
+        if not manager.sandbox_manager:
+            raise HTTPException(status_code=500, detail="sandbox disabled")
+        manager.sandbox_manager.ensure_sandbox(session.user_id)
+        try:
+            record = create_schedule(manager.sandbox_manager.config, session.user_id, pending)
+        except ValueError as exc:
+            async with session.lock:
+                session.pending_schedule_request = None
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        message = build_schedule_created_message(record)
+        return await _control_plane_chat_response(
+            manager=manager,
+            session=session,
+            request=request,
+            user_input=user_input,
+            user_content=user_content,
+            model=model,
+            event=schedule_created_event(record, message),
+            clear_pending_schedule=True,
+        )
+
+    message = build_schedule_pending_message(pending)
+    return await _control_plane_chat_response(
+        manager=manager,
+        session=session,
+        request=request,
+        user_input=user_input,
+        user_content=user_content,
+        model=model,
+        event=schedule_pending_event(message, pending),
+        status=SessionStatus.AWAITING_USER_INPUT,
+    )
+
+
+def _schedule_extraction_max_runtime_seconds(config) -> int:
+    return int(
+        config.get("server.schedule_extraction.max_runtime_seconds", SCHEDULE_EXTRACTION_MAX_RUNTIME_SECONDS) or 120
+    )
+
+
+def _read_agent_result_text(result) -> str:
+    if result is None:
+        return ""
+    output_file = getattr(result, "output_file", None)
+    if output_file and Path(output_file).exists():
+        return Path(output_file).read_text(encoding="utf-8")
+    return str(getattr(result, "stdout_tail", "") or "")
+
+
+async def _extract_schedule_with_codex(
+    *,
+    session: Session,
+    user_input: str,
+    model: str,
+    effort: str | None,
+    manager: SessionManager,
+    agent_manager,
+    config,
+) -> Any:
+    if session.context is None or session.context.workspace_root is None or manager.sandbox_manager is None:
+        raise HTTPException(status_code=500, detail="sandbox disabled")
+
+    workspace_root = session.context.workspace_root
+    runtime_dir = session.context.session_runtime_dir or workspace_root.parent / "agent-runs"
+    max_runtime_seconds = _schedule_extraction_max_runtime_seconds(config)
+    assert_can_create_run(manager.sandbox_manager.config, session.user_id, max_runtime_seconds)
+    prompt = build_schedule_extraction_prompt(user_input)
+    job = start_agent_run(
+        prompt=prompt,
+        input_items=[{"type": "text", "text": prompt}],
+        model=model,
+        effort=effort,
+        summary=None,
+        output_schema=SCHEDULE_EXTRACTION_OUTPUT_SCHEMA,
+        provider_name="codex",
+        raw_cwd="/workspace",
+        max_runtime_seconds=max_runtime_seconds,
+        user_id=session.user_id,
+        session_id=session.session_id,
+        workspace_root=workspace_root,
+        runtime_dir=runtime_dir,
+        manager=agent_manager,
+        sandbox_config=manager.sandbox_manager.config,
+        require_agent_route=False,
+    )
+    result = await agent_manager.wait(job.job_id)
+    if result is None or result.status != AgentRunnerStatus.COMPLETED:
+        error = result.error if result else "Codex schedule extraction disappeared"
+        raise RuntimeError(error or "Codex schedule extraction failed")
+    return parse_schedule_extraction_output(_read_agent_result_text(result))
+
+
+async def _maybe_handle_schedule_creation_request(
+    *,
+    manager: SessionManager,
+    session: Session,
+    request: ChatCompletionRequest,
+    user_input: str,
+    user_content: list[dict[str, Any]],
+    model: str,
+    effort: str | None,
+    agent_manager,
+    config,
+):
+    if not is_schedule_intent(user_input):
+        return None
+
+    try:
+        extraction = await _extract_schedule_with_codex(
+            session=session,
+            user_input=user_input,
+            model=model,
+            effort=effort,
+            manager=manager,
+            agent_manager=agent_manager,
+            config=config,
+        )
+    except ValueError as exc:
+        logger.warning("Schedule extraction returned invalid data: {}", exc)
+        message = "定时任务解析结果不合法，不是你的描述问题。请稍后重试。"
+        return await _control_plane_chat_response(
+            manager=manager,
+            session=session,
+            request=request,
+            user_input=user_input,
+            user_content=user_content,
+            model=model,
+            event=schedule_extraction_failed_event(message),
+        )
+    except RuntimeError as exc:
+        logger.warning("Schedule extraction run failed: {}", exc)
+        message = "定时任务解析服务失败，不是你的描述问题。请稍后重试。"
+        return await _control_plane_chat_response(
+            manager=manager,
+            session=session,
+            request=request,
+            user_input=user_input,
+            user_content=user_content,
+            model=model,
+            event=schedule_extraction_failed_event(message),
+        )
+
+    if not extraction.is_schedule_request:
+        return None
+
+    clarification = schedule_extraction_clarification(extraction)
+    if clarification:
+        return await _control_plane_chat_response(
+            manager=manager,
+            session=session,
+            request=request,
+            user_input=user_input,
+            user_content=user_content,
+            model=model,
+            event=schedule_clarification_event(clarification),
+            status=SessionStatus.AWAITING_USER_INPUT,
+        )
+
+    try:
+        proposal = schedule_proposal_from_extraction(extraction)
+    except ValueError as exc:
+        logger.warning("Schedule extraction failed validation: {}", exc)
+        return await _control_plane_chat_response(
+            manager=manager,
+            session=session,
+            request=request,
+            user_input=user_input,
+            user_content=user_content,
+            model=model,
+            event=schedule_clarification_event("这个定时任务还缺少有效的时间或执行内容，请补充后我再创建。"),
+            status=SessionStatus.AWAITING_USER_INPUT,
+        )
+    if proposal is None:
+        return None
+
+    return await _control_plane_chat_response(
+        manager=manager,
+        session=session,
+        request=request,
+        user_input=user_input,
+        user_content=user_content,
+        model=model,
+        event=schedule_proposal_event(proposal),
+        status=SessionStatus.AWAITING_USER_INPUT,
+        pending_schedule_request=proposal.payload,
+    )
+
+
 def _resolve_agent_run_turn_config(request: AgentRunCreateRequest) -> tuple[str | None, str | None]:
     if not request.model:
         return None, request.effort
@@ -696,6 +1073,32 @@ async def chat_completions(
     if not user_input.strip() and not input_items:
         raise HTTPException(status_code=400, detail="No user message found in messages")
 
+    pending_schedule_response = await _maybe_handle_pending_schedule_confirmation(
+        manager=manager,
+        session=session,
+        request=request,
+        user_input=user_input,
+        user_content=user_content,
+        model=resolved_model,
+    )
+    if pending_schedule_response is not None:
+        return pending_schedule_response
+
+    agent_manager = get_external_agent_manager()
+    schedule_creation_response = await _maybe_handle_schedule_creation_request(
+        manager=manager,
+        session=session,
+        request=request,
+        user_input=user_input,
+        user_content=user_content,
+        model=resolved_model,
+        effort=resolved_effort,
+        agent_manager=agent_manager,
+        config=config,
+    )
+    if schedule_creation_response is not None:
+        return schedule_creation_response
+
     connector_auth_event = await maybe_handle_connector_chat_auth(
         session=session,
         user_input=user_input,
@@ -715,7 +1118,6 @@ async def chat_completions(
     attachment_items = [item for item in input_items if item.get("type") == "attachment"]
     codex_input_items = [item for item in input_items if item.get("type") != "attachment"]
     merged_system_prompt = _merge_system_prompt(workspace_root, session.caller_system_prompt)
-    agent_manager = get_external_agent_manager()
     if request.stream:
         return StreamingResponse(
             stream_codex_chat_as_sse(
@@ -961,6 +1363,7 @@ async def get_session(
         pending_question=session.pending_question,
         pending_options=session.pending_options,
         pending_permission_request=session.pending_permission_request,
+        pending_schedule_request=session.pending_schedule_request,
         task_steps=session.task_steps,
         task_progress=session.task_progress,
     )

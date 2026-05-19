@@ -197,7 +197,21 @@ for raw_line in sys.stdin:
                 "method": "item/agentMessage/delta",
                 "params": {"threadId": thread_id, "turnId": turn_id, "delta": f"reply:{text}"},
             })
-        if "sleep" not in text:
+        if "fail-turn" in text:
+            emit({
+                "jsonrpc": "2.0",
+                "method": "turn/completed",
+                "params": {
+                    "threadId": thread_id,
+                    "turnId": turn_id,
+                    "turn": {
+                        "id": turn_id,
+                        "status": "failed",
+                        "error": {"message": "structured output schema rejected"},
+                    },
+                },
+            })
+        elif "sleep" not in text:
             emit({
                 "jsonrpc": "2.0",
                 "method": "turn/completed",
@@ -520,6 +534,20 @@ async def test_app_server_provider_runs_thread_turn_and_records_events(tmp_path)
     assert "codex.notification" in [event["type"] for event in events]
     assert "runner.completed" in [event["type"] for event in events]
     assert [event["sequence"] for event in events] == list(range(1, len(events) + 1))
+
+
+@pytest.mark.asyncio
+async def test_app_server_provider_marks_failed_turn_as_failed(tmp_path):
+    provider = _provider(tmp_path)
+    request = _request(tmp_path, prompt="fail-turn")
+    request.cwd.mkdir(parents=True)
+
+    result = await provider.run(request, job_dir=tmp_path / "job")
+
+    assert result.status == AgentRunnerStatus.FAILED
+    assert result.error is not None
+    assert "structured output schema rejected" in result.error
+    assert "runner.failed" in [event["type"] for event in _read_jsonl(result.events_file)]
 
 
 @pytest.mark.asyncio

@@ -144,6 +144,7 @@ def test_task_clear_context_removes_messages_model_messages_and_pending_state(tm
     session.pending_question = "Continue?"
     session.pending_options = ["yes", "no"]
     session.pending_permission_request = {"source": "codex", "job_id": "job-1", "request_id": "approval-1"}
+    session.pending_schedule_request = {"title": "Daily summary"}
     session.codex_thread_id = "thread-old"
     session.task_steps = [{"id": "codex-plan:turn-1:0", "subject": "Inspect code", "status": "in_progress"}]
     session.task_progress = {"completed": 0, "total": 1, "currentTask": "Inspect code"}
@@ -165,6 +166,7 @@ def test_task_clear_context_removes_messages_model_messages_and_pending_state(tm
     assert session.pending_question is None
     assert session.pending_options is None
     assert session.pending_permission_request is None
+    assert session.pending_schedule_request is None
     assert session.codex_thread_id is None
     assert session.task_steps == []
     assert session.task_progress is None
@@ -180,6 +182,7 @@ def test_task_clear_context_removes_messages_model_messages_and_pending_state(tm
     assert resumed is not None
     assert resumed.messages == []
     assert resumed.model_messages == []
+    assert resumed.pending_schedule_request is None
     assert resumed.codex_thread_id is None
     assert resumed.task_steps == []
     assert resumed.task_progress is None

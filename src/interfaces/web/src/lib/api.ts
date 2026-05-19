@@ -108,6 +108,7 @@ export interface ScheduleCreateInput {
   model?: string | null;
   cwd?: string | null;
   max_runtime_seconds?: number;
+  max_runs?: number | null;
 }
 
 export type ScheduleUpdateInput = Partial<ScheduleCreateInput>;

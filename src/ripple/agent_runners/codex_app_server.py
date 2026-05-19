@@ -1031,6 +1031,8 @@ class CodexAppServerAgentProvider:
                     turn_status = message.get("params", {}).get("turn", {}).get("status")
                     if turn_status == "interrupted":
                         return AgentRunnerStatus.CANCELLED, output_text
+                    if turn_status == "failed":
+                        raise RuntimeError(self._turn_error_message(message) or "codex turn failed")
                     return AgentRunnerStatus.COMPLETED, output_text
 
     async def _interrupt_turn(self, active_turn: ActiveTurn) -> None:
@@ -1096,6 +1098,17 @@ class CodexAppServerAgentProvider:
         message_thread_id = params.get("threadId")
         message_turn_id = params.get("turnId") or params.get("turn", {}).get("id")
         return message_thread_id == thread_id and message_turn_id == turn_id
+
+    def _turn_error_message(self, message: dict[str, Any]) -> str | None:
+        error = message.get("params", {}).get("turn", {}).get("error")
+        if isinstance(error, dict):
+            raw_message = error.get("message")
+            if isinstance(raw_message, str) and raw_message:
+                return raw_message
+            return json.dumps(error, ensure_ascii=False)
+        if isinstance(error, str) and error:
+            return error
+        return None
 
     def _is_unsupported_server_request(self, message: dict[str, Any]) -> bool:
         return "id" in message and isinstance(message.get("method"), str)

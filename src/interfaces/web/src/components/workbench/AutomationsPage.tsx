@@ -69,6 +69,12 @@ function intervalLabel(seconds: number | null): string {
   return `Every ${seconds}s`;
 }
 
+function runCountLabel(schedule: ScheduleInfo): string {
+  const runCount = Math.max(0, schedule.run_count || 0);
+  if (schedule.kind !== "interval") return `${runCount} run${runCount === 1 ? "" : "s"}`;
+  return schedule.max_runs ? `Runs ${runCount}/${schedule.max_runs}` : `Runs ${runCount}/unlimited`;
+}
+
 function statusClass(status: string): string {
   if (status === "active") return "border-[#1a7f37]/25 bg-[#dafbe1] text-[#1a7f37]";
   if (status === "paused") return "border-[#bf8700]/25 bg-[#fff8c5] text-[#7d4e00]";
@@ -96,6 +102,7 @@ export default function AutomationsPage({ selectedModel, onAuthExpired }: Automa
   const [timezone, setTimezone] = useState(browserTimezone);
   const [intervalValue, setIntervalValue] = useState(1);
   const [intervalUnit, setIntervalUnit] = useState<IntervalUnit>("hours");
+  const [maxRuns, setMaxRuns] = useState("");
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
 
   const intervalSeconds = useMemo(
@@ -131,6 +138,7 @@ export default function AutomationsPage({ selectedModel, onAuthExpired }: Automa
     setTimezone(browserTimezone());
     setIntervalValue(1);
     setIntervalUnit("hours");
+    setMaxRuns("");
   }, []);
 
   const handleCreate = useCallback(
@@ -140,6 +148,11 @@ export default function AutomationsPage({ selectedModel, onAuthExpired }: Automa
       setIsSubmitting(true);
       setError(null);
       try {
+        const parsedMaxRuns = Number(maxRuns);
+        const maxRunsLimit =
+          kind === "interval" && maxRuns.trim() && Number.isFinite(parsedMaxRuns)
+            ? Math.max(1, Math.floor(parsedMaxRuns))
+            : null;
         await createSchedule({
           title: title.trim(),
           prompt: prompt.trim(),
@@ -147,6 +160,7 @@ export default function AutomationsPage({ selectedModel, onAuthExpired }: Automa
           timezone,
           run_at: runAt,
           interval_seconds: kind === "interval" ? intervalSeconds : null,
+          max_runs: maxRunsLimit,
           model: selectedModel,
         });
         resetForm();
@@ -166,6 +180,7 @@ export default function AutomationsPage({ selectedModel, onAuthExpired }: Automa
       intervalSeconds,
       kind,
       loadSchedules,
+      maxRuns,
       onAuthExpired,
       prompt,
       resetForm,
@@ -308,7 +323,7 @@ export default function AutomationsPage({ selectedModel, onAuthExpired }: Automa
                   />
                 </label>
               ) : (
-                <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_140px] gap-2">
+                <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_120px_130px]">
                   <label className="block min-w-0">
                     <span className="mb-1 block text-xs font-medium text-[#6b7280]">Every</span>
                     <input
@@ -330,6 +345,17 @@ export default function AutomationsPage({ selectedModel, onAuthExpired }: Automa
                       <option value="hours">Hours</option>
                       <option value="days">Days</option>
                     </select>
+                  </label>
+                  <label className="block min-w-0">
+                    <span className="mb-1 block text-xs font-medium text-[#6b7280]">Max runs</span>
+                    <input
+                      type="number"
+                      min={1}
+                      placeholder="No limit"
+                      value={maxRuns}
+                      onChange={(event) => setMaxRuns(event.target.value)}
+                      className="h-9 w-full rounded-md border border-[#d7dce3] bg-white px-3 text-sm outline-none focus:border-[#2463eb]"
+                    />
                   </label>
                 </div>
               )}
@@ -385,7 +411,7 @@ export default function AutomationsPage({ selectedModel, onAuthExpired }: Automa
                     <div className="font-medium">{formatDate(schedule.next_run_at)}</div>
                     <div className="mt-1 font-[family-name:var(--font-mono)] text-xs text-[#6b7280]">
                       {schedule.kind === "interval"
-                        ? intervalLabel(schedule.interval_seconds)
+                        ? `${intervalLabel(schedule.interval_seconds)} · ${runCountLabel(schedule)}`
                         : "Once"}
                     </div>
                   </div>

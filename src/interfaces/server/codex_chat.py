@@ -209,6 +209,7 @@ async def _begin_session_run(session: Session, manager: SessionManager) -> None:
         session.pending_question = None
         session.pending_options = None
         session.pending_permission_request = None
+        session.pending_schedule_request = None
         _clear_session_plan(session)
         manager.touch_session(session)
 
@@ -651,6 +652,7 @@ def _mark_session_awaiting_approval(session: Session, approval: dict[str, Any]) 
     session.pending_permission_request = approval
     session.pending_question = None
     session.pending_options = None
+    session.pending_schedule_request = None
 
 
 def _read_new_events(events_file: Path, offset: int) -> tuple[list[dict[str, Any]], int]:
@@ -695,6 +697,7 @@ async def collect_codex_chat_response(
                 session.pending_question = None
                 session.pending_options = None
                 session.pending_permission_request = None
+                session.pending_schedule_request = None
                 _clear_session_plan(session)
                 manager.touch_session(session)
 

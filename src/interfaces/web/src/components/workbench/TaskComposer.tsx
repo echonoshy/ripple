@@ -20,6 +20,7 @@ interface TaskComposerProps {
   onRemovePendingFile: (path: string) => void;
   pendingFiles: ChatFileRef[];
   isGenerating: boolean;
+  isBlocked?: boolean;
   hasSession: boolean;
   focusToken: number;
   selectedModel: string;
@@ -44,6 +45,7 @@ export default function TaskComposer({
   onRemovePendingFile,
   pendingFiles,
   isGenerating,
+  isBlocked = false,
   hasSession,
   focusToken,
   selectedModel,
@@ -59,6 +61,7 @@ export default function TaskComposer({
   const [dismissedSlashKey, setDismissedSlashKey] = useState<string | null>(null);
   const [quickActionIndex, setQuickActionIndex] = useState(0);
   const canSend = Boolean(value.trim() || pendingFiles.length > 0);
+  const inputDisabled = isGenerating || isBlocked;
   const isQuickActionsOpen = quickActionsState !== null;
   const quickActionMatches = useMemo(
     () => getQuickActionMatches(quickActionsState?.query ?? ""),
@@ -77,10 +80,10 @@ export default function TaskComposer({
   }, [value, adjustHeight]);
 
   useEffect(() => {
-    if (shouldApplyInputFocus(focusToken, isGenerating)) {
+    if (shouldApplyInputFocus(focusToken, inputDisabled)) {
       textareaRef.current?.focus();
     }
-  }, [focusToken, isGenerating]);
+  }, [focusToken, inputDisabled]);
 
   const getTextareaCursor = useCallback(
     () => textareaRef.current?.selectionStart ?? value.length,
@@ -104,7 +107,7 @@ export default function TaskComposer({
 
   const syncInputDrivenPopups = useCallback(
     (nextValue: string, cursor: number) => {
-      if (isGenerating) return;
+      if (inputDisabled) return;
 
       const slashTrigger = getSlashCommandTrigger(nextValue, cursor);
       if (slashTrigger && slashTrigger.key !== dismissedSlashKey) {
@@ -115,7 +118,7 @@ export default function TaskComposer({
 
       setQuickActionsState(null);
     },
-    [dismissedSlashKey, isGenerating]
+    [dismissedSlashKey, inputDisabled]
   );
 
   useEffect(() => {
@@ -177,7 +180,7 @@ export default function TaskComposer({
     if (event.key !== "Enter" || event.shiftKey) return;
     if (event.nativeEvent.isComposing || event.keyCode === 229) return;
     event.preventDefault();
-    if (!isGenerating && canSend) onSend();
+    if (!inputDisabled && canSend) onSend();
   };
 
   const handleComposerChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -207,7 +210,7 @@ export default function TaskComposer({
           multiple
           className="hidden"
           onChange={handleAttachChange}
-          disabled={isGenerating}
+          disabled={inputDisabled}
         />
         <textarea
           ref={textareaRef}
@@ -216,11 +219,13 @@ export default function TaskComposer({
           onKeyDown={handleKeyDown}
           onKeyUp={handleComposerSelection}
           onSelect={handleComposerSelection}
-          disabled={isGenerating}
+          disabled={inputDisabled}
           rows={1}
           placeholder={
             isGenerating
               ? "Codex is working..."
+              : isBlocked
+                ? "Another session is working..."
               : hasSession
                 ? "Ask Codex anything about your codebase..."
                 : "Ask Codex anything about your codebase..."
@@ -279,7 +284,7 @@ export default function TaskComposer({
                 aria-label="Attach files"
                 title="Attach files"
                 onClick={() => fileInputRef.current?.click()}
-                disabled={isGenerating}
+                disabled={inputDisabled}
                 className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#e5e7eb] bg-white text-[#374151] hover:bg-[#f7f8fa] hover:text-[#0d0d0d] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Paperclip size={15} />
@@ -339,7 +344,7 @@ export default function TaskComposer({
               <button
                 type="button"
                 onClick={onSend}
-                disabled={!canSend}
+                disabled={!canSend || inputDisabled}
                 aria-label="Send message"
                 title="Send message"
                 className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#2463eb] bg-[#2463eb] text-white shadow-[0_8px_24px_rgba(36,99,235,0.18)] hover:bg-[#1d56d8] disabled:cursor-not-allowed disabled:border-[#e5e7eb] disabled:bg-[#f7f8fa] disabled:text-[#8b8f94] disabled:shadow-none"

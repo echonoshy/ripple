@@ -35,6 +35,7 @@ export interface ChatRunSessionActions {
   loadSessions: () => Promise<unknown>;
   clearCurrentSessionContext: () => Promise<boolean>;
   stopCurrentSession: () => Promise<boolean>;
+  stopSession: (sessionId: string) => Promise<boolean>;
 }
 
 interface UseChatRunOptions {
@@ -51,6 +52,17 @@ const emptyUsage: UsageInfo = {
   total_tokens: 0,
 };
 
+interface ChatRunViewState {
+  sessionId: string;
+  messages: Message[];
+  runtimeTimelineEvents: WorkbenchTimelineEvent[];
+  pendingFiles: ChatFileRef[];
+  tokenUsage: UsageInfo;
+  lastContextTokens: number;
+  taskSteps: TaskInfo[];
+  taskProgress: TaskProgress | null;
+}
+
 export function useChatRun({
   selectedModel,
   onSelectedModelChange,
@@ -62,6 +74,7 @@ export function useChatRun({
   const [messages, setMessages] = useState<Message[]>([]);
   const [pendingFiles, setPendingFiles] = useState<ChatFileRef[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [runningSessionId, setRunningSessionId] = useState<string | null>(null);
   const [runtimeTimelineEvents, setRuntimeTimelineEvents] = useState<WorkbenchTimelineEvent[]>([]);
   const [inputFocusToken, setInputFocusToken] = useState(0);
   const [tokenUsage, setTokenUsage] = useState<UsageInfo>(emptyUsage);
@@ -71,11 +84,30 @@ export function useChatRun({
 
   const activeRequestIdRef = useRef(0);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const runningSessionIdRef = useRef<string | null>(null);
+  const runningViewStateRef = useRef<ChatRunViewState | null>(null);
+
+  const setActiveRunningSession = useCallback((sessionId: string | null) => {
+    runningSessionIdRef.current = sessionId;
+    setRunningSessionId(sessionId);
+  }, []);
+
+  const applyViewState = useCallback((state: ChatRunViewState) => {
+    setMessages(state.messages);
+    setRuntimeTimelineEvents(state.runtimeTimelineEvents);
+    setPendingFiles(state.pendingFiles);
+    setTokenUsage(state.tokenUsage);
+    setLastContextTokens(state.lastContextTokens);
+    setTaskSteps(state.taskSteps);
+    setTaskProgress(state.taskProgress);
+  }, []);
 
   const handleAuthExpired = useCallback(() => {
     abortControllerRef.current = null;
+    runningViewStateRef.current = null;
+    setActiveRunningSession(null);
     onAuthExpired("API Key 已失效");
-  }, [onAuthExpired]);
+  }, [onAuthExpired, setActiveRunningSession]);
 
   const resetSessionView = useCallback(() => {
     setMessages([]);
@@ -96,13 +128,21 @@ export function useChatRun({
     activeRequestIdRef.current += 1;
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
+    runningViewStateRef.current = null;
+    setActiveRunningSession(null);
     setIsGenerating(false);
     resetSessionView();
-  }, [resetSessionView]);
+  }, [resetSessionView, setActiveRunningSession]);
 
   const applySessionDetails = useCallback(
     (details: SessionDetail) => {
       onSelectedModelChange(details.model);
+      const runningState = runningViewStateRef.current;
+      if (runningState?.sessionId === details.sessionId) {
+        applyViewState(runningState);
+        onWorkspaceRefresh();
+        return;
+      }
       setMessages(mapSessionMessages(details));
       setRuntimeTimelineEvents([]);
       setPendingFiles([]);
@@ -112,17 +152,24 @@ export function useChatRun({
       setTaskProgress(details.taskProgress || null);
       onWorkspaceRefresh();
     },
-    [onSelectedModelChange, onWorkspaceRefresh]
+    [applyViewState, onSelectedModelChange, onWorkspaceRefresh]
   );
 
   const handleStop = useCallback(async () => {
+    const targetSessionId = runningSessionIdRef.current || getSessionActions().getSessionId();
     activeRequestIdRef.current += 1;
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
-    await getSessionActions().stopCurrentSession();
+    if (targetSessionId) {
+      await getSessionActions().stopSession(targetSessionId);
+    } else {
+      await getSessionActions().stopCurrentSession();
+    }
+    runningViewStateRef.current = null;
+    setActiveRunningSession(null);
     setIsGenerating(false);
     setInputFocusToken((prev) => bumpInputFocusToken(prev));
-  }, [getSessionActions]);
+  }, [getSessionActions, setActiveRunningSession]);
 
   const handleClearContext = useCallback(async () => {
     if (isGenerating) return;
@@ -202,19 +249,95 @@ export function useChatRun({
       const displayText = describeChatFilesForDisplay(text, filesForSend);
       const userMessageId = Date.now();
       const assistantMessageId = `${userMessageId}-assistant`;
-      setMessages((prev) => [
-        ...prev,
+      const initialMessages: Message[] = [
+        ...messages,
         { id: userMessageId, role: "user", content: displayText, created_at: sentAt },
         { id: assistantMessageId, role: "assistant", content: "", toolCalls: [] },
-      ]);
+      ];
+      runningViewStateRef.current = {
+        sessionId: activeSessionId,
+        messages: initialMessages,
+        runtimeTimelineEvents,
+        pendingFiles: [],
+        tokenUsage,
+        lastContextTokens,
+        taskSteps,
+        taskProgress,
+      };
+      setActiveRunningSession(activeSessionId);
+      setMessages(initialMessages);
       setInput("");
       setPendingFiles([]);
       setIsGenerating(true);
 
+      const isRunVisible = () => getSessionActions().getSessionId() === activeSessionId;
+      const getRunningState = () => {
+        const state = runningViewStateRef.current;
+        return state?.sessionId === activeSessionId ? state : null;
+      };
+      const updateRunningMessages = (updater: (prev: Message[]) => Message[]) => {
+        const state = getRunningState();
+        if (!state) return;
+        const nextMessages = updater(state.messages);
+        runningViewStateRef.current = { ...state, messages: nextMessages };
+        if (isRunVisible()) setMessages(nextMessages);
+      };
+      const updateRunningTimelineEvents = (
+        updater: (prev: WorkbenchTimelineEvent[]) => WorkbenchTimelineEvent[]
+      ) => {
+        const state = getRunningState();
+        if (!state) return;
+        const nextEvents = updater(state.runtimeTimelineEvents);
+        runningViewStateRef.current = { ...state, runtimeTimelineEvents: nextEvents };
+        if (isRunVisible()) setRuntimeTimelineEvents(nextEvents);
+      };
+      const updateRunningTaskSteps = (updater: (prev: TaskInfo[]) => TaskInfo[]) => {
+        const state = getRunningState();
+        if (!state) return;
+        const nextSteps = updater(state.taskSteps);
+        runningViewStateRef.current = { ...state, taskSteps: nextSteps };
+        if (isRunVisible()) setTaskSteps(nextSteps);
+      };
+      const updateRunningTaskProgress = (nextProgress: TaskProgress | null) => {
+        const state = getRunningState();
+        if (!state) return;
+        runningViewStateRef.current = { ...state, taskProgress: nextProgress };
+        if (isRunVisible()) setTaskProgress(nextProgress);
+      };
+      const updateRunningUsage = (updater: (prev: UsageInfo) => UsageInfo) => {
+        const state = getRunningState();
+        if (!state) return;
+        const nextUsage = updater(state.tokenUsage);
+        runningViewStateRef.current = { ...state, tokenUsage: nextUsage };
+        if (isRunVisible()) setTokenUsage(nextUsage);
+      };
+      const updateRunningContextTokens = (nextContextTokens: number) => {
+        const state = getRunningState();
+        if (!state) return;
+        runningViewStateRef.current = { ...state, lastContextTokens: nextContextTokens };
+        if (isRunVisible()) setLastContextTokens(nextContextTokens);
+      };
+      const replaceRunningPlan = (nextPlan: {
+        taskSteps: TaskInfo[];
+        taskProgress: TaskProgress | null;
+      }) => {
+        const state = getRunningState();
+        if (!state) return;
+        runningViewStateRef.current = {
+          ...state,
+          taskSteps: nextPlan.taskSteps,
+          taskProgress: nextPlan.taskProgress,
+        };
+        if (isRunVisible()) {
+          setTaskSteps(nextPlan.taskSteps);
+          setTaskProgress(nextPlan.taskProgress);
+        }
+      };
+
       let currentContent = "";
       const assistantUpdates = new Map<string, string>();
       const upsertAssistantUpdate = (id: string, content: string) => {
-        setMessages((prev) => {
+        updateRunningMessages((prev) => {
           const updateId = `assistant-update-${id}`;
           const existingIndex = prev.findIndex((message) => message.id === updateId);
           if (existingIndex >= 0) {
@@ -249,7 +372,7 @@ export function useChatRun({
           onMessageDelta: (delta) => {
             if (isStaleRequest()) return;
             currentContent += delta;
-            setMessages((prev) => {
+            updateRunningMessages((prev) => {
               const msgs = [...prev];
               const last = msgs[msgs.length - 1];
               if (last.role === "assistant") last.content = currentContent;
@@ -269,7 +392,7 @@ export function useChatRun({
           },
           onToolCall: (toolCall) => {
             if (isStaleRequest()) return;
-            setMessages((prev) => {
+            updateRunningMessages((prev) => {
               const msgs = [...prev];
               const last = msgs[msgs.length - 1];
               if (last.role === "assistant") {
@@ -299,7 +422,7 @@ export function useChatRun({
           onNewTurn: () => {
             if (isStaleRequest()) return;
             currentContent = "";
-            setMessages((prev) => [
+            updateRunningMessages((prev) => [
               ...prev,
               {
                 id: Date.now() + Math.random(),
@@ -311,7 +434,7 @@ export function useChatRun({
           },
           onToolResult: (toolId, result) => {
             if (isStaleRequest()) return;
-            setMessages((prev) => {
+            updateRunningMessages((prev) => {
               const msgs = [...prev];
               const last = msgs[msgs.length - 1];
               if (last.role === "assistant") {
@@ -326,26 +449,25 @@ export function useChatRun({
           },
           onTaskCreated: (task) => {
             if (isStaleRequest()) return;
-            setTaskSteps((prev) => upsertTask(prev, task));
+            updateRunningTaskSteps((prev) => upsertTask(prev, task));
           },
           onTaskUpdated: (task) => {
             if (isStaleRequest()) return;
-            setTaskSteps((prev) => applyTaskUpdate(prev, task));
+            updateRunningTaskSteps((prev) => applyTaskUpdate(prev, task));
           },
           onTaskProgress: (progress) => {
             if (isStaleRequest()) return;
-            setTaskProgress(progress);
+            updateRunningTaskProgress(progress);
           },
           onTaskPlanUpdated: (update) => {
             if (isStaleRequest()) return;
             const next = applyTaskPlanUpdate([], update);
-            setTaskSteps(next.taskSteps);
-            setTaskProgress(next.taskProgress);
+            replaceRunningPlan(next);
           },
           onRuntimeEvent: (event) => {
             if (isStaleRequest()) return;
             const createdAt = new Date().toISOString();
-            setRuntimeTimelineEvents((prev) => [
+            updateRunningTimelineEvents((prev) => [
               ...prev,
               codexRuntimeEventToTimelineEvent(event, {
                 id: `runtime-${requestId}-${prev.length}`,
@@ -355,12 +477,15 @@ export function useChatRun({
           },
           onAgentStop: (data) => {
             if (isStaleRequest()) return;
-            setMessages((prev) => {
+            updateRunningMessages((prev) => {
               const msgs = [...prev];
               const last = msgs[msgs.length - 1];
               if (last.role !== "assistant") return msgs;
 
               if (data.stop_reason === "ask_user" && typeof data.metadata.question === "string") {
+                if (typeof data.metadata.message === "string") {
+                  last.content = data.metadata.message;
+                }
                 last.askUser = {
                   question: data.metadata.question,
                   options: Array.isArray(data.metadata.options)
@@ -392,8 +517,8 @@ export function useChatRun({
           onPermissionRequest: (request) => {
             if (isStaleRequest()) return;
             setIsGenerating(false);
-            setInputFocusToken((prev) => bumpInputFocusToken(prev));
-            setMessages((prev) => {
+            if (isRunVisible()) setInputFocusToken((prev) => bumpInputFocusToken(prev));
+            updateRunningMessages((prev) => {
               const msgs = [...prev];
               const last = msgs[msgs.length - 1];
               if (last.role === "assistant") last.permissionRequest = request;
@@ -402,22 +527,23 @@ export function useChatRun({
           },
           onUsage: (usage) => {
             if (isStaleRequest()) return;
-            setTokenUsage((prev) => ({
+            updateRunningUsage((prev) => ({
               prompt_tokens: prev.prompt_tokens + usage.prompt_tokens,
               completion_tokens: prev.completion_tokens + usage.completion_tokens,
               total_tokens: prev.total_tokens + usage.total_tokens,
             }));
             const ctx = usage.last_prompt_tokens ?? usage.prompt_tokens;
-            if (ctx > 0) setLastContextTokens(ctx);
+            if (ctx > 0) updateRunningContextTokens(ctx);
           },
           onComplete: () => {
             if (isStaleRequest()) return;
             abortControllerRef.current = null;
             setIsGenerating(false);
+            setActiveRunningSession(null);
             const nextPlan = clearTaskPlanState();
-            setTaskSteps(nextPlan.taskSteps);
-            setTaskProgress(nextPlan.taskProgress);
-            setInputFocusToken((prev) => bumpInputFocusToken(prev));
+            replaceRunningPlan(nextPlan);
+            runningViewStateRef.current = null;
+            if (isRunVisible()) setInputFocusToken((prev) => bumpInputFocusToken(prev));
             getSessionActions().loadSessions();
             onWorkspaceRefresh();
           },
@@ -427,13 +553,15 @@ export function useChatRun({
             if (err instanceof AuthError) {
               handleAuthExpired();
               setIsGenerating(false);
-              setInputFocusToken((prev) => bumpInputFocusToken(prev));
+              setActiveRunningSession(null);
+              if (isRunVisible()) setInputFocusToken((prev) => bumpInputFocusToken(prev));
               return;
             }
             console.error("Chat error:", err);
             setIsGenerating(false);
-            setInputFocusToken((prev) => bumpInputFocusToken(prev));
-            setMessages((prev) => {
+            setActiveRunningSession(null);
+            if (isRunVisible()) setInputFocusToken((prev) => bumpInputFocusToken(prev));
+            updateRunningMessages((prev) => {
               const msgs = [...prev];
               const last = msgs[msgs.length - 1];
               if (last.role === "assistant" && !last.content) {
@@ -452,9 +580,16 @@ export function useChatRun({
       handleClearContext,
       input,
       isGenerating,
+      lastContextTokens,
+      messages,
       onWorkspaceRefresh,
       pendingFiles,
+      runtimeTimelineEvents,
       selectedModel,
+      setActiveRunningSession,
+      taskProgress,
+      taskSteps,
+      tokenUsage,
     ]
   );
 
@@ -522,6 +657,7 @@ export function useChatRun({
     messages,
     pendingFiles,
     isGenerating,
+    runningSessionId,
     inputFocusToken,
     tokenUsage,
     lastContextTokens,

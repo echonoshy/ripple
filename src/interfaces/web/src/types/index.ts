@@ -190,6 +190,8 @@ export interface ScheduleInfo {
   summary: string | null;
   output_schema: Record<string, unknown> | null;
   max_runtime_seconds: number;
+  max_runs: number | null;
+  run_count: number;
   created_at: string;
   updated_at: string;
 }

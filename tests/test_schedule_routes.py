@@ -122,6 +122,68 @@ def test_schedule_run_now_starts_codex_run_with_schedule_metadata(tmp_path: Path
     client.post(f"/v1/runs/{body['job_id']}/cancel")
 
 
+async def test_schedule_run_now_ignores_legacy_freeform_summary(tmp_path: Path, monkeypatch):
+    provider = RecordingProvider(sleep=0)
+    client, _session_manager, agent_manager = _client(tmp_path, monkeypatch, provider=provider)
+    run_at = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+    created = client.post(
+        "/v1/schedules",
+        json={
+            "title": "Legacy summary",
+            "prompt": "Inspect files",
+            "kind": "interval",
+            "timezone": "UTC",
+            "run_at": run_at,
+            "interval_seconds": 60,
+        },
+    )
+    schedule_id = created.json()["schedule_id"]
+    # Simulate a record created before schedule extraction stopped storing free-form text in summary.
+    schedules_path = _session_manager.sandbox_manager.config.sandbox_dir("alice") / "schedules" / "schedules.json"
+    raw = schedules_path.read_text(encoding="utf-8")
+    schedules_path.write_text(
+        raw.replace('"summary": null', '"summary": "free-form task description"'), encoding="utf-8"
+    )
+
+    response = client.post(f"/v1/schedules/{schedule_id}/run-now")
+
+    assert response.status_code == 200
+    await agent_manager.wait(response.json()["job_id"])
+    assert provider.requests
+    assert provider.requests[0].summary is None
+
+
+def test_schedule_run_now_does_not_consume_interval_run_limit(tmp_path: Path, monkeypatch):
+    client, session_manager, agent_manager = _client(tmp_path, monkeypatch)
+    run_at = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+    created = client.post(
+        "/v1/schedules",
+        json={
+            "title": "Manual test",
+            "prompt": "Inspect files",
+            "kind": "interval",
+            "timezone": "UTC",
+            "run_at": run_at,
+            "interval_seconds": 60,
+            "max_runs": 1,
+        },
+    )
+    schedule_id = created.json()["schedule_id"]
+
+    response = client.post(f"/v1/schedules/{schedule_id}/run-now")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["job_id"] in agent_manager.jobs
+    schedule = get_schedule(session_manager.sandbox_manager.config, "alice", schedule_id)
+    assert schedule is not None
+    assert schedule["run_count"] == 0
+    assert schedule["max_runs"] == 1
+    assert schedule["status"] == "active"
+
+    client.post(f"/v1/runs/{body['job_id']}/cancel")
+
+
 async def test_due_once_schedule_triggers_run_and_completes_schedule(tmp_path: Path, monkeypatch):
     provider = RecordingProvider(sleep=0)
     client, session_manager, agent_manager = _client(tmp_path, monkeypatch, provider=provider)
@@ -145,6 +207,7 @@ async def test_due_once_schedule_triggers_run_and_completes_schedule(tmp_path: P
     assert schedule["status"] == "completed"
     assert schedule["enabled"] is False
     assert schedule["last_run_id"] in agent_manager.jobs
+    assert schedule["run_count"] == 1
     await agent_manager.wait(schedule["last_run_id"])
     assert provider.requests[0].prompt == "Do the work"
 
@@ -181,4 +244,57 @@ async def test_due_interval_schedule_advances_next_run(tmp_path: Path, monkeypat
     assert schedule["status"] == "active"
     assert schedule["enabled"] is True
     assert schedule["next_run_at"] > original_next
+    assert schedule["run_count"] == 1
     await agent_manager.wait(schedule["last_run_id"])
+
+
+async def test_interval_schedule_completes_after_max_runs(tmp_path: Path, monkeypatch):
+    provider = RecordingProvider(sleep=0)
+    client, session_manager, agent_manager = _client(tmp_path, monkeypatch, provider=provider)
+    base = datetime.now(timezone.utc)
+    run_at = (base - timedelta(seconds=5)).isoformat()
+    created = client.post(
+        "/v1/schedules",
+        json={
+            "title": "Limited interval",
+            "prompt": "Repeat twice",
+            "kind": "interval",
+            "timezone": "UTC",
+            "run_at": run_at,
+            "interval_seconds": 60,
+            "max_runs": 2,
+        },
+    )
+    schedule_id = created.json()["schedule_id"]
+
+    first = await trigger_due_schedules(
+        config=session_manager.sandbox_manager.config,
+        sandbox_manager=session_manager.sandbox_manager,
+        agent_manager=agent_manager,
+        user_id="alice",
+        now=base + timedelta(seconds=61),
+    )
+    first_schedule = get_schedule(session_manager.sandbox_manager.config, "alice", schedule_id)
+
+    second = await trigger_due_schedules(
+        config=session_manager.sandbox_manager.config,
+        sandbox_manager=session_manager.sandbox_manager,
+        agent_manager=agent_manager,
+        user_id="alice",
+        now=base + timedelta(seconds=121),
+    )
+    schedule = get_schedule(session_manager.sandbox_manager.config, "alice", schedule_id)
+
+    assert first == [schedule_id]
+    assert first_schedule is not None
+    assert first_schedule["run_count"] == 1
+    assert first_schedule["status"] == "active"
+    assert second == [schedule_id]
+    assert schedule is not None
+    assert schedule["run_count"] == 2
+    assert schedule["max_runs"] == 2
+    assert schedule["status"] == "completed"
+    assert schedule["enabled"] is False
+    assert schedule["next_run_at"] is None
+    await asyncio.gather(*(agent_manager.wait(job_id) for job_id in agent_manager.jobs))
+    assert len(provider.requests) == 2

@@ -6,6 +6,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
+CodexSummaryMode = Literal["auto", "concise", "detailed", "none"]
+
 # ─── Chat Completions 请求 ───
 
 
@@ -28,7 +30,7 @@ class ChatCompletionRequest(BaseModel):
     temperature: float | None = None
     max_tokens: int | None = None
     effort: str | None = None
-    summary: str | None = None
+    summary: CodexSummaryMode | None = None
     output_schema: dict[str, Any] | None = Field(default=None, alias="outputSchema")
     # 兼容旧 OpenAI-compatible 调用方；Codex app-server 当前不读取该字段。
     thinking: bool | None = None
@@ -136,6 +138,7 @@ class SessionDetailResponse(SessionInfo):
     pending_question: str | None = None
     pending_options: list[str] | None = None
     pending_permission_request: dict[str, Any] | None = None
+    pending_schedule_request: dict[str, Any] | None = None
 
 
 class TaskInfo(BaseModel):
@@ -156,6 +159,7 @@ class TaskDetailResponse(TaskInfo):
     pending_question: str | None = None
     pending_options: list[str] | None = None
     pending_permission_request: dict[str, Any] | None = None
+    pending_schedule_request: dict[str, Any] | None = None
     task_steps: list[dict[str, Any]] = []
     task_progress: dict[str, Any] | None = None
 
@@ -300,7 +304,7 @@ class AgentRunCreateRequest(BaseModel):
     cwd: str | None = None
     model: str | None = None
     effort: str | None = None
-    summary: str | None = None
+    summary: CodexSummaryMode | None = None
     output_schema: dict[str, Any] | None = Field(default=None, alias="outputSchema")
     max_runtime_seconds: int = Field(default=1800, ge=1, le=86_400)
 
@@ -347,9 +351,10 @@ class ScheduleCreateRequest(BaseModel):
     cwd: str | None = None
     model: str | None = None
     effort: str | None = None
-    summary: str | None = None
+    summary: CodexSummaryMode | None = None
     output_schema: dict[str, Any] | None = Field(default=None, alias="outputSchema")
     max_runtime_seconds: int = Field(default=1800, ge=1, le=86_400)
+    max_runs: int | None = Field(default=None, ge=1)
 
 
 class ScheduleUpdateRequest(BaseModel):
@@ -365,9 +370,10 @@ class ScheduleUpdateRequest(BaseModel):
     cwd: str | None = None
     model: str | None = None
     effort: str | None = None
-    summary: str | None = None
+    summary: CodexSummaryMode | None = None
     output_schema: dict[str, Any] | None = Field(default=None, alias="outputSchema")
     max_runtime_seconds: int | None = Field(default=None, ge=1, le=86_400)
+    max_runs: int | None = Field(default=None, ge=1)
 
 
 class ScheduleInfo(BaseModel):
@@ -391,6 +397,8 @@ class ScheduleInfo(BaseModel):
     summary: str | None = None
     output_schema: dict[str, Any] | None = None
     max_runtime_seconds: int = 1800
+    max_runs: int | None = None
+    run_count: int = 0
     created_at: str
     updated_at: str
 

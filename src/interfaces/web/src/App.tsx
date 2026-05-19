@@ -59,6 +59,7 @@ export default function Home() {
     loadSessions: async () => [],
     clearCurrentSessionContext: async () => true,
     stopCurrentSession: async () => false,
+    stopSession: async () => false,
   });
 
   const handleAuthExpired = useCallback((message: string) => {
@@ -80,6 +81,7 @@ export default function Home() {
     messages,
     pendingFiles,
     isGenerating,
+    runningSessionId,
     inputFocusToken,
     tokenUsage,
     lastContextTokens,
@@ -125,6 +127,7 @@ export default function Home() {
     switchSession,
     deleteSessionById,
     stopCurrentSession,
+    stopSessionById,
     clearCurrentSessionContext,
   } = useSessionLifecycle({
     authState,
@@ -143,8 +146,16 @@ export default function Home() {
       loadSessions,
       clearCurrentSessionContext,
       stopCurrentSession,
+      stopSession: stopSessionById,
     };
-  }, [clearCurrentSessionContext, ensureSession, loadSessions, sessionId, stopCurrentSession]);
+  }, [
+    clearCurrentSessionContext,
+    ensureSession,
+    loadSessions,
+    sessionId,
+    stopCurrentSession,
+    stopSessionById,
+  ]);
 
   const handleUserIdChange = useCallback(
     async (newUid: string) => {
@@ -234,14 +245,21 @@ export default function Home() {
     setIsSidebarOpen(false);
   }, []);
 
+  const runtimeStatusSessionId = isGenerating ? runningSessionId : sessionId;
+  const selectedSessionIsGenerating = Boolean(isGenerating && runningSessionId === sessionId);
+  const isComposerBlocked = Boolean(isGenerating && runningSessionId !== sessionId);
+  const selectedSessionRuntimeStatus =
+    currentSessionRuntimeStatus && runtimeStatusSessionId === sessionId
+      ? currentSessionRuntimeStatus
+      : null;
   const workbenchSessions = useMemo(
     () =>
       applyCurrentSessionRuntimeStatus(
         createWorkbenchSessionsFromSessionSummaries(sessionSummaries),
-        sessionId,
+        runtimeStatusSessionId,
         currentSessionRuntimeStatus
       ),
-    [currentSessionRuntimeStatus, sessionId, sessionSummaries]
+    [currentSessionRuntimeStatus, runtimeStatusSessionId, sessionSummaries]
   );
   const selectedExistingSession = sessionId
     ? workbenchSessions.find((session) => session.sessionId === sessionId) || null
@@ -251,7 +269,7 @@ export default function Home() {
       ? {
           sessionId,
           title: "Current Codex session",
-          status: currentSessionRuntimeStatus || ("idle" as const),
+          status: selectedSessionRuntimeStatus || ("idle" as const),
           model: selectedModel,
           lastActivityAt: new Date().toISOString(),
           messageCount: messages.length,
@@ -292,7 +310,8 @@ export default function Home() {
         lastContextTokens={lastContextTokens}
         input={input}
         pendingFiles={pendingFiles}
-        isGenerating={isGenerating}
+        isGenerating={selectedSessionIsGenerating}
+        isComposerBlocked={isComposerBlocked}
         focusToken={inputFocusToken}
         selectedModel={selectedModel}
         models={models}

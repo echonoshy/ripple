@@ -157,6 +157,8 @@ async function testScheduleApiUsesExpectedBackendShape() {
             summary: null,
             output_schema: null,
             max_runtime_seconds: 1800,
+            max_runs: null,
+            run_count: 0,
             created_at: "2026-05-18T00:00:00+00:00",
             updated_at: "2026-05-18T00:00:00+00:00",
           }),

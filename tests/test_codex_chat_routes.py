@@ -11,11 +11,13 @@ from interfaces.server import codex_chat
 from interfaces.server import sessions as session_module
 from interfaces.server.auth import verify_api_key
 from interfaces.server.routes import get_session_manager, router, set_session_manager
+from interfaces.server.schedule_chat import SCHEDULE_EXTRACTION_OUTPUT_SCHEMA
 from interfaces.server.sessions import SessionManager
 from ripple.agent_runners.manager import ExternalAgentManager
 from ripple.agent_runners.models import AgentRunnerEvent, AgentRunnerRequest, AgentRunnerResult, AgentRunnerStatus
 from ripple.sandbox.config import SandboxConfig
 from ripple.sandbox.manager import SandboxManager
+from ripple.schedules import get_schedule
 from ripple.utils.config import get_config
 
 
@@ -55,6 +57,28 @@ class InstantCodexProvider:
             events_file=events_file,
             output_file=output_file,
             stdout_tail=self.output,
+        )
+
+
+class FailingCodexProvider:
+    def __init__(self, error: str = "schema rejected"):
+        self.error = error
+        self.requests: list[AgentRunnerRequest] = []
+
+    async def run(self, request: AgentRunnerRequest, *, job_dir: Path) -> AgentRunnerResult:
+        self.requests.append(request)
+        job_dir.mkdir(parents=True, exist_ok=True)
+        events_file = job_dir / "events.jsonl"
+        output_file = job_dir / "output.txt"
+        events_file.write_text("", encoding="utf-8")
+        output_file.write_text("", encoding="utf-8")
+        return AgentRunnerResult(
+            job_id=request.job_id or "job-test",
+            provider=request.provider,
+            status=AgentRunnerStatus.FAILED,
+            events_file=events_file,
+            output_file=output_file,
+            error=self.error,
         )
 
 
@@ -1121,3 +1145,266 @@ def test_chat_completions_persists_user_image_blocks(tmp_path: Path, monkeypatch
         {"type": "text", "text": "See image"},
         {"type": "image", "url": "https://example.com/a.png"},
     ]
+
+
+def _schedule_extraction_json(**schedule_overrides) -> str:
+    schedule = {
+        "title": "新建日期 Markdown 文件",
+        "prompt": "在执行时使用当前本地日期生成 yyyy-mm-dd.md 文件，内容随便写一段简短文本。",
+        "kind": "once",
+        "timezone": "Asia/Shanghai",
+        "run_at": "2026-05-19T20:47:33+08:00",
+        "interval_seconds": None,
+        "enabled": True,
+        "cwd": ".",
+        "model": None,
+        "effort": None,
+        "summary": None,
+        "output_schema": None,
+        "max_runtime_seconds": 1800,
+        "max_runs": None,
+    }
+    schedule.update(schedule_overrides)
+    return json.dumps(
+        {
+            "is_schedule_request": True,
+            "missing_fields": [],
+            "clarification_question": None,
+            "schedule": schedule,
+        },
+        ensure_ascii=False,
+    )
+
+
+def test_schedule_extraction_output_schema_is_strict_openai_compatible():
+    def assert_strict_objects(schema: dict[str, Any], path: str = "$") -> None:
+        schema_type = schema.get("type")
+        if schema_type == "object" or (isinstance(schema_type, list) and "object" in schema_type):
+            assert schema.get("additionalProperties") is False, path
+        properties = schema.get("properties")
+        if isinstance(properties, dict):
+            for name, child in properties.items():
+                if isinstance(child, dict):
+                    assert_strict_objects(child, f"{path}.properties.{name}")
+        items = schema.get("items")
+        if isinstance(items, dict):
+            assert_strict_objects(items, f"{path}.items")
+        for combiner in ("anyOf", "allOf", "oneOf"):
+            entries = schema.get(combiner)
+            if isinstance(entries, list):
+                for index, child in enumerate(entries):
+                    if isinstance(child, dict):
+                        assert_strict_objects(child, f"{path}.{combiner}[{index}]")
+
+    assert_strict_objects(SCHEDULE_EXTRACTION_OUTPUT_SCHEMA)
+    schedule_properties = SCHEDULE_EXTRACTION_OUTPUT_SCHEMA["properties"]["schedule"]["properties"]
+    assert schedule_properties["summary"] == {"type": "null"}
+    assert schedule_properties["output_schema"] == {"type": "null"}
+
+
+def test_chat_schedule_intent_uses_structured_extraction_and_persists_confirmation(tmp_path: Path, monkeypatch):
+    provider = InstantCodexProvider(output=_schedule_extraction_json())
+    client = _client(tmp_path, monkeypatch, provider)
+
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "codex-medium",
+            "stream": False,
+            "messages": [{"role": "user", "content": "帮我定一个2分钟以后的定时任务，新建一个文件"}],
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assistant_text = body["choices"][0]["message"]["content"]
+    assert "我可以创建这个定时任务" in assistant_text
+    assert body["event"]["type"] == "schedule_proposed"
+    assert body["event"]["schedule"]["run_at"] == "2026-05-19T20:47:33+08:00"
+    assert provider.requests[0].output_schema == SCHEDULE_EXTRACTION_OUTPUT_SCHEMA
+    assert "strict schedule-request extractor" in provider.requests[0].prompt
+    assert "帮我定一个2分钟以后的定时任务" in provider.requests[0].prompt
+
+    manager = get_session_manager()
+    session = manager.get_session(body["session_id"], user_id="alice")
+    assert session is not None
+    assert session.status == "awaiting_user_input"
+    assert session.pending_question == "要创建这个定时任务吗？"
+    assert session.pending_options == ["确认创建", "取消"]
+    assert session.pending_schedule_request["title"] == "新建日期 Markdown 文件"
+
+
+def test_chat_schedule_intent_stream_emits_control_plane_ask_user_event(tmp_path: Path, monkeypatch):
+    provider = InstantCodexProvider(output=_schedule_extraction_json())
+    client = _client(tmp_path, monkeypatch, provider)
+
+    with client.stream(
+        "POST",
+        "/v1/chat/completions",
+        json={
+            "model": "codex-medium",
+            "stream": True,
+            "messages": [{"role": "user", "content": "帮我定一个2分钟以后的定时任务"}],
+        },
+    ) as response:
+        body = response.read().decode("utf-8")
+
+    assert response.status_code == 200
+    assert '"type": "schedule_proposed"' in body
+    assert '"stop_reason": "ask_user"' in body
+    assert "新建日期 Markdown 文件" in body
+
+
+def test_chat_schedule_extraction_preserves_interval_run_limit(tmp_path: Path, monkeypatch):
+    provider = InstantCodexProvider(
+        output=_schedule_extraction_json(kind="interval", interval_seconds=120, run_at=None, max_runs=3)
+    )
+    client = _client(tmp_path, monkeypatch, provider)
+
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "codex-medium",
+            "stream": False,
+            "messages": [{"role": "user", "content": "每2分钟执行一次，总共执行3次"}],
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["event"]["type"] == "schedule_proposed"
+    assert body["event"]["schedule"]["max_runs"] == 3
+    assert "最多 3 次" in body["choices"][0]["message"]["content"]
+
+
+def test_chat_schedule_extraction_can_ask_for_clarification(tmp_path: Path, monkeypatch):
+    provider = InstantCodexProvider(
+        output=json.dumps(
+            {
+                "is_schedule_request": True,
+                "missing_fields": ["run_at"],
+                "clarification_question": "什么时候执行这个任务？",
+                "schedule": None,
+            },
+            ensure_ascii=False,
+        )
+    )
+    client = _client(tmp_path, monkeypatch, provider)
+
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "codex-medium",
+            "stream": False,
+            "messages": [{"role": "user", "content": "帮我定一个定时任务"}],
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["event"]["type"] == "schedule_clarification_required"
+    assert "什么时候执行" in body["choices"][0]["message"]["content"]
+
+    manager = get_session_manager()
+    session = manager.get_session(body["session_id"], user_id="alice")
+    assert session is not None
+    assert session.pending_schedule_request is None
+
+
+def test_chat_schedule_extraction_failure_is_not_reported_as_user_clarification(tmp_path: Path, monkeypatch):
+    provider = FailingCodexProvider()
+    client = _client(tmp_path, monkeypatch, provider)
+
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "codex-medium",
+            "stream": False,
+            "messages": [{"role": "user", "content": "帮我定一个2分钟以后的定时任务，新建一个文件"}],
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["event"]["type"] == "schedule_extraction_failed"
+    assert "不是你的描述问题" in body["choices"][0]["message"]["content"]
+
+    manager = get_session_manager()
+    session = manager.get_session(body["session_id"], user_id="alice")
+    assert session is not None
+    assert session.status == "idle"
+    assert session.pending_question is None
+    assert session.pending_schedule_request is None
+
+
+def test_chat_final_answer_json_is_not_used_as_schedule_protocol(tmp_path: Path, monkeypatch):
+    provider = InstantCodexProvider(output='{"type": "one_time", "run_at": "2026-05-19T20:47:33+08:00"}')
+    client = _client(tmp_path, monkeypatch, provider)
+
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "codex-medium",
+            "stream": False,
+            "messages": [{"role": "user", "content": "Show this JSON"}],
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "event" not in body
+    assert body["choices"][0]["message"]["content"].startswith('{"type": "one_time"')
+
+    manager = get_session_manager()
+    session = manager.get_session(body["session_id"], user_id="alice")
+    assert session is not None
+    assert session.pending_schedule_request is None
+
+
+def test_chat_confirming_pending_schedule_creates_schedule(tmp_path: Path, monkeypatch):
+    provider = InstantCodexProvider(output="unused")
+    client = _client(tmp_path, monkeypatch, provider)
+    manager = get_session_manager()
+    session = manager.create_session(user_id="alice", model="codex-medium")
+    session.pending_schedule_request = {
+        "title": "Daily repo summary",
+        "prompt": "Summarize repository changes.",
+        "kind": "interval",
+        "timezone": "UTC",
+        "run_at": "2026-05-20T09:00:00+00:00",
+        "interval_seconds": 86400,
+        "enabled": True,
+        "cwd": None,
+        "model": None,
+        "effort": None,
+        "summary": None,
+        "output_schema": None,
+        "max_runtime_seconds": 1800,
+    }
+    session.pending_question = "要创建这个定时任务吗？"
+    session.pending_options = ["确认创建", "取消"]
+    session.status = "awaiting_user_input"
+
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "codex-medium",
+            "session_id": session.session_id,
+            "stream": False,
+            "messages": [{"role": "user", "content": "确认创建"}],
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "已创建定时任务" in body["choices"][0]["message"]["content"]
+    assert body["event"]["type"] == "schedule_created"
+    assert provider.requests == []
+    assert session.pending_schedule_request is None
+    assert session.pending_question is None
+    assert session.status == "idle"
+
+    schedules = client.get("/v1/schedules").json()["schedules"]
+    assert len(schedules) == 1
+    assert schedules[0]["title"] == "Daily repo summary"
+    assert get_schedule(manager.sandbox_manager.config, "alice", schedules[0]["schedule_id"]) is not None

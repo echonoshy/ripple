@@ -23,6 +23,7 @@ logger = get_logger("schedules")
 
 STATE_VERSION = 1
 SCHEDULE_KINDS = {"once", "interval"}
+CODEX_SUMMARY_MODES = {"auto", "concise", "detailed", "none"}
 
 
 def utc_now() -> datetime:
@@ -82,8 +83,42 @@ def _write_state(config: SandboxConfig, user_id: str, state: dict[str, Any]) -> 
     atomic_write_json(_schedule_state_path(config, user_id), state)
 
 
+def _run_count(value: Any) -> int:
+    try:
+        count = int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, count)
+
+
+def _max_runs(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        max_runs = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("max_runs must be an integer") from exc
+    if max_runs < 1:
+        raise ValueError("max_runs must be at least 1")
+    return max_runs
+
+
 def _copy_schedule(record: dict[str, Any]) -> dict[str, Any]:
-    return dict(record)
+    copied = dict(record)
+    copied["max_runs"] = _max_runs(copied.get("max_runs"))
+    copied["run_count"] = _run_count(copied.get("run_count"))
+    return copied
+
+
+def _schedule_limit_reached(record: dict[str, Any]) -> bool:
+    if record.get("kind") != "interval":
+        return False
+    max_runs = _max_runs(record.get("max_runs"))
+    return max_runs is not None and _run_count(record.get("run_count")) >= max_runs
+
+
+def _codex_summary_mode(value: Any) -> str | None:
+    return value if isinstance(value, str) and value in CODEX_SUMMARY_MODES else None
 
 
 def _interval_seconds(value: Any) -> int | None:
@@ -157,6 +192,9 @@ def get_schedule(config: SandboxConfig, user_id: str, schedule_id: str) -> dict[
 def create_schedule(config: SandboxConfig, user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     now = utc_now()
     kind = _validate_kind(payload.get("kind"))
+    max_runs = _max_runs(payload.get("max_runs"))
+    if kind != "interval" and max_runs is not None:
+        raise ValueError("max_runs is only supported for interval schedules")
     timezone_name = _normalize_timezone(payload.get("timezone"))
     interval_seconds = _interval_seconds(payload.get("interval_seconds"))
     run_at = payload.get("run_at")
@@ -199,6 +237,8 @@ def create_schedule(config: SandboxConfig, user_id: str, payload: dict[str, Any]
         "summary": payload.get("summary"),
         "output_schema": payload.get("output_schema"),
         "max_runtime_seconds": int(payload.get("max_runtime_seconds") or 1800),
+        "max_runs": max_runs,
+        "run_count": 0,
         "created_at": _to_iso(now),
         "updated_at": _to_iso(now),
     }
@@ -244,6 +284,14 @@ def update_schedule(
         record["run_at"] = (
             _to_iso(_parse_iso_datetime(str(run_at), str(record.get("timezone") or "UTC"))) if run_at else None
         )
+    if "max_runs" in updates:
+        max_runs = _max_runs(updates.get("max_runs"))
+        if record.get("kind") != "interval" and max_runs is not None:
+            raise ValueError("max_runs is only supported for interval schedules")
+        record["max_runs"] = max_runs
+    if record.get("kind") != "interval":
+        record["max_runs"] = None
+    record["run_count"] = _run_count(record.get("run_count"))
 
     for key in ("cwd", "model", "effort", "summary", "output_schema"):
         if key in updates:
@@ -262,7 +310,11 @@ def update_schedule(
             now=now,
         )
 
-    if record.get("enabled"):
+    if _schedule_limit_reached(record):
+        record["enabled"] = False
+        record["status"] = "completed"
+        record["next_run_at"] = None
+    elif record.get("enabled"):
         record["status"] = "active"
     elif record.get("status") != "completed":
         record["status"] = "paused"
@@ -309,7 +361,7 @@ def _start_codex_run_for_schedule(
         input_items=None,
         model=record.get("model") if isinstance(record.get("model"), str) else None,
         effort=record.get("effort") if isinstance(record.get("effort"), str) else None,
-        summary=record.get("summary") if isinstance(record.get("summary"), str) else None,
+        summary=_codex_summary_mode(record.get("summary")),
         output_schema=record.get("output_schema") if isinstance(record.get("output_schema"), dict) else None,
         provider_name="codex",
         raw_cwd=record.get("cwd") if isinstance(record.get("cwd"), str) else None,
@@ -393,6 +445,14 @@ async def trigger_due_schedules(
             continue
         if not record.get("enabled") or record.get("status") not in {"active"}:
             continue
+        if _schedule_limit_reached(record):
+            record["enabled"] = False
+            record["status"] = "completed"
+            record["next_run_at"] = None
+            record["updated_at"] = _to_iso(now)
+            state["schedules"][schedule_id] = record
+            changed = True
+            continue
         next_run_at = _parse_iso_datetime(str(record.get("next_run_at") or ""), str(record.get("timezone") or "UTC"))
         if next_run_at is None or next_run_at > now:
             continue
@@ -420,7 +480,12 @@ async def trigger_due_schedules(
         record["last_run_at"] = _to_iso(now)
         record["last_run_id"] = job.job_id
         record["last_error"] = None
+        record["run_count"] = _run_count(record.get("run_count")) + 1
         if record.get("kind") == "once":
+            record["enabled"] = False
+            record["status"] = "completed"
+            record["next_run_at"] = None
+        elif _schedule_limit_reached(record):
             record["enabled"] = False
             record["status"] = "completed"
             record["next_run_at"] = None

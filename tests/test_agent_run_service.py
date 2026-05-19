@@ -84,3 +84,42 @@ def test_resolve_workspace_cwd_rejects_workspace_prefix_sibling(tmp_path):
 
     with pytest.raises(ValueError):
         resolve_workspace_cwd("/workspace2/project", workspace)
+
+
+@pytest.mark.asyncio
+async def test_start_agent_run_forwards_turn_configuration(tmp_path):
+    provider = RecordingProvider()
+    manager = ExternalAgentManager(providers={"codex": provider})
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    output_schema = {"type": "object", "properties": {"ok": {"type": "boolean"}}}
+
+    job = start_agent_run(
+        prompt="分析这个项目并实现一个多文件功能",
+        input_items=[{"type": "text", "text": "native input"}],
+        provider_name="codex",
+        raw_cwd=None,
+        max_runtime_seconds=300,
+        user_id="alice",
+        session_id="session-a",
+        workspace_root=workspace,
+        runtime_dir=tmp_path / "runtime",
+        manager=manager,
+        sandbox_config=None,
+        model="gpt-5.5",
+        effort="high",
+        summary="detailed",
+        output_schema=output_schema,
+    )
+    while not provider.requests:
+        await asyncio.sleep(0.01)
+
+    request = provider.requests[0]
+    assert request.input_items == [{"type": "text", "text": "native input"}]
+    assert request.model == "gpt-5.5"
+    assert request.effort == "high"
+    assert request.summary == "detailed"
+    assert request.output_schema == output_schema
+
+    manager.cancel(job.job_id)
+    await manager.wait(job.job_id)

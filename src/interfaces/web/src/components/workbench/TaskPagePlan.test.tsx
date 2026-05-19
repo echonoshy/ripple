@@ -31,8 +31,6 @@ function renderTaskPageWithPlan() {
       onInputChange={noop}
       onClearContext={noop}
       onAttachFiles={noop}
-      onSearchWorkspaceFiles={async () => []}
-      onAddWorkspaceFile={noop}
       onRemovePendingFile={noop}
       onToggleModelDropdown={noop}
       onSelectModel={noop}

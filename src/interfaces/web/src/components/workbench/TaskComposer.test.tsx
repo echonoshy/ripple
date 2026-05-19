@@ -15,8 +15,6 @@ function renderComposer() {
       onStop={noop}
       onClearContext={noop}
       onAttachFiles={noop}
-      onSearchWorkspaceFiles={async () => []}
-      onAddWorkspaceFile={noop}
       onRemovePendingFile={noop}
       pendingFiles={[]}
       isGenerating={false}
@@ -45,9 +43,11 @@ function testShowsSelectedModelAndMenuOptions() {
 function testComposerToolbarNamesRealActions() {
   const html = renderComposer();
 
-  assert.match(html, /aria-label="Quick actions"/);
   assert.match(html, /aria-label="Attach files"/);
-  assert.match(html, /aria-label="Mention workspace file"/);
+  assert.doesNotMatch(html, /aria-label="Quick actions"/);
+  assert.doesNotMatch(html, /aria-label="Mention workspace file"/);
+  assert.doesNotMatch(html, /title="Quick actions"/);
+  assert.doesNotMatch(html, /title="Mention workspace file"/);
 }
 
 testShowsSelectedModelAndMenuOptions();

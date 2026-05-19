@@ -1,30 +1,14 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  AtSign,
-  ChevronDown,
-  Command,
-  FileText,
-  Loader2,
-  Paperclip,
-  Search,
-  Send,
-  Square,
-  Trash2,
-  X,
-} from "lucide-react";
+import { ChevronDown, FileText, Paperclip, Send, Square, Trash2, X } from "lucide-react";
 import type { ChatFileRef } from "@/lib/chatInput";
 import {
-  getActiveMentionTrigger,
   getQuickActionMatches,
   getSlashCommandTrigger,
-  removeMentionToken,
-  type MentionTrigger,
   type QuickAction,
 } from "@/lib/composerTriggers";
 import { shouldApplyInputFocus } from "@/lib/inputFocus";
-import type { WorkspaceEntry } from "@/types";
 
 interface TaskComposerProps {
   value: string;
@@ -33,8 +17,6 @@ interface TaskComposerProps {
   onStop: () => void;
   onClearContext: () => void;
   onAttachFiles: (files: File[]) => void | Promise<void>;
-  onSearchWorkspaceFiles: (query: string) => Promise<WorkspaceEntry[]>;
-  onAddWorkspaceFile: (file: ChatFileRef) => void;
   onRemovePendingFile: (path: string) => void;
   pendingFiles: ChatFileRef[];
   isGenerating: boolean;
@@ -48,7 +30,6 @@ interface TaskComposerProps {
 }
 
 type QuickActionsState = {
-  source: "button" | "input";
   query: string;
   key: string;
 };
@@ -60,8 +41,6 @@ export default function TaskComposer({
   onStop,
   onClearContext,
   onAttachFiles,
-  onSearchWorkspaceFiles,
-  onAddWorkspaceFile,
   onRemovePendingFile,
   pendingFiles,
   isGenerating,
@@ -76,23 +55,15 @@ export default function TaskComposer({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const quickActionsRef = useRef<HTMLDivElement>(null);
-  const mentionRef = useRef<HTMLDivElement>(null);
   const [quickActionsState, setQuickActionsState] = useState<QuickActionsState | null>(null);
-  const [mentionState, setMentionState] = useState<MentionTrigger | null>(null);
   const [dismissedSlashKey, setDismissedSlashKey] = useState<string | null>(null);
-  const [dismissedMentionKey, setDismissedMentionKey] = useState<string | null>(null);
   const [quickActionIndex, setQuickActionIndex] = useState(0);
-  const [mentionIndex, setMentionIndex] = useState(0);
-  const [mentionResults, setMentionResults] = useState<WorkspaceEntry[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
   const canSend = Boolean(value.trim() || pendingFiles.length > 0);
   const isQuickActionsOpen = quickActionsState !== null;
-  const isMentionOpen = mentionState !== null;
   const quickActionMatches = useMemo(
     () => getQuickActionMatches(quickActionsState?.query ?? ""),
     [quickActionsState?.query]
   );
-  const mentionQuery = mentionState?.query ?? "";
 
   const adjustHeight = useCallback(() => {
     const el = textareaRef.current;
@@ -111,35 +82,6 @@ export default function TaskComposer({
     }
   }, [focusToken, isGenerating]);
 
-  useEffect(() => {
-    if (!isMentionOpen) return;
-    const query = mentionQuery.trim();
-    if (!query) return;
-
-    let cancelled = false;
-    const timer = window.setTimeout(() => {
-      setIsSearching(true);
-      onSearchWorkspaceFiles(query)
-        .then((entries) => {
-          if (!cancelled) {
-            setMentionIndex(0);
-            setMentionResults(entries.filter((entry) => entry.kind === "file"));
-          }
-        })
-        .catch(() => {
-          if (!cancelled) setMentionResults([]);
-        })
-        .finally(() => {
-          if (!cancelled) setIsSearching(false);
-        });
-    }, 150);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [isMentionOpen, mentionQuery, onSearchWorkspaceFiles]);
-
   const getTextareaCursor = useCallback(
     () => textareaRef.current?.selectionStart ?? value.length,
     [value.length]
@@ -150,21 +92,14 @@ export default function TaskComposer({
       const cursor = getTextareaCursor();
       if (rememberDismissal) {
         const slashTrigger = getSlashCommandTrigger(value, cursor);
-        if (quickActionsState?.source === "input" && slashTrigger) {
+        if (slashTrigger) {
           setDismissedSlashKey(slashTrigger.key);
-        }
-        const mentionTrigger = getActiveMentionTrigger(value, cursor);
-        if (mentionTrigger) {
-          setDismissedMentionKey(mentionTrigger.key);
         }
       }
 
       setQuickActionsState(null);
-      setMentionState(null);
-      setMentionResults([]);
-      setIsSearching(false);
     },
-    [getTextareaCursor, quickActionsState?.source, value]
+    [getTextareaCursor, value]
   );
 
   const syncInputDrivenPopups = useCallback(
@@ -173,68 +108,45 @@ export default function TaskComposer({
 
       const slashTrigger = getSlashCommandTrigger(nextValue, cursor);
       if (slashTrigger && slashTrigger.key !== dismissedSlashKey) {
-        setQuickActionsState({ source: "input", ...slashTrigger });
+        setQuickActionsState(slashTrigger);
         setQuickActionIndex(0);
-        setMentionState(null);
-        setMentionResults([]);
-        setIsSearching(false);
         return;
       }
 
-      const mentionTrigger = getActiveMentionTrigger(nextValue, cursor);
-      if (mentionTrigger && mentionTrigger.key !== dismissedMentionKey) {
-        setMentionState(mentionTrigger);
-        setMentionIndex(0);
-        if (!mentionTrigger.query.trim()) {
-          setMentionResults([]);
-          setIsSearching(false);
-        }
-        setQuickActionsState(null);
-        return;
-      }
-
-      setQuickActionsState((current) => (current?.source === "input" ? null : current));
-      setMentionState(null);
-      setMentionResults([]);
-      setIsSearching(false);
+      setQuickActionsState(null);
     },
-    [dismissedMentionKey, dismissedSlashKey, isGenerating]
+    [dismissedSlashKey, isGenerating]
   );
 
   useEffect(() => {
-    if (!isQuickActionsOpen && !isMentionOpen) return;
+    if (!isQuickActionsOpen) return;
 
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
       if (quickActionsRef.current?.contains(target)) return;
-      if (mentionRef.current?.contains(target)) return;
       closeOpenPopups();
     };
 
     document.addEventListener("pointerdown", handlePointerDown, true);
     return () => document.removeEventListener("pointerdown", handlePointerDown, true);
-  }, [closeOpenPopups, isMentionOpen, isQuickActionsOpen]);
+  }, [closeOpenPopups, isQuickActionsOpen]);
 
   const runQuickAction = useCallback(
     (action: QuickAction) => {
-      const source = quickActionsState?.source;
       setQuickActionsState(null);
-      setMentionState(null);
-      setMentionResults([]);
-      setIsSearching(false);
 
       if (action.id === "clear") {
-        if (source === "input") onChange("");
+        onChange("");
         onClearContext();
         requestAnimationFrame(() => textareaRef.current?.focus());
       }
     },
-    [onChange, onClearContext, quickActionsState?.source]
+    [onChange, onClearContext]
   );
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if ((isQuickActionsOpen || isMentionOpen) && event.key === "Escape") {
+    if (isQuickActionsOpen && event.key === "Escape") {
       event.preventDefault();
       closeOpenPopups();
       return;
@@ -262,28 +174,6 @@ export default function TaskComposer({
       }
     }
 
-    if (isMentionOpen) {
-      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-        event.preventDefault();
-        const direction = event.key === "ArrowDown" ? 1 : -1;
-        setMentionIndex((index) => {
-          const count = mentionResults.length;
-          if (count === 0) return 0;
-          return (index + direction + count) % count;
-        });
-        return;
-      }
-
-      if ((event.key === "Enter" || event.key === "Tab") && !event.shiftKey) {
-        const entry = mentionResults[mentionIndex] ?? mentionResults[0];
-        if (entry) {
-          event.preventDefault();
-          handleSelectWorkspaceFile(entry);
-          return;
-        }
-      }
-    }
-
     if (event.key !== "Enter" || event.shiftKey) return;
     if (event.nativeEvent.isComposing || event.keyCode === 229) return;
     event.preventDefault();
@@ -306,78 +196,6 @@ export default function TaskComposer({
     event.target.value = "";
     if (files.length === 0) return;
     void onAttachFiles(files);
-  };
-
-  const handleSelectWorkspaceFile = (entry: WorkspaceEntry) => {
-    const cursor = getTextareaCursor();
-    const trigger = mentionState ?? getActiveMentionTrigger(value, cursor);
-    if (trigger) {
-      const nextValue = removeMentionToken(value, trigger.start, trigger.end);
-      const nextCursor = Math.min(trigger.start, nextValue.length);
-      onChange(nextValue);
-      requestAnimationFrame(() => {
-        textareaRef.current?.focus();
-        textareaRef.current?.setSelectionRange(nextCursor, nextCursor);
-      });
-    } else {
-      requestAnimationFrame(() => textareaRef.current?.focus());
-    }
-
-    onAddWorkspaceFile({
-      path: entry.path,
-      name: entry.name,
-      mime_type: entry.mime_type || "application/octet-stream",
-      kind: "attachment",
-    });
-
-    setMentionState(null);
-    setMentionResults([]);
-    setIsSearching(false);
-  };
-
-  const handleQuickActionsButtonClick = () => {
-    setQuickActionsState((current) =>
-      current?.source === "button" ? null : { source: "button", query: "", key: "button" }
-    );
-    setQuickActionIndex(0);
-    setMentionState(null);
-    setMentionResults([]);
-    setIsSearching(false);
-  };
-
-  const handleMentionButtonClick = () => {
-    const textarea = textareaRef.current;
-    const selectionStart = textarea?.selectionStart ?? value.length;
-    const selectionEnd = textarea?.selectionEnd ?? selectionStart;
-    const existingTrigger = getActiveMentionTrigger(value, selectionStart);
-    if (existingTrigger) {
-      setMentionState(existingTrigger);
-      setMentionIndex(0);
-      setDismissedMentionKey(null);
-      setQuickActionsState(null);
-      textareaRef.current?.focus();
-      return;
-    }
-
-    const before = value.slice(0, selectionStart);
-    const after = value.slice(selectionEnd);
-    const insert = before && !/\s$/.test(before) ? " @" : "@";
-    const nextValue = `${before}${insert}${after}`;
-    const nextCursor = before.length + insert.length;
-    const nextTrigger = getActiveMentionTrigger(nextValue, nextCursor);
-
-    onChange(nextValue);
-    setDismissedMentionKey(null);
-    setQuickActionsState(null);
-    setMentionState(nextTrigger);
-    setMentionIndex(0);
-    setMentionResults([]);
-    setIsSearching(false);
-
-    requestAnimationFrame(() => {
-      textareaRef.current?.focus();
-      textareaRef.current?.setSelectionRange(nextCursor, nextCursor);
-    });
   };
 
   return (
@@ -435,16 +253,6 @@ export default function TaskComposer({
         <div className="flex items-center justify-between gap-2 pt-1">
           <div className="flex items-center gap-1">
             <div ref={quickActionsRef} className="relative">
-              <button
-                type="button"
-                aria-label="Quick actions"
-                title="Quick actions"
-                onClick={handleQuickActionsButtonClick}
-                disabled={isGenerating}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#e5e7eb] bg-white text-[#374151] hover:bg-[#f7f8fa] hover:text-[#0d0d0d] disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <Command size={15} />
-              </button>
               {isQuickActionsOpen && (
                 <div className="absolute bottom-full left-0 z-30 mb-2 w-52 overflow-hidden rounded-lg border border-[#e5e7eb] bg-white shadow-lg">
                   {quickActionMatches.map((action, index) => (
@@ -465,66 +273,17 @@ export default function TaskComposer({
                   ))}
                 </div>
               )}
-            </div>
 
-            <button
-              type="button"
-              aria-label="Attach files"
-              title="Attach files"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isGenerating}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#e5e7eb] bg-white text-[#374151] hover:bg-[#f7f8fa] hover:text-[#0d0d0d] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Paperclip size={15} />
-            </button>
-
-            <div ref={mentionRef} className="relative">
               <button
                 type="button"
-                aria-label="Mention workspace file"
-                title="Mention workspace file"
-                onClick={handleMentionButtonClick}
+                aria-label="Attach files"
+                title="Attach files"
+                onClick={() => fileInputRef.current?.click()}
                 disabled={isGenerating}
                 className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#e5e7eb] bg-white text-[#374151] hover:bg-[#f7f8fa] hover:text-[#0d0d0d] disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <AtSign size={15} />
+                <Paperclip size={15} />
               </button>
-              {isMentionOpen && (
-                <div className="absolute bottom-full left-0 z-30 mb-2 w-[320px] overflow-hidden rounded-lg border border-[#e5e7eb] bg-white shadow-lg">
-                  <div className="flex items-center gap-2 border-b border-[#e5e7eb] px-3 py-2">
-                    <Search size={14} className="shrink-0 text-[#6b7280]" />
-                    <span className="min-w-0 flex-1 truncate font-[family-name:var(--font-mono)] text-xs text-[#6b7280]">
-                      @{mentionQuery}
-                    </span>
-                    {isSearching && <Loader2 size={14} className="animate-spin text-[#6b7280]" />}
-                  </div>
-                  <div className="max-h-64 overflow-y-auto p-1">
-                    {mentionResults.map((entry, index) => (
-                      <button
-                        key={entry.path}
-                        type="button"
-                        onClick={() => handleSelectWorkspaceFile(entry)}
-                        className={`flex w-full items-center gap-2 rounded px-2 py-2 text-left hover:bg-[#f7f8fa] ${
-                          index === mentionIndex ? "bg-[#f7f8fa]" : ""
-                        }`}
-                      >
-                        <FileText size={14} className="shrink-0 text-[#6b7280]" />
-                        <span className="min-w-0">
-                          <span className="block truncate text-sm text-[#0d0d0d]">
-                            {entry.name}
-                          </span>
-                          <span className="block truncate font-[family-name:var(--font-mono)] text-[11px] text-[#6b7280]">
-                            {entry.path}
-                          </span>
-                        </span>
-                      </button>
-                    ))}
-                    {mentionQuery.trim() && !isSearching && mentionResults.length === 0 && (
-                      <div className="px-3 py-3 text-sm text-[#6b7280]">No matching files</div>
-                    )}
-                  </div>
-                </div>
-              )}
             </div>
           </div>
 

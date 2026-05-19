@@ -7,6 +7,7 @@ from collections.abc import AsyncGenerator
 from pathlib import Path
 
 from interfaces.server.codex_plan_events import extract_task_plan_update_event
+from interfaces.server.codex_runtime_events import extract_codex_runtime_event
 from ripple.agent_runners.models import AgentRunnerStatus
 
 TERMINAL_STATUSES = {
@@ -64,6 +65,9 @@ async def stream_run_events(
             plan_event = extract_task_plan_update_event(event)
             if plan_event is not None:
                 yield _sse_data(plan_event)
+            runtime_event = extract_codex_runtime_event(event)
+            if runtime_event is not None:
+                yield _sse_data(runtime_event)
             last_emit = time.monotonic()
 
         status = get_status()

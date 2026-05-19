@@ -22,6 +22,7 @@ from interfaces.server.attachments import (
     workspace_path_for_host_path,
 )
 from interfaces.server.codex_plan_events import extract_task_plan_update_event
+from interfaces.server.codex_runtime_events import extract_codex_runtime_event
 from interfaces.server.sessions import Session, SessionManager, SessionStatus
 from ripple.agent_runners.manager import ExternalAgentJob, ExternalAgentManager
 from ripple.agent_runners.models import AgentRunnerResult, AgentRunnerStatus
@@ -128,6 +129,11 @@ def build_codex_chat_prompt(
         "- workspace: current working directory\n\n"
         "## Connector Status\n"
         f"{_connector_manifest(session)}\n\n"
+        "## Execution Environment Guardrails\n"
+        "- Do not run or mention `proxy_on` in user-facing Codex app-server tasks. "
+        "That command is a developer-only local shell helper for maintaining this Ripple repository; "
+        "network/proxy setup is managed by the Ripple service environment. If a network or connector command fails, "
+        "report the actual command error and next user action without discussing `proxy_on`.\n\n"
         "## Available Skills\n"
         f"{render_skill_manifest(workspace_root)}\n\n"
         "## System Instructions\n"
@@ -268,6 +274,10 @@ def _start_chat_run(
     session: Session,
     prompt: str,
     input_items: list[dict[str, Any]],
+    model: str,
+    effort: str | None,
+    summary: str | None,
+    output_schema: dict[str, Any] | None,
     config: Config,
     agent_manager: ExternalAgentManager,
 ) -> ExternalAgentJob:
@@ -277,6 +287,10 @@ def _start_chat_run(
     return start_agent_run(
         prompt=prompt,
         input_items=input_items,
+        model=model,
+        effort=effort,
+        summary=summary,
+        output_schema=output_schema,
         provider_name="codex",
         raw_cwd="/workspace",
         max_runtime_seconds=max_runtime_seconds,
@@ -691,6 +705,9 @@ async def collect_codex_chat_response(
     user_content: list[dict[str, Any]],
     attachment_items: list[dict[str, Any]],
     model: str,
+    effort: str | None,
+    summary: str | None,
+    output_schema: dict[str, Any] | None,
     system_prompt: str | None,
     manager: SessionManager,
     agent_manager: ExternalAgentManager,
@@ -719,6 +736,10 @@ async def collect_codex_chat_response(
                     session=session,
                     prompt=prompt,
                     input_items=_codex_turn_input_items(input_items, prompt),
+                    model=model,
+                    effort=effort,
+                    summary=summary,
+                    output_schema=output_schema,
                     config=config,
                     agent_manager=agent_manager,
                 )
@@ -816,6 +837,9 @@ async def stream_codex_chat_as_sse(
     user_content: list[dict[str, Any]],
     attachment_items: list[dict[str, Any]],
     model: str,
+    effort: str | None,
+    summary: str | None,
+    output_schema: dict[str, Any] | None,
     system_prompt: str | None,
     manager: SessionManager,
     agent_manager: ExternalAgentManager,
@@ -838,6 +862,10 @@ async def stream_codex_chat_as_sse(
                 session=session,
                 prompt=prompt,
                 input_items=_codex_turn_input_items(input_items, prompt),
+                model=model,
+                effort=effort,
+                summary=summary,
+                output_schema=output_schema,
                 config=config,
                 agent_manager=agent_manager,
             )
@@ -870,6 +898,9 @@ async def stream_codex_chat_as_sse(
                 if plan_event is not None:
                     await _persist_session_plan_update(session, manager, plan_event)
                     return [f"data: {json.dumps(plan_event, ensure_ascii=False)}\n\n"]
+                runtime_event = extract_codex_runtime_event(event)
+                if runtime_event is not None:
+                    return [f"data: {json.dumps(runtime_event, ensure_ascii=False)}\n\n"]
                 tool_event = _extract_tool_event(event)
                 if tool_event is not None:
                     return [f"data: {json.dumps(tool_event, ensure_ascii=False)}\n\n"]
@@ -879,9 +910,7 @@ async def stream_codex_chat_as_sse(
                     phase = agent_message_phases.get(item_id) if item_id else None
                     if item_id and phase == "commentary":
                         update_delta_item_ids.add(item_id)
-                        return [
-                            f"data: {json.dumps({'type': 'assistant_update_delta', 'id': item_id, 'phase': phase, 'delta': delta}, ensure_ascii=False)}\n\n"
-                        ]
+                        return []
                     if item_id:
                         final_delta_item_ids.add(item_id)
                     emitted_text += delta
@@ -898,10 +927,6 @@ async def stream_codex_chat_as_sse(
                     if not text:
                         return []
                     if phase == "commentary":
-                        if item_id not in update_delta_item_ids:
-                            return [
-                                f"data: {json.dumps({'type': 'assistant_update', 'id': item_id, 'phase': phase, 'content': text}, ensure_ascii=False)}\n\n"
-                            ]
                         return []
                     if item_id not in final_delta_item_ids:
                         emitted_text += text

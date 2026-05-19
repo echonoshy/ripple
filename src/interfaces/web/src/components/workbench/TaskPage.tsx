@@ -7,7 +7,6 @@ import type {
   TaskInfo,
   TaskProgress,
   UsageInfo,
-  WorkspaceEntry,
   WorkbenchSessionSummary,
   WorkbenchTimelineEvent,
 } from "@/types";
@@ -35,8 +34,6 @@ interface TaskPageProps {
   onInputChange: (value: string) => void;
   onClearContext: () => void;
   onAttachFiles: (files: File[]) => void | Promise<void>;
-  onSearchWorkspaceFiles: (query: string) => Promise<WorkspaceEntry[]>;
-  onAddWorkspaceFile: (file: ChatFileRef) => void;
   onRemovePendingFile: (path: string) => void;
   onToggleModelDropdown: () => void;
   onSelectModel: (model: string) => void;
@@ -67,8 +64,6 @@ export default function TaskPage({
   onInputChange,
   onClearContext,
   onAttachFiles,
-  onSearchWorkspaceFiles,
-  onAddWorkspaceFile,
   onRemovePendingFile,
   onToggleModelDropdown,
   onSelectModel,
@@ -241,8 +236,6 @@ export default function TaskPage({
         onStop={onStop}
         onClearContext={onClearContext}
         onAttachFiles={onAttachFiles}
-        onSearchWorkspaceFiles={onSearchWorkspaceFiles}
-        onAddWorkspaceFile={onAddWorkspaceFile}
         onRemovePendingFile={onRemovePendingFile}
         pendingFiles={pendingFiles}
         isGenerating={isGenerating}

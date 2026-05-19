@@ -28,8 +28,6 @@ function renderTaskPage() {
       onInputChange={noop}
       onClearContext={noop}
       onAttachFiles={noop}
-      onSearchWorkspaceFiles={async () => []}
-      onAddWorkspaceFile={noop}
       onRemovePendingFile={noop}
       onToggleModelDropdown={noop}
       onSelectModel={noop}
@@ -71,8 +69,6 @@ function renderTaskPageWithTimelineContent() {
       onInputChange={noop}
       onClearContext={noop}
       onAttachFiles={noop}
-      onSearchWorkspaceFiles={async () => []}
-      onAddWorkspaceFile={noop}
       onRemovePendingFile={noop}
       onToggleModelDropdown={noop}
       onSelectModel={noop}

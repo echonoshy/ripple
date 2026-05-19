@@ -11,14 +11,6 @@ export interface SlashCommandTrigger {
   key: string;
 }
 
-export interface MentionTrigger {
-  query: string;
-  token: string;
-  start: number;
-  end: number;
-  key: string;
-}
-
 export const QUICK_ACTIONS: QuickAction[] = [
   { id: "clear", command: "clear", label: "Clear context" },
 ];
@@ -70,43 +62,4 @@ export function getSlashCommandTrigger(
 
   const trigger = { query, key: firstLine.slice(0, commandEnd) };
   return getQuickActionMatches(query).length > 0 ? trigger : null;
-}
-
-export function getActiveMentionTrigger(
-  text: string,
-  cursor: number = text.length
-): MentionTrigger | null {
-  const safeCursor = clampCursorToText(text, cursor);
-  const beforeCursor = text.slice(0, safeCursor);
-  const afterCursor = text.slice(safeCursor);
-  const tokenStart = beforeCursor.search(/\S+$/) === -1 ? safeCursor : beforeCursor.search(/\S+$/);
-  const afterWhitespace = afterCursor.search(/\s/);
-  const tokenEnd = afterWhitespace === -1 ? text.length : safeCursor + afterWhitespace;
-  const token = text.slice(tokenStart, tokenEnd);
-
-  if (!token.startsWith("@")) return null;
-  if (token.length > 1 && token.slice(1).startsWith(" ")) return null;
-  if (token === "@" && safeCursor < text.length && /\s/.test(text[safeCursor])) return null;
-
-  const query = token.slice(1);
-  if (query.includes(" ")) return null;
-
-  return {
-    query,
-    token,
-    start: tokenStart,
-    end: tokenEnd,
-    key: `${tokenStart}:${token}`,
-  };
-}
-
-export function removeMentionToken(text: string, start: number, end: number): string {
-  const before = text.slice(0, start);
-  const after = text.slice(end);
-
-  if (!after) return before.replace(/[ \t]+$/, "");
-  if (!before) return after.replace(/^[ \t]+/, "");
-  if (/\s$/.test(before) && /^\s/.test(after)) return before + after.replace(/^\s+/, "");
-  if (!/\s$/.test(before) && !/^\s/.test(after)) return `${before} ${after}`;
-  return before + after;
 }

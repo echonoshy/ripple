@@ -1,4 +1,5 @@
 import type {
+  CodexRuntimeEvent,
   Message,
   TaskSummary,
   ToolCall,
@@ -93,6 +94,76 @@ function compactLine(value: string, maxLength = 180): string {
   const line = value.replace(/\s+/g, " ").trim();
   if (line.length <= maxLength) return line;
   return `${line.slice(0, maxLength - 1)}...`;
+}
+
+function stringifyRuntimeBody(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value === undefined || value === null) return "";
+  return JSON.stringify(value, null, 2);
+}
+
+function runtimeBody(event: CodexRuntimeEvent): string {
+  if (event.type === "tool_output_delta") {
+    return event.delta || stringifyRuntimeBody(event);
+  }
+  if (event.type === "file_change_patch_updated") {
+    return (
+      stringifyRuntimeBody(event.patch) ||
+      stringifyRuntimeBody(event.changes) ||
+      stringifyRuntimeBody(event)
+    );
+  }
+  if (event.type === "codex_warning" || event.type === "codex_error") {
+    return event.message || stringifyRuntimeBody(event);
+  }
+  if (event.type === "codex_turn_diff_updated") {
+    return stringifyRuntimeBody(event.diff) || stringifyRuntimeBody(event);
+  }
+  if (event.type === "context_compaction") {
+    return "Codex compacted conversation context.";
+  }
+  return stringifyRuntimeBody(event);
+}
+
+function runtimeTitle(event: CodexRuntimeEvent): string {
+  if (event.type === "tool_output_delta") {
+    return event.kind === "file_change" ? "File output" : "Command output";
+  }
+  if (event.type === "file_change_patch_updated") return "File patch updated";
+  if (event.type === "codex_warning") return "Codex warning";
+  if (event.type === "codex_error") return "Codex error";
+  if (event.type === "context_compaction") return "Context compacted";
+  if (event.type === "codex_turn_diff_updated") return "Workspace diff updated";
+  return "Codex runtime update";
+}
+
+function runtimeTimelineType(event: CodexRuntimeEvent): WorkbenchTimelineEvent["type"] {
+  if (event.type === "tool_output_delta") {
+    return event.kind === "file_change" ? "file_change" : "command";
+  }
+  if (event.type === "file_change_patch_updated" || event.type === "codex_turn_diff_updated") {
+    return "file_change";
+  }
+  if (event.type === "codex_warning") return "warning";
+  if (event.type === "codex_error") return "error";
+  if (event.type === "context_compaction") return "context_compaction";
+  return "runtime_update";
+}
+
+export function codexRuntimeEventToTimelineEvent(
+  event: CodexRuntimeEvent,
+  options: { id?: string; createdAt?: string } = {}
+): WorkbenchTimelineEvent {
+  const id = options.id || `runtime-${event.type}-${event.id || event.turn_id || Date.now()}`;
+  const status = event.type === "tool_output_delta" ? event.stream : event.status;
+  return {
+    id,
+    type: runtimeTimelineType(event),
+    title: runtimeTitle(event),
+    body: runtimeBody(event),
+    createdAt: options.createdAt,
+    status,
+  };
 }
 
 function changedPathsFromValue(value: unknown): string[] {

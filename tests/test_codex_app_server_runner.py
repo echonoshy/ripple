@@ -274,6 +274,81 @@ for raw_line in sys.stdin:
     )
 
 
+def _write_fake_unsupported_request_app_server(path: Path) -> None:
+    path.write_text(
+        """
+import json
+import os
+import sys
+
+log_file = os.environ["FAKE_APP_SERVER_LOG"]
+process_file = os.environ["FAKE_APP_SERVER_PROCESSES"]
+thread_id = "thr-unsupported"
+turn_id = "turn-unsupported"
+
+
+def emit(payload):
+    sys.stdout.write(json.dumps(payload) + "\\n")
+    sys.stdout.flush()
+
+
+def record(payload):
+    with open(log_file, "a", encoding="utf-8") as f:
+        f.write(json.dumps({
+            "pid": os.getpid(),
+            "method": payload.get("method"),
+            "params": payload.get("params"),
+            "id": payload.get("id"),
+            "result": payload.get("result"),
+            "error": payload.get("error"),
+        }) + "\\n")
+
+
+with open(process_file, "a", encoding="utf-8") as f:
+    f.write(str(os.getpid()) + "\\n")
+
+for raw_line in sys.stdin:
+    message = json.loads(raw_line)
+    method = message.get("method")
+    params = message.get("params", {})
+    record({
+        "method": method,
+        "params": params,
+        "id": message.get("id"),
+        "result": message.get("result"),
+        "error": message.get("error"),
+    })
+
+    if method == "initialize":
+        emit({"jsonrpc": "2.0", "id": message["id"], "result": {"serverInfo": {"name": "fake-codex"}}})
+    elif method == "initialized":
+        pass
+    elif method == "thread/start":
+        emit({"jsonrpc": "2.0", "id": message["id"], "result": {"thread": {"id": thread_id}}})
+    elif method == "turn/start":
+        emit({"jsonrpc": "2.0", "id": message["id"], "result": {"turn": {"id": turn_id, "status": "inProgress"}}})
+        emit({
+            "jsonrpc": "2.0",
+            "id": "unsupported-1",
+            "method": "item/tool/requestUserInput",
+            "params": {"threadId": thread_id, "turnId": turn_id, "itemId": "ask-1"},
+        })
+    elif message.get("id") == "unsupported-1":
+        emit({
+            "jsonrpc": "2.0",
+            "method": "item/agentMessage/delta",
+            "params": {"threadId": thread_id, "turnId": turn_id, "delta": "declined unsupported request"},
+        })
+        emit({
+            "jsonrpc": "2.0",
+            "method": "turn/completed",
+            "params": {"threadId": thread_id, "turnId": turn_id, "turn": {"id": turn_id, "status": "completed"}},
+        })
+""",
+        encoding="utf-8",
+    )
+
+
 def _write_fake_silent_app_server(path: Path) -> None:
     path.write_text(
         """
@@ -435,6 +510,63 @@ async def test_app_server_provider_forwards_multimodal_input_items(tmp_path):
         {"type": "localImage", "path": str(image_path)},
         {"type": "text", "text": "inspect image"},
     ]
+
+
+@pytest.mark.asyncio
+async def test_app_server_provider_forwards_turn_configuration(tmp_path):
+    provider = _provider(tmp_path)
+    request = AgentRunnerRequest(
+        provider="codex",
+        prompt="inspect project",
+        cwd=tmp_path / "workspace",
+        max_runtime_seconds=5,
+        user_id="user-a",
+        session_id="session-test",
+        model="gpt-5.5",
+        effort="high",
+        summary="detailed",
+        output_schema={"type": "object", "properties": {"ok": {"type": "boolean"}}},
+    )
+    request.cwd.mkdir(parents=True)
+
+    result = await provider.run(request, job_dir=tmp_path / "job")
+
+    assert result.status == AgentRunnerStatus.COMPLETED
+    calls = _read_jsonl(tmp_path / "app-server.jsonl")
+    turn_start = next(call for call in calls if call["method"] == "turn/start")
+    assert turn_start["params"]["model"] == "gpt-5.5"
+    assert turn_start["params"]["effort"] == "high"
+    assert turn_start["params"]["summary"] == "detailed"
+    assert turn_start["params"]["outputSchema"] == {"type": "object", "properties": {"ok": {"type": "boolean"}}}
+
+
+@pytest.mark.asyncio
+async def test_app_server_provider_declines_unsupported_server_request(tmp_path):
+    script = tmp_path / "fake_unsupported_request_app_server.py"
+    _write_fake_unsupported_request_app_server(script)
+    provider = CodexAppServerAgentProvider(
+        codex_executable=sys.executable,
+        app_server_args=[str(script)],
+        env={
+            "FAKE_APP_SERVER_LOG": str(tmp_path / "app-server.jsonl"),
+            "FAKE_APP_SERVER_PROCESSES": str(tmp_path / "processes.txt"),
+        },
+        idle_timeout_seconds=60,
+    )
+    request = _request(tmp_path, prompt="trigger unsupported").model_copy(update={"max_runtime_seconds": 1})
+    request.cwd.mkdir(parents=True)
+
+    result = await provider.run(request, job_dir=tmp_path / "job")
+
+    assert result.status == AgentRunnerStatus.COMPLETED
+    assert result.output_file is not None
+    assert "declined unsupported request" in result.output_file.read_text(encoding="utf-8")
+    calls = _read_jsonl(tmp_path / "app-server.jsonl")
+    unsupported_response = next(call for call in calls if call["id"] == "unsupported-1" and call["error"] is not None)
+    assert unsupported_response["error"]["code"] == -32601
+    assert "unsupported" in unsupported_response["error"]["message"].lower()
+    events = _read_jsonl(result.events_file)
+    assert "codex.server_request_unsupported" in [event["type"] for event in events]
 
 
 @pytest.mark.asyncio

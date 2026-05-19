@@ -1,6 +1,14 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { AlertTriangle, KeyRound } from "lucide-react";
-import { Message, UsageInfo, TaskDetail, TaskInfo, TaskProgress, TaskSummary } from "@/types";
+import {
+  Message,
+  UsageInfo,
+  TaskDetail,
+  TaskInfo,
+  TaskProgress,
+  TaskSummary,
+  WorkbenchTimelineEvent,
+} from "@/types";
 import {
   clearTaskContext,
   createTask,
@@ -17,7 +25,6 @@ import {
   fetchTaskDetails,
   deleteTask,
   resolveTaskPermissionRequest,
-  searchWorkspaceFiles,
   uploadWorkspaceAttachment,
 } from "@/lib/api";
 import RippleIcon from "@/components/icons/RippleIcon";
@@ -46,6 +53,7 @@ import {
   setStoredCurrentSessionId,
 } from "@/lib/sessionPersistence";
 import {
+  codexRuntimeEventToTimelineEvent,
   createWorkbenchSessionsFromTaskSummaries,
   extractChangedFilePaths,
   messagesToTimelineEvents,
@@ -68,6 +76,7 @@ export default function Home() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [sessionSummaries, setSessionSummaries] = useState<TaskSummary[]>([]);
   const [isLoadingSessions, setIsLoadingSessions] = useState(false);
+  const [runtimeTimelineEvents, setRuntimeTimelineEvents] = useState<WorkbenchTimelineEvent[]>([]);
 
   // ── Model state ──
   const [models, setModels] = useState<{ id: string; owned_by: string }[]>([]);
@@ -119,6 +128,7 @@ export default function Home() {
     setSessionId(details.session_id);
     setSelectedModel(details.model);
     setMessages(mapBackendMessages(details));
+    setRuntimeTimelineEvents([]);
     setPendingFiles([]);
     setTokenUsage({ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
     setLastContextTokens(0);
@@ -161,6 +171,7 @@ export default function Home() {
       activeRequestIdRef.current += 1;
       setSessionId(null);
       setMessages([]);
+      setRuntimeTimelineEvents([]);
       setPendingFiles([]);
       setSessionSummaries([]);
       setTaskSteps([]);
@@ -233,6 +244,7 @@ export default function Home() {
   const handleNewSession = async () => {
     if (isGenerating) return;
     setMessages([]);
+    setRuntimeTimelineEvents([]);
     setPendingFiles([]);
     setTokenUsage({ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
     setLastContextTokens(0);
@@ -268,6 +280,7 @@ export default function Home() {
       if (targetSessionId === sessionId) {
         setSessionId(null);
         setMessages([]);
+        setRuntimeTimelineEvents([]);
         setPendingFiles([]);
         setTaskSteps([]);
         setTaskProgress(null);
@@ -289,6 +302,7 @@ export default function Home() {
 
   const resetCurrentContextView = useCallback(() => {
     setMessages([]);
+    setRuntimeTimelineEvents([]);
     setPendingFiles([]);
     setInput("");
     setTaskSteps([]);
@@ -351,14 +365,6 @@ export default function Home() {
     },
     [isGenerating]
   );
-
-  const handleAddWorkspaceFile = useCallback((file: ChatFileRef) => {
-    setPendingFiles((prev) => {
-      if (prev.some((item) => item.path === file.path)) return prev;
-      return [...prev, file];
-    });
-    setInputFocusToken((prev) => bumpInputFocusToken(prev));
-  }, []);
 
   const handleRemovePendingFile = useCallback((path: string) => {
     setPendingFiles((prev) => prev.filter((file) => file.path !== path));
@@ -542,6 +548,17 @@ export default function Home() {
             setTaskSteps(next.taskSteps);
             setTaskProgress(next.taskProgress);
           },
+          onRuntimeEvent: (event) => {
+            if (isStaleRequest()) return;
+            const createdAt = new Date().toISOString();
+            setRuntimeTimelineEvents((prev) => [
+              ...prev,
+              codexRuntimeEventToTimelineEvent(event, {
+                id: `runtime-${requestId}-${prev.length}`,
+                createdAt,
+              }),
+            ]);
+          },
           onAgentStop: (data) => {
             if (isStaleRequest()) return;
             setMessages((prev) => {
@@ -721,7 +738,10 @@ export default function Home() {
     !workbenchSessions.some((session) => session.sessionId === inferredCurrentSession.sessionId)
       ? [inferredCurrentSession, ...workbenchSessions]
       : workbenchSessions;
-  const timelineEvents = useMemo(() => messagesToTimelineEvents(messages), [messages]);
+  const timelineEvents = useMemo(
+    () => [...messagesToTimelineEvents(messages), ...runtimeTimelineEvents],
+    [messages, runtimeTimelineEvents]
+  );
   const pendingPermission =
     [...messages].reverse().find((message) => message.permissionRequest)?.permissionRequest || null;
   const changedFiles = useMemo(() => extractChangedFilePaths(messages), [messages]);
@@ -760,8 +780,6 @@ export default function Home() {
         onInputChange={setInput}
         onClearContext={handleClearContext}
         onAttachFiles={handleAttachFiles}
-        onSearchWorkspaceFiles={searchWorkspaceFiles}
-        onAddWorkspaceFile={handleAddWorkspaceFile}
         onRemovePendingFile={handleRemovePendingFile}
         onToggleModelDropdown={() =>
           setOpenModelDropdown((open) => (open === "composer" ? null : "composer"))

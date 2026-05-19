@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 
 import {
+  codexRuntimeEventToTimelineEvent,
   extractChangedFilePaths,
   mapTaskSummariesToWorkbenchSessions,
   messagesToTimelineEvents,
   sortWorkbenchSessions,
 } from "./workbench";
-import type { Message, TaskSummary } from "@/types";
+import type { CodexRuntimeEvent, Message, TaskSummary } from "@/types";
 
 function makeTask(overrides: Partial<TaskSummary>): TaskSummary {
   return {
@@ -172,10 +173,67 @@ function testExtractsChangedFilesFromToolCalls() {
   assert.deepEqual(extractChangedFilePaths(messages), ["/workspace/a.ts", "/workspace/b.ts"]);
 }
 
+function testMapsCodexRuntimeEventsIntoTimelineEvents() {
+  const command: CodexRuntimeEvent = {
+    type: "tool_output_delta",
+    id: "cmd-1",
+    kind: "command_execution",
+    delta: "pytest -q",
+    stream: "stdout",
+  };
+  const commandEvent = codexRuntimeEventToTimelineEvent(command, {
+    id: "runtime-1",
+    createdAt: "2026-05-19T00:00:00.000Z",
+  });
+
+  assert.equal(commandEvent.id, "runtime-1");
+  assert.equal(commandEvent.type, "command");
+  assert.equal(commandEvent.title, "Command output");
+  assert.equal(commandEvent.body, "pytest -q");
+  assert.equal(commandEvent.status, "stdout");
+  assert.equal(commandEvent.createdAt, "2026-05-19T00:00:00.000Z");
+
+  const patchEvent = codexRuntimeEventToTimelineEvent(
+    {
+      type: "file_change_patch_updated",
+      id: "file-1",
+      patch: "@@ -1 +1 @@",
+    },
+    { id: "runtime-2" }
+  );
+  assert.equal(patchEvent.type, "file_change");
+  assert.equal(patchEvent.title, "File patch updated");
+  assert.match(patchEvent.body, /@@ -1/);
+
+  const warningEvent = codexRuntimeEventToTimelineEvent(
+    {
+      type: "codex_warning",
+      message: "context is getting full",
+    },
+    { id: "runtime-3" }
+  );
+  assert.equal(warningEvent.type, "warning");
+  assert.equal(warningEvent.title, "Codex warning");
+  assert.equal(warningEvent.body, "context is getting full");
+
+  const compactEvent = codexRuntimeEventToTimelineEvent(
+    {
+      type: "context_compaction",
+      id: "compact-1",
+      status: "completed",
+    },
+    { id: "runtime-4" }
+  );
+  assert.equal(compactEvent.type, "context_compaction");
+  assert.equal(compactEvent.title, "Context compacted");
+  assert.equal(compactEvent.status, "completed");
+}
+
 testMapsBackendTasksToWorkbenchSummaries();
 testSortsApprovalTasksBeforeOrdinaryRunningTasks();
 testMapsToolCallsIntoTimelineEvents();
 testPlacesAssistantContentAfterItsToolCalls();
 testExtractsChangedFilesFromToolCalls();
+testMapsCodexRuntimeEventsIntoTimelineEvents();
 
 console.log("workbench tests passed");

@@ -490,6 +490,18 @@ def _codex_chat_max_runtime_seconds(config) -> int:
     )
 
 
+def _resolve_agent_run_turn_config(request: AgentRunCreateRequest) -> tuple[str | None, str | None]:
+    if not request.model:
+        return None, request.effort
+
+    config = get_config()
+    presets = config.get_model_presets()
+    if request.model in presets:
+        resolved = config.resolve_model_info(request.model)
+        return resolved.model, request.effort or resolved.reasoning_effort
+    return request.model, request.effort
+
+
 @router.post("/v1/chat/completions")
 async def chat_completions(
     request: ChatCompletionRequest,
@@ -525,6 +537,9 @@ async def chat_completions(
         is_new = True
     set_current_session_id(session.session_id)
     resolved_model = manager.configure_session_model(session, request.model)
+    resolved_effort = request.effort
+    if resolved_effort is None and session.context is not None:
+        resolved_effort = session.context.options.reasoning_effort
 
     # 对已存在的 session：本轮带了 system 就覆盖，没带就清空 caller 段（仅默认 prompt 生效）
     if not is_new:
@@ -554,6 +569,9 @@ async def chat_completions(
                 user_content=user_content,
                 attachment_items=attachment_items,
                 model=resolved_model,
+                effort=resolved_effort,
+                summary=request.summary,
+                output_schema=request.output_schema,
                 system_prompt=merged_system_prompt,
                 manager=manager,
                 agent_manager=agent_manager,
@@ -573,6 +591,9 @@ async def chat_completions(
         user_content=user_content,
         attachment_items=attachment_items,
         model=resolved_model,
+        effort=resolved_effort,
+        summary=request.summary,
+        output_schema=request.output_schema,
         system_prompt=merged_system_prompt,
         manager=manager,
         agent_manager=agent_manager,
@@ -1069,10 +1090,16 @@ async def create_agent_run(
     workspace_root = manager.sandbox_manager.ensure_sandbox(user_id)
     assert_can_create_run(manager.sandbox_manager.config, user_id, request.max_runtime_seconds)
     runtime_dir = manager.sandbox_manager.config.sandbox_dir(user_id) / "agent-runs"
+    turn_model, turn_effort = _resolve_agent_run_turn_config(request)
 
     try:
         job = start_agent_run(
             prompt=request.prompt,
+            input_items=request.input_items,
+            model=turn_model,
+            effort=turn_effort,
+            summary=request.summary,
+            output_schema=request.output_schema,
             provider_name=request.provider,
             raw_cwd=request.cwd,
             max_runtime_seconds=request.max_runtime_seconds,

@@ -1,5 +1,6 @@
 import { fetchEventSource } from "@microsoft/fetch-event-source";
 import {
+  CodexRuntimeEvent,
   ToolCall,
   UsageInfo,
   SandboxInfo,
@@ -126,6 +127,23 @@ function authHeaders(): Record<string, string> {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+const CODEX_RUNTIME_EVENT_TYPES = new Set<CodexRuntimeEvent["type"]>([
+  "codex_turn_diff_updated",
+  "tool_output_delta",
+  "file_change_patch_updated",
+  "codex_warning",
+  "codex_error",
+  "context_compaction",
+]);
+
+function isCodexRuntimeEvent(value: unknown): value is CodexRuntimeEvent {
+  return (
+    isRecord(value) &&
+    typeof value.type === "string" &&
+    CODEX_RUNTIME_EVENT_TYPES.has(value.type as CodexRuntimeEvent["type"])
+  );
 }
 
 async function responseDetail(res: Response): Promise<string> {
@@ -295,6 +313,7 @@ export async function sendChatMessage(
     onTaskUpdated?: (task: TaskInfo) => void;
     onTaskProgress?: (progress: TaskProgress) => void;
     onTaskPlanUpdated?: (update: TaskPlanUpdate) => void;
+    onRuntimeEvent?: (event: CodexRuntimeEvent) => void;
     onAgentStop?: (data: AgentStopData) => void;
     onPermissionRequest?: (request: {
       tool: string;
@@ -487,6 +506,11 @@ export async function sendChatMessage(
 
           if (data.type === "task_plan_updated") {
             callbacks.onTaskPlanUpdated?.(parseTaskPlanUpdate(data));
+            return;
+          }
+
+          if (isCodexRuntimeEvent(data)) {
+            callbacks.onRuntimeEvent?.(data);
             return;
           }
 

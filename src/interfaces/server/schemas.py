@@ -4,7 +4,7 @@ import time
 from typing import Any, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 # ─── Chat Completions 请求 ───
 
@@ -18,6 +18,8 @@ class ChatMessage(BaseModel):
 
 
 class ChatCompletionRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     model: str = "codex-medium"
     messages: list[ChatMessage]
     stream: bool = False
@@ -25,6 +27,9 @@ class ChatCompletionRequest(BaseModel):
     session_id: str | None = None
     temperature: float | None = None
     max_tokens: int | None = None
+    effort: str | None = None
+    summary: str | None = None
+    output_schema: dict[str, Any] | None = Field(default=None, alias="outputSchema")
     # 兼容旧 OpenAI-compatible 调用方；Codex app-server 当前不读取该字段。
     thinking: bool | None = None
     # 说明：messages 中的 role="system" 条目会被提取并作为 "caller system prompt"，
@@ -282,9 +287,16 @@ class GogcliAccountsResponse(BaseModel):
 
 
 class AgentRunCreateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     prompt: str = Field(min_length=1)
+    input_items: list[dict[str, Any]] = Field(default_factory=list)
     provider: Literal["auto", "codex"] = "codex"
     cwd: str | None = None
+    model: str | None = None
+    effort: str | None = None
+    summary: str | None = None
+    output_schema: dict[str, Any] | None = Field(default=None, alias="outputSchema")
     max_runtime_seconds: int = Field(default=1800, ge=1, le=86_400)
 
 

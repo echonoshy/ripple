@@ -47,7 +47,18 @@ export default function InspectorPanel({
 }: InspectorPanelProps) {
   const [activeTab, setActiveTab] = useState<InspectorTab>("files");
   const activityEvents = useMemo(
-    () => events.filter((event) => ["command", "file_change", "tool_call"].includes(event.type)),
+    () =>
+      events.filter((event) =>
+        [
+          "command",
+          "file_change",
+          "tool_call",
+          "warning",
+          "error",
+          "context_compaction",
+          "runtime_update",
+        ].includes(event.type)
+      ),
     [events]
   );
 

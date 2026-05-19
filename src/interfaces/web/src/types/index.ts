@@ -182,6 +182,30 @@ export interface TaskPlanUpdate {
   allCompleted: boolean;
 }
 
+export type CodexRuntimeEventType =
+  | "codex_turn_diff_updated"
+  | "tool_output_delta"
+  | "file_change_patch_updated"
+  | "codex_warning"
+  | "codex_error"
+  | "context_compaction";
+
+export interface CodexRuntimeEvent {
+  type: CodexRuntimeEventType;
+  id?: string;
+  codex_method?: string;
+  thread_id?: string | null;
+  turn_id?: string | null;
+  kind?: string;
+  delta?: string;
+  stream?: string;
+  message?: string;
+  diff?: unknown;
+  patch?: unknown;
+  changes?: unknown;
+  status?: string;
+}
+
 export interface AgentStopData {
   stop_reason: "completed" | "ask_user" | "permission_request" | "tool_requested" | string;
   metadata: Record<string, unknown>;
@@ -215,6 +239,10 @@ export type WorkbenchTimelineEventType =
   | "tool_call"
   | "command"
   | "file_change"
+  | "warning"
+  | "error"
+  | "context_compaction"
+  | "runtime_update"
   | "approval_request"
   | "final_summary";
 

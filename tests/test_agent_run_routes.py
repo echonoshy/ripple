@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -22,8 +23,10 @@ class DummySessionManager:
 class SlowProvider:
     def __init__(self):
         self.pending_approval = None
+        self.requests: list[AgentRunnerRequest] = []
 
     async def run(self, request: AgentRunnerRequest, *, job_dir):
+        self.requests.append(request)
         await asyncio.sleep(30)
         return AgentRunnerResult(
             job_id=request.job_id or "job-test",
@@ -83,6 +86,45 @@ def test_agent_run_routes_start_status_steer_and_cancel(tmp_path: Path, monkeypa
     assert cancel.json()["status"] == "cancelled"
 
     assert agent_manager.get(job_id).user_id == "alice"
+
+
+def test_agent_run_accepts_native_input_items_and_turn_configuration(tmp_path: Path, monkeypatch):
+    client, agent_manager = _client(tmp_path, monkeypatch)
+    provider = agent_manager.providers["codex"]
+    output_schema = {"type": "object", "properties": {"ok": {"type": "boolean"}}}
+
+    start = client.post(
+        "/v1/runs",
+        json={
+            "prompt": "分析这个项目",
+            "provider": "codex",
+            "input_items": [
+                {"type": "text", "text": "native text"},
+                {"type": "image", "url": "https://example.com/diagram.png"},
+            ],
+            "model": "codex-high",
+            "summary": "detailed",
+            "outputSchema": output_schema,
+        },
+    )
+
+    assert start.status_code == 200
+    for _ in range(50):
+        if provider.requests:
+            break
+        time.sleep(0.01)
+    assert provider.requests
+    request = provider.requests[0]
+    assert request.input_items == [
+        {"type": "text", "text": "native text"},
+        {"type": "image", "url": "https://example.com/diagram.png"},
+    ]
+    assert request.model == "gpt-5.5"
+    assert request.effort == "high"
+    assert request.summary == "detailed"
+    assert request.output_schema == output_schema
+
+    client.post(f"/v1/runs/{start.json()['job_id']}/cancel")
 
 
 def test_agent_run_routes_are_user_scoped(tmp_path: Path, monkeypatch):
@@ -244,6 +286,86 @@ def test_agent_run_events_emit_normalized_plan_updates(tmp_path: Path, monkeypat
     assert '"type": "task_plan_updated"' in body
     assert '"currentTask": "Implement"' in body
     assert '"allCompleted": false' in body
+
+
+def test_agent_run_events_emit_normalized_codex_runtime_events(tmp_path: Path, monkeypatch):
+    client, agent_manager = _client(tmp_path, monkeypatch)
+    start = client.post("/v1/runs", json={"prompt": "events run", "provider": "codex"})
+    job_id = start.json()["job_id"]
+    job = agent_manager.get(job_id)
+    assert job is not None
+    job.events_file.parent.mkdir(parents=True, exist_ok=True)
+    events = [
+        {
+            "type": "codex.notification",
+            "job_id": job_id,
+            "data": {
+                "message": {
+                    "method": "turn/diff/updated",
+                    "params": {"threadId": "thread-1", "turnId": "turn-1", "diff": {"files": ["app.py"]}},
+                }
+            },
+        },
+        {
+            "type": "codex.notification",
+            "job_id": job_id,
+            "data": {
+                "message": {
+                    "method": "item/commandExecution/outputDelta",
+                    "params": {"threadId": "thread-1", "turnId": "turn-1", "itemId": "cmd-1", "delta": "pytest"},
+                }
+            },
+        },
+        {
+            "type": "codex.notification",
+            "job_id": job_id,
+            "data": {
+                "message": {
+                    "method": "item/fileChange/patchUpdated",
+                    "params": {"threadId": "thread-1", "turnId": "turn-1", "itemId": "file-1", "patch": "@@ ..."},
+                }
+            },
+        },
+        {
+            "type": "codex.notification",
+            "job_id": job_id,
+            "data": {"message": {"method": "warning", "params": {"message": "low context"}}},
+        },
+        {
+            "type": "codex.notification",
+            "job_id": job_id,
+            "data": {"message": {"method": "error", "params": {"message": "tool failed"}}},
+        },
+        {
+            "type": "codex.notification",
+            "job_id": job_id,
+            "data": {
+                "message": {
+                    "method": "item/completed",
+                    "params": {
+                        "threadId": "thread-1",
+                        "turnId": "turn-1",
+                        "item": {"type": "contextCompaction", "id": "compact-1", "status": "completed"},
+                    },
+                }
+            },
+        },
+    ]
+    job.events_file.write_text("\n".join(json.dumps(event) for event in events) + "\n", encoding="utf-8")
+    job.status = AgentRunnerStatus.COMPLETED
+    write_job_meta(job)
+
+    with client.stream("GET", f"/v1/runs/{job_id}/events?follow=false") as response:
+        body = response.read().decode()
+
+    assert response.status_code == 200
+    assert '"type": "codex_turn_diff_updated"' in body
+    assert '"type": "tool_output_delta"' in body
+    assert '"kind": "command_execution"' in body
+    assert '"type": "file_change_patch_updated"' in body
+    assert '"type": "codex_warning"' in body
+    assert '"type": "codex_error"' in body
+    assert '"type": "context_compaction"' in body
 
 
 def test_agent_run_events_replay_disk_only_run(tmp_path: Path, monkeypatch):

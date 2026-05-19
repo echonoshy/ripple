@@ -408,6 +408,98 @@ class CodexImageEventProvider:
         )
 
 
+class CodexRuntimeEventProvider:
+    def __init__(self):
+        self.requests: list[AgentRunnerRequest] = []
+
+    async def run(self, request: AgentRunnerRequest, *, job_dir: Path) -> AgentRunnerResult:
+        self.requests.append(request)
+        job_dir.mkdir(parents=True, exist_ok=True)
+        events_file = job_dir / "events.jsonl"
+        output_file = job_dir / "output.txt"
+        events = [
+            AgentRunnerEvent(
+                type="codex.notification",
+                job_id=request.job_id or "job-test",
+                provider=request.provider,
+                data={
+                    "message": {
+                        "method": "turn/diff/updated",
+                        "params": {"threadId": "thread-1", "turnId": "turn-1", "diff": {"files": ["app.py"]}},
+                    }
+                },
+            ),
+            AgentRunnerEvent(
+                type="codex.notification",
+                job_id=request.job_id or "job-test",
+                provider=request.provider,
+                data={
+                    "message": {
+                        "method": "item/commandExecution/outputDelta",
+                        "params": {"threadId": "thread-1", "turnId": "turn-1", "itemId": "cmd-1", "delta": "pytest"},
+                    }
+                },
+            ),
+            AgentRunnerEvent(
+                type="codex.notification",
+                job_id=request.job_id or "job-test",
+                provider=request.provider,
+                data={
+                    "message": {
+                        "method": "item/fileChange/patchUpdated",
+                        "params": {"threadId": "thread-1", "turnId": "turn-1", "itemId": "file-1", "patch": "@@ ..."},
+                    }
+                },
+            ),
+            AgentRunnerEvent(
+                type="codex.notification",
+                job_id=request.job_id or "job-test",
+                provider=request.provider,
+                data={"message": {"method": "warning", "params": {"message": "low context"}}},
+            ),
+            AgentRunnerEvent(
+                type="codex.notification",
+                job_id=request.job_id or "job-test",
+                provider=request.provider,
+                data={"message": {"method": "error", "params": {"message": "tool failed"}}},
+            ),
+            AgentRunnerEvent(
+                type="codex.notification",
+                job_id=request.job_id or "job-test",
+                provider=request.provider,
+                data={
+                    "message": {
+                        "method": "item/completed",
+                        "params": {
+                            "threadId": "thread-1",
+                            "turnId": "turn-1",
+                            "item": {"type": "contextCompaction", "id": "compact-1", "status": "completed"},
+                        },
+                    }
+                },
+            ),
+            AgentRunnerEvent(
+                type="codex.notification",
+                job_id=request.job_id or "job-test",
+                provider=request.provider,
+                data={"message": {"method": "item/agentMessage/delta", "params": {"delta": "done"}}},
+            ),
+        ]
+        events_file.write_text(
+            "".join(json.dumps(event.model_dump(mode="json"), ensure_ascii=False) + "\n" for event in events),
+            encoding="utf-8",
+        )
+        output_file.write_text("done", encoding="utf-8")
+        return AgentRunnerResult(
+            job_id=request.job_id or "job-test",
+            provider=request.provider,
+            status=AgentRunnerStatus.COMPLETED,
+            events_file=events_file,
+            output_file=output_file,
+            stdout_tail="done",
+        )
+
+
 def _client(tmp_path: Path, monkeypatch, provider: Any) -> TestClient:
     sandbox_config = SandboxConfig(sandboxes_root=tmp_path / "sandboxes", caches_root=tmp_path / "cache")
     sandbox_manager = SandboxManager(sandbox_config)
@@ -449,12 +541,38 @@ def test_chat_completions_non_stream_uses_codex_runner_and_persists_messages(tmp
     assert provider.requests[0].metadata["sandbox_cwd"] == "/workspace"
     assert "Always answer tersely." in provider.requests[0].prompt
     assert "Build the thing" in provider.requests[0].prompt
+    assert "Do not run or mention `proxy_on`" in provider.requests[0].prompt
 
     session = client.get(f"/v1/sessions/{body['session_id']}")
     assert session.status_code == 200
     messages = session.json()["messages"]
     assert [message["type"] for message in messages] == ["user", "assistant"]
     assert messages[1]["message"]["content"][0]["text"] == "codex wrote the answer"
+
+
+def test_chat_completions_forwards_codex_turn_configuration(tmp_path: Path, monkeypatch):
+    provider = InstantCodexProvider(output="configured")
+    client = _client(tmp_path, monkeypatch, provider)
+    output_schema = {"type": "object", "properties": {"answer": {"type": "string"}}}
+
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "codex-medium",
+            "stream": False,
+            "effort": "high",
+            "summary": "detailed",
+            "outputSchema": output_schema,
+            "messages": [{"role": "user", "content": "Use the requested turn config"}],
+        },
+    )
+
+    assert response.status_code == 200
+    request = provider.requests[0]
+    assert request.model == "gpt-5.5"
+    assert request.effort == "high"
+    assert request.summary == "detailed"
+    assert request.output_schema == output_schema
 
 
 def test_chat_completions_rejects_new_session_when_session_quota_is_exhausted(tmp_path: Path, monkeypatch):
@@ -620,6 +738,9 @@ async def test_streaming_approval_event_does_not_hold_session_lock(tmp_path: Pat
         user_content=[{"type": "text", "text": "Needs approval"}],
         attachment_items=[],
         model="gpt-5.5",
+        effort=None,
+        summary=None,
+        output_schema=None,
         system_prompt="system",
         manager=manager,
         agent_manager=ExternalAgentManager(providers={}),
@@ -684,7 +805,7 @@ def test_chat_completions_stream_bridges_codex_tool_items_to_sse(tmp_path: Path,
     assert "/workspace" in body
 
 
-def test_chat_completions_stream_keeps_commentary_out_of_final_content(tmp_path: Path, monkeypatch):
+def test_chat_completions_stream_suppresses_commentary_updates(tmp_path: Path, monkeypatch):
     provider = CodexPhasedMessageProvider()
     client = _client(tmp_path, monkeypatch, provider)
 
@@ -700,8 +821,9 @@ def test_chat_completions_stream_keeps_commentary_out_of_final_content(tmp_path:
         body = response.read().decode("utf-8")
 
     assert response.status_code == 200
-    assert '"type": "assistant_update_delta"' in body
-    assert '"delta": "working"' in body
+    assert '"type": "assistant_update_delta"' not in body
+    assert '"type": "assistant_update"' not in body
+    assert "working" not in body
     assert '"content": "final"' in body
     assert '"content": "working"' not in body
     assert '"content": "workingfinal"' not in body
@@ -855,6 +977,32 @@ def test_chat_completions_stream_bridges_codex_image_items_to_sse(tmp_path: Path
 
     generated = tmp_path / "sandboxes" / "alice" / "workspace" / ".ripple" / "generated" / "ig-1.png"
     assert generated.read_bytes() == b"png"
+
+
+def test_chat_completions_stream_bridges_runtime_events_to_sse(tmp_path: Path, monkeypatch):
+    provider = CodexRuntimeEventProvider()
+    client = _client(tmp_path, monkeypatch, provider)
+
+    with client.stream(
+        "POST",
+        "/v1/chat/completions",
+        json={
+            "model": "codex-medium",
+            "stream": True,
+            "messages": [{"role": "user", "content": "Show runtime events"}],
+        },
+    ) as response:
+        body = response.read().decode("utf-8")
+
+    assert response.status_code == 200
+    assert '"type": "codex_turn_diff_updated"' in body
+    assert '"type": "tool_output_delta"' in body
+    assert '"kind": "command_execution"' in body
+    assert '"type": "file_change_patch_updated"' in body
+    assert '"type": "codex_warning"' in body
+    assert '"type": "codex_error"' in body
+    assert '"type": "context_compaction"' in body
+    assert '"content": "done"' in body
 
 
 def test_chat_completions_persists_user_image_blocks(tmp_path: Path, monkeypatch):

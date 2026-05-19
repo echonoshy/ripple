@@ -2,6 +2,7 @@
 
 import React from "react";
 import {
+  AlertTriangle,
   Bot,
   CheckCircle2,
   FileCode2,
@@ -25,6 +26,7 @@ function EventIcon({ type }: { type: WorkbenchTimelineEvent["type"] }) {
   if (type === "approval_request") return <ShieldAlert size={15} />;
   if (type === "command") return <Terminal size={15} />;
   if (type === "file_change") return <FileCode2 size={15} />;
+  if (type === "warning" || type === "error") return <AlertTriangle size={15} />;
   if (type === "tool_call") return <Wrench size={15} />;
   if (type === "final_summary") return <CheckCircle2 size={15} />;
   return <Bot size={15} />;
@@ -71,9 +73,16 @@ export default function TaskTimeline({
     <div className="relative pl-8">
       <div className="absolute top-3 bottom-3 left-[9px] w-px bg-[#e5e7eb]" />
       {events.map((event) => {
-        const isToolEvent = ["approval_request", "command", "file_change", "tool_call"].includes(
-          event.type
-        );
+        const isToolEvent = [
+          "approval_request",
+          "command",
+          "file_change",
+          "tool_call",
+          "warning",
+          "error",
+          "context_compaction",
+          "runtime_update",
+        ].includes(event.type);
         const eventTime = formatTime(event.createdAt);
 
         return (
@@ -95,9 +104,6 @@ export default function TaskTimeline({
             <div className="mb-1.5 flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="truncate text-sm font-semibold text-[#0d0d0d]">{event.title}</div>
-                {event.type === "user_message" && (
-                  <div className="mt-0.5 text-xs font-medium text-[#6b7280]">User request</div>
-                )}
               </div>
               <div className="flex shrink-0 items-center gap-2 text-xs text-[#6b7280]">
                 {event.status && (

@@ -56,6 +56,19 @@ def _codex_input_items(request: AgentRunnerRequest) -> list[dict[str, Any]]:
     return native_items
 
 
+def _codex_turn_config_params(request: AgentRunnerRequest) -> dict[str, Any]:
+    params: dict[str, Any] = {}
+    if request.model:
+        params["model"] = request.model
+    if request.effort:
+        params["effort"] = request.effort
+    if request.summary:
+        params["summary"] = request.summary
+    if request.output_schema:
+        params["outputSchema"] = request.output_schema
+    return params
+
+
 def _host_app_server_env_from_sandbox(config: Any, user_id: str, workspace: Path, current_path: str) -> dict[str, str]:
     """Translate per-user sandbox env semantics to host-visible app-server env."""
 
@@ -319,6 +332,18 @@ class CodexAppServerSession:
         await self._write(payload)
         self.last_active_at = _now()
 
+    async def respond_error(self, request_id: Any, *, code: int, message: str, data: Any | None = None) -> None:
+        await self.ensure_started()
+        error: dict[str, Any] = {"code": code, "message": message}
+        if data is not None:
+            error["data"] = data
+        payload = {
+            "id": request_id,
+            "error": error,
+        }
+        await self._write(payload)
+        self.last_active_at = _now()
+
     async def _write(self, payload: dict[str, Any]) -> None:
         if self.process is None or self.process.stdin is None:
             raise RuntimeError("codex app-server process is not writable")
@@ -567,6 +592,7 @@ class CodexAppServerAgentProvider:
                         "input": _codex_input_items(request),
                         "cwd": runner_cwd,
                         "approvalPolicy": self.approval_policy,
+                        **_codex_turn_config_params(request),
                         **self._turn_start_permission_params(runner_cwd),
                     },
                 )
@@ -746,6 +772,15 @@ class CodexAppServerAgentProvider:
                         ),
                     )
                     continue
+                if self._is_unsupported_server_request(message):
+                    await self._decline_unsupported_server_request(
+                        session=session,
+                        events_file=events_file,
+                        request=request,
+                        job_id=job_id,
+                        message=message,
+                    )
+                    continue
                 self._record_agent_message_phase(message, agent_message_phases)
                 completed_text = self._extract_completed_final_agent_message(message)
                 if completed_text:
@@ -824,6 +859,37 @@ class CodexAppServerAgentProvider:
         message_thread_id = params.get("threadId")
         message_turn_id = params.get("turnId") or params.get("turn", {}).get("id")
         return message_thread_id == thread_id and message_turn_id == turn_id
+
+    def _is_unsupported_server_request(self, message: dict[str, Any]) -> bool:
+        return "id" in message and isinstance(message.get("method"), str)
+
+    async def _decline_unsupported_server_request(
+        self,
+        *,
+        session: CodexAppServerSession,
+        events_file: Path,
+        request: AgentRunnerRequest,
+        job_id: str,
+        message: dict[str, Any],
+    ) -> None:
+        request_id = message.get("id")
+        method = str(message.get("method") or "")
+        await session.respond_error(
+            request_id,
+            code=-32601,
+            message=f"unsupported Codex server request: {method}",
+            data={"method": method},
+        )
+        await self._append_event(
+            events_file,
+            AgentRunnerEvent(
+                type="codex.server_request_unsupported",
+                job_id=job_id,
+                provider=request.provider,
+                message=method,
+                data={"request_id": request_id, "method": method},
+            ),
+        )
 
     async def _append_event(self, events_file: Path, event: AgentRunnerEvent) -> None:
         with events_file.open("a", encoding="utf-8") as f:

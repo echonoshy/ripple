@@ -25,6 +25,10 @@ class AgentRunnerRequest(BaseModel):
     prompt: str
     cwd: Path
     input_items: list[dict[str, Any]] = Field(default_factory=list)
+    model: str | None = None
+    effort: str | None = None
+    summary: str | None = None
+    output_schema: dict[str, Any] | None = None
     job_id: str | None = None
     max_runtime_seconds: int = Field(default=1800, ge=1, le=86_400)
     user_id: str | None = None

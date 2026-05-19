@@ -302,6 +302,26 @@ class Config:
         self._data = self._load_config()
 
 
+def config_base_dir(config: Config) -> Path:
+    """Return the directory relative paths in the main config should resolve from."""
+
+    config_path = Path(config.config_path).expanduser().resolve()
+    if config_path.parent.name == "config":
+        return config_path.parent.parent
+    return config_path.parent
+
+
+def resolve_configured_path(value: str | Path, config: Config | None = None) -> Path:
+    """Resolve a path from settings.yaml using the project root for relative values."""
+
+    path = Path(value).expanduser()
+    if path.is_absolute():
+        return path.resolve()
+    if config is None:
+        config = get_config()
+    return (config_base_dir(config) / path).resolve()
+
+
 # 全局配置实例
 _config: Config | None = None
 

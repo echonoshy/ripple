@@ -67,6 +67,12 @@ export default function Home() {
     clearStoredCurrentSessionId();
   }, []);
 
+  const handleWorkspaceRefresh = useCallback(() => {
+    setWorkspaceRefreshToken((prev) => prev + 1);
+  }, []);
+
+  const getSessionActions = useCallback(() => sessionActionsRef.current, []);
+
   const {
     input,
     setInput,
@@ -96,8 +102,8 @@ export default function Home() {
     selectedModel,
     onSelectedModelChange: setSelectedModel,
     onAuthExpired: handleAuthExpired,
-    onWorkspaceRefresh: () => setWorkspaceRefreshToken((prev) => prev + 1),
-    getSessionActions: () => sessionActionsRef.current,
+    onWorkspaceRefresh: handleWorkspaceRefresh,
+    getSessionActions,
   });
 
   const handleSessionActivated = useCallback(() => {

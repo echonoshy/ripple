@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from ripple.agent_runners.codex_app_server import CodexAppServerAgentProvider
-from ripple.agent_runners.manager import ExternalAgentManager
+from ripple.agent_runners.manager import ExternalAgentManager, build_external_agent_manager_from_config
 from ripple.agent_runners.models import AgentRunnerRequest, AgentRunnerStatus
 from ripple.sandbox.config import SandboxConfig
 
@@ -37,6 +37,7 @@ def record(payload):
             "home": os.environ.get("HOME"),
             "path": os.environ.get("PATH"),
             "xdg_config_home": os.environ.get("XDG_CONFIG_HOME"),
+            "tmpdir": os.environ.get("TMPDIR"),
             "notion_api_token": os.environ.get("NOTION_API_TOKEN"),
             "gog_keyring_password": os.environ.get("GOG_KEYRING_PASSWORD"),
             **payload,
@@ -69,8 +70,8 @@ for raw_line in sys.stdin:
                 },
             })
             continue
-        project_roots = filesystem.get(":project_roots")
-        if filesystem.get(":root") != "read" or project_roots != {
+        workspace_rule = filesystem.get(params.get("cwd"))
+        if filesystem.get(":minimal") != "read" or filesystem.get(":root") is not None or workspace_rule != {
             ".": "write",
             ".git": "write",
             ".agents": "read",
@@ -102,8 +103,8 @@ for raw_line in sys.stdin:
                 },
             })
             continue
-        project_roots = filesystem.get(":project_roots")
-        if filesystem.get(":root") != "read" or project_roots != {
+        workspace_rule = filesystem.get(params.get("cwd"))
+        if filesystem.get(":minimal") != "read" or filesystem.get(":root") is not None or workspace_rule != {
             ".": "write",
             ".git": "write",
             ".agents": "read",
@@ -432,6 +433,43 @@ def _request(tmp_path: Path, *, prompt: str, user_id: str = "user-a") -> AgentRu
     )
 
 
+def test_app_server_provider_rejects_danger_full_access_by_default(tmp_path):
+    with pytest.raises(ValueError, match="danger-full-access is unsafe"):
+        CodexAppServerAgentProvider(
+            codex_executable=sys.executable,
+            app_server_args=[str(tmp_path / "fake_app_server.py")],
+            sandbox_type="danger-full-access",
+        )
+
+
+def test_build_external_agent_manager_resolves_relative_codex_home(tmp_path, monkeypatch):
+    config_path = tmp_path / "config" / "settings.yaml"
+    config_path.parent.mkdir()
+    config_path.write_text("", encoding="utf-8")
+
+    class FakeConfig:
+        def get(self, key: str, default=None):
+            values = {
+                "external_agents.codex": {
+                    "enabled": True,
+                    "codex_executable": sys.executable,
+                    "app_server_args": [str(tmp_path / "fake_app_server.py")],
+                    "codex_home": ".ripple/codex-service-home",
+                    "sandbox_type": "workspace-write",
+                }
+            }
+            return values.get(key, default)
+
+    fake_config = FakeConfig()
+    fake_config.config_path = config_path
+    monkeypatch.setattr("ripple.utils.config.get_config", lambda: fake_config)
+
+    manager = build_external_agent_manager_from_config()
+    provider = manager.providers["codex"]
+
+    assert provider.pool.codex_home == tmp_path / ".ripple" / "codex-service-home"
+
+
 def _read_jsonl(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
 
@@ -462,8 +500,10 @@ async def test_app_server_provider_runs_thread_turn_and_records_events(tmp_path)
     assert config["shell_environment_policy"]["exclude"] == ["CODEX_HOME"]
     profile = config["permissions"]["ripple_workspace"]
     assert profile["network"] == {"enabled": True}
-    assert profile["filesystem"][":root"] == "read"
-    assert profile["filesystem"][":project_roots"] == {
+    assert profile["filesystem"][":minimal"] == "read"
+    assert ":root" not in profile["filesystem"]
+    assert ":project_roots" not in profile["filesystem"]
+    assert profile["filesystem"][str(request.cwd.resolve())] == {
         ".": "write",
         ".git": "write",
         ".agents": "read",
@@ -695,7 +735,11 @@ async def test_app_server_provider_uses_host_cwd_even_when_sandbox_cwd_is_presen
     turn_start = next(call for call in calls if call["method"] == "turn/start")
     assert thread_start["params"]["cwd"] == str(request.cwd)
     assert turn_start["params"]["cwd"] == str(request.cwd)
-    assert thread_start["params"]["config"]["permissions"]["ripple_workspace"]["filesystem"][":project_roots"] == {
+    filesystem = thread_start["params"]["config"]["permissions"]["ripple_workspace"]["filesystem"]
+    assert filesystem[":minimal"] == "read"
+    assert ":root" not in filesystem
+    assert ":project_roots" not in filesystem
+    assert filesystem[str(request.cwd.resolve())] == {
         ".": "write",
         ".git": "write",
         ".agents": "read",
@@ -779,7 +823,13 @@ async def test_app_server_permission_profile_denies_sibling_user_sandboxes(tmp_p
     thread_start = next(call for call in calls if call["method"] == "thread/start")
     filesystem = thread_start["params"]["config"]["permissions"]["ripple_workspace"]["filesystem"]
     assert filesystem[str(sandbox_config.sandboxes_root.resolve())] == "none"
-    assert filesystem[str(request.cwd.resolve())] == "write"
+    assert filesystem[str(request.cwd.resolve())] == {
+        ".": "write",
+        ".git": "write",
+        ".agents": "read",
+        ".codex": "read",
+    }
+    assert ":root" not in filesystem
 
 
 @pytest.mark.asyncio
@@ -817,10 +867,21 @@ async def test_app_server_provider_starts_trusted_process_with_user_workspace_en
     initialize = next(call for call in calls if call["method"] == "initialize")
     assert initialize["home"] == str(request.cwd)
     assert initialize["xdg_config_home"] == str(request.cwd / ".config")
+    assert initialize["tmpdir"] == str(request.cwd / ".tmp")
     assert initialize["notion_api_token"] == "ntn_user_token"
     assert initialize["gog_keyring_password"] == "gog-pass"
     assert f"{tmp_path}/vendor/gogcli-cli/current/bin" in initialize["path"]
     assert "/opt/gogcli-cli/current/bin" not in initialize["path"]
+    thread_start = next(call for call in calls if call["method"] == "thread/start")
+    filesystem = thread_start["params"]["config"]["permissions"]["ripple_workspace"]["filesystem"]
+    assert filesystem[str((tmp_path / "uv-bin").resolve())] == "read"
+    assert filesystem[str((tmp_path / "node").resolve())] == "read"
+    assert filesystem[str((tmp_path / "vendor" / "lark-cli").resolve())] == "read"
+    assert filesystem[str((tmp_path / "vendor" / "notion-cli").resolve())] == "read"
+    assert filesystem[str((tmp_path / "vendor" / "gogcli-cli").resolve())] == "read"
+    assert filesystem[str(sandbox_config.uv_cache_dir.resolve())] == "write"
+    assert filesystem[str(sandbox_config.corepack_cache_dir.resolve())] == "write"
+    assert filesystem[str(sandbox_config.pnpm_cache_dir.resolve())] == "write"
 
 
 @pytest.mark.asyncio

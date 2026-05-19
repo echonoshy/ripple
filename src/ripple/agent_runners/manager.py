@@ -217,7 +217,7 @@ class ExternalAgentManager:
 
 
 def build_external_agent_manager_from_config() -> ExternalAgentManager:
-    from ripple.utils.config import get_config
+    from ripple.utils.config import get_config, resolve_configured_path
 
     config = get_config()
     codex_config = config.get("external_agents.codex", {}) or {}
@@ -233,12 +233,13 @@ def build_external_agent_manager_from_config() -> ExternalAgentManager:
             approval_policy=str(codex_config.get("approval_policy") or "never"),
             sandbox_type=str(codex_config.get("sandbox_type") or "workspace-write"),
             network_access=bool(codex_config.get("network_access", True)),
-            codex_home=Path(str(codex_home)).expanduser() if codex_home else None,
+            codex_home=resolve_configured_path(str(codex_home), config) if codex_home else None,
             env=codex_config.get("env") if isinstance(codex_config.get("env"), dict) else None,
             idle_timeout_seconds=int(codex_config.get("idle_timeout_seconds") or 1800),
             run_app_server_in_user_sandbox=bool(codex_config.get("run_app_server_in_user_sandbox", False)),
             ephemeral_threads=bool(codex_config.get("ephemeral_threads", True)),
             request_timeout_seconds=float(codex_config.get("request_timeout_seconds") or 30.0),
+            allow_danger_full_access=bool(codex_config.get("allow_danger_full_access", False)),
         )
     return ExternalAgentManager(providers=providers)
 

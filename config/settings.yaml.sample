@@ -63,8 +63,13 @@ external_agents:
     enabled: true
     codex_executable: "codex"
     app_server_args: ["app-server", "--listen", "stdio://"]
+    # 独立服务端 CODEX_HOME。管理员用
+    #   CODEX_HOME=/path/to/.ripple/codex-service-home codex login
+    # 登录一次；不要复用开发者个人 ~/.codex，避免继承 yolo/danger-full-access 配置。
+    codex_home: ".ripple/codex-service-home"
     approval_policy: "never"
     sandbox_type: "workspace-write"
+    allow_danger_full_access: false
     network_access: true
     idle_timeout_seconds: 1800
     # 可选：控制 Codex app-server 子进程环境。不要传入 server 级密钥；

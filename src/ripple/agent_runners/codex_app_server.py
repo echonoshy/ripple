@@ -7,6 +7,7 @@ Ripple owns lifecycle, events, cancellation, and output files.
 
 import asyncio
 import json
+import logging
 import os
 import shlex
 from dataclasses import dataclass, field
@@ -40,6 +41,7 @@ _SANDBOX_POLICY_TYPES = {
 }
 _RIPPLE_CODEX_PERMISSION_PROFILE = "ripple_workspace"
 _CODEX_NATIVE_INPUT_TYPES = {"text", "image", "localImage", "skill", "mention"}
+_LOGGER = logging.getLogger(__name__)
 
 
 def _prepend_path_entries(existing_path: str, entries: list[str]) -> str:
@@ -93,7 +95,9 @@ def _host_app_server_env_from_sandbox(config: Any, user_id: str, workspace: Path
         "TERM": os.environ.get("TERM", "xterm-256color"),
         "LANG": os.environ.get("LANG", "C.UTF-8"),
         "XDG_CONFIG_HOME": str(workspace / ".config"),
+        "TMPDIR": str(workspace / ".tmp"),
     }
+    (workspace / ".tmp").mkdir(parents=True, exist_ok=True)
 
     if getattr(config, "uv_cache_dir", None):
         config.uv_cache_dir.mkdir(parents=True, exist_ok=True)
@@ -188,6 +192,29 @@ def _resolved_path(path: Path) -> str:
         return str(path.expanduser().resolve())
     except OSError:
         return str(path.expanduser().absolute())
+
+
+def _filesystem_workspace_rule(access: str) -> dict[str, str]:
+    if access == "write":
+        return {
+            ".": "write",
+            ".git": "write",
+            ".agents": "read",
+            ".codex": "read",
+        }
+    return {".": "read"}
+
+
+def _add_readable_path(filesystem: dict[str, Any], path: str | Path | None) -> None:
+    if not path:
+        return
+    filesystem[_resolved_path(Path(str(path)))] = "read"
+
+
+def _add_writable_path(filesystem: dict[str, Any], path: str | Path | None) -> None:
+    if not path:
+        return
+    filesystem[_resolved_path(Path(str(path)))] = "write"
 
 
 class JsonRpcError(RuntimeError):
@@ -582,10 +609,16 @@ class CodexAppServerAgentProvider:
         run_app_server_in_user_sandbox: bool = False,
         ephemeral_threads: bool = True,
         request_timeout_seconds: float = 30.0,
+        allow_danger_full_access: bool = False,
     ):
         self.name = "codex"
         self.approval_policy = approval_policy
         self.sandbox_type = _normalize_sandbox_type(sandbox_type)
+        if self.sandbox_type == "danger-full-access" and not allow_danger_full_access:
+            raise ValueError(
+                "external_agents.codex.sandbox_type=danger-full-access is unsafe for Ripple "
+                "multi-user workspaces; set allow_danger_full_access=true only for local debugging"
+            )
         self.sandbox_policy_type = _sandbox_policy_type(self.sandbox_type)
         self.network_access = network_access
         self.run_app_server_in_user_sandbox = run_app_server_in_user_sandbox
@@ -601,24 +634,41 @@ class CodexAppServerAgentProvider:
         )
         self.active_turns: dict[str, ActiveTurn] = {}
         self.pending_approvals: dict[str, dict[str, Any]] = {}
+        if codex_home is None:
+            _LOGGER.warning(
+                "external_agents.codex.codex_home is unset; Codex app-server will fall back to "
+                "the service process CODEX_HOME or ~/.codex. Configure an isolated service "
+                "codex_home to avoid inheriting a developer CLI yolo config."
+            )
 
     def _uses_managed_permission_profile(self) -> bool:
         return self.sandbox_type in {"workspace-write", "read-only"}
 
     def _thread_permission_config(self, session: CodexAppServerSession) -> dict[str, Any]:
-        filesystem: dict[str, Any] = {":root": "read"}
-        if self.sandbox_type == "workspace-write":
-            filesystem[":project_roots"] = {
-                ".": "write",
-                ".git": "write",
-                ".agents": "read",
-                ".codex": "read",
-            }
+        filesystem: dict[str, Any] = {":minimal": "read"}
+        workspace_access = "write" if self.sandbox_type == "workspace-write" else "read"
+        filesystem[_resolved_path(session.cwd)] = _filesystem_workspace_rule(workspace_access)
         if session.sandbox_config is not None:
             sandboxes_root = getattr(session.sandbox_config, "sandboxes_root", None)
             if sandboxes_root:
                 filesystem[_resolved_path(Path(str(sandboxes_root)))] = "none"
-                filesystem[_resolved_path(session.cwd)] = "write" if self.sandbox_type == "workspace-write" else "read"
+                filesystem[_resolved_path(session.cwd)] = _filesystem_workspace_rule(workspace_access)
+
+            for attr in (
+                "uv_bin_dir",
+                "node_dir",
+                "lark_cli_install_root",
+                "notion_cli_install_root",
+                "gogcli_cli_install_root",
+            ):
+                _add_readable_path(filesystem, getattr(session.sandbox_config, attr, None))
+
+            for path in (
+                getattr(session.sandbox_config, "uv_cache_dir", None),
+                getattr(session.sandbox_config, "corepack_cache_dir", None),
+                getattr(session.sandbox_config, "pnpm_cache_dir", None),
+            ):
+                _add_writable_path(filesystem, path)
 
         for path in _codex_auth_deny_read_paths(session.codex_home):
             filesystem[str(path)] = "none"

@@ -15,8 +15,19 @@ function testSessionDetailsRestorePersistedPlan() {
 }
 
 function testRestoringSessionRefreshesWorkspaceViews() {
-  assert.match(appSource, /onWorkspaceRefresh:\s*\(\)\s*=>\s*setWorkspaceRefreshToken/);
+  assert.match(appSource, /const handleWorkspaceRefresh = useCallback\(\(\) => \{/);
+  assert.match(appSource, /setWorkspaceRefreshToken\(\(prev\) => prev \+ 1\)/);
+  assert.match(appSource, /onWorkspaceRefresh:\s*handleWorkspaceRefresh/);
   assert.match(chatRunSource, /applySessionDetails[\s\S]*onWorkspaceRefresh/);
+}
+
+function testAuthInitEffectDoesNotDependOnInlineCallbacks() {
+  assert.match(
+    appSource,
+    /const getSessionActions = useCallback\(\(\) => sessionActionsRef\.current, \[\]\)/
+  );
+  assert.doesNotMatch(appSource, /onWorkspaceRefresh:\s*\(\)\s*=>/);
+  assert.doesNotMatch(appSource, /getSessionActions:\s*\(\)\s*=>/);
 }
 
 function testAppDelegatesSessionLifecycle() {
@@ -36,6 +47,7 @@ function testAppDelegatesChatRun() {
 testChatCompletionClearsResidualPlan();
 testSessionDetailsRestorePersistedPlan();
 testRestoringSessionRefreshesWorkspaceViews();
+testAuthInitEffectDoesNotDependOnInlineCallbacks();
 testAppDelegatesSessionLifecycle();
 testAppDelegatesChatRun();
 

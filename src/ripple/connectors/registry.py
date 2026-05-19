@@ -198,7 +198,7 @@ def _configured_codex_runtime() -> tuple[str, dict[str, str], str | None]:
     extra_env: dict[str, str] = {}
     codex_home: str | None = None
     try:
-        from ripple.utils.config import get_config
+        from ripple.utils.config import get_config, resolve_configured_path
 
         config = get_config()
         executable = str(config.get("external_agents.codex.codex_executable", "codex") or "codex")
@@ -207,7 +207,7 @@ def _configured_codex_runtime() -> tuple[str, dict[str, str], str | None]:
             extra_env.update({str(key): str(value) for key, value in configured_env.items() if value is not None})
         configured_home = config.get("external_agents.codex.codex_home")
         if configured_home:
-            path = Path(str(configured_home)).expanduser()
+            path = resolve_configured_path(str(configured_home), config)
             path.mkdir(parents=True, exist_ok=True)
             codex_home = str(path)
             extra_env["CODEX_HOME"] = codex_home

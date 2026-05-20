@@ -39,7 +39,7 @@ if [[ "${1:-}" == "--list" || "${1:-}" == "-l" || $# -eq 0 ]]; then
   exit 0
 fi
 
-VERSION="${1#v}"  # 允许传 "1.0.13" 或 "v1.0.13"
+VERSION="${1#v}"  # 允许传 "1.0.34" 或 "v1.0.34"
 VERSION_DIR="${INSTALL_ROOT}/v${VERSION}"
 
 if [[ ! -x "${VERSION_DIR}/bin/lark-cli" ]]; then

@@ -67,8 +67,7 @@ First get message IDs via `+chat-messages-list`, then fetch full content via `+m
 
 ```bash
 # Get the message list
-lark-cli im +chat-messages-list --chat-id oc_xxx --format json
-
+lark-cli im +chat-messages-list --chat-id oc_xxx --format json --as user
 # Fetch specific message details
 lark-cli im +messages-mget --message-ids "om_aaa,om_bbb"
 ```

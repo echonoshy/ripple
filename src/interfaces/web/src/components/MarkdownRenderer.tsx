@@ -7,18 +7,9 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
-import {
-  ChevronRight,
-  Brain,
-  CheckCircle2,
-  ExternalLink,
-  KeyRound,
-  Loader2,
-  Settings2,
-} from "lucide-react";
+import { ChevronRight, Brain, ExternalLink, KeyRound, Settings2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { completeConnectorAuth, resolveBackendUrl } from "@/lib/api";
-import { extractFeishuDeviceCode } from "@/lib/connectors";
+import { resolveBackendUrl } from "@/lib/api";
 
 /**
  * LLM 常把矩阵换行写成单反斜杠加空格 `\ `，KaTeX 需要 `\\`。
@@ -76,7 +67,6 @@ interface ContentSegment {
   content: string;
   tag?: FeishuTag;
   url?: string;
-  deviceCode?: string;
 }
 
 function parseThinkingBlocks(content: string): ContentSegment[] {
@@ -125,10 +115,7 @@ function parseFeishuBlocks(text: string): ContentSegment[] {
       if (before) segments.push({ type: "text", content: before });
     }
     const tag: FeishuTag = m[1] === "SETUP" ? "setup" : "auth";
-    const deviceCode = extractFeishuDeviceCode(
-      `${m[0]}\n${text.slice(re.lastIndex, re.lastIndex + 200)}`
-    );
-    segments.push({ type: "feishu", content: m[0], tag, url: m[2], deviceCode });
+    segments.push({ type: "feishu", content: m[0], tag, url: m[2] });
     last = m.index + m[0].length;
   }
 
@@ -140,38 +127,14 @@ function parseFeishuBlocks(text: string): ContentSegment[] {
   return segments.length > 0 ? segments : [{ type: "text", content: text }];
 }
 
-function FeishuCard({
-  tag,
-  url,
-  deviceCode,
-}: {
-  tag: FeishuTag;
-  url: string;
-  deviceCode?: string;
-}) {
+function FeishuCard({ tag, url }: { tag: FeishuTag; url: string }) {
   const isSetup = tag === "setup";
   const title = isSetup ? "配置飞书应用" : "飞书授权登录";
   const subtitle = isSetup
     ? "该 session 尚未配置飞书应用。点击下方按钮在浏览器中完成创建。"
-    : "AI Agent 请求访问你的飞书数据。点击下方按钮完成授权。";
+    : "AI Agent 请求访问你的飞书数据。打开链接后在飞书页面完成授权。";
   const Icon = isSetup ? Settings2 : KeyRound;
   const accentClass = isSetup ? "bg-[#ddf4ff] text-[#0969da]" : "bg-[#dafbe1] text-[#1a7f37]";
-  const [isCompleting, setIsCompleting] = useState(false);
-  const [completeDetail, setCompleteDetail] = useState<string | null>(null);
-
-  const completeAuth = async () => {
-    if (!deviceCode) return;
-    setIsCompleting(true);
-    setCompleteDetail(null);
-    try {
-      const result = await completeConnectorAuth("feishu", { device_code: deviceCode });
-      setCompleteDetail(result.detail || (result.ok ? "授权完成" : "授权未完成"));
-    } catch (error) {
-      setCompleteDetail(error instanceof Error ? error.message : String(error));
-    } finally {
-      setIsCompleting(false);
-    }
-  };
 
   return (
     <div className="my-2 overflow-hidden rounded-lg border border-[#e5e7eb] bg-white">
@@ -190,22 +153,9 @@ function FeishuCard({
           {isSetup ? "打开配置链接" : "打开授权链接"}
           <ExternalLink size={13} />
         </a>
-        {!isSetup && deviceCode && (
-          <button
-            type="button"
-            onClick={() => void completeAuth()}
-            disabled={isCompleting}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[#1a7f37]/30 bg-[#dafbe1] px-3 text-sm font-semibold text-[#1a7f37] hover:bg-[#c7f7d1] disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {isCompleting ? (
-              <Loader2 size={13} className="animate-spin" />
-            ) : (
-              <CheckCircle2 size={13} />
-            )}
-            授权完成
-          </button>
-        )}
-        {completeDetail && <p className="text-xs font-medium text-[#6b7280]">{completeDetail}</p>}
+        <p className="text-xs font-medium text-[#6b7280]">
+          完成后回到对话输入「好了」，Ripple 会在对话链路中继续授权流程。
+        </p>
         <div className="font-[family-name:var(--font-mono)] text-[11px] break-all text-[#6b7280]">
           {url}
         </div>
@@ -354,14 +304,7 @@ export default function MarkdownRenderer({ content, className = "" }: MarkdownRe
           return <ThinkingBlock key={i} content={segment.content} />;
         }
         if (segment.type === "feishu" && segment.url && segment.tag) {
-          return (
-            <FeishuCard
-              key={i}
-              tag={segment.tag}
-              url={segment.url}
-              deviceCode={segment.deviceCode}
-            />
-          );
+          return <FeishuCard key={i} tag={segment.tag} url={segment.url} />;
         }
         return <MarkdownContent key={i} content={segment.content} />;
       })}

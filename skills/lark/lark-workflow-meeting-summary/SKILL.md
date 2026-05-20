@@ -18,15 +18,7 @@ metadata:
 
 ## 前置条件
 
-仅支持 **user 身份**。所有命令显式带 `--as user`。如果未登录，按 `lark-shared`
-的两段式流程完成一次性全域授权：
-
-```bash
-lark-cli auth login --no-wait --json --domain all
-```
-
-**不要**为了"最小权限"写 `--domain vc` / `--domain vc,drive`——本工作流后续可能
-跨 vc / drive / docx，多次窄域 login 只会让用户反复点链接。
+仅支持 **user 身份**。执行前确保已通过 Ripple 对话完成 Feishu 用户授权；如果缺少会议或云文档 scope，请让用户在对话里重新授权/补权限。
 
 ## 工作流
 
@@ -95,9 +87,9 @@ lark-cli drive metas batch_query --data '{"request_docs": [{"doc_type": "docx", 
 阅读 [`../lark-doc/SKILL.md`](../lark-doc/SKILL.md) 学习云文档技能。
 
 ```bash
-lark-cli docs +create --title "会议纪要汇总 (<start> - <end>)" --markdown "<内容>"
+lark-cli docs +create --api-version v2 --doc-format markdown --content $'<title>会议纪要汇总 (<start> - <end>)</title>\n<内容>'
 # 或追加到已有文档
-lark-cli docs +update --doc "<url_or_token>" --mode append --markdown "<内容>"
+lark-cli docs +update --api-version v2 --doc "<url_or_token>" --command append --doc-format markdown --content $'<内容>'
 ```
 
 ## 参考

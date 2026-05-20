@@ -64,7 +64,7 @@ lark-cli im +chat-update --chat-id oc_xxx \
 | `--name exceeds the maximum of 60 characters` | Group name too long | Shorten the name to 60 characters or fewer |
 | `--description exceeds the maximum of 100 characters` | Group description too long | Shorten the description to 100 characters or fewer |
 | `at least one field must be specified to update` | No update field was provided | Specify at least one field to update |
-| Permission denied (99991679) | Missing `im:chat:update` permission | Run `lark-cli auth login --scope "im:chat:update"` |
+| Permission denied (99991679) | Missing `im:chat:update` permission | Ask the user to re-authorize Feishu in the Ripple conversation and mention `im:chat:update` |
 | Non-owner/admin cannot update (232016/232002/232017) | Current identity is not the owner/admin | Try switching identity with `--as bot` or `--as user` |
 | Not in the group (232011) | The current user is not a member of the group | Use a member identity (`--as bot`) or join the group first |
 

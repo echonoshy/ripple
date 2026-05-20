@@ -34,7 +34,7 @@ lark-cli im +messages-resources-download --message-id om_xxx --file-key img_v3_x
 | `--message-id <id>` | Yes | Message ID (`om_xxx` format) |
 | `--file-key <key>` | Yes | Resource key (`img_xxx` or `file_xxx`) |
 | `--type <type>` | Yes | Resource type: `image` or `file` |
-| `--output <path>` | No | Output path (relative paths only; `..` traversal is not allowed; defaults to `file_key` as the file name). File extension is automatically added based on Content-Type if not provided |
+| `--output <path>` | No | Output path (relative paths only; `..` traversal is not allowed). When omitted, the server's original filename from `Content-Disposition` is used if available; otherwise defaults to `file_key`. File extension is automatically inferred from `Content-Disposition` or `Content-Type` if not provided |
 | `--as <identity>` | No | Identity type: `user` (default) or `bot` |
 | `--dry-run` | No | Print the request only, do not execute it |
 
@@ -51,7 +51,7 @@ When downloading large files, the command automatically uses **HTTP Range reques
 
 **Benefits:**
 - Reduces the impact of transient request failures during large downloads
-- Automatically detects and appends correct file extension from Content-Type
+- Preserves the server's original filename via `Content-Disposition` (supports RFC 5987 UTF-8 encoding); falls back to `Content-Type`-based extension inference
 - Validates file size integrity after download completion
 
 ## `file_key` Sources
@@ -71,8 +71,7 @@ Different resource markers in message content correspond to different `file_key`
 
 ```bash
 # Step 1: Fetch messages and find one containing an image
-lark-cli im +chat-messages-list --chat-id oc_xxx
-# In the response you see: { "msg_type": "image", "content": "{\"image_key\":\"img_v3_xxx\"}" }
+lark-cli im +chat-messages-list --chat-id oc_xxx --as user# In the response you see: { "msg_type": "image", "content": "{\"image_key\":\"img_v3_xxx\"}" }
 
 # Step 2: Download the image
 lark-cli im +messages-resources-download --message-id om_xxx --file-key img_v3_xxx --type image
@@ -84,7 +83,7 @@ lark-cli im +messages-resources-download --message-id om_xxx --file-key img_v3_x
 |---------|---------|---------|
 | Download failed | `file_key` does not match the `message_id` | Make sure the `file_key` came from that message's content |
 | Hit error code 234002 or 14005 | No permission, **not** missing API scope | no access to this chat or file was deleted — do not retry, return the error to the user |
-| Permission denied | `im:message:readonly` is not authorized | Run `auth login --scope "im:message:readonly"` |
+| Permission denied | `im:message:readonly` is not authorized | Ask the user to re-authorize Feishu in the Ripple conversation and mention `im:message:readonly` |
 | File size mismatch | Chunked download integrity check failed | Network instability during download; retry the command |
 | Content-Range error | Server returned invalid range header | Transient API issue; retry the command |
 

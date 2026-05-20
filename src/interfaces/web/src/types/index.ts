@@ -103,6 +103,16 @@ export interface ConnectorActionResponse {
   data: Record<string, unknown>;
 }
 
+export interface ConnectorAuthChatEvent {
+  type: "connector_auth_required" | "connector_auth_updated";
+  connector: string;
+  display_name: string;
+  auth_flow: string;
+  stage: string;
+  message: string;
+  action?: ConnectorActionResponse | null;
+}
+
 export interface WorkspaceEntry {
   name: string;
   path: string;

@@ -226,9 +226,9 @@ export default function TaskComposer({
               ? "Codex is working..."
               : isBlocked
                 ? "Another session is working..."
-              : hasSession
-                ? "Ask Codex anything about your codebase..."
-                : "Ask Codex anything about your codebase..."
+                : hasSession
+                  ? "Ask Codex anything about your codebase..."
+                  : "Ask Codex anything about your codebase..."
           }
           className="task-composer-input max-h-[220px] min-h-[46px] w-full resize-none bg-transparent px-2 py-2 text-[14px] leading-6 text-[#0d0d0d] outline-none placeholder:text-[#8b8f94] disabled:opacity-60"
         />

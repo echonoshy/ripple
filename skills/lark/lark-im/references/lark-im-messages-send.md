@@ -4,6 +4,8 @@
 
 Send a message to a group chat or a direct message conversation. Supports both user identity (`--as user`) and bot identity (`--as bot`).
 
+Ripple Agent default is always explicit `--as user`. Only use `--as bot` when the user explicitly asks for bot identity or the workflow is bot-only.
+
 This skill maps to the shortcut: `lark-cli im +messages-send` (internally calls `POST /open-apis/im/v1/messages`).
 
 ## Safety Constraints
@@ -12,16 +14,13 @@ Messages sent by this tool are visible to other people. Before calling it, you *
 
 1. The recipient (which person or which group)
 2. The message content
+3. The sending identity (user or bot)
 
 **Do not** send messages without explicit user approval.
 
-### Default identity: `--as user`
-
-**默认以用户本人身份发送**，即始终显式带上 `--as user`。只有当用户明确说"用 bot / 应用身份发"，或场景就是 bot 主动播报时，才切换到 `--as bot`。不要因为 CLI 隐式默认是 `bot` 而省略 `--as`，那会导致以应用名义发送，用户不一定希望如此。
-
-When using `--as user` (default), the message is sent as the authorized end user and requires the `im:message.send_as_user` and `im:message` scopes. The message appears as if the user typed it themselves.
-
 When using `--as bot`, the message is sent in the app's name, so make sure the app has already been added to the target chat.
+
+When using `--as user`, the message is sent as the authorized end user and requires the `im:message.send_as_user` and `im:message` scopes.
 
 ## Choose The Right Content Flag
 
@@ -84,11 +83,11 @@ This is especially useful in `zsh` / `bash` because it lets you write `\n` expli
 Use `--text` plus `$'...'`:
 
 ```bash
-lark-cli im +messages-send --chat-id oc_xxx --text $'Build failed\nBranch: feature/im-docs\nAction: please check logs'
+lark-cli im +messages-send --chat-id oc_xxx --text $'Build failed\nBranch: feature/im-docs\nAction: please check logs' --as user
 ```
 
 ```bash
-lark-cli im +messages-send --chat-id oc_xxx --text $'```bash\nmake test\nmake lint\n```'
+lark-cli im +messages-send --chat-id oc_xxx --text $'```bash\nmake test\nmake lint\n```' --as user
 ```
 
 Use this path when you want the receiver to see the text exactly as entered, not a converted Markdown post.
@@ -98,58 +97,53 @@ Use this path when you want the receiver to see the text exactly as entered, not
 Use `--markdown`:
 
 ```bash
-lark-cli im +messages-send --chat-id oc_xxx --markdown $'## Release Notes\n\n- Added send shortcut\n- Added reply shortcut'
+lark-cli im +messages-send --chat-id oc_xxx --markdown $'## Release Notes\n\n- Added send shortcut\n- Added reply shortcut' --as user
 ```
 
 This is better for lightweight readable formatting, but the final content may not match the source text byte-for-byte because the shortcut normalizes headings and spacing before sending.
 
 ## Commands
 
-> 所有示例默认以 `--as user`（用户本人身份）发送。只有用户明确要求 bot 身份时才换成 `--as bot`。
-
 ```bash
 # Send plain text (--text is recommended for normal messages)
-lark-cli im +messages-send --as user --chat-id oc_xxx --text "Hello"
+lark-cli im +messages-send --chat-id oc_xxx --text "Hello" --as user
 
 # Equivalent manual JSON
-lark-cli im +messages-send --as user --chat-id oc_xxx --content '{"text":"Hello"}'
+lark-cli im +messages-send --chat-id oc_xxx --content '{"text":"Hello"}' --as user
 
 # Send to a direct message (pass open_id)
-lark-cli im +messages-send --as user --user-id ou_xxx --text "Hello"
+lark-cli im +messages-send --user-id ou_xxx --text "Hello" --as user
 
 # Send multi-line text while preserving formatting
-lark-cli im +messages-send --as user --chat-id oc_xxx --text $'Line 1\nLine 2\n  indented line'
+lark-cli im +messages-send --chat-id oc_xxx --text $'Line 1\nLine 2\n  indented line' --as user
 
 # Send basic Markdown (will be converted to post JSON)
-lark-cli im +messages-send --as user --chat-id oc_xxx --markdown $'## Update\n\n- item 1\n- item 2'
+lark-cli im +messages-send --chat-id oc_xxx --markdown $'## Update\n\n- item 1\n- item 2' --as user
 
 # If you need exact post structure, send JSON directly
-lark-cli im +messages-send --as user --chat-id oc_xxx --msg-type post --content '{"zh_cn":{"title":"Title","content":[[{"tag":"text","text":"Body"}]]}}'
+lark-cli im +messages-send --chat-id oc_xxx --msg-type post --content '{"zh_cn":{"title":"Title","content":[[{"tag":"text","text":"Body"}]]}}' --as user
 
 # Send a local image (uploaded automatically before sending)
-lark-cli im +messages-send --as user --chat-id oc_xxx --image ./photo.png
+lark-cli im +messages-send --chat-id oc_xxx --image ./photo.png --as user
 
 # Or send directly with an existing image_key
-lark-cli im +messages-send --as user --chat-id oc_xxx --image img_xxx
+lark-cli im +messages-send --chat-id oc_xxx --image img_xxx --as user
 
 # Send a local file (uploaded automatically before sending)
-lark-cli im +messages-send --as user --chat-id oc_xxx --file ./report.pdf
+lark-cli im +messages-send --chat-id oc_xxx --file ./report.pdf --as user
 
 # Send a video (--video-cover is required as the cover)
-lark-cli im +messages-send --as user --chat-id oc_xxx --video ./demo.mp4 --video-cover ./cover.png
-lark-cli im +messages-send --as user --chat-id oc_xxx --video ./demo.mp4 --video-cover img_xxx
+lark-cli im +messages-send --chat-id oc_xxx --video ./demo.mp4 --video-cover ./cover.png --as user
+lark-cli im +messages-send --chat-id oc_xxx --video ./demo.mp4 --video-cover img_xxx --as user
 
 # Send audio
-lark-cli im +messages-send --as user --chat-id oc_xxx --audio ./voice.opus
+lark-cli im +messages-send --chat-id oc_xxx --audio ./voice.opus --as user
 
 # Use an idempotency key (same key sends only once within 1 hour)
-lark-cli im +messages-send --as user --chat-id oc_xxx --text "Hello" --idempotency-key my-unique-id
+lark-cli im +messages-send --chat-id oc_xxx --text "Hello" --idempotency-key my-unique-id --as user
 
 # Preview the request without executing it
-lark-cli im +messages-send --as user --chat-id oc_xxx --markdown $'## Test\n\nhello' --dry-run
-
-# Only if the user explicitly asks for bot identity
-lark-cli im +messages-send --as bot --chat-id oc_xxx --text "Bot announcement"
+lark-cli im +messages-send --chat-id oc_xxx --markdown $'## Test\n\nhello' --dry-run --as user
 ```
 
 ## Parameters
@@ -168,7 +162,7 @@ lark-cli im +messages-send --as bot --chat-id oc_xxx --text "Bot announcement"
 | `--audio <path\|key>` | One content option | Local audio path or `file_key`. Local paths are uploaded automatically |
 | `--msg-type <type>` | No | Message type (default `text`). If you use `--text` / `--markdown` / media flags, the effective type is inferred automatically. Explicitly setting a conflicting `--msg-type` fails validation |
 | `--idempotency-key <key>` | No | Idempotency key; the same key sends only one message within 1 hour |
-| `--as <identity>` | No | Identity type: `bot` or `user`. Agent 默认显式传 `--as user`（用户本人发送）。CLI 未指定时的底层默认仍是 `bot`，所以**不要省略 `--as`**。 |
+| `--as <identity>` | No | Identity type: `bot` or `user`. CLI default is `bot`; Ripple Agent default is explicit `--as user` |
 | `--dry-run` | No | Print the request only, do not execute it |
 
 > **Mutual exclusivity rule:** `--text`, `--markdown`, `--content`, and `--image`/`--file`/`--video`/`--audio` cannot be used together. Media flags are also mutually exclusive with each other.

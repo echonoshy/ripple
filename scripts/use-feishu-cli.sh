@@ -3,7 +3,7 @@
 #
 # 用法:
 #   ./scripts/use-feishu-cli.sh --list       # 列出所有版本，标记当前
-#   ./scripts/use-feishu-cli.sh 1.0.32       # 切换 current -> v1.0.32
+#   ./scripts/use-feishu-cli.sh 1.0.34       # 切换 current -> v1.0.34
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

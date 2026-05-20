@@ -4,11 +4,11 @@
 #
 # 用法:
 #   ./scripts/install-feishu-cli.sh                 # 安装默认版本
-#   ./scripts/install-feishu-cli.sh 1.0.32          # 安装指定版本
-#   ./scripts/install-feishu-cli.sh 1.0.32 amd64    # 指定架构
+#   ./scripts/install-feishu-cli.sh 1.0.34          # 安装指定版本
+#   ./scripts/install-feishu-cli.sh 1.0.34 amd64    # 指定架构
 set -euo pipefail
 
-VERSION="${1:-1.0.32}"
+VERSION="${1:-1.0.34}"
 ARCH="${2:-$(case $(uname -m) in x86_64) echo amd64;; aarch64|arm64) echo arm64;; esac)}"
 PLATFORM="linux"
 

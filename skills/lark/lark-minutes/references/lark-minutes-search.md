@@ -41,11 +41,16 @@ lark-cli minutes +search --participant-ids "ou_x,ou_y"
 # 按所有者过滤（open_id，逗号分隔）
 lark-cli minutes +search --owner-ids "ou_owner,ou_owner_2"
 
-# 查询我参与的妙记
+# 严格只查我作为参与者的妙记（不含我拥有）
 lark-cli minutes +search --participant-ids "me"
 
 # 查询我拥有的妙记
 lark-cli minutes +search --owner-ids "me"
+
+# 广义查询我参与的妙记（自然语言默认：我拥有 ∪ 我参与）
+lark-cli minutes +search --owner-ids "me" --start 2026-03-10 --end 2026-03-10
+lark-cli minutes +search --participant-ids "me" --start 2026-03-10 --end 2026-03-10
+# 然后按 token 去重合并两次结果
 
 # 多条件组合查询
 lark-cli minutes +search --owner-ids "ou_owner" --participant-ids "ou_x" --start "2026-03-10T00:00+08:00"
@@ -79,18 +84,29 @@ lark-cli minutes +search --query "预算复盘" --format json
 
 ### 2. 仅支持 user 身份
 
-该接口仅支持 `user` 身份，使用前需完成 `lark-cli auth login` 并具备 `minutes:minutes.search:read` 权限。
+该接口仅支持 `user` 身份，使用前需完成 Ripple Feishu 用户授权 并具备 `minutes:minutes.search:read` 权限。
 
 ### 3. `me` 表示当前用户
 
 在 `--owner-ids` 和 `--participant-ids` 中可使用 `me`，表示当前登录用户。该值会在本地解析为当前用户的 `open_id`，无需手动先查询自己的用户 ID。
-若当前环境尚未完成用户登录，或 CLI 无法解析出当前用户的 `open_id`，则应先执行 `lark-cli auth login`，再重新执行搜索。
+若当前环境尚未完成用户登录，或 CLI 无法解析出当前用户的 `open_id`，则应先通过 Ripple 对话完成 Feishu 用户授权，再重新执行搜索。
 
-### 4. 支持分页
+### 4. 自然语言中的“参与的妙记”默认按并集理解
+
+当用户说"我参与的妙记""我参加过的妙记""参与过的妙记"时，默认理解为"我涉及的全部妙记"：
+
+- 我拥有的妙记：`--owner-ids me`
+- 我作为参与者的妙记：`--participant-ids me`
+
+不要只跑一次 `--participant-ids me` 就直接下结论，也不要把 `--owner-ids me` 和 `--participant-ids me` 同时塞进一次查询里赌接口语义。应分别查询后，按 `token` 做并集去重。
+
+只有在用户明确说"仅我参与但不是我拥有""别人拥有但我参与""只看参与者身份"时，才只使用 `--participant-ids`。
+
+### 5. 支持分页
 
 当返回 `has_more=true` 时，使用响应中的 `page_token` 配合 `--page-token` 获取下一页结果。
 
-### 5. 日期型 `--end` 包含当天整天
+### 6. 日期型 `--end` 包含当天整天
 
 当 `--end` 传入的是仅日期格式（如 `2026-03-10`）时，CLI 会将它解释为当天 `23:59:59`，而不是当天 `00:00:00`。
 CLI 会先按输入的本地日历日语义解析，再标准化为 RFC3339 时间戳发给 API；在 dry-run 或排查请求体时，看到的 `Z` 结尾时间表示同一个绝对时间点的 UTC 表示，不改变“按当天整天查询”的语义。
@@ -102,10 +118,18 @@ CLI 会先按输入的本地日历日语义解析，再标准化为 RFC3339 时�
 
 如果用户说“昨天的妙记”“今天的妙记”“某一天内的妙记”，应把 `--start` 和 `--end` 都设置为同一天，而不是把 `--end` 设成下一天。
 
-### 6. 会议的妙记先定位会议
+### 7. 会议的妙记先定位会议
 
 如果用户明确要找某场会议的妙记，或同时提到“会议 / 开会 / 会”和“妙记”，应优先使用 `vc +search` 先定位会议，再按需通过 `vc +recording` 获取 `minute_token`，不要直接按妙记时间范围或关键词搜索。
 只有在无法通过会议搜索定位目标会议，或用户明确要求按妙记维度检索时，才回退到 `minutes +search`。
+
+如果用户要的是"某场会议的妙记信息""某个日程对应的妙记详情""minute\_token""妙记链接""标题""时长""owner"，正确链路是：
+
+1. `vc +search` 或 `calendar +agenda` 先定位会议 / 日程
+2. `vc +recording` 获取 `minute_token`
+3. `minutes minutes get` 查询妙记基础信息
+
+不要为了查"妙记信息"直接走 `vc +notes --meeting-ids`。`vc +notes` 只适用于逐字稿、总结、待办、章节等纪要内容。
 
 <br />
 
@@ -141,7 +165,7 @@ lark-cli minutes +search --query "预算复盘" --page-size 20 --page-token '<PA
 ## 搜索结果中的下一步
 
 搜索结果中的 `token` 可直接作为 `minute_token` 用于继续查询妙记产物：
-通常先用搜索结果中的 `token` 获取妙记基础信息，确认描述、链接等元数据是否命中目标；需要进一步查看内容时，再继续查询关联的纪要产物。
+通常先用搜索结果中的 `token` 获取妙记基础信息，确认描述、链接等元数据是否命中目标；只有需要进一步查看逐字稿、总结、待办、章节时，再继续查询关联的纪要产物。
 
 如果你已经确定目标妙记，优先直接复用搜索结果中的 `token`，避免重复搜索。
 
@@ -150,7 +174,7 @@ lark-cli minutes +search --query "预算复盘" --page-size 20 --page-token '<PA
 lark-cli minutes minutes get --params '{"minute_token": "obcn***************"}'
 
 # 查妙记关联的纪要产物：逐字稿、总结、待办、章节等 → 用 lark-cli vc +notes
-lark-cli vc +notes --minute-tokens obcnhijv43vq6bcsl5xasfb2
+lark-cli vc +notes --minute-tokens obcn_EXAMPLE_TOKEN
 ```
 
 ## 常见错误与排查
@@ -159,15 +183,16 @@ lark-cli vc +notes --minute-tokens obcnhijv43vq6bcsl5xasfb2
 | ---------------------- | ----------------------------------------------------- | -------------------------------------------- |
 | 命令直接报错，要求提供过滤条件        | 没有传入 `--query`、时间范围或任何过滤 ID                           | 至少补充一个过滤条件后重试                                |
 | 时间参数校验失败               | `--start` 或 `--end` 格式不合法                             | 改用 ISO 8601 或 `YYYY-MM-DD`                   |
-| `owner-ids` 校验失败       | 传入的不是 open\_id，且也不是 `me`；或传了 `me` 但当前用户 open\_id 不可解析 | 改为 `ou_` 开头的用户 ID，或先完成 `auth login` 后再传 `me` |
-| `participant-ids` 校验失败 | 传入的不是 open\_id，且也不是 `me`；或传了 `me` 但当前用户 open\_id 不可解析 | 改为 `ou_` 开头的用户 ID，或先完成 `auth login` 后再传 `me` |
-| 权限不足                   | 未授权 `minutes:minutes.search:read`                     | 使用 `auth login` 完成授权                         |
+| `owner-ids` 校验失败       | 传入的不是 open\_id，且也不是 `me`；或传了 `me` 但当前用户 open\_id 不可解析 | 改为 `ou_` 开头的用户 ID，或先通过 Ripple 对话完成 Feishu 授权后再传 `me` |
+| `participant-ids` 校验失败 | 传入的不是 open\_id，且也不是 `me`；或传了 `me` 但当前用户 open\_id 不可解析 | 改为 `ou_` 开头的用户 ID，或先通过 Ripple 对话完成 Feishu 授权后再传 `me` |
+| 权限不足                   | 未授权 `minutes:minutes.search:read`                     | 请用户在 Ripple 对话里重新授权/补权限                         |
 
 ## 提示
 
 - 当用户说“我的妙记”时，优先理解为 `--owner-ids me`。
-- 当用户说“我参与的妙记”时，优先理解为 `--participant-ids me`。
-- 当用户同时提到“会议 / 会 / 开会 / 某场会”和“妙记”时，优先先定位会议；只有无法定位目标会议时，再回退到妙记搜索。
+- 当用户说“我参与的妙记”“我参加过的妙记”时，默认理解为 `--owner-ids me` 与 `--participant-ids me` 两次查询后的并集。
+- 当用户明确说“仅我参与但不是我拥有”时，才优先理解为 `--participant-ids me`。
+- 当用户同时提到“会议 / 会 / 开会 / 某场会”和“妙记”时，优先先定位会议；如果要的是妙记信息，走 `vc +recording` → `minutes minutes get`，只有要纪要内容时才走 `vc +notes --minute-tokens`。
 - 必须使用 `--format json` 输出，你更加擅长解析 JSON 数据。
 - 排查参数与请求结构时优先使用 `--dry-run`。
 - 搜索的时间范围最大为 1 个月，如果需要搜索更长时间范围的妙记，需要拆分为多次时间范围为一个月查询。

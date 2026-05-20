@@ -10,26 +10,19 @@ This skill maps to the shortcut: `lark-cli im +chat-messages-list` (internally c
 
 ```bash
 # Get group chat messages (json output by default)
-lark-cli im +chat-messages-list --chat-id oc_xxx
-
+lark-cli im +chat-messages-list --chat-id oc_xxx --as user
 # Get direct messages with a user (pass open_id and resolve p2p chat_id automatically)
-lark-cli im +chat-messages-list --user-id ou_xxx
-
+lark-cli im +chat-messages-list --user-id ou_xxx --as user
 # Specify a time range (ISO 8601)
-lark-cli im +chat-messages-list --chat-id oc_xxx --start "2026-03-10T00:00:00+08:00" --end "2026-03-11T00:00:00+08:00"
-
+lark-cli im +chat-messages-list --chat-id oc_xxx --start "2026-03-10T00:00:00+08:00" --end "2026-03-11T00:00:00+08:00" --as user
 # Specify a time range (date only)
-lark-cli im +chat-messages-list --chat-id oc_xxx --start 2026-03-10 --end 2026-03-11
-
+lark-cli im +chat-messages-list --chat-id oc_xxx --start 2026-03-10 --end 2026-03-11 --as user
 # Control sort order and page size (max 50)
-lark-cli im +chat-messages-list --chat-id oc_xxx --sort asc --page-size 20
-
+lark-cli im +chat-messages-list --chat-id oc_xxx --sort asc --page-size 20 --as user
 # Pagination
-lark-cli im +chat-messages-list --chat-id oc_xxx --page-token "xxx"
-
+lark-cli im +chat-messages-list --chat-id oc_xxx --page-token "xxx" --as user
 # JSON output
-lark-cli im +chat-messages-list --chat-id oc_xxx --format json
-```
+lark-cli im +chat-messages-list --chat-id oc_xxx --format json --as user```
 
 ## Parameters
 
@@ -100,8 +93,7 @@ Each message contains:
 `im +chat-messages-list` returns `has_more` and `page_token` when more data is available. Use `--page-token` to continue:
 
 ```bash
-lark-cli im +chat-messages-list --chat-id oc_xxx --page-token <PAGE_TOKEN>
-```
+lark-cli im +chat-messages-list --chat-id oc_xxx --page-token <PAGE_TOKEN> --as user```
 
 You can also fall back to the generic API:
 
@@ -126,15 +118,21 @@ lark-cli api GET /open-apis/im/v1/messages \
 1. **Resolving chat_id from a chat name:** When the user refers to a chat by name and you don't have the `chat_id`, use [`+chat-search`](lark-im-chat-search.md) first:
    ```bash
    # Find chat_id by name, then list messages
-   lark-cli im +chat-search --query "<chat name keyword>" --format json
-   lark-cli im +chat-messages-list --chat-id <chat_id>
+   lark-cli im +chat-search --query "<chat name keyword>" --format json --as user
+   lark-cli im +chat-messages-list --chat-id <chat_id> --as user
    ```
-   **Do not use `im chats search` or `im chats list` — always use the `+chat-search` shortcut.**
+   **Do not use `im chats search` or `+chat-list` — always use the `+chat-search` shortcut.**
 2. **Prefer `--chat-id` when available:** if the chat_id is already known, use it directly to avoid extra API calls.
 3. **For direct messages:** use `--user-id` to resolve the p2p chat automatically instead of looking it up manually. This requires user identity (`--as user`); with bot identity, resolve the p2p `chat_id` yourself and pass it via `--chat-id`.
 4. **For time ranges:** both ISO 8601 and date-only inputs are supported. Date-only is usually simpler.
 5. **For full content:** table output truncates content. Use `--format json` when you need the complete message body.
 6. **For sender info:** the command already resolves sender names, so you do not need a separate lookup.
+7. **Application/bot identity + named group history:** If the user says "使用应用身份/以 bot 身份" and asks to list or read historical messages for a named group, use bot identity for both steps:
+   ```bash
+   lark-cli im +chat-search --as bot --query "<chat name keyword>" --format json
+   lark-cli im +chat-messages-list --as bot --chat-id <chat_id> --page-size 50 --format json
+   ```
+   Do not use `im +messages-search --as bot`; `+messages-search` is user-only. Continue with `--page-token` if `has_more=true`.
 
 ## References
 

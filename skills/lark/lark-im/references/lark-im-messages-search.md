@@ -12,52 +12,37 @@ This skill maps to the shortcut: `lark-cli im +messages-search` (internally call
 
 ```bash
 # Search by keyword
-lark-cli im +messages-search --query "project progress"
-
+lark-cli im +messages-search --query "project progress" --as user
 # Restrict search to a specific group chat
-lark-cli im +messages-search --query "weekly report" --chat-id oc_xxx
-
+lark-cli im +messages-search --query "weekly report" --chat-id oc_xxx --as user
 # Filter by sender (comma-separated)
-lark-cli im +messages-search --query "requirement" --sender ou_xxx,ou_yyy
-
+lark-cli im +messages-search --query "requirement" --sender ou_xxx,ou_yyy --as user
 # Filter by attachment type
-lark-cli im +messages-search --query "report" --include-attachment-type file
-
+lark-cli im +messages-search --query "report" --include-attachment-type file --as user
 # Filter by chat type (group / p2p)
-lark-cli im +messages-search --query "progress" --chat-type group
-
+lark-cli im +messages-search --query "progress" --chat-type group --as user
 # Filter by sender type (user / bot)
-lark-cli im +messages-search --query "reminder" --sender-type bot
-
+lark-cli im +messages-search --query "reminder" --sender-type bot --as user
 # Exclude bot senders
-lark-cli im +messages-search --query "reminder" --exclude-sender-type bot
-
+lark-cli im +messages-search --query "reminder" --exclude-sender-type bot --as user
 # Only messages that @me
-lark-cli im +messages-search --query "announcement" --is-at-me
-
+lark-cli im +messages-search --query "announcement" --is-at-me --as user
+# Only messages that @mention specific users (results also include messages that @all)
+lark-cli im +messages-search --query "release" --at-chatter-ids ou_xxx,ou_yyy --as user
 # Combined filters + time range
-lark-cli im +messages-search --query "meeting" --sender ou_xxx --chat-type group --start "2026-03-13T00:00:00+08:00" --end "2026-03-20T23:59:59+08:00"
-
+lark-cli im +messages-search --query "meeting" --sender ou_xxx --chat-type group --start "2026-03-13T00:00:00+08:00" --end "2026-03-20T23:59:59+08:00" --as user
 # Specific time range (ISO 8601)
-lark-cli im +messages-search --query "release" --start "2026-03-01T00:00:00+08:00" --end "2026-03-10T00:00:00+08:00"
-
+lark-cli im +messages-search --query "release" --start "2026-03-01T00:00:00+08:00" --end "2026-03-10T00:00:00+08:00" --as user
 # Output format options
-lark-cli im +messages-search --query "test" --format pretty
-lark-cli im +messages-search --query "test" --format table
-lark-cli im +messages-search --query "test" --format csv
-
+lark-cli im +messages-search --query "test" --format pretty --as userlark-cli im +messages-search --query "test" --format table --as userlark-cli im +messages-search --query "test" --format csv --as user
 # Pagination
-lark-cli im +messages-search --query "test" --page-token <PAGE_TOKEN>
-
+lark-cli im +messages-search --query "test" --page-token <PAGE_TOKEN> --as user
 # Auto-pagination across multiple pages
-lark-cli im +messages-search --query "test" --page-all --format json
-
+lark-cli im +messages-search --query "test" --page-all --format json --as user
 # Auto-pagination with an explicit page cap
-lark-cli im +messages-search --query "test" --page-limit 5 --format json
-
+lark-cli im +messages-search --query "test" --page-limit 5 --format json --as user
 # Preview the request without executing it
-lark-cli im +messages-search --query "test" --dry-run
-```
+lark-cli im +messages-search --query "test" --dry-run --as user```
 
 ## Parameters
 
@@ -71,6 +56,7 @@ lark-cli im +messages-search --query "test" --dry-run
 | `--sender-type <type>` | No | Sender type: `user` / `bot` |
 | `--exclude-sender-type <type>` | No | Exclude messages from `user` or `bot` senders |
 | `--is-at-me` | No | Only return messages that mention `@me` |
+| `--at-chatter-ids <ids>` | No | Filter by @mentioned user open_ids, comma-separated (`ou_xxx,ou_yyy`). Matched results also include messages that `@all` |
 | `--start <time>` | No | Start time with local timezone offset required (e.g. `2026-03-24T00:00:00+08:00`) |
 | `--end <time>` | No | End time with local timezone offset required (e.g. `2026-03-25T23:59:59+08:00`) |
 | `--page-size <n>` | No | Page size (default 20, range 1-50) |
@@ -138,8 +124,7 @@ In JSON output, each message includes `chat_id` and `thread_id` (when present). 
 
 ```bash
 # View the full message stream for the conversation that contains the search result
-lark-cli im +chat-messages-list --chat-id <chat_id>
-
+lark-cli im +chat-messages-list --chat-id <chat_id> --as user
 # View replies in the thread that contains the search result
 lark-cli im +threads-messages-list --thread <thread_id>
 ```
@@ -152,19 +137,33 @@ Use `im +messages-resources-download` if you need to fetch the underlying image 
 
 ## AI Usage Guidance
 
+### Query boundary for activity review
+
+Use `--query` only for real message keywords. If the user asks for activity review such as "最近一周我和哪些 Bot 有过交互" or "整理我和某人的聊天记录", and the useful constraints are sender type, chat, person, or time range, keep `--query ""` and rely on those filters. Do not put generic instruction words such as "看看", "总结", "交互内容", or "聊天记录" into `--query`; those words often over-constrain message search and hide the relevant messages.
+
+This guidance applies only when using user identity. `im +messages-search` is user-only; if the user explicitly asks for application/bot identity, do not try `--as bot`. For bot identity with a named group and history/listing intent, resolve the group with `im +chat-search --as bot`, then list messages with `im +chat-messages-list --as bot --chat-id <chat_id>`.
+
+```bash
+# Review recent bot interactions without forcing a keyword
+lark-cli im +messages-search --query "" --sender-type bot --start "<YYYY-MM-DDT00:00:00+08:00>" --end "<YYYY-MM-DDT23:59:59+08:00>" --page-all --format json --as user```
+
+Replace the time placeholders at execution time. For example, "最近一周" means computing the start date and end date from the current day before running the command; do not copy date literals from this reference into answers for relative requests.
+
+For activity summaries, validate evidence by message IDs and chat context. The final answer should cite or retain the `message_id`, sender, chat, and create time for each important item. If the row's source data contains concrete `om_...` message IDs or `ou_...` user IDs, treat those IDs as strong recall targets during verification; do not rely only on a high-level keyword match.
+
 ### Resolving chat_id from a chat name
 
 When the user refers to a chat by name and you need its `chat_id` for the `--chat-id` filter, use [`+chat-search`](lark-im-chat-search.md) first:
 
 ```bash
 # Step 1: Find the chat_id by name
-lark-cli im +chat-search --query "<chat name keyword>" --format json
+lark-cli im +chat-search --query "<chat name keyword>" --format json --as user
 
 # Step 2: Use the chat_id to narrow down message search
-lark-cli im +messages-search --query "keyword" --chat-id <chat_id>
+lark-cli im +messages-search --query "keyword" --chat-id <chat_id> --as user
 ```
 
-**Do not use `im chats search` or `im chats list` — always use the `+chat-search` shortcut.**
+**Do not use `im chats search` or `+chat-list` — always use the `+chat-search` shortcut.**
 
 ## Work Summary / Report Generation
 
@@ -182,14 +181,11 @@ When the user asks you to summarize work, generate a weekly report, or compile a
 
 ```bash
 # Preferred: fetch automatically
-lark-cli im +messages-search --query "" --chat-id oc_xxx --sender ou_me --start "2026-03-18T00:00:00+08:00" --end "2026-03-25T23:59:59+08:00" --page-size 50 --page-all --format json
-
+lark-cli im +messages-search --query "" --chat-id oc_xxx --sender ou_me --start "2026-03-18T00:00:00+08:00" --end "2026-03-25T23:59:59+08:00" --page-size 50 --page-all --format json --as user
 # If you need to cap the run explicitly
-lark-cli im +messages-search --query "" --chat-id oc_xxx --sender ou_me --start "2026-03-18T00:00:00+08:00" --end "2026-03-25T23:59:59+08:00" --page-size 50 --page-limit 5 --format json
-
+lark-cli im +messages-search --query "" --chat-id oc_xxx --sender ou_me --start "2026-03-18T00:00:00+08:00" --end "2026-03-25T23:59:59+08:00" --page-size 50 --page-limit 5 --format json --as user
 # If the bounded run still returns has_more=true, continue manually
-lark-cli im +messages-search --query "" --chat-id oc_xxx --sender ou_me --start "2026-03-18T00:00:00+08:00" --end "2026-03-25T23:59:59+08:00" --page-size 50 --page-token <token_from_previous_run> --format json
-```
+lark-cli im +messages-search --query "" --chat-id oc_xxx --sender ou_me --start "2026-03-18T00:00:00+08:00" --end "2026-03-25T23:59:59+08:00" --page-size 50 --page-token <token_from_previous_run> --format json --as user```
 
 ### Key points
 
@@ -204,7 +200,7 @@ lark-cli im +messages-search --query "" --chat-id oc_xxx --sender ou_me --start 
 |---------|---------|---------|
 | Too few results | The time range is too narrow or the keyword is too specific | Expand the time range and try broader keywords |
 | No results | Missing permission or no match | Confirm `search:message` is authorized and relax the filters |
-| Permission denied | Search scope not authorized | Run `auth login --scope "search:message"` |
+| Permission denied | Search scope not authorized | Ask the user to re-authorize Feishu in the Ripple conversation and mention `search:message` |
 
 ## References
 

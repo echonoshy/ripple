@@ -74,8 +74,7 @@ Thread messages do not support `start_time` / `end_time` filtering because of Fe
 
 ```bash
 # Step 1: Fetch group messages and find one that contains thread_id
-lark-cli im +chat-messages-list --chat-id oc_xxx
-
+lark-cli im +chat-messages-list --chat-id oc_xxx --as user
 # Step 2: Extract thread_id from the JSON output and fetch thread replies
 lark-cli im +threads-messages-list --thread omt_xxx
 ```

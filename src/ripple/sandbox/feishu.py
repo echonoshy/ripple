@@ -18,6 +18,7 @@ import asyncio
 import json
 import re
 import shlex
+import shutil
 from dataclasses import dataclass
 from typing import Any
 
@@ -267,11 +268,17 @@ async def ensure_lark_cli_config(
         (False, setup_url)  — 需要用户点击链接完成配置
         (False, error_msg)  — 错误
 
-    `force_new_setup=True` 用于用户显式重新点击连接时丢弃未完成的旧 setup URL，
-    避免浏览器拿到已经过期的授权链接。
+    `force_new_setup=True` 用于丢弃未完成的旧 setup URL 或已判定无效的旧 app
+    配置，避免浏览器拿到已经过期/错误的授权链接。
     """
     if not config.lark_cli_bin:
         return False, ("lark-cli 未预装（宿主机）。请管理员执行: bash scripts/install-feishu-cli.sh")
+
+    if force_new_setup:
+        await _cancel_feishu_setup(user_id)
+        config_dir = config.workspace_dir(user_id) / ".lark-cli"
+        if config_dir.exists():
+            shutil.rmtree(config_dir)
 
     if config.has_lark_cli_config(user_id):
         return True, ""
@@ -280,9 +287,6 @@ async def ensure_lark_cli_config(
     async with lock:
         if config.has_lark_cli_config(user_id):
             return True, ""
-
-        if force_new_setup:
-            await _cancel_feishu_setup(user_id)
 
         creds = _get_feishu_credentials(config, user_id) or _get_server_feishu_credentials()
         if creds:

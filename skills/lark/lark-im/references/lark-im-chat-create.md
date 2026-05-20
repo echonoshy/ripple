@@ -2,7 +2,7 @@
 
 > **Prerequisite:** Read [`../lark-shared/SKILL.md`](../../lark-shared/SKILL.md) first to understand authentication, global parameters, and safety rules.
 
-Create a group chat. Supports both user identity (`--as user`) and bot identity (`--as bot`). You can specify the group name, description, members (users/bots), owner, and chat type (private/public).
+Create a group chat. Supports both user identity (`--as user`) and bot identity (`--as bot`). You can specify the group name, description, members (users/bots), owner, chat type (private/public), and group mode. Set `--chat-mode topic` to create a topic chat.
 
 This skill maps to the shortcut: `lark-cli im +chat-create` (internally calls `POST /open-apis/im/v1/chats`).
 
@@ -13,28 +13,31 @@ This skill maps to the shortcut: `lark-cli im +chat-create` (internally calls `P
 
 ```bash
 # Create a private group (default)
-lark-cli im +chat-create --name "My Group"
+lark-cli im +chat-create --name "My Group" --as user
 
 # Create a public group (name is required and must be at least 2 characters)
-lark-cli im +chat-create --name "Public Group" --type public
+lark-cli im +chat-create --name "Public Group" --type public --as user
+
+# Create a topic chat
+lark-cli im +chat-create --name "Topic Group" --chat-mode topic --as user
 
 # Specify the group owner
-lark-cli im +chat-create --name "My Group" --owner ou_xxx
+lark-cli im +chat-create --name "My Group" --owner ou_xxx --as user
 
 # Invite user members (comma-separated open_ids, up to 50)
-lark-cli im +chat-create --name "My Group" --users "ou_aaa,ou_bbb"
+lark-cli im +chat-create --name "My Group" --users "ou_aaa,ou_bbb" --as user
 
 # Invite bot members (comma-separated app IDs, up to 5)
-lark-cli im +chat-create --name "My Group" --bots "cli_aaa,cli_bbb"
+lark-cli im +chat-create --name "My Group" --bots "cli_aaa,cli_bbb" --as user
 
 # Invite both users and bots
-lark-cli im +chat-create --name "My Group" --users "ou_aaa" --bots "cli_aaa"
+lark-cli im +chat-create --name "My Group" --users "ou_aaa" --bots "cli_aaa" --as user
 
 # Make the creating bot a group manager (bot identity only)
 lark-cli im +chat-create --name "My Group" --set-bot-manager --as bot
 
 # JSON output
-lark-cli im +chat-create --name "My Group" --format json
+lark-cli im +chat-create --name "My Group" --format json --as user
 
 # Create a group with bot identity
 lark-cli im +chat-create --name "My Group" --users "ou_aaa" --as bot
@@ -43,7 +46,7 @@ lark-cli im +chat-create --name "My Group" --users "ou_aaa" --as bot
 lark-cli im +chat-create --name "My Group" --users "ou_aaa,ou_bbb" --as user
 
 # Preview the request without creating anything
-lark-cli im +chat-create --name "My Group" --dry-run
+lark-cli im +chat-create --name "My Group" --dry-run --as user
 ```
 
 ## Parameters
@@ -55,11 +58,14 @@ lark-cli im +chat-create --name "My Group" --dry-run
 | `--users <ids>` | No | Up to 50, format `ou_xxx` | Comma-separated user open_ids |
 | `--bots <ids>` | No | Up to 5, format `cli_xxx` | Comma-separated bot app IDs |
 | `--owner <open_id>` | No | Format `ou_xxx` | Owner open_id (defaults to the bot when using `--as bot`, or the authorized user when using `--as user`) |
-| `--type <type>` | No | `private` (default) or `public` | Group type |
+| `--type <type>` | No | `private` (default) or `public` | Group type. Default to `private`; pass `public` only when the user explicitly asks for a discoverable/public group. |
+| `--chat-mode <mode>` | No | `group` (default) or `topic` | Group mode; `topic` creates a topic chat (not the same as `group_message_type=thread`). When the user asks for a topic chat, pass `topic` explicitly — do not rely on the default. |
 | `--set-bot-manager` | No | - | Set the creating bot as a group manager (only effective with `--as bot`) |
 | `--format json` | No | - | Output as JSON |
 | `--as <identity>` | No | `bot` or `user` | Identity type |
 | `--dry-run` | No | - | Preview the request without executing it |
+
+> **`--chat-mode topic` vs "normal group with topic-message mode"**: `--chat-mode topic` here creates a 话题群 — the entire group is a topic chat. This is different from "normal group (`chat_mode=group`) + topic-message mode (`group_message_type=thread`)". This CLI exposes only `chat_mode`; `group_message_type` is intentionally not surfaced.
 
 ## AI Usage Guidance
 
@@ -67,12 +73,12 @@ lark-cli im +chat-create --name "My Group" --dry-run
 
 Bot may fail to invite users who are mutually invisible to it during group creation (error 232043). To avoid this, use the **two-step flow** below instead of passing other users' open_ids in `--users`.
 
-1. **Get the current user's open_id:** Run `lark-cli contact +search-user --query "<name or email>"` to retrieve it.
+1. **Get the current user's open_id:** Run `lark-cli contact +search-user --query "<name or email>" --as user` to retrieve it.
 2. **Create the group — by default include the current user:**
 
    ```bash
-   lark-cli im +chat-create --name "<group name>" \
-     --users "<current user open_id>" --as bot
+   lark-cli im +chat-create --name "<group name>" --as bot \
+     --users "<current user open_id>"
    ```
 
    **Default behavior:** Always add the current user to the group, unless the user explicitly says "do not add me" or "bot-only group" — only then omit `--users`.
@@ -116,13 +122,13 @@ The authorized user is automatically the group creator and member.
 ### Scenario 1: Create a group and specify the owner
 
 ```bash
-lark-cli im +chat-create --name "Project Discussion Group" --owner ou_xxx
+lark-cli im +chat-create --name "Project Discussion Group" --owner ou_xxx --as user
 ```
 
 ### Scenario 2: Create a group and invite users and a bot
 
 ```bash
-lark-cli im +chat-create --name "Project Discussion Group" \
+lark-cli im +chat-create --name "Project Discussion Group" --as user \
   --owner ou_xxx \
   --users "ou_aaa,ou_bbb" \
   --bots "cli_aaa"
@@ -131,8 +137,8 @@ lark-cli im +chat-create --name "Project Discussion Group" \
 ### Scenario 3: Create a group and send a welcome message
 
 ```bash
-CHAT_ID=$(lark-cli im +chat-create --name "New Group" --format json | jq -r '.data.chat_id')
-lark-cli im +messages-send --chat-id "$CHAT_ID" --text "Welcome, everyone!"
+CHAT_ID=$(lark-cli im +chat-create --name "New Group" --format json --as user | jq -r '.data.chat_id')
+lark-cli im +messages-send --chat-id "$CHAT_ID" --text "Welcome, everyone!" --as user
 ```
 
 ## Common Errors and Troubleshooting

@@ -1,6 +1,10 @@
 
 # docs +search（云空间搜索：文档 / Wiki / 电子表格）
 
+> ⚠️ **此命令进入维护期，后续会下线。新用法请使用 [`drive +search`](../../lark-drive/references/lark-drive-search.md)。**
+>
+> `drive +search` 把所有过滤条件扁平化为独立 flag（`--edited-since` / `--mine` / `--doc-types` 等），面向自然语言场景设计，同时新增了 `my_edit_time`（我编辑过）、`my_comment_time`（我评论过）等维度。除非要沿用老脚本里的 `--filter` JSON，否则**都应该切到 `drive +search`**。
+>
 > **前置条件：** 先阅读 [`../lark-shared/SKILL.md`](../../lark-shared/SKILL.md) 了解认证、全局参数和安全规则。
 
 基于 Search v2 接口 `POST /open-apis/search/v2/doc_wiki/search`，以**用户身份**统一搜索云空间对象。
@@ -53,7 +57,7 @@ lark-cli docs +search \
 # 按文档所有者过滤（creator_ids 传文档所有者 open_id，不是邮箱 / user_id）
 lark-cli docs +search \
   --query "季度总结" \
-  --filter '{"creator_ids":["ou_7890123456abcdef"]}'
+  --filter '{"creator_ids":["ou_EXAMPLE_USER_ID"]}'
 
 # 只搜索指定类型
 lark-cli docs +search \
@@ -83,7 +87,7 @@ lark-cli docs +search \
 # 只搜索指定分享者分享过的文档（sharer_ids 传分享者 open_id，最多 20 个）
 lark-cli docs +search \
   --query "复盘" \
-  --filter '{"sharer_ids":["ou_7890123456abcdef"]}'
+  --filter '{"sharer_ids":["ou_EXAMPLE_USER_ID"]}'
 
 # 按创建时间过滤并指定排序方式
 lark-cli docs +search \
@@ -93,7 +97,7 @@ lark-cli docs +search \
 # 组合多个筛选条件
 lark-cli docs +search \
   --query "项目复盘" \
-  --filter '{"creator_ids":["ou_7890123456abcdef"],"doc_types":["DOCX","SHEET"],"only_title":true,"sort_type":"OPEN_TIME","open_time":{"start":"2026-01-01T00:00:00+08:00"}}'
+  --filter '{"creator_ids":["ou_EXAMPLE_USER_ID"],"doc_types":["DOCX","SHEET"],"only_title":true,"sort_type":"OPEN_TIME","open_time":{"start":"2026-01-01T00:00:00+08:00"}}'
 
 # 只在指定知识空间下搜 Wiki
 lark-cli docs +search \
@@ -175,10 +179,10 @@ lark-cli docs +search --query "方案" --format json --page-token '<PAGE_TOKEN>'
 ### 常见 `--filter` JSON 片段
 
 ```json
-{"creator_ids":["ou_7890123456abcdef"]}
+{"creator_ids":["ou_EXAMPLE_USER_ID"]}
 {"doc_types":["SHEET","DOCX"]}
 {"chat_ids":["oc_1234567890abcdef"]}
-{"sharer_ids":["ou_7890123456abcdef"]}
+{"sharer_ids":["ou_EXAMPLE_USER_ID"]}
 {"folder_tokens":["fld_123456"]}
 {"only_title":true}
 {"only_comment":true}

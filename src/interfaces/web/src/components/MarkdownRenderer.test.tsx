@@ -12,6 +12,19 @@ function testPreservesSingleNewlineAsLineBreak() {
   assert.match(html, /<br\/?>/);
 }
 
+function testFeishuAuthCardDoesNotCompleteAuthDirectly() {
+  const html = renderToStaticMarkup(
+    <MarkdownRenderer
+      content={"[FEISHU_AUTH]\ndevice_code: device-123\nhttps://accounts.feishu.cn/device"}
+    />
+  );
+
+  assert.match(html, /打开授权链接/);
+  assert.match(html, /回到对话输入/);
+  assert.doesNotMatch(html, /授权完成/);
+}
+
 testPreservesSingleNewlineAsLineBreak();
+testFeishuAuthCardDoesNotCompleteAuthDirectly();
 
 console.log("markdown renderer tests passed");

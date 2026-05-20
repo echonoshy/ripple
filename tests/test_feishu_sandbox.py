@@ -88,6 +88,30 @@ async def test_ensure_lark_cli_config_force_new_setup_replaces_pending_setup_url
 
 
 @pytest.mark.asyncio
+async def test_ensure_lark_cli_config_force_new_setup_removes_stale_config(tmp_path, monkeypatch):
+    config = SandboxConfig(sandboxes_root=tmp_path / "sandboxes", caches_root=tmp_path / "cache")
+    config.lark_cli_bin = str(tmp_path / "lark-cli")
+    lark_config = config.workspace_dir("alice") / ".lark-cli" / "config.json"
+    lark_config.parent.mkdir(parents=True, exist_ok=True)
+    lark_config.write_text(json.dumps({"app_id": "stale"}), encoding="utf-8")
+
+    monkeypatch.setattr(feishu, "_get_feishu_credentials", lambda _config, _user_id: None)
+    monkeypatch.setattr(feishu, "_get_server_feishu_credentials", lambda: None)
+
+    async def fake_start_feishu_setup(config, user_id):
+        assert user_id == "alice"
+        assert not lark_config.exists()
+        return False, "https://new.example/setup"
+
+    monkeypatch.setattr(feishu, "_start_feishu_setup", fake_start_feishu_setup)
+
+    ok, url = await feishu.ensure_lark_cli_config(config, "alice", force_new_setup=True)
+
+    assert ok is False
+    assert url == "https://new.example/setup"
+
+
+@pytest.mark.asyncio
 async def test_start_lark_user_auth_force_new_logs_out_before_new_device_flow(tmp_path, monkeypatch):
     config = SandboxConfig(sandboxes_root=tmp_path / "sandboxes", caches_root=tmp_path / "cache")
     config.lark_cli_bin = str(tmp_path / "lark-cli")

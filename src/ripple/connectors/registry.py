@@ -53,6 +53,21 @@ logger = get_logger("connectors.registry")
 _GOOGLE_OAUTH_URL_RE = re.compile(r"https://accounts\.google\.com/o/oauth2/[^\s]+")
 _GOOGLE_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _GOOGLE_CALLBACK_URL_RE = re.compile(r"^https?://[^\s]+\?[^\s]+$")
+_FEISHU_AUTH_CONFIRM_DELAYS_SECONDS: tuple[float, ...] = (0.0, 1.0, 2.0)
+
+
+def _first_json_object(text: str) -> dict[str, Any] | None:
+    decoder = json.JSONDecoder()
+    for index, char in enumerate(text):
+        if char != "{":
+            continue
+        try:
+            value, _end = decoder.raw_decode(text[index:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            return value
+    return None
 
 
 def feishu_cli_login_status(config: SandboxConfig, user_id: str) -> tuple[bool, str, dict[str, Any]]:
@@ -63,8 +78,62 @@ def feishu_cli_login_status(config: SandboxConfig, user_id: str) -> tuple[bool, 
     if not has_app_config:
         return False, "Feishu CLI app configuration is missing for this user.", {"has_app_config": False}
 
+    metadata: dict[str, Any] = {"has_app_config": True}
+
     try:
         write_nsjail_config(config, user_id)
+        doctor_proc = subprocess.run(
+            build_nsjail_argv(config, user_id, "lark-cli doctor 2>&1"),
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        doctor_proc = None
+        metadata["doctor_error"] = str(exc)
+
+    if doctor_proc is not None:
+        doctor_output = (doctor_proc.stdout or "") + "\n" + (doctor_proc.stderr or "")
+        parsed_doctor = _first_json_object(doctor_output)
+        if isinstance(parsed_doctor, dict):
+            checks = parsed_doctor.get("checks")
+            if isinstance(checks, list):
+                check_status: dict[str, str] = {}
+                check_messages: dict[str, str] = {}
+                for check in checks:
+                    if not isinstance(check, dict):
+                        continue
+                    name = check.get("name")
+                    status = check.get("status")
+                    message = check.get("message")
+                    if isinstance(name, str) and isinstance(status, str):
+                        check_status[name] = status
+                    if isinstance(name, str) and isinstance(message, str):
+                        check_messages[name] = message
+                metadata["doctor_checks"] = check_status
+                config_status = check_status.get("config_file")
+                if config_status and config_status != "pass":
+                    return (
+                        False,
+                        check_messages.get("config_file") or "Feishu CLI app configuration is missing.",
+                        metadata,
+                    )
+                app_status = check_status.get("app_resolved")
+                if app_status and app_status != "pass":
+                    return (
+                        False,
+                        check_messages.get("app_resolved") or "Feishu CLI app configuration is invalid.",
+                        metadata,
+                    )
+                token_status = check_status.get("token_exists")
+                if token_status and token_status != "pass":
+                    return (
+                        False,
+                        check_messages.get("token_exists") or "Feishu user authorization is missing.",
+                        metadata,
+                    )
+    try:
         proc = subprocess.run(
             build_nsjail_argv(config, user_id, "lark-cli auth status 2>&1"),
             capture_output=True,
@@ -73,15 +142,15 @@ def feishu_cli_login_status(config: SandboxConfig, user_id: str) -> tuple[bool, 
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
-        return False, f"Feishu auth status check failed: {exc}", {"has_app_config": True}
+        return False, f"Feishu auth status check failed: {exc}", metadata
 
     output = (proc.stdout or "") + "\n" + (proc.stderr or "")
-    metadata: dict[str, Any] = {"has_app_config": True}
     try:
-        parsed = json.loads(output)
+        parsed = _first_json_object(output)
     except json.JSONDecodeError:
         parsed = None
     if isinstance(parsed, dict):
+        has_user_auth_evidence = False
         for source, target in (
             ("identity", "identity"),
             ("open_id", "open_id"),
@@ -93,12 +162,18 @@ def feishu_cli_login_status(config: SandboxConfig, user_id: str) -> tuple[bool, 
             value = parsed.get(source)
             if isinstance(value, str) and value:
                 metadata[target] = value
+                if target == "identity" and value.strip().lower() == "user":
+                    has_user_auth_evidence = True
+                if target == "open_id":
+                    has_user_auth_evidence = True
         error = parsed.get("error")
         if parsed.get("ok") is False:
             message = error.get("message") if isinstance(error, dict) else ""
             return False, message or "Feishu user authorization is missing.", metadata
+        if has_user_auth_evidence:
+            return True, "Feishu user authorization is ready.", metadata
     if proc.returncode == 0:
-        return True, "Feishu user authorization is ready.", metadata
+        return False, "Feishu user authorization status is inconclusive.", metadata
     detail = output.strip()[-500:] or "Feishu user authorization is missing."
     return False, detail, metadata
 
@@ -135,6 +210,64 @@ def _safe_unlink(path: Path) -> bool:
             return True
     except OSError as exc:
         raise RuntimeError(f"Failed to remove {path.name}: {exc}") from exc
+    return False
+
+
+def _is_feishu_auth_pending_message(message: str) -> bool:
+    normalized = message.lower()
+    return any(
+        marker in normalized
+        for marker in (
+            "pending",
+            "not yet",
+            "not completed",
+            "authorization_pending",
+            "slow_down",
+            "尚未",
+            "未完成",
+            "等待",
+        )
+    )
+
+
+def _is_feishu_auth_final_confirmation_message(message: str) -> bool:
+    normalized = message.lower()
+    return any(
+        marker in normalized
+        for marker in (
+            "本次授权请求用户最终确认后的结果",
+            "请勿持续重试",
+            "最终确认",
+            "final confirmation",
+        )
+    )
+
+
+async def _confirm_feishu_user_authorization(
+    config: SandboxConfig,
+    user_id: str,
+) -> tuple[bool, str, dict[str, Any]]:
+    last_detail = "Feishu user authorization status is not ready yet."
+    last_metadata: dict[str, Any] = {}
+    for delay_seconds in _FEISHU_AUTH_CONFIRM_DELAYS_SECONDS:
+        if delay_seconds > 0:
+            await asyncio.sleep(delay_seconds)
+        connected, detail, metadata = await asyncio.to_thread(feishu_cli_login_status, config, user_id)
+        if connected:
+            return True, detail, metadata
+        last_detail = detail
+        last_metadata = metadata
+    return False, last_detail, last_metadata
+
+
+def _feishu_status_needs_setup(metadata: dict[str, Any]) -> bool:
+    checks = metadata.get("doctor_checks")
+    if not isinstance(checks, dict):
+        return False
+    for name in ("config_file", "app_resolved"):
+        status = checks.get(name)
+        if isinstance(status, str) and status != "pass":
+            return True
     return False
 
 
@@ -296,9 +429,7 @@ class NotionConnector(BaseConnector):
                 auth_type="token",
                 kind="user_connector",
                 auth_flow="token",
-                auth_surfaces={"web": True, "chat": True},
-                auth_start_path=_connector_path("notion", "auth/start"),
-                disconnect_path=_connector_path("notion", "disconnect"),
+                auth_surfaces={"web": False, "chat": True},
             )
         )
 
@@ -377,10 +508,7 @@ class FeishuConnector(BaseConnector):
                 auth_type="oauth",
                 kind="user_connector",
                 auth_flow="oauth_device",
-                auth_surfaces={"web": True, "chat": True},
-                auth_start_path=_connector_path("feishu", "auth/start"),
-                auth_complete_path=_connector_path("feishu", "auth/complete"),
-                disconnect_path=_connector_path("feishu", "disconnect"),
+                auth_surfaces={"web": False, "chat": True},
             )
         )
 
@@ -423,7 +551,8 @@ class FeishuConnector(BaseConnector):
             )
             seed_file.chmod(0o600)
 
-        force_new_setup = _payload_bool(payload, "force_new_setup", _payload_bool(payload, "force_new", False))
+        force_new_setup = _payload_bool(payload, "force_new_setup", False)
+        force_new_user_auth = _payload_bool(payload, "force_new_user_auth", False)
 
         ok, msg = await ensure_lark_cli_config(config, user_id, force_new_setup=force_new_setup)
         write_nsjail_config(config, user_id)
@@ -437,6 +566,28 @@ class FeishuConnector(BaseConnector):
             )
         if not ok:
             return ConnectorActionResult(self.info.name, False, "auth_failed", msg)
+
+        connected, _detail, _metadata = feishu_cli_login_status(config, user_id)
+        if connected and not force_new_user_auth:
+            return ConnectorActionResult(
+                self.info.name,
+                True,
+                "authorized",
+                "Feishu user authorization is already ready for this user.",
+            )
+        if _feishu_status_needs_setup(_metadata):
+            ok, msg = await ensure_lark_cli_config(config, user_id, force_new_setup=True)
+            write_nsjail_config(config, user_id)
+            if msg.startswith("http://") or msg.startswith("https://"):
+                return ConnectorActionResult(
+                    self.info.name,
+                    True,
+                    "awaiting_setup",
+                    "Open the setup URL to finish Feishu configuration.",
+                    {"setup_url": msg},
+                )
+            if not ok:
+                return ConnectorActionResult(self.info.name, False, "auth_failed", msg)
 
         auth_ok, data = await start_lark_user_auth(config, user_id, force_new=True)
         if not auth_ok:
@@ -472,8 +623,33 @@ class FeishuConnector(BaseConnector):
                 "authorized",
                 "Feishu user authorization completed for this user.",
             )
-        stage = "pending" if "pending" in msg.lower() or "not yet" in msg.lower() else "auth_failed"
-        return ConnectorActionResult(self.info.name, stage == "pending", stage, msg)
+        connected, status_detail, status_metadata = await _confirm_feishu_user_authorization(config, user_id)
+        if connected:
+            return ConnectorActionResult(
+                self.info.name,
+                True,
+                "authorized",
+                "Feishu user authorization completed for this user.",
+                {"status_detail": status_detail, "status_metadata": status_metadata},
+            )
+        final_confirmation = _is_feishu_auth_final_confirmation_message(msg)
+        stage = "pending" if _is_feishu_auth_pending_message(msg) or final_confirmation else "auth_failed"
+        detail = (
+            "Feishu authorization was confirmed in the browser, but local user status is not ready yet."
+            if final_confirmation
+            else msg
+        )
+        return ConnectorActionResult(
+            self.info.name,
+            stage == "pending",
+            stage,
+            detail,
+            {
+                "device_code_finalized": final_confirmation,
+                "status_detail": status_detail,
+                "status_metadata": status_metadata,
+            },
+        )
 
     async def disconnect(
         self,
@@ -507,10 +683,7 @@ class BilibiliConnector(BaseConnector):
                 auth_type="qr",
                 kind="user_connector",
                 auth_flow="qr",
-                auth_surfaces={"web": True, "chat": True},
-                auth_start_path=_connector_path("bilibili", "auth/start"),
-                auth_complete_path=_connector_path("bilibili", "auth/complete"),
-                disconnect_path=_connector_path("bilibili", "disconnect"),
+                auth_surfaces={"web": False, "chat": True},
             )
         )
 
@@ -688,10 +861,7 @@ class GoogleWorkspaceConnector(BaseConnector):
                 auth_type="oauth",
                 kind="user_connector",
                 auth_flow="oauth_assisted",
-                auth_surfaces={"web": True, "chat": True},
-                auth_start_path=_connector_path("google_workspace", "auth/start"),
-                auth_complete_path=_connector_path("google_workspace", "auth/complete"),
-                disconnect_path=_connector_path("google_workspace", "disconnect"),
+                auth_surfaces={"web": False, "chat": True},
                 accounts_path=_connector_path("google_workspace", "accounts"),
             )
         )

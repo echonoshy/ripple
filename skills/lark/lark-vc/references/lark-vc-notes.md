@@ -39,7 +39,7 @@ lark-cli vc +notes --meeting-ids 69xxxxxxxxxxxxx28 --dry-run
 | `--meeting-ids <ids>` | 三选一 | 会议 ID，逗号分隔支持批量 |
 | `--minute-tokens <tokens>` | 三选一 | 妙记 Token，逗号分隔支持批量 |
 | `--calendar-event-ids <ids>` | 三选一 | 日程事件 ID，逗号分隔支持批量 |
-| `--output-dir <dir>` | 否 | 逐字稿输出目录（默认当前目录），仅 `--minute-tokens` 路径有效 |
+| `--output-dir <dir>` | 否 | 逐字稿输出目录。未指定时默认落到 `./minutes/{minute_token}/transcript.txt`（与 `minutes +download` 共享目录）；显式指定时沿用旧布局 `./{output-dir}/artifact-{title}-{token}/transcript.txt`。仅 `--minute-tokens` 路径有效 |
 | `--overwrite` | 否 | 覆盖已存在的逐字稿文件，仅 `--minute-tokens` 路径有效 |
 | `--dry-run` | 否 | 预览 API 调用，不执行 |
 
@@ -51,7 +51,7 @@ lark-cli vc +notes --meeting-ids 69xxxxxxxxxxxxx28 --dry-run
 
 ### 2. 仅支持 user 身份
 
-该命令仅支持 `user` 身份，使用前需完成 `lark-cli auth login`。
+该命令仅支持 `user` 身份，使用前需完成 Ripple Feishu 用户授权。
 
 ### 3. 批量上限
 
@@ -93,7 +93,7 @@ lark-cli vc +notes --meeting-ids 69xxxxxxxxxxxxx28 --dry-run
 | `artifacts.summary` | AI 总结（JSON 内联） |
 | `artifacts.todos` | 待办事项（JSON 内联） |
 | `artifacts.chapters` | 章节纪要（JSON 内联） |
-| `artifacts.transcript_file` | 逐字稿本地文件路径（下载到 `./artifact-<title>/transcript.txt`） |
+| `artifacts.transcript_file` | 逐字稿本地文件路径。默认落到 `./minutes/{minute_token}/transcript.txt`（与 `minutes +download` 聚合）；显式 `--output-dir` 时走旧布局 `./{output-dir}/artifact-{title}-{token}/transcript.txt` |
 
 ## 如何获取输入参数
 
@@ -110,7 +110,7 @@ lark-cli vc +notes --meeting-ids 69xxxxxxxxxxxxx28 --dry-run
 | `exactly one of ... is required` | 未传入参数或同时传了多种 | 只指定一种输入方式 |
 | `no notes available for this meeting` | 该会议未生成纪要 | 尝试用 `--minute-tokens` 路径 |
 | `121005 no permission` | 非会议参与者无权查看 | 使用 `--minute-tokens` 降级到内置产物 |
-| `missing required scope(s)` | 权限不足 | 按提示运行 `auth login --scope` |
+| `missing required scope(s)` | 权限不足 | 请用户在 Ripple 对话里重新授权/补权限 |
 | `too many IDs` | 超过批量上限 | 分批查询，每批最多 50 个 |
 
 ## 提示

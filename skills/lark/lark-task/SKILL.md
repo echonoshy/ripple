@@ -1,7 +1,7 @@
 ---
 name: lark-task
 version: 1.0.0
-description: "飞书任务：管理任务和清单。创建待办任务、查看和更新任务状态、拆分子任务、组织任务清单、分配协作成员。当用户需要创建待办事项、查看任务列表、跟踪任务进度、管理项目清单或给他人分配任务时使用。"
+description: "飞书任务：管理任务、清单和任务智能体。创建待办任务、查看和更新任务状态、拆分子任务、组织任务清单、分配协作成员、上传任务附件、注册或注销任务智能体、更新任务智能体的主页数据、写入智能体任务记录。当用户需要创建待办事项、查看任务列表、跟踪任务进度、管理项目清单或给他人分配任务、为任务上传附件文件、注册注销任务智能体、更新智能体主页数据、写入任务记录时使用。"
 metadata:
   requires:
     bins: ["lark-cli"]
@@ -52,6 +52,7 @@ metadata:
 - [`+tasklist-search`](./references/lark-task-tasklist-search.md) — Search tasklists
 - [`+tasklist-task-add`](./references/lark-task-tasklist-task-add.md) — Add existing tasks to a tasklist
 - [`+tasklist-members`](./references/lark-task-tasklist-members.md) — Manage tasklist members
+- [`+upload-attachment`](./references/lark-task-upload-attachment.md) — Upload a file as a task attachment
 
 ## API Resources
 
@@ -100,6 +101,29 @@ lark-cli task <resource> <method> [flags] # 调用 API
   - `patch` — 更新自定义分组
   - `tasks` — 获取自定义分组任务列表
 
+### custom_fields
+
+  - `create` — 创建自定义字段
+  - `get` — 获取自定义字段详情
+  - `patch` — 更新自定义字段
+  - `list` — 获取自定义字段列表
+  - `add` — 将自定义字段加入资源
+  - `remove` — 将自定义字段移出资源
+
+### custom_field_options
+
+  - `create` — 创建自定义字段选项
+  - `patch` — 更新自定义字段选项
+
+### agent
+
+  - `update_agent_profile` — 更新任务代理的主页内容数据。
+  - `register_agent` — 注册AI 智能体
+
+### agent_task_step_info
+
+  - `append_task_steps` — 写入任务记录。
+
 ## 权限表
 
 | 方法 | 所需 scope |
@@ -127,3 +151,15 @@ lark-cli task <resource> <method> [flags] # 调用 API
 | `sections.list` | `task:section:read` |
 | `sections.patch` | `task:section:write` |
 | `sections.tasks` | `task:section:read` |
+| `custom_fields.create` | `task:custom_field:write` |
+| `custom_fields.get` | `task:custom_field:read` |
+| `custom_fields.patch` | `task:custom_field:write` |
+| `custom_fields.list` | `task:custom_field:read` |
+| `custom_fields.add` | `task:custom_field:write` |
+| `custom_fields.remove` | `task:custom_field:write` |
+| `custom_field_options.create` | `task:custom_field:write` |
+| `custom_field_options.patch` | `task:custom_field:write` |
+| `agent.update_agent_profile` | `task:task:write` |
+| `agent.register_agent` | `task:task:write` |
+| `agent_task_step_info.append_task_steps` | `task:task:write` |
+| `+upload-attachment` | `task:attachment:write` |

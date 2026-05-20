@@ -1,10 +1,10 @@
 import { fetchEventSource } from "@microsoft/fetch-event-source";
 import {
   CodexRuntimeEvent,
+  ConnectorAuthChatEvent,
   ToolCall,
   UsageInfo,
   SandboxInfo,
-  ConnectorActionResponse,
   ConnectorInfo,
   ConnectorStatus,
   AgentRunInfo,
@@ -178,6 +178,18 @@ function isCodexRuntimeEvent(value: unknown): value is CodexRuntimeEvent {
     isRecord(value) &&
     typeof value.type === "string" &&
     CODEX_RUNTIME_EVENT_TYPES.has(value.type as CodexRuntimeEvent["type"])
+  );
+}
+
+function isConnectorAuthChatEvent(value: unknown): value is ConnectorAuthChatEvent {
+  return (
+    isRecord(value) &&
+    (value.type === "connector_auth_required" || value.type === "connector_auth_updated") &&
+    typeof value.connector === "string" &&
+    typeof value.display_name === "string" &&
+    typeof value.auth_flow === "string" &&
+    typeof value.stage === "string" &&
+    typeof value.message === "string"
   );
 }
 
@@ -463,6 +475,7 @@ export async function sendChatMessage(
     onTaskProgress?: (progress: TaskProgress) => void;
     onTaskPlanUpdated?: (update: TaskPlanUpdate) => void;
     onRuntimeEvent?: (event: CodexRuntimeEvent) => void;
+    onConnectorAuth?: (event: ConnectorAuthChatEvent) => void;
     onAgentStop?: (data: AgentStopData) => void;
     onPermissionRequest?: (request: {
       tool: string;
@@ -541,6 +554,11 @@ export async function sendChatMessage(
 
           if (data.type === "heartbeat") {
             callbacks.onHeartbeat?.();
+            return;
+          }
+
+          if (isConnectorAuthChatEvent(data)) {
+            callbacks.onConnectorAuth?.(data);
             return;
           }
 
@@ -757,42 +775,6 @@ export async function fetchConnectorStatuses(
   return Object.fromEntries(
     pairs.filter((pair): pair is [string, ConnectorStatus] => pair[1] !== null)
   );
-}
-
-async function postConnectorAction(
-  name: string,
-  action: "auth/start" | "auth/complete" | "disconnect",
-  payload: Record<string, unknown> = {}
-): Promise<ConnectorActionResponse> {
-  const res = await fetch(`${API_URL}/connectors/${encodeURIComponent(name)}/${action}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify(payload),
-  });
-  if (res.status === 401) throw new AuthError();
-  if (!res.ok) throw new Error(`Connector ${name} action failed (${res.status})`);
-  return (await res.json()) as ConnectorActionResponse;
-}
-
-export function startConnectorAuth(
-  name: string,
-  payload: Record<string, unknown> = {}
-): Promise<ConnectorActionResponse> {
-  return postConnectorAction(name, "auth/start", payload);
-}
-
-export function completeConnectorAuth(
-  name: string,
-  payload: Record<string, unknown> = {}
-): Promise<ConnectorActionResponse> {
-  return postConnectorAction(name, "auth/complete", payload);
-}
-
-export function disconnectConnector(
-  name: string,
-  payload: Record<string, unknown> = {}
-): Promise<ConnectorActionResponse> {
-  return postConnectorAction(name, "disconnect", payload);
 }
 
 export async function createCurrentSandbox(): Promise<SandboxInfo> {

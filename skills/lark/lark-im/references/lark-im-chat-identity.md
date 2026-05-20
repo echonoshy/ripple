@@ -31,7 +31,7 @@ When an owner-level action is needed and the owner is unknown, infer in this ord
 If the query shows that the owner is a third-party user (`owner_id` is neither the currently authorized user nor the bot), the current identity does not have owner privileges. In that case:
 
 - **Permission/setting changes:** if the bot is an admin of the group, `--as bot` can still perform admin-level operations such as renaming the group or changing permissions.
-- **Owner-only actions such as owner transfer:** require the actual owner to complete UAT authorization via `lark-cli auth login`, then perform the action as that owner.
+- **Owner-only actions such as owner transfer:** require the actual owner to complete UAT authorization through the Ripple conversation, then perform the action as that owner.
 - Explain the limitation clearly to the user instead of retrying blindly.
 
 ## Common Pitfalls
@@ -40,7 +40,7 @@ If the query shows that the owner is a third-party user (`owner_id` is neither t
 
 If a bot creates a group and `--users` includes users who are mutually invisible to the bot, the entire request fails with 232043. Use two steps instead:
 
-1. Create the group with the bot first, excluding invisible users: `lark-cli im +chat-create --name "Group Name"`
+1. Create the group with the bot first, excluding invisible users: `lark-cli im +chat-create --name "Group Name" --as bot`
 2. Add users later with a user-identity member-management flow
 
 ### Insufficient Privileges

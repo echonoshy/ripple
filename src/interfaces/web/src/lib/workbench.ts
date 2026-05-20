@@ -238,28 +238,44 @@ function toolSummaryLine(tool: ToolCall): string {
   return firstArg ? `${tool.name}: ${firstArg}` : tool.name;
 }
 
-function toolsEvent(message: Message, tools: ToolCall[]): WorkbenchTimelineEvent {
-  const visibleTools = tools.slice(0, 8);
+function toolsEvent(
+  message: Message,
+  tools: ToolCall[],
+  options: { maxToolActivityItems?: number } = {}
+): WorkbenchTimelineEvent {
+  const maxItems = Math.max(1, options.maxToolActivityItems ?? 8);
+  const visibleTools = tools.slice(-maxItems);
   const hiddenCount = tools.length - visibleTools.length;
   const body = [
     ...visibleTools.map(toolSummaryLine),
-    hiddenCount > 0 ? `+${hiddenCount} more tool${hiddenCount === 1 ? "" : "s"}` : "",
+    hiddenCount > 0 ? `+${hiddenCount} earlier tool${hiddenCount === 1 ? "" : "s"}` : "",
   ]
     .filter(Boolean)
     .join("\n");
+  const status = toolStatus(tools);
+  const title =
+    status === "running"
+      ? "Working with tools"
+      : status === "error"
+        ? "Tool activity failed"
+        : "Tool activity";
 
   return {
     id: `${message.id}-tools`,
     type: "tool_call",
-    title: `Used ${tools.length} tool${tools.length === 1 ? "" : "s"}`,
+    title,
     body,
     createdAt: message.created_at,
-    status: toolStatus(tools),
+    status,
   };
 }
 
-export function messagesToTimelineEvents(messages: Message[]): WorkbenchTimelineEvent[] {
+export function messagesToTimelineEvents(
+  messages: Message[],
+  options: { showToolActivity?: boolean; maxToolActivityItems?: number } = {}
+): WorkbenchTimelineEvent[] {
   const events: WorkbenchTimelineEvent[] = [];
+  const showToolActivity = options.showToolActivity ?? true;
 
   for (const message of messages) {
     const id = String(message.id);
@@ -289,8 +305,8 @@ export function messagesToTimelineEvents(messages: Message[]): WorkbenchTimeline
       });
     }
 
-    if (toolCalls.length > 0) {
-      events.push(toolsEvent(message, toolCalls));
+    if (showToolActivity && toolCalls.length > 0) {
+      events.push(toolsEvent(message, toolCalls, options));
     }
 
     if (message.role === "assistant" && message.content) {
@@ -298,7 +314,7 @@ export function messagesToTimelineEvents(messages: Message[]): WorkbenchTimeline
       events.push({
         id,
         type: hasTools ? "final_summary" : "assistant_message",
-        title: hasTools ? "Final answer" : "Codex update",
+        title: hasTools ? "Codex response" : "Codex update",
         body: message.content,
         createdAt: message.created_at,
       });

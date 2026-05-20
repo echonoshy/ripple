@@ -3,10 +3,17 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import TaskPage from "./TaskPage";
+import type { UsageInfo } from "@/types";
 
 function noop() {}
 
-function renderTaskPage() {
+function renderTaskPage({
+  tokenUsage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+  lastContextTokens = 0,
+}: {
+  tokenUsage?: UsageInfo;
+  lastContextTokens?: number;
+} = {}) {
   return renderToStaticMarkup(
     <TaskPage
       session={null}
@@ -14,8 +21,8 @@ function renderTaskPage() {
       timelineEvents={[]}
       taskProgress={null}
       taskSteps={[]}
-      tokenUsage={{ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }}
-      lastContextTokens={0}
+      tokenUsage={tokenUsage}
+      lastContextTokens={lastContextTokens}
       input=""
       pendingFiles={[]}
       isGenerating={false}
@@ -122,8 +129,42 @@ function testTimelineTextUsesWiderContentWidth() {
   assert.match(html, /markdown-body workbench-markdown max-w-4xl/);
 }
 
+function testContextWarningUsesReportedModelWindow() {
+  const html = renderTaskPage({
+    tokenUsage: {
+      prompt_tokens: 76000,
+      completion_tokens: 10,
+      total_tokens: 76010,
+      model_context_window: 100000,
+    },
+    lastContextTokens: 76000,
+  });
+
+  assert.match(html, /Context usage is around 76%/);
+  assert.match(html, /76,000 \/ 100,000 tokens/);
+  assert.match(html, /tokens in 76,000 \/ out 10/);
+  assert.match(html, /context 76,000 \/ 100,000/);
+}
+
+function testContextWarningWaitsForModelWindow() {
+  const html = renderTaskPage({
+    tokenUsage: {
+      prompt_tokens: 76000,
+      completion_tokens: 10,
+      total_tokens: 76010,
+    },
+    lastContextTokens: 76000,
+  });
+
+  assert.doesNotMatch(html, /Context usage is around/);
+  assert.match(html, /context 76,000/);
+  assert.doesNotMatch(html, /context 76,000 \/ 200,000/);
+}
+
 testOmitsPlaceholderTaskHeaderControls();
 testGivesTaskContentMoreHorizontalRoom();
 testTimelineTextUsesWiderContentWidth();
+testContextWarningUsesReportedModelWindow();
+testContextWarningWaitsForModelWindow();
 
 console.log("task page tests passed");

@@ -183,6 +183,11 @@ def _append_session_messages(
     session.model_messages = list(session.messages)
 
 
+def _append_session_assistant_message(session: Session, assistant_text: str) -> None:
+    session.messages.append(create_assistant_message(content=[{"type": "text", "text": assistant_text}]))
+    session.model_messages = list(session.messages)
+
+
 def _require_workspace(session: Session) -> tuple[Path, Path, Any]:
     if session.context is None or session.context.workspace_root is None:
         raise RuntimeError("Codex chat requires a user sandbox workspace")
@@ -379,7 +384,7 @@ def _extract_usage_event(event: dict[str, Any]) -> dict[str, int] | None:
         prompt_tokens=_int_value(last.get("inputTokens")),
         completion_tokens=_int_value(last.get("outputTokens")),
         total_tokens=_int_value(last.get("totalTokens")),
-        last_prompt_tokens=_int_value(total.get("totalTokens")),
+        last_prompt_tokens=_int_value(last.get("totalTokens")),
         cached_input_tokens=_int_value(last.get("cachedInputTokens")),
         reasoning_output_tokens=_int_value(last.get("reasoningOutputTokens")),
         model_context_window=_int_value(model_context_window) if model_context_window is not None else None,
@@ -686,6 +691,7 @@ async def collect_codex_chat_response(
     manager: SessionManager,
     agent_manager: ExternalAgentManager,
     config: Config,
+    persist_user_message: bool = True,
 ) -> dict[str, Any]:
     chunk_id = f"chatcmpl-{uuid4().hex[:24]}"
     created = int(time.time())
@@ -772,7 +778,10 @@ async def collect_codex_chat_response(
 
                 _record_codex_thread(session, result)
                 output_text = _read_output(result)
-                _append_session_messages(session, user_input, output_text, user_content=user_content)
+                if persist_user_message:
+                    _append_session_messages(session, user_input, output_text, user_content=user_content)
+                else:
+                    _append_session_assistant_message(session, output_text)
                 _clear_session_plan(session)
                 return {
                     "id": chunk_id,
@@ -820,6 +829,7 @@ async def stream_codex_chat_as_sse(
     manager: SessionManager,
     agent_manager: ExternalAgentManager,
     config: Config,
+    persist_user_message: bool = True,
 ) -> AsyncGenerator[str, None]:
     chunk_id = f"chatcmpl-{uuid4().hex[:24]}"
     created = int(time.time())
@@ -943,7 +953,12 @@ async def stream_codex_chat_as_sse(
 
             async with session.lock:
                 _record_codex_thread(session, result)
-                _append_session_messages(session, user_input, output_text or emitted_text, user_content=user_content)
+                if persist_user_message:
+                    _append_session_messages(
+                        session, user_input, output_text or emitted_text, user_content=user_content
+                    )
+                else:
+                    _append_session_assistant_message(session, output_text or emitted_text)
                 _clear_session_plan(session)
             if latest_usage["total_tokens"] > 0:
                 yield f"data: {json.dumps({'type': 'usage', 'usage': latest_usage}, ensure_ascii=False)}\n\n"

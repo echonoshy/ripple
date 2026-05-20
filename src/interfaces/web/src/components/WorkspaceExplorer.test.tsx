@@ -135,4 +135,14 @@ function testWorkspaceSearchDefaultsToNameAndShowsMatchSource() {
 
 testWorkspaceSearchDefaultsToNameAndShowsMatchSource();
 
+function testWorkspaceExplorerCachesListingsAndAvoidsCurrentPathReloadEffect() {
+  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /workspaceListingCache/);
+  assert.match(source, /workspaceLastPathCache/);
+  assert.doesNotMatch(source, /\[currentPath,\s*loadDirectory,\s*refreshToken\]/);
+}
+
+testWorkspaceExplorerCachesListingsAndAvoidsCurrentPathReloadEffect();
+
 console.log("workspace explorer tests passed");

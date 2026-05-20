@@ -28,6 +28,7 @@ import {
   extractChangedFilePaths,
   messagesToTimelineEvents,
 } from "@/lib/workbench";
+import type { CodexRuntimeEvent } from "@/types";
 
 export interface ChatRunSessionActions {
   getSessionId: () => string | null;
@@ -51,6 +52,10 @@ const emptyUsage: UsageInfo = {
   completion_tokens: 0,
   total_tokens: 0,
 };
+
+function shouldShowRuntimeEvent(event: CodexRuntimeEvent): boolean {
+  return event.type !== "tool_output_delta";
+}
 
 interface ChatRunViewState {
   sessionId: string;
@@ -466,6 +471,7 @@ export function useChatRun({
           },
           onRuntimeEvent: (event) => {
             if (isStaleRequest()) return;
+            if (!shouldShowRuntimeEvent(event)) return;
             const createdAt = new Date().toISOString();
             updateRunningTimelineEvents((prev) => [
               ...prev,
@@ -531,6 +537,12 @@ export function useChatRun({
               prompt_tokens: prev.prompt_tokens + usage.prompt_tokens,
               completion_tokens: prev.completion_tokens + usage.completion_tokens,
               total_tokens: prev.total_tokens + usage.total_tokens,
+              last_prompt_tokens: usage.last_prompt_tokens ?? prev.last_prompt_tokens,
+              cached_input_tokens:
+                (prev.cached_input_tokens ?? 0) + (usage.cached_input_tokens ?? 0),
+              reasoning_output_tokens:
+                (prev.reasoning_output_tokens ?? 0) + (usage.reasoning_output_tokens ?? 0),
+              model_context_window: usage.model_context_window ?? prev.model_context_window,
             }));
             const ctx = usage.last_prompt_tokens ?? usage.prompt_tokens;
             if (ctx > 0) updateRunningContextTokens(ctx);
@@ -646,7 +658,13 @@ export function useChatRun({
         ? ("waiting_for_user" as const)
         : null;
   const timelineEvents = useMemo(
-    () => [...messagesToTimelineEvents(messages), ...runtimeTimelineEvents],
+    () => [
+      ...messagesToTimelineEvents(messages, {
+        showToolActivity: true,
+        maxToolActivityItems: 4,
+      }),
+      ...runtimeTimelineEvents,
+    ],
     [messages, runtimeTimelineEvents]
   );
   const changedFiles = useMemo(() => extractChangedFilePaths(messages), [messages]);

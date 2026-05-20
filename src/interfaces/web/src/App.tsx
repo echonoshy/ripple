@@ -298,7 +298,7 @@ export default function Home() {
     ) : activeView === "automations" ? (
       <AutomationsPage selectedModel={selectedModel} onAuthExpired={handleAuthExpired} />
     ) : activeView === "connectors" ? (
-      <ConnectorsPage />
+      <ConnectorsPage userId={userId} onConnectorStateChange={loadSessions} />
     ) : (
       <TaskPage
         session={selectedWorkbenchSession}

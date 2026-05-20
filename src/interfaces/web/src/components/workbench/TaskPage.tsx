@@ -77,9 +77,19 @@ export default function TaskPage({
 }: TaskPageProps) {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const hasMessages = messages.length > 0;
-  const contextPercent = lastContextTokens
-    ? Math.min(Math.round((lastContextTokens / 200_000) * 100), 100)
-    : 0;
+  const contextWindow =
+    typeof tokenUsage.model_context_window === "number" && tokenUsage.model_context_window > 0
+      ? tokenUsage.model_context_window
+      : null;
+  const contextPercent =
+    lastContextTokens && contextWindow
+      ? Math.min(Math.round((lastContextTokens / contextWindow) * 100), 100)
+      : 0;
+  const contextUsageLabel = lastContextTokens
+    ? contextWindow
+      ? `${lastContextTokens.toLocaleString()} / ${contextWindow.toLocaleString()}`
+      : lastContextTokens.toLocaleString()
+    : null;
 
   useEffect(() => {
     const scrollContainer = scrollContainerRef.current;
@@ -169,7 +179,8 @@ export default function TaskPage({
           {contextPercent > 75 && (
             <div className="flex items-start gap-2 rounded-lg border border-[#bf8700]/35 bg-[#fff8c5] p-3 text-sm text-[#7d4e00]">
               <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-              Context usage is around {contextPercent}%. Consider starting a new session soon.
+              Context usage is around {contextPercent}% ({contextUsageLabel} tokens). Consider
+              starting a new session soon.
             </div>
           )}
 
@@ -227,6 +238,7 @@ export default function TaskPage({
           <div className="mx-auto mt-4 max-w-5xl font-[family-name:var(--font-mono)] text-xs text-[#6b7280]">
             tokens in {tokenUsage.prompt_tokens.toLocaleString()} / out{" "}
             {tokenUsage.completion_tokens.toLocaleString()}
+            {contextUsageLabel ? <> · context {contextUsageLabel}</> : null}
           </div>
         )}
       </div>

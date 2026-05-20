@@ -41,6 +41,14 @@ const SPLIT_PERCENT_STORAGE_KEY = "ripple.workspaceExplorer.splitPercent";
 const DEFAULT_SPLIT_PERCENT = 48;
 const MIN_SPLIT_PERCENT = 0;
 const MAX_SPLIT_PERCENT = 100;
+const DEFAULT_WORKSPACE_PATH = "/workspace";
+
+const workspaceListingCache = new Map<string, WorkspaceListing>();
+const workspaceLastPathCache = new Map<string, string>();
+
+function workspaceCacheKey(userId: string, path: string): string {
+  return `${userId}\n${path}`;
+}
 
 export function getBoundedSplitPercent(value: number): number {
   return Math.min(MAX_SPLIT_PERCENT, Math.max(MIN_SPLIT_PERCENT, Math.round(value)));
@@ -124,8 +132,11 @@ export function displayError(error: string): string {
 }
 
 export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExplorerProps) {
-  const [currentPath, setCurrentPath] = useState("/workspace");
-  const [listing, setListing] = useState<WorkspaceListing | null>(null);
+  const initialPath = workspaceLastPathCache.get(userId) || DEFAULT_WORKSPACE_PATH;
+  const [currentPath, setCurrentPath] = useState(initialPath);
+  const [listing, setListing] = useState<WorkspaceListing | null>(
+    () => workspaceListingCache.get(workspaceCacheKey(userId, initialPath)) || null
+  );
   const [preview, setPreview] = useState<WorkspaceFilePreview | null>(null);
   const [draft, setDraft] = useState("");
   const [isEditing, setIsEditing] = useState(false);
@@ -158,6 +169,10 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const renameInputRef = useRef<HTMLInputElement | null>(null);
   const renameCommitKeyRef = useRef<string | null>(null);
+  const currentPathRef = useRef(currentPath);
+  const lastLoadedUserIdRef = useRef(userId);
+  const directoryRequestIdRef = useRef(0);
+  const directoryLoadRef = useRef<{ key: string; promise: Promise<void> } | null>(null);
   const isDirty = useMemo(() => Boolean(preview && draft !== preview.content), [draft, preview]);
   const normalizedQuery = query.trim();
   const isSearchMode = normalizedQuery.length > 0;
@@ -221,38 +236,71 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
     [updateSplitPercent]
   );
 
-  const loadDirectory = useCallback(async (path: string) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await fetchWorkspaceListing(path);
-      setListing(data);
-      setCurrentPath(data.path);
+  const loadDirectory = useCallback(
+    async (path: string) => {
+      const key = workspaceCacheKey(userId, path);
+      const existingLoad = directoryLoadRef.current;
+      if (existingLoad?.key === key) return existingLoad.promise;
+
+      const requestId = directoryRequestIdRef.current + 1;
+      directoryRequestIdRef.current = requestId;
+
+      const promise = (async () => {
+        setLoading(true);
+        setError(null);
+        try {
+          const data = await fetchWorkspaceListing(path);
+          if (directoryRequestIdRef.current !== requestId) return;
+          workspaceListingCache.set(workspaceCacheKey(userId, data.path), data);
+          workspaceLastPathCache.set(userId, data.path);
+          currentPathRef.current = data.path;
+          setListing(data);
+          setCurrentPath(data.path);
+          setPreview(null);
+          setDraft("");
+          setIsEditing(false);
+          setSaveError(null);
+          setRenamingPath(null);
+          setRenameDraft("");
+          setRenameSaving(false);
+        } catch (err) {
+          if (directoryRequestIdRef.current === requestId) {
+            setError(err instanceof Error ? err.message : String(err));
+          }
+        } finally {
+          if (directoryLoadRef.current?.key === key) {
+            directoryLoadRef.current = null;
+          }
+          if (directoryRequestIdRef.current === requestId) {
+            setLoading(false);
+          }
+        }
+      })();
+
+      directoryLoadRef.current = { key, promise };
+      return promise;
+    },
+    [userId]
+  );
+
+  useEffect(() => {
+    const userChanged = lastLoadedUserIdRef.current !== userId;
+    const path = userChanged ? DEFAULT_WORKSPACE_PATH : currentPathRef.current;
+    lastLoadedUserIdRef.current = userId;
+
+    if (userChanged) {
+      currentPathRef.current = path;
+      setCurrentPath(path);
+      setListing(workspaceListingCache.get(workspaceCacheKey(userId, path)) || null);
       setPreview(null);
       setDraft("");
       setIsEditing(false);
-      setSaveError(null);
-      setRenamingPath(null);
-      setRenameDraft("");
-      setRenameSaving(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
+      setQuery("");
+      setSearchResults([]);
     }
-  }, []);
 
-  useEffect(() => {
-    queueMicrotask(() => {
-      void loadDirectory("/workspace");
-    });
-  }, [loadDirectory, userId]);
-
-  useEffect(() => {
-    queueMicrotask(() => {
-      void loadDirectory(currentPath);
-    });
-  }, [currentPath, loadDirectory, refreshToken]);
+    void loadDirectory(path);
+  }, [loadDirectory, refreshToken, userId]);
 
   useEffect(() => {
     if (!normalizedQuery) return;

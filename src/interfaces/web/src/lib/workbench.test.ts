@@ -145,10 +145,50 @@ function testMapsToolCallsIntoTimelineEvents() {
 
   assert.equal(events.length, 1);
   assert.equal(events[0].type, "tool_call");
-  assert.equal(events[0].title, "Used 2 tools");
+  assert.equal(events[0].title, "Tool activity");
   assert.match(events[0].body, /bun run lint/);
   assert.match(events[0].body, /InspectorPanel/);
   assert.doesNotMatch(events[0].body, /very long command output/);
+}
+
+function testLimitsToolActivityToRecentSummaries() {
+  const messages: Message[] = [
+    {
+      id: "assistant-1",
+      role: "assistant",
+      content: "",
+      toolCalls: [
+        {
+          id: "tool-1",
+          name: "command_execution",
+          arguments: { command: "first command" },
+          status: "success",
+        },
+        {
+          id: "tool-2",
+          name: "command_execution",
+          arguments: { command: "second command" },
+          status: "success",
+        },
+        {
+          id: "tool-3",
+          name: "command_execution",
+          arguments: { command: "third command" },
+          status: "running",
+        },
+      ],
+    },
+  ];
+
+  const events = messagesToTimelineEvents(messages, { maxToolActivityItems: 2 });
+
+  assert.equal(events.length, 1);
+  assert.equal(events[0].title, "Working with tools");
+  assert.equal(events[0].status, "running");
+  assert.doesNotMatch(events[0].body, /first command/);
+  assert.match(events[0].body, /second command/);
+  assert.match(events[0].body, /third command/);
+  assert.match(events[0].body, /\+1 earlier tool/);
 }
 
 function testPlacesAssistantContentAfterItsToolCalls() {
@@ -174,7 +214,7 @@ function testPlacesAssistantContentAfterItsToolCalls() {
   assert.equal(events.length, 2);
   assert.equal(events[0].type, "tool_call");
   assert.equal(events[1].type, "final_summary");
-  assert.equal(events[1].title, "Final answer");
+  assert.equal(events[1].title, "Codex response");
   assert.equal(events[1].body, "Done.\n\n- One\n- Two");
 }
 
@@ -265,6 +305,7 @@ testSortsApprovalSessionsBeforeOrdinaryRunningSessions();
 testAppliesCurrentRunningStatusToExistingSession();
 testAppliesCurrentApprovalStatusToExistingSession();
 testMapsToolCallsIntoTimelineEvents();
+testLimitsToolActivityToRecentSummaries();
 testPlacesAssistantContentAfterItsToolCalls();
 testExtractsChangedFilesFromToolCalls();
 testMapsCodexRuntimeEventsIntoTimelineEvents();

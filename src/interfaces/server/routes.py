@@ -110,7 +110,7 @@ from interfaces.server.workspace_browser import (
     search_workspace_files,
 )
 from ripple.agent_runners.job_store import find_user_job_record, list_user_job_records
-from ripple.agent_runners.manager import get_external_agent_manager
+from ripple.agent_runners.manager import ExternalAgentManager, get_external_agent_manager
 from ripple.agent_runners.models import AgentRunnerStatus
 from ripple.agent_runners.service import start_agent_run
 from ripple.connectors.base import ConnectorActionResult, ConnectorUnsupportedError
@@ -142,7 +142,7 @@ from ripple.users.quota import (
     quota_status,
 )
 from ripple.users.store import ensure_user_record, update_user_quota
-from ripple.utils.config import get_config
+from ripple.utils.config import Config, get_config
 from ripple.utils.logger import get_logger, set_current_session_id
 
 logger = get_logger("server.routes")
@@ -541,13 +541,82 @@ def _codex_chat_max_runtime_seconds(config) -> int:
 
 
 def _public_connector_auth_event(event: dict[str, Any]) -> dict[str, Any]:
-    return {key: value for key, value in event.items() if key != "user_content" and value is not None}
+    hidden_keys = {"user_content", "resume_user_input"}
+    return {key: value for key, value in event.items() if key not in hidden_keys and value is not None}
+
+
+def _connector_auth_resume_user_input(event: dict[str, Any]) -> str:
+    value = event.get("resume_user_input")
+    return value if isinstance(value, str) and value.strip() else ""
 
 
 def _connector_auth_status(event: dict[str, Any]) -> str:
     if event.get("type") == "connector_auth_required":
         return SessionStatus.AWAITING_USER_INPUT
     return SessionStatus.IDLE
+
+
+async def _clear_pending_connector_auth_sessions(
+    manager: Any,
+    *,
+    user_id: str,
+    connector_name: str,
+) -> int:
+    list_sessions = getattr(manager, "list_sessions", None)
+    if not callable(list_sessions):
+        return 0
+
+    cleared = 0
+    for session in list_sessions(user_id=user_id):
+        pending = session.pending_connector_auth
+        if not isinstance(pending, dict) or pending.get("connector") != connector_name:
+            continue
+        async with session.lock:
+            pending = session.pending_connector_auth
+            if not isinstance(pending, dict) or pending.get("connector") != connector_name:
+                continue
+            if isinstance(pending.get("resume_user_input"), str) and pending["resume_user_input"].strip():
+                session.pending_connector_auth = {**pending, "stage": "authorized"}
+            else:
+                session.pending_connector_auth = None
+            if session.status == SessionStatus.AWAITING_USER_INPUT:
+                session.status = SessionStatus.IDLE
+            manager.touch_session(session)
+            manager.persist_session(session)
+            cleared += 1
+    return cleared
+
+
+async def _clear_connector_auth_if_connected(
+    *,
+    manager: Any,
+    config: Any,
+    connector: Any,
+    user_id: str,
+    result: ConnectorActionResult | None = None,
+) -> int:
+    if result is not None and not (result.ok and result.stage == "authorized"):
+        return 0
+
+    try:
+        if result is None and not connector.status(config, user_id).connected:
+            return 0
+    except Exception:  # noqa: BLE001
+        return 0
+
+    cleared = await _clear_pending_connector_auth_sessions(
+        manager,
+        user_id=user_id,
+        connector_name=connector.info.name,
+    )
+    if cleared:
+        logger.info(
+            "event=connector.pending_auth.clear target_user={} connector={} sessions={}",
+            user_id,
+            connector.info.name,
+            cleared,
+        )
+    return cleared
 
 
 async def _persist_connector_auth_chat_event(
@@ -792,6 +861,103 @@ async def _connector_auth_chat_response(
     }
 
 
+async def _resume_after_connector_auth_chat_response(
+    *,
+    manager: SessionManager,
+    session: Session,
+    request: ChatCompletionRequest,
+    auth_user_input: str,
+    auth_user_content: list[dict[str, Any]],
+    resume_user_input: str,
+    model: str,
+    effort: str | None,
+    summary: str | None,
+    output_schema: dict[str, Any] | None,
+    system_prompt: str | None,
+    agent_manager: ExternalAgentManager,
+    config: Config,
+    event: dict[str, Any],
+):
+    public_event = await _persist_connector_auth_chat_event(
+        manager=manager,
+        session=session,
+        user_input=auth_user_input,
+        user_content=auth_user_content,
+        event=event,
+    )
+    if request.stream:
+        chunk_id = f"chatcmpl-{uuid4().hex[:24]}"
+        created = int(time.time())
+        assistant_text = str(event.get("message") or "")
+
+        async def stream():
+            role_chunk = {
+                "id": chunk_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": model,
+                "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}],
+            }
+            yield f"data: {json.dumps(role_chunk, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps(public_event, ensure_ascii=False)}\n\n"
+            if assistant_text:
+                content_chunk = {
+                    "id": chunk_id,
+                    "object": "chat.completion.chunk",
+                    "created": created,
+                    "model": model,
+                    "choices": [{"index": 0, "delta": {"content": assistant_text + "\n\n"}, "finish_reason": None}],
+                }
+                yield f"data: {json.dumps(content_chunk, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps({'type': 'new_turn'}, ensure_ascii=False)}\n\n"
+            async for chunk in stream_codex_chat_as_sse(
+                session=session,
+                user_input=resume_user_input,
+                input_items=[],
+                user_content=[{"type": "text", "text": resume_user_input}],
+                attachment_items=[],
+                model=model,
+                effort=effort,
+                summary=summary,
+                output_schema=output_schema,
+                system_prompt=system_prompt,
+                manager=manager,
+                agent_manager=agent_manager,
+                config=config,
+                persist_user_message=False,
+            ):
+                yield chunk
+
+        return StreamingResponse(
+            stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Ripple-Session-Id": session.session_id,
+            },
+        )
+
+    response = await collect_codex_chat_response(
+        session=session,
+        user_input=resume_user_input,
+        input_items=[],
+        user_content=[{"type": "text", "text": resume_user_input}],
+        attachment_items=[],
+        model=model,
+        effort=effort,
+        summary=summary,
+        output_schema=output_schema,
+        system_prompt=system_prompt,
+        manager=manager,
+        agent_manager=agent_manager,
+        config=config,
+        persist_user_message=False,
+    )
+    response["connector_auth"] = public_event
+    return response
+
+
 async def _maybe_handle_pending_schedule_confirmation(
     *,
     manager: SessionManager,
@@ -827,6 +993,12 @@ async def _maybe_handle_pending_schedule_confirmation(
         except ValueError as exc:
             async with session.lock:
                 session.pending_schedule_request = None
+                session.pending_question = None
+                session.pending_options = None
+                if session.status == SessionStatus.AWAITING_USER_INPUT:
+                    session.status = SessionStatus.IDLE
+                manager.touch_session(session)
+                manager.persist_session(session)
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         message = build_schedule_created_message(record)
         return await _control_plane_chat_response(
@@ -1105,6 +1277,25 @@ async def chat_completions(
         request_base_url=session.context.request_public_base_url if session.context else None,
     )
     if connector_auth_event is not None:
+        resume_user_input = _connector_auth_resume_user_input(connector_auth_event)
+        if resume_user_input and connector_auth_event.get("type") == "connector_auth_updated":
+            merged_system_prompt = _merge_system_prompt(workspace_root, session.caller_system_prompt)
+            return await _resume_after_connector_auth_chat_response(
+                manager=manager,
+                session=session,
+                request=request,
+                auth_user_input=user_input,
+                auth_user_content=user_content,
+                resume_user_input=resume_user_input,
+                model=resolved_model,
+                effort=resolved_effort,
+                summary=request.summary,
+                output_schema=request.output_schema,
+                system_prompt=merged_system_prompt,
+                agent_manager=agent_manager,
+                config=config,
+                event=connector_auth_event,
+            )
         return await _connector_auth_chat_response(
             manager=manager,
             session=session,
@@ -2074,6 +2265,15 @@ def _sandbox_manager_or_500():
     return manager.sandbox_manager
 
 
+def _ensure_connector_web_action_allowed(connector: Any, action: str) -> None:
+    if connector.info.auth_surfaces.get("web"):
+        return
+    raise HTTPException(
+        status_code=405,
+        detail=f"Connector {connector.info.name!r} {action} is only available through chat.",
+    )
+
+
 @router.get("/v1/connectors/{connector_name}/status")
 async def get_connector_status(
     connector_name: str,
@@ -2088,6 +2288,13 @@ async def get_connector_status(
 
     connector = _connector_or_404(connector_name)
     status = connector.status(manager.sandbox_manager.config, user_id)
+    if status.connected:
+        await _clear_connector_auth_if_connected(
+            manager=manager,
+            config=manager.sandbox_manager.config,
+            connector=connector,
+            user_id=user_id,
+        )
     return ConnectorStatusResponse(
         name=status.name,
         connected=status.connected,
@@ -2108,6 +2315,7 @@ async def start_connector_auth(
     sandbox_manager = _sandbox_manager_or_500()
     sandbox_manager.ensure_sandbox(user_id)
     connector = _connector_or_404(connector_name)
+    _ensure_connector_web_action_allowed(connector, "auth_start")
     try:
         async with sandbox_manager.user_lock(user_id):
             result = await connector.auth_start(
@@ -2118,6 +2326,13 @@ async def start_connector_auth(
             )
     except ConnectorUnsupportedError as exc:
         raise HTTPException(status_code=405, detail=str(exc)) from exc
+    await _clear_connector_auth_if_connected(
+        manager=get_session_manager(),
+        config=sandbox_manager.config,
+        connector=connector,
+        user_id=user_id,
+        result=result,
+    )
     return _connector_action_response(result)
 
 
@@ -2131,11 +2346,19 @@ async def complete_connector_auth(
     sandbox_manager = _sandbox_manager_or_500()
     sandbox_manager.ensure_sandbox(user_id)
     connector = _connector_or_404(connector_name)
+    _ensure_connector_web_action_allowed(connector, "auth_complete")
     try:
         async with sandbox_manager.user_lock(user_id):
             result = await connector.auth_complete(sandbox_manager.config, user_id, payload or {})
     except ConnectorUnsupportedError as exc:
         raise HTTPException(status_code=405, detail=str(exc)) from exc
+    await _clear_connector_auth_if_connected(
+        manager=get_session_manager(),
+        config=sandbox_manager.config,
+        connector=connector,
+        user_id=user_id,
+        result=result,
+    )
     return _connector_action_response(result)
 
 
@@ -2149,6 +2372,7 @@ async def disconnect_connector(
     sandbox_manager = _sandbox_manager_or_500()
     sandbox_manager.ensure_sandbox(user_id)
     connector = _connector_or_404(connector_name)
+    _ensure_connector_web_action_allowed(connector, "disconnect")
     try:
         async with sandbox_manager.user_lock(user_id):
             result = await connector.disconnect(sandbox_manager.config, user_id, payload or {})
@@ -2580,6 +2804,13 @@ async def gogcli_oauth_callback(request: Request) -> HTMLResponse:
             status_code=500,
         )
 
+    connector = _connector_or_404("google_workspace")
+    await _clear_connector_auth_if_connected(
+        manager=get_session_manager(),
+        config=sandbox_config,
+        connector=connector,
+        user_id=pending.user_id,
+    )
     logger.info("user {} assisted gogcli 绑定成功: {}", pending.user_id, pending.email)
     return _gogcli_oauth_html(
         "Google 授权完成",

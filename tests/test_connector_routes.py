@@ -6,8 +6,10 @@ from fastapi.testclient import TestClient
 
 from interfaces.server.auth import verify_api_key
 from interfaces.server.routes import router, set_session_manager
+from interfaces.server.sessions import SessionManager, SessionStatus
 from ripple.connectors import registry
 from ripple.connectors.registry import codex_cli_login_status
+from ripple.messages.utils import create_user_message
 from ripple.sandbox.config import SandboxConfig
 from ripple.sandbox.manager import SandboxManager
 
@@ -30,6 +32,23 @@ def _client(tmp_path: Path, user_id: str = "alice") -> tuple[TestClient, Sandbox
     return TestClient(app, headers={"X-Ripple-User-Id": user_id}), sandbox_manager
 
 
+def _client_with_session_manager(
+    tmp_path: Path,
+    user_id: str = "alice",
+) -> tuple[TestClient, SandboxManager, SessionManager]:
+    config = SandboxConfig(
+        sandboxes_root=tmp_path / "sandboxes",
+        caches_root=tmp_path / "cache",
+    )
+    sandbox_manager = SandboxManager(config)
+    session_manager = SessionManager(sandbox_manager=sandbox_manager)
+    app = FastAPI()
+    app.dependency_overrides[verify_api_key] = lambda: "test"
+    app.include_router(router)
+    set_session_manager(session_manager)
+    return TestClient(app, headers={"X-Ripple-User-Id": user_id}), sandbox_manager, session_manager
+
+
 def test_connector_list_exposes_supported_connector_names(tmp_path: Path):
     client, sandbox_manager = _client(tmp_path)
     sandbox_manager.ensure_sandbox("alice")
@@ -50,17 +69,24 @@ def test_connector_list_exposes_supported_connector_names(tmp_path: Path):
         "codex_web_search",
     ]
     notion = next(connector for connector in connectors if connector["name"] == "notion")
-    assert notion["auth_start_path"] == "/v1/connectors/notion/auth/start"
-    assert notion["disconnect_path"] == "/v1/connectors/notion/disconnect"
+    assert notion["auth_start_path"] is None
+    assert notion["disconnect_path"] is None
     assert notion["kind"] == "user_connector"
     assert notion["auth_flow"] == "token"
-    assert notion["auth_surfaces"] == {"web": True, "chat": True}
+    assert notion["auth_surfaces"] == {"web": False, "chat": True}
     google = next(connector for connector in connectors if connector["name"] == "google_workspace")
+    assert google["auth_start_path"] is None
+    assert google["auth_complete_path"] is None
+    assert google["disconnect_path"] is None
     assert google["accounts_path"] == "/v1/connectors/google_workspace/accounts"
     assert google["auth_flow"] == "oauth_assisted"
+    assert google["auth_surfaces"] == {"web": False, "chat": True}
     feishu = next(connector for connector in connectors if connector["name"] == "feishu")
-    assert feishu["auth_complete_path"] == "/v1/connectors/feishu/auth/complete"
+    assert feishu["auth_start_path"] is None
+    assert feishu["auth_complete_path"] is None
+    assert feishu["disconnect_path"] is None
     assert feishu["auth_flow"] == "oauth_device"
+    assert feishu["auth_surfaces"] == {"web": False, "chat": True}
     codex = next(connector for connector in connectors if connector["name"] == "openai_codex")
     assert codex["kind"] == "runtime_capability"
     assert codex["auth_surfaces"] == {"web": False, "chat": False}
@@ -69,177 +95,98 @@ def test_connector_list_exposes_supported_connector_names(tmp_path: Path):
     assert image_generation["auth_flow"] == "none"
 
 
-def test_notion_connector_auth_start_binds_token_without_echoing_it(tmp_path: Path):
-    client, sandbox_manager = _client(tmp_path)
-    token = "ntn_" + "x" * 40
-
-    response = client.post("/v1/connectors/notion/auth/start", json={"api_token": token})
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["name"] == "notion"
-    assert body["ok"] is True
-    assert body["stage"] == "authorized"
-    assert token not in response.text
-    assert sandbox_manager.config.has_notion_token("alice") is True
-    assert sandbox_manager.config.nsjail_cfg_file("alice").exists()
-
-    status = client.get("/v1/connectors/notion/status")
-    assert status.status_code == 200
-    assert status.json()["connected"] is True
-
-
-def test_notion_connector_disconnect_removes_token(tmp_path: Path):
+def test_connector_auth_actions_are_not_available_through_web_routes(tmp_path: Path, monkeypatch):
     client, sandbox_manager = _client(tmp_path)
     sandbox_manager.ensure_sandbox("alice")
+    token = "ntn_" + "x" * 40
+    called: list[str] = []
+
+    async def fake_ensure_lark_cli_config(config, user_id, *, force_new_setup=False):
+        called.append("ensure_lark_cli_config")
+        return True, ""
+
+    monkeypatch.setattr(registry, "ensure_lark_cli_config", fake_ensure_lark_cli_config)
+
+    for path, payload in (
+        ("/v1/connectors/notion/auth/start", {"api_token": token}),
+        ("/v1/connectors/notion/disconnect", {}),
+        ("/v1/connectors/feishu/auth/start", {}),
+        ("/v1/connectors/feishu/auth/complete", {"device_code": "device-123"}),
+        ("/v1/connectors/google_workspace/auth/start", {"email": "alice@example.com"}),
+        ("/v1/connectors/google_workspace/auth/complete", {"email": "alice@example.com", "callback_url": "x"}),
+        ("/v1/connectors/bilibili/auth/start", {}),
+        ("/v1/connectors/bilibili/auth/complete", {"qrcode_key": "qr-123"}),
+    ):
+        response = client.post(path, json=payload)
+        assert response.status_code == 405
+        assert "only available through chat" in response.json()["detail"]
+
+    assert sandbox_manager.config.has_notion_token("alice") is False
+    assert called == []
+
+
+def test_connected_connector_status_clears_pending_chat_session(tmp_path: Path):
+    client, sandbox_manager, session_manager = _client_with_session_manager(tmp_path)
+    session = session_manager.create_session(user_id="alice", model="codex-medium")
+    session.messages.append(create_user_message("Use Notion"))
+    session.status = SessionStatus.AWAITING_USER_INPUT
+    session.pending_connector_auth = {"connector": "notion", "stage": "awaiting_token"}
+    session_manager.persist_session(session)
     notion_file = sandbox_manager.config.notion_config_file("alice")
     notion_file.parent.mkdir(parents=True, exist_ok=True)
     notion_file.write_text(json.dumps({"api_token": "ntn_test"}), encoding="utf-8")
 
-    response = client.post("/v1/connectors/notion/disconnect")
+    response = client.get("/v1/connectors/notion/status")
 
     assert response.status_code == 200
-    assert response.json()["ok"] is True
-    assert response.json()["data"]["credential_removed"] is True
-    assert sandbox_manager.config.has_notion_token("alice") is False
+    assert response.json()["connected"] is True
+    assert session.pending_connector_auth is None
+    assert session.status == SessionStatus.IDLE
 
 
-def test_feishu_connector_auth_start_returns_device_flow_url(tmp_path: Path, monkeypatch):
-    client, sandbox_manager = _client(tmp_path)
-    sandbox_manager.config.lark_cli_bin = str(tmp_path / "lark-cli")
+def test_feishu_cli_login_status_requires_user_auth_evidence(tmp_path: Path, monkeypatch):
+    config = SandboxConfig(
+        sandboxes_root=tmp_path / "sandboxes",
+        caches_root=tmp_path / "cache",
+        lark_cli_bin=str(tmp_path / "lark-cli"),
+    )
+    cli_config = config.workspace_dir("alice") / ".lark-cli" / "config.json"
+    cli_config.parent.mkdir(parents=True, exist_ok=True)
+    cli_config.write_text("{}", encoding="utf-8")
 
-    async def fake_ensure_lark_cli_config(config, user_id, *, force_new_setup=False):
-        assert user_id == "alice"
-        assert force_new_setup is False
-        return True, ""
+    class FakeCompletedProcess:
+        def __init__(self, stdout: str, returncode: int = 0):
+            self.stdout = stdout
+            self.stderr = ""
+            self.returncode = returncode
 
-    async def fake_start_lark_user_auth(config, user_id, *, force_new=False):
-        assert user_id == "alice"
-        assert force_new is True
-        return True, {
-            "oauth_url": "https://accounts.feishu.cn/device",
-            "device_code": "device-123",
-            "expires_in_seconds": 600,
-        }
+    def fake_run(argv, **kwargs):
+        command = argv[-1]
+        if "doctor" in command:
+            return FakeCompletedProcess(
+                json.dumps(
+                    {
+                        "checks": [
+                            {"name": "config_file", "status": "pass"},
+                            {"name": "app_resolved", "status": "pass"},
+                            {"name": "token_exists", "status": "pass"},
+                        ]
+                    }
+                )
+            )
+        assert "auth status" in command
+        return FakeCompletedProcess(json.dumps({"ok": True}))
 
-    monkeypatch.setattr(registry, "ensure_lark_cli_config", fake_ensure_lark_cli_config)
-    monkeypatch.setattr(registry, "start_lark_user_auth", fake_start_lark_user_auth, raising=False)
+    monkeypatch.setattr(registry, "write_nsjail_config", lambda config, user_id: None)
+    monkeypatch.setattr(registry, "build_nsjail_argv", lambda config, user_id, command: ["sh", "-c", command])
+    monkeypatch.setattr(registry.subprocess, "run", fake_run)
 
-    response = client.post("/v1/connectors/feishu/auth/start", json={})
+    connected, detail, metadata = registry.feishu_cli_login_status(config, "alice")
 
-    assert response.status_code == 200
-    body = response.json()
-    assert body["name"] == "feishu"
-    assert body["ok"] is True
-    assert body["stage"] == "awaiting_user_auth"
-    assert body["data"]["oauth_url"] == "https://accounts.feishu.cn/device"
-    assert body["data"]["device_code"] == "device-123"
-
-
-def test_feishu_connector_auth_start_requests_fresh_device_flow_each_click(tmp_path: Path, monkeypatch):
-    client, sandbox_manager = _client(tmp_path)
-    sandbox_manager.config.lark_cli_bin = str(tmp_path / "lark-cli")
-    calls: list[bool] = []
-
-    async def fake_ensure_lark_cli_config(config, user_id, *, force_new_setup=False):
-        assert user_id == "alice"
-        assert force_new_setup is False
-        return True, ""
-
-    async def fake_start_lark_user_auth(config, user_id, *, force_new=False):
-        assert user_id == "alice"
-        calls.append(force_new)
-        index = len(calls)
-        return True, {
-            "oauth_url": f"https://accounts.feishu.cn/device/{index}",
-            "device_code": f"device-{index}",
-            "expires_in_seconds": 600,
-        }
-
-    monkeypatch.setattr(registry, "ensure_lark_cli_config", fake_ensure_lark_cli_config)
-    monkeypatch.setattr(registry, "start_lark_user_auth", fake_start_lark_user_auth, raising=False)
-
-    first = client.post("/v1/connectors/feishu/auth/start", json={})
-    second = client.post("/v1/connectors/feishu/auth/start", json={})
-
-    assert first.status_code == 200
-    assert second.status_code == 200
-    assert calls == [True, True]
-    assert first.json()["data"]["oauth_url"] == "https://accounts.feishu.cn/device/1"
-    assert second.json()["data"]["oauth_url"] == "https://accounts.feishu.cn/device/2"
-
-
-def test_feishu_connector_auth_start_reuses_pending_setup_by_default(tmp_path: Path, monkeypatch):
-    client, sandbox_manager = _client(tmp_path)
-    sandbox_manager.config.lark_cli_bin = str(tmp_path / "lark-cli")
-    force_new_setup_values: list[bool] = []
-
-    async def fake_ensure_lark_cli_config(config, user_id, *, force_new_setup=False):
-        assert user_id == "alice"
-        force_new_setup_values.append(force_new_setup)
-        return False, "https://open.feishu.cn/page/cli?user_code=SETUP"
-
-    monkeypatch.setattr(registry, "ensure_lark_cli_config", fake_ensure_lark_cli_config)
-
-    response = client.post("/v1/connectors/feishu/auth/start", json={})
-
-    assert response.status_code == 200
-    assert force_new_setup_values == [False]
-    body = response.json()
-    assert body["stage"] == "awaiting_setup"
-    assert body["data"]["setup_url"] == "https://open.feishu.cn/page/cli?user_code=SETUP"
-
-
-def test_feishu_connector_auth_start_can_resume_pending_setup_without_restart(tmp_path: Path, monkeypatch):
-    client, sandbox_manager = _client(tmp_path)
-    sandbox_manager.config.lark_cli_bin = str(tmp_path / "lark-cli")
-    force_new_setup_values: list[bool] = []
-
-    async def fake_ensure_lark_cli_config(config, user_id, *, force_new_setup=False):
-        assert user_id == "alice"
-        force_new_setup_values.append(force_new_setup)
-        return True, ""
-
-    async def fake_start_lark_user_auth(config, user_id, *, force_new=False):
-        assert user_id == "alice"
-        assert force_new is True
-        return True, {
-            "oauth_url": "https://accounts.feishu.cn/device/resumed",
-            "device_code": "device-resumed",
-        }
-
-    monkeypatch.setattr(registry, "ensure_lark_cli_config", fake_ensure_lark_cli_config)
-    monkeypatch.setattr(registry, "start_lark_user_auth", fake_start_lark_user_auth, raising=False)
-
-    response = client.post("/v1/connectors/feishu/auth/start", json={"force_new": False})
-
-    assert response.status_code == 200
-    assert force_new_setup_values == [False]
-    body = response.json()
-    assert body["stage"] == "awaiting_user_auth"
-    assert body["data"]["device_code"] == "device-resumed"
-
-
-def test_feishu_connector_auth_complete_exchanges_device_code(tmp_path: Path, monkeypatch):
-    client, sandbox_manager = _client(tmp_path)
-    sandbox_manager.config.lark_cli_bin = str(tmp_path / "lark-cli")
-    captured: dict[str, str] = {}
-
-    async def fake_complete_lark_user_auth(config, user_id, device_code):
-        captured["user_id"] = user_id
-        captured["device_code"] = device_code
-        return True, "authorized"
-
-    monkeypatch.setattr(registry, "complete_lark_user_auth", fake_complete_lark_user_auth, raising=False)
-
-    response = client.post("/v1/connectors/feishu/auth/complete", json={"device_code": "device-123"})
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["name"] == "feishu"
-    assert body["ok"] is True
-    assert body["stage"] == "authorized"
-    assert captured == {"user_id": "alice", "device_code": "device-123"}
+    assert connected is False
+    assert detail == "Feishu user authorization status is inconclusive."
+    assert metadata["has_app_config"] is True
+    assert metadata["doctor_checks"]["token_exists"] == "pass"
 
 
 def test_connector_status_reads_current_user_sandbox_credentials(tmp_path: Path):

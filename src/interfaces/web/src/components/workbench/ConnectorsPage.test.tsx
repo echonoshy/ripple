@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import ConnectorsPage from "./ConnectorsPage";
 
 function renderConnectorsPage() {
-  return renderToStaticMarkup(<ConnectorsPage />);
+  return renderToStaticMarkup(<ConnectorsPage userId="default" />);
 }
 
 function testConnectorsPageHasMobileSpecificCopy() {
@@ -22,5 +23,16 @@ function testConnectorsPageHasMobileSpecificCopy() {
 }
 
 testConnectorsPageHasMobileSpecificCopy();
+
+function testConnectorsPageCachesAndThrottlesBackgroundRefresh() {
+  const source = readFileSync(new URL("./ConnectorsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /CONNECTOR_CACHE_TTL_MS/);
+  assert.match(source, /connectorSnapshotInflight/);
+  assert.match(source, /CONNECTOR_FOCUS_REFRESH_THROTTLE_MS/);
+  assert.match(source, /loadConnectors\(\{ background: true, force: true \}\)/);
+}
+
+testConnectorsPageCachesAndThrottlesBackgroundRefresh();
 
 console.log("connectors page tests passed");

@@ -39,6 +39,16 @@ class ChatCompletionRequest(BaseModel):
     # 消息，则清空 session 上记忆的 caller 段，仅使用默认 prompt。
 
 
+class ConnectorAuthPollRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    model: str = "codex-medium"
+    stream: bool = False
+    effort: str | None = None
+    summary: CodexSummaryMode | None = None
+    output_schema: dict[str, Any] | None = Field(default=None, alias="outputSchema")
+
+
 # ─── Chat Completions 响应（非流式） ───
 
 

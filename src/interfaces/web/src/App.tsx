@@ -101,6 +101,7 @@ export default function Home() {
     handleSendMessage,
     handleQuickReply,
     handlePermissionResolve,
+    handleFeishuAuthOpen,
   } = useChatRun({
     selectedModel,
     onSelectedModelChange: setSelectedModel,
@@ -334,6 +335,7 @@ export default function Home() {
         onStop={handleStop}
         onQuickReply={handleQuickReply}
         onPermissionResolve={handlePermissionResolve}
+        onFeishuAuthOpen={handleFeishuAuthOpen}
       />
     );
 

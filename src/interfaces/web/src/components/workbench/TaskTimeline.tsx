@@ -11,7 +11,7 @@ import {
   UserRound,
   Wrench,
 } from "lucide-react";
-import MarkdownRenderer from "@/components/MarkdownRenderer";
+import MarkdownRenderer, { type FeishuAuthOpenPayload } from "@/components/MarkdownRenderer";
 import type { Message, WorkbenchTimelineEvent } from "@/types";
 
 function formatTime(value: string | undefined): string {
@@ -38,6 +38,7 @@ interface TaskTimelineProps {
   isGenerating: boolean;
   onQuickReply: (option: string) => void;
   onPermissionResolve: (action: "allow" | "always" | "deny") => void;
+  onFeishuAuthOpen?: (payload: FeishuAuthOpenPayload) => void;
 }
 
 export default function TaskTimeline({
@@ -46,6 +47,7 @@ export default function TaskTimeline({
   isGenerating,
   onQuickReply,
   onPermissionResolve,
+  onFeishuAuthOpen,
 }: TaskTimelineProps) {
   const lastMessage = messages[messages.length - 1];
   const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
@@ -124,7 +126,7 @@ export default function TaskTimeline({
               </div>
             ) : (
               <div className="markdown-body workbench-markdown max-w-4xl text-sm leading-6 text-[#374151]">
-                <MarkdownRenderer content={event.body} />
+                <MarkdownRenderer content={event.body} onFeishuAuthOpen={onFeishuAuthOpen} />
               </div>
             )}
           </article>

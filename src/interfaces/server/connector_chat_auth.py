@@ -335,23 +335,20 @@ def _feishu_auth_message(result: ConnectorActionResult) -> str:
         return result.detail
     setup_url = result.data.get("setup_url")
     oauth_url = result.data.get("oauth_url")
-    device_code = result.data.get("device_code")
     if result.stage == "awaiting_setup" and isinstance(setup_url, str) and setup_url:
         return (
             "[FEISHU_SETUP]\n"
             "飞书需要先完成 CLI 机器人配置，然后再做用户授权。\n\n"
             "第 1 步：打开下面的配置链接，按页面提示创建/配置飞书 CLI 机器人。\n\n"
             f"{setup_url}\n\n"
-            "创建完成后回到这里回复「好了」，我会继续给你第 2 步的用户授权链接。"
+            "创建完成后 Ripple 会自动继续第 2 步的用户授权。"
         )
     if isinstance(oauth_url, str) and oauth_url:
-        code_line = f"device_code: {device_code}\n" if isinstance(device_code, str) and device_code else ""
         return (
             "[FEISHU_AUTH]\n"
-            f"{code_line}"
             "第 2 步：打开下面的飞书授权链接，允许 CLI 访问你的飞书账号。\n\n"
             f"{oauth_url}\n\n"
-            "授权完成后回到这里回复「好了」，我会继续执行刚才的请求。"
+            "授权完成后 Ripple 会自动继续执行刚才的请求。"
         )
     return result.detail
 
@@ -377,11 +374,10 @@ def _feishu_waiting_message(pending: dict[str, Any], detail: str = "") -> str:
     if isinstance(oauth_url, str) and oauth_url:
         return (
             "[FEISHU_AUTH]\n"
-            f"device_code: {pending.get('device_code') or ''}\n"
             "飞书用户授权还没有完成。\n\n"
             "请打开下面的授权链接完成授权：\n\n"
             f"{oauth_url}\n\n"
-            "完成后回到这里回复「好了」。"
+            "授权完成后 Ripple 会自动继续执行。"
         )
     setup_url = pending.get("setup_url")
     if isinstance(setup_url, str) and setup_url:
@@ -390,9 +386,9 @@ def _feishu_waiting_message(pending: dict[str, Any], detail: str = "") -> str:
             "飞书 CLI 机器人配置还没有完成。\n\n"
             "请打开下面的配置链接完成创建/配置：\n\n"
             f"{setup_url}\n\n"
-            "完成后回到这里回复「好了」。"
+            "完成后 Ripple 会自动继续第 2 步授权。"
         )
-    return detail or "飞书授权还没有完成。请按上一条消息里的链接完成后，再回复「好了」。"
+    return detail or "飞书授权还没有完成。请按上一条消息里的链接完成，Ripple 会自动继续检查授权状态。"
 
 
 def _feishu_auth_pending_after_done_message(detail: str = "") -> str:
@@ -401,7 +397,7 @@ def _feishu_auth_pending_after_done_message(detail: str = "") -> str:
         prefix = f"{prefix}\n\n{detail.strip()}"
     return (
         f"{prefix}\n\n"
-        "请确认刚才打开的飞书页面已经点击允许/确认，然后回到这里再回复「好了」。"
+        "请确认刚才打开的飞书页面已经点击允许/确认。Ripple 会继续自动检查授权状态。"
         "如果页面已经关闭，请回复「重新授权」生成新的授权链接。"
     )
 
@@ -486,6 +482,25 @@ async def _continue_feishu(session: Session, text: str) -> dict[str, Any]:
             session.pending_connector_auth = pending
         return event
     return _event(connector_name="feishu", stage=stage, message=_feishu_waiting_message(pending))
+
+
+async def poll_pending_connector_chat_auth(
+    *,
+    session: Session,
+    request_base_url: str | None,
+) -> dict[str, Any] | None:
+    """Advance pending connector auth without requiring a user "done" message."""
+
+    pending = session.pending_connector_auth or {}
+    pending_connector = pending.get("connector")
+    if pending_connector != "feishu":
+        return None
+
+    if _connector_connected(session, "feishu"):
+        return _authorized_resume_event(session, "feishu")
+
+    # Reuse the existing Feishu state machine with an internal completion signal.
+    return await _continue_feishu(session, "好了")
 
 
 async def _start_bilibili(

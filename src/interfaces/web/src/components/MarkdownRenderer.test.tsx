@@ -20,8 +20,8 @@ function testFeishuAuthCardDoesNotCompleteAuthDirectly() {
   );
 
   assert.match(html, /打开授权链接/);
-  assert.match(html, /回到对话输入/);
-  assert.doesNotMatch(html, /授权完成/);
+  assert.match(html, /自动继续当前任务/);
+  assert.doesNotMatch(html, /好了/);
 }
 
 testPreservesSingleNewlineAsLineBreak();

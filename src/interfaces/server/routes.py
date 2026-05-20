@@ -23,11 +23,12 @@ from interfaces.server.attachments import (
 )
 from interfaces.server.auth import verify_api_key
 from interfaces.server.codex_chat import (
+    _append_session_assistant_message,
     _append_session_messages,
     collect_codex_chat_response,
     stream_codex_chat_as_sse,
 )
-from interfaces.server.connector_chat_auth import maybe_handle_connector_chat_auth
+from interfaces.server.connector_chat_auth import maybe_handle_connector_chat_auth, poll_pending_connector_chat_auth
 from interfaces.server.deps import get_user_id
 from interfaces.server.run_events import stream_run_events
 from interfaces.server.schedule_chat import (
@@ -58,6 +59,7 @@ from interfaces.server.schemas import (
     AgentRunSteerRequest,
     ChatCompletionRequest,
     ConnectorActionResponse,
+    ConnectorAuthPollRequest,
     ConnectorInfo,
     ConnectorListResponse,
     ConnectorStatusResponse,
@@ -542,7 +544,14 @@ def _codex_chat_max_runtime_seconds(config) -> int:
 
 def _public_connector_auth_event(event: dict[str, Any]) -> dict[str, Any]:
     hidden_keys = {"user_content", "resume_user_input"}
-    return {key: value for key, value in event.items() if key not in hidden_keys and value is not None}
+    public_event = {key: value for key, value in event.items() if key not in hidden_keys and value is not None}
+    action = public_event.get("action")
+    if isinstance(action, dict):
+        data = action.get("data")
+        if isinstance(data, dict) and "device_code" in data:
+            action = {**action, "data": {key: value for key, value in data.items() if key != "device_code"}}
+            public_event["action"] = action
+    return public_event
 
 
 def _connector_auth_resume_user_input(event: dict[str, Any]) -> str:
@@ -626,6 +635,7 @@ async def _persist_connector_auth_chat_event(
     user_input: str,
     user_content: list[dict[str, Any]],
     event: dict[str, Any],
+    persist_user_message: bool = True,
 ) -> dict[str, Any]:
     public_event = _public_connector_auth_event(event)
     assistant_text = str(event.get("message") or "")
@@ -637,7 +647,10 @@ async def _persist_connector_auth_chat_event(
         session.pending_question = None
         session.pending_options = None
         session.pending_permission_request = None
-        _append_session_messages(session, user_input, assistant_text, user_content=persisted_user_content)
+        if persist_user_message:
+            _append_session_messages(session, user_input, assistant_text, user_content=persisted_user_content)
+        elif assistant_text:
+            _append_session_assistant_message(session, assistant_text)
         manager.touch_session(session)
         manager.persist_session(session)
     return public_event
@@ -791,6 +804,7 @@ async def _connector_auth_chat_response(
     user_content: list[dict[str, Any]],
     model: str,
     event: dict[str, Any],
+    persist_user_message: bool = True,
 ):
     public_event = await _persist_connector_auth_chat_event(
         manager=manager,
@@ -798,6 +812,7 @@ async def _connector_auth_chat_response(
         user_input=user_input,
         user_content=user_content,
         event=event,
+        persist_user_message=persist_user_message,
     )
     assistant_text = str(event.get("message") or "")
     chunk_id = f"chatcmpl-{uuid4().hex[:24]}"
@@ -877,6 +892,7 @@ async def _resume_after_connector_auth_chat_response(
     agent_manager: ExternalAgentManager,
     config: Config,
     event: dict[str, Any],
+    persist_user_message: bool = True,
 ):
     public_event = await _persist_connector_auth_chat_event(
         manager=manager,
@@ -884,6 +900,7 @@ async def _resume_after_connector_auth_chat_response(
         user_input=auth_user_input,
         user_content=auth_user_content,
         event=event,
+        persist_user_message=persist_user_message,
     )
     if request.stream:
         chunk_id = f"chatcmpl-{uuid4().hex[:24]}"
@@ -956,6 +973,117 @@ async def _resume_after_connector_auth_chat_response(
     )
     response["connector_auth"] = public_event
     return response
+
+
+async def _connector_auth_event_response(
+    *,
+    manager: SessionManager,
+    session: Session,
+    request: ChatCompletionRequest,
+    model: str,
+    event: dict[str, Any],
+):
+    public_event = _public_connector_auth_event(event)
+    async with session.lock:
+        if session.current_task is not None and not session.current_task.done():
+            raise HTTPException(status_code=409, detail="Session already has a running task")
+        session.status = _connector_auth_status(event)
+        session.pending_question = None
+        session.pending_options = None
+        session.pending_permission_request = None
+        manager.touch_session(session)
+        manager.persist_session(session)
+
+    chunk_id = f"chatcmpl-{uuid4().hex[:24]}"
+    created = int(time.time())
+    if request.stream:
+
+        async def stream():
+            role_chunk = {
+                "id": chunk_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": model,
+                "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}],
+            }
+            yield f"data: {json.dumps(role_chunk, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps(public_event, ensure_ascii=False)}\n\n"
+            finish_chunk = {
+                "id": chunk_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": model,
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            }
+            yield f"data: {json.dumps(finish_chunk, ensure_ascii=False)}\n\n"
+            yield "data: [DONE]\n\n"
+
+        return StreamingResponse(
+            stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Ripple-Session-Id": session.session_id,
+            },
+        )
+
+    return {
+        "id": chunk_id,
+        "object": "chat.completion",
+        "created": created,
+        "model": model,
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": ""},
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        "session_id": session.session_id,
+        "connector_auth": public_event,
+    }
+
+
+def _connector_auth_poll_should_persist_message(
+    event: dict[str, Any],
+    previous_pending: dict[str, Any],
+) -> bool:
+    stage = str(event.get("stage") or "")
+    if event.get("type") == "connector_auth_updated":
+        return True
+    if stage in {"auth_failed", "invalid_request"}:
+        return True
+
+    action = event.get("action")
+    data = action.get("data") if isinstance(action, dict) else None
+    if not isinstance(data, dict):
+        return False
+    if data.get("device_code_finalized") is True:
+        return True
+
+    for key in ("setup_url", "oauth_url"):
+        value = data.get(key)
+        if isinstance(value, str) and value and value != previous_pending.get(key):
+            return True
+    return False
+
+
+def _chat_request_from_connector_auth_poll(
+    task_id: str,
+    request: ConnectorAuthPollRequest,
+) -> ChatCompletionRequest:
+    return ChatCompletionRequest(
+        model=request.model,
+        messages=[{"role": "user", "content": ""}],
+        stream=request.stream,
+        session_id=task_id,
+        effort=request.effort,
+        summary=request.summary,
+        output_schema=request.output_schema,
+    )
 
 
 async def _maybe_handle_pending_schedule_confirmation(
@@ -1438,6 +1566,90 @@ async def stop_task(
         raise HTTPException(status_code=404, detail="Task not found")
     stopped = manager.stop_session(task_id, user_id=user_id)
     return {"ok": True, "stopped": stopped, "task_id": task_id, "session_id": task_id}
+
+
+@router.post("/v1/tasks/{task_id}/connector-auth/poll")
+async def poll_task_connector_auth(
+    task_id: str,
+    request: ConnectorAuthPollRequest,
+    http_request: Request,
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+):
+    manager = get_session_manager()
+    config = get_config()
+    if manager.sandbox_manager:
+        manager.sandbox_manager.ensure_sandbox(user_id)
+        assert_can_create_run(manager.sandbox_manager.config, user_id, _codex_chat_max_runtime_seconds(config))
+
+    session = _get_or_resume_task_session(manager, task_id, user_id=user_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Task not found")
+    pending = session.pending_connector_auth
+    if not isinstance(pending, dict):
+        raise HTTPException(status_code=409, detail="No pending connector auth")
+    if pending.get("connector") != "feishu":
+        raise HTTPException(status_code=409, detail="Pending connector auth cannot be polled")
+
+    set_current_session_id(session.session_id)
+    resolved_model = manager.configure_session_model(session, request.model)
+    resolved_effort = request.effort
+    if resolved_effort is None and session.context is not None:
+        resolved_effort = session.context.options.reasoning_effort
+    if session.context is not None:
+        session.context.request_public_base_url = _request_public_base_url(http_request)
+
+    previous_pending = dict(pending)
+    connector_auth_event = await poll_pending_connector_chat_auth(
+        session=session,
+        request_base_url=session.context.request_public_base_url if session.context else None,
+    )
+    if connector_auth_event is None:
+        raise HTTPException(status_code=409, detail="Pending connector auth cannot be polled")
+
+    chat_request = _chat_request_from_connector_auth_poll(task_id, request)
+    resume_user_input = _connector_auth_resume_user_input(connector_auth_event)
+    workspace_root = session.context.workspace_root if session.context else None
+    agent_manager = get_external_agent_manager()
+    if resume_user_input and connector_auth_event.get("type") == "connector_auth_updated":
+        merged_system_prompt = _merge_system_prompt(workspace_root, session.caller_system_prompt)
+        return await _resume_after_connector_auth_chat_response(
+            manager=manager,
+            session=session,
+            request=chat_request,
+            auth_user_input="",
+            auth_user_content=[],
+            resume_user_input=resume_user_input,
+            model=resolved_model,
+            effort=resolved_effort,
+            summary=request.summary,
+            output_schema=request.output_schema,
+            system_prompt=merged_system_prompt,
+            agent_manager=agent_manager,
+            config=config,
+            event=connector_auth_event,
+            persist_user_message=False,
+        )
+
+    if _connector_auth_poll_should_persist_message(connector_auth_event, previous_pending):
+        return await _connector_auth_chat_response(
+            manager=manager,
+            session=session,
+            request=chat_request,
+            user_input="",
+            user_content=[],
+            model=resolved_model,
+            event=connector_auth_event,
+            persist_user_message=False,
+        )
+
+    return await _connector_auth_event_response(
+        manager=manager,
+        session=session,
+        request=chat_request,
+        model=resolved_model,
+        event=connector_auth_event,
+    )
 
 
 @router.post("/v1/tasks/{task_id}/permissions/resolve")

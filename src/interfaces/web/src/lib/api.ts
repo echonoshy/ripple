@@ -458,35 +458,41 @@ export async function resolveSessionPermissionRequest(
   }
 }
 
-export async function sendChatMessage(
-  sessionId: string,
-  content: string,
-  model: string,
-  callbacks: {
-    onMessageDelta: (delta: string) => void;
-    onAssistantUpdateDelta?: (id: string, delta: string) => void;
-    onAssistantUpdate?: (id: string, content: string) => void;
-    onToolCall: (toolCall: ToolCall) => void;
-    onToolResult: (toolId: string, result: string) => void;
-    onUsage: (usage: UsageInfo) => void;
-    onNewTurn?: () => void;
-    onTaskCreated?: (task: TaskInfo) => void;
-    onTaskUpdated?: (task: TaskInfo) => void;
-    onTaskProgress?: (progress: TaskProgress) => void;
-    onTaskPlanUpdated?: (update: TaskPlanUpdate) => void;
-    onRuntimeEvent?: (event: CodexRuntimeEvent) => void;
-    onConnectorAuth?: (event: ConnectorAuthChatEvent) => void;
-    onAgentStop?: (data: AgentStopData) => void;
-    onPermissionRequest?: (request: {
-      tool: string;
-      params: Record<string, unknown> | string;
-      riskLevel: string;
-    }) => void;
-    onHeartbeat?: () => void;
-    onComplete: () => void;
-    onError: (error: Error) => void;
-  },
-  options?: { signal?: AbortSignal; files?: ChatFileRef[] }
+export interface ChatStreamCallbacks {
+  onMessageDelta: (delta: string) => void;
+  onAssistantUpdateDelta?: (id: string, delta: string) => void;
+  onAssistantUpdate?: (id: string, content: string) => void;
+  onToolCall: (toolCall: ToolCall) => void;
+  onToolResult: (toolId: string, result: string) => void;
+  onUsage: (usage: UsageInfo) => void;
+  onNewTurn?: () => void;
+  onTaskCreated?: (task: TaskInfo) => void;
+  onTaskUpdated?: (task: TaskInfo) => void;
+  onTaskProgress?: (progress: TaskProgress) => void;
+  onTaskPlanUpdated?: (update: TaskPlanUpdate) => void;
+  onRuntimeEvent?: (event: CodexRuntimeEvent) => void;
+  onConnectorAuth?: (event: ConnectorAuthChatEvent) => void;
+  onAgentStop?: (data: AgentStopData) => void;
+  onPermissionRequest?: (request: {
+    tool: string;
+    params: Record<string, unknown> | string;
+    riskLevel: string;
+  }) => void;
+  onHeartbeat?: () => void;
+  onComplete: () => void;
+  onError: (error: Error) => void;
+}
+
+interface ChatStreamOptions {
+  signal?: AbortSignal;
+  connectionTimeoutMs?: number;
+}
+
+async function streamChatResponse(
+  endpointPath: string,
+  body: Record<string, unknown>,
+  callbacks: ChatStreamCallbacks,
+  options?: ChatStreamOptions
 ) {
   let completed = false;
   const markComplete = () => {
@@ -495,7 +501,7 @@ export async function sendChatMessage(
     callbacks.onComplete();
   };
 
-  const CONNECTION_TIMEOUT_MS = 60_000;
+  const CONNECTION_TIMEOUT_MS = options?.connectionTimeoutMs ?? 60_000;
   let lastEventTime = Date.now();
   let timeoutTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -514,7 +520,7 @@ export async function sendChatMessage(
   try {
     startTimeoutCheck();
 
-    await fetchEventSource(`${API_URL}/chat/completions`, {
+    await fetchEventSource(`${API_URL}${endpointPath}`, {
       method: "POST",
       openWhenHidden: true,
       signal: options?.signal,
@@ -522,14 +528,7 @@ export async function sendChatMessage(
         "Content-Type": "application/json",
         ...authHeaders(),
       },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: "user", content: buildChatMessageContent(content, options?.files || []) },
-        ],
-        stream: true,
-        session_id: sessionId,
-      }),
+      body: JSON.stringify(body),
       async onopen(response) {
         if (response.status === 401) throw new AuthError();
         if (!response.ok) throw new Error(`Server responded with ${response.status}`);
@@ -723,6 +722,40 @@ export async function sendChatMessage(
   } finally {
     if (timeoutTimer) clearInterval(timeoutTimer);
   }
+}
+
+export async function sendChatMessage(
+  sessionId: string,
+  content: string,
+  model: string,
+  callbacks: ChatStreamCallbacks,
+  options?: { signal?: AbortSignal; files?: ChatFileRef[] }
+) {
+  return streamChatResponse(
+    "/chat/completions",
+    {
+      model,
+      messages: [{ role: "user", content: buildChatMessageContent(content, options?.files || []) }],
+      stream: true,
+      session_id: sessionId,
+    },
+    callbacks,
+    { signal: options?.signal }
+  );
+}
+
+export async function pollSessionConnectorAuth(
+  sessionId: string,
+  model: string,
+  callbacks: ChatStreamCallbacks,
+  options?: { signal?: AbortSignal }
+) {
+  return streamChatResponse(
+    `/tasks/${encodeURIComponent(sessionId)}/connector-auth/poll`,
+    { model, stream: true },
+    callbacks,
+    { signal: options?.signal, connectionTimeoutMs: 180_000 }
+  );
 }
 
 export async function fetchCurrentSandbox(): Promise<SandboxInfo | null> {

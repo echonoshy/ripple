@@ -1,5 +1,7 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
+  CodexRuntimeEvent,
+  ConnectorAuthChatEvent,
   Message,
   SessionDetail,
   TaskInfo,
@@ -9,6 +11,8 @@ import type {
 } from "@/types";
 import {
   AuthError,
+  fetchSessionDetails,
+  pollSessionConnectorAuth,
   resolveSessionPermissionRequest,
   sendChatMessage,
   uploadWorkspaceAttachment,
@@ -28,7 +32,7 @@ import {
   extractChangedFilePaths,
   messagesToTimelineEvents,
 } from "@/lib/workbench";
-import type { CodexRuntimeEvent } from "@/types";
+import type { FeishuAuthOpenPayload } from "@/components/MarkdownRenderer";
 
 export interface ChatRunSessionActions {
   getSessionId: () => string | null;
@@ -91,6 +95,11 @@ export function useChatRun({
   const abortControllerRef = useRef<AbortController | null>(null);
   const runningSessionIdRef = useRef<string | null>(null);
   const runningViewStateRef = useRef<ChatRunViewState | null>(null);
+  const connectorAuthPollAbortRef = useRef<AbortController | null>(null);
+  const connectorAuthPollTimerRef = useRef<number | null>(null);
+  const connectorAuthPollIdRef = useRef(0);
+  const feishuAuthPopupRef = useRef<Window | null>(null);
+  const feishuAuthPopupUrlRef = useRef<string | null>(null);
 
   const setActiveRunningSession = useCallback((sessionId: string | null) => {
     runningSessionIdRef.current = sessionId;
@@ -107,12 +116,25 @@ export function useChatRun({
     setTaskProgress(state.taskProgress);
   }, []);
 
+  const clearConnectorAuthPoll = useCallback(() => {
+    connectorAuthPollIdRef.current += 1;
+    connectorAuthPollAbortRef.current?.abort();
+    connectorAuthPollAbortRef.current = null;
+    if (connectorAuthPollTimerRef.current) {
+      window.clearTimeout(connectorAuthPollTimerRef.current);
+      connectorAuthPollTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => clearConnectorAuthPoll, [clearConnectorAuthPoll]);
+
   const handleAuthExpired = useCallback(() => {
+    clearConnectorAuthPoll();
     abortControllerRef.current = null;
     runningViewStateRef.current = null;
     setActiveRunningSession(null);
     onAuthExpired("API Key 已失效");
-  }, [onAuthExpired, setActiveRunningSession]);
+  }, [clearConnectorAuthPoll, onAuthExpired, setActiveRunningSession]);
 
   const resetSessionView = useCallback(() => {
     setMessages([]);
@@ -133,11 +155,12 @@ export function useChatRun({
     activeRequestIdRef.current += 1;
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
+    clearConnectorAuthPoll();
     runningViewStateRef.current = null;
     setActiveRunningSession(null);
     setIsGenerating(false);
     resetSessionView();
-  }, [resetSessionView, setActiveRunningSession]);
+  }, [clearConnectorAuthPoll, resetSessionView, setActiveRunningSession]);
 
   const applySessionDetails = useCallback(
     (details: SessionDetail) => {
@@ -165,6 +188,7 @@ export function useChatRun({
     activeRequestIdRef.current += 1;
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
+    clearConnectorAuthPoll();
     if (targetSessionId) {
       await getSessionActions().stopSession(targetSessionId);
     } else {
@@ -174,7 +198,7 @@ export function useChatRun({
     setActiveRunningSession(null);
     setIsGenerating(false);
     setInputFocusToken((prev) => bumpInputFocusToken(prev));
-  }, [getSessionActions, setActiveRunningSession]);
+  }, [clearConnectorAuthPoll, getSessionActions, setActiveRunningSession]);
 
   const handleClearContext = useCallback(async () => {
     if (isGenerating) return;
@@ -645,6 +669,163 @@ export function useChatRun({
     [getSessionActions, handleAuthExpired, handleSendMessage, isGenerating]
   );
 
+  const navigateFeishuAuthPopup = useCallback((url: string, popup?: Window | null) => {
+    const nextUrl = url.trim();
+    if (!nextUrl) return;
+
+    if (popup) {
+      feishuAuthPopupRef.current = popup;
+      feishuAuthPopupUrlRef.current = nextUrl;
+      return;
+    }
+
+    const existing = feishuAuthPopupRef.current;
+    try {
+      if (existing && !existing.closed) {
+        if (feishuAuthPopupUrlRef.current === nextUrl) {
+          existing.focus();
+          return;
+        }
+        existing.location.href = nextUrl;
+        feishuAuthPopupUrlRef.current = nextUrl;
+        existing.focus();
+        return;
+      }
+    } catch {
+      /* fall through to opening a new window */
+    }
+    if (feishuAuthPopupUrlRef.current === nextUrl) return;
+    feishuAuthPopupRef.current = window.open(nextUrl, "ripple-feishu-auth");
+    feishuAuthPopupUrlRef.current = nextUrl;
+  }, []);
+
+  const handleFeishuAuthOpen = useCallback(
+    ({ url, popup }: FeishuAuthOpenPayload) => {
+      const activeSessionId = getSessionActions().getSessionId();
+      if (!activeSessionId) return;
+      if (isGenerating) return;
+
+      navigateFeishuAuthPopup(url, popup);
+      clearConnectorAuthPoll();
+      const pollId = connectorAuthPollIdRef.current + 1;
+      connectorAuthPollIdRef.current = pollId;
+      setActiveRunningSession(activeSessionId);
+      setIsGenerating(true);
+
+      const isStalePoll = () => connectorAuthPollIdRef.current !== pollId;
+      const refreshSession = async () => {
+        try {
+          const details = await fetchSessionDetails(activeSessionId);
+          if (!isStalePoll() && details) {
+            applySessionDetails(details);
+          }
+          return true;
+        } catch (error) {
+          if (error instanceof AuthError) {
+            handleAuthExpired();
+            return false;
+          }
+          console.error("Feishu auth session refresh error:", error);
+          return true;
+        }
+      };
+      const finishPoll = async () => {
+        connectorAuthPollAbortRef.current = null;
+        const refreshed = await refreshSession();
+        if (!refreshed) return;
+        if (isStalePoll()) return;
+        setIsGenerating(false);
+        setActiveRunningSession(null);
+        setInputFocusToken((prev) => bumpInputFocusToken(prev));
+        await getSessionActions().loadSessions();
+        onWorkspaceRefresh();
+      };
+
+      const runPoll = async () => {
+        if (isStalePoll()) return;
+        const abortController = new AbortController();
+        connectorAuthPollAbortRef.current = abortController;
+        const pollState: {
+          lastEvent: ConnectorAuthChatEvent | null;
+          streamError: Error | null;
+        } = {
+          lastEvent: null,
+          streamError: null,
+        };
+
+        await pollSessionConnectorAuth(
+          activeSessionId,
+          selectedModel,
+          {
+            onMessageDelta: () => {},
+            onToolCall: () => {},
+            onToolResult: () => {},
+            onUsage: () => {},
+            onConnectorAuth: (event) => {
+              pollState.lastEvent = event;
+              const data = event.action?.data || {};
+              const nextUrl =
+                typeof data.oauth_url === "string"
+                  ? data.oauth_url
+                  : typeof data.setup_url === "string"
+                    ? data.setup_url
+                    : "";
+              if (event.connector === "feishu" && nextUrl) {
+                navigateFeishuAuthPopup(nextUrl);
+              }
+            },
+            onComplete: () => {},
+            onError: (error) => {
+              pollState.streamError = error;
+            },
+          },
+          { signal: abortController.signal }
+        );
+
+        connectorAuthPollAbortRef.current = null;
+        if (isStalePoll()) return;
+        if (pollState.streamError) {
+          if (pollState.streamError instanceof AuthError) {
+            handleAuthExpired();
+            return;
+          }
+          console.error("Feishu auth poll error:", pollState.streamError);
+          await finishPoll();
+          return;
+        }
+
+        const refreshed = await refreshSession();
+        if (!refreshed) return;
+        if (isStalePoll()) return;
+        const lastEvent = pollState.lastEvent;
+        const shouldContinue =
+          lastEvent !== null &&
+          lastEvent.connector === "feishu" &&
+          lastEvent.type === "connector_auth_required" &&
+          lastEvent.stage !== "auth_failed" &&
+          lastEvent.stage !== "invalid_request";
+        if (shouldContinue) {
+          connectorAuthPollTimerRef.current = window.setTimeout(runPoll, 2000);
+          return;
+        }
+        await finishPoll();
+      };
+
+      void runPoll();
+    },
+    [
+      applySessionDetails,
+      clearConnectorAuthPoll,
+      getSessionActions,
+      handleAuthExpired,
+      isGenerating,
+      navigateFeishuAuthPopup,
+      onWorkspaceRefresh,
+      selectedModel,
+      setActiveRunningSession,
+    ]
+  );
+
   const pendingInteractionMessage = useMemo(
     () => [...messages].reverse().find((message) => message.permissionRequest || message.askUser),
     [messages]
@@ -696,5 +877,6 @@ export function useChatRun({
     handleSendMessage,
     handleQuickReply,
     handlePermissionResolve,
+    handleFeishuAuthOpen,
   };
 }

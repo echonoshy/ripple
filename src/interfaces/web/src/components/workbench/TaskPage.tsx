@@ -10,6 +10,7 @@ import type {
   WorkbenchSessionSummary,
   WorkbenchTimelineEvent,
 } from "@/types";
+import type { FeishuAuthOpenPayload } from "@/components/MarkdownRenderer";
 import type { ChatFileRef } from "@/lib/chatInput";
 import TaskComposer from "./TaskComposer";
 import TaskTimeline from "./TaskTimeline";
@@ -43,6 +44,7 @@ interface TaskPageProps {
   onStop: () => void;
   onQuickReply: (option: string) => void;
   onPermissionResolve: (action: "allow" | "always" | "deny") => void;
+  onFeishuAuthOpen?: (payload: FeishuAuthOpenPayload) => void;
 }
 
 export default function TaskPage({
@@ -74,6 +76,7 @@ export default function TaskPage({
   onStop,
   onQuickReply,
   onPermissionResolve,
+  onFeishuAuthOpen,
 }: TaskPageProps) {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const hasMessages = messages.length > 0;
@@ -231,6 +234,7 @@ export default function TaskPage({
             isGenerating={isGenerating}
             onQuickReply={onQuickReply}
             onPermissionResolve={onPermissionResolve}
+            onFeishuAuthOpen={onFeishuAuthOpen}
           />
         </div>
 

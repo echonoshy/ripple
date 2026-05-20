@@ -872,6 +872,69 @@ def test_chat_feishu_setup_done_advances_to_user_auth(tmp_path: Path, monkeypatc
     assert provider.requests == []
 
 
+def test_task_feishu_setup_poll_advances_to_user_auth_without_user_done(tmp_path: Path, monkeypatch):
+    provider = InstantCodexProvider(output="should not run")
+    client = _client(tmp_path, monkeypatch, provider)
+    get_session_manager().sandbox_manager.config.lark_cli_bin = str(tmp_path / "lark-cli")
+    ensure_calls = 0
+
+    monkeypatch.setattr(
+        registry,
+        "feishu_cli_login_status",
+        lambda config, user_id: (False, "no user logged in", {"has_app_config": False}),
+    )
+
+    async def fake_ensure_lark_cli_config(config, user_id, *, force_new_setup=False):
+        nonlocal ensure_calls
+        ensure_calls += 1
+        if ensure_calls == 1:
+            return False, "https://open.feishu.cn/page/cli?user_code=SETUP"
+        return True, ""
+
+    async def fake_start_lark_user_auth(config, user_id, *, force_new=False):
+        assert force_new is True
+        return True, {
+            "oauth_url": "https://accounts.feishu.cn/device",
+            "device_code": "device-poll-setup",
+        }
+
+    monkeypatch.setattr(registry, "ensure_lark_cli_config", fake_ensure_lark_cli_config)
+    monkeypatch.setattr(registry, "start_lark_user_auth", fake_start_lark_user_auth)
+
+    first = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "codex-medium",
+            "stream": False,
+            "messages": [{"role": "user", "content": "使用飞书给胡畔发 hi"}],
+        },
+    )
+    assert first.status_code == 200
+    session_id = first.json()["session_id"]
+
+    second = client.post(
+        f"/v1/tasks/{session_id}/connector-auth/poll",
+        json={"model": "codex-medium", "stream": False},
+    )
+
+    assert second.status_code == 200
+    assert second.json()["connector_auth"]["stage"] == "awaiting_user_auth"
+    assert "[FEISHU_AUTH]" in second.json()["choices"][0]["message"]["content"]
+    assert provider.requests == []
+
+    session = client.get(f"/v1/sessions/{session_id}")
+    messages = session.json()["messages"]
+    assert [message["type"] for message in messages] == ["user", "assistant", "assistant"]
+    user_texts = [
+        block["text"]
+        for message in messages
+        if message["type"] == "user"
+        for block in message["message"]["content"]
+        if block.get("type") == "text"
+    ]
+    assert user_texts == ["使用飞书给胡畔发 hi"]
+
+
 def test_chat_feishu_setup_done_requires_real_user_auth_evidence(tmp_path: Path, monkeypatch):
     provider = InstantCodexProvider(output="should not run")
     client = _client(tmp_path, monkeypatch, provider)
@@ -1304,6 +1367,69 @@ def test_chat_feishu_auth_completion_resumes_original_request(tmp_path: Path, mo
     assert len(provider.requests) == 1
     assert "用飞书给胡畔发 hi" in provider.requests[0].prompt
     assert "好了" not in provider.requests[0].prompt
+
+
+def test_task_feishu_auth_poll_resumes_original_request_without_user_done(tmp_path: Path, monkeypatch):
+    provider = InstantCodexProvider(output="sent")
+    client = _client(tmp_path, monkeypatch, provider)
+    get_session_manager().sandbox_manager.config.lark_cli_bin = str(tmp_path / "lark-cli")
+
+    monkeypatch.setattr(
+        registry,
+        "feishu_cli_login_status",
+        lambda config, user_id: (False, "no user logged in", {"has_app_config": True}),
+    )
+
+    async def fake_ensure_lark_cli_config(config, user_id, *, force_new_setup=False):
+        return True, ""
+
+    async def fake_start_lark_user_auth(config, user_id, *, force_new=False):
+        return True, {
+            "oauth_url": "https://accounts.feishu.cn/device",
+            "device_code": "device-poll-auth",
+        }
+
+    async def fake_complete_lark_user_auth(config, user_id, device_code):
+        assert device_code == "device-poll-auth"
+        return True, "authorized"
+
+    monkeypatch.setattr(registry, "ensure_lark_cli_config", fake_ensure_lark_cli_config)
+    monkeypatch.setattr(registry, "start_lark_user_auth", fake_start_lark_user_auth)
+    monkeypatch.setattr(registry, "complete_lark_user_auth", fake_complete_lark_user_auth)
+
+    first = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "codex-medium",
+            "stream": False,
+            "messages": [{"role": "user", "content": "用飞书给胡畔发 hi"}],
+        },
+    )
+    assert first.status_code == 200
+    session_id = first.json()["session_id"]
+
+    second = client.post(
+        f"/v1/tasks/{session_id}/connector-auth/poll",
+        json={"model": "codex-medium", "stream": False},
+    )
+
+    assert second.status_code == 200
+    assert second.json()["connector_auth"]["stage"] == "authorized"
+    assert second.json()["choices"][0]["message"]["content"] == "sent"
+    assert len(provider.requests) == 1
+    assert "用飞书给胡畔发 hi" in provider.requests[0].prompt
+    assert "好了" not in provider.requests[0].prompt
+
+    session = client.get(f"/v1/sessions/{session_id}")
+    messages = session.json()["messages"]
+    user_texts = [
+        block["text"]
+        for message in messages
+        if message["type"] == "user"
+        for block in message["message"]["content"]
+        if block.get("type") == "text"
+    ]
+    assert user_texts == ["用飞书给胡畔发 hi"]
 
 
 def test_chat_feishu_auth_completion_stream_splits_auth_notice_from_resumed_output(tmp_path: Path, monkeypatch):

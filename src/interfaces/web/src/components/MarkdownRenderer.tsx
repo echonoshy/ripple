@@ -58,9 +58,16 @@ function fixInlineMathSpans(fragment: string): string {
 interface MarkdownRendererProps {
   content: string;
   className?: string;
+  onFeishuAuthOpen?: (payload: FeishuAuthOpenPayload) => void;
 }
 
-type FeishuTag = "setup" | "auth";
+export type FeishuTag = "setup" | "auth";
+
+export interface FeishuAuthOpenPayload {
+  tag: FeishuTag;
+  url: string;
+  popup: Window | null;
+}
 
 interface ContentSegment {
   type: "text" | "thinking" | "feishu";
@@ -94,9 +101,9 @@ function parseThinkingBlocks(content: string): ContentSegment[] {
 }
 
 /**
- * 识别 bash 工具返回的飞书标签，转换为可交互的按钮卡片。
+ * 识别服务端 connector auth 消息里的飞书标签，转换为可交互的按钮卡片。
  *
- * 标签由 `_ensure_lark_cli_if_needed` (bash.py) 或 SKILL 指导下的模型输出产生：
+ * 标签由 Ripple 的 Feishu chat auth flow 产生：
  *   [FEISHU_SETUP] ... https://open.feishu.cn/page/cli?user_code=...
  *   [FEISHU_AUTH]  ... https://accounts.feishu.cn/...
  *
@@ -127,14 +134,33 @@ function parseFeishuBlocks(text: string): ContentSegment[] {
   return segments.length > 0 ? segments : [{ type: "text", content: text }];
 }
 
-function FeishuCard({ tag, url }: { tag: FeishuTag; url: string }) {
+function FeishuCard({
+  tag,
+  url,
+  onOpen,
+}: {
+  tag: FeishuTag;
+  url: string;
+  onOpen?: (payload: FeishuAuthOpenPayload) => void;
+}) {
   const isSetup = tag === "setup";
   const title = isSetup ? "配置飞书应用" : "飞书授权登录";
   const subtitle = isSetup
     ? "该 session 尚未配置飞书应用。点击下方按钮在浏览器中完成创建。"
     : "AI Agent 请求访问你的飞书数据。打开链接后在飞书页面完成授权。";
+  const hint = isSetup
+    ? "创建完成后 Ripple 会自动打开第 2 步授权链接。"
+    : "授权完成后 Ripple 会自动继续当前任务。";
   const Icon = isSetup ? Settings2 : KeyRound;
   const accentClass = isSetup ? "bg-[#ddf4ff] text-[#0969da]" : "bg-[#dafbe1] text-[#1a7f37]";
+  const href = resolveBackendUrl(url) || url;
+
+  const handleOpen = (event: React.MouseEvent<HTMLAnchorElement>) => {
+    if (!onOpen) return;
+    event.preventDefault();
+    const popup = window.open(href, "ripple-feishu-auth");
+    onOpen({ tag, url: href, popup });
+  };
 
   return (
     <div className="my-2 overflow-hidden rounded-lg border border-[#e5e7eb] bg-white">
@@ -145,17 +171,16 @@ function FeishuCard({ tag, url }: { tag: FeishuTag; url: string }) {
       <div className="space-y-3 px-4 py-3">
         <p className="text-sm font-medium text-[#374151]">{subtitle}</p>
         <a
-          href={url}
+          href={href}
           target="_blank"
           rel="noopener noreferrer"
+          onClick={handleOpen}
           className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[#0969da]/25 bg-[#ddf4ff] px-3 text-sm font-medium text-[#0969da] hover:bg-[#cbeeff]"
         >
           {isSetup ? "打开配置链接" : "打开授权链接"}
           <ExternalLink size={13} />
         </a>
-        <p className="text-xs font-medium text-[#6b7280]">
-          完成后回到对话输入「好了」，Ripple 会在对话链路中继续授权流程。
-        </p>
+        <p className="text-xs font-medium text-[#6b7280]">{hint}</p>
         <div className="font-[family-name:var(--font-mono)] text-[11px] break-all text-[#6b7280]">
           {url}
         </div>
@@ -164,7 +189,13 @@ function FeishuCard({ tag, url }: { tag: FeishuTag; url: string }) {
   );
 }
 
-function ThinkingBlock({ content }: { content: string }) {
+function ThinkingBlock({
+  content,
+  onFeishuAuthOpen,
+}: {
+  content: string;
+  onFeishuAuthOpen?: (payload: FeishuAuthOpenPayload) => void;
+}) {
   const [isExpanded, setIsExpanded] = useState(false);
 
   return (
@@ -194,7 +225,7 @@ function ThinkingBlock({ content }: { content: string }) {
           >
             <div className="border-t border-[#d7dce3] px-4 pb-3">
               <div className="markdown-body mt-2 text-sm leading-relaxed text-[#374151]">
-                <MarkdownContent content={content} />
+                <MarkdownContent content={content} onFeishuAuthOpen={onFeishuAuthOpen} />
               </div>
             </div>
           </motion.div>
@@ -204,8 +235,36 @@ function ThinkingBlock({ content }: { content: string }) {
   );
 }
 
-function MarkdownContent({ content }: { content: string }) {
+function MarkdownContent({
+  content,
+  onFeishuAuthOpen,
+}: {
+  content: string;
+  onFeishuAuthOpen?: (payload: FeishuAuthOpenPayload) => void;
+}) {
   const normalized = normalizeLlmMatrixNewlines(content);
+  const segments = parseFeishuBlocks(normalized);
+  const hasFeishu = segments.some((segment) => segment.type === "feishu");
+
+  if (hasFeishu) {
+    return (
+      <>
+        {segments.map((segment, index) => {
+          if (segment.type === "feishu" && segment.url && segment.tag) {
+            return (
+              <FeishuCard
+                key={index}
+                tag={segment.tag}
+                url={segment.url}
+                onOpen={onFeishuAuthOpen}
+              />
+            );
+          }
+          return <MarkdownContent key={index} content={segment.content} onFeishuAuthOpen={onFeishuAuthOpen} />;
+        })}
+      </>
+    );
+  }
 
   return (
     <ReactMarkdown
@@ -285,7 +344,11 @@ function MarkdownContent({ content }: { content: string }) {
   );
 }
 
-export default function MarkdownRenderer({ content, className = "" }: MarkdownRendererProps) {
+export default function MarkdownRenderer({
+  content,
+  className = "",
+  onFeishuAuthOpen,
+}: MarkdownRendererProps) {
   const segments = parseThinkingBlocks(content);
   const hasSpecial = segments.some((s) => s.type !== "text");
 
@@ -301,12 +364,12 @@ export default function MarkdownRenderer({ content, className = "" }: MarkdownRe
     <div className={`markdown-body ${className}`}>
       {segments.map((segment, i) => {
         if (segment.type === "thinking") {
-          return <ThinkingBlock key={i} content={segment.content} />;
+          return <ThinkingBlock key={i} content={segment.content} onFeishuAuthOpen={onFeishuAuthOpen} />;
         }
         if (segment.type === "feishu" && segment.url && segment.tag) {
-          return <FeishuCard key={i} tag={segment.tag} url={segment.url} />;
+          return <FeishuCard key={i} tag={segment.tag} url={segment.url} onOpen={onFeishuAuthOpen} />;
         }
-        return <MarkdownContent key={i} content={segment.content} />;
+        return <MarkdownContent key={i} content={segment.content} onFeishuAuthOpen={onFeishuAuthOpen} />;
       })}
     </div>
   );

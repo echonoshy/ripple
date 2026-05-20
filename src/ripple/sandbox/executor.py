@@ -28,6 +28,7 @@ async def execute_in_sandbox(
     config: SandboxConfig,
     user_id: str,
     timeout: int | None = None,
+    stdin: str | bytes | None = None,
 ) -> tuple[str, str, int]:
     """在 user 的 nsjail 沙箱中执行命令。
 
@@ -41,15 +42,23 @@ async def execute_in_sandbox(
 
     logger.debug("event=sandbox.command.start target_user={} command={}", user_id, command[:200])
 
+    stdin_pipe = asyncio.subprocess.PIPE if stdin is not None else asyncio.subprocess.DEVNULL
     proc = await asyncio.create_subprocess_exec(
         *nsjail_cmd,
-        stdin=asyncio.subprocess.DEVNULL,
+        stdin=stdin_pipe,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
 
     try:
-        stdout_bytes, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=effective_timeout)
+        input_bytes: bytes | None
+        if isinstance(stdin, str):
+            input_bytes = stdin.encode()
+        else:
+            input_bytes = stdin
+        stdout_bytes, stderr_bytes = await asyncio.wait_for(
+            proc.communicate(input=input_bytes), timeout=effective_timeout
+        )
     except asyncio.TimeoutError:
         proc.kill()
         await proc.wait()

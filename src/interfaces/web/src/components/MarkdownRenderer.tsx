@@ -7,7 +7,7 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
-import { ChevronRight, Brain, ExternalLink, KeyRound, Settings2 } from "lucide-react";
+import { ChevronRight, Brain, ExternalLink, KeyRound, Loader2, Settings2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { resolveBackendUrl } from "@/lib/api";
 
@@ -59,18 +59,28 @@ interface MarkdownRendererProps {
   content: string;
   className?: string;
   onFeishuAuthOpen?: (payload: FeishuAuthOpenPayload) => void;
+  feishuAuthWaiting?: FeishuAuthWaitingState | null;
 }
 
 export type FeishuTag = "setup" | "auth";
+export type ConnectorAuthKind = "feishu" | "google_workspace";
 
 export interface FeishuAuthOpenPayload {
+  connector: ConnectorAuthKind;
   tag: FeishuTag;
   url: string;
   popup: Window | null;
 }
 
+export interface FeishuAuthWaitingState {
+  connector: ConnectorAuthKind;
+  url: string;
+  elapsedSeconds: number;
+  label: string;
+}
+
 interface ContentSegment {
-  type: "text" | "thinking" | "feishu";
+  type: "text" | "thinking" | "feishu" | "google";
   content: string;
   tag?: FeishuTag;
   url?: string;
@@ -85,7 +95,7 @@ function parseThinkingBlocks(content: string): ContentSegment[] {
   while ((match = regex.exec(content)) !== null) {
     if (match.index > lastIndex) {
       const text = content.slice(lastIndex, match.index).trim();
-      if (text) segments.push(...parseFeishuBlocks(text));
+      if (text) segments.push(...parseConnectorAuthBlocks(text));
     }
     const thinking = match[1].trim();
     if (thinking) segments.push({ type: "thinking", content: thinking });
@@ -94,25 +104,26 @@ function parseThinkingBlocks(content: string): ContentSegment[] {
 
   if (lastIndex < content.length) {
     const text = content.slice(lastIndex).trim();
-    if (text) segments.push(...parseFeishuBlocks(text));
+    if (text) segments.push(...parseConnectorAuthBlocks(text));
   }
 
-  return segments.length > 0 ? segments : parseFeishuBlocks(content);
+  return segments.length > 0 ? segments : parseConnectorAuthBlocks(content);
 }
 
 /**
- * 识别服务端 connector auth 消息里的飞书标签，转换为可交互的按钮卡片。
+ * 识别服务端 connector auth 消息里的授权标签，转换为可交互的按钮卡片。
  *
  * 标签由 Ripple 的 Feishu chat auth flow 产生：
  *   [FEISHU_SETUP] ... https://open.feishu.cn/page/cli?user_code=...
  *   [FEISHU_AUTH]  ... https://accounts.feishu.cn/...
+ *   [GOOGLE_AUTH]  ... https://accounts.google.com/o/oauth2/auth?...
  *
- * 匹配策略：从标签起扫到第一个 http(s) URL（含），整段替换为 feishu 卡片；
+ * 匹配策略：从标签起扫到第一个 http(s) URL（含），整段替换为授权卡片；
  * 前后的普通文本保留为独立的 text segment。
  */
-function parseFeishuBlocks(text: string): ContentSegment[] {
+function parseConnectorAuthBlocks(text: string): ContentSegment[] {
   const segments: ContentSegment[] = [];
-  const re = /\[FEISHU_(SETUP|AUTH)\][\s\S]*?(https?:\/\/\S+)/g;
+  const re = /\[(FEISHU_(SETUP|AUTH)|GOOGLE_AUTH)\][\s\S]*?(https?:\/\/\S+)/g;
   let last = 0;
   let m: RegExpExecArray | null;
 
@@ -121,8 +132,12 @@ function parseFeishuBlocks(text: string): ContentSegment[] {
       const before = text.slice(last, m.index).trim();
       if (before) segments.push({ type: "text", content: before });
     }
-    const tag: FeishuTag = m[1] === "SETUP" ? "setup" : "auth";
-    segments.push({ type: "feishu", content: m[0], tag, url: m[2] });
+    if (m[1] === "GOOGLE_AUTH") {
+      segments.push({ type: "google", content: m[0], url: m[3] });
+    } else {
+      const tag: FeishuTag = m[2] === "SETUP" ? "setup" : "auth";
+      segments.push({ type: "feishu", content: m[0], tag, url: m[3] });
+    }
     last = m.index + m[0].length;
   }
 
@@ -138,28 +153,32 @@ function FeishuCard({
   tag,
   url,
   onOpen,
+  waiting,
 }: {
   tag: FeishuTag;
   url: string;
   onOpen?: (payload: FeishuAuthOpenPayload) => void;
+  waiting?: FeishuAuthWaitingState | null;
 }) {
   const isSetup = tag === "setup";
-  const title = isSetup ? "配置飞书应用" : "飞书授权登录";
+  const title = isSetup ? "第 1/2 步：准备飞书连接" : "第 2/2 步：授权你的飞书账号";
   const subtitle = isSetup
-    ? "该 session 尚未配置飞书应用。点击下方按钮在浏览器中完成创建。"
-    : "AI Agent 请求访问你的飞书数据。打开链接后在飞书页面完成授权。";
+    ? "首次使用需要在飞书页面完成一次性准备，之后会自动进入账号授权。"
+    : "授权后 Ripple 会以你的飞书账号继续执行刚才的请求，发送消息会显示为你本人。";
   const hint = isSetup
-    ? "创建完成后 Ripple 会自动打开第 2 步授权链接。"
+    ? "完成后 Ripple 会自动打开第 2 步授权链接。"
     : "授权完成后 Ripple 会自动继续当前任务。";
   const Icon = isSetup ? Settings2 : KeyRound;
   const accentClass = isSetup ? "bg-[#ddf4ff] text-[#0969da]" : "bg-[#dafbe1] text-[#1a7f37]";
   const href = resolveBackendUrl(url) || url;
+  const isWaiting =
+    waiting?.connector === "feishu" && (waiting.url === href || waiting.url === url);
 
   const handleOpen = (event: React.MouseEvent<HTMLAnchorElement>) => {
     if (!onOpen) return;
     event.preventDefault();
-    const popup = window.open(href, "ripple-feishu-auth");
-    onOpen({ tag, url: href, popup });
+    const popup = window.open(href, "ripple-connector-auth");
+    onOpen({ connector: "feishu", tag, url: href, popup });
   };
 
   return (
@@ -177,10 +196,76 @@ function FeishuCard({
           onClick={handleOpen}
           className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[#0969da]/25 bg-[#ddf4ff] px-3 text-sm font-medium text-[#0969da] hover:bg-[#cbeeff]"
         >
-          {isSetup ? "打开配置链接" : "打开授权链接"}
+          {isSetup ? "打开飞书页面" : "打开授权页面"}
           <ExternalLink size={13} />
         </a>
         <p className="text-xs font-medium text-[#6b7280]">{hint}</p>
+        {isWaiting && (
+          <div className="flex items-start gap-2 rounded-md border border-[#0969da]/20 bg-[#f6fbff] px-3 py-2 text-xs font-medium text-[#374151]">
+            <Loader2 size={13} className="mt-0.5 shrink-0 animate-spin text-[#0969da]" />
+            <span>
+              正在等待你在浏览器完成飞书操作，Ripple 会自动继续。已等待 {waiting.elapsedSeconds}{" "}
+              秒。
+            </span>
+          </div>
+        )}
+        <div className="font-[family-name:var(--font-mono)] text-[11px] break-all text-[#6b7280]">
+          {url}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GoogleAuthCard({
+  url,
+  onOpen,
+  waiting,
+}: {
+  url: string;
+  onOpen?: (payload: FeishuAuthOpenPayload) => void;
+  waiting?: FeishuAuthWaitingState | null;
+}) {
+  const href = resolveBackendUrl(url) || url;
+  const isWaiting =
+    waiting?.connector === "google_workspace" && (waiting.url === href || waiting.url === url);
+
+  const handleOpen = (event: React.MouseEvent<HTMLAnchorElement>) => {
+    if (!onOpen) return;
+    event.preventDefault();
+    const popup = window.open(href, "ripple-connector-auth");
+    onOpen({ connector: "google_workspace", tag: "auth", url: href, popup });
+  };
+
+  return (
+    <div className="my-2 overflow-hidden rounded-lg border border-[#e5e7eb] bg-white">
+      <div className="flex items-center gap-2 border-b border-[#e5e7eb] bg-[#eef4ff] px-4 py-3 text-[#2463eb]">
+        <KeyRound size={16} />
+        <span className="text-sm font-semibold">授权 Google Workspace</span>
+      </div>
+      <div className="space-y-3 px-4 py-3">
+        <p className="text-sm font-medium text-[#374151]">
+          请在 Google 页面选择要绑定的账号并点击允许，授权后 Ripple 会自动继续刚才的请求。
+        </p>
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={handleOpen}
+          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[#2463eb]/25 bg-[#eef4ff] px-3 text-sm font-medium text-[#2463eb] hover:bg-[#dbeafe]"
+        >
+          打开 Google 授权
+          <ExternalLink size={13} />
+        </a>
+        {isWaiting && (
+          <div className="flex items-start gap-2 rounded-md border border-[#2463eb]/20 bg-[#f6fbff] px-3 py-2 text-xs font-medium text-[#374151]">
+            <Loader2 size={13} className="mt-0.5 shrink-0 animate-spin text-[#2463eb]" />
+            <span>
+              正在等待你在浏览器完成 Google 授权，Ripple 会自动继续。已等待 {waiting.elapsedSeconds}{" "}
+              秒。
+            </span>
+          </div>
+        )}
         <div className="font-[family-name:var(--font-mono)] text-[11px] break-all text-[#6b7280]">
           {url}
         </div>
@@ -192,9 +277,11 @@ function FeishuCard({
 function ThinkingBlock({
   content,
   onFeishuAuthOpen,
+  feishuAuthWaiting,
 }: {
   content: string;
   onFeishuAuthOpen?: (payload: FeishuAuthOpenPayload) => void;
+  feishuAuthWaiting?: FeishuAuthWaitingState | null;
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -225,7 +312,11 @@ function ThinkingBlock({
           >
             <div className="border-t border-[#d7dce3] px-4 pb-3">
               <div className="markdown-body mt-2 text-sm leading-relaxed text-[#374151]">
-                <MarkdownContent content={content} onFeishuAuthOpen={onFeishuAuthOpen} />
+                <MarkdownContent
+                  content={content}
+                  onFeishuAuthOpen={onFeishuAuthOpen}
+                  feishuAuthWaiting={feishuAuthWaiting}
+                />
               </div>
             </div>
           </motion.div>
@@ -238,15 +329,19 @@ function ThinkingBlock({
 function MarkdownContent({
   content,
   onFeishuAuthOpen,
+  feishuAuthWaiting,
 }: {
   content: string;
   onFeishuAuthOpen?: (payload: FeishuAuthOpenPayload) => void;
+  feishuAuthWaiting?: FeishuAuthWaitingState | null;
 }) {
   const normalized = normalizeLlmMatrixNewlines(content);
-  const segments = parseFeishuBlocks(normalized);
-  const hasFeishu = segments.some((segment) => segment.type === "feishu");
+  const segments = parseConnectorAuthBlocks(normalized);
+  const hasConnectorAuth = segments.some(
+    (segment) => segment.type === "feishu" || segment.type === "google"
+  );
 
-  if (hasFeishu) {
+  if (hasConnectorAuth) {
     return (
       <>
         {segments.map((segment, index) => {
@@ -257,10 +352,28 @@ function MarkdownContent({
                 tag={segment.tag}
                 url={segment.url}
                 onOpen={onFeishuAuthOpen}
+                waiting={feishuAuthWaiting}
               />
             );
           }
-          return <MarkdownContent key={index} content={segment.content} onFeishuAuthOpen={onFeishuAuthOpen} />;
+          if (segment.type === "google" && segment.url) {
+            return (
+              <GoogleAuthCard
+                key={index}
+                url={segment.url}
+                onOpen={onFeishuAuthOpen}
+                waiting={feishuAuthWaiting}
+              />
+            );
+          }
+          return (
+            <MarkdownContent
+              key={index}
+              content={segment.content}
+              onFeishuAuthOpen={onFeishuAuthOpen}
+              feishuAuthWaiting={feishuAuthWaiting}
+            />
+          );
         })}
       </>
     );
@@ -348,6 +461,7 @@ export default function MarkdownRenderer({
   content,
   className = "",
   onFeishuAuthOpen,
+  feishuAuthWaiting,
 }: MarkdownRendererProps) {
   const segments = parseThinkingBlocks(content);
   const hasSpecial = segments.some((s) => s.type !== "text");
@@ -355,7 +469,11 @@ export default function MarkdownRenderer({
   if (!hasSpecial) {
     return (
       <div className={`markdown-body ${className}`}>
-        <MarkdownContent content={content} />
+        <MarkdownContent
+          content={content}
+          onFeishuAuthOpen={onFeishuAuthOpen}
+          feishuAuthWaiting={feishuAuthWaiting}
+        />
       </div>
     );
   }
@@ -364,12 +482,44 @@ export default function MarkdownRenderer({
     <div className={`markdown-body ${className}`}>
       {segments.map((segment, i) => {
         if (segment.type === "thinking") {
-          return <ThinkingBlock key={i} content={segment.content} onFeishuAuthOpen={onFeishuAuthOpen} />;
+          return (
+            <ThinkingBlock
+              key={i}
+              content={segment.content}
+              onFeishuAuthOpen={onFeishuAuthOpen}
+              feishuAuthWaiting={feishuAuthWaiting}
+            />
+          );
         }
         if (segment.type === "feishu" && segment.url && segment.tag) {
-          return <FeishuCard key={i} tag={segment.tag} url={segment.url} onOpen={onFeishuAuthOpen} />;
+          return (
+            <FeishuCard
+              key={i}
+              tag={segment.tag}
+              url={segment.url}
+              onOpen={onFeishuAuthOpen}
+              waiting={feishuAuthWaiting}
+            />
+          );
         }
-        return <MarkdownContent key={i} content={segment.content} onFeishuAuthOpen={onFeishuAuthOpen} />;
+        if (segment.type === "google" && segment.url) {
+          return (
+            <GoogleAuthCard
+              key={i}
+              url={segment.url}
+              onOpen={onFeishuAuthOpen}
+              waiting={feishuAuthWaiting}
+            />
+          );
+        }
+        return (
+          <MarkdownContent
+            key={i}
+            content={segment.content}
+            onFeishuAuthOpen={onFeishuAuthOpen}
+            feishuAuthWaiting={feishuAuthWaiting}
+          />
+        );
       })}
     </div>
   );

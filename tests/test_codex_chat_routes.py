@@ -17,6 +17,7 @@ from ripple.agent_runners.manager import ExternalAgentManager
 from ripple.agent_runners.models import AgentRunnerEvent, AgentRunnerRequest, AgentRunnerResult, AgentRunnerStatus
 from ripple.connectors import registry
 from ripple.sandbox.config import SandboxConfig
+from ripple.sandbox.gogcli_oauth import GoogleOAuthIdentity, GoogleOAuthToken
 from ripple.sandbox.manager import SandboxManager
 from ripple.schedules import get_schedule
 from ripple.utils.config import get_config
@@ -729,6 +730,108 @@ def test_chat_auth_preflight_starts_feishu_before_codex(tmp_path: Path, monkeypa
     assert provider.requests == []
 
 
+def test_chat_auth_preflight_starts_google_assisted_oauth_before_codex(tmp_path: Path, monkeypatch):
+    provider = InstantCodexProvider(output="should not run")
+    client = _client(tmp_path, monkeypatch, provider)
+    manager = get_session_manager()
+    config = manager.sandbox_manager.config
+    config.gogcli_cli_install_root = str(tmp_path / "gogcli")
+    client_config = config.gogcli_client_config_file("alice")
+    client_config.parent.mkdir(parents=True, exist_ok=True)
+    client_config.write_text(
+        json.dumps({"web": {"client_id": "client-id", "client_secret": "client-secret"}}),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        registry,
+        "resolve_gogcli_oauth_callback_url",
+        lambda request_base_url=None: "https://test-oauth.example/v1/sandboxes/gogcli/oauth/callback",
+    )
+
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "codex-medium",
+            "stream": False,
+            "messages": [{"role": "user", "content": "查看我的 gmail 邮件"}],
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    content = body["choices"][0]["message"]["content"]
+    assert body["connector_auth"]["connector"] == "google_workspace"
+    assert body["connector_auth"]["stage"] == "awaiting_browser_callback"
+    assert body["connector_auth"]["action"]["data"]["callback_mode"] == "assisted"
+    assert "email" not in body["connector_auth"]["action"]["data"]
+    assert "[GOOGLE_AUTH]" in content
+    assert "https://accounts.google.com/o/oauth2/auth" in content
+    assert "client_id=client-id" in content
+    assert "select_account" in content
+    assert "邮箱地址" not in content
+    assert "callback URL" not in content
+    assert "好了" not in content
+    assert provider.requests == []
+
+
+def test_google_oauth_callback_imports_selected_account_without_prompt_email(tmp_path: Path, monkeypatch):
+    provider = InstantCodexProvider(output="should not run")
+    client = _client(tmp_path, monkeypatch, provider)
+    config = get_session_manager().sandbox_manager.config
+    config.gogcli_cli_install_root = str(tmp_path / "gogcli")
+    client_config = config.gogcli_client_config_file("alice")
+    client_config.parent.mkdir(parents=True, exist_ok=True)
+    client_config.write_text(
+        json.dumps({"web": {"client_id": "client-id", "client_secret": "client-secret"}}),
+        encoding="utf-8",
+    )
+
+    registry.register_pending_gogcli_oauth(
+        state="state-selected",
+        user_id="alice",
+        redirect_uri="https://test-oauth.example/v1/sandboxes/gogcli/oauth/callback",
+    )
+
+    async def fake_exchange_google_oauth_code(**kwargs):
+        assert kwargs["code"] == "auth-code"
+        assert kwargs["redirect_uri"] == "https://test-oauth.example/v1/sandboxes/gogcli/oauth/callback"
+        return GoogleOAuthToken(access_token="access-token", refresh_token="refresh-token")
+
+    async def fake_fetch_google_oauth_identity(**kwargs):
+        assert kwargs["access_token"] == "access-token"
+        return GoogleOAuthIdentity(email="Selected@Example.COM", subject="google-subject")
+
+    imported: dict[str, Any] = {}
+
+    async def fake_execute_in_sandbox(command, config, user_id, timeout=None, stdin=None):
+        imported["command"] = command
+        imported["user_id"] = user_id
+        imported["stdin"] = stdin
+        keyring_file = config.workspace_dir(user_id) / ".config" / "gogcli" / "keyring" / "token"
+        keyring_file.parent.mkdir(parents=True, exist_ok=True)
+        keyring_file.write_text("encrypted-token", encoding="utf-8")
+        return "imported\ttrue\n", "", 0
+
+    monkeypatch.setattr(registry, "exchange_google_oauth_code", fake_exchange_google_oauth_code)
+    monkeypatch.setattr(registry, "fetch_google_oauth_identity", fake_fetch_google_oauth_identity)
+    monkeypatch.setattr(registry, "execute_in_sandbox", fake_execute_in_sandbox)
+
+    response = client.get(
+        "/v1/sandboxes/gogcli/oauth/callback?state=state-selected&code=auth-code",
+    )
+
+    assert response.status_code == 200
+    assert "Google 授权完成" in response.text
+    assert imported["command"] == "/opt/gogcli-cli/current/bin/gog auth tokens import -"
+    assert "refresh-token" not in imported["command"]
+    payload = json.loads(imported["stdin"])
+    assert payload["email"] == "selected@example.com"
+    assert payload["subject"] == "google-subject"
+    assert payload["refresh_token"] == "refresh-token"
+    assert payload["services"] == ["gmail", "drive", "calendar", "docs", "sheets", "slides"]
+
+
 def test_chat_auth_reauth_starts_feishu_even_when_connected(tmp_path: Path, monkeypatch):
     provider = InstantCodexProvider(output="should not run")
     client = _client(tmp_path, monkeypatch, provider)
@@ -1430,6 +1533,40 @@ def test_task_feishu_auth_poll_resumes_original_request_without_user_done(tmp_pa
         if block.get("type") == "text"
     ]
     assert user_texts == ["用飞书给胡畔发 hi"]
+
+
+def test_task_google_auth_poll_resumes_original_request_without_user_done(tmp_path: Path, monkeypatch):
+    provider = InstantCodexProvider(output="gmail summary")
+    client = _client(tmp_path, monkeypatch, provider)
+    config = get_session_manager().sandbox_manager.config
+    config.gogcli_cli_install_root = str(tmp_path / "gogcli")
+    keyring_file = config.workspace_dir("alice") / ".config" / "gogcli" / "keyring" / "token"
+    keyring_file.parent.mkdir(parents=True, exist_ok=True)
+    keyring_file.write_text("encrypted-token", encoding="utf-8")
+
+    session = get_session_manager().create_session(user_id="alice", model="codex-medium")
+    session.pending_connector_auth = {
+        "connector": "google_workspace",
+        "stage": "awaiting_browser_callback",
+        "resume_user_input": "查看 echonoshy@gmail.com 最近1天的 gmail",
+        "callback_mode": "assisted",
+        "oauth_url": "https://accounts.google.com/o/oauth2/auth?state=state-123",
+    }
+    get_session_manager().persist_session(session)
+
+    response = client.post(
+        f"/v1/tasks/{session.session_id}/connector-auth/poll",
+        json={"model": "codex-medium", "stream": False},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["connector_auth"]["connector"] == "google_workspace"
+    assert body["connector_auth"]["stage"] == "authorized"
+    assert body["choices"][0]["message"]["content"] == "gmail summary"
+    assert len(provider.requests) == 1
+    assert "查看 echonoshy@gmail.com 最近1天的 gmail" in provider.requests[0].prompt
+    assert "好了" not in provider.requests[0].prompt
 
 
 def test_chat_feishu_auth_completion_stream_splits_auth_notice_from_resumed_output(tmp_path: Path, monkeypatch):

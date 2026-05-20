@@ -6,7 +6,6 @@
 
 import html
 import json
-import shlex
 import time
 from pathlib import Path
 from typing import Annotated, Any
@@ -116,8 +115,8 @@ from ripple.agent_runners.manager import ExternalAgentManager, get_external_agen
 from ripple.agent_runners.models import AgentRunnerStatus
 from ripple.agent_runners.service import start_agent_run
 from ripple.connectors.base import ConnectorActionResult, ConnectorUnsupportedError
+from ripple.connectors.registry import complete_google_workspace_oauth_callback, list_connectors
 from ripple.connectors.registry import get_connector as get_registered_connector
-from ripple.connectors.registry import list_connectors
 from ripple.documents.store import (
     create_document,
     delete_document,
@@ -1588,7 +1587,7 @@ async def poll_task_connector_auth(
     pending = session.pending_connector_auth
     if not isinstance(pending, dict):
         raise HTTPException(status_code=409, detail="No pending connector auth")
-    if pending.get("connector") != "feishu":
+    if pending.get("connector") not in {"feishu", "google_workspace"}:
         raise HTTPException(status_code=409, detail="Pending connector auth cannot be polled")
 
     set_current_session_id(session.session_id)
@@ -2948,15 +2947,11 @@ async def gogcli_oauth_callback(request: Request) -> HTMLResponse:
     """Browser callback for assisted gogcli OAuth.
 
     Google cannot send Ripple API auth headers during OAuth redirects. This
-    endpoint is therefore protected by gogcli's random `state`; the route only
+    endpoint is therefore protected by Ripple's random `state`; the route only
     works when the Google Workspace connector has registered a matching pending
     state in this process.
     """
-    from ripple.sandbox.config import GOGCLI_CLI_SANDBOX_BIN  # noqa: PLC0415
-    from ripple.sandbox.executor import execute_in_sandbox  # noqa: PLC0415
-    from ripple.sandbox.gogcli import GOGCLI_BASIC_SERVICES_ARG, ensure_gogcli_keyring_password  # noqa: PLC0415
     from ripple.sandbox.gogcli_oauth import build_gogcli_callback_auth_url, pop_pending_gogcli_oauth  # noqa: PLC0415
-    from ripple.sandbox.nsjail_config import write_nsjail_config  # noqa: PLC0415
 
     state = (request.query_params.get("state") or "").strip()
     if not state:
@@ -2986,33 +2981,24 @@ async def gogcli_oauth_callback(request: Request) -> HTMLResponse:
         sandbox_config = _sandbox_manager_or_500().config
     except HTTPException:
         return _gogcli_oauth_html("Google 授权失败", "Ripple sandbox 未启用，无法保存 gogcli 凭证。", status_code=500)
-    if not sandbox_config.gogcli_cli_install_root:
-        return _gogcli_oauth_html("Google 授权失败", "gogcli 未预装，无法保存 Google 凭证。", status_code=500)
 
-    ensure_gogcli_keyring_password(sandbox_config, pending.user_id)
-    write_nsjail_config(sandbox_config, pending.user_id)
     query_string = request.scope.get("query_string", b"")
     if isinstance(query_string, bytes):
         query = query_string.decode("ascii", errors="ignore")
     else:
         query = str(query_string)
     callback_url = build_gogcli_callback_auth_url(pending.redirect_uri, query)
-    cmd = (
-        f"{GOGCLI_CLI_SANDBOX_BIN} auth add {shlex.quote(pending.email)} "
-        f"--services {GOGCLI_BASIC_SERVICES_ARG} --remote --step 2 --auth-url {shlex.quote(callback_url)}"
-    )
-    stdout, stderr, code = await execute_in_sandbox(cmd, sandbox_config, pending.user_id, timeout=60)
-    if code != 0:
-        detail = (stderr or stdout)[-500:] or "unknown error"
+    result = await complete_google_workspace_oauth_callback(sandbox_config, pending, callback_url)
+    if not result.ok:
         logger.warning(
-            "user {} assisted gog auth step 2 失败 (code={}): {}",
+            "user {} assisted gog oauth completion failed (stage={}): {}",
             pending.user_id,
-            code,
-            detail[:300],
+            result.stage,
+            result.detail[:300],
         )
         return _gogcli_oauth_html(
             "Google 授权未完成",
-            f"gogcli 保存凭证失败：{detail}。请回到 Ripple 重新发起授权。",
+            f"{result.detail} 请回到 Ripple 重新发起授权。",
             status_code=500,
         )
 
@@ -3023,7 +3009,8 @@ async def gogcli_oauth_callback(request: Request) -> HTMLResponse:
         connector=connector,
         user_id=pending.user_id,
     )
-    logger.info("user {} assisted gogcli 绑定成功: {}", pending.user_id, pending.email)
+    email = result.data.get("email") if isinstance(result.data, dict) else ""
+    logger.info("user {} assisted gogcli 绑定成功: {}", pending.user_id, email)
     return _gogcli_oauth_html(
         "Google 授权完成",
         "Ripple 已保存 Google Workspace 授权。可以关闭这个页面，回到对话继续。",

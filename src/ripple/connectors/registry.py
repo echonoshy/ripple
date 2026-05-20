@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import re
+import secrets as token_secrets
 import shutil
 import subprocess
 import time
@@ -33,13 +34,21 @@ from ripple.sandbox.config import GOGCLI_CLI_SANDBOX_BIN, SandboxConfig
 from ripple.sandbox.executor import execute_in_sandbox
 from ripple.sandbox.feishu import complete_lark_user_auth, ensure_lark_cli_config, start_lark_user_auth
 from ripple.sandbox.gogcli import (
+    GOGCLI_BASIC_SERVICES,
     GOGCLI_BASIC_SERVICES_ARG,
     configured_gogcli_client_secret_json,
     ensure_gogcli_keyring_password,
     parse_auth_list_output,
+    read_gogcli_client_config,
 )
 from ripple.sandbox.gogcli_oauth import (
+    GOOGLE_WORKSPACE_BASIC_SCOPES,
+    PendingGogcliOAuth,
+    build_google_workspace_oauth_url,
+    exchange_google_oauth_code,
     extract_oauth_state,
+    fetch_google_oauth_identity,
+    pop_pending_gogcli_oauth,
     register_pending_gogcli_oauth,
     resolve_gogcli_oauth_callback_url,
 )
@@ -50,7 +59,6 @@ from ripple.utils.logger import get_logger
 
 logger = get_logger("connectors.registry")
 
-_GOOGLE_OAUTH_URL_RE = re.compile(r"https://accounts\.google\.com/o/oauth2/[^\s]+")
 _GOOGLE_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _GOOGLE_CALLBACK_URL_RE = re.compile(r"^https?://[^\s]+\?[^\s]+$")
 _FEISHU_AUTH_CONFIRM_DELAYS_SECONDS: tuple[float, ...] = (0.0, 1.0, 2.0)
@@ -886,9 +894,7 @@ class GoogleWorkspaceConnector(BaseConnector):
         *,
         request_base_url: str | None = None,
     ) -> ConnectorActionResult:
-        email = str(payload.get("email") or "").strip()
-        if not email or "@" not in email:
-            return ConnectorActionResult(self.info.name, False, "invalid_request", "email is required.")
+        _ = payload
         if not config.gogcli_cli_install_root:
             return ConnectorActionResult(
                 self.info.name,
@@ -920,48 +926,39 @@ class GoogleWorkspaceConnector(BaseConnector):
                     ),
                 )
 
-        ensure_gogcli_keyring_password(config, user_id)
-        write_nsjail_config(config, user_id)
-        cmd = (
-            f"{GOGCLI_CLI_SANDBOX_BIN} auth add {_shq(email)} --services {GOGCLI_BASIC_SERVICES_ARG} --remote --step 1"
-        )
-        if assisted_callback_url:
-            cmd += f" --redirect-uri {_shq(assisted_callback_url)}"
-        stdout, stderr, code = await execute_in_sandbox(cmd, config, user_id, timeout=20)
-        if code != 0:
+        if not assisted_callback_url:
             return ConnectorActionResult(
                 self.info.name,
                 False,
-                "auth_failed",
-                f"gog auth add step 1 failed (exit {code}): {stderr[-500:] or stdout[-500:]}",
+                "server_config_required",
+                (
+                    "Google Workspace assisted OAuth callback is not configured. Configure "
+                    "server.gogcli_oauth.callback_url or server.public_base_url."
+                ),
             )
 
-        match = _GOOGLE_OAUTH_URL_RE.search(stdout + "\n" + stderr)
-        if not match:
-            return ConnectorActionResult(self.info.name, False, "auth_failed", "Could not find Google OAuth URL.")
-        oauth_url = match.group(0).rstrip(".,;)")
-        callback_mode = "manual"
-        stage = "awaiting_user_callback_url"
+        client_config = read_gogcli_client_config(config, user_id)
+        if client_config is None:
+            return ConnectorActionResult(
+                self.info.name, False, "server_config_invalid", "gogcli OAuth client is invalid."
+            )
+
+        state = token_secrets.token_urlsafe(32)
+        oauth_url = build_google_workspace_oauth_url(
+            client_id=client_config.client_id,
+            redirect_uri=assisted_callback_url,
+            state=state,
+        )
+        register_pending_gogcli_oauth(state=state, user_id=user_id, redirect_uri=assisted_callback_url)
         data: dict[str, Any] = {
             "oauth_url": oauth_url,
-            "email": email,
             "expires_in_seconds": 600,
-            "callback_mode": callback_mode,
+            "callback_mode": "assisted",
+            "assisted_callback_url": assisted_callback_url,
         }
-        if assisted_callback_url:
-            state = extract_oauth_state(oauth_url)
-            if state:
-                register_pending_gogcli_oauth(
-                    state=state,
-                    user_id=user_id,
-                    email=email,
-                    redirect_uri=assisted_callback_url,
-                )
-                callback_mode = "assisted"
-                stage = "awaiting_browser_callback"
-                data["callback_mode"] = callback_mode
-                data["assisted_callback_url"] = assisted_callback_url
-        return ConnectorActionResult(self.info.name, True, stage, "Open oauth_url to continue.", data)
+        return ConnectorActionResult(
+            self.info.name, True, "awaiting_browser_callback", "Open oauth_url to continue.", data
+        )
 
     async def auth_complete(
         self,
@@ -971,13 +968,32 @@ class GoogleWorkspaceConnector(BaseConnector):
     ) -> ConnectorActionResult:
         email = str(payload.get("email") or "").strip()
         callback_url = str(payload.get("callback_url") or "").strip()
-        if not _GOOGLE_EMAIL_RE.match(email):
-            return ConnectorActionResult(self.info.name, False, "invalid_request", "email is invalid.")
         if not _looks_like_google_callback_url(callback_url):
             return ConnectorActionResult(self.info.name, False, "invalid_request", "callback_url is invalid.")
         if "code=" not in callback_url or "state=" not in callback_url:
             return ConnectorActionResult(
                 self.info.name, False, "invalid_request", "callback_url must include code and state."
+            )
+
+        state = extract_oauth_state(callback_url)
+        if state:
+            pending = pop_pending_gogcli_oauth(state)
+            if pending is not None:
+                if pending.user_id != user_id:
+                    return ConnectorActionResult(
+                        self.info.name,
+                        False,
+                        "invalid_request",
+                        "OAuth state belongs to a different Ripple user.",
+                    )
+                return await complete_google_workspace_oauth_callback(config, pending, callback_url)
+
+        if not _GOOGLE_EMAIL_RE.match(email):
+            return ConnectorActionResult(
+                self.info.name,
+                False,
+                "invalid_request",
+                "email is required for legacy gogcli callback completion.",
             )
 
         ensure_gogcli_keyring_password(config, user_id)
@@ -1052,6 +1068,78 @@ class GoogleWorkspaceConnector(BaseConnector):
         except ValueError:
             return {"has_client_config": has_client, "accounts": [], "count": 0, "checked": check}
         return {"has_client_config": has_client, "accounts": raw, "count": len(raw), "checked": check}
+
+
+async def complete_google_workspace_oauth_callback(
+    config: SandboxConfig,
+    pending: PendingGogcliOAuth,
+    callback_url: str,
+) -> ConnectorActionResult:
+    if not config.gogcli_cli_install_root:
+        return ConnectorActionResult("google_workspace", False, "missing_cli", "gogcli is not installed.")
+
+    parsed = urlparse(callback_url)
+    values = urllib.parse.parse_qs(parsed.query)
+    code = (values.get("code") or [""])[0].strip()
+    if not code:
+        return ConnectorActionResult("google_workspace", False, "invalid_request", "callback_url must include code.")
+
+    client_config = read_gogcli_client_config(config, pending.user_id)
+    if client_config is None:
+        return ConnectorActionResult(
+            "google_workspace", False, "server_config_invalid", "gogcli OAuth client is invalid."
+        )
+
+    try:
+        token = await exchange_google_oauth_code(
+            client_id=client_config.client_id,
+            client_secret=client_config.client_secret,
+            code=code,
+            redirect_uri=pending.redirect_uri,
+        )
+        identity = await fetch_google_oauth_identity(access_token=token.access_token)
+    except ValueError as exc:
+        return ConnectorActionResult("google_workspace", False, "auth_failed", str(exc))
+
+    email = identity.email.strip().lower()
+    if not _GOOGLE_EMAIL_RE.match(email):
+        return ConnectorActionResult(
+            "google_workspace", False, "auth_failed", "Google userinfo returned invalid email."
+        )
+
+    ensure_gogcli_keyring_password(config, pending.user_id)
+    write_nsjail_config(config, pending.user_id)
+    import_payload = json.dumps(
+        {
+            "email": email,
+            "subject": identity.subject,
+            "services": list(GOGCLI_BASIC_SERVICES),
+            "scopes": list(GOOGLE_WORKSPACE_BASIC_SCOPES),
+            "refresh_token": token.refresh_token,
+        },
+        ensure_ascii=False,
+    )
+    stdout, stderr, code = await execute_in_sandbox(
+        f"{GOGCLI_CLI_SANDBOX_BIN} auth tokens import -",
+        config,
+        pending.user_id,
+        timeout=60,
+        stdin=import_payload,
+    )
+    if code != 0:
+        return ConnectorActionResult(
+            "google_workspace",
+            False,
+            "auth_failed",
+            f"gog auth tokens import failed (exit {code}): {stderr[-500:] or stdout[-500:]}",
+        )
+    return ConnectorActionResult(
+        "google_workspace",
+        True,
+        "authorized",
+        "Google Workspace account authorized for this user.",
+        {"email": email, "subject": identity.subject},
+    )
 
 
 class RuntimeCapabilityConnector(BaseConnector):

@@ -11,7 +11,10 @@ import {
   UserRound,
   Wrench,
 } from "lucide-react";
-import MarkdownRenderer, { type FeishuAuthOpenPayload } from "@/components/MarkdownRenderer";
+import MarkdownRenderer, {
+  type FeishuAuthOpenPayload,
+  type FeishuAuthWaitingState,
+} from "@/components/MarkdownRenderer";
 import type { Message, WorkbenchTimelineEvent } from "@/types";
 
 function formatTime(value: string | undefined): string {
@@ -39,6 +42,7 @@ interface TaskTimelineProps {
   onQuickReply: (option: string) => void;
   onPermissionResolve: (action: "allow" | "always" | "deny") => void;
   onFeishuAuthOpen?: (payload: FeishuAuthOpenPayload) => void;
+  feishuAuthWaiting?: FeishuAuthWaitingState | null;
 }
 
 export default function TaskTimeline({
@@ -48,6 +52,7 @@ export default function TaskTimeline({
   onQuickReply,
   onPermissionResolve,
   onFeishuAuthOpen,
+  feishuAuthWaiting,
 }: TaskTimelineProps) {
   const lastMessage = messages[messages.length - 1];
   const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
@@ -126,7 +131,11 @@ export default function TaskTimeline({
               </div>
             ) : (
               <div className="markdown-body workbench-markdown max-w-4xl text-sm leading-6 text-[#374151]">
-                <MarkdownRenderer content={event.body} onFeishuAuthOpen={onFeishuAuthOpen} />
+                <MarkdownRenderer
+                  content={event.body}
+                  onFeishuAuthOpen={onFeishuAuthOpen}
+                  feishuAuthWaiting={feishuAuthWaiting}
+                />
               </div>
             )}
           </article>
@@ -140,7 +149,9 @@ export default function TaskTimeline({
           </span>
           <div className="flex items-center gap-2 text-sm text-[#6b7280]">
             <Bot size={15} />
-            Codex is starting work...
+            {feishuAuthWaiting
+              ? `正在等待浏览器中的${feishuAuthWaiting.label}完成... 已等待 ${feishuAuthWaiting.elapsedSeconds} 秒`
+              : "Codex is starting work..."}
           </div>
         </article>
       )}

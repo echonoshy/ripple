@@ -13,7 +13,6 @@ from interfaces.server.sessions import Session
 from ripple.connectors.base import ConnectorActionResult
 from ripple.connectors.registry import get_connector, list_connectors
 
-_EMAIL_RE = re.compile(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}")
 _NOTION_TOKEN_RE = re.compile(r"\b(?:ntn|secret)_[A-Za-z0-9._=-]{20,}\b")
 _URL_RE = re.compile(r"https?://[^\s]+")
 
@@ -111,11 +110,6 @@ def _event(
         "action": _action_response(action) if action is not None else None,
         "user_content": user_content,
     }
-
-
-def _find_email(text: str) -> str:
-    match = _EMAIL_RE.search(text)
-    return match.group(0) if match else ""
 
 
 def _find_notion_token(text: str) -> str:
@@ -262,53 +256,52 @@ async def _start_google(
     request_base_url: str | None,
     resume_user_input: str | None = None,
 ) -> dict[str, Any]:
-    email = _find_email(text)
-    if not email:
-        session.pending_connector_auth = _pending_auth(
-            connector="google_workspace",
-            stage="awaiting_email",
-            resume_user_input=resume_user_input or text,
-        )
-        return _event(
-            connector_name="google_workspace",
-            stage="awaiting_email",
-            message="Google Workspace 还没有授权。请告诉我要绑定的 Google 邮箱地址，我会生成授权链接。",
-        )
     result = await _run_action(
         session,
         "google_workspace",
         "start",
-        {"email": email},
+        {},
         request_base_url=request_base_url,
     )
     pending = _pending_auth(
         connector="google_workspace",
         stage=result.stage,
         resume_user_input=resume_user_input or text,
-        email=email,
     )
     if result.data:
         pending.update({key: value for key, value in result.data.items() if key in {"callback_mode", "oauth_url"}})
     session.pending_connector_auth = pending
     url = result.data.get("oauth_url") if isinstance(result.data, dict) else None
-    message = (
-        f"请打开这个 Google 授权链接完成授权：\n\n{url}\n\n授权完成后回到这里告诉我「好了」。" if url else result.detail
-    )
+    callback_mode = result.data.get("callback_mode") if isinstance(result.data, dict) else None
+    if url and callback_mode == "assisted":
+        message = (
+            "[GOOGLE_AUTH]\n"
+            "请打开下面的 Google 授权页面，选择要绑定的账号并点击允许。\n\n"
+            f"{url}\n\n"
+            "授权完成后 Ripple 会自动保存授权并继续刚才的请求。"
+        )
+    elif url:
+        message = (
+            "请打开这个 Google 授权链接完成授权：\n\n"
+            f"{url}\n\n"
+            "当前部署没有可自动接收的 Ripple callback。授权后请把浏览器地址栏里的完整 callback URL 发回来。"
+        )
+    else:
+        message = result.detail
     return _event(connector_name="google_workspace", stage=result.stage, action=result, message=message)
 
 
 async def _continue_google(session: Session, text: str) -> dict[str, Any]:
     pending = session.pending_connector_auth or {}
-    email = str(pending.get("email") or _find_email(text))
     callback_url = _find_google_callback_url(text)
     if _is_done_signal(text) and _connector_connected(session, "google_workspace"):
         return _authorized_resume_event(session, "google_workspace")
-    if callback_url and email:
+    if callback_url:
         result = await _run_action(
             session,
             "google_workspace",
             "complete",
-            {"email": email, "callback_url": callback_url},
+            {"callback_url": callback_url},
         )
         event = _event(
             connector_name="google_workspace",
@@ -323,10 +316,14 @@ async def _continue_google(session: Session, text: str) -> dict[str, Any]:
         else:
             session.pending_connector_auth = pending
         return event
+    if pending.get("callback_mode") == "manual":
+        message = "请把浏览器地址栏里的完整 Google callback URL 发回来，我会用它完成授权。"
+    else:
+        message = "Google 授权还没有完成。请在刚才打开的 Google 页面点击允许，Ripple 会自动继续。"
     return _event(
         connector_name="google_workspace",
         stage=str(pending.get("stage") or "awaiting_browser_callback"),
-        message="如果浏览器已经显示 Ripple 授权完成，请回我「好了」；如果是 manual callback，请把完整 callback URL 发回来。",
+        message=message,
     )
 
 
@@ -338,17 +335,18 @@ def _feishu_auth_message(result: ConnectorActionResult) -> str:
     if result.stage == "awaiting_setup" and isinstance(setup_url, str) and setup_url:
         return (
             "[FEISHU_SETUP]\n"
-            "飞书需要先完成 CLI 机器人配置，然后再做用户授权。\n\n"
-            "第 1 步：打开下面的配置链接，按页面提示创建/配置飞书 CLI 机器人。\n\n"
+            "第 1/2 步：准备飞书连接。\n\n"
+            "首次使用需要在飞书页面完成一次性准备。完成后 Ripple 会自动进入账号授权。\n\n"
             f"{setup_url}\n\n"
-            "创建完成后 Ripple 会自动继续第 2 步的用户授权。"
+            "请保持当前页面打开；Ripple 会自动检查并继续第 2 步。"
         )
     if isinstance(oauth_url, str) and oauth_url:
         return (
             "[FEISHU_AUTH]\n"
-            "第 2 步：打开下面的飞书授权链接，允许 CLI 访问你的飞书账号。\n\n"
+            "第 2/2 步：授权你的飞书账号。\n\n"
+            "授权后 Ripple 会以你的飞书账号继续执行刚才的请求；发送消息会显示为你本人。\n\n"
             f"{oauth_url}\n\n"
-            "授权完成后 Ripple 会自动继续执行刚才的请求。"
+            "请保持当前页面打开；授权完成后 Ripple 会自动继续。"
         )
     return result.detail
 
@@ -374,17 +372,17 @@ def _feishu_waiting_message(pending: dict[str, Any], detail: str = "") -> str:
     if isinstance(oauth_url, str) and oauth_url:
         return (
             "[FEISHU_AUTH]\n"
-            "飞书用户授权还没有完成。\n\n"
+            "第 2/2 步：飞书账号授权还没有完成。\n\n"
             "请打开下面的授权链接完成授权：\n\n"
             f"{oauth_url}\n\n"
-            "授权完成后 Ripple 会自动继续执行。"
+            "授权后 Ripple 会以你的飞书账号继续执行，发送消息会显示为你本人。"
         )
     setup_url = pending.get("setup_url")
     if isinstance(setup_url, str) and setup_url:
         return (
             "[FEISHU_SETUP]\n"
-            "飞书 CLI 机器人配置还没有完成。\n\n"
-            "请打开下面的配置链接完成创建/配置：\n\n"
+            "第 1/2 步：飞书连接准备还没有完成。\n\n"
+            "请打开下面的飞书页面完成一次性准备：\n\n"
             f"{setup_url}\n\n"
             "完成后 Ripple 会自动继续第 2 步授权。"
         )
@@ -493,6 +491,10 @@ async def poll_pending_connector_chat_auth(
 
     pending = session.pending_connector_auth or {}
     pending_connector = pending.get("connector")
+    if pending_connector == "google_workspace":
+        if _connector_connected(session, "google_workspace"):
+            return _authorized_resume_event(session, "google_workspace")
+        return await _continue_google(session, "")
     if pending_connector != "feishu":
         return None
 

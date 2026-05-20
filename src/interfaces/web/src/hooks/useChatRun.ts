@@ -32,7 +32,7 @@ import {
   extractChangedFilePaths,
   messagesToTimelineEvents,
 } from "@/lib/workbench";
-import type { FeishuAuthOpenPayload } from "@/components/MarkdownRenderer";
+import type { FeishuAuthOpenPayload, FeishuAuthWaitingState } from "@/components/MarkdownRenderer";
 
 export interface ChatRunSessionActions {
   getSessionId: () => string | null;
@@ -90,6 +90,7 @@ export function useChatRun({
   const [lastContextTokens, setLastContextTokens] = useState(0);
   const [taskSteps, setTaskSteps] = useState<TaskInfo[]>([]);
   const [taskProgress, setTaskProgress] = useState<TaskProgress | null>(null);
+  const [feishuAuthWaiting, setFeishuAuthWaiting] = useState<FeishuAuthWaitingState | null>(null);
 
   const activeRequestIdRef = useRef(0);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -100,6 +101,14 @@ export function useChatRun({
   const connectorAuthPollIdRef = useRef(0);
   const feishuAuthPopupRef = useRef<Window | null>(null);
   const feishuAuthPopupUrlRef = useRef<string | null>(null);
+  const feishuAuthWaitingTimerRef = useRef<number | null>(null);
+  const beginConnectorAuthPollRef = useRef<
+    | ((
+        payload: FeishuAuthOpenPayload,
+        options?: { baseMessages?: Message[]; allowWhileGenerating?: boolean }
+      ) => void)
+    | null
+  >(null);
 
   const setActiveRunningSession = useCallback((sessionId: string | null) => {
     runningSessionIdRef.current = sessionId;
@@ -116,6 +125,34 @@ export function useChatRun({
     setTaskProgress(state.taskProgress);
   }, []);
 
+  const clearFeishuAuthWaiting = useCallback(() => {
+    if (feishuAuthWaitingTimerRef.current) {
+      window.clearInterval(feishuAuthWaitingTimerRef.current);
+      feishuAuthWaitingTimerRef.current = null;
+    }
+    setFeishuAuthWaiting(null);
+  }, []);
+
+  const startFeishuAuthWaiting = useCallback(
+    (url: string, connector: ConnectorAuthChatEvent["connector"] = "feishu") => {
+      const nextUrl = url.trim();
+      if (!nextUrl) return;
+      clearFeishuAuthWaiting();
+      const startedAt = Date.now();
+      const knownConnector = connector === "google_workspace" ? "google_workspace" : "feishu";
+      const label = knownConnector === "google_workspace" ? "Google 授权" : "飞书操作";
+      setFeishuAuthWaiting({ connector: knownConnector, url: nextUrl, elapsedSeconds: 0, label });
+      feishuAuthWaitingTimerRef.current = window.setInterval(() => {
+        setFeishuAuthWaiting((current) =>
+          current?.url === nextUrl
+            ? { ...current, elapsedSeconds: Math.floor((Date.now() - startedAt) / 1000) }
+            : current
+        );
+      }, 1000);
+    },
+    [clearFeishuAuthWaiting]
+  );
+
   const clearConnectorAuthPoll = useCallback(() => {
     connectorAuthPollIdRef.current += 1;
     connectorAuthPollAbortRef.current?.abort();
@@ -124,7 +161,8 @@ export function useChatRun({
       window.clearTimeout(connectorAuthPollTimerRef.current);
       connectorAuthPollTimerRef.current = null;
     }
-  }, []);
+    clearFeishuAuthWaiting();
+  }, [clearFeishuAuthWaiting]);
 
   useEffect(() => clearConnectorAuthPoll, [clearConnectorAuthPoll]);
 
@@ -364,6 +402,7 @@ export function useChatRun({
       };
 
       let currentContent = "";
+      let pendingConnectorAuthPayload: FeishuAuthOpenPayload | null = null;
       const assistantUpdates = new Map<string, string>();
       const upsertAssistantUpdate = (id: string, content: string) => {
         updateRunningMessages((prev) => {
@@ -571,9 +610,35 @@ export function useChatRun({
             const ctx = usage.last_prompt_tokens ?? usage.prompt_tokens;
             if (ctx > 0) updateRunningContextTokens(ctx);
           },
+          onConnectorAuth: (event) => {
+            if (isStaleRequest()) return;
+            const data = event.action?.data || {};
+            const nextUrl = typeof data.oauth_url === "string" ? data.oauth_url : "";
+            if (
+              event.connector === "google_workspace" &&
+              event.type === "connector_auth_required" &&
+              event.stage === "awaiting_browser_callback" &&
+              nextUrl
+            ) {
+              pendingConnectorAuthPayload = {
+                connector: "google_workspace",
+                tag: "auth",
+                url: nextUrl,
+                popup: null,
+              };
+            }
+          },
           onComplete: () => {
             if (isStaleRequest()) return;
             abortControllerRef.current = null;
+            if (pendingConnectorAuthPayload && beginConnectorAuthPollRef.current) {
+              const baseMessages = runningViewStateRef.current?.messages || initialMessages;
+              beginConnectorAuthPollRef.current?.(pendingConnectorAuthPayload, {
+                baseMessages,
+                allowWhileGenerating: true,
+              });
+              return;
+            }
             setIsGenerating(false);
             setActiveRunningSession(null);
             const nextPlan = clearTaskPlanState();
@@ -695,24 +760,126 @@ export function useChatRun({
       /* fall through to opening a new window */
     }
     if (feishuAuthPopupUrlRef.current === nextUrl) return;
-    feishuAuthPopupRef.current = window.open(nextUrl, "ripple-feishu-auth");
+    feishuAuthPopupRef.current = window.open(nextUrl, "ripple-connector-auth");
     feishuAuthPopupUrlRef.current = nextUrl;
   }, []);
 
-  const handleFeishuAuthOpen = useCallback(
-    ({ url, popup }: FeishuAuthOpenPayload) => {
+  const beginConnectorAuthPoll = useCallback(
+    (
+      { connector, url, popup }: FeishuAuthOpenPayload,
+      options: { baseMessages?: Message[]; allowWhileGenerating?: boolean } = {}
+    ) => {
+      const targetConnector = connector === "google_workspace" ? "google_workspace" : "feishu";
       const activeSessionId = getSessionActions().getSessionId();
       if (!activeSessionId) return;
-      if (isGenerating) return;
+      if (isGenerating && !options.allowWhileGenerating) return;
 
-      navigateFeishuAuthPopup(url, popup);
       clearConnectorAuthPoll();
+      navigateFeishuAuthPopup(url, popup);
+      startFeishuAuthWaiting(url, targetConnector);
       const pollId = connectorAuthPollIdRef.current + 1;
       connectorAuthPollIdRef.current = pollId;
+      const baseMessages = options.baseMessages || messages;
+      const initialMessages: Message[] = [
+        ...baseMessages,
+        {
+          id: `${targetConnector}-auth-${Date.now()}-assistant`,
+          role: "assistant",
+          content: "",
+          toolCalls: [],
+        },
+      ];
+      runningViewStateRef.current = {
+        sessionId: activeSessionId,
+        messages: initialMessages,
+        runtimeTimelineEvents,
+        pendingFiles: [],
+        tokenUsage,
+        lastContextTokens,
+        taskSteps,
+        taskProgress,
+      };
       setActiveRunningSession(activeSessionId);
+      setMessages(initialMessages);
       setIsGenerating(true);
 
       const isStalePoll = () => connectorAuthPollIdRef.current !== pollId;
+      const isRunVisible = () => getSessionActions().getSessionId() === activeSessionId;
+      const getRunningState = () => {
+        const state = runningViewStateRef.current;
+        return state?.sessionId === activeSessionId ? state : null;
+      };
+      const updateRunningMessages = (updater: (prev: Message[]) => Message[]) => {
+        const state = getRunningState();
+        if (!state) return;
+        const nextMessages = updater(state.messages);
+        runningViewStateRef.current = { ...state, messages: nextMessages };
+        if (isRunVisible()) setMessages(nextMessages);
+      };
+      const updateRunningTimelineEvents = (
+        updater: (prev: WorkbenchTimelineEvent[]) => WorkbenchTimelineEvent[]
+      ) => {
+        const state = getRunningState();
+        if (!state) return;
+        const nextEvents = updater(state.runtimeTimelineEvents);
+        runningViewStateRef.current = { ...state, runtimeTimelineEvents: nextEvents };
+        if (isRunVisible()) setRuntimeTimelineEvents(nextEvents);
+      };
+      const updateRunningTaskSteps = (updater: (prev: TaskInfo[]) => TaskInfo[]) => {
+        const state = getRunningState();
+        if (!state) return;
+        const nextSteps = updater(state.taskSteps);
+        runningViewStateRef.current = { ...state, taskSteps: nextSteps };
+        if (isRunVisible()) setTaskSteps(nextSteps);
+      };
+      const updateRunningTaskProgress = (nextProgress: TaskProgress | null) => {
+        const state = getRunningState();
+        if (!state) return;
+        runningViewStateRef.current = { ...state, taskProgress: nextProgress };
+        if (isRunVisible()) setTaskProgress(nextProgress);
+      };
+      const updateRunningUsage = (updater: (prev: UsageInfo) => UsageInfo) => {
+        const state = getRunningState();
+        if (!state) return;
+        const nextUsage = updater(state.tokenUsage);
+        runningViewStateRef.current = { ...state, tokenUsage: nextUsage };
+        if (isRunVisible()) setTokenUsage(nextUsage);
+      };
+      const updateRunningContextTokens = (nextContextTokens: number) => {
+        const state = getRunningState();
+        if (!state) return;
+        runningViewStateRef.current = { ...state, lastContextTokens: nextContextTokens };
+        if (isRunVisible()) setLastContextTokens(nextContextTokens);
+      };
+      const replaceRunningPlan = (nextPlan: {
+        taskSteps: TaskInfo[];
+        taskProgress: TaskProgress | null;
+      }) => {
+        const state = getRunningState();
+        if (!state) return;
+        runningViewStateRef.current = {
+          ...state,
+          taskSteps: nextPlan.taskSteps,
+          taskProgress: nextPlan.taskProgress,
+        };
+        if (isRunVisible()) {
+          setTaskSteps(nextPlan.taskSteps);
+          setTaskProgress(nextPlan.taskProgress);
+        }
+      };
+      const appendAssistantPlaceholder = () => {
+        updateRunningMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now() + Math.random(),
+            role: "assistant",
+            content: "",
+            toolCalls: [],
+          },
+        ]);
+      };
+
+      let renderedPollContent = false;
       const refreshSession = async () => {
         try {
           const details = await fetchSessionDetails(activeSessionId);
@@ -725,15 +892,20 @@ export function useChatRun({
             handleAuthExpired();
             return false;
           }
-          console.error("Feishu auth session refresh error:", error);
+          console.error("Connector auth session refresh error:", error);
           return true;
         }
       };
       const finishPoll = async () => {
         connectorAuthPollAbortRef.current = null;
+        clearFeishuAuthWaiting();
+        if (!renderedPollContent) {
+          runningViewStateRef.current = null;
+        }
         const refreshed = await refreshSession();
         if (!refreshed) return;
         if (isStalePoll()) return;
+        runningViewStateRef.current = null;
         setIsGenerating(false);
         setActiveRunningSession(null);
         setInputFocusToken((prev) => bumpInputFocusToken(prev));
@@ -752,17 +924,148 @@ export function useChatRun({
           lastEvent: null,
           streamError: null,
         };
+        let responseHasContent = false;
+        let currentContent = "";
+        const ensureResponseAssistant = () => {
+          if (responseHasContent) return;
+          responseHasContent = true;
+          updateRunningMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (
+              last?.role === "assistant" &&
+              !last.content &&
+              (!last.toolCalls || last.toolCalls.length === 0)
+            ) {
+              return prev;
+            }
+            return [
+              ...prev,
+              {
+                id: Date.now() + Math.random(),
+                role: "assistant",
+                content: "",
+                toolCalls: [],
+              },
+            ];
+          });
+        };
 
         await pollSessionConnectorAuth(
           activeSessionId,
           selectedModel,
           {
-            onMessageDelta: () => {},
-            onToolCall: () => {},
-            onToolResult: () => {},
-            onUsage: () => {},
+            onMessageDelta: (delta) => {
+              if (isStalePoll()) return;
+              renderedPollContent = true;
+              ensureResponseAssistant();
+              currentContent += delta;
+              updateRunningMessages((prev) => {
+                const msgs = [...prev];
+                const last = msgs[msgs.length - 1];
+                if (last.role === "assistant") last.content = currentContent;
+                return msgs;
+              });
+            },
+            onNewTurn: () => {
+              if (isStalePoll()) return;
+              renderedPollContent = true;
+              currentContent = "";
+              responseHasContent = true;
+              appendAssistantPlaceholder();
+            },
+            onToolCall: (toolCall) => {
+              if (isStalePoll()) return;
+              renderedPollContent = true;
+              updateRunningMessages((prev) => {
+                const msgs = [...prev];
+                const last = msgs[msgs.length - 1];
+                if (last.role !== "assistant") {
+                  return [
+                    ...msgs,
+                    {
+                      id: Date.now() + Math.random(),
+                      role: "assistant",
+                      content: "",
+                      toolCalls: [toolCall],
+                    },
+                  ];
+                }
+                const idx = last.toolCalls?.findIndex((t) => t.id === toolCall.id) ?? -1;
+                if (idx >= 0 && last.toolCalls) {
+                  last.toolCalls[idx] = toolCall;
+                } else {
+                  last.toolCalls = [...(last.toolCalls || []), toolCall];
+                }
+                return msgs;
+              });
+            },
+            onToolResult: (toolId, result) => {
+              if (isStalePoll()) return;
+              renderedPollContent = true;
+              updateRunningMessages((prev) => {
+                const msgs = [...prev];
+                const last = msgs[msgs.length - 1];
+                if (last.role === "assistant") {
+                  const tc = last.toolCalls?.find((t) => t.id === toolId);
+                  if (tc) {
+                    tc.status = "success";
+                    tc.result = result;
+                  }
+                }
+                return msgs;
+              });
+            },
+            onTaskCreated: (task) => {
+              if (isStalePoll()) return;
+              updateRunningTaskSteps((prev) => upsertTask(prev, task));
+            },
+            onTaskUpdated: (task) => {
+              if (isStalePoll()) return;
+              updateRunningTaskSteps((prev) => applyTaskUpdate(prev, task));
+            },
+            onTaskProgress: (progress) => {
+              if (isStalePoll()) return;
+              updateRunningTaskProgress(progress);
+            },
+            onTaskPlanUpdated: (update) => {
+              if (isStalePoll()) return;
+              const next = applyTaskPlanUpdate([], update);
+              replaceRunningPlan(next);
+            },
+            onRuntimeEvent: (event) => {
+              if (isStalePoll()) return;
+              if (!shouldShowRuntimeEvent(event)) return;
+              renderedPollContent = true;
+              const createdAt = new Date().toISOString();
+              updateRunningTimelineEvents((prev) => [
+                ...prev,
+                codexRuntimeEventToTimelineEvent(event, {
+                  id: `runtime-${targetConnector}-${pollId}-${prev.length}`,
+                  createdAt,
+                }),
+              ]);
+            },
+            onUsage: (usage) => {
+              if (isStalePoll()) return;
+              updateRunningUsage((prev) => ({
+                prompt_tokens: prev.prompt_tokens + usage.prompt_tokens,
+                completion_tokens: prev.completion_tokens + usage.completion_tokens,
+                total_tokens: prev.total_tokens + usage.total_tokens,
+                last_prompt_tokens: usage.last_prompt_tokens ?? prev.last_prompt_tokens,
+                cached_input_tokens:
+                  (prev.cached_input_tokens ?? 0) + (usage.cached_input_tokens ?? 0),
+                reasoning_output_tokens:
+                  (prev.reasoning_output_tokens ?? 0) + (usage.reasoning_output_tokens ?? 0),
+                model_context_window: usage.model_context_window ?? prev.model_context_window,
+              }));
+              const ctx = usage.last_prompt_tokens ?? usage.prompt_tokens;
+              if (ctx > 0) updateRunningContextTokens(ctx);
+            },
             onConnectorAuth: (event) => {
               pollState.lastEvent = event;
+              if (event.type === "connector_auth_updated") {
+                clearFeishuAuthWaiting();
+              }
               const data = event.action?.data || {};
               const nextUrl =
                 typeof data.oauth_url === "string"
@@ -770,8 +1073,9 @@ export function useChatRun({
                   : typeof data.setup_url === "string"
                     ? data.setup_url
                     : "";
-              if (event.connector === "feishu" && nextUrl) {
+              if (event.connector === targetConnector && nextUrl) {
                 navigateFeishuAuthPopup(nextUrl);
+                startFeishuAuthWaiting(nextUrl, targetConnector);
               }
             },
             onComplete: () => {},
@@ -789,7 +1093,15 @@ export function useChatRun({
             handleAuthExpired();
             return;
           }
-          console.error("Feishu auth poll error:", pollState.streamError);
+          console.error("Connector auth poll error:", pollState.streamError);
+          updateRunningMessages((prev) => {
+            const msgs = [...prev];
+            const last = msgs[msgs.length - 1];
+            if (last.role === "assistant" && !last.content) {
+              last.content = chatErrorContent(pollState.streamError);
+            }
+            return msgs;
+          });
           await finishPoll();
           return;
         }
@@ -800,7 +1112,7 @@ export function useChatRun({
         const lastEvent = pollState.lastEvent;
         const shouldContinue =
           lastEvent !== null &&
-          lastEvent.connector === "feishu" &&
+          lastEvent.connector === targetConnector &&
           lastEvent.type === "connector_auth_required" &&
           lastEvent.stage !== "auth_failed" &&
           lastEvent.stage !== "invalid_request";
@@ -815,16 +1127,35 @@ export function useChatRun({
     },
     [
       applySessionDetails,
+      clearFeishuAuthWaiting,
       clearConnectorAuthPoll,
       getSessionActions,
       handleAuthExpired,
       isGenerating,
+      lastContextTokens,
+      messages,
       navigateFeishuAuthPopup,
       onWorkspaceRefresh,
+      runtimeTimelineEvents,
       selectedModel,
       setActiveRunningSession,
+      startFeishuAuthWaiting,
+      taskProgress,
+      taskSteps,
+      tokenUsage,
     ]
   );
+
+  const handleFeishuAuthOpen = useCallback(
+    (payload: FeishuAuthOpenPayload) => {
+      beginConnectorAuthPoll(payload);
+    },
+    [beginConnectorAuthPoll]
+  );
+
+  useEffect(() => {
+    beginConnectorAuthPollRef.current = beginConnectorAuthPoll;
+  }, [beginConnectorAuthPoll]);
 
   const pendingInteractionMessage = useMemo(
     () => [...messages].reverse().find((message) => message.permissionRequest || message.askUser),
@@ -866,6 +1197,7 @@ export function useChatRun({
     currentSessionRuntimeStatus,
     timelineEvents,
     changedFiles,
+    feishuAuthWaiting,
     resetSessionView,
     resetCurrentContextView,
     abortRunAndResetSessionView,

@@ -49,64 +49,38 @@ gog <service> --help               # 每个 service 都有完整的 --help
 
 不确定的地方先 `--help`，别硬拼。
 
-## ✅ 首次使用 gog 的标准流程（1 个工具 + 1 次点击）
+## ✅ 首次使用 gog 的标准流程（控制面发起 + 1 次点击）
 
-### 步骤 1：agent 调 `GoogleWorkspaceLoginStart`
+### 步骤 1：Ripple 控制面发起 Google OAuth
 
-默认部署应已在 `config/settings.yaml` 配好 `server.gogcli_oauth.client`。当前 user 第一次登录时，`GoogleWorkspaceLoginStart` 会自动把部署级 OAuth Client 注册到该 user 的 gogcli 配置里，然后生成基础 Workspace 服务的授权 URL。
+默认部署应已在 `config/settings.yaml` 配好 `server.gogcli_oauth.client` 和 `server.gogcli_oauth.callback_url`。当前 user 第一次使用 Google Workspace 能力时，Ripple 控制面会自动把部署级 OAuth Client 注册到该 user 的 gogcli 配置里，然后直接返回 Google 授权 URL。
 
-```
-GoogleWorkspaceLoginStart(email="user@gmail.com")
-```
-
-工具返回 `{ok: true, oauth_url: "https://accounts.google.com/o/oauth2/...", callback_mode, email, expires_in_seconds: 600}`。
+不要先问用户 Google 邮箱。用户会在 Google 授权页面自己选择要绑定的账号；Ripple callback 会读取 Google 返回的真实账号邮箱，并用 gogcli 的 token import 流程保存 refresh token。
 
 ### 步骤 2：把 URL **完整原样**给用户
-
-如果 `callback_mode == "assisted"`：
 
 ```
 请在浏览器打开以下 URL 授权：
 
 https://accounts.google.com/o/oauth2/auth?...<完整 URL>...
 
-1. 用要绑定的 Google 账户登录
+1. 在 Google 页面选择要绑定的账户
 2. 审查申请的权限，点 "Allow / 允许"
-3. 浏览器显示 Ripple 授权完成后，回到对话告诉我"好了"
+3. 浏览器显示 Ripple 授权完成后，可以关闭授权页
 ```
 
-**不要让用户复制地址栏 callback URL**；Ripple 后端会自动接收 Google callback 并完成 gog step 2。
-
-如果 `callback_mode == "manual"`：
-
-```
-请在你本机浏览器打开以下 URL 授权（ripple server 和你浏览器不在同一台机器也没关系）：
-
-https://accounts.google.com/o/oauth2/auth?...<完整 URL>...
-
-1. 用要绑定的 Google 账户登录
-2. 审查申请的权限，点 "Allow / 允许"
-3. 浏览器会跳转到 http://127.0.0.1:<端口>/oauth2/callback?code=...&state=...
-   页面会显示"无法连接"——这是正常的，因为你本机上没 server
-4. **从浏览器地址栏把完整 URL 复制下来**贴回对话里告诉我
-```
+**不要让用户复制地址栏 callback URL**；Ripple 后端会自动接收 Google callback、换 token、保存到当前 user 的 gogcli keyring，并恢复刚才的任务。
 
 **不要**：
 - 缩短 / 省略 URL 的任何字符（一个参数错了就授权失败）
 - 帮用户 decode URL / 把参数"解读一遍"（没用、可能误导）
 - 主动说"这个 URL 有风险"（sandbox 隔离，授权本来就是这么工作的）
+- 要求用户先输入 Google 邮箱地址
+- 要求用户授权完成后回"好了"
 
 ### 步骤 3：完成授权
 
-如果是 `assisted` 模式，用户说"好了"后调 `GoogleWorkspaceAuthStatus(check=true)` 确认账号已绑定，然后继续业务。
-
-如果是 `manual` 模式，用户粘回 callback URL 后，agent 调 `GoogleWorkspaceLoginComplete`：
-
-```
-GoogleWorkspaceLoginComplete(email="user@gmail.com", callback_url="<用户粘贴的完整 URL>")
-```
-
-工具内部跑 step 2，把 code 换 token，加密存 refresh_token。成功后业务命令就能用了。
+控制面轮询发现授权完成后，会自动恢复原始用户请求。业务命令里再用 `gog --account <email> ...`；如果用户没有指定账号，先用 `gog auth list --json` 查看当前 user 已绑定账号。
 
 ### 服务端未配置 OAuth Client 时的处理
 
@@ -149,25 +123,23 @@ Google Workspace 授权还没有在服务端配置完成。请管理员配置后
 
 ## 🔍 运行时检查 & 账号管理
 
-首期只做鉴权的三件套没暴露"当前绑了谁"的视图。新增两个工具弥补：
+当前控制面负责发起 OAuth 和保存 token；业务执行阶段只需要查看账号、选择 `--account`，以及在用户明确要求时解绑：
 
 - **`GoogleWorkspaceAuthStatus`**（只读，SAFE）
   - 查当前 user 绑了哪些邮箱、alias 是什么；可选 `check=true` 真跑一次 token exchange 验活（每账号一次网络往返 + 少量配额消耗）。
   - 开局不确定该用哪个 `--account` 的时候先调一下。
-  - 业务命令报 `invalid_grant` / `unauthorized_client` 时调 `check=true`：如果 `valid=false`，就是 refresh_token 失效，走 `GoogleWorkspaceLoginStart` 重新授权。
+  - 业务命令报 `invalid_grant` / `unauthorized_client` 时调 `check=true`：如果 `valid=false`，就是 refresh_token 失效，让控制面重新发起 Google 授权。
 
 - **`GoogleWorkspaceLogout`**（⚠️ 破坏性，见下面破坏性清单）
   - 解绑某个账号（从本地 keyring 删 refresh_token）。
   - **不**撤销 Google 侧的授权；如果用户要彻底 revoke，引导去 <https://myaccount.google.com/permissions>。
   - 不动 Desktop OAuth client config（跨账号共享）。
 
-## 🧰 gogcli 工具总览（5 个）
+## 🧰 gogcli 授权/账号入口
 
 | 用途 | 工具 | 何时调 |
 |---|---|---|
-| 绑 OAuth client | `GoogleWorkspaceClientConfigSet` | 管理员/开发调试专用；正常用户授权不要调用 |
-| 拿授权 URL | `GoogleWorkspaceLoginStart` | 每次新账号 / refresh token 失效；会自动注册部署级 OAuth Client |
-| 吃 callback URL 换 token | `GoogleWorkspaceLoginComplete` | 紧跟 LoginStart 之后 |
+| OAuth 授权 | Ripple 控制面 connector auth | 每次新账号 / refresh token 失效；不要在业务执行里问邮箱或吃 callback URL |
 | 列已绑账号 / 验活 | `GoogleWorkspaceAuthStatus` | 开局、可疑 token 错误 |
 | 解绑账号 | `GoogleWorkspaceLogout` | 用户明确要求解绑（⚠️ 先 AskUser） |
 

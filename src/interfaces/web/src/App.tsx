@@ -91,6 +91,7 @@ export default function Home() {
     currentSessionRuntimeStatus,
     timelineEvents,
     changedFiles,
+    feishuAuthWaiting,
     resetSessionView,
     abortRunAndResetSessionView,
     applySessionDetails,
@@ -336,6 +337,7 @@ export default function Home() {
         onQuickReply={handleQuickReply}
         onPermissionResolve={handlePermissionResolve}
         onFeishuAuthOpen={handleFeishuAuthOpen}
+        feishuAuthWaiting={feishuAuthWaiting}
       />
     );
 

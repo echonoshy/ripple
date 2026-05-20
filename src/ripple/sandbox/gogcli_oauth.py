@@ -1,8 +1,8 @@
-"""Host-side helper state for gogcli assisted OAuth callbacks.
+"""Host-side helper state for Google Workspace assisted OAuth callbacks.
 
-gogcli still owns the OAuth state and token exchange. Ripple only keeps a
-short-lived state -> user/email mapping so a browser callback can be forwarded
-to `gog auth add --remote --step 2` without asking the user to paste the URL.
+Ripple owns the browser-facing OAuth URL and callback so users can choose their
+Google account on Google's page without telling Ripple an email address first.
+The resulting refresh token is still stored through gogcli's own import path.
 """
 
 from __future__ import annotations
@@ -10,21 +10,51 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from threading import RLock
-from urllib.parse import parse_qs, urlparse, urlunparse
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
+
+import httpx
 
 from ripple.utils.config import Config, get_config
 
 GOGCLI_OAUTH_CALLBACK_PATH = "/v1/sandboxes/gogcli/oauth/callback"
 GOGCLI_OAUTH_PENDING_TTL_SECONDS = 600
+GOOGLE_OAUTH_AUTH_URL = "https://accounts.google.com/o/oauth2/auth"
+GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"
+GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo"
+GOOGLE_WORKSPACE_BASIC_SCOPES = (
+    "email",
+    "openid",
+    "https://www.googleapis.com/auth/calendar",
+    "https://www.googleapis.com/auth/documents",
+    "https://www.googleapis.com/auth/drive",
+    "https://www.googleapis.com/auth/gmail.modify",
+    "https://www.googleapis.com/auth/gmail.settings.basic",
+    "https://www.googleapis.com/auth/gmail.settings.sharing",
+    "https://www.googleapis.com/auth/presentations",
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/userinfo.email",
+)
 
 
 @dataclass(frozen=True)
 class PendingGogcliOAuth:
     user_id: str
-    email: str
     redirect_uri: str
     created_at: float
     expires_at: float
+    email: str = ""
+
+
+@dataclass(frozen=True)
+class GoogleOAuthToken:
+    access_token: str
+    refresh_token: str
+
+
+@dataclass(frozen=True)
+class GoogleOAuthIdentity:
+    email: str
+    subject: str = ""
 
 
 _LOCK = RLock()
@@ -113,7 +143,7 @@ def resolve_gogcli_oauth_callback_url(
 
 
 def build_gogcli_callback_auth_url(redirect_uri: str, query_string: str) -> str:
-    """Rebuild the callback URL passed to `gog auth add --remote --step 2`.
+    """Rebuild the public callback URL from the configured redirect URI.
 
     In proxied deployments, ASGI's `request.url` may use an internal host or
     scheme. The saved redirect URI is the one sent to Google in step 1, so use
@@ -126,12 +156,98 @@ def build_gogcli_callback_auth_url(redirect_uri: str, query_string: str) -> str:
     return f"{redirect_uri}{separator}{query}"
 
 
+def build_google_workspace_oauth_url(
+    *,
+    client_id: str,
+    redirect_uri: str,
+    state: str,
+    scopes: tuple[str, ...] = GOOGLE_WORKSPACE_BASIC_SCOPES,
+) -> str:
+    params = {
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": " ".join(scopes),
+        "state": state,
+        "access_type": "offline",
+        "include_granted_scopes": "true",
+        "prompt": "consent select_account",
+    }
+    return GOOGLE_OAUTH_AUTH_URL + "?" + urlencode(params)
+
+
+async def exchange_google_oauth_code(
+    *,
+    client_id: str,
+    client_secret: str,
+    code: str,
+    redirect_uri: str,
+    timeout: float = 15.0,
+) -> GoogleOAuthToken:
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(
+                GOOGLE_OAUTH_TOKEN_URL,
+                data={
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "code": code,
+                    "grant_type": "authorization_code",
+                    "redirect_uri": redirect_uri,
+                },
+            )
+    except httpx.HTTPError as exc:
+        raise ValueError(f"Google token exchange request failed: {exc}") from exc
+    if response.status_code >= 400:
+        detail = response.text[:500] if response.text else response.reason_phrase
+        raise ValueError(f"Google token exchange failed: HTTP {response.status_code}: {detail}")
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise ValueError("Google token exchange returned non-JSON response.") from exc
+    if not isinstance(data, dict):
+        raise ValueError("Google token exchange returned invalid response.")
+    access_token = str(data.get("access_token") or "").strip()
+    refresh_token = str(data.get("refresh_token") or "").strip()
+    if not access_token:
+        raise ValueError("Google token exchange did not return an access token.")
+    if not refresh_token:
+        raise ValueError("Google token exchange did not return a refresh token; try authorizing again.")
+    return GoogleOAuthToken(access_token=access_token, refresh_token=refresh_token)
+
+
+async def fetch_google_oauth_identity(
+    *,
+    access_token: str,
+    timeout: float = 15.0,
+) -> GoogleOAuthIdentity:
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.get(GOOGLE_USERINFO_URL, headers={"Authorization": f"Bearer {access_token}"})
+    except httpx.HTTPError as exc:
+        raise ValueError(f"Google userinfo request failed: {exc}") from exc
+    if response.status_code >= 400:
+        detail = response.text[:500] if response.text else response.reason_phrase
+        raise ValueError(f"Google userinfo request failed: HTTP {response.status_code}: {detail}")
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise ValueError("Google userinfo returned non-JSON response.") from exc
+    if not isinstance(data, dict):
+        raise ValueError("Google userinfo returned invalid response.")
+    email = str(data.get("email") or "").strip()
+    if not email:
+        raise ValueError("Google userinfo did not return an email address.")
+    subject = str(data.get("sub") or data.get("id") or "").strip()
+    return GoogleOAuthIdentity(email=email, subject=subject)
+
+
 def register_pending_gogcli_oauth(
     *,
     state: str,
     user_id: str,
-    email: str,
     redirect_uri: str,
+    email: str = "",
     ttl_seconds: int = GOGCLI_OAUTH_PENDING_TTL_SECONDS,
 ) -> PendingGogcliOAuth:
     now = time.time()

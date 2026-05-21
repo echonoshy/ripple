@@ -32,7 +32,8 @@ Implemented in the current migration slice:
 - Connector list/status shape for current built-in connectors.
 - Notion token authorization/disconnect.
 - Google Workspace assisted OAuth start/callback completion, account listing/disconnect through `gog`, plus the legacy `/v1/sandboxes/gogcli-accounts` alias.
-- Feishu and Bilibili disconnect cleanup.
+- Bilibili QR login start/complete, credential status with expiry filtering, disconnect cleanup, and nsjail readonly credential mount.
+- Feishu disconnect cleanup.
 - Stateless `/v1/bilibili/qrcode.png` PNG rendering route.
 - Codex app-server JSON-RPC provider with one trusted service process per user.
 - `/v1/runs` for user-scoped Codex jobs, including durable `meta.json`, event replay, SSE follow, steer, and cancel.
@@ -48,7 +49,6 @@ Implemented in the current migration slice:
 Not implemented yet:
 
 - Feishu OAuth start/complete in Rust.
-- Bilibili QR login start/complete in Rust.
 - Chat-side connector auth polling/interception flows.
 - Full Python FastAPI parity for specialized chat-side schedule creation prompts.
 - Richer chat SSE parity for Codex runtime/tool/image/usage events.

@@ -194,6 +194,15 @@ impl SandboxManager {
             true,
             None,
         ));
+        let bilibili_credential = self.bilibili_config_file(user_id)?;
+        if bilibili_credential.is_file() {
+            mounts.push(mount_block(
+                Some(bilibili_credential.to_string_lossy().as_ref()),
+                "/workspace/.bilibili/sessdata.json",
+                false,
+                None,
+            ));
+        }
         mounts.push(mount_block(None, "/proc", false, Some("proc")));
         mounts.push(mount_block(None, "/tmp", true, Some("tmpfs")));
 

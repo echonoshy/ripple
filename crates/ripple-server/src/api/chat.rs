@@ -15,6 +15,7 @@ use time::OffsetDateTime;
 use tokio::time::{sleep, Duration, Instant};
 use uuid::Uuid;
 
+use crate::api::connectors::read_valid_bilibili_credential_file;
 use crate::api::ApiError;
 use crate::jobs::{AgentRunCreateRequest, AgentRunInfo};
 use crate::sessions::{CreateSessionInput, SessionRecord};
@@ -208,11 +209,14 @@ fn connector_manifest(state: &AppState, user_id: &str) -> String {
         .map(|path| path.join(".lark-cli/config.json"));
     let notion = credentials.as_ref().map(|path| path.join("notion.json"));
     let bilibili = credentials.as_ref().map(|path| path.join("bilibili.json"));
+    let bilibili_connected = bilibili
+        .as_deref()
+        .is_some_and(|path| read_valid_bilibili_credential_file(path).is_some());
     [
         ("google_workspace", has(google.as_deref())),
         ("notion", has(notion.as_deref())),
         ("feishu", has(feishu.as_deref())),
-        ("bilibili", has(bilibili.as_deref())),
+        ("bilibili", bilibili_connected),
         ("openai_codex", true),
         ("codex_image_generation", true),
         ("codex_image_input", true),

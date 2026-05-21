@@ -2,16 +2,17 @@ use std::collections::HashMap;
 use std::path::{Path as FsPath, PathBuf};
 use std::process::Stdio;
 use std::sync::{Mutex, OnceLock};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use axum::extract::{OriginalUri, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
 use axum::Json;
+use reqwest::header;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use tokio::process::Command;
-use url::Url;
+use url::{form_urlencoded, Url};
 use uuid::Uuid;
 
 use crate::api::ApiError;
@@ -39,6 +40,19 @@ const GOOGLE_WORKSPACE_BASIC_SCOPES: &[&str] = &[
 const GOGCLI_BASIC_SERVICES: &[&str] = &["gmail", "drive", "calendar", "docs", "sheets", "slides"];
 const GOGCLI_BASIC_SERVICES_ARG: &str = "gmail,drive,calendar,docs,sheets,slides";
 const GOGCLI_OAUTH_PENDING_TTL_SECONDS: u64 = 600;
+const BILIBILI_QRCODE_GENERATE_URL: &str =
+    "https://passport.bilibili.com/x/passport-login/web/qrcode/generate";
+const BILIBILI_QRCODE_POLL_URL: &str =
+    "https://passport.bilibili.com/x/passport-login/web/qrcode/poll";
+const BILIBILI_NAV_URL: &str = "https://api.bilibili.com/x/web-interface/nav";
+const BILIBILI_DEFAULT_UA: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+const BILIBILI_DEFAULT_REFERER: &str = "https://www.bilibili.com/";
+const BILIBILI_QR_STATE_OK: i64 = 0;
+const BILIBILI_QR_STATE_EXPIRED: i64 = 86038;
+const BILIBILI_QR_STATE_NOT_CONFIRMED: i64 = 86090;
+const BILIBILI_QR_STATE_NOT_SCANNED: i64 = 86101;
+const BILIBILI_QRCODE_TTL_SECONDS: u64 = 180;
+const BILIBILI_PENDING_TTL_SECONDS: u64 = 600;
 
 #[derive(Clone, Debug)]
 struct PendingGogcliOAuth {
@@ -65,7 +79,35 @@ struct GoogleOAuthIdentity {
     subject: String,
 }
 
+#[derive(Clone, Debug)]
+struct PendingBilibiliQr {
+    expires_at: u64,
+}
+
+#[derive(Debug)]
+struct BilibiliQrCode {
+    qrcode_key: String,
+    qrcode_content: String,
+}
+
+#[derive(Debug)]
+struct BilibiliPollResult {
+    state: &'static str,
+    raw_code: i64,
+    raw_message: String,
+    credential_fields: Option<Value>,
+}
+
+#[derive(Debug)]
+struct BilibiliLiveCredential {
+    is_login: bool,
+    uname: String,
+    mid: u64,
+    raw_log: Option<String>,
+}
+
 static PENDING_GOGCLI_OAUTH: OnceLock<Mutex<HashMap<String, PendingGogcliOAuth>>> = OnceLock::new();
+static PENDING_BILIBILI_QR: OnceLock<Mutex<HashMap<String, PendingBilibiliQr>>> = OnceLock::new();
 
 pub async fn list_connectors() -> Json<Value> {
     Json(json!({
@@ -105,8 +147,20 @@ pub async fn connector_status(
             json!({"name": connector_name, "connected": connected, "required": !connected, "detail": if connected {"Feishu CLI configuration exists for this user."} else {"Feishu CLI app configuration is missing for this user."}, "metadata": {}})
         }
         "bilibili" => {
-            let connected = credentials.join("bilibili.json").is_file();
-            json!({"name": connector_name, "connected": connected, "required": !connected, "detail": if connected {"Bilibili credentials are stored for this user."} else {"Bilibili credentials are missing for this user."}, "metadata": {}})
+            let credential =
+                read_valid_bilibili_credential_file(&credentials.join("bilibili.json"));
+            let connected = credential.is_some();
+            let metadata = credential
+                .as_ref()
+                .map(|credential| {
+                    json!({
+                        "uname": credential.get("uname").and_then(Value::as_str).unwrap_or(""),
+                        "mid": value_as_u64(credential.get("mid")).unwrap_or(0),
+                        "expires_at": value_as_u64(credential.get("expires_at")).unwrap_or(0)
+                    })
+                })
+                .unwrap_or_else(|| json!({}));
+            json!({"name": connector_name, "connected": connected, "required": !connected, "detail": if connected {"Bilibili credentials are stored for this user."} else {"Bilibili credentials are missing for this user."}, "metadata": metadata})
         }
         "openai_codex" => codex_status(&state).await,
         "codex_image_generation" | "codex_image_input" | "codex_web_search" => {
@@ -138,7 +192,8 @@ pub async fn connector_auth_start(
             request_base_url_from_headers(&headers).as_deref(),
         )
         .await,
-        "feishu" | "bilibili" => Err(ApiError::new(
+        "bilibili" => bilibili_auth_start(&state, &user_id).await,
+        "feishu" => Err(ApiError::new(
             StatusCode::METHOD_NOT_ALLOWED,
             format!("Connector {connector_name:?} auth_start is only available through chat in the current Rust backend slice"),
         )),
@@ -159,7 +214,8 @@ pub async fn connector_auth_complete(
     let payload = body.map(|Json(value)| value).unwrap_or_else(|| json!({}));
     match connector_name.as_str() {
         "google_workspace" => google_auth_complete(&state, &user_id, &payload).await,
-        "feishu" | "bilibili" => Err(ApiError::new(
+        "bilibili" => bilibili_auth_complete(&state, &user_id, &payload).await,
+        "feishu" => Err(ApiError::new(
             StatusCode::METHOD_NOT_ALLOWED,
             format!("Connector {connector_name:?} auth_complete is only available through chat in the current Rust backend slice"),
         )),
@@ -616,6 +672,7 @@ async fn feishu_disconnect(state: &AppState, user_id: &str) -> Result<Json<Value
 }
 
 async fn bilibili_disconnect(state: &AppState, user_id: &str) -> Result<Json<Value>, ApiError> {
+    let pending_scan_cancelled = release_pending_bilibili_qr(user_id).is_some();
     let path = state.sandboxes.bilibili_config_file(user_id)?;
     let removed = remove_file_if_exists(&path).await?;
     state.sandboxes.write_nsjail_config(user_id)?;
@@ -628,7 +685,175 @@ async fn bilibili_disconnect(state: &AppState, user_id: &str) -> Result<Json<Val
         } else {
             "No Bilibili credentials were stored."
         },
-        json!({"credential_removed": removed}),
+        json!({"credential_removed": removed, "pending_scan_cancelled": pending_scan_cancelled}),
+    )))
+}
+
+async fn bilibili_auth_start(state: &AppState, user_id: &str) -> Result<Json<Value>, ApiError> {
+    if let Some(credential) = read_bilibili_credential(state, user_id)? {
+        return Ok(Json(action_response(
+            "bilibili",
+            true,
+            "authorized",
+            "Bilibili account is already connected for this user.",
+            json!({
+                "bound": true,
+                "uname": credential.get("uname").and_then(Value::as_str).unwrap_or(""),
+                "mid": value_as_u64(credential.get("mid")).unwrap_or(0),
+                "expires_at": value_as_u64(credential.get("expires_at")).unwrap_or(0)
+            }),
+        )));
+    }
+
+    let client = reqwest::Client::new();
+    let generated = match bilibili_qrcode_generate(&client).await {
+        Ok(generated) => generated,
+        Err(err) => {
+            return Ok(Json(action_response(
+                "bilibili",
+                false,
+                "auth_failed",
+                &err.to_string(),
+                json!({}),
+            )))
+        }
+    };
+    register_pending_bilibili_qr(user_id);
+    let encoded_content =
+        form_urlencoded::byte_serialize(generated.qrcode_content.as_bytes()).collect::<String>();
+    Ok(Json(action_response(
+        "bilibili",
+        true,
+        "awaiting_user",
+        "Open qrcode_image_url with the Bilibili app, then complete the auth flow.",
+        json!({
+            "bound": false,
+            "qrcode_key": generated.qrcode_key,
+            "qrcode_image_url": format!("/v1/bilibili/qrcode.png?content={encoded_content}"),
+            "qrcode_content": generated.qrcode_content,
+            "expires_in_seconds": BILIBILI_QRCODE_TTL_SECONDS
+        }),
+    )))
+}
+
+async fn bilibili_auth_complete(
+    state: &AppState,
+    user_id: &str,
+    payload: &Value,
+) -> Result<Json<Value>, ApiError> {
+    let qrcode_key = payload
+        .get("qrcode_key")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    if qrcode_key.is_empty() {
+        return Ok(Json(action_response(
+            "bilibili",
+            false,
+            "invalid_request",
+            "qrcode_key is required.",
+            json!({}),
+        )));
+    }
+    let max_wait = value_as_u64(payload.get("max_wait_seconds"))
+        .unwrap_or(30)
+        .clamp(5, 300);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(max_wait);
+    let mut last_state = "waiting_scan".to_string();
+    let mut last_raw_message = String::new();
+    let client = reqwest::Client::new();
+
+    while tokio::time::Instant::now() < deadline {
+        match bilibili_qrcode_poll(&client, qrcode_key).await {
+            Ok(result) => {
+                last_state = result.state.to_string();
+                last_raw_message = result.raw_message.clone();
+                match result.state {
+                    "expired" => {
+                        release_pending_bilibili_qr(user_id);
+                        return Ok(Json(action_response(
+                            "bilibili",
+                            true,
+                            "expired",
+                            "Bilibili QR code expired.",
+                            json!({"raw_code": result.raw_code, "raw_message": result.raw_message}),
+                        )));
+                    }
+                    "ok" => {
+                        let fields = result.credential_fields.unwrap_or_else(|| json!({}));
+                        let sessdata = fields
+                            .get("sessdata")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .trim();
+                        if sessdata.is_empty() {
+                            release_pending_bilibili_qr(user_id);
+                            return Ok(Json(action_response(
+                                "bilibili",
+                                false,
+                                "auth_failed",
+                                "Bilibili returned success without SESSDATA.",
+                                json!({}),
+                            )));
+                        }
+                        let live = bilibili_verify_credential_live(&client, sessdata).await;
+                        let mut credential = fields.as_object().cloned().unwrap_or_default();
+                        credential.insert("bound_at".to_string(), json!(now_epoch_seconds()));
+                        credential.insert("uname".to_string(), json!(live.uname));
+                        credential.insert("mid".to_string(), json!(live.mid));
+                        if let Some(raw_log) = live.raw_log {
+                            credential.insert("verify_log".to_string(), json!(raw_log));
+                        }
+                        credential.insert("is_login".to_string(), json!(live.is_login));
+                        let credential = Value::Object(credential);
+                        write_bilibili_credential(state, user_id, &credential).await?;
+                        state.sandboxes.write_nsjail_config(user_id)?;
+                        release_pending_bilibili_qr(user_id);
+                        return Ok(Json(action_response(
+                            "bilibili",
+                            true,
+                            "authorized",
+                            "Bilibili credentials stored for this user.",
+                            json!({
+                                "uname": credential.get("uname").and_then(Value::as_str).unwrap_or(""),
+                                "mid": value_as_u64(credential.get("mid")).unwrap_or(0),
+                                "expires_at": value_as_u64(credential.get("expires_at")).unwrap_or(0)
+                            }),
+                        )));
+                    }
+                    _ => {}
+                }
+            }
+            Err(err) => {
+                tracing::warn!(
+                    user_id = user_id,
+                    error = %err,
+                    "Bilibili QR poll failed"
+                );
+            }
+        }
+
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        tokio::time::sleep(remaining.min(Duration::from_secs(2))).await;
+    }
+
+    let stage = if max_wait >= 90 { "timeout" } else { "pending" };
+    if stage == "timeout" {
+        release_pending_bilibili_qr(user_id);
+    }
+    Ok(Json(action_response(
+        "bilibili",
+        true,
+        stage,
+        if stage == "pending" {
+            "Bilibili QR scan is still pending."
+        } else {
+            "Bilibili QR poll timed out."
+        },
+        json!({"last_state": last_state, "last_raw_message": last_raw_message, "waited_seconds": max_wait}),
     )))
 }
 
@@ -950,6 +1175,298 @@ fn command_tail(output: &std::process::Output) -> String {
         },
         500,
     )
+}
+
+fn read_bilibili_credential(state: &AppState, user_id: &str) -> Result<Option<Value>, ApiError> {
+    Ok(read_valid_bilibili_credential_file(
+        &state.sandboxes.bilibili_config_file(user_id)?,
+    ))
+}
+
+pub(crate) fn read_valid_bilibili_credential_file(path: &FsPath) -> Option<Value> {
+    if !path.is_file() {
+        return None;
+    }
+    let value = serde_json::from_slice::<Value>(&std::fs::read(path).ok()?).ok()?;
+    let credential = value.as_object()?;
+    let sessdata = credential.get("sessdata")?.as_str()?.trim();
+    if sessdata.is_empty() {
+        return None;
+    }
+    let expires_at = value_as_u64(credential.get("expires_at")).unwrap_or(0);
+    if expires_at > 0 && expires_at <= now_epoch_seconds() {
+        return None;
+    }
+    Some(value)
+}
+
+async fn write_bilibili_credential(
+    state: &AppState,
+    user_id: &str,
+    credential: &Value,
+) -> Result<(), ApiError> {
+    let path = state.sandboxes.bilibili_config_file(user_id)?;
+    write_secret_json(&path, credential).await
+}
+
+async fn bilibili_qrcode_generate(client: &reqwest::Client) -> anyhow::Result<BilibiliQrCode> {
+    let response = bilibili_http_get_json(client, BILIBILI_QRCODE_GENERATE_URL, None).await?;
+    if value_as_i64(response.get("code")).unwrap_or(-1) != 0 {
+        anyhow::bail!("Bilibili QR generate returned non-zero code: {response}");
+    }
+    let data = response.get("data").and_then(Value::as_object);
+    let qrcode_key = data
+        .and_then(|data| data.get("qrcode_key"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let qrcode_content = data
+        .and_then(|data| data.get("url"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if qrcode_key.is_empty() || qrcode_content.is_empty() {
+        anyhow::bail!("Bilibili QR generate response is missing qrcode_key or url: {response}");
+    }
+    Ok(BilibiliQrCode {
+        qrcode_key,
+        qrcode_content,
+    })
+}
+
+async fn bilibili_qrcode_poll(
+    client: &reqwest::Client,
+    qrcode_key: &str,
+) -> anyhow::Result<BilibiliPollResult> {
+    let mut url = Url::parse(BILIBILI_QRCODE_POLL_URL)?;
+    url.query_pairs_mut()
+        .append_pair("qrcode_key", qrcode_key.trim());
+    let response = bilibili_http_get_json(client, url.as_str(), None).await?;
+    let data = response.get("data").and_then(Value::as_object);
+    let raw_code = data
+        .and_then(|data| value_as_i64(data.get("code")))
+        .unwrap_or(-1);
+    let raw_message = data
+        .and_then(|data| data.get("message"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+
+    let result = match raw_code {
+        BILIBILI_QR_STATE_OK => {
+            let cross_url = data
+                .and_then(|data| data.get("url"))
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            let fields = parse_bilibili_cookie_fields_from_crossdomain_url(cross_url);
+            if fields
+                .get("sessdata")
+                .and_then(Value::as_str)
+                .is_some_and(|value| !value.trim().is_empty())
+            {
+                BilibiliPollResult {
+                    state: "ok",
+                    raw_code,
+                    raw_message,
+                    credential_fields: Some(fields),
+                }
+            } else {
+                BilibiliPollResult {
+                    state: "unknown",
+                    raw_code,
+                    raw_message: "status code 0 but SESSDATA was not present in data.url"
+                        .to_string(),
+                    credential_fields: None,
+                }
+            }
+        }
+        BILIBILI_QR_STATE_NOT_SCANNED => BilibiliPollResult {
+            state: "waiting_scan",
+            raw_code,
+            raw_message,
+            credential_fields: None,
+        },
+        BILIBILI_QR_STATE_NOT_CONFIRMED => BilibiliPollResult {
+            state: "scanned",
+            raw_code,
+            raw_message,
+            credential_fields: None,
+        },
+        BILIBILI_QR_STATE_EXPIRED => BilibiliPollResult {
+            state: "expired",
+            raw_code,
+            raw_message,
+            credential_fields: None,
+        },
+        _ => BilibiliPollResult {
+            state: "unknown",
+            raw_code,
+            raw_message,
+            credential_fields: None,
+        },
+    };
+    Ok(result)
+}
+
+async fn bilibili_verify_credential_live(
+    client: &reqwest::Client,
+    sessdata: &str,
+) -> BilibiliLiveCredential {
+    let response = match bilibili_http_get_json(client, BILIBILI_NAV_URL, Some(sessdata)).await {
+        Ok(response) => response,
+        Err(err) => {
+            return BilibiliLiveCredential {
+                is_login: false,
+                uname: String::new(),
+                mid: 0,
+                raw_log: Some(format!("nav request failed: {err}")),
+            }
+        }
+    };
+    let data = response
+        .get("data")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    let is_login = data
+        .get("isLogin")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let uname = data
+        .get("uname")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let mid = value_as_u64(data.get("mid")).unwrap_or(0);
+    let raw_log = (!is_login).then(|| {
+        format!(
+            "nav returned isLogin=false (code={})",
+            value_as_i64(response.get("code")).unwrap_or(-1)
+        )
+    });
+    BilibiliLiveCredential {
+        is_login,
+        uname,
+        mid,
+        raw_log,
+    }
+}
+
+async fn bilibili_http_get_json(
+    client: &reqwest::Client,
+    url: &str,
+    sessdata: Option<&str>,
+) -> anyhow::Result<Value> {
+    let mut request = client
+        .get(url)
+        .header(header::USER_AGENT, BILIBILI_DEFAULT_UA)
+        .header(header::REFERER, BILIBILI_DEFAULT_REFERER)
+        .header(header::ACCEPT, "application/json, text/plain, */*");
+    if let Some(sessdata) = sessdata {
+        request = request.header(header::COOKIE, format!("SESSDATA={sessdata}"));
+    }
+    let response = request.send().await?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let detail = response.text().await.unwrap_or_default();
+        anyhow::bail!(
+            "Bilibili request failed: HTTP {}: {}",
+            status.as_u16(),
+            tail(&detail, 500)
+        );
+    }
+    Ok(response.json::<Value>().await?)
+}
+
+fn parse_bilibili_cookie_fields_from_crossdomain_url(raw_url: &str) -> Value {
+    let Some(url) = parse_url_or_query(raw_url) else {
+        return json!({});
+    };
+    let mut fields = Map::new();
+    for (key, value) in url.query_pairs() {
+        match key.as_ref() {
+            "SESSDATA" if !value.trim().is_empty() => {
+                fields.insert("sessdata".to_string(), json!(value.to_string()));
+            }
+            "bili_jct" if !value.trim().is_empty() => {
+                fields.insert("bili_jct".to_string(), json!(value.to_string()));
+            }
+            "DedeUserID" if !value.trim().is_empty() => {
+                fields.insert("dede_user_id".to_string(), json!(value.to_string()));
+            }
+            "DedeUserID__ckMd5" if !value.trim().is_empty() => {
+                fields.insert("dede_user_id_ck_md5".to_string(), json!(value.to_string()));
+            }
+            "Expires" => {
+                if let Ok(expires_at) = value.trim().parse::<u64>() {
+                    fields.insert("expires_at".to_string(), json!(expires_at));
+                }
+            }
+            _ => {}
+        }
+    }
+    Value::Object(fields)
+}
+
+fn parse_url_or_query(raw_url: &str) -> Option<Url> {
+    let raw_url = raw_url.trim();
+    if raw_url.is_empty() {
+        return None;
+    }
+    Url::parse(raw_url).ok().or_else(|| {
+        Url::parse(&format!(
+            "https://ripple.invalid/?{}",
+            raw_url.trim_start_matches('?')
+        ))
+        .ok()
+    })
+}
+
+fn register_pending_bilibili_qr(user_id: &str) {
+    let now = now_epoch_seconds();
+    let pending = PendingBilibiliQr {
+        expires_at: now + BILIBILI_PENDING_TTL_SECONDS,
+    };
+    let mut values = pending_bilibili_qr_map()
+        .lock()
+        .expect("pending Bilibili QR lock poisoned");
+    cleanup_expired_bilibili_qr_locked(&mut values, now);
+    values.insert(user_id.to_string(), pending);
+}
+
+fn release_pending_bilibili_qr(user_id: &str) -> Option<PendingBilibiliQr> {
+    let now = now_epoch_seconds();
+    let mut values = pending_bilibili_qr_map()
+        .lock()
+        .expect("pending Bilibili QR lock poisoned");
+    cleanup_expired_bilibili_qr_locked(&mut values, now);
+    values.remove(user_id)
+}
+
+fn pending_bilibili_qr_map() -> &'static Mutex<HashMap<String, PendingBilibiliQr>> {
+    PENDING_BILIBILI_QR.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn cleanup_expired_bilibili_qr_locked(values: &mut HashMap<String, PendingBilibiliQr>, now: u64) {
+    values.retain(|_, pending| pending.expires_at >= now);
+}
+
+fn value_as_i64(value: Option<&Value>) -> Option<i64> {
+    let value = value?;
+    value
+        .as_i64()
+        .or_else(|| value.as_u64().and_then(|value| i64::try_from(value).ok()))
+        .or_else(|| value.as_str()?.trim().parse::<i64>().ok())
+}
+
+fn value_as_u64(value: Option<&Value>) -> Option<u64> {
+    let value = value?;
+    value
+        .as_u64()
+        .or_else(|| value.as_i64().and_then(|value| u64::try_from(value).ok()))
+        .or_else(|| value.as_str()?.trim().parse::<u64>().ok())
 }
 
 fn request_base_url_from_headers(headers: &HeaderMap) -> Option<String> {
@@ -1585,5 +2102,71 @@ async fn codex_status(state: &AppState) -> Value {
         Err(_) => {
             json!({"name": "openai_codex", "connected": false, "required": true, "detail": "Codex CLI login status timed out.", "metadata": {"status": "timeout"}})
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_bilibili_crossdomain_cookie_fields() {
+        let fields = parse_bilibili_cookie_fields_from_crossdomain_url(
+            "https://passport.biligame.com/x/passport-login/web/crossDomain?DedeUserID=12345&DedeUserID__ckMd5=abc&Expires=1731536000&SESSDATA=a%2Cb%2Cc&bili_jct=jct",
+        );
+
+        assert_eq!(
+            fields.get("sessdata").and_then(Value::as_str),
+            Some("a,b,c")
+        );
+        assert_eq!(fields.get("bili_jct").and_then(Value::as_str), Some("jct"));
+        assert_eq!(
+            fields.get("dede_user_id").and_then(Value::as_str),
+            Some("12345")
+        );
+        assert_eq!(
+            fields.get("dede_user_id_ck_md5").and_then(Value::as_str),
+            Some("abc")
+        );
+        assert_eq!(value_as_u64(fields.get("expires_at")), Some(1_731_536_000));
+    }
+
+    #[test]
+    fn reads_only_nonexpired_bilibili_credentials() {
+        let dir = std::env::temp_dir().join(format!(
+            "ripple-bilibili-credential-test-{}",
+            Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("bilibili.json");
+
+        std::fs::write(
+            &path,
+            serde_json::to_vec(&json!({
+                "sessdata": "sess",
+                "expires_at": now_epoch_seconds() + 3600,
+                "uname": "alice",
+                "mid": 42
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(read_valid_bilibili_credential_file(&path).is_some());
+
+        std::fs::write(
+            &path,
+            serde_json::to_vec(&json!({"sessdata": "sess", "expires_at": 1})).unwrap(),
+        )
+        .unwrap();
+        assert!(read_valid_bilibili_credential_file(&path).is_none());
+
+        std::fs::write(
+            &path,
+            serde_json::to_vec(&json!({"sessdata": "  "})).unwrap(),
+        )
+        .unwrap();
+        assert!(read_valid_bilibili_credential_file(&path).is_none());
+
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

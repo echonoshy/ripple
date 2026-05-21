@@ -15,6 +15,7 @@ pub struct AppConfig {
     pub codex: CodexConfig,
     pub skills: SkillsConfig,
     pub public_base_url: Option<String>,
+    pub feishu: FeishuConfig,
     pub gogcli_oauth: GogcliOAuthConfig,
 }
 
@@ -60,6 +61,18 @@ pub struct SkillsConfig {
     pub shared_dirs: Vec<String>,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct FeishuConfig {
+    pub app: Option<FeishuAppConfig>,
+}
+
+#[derive(Clone, Debug)]
+pub struct FeishuAppConfig {
+    pub app_id: String,
+    pub app_secret: String,
+    pub brand: String,
+}
+
 #[derive(Clone, Debug)]
 pub struct GogcliOAuthConfig {
     pub auto_register_client: bool,
@@ -97,6 +110,7 @@ struct RawServer {
     sandbox: Option<RawSandbox>,
     codex_chat: Option<RawCodexChat>,
     public_base_url: Option<String>,
+    feishu: Option<RawFeishu>,
     gogcli_oauth: Option<RawGogcliOAuth>,
 }
 
@@ -152,6 +166,21 @@ struct RawSkills {
 }
 
 #[derive(Debug, Default, Deserialize)]
+struct RawFeishu {
+    app: Option<RawFeishuApp>,
+    app_id: Option<String>,
+    app_secret: Option<String>,
+    brand: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RawFeishuApp {
+    app_id: Option<String>,
+    app_secret: Option<String>,
+    brand: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
 struct RawGogcliOAuth {
     auto_register_client: Option<bool>,
     auto_from_request: Option<bool>,
@@ -190,6 +219,7 @@ impl AppConfig {
         let sandbox = server.sandbox.unwrap_or_default();
         let model = raw.model.unwrap_or_default();
         let public_base_url = clean_config_string(server.public_base_url.as_deref());
+        let feishu = parse_feishu_config(server.feishu);
         let gogcli_oauth_raw = server.gogcli_oauth.unwrap_or_default();
         let codex_raw = raw
             .external_agents
@@ -283,6 +313,7 @@ impl AppConfig {
                     .unwrap_or_else(|| vec!["src/skills/*".to_string()]),
             },
             public_base_url,
+            feishu,
             gogcli_oauth: GogcliOAuthConfig {
                 auto_register_client: gogcli_oauth_raw.auto_register_client.unwrap_or(true),
                 auto_from_request: gogcli_oauth_raw.auto_from_request.unwrap_or(true),
@@ -301,6 +332,26 @@ impl AppConfig {
             return (preset.model.clone(), preset.reasoning_effort.clone());
         }
         (alias.to_string(), None)
+    }
+}
+
+fn parse_feishu_config(raw: Option<RawFeishu>) -> FeishuConfig {
+    let Some(raw) = raw else {
+        return FeishuConfig::default();
+    };
+    let app = raw.app.unwrap_or_default();
+    let app_id = clean_config_string(app.app_id.as_deref().or(raw.app_id.as_deref()));
+    let app_secret = clean_config_string(app.app_secret.as_deref().or(raw.app_secret.as_deref()));
+    let brand = clean_config_string(app.brand.as_deref().or(raw.brand.as_deref()))
+        .unwrap_or_else(|| "feishu".to_string());
+    FeishuConfig {
+        app: app_id
+            .zip(app_secret)
+            .map(|(app_id, app_secret)| FeishuAppConfig {
+                app_id,
+                app_secret,
+                brand,
+            }),
     }
 }
 

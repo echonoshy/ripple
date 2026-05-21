@@ -1,0 +1,587 @@
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use time::format_description::well_known::Rfc3339;
+use time::OffsetDateTime;
+use tokio::sync::RwLock;
+use uuid::Uuid;
+
+use crate::codex::app_server::{AgentRunnerRequest, AgentRunnerStatus, CodexAppServerProvider};
+use crate::config::AppConfig;
+
+#[derive(Clone)]
+pub struct JobManager {
+    provider: Arc<CodexAppServerProvider>,
+    jobs: Arc<RwLock<HashMap<String, Arc<RwLock<ExternalAgentJob>>>>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentRunCreateRequest {
+    pub prompt: String,
+    #[serde(default = "default_provider")]
+    pub provider: String,
+    #[serde(default)]
+    pub cwd: Option<String>,
+    #[serde(default)]
+    pub input_items: Vec<Value>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub effort: Option<String>,
+    #[serde(default)]
+    pub summary: Option<String>,
+    #[serde(default, rename = "outputSchema")]
+    pub output_schema: Option<Value>,
+    #[serde(default = "default_max_runtime")]
+    pub max_runtime_seconds: u64,
+    #[serde(default)]
+    pub schedule_id: Option<String>,
+    #[serde(default)]
+    pub schedule_title: Option<String>,
+    #[serde(default)]
+    pub schedule_trigger: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentRunInfo {
+    pub job_id: String,
+    pub provider: String,
+    pub status: String,
+    pub output_file: Option<String>,
+    pub events_file: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub exit_code: Option<i32>,
+    pub prompt_preview: Option<String>,
+    pub sandbox_cwd: Option<String>,
+    pub stdout_tail: String,
+    pub stderr_tail: String,
+    pub error: Option<String>,
+    #[serde(default)]
+    pub pending_approval: Option<Value>,
+}
+
+#[derive(Debug)]
+pub struct ExternalAgentJob {
+    pub job_id: String,
+    pub provider: String,
+    pub prompt: String,
+    pub cwd: PathBuf,
+    pub user_id: Option<String>,
+    pub session_id: Option<String>,
+    pub metadata: Value,
+    pub status: AgentRunnerStatus,
+    pub created_at: String,
+    pub updated_at: String,
+    pub events_file: Option<PathBuf>,
+    pub output_file: Option<PathBuf>,
+    pub exit_code: Option<i32>,
+    pub stdout_tail: String,
+    pub stderr_tail: String,
+    pub error: Option<String>,
+}
+
+impl JobManager {
+    pub fn new(config: Arc<AppConfig>) -> Self {
+        Self {
+            provider: Arc::new(CodexAppServerProvider::new(config)),
+            jobs: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    pub async fn start(
+        &self,
+        create: AgentRunCreateRequest,
+        user_id: String,
+        session_id: Option<String>,
+        workspace_root: PathBuf,
+        runtime_dir: PathBuf,
+    ) -> anyhow::Result<AgentRunInfo> {
+        if create.provider != "codex" && create.provider != "auto" {
+            anyhow::bail!("Only the codex provider is supported");
+        }
+        let prompt = create.prompt.trim().to_string();
+        if prompt.is_empty() {
+            anyhow::bail!("prompt is required");
+        }
+        let cwd = resolve_workspace_cwd(create.cwd.as_deref(), &workspace_root)?;
+        let job_id = format!("agent-{}", &Uuid::new_v4().simple().to_string()[..8]);
+        let job_dir = runtime_dir.join("external-agents").join(&job_id);
+        let events_file = job_dir.join("events.jsonl");
+        let output_file = job_dir.join("output.txt");
+        let now = now_iso();
+        let mut metadata = json!({
+            "job_id": job_id,
+            "route": "agent_runner",
+            "signals": [],
+            "sandbox_cwd": sandbox_cwd_for_host_path(&cwd, &workspace_root),
+            "workspace_root": workspace_root
+        });
+        if let Some(object) = metadata.as_object_mut() {
+            if let Some(schedule_id) = &create.schedule_id {
+                object.insert("schedule_id".to_string(), json!(schedule_id));
+            }
+            if let Some(schedule_title) = &create.schedule_title {
+                object.insert("schedule_title".to_string(), json!(schedule_title));
+            }
+            if let Some(schedule_trigger) = &create.schedule_trigger {
+                object.insert("schedule_trigger".to_string(), json!(schedule_trigger));
+            }
+        }
+        let job = Arc::new(RwLock::new(ExternalAgentJob {
+            job_id: job_id.clone(),
+            provider: "codex".to_string(),
+            prompt: prompt.clone(),
+            cwd: cwd.clone(),
+            user_id: Some(user_id.clone()),
+            session_id: session_id.clone(),
+            metadata: metadata.clone(),
+            status: AgentRunnerStatus::Running,
+            created_at: now.clone(),
+            updated_at: now,
+            events_file: Some(events_file.clone()),
+            output_file: Some(output_file.clone()),
+            exit_code: None,
+            stdout_tail: String::new(),
+            stderr_tail: String::new(),
+            error: None,
+        }));
+        self.jobs.write().await.insert(job_id.clone(), job.clone());
+        write_job_meta(&*job.read().await).await?;
+
+        let provider = self.provider.clone();
+        let max_runtime_seconds = create.max_runtime_seconds.clamp(1, 86_400);
+        let request = AgentRunnerRequest {
+            provider: "codex".to_string(),
+            prompt,
+            cwd,
+            input_items: create.input_items,
+            model: create.model,
+            effort: create.effort,
+            summary: create.summary,
+            output_schema: create.output_schema,
+            max_runtime_seconds,
+            user_id: Some(user_id),
+            session_id,
+            metadata,
+        };
+        tokio::spawn(async move {
+            let result = provider.run(request, job_dir).await;
+            let mut job = job.write().await;
+            if job.status == AgentRunnerStatus::Cancelled {
+                job.updated_at = now_iso();
+                let _ = write_job_meta(&job).await;
+                return;
+            }
+            match result {
+                Ok(result) => {
+                    job.status = result.status;
+                    job.events_file = Some(result.events_file);
+                    job.output_file = result.output_file;
+                    job.exit_code = result.exit_code;
+                    job.stdout_tail = result.stdout_tail;
+                    job.stderr_tail = result.stderr_tail;
+                    job.error = result.error;
+                    job.metadata = merge_metadata(job.metadata.clone(), result.metadata);
+                }
+                Err(err) => {
+                    job.status = AgentRunnerStatus::Failed;
+                    job.error = Some(err.to_string());
+                }
+            }
+            job.updated_at = now_iso();
+            let _ = write_job_meta(&job).await;
+        });
+
+        self.info(&job_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("job disappeared after start"))
+    }
+
+    pub async fn list_user(
+        &self,
+        user_id: &str,
+        agent_runs_dir: &Path,
+    ) -> anyhow::Result<Vec<AgentRunInfo>> {
+        let mut merged = HashMap::<String, AgentRunInfo>::new();
+        for record in list_job_records(agent_runs_dir).await? {
+            if let Some(info) = info_from_record(&record) {
+                merged.insert(info.job_id.clone(), info);
+            }
+        }
+        let jobs = self.jobs.read().await;
+        for job in jobs.values() {
+            let job = job.read().await;
+            if job.user_id.as_deref() == Some(user_id) {
+                let info = info_from_job(&job, self.provider.pending_approval(&job.job_id).await);
+                merged.insert(info.job_id.clone(), info);
+            }
+        }
+        let mut infos = merged.into_values().collect::<Vec<_>>();
+        infos.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        Ok(infos)
+    }
+
+    pub async fn info(&self, job_id: &str) -> anyhow::Result<Option<AgentRunInfo>> {
+        let jobs = self.jobs.read().await;
+        let Some(job) = jobs.get(job_id) else {
+            return Ok(None);
+        };
+        let job = job.read().await;
+        Ok(Some(info_from_job(
+            &job,
+            self.provider.pending_approval(job_id).await,
+        )))
+    }
+
+    pub async fn info_for_user(
+        &self,
+        job_id: &str,
+        user_id: &str,
+        agent_runs_dir: &Path,
+    ) -> anyhow::Result<Option<AgentRunInfo>> {
+        let jobs = self.jobs.read().await;
+        if let Some(job) = jobs.get(job_id) {
+            let job = job.read().await;
+            if job.user_id.as_deref() == Some(user_id) {
+                return Ok(Some(info_from_job(
+                    &job,
+                    self.provider.pending_approval(job_id).await,
+                )));
+            }
+            return Ok(None);
+        }
+        Ok(find_job_record(agent_runs_dir, job_id)
+            .await?
+            .as_ref()
+            .and_then(info_from_record))
+    }
+
+    pub async fn status_for_user(
+        &self,
+        job_id: &str,
+        user_id: &str,
+        agent_runs_dir: &Path,
+    ) -> anyhow::Result<Option<String>> {
+        Ok(self
+            .info_for_user(job_id, user_id, agent_runs_dir)
+            .await?
+            .map(|info| info.status))
+    }
+
+    pub async fn events_file_for_user(
+        &self,
+        job_id: &str,
+        user_id: &str,
+        agent_runs_dir: &Path,
+    ) -> anyhow::Result<Option<PathBuf>> {
+        if let Some(info) = self.info_for_user(job_id, user_id, agent_runs_dir).await? {
+            if let Some(events_file) = info.events_file {
+                return Ok(Some(PathBuf::from(events_file)));
+            }
+        }
+        Ok(None)
+    }
+
+    pub async fn is_live_for_user(&self, job_id: &str, user_id: &str) -> bool {
+        let jobs = self.jobs.read().await;
+        let Some(job) = jobs.get(job_id) else {
+            return false;
+        };
+        let job = job.read().await;
+        job.user_id.as_deref() == Some(user_id)
+    }
+
+    pub async fn steer(&self, job_id: &str, text: String) -> bool {
+        self.provider.steer(job_id, text).await
+    }
+
+    pub async fn resolve_approval_for_user(
+        &self,
+        job_id: &str,
+        user_id: &str,
+        request_id: &Value,
+        action: &str,
+    ) -> anyhow::Result<bool> {
+        if !matches!(action, "allow" | "always" | "deny") {
+            anyhow::bail!("action must be one of: allow, always, deny");
+        }
+        {
+            let jobs = self.jobs.read().await;
+            let Some(job) = jobs.get(job_id) else {
+                return Ok(false);
+            };
+            let job = job.read().await;
+            if job.user_id.as_deref() != Some(user_id) {
+                return Ok(false);
+            }
+        }
+        Ok(self
+            .provider
+            .resolve_approval(job_id, request_id, action)
+            .await)
+    }
+
+    pub async fn cancel_for_user(
+        &self,
+        job_id: &str,
+        user_id: &str,
+    ) -> anyhow::Result<Option<AgentRunInfo>> {
+        {
+            let jobs = self.jobs.read().await;
+            let Some(job) = jobs.get(job_id) else {
+                return Ok(None);
+            };
+            let job = job.read().await;
+            if job.user_id.as_deref() != Some(user_id) {
+                return Ok(None);
+            }
+        }
+        let _ = self.provider.cancel(job_id).await;
+        let jobs = self.jobs.read().await;
+        let Some(job) = jobs.get(job_id) else {
+            return Ok(None);
+        };
+        let mut job = job.write().await;
+        job.status = AgentRunnerStatus::Cancelled;
+        job.updated_at = now_iso();
+        write_job_meta(&job).await?;
+        Ok(Some(info_from_job(
+            &job,
+            self.provider.pending_approval(job_id).await,
+        )))
+    }
+}
+
+fn info_from_job(job: &ExternalAgentJob, pending_approval: Option<Value>) -> AgentRunInfo {
+    AgentRunInfo {
+        job_id: job.job_id.clone(),
+        provider: job.provider.clone(),
+        status: job.status.as_str().to_string(),
+        output_file: job
+            .output_file
+            .as_ref()
+            .map(|path| path.to_string_lossy().to_string()),
+        events_file: job
+            .events_file
+            .as_ref()
+            .map(|path| path.to_string_lossy().to_string()),
+        created_at: job.created_at.clone(),
+        updated_at: job.updated_at.clone(),
+        exit_code: job.exit_code,
+        prompt_preview: Some(job.prompt.chars().take(240).collect()),
+        sandbox_cwd: job
+            .metadata
+            .get("sandbox_cwd")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        stdout_tail: job.stdout_tail.clone(),
+        stderr_tail: job.stderr_tail.clone(),
+        error: job.error.clone(),
+        pending_approval,
+    }
+}
+
+fn merge_metadata(left: Value, right: Value) -> Value {
+    let mut base = left.as_object().cloned().unwrap_or_default();
+    if let Some(extra) = right.as_object() {
+        for (key, value) in extra {
+            base.insert(key.clone(), value.clone());
+        }
+    }
+    Value::Object(base)
+}
+
+async fn write_job_meta(job: &ExternalAgentJob) -> anyhow::Result<()> {
+    let Some(job_dir) = job
+        .events_file
+        .as_ref()
+        .and_then(|path| path.parent().map(Path::to_path_buf))
+        .or_else(|| {
+            job.output_file
+                .as_ref()
+                .and_then(|path| path.parent().map(Path::to_path_buf))
+        })
+    else {
+        return Ok(());
+    };
+    tokio::fs::create_dir_all(&job_dir).await?;
+    let mut record = json!({
+        "version": 1,
+        "job_id": job.job_id,
+        "provider": job.provider,
+        "user_id": job.user_id,
+        "session_id": job.session_id,
+        "prompt_preview": job.prompt.chars().take(240).collect::<String>(),
+        "cwd": job.cwd,
+        "sandbox_cwd": job.metadata.get("sandbox_cwd").cloned().unwrap_or(Value::Null),
+        "status": job.status.as_str(),
+        "created_at": job.created_at,
+        "updated_at": job.updated_at,
+        "events_file": job.events_file,
+        "output_file": job.output_file,
+        "exit_code": job.exit_code,
+        "stdout_tail": job.stdout_tail,
+        "stderr_tail": job.stderr_tail,
+        "error": job.error,
+    });
+    if let Some(object) = record.as_object_mut() {
+        for key in ["schedule_id", "schedule_title", "schedule_trigger"] {
+            if let Some(value) = job.metadata.get(key).and_then(Value::as_str) {
+                object.insert(key.to_string(), json!(value));
+            }
+        }
+    }
+    tokio::fs::write(
+        job_dir.join("meta.json"),
+        serde_json::to_vec_pretty(&record)?,
+    )
+    .await?;
+    Ok(())
+}
+
+async fn list_job_records(agent_runs_dir: &Path) -> anyhow::Result<Vec<Value>> {
+    let external_agents_dir = agent_runs_dir.join("external-agents");
+    if !external_agents_dir.exists() {
+        return Ok(Vec::new());
+    }
+    let mut records = Vec::new();
+    let mut entries = tokio::fs::read_dir(external_agents_dir).await?;
+    while let Some(entry) = entries.next_entry().await? {
+        if !entry.file_type().await?.is_dir() {
+            continue;
+        }
+        if let Some(record) = read_job_record(&entry.path()).await? {
+            records.push(record);
+        }
+    }
+    records.sort_by(|a, b| record_str(b, "updated_at").cmp(&record_str(a, "updated_at")));
+    Ok(records)
+}
+
+async fn find_job_record(agent_runs_dir: &Path, job_id: &str) -> anyhow::Result<Option<Value>> {
+    let job_dir = agent_runs_dir.join("external-agents").join(job_id);
+    let Some(record) = read_job_record(&job_dir).await? else {
+        return Ok(None);
+    };
+    if record.get("job_id").and_then(Value::as_str) == Some(job_id) {
+        Ok(Some(record))
+    } else {
+        Ok(None)
+    }
+}
+
+async fn read_job_record(job_dir: &Path) -> anyhow::Result<Option<Value>> {
+    let meta_file = job_dir.join("meta.json");
+    if !meta_file.is_file() {
+        return Ok(None);
+    }
+    let value = serde_json::from_slice::<Value>(&tokio::fs::read(meta_file).await?)?;
+    if value.is_object() {
+        Ok(Some(value))
+    } else {
+        Ok(None)
+    }
+}
+
+fn info_from_record(record: &Value) -> Option<AgentRunInfo> {
+    let job_id = record.get("job_id")?.as_str()?.to_string();
+    Some(AgentRunInfo {
+        job_id,
+        provider: record_str(record, "provider"),
+        status: record_str(record, "status"),
+        output_file: record
+            .get("output_file")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        events_file: record
+            .get("events_file")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        created_at: record_str(record, "created_at"),
+        updated_at: record_str(record, "updated_at"),
+        exit_code: record
+            .get("exit_code")
+            .and_then(Value::as_i64)
+            .and_then(|value| i32::try_from(value).ok()),
+        prompt_preview: record
+            .get("prompt_preview")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        sandbox_cwd: record
+            .get("sandbox_cwd")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        stdout_tail: record_str(record, "stdout_tail"),
+        stderr_tail: record_str(record, "stderr_tail"),
+        error: record
+            .get("error")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        pending_approval: None,
+    })
+}
+
+fn record_str(record: &Value, key: &str) -> String {
+    record
+        .get(key)
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string()
+}
+
+fn resolve_workspace_cwd(raw_cwd: Option<&str>, workspace_root: &Path) -> anyhow::Result<PathBuf> {
+    let root = workspace_root.canonicalize()?;
+    let candidate = match raw_cwd.filter(|value| !value.trim().is_empty()) {
+        Some(raw) if raw.starts_with("/workspace") => {
+            root.join(raw.trim_start_matches("/workspace").trim_start_matches('/'))
+        }
+        Some(raw) => {
+            let path = PathBuf::from(raw);
+            if path.is_absolute() {
+                path
+            } else {
+                root.join(path)
+            }
+        }
+        None => root.clone(),
+    };
+    let resolved = if candidate.exists() {
+        candidate.canonicalize()?
+    } else {
+        candidate
+    };
+    if !resolved.starts_with(&root) {
+        anyhow::bail!("cwd must stay inside the user workspace");
+    }
+    Ok(resolved)
+}
+
+fn sandbox_cwd_for_host_path(cwd: &Path, workspace_root: &Path) -> String {
+    let relative = cwd.strip_prefix(workspace_root).unwrap_or(Path::new(""));
+    if relative.as_os_str().is_empty() {
+        "/workspace".to_string()
+    } else {
+        format!(
+            "/workspace/{}",
+            relative.to_string_lossy().replace('\\', "/")
+        )
+    }
+}
+
+fn default_provider() -> String {
+    "codex".to_string()
+}
+
+fn default_max_runtime() -> u64 {
+    1800
+}
+
+fn now_iso() -> String {
+    OffsetDateTime::now_utc()
+        .format(&Rfc3339)
+        .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
+}

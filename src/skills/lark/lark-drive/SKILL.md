@@ -201,7 +201,7 @@ lark-cli drive file.comments list --params '{"file_token": "xxx", "file_type": "
 - 使用 `drive file.comments list` 用于分页获取评论列表，适合统计评论总数、遍历所有评论，或获取"最新/最后 N 条评论"等场景。
 
 #### Reaction / 表情场景
-- 遇到评论 / 回复上的 reaction（表情、各表情数量、谁点了什么、添加/删除表情）相关问题时，**先阅读 [lark-drive-reactions.md](../../skills/lark-drive/references/lark-drive-reactions.md) 了解如何使用**。
+- 遇到评论 / 回复上的 reaction（表情、各表情数量、谁点了什么、添加/删除表情）相关问题时，**先阅读 [lark-drive-reactions.md](references/lark-drive-reactions.md) 了解如何使用**。
 
 ### 典型错误与解决方案
 

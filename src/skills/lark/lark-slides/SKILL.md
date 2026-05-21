@@ -141,9 +141,9 @@ metadata:
 模板细则见 [template-catalog.md](references/template-catalog.md)。主流程只记住：先 `search`，锁定后 `summarize`，需要骨架时才 `extract`；不要直接读取完整模板 XML 或照搬占位文案。
 
 ```bash
-python3 skills/lark-slides/scripts/template_tool.py search --query "<用户需求原文>" --limit 3
-python3 skills/lark-slides/scripts/template_tool.py summarize --template <template-id> --label <封面|目录|分节|内容|结尾>
-python3 skills/lark-slides/scripts/template_tool.py extract --template <template-id> --label <页型> --out /tmp/template-slice.xml
+python3 scripts/template_tool.py search --query "<用户需求原文>" --limit 3
+python3 scripts/template_tool.py summarize --template <template-id> --label <封面|目录|分节|内容|结尾>
+python3 scripts/template_tool.py extract --template <template-id> --label <页型> --out /tmp/template-slice.xml
 ```
 
 ```text

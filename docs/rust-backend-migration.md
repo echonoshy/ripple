@@ -42,6 +42,8 @@ Implemented in the current migration slice:
 - Codex managed permissions profile injection for the user workspace and deny-read rules around service Codex auth paths.
 - Codex process env for uv/node caches, package mirrors, Notion token, and gog keyring password.
 - Skill manifest rendering from shared and workspace skills.
+- Shared skills moved to `src/skills/*`; tracked sample config and Rust defaults now point at the new location.
+- Skill docs with executable helper scripts now use paths relative to their own skill directory, avoiding stale local absolute paths.
 
 Not implemented yet:
 

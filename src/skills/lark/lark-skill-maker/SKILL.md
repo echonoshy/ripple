@@ -42,7 +42,7 @@ lark-cli api POST /open-apis/vc/v1/rooms/search --data '{"query":"5F"}'
 
 ## SKILL.md 模板
 
-文件放在 `skills/lark-<name>/SKILL.md`：
+文件放在 `src/skills/lark/lark-<name>/SKILL.md`：
 
 ```markdown
 ---

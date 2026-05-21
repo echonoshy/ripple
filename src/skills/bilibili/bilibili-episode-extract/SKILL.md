@@ -32,7 +32,7 @@ metadata:
 ## 执行（一条命令搞定）
 
 ```bash
-python /home/lake/workspace/wip/ripple-dev/skills/bilibili/bilibili-episode-extract/pipeline.py \
+python pipeline.py \
   --args '<上面的 JSON>'
 ```
 

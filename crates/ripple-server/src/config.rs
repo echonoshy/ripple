@@ -231,7 +231,7 @@ impl AppConfig {
             skills: SkillsConfig {
                 shared_dirs: skills_raw
                     .shared_dirs
-                    .unwrap_or_else(|| vec!["skills/*".to_string()]),
+                    .unwrap_or_else(|| vec!["src/skills/*".to_string()]),
             },
         })
     }

@@ -90,14 +90,14 @@ Step 1 跑完如果 `subtitle.status` 或 `ai_summary.status` 出现
 ### Step 1 — 用 pipeline.py 一键抓取 + 算出 output_path
 
 ```bash
-python /home/lake/workspace/wip/ripple-dev/skills/bilibili/bilibili-auto-md/pipeline.py \
+python pipeline.py \
   --args '{"url": "<url 或 BV>"}'
 ```
 
 若用户已经明确拒绝登录，才可以这样降级运行：
 
 ```bash
-python /home/lake/workspace/wip/ripple-dev/skills/bilibili/bilibili-auto-md/pipeline.py \
+python pipeline.py \
   --args '{"url": "<url 或 BV>", "allow_unauthenticated": true}'
 ```
 

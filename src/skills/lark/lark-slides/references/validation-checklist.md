@@ -28,7 +28,7 @@ lark-cli slides xml_presentations get --as user \
 回读 XML 保存到本地文件后，优先运行 XML 语法和文本重叠静态检查：
 
 ```bash
-python3 skills/lark-slides/scripts/xml_text_overlap_lint.py --input <presentation.xml>
+python3 scripts/xml_text_overlap_lint.py --input <presentation.xml>
 ```
 
 通过标准：

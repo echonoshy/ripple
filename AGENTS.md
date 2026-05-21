@@ -34,7 +34,7 @@ src/
     connectors/        # Connector 元数据、状态和鉴权动作
     core/              # ToolUseContext 等共享上下文；不含旧 Agent Loop
     tools/             # 工具抽象和兼容/内部工具；Server chat 主链不直接暴露
-    skills/            # Skill 系统
+    skills/            # Skill 系统加载器、manifest 和执行器
     messages/          # 消息类型
     utils/             # 工具函数
     permissions/       # 权限管理
@@ -46,7 +46,7 @@ src/
 tests/                 # pytest 测试
 scripts/               # 辅助脚本
 config/                # YAML 配置
-skills/                # 共享 Skills
+src/skills/            # 共享 Skills
 ```
 
 ## 常用命令
@@ -191,7 +191,7 @@ Skills 是带 YAML frontmatter 的 Markdown 文件，定义特定领域的任务
 
 加载层级：
 
-1. Shared Skills：来自 `skills.shared_dirs` 配置，默认 `skills/shared`，所有 session 可见。
+1. Shared Skills：来自 `skills.shared_dirs` 配置，默认 `src/skills/*`，所有 session 可见。
 2. Workspace Skills：来自每个 session 沙箱内的 `workspace/skills/`。
 
 Skill 文件格式：
@@ -270,7 +270,7 @@ Skill 系统：
 
 ## gog / Google Workspace 当前约定
 
-首次使用任何 gog 能力前，必须先读 `skills/gog/gog-shared/SKILL.md`。
+首次使用任何 gog 能力前，必须先读 `src/skills/gog/gog-shared/SKILL.md`。
 
 `gog` 当前只保留基础 Workspace 服务：
 
@@ -292,13 +292,13 @@ gmail, drive, calendar, docs, sheets, slides
 
 当前 gog skills：
 
-- `skills/gog/gog-shared`
-- `skills/gog/gog-gmail`
-- `skills/gog/gog-drive`
-- `skills/gog/gog-calendar`
-- `skills/gog/gog-docs`
-- `skills/gog/gog-sheets`
-- `skills/gog/gog-slides`
+- `src/skills/gog/gog-shared`
+- `src/skills/gog/gog-gmail`
+- `src/skills/gog/gog-drive`
+- `src/skills/gog/gog-calendar`
+- `src/skills/gog/gog-docs`
+- `src/skills/gog/gog-sheets`
+- `src/skills/gog/gog-slides`
 
 破坏性 gog 操作必须先让用户明确确认，尤其是：
 

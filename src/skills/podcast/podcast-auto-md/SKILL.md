@@ -37,7 +37,7 @@ Skill(skill="podcast-episode-resolve", args="{\"title\": \"<title>\"}")
 ### Step 1 — 用 pipeline.py 一键抓取
 
 ```bash
-python /home/lake/workspace/wip/ripple-dev/skills/podcast/podcast-auto-md/pipeline.py prepare \
+python pipeline.py prepare \
   --args '{"episode_url": "<url>"}'
 ```
 

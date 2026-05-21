@@ -10,7 +10,7 @@
 
 ## 使用方法
 
-1. 先运行 `python3 skills/lark-slides/scripts/template_tool.py search --query "<主题>" --limit 3`，根据用户描述的 **场景、风格、色调** 做初筛
+1. 先运行 `python3 scripts/template_tool.py search --query "<主题>" --limit 3`，根据用户描述的 **场景、风格、色调** 做初筛
 2. 整理出 **2-3 个**最匹配的用户可选模板候选；优先选场景强相关模板，没有明显场景模板时再用标 ⭐ 的通用模板兜底
 3. 用户选定后，再锁定 **1-2 个**最匹配的模板作为实际参考
 4. 先看模板下方的 **页型索引**，锁定你真正需要的页型：封面 / 目录 / 分节 / 内容 / 结尾
@@ -22,13 +22,13 @@
 
 ```bash
 # 先找候选模板
-python3 skills/lark-slides/scripts/template_tool.py search --query "工作汇报" --tone light --limit 3
+python3 scripts/template_tool.py search --query "工作汇报" --tone light --limit 3
 
 # 看指定页型的紧凑摘要
-python3 skills/lark-slides/scripts/template_tool.py summarize --template office--work_report --label 内容
+python3 scripts/template_tool.py summarize --template office--work_report --label 内容
 
 # 只裁切目标页型，避免把整份 XML 拉进上下文
-python3 skills/lark-slides/scripts/template_tool.py extract --template office--work_report --label 封面 --out /tmp/work-report-cover.xml
+python3 scripts/template_tool.py extract --template office--work_report --label 封面 --out /tmp/work-report-cover.xml
 ```
 
 如果脚本路径不可用，按这个顺序手动降级：

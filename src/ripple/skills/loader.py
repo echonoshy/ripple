@@ -104,9 +104,9 @@ def _expand_shared_pattern(pattern: str) -> list[Path]:
     """将 shared_dirs 中的单个条目展开为实际存在的目录列表。
 
     支持三种写法：
-    - 普通路径（相对或绝对）："skills" / "/abs/path"
+    - 普通路径（相对或绝对）："src/skills" / "/abs/path"
     - 含 ~ 的 home 路径："~/my-skills"
-    - 含 glob 通配符："skills/*" / "~/skills/*/shared"
+    - 含 glob 通配符："src/skills/*" / "~/skills/*/shared"
 
     glob 不匹配文件；只保留实际存在的目录。
     """

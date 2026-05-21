@@ -4,7 +4,7 @@
 `config/settings.yaml` 的 `services.shazam` 段读取，**不会进入沙箱、也不会出现在
 模型上下文中**。
 
-本工具由 `skills/podcast/music-identify` 升级而来：原先"SKILL + Python 脚本"的方式
+本工具由 `src/skills/podcast/music-identify` 升级而来：原先"SKILL + Python 脚本"的方式
 需要把宿主配置暴露给沙箱，存在 key 泄漏风险；改为宿主侧 Tool 后，沙箱和模型只看到
 业务参数和业务结果。
 """

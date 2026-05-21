@@ -92,3 +92,29 @@ def test_save_session_state_persists_pending_schedule_request(tmp_path: Path):
 
     assert state is not None
     assert state["pending_schedule_request"] == pending_schedule
+
+
+def test_save_session_state_persists_plan_state_with_legacy_aliases(tmp_path: Path):
+    config = SandboxConfig(sandboxes_root=tmp_path / "sandboxes", caches_root=tmp_path / "cache")
+    plan_steps = [{"id": "codex-plan:turn-1:0", "subject": "Inspect", "status": "in_progress"}]
+    plan_progress = {"completed": 0, "total": 1, "currentTask": "Inspect"}
+
+    save_session_state(
+        config,
+        "alice",
+        "session-1",
+        messages=[create_user_message("hello")],
+        model="codex-medium",
+        caller_system_prompt=None,
+        max_turns=10,
+        plan_steps=plan_steps,
+        plan_progress=plan_progress,
+    )
+
+    state = load_session_state(config, "alice", "session-1")
+
+    assert state is not None
+    assert state["plan_steps"] == plan_steps
+    assert state["plan_progress"] == plan_progress
+    assert state["task_steps"] == plan_steps
+    assert state["task_progress"] == plan_progress

@@ -23,29 +23,28 @@ def _client(tmp_path: Path, monkeypatch, user_id: str = "alice") -> tuple[TestCl
     return TestClient(app, headers={"X-Ripple-User-Id": user_id}), session_manager
 
 
-def test_task_list_maps_existing_sessions_to_task_summaries(tmp_path: Path, monkeypatch):
+def test_session_list_maps_existing_sessions_to_product_summaries(tmp_path: Path, monkeypatch):
     client, session_manager = _client(tmp_path, monkeypatch)
     session = session_manager.create_session(user_id="alice", model="codex-medium")
     session.messages.append(create_user_message("Refactor auth flow"))
     session_manager.touch_session(session)
 
-    response = client.get("/v1/tasks")
+    response = client.get("/v1/sessions")
 
     assert response.status_code == 200
     body = response.json()
     assert body["count"] == 1
-    task = body["tasks"][0]
-    assert task["task_id"] == session.session_id
-    assert task["session_id"] == session.session_id
-    assert task["title"] == "Refactor auth flow"
-    assert task["model"] == "codex-medium"
-    assert task["message_count"] == 1
-    assert task["status"] == "idle"
-    assert task["changed_file_count"] == 0
-    assert task["pending_approval_count"] == 0
+    summary = body["sessions"][0]
+    assert summary["session_id"] == session.session_id
+    assert summary["title"] == "Refactor auth flow"
+    assert summary["model"] == "codex-medium"
+    assert summary["message_count"] == 1
+    assert summary["status"] == "idle"
+    assert summary["changed_file_count"] == 0
+    assert summary["pending_approval_count"] == 0
 
 
-def test_task_detail_returns_messages_and_pending_permission(tmp_path: Path, monkeypatch):
+def test_session_detail_returns_messages_and_pending_permission(tmp_path: Path, monkeypatch):
     client, session_manager = _client(tmp_path, monkeypatch)
     session = session_manager.create_session(user_id="alice", model="codex-medium")
     session.messages.append(create_user_message("Update backend task API"))
@@ -58,11 +57,10 @@ def test_task_detail_returns_messages_and_pending_permission(tmp_path: Path, mon
         "summary": "Run command",
     }
 
-    response = client.get(f"/v1/tasks/{session.session_id}")
+    response = client.get(f"/v1/sessions/{session.session_id}")
 
     assert response.status_code == 200
     body = response.json()
-    assert body["task_id"] == session.session_id
     assert body["session_id"] == session.session_id
     assert body["status"] == "waiting_for_approval"
     assert body["pending_approval_count"] == 1
@@ -72,24 +70,26 @@ def test_task_detail_returns_messages_and_pending_permission(tmp_path: Path, mon
     assert body["pending_options"] is None
 
 
-def test_task_detail_returns_persisted_plan_state(tmp_path: Path, monkeypatch):
+def test_session_detail_returns_persisted_plan_state(tmp_path: Path, monkeypatch):
     client, session_manager = _client(tmp_path, monkeypatch)
     session = session_manager.create_session(user_id="alice", model="codex-medium")
     session.messages.append(create_user_message("Implement a multi-step feature"))
-    session.task_steps = [
+    session.plan_steps = [
         {"id": "codex-plan:turn-1:0", "subject": "Inspect code", "status": "completed"},
         {"id": "codex-plan:turn-1:1", "subject": "Implement feature", "status": "in_progress"},
     ]
-    session.task_progress = {"completed": 1, "total": 2, "currentTask": "Implement feature"}
+    session.plan_progress = {"completed": 1, "total": 2, "currentTask": "Implement feature"}
     session_manager.persist_session(session)
     session_manager.suspend_session(session.session_id, user_id="alice")
 
-    response = client.get(f"/v1/tasks/{session.session_id}")
+    response = client.get(f"/v1/sessions/{session.session_id}")
 
     assert response.status_code == 200
     body = response.json()
-    assert body["task_steps"] == session.task_steps
-    assert body["task_progress"] == session.task_progress
+    assert body["plan_steps"] == session.plan_steps
+    assert body["plan_progress"] == session.plan_progress
+    assert body["task_steps"] == session.plan_steps
+    assert body["task_progress"] == session.plan_progress
 
 
 def test_list_suspended_sessions_route_is_not_shadowed_by_session_detail(tmp_path: Path, monkeypatch):
@@ -107,15 +107,14 @@ def test_list_suspended_sessions_route_is_not_shadowed_by_session_detail(tmp_pat
     assert body["sessions"][0]["session_id"] == session.session_id
 
 
-def test_task_create_returns_session_backed_summary_and_ensures_sandbox(tmp_path: Path, monkeypatch):
+def test_session_create_returns_product_summary_and_ensures_sandbox(tmp_path: Path, monkeypatch):
     client, session_manager = _client(tmp_path, monkeypatch)
 
-    response = client.post("/v1/tasks", json={"model": "codex-medium", "max_turns": None, "system_prompt": None})
+    response = client.post("/v1/sessions", json={"model": "codex-medium", "max_turns": None, "system_prompt": None})
 
     assert response.status_code == 200
     body = response.json()
-    assert body["task_id"].startswith("srv-")
-    assert body["session_id"] == body["task_id"]
+    assert body["session_id"].startswith("srv-")
     assert body["model"] == "codex-medium"
     assert body["message_count"] == 0
     assert body["status"] == "idle"
@@ -123,19 +122,19 @@ def test_task_create_returns_session_backed_summary_and_ensures_sandbox(tmp_path
     assert session_manager.sandbox_manager.config.workspace_dir("alice").exists()
 
 
-def test_task_delete_removes_backing_session(tmp_path: Path, monkeypatch):
+def test_session_delete_removes_backing_session(tmp_path: Path, monkeypatch):
     client, session_manager = _client(tmp_path, monkeypatch)
     session = session_manager.create_session(user_id="alice", model="codex-medium")
     session.messages.append(create_user_message("Delete me"))
 
-    response = client.delete(f"/v1/tasks/{session.session_id}")
+    response = client.delete(f"/v1/sessions/{session.session_id}")
 
     assert response.status_code == 200
-    assert response.json() == {"ok": True, "task_id": session.session_id, "session_id": session.session_id}
+    assert response.json() == {"ok": True}
     assert session_manager.get_session(session.session_id, user_id="alice") is None
 
 
-def test_task_clear_context_removes_messages_model_messages_and_pending_state(tmp_path: Path, monkeypatch):
+def test_session_clear_context_removes_messages_model_messages_and_pending_state(tmp_path: Path, monkeypatch):
     client, session_manager = _client(tmp_path, monkeypatch)
     session = session_manager.create_session(user_id="alice", model="codex-medium")
     session.messages.append(create_user_message("Keep this only until clear"))
@@ -146,18 +145,17 @@ def test_task_clear_context_removes_messages_model_messages_and_pending_state(tm
     session.pending_permission_request = {"source": "codex", "job_id": "job-1", "request_id": "approval-1"}
     session.pending_schedule_request = {"title": "Daily summary"}
     session.codex_thread_id = "thread-old"
-    session.task_steps = [{"id": "codex-plan:turn-1:0", "subject": "Inspect code", "status": "in_progress"}]
-    session.task_progress = {"completed": 0, "total": 1, "currentTask": "Inspect code"}
+    session.plan_steps = [{"id": "codex-plan:turn-1:0", "subject": "Inspect code", "status": "in_progress"}]
+    session.plan_progress = {"completed": 0, "total": 1, "currentTask": "Inspect code"}
     session.total_input_tokens = 123
     session.total_output_tokens = 45
     session_manager.persist_session(session)
 
-    response = client.post(f"/v1/tasks/{session.session_id}/context/clear")
+    response = client.post(f"/v1/sessions/{session.session_id}/context/clear")
 
     assert response.status_code == 200
     assert response.json() == {
         "ok": True,
-        "task_id": session.session_id,
         "session_id": session.session_id,
         "message_count": 0,
     }
@@ -168,12 +166,12 @@ def test_task_clear_context_removes_messages_model_messages_and_pending_state(tm
     assert session.pending_permission_request is None
     assert session.pending_schedule_request is None
     assert session.codex_thread_id is None
-    assert session.task_steps == []
-    assert session.task_progress is None
+    assert session.plan_steps == []
+    assert session.plan_progress is None
     assert session.total_input_tokens == 0
     assert session.total_output_tokens == 0
 
-    detail = client.get(f"/v1/tasks/{session.session_id}").json()
+    detail = client.get(f"/v1/sessions/{session.session_id}").json()
     assert detail["message_count"] == 0
     assert detail["messages"] == []
 
@@ -184,11 +182,11 @@ def test_task_clear_context_removes_messages_model_messages_and_pending_state(tm
     assert resumed.model_messages == []
     assert resumed.pending_schedule_request is None
     assert resumed.codex_thread_id is None
-    assert resumed.task_steps == []
-    assert resumed.task_progress is None
+    assert resumed.plan_steps == []
+    assert resumed.plan_progress is None
 
 
-def test_task_stop_delegates_to_session_stop(tmp_path: Path, monkeypatch):
+def test_session_stop_delegates_to_session_stop(tmp_path: Path, monkeypatch):
     client, session_manager = _client(tmp_path, monkeypatch)
     session = session_manager.create_session(user_id="alice", model="codex-medium")
 
@@ -204,19 +202,14 @@ def test_task_stop_delegates_to_session_stop(tmp_path: Path, monkeypatch):
     task = RunningTask()
     session.current_task = task
 
-    response = client.post(f"/v1/tasks/{session.session_id}/stop")
+    response = client.post(f"/v1/sessions/{session.session_id}/stop")
 
     assert response.status_code == 200
-    assert response.json() == {
-        "ok": True,
-        "stopped": True,
-        "task_id": session.session_id,
-        "session_id": session.session_id,
-    }
+    assert response.json() == {"ok": True, "stopped": True}
     assert task.cancelled is True
 
 
-def test_task_permission_resolve_forwards_codex_approval(tmp_path: Path, monkeypatch):
+def test_session_permission_resolve_forwards_codex_approval(tmp_path: Path, monkeypatch):
     client, session_manager = _client(tmp_path, monkeypatch)
     session = session_manager.create_session(user_id="alice", model="codex-medium")
     session.status = SessionStatus.AWAITING_PERMISSION
@@ -237,16 +230,27 @@ def test_task_permission_resolve_forwards_codex_approval(tmp_path: Path, monkeyp
     approval_manager = ApprovalManager()
     monkeypatch.setattr("interfaces.server.routes.get_external_agent_manager", lambda: approval_manager)
 
-    response = client.post(f"/v1/tasks/{session.session_id}/permissions/resolve", json={"action": "always"})
+    response = client.post(f"/v1/sessions/{session.session_id}/permissions/resolve", json={"action": "always"})
 
     assert response.status_code == 200
     assert response.json() == {
         "ok": True,
         "action": "always",
         "forwarded": True,
-        "task_id": session.session_id,
-        "session_id": session.session_id,
     }
     assert approval_manager.calls == [("job-1", "approval-1", "always")]
     assert session.pending_permission_request is None
     assert session.status == SessionStatus.RUNNING
+
+
+def test_tasks_api_is_gone(tmp_path: Path, monkeypatch):
+    client, session_manager = _client(tmp_path, monkeypatch)
+    session = session_manager.create_session(user_id="alice", model="codex-medium")
+
+    root = client.get("/v1/tasks")
+    detail = client.get(f"/v1/tasks/{session.session_id}")
+
+    assert root.status_code == 410
+    assert detail.status_code == 410
+    assert root.json()["detail"] == "/v1/tasks has been removed. Use /v1/sessions instead."
+    assert detail.json()["detail"] == "/v1/tasks has been removed. Use /v1/sessions instead."

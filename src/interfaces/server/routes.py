@@ -83,9 +83,6 @@ from interfaces.server.schemas import (
     SessionListResponse,
     SuspendedSessionInfo,
     SystemInfoResponse,
-    TaskDetailResponse,
-    TaskInfo,
-    TaskListResponse,
     UserProfileResponse,
     UserQuotaStatusResponse,
     UserQuotaUpdateRequest,
@@ -179,7 +176,7 @@ def _display_model(raw_id: str) -> str:
     return alias or raw_id
 
 
-def _task_status(session_status: str | None, pending_permission_request: dict[str, Any] | None = None) -> str:
+def _session_status(session_status: str | None, pending_permission_request: dict[str, Any] | None = None) -> str:
     if pending_permission_request:
         return "waiting_for_approval"
 
@@ -203,58 +200,58 @@ def _task_status(session_status: str | None, pending_permission_request: dict[st
     }.get(normalized, "idle")
 
 
-def _task_info_from_record(record: dict[str, Any]) -> TaskInfo:
+def _session_info_from_record(record: dict[str, Any]) -> SessionInfo:
     session_id = str(record.get("session_id") or "")
     pending_permission_request = record.get("pending_permission_request")
     if not isinstance(pending_permission_request, dict):
         pending_permission_request = None
-    return TaskInfo(
-        task_id=session_id,
+    return SessionInfo(
         session_id=session_id,
         title=str(record.get("title") or ""),
         model=_display_model(str(record.get("model") or "")),
         created_at=str(record.get("created_at") or ""),
         last_active=str(record.get("last_active") or ""),
         message_count=int(record.get("message_count") or 0),
-        status=_task_status(str(record.get("status") or ""), pending_permission_request),
+        status=_session_status(str(record.get("status") or ""), pending_permission_request),
         changed_file_count=0,
         pending_approval_count=1 if pending_permission_request else 0,
     )
 
 
-def _task_info_from_session(session: Session) -> TaskInfo:
+def _session_info_from_session(session: Session) -> SessionInfo:
     pending_permission_request = session.pending_permission_request
-    return TaskInfo(
-        task_id=session.session_id,
+    return SessionInfo(
         session_id=session.session_id,
         title=extract_title_from_messages(session.messages),
         model=_display_model(session.model),
         created_at=session.created_at.isoformat(),
         last_active=session.last_active.isoformat(),
         message_count=len(session.messages),
-        status=_task_status(session.status, pending_permission_request),
+        status=_session_status(session.status, pending_permission_request),
         changed_file_count=0,
         pending_approval_count=1 if pending_permission_request else 0,
     )
 
 
-def _task_detail_from_session(session: Session) -> TaskDetailResponse:
-    return TaskDetailResponse(
-        **_task_info_from_session(session).model_dump(),
+def _session_detail_from_session(session: Session) -> SessionDetailResponse:
+    return SessionDetailResponse(
+        **_session_info_from_session(session).model_dump(),
         messages=serialize_messages(session.messages),
         pending_question=session.pending_question,
         pending_options=session.pending_options,
         pending_permission_request=session.pending_permission_request,
         pending_schedule_request=session.pending_schedule_request,
-        task_steps=session.task_steps,
-        task_progress=session.task_progress,
+        plan_steps=session.plan_steps,
+        plan_progress=session.plan_progress,
+        task_steps=session.plan_steps,
+        task_progress=session.plan_progress,
     )
 
 
-def _get_or_resume_task_session(manager: SessionManager, task_id: str, *, user_id: str) -> Session | None:
-    session = manager.get_session(task_id, user_id=user_id)
+def _get_or_resume_session(manager: SessionManager, session_id: str, *, user_id: str) -> Session | None:
+    session = manager.get_session(session_id, user_id=user_id)
     if not session:
-        session = manager.resume_session(task_id, user_id=user_id)
+        session = manager.resume_session(session_id, user_id=user_id)
     return session
 
 
@@ -298,7 +295,7 @@ async def _resolve_session_permission(
 async def _clear_session_context(manager: SessionManager, session: Session) -> None:
     async with session.lock:
         if session.current_task and not session.current_task.done():
-            raise HTTPException(status_code=409, detail="Task is currently running")
+            raise HTTPException(status_code=409, detail="Session is currently running")
 
         session.messages.clear()
         session.model_messages.clear()
@@ -308,8 +305,8 @@ async def _clear_session_context(manager: SessionManager, session: Session) -> N
         session.pending_connector_auth = None
         session.pending_schedule_request = None
         session.codex_thread_id = None
-        session.task_steps = []
-        session.task_progress = None
+        session.plan_steps = []
+        session.plan_progress = None
         session.last_input_tokens = 0
         session.total_input_tokens = 0
         session.total_output_tokens = 0
@@ -1071,14 +1068,14 @@ def _connector_auth_poll_should_persist_message(
 
 
 def _chat_request_from_connector_auth_poll(
-    task_id: str,
+    session_id: str,
     request: ConnectorAuthPollRequest,
 ) -> ChatCompletionRequest:
     return ChatCompletionRequest(
         model=request.model,
         messages=[{"role": "user", "content": ""}],
         stream=request.stream,
-        session_id=task_id,
+        session_id=session_id,
         effort=request.effort,
         summary=request.summary,
         output_schema=request.output_schema,
@@ -1477,21 +1474,46 @@ async def chat_completions(
     )
 
 
-# ─── Tasks (product-facing session-backed API) ───
+# ─── Deprecated Tasks API ───
 
 
-@router.get("/v1/tasks")
-async def list_tasks(
+def _raise_tasks_api_gone() -> None:
+    raise HTTPException(status_code=410, detail="/v1/tasks has been removed. Use /v1/sessions instead.")
+
+
+@router.api_route("/v1/tasks", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+async def deprecated_tasks_root(
+    _user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+):
+    _raise_tasks_api_gone()
+
+
+@router.api_route("/v1/tasks/{task_path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+async def deprecated_tasks_path(
+    task_path: str,
+    _user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+):
+    _ = task_path
+    _raise_tasks_api_gone()
+
+
+# ─── Sessions ───
+
+
+@router.get("/v1/sessions")
+async def list_sessions(
     user_id: str = Depends(get_user_id),
     _api_key: str = Depends(verify_api_key),
 ):
     manager = get_session_manager()
-    tasks = [_task_info_from_record(record) for record in manager.list_all_sessions(user_id=user_id)]
-    return TaskListResponse(tasks=tasks, count=len(tasks))
+    session_infos = [_session_info_from_record(record) for record in manager.list_all_sessions(user_id=user_id)]
+    return SessionListResponse(sessions=session_infos, count=len(session_infos))
 
 
-@router.post("/v1/tasks")
-async def create_task(
+@router.post("/v1/sessions")
+async def create_session(
     request: CreateSessionRequest,
     user_id: str = Depends(get_user_id),
     _api_key: str = Depends(verify_api_key),
@@ -1508,68 +1530,66 @@ async def create_task(
         feishu=request.feishu,
     )
     set_current_session_id(session.session_id)
-    return _task_info_from_session(session)
+    return _session_info_from_session(session)
 
 
-@router.get("/v1/tasks/{task_id}")
-async def get_task(
-    task_id: str,
+@router.get("/v1/sessions/suspended")
+async def list_suspended_sessions(
+    user_id: str = Depends(get_user_id),
+    _api_key: str = Depends(verify_api_key),
+):
+    """列出所有已挂起的 session（仅当前 user）"""
+    manager = get_session_manager()
+    suspended = manager.list_suspended_sessions(user_id=user_id)
+
+    sessions_out = []
+    for s in suspended:
+        entry = dict(s)
+        if "model" in entry:
+            entry["model"] = _display_model(entry["model"])
+        sessions_out.append(SuspendedSessionInfo(**entry))
+
+    return {
+        "sessions": sessions_out,
+        "count": len(suspended),
+    }
+
+
+@router.get("/v1/sessions/{session_id}")
+async def get_session(
+    session_id: str,
     user_id: str = Depends(get_user_id),
     _api_key: str = Depends(verify_api_key),
 ):
     manager = get_session_manager()
-    session = _get_or_resume_task_session(manager, task_id, user_id=user_id)
+    session = manager.get_session(session_id, user_id=user_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return _task_detail_from_session(session)
+        session = manager.resume_session(session_id, user_id=user_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    return _session_detail_from_session(session)
 
 
-@router.delete("/v1/tasks/{task_id}")
-async def delete_task(
-    task_id: str,
+@router.post("/v1/sessions/{session_id}/stop")
+async def stop_session(
+    session_id: str,
     user_id: str = Depends(get_user_id),
     _api_key: str = Depends(verify_api_key),
 ):
+    """停止当前 session 正在进行的聊天/任务"""
     manager = get_session_manager()
-    session = _get_or_resume_task_session(manager, task_id, user_id=user_id)
+    session = _get_or_resume_session(manager, session_id, user_id=user_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Task not found")
-    if not manager.delete_session(task_id, user_id=user_id):
-        raise HTTPException(status_code=404, detail="Task not found")
-    return {"ok": True, "task_id": task_id, "session_id": task_id}
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    stopped = manager.stop_session(session_id, user_id=user_id)
+    return {"ok": True, "stopped": stopped}
 
 
-@router.post("/v1/tasks/{task_id}/context/clear")
-async def clear_task_context(
-    task_id: str,
-    user_id: str = Depends(get_user_id),
-    _api_key: str = Depends(verify_api_key),
-):
-    manager = get_session_manager()
-    session = _get_or_resume_task_session(manager, task_id, user_id=user_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Task not found")
-    await _clear_session_context(manager, session)
-    return {"ok": True, "task_id": task_id, "session_id": task_id, "message_count": len(session.messages)}
-
-
-@router.post("/v1/tasks/{task_id}/stop")
-async def stop_task(
-    task_id: str,
-    user_id: str = Depends(get_user_id),
-    _api_key: str = Depends(verify_api_key),
-):
-    manager = get_session_manager()
-    session = _get_or_resume_task_session(manager, task_id, user_id=user_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Task not found")
-    stopped = manager.stop_session(task_id, user_id=user_id)
-    return {"ok": True, "stopped": stopped, "task_id": task_id, "session_id": task_id}
-
-
-@router.post("/v1/tasks/{task_id}/connector-auth/poll")
-async def poll_task_connector_auth(
-    task_id: str,
+@router.post("/v1/sessions/{session_id}/connector-auth/poll")
+async def poll_session_connector_auth(
+    session_id: str,
     request: ConnectorAuthPollRequest,
     http_request: Request,
     user_id: str = Depends(get_user_id),
@@ -1581,9 +1601,9 @@ async def poll_task_connector_auth(
         manager.sandbox_manager.ensure_sandbox(user_id)
         assert_can_create_run(manager.sandbox_manager.config, user_id, _codex_chat_max_runtime_seconds(config))
 
-    session = _get_or_resume_task_session(manager, task_id, user_id=user_id)
+    session = _get_or_resume_session(manager, session_id, user_id=user_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Task not found")
+        raise HTTPException(status_code=404, detail="Session not found")
     pending = session.pending_connector_auth
     if not isinstance(pending, dict):
         raise HTTPException(status_code=409, detail="No pending connector auth")
@@ -1606,7 +1626,7 @@ async def poll_task_connector_auth(
     if connector_auth_event is None:
         raise HTTPException(status_code=409, detail="Pending connector auth cannot be polled")
 
-    chat_request = _chat_request_from_connector_auth_poll(task_id, request)
+    chat_request = _chat_request_from_connector_auth_poll(session_id, request)
     resume_user_input = _connector_auth_resume_user_input(connector_auth_event)
     workspace_root = session.context.workspace_root if session.context else None
     agent_manager = get_external_agent_manager()
@@ -1649,142 +1669,6 @@ async def poll_task_connector_auth(
         model=resolved_model,
         event=connector_auth_event,
     )
-
-
-@router.post("/v1/tasks/{task_id}/permissions/resolve")
-async def resolve_task_permission_request(
-    task_id: str,
-    request: PermissionResolveRequest,
-    user_id: str = Depends(get_user_id),
-    _api_key: str = Depends(verify_api_key),
-):
-    manager = get_session_manager()
-    session = _get_or_resume_task_session(manager, task_id, user_id=user_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Task not found")
-    result = await _resolve_session_permission(manager, session, request)
-    return {**result, "task_id": task_id, "session_id": task_id}
-
-
-# ─── Sessions ───
-
-
-@router.get("/v1/sessions")
-async def list_sessions(
-    user_id: str = Depends(get_user_id),
-    _api_key: str = Depends(verify_api_key),
-):
-    manager = get_session_manager()
-    all_sessions = manager.list_all_sessions(user_id=user_id)
-
-    session_infos = [
-        SessionInfo(
-            session_id=s["session_id"],
-            title=s.get("title", ""),
-            model=_display_model(s.get("model", "")),
-            created_at=s.get("created_at", ""),
-            last_active=s.get("last_active", ""),
-            message_count=s.get("message_count", 0),
-            status=s.get("status", "active"),
-        )
-        for s in all_sessions
-    ]
-    return SessionListResponse(sessions=session_infos, count=len(session_infos))
-
-
-@router.post("/v1/sessions")
-async def create_session(
-    request: CreateSessionRequest,
-    user_id: str = Depends(get_user_id),
-    _api_key: str = Depends(verify_api_key),
-):
-    manager = get_session_manager()
-    if manager.sandbox_manager:
-        manager.sandbox_manager.ensure_sandbox(user_id)
-        assert_can_create_session(manager.sandbox_manager.config, user_id)
-    session = manager.create_session(
-        user_id=user_id,
-        model=request.model,
-        max_turns=request.max_turns,
-        caller_system_prompt=request.system_prompt,
-        feishu=request.feishu,
-    )
-    set_current_session_id(session.session_id)
-    return SessionInfo(
-        session_id=session.session_id,
-        model=_display_model(session.model),
-        created_at=session.created_at.isoformat(),
-        last_active=session.last_active.isoformat(),
-        message_count=len(session.messages),
-    )
-
-
-@router.get("/v1/sessions/suspended")
-async def list_suspended_sessions(
-    user_id: str = Depends(get_user_id),
-    _api_key: str = Depends(verify_api_key),
-):
-    """列出所有已挂起的 session（仅当前 user）"""
-    manager = get_session_manager()
-    suspended = manager.list_suspended_sessions(user_id=user_id)
-
-    sessions_out = []
-    for s in suspended:
-        entry = dict(s)
-        if "model" in entry:
-            entry["model"] = _display_model(entry["model"])
-        sessions_out.append(SuspendedSessionInfo(**entry))
-
-    return {
-        "sessions": sessions_out,
-        "count": len(suspended),
-    }
-
-
-@router.get("/v1/sessions/{session_id}")
-async def get_session(
-    session_id: str,
-    user_id: str = Depends(get_user_id),
-    _api_key: str = Depends(verify_api_key),
-):
-    manager = get_session_manager()
-    session = manager.get_session(session_id, user_id=user_id)
-    if not session:
-        session = manager.resume_session(session_id, user_id=user_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    return SessionDetailResponse(
-        session_id=session.session_id,
-        model=_display_model(session.model),
-        created_at=session.created_at.isoformat(),
-        last_active=session.last_active.isoformat(),
-        message_count=len(session.messages),
-        messages=serialize_messages(session.messages),
-        status=session.status,
-        pending_question=session.pending_question,
-        pending_options=session.pending_options,
-        pending_permission_request=session.pending_permission_request,
-        pending_schedule_request=session.pending_schedule_request,
-        task_steps=session.task_steps,
-        task_progress=session.task_progress,
-    )
-
-
-@router.post("/v1/sessions/{session_id}/stop")
-async def stop_session(
-    session_id: str,
-    user_id: str = Depends(get_user_id),
-    _api_key: str = Depends(verify_api_key),
-):
-    """停止当前 session 正在进行的聊天/任务"""
-    manager = get_session_manager()
-    session = manager.get_session(session_id, user_id=user_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    stopped = manager.stop_session(session_id, user_id=user_id)
-    return {"ok": True, "stopped": stopped}
 
 
 @router.post("/v1/sessions/{session_id}/permissions/resolve")
@@ -1882,14 +1766,7 @@ async def resume_session(
     session = manager.resume_session(session_id, user_id=user_id)
     if not session:
         raise HTTPException(status_code=404, detail="Suspended session not found")
-    return SessionInfo(
-        session_id=session.session_id,
-        model=_display_model(session.model),
-        created_at=session.created_at.isoformat(),
-        last_active=session.last_active.isoformat(),
-        message_count=len(session.messages),
-        status="active",
-    )
+    return _session_info_from_session(session)
 
 
 # ─── Sandboxes (user-scoped) ───

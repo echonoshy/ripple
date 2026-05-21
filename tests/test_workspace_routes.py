@@ -54,7 +54,7 @@ def test_workspace_search_route_returns_matching_files(tmp_path: Path):
     client, sandbox_manager = _client(tmp_path)
     workspace = sandbox_manager.ensure_sandbox("alice")
     (workspace / "src").mkdir()
-    (workspace / "src" / "TaskComposer.tsx").write_text("export default null", encoding="utf-8")
+    (workspace / "src" / "SessionComposer.tsx").write_text("export default null", encoding="utf-8")
     (workspace / "README.md").write_text("# Hello", encoding="utf-8")
 
     response = client.get("/v1/workspace/search", params={"q": "composer"})
@@ -63,7 +63,7 @@ def test_workspace_search_route_returns_matching_files(tmp_path: Path):
     body = response.json()
     assert body["query"] == "composer"
     assert body["count"] == 1
-    assert body["entries"][0]["path"] == "/workspace/src/TaskComposer.tsx"
+    assert body["entries"][0]["path"] == "/workspace/src/SessionComposer.tsx"
 
 
 def test_workspace_search_route_accepts_filter_params(tmp_path: Path):

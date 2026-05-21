@@ -44,7 +44,7 @@ def parse_args(argv: list[str]) -> dict[str, Any]:
 
 
 def extract_attribute(tag_source: str, name: str) -> str | None:
-    match = re.search(fr'{re.escape(name)}="([^"]+)"', tag_source)
+    match = re.search(rf'{re.escape(name)}="([^"]+)"', tag_source)
     return match.group(1) if match else None
 
 
@@ -307,7 +307,7 @@ def lint_slide(slide_xml: str, slide_number: int) -> dict[str, Any]:
                     "level": "error",
                     "code": "bbox_overlap",
                     "elements": [left["id"], right["id"]],
-                    "message": f'{left["id"]} overlaps {right["id"]}',
+                    "message": f"{left['id']} overlaps {right['id']}",
                 }
             )
 
@@ -326,10 +326,7 @@ def lint_xml(xml: str, source_path: str | None = None) -> dict[str, Any]:
         }
 
     presentation = parse_presentation(xml)
-    slides = [
-        lint_slide(slide_xml, index + 1)
-        for index, slide_xml in enumerate(presentation["slides"])
-    ]
+    slides = [lint_slide(slide_xml, index + 1) for index, slide_xml in enumerate(presentation["slides"])]
     error_count = sum(1 for slide in slides for issue in slide["issues"] if issue["level"] == "error")
     warning_count = sum(1 for slide in slides for issue in slide["issues"] if issue["level"] == "warning")
     return {

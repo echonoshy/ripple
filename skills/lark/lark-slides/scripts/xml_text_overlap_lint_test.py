@@ -7,12 +7,11 @@ from pathlib import Path
 
 import xml_text_overlap_lint
 
-
 TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "assets" / "templates"
 
 
 class XmlTextOverlapLintTest(unittest.TestCase):
-    def assertNoXmlTextOverlapLintIssues(self, result: dict, template_path: Path) -> None:
+    def assert_no_xml_text_overlap_lint_issues(self, result: dict, template_path: Path) -> None:
         issue_summaries = []
         for slide in result.get("slides", []):
             for issue in slide.get("issues", []):
@@ -42,7 +41,7 @@ class XmlTextOverlapLintTest(unittest.TestCase):
                     template_path.read_text(encoding="utf-8"),
                     str(template_path),
                 )
-                self.assertNoXmlTextOverlapLintIssues(result, template_path)
+                self.assert_no_xml_text_overlap_lint_issues(result, template_path)
 
     def test_lint_xml_reports_unescaped_ampersand_in_text(self) -> None:
         result = xml_text_overlap_lint.lint_xml(

@@ -12,9 +12,9 @@ import {
   ScheduleInfo,
   SessionDetail,
   SessionSummary,
-  TaskInfo,
-  TaskPlanUpdate,
-  TaskProgress,
+  PlanStep,
+  PlanUpdate,
+  PlanProgress,
   AgentStopData,
   WorkspaceAttachmentResponse,
   WorkspaceEntry,
@@ -203,14 +203,14 @@ async function responseDetail(res: Response): Promise<string> {
   return "";
 }
 
-function parseTaskStatus(value: unknown): TaskInfo["status"] {
+function parsePlanStepStatus(value: unknown): PlanStep["status"] {
   if (value === "completed" || value === "in_progress" || value === "pending") {
     return value;
   }
   return "pending";
 }
 
-function parseTaskPlanUpdate(data: Record<string, unknown>): TaskPlanUpdate {
+function parsePlanUpdate(data: Record<string, unknown>): PlanUpdate {
   const rawSteps = Array.isArray(data.steps) ? data.steps : [];
   const steps = rawSteps.filter(isRecord).map((step, index) => ({
     id:
@@ -218,7 +218,7 @@ function parseTaskPlanUpdate(data: Record<string, unknown>): TaskPlanUpdate {
         ? step.id
         : `codex-plan:${typeof data.turn_id === "string" ? data.turn_id : "unknown"}:${index}`,
     subject: typeof step.subject === "string" ? step.subject : "",
-    status: parseTaskStatus(step.status),
+    status: parsePlanStepStatus(step.status),
   }));
   const rawProgress = isRecord(data.progress) ? data.progress : {};
   return {
@@ -237,7 +237,6 @@ function parseTaskPlanUpdate(data: Record<string, unknown>): TaskPlanUpdate {
 }
 
 interface RawSessionSummary {
-  task_id?: string;
   session_id: string;
   title: string;
   model: string;
@@ -254,8 +253,10 @@ interface RawSessionDetail extends RawSessionSummary {
   pending_question?: string | null;
   pending_options?: string[] | null;
   pending_permission_request?: SessionDetail["pendingPermissionRequest"];
-  task_steps?: TaskInfo[];
-  task_progress?: TaskProgress | null;
+  plan_steps?: PlanStep[];
+  plan_progress?: PlanProgress | null;
+  task_steps?: PlanStep[];
+  task_progress?: PlanProgress | null;
 }
 
 function normalizeSessionSummary(raw: RawSessionSummary): SessionSummary {
@@ -279,8 +280,8 @@ function normalizeSessionDetail(raw: RawSessionDetail): SessionDetail {
     pendingQuestion: raw.pending_question ?? null,
     pendingOptions: raw.pending_options ?? null,
     pendingPermissionRequest: raw.pending_permission_request ?? null,
-    taskSteps: raw.task_steps || [],
-    taskProgress: raw.task_progress ?? null,
+    planSteps: raw.plan_steps || raw.task_steps || [],
+    planProgress: raw.plan_progress ?? raw.task_progress ?? null,
   };
 }
 
@@ -357,7 +358,7 @@ export async function runScheduleNow(scheduleId: string): Promise<AgentRunInfo> 
 }
 
 export async function createSession(): Promise<SessionSummary> {
-  const res = await fetch(`${API_URL}/tasks`, {
+  const res = await fetch(`${API_URL}/sessions`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify({}),
@@ -369,14 +370,14 @@ export async function createSession(): Promise<SessionSummary> {
 
 export async function fetchSessions(): Promise<SessionSummary[]> {
   try {
-    const res = await fetch(`${API_URL}/tasks`, { headers: { ...authHeaders() } });
+    const res = await fetch(`${API_URL}/sessions`, { headers: { ...authHeaders() } });
     if (res.status === 401) throw new AuthError();
     if (!res.ok) {
       const detail = await responseDetail(res);
       throw new Error(detail || `Failed to fetch sessions (${res.status})`);
     }
-    const data = (await res.json()) as { tasks?: RawSessionSummary[] };
-    return (data.tasks || []).map(normalizeSessionSummary);
+    const data = (await res.json()) as { sessions?: RawSessionSummary[] };
+    return (data.sessions || []).map(normalizeSessionSummary);
   } catch (error) {
     if (error instanceof AuthError) throw error;
     throw new Error(readableApiErrorMessage(error));
@@ -385,7 +386,7 @@ export async function fetchSessions(): Promise<SessionSummary[]> {
 
 export async function fetchSessionDetails(sessionId: string): Promise<SessionDetail | null> {
   try {
-    const res = await fetch(`${API_URL}/tasks/${encodeURIComponent(sessionId)}`, {
+    const res = await fetch(`${API_URL}/sessions/${encodeURIComponent(sessionId)}`, {
       headers: { ...authHeaders() },
     });
     if (res.status === 401) throw new AuthError();
@@ -400,7 +401,7 @@ export async function fetchSessionDetails(sessionId: string): Promise<SessionDet
 
 export async function deleteSession(sessionId: string): Promise<boolean> {
   try {
-    const res = await fetch(`${API_URL}/tasks/${encodeURIComponent(sessionId)}`, {
+    const res = await fetch(`${API_URL}/sessions/${encodeURIComponent(sessionId)}`, {
       method: "DELETE",
       headers: { ...authHeaders() },
     });
@@ -413,7 +414,7 @@ export async function deleteSession(sessionId: string): Promise<boolean> {
 
 export async function clearSessionContext(sessionId: string): Promise<boolean> {
   try {
-    const res = await fetch(`${API_URL}/tasks/${encodeURIComponent(sessionId)}/context/clear`, {
+    const res = await fetch(`${API_URL}/sessions/${encodeURIComponent(sessionId)}/context/clear`, {
       method: "POST",
       headers: { ...authHeaders() },
     });
@@ -427,7 +428,7 @@ export async function clearSessionContext(sessionId: string): Promise<boolean> {
 
 export async function stopSession(sessionId: string): Promise<boolean> {
   try {
-    const res = await fetch(`${API_URL}/tasks/${encodeURIComponent(sessionId)}/stop`, {
+    const res = await fetch(`${API_URL}/sessions/${encodeURIComponent(sessionId)}/stop`, {
       method: "POST",
       headers: { ...authHeaders() },
     });
@@ -443,7 +444,7 @@ export async function resolveSessionPermissionRequest(
 ): Promise<boolean> {
   try {
     const res = await fetch(
-      `${API_URL}/tasks/${encodeURIComponent(sessionId)}/permissions/resolve`,
+      `${API_URL}/sessions/${encodeURIComponent(sessionId)}/permissions/resolve`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders() },
@@ -466,10 +467,10 @@ export interface ChatStreamCallbacks {
   onToolResult: (toolId: string, result: string) => void;
   onUsage: (usage: UsageInfo) => void;
   onNewTurn?: () => void;
-  onTaskCreated?: (task: TaskInfo) => void;
-  onTaskUpdated?: (task: TaskInfo) => void;
-  onTaskProgress?: (progress: TaskProgress) => void;
-  onTaskPlanUpdated?: (update: TaskPlanUpdate) => void;
+  onPlanStepCreated?: (step: PlanStep) => void;
+  onPlanStepUpdated?: (step: PlanStep) => void;
+  onPlanProgress?: (progress: PlanProgress) => void;
+  onPlanUpdated?: (update: PlanUpdate) => void;
   onRuntimeEvent?: (event: CodexRuntimeEvent) => void;
   onConnectorAuth?: (event: ConnectorAuthChatEvent) => void;
   onAgentStop?: (data: AgentStopData) => void;
@@ -643,27 +644,27 @@ async function streamChatResponse(
             return;
           }
 
-          if (data.type === "task_created") {
-            callbacks.onTaskCreated?.({
+          if (data.type === "task_created" || data.type === "plan_step_created") {
+            callbacks.onPlanStepCreated?.({
               id: data.id,
               subject: data.subject,
-              status: data.status || "pending",
+              status: parsePlanStepStatus(data.status),
               activeForm: data.activeForm,
             });
             return;
           }
 
-          if (data.type === "task_updated") {
-            callbacks.onTaskUpdated?.({
+          if (data.type === "task_updated" || data.type === "plan_step_updated") {
+            callbacks.onPlanStepUpdated?.({
               id: data.id,
               subject: data.subject,
-              status: data.status || "pending",
+              status: parsePlanStepStatus(data.status),
             });
             return;
           }
 
-          if (data.type === "task_progress") {
-            callbacks.onTaskProgress?.({
+          if (data.type === "task_progress" || data.type === "plan_progress") {
+            callbacks.onPlanProgress?.({
               completed: data.completed || 0,
               total: data.total || 0,
               currentTask: data.currentTask,
@@ -671,8 +672,8 @@ async function streamChatResponse(
             return;
           }
 
-          if (data.type === "task_plan_updated") {
-            callbacks.onTaskPlanUpdated?.(parseTaskPlanUpdate(data));
+          if (data.type === "task_plan_updated" || data.type === "plan_updated") {
+            callbacks.onPlanUpdated?.(parsePlanUpdate(data));
             return;
           }
 
@@ -751,7 +752,7 @@ export async function pollSessionConnectorAuth(
   options?: { signal?: AbortSignal }
 ) {
   return streamChatResponse(
-    `/tasks/${encodeURIComponent(sessionId)}/connector-auth/poll`,
+    `/sessions/${encodeURIComponent(sessionId)}/connector-auth/poll`,
     { model, stream: true },
     callbacks,
     { signal: options?.signal, connectionTimeoutMs: 180_000 }

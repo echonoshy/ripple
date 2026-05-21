@@ -1,17 +1,17 @@
-import type { Message, TaskInfo, TaskPlanUpdate, TaskProgress } from "@/types";
+import type { Message, PlanStep, PlanUpdate, PlanProgress } from "@/types";
 
 function hasVisibleAssistantContent(message: Message): boolean {
   if (message.role !== "assistant") return false;
   return message.content.trim().length > 0 || !!message.askUser || !!message.permissionRequest;
 }
 
-function findPlaceholderTaskIndex(tasks: TaskInfo[], incoming: TaskInfo): number {
-  return tasks.findIndex(
-    (task) =>
-      task.id !== incoming.id &&
-      task.subject === incoming.subject &&
-      (task.activeForm || "") === (incoming.activeForm || "") &&
-      (task.status === "pending" || task.status === "in_progress")
+function findPlaceholderPlanStepIndex(steps: PlanStep[], incoming: PlanStep): number {
+  return steps.findIndex(
+    (step) =>
+      step.id !== incoming.id &&
+      step.subject === incoming.subject &&
+      (step.activeForm || "") === (incoming.activeForm || "") &&
+      (step.status === "pending" || step.status === "in_progress")
   );
 }
 
@@ -31,52 +31,52 @@ export function shouldRenderAssistantMessage(
   return isGenerating && isLast;
 }
 
-export function upsertTask(tasks: TaskInfo[], incoming: TaskInfo): TaskInfo[] {
-  const sameIdIndex = tasks.findIndex((task) => task.id === incoming.id);
+export function upsertPlanStep(steps: PlanStep[], incoming: PlanStep): PlanStep[] {
+  const sameIdIndex = steps.findIndex((step) => step.id === incoming.id);
   if (sameIdIndex >= 0) {
-    return tasks.map((task, index) => (index === sameIdIndex ? { ...task, ...incoming } : task));
+    return steps.map((step, index) => (index === sameIdIndex ? { ...step, ...incoming } : step));
   }
 
-  const placeholderIndex = findPlaceholderTaskIndex(tasks, incoming);
+  const placeholderIndex = findPlaceholderPlanStepIndex(steps, incoming);
   if (placeholderIndex >= 0) {
-    return tasks.map((task, index) =>
-      index === placeholderIndex ? { ...task, ...incoming } : task
+    return steps.map((step, index) =>
+      index === placeholderIndex ? { ...step, ...incoming } : step
     );
   }
 
-  return [...tasks, incoming];
+  return [...steps, incoming];
 }
 
-export function applyTaskUpdate(tasks: TaskInfo[], incoming: TaskInfo): TaskInfo[] {
-  const sameIdIndex = tasks.findIndex((task) => task.id === incoming.id);
+export function applyPlanStepUpdate(steps: PlanStep[], incoming: PlanStep): PlanStep[] {
+  const sameIdIndex = steps.findIndex((step) => step.id === incoming.id);
   if (sameIdIndex >= 0) {
-    return tasks.map((task, index) => (index === sameIdIndex ? { ...task, ...incoming } : task));
+    return steps.map((step, index) => (index === sameIdIndex ? { ...step, ...incoming } : step));
   }
 
-  const placeholderIndex = findPlaceholderTaskIndex(tasks, incoming);
+  const placeholderIndex = findPlaceholderPlanStepIndex(steps, incoming);
   if (placeholderIndex >= 0) {
-    return tasks.map((task, index) =>
-      index === placeholderIndex ? { ...task, ...incoming } : task
+    return steps.map((step, index) =>
+      index === placeholderIndex ? { ...step, ...incoming } : step
     );
   }
 
-  return [...tasks, incoming];
+  return [...steps, incoming];
 }
 
-export function applyTaskPlanUpdate(
-  currentTasks: TaskInfo[],
-  update: TaskPlanUpdate
-): { taskSteps: TaskInfo[]; taskProgress: TaskProgress | null } {
+export function applyPlanUpdate(
+  currentSteps: PlanStep[],
+  update: PlanUpdate
+): { planSteps: PlanStep[]; planProgress: PlanProgress | null } {
   const nextSteps = update.allCompleted ? [] : update.steps;
   return {
-    taskSteps: currentTasks === nextSteps ? [...nextSteps] : nextSteps,
-    taskProgress: update.allCompleted ? null : update.progress,
+    planSteps: currentSteps === nextSteps ? [...nextSteps] : nextSteps,
+    planProgress: update.allCompleted ? null : update.progress,
   };
 }
 
-export function clearTaskPlanState(): { taskSteps: TaskInfo[]; taskProgress: TaskProgress | null } {
+export function clearPlanState(): { planSteps: PlanStep[]; planProgress: PlanProgress | null } {
   return {
-    taskSteps: [],
-    taskProgress: null,
+    planSteps: [],
+    planProgress: null,
   };
 }

@@ -102,8 +102,8 @@ def save_session_state(
     pending_connector_auth: dict | None = None,
     pending_schedule_request: dict | None = None,
     codex_thread_id: str | None = None,
-    task_steps: list[dict] | None = None,
-    task_progress: dict | None = None,
+    plan_steps: list[dict] | None = None,
+    plan_progress: dict | None = None,
 ) -> Path:
     """保存 session 状态到磁盘（meta.json + messages.jsonl）
 
@@ -220,8 +220,10 @@ def save_session_state(
         "pending_connector_auth": pending_connector_auth,
         "pending_schedule_request": pending_schedule_request,
         "codex_thread_id": codex_thread_id,
-        "task_steps": task_steps or [],
-        "task_progress": task_progress,
+        "plan_steps": plan_steps or [],
+        "plan_progress": plan_progress,
+        "task_steps": plan_steps or [],
+        "task_progress": plan_progress,
         "message_count": new_count,
         "model_message_count": len(serialized_model_messages),
     }

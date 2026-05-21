@@ -234,8 +234,7 @@ class SandboxConfig:
         ├── nsjail.cfg                    ← user 级沙箱配置
         ├── credentials/{feishu.json, notion.json}
         └── sessions/<sid>/               ← 每个 session 的运行时状态
-            ├── meta.json, messages.jsonl, tasks.json
-            └── task-outputs/
+            └── meta.json, messages.jsonl, model_messages.jsonl
     - caches_root/
         ├── uv-cache/
         ├── corepack-cache/
@@ -410,14 +409,6 @@ class SandboxConfig:
 
     def model_messages_file(self, user_id: str, session_id: str) -> Path:
         return self.session_dir(user_id, session_id) / "model_messages.jsonl"
-
-    def tasks_file(self, user_id: str, session_id: str) -> Path:
-        """TaskCreate/Update/Get/List 工具的 todo 持久化文件"""
-        return self.session_dir(user_id, session_id) / "tasks.json"
-
-    def task_outputs_dir(self, user_id: str, session_id: str) -> Path:
-        """Session-scoped task output directory."""
-        return self.session_dir(user_id, session_id) / "task-outputs"
 
     def has_python_venv(self, user_id: str) -> bool:
         """检查 user workspace 内是否已创建 Python venv"""

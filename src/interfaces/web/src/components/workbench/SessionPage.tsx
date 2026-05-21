@@ -4,23 +4,23 @@ import { useEffect, useRef } from "react";
 import { AlertTriangle, Check, CheckCircle2, Circle, Copy, Loader2 } from "lucide-react";
 import type {
   Message,
-  TaskInfo,
-  TaskProgress,
+  PlanStep,
+  PlanProgress,
   UsageInfo,
   WorkbenchSessionSummary,
   WorkbenchTimelineEvent,
 } from "@/types";
 import type { FeishuAuthOpenPayload, FeishuAuthWaitingState } from "@/components/MarkdownRenderer";
 import type { ChatFileRef } from "@/lib/chatInput";
-import TaskComposer from "./TaskComposer";
-import TaskTimeline from "./TaskTimeline";
+import SessionComposer from "./SessionComposer";
+import SessionTimeline from "./SessionTimeline";
 
-interface TaskPageProps {
+interface SessionPageProps {
   session: WorkbenchSessionSummary | null;
   messages: Message[];
   timelineEvents: WorkbenchTimelineEvent[];
-  taskProgress: TaskProgress | null;
-  taskSteps: TaskInfo[];
+  planProgress: PlanProgress | null;
+  planSteps: PlanStep[];
   tokenUsage: UsageInfo;
   lastContextTokens: number;
   input: string;
@@ -48,12 +48,12 @@ interface TaskPageProps {
   feishuAuthWaiting?: FeishuAuthWaitingState | null;
 }
 
-export default function TaskPage({
+export default function SessionPage({
   session,
   messages,
   timelineEvents,
-  taskProgress,
-  taskSteps,
+  planProgress,
+  planSteps,
   tokenUsage,
   lastContextTokens,
   input,
@@ -79,7 +79,7 @@ export default function TaskPage({
   onPermissionResolve,
   onFeishuAuthOpen,
   feishuAuthWaiting,
-}: TaskPageProps) {
+}: SessionPageProps) {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const hasMessages = messages.length > 0;
   const contextWindow =
@@ -108,7 +108,7 @@ export default function TaskPage({
     });
 
     return () => window.cancelAnimationFrame(frame);
-  }, [isGenerating, messages.length, taskSteps.length, timelineEvents, tokenUsage.total_tokens]);
+  }, [isGenerating, messages.length, planSteps.length, timelineEvents, tokenUsage.total_tokens]);
 
   return (
     <div className="relative flex h-full min-h-0 flex-col bg-white">
@@ -135,18 +135,18 @@ export default function TaskPage({
         className="min-h-0 flex-1 overflow-y-auto bg-white px-4 py-5 md:px-5"
       >
         <div className="mx-auto max-w-5xl space-y-5">
-          {taskSteps.length > 0 && (
+          {planSteps.length > 0 && (
             <section className="rounded-lg border border-[#e5e7eb] bg-[#f7f8fa]">
               <div className="flex items-center justify-between border-b border-[#e5e7eb] px-3 py-2">
                 <div className="text-sm font-semibold text-[#0d0d0d]">Current plan</div>
-                {taskProgress && (
+                {planProgress && (
                   <div className="font-[family-name:var(--font-mono)] text-xs text-[#6b7280]">
-                    {taskProgress.completed}/{taskProgress.total}
+                    {planProgress.completed}/{planProgress.total}
                   </div>
                 )}
               </div>
               <div className="divide-y divide-[#e5e7eb]">
-                {taskSteps.map((step) => {
+                {planSteps.map((step) => {
                   const Icon =
                     step.status === "completed"
                       ? CheckCircle2
@@ -230,7 +230,7 @@ export default function TaskPage({
             </section>
           )}
 
-          <TaskTimeline
+          <SessionTimeline
             messages={messages}
             events={timelineEvents}
             isGenerating={isGenerating}
@@ -250,7 +250,7 @@ export default function TaskPage({
         )}
       </div>
 
-      <TaskComposer
+      <SessionComposer
         value={input}
         onChange={onInputChange}
         onSend={onSend}

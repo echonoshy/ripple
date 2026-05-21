@@ -58,7 +58,7 @@ class ToolUseContext:
     # Session / 沙箱相关
     workspace_root: Path | None = None  # 沙箱 workspace（用户文件所在）
     sandbox_session_id: str | None = None  # 沙箱对应的 session_id（用于 nsjail 执行）
-    session_runtime_dir: Path | None = None  # session 运行时数据目录（tasks.json/task-outputs/ 的父目录）
+    session_runtime_dir: Path | None = None  # session 运行时数据目录
     user_id: str | None = None  # 沙箱绑定的 user_id（Phase 3 起；None 表示旧 session-only 模式）
     sandbox_manager: Any | None = None
     sandboxed: bool = False

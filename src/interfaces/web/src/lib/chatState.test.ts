@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 
 import * as chatState from "./chatState";
-import type { Message, TaskInfo, TaskPlanUpdate } from "@/types";
+import type { Message, PlanStep, PlanUpdate } from "@/types";
 
-const { applyTaskUpdate, shouldRenderAssistantMessage, upsertTask } = chatState;
+const { applyPlanStepUpdate, shouldRenderAssistantMessage, upsertPlanStep } = chatState;
 
 function testShouldHideEmptyAssistantWithOnlyToolCalls() {
   const message: Message = {
@@ -24,27 +24,27 @@ function testShouldHideEmptyAssistantWithOnlyToolCalls() {
   assert.equal(shouldRenderAssistantMessage(message, true, true), true);
 }
 
-function testUpsertTaskReplacesPlaceholderWithRealTask() {
-  const placeholder: TaskInfo = {
+function testUpsertPlanStepReplacesPlaceholderWithRealStep() {
+  const placeholder: PlanStep = {
     id: "编写节点拉",
     subject: "编写节点拉取 RSS 指南脚本",
     status: "pending",
   };
-  const realTask: TaskInfo = {
-    id: "task-123",
+  const realStep: PlanStep = {
+    id: "plan-step-123",
     subject: "编写节点拉取 RSS 指南脚本",
     status: "pending",
   };
 
-  const merged = upsertTask([placeholder], realTask);
+  const merged = upsertPlanStep([placeholder], realStep);
 
   assert.equal(merged.length, 1);
-  assert.equal(merged[0].id, "task-123");
-  assert.equal(merged[0].subject, realTask.subject);
+  assert.equal(merged[0].id, "plan-step-123");
+  assert.equal(merged[0].subject, realStep.subject);
 }
 
-function testApplyTaskUpdateFallsBackToSameSubjectPlaceholder() {
-  const tasks: TaskInfo[] = [
+function testApplyPlanStepUpdateFallsBackToSameSubjectPlaceholder() {
+  const steps: PlanStep[] = [
     {
       id: "编写节点拉",
       subject: "编写节点拉取 RSS 指南脚本",
@@ -52,14 +52,14 @@ function testApplyTaskUpdateFallsBackToSameSubjectPlaceholder() {
     },
   ];
 
-  const updated = applyTaskUpdate(tasks, {
-    id: "task-123",
+  const updated = applyPlanStepUpdate(steps, {
+    id: "plan-step-123",
     subject: "编写节点拉取 RSS 指南脚本",
     status: "completed",
   });
 
   assert.equal(updated.length, 1);
-  assert.equal(updated[0].id, "task-123");
+  assert.equal(updated[0].id, "plan-step-123");
   assert.equal(updated[0].status, "completed");
 }
 
@@ -87,8 +87,8 @@ function testShouldShowAssistantWithPermissionRequest() {
   assert.equal(shouldRenderAssistantMessage(message, false, false), true);
 }
 
-function testApplyTaskPlanUpdateReplacesCurrentPlanSnapshot() {
-  const update: TaskPlanUpdate = {
+function testApplyPlanUpdateReplacesCurrentPlanSnapshot() {
+  const update: PlanUpdate = {
     steps: [
       { id: "codex-plan:turn-1:0", subject: "Inspect current bridge", status: "completed" },
       { id: "codex-plan:turn-1:1", subject: "Map event to UI", status: "in_progress" },
@@ -101,17 +101,17 @@ function testApplyTaskPlanUpdateReplacesCurrentPlanSnapshot() {
     allCompleted: false,
   };
 
-  const next = chatState.applyTaskPlanUpdate?.(
+  const next = chatState.applyPlanUpdate?.(
     [{ id: "old", subject: "Old plan item", status: "pending" }],
     update
-  ) ?? { taskSteps: [], taskProgress: null };
+  ) ?? { planSteps: [], planProgress: null };
 
-  assert.deepEqual(next.taskSteps, update.steps);
-  assert.deepEqual(next.taskProgress, update.progress);
+  assert.deepEqual(next.planSteps, update.steps);
+  assert.deepEqual(next.planProgress, update.progress);
 }
 
-function testApplyTaskPlanUpdateClearsPlanWhenAllStepsComplete() {
-  const update: TaskPlanUpdate = {
+function testApplyPlanUpdateClearsPlanWhenAllStepsComplete() {
+  const update: PlanUpdate = {
     steps: [{ id: "codex-plan:turn-1:0", subject: "Verify behavior", status: "completed" }],
     progress: {
       completed: 1,
@@ -121,35 +121,35 @@ function testApplyTaskPlanUpdateClearsPlanWhenAllStepsComplete() {
     allCompleted: true,
   };
 
-  const next = chatState.applyTaskPlanUpdate?.(
+  const next = chatState.applyPlanUpdate?.(
     [{ id: "codex-plan:turn-1:0", subject: "Verify behavior", status: "in_progress" }],
     update
   ) ?? {
-    taskSteps: [{ id: "fallback", subject: "missing implementation", status: "pending" }],
-    taskProgress: update.progress,
+    planSteps: [{ id: "fallback", subject: "missing implementation", status: "pending" }],
+    planProgress: update.progress,
   };
 
-  assert.deepEqual(next.taskSteps, []);
-  assert.equal(next.taskProgress, null);
+  assert.deepEqual(next.planSteps, []);
+  assert.equal(next.planProgress, null);
 }
 
-function testClearTaskPlanStateReturnsEmptySnapshot() {
-  const next = chatState.clearTaskPlanState?.() ?? {
-    taskSteps: [{ id: "fallback", subject: "missing implementation", status: "pending" }],
-    taskProgress: { completed: 0, total: 1 },
+function testClearPlanStateReturnsEmptySnapshot() {
+  const next = chatState.clearPlanState?.() ?? {
+    planSteps: [{ id: "fallback", subject: "missing implementation", status: "pending" }],
+    planProgress: { completed: 0, total: 1 },
   };
 
-  assert.deepEqual(next.taskSteps, []);
-  assert.equal(next.taskProgress, null);
+  assert.deepEqual(next.planSteps, []);
+  assert.equal(next.planProgress, null);
 }
 
 testShouldHideEmptyAssistantWithOnlyToolCalls();
 testShouldShowAssistantWithAskUser();
 testShouldShowAssistantWithPermissionRequest();
-testUpsertTaskReplacesPlaceholderWithRealTask();
-testApplyTaskUpdateFallsBackToSameSubjectPlaceholder();
-testApplyTaskPlanUpdateReplacesCurrentPlanSnapshot();
-testApplyTaskPlanUpdateClearsPlanWhenAllStepsComplete();
-testClearTaskPlanStateReturnsEmptySnapshot();
+testUpsertPlanStepReplacesPlaceholderWithRealStep();
+testApplyPlanStepUpdateFallsBackToSameSubjectPlaceholder();
+testApplyPlanUpdateReplacesCurrentPlanSnapshot();
+testApplyPlanUpdateClearsPlanWhenAllStepsComplete();
+testClearPlanStateReturnsEmptySnapshot();
 
 console.log("chatState tests passed");

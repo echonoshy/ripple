@@ -4,8 +4,8 @@ import type {
   ConnectorAuthChatEvent,
   Message,
   SessionDetail,
-  TaskInfo,
-  TaskProgress,
+  PlanStep,
+  PlanProgress,
   UsageInfo,
   WorkbenchTimelineEvent,
 } from "@/types";
@@ -20,10 +20,10 @@ import {
 import { chatErrorContent } from "@/lib/chatErrors";
 import { describeChatFilesForDisplay, type ChatFileRef } from "@/lib/chatInput";
 import {
-  applyTaskPlanUpdate,
-  applyTaskUpdate,
-  clearTaskPlanState,
-  upsertTask,
+  applyPlanUpdate,
+  applyPlanStepUpdate,
+  clearPlanState,
+  upsertPlanStep,
 } from "@/lib/chatState";
 import { bumpInputFocusToken } from "@/lib/inputFocus";
 import { mapSessionMessages } from "@/lib/sessionMessages";
@@ -68,8 +68,14 @@ interface ChatRunViewState {
   pendingFiles: ChatFileRef[];
   tokenUsage: UsageInfo;
   lastContextTokens: number;
-  taskSteps: TaskInfo[];
-  taskProgress: TaskProgress | null;
+  planSteps: PlanStep[];
+  planProgress: PlanProgress | null;
+}
+
+interface ConnectorAuthPollOptions {
+  baseMessages?: Message[];
+  allowWhileGenerating?: boolean;
+  openAuthWindow?: boolean;
 }
 
 export function useChatRun({
@@ -88,8 +94,8 @@ export function useChatRun({
   const [inputFocusToken, setInputFocusToken] = useState(0);
   const [tokenUsage, setTokenUsage] = useState<UsageInfo>(emptyUsage);
   const [lastContextTokens, setLastContextTokens] = useState(0);
-  const [taskSteps, setTaskSteps] = useState<TaskInfo[]>([]);
-  const [taskProgress, setTaskProgress] = useState<TaskProgress | null>(null);
+  const [planSteps, setPlanSteps] = useState<PlanStep[]>([]);
+  const [planProgress, setPlanProgress] = useState<PlanProgress | null>(null);
   const [feishuAuthWaiting, setFeishuAuthWaiting] = useState<FeishuAuthWaitingState | null>(null);
 
   const activeRequestIdRef = useRef(0);
@@ -103,10 +109,7 @@ export function useChatRun({
   const feishuAuthPopupUrlRef = useRef<string | null>(null);
   const feishuAuthWaitingTimerRef = useRef<number | null>(null);
   const beginConnectorAuthPollRef = useRef<
-    | ((
-        payload: FeishuAuthOpenPayload,
-        options?: { baseMessages?: Message[]; allowWhileGenerating?: boolean }
-      ) => void)
+    | ((payload: FeishuAuthOpenPayload, options?: ConnectorAuthPollOptions) => void)
     | null
   >(null);
 
@@ -121,8 +124,8 @@ export function useChatRun({
     setPendingFiles(state.pendingFiles);
     setTokenUsage(state.tokenUsage);
     setLastContextTokens(state.lastContextTokens);
-    setTaskSteps(state.taskSteps);
-    setTaskProgress(state.taskProgress);
+    setPlanSteps(state.planSteps);
+    setPlanProgress(state.planProgress);
   }, []);
 
   const clearFeishuAuthWaiting = useCallback(() => {
@@ -178,8 +181,8 @@ export function useChatRun({
     setMessages([]);
     setRuntimeTimelineEvents([]);
     setPendingFiles([]);
-    setTaskSteps([]);
-    setTaskProgress(null);
+    setPlanSteps([]);
+    setPlanProgress(null);
     setTokenUsage(emptyUsage);
     setLastContextTokens(0);
   }, []);
@@ -214,8 +217,8 @@ export function useChatRun({
       setPendingFiles([]);
       setTokenUsage(emptyUsage);
       setLastContextTokens(0);
-      setTaskSteps(details.taskSteps || []);
-      setTaskProgress(details.taskProgress || null);
+      setPlanSteps(details.planSteps || []);
+      setPlanProgress(details.planProgress || null);
       onWorkspaceRefresh();
     },
     [applyViewState, onSelectedModelChange, onWorkspaceRefresh]
@@ -328,8 +331,8 @@ export function useChatRun({
         pendingFiles: [],
         tokenUsage,
         lastContextTokens,
-        taskSteps,
-        taskProgress,
+        planSteps,
+        planProgress,
       };
       setActiveRunningSession(activeSessionId);
       setMessages(initialMessages);
@@ -358,18 +361,18 @@ export function useChatRun({
         runningViewStateRef.current = { ...state, runtimeTimelineEvents: nextEvents };
         if (isRunVisible()) setRuntimeTimelineEvents(nextEvents);
       };
-      const updateRunningTaskSteps = (updater: (prev: TaskInfo[]) => TaskInfo[]) => {
+      const updateRunningPlanSteps = (updater: (prev: PlanStep[]) => PlanStep[]) => {
         const state = getRunningState();
         if (!state) return;
-        const nextSteps = updater(state.taskSteps);
-        runningViewStateRef.current = { ...state, taskSteps: nextSteps };
-        if (isRunVisible()) setTaskSteps(nextSteps);
+        const nextSteps = updater(state.planSteps);
+        runningViewStateRef.current = { ...state, planSteps: nextSteps };
+        if (isRunVisible()) setPlanSteps(nextSteps);
       };
-      const updateRunningTaskProgress = (nextProgress: TaskProgress | null) => {
+      const updateRunningPlanProgress = (nextProgress: PlanProgress | null) => {
         const state = getRunningState();
         if (!state) return;
-        runningViewStateRef.current = { ...state, taskProgress: nextProgress };
-        if (isRunVisible()) setTaskProgress(nextProgress);
+        runningViewStateRef.current = { ...state, planProgress: nextProgress };
+        if (isRunVisible()) setPlanProgress(nextProgress);
       };
       const updateRunningUsage = (updater: (prev: UsageInfo) => UsageInfo) => {
         const state = getRunningState();
@@ -385,19 +388,19 @@ export function useChatRun({
         if (isRunVisible()) setLastContextTokens(nextContextTokens);
       };
       const replaceRunningPlan = (nextPlan: {
-        taskSteps: TaskInfo[];
-        taskProgress: TaskProgress | null;
+        planSteps: PlanStep[];
+        planProgress: PlanProgress | null;
       }) => {
         const state = getRunningState();
         if (!state) return;
         runningViewStateRef.current = {
           ...state,
-          taskSteps: nextPlan.taskSteps,
-          taskProgress: nextPlan.taskProgress,
+          planSteps: nextPlan.planSteps,
+          planProgress: nextPlan.planProgress,
         };
         if (isRunVisible()) {
-          setTaskSteps(nextPlan.taskSteps);
-          setTaskProgress(nextPlan.taskProgress);
+          setPlanSteps(nextPlan.planSteps);
+          setPlanProgress(nextPlan.planProgress);
         }
       };
 
@@ -515,21 +518,21 @@ export function useChatRun({
               return msgs;
             });
           },
-          onTaskCreated: (task) => {
+          onPlanStepCreated: (step) => {
             if (isStaleRequest()) return;
-            updateRunningTaskSteps((prev) => upsertTask(prev, task));
+            updateRunningPlanSteps((prev) => upsertPlanStep(prev, step));
           },
-          onTaskUpdated: (task) => {
+          onPlanStepUpdated: (step) => {
             if (isStaleRequest()) return;
-            updateRunningTaskSteps((prev) => applyTaskUpdate(prev, task));
+            updateRunningPlanSteps((prev) => applyPlanStepUpdate(prev, step));
           },
-          onTaskProgress: (progress) => {
+          onPlanProgress: (progress) => {
             if (isStaleRequest()) return;
-            updateRunningTaskProgress(progress);
+            updateRunningPlanProgress(progress);
           },
-          onTaskPlanUpdated: (update) => {
+          onPlanUpdated: (update) => {
             if (isStaleRequest()) return;
-            const next = applyTaskPlanUpdate([], update);
+            const next = applyPlanUpdate([], update);
             replaceRunningPlan(next);
           },
           onRuntimeEvent: (event) => {
@@ -636,12 +639,13 @@ export function useChatRun({
               beginConnectorAuthPollRef.current?.(pendingConnectorAuthPayload, {
                 baseMessages,
                 allowWhileGenerating: true,
+                openAuthWindow: false,
               });
               return;
             }
             setIsGenerating(false);
             setActiveRunningSession(null);
-            const nextPlan = clearTaskPlanState();
+            const nextPlan = clearPlanState();
             replaceRunningPlan(nextPlan);
             runningViewStateRef.current = null;
             if (isRunVisible()) setInputFocusToken((prev) => bumpInputFocusToken(prev));
@@ -688,8 +692,8 @@ export function useChatRun({
       runtimeTimelineEvents,
       selectedModel,
       setActiveRunningSession,
-      taskProgress,
-      taskSteps,
+      planProgress,
+      planSteps,
       tokenUsage,
     ]
   );
@@ -767,7 +771,7 @@ export function useChatRun({
   const beginConnectorAuthPoll = useCallback(
     (
       { connector, url, popup }: FeishuAuthOpenPayload,
-      options: { baseMessages?: Message[]; allowWhileGenerating?: boolean } = {}
+      options: ConnectorAuthPollOptions = {}
     ) => {
       const targetConnector = connector === "google_workspace" ? "google_workspace" : "feishu";
       const activeSessionId = getSessionActions().getSessionId();
@@ -775,7 +779,10 @@ export function useChatRun({
       if (isGenerating && !options.allowWhileGenerating) return;
 
       clearConnectorAuthPoll();
-      navigateFeishuAuthPopup(url, popup);
+      const shouldOpenAuthWindow = options.openAuthWindow !== false || Boolean(popup);
+      if (shouldOpenAuthWindow) {
+        navigateFeishuAuthPopup(url, popup);
+      }
       startFeishuAuthWaiting(url, targetConnector);
       const pollId = connectorAuthPollIdRef.current + 1;
       connectorAuthPollIdRef.current = pollId;
@@ -796,8 +803,8 @@ export function useChatRun({
         pendingFiles: [],
         tokenUsage,
         lastContextTokens,
-        taskSteps,
-        taskProgress,
+        planSteps,
+        planProgress,
       };
       setActiveRunningSession(activeSessionId);
       setMessages(initialMessages);
@@ -825,18 +832,18 @@ export function useChatRun({
         runningViewStateRef.current = { ...state, runtimeTimelineEvents: nextEvents };
         if (isRunVisible()) setRuntimeTimelineEvents(nextEvents);
       };
-      const updateRunningTaskSteps = (updater: (prev: TaskInfo[]) => TaskInfo[]) => {
+      const updateRunningPlanSteps = (updater: (prev: PlanStep[]) => PlanStep[]) => {
         const state = getRunningState();
         if (!state) return;
-        const nextSteps = updater(state.taskSteps);
-        runningViewStateRef.current = { ...state, taskSteps: nextSteps };
-        if (isRunVisible()) setTaskSteps(nextSteps);
+        const nextSteps = updater(state.planSteps);
+        runningViewStateRef.current = { ...state, planSteps: nextSteps };
+        if (isRunVisible()) setPlanSteps(nextSteps);
       };
-      const updateRunningTaskProgress = (nextProgress: TaskProgress | null) => {
+      const updateRunningPlanProgress = (nextProgress: PlanProgress | null) => {
         const state = getRunningState();
         if (!state) return;
-        runningViewStateRef.current = { ...state, taskProgress: nextProgress };
-        if (isRunVisible()) setTaskProgress(nextProgress);
+        runningViewStateRef.current = { ...state, planProgress: nextProgress };
+        if (isRunVisible()) setPlanProgress(nextProgress);
       };
       const updateRunningUsage = (updater: (prev: UsageInfo) => UsageInfo) => {
         const state = getRunningState();
@@ -852,19 +859,19 @@ export function useChatRun({
         if (isRunVisible()) setLastContextTokens(nextContextTokens);
       };
       const replaceRunningPlan = (nextPlan: {
-        taskSteps: TaskInfo[];
-        taskProgress: TaskProgress | null;
+        planSteps: PlanStep[];
+        planProgress: PlanProgress | null;
       }) => {
         const state = getRunningState();
         if (!state) return;
         runningViewStateRef.current = {
           ...state,
-          taskSteps: nextPlan.taskSteps,
-          taskProgress: nextPlan.taskProgress,
+          planSteps: nextPlan.planSteps,
+          planProgress: nextPlan.planProgress,
         };
         if (isRunVisible()) {
-          setTaskSteps(nextPlan.taskSteps);
-          setTaskProgress(nextPlan.taskProgress);
+          setPlanSteps(nextPlan.planSteps);
+          setPlanProgress(nextPlan.planProgress);
         }
       };
       const appendAssistantPlaceholder = () => {
@@ -1015,21 +1022,21 @@ export function useChatRun({
                 return msgs;
               });
             },
-            onTaskCreated: (task) => {
+            onPlanStepCreated: (step) => {
               if (isStalePoll()) return;
-              updateRunningTaskSteps((prev) => upsertTask(prev, task));
+              updateRunningPlanSteps((prev) => upsertPlanStep(prev, step));
             },
-            onTaskUpdated: (task) => {
+            onPlanStepUpdated: (step) => {
               if (isStalePoll()) return;
-              updateRunningTaskSteps((prev) => applyTaskUpdate(prev, task));
+              updateRunningPlanSteps((prev) => applyPlanStepUpdate(prev, step));
             },
-            onTaskProgress: (progress) => {
+            onPlanProgress: (progress) => {
               if (isStalePoll()) return;
-              updateRunningTaskProgress(progress);
+              updateRunningPlanProgress(progress);
             },
-            onTaskPlanUpdated: (update) => {
+            onPlanUpdated: (update) => {
               if (isStalePoll()) return;
-              const next = applyTaskPlanUpdate([], update);
+              const next = applyPlanUpdate([], update);
               replaceRunningPlan(next);
             },
             onRuntimeEvent: (event) => {
@@ -1074,7 +1081,9 @@ export function useChatRun({
                     ? data.setup_url
                     : "";
               if (event.connector === targetConnector && nextUrl) {
-                navigateFeishuAuthPopup(nextUrl);
+                if (shouldOpenAuthWindow) {
+                  navigateFeishuAuthPopup(nextUrl);
+                }
                 startFeishuAuthWaiting(nextUrl, targetConnector);
               }
             },
@@ -1140,8 +1149,8 @@ export function useChatRun({
       selectedModel,
       setActiveRunningSession,
       startFeishuAuthWaiting,
-      taskProgress,
-      taskSteps,
+      planProgress,
+      planSteps,
       tokenUsage,
     ]
   );
@@ -1191,8 +1200,8 @@ export function useChatRun({
     inputFocusToken,
     tokenUsage,
     lastContextTokens,
-    taskSteps,
-    taskProgress,
+    planSteps,
+    planProgress,
     pendingPermission,
     currentSessionRuntimeStatus,
     timelineEvents,

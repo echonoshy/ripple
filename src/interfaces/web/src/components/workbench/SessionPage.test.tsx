@@ -2,12 +2,12 @@ import assert from "node:assert/strict";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import TaskPage from "./TaskPage";
+import SessionPage from "./SessionPage";
 import type { UsageInfo } from "@/types";
 
 function noop() {}
 
-function renderTaskPage({
+function renderSessionPage({
   tokenUsage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
   lastContextTokens = 0,
 }: {
@@ -15,12 +15,12 @@ function renderTaskPage({
   lastContextTokens?: number;
 } = {}) {
   return renderToStaticMarkup(
-    <TaskPage
+    <SessionPage
       session={null}
       messages={[]}
       timelineEvents={[]}
-      taskProgress={null}
-      taskSteps={[]}
+      planProgress={null}
+      planSteps={[]}
       tokenUsage={tokenUsage}
       lastContextTokens={lastContextTokens}
       input=""
@@ -47,9 +47,9 @@ function renderTaskPage({
   );
 }
 
-function renderTaskPageWithTimelineContent() {
+function renderSessionPageWithTimelineContent() {
   return renderToStaticMarkup(
-    <TaskPage
+    <SessionPage
       session={null}
       messages={[]}
       timelineEvents={[
@@ -57,11 +57,11 @@ function renderTaskPageWithTimelineContent() {
           id: "assistant-1",
           type: "assistant_message",
           title: "Codex update",
-          body: "A wider timeline body should use the available task content width.",
+          body: "A wider timeline body should use the available session content width.",
         },
       ]}
-      taskProgress={null}
-      taskSteps={[]}
+      planProgress={null}
+      planSteps={[]}
       tokenUsage={{ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }}
       lastContextTokens={0}
       input=""
@@ -88,8 +88,8 @@ function renderTaskPageWithTimelineContent() {
   );
 }
 
-function testOmitsPlaceholderTaskHeaderControls() {
-  const html = renderTaskPage();
+function testOmitsPlaceholderSessionHeaderControls() {
+  const html = renderSessionPage();
 
   assert.match(html, /title="Copy session ID: srv-test"/);
   assert.match(html, /absolute top-3 right-4/);
@@ -116,21 +116,21 @@ function testOmitsPlaceholderTaskHeaderControls() {
   assert.doesNotMatch(html, /Review recent tasks/);
 }
 
-function testGivesTaskContentMoreHorizontalRoom() {
-  const html = renderTaskPage();
+function testGivesSessionContentMoreHorizontalRoom() {
+  const html = renderSessionPage();
 
   assert.match(html, /overflow-y-auto bg-white px-4 py-5 md:px-5/);
   assert.match(html, /mx-auto max-w-5xl space-y-5/);
 }
 
 function testTimelineTextUsesWiderContentWidth() {
-  const html = renderTaskPageWithTimelineContent();
+  const html = renderSessionPageWithTimelineContent();
 
   assert.match(html, /markdown-body workbench-markdown max-w-4xl/);
 }
 
 function testContextWarningUsesReportedModelWindow() {
-  const html = renderTaskPage({
+  const html = renderSessionPage({
     tokenUsage: {
       prompt_tokens: 76000,
       completion_tokens: 10,
@@ -147,7 +147,7 @@ function testContextWarningUsesReportedModelWindow() {
 }
 
 function testContextWarningWaitsForModelWindow() {
-  const html = renderTaskPage({
+  const html = renderSessionPage({
     tokenUsage: {
       prompt_tokens: 76000,
       completion_tokens: 10,
@@ -161,10 +161,10 @@ function testContextWarningWaitsForModelWindow() {
   assert.doesNotMatch(html, /context 76,000 \/ 200,000/);
 }
 
-testOmitsPlaceholderTaskHeaderControls();
-testGivesTaskContentMoreHorizontalRoom();
+testOmitsPlaceholderSessionHeaderControls();
+testGivesSessionContentMoreHorizontalRoom();
 testTimelineTextUsesWiderContentWidth();
 testContextWarningUsesReportedModelWindow();
 testContextWarningWaitsForModelWindow();
 
-console.log("task page tests passed");
+console.log("session page tests passed");

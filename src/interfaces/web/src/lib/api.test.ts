@@ -93,10 +93,10 @@ async function testSessionIdIsEncodedInPath() {
   );
 
   assert.deepEqual(urls, [
-    "https://test-oauth.weilai.ai/v1/tasks/session%2Fwith%20space",
-    "https://test-oauth.weilai.ai/v1/tasks/session%2Fwith%20space",
-    "https://test-oauth.weilai.ai/v1/tasks/session%2Fwith%20space/stop",
-    "https://test-oauth.weilai.ai/v1/tasks/session%2Fwith%20space/permissions/resolve",
+    "https://test-oauth.weilai.ai/v1/sessions/session%2Fwith%20space",
+    "https://test-oauth.weilai.ai/v1/sessions/session%2Fwith%20space",
+    "https://test-oauth.weilai.ai/v1/sessions/session%2Fwith%20space/stop",
+    "https://test-oauth.weilai.ai/v1/sessions/session%2Fwith%20space/permissions/resolve",
   ]);
 }
 
@@ -195,9 +195,8 @@ async function testFetchSessionsNormalizesBackendShape() {
     async () =>
       new Response(
         JSON.stringify({
-          tasks: [
+          sessions: [
             {
-              task_id: "legacy-task-id",
               session_id: "srv-normalized",
               title: "Normalized session",
               model: "codex-medium",
@@ -235,7 +234,6 @@ async function testCreateSessionNormalizesBackendShape() {
     async () =>
       new Response(
         JSON.stringify({
-          task_id: "legacy-new-task",
           session_id: "srv-created",
           title: "",
           model: "codex-medium",
@@ -259,7 +257,6 @@ async function testFetchSessionDetailsNormalizesBackendShape() {
     async () =>
       new Response(
         JSON.stringify({
-          task_id: "legacy-detail-task",
           session_id: "srv-detail",
           title: "Detail session",
           model: "codex-high",
@@ -273,8 +270,8 @@ async function testFetchSessionDetailsNormalizesBackendShape() {
           pending_question: "Continue?",
           pending_options: ["Yes", "No"],
           pending_permission_request: { tool: "exec", params: {}, riskLevel: "medium" },
-          task_steps: [{ id: "step-1", subject: "Inspect", status: "completed" }],
-          task_progress: { completed: 1, total: 1 },
+          plan_steps: [{ id: "step-1", subject: "Inspect", status: "completed" }],
+          plan_progress: { completed: 1, total: 1 },
         }),
         { status: 200, headers: { "Content-Type": "application/json" } }
       ),
@@ -293,8 +290,8 @@ async function testFetchSessionDetailsNormalizesBackendShape() {
         pendingQuestion: "Continue?",
         pendingOptions: ["Yes", "No"],
         pendingPermissionRequest: { tool: "exec", params: {}, riskLevel: "medium" },
-        taskSteps: [{ id: "step-1", subject: "Inspect", status: "completed" }],
-        taskProgress: { completed: 1, total: 1 },
+        planSteps: [{ id: "step-1", subject: "Inspect", status: "completed" }],
+        planProgress: { completed: 1, total: 1 },
       });
     }
   );

@@ -64,7 +64,6 @@ class SandboxManager:
         create_sandbox(self.config, user_id)
         session_dir = self.config.session_dir(user_id, session_id)
         session_dir.mkdir(parents=True, exist_ok=True)
-        self.config.task_outputs_dir(user_id, session_id).mkdir(exist_ok=True)
         logger.info("user {} session {} 就绪", user_id, session_id)
         return session_dir
 

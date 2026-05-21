@@ -21,7 +21,7 @@ from interfaces.server.attachments import (
     import_generated_image,
     workspace_path_for_host_path,
 )
-from interfaces.server.codex_plan_events import extract_task_plan_update_event
+from interfaces.server.codex_plan_events import extract_plan_update_event
 from interfaces.server.codex_runtime_events import extract_codex_runtime_event
 from interfaces.server.sessions import Session, SessionManager, SessionStatus
 from ripple.agent_runners.manager import ExternalAgentJob, ExternalAgentManager
@@ -392,12 +392,12 @@ def _extract_usage_event(event: dict[str, Any]) -> dict[str, int] | None:
 
 
 def _extract_plan_update_event(event: dict[str, Any]) -> dict[str, Any] | None:
-    return extract_task_plan_update_event(event)
+    return extract_plan_update_event(event)
 
 
 def _clear_session_plan(session: Session) -> None:
-    session.task_steps = []
-    session.task_progress = None
+    session.plan_steps = []
+    session.plan_progress = None
 
 
 def _record_session_plan_update(session: Session, update: dict[str, Any]) -> None:
@@ -406,8 +406,8 @@ def _record_session_plan_update(session: Session, update: dict[str, Any]) -> Non
         return
     steps = update.get("steps")
     progress = update.get("progress")
-    session.task_steps = steps if isinstance(steps, list) else []
-    session.task_progress = progress if isinstance(progress, dict) else None
+    session.plan_steps = steps if isinstance(steps, list) else []
+    session.plan_progress = progress if isinstance(progress, dict) else None
 
 
 def _tool_name_for_codex_item(item: dict[str, Any]) -> str:

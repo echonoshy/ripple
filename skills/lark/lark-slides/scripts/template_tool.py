@@ -11,7 +11,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 ASSETS_DIR = SKILL_ROOT / "assets"
 REFERENCES_DIR = SKILL_ROOT / "references"
@@ -38,9 +37,7 @@ def normalize_whitespace(value: str) -> str:
 
 
 def strip_markdown(value: str) -> str:
-    return normalize_whitespace(
-        re.sub(r"^-\s*", "", re.sub(r"`([^`]+)`", r"\1", value.replace("**", "")))
-    )
+    return normalize_whitespace(re.sub(r"^-\s*", "", re.sub(r"`([^`]+)`", r"\1", value.replace("**", ""))))
 
 
 def strip_xml(value: str) -> str:
@@ -70,7 +67,9 @@ def tokenize_query(value: str) -> list[str]:
             target.append(token)
 
     tokens: list[str] = []
-    for item in [item.strip() for item in re.split(r"[\s,/|，。；;：:（）()【】\[\]《》<>]+", normalized) if item.strip()]:
+    for item in [
+        item.strip() for item in re.split(r"[\s,/|，。；;：:（）()【】\[\]《》<>]+", normalized) if item.strip()
+    ]:
         append_unique(tokens, item)
 
     # Chinese prompts are often complete sentences without separators, e.g.
@@ -153,11 +152,11 @@ def slice_array(items: list[Any], limit: int) -> list[Any]:
 
 
 def count_tag(xml: str, tag_name: str) -> int:
-    return len(re.findall(fr"<{tag_name}\b", xml))
+    return len(re.findall(rf"<{tag_name}\b", xml))
 
 
 def extract_attribute(tag_source: str, name: str) -> str | None:
-    match = re.search(fr'{re.escape(name)}="([^"]+)"', tag_source)
+    match = re.search(rf'{re.escape(name)}="([^"]+)"', tag_source)
     return match.group(1) if match else None
 
 
@@ -255,7 +254,7 @@ def build_bbox_summary(
             [
                 compact_object(
                     {
-                        "id": f'{region["kind"]}-{index + 1}',
+                        "id": f"{region['kind']}-{index + 1}",
                         "kind": region["kind"],
                         "type": region["type"],
                         "text_type": region.get("text_type"),
@@ -278,7 +277,7 @@ def build_editable_regions(regions: list[dict[str, Any]]) -> list[dict[str, Any]
         [
             compact_object(
                 {
-                    "id": f'{region["kind"]}-{index + 1}',
+                    "id": f"{region['kind']}-{index + 1}",
                     "kind": region["kind"],
                     "role": "image"
                     if region["kind"] == "img"
@@ -314,9 +313,7 @@ def detect_slide_layout_tags(
     if text_regions and len(image_regions) == 1:
         biggest_text = sorted(text_regions, key=lambda region: region["area"], reverse=True)[0]
         biggest_image = image_regions[0]
-        if (
-            slide_width and biggest_image["width"] >= slide_width * 0.75
-        ) or (
+        if (slide_width and biggest_image["width"] >= slide_width * 0.75) or (
             slide_height and biggest_image["height"] >= slide_height * 0.75
         ):
             tags.add("full-bleed-image-caption")
@@ -356,7 +353,9 @@ def parse_theme_summary(theme_xml: str | None) -> dict[str, Any]:
     text_styles_block = re.search(r"<textStyles>([\s\S]*?)</textStyles>", theme_xml)
     text_styles: list[dict[str, Any]] = []
     if text_styles_block:
-        for match in re.finditer(r"<(title|headline|sub-headline|body|caption)\b([^>]*)/?>", text_styles_block.group(1)):
+        for match in re.finditer(
+            r"<(title|headline|sub-headline|body|caption)\b([^>]*)/?>", text_styles_block.group(1)
+        ):
             text_styles.append(
                 compact_object(
                     {
@@ -404,7 +403,9 @@ def extract_title_hint(slide_xml: str) -> dict[str, str] | None:
     return None
 
 
-def summarize_slide(slide_xml: str, slide_number: int, presentation_info: dict[str, Any] | None = None) -> dict[str, Any]:
+def summarize_slide(
+    slide_xml: str, slide_number: int, presentation_info: dict[str, Any] | None = None
+) -> dict[str, Any]:
     presentation_info = presentation_info or {}
     raw_width = presentation_info.get("width")
     raw_height = presentation_info.get("height")
@@ -492,7 +493,7 @@ def finalize_catalog_entry(entry: dict[str, Any] | None) -> dict[str, Any] | Non
     if not entry:
         return None
     filename_stem = re.sub(r"\.xml$", "", entry["filename"])
-    template_id = f'{entry["category"]}--{filename_stem}'
+    template_id = f"{entry['category']}--{filename_stem}"
     return {
         "template_id": template_id,
         "filename": f"{template_id}.xml",
@@ -623,7 +624,7 @@ def build_search_text(entry: dict[str, Any]) -> str:
         entry.get("page_types"),
         *(entry.get("layout_tags") or []),
         entry.get("use_cases"),
-        *[f'{entry_range["label"]} {entry_range["range"]}' for entry_range in entry.get("ranges", [])],
+        *[f"{entry_range['label']} {entry_range['range']}" for entry_range in entry.get("ranges", [])],
     ]
     return " ".join(str(value) for value in values if value).lower()
 
@@ -651,7 +652,9 @@ def build_index_data() -> dict[str, Any]:
                 "page_types": entry["page_types"],
                 "layout_tags": layout_tags,
                 "use_cases": entry["use_cases"],
-                "ranges": [{"label": entry_range["label"], "range": entry_range["range"]} for entry_range in entry["ranges"]],
+                "ranges": [
+                    {"label": entry_range["label"], "range": entry_range["range"]} for entry_range in entry["ranges"]
+                ],
             }
         )
 
@@ -674,7 +677,7 @@ def load_index(index_path: str | Path = DEFAULT_INDEX_PATH) -> dict[str, Any]:
 
 
 def catalog_filename(entry: dict[str, Any]) -> str:
-    return f'{entry["template_id"].split("--", 1)[-1]}.xml'
+    return f"{entry['template_id'].split('--', 1)[-1]}.xml"
 
 
 def build_external_template_entry(template_path: Path) -> dict[str, Any]:
@@ -689,9 +692,7 @@ def build_external_template_entry(template_path: Path) -> dict[str, Any]:
         "palette": None,
         "structure": None,
         "page_types": [],
-        "layout_tags": sorted(
-            {tag for slide in xml_info["slide_summaries"] for tag in slide.get("layout_tags", [])}
-        ),
+        "layout_tags": sorted({tag for slide in xml_info["slide_summaries"] for tag in slide.get("layout_tags", [])}),
         "use_cases": None,
         "theme_summary": xml_info["theme_summary"],
         "ranges": [],
@@ -709,7 +710,7 @@ def find_template_entry(
         entry
         for entry in index_data["templates"]
         if entry["template_id"] == normalized
-        or f'{entry["template_id"]}.xml' == selector
+        or f"{entry['template_id']}.xml" == selector
         or catalog_filename(entry) == selector
         or catalog_filename(entry) == f"{normalized}.xml"
     ]
@@ -755,10 +756,10 @@ def resolve_range_selection(entry: dict[str, Any], options: dict[str, Any]) -> d
     if options.get("label"):
         matched_range = next((item for item in entry["ranges"] if item["label"] == options["label"]), None)
         if not matched_range:
-            fail(f'range label not found: {options["label"]}')
+            fail(f"range label not found: {options['label']}")
         slide_numbers = parse_range_spec(matched_range["range"]) if matched_range["range"] else []
         if not slide_numbers:
-            fail(f'range label has no slides: {options["label"]}')
+            fail(f"range label has no slides: {options['label']}")
         return {"label": matched_range["label"], "range": matched_range["range"], "slide_numbers": slide_numbers}
 
     if not options.get("range"):
@@ -768,7 +769,7 @@ def resolve_range_selection(entry: dict[str, Any], options: dict[str, Any]) -> d
 
 
 def get_template_path(entry: dict[str, Any]) -> Path:
-    return TEMPLATES_DIR / f'{entry["template_id"]}.xml'
+    return TEMPLATES_DIR / f"{entry['template_id']}.xml"
 
 
 def summarize_selection(index_data: dict[str, Any], template_selector: str, options: dict[str, Any]) -> dict[str, Any]:
@@ -792,7 +793,9 @@ def summarize_selection(index_data: dict[str, Any], template_selector: str, opti
             "palette": entry["palette"],
             "structure": entry["structure"],
             "page_types": entry["page_types"],
-            "layout_tags": sorted({tag for slide in xml_info["slide_summaries"] for tag in slide.get("layout_tags", [])}),
+            "layout_tags": sorted(
+                {tag for slide in xml_info["slide_summaries"] for tag in slide.get("layout_tags", [])}
+            ),
             "use_cases": entry["use_cases"],
         },
         "selection": selection,
@@ -815,9 +818,9 @@ def extract_selection_xml(index_data: dict[str, Any], template_selector: str, op
 
     chunks = [xml_info["opening_tag"]]
     if xml_info["title_xml"]:
-        chunks.append(f'  {xml_info["title_xml"]}')
+        chunks.append(f"  {xml_info['title_xml']}")
     if xml_info["theme_xml"]:
-        chunks.append(f'  {xml_info["theme_xml"]}')
+        chunks.append(f"  {xml_info['theme_xml']}")
     chunks.extend(selected_slides)
     chunks.append("</presentation>")
     return "\n".join(chunks)
@@ -931,7 +934,7 @@ def run_cli(argv: list[str] | None = None) -> None:
     if command == "build-index":
         index_data = build_index_data()
         output_path = Path(options["out"]).resolve() if options.get("out") else DEFAULT_INDEX_PATH
-        output_path.write_text(f'{json.dumps(index_data, ensure_ascii=False, indent=2)}\n', encoding="utf-8")
+        output_path.write_text(f"{json.dumps(index_data, ensure_ascii=False, indent=2)}\n", encoding="utf-8")
         print(output_path)
         return
 
@@ -948,7 +951,14 @@ def run_cli(argv: list[str] | None = None) -> None:
         xml = extract_selection_xml(index_data, options.get("template"), options)
         if options.get("with-summary"):
             summary = summarize_selection(index_data, options.get("template"), options)
-            write_json({"xml": xml, "selection": summary["selection"], "summary": summary["summary"], "slides": summary["slides"]})
+            write_json(
+                {
+                    "xml": xml,
+                    "selection": summary["selection"],
+                    "summary": summary["summary"],
+                    "slides": summary["slides"],
+                }
+            )
             return
         if options.get("out"):
             output_path = Path(options["out"]).resolve()

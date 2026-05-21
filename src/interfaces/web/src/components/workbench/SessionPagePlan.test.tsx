@@ -2,18 +2,18 @@ import assert from "node:assert/strict";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import TaskPage from "./TaskPage";
+import SessionPage from "./SessionPage";
 
 function noop() {}
 
-function renderTaskPageWithPlan() {
+function renderSessionPageWithPlan() {
   return renderToStaticMarkup(
-    <TaskPage
+    <SessionPage
       session={null}
       messages={[]}
       timelineEvents={[]}
-      taskProgress={{ completed: 1, total: 2, currentTask: "Map event to UI" }}
-      taskSteps={[
+      planProgress={{ completed: 1, total: 2, currentTask: "Map event to UI" }}
+      planSteps={[
         { id: "codex-plan:turn-1:0", subject: "Inspect current bridge", status: "completed" },
         { id: "codex-plan:turn-1:1", subject: "Map event to UI", status: "in_progress" },
       ]}
@@ -44,7 +44,7 @@ function renderTaskPageWithPlan() {
 }
 
 function testCompletedPlanStepUsesStrikethrough() {
-  const html = renderTaskPageWithPlan();
+  const html = renderSessionPageWithPlan();
 
   assert.match(html, /line-through/);
   assert.match(html, />Inspect current bridge</);
@@ -53,4 +53,4 @@ function testCompletedPlanStepUsesStrikethrough() {
 
 testCompletedPlanStepUsesStrikethrough();
 
-console.log("task page plan tests passed");
+console.log("session page plan tests passed");

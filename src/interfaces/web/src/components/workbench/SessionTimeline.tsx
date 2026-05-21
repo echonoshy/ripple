@@ -35,7 +35,7 @@ function EventIcon({ type }: { type: WorkbenchTimelineEvent["type"] }) {
   return <Bot size={15} />;
 }
 
-interface TaskTimelineProps {
+interface SessionTimelineProps {
   messages: Message[];
   events: WorkbenchTimelineEvent[];
   isGenerating: boolean;
@@ -45,7 +45,7 @@ interface TaskTimelineProps {
   feishuAuthWaiting?: FeishuAuthWaitingState | null;
 }
 
-export default function TaskTimeline({
+export default function SessionTimeline({
   messages,
   events,
   isGenerating,
@@ -53,7 +53,7 @@ export default function TaskTimeline({
   onPermissionResolve,
   onFeishuAuthOpen,
   feishuAuthWaiting,
-}: TaskTimelineProps) {
+}: SessionTimelineProps) {
   const lastMessage = messages[messages.length - 1];
   const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
   const pendingAskUser = !isGenerating ? lastAssistant?.askUser : undefined;

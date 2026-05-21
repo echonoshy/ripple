@@ -3,13 +3,13 @@ import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import TaskComposer from "./TaskComposer";
+import SessionComposer from "./SessionComposer";
 
 function noop() {}
 
 function renderComposer() {
   return renderToStaticMarkup(
-    <TaskComposer
+    <SessionComposer
       value=""
       onChange={noop}
       onSend={noop}
@@ -55,8 +55,8 @@ function testComposerInputSuppressesGlobalBlueFocusOutline() {
   const html = renderComposer();
   const globalCss = readFileSync(new URL("../../globals.css", import.meta.url), "utf8");
 
-  assert.match(html, /task-composer-input/);
-  assert.match(globalCss, /\.task-composer-input:focus-visible/);
+  assert.match(html, /session-composer-input/);
+  assert.match(globalCss, /\.session-composer-input:focus-visible/);
   assert.match(globalCss, /outline:\s*none/);
 }
 
@@ -64,4 +64,4 @@ testShowsSelectedModelAndMenuOptions();
 testComposerToolbarNamesRealActions();
 testComposerInputSuppressesGlobalBlueFocusOutline();
 
-console.log("task composer tests passed");
+console.log("session composer tests passed");

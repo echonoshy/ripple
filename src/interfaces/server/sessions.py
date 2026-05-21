@@ -54,8 +54,8 @@ class Session:
     pending_connector_auth: dict[str, object] | None = None
     pending_schedule_request: dict[str, object] | None = None
     codex_thread_id: str | None = None
-    task_steps: list[dict[str, object]] = field(default_factory=list)
-    task_progress: dict[str, object] | None = None
+    plan_steps: list[dict[str, object]] = field(default_factory=list)
+    plan_progress: dict[str, object] | None = None
 
 
 def _build_default_system_prompt(workspace_dir: Path | None = None) -> str:
@@ -243,8 +243,8 @@ class SessionManager:
             pending_connector_auth=session.pending_connector_auth,
             pending_schedule_request=session.pending_schedule_request,
             codex_thread_id=session.codex_thread_id,
-            task_steps=session.task_steps,
-            task_progress=session.task_progress,
+            plan_steps=session.plan_steps,
+            plan_progress=session.plan_progress,
         )
 
     def _write_feishu_config(self, user_id: str, feishu: "FeishuConfig") -> None:
@@ -478,8 +478,8 @@ class SessionManager:
             pending_connector_auth=state.get("pending_connector_auth"),
             pending_schedule_request=state.get("pending_schedule_request"),
             codex_thread_id=state.get("codex_thread_id"),
-            task_steps=state.get("task_steps", []),
-            task_progress=state.get("task_progress"),
+            plan_steps=state.get("plan_steps", state.get("task_steps", [])),
+            plan_progress=state.get("plan_progress", state.get("task_progress")),
         )
         self._sessions[key] = session
         logger.info(

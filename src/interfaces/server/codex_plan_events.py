@@ -11,7 +11,7 @@ def _normalize_plan_step_status(status: Any) -> str:
     return "pending"
 
 
-def extract_task_plan_update_event(event: dict[str, Any]) -> dict[str, Any] | None:
+def extract_plan_update_event(event: dict[str, Any]) -> dict[str, Any] | None:
     if event.get("type") != "codex.notification":
         return None
     message = (event.get("data") or {}).get("message")

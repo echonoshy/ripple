@@ -5,13 +5,13 @@ const appSource = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
 const chatRunSource = readFileSync(new URL("./hooks/useChatRun.ts", import.meta.url), "utf8");
 
 function testChatCompletionClearsResidualPlan() {
-  assert.match(chatRunSource, /clearTaskPlanState/);
-  assert.match(chatRunSource, /onComplete:[\s\S]*clearTaskPlanState/);
+  assert.match(chatRunSource, /clearPlanState/);
+  assert.match(chatRunSource, /onComplete:[\s\S]*clearPlanState/);
 }
 
 function testSessionDetailsRestorePersistedPlan() {
-  assert.match(chatRunSource, /details\.taskSteps/);
-  assert.match(chatRunSource, /details\.taskProgress/);
+  assert.match(chatRunSource, /details\.planSteps/);
+  assert.match(chatRunSource, /details\.planProgress/);
 }
 
 function testRestoringSessionRefreshesWorkspaceViews() {

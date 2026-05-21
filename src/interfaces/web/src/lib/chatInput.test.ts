@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { buildChatMessageContent, describeChatFilesForDisplay } from "./chatInput";
 
 const fileRef = {
-  path: "/workspace/src/components/TaskComposer.tsx",
-  name: "TaskComposer.tsx",
+  path: "/workspace/src/components/SessionComposer.tsx",
+  name: "SessionComposer.tsx",
   mime_type: "text/typescript",
   kind: "attachment" as const,
 };
@@ -19,8 +19,8 @@ function testFilesBecomeOpenAIContentBlocks() {
     {
       type: "file",
       file: {
-        path: "/workspace/src/components/TaskComposer.tsx",
-        name: "TaskComposer.tsx",
+        path: "/workspace/src/components/SessionComposer.tsx",
+        name: "SessionComposer.tsx",
         mime_type: "text/typescript",
       },
     },
@@ -32,8 +32,8 @@ function testFileOnlyMessagesAreAllowed() {
     {
       type: "file",
       file: {
-        path: "/workspace/src/components/TaskComposer.tsx",
-        name: "TaskComposer.tsx",
+        path: "/workspace/src/components/SessionComposer.tsx",
+        name: "SessionComposer.tsx",
         mime_type: "text/typescript",
       },
     },
@@ -43,7 +43,7 @@ function testFileOnlyMessagesAreAllowed() {
 function testDisplayTextIncludesAttachedFiles() {
   assert.equal(
     describeChatFilesForDisplay("Please inspect this", [fileRef]),
-    "Please inspect this\n\nAttached files:\n- TaskComposer.tsx (/workspace/src/components/TaskComposer.tsx)"
+    "Please inspect this\n\nAttached files:\n- SessionComposer.tsx (/workspace/src/components/SessionComposer.tsx)"
   );
 }
 

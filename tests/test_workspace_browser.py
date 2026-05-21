@@ -121,15 +121,15 @@ def test_search_workspace_files_matches_paths_and_skips_system_dirs(tmp_path: Pa
     (workspace / ".git").mkdir(parents=True)
     (workspace / ".ripple" / "uploads").mkdir(parents=True)
     (workspace / "node_modules" / "pkg").mkdir(parents=True)
-    (workspace / "src" / "components" / "TaskComposer.tsx").write_text("export {}", encoding="utf-8")
-    (workspace / ".git" / "TaskComposer.tsx").write_text("ignored", encoding="utf-8")
-    (workspace / ".ripple" / "uploads" / "TaskComposer.tsx").write_text("ignored", encoding="utf-8")
-    (workspace / "node_modules" / "pkg" / "TaskComposer.tsx").write_text("ignored", encoding="utf-8")
+    (workspace / "src" / "components" / "SessionComposer.tsx").write_text("export {}", encoding="utf-8")
+    (workspace / ".git" / "SessionComposer.tsx").write_text("ignored", encoding="utf-8")
+    (workspace / ".ripple" / "uploads" / "SessionComposer.tsx").write_text("ignored", encoding="utf-8")
+    (workspace / "node_modules" / "pkg" / "SessionComposer.tsx").write_text("ignored", encoding="utf-8")
 
-    results = search_workspace_files(workspace, "taskcomposer")
+    results = search_workspace_files(workspace, "sessioncomposer")
 
-    assert [entry.path for entry in results.entries] == ["/workspace/src/components/TaskComposer.tsx"]
-    assert results.query == "taskcomposer"
+    assert [entry.path for entry in results.entries] == ["/workspace/src/components/SessionComposer.tsx"]
+    assert results.query == "sessioncomposer"
     assert results.entries[0].match == "name"
 
 

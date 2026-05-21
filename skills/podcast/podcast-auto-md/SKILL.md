@@ -154,6 +154,5 @@ python /home/lake/workspace/wip/ripple-dev/skills/podcast/podcast-auto-md/pipeli
 - ❌ 不要生成任何 `summary.json` / `outline.json` / `keywords.json` / `understand_input.json`
 - ❌ 不要再调用 `podcast-episode-understand`、`podcast-auto-md/render.py`、`pipeline.py split-understand` —— 它们已经被删除
 - ❌ 不要在 markdown 字符串里使用半角双引号 `"`，统一用 `「」` / `『』`
-- ❌ 不要用 `TaskCreate` / `TaskUpdate`
 - ❌ 不要在调完 pipeline 之后又用 `cat` / `Read` 重复读 `meta.json`、`content.txt`——一次就够
 - ❌ 不要把 markdown 写成"先调 Write 落盘，然后说'内容如下'再贴一次"的两步——**在同一条回复里**，对话正文 = Write 的内容，逻辑上只有一份

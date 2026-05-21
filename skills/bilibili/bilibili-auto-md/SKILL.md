@@ -279,8 +279,5 @@ MD，**不**调用 `Write`，也**不要**自己构造 `/workspace/.outputs/bili
   版本 = 文件内容**，不是"文件内容 + 装饰"
 - ❌ **不要先调 `BilibiliAuthStatus` 再调 `BilibiliLoginStart`**——LoginStart 已经
   自带 bound 检查；多调一次 AuthStatus 就是多浪费一个模型 round-trip
-- ❌ **不要为本 skill 调用 `TaskCreate` / `TaskUpdate`**——这是个单步原子任务
-  （Step 0~3 都在一个 agent loop 里跑完），跑任务面板纯属仪式，每次 Update 都
-  要等模型 reasoning 一轮，白白多花几十秒
 - ❌ 不要用正则 / 字符串扣 B 站网页来替代 `pipeline.py`——API 路径已经封装稳了
 - ❌ 不要对无 AI 总结的视频硬编"伪时间轴"——缺就缺，明确标注

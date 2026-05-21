@@ -154,9 +154,7 @@ class TemplateToolTest(unittest.TestCase):
             {"query": "", "layout-tag": "full-bleed-image-caption", "limit": 10},
         )
         self.assertTrue(results)
-        self.assertTrue(
-            any("full-bleed-image-caption" in entry["layout_tags"] for entry in results)
-        )
+        self.assertTrue(any("full-bleed-image-caption" in entry["layout_tags"] for entry in results))
 
     def test_all_template_files_are_cataloged_and_indexed(self) -> None:
         template_files = sorted(path.stem for path in template_tool.TEMPLATES_DIR.glob("*.xml"))

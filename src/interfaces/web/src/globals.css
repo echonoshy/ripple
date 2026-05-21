@@ -17,7 +17,7 @@ body {
   outline-offset: 2px;
 }
 
-.task-composer-input:focus-visible {
+.session-composer-input:focus-visible {
   outline: none;
   outline-offset: 0;
 }

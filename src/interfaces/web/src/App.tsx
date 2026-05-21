@@ -17,7 +17,7 @@ import FilesPage from "@/components/workbench/FilesPage";
 import HomePage from "@/components/workbench/HomePage";
 import InspectorPanel from "@/components/workbench/InspectorPanel";
 import MobileTabBar from "@/components/workbench/MobileTabBar";
-import TaskPage from "@/components/workbench/TaskPage";
+import SessionPage from "@/components/workbench/SessionPage";
 import WorkbenchShell from "@/components/workbench/WorkbenchShell";
 import WorkspaceNav from "@/components/workbench/WorkspaceNav";
 import { copyTextToClipboard } from "@/lib/clipboard";
@@ -85,8 +85,8 @@ export default function Home() {
     inputFocusToken,
     tokenUsage,
     lastContextTokens,
-    taskSteps,
-    taskProgress,
+    planSteps,
+    planProgress,
     pendingPermission,
     currentSessionRuntimeStatus,
     timelineEvents,
@@ -302,12 +302,12 @@ export default function Home() {
     ) : activeView === "connectors" ? (
       <ConnectorsPage userId={userId} onConnectorStateChange={loadSessions} />
     ) : (
-      <TaskPage
+      <SessionPage
         session={selectedWorkbenchSession}
         messages={messages}
         timelineEvents={timelineEvents}
-        taskProgress={taskProgress}
-        taskSteps={taskSteps}
+        planProgress={planProgress}
+        planSteps={planSteps}
         tokenUsage={tokenUsage}
         lastContextTokens={lastContextTokens}
         input={input}

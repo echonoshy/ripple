@@ -223,29 +223,29 @@ export interface SessionDetail extends SessionSummary {
   pendingQuestion?: string | null;
   pendingOptions?: string[] | null;
   pendingPermissionRequest?: PermissionRequestData | null;
-  taskSteps?: TaskInfo[];
-  taskProgress?: TaskProgress | null;
+  planSteps?: PlanStep[];
+  planProgress?: PlanProgress | null;
 }
 
-export interface TaskInfo {
+export interface PlanStep {
   id: string;
   subject: string;
   status: "pending" | "in_progress" | "completed";
   activeForm?: string;
 }
 
-export interface TaskProgress {
+export interface PlanProgress {
   completed: number;
   total: number;
   currentTask?: string;
 }
 
-export interface TaskPlanUpdate {
+export interface PlanUpdate {
   thread_id?: string | null;
   turn_id?: string;
   explanation?: string | null;
-  steps: TaskInfo[];
-  progress: TaskProgress;
+  steps: PlanStep[];
+  progress: PlanProgress;
   allCompleted: boolean;
 }
 

@@ -19,8 +19,7 @@
                 └── <session_id>/
                     ├── meta.json
                     ├── messages.jsonl
-                    ├── tasks.json
-                    └── task-outputs/
+                    └── model_messages.jsonl
 """
 
 from pathlib import Path

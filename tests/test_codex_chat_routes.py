@@ -975,7 +975,7 @@ def test_chat_feishu_setup_done_advances_to_user_auth(tmp_path: Path, monkeypatc
     assert provider.requests == []
 
 
-def test_task_feishu_setup_poll_advances_to_user_auth_without_user_done(tmp_path: Path, monkeypatch):
+def test_session_feishu_setup_poll_advances_to_user_auth_without_user_done(tmp_path: Path, monkeypatch):
     provider = InstantCodexProvider(output="should not run")
     client = _client(tmp_path, monkeypatch, provider)
     get_session_manager().sandbox_manager.config.lark_cli_bin = str(tmp_path / "lark-cli")
@@ -1016,7 +1016,7 @@ def test_task_feishu_setup_poll_advances_to_user_auth_without_user_done(tmp_path
     session_id = first.json()["session_id"]
 
     second = client.post(
-        f"/v1/tasks/{session_id}/connector-auth/poll",
+        f"/v1/sessions/{session_id}/connector-auth/poll",
         json={"model": "codex-medium", "stream": False},
     )
 
@@ -1472,7 +1472,7 @@ def test_chat_feishu_auth_completion_resumes_original_request(tmp_path: Path, mo
     assert "好了" not in provider.requests[0].prompt
 
 
-def test_task_feishu_auth_poll_resumes_original_request_without_user_done(tmp_path: Path, monkeypatch):
+def test_session_feishu_auth_poll_resumes_original_request_without_user_done(tmp_path: Path, monkeypatch):
     provider = InstantCodexProvider(output="sent")
     client = _client(tmp_path, monkeypatch, provider)
     get_session_manager().sandbox_manager.config.lark_cli_bin = str(tmp_path / "lark-cli")
@@ -1512,7 +1512,7 @@ def test_task_feishu_auth_poll_resumes_original_request_without_user_done(tmp_pa
     session_id = first.json()["session_id"]
 
     second = client.post(
-        f"/v1/tasks/{session_id}/connector-auth/poll",
+        f"/v1/sessions/{session_id}/connector-auth/poll",
         json={"model": "codex-medium", "stream": False},
     )
 
@@ -1535,7 +1535,7 @@ def test_task_feishu_auth_poll_resumes_original_request_without_user_done(tmp_pa
     assert user_texts == ["用飞书给胡畔发 hi"]
 
 
-def test_task_google_auth_poll_resumes_original_request_without_user_done(tmp_path: Path, monkeypatch):
+def test_session_google_auth_poll_resumes_original_request_without_user_done(tmp_path: Path, monkeypatch):
     provider = InstantCodexProvider(output="gmail summary")
     client = _client(tmp_path, monkeypatch, provider)
     config = get_session_manager().sandbox_manager.config
@@ -1555,7 +1555,7 @@ def test_task_google_auth_poll_resumes_original_request_without_user_done(tmp_pa
     get_session_manager().persist_session(session)
 
     response = client.post(
-        f"/v1/tasks/{session.session_id}/connector-auth/poll",
+        f"/v1/sessions/{session.session_id}/connector-auth/poll",
         json={"model": "codex-medium", "stream": False},
     )
 
@@ -2474,5 +2474,5 @@ def test_chat_confirming_invalid_pending_schedule_clears_waiting_state(tmp_path:
     assert session.pending_options is None
     assert session.status == "idle"
 
-    detail = client.get(f"/v1/tasks/{session.session_id}").json()
+    detail = client.get(f"/v1/sessions/{session.session_id}").json()
     assert detail["status"] == "idle"

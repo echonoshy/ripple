@@ -14,6 +14,8 @@ pub struct AppConfig {
     pub sandbox: SandboxConfig,
     pub codex: CodexConfig,
     pub skills: SkillsConfig,
+    pub public_base_url: Option<String>,
+    pub gogcli_oauth: GogcliOAuthConfig,
 }
 
 #[derive(Clone, Debug)]
@@ -58,6 +60,27 @@ pub struct SkillsConfig {
     pub shared_dirs: Vec<String>,
 }
 
+#[derive(Clone, Debug)]
+pub struct GogcliOAuthConfig {
+    pub auto_register_client: bool,
+    pub auto_from_request: bool,
+    pub callback_url: Option<String>,
+    pub client_secret_json: Option<String>,
+    pub client: Option<GogcliOAuthClient>,
+}
+
+#[derive(Clone, Debug)]
+pub struct GogcliOAuthClient {
+    pub client_type: Option<String>,
+    pub client_id: String,
+    pub client_secret: String,
+    pub project_id: Option<String>,
+    pub auth_uri: Option<String>,
+    pub token_uri: Option<String>,
+    pub auth_provider_x509_cert_url: Option<String>,
+    pub redirect_uris: Vec<String>,
+}
+
 #[derive(Debug, Default, Deserialize)]
 struct RawConfig {
     server: Option<RawServer>,
@@ -73,6 +96,8 @@ struct RawServer {
     api_keys: Option<Vec<String>>,
     sandbox: Option<RawSandbox>,
     codex_chat: Option<RawCodexChat>,
+    public_base_url: Option<String>,
+    gogcli_oauth: Option<RawGogcliOAuth>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -126,6 +151,28 @@ struct RawSkills {
     shared_dirs: Option<Vec<String>>,
 }
 
+#[derive(Debug, Default, Deserialize)]
+struct RawGogcliOAuth {
+    auto_register_client: Option<bool>,
+    auto_from_request: Option<bool>,
+    callback_url: Option<String>,
+    client_secret_json: Option<String>,
+    client: Option<RawGogcliOAuthClient>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RawGogcliOAuthClient {
+    #[serde(rename = "type")]
+    client_type: Option<String>,
+    client_id: Option<String>,
+    client_secret: Option<String>,
+    project_id: Option<String>,
+    auth_uri: Option<String>,
+    token_uri: Option<String>,
+    auth_provider_x509_cert_url: Option<String>,
+    redirect_uris: Option<Vec<String>>,
+}
+
 impl AppConfig {
     pub fn load() -> anyhow::Result<Self> {
         let repo_root = std::env::current_dir()?;
@@ -142,6 +189,8 @@ impl AppConfig {
         let server = raw.server.unwrap_or_default();
         let sandbox = server.sandbox.unwrap_or_default();
         let model = raw.model.unwrap_or_default();
+        let public_base_url = clean_config_string(server.public_base_url.as_deref());
+        let gogcli_oauth_raw = server.gogcli_oauth.unwrap_or_default();
         let codex_raw = raw
             .external_agents
             .unwrap_or_default()
@@ -233,6 +282,16 @@ impl AppConfig {
                     .shared_dirs
                     .unwrap_or_else(|| vec!["src/skills/*".to_string()]),
             },
+            public_base_url,
+            gogcli_oauth: GogcliOAuthConfig {
+                auto_register_client: gogcli_oauth_raw.auto_register_client.unwrap_or(true),
+                auto_from_request: gogcli_oauth_raw.auto_from_request.unwrap_or(true),
+                callback_url: clean_config_string(gogcli_oauth_raw.callback_url.as_deref()),
+                client_secret_json: clean_config_string(
+                    gogcli_oauth_raw.client_secret_json.as_deref(),
+                ),
+                client: parse_gogcli_oauth_client(gogcli_oauth_raw.client),
+            },
         })
     }
 
@@ -243,6 +302,36 @@ impl AppConfig {
         }
         (alias.to_string(), None)
     }
+}
+
+fn parse_gogcli_oauth_client(raw: Option<RawGogcliOAuthClient>) -> Option<GogcliOAuthClient> {
+    let raw = raw?;
+    let client_id = clean_config_string(raw.client_id.as_deref())?;
+    let client_secret = clean_config_string(raw.client_secret.as_deref())?;
+    Some(GogcliOAuthClient {
+        client_type: clean_config_string(raw.client_type.as_deref()),
+        client_id,
+        client_secret,
+        project_id: clean_config_string(raw.project_id.as_deref()),
+        auth_uri: clean_config_string(raw.auth_uri.as_deref()),
+        token_uri: clean_config_string(raw.token_uri.as_deref()),
+        auth_provider_x509_cert_url: clean_config_string(
+            raw.auth_provider_x509_cert_url.as_deref(),
+        ),
+        redirect_uris: raw
+            .redirect_uris
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|value| clean_config_string(Some(&value)))
+            .collect(),
+    })
+}
+
+fn clean_config_string(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
 }
 
 fn parse_model_presets(

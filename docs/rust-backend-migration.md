@@ -31,7 +31,7 @@ Implemented in the current migration slice:
 - Document metadata CRUD APIs backed by per-user sandbox storage.
 - Connector list/status shape for current built-in connectors.
 - Notion token authorization/disconnect.
-- Google Workspace account listing/disconnect through `gog`, plus the legacy `/v1/sandboxes/gogcli-accounts` alias.
+- Google Workspace assisted OAuth start/callback completion, account listing/disconnect through `gog`, plus the legacy `/v1/sandboxes/gogcli-accounts` alias.
 - Feishu and Bilibili disconnect cleanup.
 - Stateless `/v1/bilibili/qrcode.png` PNG rendering route.
 - Codex app-server JSON-RPC provider with one trusted service process per user.
@@ -47,7 +47,6 @@ Implemented in the current migration slice:
 
 Not implemented yet:
 
-- Google Workspace assisted OAuth start/callback completion in Rust.
 - Feishu OAuth start/complete in Rust.
 - Bilibili QR login start/complete in Rust.
 - Chat-side connector auth polling/interception flows.

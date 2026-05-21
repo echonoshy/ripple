@@ -157,6 +157,10 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health::health))
         .route("/v1/bilibili/qrcode.png", get(bilibili::qrcode_png))
+        .route(
+            "/v1/sandboxes/gogcli/oauth/callback",
+            get(connectors::gogcli_oauth_callback),
+        )
         .nest("/v1", v1)
         .with_state(state)
 }

@@ -10,6 +10,7 @@ import rehypeKatex from "rehype-katex";
 import { ChevronRight, Brain, ExternalLink, KeyRound, Loader2, Settings2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { resolveBackendUrl } from "@/lib/api";
+import { openExternalUrl } from "@/lib/platform";
 
 /**
  * LLM 常把矩阵换行写成单反斜杠加空格 `\ `，KaTeX 需要 `\\`。
@@ -177,8 +178,11 @@ function FeishuCard({
   const handleOpen = (event: React.MouseEvent<HTMLAnchorElement>) => {
     if (!onOpen) return;
     event.preventDefault();
-    const popup = window.open(href, "ripple-connector-auth");
-    onOpen({ connector: "feishu", tag, url: href, popup });
+    void (async () => {
+      const result = await openExternalUrl(href, "ripple-connector-auth");
+      if (!result.opened) return;
+      onOpen({ connector: "feishu", tag, url: href, popup: result.popup });
+    })();
   };
 
   return (
@@ -233,8 +237,11 @@ function GoogleAuthCard({
   const handleOpen = (event: React.MouseEvent<HTMLAnchorElement>) => {
     if (!onOpen) return;
     event.preventDefault();
-    const popup = window.open(href, "ripple-connector-auth");
-    onOpen({ connector: "google_workspace", tag: "auth", url: href, popup });
+    void (async () => {
+      const result = await openExternalUrl(href, "ripple-connector-auth");
+      if (!result.opened) return;
+      onOpen({ connector: "google_workspace", tag: "auth", url: href, popup: result.popup });
+    })();
   };
 
   return (

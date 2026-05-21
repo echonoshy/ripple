@@ -29,6 +29,7 @@ import {
   WorkspaceUploadConflictError,
   type WorkspaceSearchOptions,
 } from "@/lib/api";
+import { saveBlobAsDownload } from "@/lib/platform";
 import { readableApiErrorMessage } from "@/lib/apiErrors";
 import { WorkspaceEntry, WorkspaceFilePreview, WorkspaceListing } from "@/types";
 
@@ -526,24 +527,13 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
     void uploadFilesToCurrentDirectory(Array.from(event.dataTransfer.files || []));
   };
 
-  const saveDownloadedBlob = (blob: Blob, filename: string) => {
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.URL.revokeObjectURL(url);
-  };
-
   const handleDownloadFile = async (path: string) => {
     if (downloadingPath) return;
     setDownloadingPath(path);
     setError(null);
     try {
       const downloaded = await downloadWorkspaceFile(path);
-      saveDownloadedBlob(downloaded.blob, downloaded.filename);
+      saveBlobAsDownload(downloaded.blob, downloaded.filename);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {

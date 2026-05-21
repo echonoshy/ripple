@@ -1,3 +1,5 @@
+import { getClientStorage } from "@/lib/platform";
+
 const CURRENT_SESSION_STORAGE_KEY = "ripple-current-session-id";
 
 type StorageLike = Pick<Storage, "getItem" | "setItem" | "removeItem">;
@@ -12,7 +14,7 @@ function getStorage(storage?: StorageLike): StorageLike | null {
     return null;
   }
 
-  return window.localStorage;
+  return getClientStorage();
 }
 
 export function getStoredCurrentSessionId(storage?: StorageLike): string | null {

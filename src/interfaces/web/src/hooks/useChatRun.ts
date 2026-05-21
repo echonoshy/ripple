@@ -32,6 +32,7 @@ import {
   extractChangedFilePaths,
   messagesToTimelineEvents,
 } from "@/lib/workbench";
+import { openExternalUrl } from "@/lib/platform";
 import type { FeishuAuthOpenPayload, FeishuAuthWaitingState } from "@/components/MarkdownRenderer";
 
 export interface ChatRunSessionActions {
@@ -109,8 +110,7 @@ export function useChatRun({
   const feishuAuthPopupUrlRef = useRef<string | null>(null);
   const feishuAuthWaitingTimerRef = useRef<number | null>(null);
   const beginConnectorAuthPollRef = useRef<
-    | ((payload: FeishuAuthOpenPayload, options?: ConnectorAuthPollOptions) => void)
-    | null
+    ((payload: FeishuAuthOpenPayload, options?: ConnectorAuthPollOptions) => void) | null
   >(null);
 
   const setActiveRunningSession = useCallback((sessionId: string | null) => {
@@ -764,15 +764,23 @@ export function useChatRun({
       /* fall through to opening a new window */
     }
     if (feishuAuthPopupUrlRef.current === nextUrl) return;
-    feishuAuthPopupRef.current = window.open(nextUrl, "ripple-connector-auth");
     feishuAuthPopupUrlRef.current = nextUrl;
+    void (async () => {
+      const result = await openExternalUrl(nextUrl, "ripple-connector-auth");
+      if (!result.opened) {
+        if (feishuAuthPopupUrlRef.current === nextUrl) {
+          feishuAuthPopupUrlRef.current = null;
+        }
+        return;
+      }
+      if (result.popup) {
+        feishuAuthPopupRef.current = result.popup;
+      }
+    })();
   }, []);
 
   const beginConnectorAuthPoll = useCallback(
-    (
-      { connector, url, popup }: FeishuAuthOpenPayload,
-      options: ConnectorAuthPollOptions = {}
-    ) => {
+    ({ connector, url, popup }: FeishuAuthOpenPayload, options: ConnectorAuthPollOptions = {}) => {
       const targetConnector = connector === "google_workspace" ? "google_workspace" : "feishu";
       const activeSessionId = getSessionActions().getSessionId();
       if (!activeSessionId) return;

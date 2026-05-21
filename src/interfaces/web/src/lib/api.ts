@@ -25,6 +25,7 @@ import {
 } from "@/types";
 import { buildChatMessageContent, type ChatFileRef } from "@/lib/chatInput";
 import { readableApiErrorMessage } from "@/lib/apiErrors";
+import { getClientStorage } from "@/lib/platform";
 
 const DEFAULT_PUBLIC_API_URL = "https://test-oauth.weilai.ai/v1";
 
@@ -114,18 +115,15 @@ export interface ScheduleCreateInput {
 export type ScheduleUpdateInput = Partial<ScheduleCreateInput>;
 
 export function getApiKey(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem(API_KEY_STORAGE_KEY);
+  return getClientStorage()?.getItem(API_KEY_STORAGE_KEY) ?? null;
 }
 
 export function setApiKey(key: string): void {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(API_KEY_STORAGE_KEY, key);
+  getClientStorage()?.setItem(API_KEY_STORAGE_KEY, key);
 }
 
 export function clearApiKey(): void {
-  if (typeof window === "undefined") return;
-  localStorage.removeItem(API_KEY_STORAGE_KEY);
+  getClientStorage()?.removeItem(API_KEY_STORAGE_KEY);
 }
 
 export function isValidUserId(uid: string): boolean {
@@ -133,24 +131,21 @@ export function isValidUserId(uid: string): boolean {
 }
 
 export function getUserId(): string {
-  if (typeof window === "undefined") return DEFAULT_USER_ID;
-  const stored = localStorage.getItem(USER_ID_STORAGE_KEY);
+  const stored = getClientStorage()?.getItem(USER_ID_STORAGE_KEY);
   if (stored && isValidUserId(stored)) return stored;
   return DEFAULT_USER_ID;
 }
 
 export function setUserId(uid: string): void {
-  if (typeof window === "undefined") return;
   const trimmed = uid.trim();
   if (!isValidUserId(trimmed)) {
     throw new Error("Invalid user_id: must match ^[a-zA-Z0-9_-]{1,64}$");
   }
-  localStorage.setItem(USER_ID_STORAGE_KEY, trimmed);
+  getClientStorage()?.setItem(USER_ID_STORAGE_KEY, trimmed);
 }
 
 export function clearUserId(): void {
-  if (typeof window === "undefined") return;
-  localStorage.removeItem(USER_ID_STORAGE_KEY);
+  getClientStorage()?.removeItem(USER_ID_STORAGE_KEY);
 }
 
 function authHeaders(): Record<string, string> {

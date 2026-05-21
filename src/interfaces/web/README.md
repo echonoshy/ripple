@@ -1,6 +1,6 @@
 # Ripple Web
 
-Ripple Web is a Vite + React single-page client for the Ripple server.
+Ripple Web is a Vite + React single-page client for the Ripple server. The same client is also embedded by the Tauri desktop shell under `src-tauri/`.
 
 ## Development
 
@@ -24,6 +24,31 @@ VITE_RIPPLE_API_URL=http://localhost:8810/v1
 
 Production builds without `VITE_RIPPLE_API_URL` fall back to
 `https://test-oauth.weilai.ai/v1`.
+
+## Tauri
+
+The Tauri shell is frontend-only: it embeds this React client and still talks to an external Ripple server over `/v1`. It does not run the Python server or Codex runtime locally.
+
+```bash
+bun run tauri:dev
+bun run tauri:build
+```
+
+On Linux, `tauri:build` includes AppImage packaging and may download Tauri's
+AppImage helper tools. To verify the local desktop shell without that download,
+build only the package formats that use local system dependencies:
+
+```bash
+bun run tauri:build:linux
+```
+
+Tauri requires a Rust stable toolchain. This package includes `src-tauri/rust-toolchain.toml` so Cargo uses `stable` for the shell without relying on a global default.
+
+Platform-specific frontend behavior belongs in:
+
+```text
+src/lib/platform/
+```
 
 ## Verification
 

@@ -140,9 +140,19 @@ pub async fn connector_status(
     Path(connector_name): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    let workspace = state.sandboxes.workspace_dir(&user_id)?;
-    let credentials = state.sandboxes.credentials_dir(&user_id)?;
-    let status = match connector_name.as_str() {
+    Ok(Json(
+        connector_status_value(&state, &user_id, &connector_name).await?,
+    ))
+}
+
+pub(crate) async fn connector_status_value(
+    state: &AppState,
+    user_id: &str,
+    connector_name: &str,
+) -> Result<Value, ApiError> {
+    let workspace = state.sandboxes.workspace_dir(user_id)?;
+    let credentials = state.sandboxes.credentials_dir(user_id)?;
+    let status = match connector_name {
         "notion" => {
             let connected =
                 read_json_string_field(&credentials.join("notion.json"), "api_token").is_some();
@@ -152,7 +162,7 @@ pub async fn connector_status(
             let connected = has_nonempty_file(&workspace.join(".config/gogcli/keyring"));
             json!({"name": connector_name, "connected": connected, "required": !connected, "detail": if connected {"Google Workspace account is connected for this user."} else {"Google Workspace is not connected for this user."}, "metadata": {"has_client_config": credentials.join("gogcli-client.json").is_file()}})
         }
-        "feishu" => feishu_status(&state, &user_id).await,
+        "feishu" => feishu_status(state, user_id).await,
         "bilibili" => {
             let credential =
                 read_valid_bilibili_credential_file(&credentials.join("bilibili.json"));
@@ -169,7 +179,7 @@ pub async fn connector_status(
                 .unwrap_or_else(|| json!({}));
             json!({"name": connector_name, "connected": connected, "required": !connected, "detail": if connected {"Bilibili credentials are stored for this user."} else {"Bilibili credentials are missing for this user."}, "metadata": metadata})
         }
-        "openai_codex" => codex_status(&state).await,
+        "openai_codex" => codex_status(state).await,
         "codex_image_generation" | "codex_image_input" | "codex_web_search" => {
             json!({"name": connector_name, "connected": true, "required": false, "detail": "Provided by the server-side Codex runtime.", "metadata": {"auth_source": "codex_runtime"}})
         }
@@ -179,7 +189,7 @@ pub async fn connector_status(
             )))
         }
     };
-    Ok(Json(status))
+    Ok(status)
 }
 
 pub async fn connector_auth_start(
@@ -191,18 +201,29 @@ pub async fn connector_auth_start(
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     state.sandboxes.ensure_sandbox(&user_id)?;
     let payload = body.map(|Json(value)| value).unwrap_or_else(|| json!({}));
-    match connector_name.as_str() {
-        "notion" => notion_auth_start(&state, &user_id, &payload).await,
-        "google_workspace" => {
-            google_auth_start(
-                &state,
-                &user_id,
-                request_base_url_from_headers(&headers).as_deref(),
-            )
-            .await
-        }
-        "bilibili" => bilibili_auth_start(&state, &user_id).await,
-        "feishu" => feishu_auth_start(&state, &user_id, &payload).await,
+    connector_auth_start_action(
+        &state,
+        &user_id,
+        &connector_name,
+        &payload,
+        request_base_url_from_headers(&headers).as_deref(),
+    )
+    .await
+}
+
+pub(crate) async fn connector_auth_start_action(
+    state: &AppState,
+    user_id: &str,
+    connector_name: &str,
+    payload: &Value,
+    request_base_url: Option<&str>,
+) -> Result<Json<Value>, ApiError> {
+    state.sandboxes.ensure_sandbox(user_id)?;
+    match connector_name {
+        "notion" => notion_auth_start(state, user_id, payload).await,
+        "google_workspace" => google_auth_start(state, user_id, request_base_url).await,
+        "bilibili" => bilibili_auth_start(state, user_id).await,
+        "feishu" => feishu_auth_start(state, user_id, payload).await,
         _ => Err(ApiError::not_found(format!(
             "Connector {connector_name:?} not found"
         ))),
@@ -218,10 +239,20 @@ pub async fn connector_auth_complete(
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     state.sandboxes.ensure_sandbox(&user_id)?;
     let payload = body.map(|Json(value)| value).unwrap_or_else(|| json!({}));
-    match connector_name.as_str() {
-        "google_workspace" => google_auth_complete(&state, &user_id, &payload).await,
-        "bilibili" => bilibili_auth_complete(&state, &user_id, &payload).await,
-        "feishu" => feishu_auth_complete(&state, &user_id, &payload).await,
+    connector_auth_complete_action(&state, &user_id, &connector_name, &payload).await
+}
+
+pub(crate) async fn connector_auth_complete_action(
+    state: &AppState,
+    user_id: &str,
+    connector_name: &str,
+    payload: &Value,
+) -> Result<Json<Value>, ApiError> {
+    state.sandboxes.ensure_sandbox(user_id)?;
+    match connector_name {
+        "google_workspace" => google_auth_complete(state, user_id, payload).await,
+        "bilibili" => bilibili_auth_complete(state, user_id, payload).await,
+        "feishu" => feishu_auth_complete(state, user_id, payload).await,
         "notion" => Err(ApiError::new(
             StatusCode::METHOD_NOT_ALLOWED,
             "Notion uses auth_start with an api_token payload",

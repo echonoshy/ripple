@@ -38,6 +38,7 @@ Implemented in the current migration slice:
 - Codex app-server JSON-RPC provider with one trusted service process per user.
 - `/v1/runs` for user-scoped Codex jobs, including durable `meta.json`, event replay, SSE follow, steer, and cancel.
 - `/v1/chat/completions` bridge backed by the same Codex runner, including non-streaming and SSE streaming responses.
+- Chat-side connector auth interception and polling for Notion, Google Workspace, Feishu/Lark, and Bilibili, including SSE auth events and automatic resume after completion.
 - Codex approval bridge from app-server notifications to session pending approval and `/sessions/{session_id}/permissions/resolve`.
 - Schedule CRUD, schedule run history, run-now, and a background due-schedule trigger loop.
 - Codex managed permissions profile injection for the user workspace and deny-read rules around service Codex auth paths.
@@ -48,7 +49,6 @@ Implemented in the current migration slice:
 
 Not implemented yet:
 
-- Chat-side connector auth polling/interception flows.
 - Full Python FastAPI parity for specialized chat-side schedule creation prompts.
 - Richer chat SSE parity for Codex runtime/tool/image/usage events.
 - Session stop/suspend/resume parity beyond the current compatibility responses.

@@ -155,14 +155,6 @@ pub async fn resolve_permission_request(
     })))
 }
 
-pub async fn poll_session_connector_auth(
-    Path(session_id): Path<String>,
-) -> Result<Json<Value>, ApiError> {
-    Err(ApiError::not_implemented(format!(
-        "Connector auth polling is not implemented in Rust backend yet for session {session_id}"
-    )))
-}
-
 pub async fn session_usage(
     State(state): State<AppState>,
     headers: HeaderMap,

@@ -34,7 +34,6 @@
 - Rust 后端：`crates/ripple-server`
 - Rust 后端要保持 Web / Tauri / Mobile 客户端依赖的 `/v1` response shape、SSE 事件、session 状态和 connector auth 流程稳定。
 - 迁移状态文档：`docs/rust-backend-migration.md`
-- Python 清理记录：`docs/python-backend-cleanup-plan.md`
 
 已经迁移到 Rust 的主要后端能力：
 

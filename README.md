@@ -74,5 +74,4 @@ bun run build
 
 - 开发依据：[AGENTS.md](AGENTS.md)
 - Rust 后端迁移：[docs/rust-backend-migration.md](docs/rust-backend-migration.md)
-- Python 后端清理：[docs/python-backend-cleanup-plan.md](docs/python-backend-cleanup-plan.md)
 - Skills：[docs/SKILLS.md](docs/SKILLS.md)

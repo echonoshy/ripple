@@ -59,7 +59,7 @@ print_manual_fallback() {
        ln -sfn v${VERSION} ${CURRENT_LINK}
        ${CURRENT_LINK}/bin/gog --version
 
-方式 C · 网络墙问题先 proxy_on 再重试本脚本
+方式 C · 网络问题请配置好本机代理后重试本脚本
 ========================================================================
 EOF
 }

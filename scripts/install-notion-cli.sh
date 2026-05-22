@@ -51,7 +51,7 @@ print_manual_fallback() {
        ln -sfn v${VERSION} ${CURRENT_LINK}
        ${CURRENT_LINK}/bin/ntn --version
 
-方式 C · 如果是网络墙的问题，先 proxy_on 再重试本脚本
+方式 C · 如果是网络问题，配置好本机代理后重试本脚本
 ========================================================================
 EOF
 }

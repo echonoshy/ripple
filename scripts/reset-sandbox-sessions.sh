@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 清空所有 user sandbox 下的 session 状态数据。
 #
-# 场景：代码层改变了沙箱约定（lark-cli 不再沙箱内安装、config 布局变更等），
+# 场景：代码层改变了沙箱、connector 或 session metadata 约定时，
 # 旧 session 可能带着不兼容的 pending state、Codex thread id 或 connector auth 状态，
 # 需要一次性清理。该脚本不删除 workspace/credentials/nsjail.cfg。
 #

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="Ripple is an Agent system with an agentic loop, tools, Skills, Hooks, FastAPI Server, and a Next.js Web interface."
+      content="Ripple is a Rust control plane for Codex app-server with Skills, sandbox isolation, connector auth, and Web/Tauri clients."
     />
     <title>Ripple 涟漪 | Agent System</title>
     <link rel="icon" href="assets/ripple-icon.svg" />
@@ -31,11 +31,11 @@
           <p class="stamp">WIP Agent Runtime</p>
           <h1>Ripple <span style="white-space: nowrap;">涟漪</span></h1>
           <p class="hero-lede">
-            一个面向本地工具调用、Skill 工作流和 user sandbox 的 Python Agent 系统。
+            一个运行在 Codex app-server 之上的 Rust Agent 控制面。
           </p>
           <p class="hero-note">
-            Ripple 把 agentic loop、工具编排、权限 Hook、上下文压缩和 FastAPI Server
-            收在同一个工程里，让一次提问可以稳定地扩展成可追踪、可验证的执行过程。
+            Ripple 管理 user sandbox、session、connector auth、skill manifest、approval bridge 和统一 `/v1` API，
+            让一次提问可以稳定地扩展成可追踪、可验证的执行过程。
           </p>
           <div class="hero-actions">
             <a class="button button-primary" href="#quickstart">Start locally</a>
@@ -58,16 +58,16 @@
 
       <section class="section-strip" aria-label="Project summary">
         <div>
-          <strong>Python 3.13+</strong>
-          <span>后端核心</span>
+          <strong>Rust</strong>
+          <span>控制面后端</span>
         </div>
         <div>
-          <strong>FastAPI + Next.js</strong>
-          <span>服务与 Web 界面</span>
+          <strong>Codex app-server</strong>
+          <span>可信执行面</span>
         </div>
         <div>
-          <strong>Skills + Hooks</strong>
-          <span>可复用流程与执行验证</span>
+          <strong>Skills + Connectors</strong>
+          <span>可复用流程与授权边界</span>
         </div>
       </section>
 
@@ -135,14 +135,14 @@
           <h2>核心能力清晰拆在几个边界里。</h2>
         </div>
         <div class="architecture-grid">
-          <div>core / agent_loop</div>
-          <div>tools / orchestration</div>
-          <div>skills / executor</div>
-          <div>hooks / validation</div>
+          <div>ripple-server / api</div>
+          <div>codex / app-server</div>
+          <div>skills / manifest</div>
+          <div>approval / bridge</div>
           <div>sandbox / nsjail</div>
-          <div>interfaces / server</div>
+          <div>connectors / auth</div>
           <div>interfaces / web</div>
-          <div>compact / context</div>
+          <div>schedules / runs</div>
         </div>
       </section>
 
@@ -155,9 +155,8 @@
             接口和机制可能持续调整。
           </p>
         </div>
-        <pre class="terminal"><code>uv sync
-cp config/settings.yaml.sample config/settings.yaml
-uv run ripple
+        <pre class="terminal"><code>cp config/settings.yaml.sample config/settings.yaml
+cargo run -p ripple-server
 
 cd src/interfaces/web
 bun run dev</code></pre>

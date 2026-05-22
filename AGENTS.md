@@ -27,15 +27,14 @@
 - Codex app-server 是执行面；Ripple 是控制面。
 - Skills 继续是 Markdown/YAML frontmatter；skill 内部需要 Python helper 时可以继续保留 Python。
 
-## 当前迁移方向
+## 当前后端方向
 
-后端正在从 Python/FastAPI 迁移到 Rust。
+后端控制面由 Rust 实现；旧 Python/FastAPI 后端和 `src/ripple` legacy 控制面已清理。Python 只作为部分 skill helper 的实现语言保留。
 
-- Rust 后端目标：`crates/ripple-server`
-- Python 现有后端：`src/interfaces/server`
-- Python 后端当前仍是重要参考和兼容实现；新增后端能力优先落到 Rust，除非用户明确要求 Python。
-- Rust 后端要尽量与 Python 当前 API 行为兼容，尤其是 Web 客户端依赖的 response shape、SSE 事件、session 状态和 connector auth 流程。
+- Rust 后端：`crates/ripple-server`
+- Rust 后端要保持 Web / Tauri / Mobile 客户端依赖的 `/v1` response shape、SSE 事件、session 状态和 connector auth 流程稳定。
 - 迁移状态文档：`docs/rust-backend-migration.md`
+- Python 清理记录：`docs/python-backend-cleanup-plan.md`
 
 已经迁移到 Rust 的主要后端能力：
 
@@ -49,12 +48,10 @@
 - schedule CRUD、run history、run-now、后台 due schedule trigger。
 - Codex managed permissions profile、服务端 Codex auth deny-read、skill manifest。
 
-仍需重点迁移或补齐：
+仍需重点补齐：
 
-- chat 侧 schedule creation prompt 的完整 Python parity。
-- 更丰富的 Codex runtime/tool/image/usage SSE parity。
-- session stop/suspend/resume 的真实运行态 parity。
-- 内部短命令的 nsjail mount/env parity。
+- chat 侧 schedule creation 在真实 Codex extraction 输出和老客户端 UI flow 下的端到端硬化。
+- 真实 nsjail runtime 下 connector CLI auth/status flow 的端到端硬化。
 - 老客户端如果仍需要的 deprecated compatibility API，例如 `/v1/tasks`。
 
 ## 主要目录
@@ -69,16 +66,13 @@ crates/
     src/jobs.rs        # run/job store
 src/
   interfaces/
-    server/            # Python FastAPI 后端，当前参考实现
     web/               # Vite + React Web 客户端，含 Tauri shell
     mobile/            # 移动端实验客户端
-  ripple/              # Python 核心库与 legacy/参考实现
-  skills/              # 共享 skills
+  skills/              # 共享 skills，部分 skill 可带 Python helper
 docs/                  # 开发文档
 sites/                 # 面向展示/产品说明的站点内容
 config/                # YAML 配置
 scripts/               # CLI 安装和维护脚本
-tests/                 # Python pytest
 ```
 
 ## 常用命令
@@ -93,16 +87,6 @@ cargo test -p ripple-server
 ```
 
 说明：`cargo clippy -p ripple-server -- -D warnings` 当前还有少量既有 clippy 警告，不能作为全仓阻塞校验；如果触碰相关代码，可以顺手清理，但不要把无关大清理混入迁移提交。
-
-Python 后端：
-
-```bash
-uv run ripple
-uv run ripple --reload
-uv run pytest
-uv run ruff format .
-uv run ruff check .
-```
 
 Web / Tauri 客户端：
 
@@ -131,23 +115,22 @@ proxy_on
 - 新增或更新文档时，同步检查相关旧文档是否过时。
 - 配置统一放 `config/*.yaml`，不要新增 `.env`。
 - 不要提交 `config/settings.yaml`、`.ripple/`、API key、token、OAuth credential、cookie 或任何敏感信息。
-- 路径操作优先用结构化 API：Rust 用 `Path` / `PathBuf`，Python 用 `pathlib`。
+- 路径操作优先用结构化 API：Rust 用 `Path` / `PathBuf`；skill helper 如使用 Python，则用 `pathlib`。
 - 遇到数据解析问题，优先使用结构化 parser，不要用脆弱字符串拼接或临时正则绕过去。
 
 Rust 规则：
 
 - `crates/ripple-server` 的 MSRV 见 `crates/ripple-server/Cargo.toml`，当前为 Rust `1.77.2`；不要使用超过 MSRV 的标准库 API。
-- API response shape 要优先对齐 Python 参考实现和前端实际消费方式。
+- API response shape 要优先对齐前端实际消费方式和已记录的 `/v1` 兼容行为。
 - 涉及运行时状态时，先确认 `.ripple/sandboxes/<user_id>/...` 的磁盘布局。
 - 修改 Rust 后至少运行 `cargo fmt -p ripple-server`、`cargo check -p ripple-server`，按风险运行 `cargo test -p ripple-server`。
 
-Python 规则：
+Python helper 规则：
 
-- 修改 Python 后运行 `uv run ruff format .`、`uv run ruff check .`，按风险运行相关 `pytest`。
+- Python 仅用于 `src/skills` 下的 helper、脚本和资源处理，不恢复后端控制面或 model-facing tool runtime。
 - 使用内置泛型注解，如 `list[str]`、`dict[str, str]`。
 - 不要新增无必要的 `__init__.py`。
 - 不要新增 `from __future__ import annotations`。
-- 核心系统使用 async/await；工具执行也是异步优先。
 
 前端规则：
 
@@ -202,7 +185,7 @@ Codex 授权是服务端统一授权，不是 per-user Codex 授权：
 
 - 隔离单位是 `user_id`，不是 session。
 - 同一 user 的多个 session 共享同一个长期 workspace。
-- Python 侧用 user 级 `asyncio.Lock` 保证关键执行互斥；Rust 侧实现同类能力时要保持同样语义。
+- Rust 侧用 user 级执行锁保证同一 user workspace 的关键执行互斥。
 - 调用方通过 HTTP header `X-Ripple-User-Id: <uid>` 传入 user_id。
 - 缺失 header 时回落到 `default`。
 - `user_id` 合法字符集为 `[a-zA-Z0-9_-]{1,64}`。
@@ -307,18 +290,6 @@ Rust 后端：
 - `crates/ripple-server/src/sessions.rs`：session store。
 - `crates/ripple-server/src/jobs.rs`：job store、event/output persistence。
 - `crates/ripple-server/src/skills.rs`：skill manifest rendering。
-
-Python 参考后端：
-
-- `src/interfaces/server/app.py`：FastAPI 入口。
-- `src/interfaces/server/routes.py`：OpenAI-compatible API、session、sandbox、runs、connectors、workspace 路由。
-- `src/interfaces/server/codex_chat.py`：Chat Completions 到 Codex runner 的桥接。
-- `src/interfaces/server/connector_chat_auth.py`：chat 侧 connector auth 参考状态机。
-- `src/interfaces/server/schedule_chat.py`：chat 侧 schedule prompt 参考实现。
-- `src/interfaces/server/sessions.py`：session lifecycle 和磁盘持久化。
-- `src/ripple/agent_runners/codex_app_server.py`：Python Codex app-server provider。
-- `src/ripple/sandbox/`：Python sandbox/nsjail/connector env 参考实现。
-- `src/ripple/connectors/registry.py`：Python connector registry 参考实现。
 
 客户端：
 

@@ -75,17 +75,17 @@ Not implemented yet:
 - End-to-end hardening for chat-side schedule creation with real Codex extraction output and older client UI flows.
 - End-to-end hardening for connector CLI auth/status flows in a real nsjail runtime.
 
-## Execution Plan
+## Remaining Hardening
 
-Priority order for the remaining Rust migration:
+Priority order for the remaining Rust hardening:
 
 1. Stabilize `/v1/chat/completions` as the primary user-facing path.
-   - Keep Codex persistent thread continuity aligned with Python.
+   - Keep Codex persistent thread continuity stable across follow-up turns.
    - Chat prompt context, attachment handling, SSE plan/runtime/tool/image/usage events, assistant message filtering/fallback, and non-stream usage parity are in place.
    - Route-level smoke coverage now exercises control-plane chat SSE for connector auth/schedule cancellation without external Codex, fake Codex approval resolve, fake Codex non-streaming and SSE completion with persistent thread reuse, usage persistence, title extraction, and caller system prompt persistence, plus fake Codex notification mapping for plan/runtime/tool/image/usage events and generated-image workspace import.
    - Remaining work: add broader end-to-end route fixtures around real Codex chat event streams and real uploaded image/file attachment turns.
 
-2. Port chat-side schedule creation.
+2. Harden chat-side schedule creation.
    - Initial Rust port is in place: intent detection, structured extraction, clarification, confirmation, cancellation, and `pending_schedule_request` handling.
    - Reuses Rust schedule CRUD for persistence after confirmation.
    - Route-level smoke coverage confirms fake Codex structured extraction can propose schedules and pending schedule confirmation can create schedules without starting Codex.
@@ -114,7 +114,7 @@ Priority order for the remaining Rust migration:
 6. Deprecated API compatibility.
    - `/v1/tasks` now returns the explicit Python-compatible 410 response.
 
-7. Add parity tests before switching production traffic.
+7. Add real-boundary hardening tests.
    - Basic route smoke coverage for current web client APIs, session lifecycle, workspace save/search/upload/download/rename/attachments, connector status/accounts/auth pending-state cleanup, fake nsjail connector CLI boundaries, Codex approval resolve, schedule CRUD/PATCH/run-now, chat-side schedule proposal/confirmation, control-plane chat SSE, fake Codex chat completion, fake Codex chat SSE runtime/tool/image notification mapping, and fake Codex runs is in place.
    - Remaining work: broaden route shape fixtures for real Codex chat streaming, real connector auth/status boundaries, and controlled-time session maintenance.
    - Schedule chat state-machine tests.
@@ -130,4 +130,4 @@ bash scripts/smoke-rust-server.sh
 
 Current Rust test coverage includes unit tests plus `tests/api_smoke.rs`, which builds the complete Axum router and verifies core control-plane routes, session lifecycle routes including GET auto-resume, deletion of a running chat session without recreating it, session usage metadata, workspace save/search/upload/download/rename/attachment APIs, schedule CRUD/PATCH/run-now, due schedule triggering, connector missing-sandbox/status/accounts behavior, connector pending-auth cleanup, fake nsjail execution of Google/Feishu short connector CLI commands through `/opt/...` sandbox binary paths, Codex approval resolve, chat-side schedule proposal/confirmation, control-plane chat SSE without external Codex or connector services, `/v1/chat/completions` non-streaming and SSE completion through a local fake Codex app-server fixture, chat SSE mapping for plan/runtime/tool/image/usage notifications with generated-image workspace import, `/v1/runs` completion through the same fixture, same-user `/v1/runs` queueing behind an active run, queued run cancellation before execution, and sandbox teardown cancellation of live runs. The same smoke file also starts the Rust server on a real TCP listener and checks `/health` when the test sandbox allows local port binding.
 
-Python FastAPI remains the production backend until the Rust Codex runner and connector auth flows reach parity.
+The Python/FastAPI backend and legacy `src/ripple` control-plane runtime have been removed. Python remains allowed inside `src/skills` helper scripts only; see `docs/python-backend-cleanup-plan.md`.

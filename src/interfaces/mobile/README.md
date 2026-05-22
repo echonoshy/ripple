@@ -2,7 +2,7 @@
 
 Expo/React Native mobile client for Ripple Server.
 
-This app is only a front-end caller. It does not run the agent loop, tools, sandbox, or Python backend locally. It talks to the existing Ripple FastAPI server through the current `/v1` API.
+This app is only a front-end caller. It does not run the agent loop, tools, sandbox, or backend locally. It talks to Ripple Server through the current `/v1` API.
 
 ## First Version Scope
 

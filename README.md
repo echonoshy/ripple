@@ -6,7 +6,7 @@
 
 运行在 Codex app-server 之上的 Agent 控制面。
 
-**状态：WIP。** 后端正在从 Python/FastAPI 迁移到 Rust；当前本地开发优先使用 Rust 后端，Python 后端保留为参考实现。
+**状态：WIP。** Rust 后端是当前控制面实现；Python/FastAPI 后端已移除。Python 仅保留在部分 skill helper 中。
 
 </div>
 
@@ -18,10 +18,9 @@ Ripple 负责管理多用户、session、sandbox、connector 授权、skill mani
 
 ## 当前方向
 
-- Rust 后端目标：`crates/ripple-server`
-- Python 参考后端：`src/interfaces/server`
+- Rust 后端：`crates/ripple-server`
 - Web / Tauri 客户端：`src/interfaces/web`
-- 共享 skills：`src/skills`
+- 共享 skills：`src/skills`，其中部分 skill 自带 Python helper
 - 运行时数据：`.ripple/`
 
 更多产品和架构说明后续放到 `sites/`。
@@ -55,19 +54,12 @@ cd src/interfaces/web
 bun run dev
 ```
 
-Python 后端仍可作为兼容参考启动：
-
-```bash
-uv run ripple
-```
-
 ## 验证
 
 ```bash
 cargo check -p ripple-server
 cargo test -p ripple-server
 bash scripts/smoke-rust-server.sh
-uv run pytest
 ```
 
 前端：
@@ -82,4 +74,5 @@ bun run build
 
 - 开发依据：[AGENTS.md](AGENTS.md)
 - Rust 后端迁移：[docs/rust-backend-migration.md](docs/rust-backend-migration.md)
+- Python 后端清理：[docs/python-backend-cleanup-plan.md](docs/python-backend-cleanup-plan.md)
 - Skills：[docs/SKILLS.md](docs/SKILLS.md)

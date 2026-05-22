@@ -758,7 +758,7 @@ impl CodexAppServerProvider {
                             "cwd": request.cwd,
                             "approvalPolicy": self.config.codex.approval_policy,
                             "config": permission_config,
-                            "permissions": {"type": "profile", "id": RIPPLE_CODEX_PERMISSION_PROFILE}
+                            "permissions": RIPPLE_CODEX_PERMISSION_PROFILE
                         }),
                     )
                     .await?;
@@ -785,7 +785,7 @@ impl CodexAppServerProvider {
                     "ephemeral": !persistent_thread,
                     "serviceName": "ripple",
                     "config": permission_config,
-                    "permissions": {"type": "profile", "id": RIPPLE_CODEX_PERMISSION_PROFILE}
+                    "permissions": RIPPLE_CODEX_PERMISSION_PROFILE
                 }),
             )
             .await?;

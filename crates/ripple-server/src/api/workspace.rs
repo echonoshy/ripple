@@ -9,6 +9,7 @@ use serde_json::{json, Value};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+use crate::api::users::{assert_workspace_save_within_quota, assert_workspace_writes_within_quota};
 use crate::api::ApiError;
 use crate::state::AppState;
 use crate::user::user_id_from_headers;
@@ -39,6 +40,7 @@ pub struct SearchQuery {
     limit: Option<usize>,
     scope: Option<String>,
     kind: Option<String>,
+    file_type: Option<String>,
     include_hidden: Option<bool>,
     max_file_bytes: Option<u64>,
 }
@@ -56,6 +58,7 @@ pub async fn search_workspace(
         query.limit.unwrap_or(20).clamp(1, 50),
         query.scope.as_deref().unwrap_or("name"),
         query.kind.as_deref().unwrap_or("all"),
+        query.file_type.as_deref().unwrap_or("all"),
         query.include_hidden.unwrap_or(false),
         query.max_file_bytes.unwrap_or(1024 * 1024),
     )
@@ -109,6 +112,14 @@ pub async fn save_workspace_file(
             "Sandbox for user {user_id:?} not found"
         )));
     }
+    let target = ws::validate_write_path(&input.path, &workspace).map_err(map_workspace_error)?;
+    assert_workspace_save_within_quota(
+        &state,
+        &user_id,
+        &target,
+        input.content.as_bytes().len() as u64,
+    )
+    .await?;
     let preview = ws::save_text_file(
         &workspace,
         &input.path,
@@ -268,6 +279,12 @@ async fn save_multipart_files(
         })));
     }
 
+    let quota_targets = prepared
+        .iter()
+        .map(|(path, bytes)| (path.clone(), bytes.len() as u64))
+        .collect::<Vec<_>>();
+    assert_workspace_writes_within_quota(&state, &user_id, &quota_targets).await?;
+
     let mut entries = Vec::new();
     for (path, bytes) in prepared {
         tokio::fs::write(&path, bytes).await?;
@@ -338,8 +355,9 @@ async fn save_workspace_attachment(
         .join("uploads")
         .join(format!("{:04}", now.year()))
         .join(format!("{:02}", u8::from(now.month())));
-    tokio::fs::create_dir_all(&target_dir).await?;
     let target = target_dir.join(format!("{}-{filename}", Uuid::new_v4().simple()));
+    assert_workspace_save_within_quota(&state, &user_id, &target, bytes.len() as u64).await?;
+    tokio::fs::create_dir_all(&target_dir).await?;
     tokio::fs::write(&target, &bytes).await?;
     let path = ws::workspace_path(&workspace, &target).map_err(map_workspace_error)?;
     Ok(Json(json!({

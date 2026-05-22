@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -99,6 +99,7 @@ pub struct CodexAppServerSession {
     routes: Mutex<NotificationRoutes>,
     stderr_tail: Mutex<String>,
     initialized: Mutex<bool>,
+    loaded_thread_ids: Mutex<HashSet<String>>,
     start_lock: Mutex<()>,
     initialize_lock: Mutex<()>,
 }
@@ -116,6 +117,7 @@ impl CodexAppServerSession {
             routes: Mutex::new(NotificationRoutes::default()),
             stderr_tail: Mutex::new(String::new()),
             initialized: Mutex::new(false),
+            loaded_thread_ids: Mutex::new(HashSet::new()),
             start_lock: Mutex::new(()),
             initialize_lock: Mutex::new(()),
         })
@@ -248,6 +250,7 @@ impl CodexAppServerSession {
         *self.stdin.lock().await = Some(stdin);
         *self.process.lock().await = Some(child);
         *self.initialized.lock().await = false;
+        self.loaded_thread_ids.lock().await.clear();
 
         let session = self.clone();
         tokio::spawn(async move {
@@ -447,6 +450,19 @@ impl CodexAppServerSession {
     async fn stderr_tail(&self) -> String {
         self.stderr_tail.lock().await.clone()
     }
+
+    async fn shutdown(&self) {
+        *self.stdin.lock().await = None;
+        *self.initialized.lock().await = false;
+        self.loaded_thread_ids.lock().await.clear();
+        self.routes.lock().await.queues.clear();
+
+        let child = self.process.lock().await.take();
+        if let Some(mut child) = child {
+            let _ = child.start_kill();
+            let _ = timeout(Duration::from_secs(2), child.wait()).await;
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -485,6 +501,7 @@ impl CodexAppServerProvider {
         let mut output_text = String::new();
         let mut thread_id = None;
         let mut turn_id = None;
+        let mut thread_resumed = false;
 
         append_event(
             &events_file,
@@ -508,11 +525,12 @@ impl CodexAppServerProvider {
             .run_turn(&request, &job_id, &events_file, &mut sequence, &session)
             .await
         {
-            Ok((ids, rx, text)) => {
+            Ok((ids, rx, text, resumed)) => {
                 thread_id = Some(ids.0);
                 turn_id = Some(ids.1);
                 turn_rx = Some(rx);
                 output_text = text;
+                thread_resumed = resumed;
                 (AgentRunnerStatus::Completed, None)
             }
             Err(err) => (AgentRunnerStatus::Failed, Some(err.to_string())),
@@ -542,8 +560,12 @@ impl CodexAppServerProvider {
         tokio::fs::write(&output_file, &output_text).await?;
 
         let mut metadata = serde_json::Map::new();
-        if let Some(thread_id) = thread_id {
-            metadata.insert("codex_thread_id".to_string(), json!(thread_id));
+        if persistent_thread(&request) {
+            if let Some(thread_id) = thread_id {
+                metadata.insert("codex_thread_id".to_string(), json!(thread_id));
+                metadata.insert("codex_persistent_thread".to_string(), json!(true));
+                metadata.insert("codex_thread_resumed".to_string(), json!(thread_resumed));
+            }
         }
         Ok(AgentRunnerResult {
             job_id,
@@ -566,7 +588,12 @@ impl CodexAppServerProvider {
         events_file: &Path,
         sequence: &mut u64,
         session: &Arc<CodexAppServerSession>,
-    ) -> anyhow::Result<((String, String), mpsc::UnboundedReceiver<Value>, String)> {
+    ) -> anyhow::Result<(
+        (String, String),
+        mpsc::UnboundedReceiver<Value>,
+        String,
+        bool,
+    )> {
         session.ensure_initialized().await?;
         let workspace_root = request
             .metadata
@@ -575,24 +602,9 @@ impl CodexAppServerProvider {
             .map(PathBuf::from)
             .unwrap_or_else(|| request.cwd.clone());
         let permission_config = thread_permission_config(&workspace_root, &self.config);
-        let thread_result = session
-            .request(
-                "thread/start",
-                json!({
-                    "cwd": request.cwd,
-                    "approvalPolicy": self.config.codex.approval_policy,
-                    "ephemeral": true,
-                    "serviceName": "ripple",
-                    "config": permission_config,
-                    "permissions": {"type": "profile", "id": RIPPLE_CODEX_PERMISSION_PROFILE}
-                }),
-            )
+        let (thread_id, thread_resumed) = self
+            .ensure_thread(request, session, &permission_config)
             .await?;
-        let thread_id = thread_result
-            .pointer("/thread/id")
-            .and_then(Value::as_str)
-            .context("codex app-server did not return a thread id")?
-            .to_string();
 
         let turn_result = session
             .request(
@@ -628,7 +640,7 @@ impl CodexAppServerProvider {
                 &mut rx,
             )
             .await?;
-        Ok(((thread_id, turn_id), rx, output))
+        Ok(((thread_id, turn_id), rx, output, thread_resumed))
     }
 
     async fn collect_turn(
@@ -717,6 +729,77 @@ impl CodexAppServerProvider {
         timeout(deadline, collect)
             .await
             .with_context(|| format!("runner timed out after {}s", request.max_runtime_seconds))?
+    }
+
+    async fn ensure_thread(
+        &self,
+        request: &AgentRunnerRequest,
+        session: &Arc<CodexAppServerSession>,
+        permission_config: &Value,
+    ) -> anyhow::Result<(String, bool)> {
+        let persistent_thread = persistent_thread(request);
+        let requested_thread_id = request
+            .metadata
+            .get("codex_thread_id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        if persistent_thread {
+            if let Some(thread_id) = requested_thread_id {
+                if session.loaded_thread_ids.lock().await.contains(&thread_id) {
+                    return Ok((thread_id, false));
+                }
+                let thread_result = session
+                    .request(
+                        "thread/resume",
+                        json!({
+                            "threadId": thread_id,
+                            "cwd": request.cwd,
+                            "approvalPolicy": self.config.codex.approval_policy,
+                            "config": permission_config,
+                            "permissions": {"type": "profile", "id": RIPPLE_CODEX_PERMISSION_PROFILE}
+                        }),
+                    )
+                    .await?;
+                let thread_id = thread_result
+                    .pointer("/thread/id")
+                    .and_then(Value::as_str)
+                    .unwrap_or(&thread_id)
+                    .to_string();
+                session
+                    .loaded_thread_ids
+                    .lock()
+                    .await
+                    .insert(thread_id.clone());
+                return Ok((thread_id, true));
+            }
+        }
+
+        let thread_result = session
+            .request(
+                "thread/start",
+                json!({
+                    "cwd": request.cwd,
+                    "approvalPolicy": self.config.codex.approval_policy,
+                    "ephemeral": !persistent_thread,
+                    "serviceName": "ripple",
+                    "config": permission_config,
+                    "permissions": {"type": "profile", "id": RIPPLE_CODEX_PERMISSION_PROFILE}
+                }),
+            )
+            .await?;
+        let thread_id = thread_result
+            .pointer("/thread/id")
+            .and_then(Value::as_str)
+            .context("codex app-server did not return a thread id")?
+            .to_string();
+        session
+            .loaded_thread_ids
+            .lock()
+            .await
+            .insert(thread_id.clone());
+        Ok((thread_id, false))
     }
 
     async fn session_for_request(
@@ -809,6 +892,37 @@ impl CodexAppServerProvider {
             .await
             .is_ok()
     }
+
+    pub async fn stop_user(&self, user_id: &str) -> usize {
+        let session = self.sessions.lock().await.remove(user_id);
+        let Some(session) = session else {
+            return 0;
+        };
+        let mut removed = 0_usize;
+        let removed_job_ids = {
+            let mut active_turns = self.active_turns.lock().await;
+            let job_ids = active_turns
+                .iter()
+                .filter_map(|(job_id, active)| {
+                    Arc::ptr_eq(&active.session, &session).then(|| job_id.clone())
+                })
+                .collect::<Vec<_>>();
+            for job_id in &job_ids {
+                if active_turns.remove(job_id).is_some() {
+                    removed += 1;
+                }
+            }
+            job_ids
+        };
+        if !removed_job_ids.is_empty() {
+            let mut approvals = self.pending_approvals.lock().await;
+            for job_id in removed_job_ids {
+                approvals.remove(&job_id);
+            }
+        }
+        session.shutdown().await;
+        removed
+    }
 }
 
 fn turn_start_params(
@@ -837,6 +951,14 @@ fn turn_start_params(
         params.insert("outputSchema".to_string(), output_schema.clone());
     }
     Value::Object(params)
+}
+
+fn persistent_thread(request: &AgentRunnerRequest) -> bool {
+    request
+        .metadata
+        .get("codex_persistent_thread")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
 }
 
 fn codex_input_items(request: &AgentRunnerRequest) -> Vec<Value> {

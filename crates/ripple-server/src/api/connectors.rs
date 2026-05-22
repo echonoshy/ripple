@@ -140,9 +140,10 @@ pub async fn connector_status(
     Path(connector_name): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    Ok(Json(
-        connector_status_value(&state, &user_id, &connector_name).await?,
-    ))
+    ensure_sandbox_exists(&state, &user_id)?;
+    let status = connector_status_value(&state, &user_id, &connector_name).await?;
+    clear_pending_auth_if_status_connected(&state, &user_id, &connector_name, &status).await;
+    Ok(Json(status))
 }
 
 pub(crate) async fn connector_status_value(
@@ -192,6 +193,36 @@ pub(crate) async fn connector_status_value(
     Ok(status)
 }
 
+async fn clear_pending_auth_if_status_connected(
+    state: &AppState,
+    user_id: &str,
+    connector_name: &str,
+    status: &Value,
+) {
+    if status.get("connected").and_then(Value::as_bool) == Some(true) {
+        let _ = state
+            .sessions
+            .clear_pending_connector_auth(user_id, connector_name)
+            .await;
+    }
+}
+
+async fn clear_pending_auth_if_action_authorized(
+    state: &AppState,
+    user_id: &str,
+    connector_name: &str,
+    result: &Value,
+) {
+    if result.get("ok").and_then(Value::as_bool) == Some(true)
+        && result.get("stage").and_then(Value::as_str) == Some("authorized")
+    {
+        let _ = state
+            .sessions
+            .clear_pending_connector_auth(user_id, connector_name)
+            .await;
+    }
+}
+
 pub async fn connector_auth_start(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -201,14 +232,16 @@ pub async fn connector_auth_start(
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     state.sandboxes.ensure_sandbox(&user_id)?;
     let payload = body.map(|Json(value)| value).unwrap_or_else(|| json!({}));
-    connector_auth_start_action(
+    let result = connector_auth_start_action(
         &state,
         &user_id,
         &connector_name,
         &payload,
         request_base_url_from_headers(&headers).as_deref(),
     )
-    .await
+    .await?;
+    clear_pending_auth_if_action_authorized(&state, &user_id, &connector_name, &result.0).await;
+    Ok(result)
 }
 
 pub(crate) async fn connector_auth_start_action(
@@ -239,7 +272,10 @@ pub async fn connector_auth_complete(
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     state.sandboxes.ensure_sandbox(&user_id)?;
     let payload = body.map(|Json(value)| value).unwrap_or_else(|| json!({}));
-    connector_auth_complete_action(&state, &user_id, &connector_name, &payload).await
+    let result =
+        connector_auth_complete_action(&state, &user_id, &connector_name, &payload).await?;
+    clear_pending_auth_if_action_authorized(&state, &user_id, &connector_name, &result.0).await;
+    Ok(result)
 }
 
 pub(crate) async fn connector_auth_complete_action(
@@ -303,6 +339,7 @@ pub async fn connector_accounts(
     Query(query): Query<AccountsQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    ensure_sandbox_exists(&state, &user_id)?;
     if connector_name != "google_workspace" {
         return Err(ApiError::new(
             StatusCode::METHOD_NOT_ALLOWED,
@@ -318,6 +355,7 @@ pub async fn gogcli_accounts_alias(
     Query(query): Query<AccountsQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    ensure_sandbox_exists(&state, &user_id)?;
     google_accounts(&state, &user_id, query.check.unwrap_or(false)).await
 }
 
@@ -413,6 +451,16 @@ fn connector_info(
         "disconnect_path": Value::Null,
         "accounts_path": if name == "google_workspace" { json!("/v1/connectors/google_workspace/accounts") } else { Value::Null }
     })
+}
+
+fn ensure_sandbox_exists(state: &AppState, user_id: &str) -> Result<(), ApiError> {
+    if state.sandboxes.sandbox_summary(user_id)?.is_some() {
+        Ok(())
+    } else {
+        Err(ApiError::not_found(format!(
+            "Sandbox for user {user_id:?} not found"
+        )))
+    }
 }
 
 async fn notion_auth_start(
@@ -1221,19 +1269,19 @@ fn lark_binary(state: &AppState) -> Option<PathBuf> {
 async fn run_lark(
     state: &AppState,
     user_id: &str,
-    lark: &FsPath,
+    _lark: &FsPath,
     args: &[&str],
     stdin: Option<&str>,
     timeout_seconds: u64,
 ) -> Result<std::process::Output, ApiError> {
-    let workspace = state.sandboxes.workspace_dir(user_id)?;
-    let mut command = Command::new(lark);
+    let argv = state.sandboxes.nsjail_exec_argv(
+        user_id,
+        state.sandboxes.lark_cli_sandbox_binary(),
+        args,
+    )?;
+    let mut command = Command::new(&argv[0]);
     command
-        .args(args)
-        .current_dir(&workspace)
-        .env("HOME", &workspace)
-        .env("USER", "sandbox")
-        .env("XDG_CONFIG_HOME", workspace.join(".config"))
+        .args(&argv[1..])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     if stdin.is_some() {
@@ -1252,6 +1300,7 @@ async fn run_lark(
     )
     .await
     .map_err(|_| ApiError::new(StatusCode::GATEWAY_TIMEOUT, "lark-cli command timed out"))?
+    .map(filter_nsjail_stderr)
     .map_err(ApiError::from)
 }
 
@@ -1497,17 +1546,20 @@ async fn inject_feishu_credentials(
 }
 
 async fn start_feishu_setup(state: &AppState, user_id: &str) -> Result<(bool, String), ApiError> {
-    let Some(lark) = lark_binary(state) else {
+    let Some(_lark) = lark_binary(state) else {
         return Ok((false, "lark-cli is not installed.".to_string()));
     };
-    let workspace = state.sandboxes.workspace_dir(user_id)?;
-    let mut command = Command::new(lark);
+    let argv = state.sandboxes.nsjail_exec_argv(
+        user_id,
+        "/bin/bash",
+        &[
+            "-c",
+            "/opt/lark-cli/current/bin/lark-cli config init --new --force-init 2>&1",
+        ],
+    )?;
+    let mut command = Command::new(&argv[0]);
     command
-        .args(["config", "init", "--new", "--force-init"])
-        .current_dir(&workspace)
-        .env("HOME", &workspace)
-        .env("USER", "sandbox")
-        .env("XDG_CONFIG_HOME", workspace.join(".config"))
+        .args(&argv[1..])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
@@ -1842,29 +1894,20 @@ fn gog_binary(state: &AppState) -> Option<PathBuf> {
 async fn run_gog(
     state: &AppState,
     user_id: &str,
-    gog: &FsPath,
+    _gog: &FsPath,
     args: &[&str],
     stdin: Option<&str>,
     timeout_seconds: u64,
 ) -> Result<std::process::Output, ApiError> {
-    let workspace = state.sandboxes.workspace_dir(user_id)?;
-    let credentials = state.sandboxes.credentials_dir(user_id)?;
-    let mut command = Command::new(gog);
+    let argv =
+        state
+            .sandboxes
+            .nsjail_exec_argv(user_id, state.sandboxes.gogcli_sandbox_binary(), args)?;
+    let mut command = Command::new(&argv[0]);
     command
-        .args(args)
-        .current_dir(&workspace)
-        .env("HOME", &workspace)
-        .env("USER", "sandbox")
-        .env("XDG_CONFIG_HOME", workspace.join(".config"))
-        .env("GOG_KEYRING_BACKEND", "file")
+        .args(&argv[1..])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    if let Ok(password) = tokio::fs::read_to_string(credentials.join("gogcli-keyring.pass")).await {
-        let password = password.trim();
-        if !password.is_empty() {
-            command.env("GOG_KEYRING_PASSWORD", password);
-        }
-    }
     if stdin.is_some() {
         command.stdin(Stdio::piped());
     }
@@ -1881,7 +1924,23 @@ async fn run_gog(
     )
     .await
     .map_err(|_| ApiError::new(StatusCode::GATEWAY_TIMEOUT, "gog command timed out"))?
+    .map(filter_nsjail_stderr)
     .map_err(ApiError::from)
+}
+
+fn filter_nsjail_stderr(mut output: std::process::Output) -> std::process::Output {
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let filtered = stderr
+        .lines()
+        .filter(|line| {
+            !["[I]", "[D]", "[W]", "[E]", "[F]"]
+                .iter()
+                .any(|prefix| line.starts_with(prefix))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    output.stderr = filtered.into_bytes();
+    output
 }
 
 async fn ensure_gog_keyring_password(state: &AppState, user_id: &str) -> Result<String, ApiError> {
@@ -2518,12 +2577,15 @@ async fn register_gogcli_client_config(
     )
     .await?;
     set_mode_0600(&pending).await?;
-    let pending_arg = pending.to_string_lossy().to_string();
     let output = run_gog(
         state,
         user_id,
         gog,
-        &["auth", "credentials", pending_arg.as_str()],
+        &[
+            "auth",
+            "credentials",
+            "/workspace/.config/gogcli/.pending-client.json",
+        ],
         None,
         30,
     )
@@ -3001,6 +3063,23 @@ mod tests {
         assert_eq!(value_as_bool(Some(&json!("yes"))), Some(true));
         assert_eq!(value_as_bool(Some(&json!(0))), Some(false));
         assert_eq!(value_as_bool(Some(&json!(1))), Some(true));
+    }
+
+    #[test]
+    fn filters_nsjail_log_lines_from_stderr() {
+        let status = std::process::Command::new("sh")
+            .args(["-c", "exit 7"])
+            .status()
+            .unwrap();
+        let output = std::process::Output {
+            status,
+            stdout: Vec::new(),
+            stderr: b"[I] nsjail info\nreal error\n[W] nsjail warning\n".to_vec(),
+        };
+        let filtered = filter_nsjail_stderr(output);
+
+        assert_eq!(String::from_utf8_lossy(&filtered.stderr), "real error");
+        assert_eq!(filtered.status.code(), Some(7));
     }
 
     #[test]

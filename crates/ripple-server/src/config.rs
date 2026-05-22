@@ -13,6 +13,7 @@ pub struct AppConfig {
     pub model_presets: BTreeMap<String, ModelPreset>,
     pub sandbox: SandboxConfig,
     pub codex: CodexConfig,
+    pub schedule_extraction_max_runtime_seconds: u64,
     pub skills: SkillsConfig,
     pub public_base_url: Option<String>,
     pub feishu: FeishuConfig,
@@ -109,6 +110,7 @@ struct RawServer {
     api_keys: Option<Vec<String>>,
     sandbox: Option<RawSandbox>,
     codex_chat: Option<RawCodexChat>,
+    schedule_extraction: Option<RawScheduleExtraction>,
     public_base_url: Option<String>,
     feishu: Option<RawFeishu>,
     gogcli_oauth: Option<RawGogcliOAuth>,
@@ -116,6 +118,11 @@ struct RawServer {
 
 #[derive(Debug, Default, Deserialize)]
 struct RawCodexChat {
+    max_runtime_seconds: Option<u64>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RawScheduleExtraction {
     max_runtime_seconds: Option<u64>,
 }
 
@@ -227,6 +234,7 @@ impl AppConfig {
             .codex
             .unwrap_or_default();
         let codex_chat = server.codex_chat.unwrap_or_default();
+        let schedule_extraction = server.schedule_extraction.unwrap_or_default();
         let skills_raw = raw.skills.unwrap_or_default();
 
         let model_presets = parse_model_presets(model.presets.unwrap_or_default());
@@ -307,6 +315,10 @@ impl AppConfig {
                 idle_timeout_seconds: codex_raw.idle_timeout_seconds.unwrap_or(1800),
                 max_runtime_seconds: codex_chat.max_runtime_seconds.unwrap_or(3600),
             },
+            schedule_extraction_max_runtime_seconds: schedule_extraction
+                .max_runtime_seconds
+                .unwrap_or(120)
+                .max(1),
             skills: SkillsConfig {
                 shared_dirs: skills_raw
                     .shared_dirs

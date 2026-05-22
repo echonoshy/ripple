@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::path::{Path as FsPath, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -19,12 +20,22 @@ use crate::api::connectors::{
     connector_auth_complete_action, connector_auth_start_action, connector_status_value,
     read_valid_bilibili_credential_file,
 };
+use crate::api::schedule_chat::{maybe_handle_schedule_chat, ScheduleChatDecision};
+use crate::api::users::{
+    assert_can_create_run, assert_can_create_session, assert_workspace_save_within_quota,
+};
 use crate::api::ApiError;
+use crate::codex::events::{
+    extract_codex_runtime_event, extract_plan_update_event, extract_tool_event, extract_usage_event,
+};
 use crate::jobs::{AgentRunCreateRequest, AgentRunInfo};
-use crate::sessions::{CreateSessionInput, SessionRecord};
+use crate::sessions::{
+    extract_title_from_messages, record_usage, CreateSessionInput, SessionRecord,
+};
 use crate::skills::render_skill_manifest;
 use crate::state::AppState;
 use crate::user::user_id_from_headers;
+use crate::workspace as ws;
 
 const TERMINAL_STATUSES: &[&str] = &["completed", "failed", "cancelled"];
 const DONE_SIGNALS: &[&str] = &[
@@ -74,6 +85,7 @@ struct CodexChatStart {
     user_input: String,
     input_items: Vec<Value>,
     user_content: Value,
+    attachment_items: Vec<Value>,
     caller_system_prompt: Option<String>,
     prefix_event: Option<Value>,
 }
@@ -82,6 +94,7 @@ struct CodexChatStream {
     state: AppState,
     user_id: String,
     session: SessionRecord,
+    workspace_root: PathBuf,
     runtime_dir: PathBuf,
     info: AgentRunInfo,
     model: String,
@@ -90,14 +103,22 @@ struct CodexChatStream {
     prefix_event: Option<Value>,
 }
 
+struct ChatRunFinal {
+    info: AgentRunInfo,
+    usage: Value,
+}
+
 pub async fn chat_completions(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(request): Json<ChatCompletionRequest>,
 ) -> Result<Response<Body>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    let user_lock = state.sandboxes.user_lock(&user_id);
+    let _user_guard = user_lock.lock().await;
     let workspace_root = state.sandboxes.ensure_sandbox(&user_id)?;
-    let (user_input, input_items, user_content) = extract_user_input_and_items(&request.messages)?;
+    let (user_input, input_items, user_content, attachment_items) =
+        extract_user_input_and_items(&request.messages, &workspace_root)?;
     if user_input.trim().is_empty() && input_items.is_empty() {
         return Err(ApiError::bad_request("No user message found in messages"));
     }
@@ -105,10 +126,44 @@ pub async fn chat_completions(
     let (model, preset_effort) = state.config.resolve_model(request.model.as_deref());
     let effort = request.effort.clone().or(preset_effort);
     let mut session = load_or_create_session(&state, &user_id, &request).await?;
+    let effective_caller_system_prompt = caller_system_prompt
+        .clone()
+        .or_else(|| session.caller_system_prompt.clone());
+    session.caller_system_prompt = effective_caller_system_prompt.clone();
+    if session_has_active_run(&session) {
+        return Err(ApiError::conflict("Session already has a running task"));
+    }
+    if let Some(decision) = maybe_handle_schedule_chat(
+        &state,
+        &user_id,
+        &session,
+        workspace_root.clone(),
+        &user_input,
+        &model,
+        effort.clone(),
+    )
+    .await?
+    {
+        let public_event = persist_control_plane_chat_event(
+            &state,
+            &mut session,
+            &user_content,
+            &user_input,
+            &decision,
+        )
+        .await?;
+        return Ok(control_plane_event_response(
+            &model,
+            &session.session_id,
+            public_event,
+            request.stream.unwrap_or(false),
+        ));
+    }
     session.pending_permission_request = None;
     session.pending_question = None;
     session.pending_options = None;
     session.pending_schedule_request = None;
+    clear_session_plan(&mut session);
 
     if let Some(decision) = maybe_handle_connector_auth(
         &state,
@@ -129,6 +184,7 @@ pub async fn chat_completions(
             )
             .await?;
             session.pending_connector_auth = None;
+            assert_can_create_run(&state, &user_id, state.config.codex.max_runtime_seconds).await?;
             session.status = "running".to_string();
             state.sessions.save_record(session.clone()).await?;
             return start_codex_chat_response(CodexChatStart {
@@ -142,7 +198,8 @@ pub async fn chat_completions(
                 user_input: resume_user_input.clone(),
                 input_items: Vec::new(),
                 user_content: json!(resume_user_input),
-                caller_system_prompt,
+                attachment_items: Vec::new(),
+                caller_system_prompt: effective_caller_system_prompt.clone(),
                 prefix_event: Some(public_connector_auth_event(&decision.event)),
             })
             .await;
@@ -163,6 +220,7 @@ pub async fn chat_completions(
         ));
     }
 
+    assert_can_create_run(&state, &user_id, state.config.codex.max_runtime_seconds).await?;
     session.status = "running".to_string();
     state.sessions.save_record(session.clone()).await?;
 
@@ -177,7 +235,8 @@ pub async fn chat_completions(
         user_input,
         input_items,
         user_content,
-        caller_system_prompt,
+        attachment_items,
+        caller_system_prompt: effective_caller_system_prompt,
         prefix_event: None,
     })
     .await
@@ -195,6 +254,7 @@ async fn start_codex_chat_response(args: CodexChatStart) -> Result<Response<Body
         user_input,
         input_items,
         user_content,
+        attachment_items,
         caller_system_prompt,
         prefix_event,
     } = args;
@@ -204,6 +264,7 @@ async fn start_codex_chat_response(args: CodexChatStart) -> Result<Response<Body
         &session.session_id,
         &workspace_root,
         &user_input,
+        &attachment_items,
         caller_system_prompt.as_deref(),
     );
     let mut native_items = input_items;
@@ -222,6 +283,8 @@ async fn start_codex_chat_response(args: CodexChatStart) -> Result<Response<Body
         schedule_id: None,
         schedule_title: None,
         schedule_trigger: None,
+        codex_thread_id: session.codex_thread_id.clone(),
+        codex_persistent_thread: true,
     };
     let info = state
         .jobs
@@ -229,7 +292,7 @@ async fn start_codex_chat_response(args: CodexChatStart) -> Result<Response<Body
             create,
             user_id.clone(),
             Some(session.session_id.clone()),
-            workspace_root,
+            workspace_root.clone(),
             runtime_dir.clone(),
         )
         .await
@@ -240,6 +303,7 @@ async fn start_codex_chat_response(args: CodexChatStart) -> Result<Response<Body
             state,
             user_id,
             session,
+            workspace_root,
             runtime_dir,
             info,
             model,
@@ -249,11 +313,17 @@ async fn start_codex_chat_response(args: CodexChatStart) -> Result<Response<Body
         }));
     }
 
-    let final_info =
-        wait_for_chat_run(&state, &user_id, &runtime_dir, &mut session, &info.job_id).await?;
+    let ChatRunFinal {
+        info: final_info,
+        usage,
+    } = wait_for_chat_run(&state, &user_id, &runtime_dir, &mut session, &info.job_id).await?;
     if final_info.status != "completed" {
-        session.status = "failed".to_string();
-        state.sessions.save_record(session).await?;
+        session.status = if final_info.status == "cancelled" {
+            "cancelled".to_string()
+        } else {
+            "failed".to_string()
+        };
+        let _ = state.sessions.save_record_if_exists(session).await?;
         return Err(ApiError::new(
             StatusCode::INTERNAL_SERVER_ERROR,
             final_info
@@ -262,12 +332,18 @@ async fn start_codex_chat_response(args: CodexChatStart) -> Result<Response<Body
         ));
     }
     let output_text = read_run_output(&final_info).await;
+    record_codex_thread(&mut session, &final_info);
     append_chat_messages(&mut session, user_content, &user_input, &output_text);
+    record_usage(&mut session, &usage);
     session.status = "idle".to_string();
     session.pending_permission_request = None;
-    state.sessions.save_record(session.clone()).await?;
+    let _ = state
+        .sessions
+        .save_record_if_exists(session.clone())
+        .await?;
 
     let mut payload = chat_completion_payload(&model, &session.session_id, output_text);
+    payload["usage"] = usage;
     if let Some(event) = prefix_event {
         payload["connector_auth"] = event;
     }
@@ -286,10 +362,15 @@ pub async fn poll_session_connector_auth(
     Json(request): Json<ConnectorAuthPollRequest>,
 ) -> Result<Response<Body>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    let user_lock = state.sandboxes.user_lock(&user_id);
+    let _user_guard = user_lock.lock().await;
     let workspace_root = state.sandboxes.ensure_sandbox(&user_id)?;
     let Some(mut session) = state.sessions.load(&user_id, &session_id)? else {
         return Err(ApiError::not_found("Session not found"));
     };
+    if session_has_active_run(&session) {
+        return Err(ApiError::conflict("Session already has a running task"));
+    }
     let pending = session
         .pending_connector_auth
         .clone()
@@ -316,7 +397,9 @@ pub async fn poll_session_connector_auth(
         persist_connector_auth_event(&state, &mut session, &Value::Null, "", &decision.event)
             .await?;
         session.pending_connector_auth = None;
+        assert_can_create_run(&state, &user_id, state.config.codex.max_runtime_seconds).await?;
         session.status = "running".to_string();
+        clear_session_plan(&mut session);
         state.sessions.save_record(session.clone()).await?;
         let chat_request = ChatCompletionRequest {
             model: request.model,
@@ -335,6 +418,7 @@ pub async fn poll_session_connector_auth(
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_string();
+        let caller_system_prompt = session.caller_system_prompt.clone();
         return start_codex_chat_response(CodexChatStart {
             state,
             user_id,
@@ -346,7 +430,8 @@ pub async fn poll_session_connector_auth(
             user_input: user_input.clone(),
             input_items: Vec::new(),
             user_content: json!(user_input),
-            caller_system_prompt: None,
+            attachment_items: Vec::new(),
+            caller_system_prompt,
             prefix_event: Some(public_connector_auth_event(&decision.event)),
         })
         .await;
@@ -377,6 +462,7 @@ async fn load_or_create_session(
             return Ok(session);
         }
     }
+    assert_can_create_session(state, user_id).await?;
     Ok(state
         .sessions
         .create_session(
@@ -396,8 +482,33 @@ fn build_codex_chat_prompt(
     session_id: &str,
     workspace_root: &FsPath,
     user_input: &str,
+    attachment_items: &[Value],
     system_prompt: Option<&str>,
 ) -> String {
+    let attachment_lines = attachment_items
+        .iter()
+        .filter(|item| item.get("type").and_then(Value::as_str) == Some("attachment"))
+        .map(|item| {
+            let name = item
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("attachment");
+            let path = item
+                .get("workspace_path")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            let mime_type = item
+                .get("mime_type")
+                .and_then(Value::as_str)
+                .unwrap_or("application/octet-stream");
+            format!("- {name}: {path} ({mime_type})")
+        })
+        .collect::<Vec<_>>();
+    let attachment_section = if attachment_lines.is_empty() {
+        "(none)".to_string()
+    } else {
+        attachment_lines.join("\n")
+    };
     format!(
         "You are Codex, running as Ripple's trusted execution plane.\n\
 Ripple is the control plane: it owns user identity, sandbox isolation, connector state, permissions, and API/session lifecycle. Do the real work inside the current user's workspace.\n\n\
@@ -409,16 +520,22 @@ Ripple is the control plane: it owns user identity, sandbox isolation, connector
 {}\n\n\
 ## Execution Environment Guardrails\n\
 - Do not run or mention `proxy_on` in user-facing Codex app-server tasks.\n\
+- Do not call legacy Ripple connector auth tools such as `GoogleWorkspaceLoginStart`, `GoogleWorkspaceLoginComplete`, `GoogleWorkspaceAuthStatus`, `GoogleWorkspaceLogout`, `NotionTokenSet`, `BilibiliLoginStart`, `BilibiliLoginPoll`, `BilibiliAuthStatus`, `BilibiliLogout`, or `AskUser`. Connector authorization is handled by Ripple before the Codex turn starts.\n\
 - Do not collect connector credentials inside Codex; if a required connector is not connected, ask the user to authorize it through Ripple.\n\n\
 ## Available Skills\n\
 {}\n\n\
 ## System Instructions\n\
+{}\n\n\
+## Conversation State\n\
+- The Codex persistent thread is the authoritative execution context and conversation history. Ripple may store display messages, but it does not replay prior turns into this prompt.\n\n\
+## Attachments\n\
 {}\n\n\
 ## Current User Request\n\
 {}\n",
         connector_manifest(state, user_id),
         render_skill_manifest(&state.config, Some(workspace_root)),
         system_prompt.unwrap_or("(none)"),
+        attachment_section,
         if user_input.trim().is_empty() {
             "(The user provided image input without additional text.)"
         } else {
@@ -473,9 +590,11 @@ async fn wait_for_chat_run(
     runtime_dir: &FsPath,
     session: &mut SessionRecord,
     job_id: &str,
-) -> Result<AgentRunInfo, ApiError> {
+) -> Result<ChatRunFinal, ApiError> {
     let deadline =
         Instant::now() + Duration::from_secs(state.config.codex.max_runtime_seconds.max(1));
+    let mut latest_usage = empty_usage();
+    let mut offset = 0_usize;
     loop {
         let Some(info) = state
             .jobs
@@ -484,21 +603,45 @@ async fn wait_for_chat_run(
         else {
             return Err(ApiError::not_found("Agent run not found"));
         };
+        if let Some(events_file) = info.events_file.as_deref() {
+            for event in read_events_from_offset(FsPath::new(events_file), &mut offset).await {
+                if let Some(usage_event) = extract_usage_event(&event) {
+                    latest_usage = usage_event;
+                    continue;
+                }
+                if let Some(plan_event) = extract_plan_update_event(&event) {
+                    record_session_plan_update(session, &plan_event);
+                    let _ = state
+                        .sessions
+                        .save_record_if_exists(session.clone())
+                        .await?;
+                }
+            }
+        }
         if let Some(approval) = info.pending_approval.clone() {
             session.status = "awaiting_permission".to_string();
             session.pending_permission_request = Some(approval.clone());
-            state.sessions.save_record(session.clone()).await?;
+            let _ = state
+                .sessions
+                .save_record_if_exists(session.clone())
+                .await?;
             return Err(ApiError::conflict(json!({
                 "message": "Codex approval required",
                 "approval": approval
             })));
         }
         if TERMINAL_STATUSES.contains(&info.status.as_str()) {
-            return Ok(info);
+            return Ok(ChatRunFinal {
+                info,
+                usage: latest_usage,
+            });
         }
         if Instant::now() >= deadline {
             session.status = "failed".to_string();
-            state.sessions.save_record(session.clone()).await?;
+            let _ = state
+                .sessions
+                .save_record_if_exists(session.clone())
+                .await?;
             return Err(ApiError::new(
                 StatusCode::GATEWAY_TIMEOUT,
                 "Codex chat run timed out",
@@ -513,6 +656,7 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
         state,
         user_id,
         mut session,
+        workspace_root,
         runtime_dir,
         info,
         model,
@@ -539,12 +683,51 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
         }
         let mut offset = 0_usize;
         let mut emitted = String::new();
+        let mut latest_usage = empty_usage();
+        let mut agent_messages = AgentMessageTracker::default();
+        let mut last_emit = now_epoch_seconds();
         loop {
             if let Some(events_file) = events_file.as_deref() {
                 for event in read_events_from_offset(events_file, &mut offset).await {
-                    if let Some(delta) = extract_agent_delta(&event) {
+                    if let Some(usage_event) = extract_usage_event(&event) {
+                        latest_usage = usage_event;
+                        continue;
+                    }
+                    if let Some(image_event) =
+                        extract_image_event(&state, &user_id, &event, &workspace_root).await
+                    {
+                        yield Ok::<Bytes, Infallible>(sse_json(&image_event));
+                        last_emit = now_epoch_seconds();
+                        continue;
+                    }
+                    if let Some(plan_event) = extract_plan_update_event(&event) {
+                        record_session_plan_update(&mut session, &plan_event);
+                        let _ = state.sessions.save_record_if_exists(session.clone()).await;
+                        yield Ok::<Bytes, Infallible>(sse_json(&plan_event));
+                        last_emit = now_epoch_seconds();
+                        continue;
+                    }
+                    if let Some(runtime_event) = extract_codex_runtime_event(&event) {
+                        yield Ok::<Bytes, Infallible>(sse_json(&runtime_event));
+                        last_emit = now_epoch_seconds();
+                        continue;
+                    }
+                    if let Some(tool_event) = extract_tool_event(&event) {
+                        yield Ok::<Bytes, Infallible>(sse_json(&tool_event));
+                        last_emit = now_epoch_seconds();
+                        continue;
+                    }
+                    if let Some(delta) = agent_messages.handle_delta(&event) {
                         emitted.push_str(&delta);
                         yield Ok::<Bytes, Infallible>(Bytes::from(chunk(&chunk_id, &model, created, json!({"content": delta}), None)));
+                        last_emit = now_epoch_seconds();
+                        continue;
+                    }
+                    if let Some(text) = agent_messages.handle_item(&event) {
+                        emitted.push_str(&text);
+                        yield Ok::<Bytes, Infallible>(Bytes::from(chunk(&chunk_id, &model, created, json!({"content": text}), None)));
+                        last_emit = now_epoch_seconds();
+                        continue;
                     }
                 }
             }
@@ -555,13 +738,13 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                 .ok()
                 .flatten();
             let Some(info) = info else {
-                yield Ok::<Bytes, Infallible>(sse_json(&json!({"type": "error", "message": "Agent run not found"})));
+                yield Ok::<Bytes, Infallible>(sse_json(&stream_error("Agent run not found", "server_error")));
                 break;
             };
             if let Some(approval) = info.pending_approval.clone() {
                 session.status = "awaiting_permission".to_string();
                 session.pending_permission_request = Some(approval.clone());
-                let _ = state.sessions.save_record(session.clone()).await;
+                let _ = state.sessions.save_record_if_exists(session.clone()).await;
                 yield Ok::<Bytes, Infallible>(sse_json(&json!({"type": "approval_required", "approval": approval})));
                 break;
             }
@@ -572,17 +755,33 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                         emitted = output_text.clone();
                         yield Ok::<Bytes, Infallible>(Bytes::from(chunk(&chunk_id, &model, created, json!({"content": output_text}), None)));
                     }
+                    record_codex_thread(&mut session, &info);
                     append_chat_messages(&mut session, user_content.clone(), &user_input, &emitted);
+                    record_usage(&mut session, &latest_usage);
                     session.status = "idle".to_string();
                     session.pending_permission_request = None;
-                    let _ = state.sessions.save_record(session.clone()).await;
+                    clear_session_plan(&mut session);
+                    let _ = state.sessions.save_record_if_exists(session.clone()).await;
+                    if usage_total_tokens(&latest_usage) > 0 {
+                        yield Ok::<Bytes, Infallible>(sse_json(&json!({"type": "usage", "usage": latest_usage})));
+                    }
                     yield Ok::<Bytes, Infallible>(Bytes::from(chunk(&chunk_id, &model, created, json!({}), Some("stop"))));
                 } else {
-                    session.status = "failed".to_string();
-                    let _ = state.sessions.save_record(session.clone()).await;
-                    yield Ok::<Bytes, Infallible>(sse_json(&json!({"type": "error", "message": info.error.unwrap_or_else(|| "Codex run failed".to_string())})));
+                    session.status = if info.status == "cancelled" {
+                        "cancelled".to_string()
+                    } else {
+                        "failed".to_string()
+                    };
+                    let _ = state.sessions.save_record_if_exists(session.clone()).await;
+                    let error_type = if info.status == "cancelled" { "cancelled" } else { "server_error" };
+                    yield Ok::<Bytes, Infallible>(sse_json(&stream_error(&info.error.unwrap_or_else(|| "Codex run failed".to_string()), error_type)));
                 }
                 break;
+            }
+            let now = now_epoch_seconds();
+            if now.saturating_sub(last_emit) >= 8 {
+                yield Ok::<Bytes, Infallible>(sse_json(&json!({"type": "heartbeat", "ts": now})));
+                last_emit = now;
             }
             sleep(Duration::from_millis(50)).await;
         }
@@ -603,6 +802,79 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
     response
 }
 
+fn record_codex_thread(session: &mut SessionRecord, info: &AgentRunInfo) {
+    if let Some(thread_id) = info
+        .metadata
+        .get("codex_thread_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        session.codex_thread_id = Some(thread_id.to_string());
+    }
+}
+
+fn session_has_active_run(session: &SessionRecord) -> bool {
+    matches!(session.status.as_str(), "queued" | "running")
+}
+
+fn record_session_plan_update(session: &mut SessionRecord, update: &Value) {
+    if update.get("allCompleted").and_then(Value::as_bool) == Some(true) {
+        clear_session_plan(session);
+        return;
+    }
+    session.plan_steps = update
+        .get("steps")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    session.plan_progress = update
+        .get("progress")
+        .filter(|value| value.is_object())
+        .cloned();
+}
+
+fn clear_session_plan(session: &mut SessionRecord) {
+    session.plan_steps.clear();
+    session.plan_progress = None;
+}
+
+async fn persist_control_plane_chat_event(
+    state: &AppState,
+    session: &mut SessionRecord,
+    user_content: &Value,
+    user_input: &str,
+    decision: &ScheduleChatDecision,
+) -> Result<Value, ApiError> {
+    let public_event = public_control_plane_event(&decision.event);
+    append_chat_messages(
+        session,
+        user_content.clone(),
+        user_input,
+        &event_message(&decision.event),
+    );
+    session.status = decision.status.clone();
+    if decision.status == "awaiting_user_input" {
+        session.pending_question = decision
+            .event
+            .get("question")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        session.pending_options = event_options(&decision.event);
+    } else {
+        session.pending_question = None;
+        session.pending_options = None;
+    }
+    session.pending_permission_request = None;
+    if decision.clear_pending_schedule {
+        session.pending_schedule_request = None;
+    } else if let Some(pending) = decision.pending_schedule_request.clone() {
+        session.pending_schedule_request = Some(pending);
+    }
+    state.sessions.save_record(session.clone()).await?;
+    Ok(public_event)
+}
+
 fn append_chat_messages(
     session: &mut SessionRecord,
     user_content: Value,
@@ -620,6 +892,9 @@ fn append_chat_messages(
         "created_at": now_iso()
     }));
     session.message_count = session.messages.len();
+    if session.title.trim().is_empty() {
+        session.title = extract_title_from_messages(&session.messages);
+    }
 }
 
 async fn maybe_handle_connector_auth(
@@ -1380,12 +1655,96 @@ fn connector_auth_event_response(
     response
 }
 
+fn control_plane_event_response(
+    model: &str,
+    session_id: &str,
+    event: Value,
+    stream_response: bool,
+) -> Response<Body> {
+    let assistant_text = event_message(&event);
+    if stream_response {
+        let chunk_id = format!("chatcmpl-{}", &Uuid::new_v4().simple().to_string()[..24]);
+        let model_id = model.to_string();
+        let created = now_epoch_seconds();
+        let stream = stream! {
+            yield Ok::<Bytes, Infallible>(Bytes::from(chunk(&chunk_id, &model_id, created, json!({"role": "assistant"}), None)));
+            yield Ok::<Bytes, Infallible>(sse_json(&event));
+            if let Some(stop_event) = agent_stop_ask_user_event(&event) {
+                yield Ok::<Bytes, Infallible>(sse_json(&stop_event));
+            }
+            if !assistant_text.is_empty() {
+                yield Ok::<Bytes, Infallible>(Bytes::from(chunk(&chunk_id, &model_id, created, json!({"content": assistant_text}), None)));
+            }
+            yield Ok::<Bytes, Infallible>(Bytes::from(chunk(&chunk_id, &model_id, created, json!({}), Some("stop"))));
+            yield Ok::<Bytes, Infallible>(Bytes::from_static(b"data: [DONE]\n\n"));
+        };
+        let mut response = Response::new(Body::from_stream(stream));
+        response.headers_mut().insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("text/event-stream"),
+        );
+        response
+            .headers_mut()
+            .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+        response.headers_mut().insert(
+            "x-ripple-session-id",
+            HeaderValue::from_str(session_id).unwrap_or_else(|_| HeaderValue::from_static("")),
+        );
+        return response;
+    }
+
+    let mut payload = chat_completion_payload(model, session_id, assistant_text);
+    payload["event"] = event;
+    let mut response = Json(payload).into_response();
+    response.headers_mut().insert(
+        "x-ripple-session-id",
+        HeaderValue::from_str(session_id).unwrap_or_else(|_| HeaderValue::from_static("")),
+    );
+    response
+}
+
 fn event_message(event: &Value) -> String {
     event
         .get("message")
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string()
+}
+
+fn public_control_plane_event(event: &Value) -> Value {
+    let Some(object) = event.as_object() else {
+        return event.clone();
+    };
+    let mut object = object.clone();
+    object.remove("user_content");
+    object.retain(|_, value| !value.is_null());
+    Value::Object(object)
+}
+
+fn event_options(event: &Value) -> Option<Vec<String>> {
+    let options = event.get("options")?.as_array()?;
+    Some(
+        options
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect(),
+    )
+}
+
+fn agent_stop_ask_user_event(event: &Value) -> Option<Value> {
+    let question = event.get("question").and_then(Value::as_str)?;
+    let options = event_options(event).unwrap_or_default();
+    Some(json!({
+        "type": "agent_stop",
+        "stop_reason": "ask_user",
+        "metadata": {
+            "message": event_message(event),
+            "question": question,
+            "options": options,
+            "schedule": event.get("schedule").cloned().unwrap_or_else(|| json!({}))
+        }
+    }))
 }
 
 fn chunk(
@@ -1406,11 +1765,17 @@ fn chunk(
             "object": "chat.completion.chunk",
             "created": created,
             "model": model,
-            "choices": [choice],
-            "usage": empty_usage()
+            "choices": [choice]
         }))
         .unwrap_or_else(|_| "{}".to_string())
     )
+}
+
+fn usage_total_tokens(usage: &Value) -> u64 {
+    usage
+        .get("total_tokens")
+        .and_then(Value::as_u64)
+        .unwrap_or(0)
 }
 
 fn empty_usage() -> Value {
@@ -1431,6 +1796,234 @@ async fn read_run_output(info: &AgentRunInfo) -> String {
         }
     }
     info.stdout_tail.clone()
+}
+
+async fn extract_image_event(
+    state: &AppState,
+    user_id: &str,
+    event: &Value,
+    workspace_root: &FsPath,
+) -> Option<Value> {
+    if event.get("type").and_then(Value::as_str) != Some("codex.notification") {
+        return None;
+    }
+    let message = event.pointer("/data/message")?;
+    if message.get("method").and_then(Value::as_str) != Some("item/completed") {
+        return None;
+    }
+    let item = message.pointer("/params/item")?;
+    let item_type = item.get("type").and_then(Value::as_str)?;
+    if item_type == "imageView" {
+        return Some(json!({
+            "type": "image_view",
+            "id": item.get("id").cloned().unwrap_or(Value::Null),
+            "workspace_path": item.get("path").and_then(Value::as_str).and_then(|path| workspace_path_or_none(workspace_root, path))
+        }));
+    }
+    if item_type != "imageGeneration" {
+        return None;
+    }
+
+    let mut payload = json!({
+        "type": "image_generation",
+        "id": item.get("id").cloned().unwrap_or(Value::Null),
+        "status": item.get("status").cloned().unwrap_or(Value::Null),
+        "revised_prompt": item.get("revisedPrompt").cloned().unwrap_or(Value::Null)
+    });
+    if let Some(imported) = import_generated_image(state, user_id, workspace_root, item).await {
+        if let Some(object) = payload.as_object_mut() {
+            object.insert("workspace_path".to_string(), json!(imported.workspace_path));
+            object.insert("mime_type".to_string(), json!("image/png"));
+            object.insert("size".to_string(), json!(imported.size));
+        }
+    }
+    Some(payload)
+}
+
+struct ImportedImage {
+    workspace_path: String,
+    size: usize,
+}
+
+async fn import_generated_image(
+    state: &AppState,
+    user_id: &str,
+    workspace_root: &FsPath,
+    item: &Value,
+) -> Option<ImportedImage> {
+    let item_id = item
+        .get("id")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("generated-image");
+    let data = if let Some(saved_path) = item.get("savedPath").and_then(Value::as_str) {
+        read_generated_image_path(workspace_root, saved_path).await
+    } else {
+        None
+    }
+    .or_else(|| {
+        item.get("result")
+            .and_then(Value::as_str)
+            .and_then(decode_base64_image_payload)
+    })?;
+
+    let target_dir = workspace_root.join(".ripple/generated");
+    let target = target_dir.join(format!("{}.png", sanitize_filename(item_id)));
+    assert_workspace_save_within_quota(state, user_id, &target, data.len() as u64)
+        .await
+        .ok()?;
+    if tokio::fs::create_dir_all(&target_dir).await.is_err() {
+        return None;
+    }
+    if tokio::fs::write(&target, &data).await.is_err() {
+        return None;
+    }
+    let workspace_path = workspace_path_or_none(workspace_root, target.to_str()?)?;
+    Some(ImportedImage {
+        workspace_path,
+        size: data.len(),
+    })
+}
+
+async fn read_generated_image_path(workspace_root: &FsPath, raw_path: &str) -> Option<Vec<u8>> {
+    let path = host_path_for_image_event_path(workspace_root, raw_path)?;
+    let metadata = tokio::fs::metadata(&path).await.ok()?;
+    if !metadata.is_file() {
+        return None;
+    }
+    tokio::fs::read(path).await.ok()
+}
+
+fn workspace_path_or_none(workspace_root: &FsPath, raw_path: &str) -> Option<String> {
+    let path = host_path_for_image_event_path(workspace_root, raw_path)?;
+    let workspace = workspace_root.canonicalize().ok()?;
+    let resolved = if path.exists() {
+        path.canonicalize().ok()?
+    } else {
+        normalize_path(&path)
+    };
+    if !resolved.starts_with(&workspace) {
+        return None;
+    }
+    let relative = resolved.strip_prefix(&workspace).ok()?;
+    if relative.as_os_str().is_empty() {
+        Some("/workspace".to_string())
+    } else {
+        Some(format!(
+            "/workspace/{}",
+            relative.to_string_lossy().replace('\\', "/")
+        ))
+    }
+}
+
+fn host_path_for_image_event_path(workspace_root: &FsPath, raw_path: &str) -> Option<PathBuf> {
+    let trimmed = raw_path.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let path = PathBuf::from(trimmed);
+    if path.is_absolute() {
+        if let Ok(relative) = path.strip_prefix("/workspace") {
+            Some(workspace_root.join(relative))
+        } else {
+            Some(path)
+        }
+    } else {
+        Some(workspace_root.join(path))
+    }
+}
+
+fn normalize_path(path: &FsPath) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::ParentDir => {
+                normalized.pop();
+            }
+            std::path::Component::CurDir => {}
+            other => normalized.push(other.as_os_str()),
+        }
+    }
+    normalized
+}
+
+fn sanitize_filename(name: &str) -> String {
+    let clean = name
+        .chars()
+        .map(|ch| {
+            if ch == '/' || ch == '\\' || ch.is_control() {
+                '-'
+            } else {
+                ch
+            }
+        })
+        .collect::<String>()
+        .trim_matches(|ch: char| ch == ' ' || ch == '.' || ch == '-')
+        .to_string();
+    if clean.is_empty() {
+        "generated-image".to_string()
+    } else {
+        clean
+    }
+}
+
+fn decode_base64_image_payload(payload: &str) -> Option<Vec<u8>> {
+    let raw = if payload.starts_with("data:") {
+        payload.split_once(',')?.1
+    } else {
+        payload
+    };
+    decode_base64(raw)
+}
+
+fn decode_base64(input: &str) -> Option<Vec<u8>> {
+    let mut buffer = Vec::new();
+    let mut quartet = [0_u8; 4];
+    let mut count = 0_usize;
+    for ch in input.chars().filter(|ch| !ch.is_ascii_whitespace()) {
+        let value = match ch {
+            'A'..='Z' => ch as u8 - b'A',
+            'a'..='z' => ch as u8 - b'a' + 26,
+            '0'..='9' => ch as u8 - b'0' + 52,
+            '+' => 62,
+            '/' => 63,
+            '=' => 64,
+            _ => return None,
+        };
+        quartet[count] = value;
+        count += 1;
+        if count == 4 {
+            push_base64_quartet(&mut buffer, quartet)?;
+            count = 0;
+        }
+    }
+    if count != 0 {
+        return None;
+    }
+    Some(buffer)
+}
+
+fn push_base64_quartet(buffer: &mut Vec<u8>, quartet: [u8; 4]) -> Option<()> {
+    let pad = quartet
+        .iter()
+        .rev()
+        .take_while(|value| **value == 64)
+        .count();
+    if pad > 2 || quartet[..4 - pad].iter().any(|value| *value == 64) {
+        return None;
+    }
+    let a = quartet[0];
+    let b = quartet[1];
+    let c = if quartet[2] == 64 { 0 } else { quartet[2] };
+    let d = if quartet[3] == 64 { 0 } else { quartet[3] };
+    buffer.push((a << 2) | (b >> 4));
+    if pad < 2 {
+        buffer.push((b << 4) | (c >> 2));
+    }
+    if pad == 0 {
+        buffer.push((c << 6) | d);
+    }
+    Some(())
 }
 
 async fn read_events_from_offset(events_file: &FsPath, offset: &mut usize) -> Vec<Value> {
@@ -1454,19 +2047,105 @@ async fn read_events_from_offset(events_file: &FsPath, offset: &mut usize) -> Ve
         .collect()
 }
 
-fn extract_agent_delta(event: &Value) -> Option<String> {
+#[derive(Default)]
+struct AgentMessageTracker {
+    phases: HashMap<String, Option<String>>,
+    final_delta_item_ids: HashSet<String>,
+    update_delta_item_ids: HashSet<String>,
+}
+
+impl AgentMessageTracker {
+    fn handle_delta(&mut self, event: &Value) -> Option<String> {
+        let (item_id, delta) = agent_message_delta(event)?;
+        if let Some(item_id) = item_id {
+            if self.phases.get(&item_id).and_then(|phase| phase.as_deref()) == Some("commentary") {
+                self.update_delta_item_ids.insert(item_id);
+                return None;
+            }
+            self.final_delta_item_ids.insert(item_id);
+        }
+        Some(delta)
+    }
+
+    fn handle_item(&mut self, event: &Value) -> Option<String> {
+        let item = agent_message_item(event)?;
+        let item_id = agent_message_item_id(item);
+        let phase = agent_message_phase(item);
+        if let Some(item_id) = item_id.as_deref() {
+            self.phases.insert(item_id.to_string(), phase.clone());
+        }
+        if codex_notification_method(event) != Some("item/completed") {
+            return None;
+        }
+        if phase.as_deref() == Some("commentary") {
+            return None;
+        }
+        if item_id
+            .as_ref()
+            .is_some_and(|item_id| self.final_delta_item_ids.contains(item_id))
+        {
+            return None;
+        }
+        agent_message_text(item)
+    }
+}
+
+fn codex_notification_message(event: &Value) -> Option<&Value> {
     if event.get("type").and_then(Value::as_str) != Some("codex.notification") {
         return None;
     }
-    let message = event.pointer("/data/message")?;
-    if message.get("method").and_then(Value::as_str) != Some("item/agentMessage/delta") {
-        return None;
-    }
-    message
-        .pointer("/params/delta")
+    event.pointer("/data/message")
+}
+
+fn codex_notification_method(event: &Value) -> Option<&str> {
+    codex_notification_message(event)?.get("method")?.as_str()
+}
+
+fn agent_message_item(event: &Value) -> Option<&Value> {
+    let item = codex_notification_message(event)?.pointer("/params/item")?;
+    (item.get("type").and_then(Value::as_str) == Some("agentMessage")).then_some(item)
+}
+
+fn agent_message_item_id(item: &Value) -> Option<String> {
+    item.get("id")
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
+}
+
+fn agent_message_phase(item: &Value) -> Option<String> {
+    item.get("phase")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn agent_message_text(item: &Value) -> Option<String> {
+    item.get("text")
+        .or_else(|| item.get("content"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn agent_message_delta(event: &Value) -> Option<(Option<String>, String)> {
+    let message = codex_notification_message(event)?;
+    if message.get("method").and_then(Value::as_str) != Some("item/agentMessage/delta") {
+        return None;
+    }
+    let params = message.get("params")?;
+    let delta = params
+        .get("delta")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())?
+        .to_string();
+    let item_id = params
+        .get("itemId")
+        .or_else(|| params.get("item_id"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    Some((item_id, delta))
 }
 
 fn sse_json(value: &Value) -> Bytes {
@@ -1476,9 +2155,19 @@ fn sse_json(value: &Value) -> Bytes {
     ))
 }
 
+fn stream_error(message: &str, error_type: &str) -> Value {
+    json!({
+        "error": {
+            "message": message,
+            "type": error_type
+        }
+    })
+}
+
 fn extract_user_input_and_items(
     messages: &[Value],
-) -> Result<(String, Vec<Value>, Value), ApiError> {
+    workspace_root: &FsPath,
+) -> Result<(String, Vec<Value>, Value, Vec<Value>), ApiError> {
     let Some(message) = messages
         .iter()
         .rev()
@@ -1489,8 +2178,15 @@ fn extract_user_input_and_items(
     let content = message.get("content").cloned().unwrap_or(Value::Null);
     let mut parts = Vec::new();
     let mut items = Vec::new();
+    let mut user_content = Vec::new();
+    let mut attachment_items = Vec::new();
     match &content {
-        Value::String(text) => parts.push(text.clone()),
+        Value::String(text) => {
+            parts.push(text.clone());
+            if !text.trim().is_empty() {
+                user_content.push(json!({"type": "text", "text": text}));
+            }
+        }
         Value::Array(entries) => {
             for entry in entries {
                 let item_type = entry.get("type").and_then(Value::as_str).unwrap_or("");
@@ -1498,21 +2194,41 @@ fn extract_user_input_and_items(
                     "text" | "input_text" => {
                         if let Some(text) = entry.get("text").and_then(Value::as_str) {
                             parts.push(text.to_string());
+                            user_content.push(json!({"type": "text", "text": text}));
                         }
                     }
                     "image" | "input_image" | "image_url" => {
                         if let Some(url) = image_url(entry) {
                             items.push(json!({"type": "image", "url": url}));
+                            user_content.push(json!({"type": "image", "url": url}));
                         }
                     }
-                    "localImage" | "local_image" => items.push(entry.clone()),
+                    "localImage" | "local_image" => {
+                        items.push(entry.clone());
+                        user_content.push(entry.clone());
+                    }
+                    "file" => {
+                        if let Some(file_item) = file_item_from_block(entry, workspace_root)? {
+                            match file_item.get("type").and_then(Value::as_str) {
+                                Some("localImage") | Some("image") => items.push(file_item.clone()),
+                                Some("attachment") => attachment_items.push(file_item.clone()),
+                                _ => {}
+                            }
+                            user_content.push(user_content_for_file_item(&file_item));
+                        }
+                    }
                     _ => {}
                 }
             }
         }
         _ => {}
     }
-    Ok((parts.join("\n"), items, content))
+    Ok((
+        parts.join("\n"),
+        items,
+        Value::Array(user_content),
+        attachment_items,
+    ))
 }
 
 fn image_url(entry: &Value) -> Option<String> {
@@ -1522,6 +2238,110 @@ fn image_url(entry: &Value) -> Option<String> {
         .or_else(|| entry.pointer("/image_url/url").and_then(Value::as_str))
         .or_else(|| entry.get("image_url").and_then(Value::as_str))
         .map(str::to_string)
+}
+
+fn file_item_from_block(entry: &Value, workspace_root: &FsPath) -> Result<Option<Value>, ApiError> {
+    let Some(file_info) = entry.get("file").filter(|value| value.is_object()) else {
+        return Ok(None);
+    };
+    let Some(path) = file_info
+        .get("path")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(None);
+    };
+    let name = file_info
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            FsPath::new(path)
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or("attachment")
+                .to_string()
+        });
+    let mime_type = file_info
+        .get("mime_type")
+        .or_else(|| file_info.get("mimeType"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| ws::mime_type_for_path(FsPath::new(&name)));
+
+    if path.starts_with("/workspace/") || path == "/workspace" {
+        let host_path = ws::validate_existing_path(path, workspace_root)
+            .map_err(|err| ApiError::bad_request(err.to_string()))?;
+        if !host_path.is_file() {
+            return Err(ApiError::bad_request(format!("{path} is not a file")));
+        }
+        let workspace_path = ws::workspace_path(workspace_root, &host_path)
+            .map_err(|err| ApiError::bad_request(err.to_string()))?;
+        if is_image_mime_type(&mime_type) {
+            return Ok(Some(json!({
+                "type": "localImage",
+                "path": host_path.to_string_lossy(),
+                "workspace_path": workspace_path,
+                "name": name,
+                "mime_type": mime_type
+            })));
+        }
+        return Ok(Some(json!({
+            "type": "attachment",
+            "path": host_path.to_string_lossy(),
+            "workspace_path": workspace_path,
+            "name": name,
+            "mime_type": mime_type
+        })));
+    }
+
+    if let Some(url) = file_info
+        .get("url")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        if is_image_mime_type(&mime_type) {
+            return Ok(Some(json!({
+                "type": "image",
+                "url": url,
+                "name": name,
+                "mime_type": mime_type
+            })));
+        }
+    }
+    Ok(None)
+}
+
+fn user_content_for_file_item(item: &Value) -> Value {
+    match item.get("type").and_then(Value::as_str) {
+        Some("localImage") => json!({
+            "type": "localImage",
+            "path": item.get("workspace_path").cloned().unwrap_or(Value::Null),
+            "name": item.get("name").cloned().unwrap_or(Value::Null),
+            "mime_type": item.get("mime_type").cloned().unwrap_or(Value::Null)
+        }),
+        Some("attachment") => json!({
+            "type": "attachment",
+            "path": item.get("workspace_path").cloned().unwrap_or(Value::Null),
+            "name": item.get("name").cloned().unwrap_or(Value::Null),
+            "mime_type": item.get("mime_type").cloned().unwrap_or(Value::Null)
+        }),
+        Some("image") => json!({
+            "type": "image",
+            "url": item.get("url").cloned().unwrap_or(Value::Null)
+        }),
+        _ => item.clone(),
+    }
+}
+
+fn is_image_mime_type(mime_type: &str) -> bool {
+    mime_type.trim().to_ascii_lowercase().starts_with("image/")
 }
 
 fn extract_caller_system_prompt(messages: &[Value]) -> Option<String> {
@@ -1630,5 +2450,107 @@ mod tests {
             &authorized,
             &previous
         ));
+    }
+
+    #[test]
+    fn decodes_base64_image_payloads() {
+        assert_eq!(
+            decode_base64_image_payload("data:image/png;base64,SGVsbG8=").as_deref(),
+            Some(&b"Hello"[..])
+        );
+        assert_eq!(decode_base64_image_payload("not base64!"), None);
+    }
+
+    #[test]
+    fn maps_image_event_paths_to_workspace_paths() {
+        let root = std::env::temp_dir().join(format!("ripple-chat-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("dir")).expect("create temp workspace");
+
+        assert_eq!(
+            workspace_path_or_none(&root, "/workspace/dir/image.png").as_deref(),
+            Some("/workspace/dir/image.png")
+        );
+        assert_eq!(
+            workspace_path_or_none(&root, root.join("dir/image.png").to_str().unwrap()).as_deref(),
+            Some("/workspace/dir/image.png")
+        );
+        assert_eq!(
+            workspace_path_or_none(&root, root.join("../outside.png").to_str().unwrap()),
+            None
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn extracts_workspace_file_blocks_as_attachments_or_local_images() {
+        let root = std::env::temp_dir().join(format!("ripple-chat-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("docs")).expect("create docs");
+        std::fs::write(root.join("docs/report.txt"), "hello").expect("write attachment");
+        std::fs::write(root.join("docs/chart.png"), b"png").expect("write image");
+
+        let messages = vec![json!({
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "read these"},
+                {"type": "file", "file": {"path": "/workspace/docs/report.txt", "name": "report.txt", "mime_type": "text/plain"}},
+                {"type": "file", "file": {"path": "/workspace/docs/chart.png", "name": "chart.png", "mime_type": "image/png"}}
+            ]
+        })];
+        let (text, input_items, user_content, attachments) =
+            extract_user_input_and_items(&messages, &root).expect("extract");
+
+        assert_eq!(text, "read these");
+        assert_eq!(input_items.len(), 1);
+        assert_eq!(
+            input_items[0].get("type").and_then(Value::as_str),
+            Some("localImage")
+        );
+        assert_eq!(attachments.len(), 1);
+        assert_eq!(
+            attachments[0].get("workspace_path").and_then(Value::as_str),
+            Some("/workspace/docs/report.txt")
+        );
+        assert!(user_content
+            .as_array()
+            .expect("user content")
+            .iter()
+            .any(|item| item.get("type").and_then(Value::as_str) == Some("attachment")));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn agent_message_tracker_filters_commentary_and_uses_completed_fallback() {
+        let mut tracker = AgentMessageTracker::default();
+        let commentary_started = json!({
+            "type": "codex.notification",
+            "data": {"message": {"method": "item/started", "params": {"item": {"id": "u1", "type": "agentMessage", "phase": "commentary"}}}}
+        });
+        let commentary_delta = json!({
+            "type": "codex.notification",
+            "data": {"message": {"method": "item/agentMessage/delta", "params": {"itemId": "u1", "delta": "hidden"}}}
+        });
+        let final_completed = json!({
+            "type": "codex.notification",
+            "data": {"message": {"method": "item/completed", "params": {"item": {"id": "f1", "type": "agentMessage", "text": "final"}}}}
+        });
+        let final_delta = json!({
+            "type": "codex.notification",
+            "data": {"message": {"method": "item/agentMessage/delta", "params": {"itemId": "f2", "delta": "delta"}}}
+        });
+        let final_completed_after_delta = json!({
+            "type": "codex.notification",
+            "data": {"message": {"method": "item/completed", "params": {"item": {"id": "f2", "type": "agentMessage", "text": "delta"}}}}
+        });
+
+        assert_eq!(tracker.handle_item(&commentary_started), None);
+        assert_eq!(tracker.handle_delta(&commentary_delta), None);
+        assert_eq!(
+            tracker.handle_item(&final_completed).as_deref(),
+            Some("final")
+        );
+        assert_eq!(tracker.handle_delta(&final_delta).as_deref(), Some("delta"));
+        assert_eq!(tracker.handle_item(&final_completed_after_delta), None);
     }
 }

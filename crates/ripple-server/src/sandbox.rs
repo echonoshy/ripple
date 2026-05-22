@@ -3,11 +3,27 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use serde::Serialize;
+use serde_json::Value;
 use tokio::sync::Mutex;
 use walkdir::WalkDir;
 
 use crate::config::AppConfig;
 use crate::user::validate_user_id;
+
+const SANDBOX_NODE_DIR: &str = "/opt/node";
+const SANDBOX_NODE_BIN: &str = "/workspace/.local/bin";
+const SANDBOX_NODE_PREFIX: &str = "/workspace/.local";
+const SANDBOX_PNPM_STORE: &str = "/pnpm-store";
+const SANDBOX_UV_CACHE_PATH: &str = "/uv-cache";
+const SANDBOX_COREPACK_HOME: &str = "/corepack-cache";
+const LARK_CLI_INSTALL_ROOT: &str = "/opt/lark-cli";
+const LARK_CLI_SANDBOX_BIN_DIR: &str = "/opt/lark-cli/current/bin";
+const NOTION_CLI_INSTALL_ROOT: &str = "/opt/notion-cli";
+const NOTION_CLI_SANDBOX_BIN_DIR: &str = "/opt/notion-cli/current/bin";
+const GOGCLI_CLI_INSTALL_ROOT: &str = "/opt/gogcli-cli";
+const GOGCLI_CLI_SANDBOX_BIN_DIR: &str = "/opt/gogcli-cli/current/bin";
+const LARK_CLI_SANDBOX_BINARY: &str = "/opt/lark-cli/current/bin/lark-cli";
+const GOGCLI_CLI_SANDBOX_BINARY: &str = "/opt/gogcli-cli/current/bin/gog";
 
 #[derive(Clone)]
 pub struct SandboxManager {
@@ -172,6 +188,32 @@ impl SandboxManager {
         Ok(cfg)
     }
 
+    pub fn nsjail_exec_argv(
+        &self,
+        user_id: &str,
+        program: &str,
+        args: &[&str],
+    ) -> anyhow::Result<Vec<String>> {
+        let cfg = self.write_nsjail_config(user_id)?;
+        let mut argv = vec![
+            self.config.sandbox.nsjail_path.clone(),
+            "--config".to_string(),
+            cfg.to_string_lossy().to_string(),
+            "--".to_string(),
+            program.to_string(),
+        ];
+        argv.extend(args.iter().map(|arg| arg.to_string()));
+        Ok(argv)
+    }
+
+    pub fn lark_cli_sandbox_binary(&self) -> &'static str {
+        LARK_CLI_SANDBOX_BINARY
+    }
+
+    pub fn gogcli_sandbox_binary(&self) -> &'static str {
+        GOGCLI_CLI_SANDBOX_BINARY
+    }
+
     fn generate_nsjail_config(&self, user_id: &str) -> anyhow::Result<String> {
         let workspace = self.workspace_dir(user_id)?;
         let mut mounts = Vec::new();
@@ -188,6 +230,7 @@ impl SandboxManager {
                 mounts.push(mount_block(Some(path), path, false, None));
             }
         }
+        self.add_common_nsjail_mounts(&mut mounts)?;
         mounts.push(mount_block(
             Some(workspace.to_string_lossy().as_ref()),
             "/workspace",
@@ -204,7 +247,24 @@ impl SandboxManager {
             ));
         }
         mounts.push(mount_block(None, "/proc", false, Some("proc")));
-        mounts.push(mount_block(None, "/tmp", true, Some("tmpfs")));
+        mounts.push(mount_block_with_options(
+            None,
+            "/tmp",
+            true,
+            Some("tmpfs"),
+            Some(&format!("size={}M", self.config.sandbox.tmpfs_size_mb)),
+        ));
+        for dev in ["/dev/null", "/dev/zero", "/dev/urandom", "/dev/random"] {
+            if Path::new(dev).exists() {
+                mounts.push(mount_block(Some(dev), dev, false, None));
+            }
+        }
+        let envars = self
+            .sandbox_env(user_id)?
+            .into_iter()
+            .map(|(key, value)| format!("envar: {:?}", format!("{key}={value}")))
+            .collect::<Vec<_>>()
+            .join("\n");
 
         Ok(format!(
             r#"name: "ripple-sandbox-{user_id}"
@@ -226,16 +286,191 @@ rlimit_nproc_type: SOFT
 skip_setsid: true
 disable_no_new_privs: false
 keep_env: false
-envar: "HOME=/workspace"
-envar: "USER=sandbox"
-envar: "SHELL=/bin/bash"
-envar: "LANG=C.UTF-8"
-envar: "PATH=/usr/local/bin:/usr/bin:/bin"
+{envars}
 
 {}
 "#,
             mounts.join("\n\n")
         ))
+    }
+
+    fn add_common_nsjail_mounts(&self, mounts: &mut Vec<String>) -> anyhow::Result<()> {
+        if let Some(uv_bin_dir) = &self.config.sandbox.uv_bin_dir {
+            if uv_bin_dir.exists() {
+                mounts.push(mount_block(
+                    Some(uv_bin_dir.to_string_lossy().as_ref()),
+                    uv_bin_dir.to_string_lossy().as_ref(),
+                    false,
+                    None,
+                ));
+            }
+        }
+
+        let uv_cache = self.config.sandbox.caches_root.join("uv-cache");
+        std::fs::create_dir_all(&uv_cache)?;
+        mounts.push(mount_block(
+            Some(uv_cache.to_string_lossy().as_ref()),
+            SANDBOX_UV_CACHE_PATH,
+            true,
+            None,
+        ));
+
+        if let Some(node_dir) = &self.config.sandbox.node_dir {
+            if node_dir.exists() {
+                mounts.push(mount_block(
+                    Some(node_dir.to_string_lossy().as_ref()),
+                    SANDBOX_NODE_DIR,
+                    false,
+                    None,
+                ));
+            }
+            let pnpm_store = self.config.sandbox.caches_root.join("pnpm-store");
+            let corepack_home = self.config.sandbox.caches_root.join("corepack-cache");
+            std::fs::create_dir_all(&pnpm_store)?;
+            std::fs::create_dir_all(&corepack_home)?;
+            mounts.push(mount_block(
+                Some(pnpm_store.to_string_lossy().as_ref()),
+                SANDBOX_PNPM_STORE,
+                true,
+                None,
+            ));
+            mounts.push(mount_block(
+                Some(corepack_home.to_string_lossy().as_ref()),
+                SANDBOX_COREPACK_HOME,
+                true,
+                None,
+            ));
+        }
+
+        for (host_root, sandbox_root) in [
+            (
+                self.config.sandbox.lark_cli_install_root.as_ref(),
+                LARK_CLI_INSTALL_ROOT,
+            ),
+            (
+                self.config.sandbox.notion_cli_install_root.as_ref(),
+                NOTION_CLI_INSTALL_ROOT,
+            ),
+            (
+                self.config.sandbox.gogcli_cli_install_root.as_ref(),
+                GOGCLI_CLI_INSTALL_ROOT,
+            ),
+        ] {
+            if let Some(host_root) = host_root.filter(|path| path.exists()) {
+                mounts.push(mount_block(
+                    Some(host_root.to_string_lossy().as_ref()),
+                    sandbox_root,
+                    false,
+                    None,
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn sandbox_env(&self, user_id: &str) -> anyhow::Result<Vec<(String, String)>> {
+        let mut path_parts = vec![
+            "/usr/local/sbin".to_string(),
+            "/usr/local/bin".to_string(),
+            "/usr/sbin".to_string(),
+            "/usr/bin".to_string(),
+            "/sbin".to_string(),
+            "/bin".to_string(),
+        ];
+        if let Some(uv_bin_dir) = &self.config.sandbox.uv_bin_dir {
+            path_parts.insert(0, uv_bin_dir.to_string_lossy().to_string());
+        }
+        if self.config.sandbox.node_dir.is_some() {
+            path_parts.insert(0, SANDBOX_NODE_DIR.to_string() + "/bin");
+            path_parts.insert(0, SANDBOX_NODE_BIN.to_string());
+        }
+        if self.config.sandbox.lark_cli_install_root.is_some() {
+            path_parts.insert(0, LARK_CLI_SANDBOX_BIN_DIR.to_string());
+        }
+        if self.config.sandbox.notion_cli_install_root.is_some() {
+            path_parts.insert(0, NOTION_CLI_SANDBOX_BIN_DIR.to_string());
+        }
+        if self.config.sandbox.gogcli_cli_install_root.is_some() {
+            path_parts.insert(0, GOGCLI_CLI_SANDBOX_BIN_DIR.to_string());
+        }
+
+        let mut env = vec![
+            ("PATH".to_string(), path_parts.join(":")),
+            ("HOME".to_string(), "/workspace".to_string()),
+            ("USER".to_string(), "sandbox".to_string()),
+            ("SHELL".to_string(), "/bin/bash".to_string()),
+            ("TERM".to_string(), "xterm-256color".to_string()),
+            ("LANG".to_string(), "C.UTF-8".to_string()),
+            (
+                "TZ".to_string(),
+                std::env::var("TZ").unwrap_or_else(|_| "UTC".to_string()),
+            ),
+            (
+                "UV_CACHE_DIR".to_string(),
+                SANDBOX_UV_CACHE_PATH.to_string(),
+            ),
+            ("UV_LINK_MODE".to_string(), "hardlink".to_string()),
+        ];
+
+        if let Some(url) = &self.config.sandbox.pypi_mirror_url {
+            env.push(("UV_INDEX_URL".to_string(), url.clone()));
+            env.push(("PIP_INDEX_URL".to_string(), url.clone()));
+        }
+        if let Some(token) = read_json_string_field(&self.notion_config_file(user_id)?, "api_token")
+        {
+            env.push(("NOTION_API_TOKEN".to_string(), token));
+        }
+        if self.config.sandbox.gogcli_cli_install_root.is_some() {
+            env.push((
+                "XDG_CONFIG_HOME".to_string(),
+                "/workspace/.config".to_string(),
+            ));
+            env.push(("GOG_KEYRING_BACKEND".to_string(), "file".to_string()));
+            if let Ok(password) = std::fs::read_to_string(self.gogcli_keyring_pass_file(user_id)?) {
+                let password = password.trim();
+                if !password.is_empty() {
+                    env.push(("GOG_KEYRING_PASSWORD".to_string(), password.to_string()));
+                }
+            }
+        }
+        if self.config.sandbox.node_dir.is_some() {
+            env.push(("PNPM_HOME".to_string(), SANDBOX_NODE_BIN.to_string()));
+            env.push(("PNPM_STORE_DIR".to_string(), SANDBOX_PNPM_STORE.to_string()));
+            env.push((
+                "NPM_CONFIG_PREFIX".to_string(),
+                SANDBOX_NODE_PREFIX.to_string(),
+            ));
+            env.push((
+                "COREPACK_HOME".to_string(),
+                SANDBOX_COREPACK_HOME.to_string(),
+            ));
+            env.push(("COREPACK_ENABLE_AUTO_PIN".to_string(), "0".to_string()));
+            env.push((
+                "COREPACK_ENABLE_DOWNLOAD_PROMPT".to_string(),
+                "0".to_string(),
+            ));
+            if let Some(url) = &self.config.sandbox.npm_registry_url {
+                env.push(("NPM_CONFIG_REGISTRY".to_string(), url.clone()));
+                env.push(("COREPACK_NPM_REGISTRY".to_string(), url.clone()));
+            }
+        }
+        for key in [
+            "HTTP_PROXY",
+            "HTTPS_PROXY",
+            "http_proxy",
+            "https_proxy",
+            "ALL_PROXY",
+            "all_proxy",
+            "NO_PROXY",
+            "no_proxy",
+        ] {
+            if let Ok(value) = std::env::var(key) {
+                if !value.trim().is_empty() {
+                    env.push((key.to_string(), value));
+                }
+            }
+        }
+        Ok(env)
     }
 }
 
@@ -271,6 +506,16 @@ fn has_gogcli_login(workspace: &Path) -> bool {
 }
 
 fn mount_block(src: Option<&str>, dst: &str, rw: bool, fstype: Option<&str>) -> String {
+    mount_block_with_options(src, dst, rw, fstype, None)
+}
+
+fn mount_block_with_options(
+    src: Option<&str>,
+    dst: &str,
+    rw: bool,
+    fstype: Option<&str>,
+    options: Option<&str>,
+) -> String {
     let mut lines = vec!["mount {".to_string()];
     if let Some(src) = src {
         lines.push(format!("  src: {:?}", src));
@@ -282,6 +527,170 @@ fn mount_block(src: Option<&str>, dst: &str, rw: bool, fstype: Option<&str>) -> 
         lines.push("  is_bind: true".to_string());
     }
     lines.push(format!("  rw: {}", if rw { "true" } else { "false" }));
+    if let Some(options) = options {
+        lines.push(format!("  options: {:?}", options));
+    }
     lines.push("}".to_string());
     lines.join("\n")
+}
+
+fn read_json_string_field(path: &Path, field: &str) -> Option<String> {
+    let value = serde_json::from_slice::<Value>(&std::fs::read(path).ok()?).ok()?;
+    value
+        .get(field)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{
+        AppConfig, CodexConfig, FeishuConfig, GogcliOAuthConfig, SandboxConfig, SkillsConfig,
+    };
+
+    fn test_config(root: &Path) -> Arc<AppConfig> {
+        let lark_root = root.join("vendor/lark-cli");
+        let notion_root = root.join("vendor/notion-cli");
+        let gog_root = root.join("vendor/gogcli-cli");
+        let node_root = root.join("node");
+        for path in [
+            lark_root.join("current/bin"),
+            notion_root.join("current/bin"),
+            gog_root.join("current/bin"),
+            node_root.join("bin"),
+        ] {
+            std::fs::create_dir_all(path).unwrap();
+        }
+        Arc::new(AppConfig {
+            repo_root: root.to_path_buf(),
+            host: "127.0.0.1".to_string(),
+            port: 0,
+            api_keys: Vec::new(),
+            default_model: "codex-test".to_string(),
+            model_presets: Default::default(),
+            sandbox: SandboxConfig {
+                sandboxes_root: root.join("sandboxes"),
+                caches_root: root.join("cache"),
+                idle_suspend_seconds: 1800,
+                retention_seconds: 604_800,
+                max_workspace_mb: 2048,
+                tmpfs_size_mb: 64,
+                nsjail_path: "nsjail".to_string(),
+                uv_bin_dir: Some(root.join("uv-bin")),
+                node_dir: Some(node_root),
+                lark_cli_install_root: Some(lark_root),
+                notion_cli_install_root: Some(notion_root),
+                gogcli_cli_install_root: Some(gog_root),
+                pypi_mirror_url: Some("https://pypi.example/simple".to_string()),
+                npm_registry_url: Some("https://npm.example".to_string()),
+            },
+            codex: CodexConfig {
+                enabled: true,
+                codex_executable: "codex".to_string(),
+                app_server_args: Vec::new(),
+                codex_home: None,
+                approval_policy: "never".to_string(),
+                sandbox_type: "workspace-write".to_string(),
+                network_access: true,
+                idle_timeout_seconds: 1800,
+                max_runtime_seconds: 3600,
+            },
+            schedule_extraction_max_runtime_seconds: 120,
+            skills: SkillsConfig {
+                shared_dirs: Vec::new(),
+            },
+            public_base_url: None,
+            feishu: FeishuConfig::default(),
+            gogcli_oauth: GogcliOAuthConfig {
+                auto_register_client: true,
+                auto_from_request: true,
+                callback_url: None,
+                client_secret_json: None,
+                client: None,
+            },
+        })
+    }
+
+    #[test]
+    fn nsjail_config_includes_cli_cache_and_connector_env() {
+        let root =
+            std::env::temp_dir().join(format!("ripple-sandbox-test-{}", uuid::Uuid::new_v4()));
+        let manager = SandboxManager::new(test_config(&root));
+        let user_id = "sandboxuser";
+        manager.ensure_sandbox(user_id).unwrap();
+        let credentials = manager.credentials_dir(user_id).unwrap();
+        std::fs::write(
+            credentials.join("notion.json"),
+            r#"{"api_token":"secret_test"}"#,
+        )
+        .unwrap();
+        std::fs::write(credentials.join("gogcli-keyring.pass"), "pw").unwrap();
+
+        let cfg = manager.generate_nsjail_config(user_id).unwrap();
+
+        assert!(cfg.contains(r#"dst: "/opt/lark-cli""#));
+        assert!(cfg.contains(r#"dst: "/opt/notion-cli""#));
+        assert!(cfg.contains(r#"dst: "/opt/gogcli-cli""#));
+        assert!(cfg.contains(r#"dst: "/uv-cache""#));
+        assert!(cfg.contains(r#"dst: "/pnpm-store""#));
+        assert!(cfg.contains(r#"options: "size=64M""#));
+        assert!(cfg.contains("NOTION_API_TOKEN=secret_test"));
+        assert!(cfg.contains("GOG_KEYRING_PASSWORD=pw"));
+        assert!(cfg.contains("/opt/gogcli-cli/current/bin"));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn nsjail_exec_argv_targets_sandbox_binary() {
+        let root =
+            std::env::temp_dir().join(format!("ripple-sandbox-test-{}", uuid::Uuid::new_v4()));
+        let manager = SandboxManager::new(test_config(&root));
+        let argv = manager
+            .nsjail_exec_argv(
+                "sandboxuser",
+                manager.gogcli_sandbox_binary(),
+                &["--json", "auth", "list"],
+            )
+            .unwrap();
+
+        assert_eq!(argv[0], "nsjail");
+        assert_eq!(argv[1], "--config");
+        assert_eq!(argv[3], "--");
+        assert_eq!(argv[4], "/opt/gogcli-cli/current/bin/gog");
+        assert_eq!(argv[5], "--json");
+        assert_eq!(argv[6], "auth");
+        assert_eq!(argv[7], "list");
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn nsjail_exec_argv_can_start_feishu_setup_shell() {
+        let root =
+            std::env::temp_dir().join(format!("ripple-sandbox-test-{}", uuid::Uuid::new_v4()));
+        let manager = SandboxManager::new(test_config(&root));
+        let argv = manager
+            .nsjail_exec_argv(
+                "sandboxuser",
+                "/bin/bash",
+                &[
+                    "-c",
+                    "/opt/lark-cli/current/bin/lark-cli config init --new --force-init 2>&1",
+                ],
+            )
+            .unwrap();
+
+        assert_eq!(argv[0], "nsjail");
+        assert_eq!(argv[3], "--");
+        assert_eq!(argv[4], "/bin/bash");
+        assert_eq!(argv[5], "-c");
+        assert!(argv[6].contains("/opt/lark-cli/current/bin/lark-cli config init --new"));
+        assert!(argv[6].contains("2>&1"));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
 }

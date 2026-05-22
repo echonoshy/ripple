@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 use uuid::Uuid;
 
 use crate::codex::app_server::{AgentRunnerRequest, AgentRunnerStatus, CodexAppServerProvider};
@@ -16,6 +16,7 @@ use crate::config::AppConfig;
 pub struct JobManager {
     provider: Arc<CodexAppServerProvider>,
     jobs: Arc<RwLock<HashMap<String, Arc<RwLock<ExternalAgentJob>>>>>,
+    user_execution_locks: Arc<RwLock<HashMap<String, Arc<Mutex<()>>>>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,6 +44,10 @@ pub struct AgentRunCreateRequest {
     pub schedule_title: Option<String>,
     #[serde(default)]
     pub schedule_trigger: Option<String>,
+    #[serde(default)]
+    pub codex_thread_id: Option<String>,
+    #[serde(default)]
+    pub codex_persistent_thread: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,6 +67,8 @@ pub struct AgentRunInfo {
     pub error: Option<String>,
     #[serde(default)]
     pub pending_approval: Option<Value>,
+    #[serde(default, skip_serializing)]
+    pub metadata: Value,
 }
 
 #[derive(Debug)]
@@ -89,7 +96,19 @@ impl JobManager {
         Self {
             provider: Arc::new(CodexAppServerProvider::new(config)),
             jobs: Arc::new(RwLock::new(HashMap::new())),
+            user_execution_locks: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    async fn user_execution_lock(&self, user_id: &str) -> Arc<Mutex<()>> {
+        if let Some(lock) = self.user_execution_locks.read().await.get(user_id).cloned() {
+            return lock;
+        }
+        let mut locks = self.user_execution_locks.write().await;
+        locks
+            .entry(user_id.to_string())
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone()
     }
 
     pub async fn start(
@@ -130,6 +149,12 @@ impl JobManager {
             if let Some(schedule_trigger) = &create.schedule_trigger {
                 object.insert("schedule_trigger".to_string(), json!(schedule_trigger));
             }
+            if let Some(codex_thread_id) = &create.codex_thread_id {
+                object.insert("codex_thread_id".to_string(), json!(codex_thread_id));
+            }
+            if create.codex_persistent_thread {
+                object.insert("codex_persistent_thread".to_string(), json!(true));
+            }
         }
         let job = Arc::new(RwLock::new(ExternalAgentJob {
             job_id: job_id.clone(),
@@ -139,7 +164,7 @@ impl JobManager {
             user_id: Some(user_id.clone()),
             session_id: session_id.clone(),
             metadata: metadata.clone(),
-            status: AgentRunnerStatus::Running,
+            status: AgentRunnerStatus::Queued,
             created_at: now.clone(),
             updated_at: now,
             events_file: Some(events_file.clone()),
@@ -153,6 +178,7 @@ impl JobManager {
         write_job_meta(&*job.read().await).await?;
 
         let provider = self.provider.clone();
+        let execution_lock = self.user_execution_lock(&user_id).await;
         let max_runtime_seconds = create.max_runtime_seconds.clamp(1, 86_400);
         let request = AgentRunnerRequest {
             provider: "codex".to_string(),
@@ -169,6 +195,18 @@ impl JobManager {
             metadata,
         };
         tokio::spawn(async move {
+            let _execution_guard = execution_lock.lock().await;
+            {
+                let mut job = job.write().await;
+                if job.status == AgentRunnerStatus::Cancelled {
+                    job.updated_at = now_iso();
+                    let _ = write_job_meta(&job).await;
+                    return;
+                }
+                job.status = AgentRunnerStatus::Running;
+                job.updated_at = now_iso();
+                let _ = write_job_meta(&job).await;
+            }
             let result = provider.run(request, job_dir).await;
             let mut job = job.write().await;
             if job.status == AgentRunnerStatus::Cancelled {
@@ -293,6 +331,10 @@ impl JobManager {
         };
         let job = job.read().await;
         job.user_id.as_deref() == Some(user_id)
+            && matches!(
+                job.status,
+                AgentRunnerStatus::Queued | AgentRunnerStatus::Running
+            )
     }
 
     pub async fn steer(&self, job_id: &str, text: String) -> bool {
@@ -354,6 +396,68 @@ impl JobManager {
             self.provider.pending_approval(job_id).await,
         )))
     }
+
+    pub async fn cancel_session_run(
+        &self,
+        user_id: &str,
+        session_id: &str,
+    ) -> anyhow::Result<Option<AgentRunInfo>> {
+        let job_id = {
+            let jobs = self.jobs.read().await;
+            let mut found = None;
+            for (job_id, job) in jobs.iter() {
+                let job = job.read().await;
+                if job.user_id.as_deref() == Some(user_id)
+                    && job.session_id.as_deref() == Some(session_id)
+                    && matches!(
+                        job.status,
+                        AgentRunnerStatus::Queued | AgentRunnerStatus::Running
+                    )
+                {
+                    found = Some(job_id.clone());
+                    break;
+                }
+            }
+            found
+        };
+        let Some(job_id) = job_id else {
+            return Ok(None);
+        };
+        self.cancel_for_user(&job_id, user_id).await
+    }
+
+    pub async fn cancel_user_runs(&self, user_id: &str) -> anyhow::Result<Vec<AgentRunInfo>> {
+        let job_ids = {
+            let jobs = self.jobs.read().await;
+            let mut found = Vec::new();
+            for (job_id, job) in jobs.iter() {
+                let job = job.read().await;
+                if job.user_id.as_deref() == Some(user_id)
+                    && matches!(
+                        job.status,
+                        AgentRunnerStatus::Queued | AgentRunnerStatus::Running
+                    )
+                {
+                    found.push(job_id.clone());
+                }
+            }
+            found
+        };
+        let mut cancelled = Vec::new();
+        for job_id in job_ids {
+            if let Some(info) = self.cancel_for_user(&job_id, user_id).await? {
+                cancelled.push(info);
+            }
+        }
+        Ok(cancelled)
+    }
+
+    pub async fn stop_user(&self, user_id: &str) -> anyhow::Result<Vec<AgentRunInfo>> {
+        let cancelled = self.cancel_user_runs(user_id).await?;
+        let _ = self.provider.stop_user(user_id).await;
+        self.user_execution_locks.write().await.remove(user_id);
+        Ok(cancelled)
+    }
 }
 
 fn info_from_job(job: &ExternalAgentJob, pending_approval: Option<Value>) -> AgentRunInfo {
@@ -382,6 +486,7 @@ fn info_from_job(job: &ExternalAgentJob, pending_approval: Option<Value>) -> Age
         stderr_tail: job.stderr_tail.clone(),
         error: job.error.clone(),
         pending_approval,
+        metadata: job.metadata.clone(),
     }
 }
 
@@ -433,6 +538,17 @@ async fn write_job_meta(job: &ExternalAgentJob) -> anyhow::Result<()> {
             if let Some(value) = job.metadata.get(key).and_then(Value::as_str) {
                 object.insert(key.to_string(), json!(value));
             }
+        }
+        if let Some(value) = job.metadata.get("codex_thread_id").and_then(Value::as_str) {
+            object.insert("codex_thread_id".to_string(), json!(value));
+        }
+        if job
+            .metadata
+            .get("codex_persistent_thread")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            object.insert("codex_persistent_thread".to_string(), json!(true));
         }
     }
     tokio::fs::write(
@@ -522,6 +638,7 @@ fn info_from_record(record: &Value) -> Option<AgentRunInfo> {
             .and_then(Value::as_str)
             .map(str::to_string),
         pending_approval: None,
+        metadata: record.clone(),
     })
 }
 

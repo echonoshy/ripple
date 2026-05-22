@@ -99,6 +99,9 @@ server:
   # /v1/chat/completions 直接启动当前 user sandbox 内的 Codex app-server。
   codex_chat:
     max_runtime_seconds: 3600
+  # chat 侧定时任务创建意图的结构化提取超时。
+  schedule_extraction:
+    max_runtime_seconds: 120
   schedules:
     # Ripple only checks due schedule metadata and starts Codex runs.
     # User work still executes through Codex app-server.

@@ -24,3 +24,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 url = "2"
 uuid = { version = "1", features = ["serde", "v4"] }
 walkdir = "2"
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }

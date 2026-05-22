@@ -4,12 +4,14 @@ use std::path::PathBuf;
 use axum::extract::{Path, State};
 use axum::http::HeaderMap;
 use axum::Json;
+use serde::de::Error as DeError;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use time::format_description::well_known::Rfc3339;
 use time::{Duration as TimeDuration, OffsetDateTime, PrimitiveDateTime};
 use uuid::Uuid;
 
+use crate::api::users::assert_can_create_run;
 use crate::api::ApiError;
 use crate::jobs::{AgentRunCreateRequest, AgentRunInfo};
 use crate::state::AppState;
@@ -53,32 +55,32 @@ struct ScheduleRecord {
 
 #[derive(Debug, Deserialize)]
 pub struct ScheduleCreateInput {
-    title: String,
-    prompt: String,
+    pub(crate) title: String,
+    pub(crate) prompt: String,
     #[serde(default = "default_kind")]
-    kind: String,
+    pub(crate) kind: String,
     #[serde(default = "default_timezone")]
-    timezone: String,
+    pub(crate) timezone: String,
     #[serde(default)]
-    run_at: Option<String>,
+    pub(crate) run_at: Option<String>,
     #[serde(default)]
-    interval_seconds: Option<u64>,
+    pub(crate) interval_seconds: Option<u64>,
     #[serde(default = "default_true")]
-    enabled: bool,
+    pub(crate) enabled: bool,
     #[serde(default)]
-    cwd: Option<String>,
+    pub(crate) cwd: Option<String>,
     #[serde(default)]
-    model: Option<String>,
+    pub(crate) model: Option<String>,
     #[serde(default)]
-    effort: Option<String>,
+    pub(crate) effort: Option<String>,
     #[serde(default)]
-    summary: Option<String>,
-    #[serde(default, rename = "outputSchema")]
-    output_schema: Option<Value>,
+    pub(crate) summary: Option<String>,
+    #[serde(default, rename = "outputSchema", alias = "output_schema")]
+    pub(crate) output_schema: Option<Value>,
     #[serde(default = "default_max_runtime")]
-    max_runtime_seconds: u64,
+    pub(crate) max_runtime_seconds: u64,
     #[serde(default)]
-    max_runs: Option<u64>,
+    pub(crate) max_runs: Option<u64>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -87,17 +89,29 @@ pub struct ScheduleUpdateInput {
     prompt: Option<String>,
     kind: Option<String>,
     timezone: Option<String>,
-    run_at: Option<String>,
-    interval_seconds: Option<u64>,
+    #[serde(default, deserialize_with = "nullable_field")]
+    run_at: Option<Option<String>>,
+    #[serde(default, deserialize_with = "nullable_field")]
+    interval_seconds: Option<Option<u64>>,
     enabled: Option<bool>,
-    cwd: Option<String>,
-    model: Option<String>,
-    effort: Option<String>,
-    summary: Option<String>,
-    #[serde(default, rename = "outputSchema")]
-    output_schema: Option<Value>,
+    #[serde(default, deserialize_with = "nullable_field")]
+    cwd: Option<Option<String>>,
+    #[serde(default, deserialize_with = "nullable_field")]
+    model: Option<Option<String>>,
+    #[serde(default, deserialize_with = "nullable_field")]
+    effort: Option<Option<String>>,
+    #[serde(default, deserialize_with = "nullable_field")]
+    summary: Option<Option<String>>,
+    #[serde(
+        default,
+        rename = "outputSchema",
+        alias = "output_schema",
+        deserialize_with = "nullable_field"
+    )]
+    output_schema: Option<Option<Value>>,
     max_runtime_seconds: Option<u64>,
-    max_runs: Option<u64>,
+    #[serde(default, deserialize_with = "nullable_field")]
+    max_runs: Option<Option<u64>>,
 }
 
 pub async fn list_schedules(
@@ -125,8 +139,18 @@ pub async fn create_schedule(
     Json(input): Json<ScheduleCreateInput>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    state.sandboxes.ensure_sandbox(&user_id)?;
-    let mut schedule_state = read_schedule_state(&state, &user_id).await?;
+    Ok(Json(
+        create_schedule_for_user(&state, &user_id, input).await?,
+    ))
+}
+
+pub(crate) async fn create_schedule_for_user(
+    state: &AppState,
+    user_id: &str,
+    input: ScheduleCreateInput,
+) -> Result<Value, ApiError> {
+    state.sandboxes.ensure_sandbox(user_id)?;
+    let mut schedule_state = read_schedule_state(state, user_id).await?;
     let now = OffsetDateTime::now_utc();
     let kind = normalize_kind(&input.kind)?;
     let max_runs = normalize_max_runs(kind, input.max_runs)?;
@@ -137,7 +161,7 @@ pub async fn create_schedule(
     let prompt = clean_required(&input.prompt, "prompt")?;
     let record = ScheduleRecord {
         schedule_id: format!("sch-{}", &Uuid::new_v4().simple().to_string()[..10]),
-        user_id: user_id.clone(),
+        user_id: user_id.to_string(),
         title,
         prompt,
         kind: kind.to_string(),
@@ -164,10 +188,8 @@ pub async fn create_schedule(
     schedule_state
         .schedules
         .insert(record.schedule_id.clone(), record.clone());
-    write_schedule_state(&state, &user_id, &schedule_state).await?;
-    Ok(Json(
-        serde_json::to_value(record).unwrap_or_else(|_| json!({})),
-    ))
+    write_schedule_state(state, user_id, &schedule_state).await?;
+    Ok(serde_json::to_value(record).unwrap_or_else(|_| json!({})))
 }
 
 pub async fn get_schedule(
@@ -219,34 +241,34 @@ pub async fn update_schedule(
         record.timezone = timezone.trim().to_string();
     }
     if let Some(interval_seconds) = input.interval_seconds {
-        record.interval_seconds = Some(interval_seconds.max(1));
+        record.interval_seconds = interval_seconds.map(|value| value.max(1));
     }
     if let Some(run_at) = input.run_at {
-        record.run_at = normalize_run_at(Some(&run_at), &record.timezone)?;
+        record.run_at = normalize_run_at(run_at.as_deref(), &record.timezone)?;
     }
     if let Some(enabled) = input.enabled {
         record.enabled = enabled;
     }
     if let Some(cwd) = input.cwd {
-        record.cwd = Some(cwd);
+        record.cwd = cwd;
     }
     if let Some(model) = input.model {
-        record.model = Some(model);
+        record.model = model;
     }
     if let Some(effort) = input.effort {
-        record.effort = Some(effort);
+        record.effort = effort;
     }
     if let Some(summary) = input.summary {
-        record.summary = Some(summary);
+        record.summary = summary;
     }
     if let Some(output_schema) = input.output_schema {
-        record.output_schema = Some(output_schema);
+        record.output_schema = output_schema;
     }
     if let Some(max_runtime_seconds) = input.max_runtime_seconds {
         record.max_runtime_seconds = max_runtime_seconds.clamp(1, 86_400);
     }
-    if input.max_runs.is_some() {
-        record.max_runs = normalize_max_runs(&record.kind, input.max_runs)?;
+    if let Some(max_runs) = input.max_runs {
+        record.max_runs = normalize_max_runs(&record.kind, max_runs)?;
     }
     if record.kind != "interval" {
         record.max_runs = None;
@@ -319,8 +341,18 @@ pub async fn run_schedule_now(
     let Some(mut record) = schedule_state.schedules.get(&schedule_id).cloned() else {
         return Err(ApiError::not_found("Schedule not found"));
     };
-    let info = start_schedule_run(&state, &user_id, &record, "manual").await?;
     let now = OffsetDateTime::now_utc();
+    let info = match start_schedule_run(&state, &user_id, &record, "manual").await {
+        Ok(info) => info,
+        Err(err) => {
+            record.status = "error".to_string();
+            record.last_error = Some(format!("{err:?}"));
+            record.updated_at = iso(now);
+            schedule_state.schedules.insert(schedule_id, record);
+            write_schedule_state(&state, &user_id, &schedule_state).await?;
+            return Err(err);
+        }
+    };
     record.last_run_at = Some(iso(now));
     record.last_run_id = Some(info.job_id.clone());
     record.last_error = None;
@@ -440,7 +472,10 @@ async fn start_schedule_run(
         schedule_id: Some(record.schedule_id.clone()),
         schedule_title: Some(record.title.clone()),
         schedule_trigger: Some(trigger.to_string()),
+        codex_thread_id: None,
+        codex_persistent_thread: false,
     };
+    assert_can_create_run(state, user_id, create.max_runtime_seconds).await?;
     state
         .jobs
         .start(
@@ -565,6 +600,7 @@ fn agent_run_info_from_record(record: &Value) -> Option<AgentRunInfo> {
             .and_then(Value::as_str)
             .map(str::to_string),
         pending_approval: None,
+        metadata: record.clone(),
     })
 }
 
@@ -574,6 +610,21 @@ fn record_string(record: &Value, key: &str) -> String {
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string()
+}
+
+fn nullable_field<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    let value = Value::deserialize(deserializer)?;
+    if value.is_null() {
+        return Ok(Some(None));
+    }
+    T::deserialize(value)
+        .map(Some)
+        .map(Some)
+        .map_err(DeError::custom)
 }
 
 fn clean_required(value: &str, field: &str) -> Result<String, ApiError> {

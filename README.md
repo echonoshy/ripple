@@ -6,7 +6,7 @@
 
 运行在 Codex app-server 之上的 Agent 控制面。
 
-**状态：WIP。** 后端正在从 Python/FastAPI 迁移到 Rust。
+**状态：WIP。** 后端正在从 Python/FastAPI 迁移到 Rust；当前本地开发优先使用 Rust 后端，Python 后端保留为参考实现。
 
 </div>
 
@@ -28,23 +28,37 @@ Ripple 负责管理多用户、session、sandbox、connector 授权、skill mani
 
 ## 运行
 
-Python 后端：
+1. 准备配置：
 
 ```bash
-uv run ripple
+cp config/settings.yaml.sample config/settings.yaml
 ```
 
-Rust 后端：
+至少把 `server.api_keys` 改成本地 API key。需要真实 Codex 执行时，按示例配置里的 `external_agents.codex.codex_home` 登录服务端 Codex：
+
+```bash
+CODEX_HOME=.ripple/codex-service-home codex login
+```
+
+2. 启动 Rust 后端：
 
 ```bash
 cargo run -p ripple-server
 ```
 
-Web 客户端：
+Rust 服务默认监听 `http://127.0.0.1:8810`（配置里是 `0.0.0.0:8810`），Web 开发代理默认转发 `/v1` 到这个端口。
+
+3. 启动 Web 客户端：
 
 ```bash
 cd src/interfaces/web
 bun run dev
+```
+
+Python 后端仍可作为兼容参考启动：
+
+```bash
+uv run ripple
 ```
 
 ## 验证
@@ -52,6 +66,7 @@ bun run dev
 ```bash
 cargo check -p ripple-server
 cargo test -p ripple-server
+bash scripts/smoke-rust-server.sh
 uv run pytest
 ```
 

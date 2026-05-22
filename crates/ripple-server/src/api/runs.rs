@@ -11,7 +11,9 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::time::{sleep, Duration};
 
+use crate::api::users::assert_can_create_run;
 use crate::api::ApiError;
+use crate::codex::events::{extract_codex_runtime_event, extract_plan_update_event};
 use crate::jobs::{AgentRunCreateRequest, AgentRunInfo};
 use crate::state::AppState;
 use crate::user::user_id_from_headers;
@@ -37,6 +39,7 @@ pub async fn create_run(
     let workspace_root = state.sandboxes.ensure_sandbox(&user_id)?;
     let runtime_dir = state.sandboxes.sandbox_dir(&user_id)?.join("agent-runs");
     let input = resolve_turn_config(&state, input);
+    assert_can_create_run(&state, &user_id, input.max_runtime_seconds).await?;
     let info = state
         .jobs
         .start(input, user_id, None, workspace_root, runtime_dir)
@@ -258,194 +261,6 @@ fn sse_json(value: &Value) -> Bytes {
         "data: {}\n\n",
         serde_json::to_string(value).unwrap_or_else(|_| "{}".to_string())
     ))
-}
-
-fn extract_plan_update_event(event: &Value) -> Option<Value> {
-    if event.get("type").and_then(Value::as_str) != Some("codex.notification") {
-        return None;
-    }
-    let message = event.pointer("/data/message")?;
-    if message.get("method").and_then(Value::as_str) != Some("turn/plan/updated") {
-        return None;
-    }
-    let params = message.get("params")?;
-    let raw_plan = params.get("plan")?.as_array()?;
-    let turn_id = params
-        .get("turnId")
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty())
-        .unwrap_or("unknown-turn");
-    let mut steps = Vec::new();
-    for (index, item) in raw_plan.iter().enumerate() {
-        let Some(step) = item.get("step").and_then(Value::as_str) else {
-            continue;
-        };
-        if step.trim().is_empty() {
-            continue;
-        }
-        steps.push(json!({
-            "id": format!("codex-plan:{turn_id}:{index}"),
-            "subject": step,
-            "status": normalize_plan_step_status(item.get("status").and_then(Value::as_str))
-        }));
-    }
-    let completed = steps
-        .iter()
-        .filter(|step| step.get("status").and_then(Value::as_str) == Some("completed"))
-        .count();
-    let current_task = steps
-        .iter()
-        .find(|step| step.get("status").and_then(Value::as_str) == Some("in_progress"))
-        .or_else(|| {
-            steps
-                .iter()
-                .find(|step| step.get("status").and_then(Value::as_str) == Some("pending"))
-        })
-        .and_then(|step| step.get("subject").and_then(Value::as_str));
-    let total = steps.len();
-    Some(json!({
-        "type": "task_plan_updated",
-        "thread_id": params.get("threadId").and_then(Value::as_str),
-        "turn_id": turn_id,
-        "explanation": params.get("explanation").and_then(Value::as_str),
-        "steps": steps,
-        "progress": {
-            "completed": completed,
-            "total": total,
-            "currentTask": current_task
-        },
-        "allCompleted": completed == total
-    }))
-}
-
-fn normalize_plan_step_status(status: Option<&str>) -> &'static str {
-    match status {
-        Some("completed") => "completed",
-        Some("inProgress" | "in_progress") => "in_progress",
-        _ => "pending",
-    }
-}
-
-fn extract_codex_runtime_event(event: &Value) -> Option<Value> {
-    if event.get("type").and_then(Value::as_str) != Some("codex.notification") {
-        return None;
-    }
-    let message = event.pointer("/data/message")?;
-    let method = message.get("method").and_then(Value::as_str)?;
-    let params = message.get("params").cloned().unwrap_or_else(|| json!({}));
-    match method {
-        "turn/diff/updated" => {
-            let mut payload = base_runtime_event("codex_turn_diff_updated", method, &params);
-            if let Some(object) = payload.as_object_mut() {
-                if let Some(diff) = params.get("diff") {
-                    object.insert("diff".to_string(), diff.clone());
-                } else {
-                    object.insert("params".to_string(), params);
-                }
-            }
-            Some(payload)
-        }
-        "item/commandExecution/outputDelta" | "item/commandExecution/delta" => {
-            Some(tool_delta_event(method, &params, "command_execution"))
-        }
-        "item/fileChange/outputDelta" | "item/fileChange/delta" => {
-            Some(tool_delta_event(method, &params, "file_change"))
-        }
-        "item/fileChange/patchUpdated" => {
-            let mut payload = base_runtime_event("file_change_patch_updated", method, &params);
-            if let Some(object) = payload.as_object_mut() {
-                for key in ["patch", "changes", "status"] {
-                    if let Some(value) = params.get(key) {
-                        object.insert(key.to_string(), value.clone());
-                    }
-                }
-            }
-            Some(payload)
-        }
-        "warning" | "configWarning" | "deprecationNotice" | "guardianWarning" | "turn/warning" => {
-            let mut payload = base_runtime_event("codex_warning", method, &params);
-            if let Some(object) = payload.as_object_mut() {
-                object.insert("message".to_string(), json!(message_text(&params)));
-            }
-            Some(payload)
-        }
-        "error" | "turn/error" => {
-            let mut payload = base_runtime_event("codex_error", method, &params);
-            if let Some(object) = payload.as_object_mut() {
-                object.insert("message".to_string(), json!(message_text(&params)));
-            }
-            Some(payload)
-        }
-        "thread/compacted" | "thread/contextCompacted" | "context/compacted" => {
-            Some(context_compaction_event(method, &params))
-        }
-        _ => {
-            if params.pointer("/item/type").and_then(Value::as_str) == Some("contextCompaction") {
-                Some(context_compaction_event(method, &params))
-            } else {
-                None
-            }
-        }
-    }
-}
-
-fn base_runtime_event(event_type: &str, method: &str, params: &Value) -> Value {
-    let item = params.get("item");
-    let item_id = params
-        .get("itemId")
-        .or_else(|| params.get("item_id"))
-        .and_then(Value::as_str)
-        .or_else(|| item.and_then(|item| item.get("id")).and_then(Value::as_str));
-    let mut payload = json!({
-        "type": event_type,
-        "codex_method": method,
-        "thread_id": params.get("threadId").or_else(|| params.get("thread_id")).and_then(Value::as_str),
-        "turn_id": params.get("turnId").or_else(|| params.get("turn_id")).and_then(Value::as_str)
-    });
-    if let (Some(object), Some(item_id)) = (payload.as_object_mut(), item_id) {
-        object.insert("id".to_string(), json!(item_id));
-    }
-    payload
-}
-
-fn tool_delta_event(method: &str, params: &Value, kind: &str) -> Value {
-    let mut payload = base_runtime_event("tool_output_delta", method, params);
-    if let Some(object) = payload.as_object_mut() {
-        object.insert("kind".to_string(), json!(kind));
-        object.insert("delta".to_string(), json!(delta_text(params)));
-        if let Some(stream) = params.get("stream").and_then(Value::as_str) {
-            object.insert("stream".to_string(), json!(stream));
-        }
-    }
-    payload
-}
-
-fn context_compaction_event(method: &str, params: &Value) -> Value {
-    let mut payload = base_runtime_event("context_compaction", method, params);
-    if let Some(status) = params.pointer("/item/status").and_then(Value::as_str) {
-        if let Some(object) = payload.as_object_mut() {
-            object.insert("status".to_string(), json!(status));
-        }
-    }
-    payload
-}
-
-fn message_text(params: &Value) -> String {
-    for key in ["message", "warning", "error", "detail", "details"] {
-        if let Some(value) = params.get(key).and_then(Value::as_str) {
-            return value.to_string();
-        }
-    }
-    String::new()
-}
-
-fn delta_text(params: &Value) -> String {
-    for key in ["delta", "output", "chunk", "text"] {
-        if let Some(value) = params.get(key).and_then(Value::as_str) {
-            return value.to_string();
-        }
-    }
-    String::new()
 }
 
 fn now_epoch_seconds() -> u64 {

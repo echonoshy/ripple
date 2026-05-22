@@ -6,6 +6,15 @@ use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 use walkdir::WalkDir;
 
+const CODE_EXTENSIONS: &[&str] = &[
+    "c", "cc", "cpp", "cs", "css", "go", "html", "java", "js", "jsx", "kt", "lua", "php", "py",
+    "rb", "rs", "scss", "sh", "sql", "swift", "ts", "tsx", "vue",
+];
+const MARKDOWN_EXTENSIONS: &[&str] = &["md", "markdown", "mdx", "rst"];
+const TEXT_EXTENSIONS: &[&str] = &[
+    "cfg", "conf", "csv", "env", "ini", "json", "jsonl", "log", "txt", "toml", "xml", "yaml", "yml",
+];
+
 #[derive(Debug, Serialize)]
 pub struct WorkspaceEntry {
     pub name: String,
@@ -167,10 +176,35 @@ pub fn search_files(
     limit: usize,
     scope: &str,
     kind: &str,
+    file_type: &str,
     include_hidden: bool,
     max_file_bytes: u64,
 ) -> anyhow::Result<WorkspaceSearchResponse> {
-    let normalized_query = query.to_lowercase();
+    let normalized_query = query.trim().to_lowercase();
+    if normalized_query.is_empty() {
+        return Ok(WorkspaceSearchResponse {
+            query: query.to_string(),
+            count: 0,
+            entries: Vec::new(),
+        });
+    }
+    let normalized_scope = if matches!(scope, "all" | "name" | "content") {
+        scope
+    } else {
+        "name"
+    };
+    let normalized_kind = if matches!(kind, "all" | "file" | "directory") {
+        kind
+    } else {
+        "all"
+    };
+    let normalized_file_type =
+        if matches!(file_type, "all" | "code" | "markdown" | "text" | "image") {
+            file_type
+        } else {
+            "all"
+        };
+    let max_file_bytes = max_file_bytes.max(1);
     let mut entries = Vec::new();
     for entry in WalkDir::new(workspace_root)
         .into_iter()
@@ -194,14 +228,20 @@ pub fn search_files(
             Ok(metadata) => metadata,
             Err(_) => continue,
         };
-        if kind == "file" && !metadata.is_file() {
+        if normalized_kind == "file" && !metadata.is_file() {
             continue;
         }
-        if kind == "directory" && !metadata.is_dir() {
+        if normalized_kind == "directory" && !metadata.is_dir() {
+            continue;
+        }
+        if metadata.is_dir() && normalized_file_type != "all" {
+            continue;
+        }
+        if metadata.is_file() && !file_type_matches(path, normalized_file_type) {
             continue;
         }
         let mut match_kind = None;
-        if scope != "content" {
+        if normalized_scope != "content" {
             let rel = workspace_path(workspace_root, path)?;
             if name.to_lowercase().contains(&normalized_query)
                 || rel.to_lowercase().contains(&normalized_query)
@@ -210,7 +250,7 @@ pub fn search_files(
             }
         }
         if match_kind.is_none()
-            && scope != "name"
+            && normalized_scope != "name"
             && metadata.is_file()
             && metadata.len() <= max_file_bytes
         {
@@ -220,7 +260,7 @@ pub fn search_files(
                 }
             }
         }
-        if query.is_empty() || match_kind.is_some() {
+        if match_kind.is_some() {
             entries.push(entry_for_path(workspace_root, path, match_kind)?);
         }
     }
@@ -229,6 +269,29 @@ pub fn search_files(
         count: entries.len(),
         entries,
     })
+}
+
+fn file_type_matches(path: &Path, file_type: &str) -> bool {
+    if file_type == "all" {
+        return true;
+    }
+    let suffix = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let mime_type = mime_type_for_path(path);
+    match file_type {
+        "code" => CODE_EXTENSIONS.contains(&suffix.as_str()),
+        "markdown" => MARKDOWN_EXTENSIONS.contains(&suffix.as_str()),
+        "text" => {
+            TEXT_EXTENSIONS.contains(&suffix.as_str())
+                || MARKDOWN_EXTENSIONS.contains(&suffix.as_str())
+                || mime_type.starts_with("text/")
+        }
+        "image" => mime_type.starts_with("image/"),
+        _ => true,
+    }
 }
 
 pub fn validate_existing_path(input: &str, workspace_root: &Path) -> anyhow::Result<PathBuf> {
@@ -357,4 +420,37 @@ pub fn mime_type_for_path(path: &Path) -> String {
         .first_or_octet_stream()
         .essence_str()
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use uuid::Uuid;
+
+    #[test]
+    fn search_files_filters_by_file_type() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("ripple-workspace-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root)?;
+        std::fs::write(root.join("main.rs"), "fn main() {}")?;
+        std::fs::write(root.join("notes.md"), "hello notes")?;
+        std::fs::write(root.join("image.png"), b"png")?;
+
+        let code = search_files(&root, "main", 20, "name", "all", "code", false, 1024)?;
+        assert_eq!(code.count, 1);
+        assert_eq!(code.entries[0].path, "/workspace/main.rs");
+
+        let markdown = search_files(&root, "notes", 20, "name", "all", "markdown", false, 1024)?;
+        assert_eq!(markdown.count, 1);
+        assert_eq!(markdown.entries[0].path, "/workspace/notes.md");
+
+        let image = search_files(&root, "image", 20, "name", "all", "image", false, 1024)?;
+        assert_eq!(image.count, 1);
+        assert_eq!(image.entries[0].path, "/workspace/image.png");
+
+        let empty = search_files(&root, "", 20, "name", "all", "all", false, 1024)?;
+        assert_eq!(empty.count, 0);
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
 }

@@ -6,6 +6,7 @@ pub mod health;
 pub mod models;
 pub mod runs;
 pub mod sandboxes;
+pub mod schedule_chat;
 pub mod schedules;
 pub mod sessions;
 pub mod users;
@@ -16,7 +17,7 @@ use axum::extract::State;
 use axum::http::{Request, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{any, get, post};
 use axum::{Json, Router};
 use serde_json::{json, Value};
 
@@ -26,6 +27,8 @@ pub fn router(state: AppState) -> Router {
     let v1 = Router::new()
         .route("/models", get(models::list_models))
         .route("/info", get(models::system_info))
+        .route("/tasks", any(sessions::deprecated_tasks_api))
+        .route("/tasks/*task_path", any(sessions::deprecated_tasks_api))
         .route("/chat/completions", post(chat::chat_completions))
         .route("/users/me", get(users::current_user_profile))
         .route("/users/me/quota", get(users::current_user_quota))

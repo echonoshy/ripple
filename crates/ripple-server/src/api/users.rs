@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path as FsPath, PathBuf};
 
 use axum::extract::{Path, State};
-use axum::http::HeaderMap;
+use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -85,6 +85,91 @@ async fn quota_status(state: &AppState, user_id: &str) -> Result<Json<Value>, Ap
     })))
 }
 
+pub(crate) async fn assert_can_create_session(
+    state: &AppState,
+    user_id: &str,
+) -> Result<(), ApiError> {
+    state.sandboxes.ensure_sandbox(user_id)?;
+    let record = ensure_user_record(state, user_id).await?;
+    let usage = user_usage(state, user_id).await?;
+    let max_sessions = quota_value(&record, "max_sessions");
+    let used = usage_u64(&usage, "session_count");
+    if used >= max_sessions {
+        return Err(quota_error("sessions", max_sessions, used));
+    }
+    Ok(())
+}
+
+pub(crate) async fn assert_can_create_run(
+    state: &AppState,
+    user_id: &str,
+    max_runtime_seconds: u64,
+) -> Result<(), ApiError> {
+    state.sandboxes.ensure_sandbox(user_id)?;
+    let record = ensure_user_record(state, user_id).await?;
+    let usage = user_usage(state, user_id).await?;
+    let max_runs = quota_value(&record, "max_runs_per_day");
+    let used_runs = usage_u64(&usage, "runs_today");
+    if used_runs >= max_runs {
+        return Err(quota_error("runs_per_day", max_runs, used_runs));
+    }
+    let max_runtime = quota_value(&record, "max_run_runtime_seconds");
+    if max_runtime_seconds > max_runtime {
+        return Err(quota_error(
+            "run_runtime_seconds",
+            max_runtime,
+            max_runtime_seconds,
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) async fn assert_workspace_save_within_quota(
+    state: &AppState,
+    user_id: &str,
+    target: &FsPath,
+    new_content_bytes: u64,
+) -> Result<(), ApiError> {
+    assert_workspace_writes_within_quota(
+        state,
+        user_id,
+        &[(target.to_path_buf(), new_content_bytes)],
+    )
+    .await
+}
+
+pub(crate) async fn assert_workspace_writes_within_quota(
+    state: &AppState,
+    user_id: &str,
+    targets: &[(PathBuf, u64)],
+) -> Result<(), ApiError> {
+    state.sandboxes.ensure_sandbox(user_id)?;
+    let record = ensure_user_record(state, user_id).await?;
+    let usage = user_usage(state, user_id).await?;
+    let max_bytes = quota_value(&record, "max_workspace_mb").saturating_mul(1024 * 1024);
+    let current_size = usage_u64(&usage, "workspace_size_bytes");
+    let mut old_size = 0_u64;
+    let mut new_size = 0_u64;
+    for (target, bytes) in targets {
+        old_size = old_size.saturating_add(
+            target
+                .metadata()
+                .ok()
+                .filter(|metadata| metadata.is_file())
+                .map(|metadata| metadata.len())
+                .unwrap_or(0),
+        );
+        new_size = new_size.saturating_add(*bytes);
+    }
+    let projected = current_size
+        .saturating_sub(old_size)
+        .saturating_add(new_size);
+    if projected > max_bytes {
+        return Err(quota_error("workspace_bytes", max_bytes, projected));
+    }
+    Ok(())
+}
+
 async fn user_usage(state: &AppState, user_id: &str) -> Result<Value, ApiError> {
     let sandbox_dir = state.sandboxes.sandbox_dir(user_id)?;
     let workspace = state.sandboxes.workspace_dir(user_id)?;
@@ -92,18 +177,25 @@ async fn user_usage(state: &AppState, user_id: &str) -> Result<Value, ApiError> 
     let today = now_iso().chars().take(10).collect::<String>();
     let mut runs_today = 0_u64;
     let mut active_runs = 0_u64;
-    for root in [sandbox_dir.join("agent-runs"), sessions_dir.clone()] {
-        for record in list_job_meta_records(&root).await? {
-            let created = record
-                .get("created_at")
-                .and_then(Value::as_str)
-                .unwrap_or("");
-            if created.starts_with(&today) {
-                runs_today += 1;
+    let mut records = list_job_meta_records(&sandbox_dir.join("agent-runs")).await?;
+    if sessions_dir.exists() {
+        let mut entries = tokio::fs::read_dir(&sessions_dir).await?;
+        while let Some(entry) = entries.next_entry().await? {
+            if entry.file_type().await?.is_dir() {
+                records.extend(list_job_meta_records(&entry.path()).await?);
             }
-            if record.get("status").and_then(Value::as_str) == Some("running") {
-                active_runs += 1;
-            }
+        }
+    }
+    for record in records {
+        let created = record
+            .get("created_at")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        if created.starts_with(&today) {
+            runs_today += 1;
+        }
+        if record.get("status").and_then(Value::as_str) == Some("running") {
+            active_runs += 1;
         }
     }
     let session_count = std::fs::read_dir(&sessions_dir)
@@ -119,6 +211,26 @@ async fn user_usage(state: &AppState, user_id: &str) -> Result<Value, ApiError> 
         "runs_today": runs_today,
         "active_runs": active_runs
     }))
+}
+
+fn quota_value(record: &UserRecord, key: &str) -> u64 {
+    record.quota.get(key).copied().unwrap_or(0)
+}
+
+fn usage_u64(usage: &Value, key: &str) -> u64 {
+    usage.get(key).and_then(Value::as_u64).unwrap_or(0)
+}
+
+fn quota_error(resource: &str, limit: u64, used: u64) -> ApiError {
+    ApiError::new(
+        StatusCode::FORBIDDEN,
+        json!({
+            "code": "quota_exceeded",
+            "resource": resource,
+            "limit": limit,
+            "used": used
+        }),
+    )
 }
 
 async fn list_job_meta_records(root: &std::path::Path) -> Result<Vec<Value>, ApiError> {
@@ -201,4 +313,118 @@ fn now_iso() -> String {
     OffsetDateTime::now_utc()
         .format(&Rfc3339)
         .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{
+        AppConfig, CodexConfig, FeishuConfig, GogcliOAuthConfig, SandboxConfig, SkillsConfig,
+    };
+    use crate::state::AppState;
+    use axum::response::IntoResponse;
+
+    fn test_state() -> AppState {
+        let root = std::env::temp_dir().join(format!("ripple-users-test-{}", uuid::Uuid::new_v4()));
+        AppState::new(AppConfig {
+            repo_root: root.clone(),
+            host: "127.0.0.1".to_string(),
+            port: 0,
+            api_keys: Vec::new(),
+            default_model: "codex-test".to_string(),
+            model_presets: BTreeMap::new(),
+            sandbox: SandboxConfig {
+                sandboxes_root: root.join("sandboxes"),
+                caches_root: root.join("cache"),
+                idle_suspend_seconds: 1800,
+                retention_seconds: 604_800,
+                max_workspace_mb: 2048,
+                tmpfs_size_mb: 512,
+                nsjail_path: "nsjail".to_string(),
+                uv_bin_dir: None,
+                node_dir: None,
+                lark_cli_install_root: None,
+                notion_cli_install_root: None,
+                gogcli_cli_install_root: None,
+                pypi_mirror_url: None,
+                npm_registry_url: None,
+            },
+            codex: CodexConfig {
+                enabled: true,
+                codex_executable: "codex".to_string(),
+                app_server_args: Vec::new(),
+                codex_home: None,
+                approval_policy: "never".to_string(),
+                sandbox_type: "workspace-write".to_string(),
+                network_access: true,
+                idle_timeout_seconds: 1800,
+                max_runtime_seconds: 3600,
+            },
+            schedule_extraction_max_runtime_seconds: 120,
+            skills: SkillsConfig {
+                shared_dirs: Vec::new(),
+            },
+            public_base_url: None,
+            feishu: FeishuConfig::default(),
+            gogcli_oauth: GogcliOAuthConfig {
+                auto_register_client: true,
+                auto_from_request: true,
+                callback_url: None,
+                client_secret_json: None,
+                client: None,
+            },
+        })
+    }
+
+    #[tokio::test]
+    async fn run_quota_counts_session_job_records() {
+        let state = test_state();
+        let user_id = "quotauser";
+        state.sandboxes.ensure_sandbox(user_id).unwrap();
+        let mut record = ensure_user_record(&state, user_id).await.unwrap();
+        record.quota.insert("max_runs_per_day".to_string(), 1);
+        write_user_record(&state, &record).await.unwrap();
+
+        let job_dir = state
+            .sandboxes
+            .session_dir(user_id, "session-1")
+            .unwrap()
+            .join("external-agents/agent-test");
+        tokio::fs::create_dir_all(&job_dir).await.unwrap();
+        tokio::fs::write(
+            job_dir.join("meta.json"),
+            serde_json::to_vec(&json!({
+                "created_at": now_iso(),
+                "status": "running"
+            }))
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+
+        let err = assert_can_create_run(&state, user_id, 60)
+            .await
+            .unwrap_err();
+        let response = err.into_response();
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn workspace_quota_rejects_projected_size() {
+        let state = test_state();
+        let user_id = "workspacequota";
+        let workspace = state.sandboxes.ensure_sandbox(user_id).unwrap();
+        let mut record = ensure_user_record(&state, user_id).await.unwrap();
+        record.quota.insert("max_workspace_mb".to_string(), 0);
+        write_user_record(&state, &record).await.unwrap();
+
+        let err =
+            assert_workspace_save_within_quota(&state, user_id, &workspace.join("new.txt"), 1)
+                .await
+                .unwrap_err();
+        let response = err.into_response();
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
 }

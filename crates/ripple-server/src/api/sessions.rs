@@ -128,6 +128,18 @@ pub async fn stop_session(
             "job_id": info.job_id,
             "status": info.status
         })))
+    } else if matches!(session.status.as_str(), "queued" | "running") {
+        session.status = "cancelled".to_string();
+        session.pending_permission_request = None;
+        session.pending_question = None;
+        session.pending_options = None;
+        state.sessions.save_record(session).await?;
+        Ok(Json(json!({
+            "ok": true,
+            "session_id": session_id,
+            "stopped": false,
+            "status": "cancelled"
+        })))
     } else {
         Ok(Json(json!({
             "ok": true,

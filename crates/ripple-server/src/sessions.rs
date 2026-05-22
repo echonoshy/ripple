@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -6,7 +7,7 @@ use serde_json::Value;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 use tokio::sync::RwLock;
-use tokio::time::{interval, Duration};
+use tokio::time::{interval, sleep, Duration};
 use uuid::Uuid;
 
 use crate::config::AppConfig;
@@ -180,7 +181,7 @@ impl SessionManager {
         let dir = self.sandboxes.session_dir(user_id, session_id)?;
         let existed = dir.exists();
         if existed {
-            tokio::fs::remove_dir_all(dir).await?;
+            remove_dir_all_with_retry(&dir).await?;
         }
         if had_active || existed {
             Ok(true)
@@ -500,6 +501,19 @@ impl SessionManager {
             task_progress: record.plan_progress.clone(),
         })
     }
+}
+
+async fn remove_dir_all_with_retry(path: &Path) -> std::io::Result<()> {
+    const ATTEMPTS: usize = 5;
+    for attempt in 1..=ATTEMPTS {
+        match tokio::fs::remove_dir_all(path).await {
+            Ok(()) => return Ok(()),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(err) if attempt == ATTEMPTS => return Err(err),
+            Err(_) => sleep(Duration::from_millis(10)).await,
+        }
+    }
+    Ok(())
 }
 
 pub fn record_usage(record: &mut SessionRecord, usage: &Value) {

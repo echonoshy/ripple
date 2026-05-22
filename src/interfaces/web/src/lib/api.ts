@@ -191,7 +191,12 @@ function isConnectorAuthChatEvent(value: unknown): value is ConnectorAuthChatEve
 async function responseDetail(res: Response): Promise<string> {
   try {
     const body = (await res.clone().json()) as unknown;
-    if (isRecord(body) && typeof body.detail === "string") return body.detail;
+    if (isRecord(body)) {
+      const detail = body.detail;
+      if (typeof detail === "string") return detail;
+      if (isRecord(detail) && typeof detail.message === "string") return detail.message;
+      if (detail !== undefined && detail !== null) return JSON.stringify(detail);
+    }
   } catch {
     /* ignore parse error */
   }
@@ -527,7 +532,10 @@ async function streamChatResponse(
       body: JSON.stringify(body),
       async onopen(response) {
         if (response.status === 401) throw new AuthError();
-        if (!response.ok) throw new Error(`Server responded with ${response.status}`);
+        if (!response.ok) {
+          const detail = await responseDetail(response);
+          throw new Error(detail || `Server responded with ${response.status}`);
+        }
         lastEventTime = Date.now();
       },
       onmessage(msg) {

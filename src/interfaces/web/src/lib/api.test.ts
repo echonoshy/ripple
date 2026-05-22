@@ -15,6 +15,7 @@ import {
   resolveApiUrl,
   runScheduleNow,
   searchWorkspaceFiles,
+  sendChatMessage,
   stopSession,
   updateSchedule,
 } from "./api";
@@ -344,6 +345,49 @@ async function testWorkspaceSearchDefaultsToNameScope() {
   assert.match(requestedUrl, /[?&]scope=name(?:&|$)/);
 }
 
+async function testChatStreamUsesServerConflictDetail() {
+  let reportedMessage = "";
+  const globals = globalThis as unknown as {
+    document?: Pick<Document, "addEventListener" | "removeEventListener"> & { hidden: boolean };
+    window?: Pick<Window, "fetch" | "setTimeout" | "clearTimeout">;
+  };
+  const previousDocument = globals.document;
+  const previousWindow = globals.window;
+  globals.document = {
+    hidden: false,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+  };
+  globals.window = {
+    fetch: (...args) => globalThis.fetch(...args),
+    setTimeout: globalThis.setTimeout,
+    clearTimeout: globalThis.clearTimeout,
+  };
+
+  try {
+    await withFetch(
+      async () => response(409, "Session already has a running task"),
+      async () => {
+        await sendChatMessage("session-1", "hi", "codex-test", {
+          onMessageDelta: () => undefined,
+          onToolCall: () => undefined,
+          onToolResult: () => undefined,
+          onUsage: () => undefined,
+          onComplete: () => undefined,
+          onError: (error) => {
+            reportedMessage = error.message;
+          },
+        });
+      }
+    );
+  } finally {
+    globals.document = previousDocument;
+    globals.window = previousWindow;
+  }
+
+  assert.equal(reportedMessage, "Session already has a running task");
+}
+
 function testDefaultApiOriginUsesPublicBaseUrl() {
   assert.equal(getApiOrigin(), "https://test-oauth.weilai.ai");
 }
@@ -387,5 +431,6 @@ await testFetchSessionDetailsNormalizesBackendShape();
 await testFetchSessionsRejectsServerFailures();
 await testFetchSessionsRejectsNetworkFailures();
 await testWorkspaceSearchDefaultsToNameScope();
+await testChatStreamUsesServerConflictDetail();
 
 console.log("api tests passed");

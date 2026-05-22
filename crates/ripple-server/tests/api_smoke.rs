@@ -888,6 +888,56 @@ async fn router_serves_session_lifecycle_routes() {
 }
 
 #[tokio::test]
+async fn stopping_stale_running_session_clears_running_status() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let (state, app) = test_state_and_app(&root);
+    let user_id = "smoke-user";
+    let mut session = state
+        .sessions
+        .create_session(
+            user_id,
+            CreateSessionInput {
+                model: Some("codex-test".to_string()),
+                max_turns: None,
+                system_prompt: None,
+            },
+        )
+        .await
+        .unwrap();
+    session.status = "running".to_string();
+    state.sessions.save_record(session.clone()).await.unwrap();
+
+    let (status, stopped) = call(
+        app.clone(),
+        Method::POST,
+        &format!("/v1/sessions/{}/stop", session.session_id),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(stopped.get("stopped").and_then(Value::as_bool), Some(false));
+    assert_eq!(
+        stopped.get("status").and_then(Value::as_str),
+        Some("cancelled")
+    );
+
+    let (status, detail) = call(
+        app.clone(),
+        Method::GET,
+        &format!("/v1/sessions/{}", session.session_id),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        detail.get("status").and_then(Value::as_str),
+        Some("cancelled")
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
 async fn router_serves_schedule_crud_routes_without_starting_codex() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let (_state, app) = test_state_and_app(&root);
@@ -2063,7 +2113,7 @@ async fn deleting_running_chat_session_does_not_recreate_session() {
         Value::Null,
     )
     .await;
-    assert_eq!(status, StatusCode::OK);
+    assert_eq!(status, StatusCode::OK, "delete response: {deleted}");
     assert_eq!(deleted.get("ok").and_then(Value::as_bool), Some(true));
     assert_eq!(deleted.get("stopped").and_then(Value::as_bool), Some(true));
 

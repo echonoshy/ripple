@@ -27,7 +27,7 @@ Production builds without `VITE_RIPPLE_API_URL` fall back to
 
 ## Tauri
 
-The Tauri shell is frontend-only: it embeds this React client and still talks to an external Ripple server over `/v1`. It does not run the Python server or Codex runtime locally.
+The Tauri shell is frontend-only: it embeds this React client and still talks to an external Ripple server over `/v1`. It does not run the Ripple server or Codex runtime locally.
 
 ```bash
 bun run tauri:dev

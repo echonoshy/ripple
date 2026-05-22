@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
+use std::process::Command;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use axum::body::{to_bytes, Body};
@@ -164,125 +166,302 @@ exit 2
     root.join("fake-nsjail").to_string_lossy().to_string()
 }
 
-fn write_fake_codex_app_server(root: &Path) -> String {
-    fs::create_dir_all(root).unwrap();
-    let script = root.join("fake-codex-app-server.py");
-    fs::write(
-        &script,
-        r#"#!/usr/bin/env python3
-import json
-import sys
-import time
+fn write_fake_codex_app_server(_root: &Path) -> String {
+    static FAKE_CODEX_APP_SERVER: OnceLock<String> = OnceLock::new();
+    FAKE_CODEX_APP_SERVER
+        .get_or_init(|| {
+            let helper_root =
+                std::env::temp_dir().join(format!("ripple-fake-codex-{}", Uuid::new_v4()));
+            fs::create_dir_all(&helper_root).unwrap();
+            let source = helper_root.join("fake-codex-app-server.rs");
+            let executable = helper_root.join(if cfg!(windows) {
+                "fake-codex-app-server.exe"
+            } else {
+                "fake-codex-app-server"
+            });
+            fs::write(
+                &source,
+                r###"
+use std::collections::HashMap;
+use std::io::{self, BufRead, Write};
+use std::thread;
+use std::time::Duration;
 
-thread_counter = 0
-turn_counter = 0
-pending_approvals = {}
+#[derive(Clone, Debug)]
+enum RequestId {
+    Number(String),
+    String(String),
+}
 
-def send(payload):
-    print(json.dumps(payload, separators=(",", ":")), flush=True)
-
-def input_text(params):
-    parts = []
-    for item in params.get("input") or []:
-        if isinstance(item, dict) and isinstance(item.get("text"), str):
-            parts.append(item["text"])
-    return "\n".join(parts)
-
-def complete_turn(thread_id, turn_id, item_id, text):
-    send({"method": "item/started", "params": {"threadId": thread_id, "turnId": turn_id, "item": {"id": item_id, "type": "agentMessage", "phase": "final"}}})
-    send({"method": "item/agentMessage/delta", "params": {"threadId": thread_id, "turnId": turn_id, "itemId": item_id, "delta": text}})
-    send({"method": "item/completed", "params": {"threadId": thread_id, "turnId": turn_id, "item": {"id": item_id, "type": "agentMessage", "phase": "final", "text": text}}})
-    send({"method": "thread/tokenUsage/updated", "params": {"threadId": thread_id, "turnId": turn_id, "tokenUsage": {"modelContextWindow": 200000, "total": {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15}, "last": {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15, "cachedInputTokens": 1, "reasoningOutputTokens": 2}}}})
-    send({"method": "turn/completed", "params": {"threadId": thread_id, "turnId": turn_id, "turn": {"id": turn_id, "status": "completed"}}})
-
-def emit_runtime_events(thread_id, turn_id):
-    send({"method": "turn/plan/updated", "params": {"threadId": thread_id, "turnId": turn_id, "explanation": "fake plan", "plan": [{"step": "Inspect workspace", "status": "inProgress"}, {"step": "Finish response", "status": "pending"}]}})
-    send({"method": "item/started", "params": {"threadId": thread_id, "turnId": turn_id, "item": {"id": "cmd-1", "type": "commandExecution", "command": "printf hello", "cwd": "/workspace", "source": "test"}}})
-    send({"method": "item/commandExecution/outputDelta", "params": {"threadId": thread_id, "turnId": turn_id, "itemId": "cmd-1", "delta": "hello\n", "stream": "stdout"}})
-    send({"method": "item/completed", "params": {"threadId": thread_id, "turnId": turn_id, "item": {"id": "cmd-1", "type": "commandExecution", "status": "completed", "exitCode": 0, "durationMs": 12, "aggregatedOutput": "hello\n"}}})
-    send({"method": "item/fileChange/patchUpdated", "params": {"threadId": thread_id, "turnId": turn_id, "itemId": "patch-1", "patch": "diff --git a/a b/a", "status": "running"}})
-    send({"method": "item/completed", "params": {"threadId": thread_id, "turnId": turn_id, "item": {"id": "view-1", "type": "imageView", "path": "/workspace/images/source.png"}}})
-    send({"method": "item/completed", "params": {"threadId": thread_id, "turnId": turn_id, "item": {"id": "img-1", "type": "imageGeneration", "status": "completed", "revisedPrompt": "tiny fake image", "result": "data:image/png;base64,SGVsbG8="}}})
-
-for line in sys.stdin:
-    try:
-        message = json.loads(line)
-    except Exception:
-        continue
-    method = message.get("method")
-    request_id = message.get("id")
-    params = message.get("params") or {}
-    if request_id is not None and method == "initialize":
-        send({"id": request_id, "result": {}})
-    elif method == "initialized":
-        continue
-    elif request_id is not None and method == "thread/start":
-        thread_counter += 1
-        send({"id": request_id, "result": {"thread": {"id": f"thread-{thread_counter}"}}})
-    elif request_id is not None and method == "thread/resume":
-        thread_id = params.get("threadId") or "thread-resumed"
-        send({"id": request_id, "result": {"thread": {"id": thread_id}}})
-    elif request_id is not None and method == "turn/start":
-        turn_counter += 1
-        thread_id = params.get("threadId") or "thread-unknown"
-        turn_id = f"turn-{turn_counter}"
-        send({"id": request_id, "result": {"turn": {"id": turn_id}}})
-        item_id = f"item-{turn_counter}"
-        if params.get("outputSchema") is not None:
-            text = json.dumps({
-                "is_schedule_request": True,
-                "missing_fields": [],
-                "clarification_question": None,
-                "schedule": {
-                    "title": "Check build",
-                    "prompt": "Check the build status",
-                    "kind": "interval",
-                    "timezone": "UTC",
-                    "run_at": None,
-                    "interval_seconds": 3600,
-                    "enabled": False,
-                    "cwd": None,
-                    "model": None,
-                    "effort": None,
-                    "summary": None,
-                    "output_schema": None,
-                    "max_runtime_seconds": 60,
-                    "max_runs": None
-                }
-            }, separators=(",", ":"))
-        else:
-            text = "fake codex completed"
-        raw_input = input_text(params)
-        if "[approval]" in raw_input:
-            approval_id = f"approval-{turn_counter}"
-            pending_approvals[approval_id] = (thread_id, turn_id, item_id, "fake approval completed")
-            send({"id": approval_id, "method": "item/commandExecution/requestApproval", "params": {"threadId": thread_id, "turnId": turn_id, "command": ["echo", "approval"], "reason": "fake command approval"}})
-            continue
-        if "[slow]" in raw_input:
-            time.sleep(0.5)
-        if "[runtime-events]" in raw_input:
-            emit_runtime_events(thread_id, turn_id)
-        complete_turn(thread_id, turn_id, item_id, text)
-    elif method is None and request_id in pending_approvals:
-        thread_id, turn_id, item_id, text = pending_approvals.pop(request_id)
-        complete_turn(thread_id, turn_id, item_id, text)
-    elif request_id is not None and method == "turn/interrupt":
-        send({"id": request_id, "result": {}})
-    elif request_id is not None and method == "turn/steer":
-        send({"id": request_id, "result": {}})
-    elif request_id is not None:
-        send({"id": request_id, "error": {"code": -32601, "message": f"unsupported {method}"}})
-"#,
-    )
-    .unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(&script).unwrap().permissions();
-        perms.set_mode(0o755);
-        fs::set_permissions(&script, perms).unwrap();
+impl RequestId {
+    fn raw_json(&self) -> String {
+        match self {
+            RequestId::Number(value) => value.clone(),
+            RequestId::String(value) => json_string(value),
+        }
     }
-    script.to_string_lossy().to_string()
+
+    fn as_string_key(&self) -> Option<&str> {
+        match self {
+            RequestId::String(value) => Some(value.as_str()),
+            RequestId::Number(_) => None,
+        }
+    }
+}
+
+fn json_string(value: &str) -> String {
+    let mut out = String::with_capacity(value.len() + 2);
+    out.push('"');
+    for ch in value.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            _ => out.push(ch),
+        }
+    }
+    out.push('"');
+    out
+}
+
+fn send(payload: String) {
+    println!("{payload}");
+    io::stdout().flush().unwrap();
+}
+
+fn extract_string_field(line: &str, field: &str) -> Option<String> {
+    let needle = format!("\"{field}\":\"");
+    let start = line.find(&needle)? + needle.len();
+    let rest = &line[start..];
+    let mut value = String::new();
+    let mut escaped = false;
+    for ch in rest.chars() {
+        if escaped {
+            value.push(ch);
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+        if ch == '"' {
+            return Some(value);
+        }
+        value.push(ch);
+    }
+    None
+}
+
+fn extract_id(line: &str) -> Option<RequestId> {
+    let needle = "\"id\":";
+    let start = line.find(needle)? + needle.len();
+    let rest = line[start..].trim_start();
+    if let Some(after_quote) = rest.strip_prefix('"') {
+        let mut value = String::new();
+        let mut escaped = false;
+        for ch in after_quote.chars() {
+            if escaped {
+                value.push(ch);
+                escaped = false;
+                continue;
+            }
+            if ch == '\\' {
+                escaped = true;
+                continue;
+            }
+            if ch == '"' {
+                return Some(RequestId::String(value));
+            }
+            value.push(ch);
+        }
+        return None;
+    }
+    let value: String = rest
+        .chars()
+        .take_while(|ch| ch.is_ascii_digit() || *ch == '-')
+        .collect();
+    if value.is_empty() {
+        None
+    } else {
+        Some(RequestId::Number(value))
+    }
+}
+
+fn complete_turn(thread_id: &str, turn_id: &str, item_id: &str, text: &str) {
+    let text_json = json_string(text);
+    send(format!(
+        "{{\"method\":\"item/started\",\"params\":{{\"threadId\":{},\"turnId\":{},\"item\":{{\"id\":{},\"type\":\"agentMessage\",\"phase\":\"final\"}}}}}}",
+        json_string(thread_id),
+        json_string(turn_id),
+        json_string(item_id)
+    ));
+    send(format!(
+        "{{\"method\":\"item/agentMessage/delta\",\"params\":{{\"threadId\":{},\"turnId\":{},\"itemId\":{},\"delta\":{}}}}}",
+        json_string(thread_id),
+        json_string(turn_id),
+        json_string(item_id),
+        text_json
+    ));
+    send(format!(
+        "{{\"method\":\"item/completed\",\"params\":{{\"threadId\":{},\"turnId\":{},\"item\":{{\"id\":{},\"type\":\"agentMessage\",\"phase\":\"final\",\"text\":{}}}}}}}",
+        json_string(thread_id),
+        json_string(turn_id),
+        json_string(item_id),
+        text_json
+    ));
+    send(format!(
+        "{{\"method\":\"thread/tokenUsage/updated\",\"params\":{{\"threadId\":{},\"turnId\":{},\"tokenUsage\":{{\"modelContextWindow\":200000,\"total\":{{\"inputTokens\":10,\"outputTokens\":5,\"totalTokens\":15}},\"last\":{{\"inputTokens\":10,\"outputTokens\":5,\"totalTokens\":15,\"cachedInputTokens\":1,\"reasoningOutputTokens\":2}}}}}}}}",
+        json_string(thread_id),
+        json_string(turn_id)
+    ));
+    send(format!(
+        "{{\"method\":\"turn/completed\",\"params\":{{\"threadId\":{},\"turnId\":{},\"turn\":{{\"id\":{},\"status\":\"completed\"}}}}}}",
+        json_string(thread_id),
+        json_string(turn_id),
+        json_string(turn_id)
+    ));
+}
+
+fn emit_runtime_events(thread_id: &str, turn_id: &str) {
+    let thread_id = json_string(thread_id);
+    let turn_id = json_string(turn_id);
+    send(format!("{{\"method\":\"turn/plan/updated\",\"params\":{{\"threadId\":{thread_id},\"turnId\":{turn_id},\"explanation\":\"fake plan\",\"plan\":[{{\"step\":\"Inspect workspace\",\"status\":\"inProgress\"}},{{\"step\":\"Finish response\",\"status\":\"pending\"}}]}}}}"));
+    send(format!("{{\"method\":\"item/started\",\"params\":{{\"threadId\":{thread_id},\"turnId\":{turn_id},\"item\":{{\"id\":\"cmd-1\",\"type\":\"commandExecution\",\"command\":\"printf hello\",\"cwd\":\"/workspace\",\"source\":\"test\"}}}}}}"));
+    send(format!("{{\"method\":\"item/commandExecution/outputDelta\",\"params\":{{\"threadId\":{thread_id},\"turnId\":{turn_id},\"itemId\":\"cmd-1\",\"delta\":\"hello\\n\",\"stream\":\"stdout\"}}}}"));
+    send(format!("{{\"method\":\"item/completed\",\"params\":{{\"threadId\":{thread_id},\"turnId\":{turn_id},\"item\":{{\"id\":\"cmd-1\",\"type\":\"commandExecution\",\"status\":\"completed\",\"exitCode\":0,\"durationMs\":12,\"aggregatedOutput\":\"hello\\n\"}}}}}}"));
+    send(format!("{{\"method\":\"item/fileChange/patchUpdated\",\"params\":{{\"threadId\":{thread_id},\"turnId\":{turn_id},\"itemId\":\"patch-1\",\"patch\":\"diff --git a/a b/a\",\"status\":\"running\"}}}}"));
+    send(format!("{{\"method\":\"item/completed\",\"params\":{{\"threadId\":{thread_id},\"turnId\":{turn_id},\"item\":{{\"id\":\"view-1\",\"type\":\"imageView\",\"path\":\"/workspace/images/source.png\"}}}}}}"));
+    send(format!("{{\"method\":\"item/completed\",\"params\":{{\"threadId\":{thread_id},\"turnId\":{turn_id},\"item\":{{\"id\":\"img-1\",\"type\":\"imageGeneration\",\"status\":\"completed\",\"revisedPrompt\":\"tiny fake image\",\"result\":\"data:image/png;base64,SGVsbG8=\"}}}}}}"));
+}
+
+fn schedule_extraction_text() -> &'static str {
+    "{\"is_schedule_request\":true,\"missing_fields\":[],\"clarification_question\":null,\"schedule\":{\"title\":\"Check build\",\"prompt\":\"Check the build status\",\"kind\":\"interval\",\"timezone\":\"UTC\",\"run_at\":null,\"interval_seconds\":3600,\"enabled\":false,\"cwd\":null,\"model\":null,\"effort\":null,\"summary\":null,\"output_schema\":null,\"max_runtime_seconds\":60,\"max_runs\":null}}"
+}
+
+fn main() {
+    let stdin = io::stdin();
+    let mut thread_counter = 0_u64;
+    let mut turn_counter = 0_u64;
+    let mut pending_approvals: HashMap<String, (String, String, String, String)> = HashMap::new();
+
+    for line_result in stdin.lock().lines() {
+        let Ok(line) = line_result else {
+            continue;
+        };
+        let method = extract_string_field(&line, "method");
+        let request_id = extract_id(&line);
+
+        match (request_id.as_ref(), method.as_deref()) {
+            (Some(id), Some("initialize")) => {
+                send(format!("{{\"id\":{},\"result\":{{}}}}", id.raw_json()));
+            }
+            (_, Some("initialized")) => {}
+            (Some(id), Some("thread/start")) => {
+                thread_counter += 1;
+                send(format!(
+                    "{{\"id\":{},\"result\":{{\"thread\":{{\"id\":\"thread-{thread_counter}\"}}}}}}",
+                    id.raw_json()
+                ));
+            }
+            (Some(id), Some("thread/resume")) => {
+                let thread_id = extract_string_field(&line, "threadId")
+                    .unwrap_or_else(|| "thread-resumed".to_string());
+                send(format!(
+                    "{{\"id\":{},\"result\":{{\"thread\":{{\"id\":{}}}}}}}",
+                    id.raw_json(),
+                    json_string(&thread_id)
+                ));
+            }
+            (Some(id), Some("turn/start")) => {
+                turn_counter += 1;
+                let thread_id = extract_string_field(&line, "threadId")
+                    .unwrap_or_else(|| "thread-unknown".to_string());
+                let turn_id = format!("turn-{turn_counter}");
+                let item_id = format!("item-{turn_counter}");
+                send(format!(
+                    "{{\"id\":{},\"result\":{{\"turn\":{{\"id\":{}}}}}}}",
+                    id.raw_json(),
+                    json_string(&turn_id)
+                ));
+
+                let text = if line.contains("\"outputSchema\"") {
+                    schedule_extraction_text().to_string()
+                } else {
+                    "fake codex completed".to_string()
+                };
+
+                if line.contains("[approval]") {
+                    let approval_id = format!("approval-{turn_counter}");
+                    pending_approvals.insert(
+                        approval_id.clone(),
+                        (
+                            thread_id.clone(),
+                            turn_id.clone(),
+                            item_id.clone(),
+                            "fake approval completed".to_string(),
+                        ),
+                    );
+                    send(format!(
+                        "{{\"id\":{},\"method\":\"item/commandExecution/requestApproval\",\"params\":{{\"threadId\":{},\"turnId\":{},\"command\":[\"echo\",\"approval\"],\"reason\":\"fake command approval\"}}}}",
+                        json_string(&approval_id),
+                        json_string(&thread_id),
+                        json_string(&turn_id)
+                    ));
+                    continue;
+                }
+
+                if line.contains("[slow]") {
+                    thread::sleep(Duration::from_millis(500));
+                }
+                if line.contains("[runtime-events]") {
+                    emit_runtime_events(&thread_id, &turn_id);
+                }
+                complete_turn(&thread_id, &turn_id, &item_id, &text);
+            }
+            (Some(id), None) => {
+                if let Some(key) = id.as_string_key() {
+                    if let Some((thread_id, turn_id, item_id, text)) = pending_approvals.remove(key)
+                    {
+                        complete_turn(&thread_id, &turn_id, &item_id, &text);
+                    }
+                }
+            }
+            (Some(id), Some("turn/interrupt" | "turn/steer")) => {
+                send(format!("{{\"id\":{},\"result\":{{}}}}", id.raw_json()));
+            }
+            (Some(id), Some(other)) => {
+                send(format!(
+                    "{{\"id\":{},\"error\":{{\"code\":-32601,\"message\":{}}}}}",
+                    id.raw_json(),
+                    json_string(&format!("unsupported {other}"))
+                ));
+            }
+            _ => {}
+        }
+    }
+}
+"###,
+            )
+            .unwrap();
+            let output = Command::new("rustc")
+                .arg("--edition=2021")
+                .arg(&source)
+                .arg("-o")
+                .arg(&executable)
+                .output()
+                .unwrap_or_else(|err| panic!("failed to run rustc for fake Codex app-server: {err}"));
+            assert!(
+                output.status.success(),
+                "failed to compile fake Codex app-server:\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            executable.to_string_lossy().to_string()
+        })
+        .clone()
 }
 
 fn request(method: Method, uri: &str, body: Value, authorized: bool) -> Request<Body> {

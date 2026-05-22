@@ -114,8 +114,6 @@ pub async fn chat_completions(
     Json(request): Json<ChatCompletionRequest>,
 ) -> Result<Response<Body>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    let user_lock = state.sandboxes.user_lock(&user_id);
-    let _user_guard = user_lock.lock().await;
     let workspace_root = state.sandboxes.ensure_sandbox(&user_id)?;
     let (user_input, input_items, user_content, attachment_items) =
         extract_user_input_and_items(&request.messages, &workspace_root)?;
@@ -362,8 +360,6 @@ pub async fn poll_session_connector_auth(
     Json(request): Json<ConnectorAuthPollRequest>,
 ) -> Result<Response<Body>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    let user_lock = state.sandboxes.user_lock(&user_id);
-    let _user_guard = user_lock.lock().await;
     let workspace_root = state.sandboxes.ensure_sandbox(&user_id)?;
     let Some(mut session) = state.sessions.load(&user_id, &session_id)? else {
         return Err(ApiError::not_found("Session not found"));

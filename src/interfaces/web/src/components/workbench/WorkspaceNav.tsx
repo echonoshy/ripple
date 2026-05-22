@@ -37,7 +37,7 @@ export default function WorkspaceNav({
   onOpenSettings,
 }: WorkspaceNavProps) {
   return (
-    <div className="flex h-full min-h-0 flex-col text-[#0d0d0d]">
+    <div className="flex h-full min-h-0 flex-col text-[#0d0d0d]" aria-busy={isGenerating}>
       <div className="border-b border-[#e5e7eb] px-4 pt-4 pb-4">
         <div className="mb-5 flex h-8 items-center gap-3">
           <RippleIcon size={30} className="h-[30px] w-[30px] shrink-0 rounded-lg" />
@@ -58,8 +58,7 @@ export default function WorkspaceNav({
         <button
           type="button"
           onClick={onNewSession}
-          disabled={isGenerating}
-          className="flex h-9 w-full items-center justify-between gap-2 rounded-lg bg-[#2463eb] px-3 text-sm font-semibold text-white shadow-[0_8px_24px_rgba(36,99,235,0.18)] hover:bg-[#1d56d8] disabled:cursor-not-allowed disabled:bg-[#e5e7eb] disabled:text-[#8b8f94] disabled:shadow-none"
+          className="flex h-9 w-full items-center justify-between gap-2 rounded-lg bg-[#2463eb] px-3 text-sm font-semibold text-white shadow-[0_8px_24px_rgba(36,99,235,0.18)] hover:bg-[#1d56d8]"
         >
           <span className="inline-flex items-center gap-2">
             <Plus size={15} />

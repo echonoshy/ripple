@@ -3,6 +3,10 @@ import { readFileSync } from "node:fs";
 
 const appSource = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
 const chatRunSource = readFileSync(new URL("./hooks/useChatRun.ts", import.meta.url), "utf8");
+const sessionLifecycleSource = readFileSync(
+  new URL("./hooks/useSessionLifecycle.ts", import.meta.url),
+  "utf8"
+);
 
 function testChatCompletionClearsResidualPlan() {
   assert.match(chatRunSource, /clearPlanState/);
@@ -44,11 +48,70 @@ function testAppDelegatesChatRun() {
   assert.doesNotMatch(appSource, /uploadWorkspaceAttachment/);
 }
 
+function testNewSessionCreationDoesNotDependOnGlobalGenerationState() {
+  const createNewSessionBlock =
+    sessionLifecycleSource.match(
+      /const createNewSession = useCallback\([\s\S]*?\n\s{2}const switchSession = useCallback/
+    )?.[0] || "";
+
+  assert.doesNotMatch(createNewSessionBlock, /isGenerating/);
+}
+
+function testStopRefreshesSessionsAfterInterrupt() {
+  const handleStopBlock =
+    chatRunSource.match(
+      /const handleStop = useCallback\([\s\S]*?\n\s{2}const handleClearContext = useCallback/
+    )?.[0] || "";
+
+  assert.match(handleStopBlock, /getSessionActions\(\)\.loadSessions\(\)/);
+}
+
+function testStopTargetsOneRunningSession() {
+  const handleStopBlock =
+    chatRunSource.match(
+      /const handleStop = useCallback\([\s\S]*?\n\s{2}const handleClearContext = useCallback/
+    )?.[0] || "";
+
+  assert.match(handleStopBlock, /abortControllersRef\.current\.get\(targetSessionId\)\?\.abort/);
+  assert.match(handleStopBlock, /runningViewStatesRef\.current\.delete\(targetSessionId\)/);
+  assert.match(handleStopBlock, /getSessionActions\(\)\.stopSession\(targetSessionId\)/);
+}
+
+function testChatSendIsNotBlockedByAnotherRunningSession() {
+  const handleSendBlock =
+    chatRunSource.match(
+      /const handleSendMessage = useCallback\([\s\S]*?\n\s{2}const handleQuickReply = useCallback/
+    )?.[0] || "";
+
+  assert.doesNotMatch(handleSendBlock, /\|\|\s*isGenerating/);
+  assert.doesNotMatch(
+    appSource,
+    /isComposerBlocked\s*=\s*Boolean\(isGenerating\s*&&\s*runningSessionId\s*!==\s*sessionId\)/
+  );
+}
+
+function testChatRunStoresActiveRunsBySession() {
+  assert.match(
+    chatRunSource,
+    /runningViewStatesRef\s*=\s*useRef<[^>]*Map<string,\s*ChatRunViewState>/
+  );
+  assert.match(
+    chatRunSource,
+    /abortControllersRef\s*=\s*useRef<[^>]*Map<string,\s*AbortController>/
+  );
+  assert.match(chatRunSource, /runningSessionIds/);
+}
+
 testChatCompletionClearsResidualPlan();
 testSessionDetailsRestorePersistedPlan();
 testRestoringSessionRefreshesWorkspaceViews();
 testAuthInitEffectDoesNotDependOnInlineCallbacks();
 testAppDelegatesSessionLifecycle();
 testAppDelegatesChatRun();
+testNewSessionCreationDoesNotDependOnGlobalGenerationState();
+testStopRefreshesSessionsAfterInterrupt();
+testStopTargetsOneRunningSession();
+testChatSendIsNotBlockedByAnotherRunningSession();
+testChatRunStoresActiveRunsBySession();
 
 console.log("app plan tests passed");

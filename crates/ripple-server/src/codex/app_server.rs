@@ -538,8 +538,8 @@ impl CodexAppServerProvider {
 
         if let (Some(thread_id), Some(turn_id)) = (thread_id.as_deref(), turn_id.as_deref()) {
             session.unregister_turn(thread_id, turn_id).await;
-            self.active_turns.lock().await.remove(&job_id);
         }
+        self.active_turns.lock().await.remove(&job_id);
         drop(turn_rx);
 
         let final_type = match status {
@@ -567,6 +567,8 @@ impl CodexAppServerProvider {
                 metadata.insert("codex_thread_resumed".to_string(), json!(thread_resumed));
             }
         }
+        let stderr_tail = session.stderr_tail().await;
+        self.shutdown_job_session(&job_id).await;
         Ok(AgentRunnerResult {
             job_id,
             provider: request.provider,
@@ -575,7 +577,7 @@ impl CodexAppServerProvider {
             output_file: Some(output_file),
             exit_code: None,
             stdout_tail: tail(&output_text),
-            stderr_tail: session.stderr_tail().await,
+            stderr_tail,
             error,
             metadata: Value::Object(metadata),
         })
@@ -806,6 +808,12 @@ impl CodexAppServerProvider {
         &self,
         request: &AgentRunnerRequest,
     ) -> anyhow::Result<Arc<CodexAppServerSession>> {
+        let job_key = request
+            .metadata
+            .get("job_id")
+            .and_then(Value::as_str)
+            .unwrap_or("agent-job")
+            .to_string();
         let user_key = request
             .user_id
             .clone()
@@ -818,7 +826,7 @@ impl CodexAppServerProvider {
             .unwrap_or_else(|| request.cwd.clone());
         let mut sessions = self.sessions.lock().await;
         let session = sessions
-            .entry(user_key.clone())
+            .entry(job_key)
             .or_insert_with(|| {
                 CodexAppServerSession::new(user_key, self.config.clone(), workspace_root)
             })
@@ -894,34 +902,62 @@ impl CodexAppServerProvider {
     }
 
     pub async fn stop_user(&self, user_id: &str) -> usize {
-        let session = self.sessions.lock().await.remove(user_id);
-        let Some(session) = session else {
-            return 0;
+        let sessions = {
+            let mut sessions = self.sessions.lock().await;
+            let job_ids = sessions
+                .iter()
+                .filter_map(|(job_id, session)| {
+                    (session.user_key == user_id).then(|| job_id.clone())
+                })
+                .collect::<Vec<_>>();
+            job_ids
+                .into_iter()
+                .filter_map(|job_id| sessions.remove(&job_id).map(|session| (job_id, session)))
+                .collect::<Vec<_>>()
         };
+        if sessions.is_empty() {
+            return 0;
+        }
         let mut removed = 0_usize;
-        let removed_job_ids = {
+        let mut removed_job_ids = Vec::new();
+        for (session_job_id, session) in &sessions {
             let mut active_turns = self.active_turns.lock().await;
             let job_ids = active_turns
                 .iter()
                 .filter_map(|(job_id, active)| {
-                    Arc::ptr_eq(&active.session, &session).then(|| job_id.clone())
+                    Arc::ptr_eq(&active.session, session).then(|| job_id.clone())
                 })
                 .collect::<Vec<_>>();
-            for job_id in &job_ids {
-                if active_turns.remove(job_id).is_some() {
+            for job_id in job_ids {
+                if active_turns.remove(&job_id).is_some() {
                     removed += 1;
+                    removed_job_ids.push(job_id);
                 }
             }
-            job_ids
-        };
+            if active_turns.remove(session_job_id).is_some() {
+                removed += 1;
+                removed_job_ids.push(session_job_id.clone());
+            }
+        }
         if !removed_job_ids.is_empty() {
             let mut approvals = self.pending_approvals.lock().await;
             for job_id in removed_job_ids {
                 approvals.remove(&job_id);
             }
         }
-        session.shutdown().await;
+        for (_, session) in sessions {
+            session.shutdown().await;
+        }
         removed
+    }
+
+    async fn shutdown_job_session(&self, job_id: &str) -> bool {
+        let session = self.sessions.lock().await.remove(job_id);
+        let Some(session) = session else {
+            return false;
+        };
+        session.shutdown().await;
+        true
     }
 }
 

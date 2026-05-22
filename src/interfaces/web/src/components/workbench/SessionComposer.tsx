@@ -61,7 +61,8 @@ export default function SessionComposer({
   const [dismissedSlashKey, setDismissedSlashKey] = useState<string | null>(null);
   const [quickActionIndex, setQuickActionIndex] = useState(0);
   const canSend = Boolean(value.trim() || pendingFiles.length > 0);
-  const inputDisabled = isGenerating || isBlocked;
+  const inputDisabled = isGenerating;
+  const sendDisabled = isGenerating || isBlocked;
   const isQuickActionsOpen = quickActionsState !== null;
   const quickActionMatches = useMemo(
     () => getQuickActionMatches(quickActionsState?.query ?? ""),
@@ -225,7 +226,7 @@ export default function SessionComposer({
             isGenerating
               ? "Codex is working..."
               : isBlocked
-                ? "Another session is working..."
+                ? "Draft your next message..."
                 : hasSession
                   ? "Ask Codex anything about your codebase..."
                   : "Ask Codex anything about your codebase..."
@@ -330,12 +331,12 @@ export default function SessionComposer({
                 </div>
               )}
             </div>
-            {isGenerating ? (
+            {isGenerating || isBlocked ? (
               <button
                 type="button"
                 onClick={onStop}
                 aria-label="Stop generation"
-                title="Stop generation"
+                title={isBlocked ? "Stop running session" : "Stop generation"}
                 className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#cf222e]/25 bg-[#ffebe9] text-[#cf222e] hover:bg-[#ffd7d5]"
               >
                 <Square size={13} fill="currentColor" />
@@ -344,7 +345,7 @@ export default function SessionComposer({
               <button
                 type="button"
                 onClick={onSend}
-                disabled={!canSend || inputDisabled}
+                disabled={!canSend || sendDisabled}
                 aria-label="Send message"
                 title="Send message"
                 className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#2463eb] bg-[#2463eb] text-white shadow-[0_8px_24px_rgba(36,99,235,0.18)] hover:bg-[#1d56d8] disabled:cursor-not-allowed disabled:border-[#e5e7eb] disabled:bg-[#f7f8fa] disabled:text-[#8b8f94] disabled:shadow-none"

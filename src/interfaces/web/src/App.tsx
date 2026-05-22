@@ -27,6 +27,7 @@ import { clearStoredCurrentSessionId } from "@/lib/sessionPersistence";
 import {
   applyCurrentSessionRuntimeStatus,
   createWorkbenchSessionsFromSessionSummaries,
+  mergeInferredWorkbenchSessions,
 } from "@/lib/workbench";
 import { shouldShowInspector, type WorkspaceView } from "@/lib/workspaceViews";
 
@@ -81,7 +82,7 @@ export default function Home() {
     messages,
     pendingFiles,
     isGenerating,
-    runningSessionId,
+    runningSessionIds,
     inputFocusToken,
     tokenUsage,
     lastContextTokens,
@@ -247,22 +248,20 @@ export default function Home() {
     setIsSidebarOpen(false);
   }, []);
 
-  const runtimeStatusSessionId = isGenerating ? runningSessionId : sessionId;
-  const selectedSessionIsGenerating = Boolean(isGenerating && runningSessionId === sessionId);
-  const isComposerBlocked = Boolean(isGenerating && runningSessionId !== sessionId);
+  const selectedSessionIsGenerating = Boolean(sessionId && runningSessionIds.includes(sessionId));
+  const isComposerBlocked = false;
   const selectedSessionRuntimeStatus =
-    currentSessionRuntimeStatus && runtimeStatusSessionId === sessionId
-      ? currentSessionRuntimeStatus
-      : null;
-  const workbenchSessions = useMemo(
-    () =>
-      applyCurrentSessionRuntimeStatus(
-        createWorkbenchSessionsFromSessionSummaries(sessionSummaries),
-        runtimeStatusSessionId,
-        currentSessionRuntimeStatus
-      ),
-    [currentSessionRuntimeStatus, runtimeStatusSessionId, sessionSummaries]
-  );
+    currentSessionRuntimeStatus && sessionId ? currentSessionRuntimeStatus : null;
+  const workbenchSessions = useMemo(() => {
+    const base = createWorkbenchSessionsFromSessionSummaries(sessionSummaries);
+    return runningSessionIds.reduce(
+      (sessions, activeSessionId) =>
+        applyCurrentSessionRuntimeStatus(sessions, activeSessionId, "running"),
+      currentSessionRuntimeStatus && sessionId
+        ? applyCurrentSessionRuntimeStatus(base, sessionId, currentSessionRuntimeStatus)
+        : base
+    );
+  }, [currentSessionRuntimeStatus, runningSessionIds, sessionId, sessionSummaries]);
   const selectedExistingSession = sessionId
     ? workbenchSessions.find((session) => session.sessionId === sessionId) || null
     : null;
@@ -279,12 +278,27 @@ export default function Home() {
           pendingApprovalCount: 0,
         }
       : null;
+  const inferredRunningSessions = runningSessionIds
+    .filter(
+      (activeSessionId) =>
+        activeSessionId !== sessionId &&
+        !workbenchSessions.some((session) => session.sessionId === activeSessionId)
+    )
+    .map((activeSessionId) => ({
+      sessionId: activeSessionId,
+      title: "Running Codex session",
+      status: "running" as const,
+      model: selectedModel,
+      lastActivityAt: new Date().toISOString(),
+      messageCount: 0,
+      changedFileCount: 0,
+      pendingApprovalCount: 0,
+    }));
   const selectedWorkbenchSession = selectedExistingSession || inferredCurrentSession;
-  const displayWorkbenchSessions =
-    inferredCurrentSession &&
-    !workbenchSessions.some((session) => session.sessionId === inferredCurrentSession.sessionId)
-      ? [inferredCurrentSession, ...workbenchSessions]
-      : workbenchSessions;
+  const displayWorkbenchSessions = mergeInferredWorkbenchSessions(workbenchSessions, [
+    inferredCurrentSession,
+    ...inferredRunningSessions,
+  ]);
   const mainContent =
     activeView === "home" ? (
       <HomePage

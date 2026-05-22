@@ -62,6 +62,13 @@ function testSessionsHeaderDoesNotDuplicateNewSessionAction() {
   assert.equal((html.match(/lucide-plus/g) || []).length, 1);
 }
 
+function testNewSessionStaysAvailableWhileAnotherSessionRuns() {
+  const html = renderWorkspaceNav({ isGenerating: true });
+
+  assert.match(html, />New Session</);
+  assert.doesNotMatch(html, /disabled=""/);
+}
+
 function testSessionLoadErrorDoesNotLookLikeEmptyState() {
   const html = renderWorkspaceNav({
     sessions: [],
@@ -76,6 +83,7 @@ function testSessionLoadErrorDoesNotLookLikeEmptyState() {
 testRendersAllSessionsWithoutDeadViewAllButton();
 testUsesSessionIdSelectionNaming();
 testSessionsHeaderDoesNotDuplicateNewSessionAction();
+testNewSessionStaysAvailableWhileAnotherSessionRuns();
 testSessionLoadErrorDoesNotLookLikeEmptyState();
 
 console.log("workspace nav tests passed");

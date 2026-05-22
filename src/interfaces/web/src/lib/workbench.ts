@@ -79,6 +79,22 @@ export function applyCurrentSessionRuntimeStatus(
   return changed ? sortWorkbenchSessions(updated) : sessions;
 }
 
+export function mergeInferredWorkbenchSessions(
+  sessions: WorkbenchSessionSummary[],
+  inferredSessions: Array<WorkbenchSessionSummary | null | undefined>
+): WorkbenchSessionSummary[] {
+  const seen = new Set(sessions.map((session) => session.sessionId));
+  const additions: WorkbenchSessionSummary[] = [];
+
+  for (const session of inferredSessions) {
+    if (!session || seen.has(session.sessionId)) continue;
+    seen.add(session.sessionId);
+    additions.push(session);
+  }
+
+  return additions.length > 0 ? sortWorkbenchSessions([...sessions, ...additions]) : sessions;
+}
+
 export function createWorkbenchSessionsFromSessionSummaries(
   sessions: SessionSummary[]
 ): WorkbenchSessionSummary[] {

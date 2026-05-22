@@ -124,12 +124,11 @@ export function useSessionLifecycle({
   }, [handleAuthExpired, sessionId]);
 
   const createNewSession = useCallback(async (): Promise<SessionSummary | null> => {
-    if (isGenerating) return null;
-    onNewSessionView();
     try {
       const session = await createSession();
       setSessionId(session.sessionId);
       setStoredCurrentSessionId(undefined, session.sessionId);
+      onNewSessionView();
       onSessionActivated();
       await loadSessions();
       return session;
@@ -139,7 +138,7 @@ export function useSessionLifecycle({
       }
       return null;
     }
-  }, [handleAuthExpired, isGenerating, loadSessions, onNewSessionView, onSessionActivated]);
+  }, [handleAuthExpired, loadSessions, onNewSessionView, onSessionActivated]);
 
   const switchSession = useCallback(
     async (targetSessionId: string): Promise<boolean> => {

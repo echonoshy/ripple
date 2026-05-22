@@ -7,7 +7,7 @@ import SessionComposer from "./SessionComposer";
 
 function noop() {}
 
-function renderComposer() {
+function renderComposer(overrides: Partial<React.ComponentProps<typeof SessionComposer>> = {}) {
   return renderToStaticMarkup(
     <SessionComposer
       value=""
@@ -29,6 +29,7 @@ function renderComposer() {
       isModelDropdownOpen={true}
       onToggleModelDropdown={noop}
       onSelectModel={noop}
+      {...overrides}
     />
   );
 }
@@ -60,8 +61,18 @@ function testComposerInputSuppressesGlobalBlueFocusOutline() {
   assert.match(globalCss, /outline:\s*none/);
 }
 
+function testBlockedComposerStillAllowsDraftingAndShowsStop() {
+  const html = renderComposer({ value: "draft", isBlocked: true });
+
+  assert.match(html, />draft</);
+  assert.doesNotMatch(html, /<textarea[^>]*\sdisabled="/);
+  assert.match(html, /aria-label="Stop generation"/);
+  assert.doesNotMatch(html, /aria-label="Send message"/);
+}
+
 testShowsSelectedModelAndMenuOptions();
 testComposerToolbarNamesRealActions();
 testComposerInputSuppressesGlobalBlueFocusOutline();
+testBlockedComposerStillAllowsDraftingAndShowsStop();
 
 console.log("session composer tests passed");

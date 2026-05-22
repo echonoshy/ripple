@@ -389,6 +389,8 @@ fn main() {
 
                 let text = if line.contains("\"outputSchema\"") {
                     schedule_extraction_text().to_string()
+                } else if line.contains("[ids]") {
+                    format!("fake codex completed {thread_id} {turn_id}")
                 } else {
                     "fake codex completed".to_string()
                 };
@@ -1113,7 +1115,7 @@ async fn runs_route_completes_with_fake_codex_app_server() {
 }
 
 #[tokio::test]
-async fn runs_for_same_user_execute_serially_with_fake_codex_app_server() {
+async fn runs_for_same_user_execute_in_parallel_with_isolated_fake_codex_app_servers() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let fake_codex = write_fake_codex_app_server(&root);
     let (_state, app) =
@@ -1124,7 +1126,7 @@ async fn runs_for_same_user_execute_serially_with_fake_codex_app_server() {
         Method::POST,
         "/v1/runs",
         json!({
-            "prompt": "[slow] first fake run",
+            "prompt": "[slow] [ids] first fake run",
             "model": "codex-test",
             "max_runtime_seconds": 5
         }),
@@ -1160,33 +1162,48 @@ async fn runs_for_same_user_execute_serially_with_fake_codex_app_server() {
         Method::POST,
         "/v1/runs",
         json!({
-            "prompt": "second fake run",
+            "prompt": "[ids] second fake run",
             "model": "codex-test",
             "max_runtime_seconds": 5
         }),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(second.get("status").and_then(Value::as_str), Some("queued"));
     let second_job_id = second
         .get("job_id")
         .and_then(Value::as_str)
         .expect("second job id")
         .to_string();
 
-    let (status, second_before_first_done) = call(
-        app.clone(),
-        Method::GET,
-        &format!("/v1/runs/{second_job_id}"),
-        Value::Null,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(
-        second_before_first_done
-            .get("status")
-            .and_then(Value::as_str),
-        Some("queued")
+    let mut second_completed_while_first_running = false;
+    for _ in 0..40 {
+        let (status, first_run) = call(
+            app.clone(),
+            Method::GET,
+            &format!("/v1/runs/{first_job_id}"),
+            Value::Null,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, second_run) = call(
+            app.clone(),
+            Method::GET,
+            &format!("/v1/runs/{second_job_id}"),
+            Value::Null,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        if first_run.get("status").and_then(Value::as_str) == Some("running")
+            && second_run.get("status").and_then(Value::as_str) == Some("completed")
+        {
+            second_completed_while_first_running = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert!(
+        second_completed_while_first_running,
+        "second run should complete while the first run is still active"
     );
 
     for job_id in [&first_job_id, &second_job_id] {
@@ -1207,6 +1224,22 @@ async fn runs_for_same_user_execute_serially_with_fake_codex_app_server() {
             tokio::time::sleep(Duration::from_millis(25)).await;
         }
         assert!(completed, "run {job_id} should complete");
+    }
+
+    for job_id in [&first_job_id, &second_job_id] {
+        let (status, run) = call(
+            app.clone(),
+            Method::GET,
+            &format!("/v1/runs/{job_id}"),
+            Value::Null,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            run.get("stdout_tail").and_then(Value::as_str),
+            Some("fake codex completed thread-1 turn-1"),
+            "each job should have its own app-server counters"
+        );
     }
 
     let _ = std::fs::remove_dir_all(root);
@@ -2132,6 +2165,128 @@ async fn deleting_running_chat_session_does_not_recreate_session() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn chat_sessions_for_same_user_execute_in_parallel_with_isolated_fake_codex_app_servers() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (_state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    let (status, first_session) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/sessions",
+        json!({"model": "codex-test"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let first_session_id = first_session
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("first session id")
+        .to_string();
+
+    let (status, second_session) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/sessions",
+        json!({"model": "codex-test"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let second_session_id = second_session
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("second session id")
+        .to_string();
+
+    let first_app = app.clone();
+    let first_session_for_task = first_session_id.clone();
+    let first_chat_task = tokio::spawn(async move {
+        first_app
+            .oneshot(request(
+                Method::POST,
+                "/v1/chat/completions",
+                json!({
+                    "model": "codex-test",
+                    "session_id": first_session_for_task,
+                    "messages": [{"role": "user", "content": "[slow] [ids] first chat"}],
+                    "stream": false
+                }),
+                true,
+            ))
+            .await
+            .unwrap()
+    });
+
+    let mut first_running = false;
+    for _ in 0..40 {
+        let (status, detail) = call(
+            app.clone(),
+            Method::GET,
+            &format!("/v1/sessions/{first_session_id}"),
+            Value::Null,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        if detail.get("status").and_then(Value::as_str) == Some("running") {
+            first_running = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(
+        first_running,
+        "first chat session should enter running state"
+    );
+
+    let (status, second_chat) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/chat/completions",
+        json!({
+            "model": "codex-test",
+            "session_id": second_session_id,
+            "messages": [{"role": "user", "content": "[ids] second chat"}],
+            "stream": false
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        second_chat
+            .pointer("/choices/0/message/content")
+            .and_then(Value::as_str),
+        Some("fake codex completed thread-1 turn-1")
+    );
+
+    let (status, first_detail) = call(
+        app.clone(),
+        Method::GET,
+        &format!("/v1/sessions/{first_session_id}"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        first_detail.get("status").and_then(Value::as_str),
+        Some("running"),
+        "first chat should still be running after second chat completed"
+    );
+
+    let first_response = first_chat_task.await.unwrap();
+    assert_eq!(first_response.status(), StatusCode::OK);
+    let first_chat = response_json(first_response).await;
+    assert_eq!(
+        first_chat
+            .pointer("/choices/0/message/content")
+            .and_then(Value::as_str),
+        Some("fake codex completed thread-1 turn-1")
+    );
 
     let _ = std::fs::remove_dir_all(root);
 }

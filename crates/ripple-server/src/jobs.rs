@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use crate::codex::app_server::{AgentRunnerRequest, AgentRunnerStatus, CodexAppServerProvider};
@@ -16,7 +16,6 @@ use crate::config::AppConfig;
 pub struct JobManager {
     provider: Arc<CodexAppServerProvider>,
     jobs: Arc<RwLock<HashMap<String, Arc<RwLock<ExternalAgentJob>>>>>,
-    user_execution_locks: Arc<RwLock<HashMap<String, Arc<Mutex<()>>>>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,19 +95,7 @@ impl JobManager {
         Self {
             provider: Arc::new(CodexAppServerProvider::new(config)),
             jobs: Arc::new(RwLock::new(HashMap::new())),
-            user_execution_locks: Arc::new(RwLock::new(HashMap::new())),
         }
-    }
-
-    async fn user_execution_lock(&self, user_id: &str) -> Arc<Mutex<()>> {
-        if let Some(lock) = self.user_execution_locks.read().await.get(user_id).cloned() {
-            return lock;
-        }
-        let mut locks = self.user_execution_locks.write().await;
-        locks
-            .entry(user_id.to_string())
-            .or_insert_with(|| Arc::new(Mutex::new(())))
-            .clone()
     }
 
     pub async fn start(
@@ -178,7 +165,6 @@ impl JobManager {
         write_job_meta(&*job.read().await).await?;
 
         let provider = self.provider.clone();
-        let execution_lock = self.user_execution_lock(&user_id).await;
         let max_runtime_seconds = create.max_runtime_seconds.clamp(1, 86_400);
         let request = AgentRunnerRequest {
             provider: "codex".to_string(),
@@ -195,7 +181,6 @@ impl JobManager {
             metadata,
         };
         tokio::spawn(async move {
-            let _execution_guard = execution_lock.lock().await;
             {
                 let mut job = job.write().await;
                 if job.status == AgentRunnerStatus::Cancelled {
@@ -455,7 +440,6 @@ impl JobManager {
     pub async fn stop_user(&self, user_id: &str) -> anyhow::Result<Vec<AgentRunInfo>> {
         let cancelled = self.cancel_user_runs(user_id).await?;
         let _ = self.provider.stop_user(user_id).await;
-        self.user_execution_locks.write().await.remove(user_id);
         Ok(cancelled)
     }
 }

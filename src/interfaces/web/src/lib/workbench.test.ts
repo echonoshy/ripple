@@ -4,6 +4,7 @@ import {
   applyCurrentSessionRuntimeStatus,
   codexRuntimeEventToTimelineEvent,
   extractChangedFilePaths,
+  mergeInferredWorkbenchSessions,
   mapSessionSummariesToWorkbenchSessions,
   messagesToTimelineEvents,
   sortWorkbenchSessions,
@@ -110,6 +111,34 @@ function testAppliesCurrentApprovalStatusToExistingSession() {
   const updated = applyCurrentSessionRuntimeStatus(sessions, "srv-current", "waiting_for_approval");
 
   assert.equal(updated[0].status, "waiting_for_approval");
+}
+
+function testMergesMissingRunningSessionIntoSidebarSessions() {
+  const sessions = mapSessionSummariesToWorkbenchSessions([
+    makeSession({
+      sessionId: "srv-other",
+      title: "Other session",
+      status: "idle",
+      lastActiveAt: "2026-05-15T01:00:00.000Z",
+    }),
+  ]);
+
+  const merged = mergeInferredWorkbenchSessions(sessions, [
+    {
+      sessionId: "srv-running",
+      title: "Running Codex session",
+      status: "running",
+      model: "codex-medium",
+      lastActivityAt: "2026-05-15T02:00:00.000Z",
+      messageCount: 1,
+      changedFileCount: 0,
+      pendingApprovalCount: 0,
+    },
+  ]);
+
+  assert.equal(merged[0].sessionId, "srv-running");
+  assert.equal(merged[0].status, "running");
+  assert.equal(merged[1].sessionId, "srv-other");
 }
 
 function testMapsToolCallsIntoTimelineEvents() {
@@ -304,6 +333,7 @@ testMapsSessionSummariesToWorkbenchSummaries();
 testSortsApprovalSessionsBeforeOrdinaryRunningSessions();
 testAppliesCurrentRunningStatusToExistingSession();
 testAppliesCurrentApprovalStatusToExistingSession();
+testMergesMissingRunningSessionIntoSidebarSessions();
 testMapsToolCallsIntoTimelineEvents();
 testLimitsToolActivityToRecentSummaries();
 testPlacesAssistantContentAfterItsToolCalls();

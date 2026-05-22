@@ -89,8 +89,7 @@ export function useChatRun({
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [pendingFiles, setPendingFiles] = useState<ChatFileRef[]>([]);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [runningSessionId, setRunningSessionId] = useState<string | null>(null);
+  const [runningSessionIds, setRunningSessionIds] = useState<string[]>([]);
   const [runtimeTimelineEvents, setRuntimeTimelineEvents] = useState<WorkbenchTimelineEvent[]>([]);
   const [inputFocusToken, setInputFocusToken] = useState(0);
   const [tokenUsage, setTokenUsage] = useState<UsageInfo>(emptyUsage);
@@ -99,10 +98,9 @@ export function useChatRun({
   const [planProgress, setPlanProgress] = useState<PlanProgress | null>(null);
   const [feishuAuthWaiting, setFeishuAuthWaiting] = useState<FeishuAuthWaitingState | null>(null);
 
-  const activeRequestIdRef = useRef(0);
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const runningSessionIdRef = useRef<string | null>(null);
-  const runningViewStateRef = useRef<ChatRunViewState | null>(null);
+  const activeRequestIdsRef = useRef<Map<string, number>>(new Map());
+  const abortControllersRef = useRef<Map<string, AbortController>>(new Map());
+  const runningViewStatesRef = useRef<Map<string, ChatRunViewState>>(new Map());
   const connectorAuthPollAbortRef = useRef<AbortController | null>(null);
   const connectorAuthPollTimerRef = useRef<number | null>(null);
   const connectorAuthPollIdRef = useRef(0);
@@ -113,10 +111,22 @@ export function useChatRun({
     ((payload: FeishuAuthOpenPayload, options?: ConnectorAuthPollOptions) => void) | null
   >(null);
 
-  const setActiveRunningSession = useCallback((sessionId: string | null) => {
-    runningSessionIdRef.current = sessionId;
-    setRunningSessionId(sessionId);
+  const markSessionRunning = useCallback((sessionId: string) => {
+    setRunningSessionIds((prev) => (prev.includes(sessionId) ? prev : [...prev, sessionId]));
   }, []);
+
+  const clearSessionRunning = useCallback((sessionId: string) => {
+    setRunningSessionIds((prev) => prev.filter((id) => id !== sessionId));
+  }, []);
+
+  const isSessionRunning = useCallback(
+    (sessionId: string | null | undefined) =>
+      Boolean(sessionId && runningSessionIds.includes(sessionId)),
+    [runningSessionIds]
+  );
+
+  const isGenerating = runningSessionIds.length > 0;
+  const runningSessionId = runningSessionIds[0] || null;
 
   const applyViewState = useCallback((state: ChatRunViewState) => {
     setMessages(state.messages);
@@ -171,11 +181,13 @@ export function useChatRun({
 
   const handleAuthExpired = useCallback(() => {
     clearConnectorAuthPoll();
-    abortControllerRef.current = null;
-    runningViewStateRef.current = null;
-    setActiveRunningSession(null);
+    abortControllersRef.current.forEach((controller) => controller.abort());
+    abortControllersRef.current.clear();
+    activeRequestIdsRef.current.clear();
+    runningViewStatesRef.current.clear();
+    setRunningSessionIds([]);
     onAuthExpired("API Key 已失效");
-  }, [clearConnectorAuthPoll, onAuthExpired, setActiveRunningSession]);
+  }, [clearConnectorAuthPoll, onAuthExpired]);
 
   const resetSessionView = useCallback(() => {
     setMessages([]);
@@ -193,21 +205,22 @@ export function useChatRun({
   }, [resetSessionView]);
 
   const abortRunAndResetSessionView = useCallback(() => {
-    activeRequestIdRef.current += 1;
-    abortControllerRef.current?.abort();
-    abortControllerRef.current = null;
+    activeRequestIdsRef.current.forEach((requestId, sessionId) => {
+      activeRequestIdsRef.current.set(sessionId, requestId + 1);
+    });
+    abortControllersRef.current.forEach((controller) => controller.abort());
+    abortControllersRef.current.clear();
     clearConnectorAuthPoll();
-    runningViewStateRef.current = null;
-    setActiveRunningSession(null);
-    setIsGenerating(false);
+    runningViewStatesRef.current.clear();
+    setRunningSessionIds([]);
     resetSessionView();
-  }, [clearConnectorAuthPoll, resetSessionView, setActiveRunningSession]);
+  }, [clearConnectorAuthPoll, resetSessionView]);
 
   const applySessionDetails = useCallback(
     (details: SessionDetail) => {
       onSelectedModelChange(details.model);
-      const runningState = runningViewStateRef.current;
-      if (runningState?.sessionId === details.sessionId) {
+      const runningState = runningViewStatesRef.current.get(details.sessionId);
+      if (runningState) {
         applyViewState(runningState);
         onWorkspaceRefresh();
         return;
@@ -225,24 +238,38 @@ export function useChatRun({
   );
 
   const handleStop = useCallback(async () => {
-    const targetSessionId = runningSessionIdRef.current || getSessionActions().getSessionId();
-    activeRequestIdRef.current += 1;
-    abortControllerRef.current?.abort();
-    abortControllerRef.current = null;
+    const currentSessionId = getSessionActions().getSessionId();
+    const targetSessionId =
+      (currentSessionId && runningSessionIds.includes(currentSessionId)
+        ? currentSessionId
+        : runningSessionIds[0]) || currentSessionId;
+    if (targetSessionId) {
+      const requestId = activeRequestIdsRef.current.get(targetSessionId) || 0;
+      activeRequestIdsRef.current.set(targetSessionId, requestId + 1);
+      abortControllersRef.current.get(targetSessionId)?.abort();
+      abortControllersRef.current.delete(targetSessionId);
+      runningViewStatesRef.current.delete(targetSessionId);
+      clearSessionRunning(targetSessionId);
+    }
     clearConnectorAuthPoll();
     if (targetSessionId) {
       await getSessionActions().stopSession(targetSessionId);
     } else {
       await getSessionActions().stopCurrentSession();
     }
-    runningViewStateRef.current = null;
-    setActiveRunningSession(null);
-    setIsGenerating(false);
+    await getSessionActions().loadSessions();
+    onWorkspaceRefresh();
     setInputFocusToken((prev) => bumpInputFocusToken(prev));
-  }, [clearConnectorAuthPoll, getSessionActions, setActiveRunningSession]);
+  }, [
+    clearConnectorAuthPoll,
+    clearSessionRunning,
+    getSessionActions,
+    onWorkspaceRefresh,
+    runningSessionIds,
+  ]);
 
   const handleClearContext = useCallback(async () => {
-    if (isGenerating) return;
+    if (isSessionRunning(getSessionActions().getSessionId())) return;
     try {
       const ok = await getSessionActions().clearCurrentSessionContext();
       if (!ok) throw new Error("Failed to clear session context");
@@ -256,11 +283,11 @@ export function useChatRun({
       }
       console.error("Clear context error:", err);
     }
-  }, [getSessionActions, handleAuthExpired, isGenerating, resetCurrentContextView]);
+  }, [getSessionActions, handleAuthExpired, isSessionRunning, resetCurrentContextView]);
 
   const handleAttachFiles = useCallback(
     async (files: File[]) => {
-      if (isGenerating || files.length === 0) return;
+      if (isSessionRunning(getSessionActions().getSessionId()) || files.length === 0) return;
       try {
         const uploaded = await Promise.all(files.map((file) => uploadWorkspaceAttachment(file)));
         setPendingFiles((prev) => {
@@ -285,7 +312,7 @@ export function useChatRun({
         console.error("Attachment upload error:", err);
       }
     },
-    [handleAuthExpired, isGenerating, onWorkspaceRefresh]
+    [getSessionActions, handleAuthExpired, isSessionRunning, onWorkspaceRefresh]
   );
 
   const handleRemovePendingFile = useCallback((path: string) => {
@@ -300,20 +327,20 @@ export function useChatRun({
         await handleClearContext();
         return;
       }
-      if ((!text && filesForSend.length === 0) || isGenerating) return;
-
-      const requestId = activeRequestIdRef.current + 1;
-      activeRequestIdRef.current = requestId;
-      abortControllerRef.current?.abort();
-      const abortController = new AbortController();
-      abortControllerRef.current = abortController;
-      const isStaleRequest = () => activeRequestIdRef.current !== requestId;
+      if (!text && filesForSend.length === 0) return;
 
       const activeSessionId = await getSessionActions().ensureSession();
       if (!activeSessionId) {
-        abortControllerRef.current = null;
         return;
       }
+      if (runningViewStatesRef.current.has(activeSessionId)) return;
+
+      const requestId = (activeRequestIdsRef.current.get(activeSessionId) || 0) + 1;
+      activeRequestIdsRef.current.set(activeSessionId, requestId);
+      abortControllersRef.current.get(activeSessionId)?.abort();
+      const abortController = new AbortController();
+      abortControllersRef.current.set(activeSessionId, abortController);
+      const isStaleRequest = () => activeRequestIdsRef.current.get(activeSessionId) !== requestId;
 
       const sentAt = new Date().toISOString();
       const displayText = describeChatFilesForDisplay(text, filesForSend);
@@ -324,7 +351,7 @@ export function useChatRun({
         { id: userMessageId, role: "user", content: displayText, created_at: sentAt },
         { id: assistantMessageId, role: "assistant", content: "", toolCalls: [] },
       ];
-      runningViewStateRef.current = {
+      runningViewStatesRef.current.set(activeSessionId, {
         sessionId: activeSessionId,
         messages: initialMessages,
         runtimeTimelineEvents,
@@ -333,23 +360,21 @@ export function useChatRun({
         lastContextTokens,
         planSteps,
         planProgress,
-      };
-      setActiveRunningSession(activeSessionId);
+      });
+      markSessionRunning(activeSessionId);
       setMessages(initialMessages);
       setInput("");
       setPendingFiles([]);
-      setIsGenerating(true);
 
       const isRunVisible = () => getSessionActions().getSessionId() === activeSessionId;
       const getRunningState = () => {
-        const state = runningViewStateRef.current;
-        return state?.sessionId === activeSessionId ? state : null;
+        return runningViewStatesRef.current.get(activeSessionId) || null;
       };
       const updateRunningMessages = (updater: (prev: Message[]) => Message[]) => {
         const state = getRunningState();
         if (!state) return;
         const nextMessages = updater(state.messages);
-        runningViewStateRef.current = { ...state, messages: nextMessages };
+        runningViewStatesRef.current.set(activeSessionId, { ...state, messages: nextMessages });
         if (isRunVisible()) setMessages(nextMessages);
       };
       const updateRunningTimelineEvents = (
@@ -358,33 +383,39 @@ export function useChatRun({
         const state = getRunningState();
         if (!state) return;
         const nextEvents = updater(state.runtimeTimelineEvents);
-        runningViewStateRef.current = { ...state, runtimeTimelineEvents: nextEvents };
+        runningViewStatesRef.current.set(activeSessionId, {
+          ...state,
+          runtimeTimelineEvents: nextEvents,
+        });
         if (isRunVisible()) setRuntimeTimelineEvents(nextEvents);
       };
       const updateRunningPlanSteps = (updater: (prev: PlanStep[]) => PlanStep[]) => {
         const state = getRunningState();
         if (!state) return;
         const nextSteps = updater(state.planSteps);
-        runningViewStateRef.current = { ...state, planSteps: nextSteps };
+        runningViewStatesRef.current.set(activeSessionId, { ...state, planSteps: nextSteps });
         if (isRunVisible()) setPlanSteps(nextSteps);
       };
       const updateRunningPlanProgress = (nextProgress: PlanProgress | null) => {
         const state = getRunningState();
         if (!state) return;
-        runningViewStateRef.current = { ...state, planProgress: nextProgress };
+        runningViewStatesRef.current.set(activeSessionId, { ...state, planProgress: nextProgress });
         if (isRunVisible()) setPlanProgress(nextProgress);
       };
       const updateRunningUsage = (updater: (prev: UsageInfo) => UsageInfo) => {
         const state = getRunningState();
         if (!state) return;
         const nextUsage = updater(state.tokenUsage);
-        runningViewStateRef.current = { ...state, tokenUsage: nextUsage };
+        runningViewStatesRef.current.set(activeSessionId, { ...state, tokenUsage: nextUsage });
         if (isRunVisible()) setTokenUsage(nextUsage);
       };
       const updateRunningContextTokens = (nextContextTokens: number) => {
         const state = getRunningState();
         if (!state) return;
-        runningViewStateRef.current = { ...state, lastContextTokens: nextContextTokens };
+        runningViewStatesRef.current.set(activeSessionId, {
+          ...state,
+          lastContextTokens: nextContextTokens,
+        });
         if (isRunVisible()) setLastContextTokens(nextContextTokens);
       };
       const replaceRunningPlan = (nextPlan: {
@@ -393,11 +424,11 @@ export function useChatRun({
       }) => {
         const state = getRunningState();
         if (!state) return;
-        runningViewStateRef.current = {
+        runningViewStatesRef.current.set(activeSessionId, {
           ...state,
           planSteps: nextPlan.planSteps,
           planProgress: nextPlan.planProgress,
-        };
+        });
         if (isRunVisible()) {
           setPlanSteps(nextPlan.planSteps);
           setPlanProgress(nextPlan.planProgress);
@@ -588,7 +619,7 @@ export function useChatRun({
           },
           onPermissionRequest: (request) => {
             if (isStaleRequest()) return;
-            setIsGenerating(false);
+            clearSessionRunning(activeSessionId);
             if (isRunVisible()) setInputFocusToken((prev) => bumpInputFocusToken(prev));
             updateRunningMessages((prev) => {
               const msgs = [...prev];
@@ -633,9 +664,10 @@ export function useChatRun({
           },
           onComplete: () => {
             if (isStaleRequest()) return;
-            abortControllerRef.current = null;
+            abortControllersRef.current.delete(activeSessionId);
             if (pendingConnectorAuthPayload && beginConnectorAuthPollRef.current) {
-              const baseMessages = runningViewStateRef.current?.messages || initialMessages;
+              const baseMessages =
+                runningViewStatesRef.current.get(activeSessionId)?.messages || initialMessages;
               beginConnectorAuthPollRef.current?.(pendingConnectorAuthPayload, {
                 baseMessages,
                 allowWhileGenerating: true,
@@ -643,28 +675,25 @@ export function useChatRun({
               });
               return;
             }
-            setIsGenerating(false);
-            setActiveRunningSession(null);
+            clearSessionRunning(activeSessionId);
             const nextPlan = clearPlanState();
             replaceRunningPlan(nextPlan);
-            runningViewStateRef.current = null;
+            runningViewStatesRef.current.delete(activeSessionId);
             if (isRunVisible()) setInputFocusToken((prev) => bumpInputFocusToken(prev));
             getSessionActions().loadSessions();
             onWorkspaceRefresh();
           },
           onError: (err) => {
             if (isStaleRequest()) return;
-            abortControllerRef.current = null;
+            abortControllersRef.current.delete(activeSessionId);
             if (err instanceof AuthError) {
               handleAuthExpired();
-              setIsGenerating(false);
-              setActiveRunningSession(null);
+              clearSessionRunning(activeSessionId);
               if (isRunVisible()) setInputFocusToken((prev) => bumpInputFocusToken(prev));
               return;
             }
             console.error("Chat error:", err);
-            setIsGenerating(false);
-            setActiveRunningSession(null);
+            clearSessionRunning(activeSessionId);
             if (isRunVisible()) setInputFocusToken((prev) => bumpInputFocusToken(prev));
             updateRunningMessages((prev) => {
               const msgs = [...prev];
@@ -684,14 +713,14 @@ export function useChatRun({
       handleAuthExpired,
       handleClearContext,
       input,
-      isGenerating,
       lastContextTokens,
+      markSessionRunning,
       messages,
       onWorkspaceRefresh,
       pendingFiles,
       runtimeTimelineEvents,
       selectedModel,
-      setActiveRunningSession,
+      clearSessionRunning,
       planProgress,
       planSteps,
       tokenUsage,
@@ -708,9 +737,9 @@ export function useChatRun({
 
   const handlePermissionResolve = useCallback(
     async (action: "allow" | "always" | "deny") => {
-      if (isGenerating) return;
       const sessionId = getSessionActions().getSessionId();
       if (!sessionId) return;
+      if (isSessionRunning(sessionId)) return;
 
       try {
         const ok = await resolveSessionPermissionRequest(sessionId, action);
@@ -735,7 +764,7 @@ export function useChatRun({
         console.error("Permission resolve error:", err);
       }
     },
-    [getSessionActions, handleAuthExpired, handleSendMessage, isGenerating]
+    [getSessionActions, handleAuthExpired, handleSendMessage, isSessionRunning]
   );
 
   const navigateFeishuAuthPopup = useCallback((url: string, popup?: Window | null) => {
@@ -784,7 +813,7 @@ export function useChatRun({
       const targetConnector = connector === "google_workspace" ? "google_workspace" : "feishu";
       const activeSessionId = getSessionActions().getSessionId();
       if (!activeSessionId) return;
-      if (isGenerating && !options.allowWhileGenerating) return;
+      if (isSessionRunning(activeSessionId) && !options.allowWhileGenerating) return;
 
       clearConnectorAuthPoll();
       const shouldOpenAuthWindow = options.openAuthWindow !== false || Boolean(popup);
@@ -804,7 +833,7 @@ export function useChatRun({
           toolCalls: [],
         },
       ];
-      runningViewStateRef.current = {
+      runningViewStatesRef.current.set(activeSessionId, {
         sessionId: activeSessionId,
         messages: initialMessages,
         runtimeTimelineEvents,
@@ -813,22 +842,20 @@ export function useChatRun({
         lastContextTokens,
         planSteps,
         planProgress,
-      };
-      setActiveRunningSession(activeSessionId);
+      });
+      markSessionRunning(activeSessionId);
       setMessages(initialMessages);
-      setIsGenerating(true);
 
       const isStalePoll = () => connectorAuthPollIdRef.current !== pollId;
       const isRunVisible = () => getSessionActions().getSessionId() === activeSessionId;
       const getRunningState = () => {
-        const state = runningViewStateRef.current;
-        return state?.sessionId === activeSessionId ? state : null;
+        return runningViewStatesRef.current.get(activeSessionId) || null;
       };
       const updateRunningMessages = (updater: (prev: Message[]) => Message[]) => {
         const state = getRunningState();
         if (!state) return;
         const nextMessages = updater(state.messages);
-        runningViewStateRef.current = { ...state, messages: nextMessages };
+        runningViewStatesRef.current.set(activeSessionId, { ...state, messages: nextMessages });
         if (isRunVisible()) setMessages(nextMessages);
       };
       const updateRunningTimelineEvents = (
@@ -837,33 +864,39 @@ export function useChatRun({
         const state = getRunningState();
         if (!state) return;
         const nextEvents = updater(state.runtimeTimelineEvents);
-        runningViewStateRef.current = { ...state, runtimeTimelineEvents: nextEvents };
+        runningViewStatesRef.current.set(activeSessionId, {
+          ...state,
+          runtimeTimelineEvents: nextEvents,
+        });
         if (isRunVisible()) setRuntimeTimelineEvents(nextEvents);
       };
       const updateRunningPlanSteps = (updater: (prev: PlanStep[]) => PlanStep[]) => {
         const state = getRunningState();
         if (!state) return;
         const nextSteps = updater(state.planSteps);
-        runningViewStateRef.current = { ...state, planSteps: nextSteps };
+        runningViewStatesRef.current.set(activeSessionId, { ...state, planSteps: nextSteps });
         if (isRunVisible()) setPlanSteps(nextSteps);
       };
       const updateRunningPlanProgress = (nextProgress: PlanProgress | null) => {
         const state = getRunningState();
         if (!state) return;
-        runningViewStateRef.current = { ...state, planProgress: nextProgress };
+        runningViewStatesRef.current.set(activeSessionId, { ...state, planProgress: nextProgress });
         if (isRunVisible()) setPlanProgress(nextProgress);
       };
       const updateRunningUsage = (updater: (prev: UsageInfo) => UsageInfo) => {
         const state = getRunningState();
         if (!state) return;
         const nextUsage = updater(state.tokenUsage);
-        runningViewStateRef.current = { ...state, tokenUsage: nextUsage };
+        runningViewStatesRef.current.set(activeSessionId, { ...state, tokenUsage: nextUsage });
         if (isRunVisible()) setTokenUsage(nextUsage);
       };
       const updateRunningContextTokens = (nextContextTokens: number) => {
         const state = getRunningState();
         if (!state) return;
-        runningViewStateRef.current = { ...state, lastContextTokens: nextContextTokens };
+        runningViewStatesRef.current.set(activeSessionId, {
+          ...state,
+          lastContextTokens: nextContextTokens,
+        });
         if (isRunVisible()) setLastContextTokens(nextContextTokens);
       };
       const replaceRunningPlan = (nextPlan: {
@@ -872,11 +905,11 @@ export function useChatRun({
       }) => {
         const state = getRunningState();
         if (!state) return;
-        runningViewStateRef.current = {
+        runningViewStatesRef.current.set(activeSessionId, {
           ...state,
           planSteps: nextPlan.planSteps,
           planProgress: nextPlan.planProgress,
-        };
+        });
         if (isRunVisible()) {
           setPlanSteps(nextPlan.planSteps);
           setPlanProgress(nextPlan.planProgress);
@@ -915,14 +948,13 @@ export function useChatRun({
         connectorAuthPollAbortRef.current = null;
         clearFeishuAuthWaiting();
         if (!renderedPollContent) {
-          runningViewStateRef.current = null;
+          runningViewStatesRef.current.delete(activeSessionId);
         }
         const refreshed = await refreshSession();
         if (!refreshed) return;
         if (isStalePoll()) return;
-        runningViewStateRef.current = null;
-        setIsGenerating(false);
-        setActiveRunningSession(null);
+        runningViewStatesRef.current.delete(activeSessionId);
+        clearSessionRunning(activeSessionId);
         setInputFocusToken((prev) => bumpInputFocusToken(prev));
         await getSessionActions().loadSessions();
         onWorkspaceRefresh();
@@ -1146,16 +1178,17 @@ export function useChatRun({
       applySessionDetails,
       clearFeishuAuthWaiting,
       clearConnectorAuthPoll,
+      clearSessionRunning,
       getSessionActions,
       handleAuthExpired,
-      isGenerating,
+      isSessionRunning,
       lastContextTokens,
+      markSessionRunning,
       messages,
       navigateFeishuAuthPopup,
       onWorkspaceRefresh,
       runtimeTimelineEvents,
       selectedModel,
-      setActiveRunningSession,
       startFeishuAuthWaiting,
       planProgress,
       planSteps,
@@ -1179,7 +1212,8 @@ export function useChatRun({
     [messages]
   );
   const pendingPermission = pendingInteractionMessage?.permissionRequest || null;
-  const currentSessionRuntimeStatus = isGenerating
+  const selectedSessionId = getSessionActions().getSessionId();
+  const currentSessionRuntimeStatus = isSessionRunning(selectedSessionId)
     ? ("running" as const)
     : pendingInteractionMessage?.permissionRequest
       ? ("waiting_for_approval" as const)
@@ -1205,6 +1239,7 @@ export function useChatRun({
     pendingFiles,
     isGenerating,
     runningSessionId,
+    runningSessionIds,
     inputFocusToken,
     tokenUsage,
     lastContextTokens,

@@ -39,6 +39,43 @@ pub struct FileRefRecord {
     pub linked_session_id: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ApiKeyKind {
+    LocalUser,
+    TrustedClient,
+    Admin,
+}
+
+impl ApiKeyKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::LocalUser => "local_user",
+            Self::TrustedClient => "trusted_client",
+            Self::Admin => "admin",
+        }
+    }
+
+    fn from_str(value: &str) -> anyhow::Result<Self> {
+        match value {
+            "local_user" => Ok(Self::LocalUser),
+            "trusted_client" => Ok(Self::TrustedClient),
+            "admin" => Ok(Self::Admin),
+            other => anyhow::bail!("unknown API key kind {other:?}"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApiKeyRecord {
+    pub key_id: String,
+    pub key_hash: String,
+    pub kind: ApiKeyKind,
+    pub user_id: Option<String>,
+    pub display_name: Option<String>,
+    pub created_at: String,
+    pub revoked_at: Option<String>,
+}
+
 impl Storage {
     pub fn new(config: Arc<AppConfig>) -> anyhow::Result<Self> {
         Self::open(database_path(&config))
@@ -280,6 +317,7 @@ impl Storage {
             "schedules",
             "documents",
             "file_refs",
+            "api_keys",
             "users",
         ] {
             sqlx::query(&format!("DELETE FROM {table} WHERE user_id = ?"))
@@ -289,6 +327,69 @@ impl Storage {
         }
         tx.commit().await?;
         Ok(())
+    }
+
+    pub async fn upsert_api_key(&self, record: &ApiKeyRecord) -> anyhow::Result<()> {
+        self.initialize().await?;
+        sqlx::query(
+            r#"
+            INSERT INTO api_keys (
+                key_id, key_hash, kind, user_id, display_name, created_at, revoked_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(key_id) DO UPDATE SET
+                key_hash = excluded.key_hash,
+                kind = excluded.kind,
+                user_id = excluded.user_id,
+                display_name = excluded.display_name,
+                created_at = excluded.created_at,
+                revoked_at = excluded.revoked_at
+            "#,
+        )
+        .bind(&record.key_id)
+        .bind(&record.key_hash)
+        .bind(record.kind.as_str())
+        .bind(&record.user_id)
+        .bind(&record.display_name)
+        .bind(&record.created_at)
+        .bind(&record.revoked_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn get_api_key_by_hash(
+        &self,
+        key_hash: &str,
+    ) -> anyhow::Result<Option<ApiKeyRecord>> {
+        self.initialize().await?;
+        let row = sqlx::query(
+            r#"
+            SELECT key_id, key_hash, kind, user_id, display_name, created_at, revoked_at
+            FROM api_keys
+            WHERE key_hash = ?
+            "#,
+        )
+        .bind(key_hash)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.map(api_key_from_row).transpose()
+    }
+
+    pub async fn revoke_api_key(&self, key_id: &str, revoked_at: &str) -> anyhow::Result<bool> {
+        self.initialize().await?;
+        let result = sqlx::query(
+            r#"
+            UPDATE api_keys
+            SET revoked_at = ?
+            WHERE key_id = ? AND revoked_at IS NULL
+            "#,
+        )
+        .bind(revoked_at)
+        .bind(key_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
     }
 
     pub async fn upsert_user(&self, user_id: &str, record: &Value) -> anyhow::Result<()> {
@@ -658,6 +759,10 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
     out
 }
 
+pub fn api_key_hash(key: &str) -> String {
+    sha256_hex(key.as_bytes())
+}
+
 fn hex_digit(value: u8) -> char {
     match value {
         0..=9 => (b'0' + value) as char,
@@ -711,6 +816,18 @@ async fn insert_document_record(
     .execute(&mut **tx)
     .await?;
     Ok(())
+}
+
+fn api_key_from_row(row: sqlx::sqlite::SqliteRow) -> anyhow::Result<ApiKeyRecord> {
+    Ok(ApiKeyRecord {
+        key_id: row.get("key_id"),
+        key_hash: row.get("key_hash"),
+        kind: ApiKeyKind::from_str(row.get::<String, _>("kind").as_str())?,
+        user_id: row.get("user_id"),
+        display_name: row.get("display_name"),
+        created_at: row.get("created_at"),
+        revoked_at: row.get("revoked_at"),
+    })
 }
 
 fn json_text(value: &Value) -> anyhow::Result<String> {
@@ -770,6 +887,16 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     record_json TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS api_keys (
+    key_id TEXT PRIMARY KEY NOT NULL,
+    key_hash TEXT UNIQUE NOT NULL,
+    kind TEXT NOT NULL,
+    user_id TEXT,
+    display_name TEXT,
+    created_at TEXT NOT NULL,
+    revoked_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -873,6 +1000,10 @@ CREATE INDEX IF NOT EXISTS idx_documents_user_updated
     ON documents(user_id, updated_at);
 CREATE INDEX IF NOT EXISTS idx_file_refs_user_workspace_path
     ON file_refs(user_id, workspace_path);
+CREATE INDEX IF NOT EXISTS idx_api_keys_hash
+    ON api_keys(key_hash);
+CREATE INDEX IF NOT EXISTS idx_api_keys_user
+    ON api_keys(user_id);
 "#;
 
 #[cfg(test)]

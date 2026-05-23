@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
+use std::ffi::OsString;
 use std::path::{Path as FsPath, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -1971,11 +1972,7 @@ async fn read_generated_image_path(workspace_root: &FsPath, raw_path: &str) -> O
 fn workspace_path_or_none(workspace_root: &FsPath, raw_path: &str) -> Option<String> {
     let path = host_path_for_image_event_path(workspace_root, raw_path)?;
     let workspace = workspace_root.canonicalize().ok()?;
-    let resolved = if path.exists() {
-        path.canonicalize().ok()?
-    } else {
-        normalize_path(&path)
-    };
+    let resolved = resolve_path_for_workspace_check(&path)?;
     if !resolved.starts_with(&workspace) {
         return None;
     }
@@ -1988,6 +1985,27 @@ fn workspace_path_or_none(workspace_root: &FsPath, raw_path: &str) -> Option<Str
             relative.to_string_lossy().replace('\\', "/")
         ))
     }
+}
+
+fn resolve_path_for_workspace_check(path: &FsPath) -> Option<PathBuf> {
+    if path.exists() {
+        return path.canonicalize().ok();
+    }
+    canonicalize_existing_prefix(path).or_else(|| Some(normalize_path(path)))
+}
+
+fn canonicalize_existing_prefix(path: &FsPath) -> Option<PathBuf> {
+    let mut current = path;
+    let mut missing = Vec::<OsString>::new();
+    while !current.exists() {
+        missing.push(current.file_name()?.to_os_string());
+        current = current.parent()?;
+    }
+    let mut resolved = current.canonicalize().ok()?;
+    for component in missing.iter().rev() {
+        resolved.push(component);
+    }
+    Some(resolved)
 }
 
 fn host_path_for_image_event_path(workspace_root: &FsPath, raw_path: &str) -> Option<PathBuf> {

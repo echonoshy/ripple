@@ -148,6 +148,9 @@ server:
     #   <server.public_base_url>/v1/sandboxes/gogcli/oauth/callback
     # callback_url: "http://localhost:8810/v1/sandboxes/gogcli/oauth/callback"
   api_keys:
+    # Bootstrap admin key. Use this to create SQLite-backed local_user,
+    # trusted_client, or admin keys; normal app users should use those
+    # generated keys instead of this shared deployment key.
     - "<RIPPLE_SERVER_API_KEY>"
   session:
     ttl_seconds: 3600

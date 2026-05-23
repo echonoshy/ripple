@@ -3,16 +3,19 @@ use std::path::{Path as FsPath, PathBuf};
 
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
+use axum::Extension;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
+use uuid::Uuid;
 
 use crate::api::ApiError;
 use crate::sandbox::workspace_size_bytes;
 use crate::state::AppState;
-use crate::user::{user_id_from_headers, validate_user_id};
+use crate::storage::{api_key_hash, ApiKeyKind, ApiKeyRecord};
+use crate::user::{user_id_from_headers, validate_user_id, AuthContext};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct UserRecord {
@@ -32,16 +35,24 @@ pub struct UserQuotaUpdateInput {
     max_run_runtime_seconds: Option<u64>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ApiKeyCreateInput {
+    display_name: Option<String>,
+}
+
 pub async fn current_user_profile(
     State(state): State<AppState>,
     headers: HeaderMap,
+    Extension(auth): Extension<AuthContext>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     state.sandboxes.ensure_sandbox(&user_id)?;
     let record = ensure_user_record(&state, &user_id).await?;
-    Ok(Json(
-        serde_json::to_value(record).unwrap_or_else(|_| json!({})),
-    ))
+    let mut value = serde_json::to_value(record).unwrap_or_else(|_| json!({}));
+    if let Some(object) = value.as_object_mut() {
+        object.insert("auth".to_string(), auth.public_json());
+    }
+    Ok(Json(value))
 }
 
 pub async fn current_user_quota(
@@ -55,9 +66,11 @@ pub async fn current_user_quota(
 
 pub async fn update_user_quota(
     State(state): State<AppState>,
+    Extension(auth): Extension<AuthContext>,
     Path(target_user_id): Path<String>,
     Json(input): Json<UserQuotaUpdateInput>,
 ) -> Result<Json<Value>, ApiError> {
+    require_admin(&auth)?;
     validate_user_id(&target_user_id).map_err(ApiError::bad_request)?;
     state.sandboxes.ensure_sandbox(&target_user_id)?;
     let mut record = ensure_user_record(&state, &target_user_id).await?;
@@ -74,6 +87,81 @@ pub async fn update_user_quota(
     record.updated_at = now_iso();
     write_user_record(&state, &record).await?;
     quota_status(&state, &target_user_id).await
+}
+
+pub async fn create_user_api_key(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthContext>,
+    Path(target_user_id): Path<String>,
+    Json(input): Json<ApiKeyCreateInput>,
+) -> Result<Json<Value>, ApiError> {
+    require_admin(&auth)?;
+    validate_user_id(&target_user_id).map_err(ApiError::bad_request)?;
+    state.sandboxes.ensure_sandbox(&target_user_id)?;
+    let record = ensure_user_record(&state, &target_user_id).await?;
+    let display_name = clean_display_name(input.display_name)
+        .or_else(|| Some(format!("{} API key", record.display_name)));
+    create_api_key_record(
+        &state,
+        ApiKeyKind::LocalUser,
+        Some(target_user_id),
+        display_name,
+    )
+    .await
+}
+
+pub async fn create_trusted_client_key(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthContext>,
+    Json(input): Json<ApiKeyCreateInput>,
+) -> Result<Json<Value>, ApiError> {
+    require_admin(&auth)?;
+    create_api_key_record(
+        &state,
+        ApiKeyKind::TrustedClient,
+        None,
+        clean_display_name(input.display_name).or_else(|| Some("trusted client".to_string())),
+    )
+    .await
+}
+
+pub async fn create_admin_api_key(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthContext>,
+    Json(input): Json<ApiKeyCreateInput>,
+) -> Result<Json<Value>, ApiError> {
+    require_admin(&auth)?;
+    create_api_key_record(
+        &state,
+        ApiKeyKind::Admin,
+        None,
+        clean_display_name(input.display_name).or_else(|| Some("admin".to_string())),
+    )
+    .await
+}
+
+pub async fn revoke_api_key(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthContext>,
+    Path(key_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    require_admin(&auth)?;
+    let revoked_at = now_iso();
+    let revoked = state
+        .storage
+        .revoke_api_key(&key_id, &revoked_at)
+        .await
+        .map_err(anyhow::Error::from)?;
+    if revoked {
+        Ok(Json(json!({
+            "ok": true,
+            "key_id": key_id,
+            "revoked": true,
+            "revoked_at": revoked_at
+        })))
+    } else {
+        Err(ApiError::not_found("API key not found or already revoked"))
+    }
 }
 
 async fn quota_status(state: &AppState, user_id: &str) -> Result<Json<Value>, ApiError> {
@@ -201,6 +289,59 @@ fn quota_error(resource: &str, limit: u64, used: u64) -> ApiError {
             "used": used
         }),
     )
+}
+
+fn require_admin(auth: &AuthContext) -> Result<(), ApiError> {
+    if auth.is_admin() {
+        Ok(())
+    } else {
+        Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            json!({ "code": "admin_required" }),
+        ))
+    }
+}
+
+async fn create_api_key_record(
+    state: &AppState,
+    kind: ApiKeyKind,
+    user_id: Option<String>,
+    display_name: Option<String>,
+) -> Result<Json<Value>, ApiError> {
+    let api_key = generate_api_key();
+    let created_at = now_iso();
+    let record = ApiKeyRecord {
+        key_id: generate_key_id(),
+        key_hash: api_key_hash(&api_key),
+        kind,
+        user_id,
+        display_name,
+        created_at,
+        revoked_at: None,
+    };
+    state.storage.upsert_api_key(&record).await?;
+    Ok(Json(json!({
+        "key_id": record.key_id,
+        "kind": record.kind.as_str(),
+        "user_id": record.user_id,
+        "display_name": record.display_name,
+        "created_at": record.created_at,
+        "api_key": api_key
+    })))
+}
+
+fn generate_api_key() -> String {
+    format!("rk_{}", Uuid::new_v4().simple())
+}
+
+fn generate_key_id() -> String {
+    format!("key_{}", Uuid::new_v4().simple())
+}
+
+fn clean_display_name(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 async fn ensure_user_record(state: &AppState, user_id: &str) -> Result<UserRecord, ApiError> {

@@ -34,6 +34,7 @@ use crate::sessions::{
 };
 use crate::skills::render_skill_manifest;
 use crate::state::AppState;
+use crate::storage::{sha256_hex, FileRefRecord};
 use crate::user::user_id_from_headers;
 use crate::workspace as ws;
 
@@ -95,7 +96,6 @@ struct CodexChatStream {
     user_id: String,
     session: SessionRecord,
     workspace_root: PathBuf,
-    runtime_dir: PathBuf,
     info: AgentRunInfo,
     model: String,
     user_input: String,
@@ -302,7 +302,6 @@ async fn start_codex_chat_response(args: CodexChatStart) -> Result<Response<Body
             user_id,
             session,
             workspace_root,
-            runtime_dir,
             info,
             model,
             user_input,
@@ -314,7 +313,7 @@ async fn start_codex_chat_response(args: CodexChatStart) -> Result<Response<Body
     let ChatRunFinal {
         info: final_info,
         usage,
-    } = wait_for_chat_run(&state, &user_id, &runtime_dir, &mut session, &info.job_id).await?;
+    } = wait_for_chat_run(&state, &user_id, &mut session, &info.job_id).await?;
     if final_info.status != "completed" {
         session.status = if final_info.status == "cancelled" {
             "cancelled".to_string()
@@ -583,7 +582,6 @@ fn connector_manifest(state: &AppState, user_id: &str) -> String {
 async fn wait_for_chat_run(
     state: &AppState,
     user_id: &str,
-    runtime_dir: &FsPath,
     session: &mut SessionRecord,
     job_id: &str,
 ) -> Result<ChatRunFinal, ApiError> {
@@ -592,11 +590,7 @@ async fn wait_for_chat_run(
     let mut latest_usage = empty_usage();
     let mut offset = 0_usize;
     loop {
-        let Some(info) = state
-            .jobs
-            .info_for_user(job_id, user_id, runtime_dir)
-            .await?
-        else {
+        let Some(info) = state.jobs.info_for_user(job_id, user_id).await? else {
             return Err(ApiError::not_found("Agent run not found"));
         };
         if let Some(events_file) = info.events_file.as_deref() {
@@ -653,7 +647,6 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
         user_id,
         mut session,
         workspace_root,
-        runtime_dir,
         info,
         model,
         user_input,
@@ -729,7 +722,7 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
             }
             let info = state
                 .jobs
-                .info_for_user(&job_id, &user_id, &runtime_dir)
+                .info_for_user(&job_id, &user_id)
                 .await
                 .ok()
                 .flatten();
@@ -1875,6 +1868,26 @@ async fn import_generated_image(
         return None;
     }
     let workspace_path = workspace_path_or_none(workspace_root, target.to_str()?)?;
+    let file_id = format!(
+        "file-{}",
+        &sha256_hex(format!("{user_id}:{workspace_path}").as_bytes())[..24]
+    );
+    state
+        .storage
+        .upsert_file_ref(&FileRefRecord {
+            file_id,
+            user_id: user_id.to_string(),
+            storage_backend: "local".to_string(),
+            storage_uri: workspace_path.clone(),
+            workspace_path: Some(workspace_path.clone()),
+            mime_type: Some("image/png".to_string()),
+            size_bytes: Some(data.len() as u64),
+            sha256: Some(sha256_hex(&data)),
+            created_at: now_iso(),
+            linked_session_id: None,
+        })
+        .await
+        .ok()?;
     Some(ImportedImage {
         workspace_path,
         size: data.len(),

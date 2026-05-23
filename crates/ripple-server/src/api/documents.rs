@@ -5,14 +5,13 @@ use axum::http::HeaderMap;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::api::ApiError;
 use crate::state::AppState;
-use crate::storage::FileRefRecord;
+use crate::storage::{sha256_hex, FileRefRecord};
 use crate::user::user_id_from_headers;
 use crate::workspace as ws;
 
@@ -63,7 +62,7 @@ pub async fn list_documents(
     Query(query): Query<DocumentListQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    let mut documents = read_document_state(&state, &user_id).await?.documents;
+    let mut documents = load_document_state(&state, &user_id).await?.documents;
     if let Some(q) = query.q.as_deref().map(str::trim).filter(|q| !q.is_empty()) {
         let q = q.to_ascii_lowercase();
         documents.retain(|doc| {
@@ -100,7 +99,7 @@ pub async fn create_document(
     if title.is_empty() {
         return Err(ApiError::bad_request("title is required"));
     }
-    let mut state_doc = read_document_state(&state, &user_id).await?;
+    let mut state_doc = load_document_state(&state, &user_id).await?;
     let now = now_iso();
     let document = DocumentRecord {
         document_id: format!("doc-{}", &Uuid::new_v4().simple().to_string()[..12]),
@@ -116,7 +115,7 @@ pub async fn create_document(
     };
     state_doc.documents.push(document.clone());
     record_document_file_ref(&state, &user_id, &target, &document).await?;
-    write_document_state(&state, &user_id, &state_doc).await?;
+    save_document_state(&state, &user_id, &state_doc).await?;
     Ok(Json(
         serde_json::to_value(document).unwrap_or_else(|_| json!({})),
     ))
@@ -128,7 +127,7 @@ pub async fn get_document(
     AxumPath(document_id): AxumPath<String>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    let Some(document) = read_document_state(&state, &user_id)
+    let Some(document) = load_document_state(&state, &user_id)
         .await?
         .documents
         .into_iter()
@@ -148,7 +147,7 @@ pub async fn update_document(
     Json(input): Json<DocumentUpdateInput>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    let mut document_state = read_document_state(&state, &user_id).await?;
+    let mut document_state = load_document_state(&state, &user_id).await?;
     let Some(document) = document_state
         .documents
         .iter_mut()
@@ -171,7 +170,7 @@ pub async fn update_document(
     }
     document.updated_at = now_iso();
     let out = document.clone();
-    write_document_state(&state, &user_id, &document_state).await?;
+    save_document_state(&state, &user_id, &document_state).await?;
     Ok(Json(
         serde_json::to_value(out).unwrap_or_else(|_| json!({})),
     ))
@@ -183,7 +182,7 @@ pub async fn delete_document(
     AxumPath(document_id): AxumPath<String>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    let mut document_state = read_document_state(&state, &user_id).await?;
+    let mut document_state = load_document_state(&state, &user_id).await?;
     let before = document_state.documents.len();
     document_state
         .documents
@@ -191,11 +190,11 @@ pub async fn delete_document(
     if document_state.documents.len() == before {
         return Err(ApiError::not_found("Document not found"));
     }
-    write_document_state(&state, &user_id, &document_state).await?;
+    save_document_state(&state, &user_id, &document_state).await?;
     Ok(Json(json!({ "ok": true, "document_id": document_id })))
 }
 
-async fn read_document_state(state: &AppState, user_id: &str) -> Result<DocumentState, ApiError> {
+async fn load_document_state(state: &AppState, user_id: &str) -> Result<DocumentState, ApiError> {
     let documents = state
         .storage
         .list_documents(user_id)
@@ -209,7 +208,7 @@ async fn read_document_state(state: &AppState, user_id: &str) -> Result<Document
     })
 }
 
-async fn write_document_state(
+async fn save_document_state(
     state: &AppState,
     user_id: &str,
     document_state: &DocumentState,
@@ -274,23 +273,6 @@ async fn record_document_file_ref(
         })
         .await?;
     Ok(())
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    let digest = Sha256::digest(bytes);
-    let mut out = String::with_capacity(digest.len() * 2);
-    for byte in digest {
-        out.push(hex_digit(byte >> 4));
-        out.push(hex_digit(byte & 0x0f));
-    }
-    out
-}
-
-fn hex_digit(value: u8) -> char {
-    match value {
-        0..=9 => (b'0' + value) as char,
-        _ => (b'a' + (value - 10)) as char,
-    }
 }
 
 fn now_iso() -> String {

@@ -240,15 +240,10 @@ async fn extract_schedule_with_codex(
         )
         .await
         .map_err(|_| ScheduleExtractionError::Runtime)?;
-    let final_info = wait_for_schedule_extraction(
-        state,
-        user_id,
-        &runtime_dir,
-        &info.job_id,
-        max_runtime_seconds,
-    )
-    .await
-    .map_err(|_| ScheduleExtractionError::Runtime)?;
+    let final_info =
+        wait_for_schedule_extraction(state, user_id, &info.job_id, max_runtime_seconds)
+            .await
+            .map_err(|_| ScheduleExtractionError::Runtime)?;
     if final_info.status != "completed" {
         return Err(ScheduleExtractionError::Runtime);
     }
@@ -259,17 +254,12 @@ async fn extract_schedule_with_codex(
 async fn wait_for_schedule_extraction(
     state: &AppState,
     user_id: &str,
-    runtime_dir: &std::path::Path,
     job_id: &str,
     max_runtime_seconds: u64,
 ) -> Result<AgentRunInfo, ApiError> {
     let deadline = Instant::now() + Duration::from_secs(max_runtime_seconds.max(1));
     loop {
-        let Some(info) = state
-            .jobs
-            .info_for_user(job_id, user_id, runtime_dir)
-            .await?
-        else {
+        let Some(info) = state.jobs.info_for_user(job_id, user_id).await? else {
             return Err(ApiError::not_found("Schedule extraction run not found"));
         };
         if TERMINAL_STATUSES.contains(&info.status.as_str()) {

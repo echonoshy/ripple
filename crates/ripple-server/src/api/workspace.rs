@@ -6,7 +6,6 @@ use axum::http::{header, HeaderMap, HeaderValue, Response, StatusCode};
 use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -14,7 +13,7 @@ use uuid::Uuid;
 use crate::api::users::{assert_workspace_save_within_quota, assert_workspace_writes_within_quota};
 use crate::api::ApiError;
 use crate::state::AppState;
-use crate::storage::FileRefRecord;
+use crate::storage::{sha256_hex, FileRefRecord};
 use crate::user::user_id_from_headers;
 use crate::workspace as ws;
 
@@ -451,23 +450,6 @@ async fn record_file_ref(
         })
         .await?;
     Ok(())
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    let digest = Sha256::digest(bytes);
-    let mut out = String::with_capacity(digest.len() * 2);
-    for byte in digest {
-        out.push(hex_digit(byte >> 4));
-        out.push(hex_digit(byte & 0x0f));
-    }
-    out
-}
-
-fn hex_digit(value: u8) -> char {
-    match value {
-        0..=9 => (b'0' + value) as char,
-        _ => (b'a' + (value - 10)) as char,
-    }
 }
 
 fn now_iso() -> String {

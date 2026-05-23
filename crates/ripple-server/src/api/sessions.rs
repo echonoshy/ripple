@@ -272,19 +272,12 @@ async fn finalize_resolved_permission_session(
     session_id: String,
     job_id: String,
 ) {
-    let Ok(agent_runs_dir) = state
-        .sandboxes
-        .sandbox_dir(&user_id)
-        .map(|path| path.join("agent-runs"))
-    else {
-        return;
-    };
     let deadline = tokio::time::Instant::now()
         + std::time::Duration::from_secs(state.config.codex.max_runtime_seconds.max(1) + 5);
     loop {
         let info = state
             .jobs
-            .info_for_user(&job_id, &user_id, &agent_runs_dir)
+            .info_for_user(&job_id, &user_id)
             .await
             .ok()
             .flatten();

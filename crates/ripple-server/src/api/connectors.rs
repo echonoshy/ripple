@@ -454,7 +454,7 @@ fn connector_info(
 }
 
 fn ensure_sandbox_exists(state: &AppState, user_id: &str) -> Result<(), ApiError> {
-    if state.sandboxes.sandbox_summary(user_id)?.is_some() {
+    if state.sandboxes.sandbox_dir(user_id)?.exists() {
         Ok(())
     } else {
         Err(ApiError::not_found(format!(

@@ -25,8 +25,7 @@ pub async fn list_runs(
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    let agent_runs_dir = state.sandboxes.sandbox_dir(&user_id)?.join("agent-runs");
-    let runs = state.jobs.list_user(&user_id, &agent_runs_dir).await?;
+    let runs = state.jobs.list_user(&user_id).await?;
     Ok(Json(json!({ "runs": runs, "count": runs.len() })))
 }
 
@@ -78,12 +77,7 @@ pub async fn run_events(
     Query(query): Query<RunEventsQuery>,
 ) -> Result<Response<Body>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    let agent_runs_dir = state.sandboxes.sandbox_dir(&user_id)?.join("agent-runs");
-    let Some(events_file) = state
-        .jobs
-        .events_file_for_user(&job_id, &user_id, &agent_runs_dir)
-        .await?
-    else {
+    let Some(events_file) = state.jobs.events_file_for_user(&job_id, &user_id).await? else {
         return Err(ApiError::not_found("Agent run events not found"));
     };
 
@@ -93,7 +87,6 @@ pub async fn run_events(
     let jobs = state.jobs.clone();
     let stream_user_id = user_id.clone();
     let stream_job_id = job_id.clone();
-    let stream_agent_runs_dir = agent_runs_dir.clone();
 
     let body_stream = stream! {
         let mut offset = initial_offset(&events_file, from_start).await;
@@ -112,7 +105,7 @@ pub async fn run_events(
             }
 
             let status = jobs
-                .status_for_user(&stream_job_id, &stream_user_id, &stream_agent_runs_dir)
+                .status_for_user(&stream_job_id, &stream_user_id)
                 .await
                 .ok()
                 .flatten()
@@ -218,11 +211,7 @@ async fn info_for_user(
     user_id: &str,
     job_id: &str,
 ) -> Result<Option<AgentRunInfo>, ApiError> {
-    let agent_runs_dir = state.sandboxes.sandbox_dir(user_id)?.join("agent-runs");
-    Ok(state
-        .jobs
-        .info_for_user(job_id, user_id, &agent_runs_dir)
-        .await?)
+    Ok(state.jobs.info_for_user(job_id, user_id).await?)
 }
 
 async fn initial_offset(events_file: &FsPath, from_start: bool) -> usize {

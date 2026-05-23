@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -29,6 +29,7 @@ const GOGCLI_CLI_SANDBOX_BINARY: &str = "/opt/gogcli-cli/current/bin/gog";
 pub struct SandboxManager {
     config: Arc<AppConfig>,
     user_locks: Arc<std::sync::Mutex<HashMap<String, Arc<Mutex<()>>>>>,
+    deleted: Arc<std::sync::Mutex<HashSet<String>>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -49,6 +50,7 @@ impl SandboxManager {
         Self {
             config,
             user_locks: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            deleted: Arc::new(std::sync::Mutex::new(HashSet::new())),
         }
     }
 
@@ -87,6 +89,10 @@ impl SandboxManager {
         std::fs::create_dir_all(sandbox_dir.join("credentials"))?;
         std::fs::create_dir_all(sandbox_dir.join("sessions"))?;
         std::fs::create_dir_all(&workspace_dir)?;
+        self.deleted
+            .lock()
+            .expect("deleted sandbox set poisoned")
+            .remove(user_id);
         self.write_nsjail_config(user_id)?;
         Ok(workspace_dir)
     }
@@ -102,28 +108,14 @@ impl SandboxManager {
                 .lock()
                 .expect("user locks poisoned")
                 .remove(user_id);
+            self.deleted
+                .lock()
+                .expect("deleted sandbox set poisoned")
+                .insert(user_id.to_string());
             Ok(true)
         } else {
             Ok(false)
         }
-    }
-
-    pub fn list_user_sessions(&self, user_id: &str) -> anyhow::Result<Vec<String>> {
-        let sessions_dir = self.sessions_dir(user_id)?;
-        if !sessions_dir.exists() {
-            return Ok(Vec::new());
-        }
-        let mut sessions = Vec::new();
-        for entry in std::fs::read_dir(sessions_dir)? {
-            let entry = entry?;
-            if entry.file_type()?.is_dir() && entry.path().join("meta.json").is_file() {
-                if let Some(name) = entry.file_name().to_str() {
-                    sessions.push(name.to_string());
-                }
-            }
-        }
-        sessions.sort();
-        Ok(sessions)
     }
 
     pub fn list_user_sandboxes(&self) -> anyhow::Result<Vec<String>> {
@@ -144,16 +136,31 @@ impl SandboxManager {
         Ok(users)
     }
 
-    pub fn sandbox_summary(&self, user_id: &str) -> anyhow::Result<Option<SandboxInfo>> {
+    pub fn sandbox_summary(
+        &self,
+        user_id: &str,
+        session_count: usize,
+    ) -> anyhow::Result<Option<SandboxInfo>> {
+        if self
+            .deleted
+            .lock()
+            .expect("deleted sandbox set poisoned")
+            .contains(user_id)
+        {
+            return Ok(None);
+        }
         let sandbox_dir = self.sandbox_dir(user_id)?;
         if !sandbox_dir.exists() {
             return Ok(None);
         }
         let workspace = self.workspace_dir(user_id)?;
+        if !workspace.is_dir() {
+            return Ok(None);
+        }
         Ok(Some(SandboxInfo {
             user_id: user_id.to_string(),
             workspace_size_bytes: workspace_size_bytes(&workspace),
-            session_count: self.list_user_sessions(user_id)?.len(),
+            session_count,
             has_python_venv: workspace.join(".venv/pyvenv.cfg").is_file(),
             has_pnpm_setup: workspace.join(".local/.node-setup-done").is_file(),
             has_lark_cli_config: workspace.join(".lark-cli/config.json").is_file(),

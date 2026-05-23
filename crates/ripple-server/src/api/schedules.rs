@@ -119,7 +119,7 @@ pub async fn list_schedules(
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     state.sandboxes.ensure_sandbox(&user_id)?;
-    let schedules = read_schedule_state(&state, &user_id).await?.schedules;
+    let schedules = load_schedule_state(&state, &user_id).await?.schedules;
     let mut records = schedules.values().cloned().collect::<Vec<_>>();
     records.sort_by(|a, b| {
         a.next_run_at
@@ -149,7 +149,7 @@ pub(crate) async fn create_schedule_for_user(
     input: ScheduleCreateInput,
 ) -> Result<Value, ApiError> {
     state.sandboxes.ensure_sandbox(user_id)?;
-    let mut schedule_state = read_schedule_state(state, user_id).await?;
+    let mut schedule_state = load_schedule_state(state, user_id).await?;
     let now = OffsetDateTime::now_utc();
     let kind = normalize_kind(&input.kind)?;
     let max_runs = normalize_max_runs(kind, input.max_runs)?;
@@ -187,7 +187,7 @@ pub(crate) async fn create_schedule_for_user(
     schedule_state
         .schedules
         .insert(record.schedule_id.clone(), record.clone());
-    write_schedule_state(state, user_id, &schedule_state).await?;
+    save_schedule_state(state, user_id, &schedule_state).await?;
     Ok(serde_json::to_value(record).unwrap_or_else(|_| json!({})))
 }
 
@@ -197,7 +197,7 @@ pub async fn get_schedule(
     Path(schedule_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    let Some(record) = read_schedule_state(&state, &user_id)
+    let Some(record) = load_schedule_state(&state, &user_id)
         .await?
         .schedules
         .get(&schedule_id)
@@ -217,7 +217,7 @@ pub async fn update_schedule(
     Json(input): Json<ScheduleUpdateInput>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    let mut schedule_state = read_schedule_state(&state, &user_id).await?;
+    let mut schedule_state = load_schedule_state(&state, &user_id).await?;
     let Some(mut record) = schedule_state.schedules.get(&schedule_id).cloned() else {
         return Err(ApiError::not_found("Schedule not found"));
     };
@@ -293,7 +293,7 @@ pub async fn update_schedule(
     }
     record.updated_at = iso(now);
     schedule_state.schedules.insert(schedule_id, record.clone());
-    write_schedule_state(&state, &user_id, &schedule_state).await?;
+    save_schedule_state(&state, &user_id, &schedule_state).await?;
     Ok(Json(
         serde_json::to_value(record).unwrap_or_else(|_| json!({})),
     ))
@@ -305,11 +305,11 @@ pub async fn delete_schedule(
     Path(schedule_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    let mut schedule_state = read_schedule_state(&state, &user_id).await?;
+    let mut schedule_state = load_schedule_state(&state, &user_id).await?;
     if schedule_state.schedules.remove(&schedule_id).is_none() {
         return Err(ApiError::not_found("Schedule not found"));
     }
-    write_schedule_state(&state, &user_id, &schedule_state).await?;
+    save_schedule_state(&state, &user_id, &schedule_state).await?;
     Ok(Json(json!({ "ok": true, "schedule_id": schedule_id })))
 }
 
@@ -319,7 +319,7 @@ pub async fn schedule_runs(
     Path(schedule_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    if !read_schedule_state(&state, &user_id)
+    if !load_schedule_state(&state, &user_id)
         .await?
         .schedules
         .contains_key(&schedule_id)
@@ -336,7 +336,7 @@ pub async fn run_schedule_now(
     Path(schedule_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    let mut schedule_state = read_schedule_state(&state, &user_id).await?;
+    let mut schedule_state = load_schedule_state(&state, &user_id).await?;
     let Some(mut record) = schedule_state.schedules.get(&schedule_id).cloned() else {
         return Err(ApiError::not_found("Schedule not found"));
     };
@@ -348,7 +348,7 @@ pub async fn run_schedule_now(
             record.last_error = Some(format!("{err:?}"));
             record.updated_at = iso(now);
             schedule_state.schedules.insert(schedule_id, record);
-            write_schedule_state(&state, &user_id, &schedule_state).await?;
+            save_schedule_state(&state, &user_id, &schedule_state).await?;
             return Err(err);
         }
     };
@@ -360,7 +360,7 @@ pub async fn run_schedule_now(
     }
     record.updated_at = iso(now);
     schedule_state.schedules.insert(schedule_id, record);
-    write_schedule_state(&state, &user_id, &schedule_state).await?;
+    save_schedule_state(&state, &user_id, &schedule_state).await?;
     Ok(Json(
         serde_json::to_value(info).unwrap_or_else(|_| json!({})),
     ))
@@ -380,7 +380,7 @@ pub async fn trigger_due_schedules(
     let now = OffsetDateTime::now_utc();
     let mut triggered = BTreeMap::<String, Vec<String>>::new();
     for user_id in state.storage.list_schedule_user_ids().await? {
-        let mut schedule_state = read_schedule_state(state, &user_id).await?;
+        let mut schedule_state = load_schedule_state(state, &user_id).await?;
         let mut changed = false;
         let schedule_ids = schedule_state.schedules.keys().cloned().collect::<Vec<_>>();
         for schedule_id in schedule_ids {
@@ -440,7 +440,7 @@ pub async fn trigger_due_schedules(
             }
         }
         if changed {
-            write_schedule_state(state, &user_id, &schedule_state).await?;
+            save_schedule_state(state, &user_id, &schedule_state).await?;
         }
     }
     Ok(triggered)
@@ -488,7 +488,7 @@ async fn start_schedule_run(
         .map_err(|err| ApiError::bad_request(err.to_string()))
 }
 
-async fn read_schedule_state(state: &AppState, user_id: &str) -> Result<ScheduleState, ApiError> {
+async fn load_schedule_state(state: &AppState, user_id: &str) -> Result<ScheduleState, ApiError> {
     let mut schedules = BTreeMap::new();
     for value in state.storage.list_schedules(user_id).await? {
         if let Ok(record) = serde_json::from_value::<ScheduleRecord>(value) {
@@ -501,7 +501,7 @@ async fn read_schedule_state(state: &AppState, user_id: &str) -> Result<Schedule
     })
 }
 
-async fn write_schedule_state(
+async fn save_schedule_state(
     state: &AppState,
     user_id: &str,
     schedule_state: &ScheduleState,

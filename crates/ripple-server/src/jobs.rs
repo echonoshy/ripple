@@ -170,7 +170,7 @@ impl JobManager {
             error: None,
         }));
         self.jobs.write().await.insert(job_id.clone(), job.clone());
-        self.write_job_meta(&*job.read().await).await?;
+        self.save_job_record(&*job.read().await).await?;
 
         let provider = self.provider.clone();
         let storage = self.storage.clone();
@@ -194,18 +194,18 @@ impl JobManager {
                 let mut job = job.write().await;
                 if job.status == AgentRunnerStatus::Cancelled {
                     job.updated_at = now_iso();
-                    let _ = write_job_meta_to_storage(&storage, &job).await;
+                    let _ = save_job_record_to_storage(&storage, &job).await;
                     return;
                 }
                 job.status = AgentRunnerStatus::Running;
                 job.updated_at = now_iso();
-                let _ = write_job_meta_to_storage(&storage, &job).await;
+                let _ = save_job_record_to_storage(&storage, &job).await;
             }
             let result = provider.run(request, job_dir).await;
             let mut job = job.write().await;
             if job.status == AgentRunnerStatus::Cancelled {
                 job.updated_at = now_iso();
-                let _ = write_job_meta_to_storage(&storage, &job).await;
+                let _ = save_job_record_to_storage(&storage, &job).await;
                 return;
             }
             match result {
@@ -225,7 +225,7 @@ impl JobManager {
                 }
             }
             job.updated_at = now_iso();
-            let _ = write_job_meta_to_storage(&storage, &job).await;
+            let _ = save_job_record_to_storage(&storage, &job).await;
         });
 
         self.info(&job_id)
@@ -233,13 +233,8 @@ impl JobManager {
             .ok_or_else(|| anyhow::anyhow!("job disappeared after start"))
     }
 
-    pub async fn list_user(
-        &self,
-        user_id: &str,
-        agent_runs_dir: &Path,
-    ) -> anyhow::Result<Vec<AgentRunInfo>> {
+    pub async fn list_user(&self, user_id: &str) -> anyhow::Result<Vec<AgentRunInfo>> {
         let mut merged = HashMap::<String, AgentRunInfo>::new();
-        let _ = agent_runs_dir;
         for record in self.storage.list_jobs_for_user(user_id).await? {
             if let Some(info) = info_from_record(&record) {
                 merged.insert(info.job_id.clone(), info);
@@ -274,7 +269,6 @@ impl JobManager {
         &self,
         job_id: &str,
         user_id: &str,
-        agent_runs_dir: &Path,
     ) -> anyhow::Result<Option<AgentRunInfo>> {
         let jobs = self.jobs.read().await;
         if let Some(job) = jobs.get(job_id) {
@@ -287,7 +281,6 @@ impl JobManager {
             }
             return Ok(None);
         }
-        let _ = agent_runs_dir;
         Ok(self
             .storage
             .get_job_for_user(user_id, job_id)
@@ -300,10 +293,9 @@ impl JobManager {
         &self,
         job_id: &str,
         user_id: &str,
-        agent_runs_dir: &Path,
     ) -> anyhow::Result<Option<String>> {
         Ok(self
-            .info_for_user(job_id, user_id, agent_runs_dir)
+            .info_for_user(job_id, user_id)
             .await?
             .map(|info| info.status))
     }
@@ -312,9 +304,8 @@ impl JobManager {
         &self,
         job_id: &str,
         user_id: &str,
-        agent_runs_dir: &Path,
     ) -> anyhow::Result<Option<PathBuf>> {
-        if let Some(info) = self.info_for_user(job_id, user_id, agent_runs_dir).await? {
+        if let Some(info) = self.info_for_user(job_id, user_id).await? {
             if let Some(events_file) = info.events_file {
                 return Ok(Some(PathBuf::from(events_file)));
             }
@@ -388,7 +379,7 @@ impl JobManager {
         let mut job = job.write().await;
         job.status = AgentRunnerStatus::Cancelled;
         job.updated_at = now_iso();
-        self.write_job_meta(&job).await?;
+        self.save_job_record(&job).await?;
         Ok(Some(info_from_job(
             &job,
             self.provider.pending_approval(job_id).await,
@@ -472,8 +463,8 @@ impl JobManager {
         }
     }
 
-    async fn write_job_meta(&self, job: &ExternalAgentJob) -> anyhow::Result<()> {
-        write_job_meta_to_storage(&self.storage, job).await
+    async fn save_job_record(&self, job: &ExternalAgentJob) -> anyhow::Result<()> {
+        save_job_record_to_storage(&self.storage, job).await
     }
 }
 
@@ -517,7 +508,7 @@ fn merge_metadata(left: Value, right: Value) -> Value {
     Value::Object(base)
 }
 
-async fn write_job_meta_to_storage(
+async fn save_job_record_to_storage(
     storage: &Storage,
     job: &ExternalAgentJob,
 ) -> anyhow::Result<()> {

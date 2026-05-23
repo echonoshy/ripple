@@ -13,7 +13,7 @@ pub async fn create_sandbox(
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     state.sandboxes.ensure_sandbox(&user_id)?;
-    let summary = state.sandboxes.sandbox_summary(&user_id)?.ok_or_else(|| {
+    let summary = sandbox_summary(&state, &user_id).await?.ok_or_else(|| {
         ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "sandbox creation failed")
     })?;
     Ok(Json(
@@ -26,7 +26,7 @@ pub async fn get_sandbox(
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    let Some(summary) = state.sandboxes.sandbox_summary(&user_id)? else {
+    let Some(summary) = sandbox_summary(&state, &user_id).await? else {
         return Err(ApiError::not_found(format!(
             "Sandbox for user {user_id:?} not found"
         )));
@@ -77,4 +77,13 @@ pub async fn sandbox_info(State(state): State<AppState>) -> Json<Value> {
             }
         }
     }))
+}
+
+async fn sandbox_summary(
+    state: &AppState,
+    user_id: &str,
+) -> Result<Option<crate::sandbox::SandboxInfo>, ApiError> {
+    let session_count =
+        usize::try_from(state.storage.count_sessions(user_id).await?).unwrap_or(usize::MAX);
+    Ok(state.sandboxes.sandbox_summary(user_id, session_count)?)
 }

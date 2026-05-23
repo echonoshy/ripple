@@ -579,6 +579,13 @@ async fn router_serves_core_control_plane_routes() {
         .and_then(Value::as_str)
         .is_some_and(|value| value.starts_with("srv-")));
 
+    let (status, sandbox) = call(app.clone(), Method::GET, "/v1/sandboxes", Value::Null).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        sandbox.get("session_count").and_then(Value::as_u64),
+        Some(1)
+    );
+
     let saved = app
         .clone()
         .oneshot(request(
@@ -2420,6 +2427,14 @@ async fn chat_stream_forwards_codex_runtime_tool_plan_and_image_events() {
         .unwrap()
         .join(".ripple/generated/img-1.png");
     assert_eq!(fs::read(imported).unwrap(), b"Hello");
+    assert!(state
+        .storage
+        .list_file_refs(user_id)
+        .await
+        .unwrap()
+        .iter()
+        .any(|record| record.workspace_path.as_deref()
+            == Some("/workspace/.ripple/generated/img-1.png")));
 
     let _ = std::fs::remove_dir_all(root);
 }

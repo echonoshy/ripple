@@ -2,6 +2,8 @@
 
 本文记录 Ripple Tauri mobile app 的当前推荐路线、实施步骤、验证清单和移动端分发路径。
 
+完整启动、打包和部署命令入口见 [BUILD_AND_DEPLOY.md](BUILD_AND_DEPLOY.md)。本文只保留移动端路线和注意事项。
+
 ## 结论
 
 Ripple mobile 主线采用 **Tauri 复用主 App 工作台**。

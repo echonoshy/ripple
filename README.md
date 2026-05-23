@@ -73,6 +73,7 @@ bun run build
 ## 文档
 
 - 开发依据：[AGENTS.md](AGENTS.md)
+- 启动、打包和部署：[docs/BUILD_AND_DEPLOY.md](docs/BUILD_AND_DEPLOY.md)
 - Rust 后端迁移：[docs/rust-backend-migration.md](docs/rust-backend-migration.md)
 - Tauri mobile 打包：[docs/TAURI_MOBILE.md](docs/TAURI_MOBILE.md)
 - Skills：[docs/SKILLS.md](docs/SKILLS.md)

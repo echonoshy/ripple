@@ -65,8 +65,7 @@ crates/
     src/jobs.rs        # run/job store
 src/
   interfaces/
-    web/               # Vite + React Web 客户端，含 Tauri shell
-    mobile/            # 移动端实验客户端
+    app/               # Vite + React 主 App 客户端，含 Tauri desktop/iOS/Android shell
   skills/              # 共享 skills，部分 skill 可带 Python helper
 docs/                  # 开发文档
 sites/                 # 面向展示/产品说明的站点内容
@@ -87,10 +86,10 @@ cargo test -p ripple-server
 
 说明：`cargo clippy -p ripple-server -- -D warnings` 当前还有少量既有 clippy 警告，不能作为全仓阻塞校验；如果触碰相关代码，可以顺手清理，但不要把无关大清理混入迁移提交。
 
-Web / Tauri 客户端：
+App / Tauri 客户端：
 
 ```bash
-cd src/interfaces/web
+cd src/interfaces/app
 bun run dev
 bun run build
 bun run lint
@@ -133,9 +132,9 @@ Python helper 规则：
 
 前端规则：
 
-- Web/Tauri 只做客户端展示和交互，不承载后端控制面能力。
+- App/Tauri 只做客户端展示和交互，不承载后端控制面能力。
 - 前端只调用 Ripple Server `/v1` API。
-- 修改前端后在 `src/interfaces/web` 运行 `bun run lint`、`bun run build` 或相应最小验证。
+- 修改前端后在 `src/interfaces/app` 运行 `bun run lint`、`bun run build` 或相应最小验证。
 - UI 变更优先保持现有 Vite + React + Tauri 结构，不引入新的前端框架。
 
 ## 配置
@@ -144,7 +143,7 @@ Python helper 规则：
 - 示例配置：`config/settings.yaml.sample`
 - `RIPPLE_CONFIG` 可指定配置路径。
 - API key、模型、Codex、connector、skill、server 参数放在 YAML 配置中。
-- 前端配置集中在 `src/interfaces/web/package.json`、`vite.config.ts`、`eslint.config.mjs`、`tsconfig.json`。
+- 前端配置集中在 `src/interfaces/app/package.json`、`vite.config.ts`、`eslint.config.mjs`、`tsconfig.json`。
 
 ## Server / Codex 链路
 
@@ -292,9 +291,8 @@ Rust 后端：
 
 客户端：
 
-- `src/interfaces/web/src/App.tsx`：当前主 Web UI。
-- `src/interfaces/web/src-tauri/`：Tauri shell。
-- `src/interfaces/mobile/`：移动端实验入口。
+- `src/interfaces/app/src/App.tsx`：当前主 App UI。
+- `src/interfaces/app/src-tauri/`：Tauri desktop/iOS/Android shell。
 
 ## 安全
 

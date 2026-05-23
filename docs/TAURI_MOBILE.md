@@ -1,57 +1,54 @@
-# Ripple iOS Tauri App
+# Ripple Tauri Mobile App
 
-本文记录 Ripple iOS app 的当前推荐路线、实施步骤、验证清单和 TestFlight 发布路径。
+本文记录 Ripple Tauri mobile app 的当前推荐路线、实施步骤、验证清单和移动端分发路径。
 
 ## 结论
 
-Ripple iOS 主线采用 **Tauri iOS 复用 Web 工作台**。
+Ripple mobile 主线采用 **Tauri 复用主 App 工作台**。
 
-- `src/interfaces/web` 已经包含完整 Web 工作台和 Tauri v2 shell，覆盖 Sessions/Chat、Files、Connectors、Automations、Settings 等核心能力。
-- `src/interfaces/mobile` 是 Expo/React Native 实验客户端，适合聊天 MVP，但目前不覆盖完整工作台。
-- iOS app 仍然只是 Ripple Server 客户端，不嵌入后端控制面，也不运行 agent loop、sandbox、connector CLI 或 Codex app-server。
-- 首阶段分发目标是真机和 TestFlight。
+- `src/interfaces/app` 已经包含完整 App 工作台和 Tauri v2 shell，覆盖 Sessions/Chat、Files、Connectors、Automations、Settings 等核心能力。
+- iOS/Android app 仍然只是 Ripple Server 客户端，不嵌入后端控制面，也不运行 agent loop、sandbox、connector CLI 或 Codex app-server。
+- 首阶段分发目标是 Android APK 真机安装、iOS 真机调试和 TestFlight。
 - 登录方式保留设置页手填 API key 和 `X-Ripple-User-Id`。
 - 默认服务端使用现有 HTTPS `/v1` API：`https://test-oauth.weilai.ai/v1`。
 
 参考：
 
 - [Tauri CLI iOS commands](https://v2.tauri.app/reference/cli/)
+- [Tauri CLI Android commands](https://v2.tauri.app/reference/cli/)
 - [Tauri App Store distribution](https://v2.tauri.app/zh-cn/distribute/app-store/)
 
 ## 项目依据
 
-现有 Tauri shell 位于 `src/interfaces/web/src-tauri`：
+现有 Tauri shell 位于 `src/interfaces/app/src-tauri`：
 
 - `tauri.conf.json` 已是 Tauri v2 配置。
 - `src/lib.rs` 已带 `#[cfg_attr(mobile, tauri::mobile_entry_point)]`。
 - `vite.config.ts` 已根据 `TAURI_DEV_HOST` 调整 dev server host/HMR，这对 iPhone 真机调试很关键。
 
-现有 Expo mobile 位于 `src/interfaces/mobile`：
-
-- 已有 server URL、API key、user id、model、thinking 配置。
-- 已有 session、流式 chat、tool call summary、AskUser、permission request、stop generation。
-- 不作为完整 iOS 工作台主线，保留为聊天 MVP/实验客户端。
+旧 Expo/React Native mobile 客户端已删除，移动端发布只保留 Tauri 主线。
 
 ## 实施步骤
 
-1. 恢复 Web/Tauri 工具链。
+1. 恢复 App/Tauri 工具链。
 
    ```bash
-   cd src/interfaces/web
+   cd src/interfaces/app
    bun install
    bun run tauri --version
    ```
 
    如果当前 shell 没有 `bun`，先恢复本机 Bun 安装或 PATH。项目声明的包管理器是 `bun@1.3.11`。
 
-2. 初始化 iOS target。
+2. 初始化 mobile targets。
 
    ```bash
-   cd src/interfaces/web
+   cd src/interfaces/app
    bun run tauri ios init
+   bun run tauri android init
    ```
 
-   该步骤会在 Tauri 工程下生成 iOS/Xcode 相关文件。生成后检查哪些文件需要纳入版本控制，避免提交临时 build 产物。
+   该步骤会在 Tauri 工程下生成 iOS/Xcode 和 Android/Gradle 相关文件。生成后检查哪些文件需要纳入版本控制，避免提交临时 build 产物。
 
 3. 补充 iOS/Tauri 配置。
 
@@ -64,14 +61,17 @@ Ripple iOS 主线采用 **Tauri iOS 复用 Web 工作台**。
 
 4. 增加 package scripts。
 
-   建议在 `src/interfaces/web/package.json` 中补充：
+   建议在 `src/interfaces/app/package.json` 中补充：
 
    ```json
    {
      "scripts": {
        "tauri:ios:init": "tauri ios init",
        "tauri:ios:dev": "tauri ios dev",
-       "tauri:ios:build:testflight": "tauri ios build --export-method release-testing"
+       "tauri:ios:build:testflight": "tauri ios build --export-method release-testing",
+       "tauri:android:init": "tauri android init",
+       "tauri:android:dev": "tauri android dev",
+       "tauri:android:build": "tauri android build"
      }
    }
    ```
@@ -91,7 +91,7 @@ Ripple iOS 主线采用 **Tauri iOS 复用 Web 工作台**。
 静态验证：
 
 ```bash
-cd src/interfaces/web
+cd src/interfaces/app
 bun run lint
 bun run build
 cargo check --manifest-path src-tauri/Cargo.toml
@@ -100,15 +100,23 @@ cargo check --manifest-path src-tauri/Cargo.toml
 真机开发验证：
 
 ```bash
-cd src/interfaces/web
+cd src/interfaces/app
 bun run tauri ios dev --host <LAN_IP>
+bun run tauri android dev --host <LAN_IP>
 ```
 
 TestFlight 构建验证：
 
 ```bash
-cd src/interfaces/web
+cd src/interfaces/app
 bun run tauri ios build --export-method release-testing --build-number 1
+```
+
+Android APK 构建验证：
+
+```bash
+cd src/interfaces/app
+bun run tauri android build --apk --target aarch64 --split-per-abi
 ```
 
 功能验收：
@@ -121,9 +129,9 @@ bun run tauri ios build --export-method release-testing --build-number 1
 - Files 可浏览、预览、上传、下载。
 - Connectors 状态、账号列表和授权入口可用。
 - Automations 可创建、更新、删除和 run-now。
-- iPhone 小屏没有横向滚动，底部输入框不被键盘或 safe area 遮挡。
+- iPhone/Android 小屏没有横向滚动，底部输入框不被键盘或 safe area 遮挡。
 
-## TestFlight 发布
+## iOS TestFlight 发布
 
 1. 在 Apple Developer/App Store Connect 中注册 app。
 2. Bundle ID 必须匹配 `tauri.conf.json` 的 `identifier`。
@@ -141,10 +149,21 @@ bun run tauri ios build --export-method release-testing --build-number 1
 
 6. 在 TestFlight 中完成处理、合规信息和测试员分发。
 
+## Android APK 安装
+
+1. 生成 arm64 APK。
+
+   ```bash
+   cd src/interfaces/app
+   bun run tauri android build --apk --target aarch64 --split-per-abi
+   ```
+
+2. 如使用 unsigned release APK，需要用本地或发布 keystore 签名后安装。
+3. 安卓手机打开 USB debugging 后，通过 `adb install -r <apk>` 安装。
+
 ## 注意事项
 
 - Ripple Server 仍是独立后端，不能把服务端业务逻辑放进 iOS/Tauri 前端。
 - iOS app 不能依赖 `localhost` 访问生产服务；真机调试必须使用可被手机访问的 LAN IP、Tailscale、tunnel 或 HTTPS 域名。
 - API key、OAuth credential、connector token、Codex auth 不得提交到仓库。
-- Tauri iOS 是 WebView 型移动 app，优点是复用完整工作台；风险是需要认真打磨触控、键盘、安全区和小屏布局。
-- Expo mobile 继续保留，但除非重新定义范围，不承担完整工作台和 TestFlight 主线。
+- Tauri mobile 是 WebView 型移动 app，优点是复用完整工作台；风险是需要认真打磨触控、键盘、安全区和小屏布局。

@@ -70,7 +70,7 @@ bash scripts/smoke-rust-server.sh
 前端相关改动另跑：
 
 ```bash
-cd src/interfaces/web
+cd src/interfaces/app
 bun run lint
 bun run build
 ```

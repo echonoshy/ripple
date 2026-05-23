@@ -19,7 +19,7 @@ Ripple 负责管理多用户、session、sandbox、connector 授权、skill mani
 ## 当前方向
 
 - Rust 后端：`crates/ripple-server`
-- Web / Tauri 客户端：`src/interfaces/web`
+- 主 App 客户端（Web / Tauri desktop / iOS / Android）：`src/interfaces/app`
 - 共享 skills：`src/skills`，其中部分 skill 自带 Python helper
 - 运行时数据：`.ripple/`
 
@@ -47,10 +47,10 @@ cargo run -p ripple-server
 
 Rust 服务默认监听 `http://127.0.0.1:8810`（配置里是 `0.0.0.0:8810`），Web 开发代理默认转发 `/v1` 到这个端口。
 
-3. 启动 Web 客户端：
+3. 启动主 App 的 Web 开发模式：
 
 ```bash
-cd src/interfaces/web
+cd src/interfaces/app
 bun run dev
 ```
 
@@ -65,7 +65,7 @@ bash scripts/smoke-rust-server.sh
 前端：
 
 ```bash
-cd src/interfaces/web
+cd src/interfaces/app
 bun run lint
 bun run build
 ```
@@ -74,4 +74,5 @@ bun run build
 
 - 开发依据：[AGENTS.md](AGENTS.md)
 - Rust 后端迁移：[docs/rust-backend-migration.md](docs/rust-backend-migration.md)
+- Tauri mobile 打包：[docs/TAURI_MOBILE.md](docs/TAURI_MOBILE.md)
 - Skills：[docs/SKILLS.md](docs/SKILLS.md)

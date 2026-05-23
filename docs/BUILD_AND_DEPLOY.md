@@ -12,8 +12,8 @@ http://140.143.229.103:8810/v1
 
 这是 `test-oauth.weilai.ai` 被腾讯云备案/域名拦截期间的临时 HTTP IP 直连方案。恢复 HTTPS 域名后，需要同步回滚：
 
-- `src/interfaces/app/src/lib/api.ts` 的生产默认 API。
-- `src/interfaces/app/src-tauri/tauri.conf.json` 的 CSP。
+- `app/src/lib/api.ts` 的生产默认 API。
+- `app/src-tauri/tauri.conf.json` 的 CSP。
 - macOS / iOS 的 ATS 明文例外。
 - Android `usesCleartextTraffic` 配置。
 - 本文档中的临时地址说明。
@@ -29,7 +29,7 @@ VITE_RIPPLE_API_URL="http://140.143.229.103:8810/v1" bun run build
 开发模式：
 
 ```bash
-cd src/interfaces/app
+cd app
 bun install
 bun run dev
 ```
@@ -43,7 +43,7 @@ cargo run -p ripple-server
 生产静态构建：
 
 ```bash
-cd src/interfaces/app
+cd app
 bun install
 bun run build
 ```
@@ -51,13 +51,13 @@ bun run build
 构建产物在：
 
 ```text
-src/interfaces/app/dist/
+app/dist/
 ```
 
 本地预览生产构建：
 
 ```bash
-cd src/interfaces/app
+cd app
 bun run preview
 ```
 
@@ -73,7 +73,7 @@ bun run preview
 打包命令：
 
 ```bash
-cd src/interfaces/app
+cd app
 bun install
 bun run tauri:build
 ```
@@ -81,8 +81,8 @@ bun run tauri:build
 常用产物：
 
 ```text
-src/interfaces/app/src-tauri/target/release/bundle/macos/Ripple.app
-src/interfaces/app/src-tauri/target/release/bundle/dmg/Ripple_0.1.0_aarch64.dmg
+app/src-tauri/target/release/bundle/macos/Ripple.app
+app/src-tauri/target/release/bundle/dmg/Ripple_0.1.0_aarch64.dmg
 ```
 
 如果只需要当前机器架构的 DMG，直接使用 `bun run tauri:build` 即可。需要 Intel / Apple Silicon 双架构分发时，先确认本机 Rust target 和 Tauri signing/notarization 配置，再分别构建或做 universal app。
@@ -90,7 +90,7 @@ src/interfaces/app/src-tauri/target/release/bundle/dmg/Ripple_0.1.0_aarch64.dmg
 验证：
 
 ```bash
-cd src/interfaces/app
+cd app
 bun run build
 bun run tauri:build
 ```
@@ -129,7 +129,7 @@ sdkmanager --sdk_root="$ANDROID_HOME" \
 构建 universal APK：
 
 ```bash
-cd src/interfaces/app
+cd app
 bun install
 bun run tauri android build --apk --ci
 ```
@@ -137,13 +137,13 @@ bun run tauri android build --apk --ci
 Tauri 默认 release APK 产物是 unsigned：
 
 ```text
-src/interfaces/app/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk
+app/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk
 ```
 
 直接安装测试时，可以用本机 debug keystore 签一个测试包：
 
 ```bash
-cd src/interfaces/app
+cd app
 
 zipalign -f -p 4 \
   src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk \
@@ -161,7 +161,7 @@ apksigner sign \
 验证签名和安装：
 
 ```bash
-cd src/interfaces/app
+cd app
 
 apksigner verify --verbose --print-certs \
   src-tauri/gen/android/app/build/outputs/apk/universal/release/Ripple-android-universal-release-debugsigned.apk
@@ -188,7 +188,7 @@ adb install -r \
 首次初始化：
 
 ```bash
-cd src/interfaces/app
+cd app
 bun install
 bun run tauri:ios:init
 ```
@@ -196,7 +196,7 @@ bun run tauri:ios:init
 真机开发调试：
 
 ```bash
-cd src/interfaces/app
+cd app
 bun run tauri ios dev --host <LAN_IP>
 ```
 
@@ -205,14 +205,14 @@ bun run tauri ios dev --host <LAN_IP>
 TestFlight / release-testing 构建：
 
 ```bash
-cd src/interfaces/app
+cd app
 bun run tauri ios build --export-method release-testing --build-number 1
 ```
 
 常见 IPA 产物位置：
 
 ```text
-src/interfaces/app/src-tauri/gen/apple/build/arm64/Ripple.ipa
+app/src-tauri/gen/apple/build/arm64/Ripple.ipa
 ```
 
 上传 App Store Connect：
@@ -293,11 +293,11 @@ target/release/ripple-server
 
 ```bash
 rm -rf dist/ripple-server
-mkdir -p dist/ripple-server/config dist/ripple-server/scripts dist/ripple-server/src
+mkdir -p dist/ripple-server/config dist/ripple-server/scripts
 cp target/release/ripple-server dist/ripple-server/
 cp config/settings.yaml.sample dist/ripple-server/config/
 cp scripts/install-feishu-cli.sh scripts/install-notion-cli.sh scripts/install-gogcli-cli.sh dist/ripple-server/scripts/
-cp -R src/skills dist/ripple-server/src/
+cp -R skills dist/ripple-server/
 tar -C dist -czf "ripple-server-$(uname -s)-$(uname -m).tar.gz" ripple-server
 ```
 
@@ -309,7 +309,7 @@ cp config/settings.yaml.sample config/settings.yaml
 
 不要把真实 `config/settings.yaml`、API key、OAuth credential、Codex auth 或 `.ripple/` 打进包里。
 
-如果不随包携带 `src/skills`，需要在部署配置中把 `skills.shared_dirs` 指向服务器上的真实 shared skills 目录。
+如果不随包携带 `skills`，需要在部署配置中把 `skills.shared_dirs` 指向服务器上的真实 shared skills 目录。
 
 ## 后端部署
 
@@ -406,7 +406,7 @@ target/release/ripple-server migrate-files-to-sqlite --config config/settings.ya
 前端 / App：
 
 ```bash
-cd src/interfaces/app
+cd app
 bun run lint
 bun run build
 ```

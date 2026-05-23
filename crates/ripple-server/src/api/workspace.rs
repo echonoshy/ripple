@@ -6,12 +6,15 @@ use axum::http::{header, HeaderMap, HeaderValue, Response, StatusCode};
 use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
+use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::api::users::{assert_workspace_save_within_quota, assert_workspace_writes_within_quota};
 use crate::api::ApiError;
 use crate::state::AppState;
+use crate::storage::FileRefRecord;
 use crate::user::user_id_from_headers;
 use crate::workspace as ws;
 
@@ -127,6 +130,16 @@ pub async fn save_workspace_file(
         input.expected_modified_at.as_deref(),
     )
     .map_err(map_workspace_error)?;
+    record_file_ref(
+        &state,
+        &user_id,
+        &workspace,
+        &target,
+        &ws::mime_type_for_path(&target),
+        input.content.as_bytes(),
+        None,
+    )
+    .await?;
     Ok(Json(
         serde_json::to_value(preview).unwrap_or_else(|_| json!({})),
     ))
@@ -287,7 +300,17 @@ async fn save_multipart_files(
 
     let mut entries = Vec::new();
     for (path, bytes) in prepared {
-        tokio::fs::write(&path, bytes).await?;
+        tokio::fs::write(&path, &bytes).await?;
+        record_file_ref(
+            &state,
+            &user_id,
+            &workspace,
+            &path,
+            &ws::mime_type_for_path(&path),
+            &bytes,
+            None,
+        )
+        .await?;
         entries.push(
             serde_json::to_value(
                 ws::entry_for_existing_path(&workspace, &path).map_err(map_workspace_error)?,
@@ -360,6 +383,10 @@ async fn save_workspace_attachment(
     tokio::fs::create_dir_all(&target_dir).await?;
     tokio::fs::write(&target, &bytes).await?;
     let path = ws::workspace_path(&workspace, &target).map_err(map_workspace_error)?;
+    record_file_ref(
+        &state, &user_id, &workspace, &target, &mime_type, &bytes, None,
+    )
+    .await?;
     Ok(Json(json!({
         "path": path,
         "name": filename,
@@ -392,6 +419,61 @@ fn parse_bool_field(value: &str) -> bool {
         value.trim().to_ascii_lowercase().as_str(),
         "1" | "true" | "yes" | "on"
     )
+}
+
+async fn record_file_ref(
+    state: &AppState,
+    user_id: &str,
+    workspace: &std::path::Path,
+    target: &std::path::Path,
+    mime_type: &str,
+    bytes: &[u8],
+    linked_session_id: Option<String>,
+) -> Result<(), ApiError> {
+    let workspace_path = ws::workspace_path(workspace, target).map_err(map_workspace_error)?;
+    let file_id = format!(
+        "file-{}",
+        &sha256_hex(format!("{user_id}:{workspace_path}").as_bytes())[..24]
+    );
+    state
+        .storage
+        .upsert_file_ref(&FileRefRecord {
+            file_id,
+            user_id: user_id.to_string(),
+            storage_backend: "local".to_string(),
+            storage_uri: workspace_path.clone(),
+            workspace_path: Some(workspace_path),
+            mime_type: Some(mime_type.to_string()),
+            size_bytes: Some(bytes.len() as u64),
+            sha256: Some(sha256_hex(bytes)),
+            created_at: now_iso(),
+            linked_session_id,
+        })
+        .await?;
+    Ok(())
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    let mut out = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        out.push(hex_digit(byte >> 4));
+        out.push(hex_digit(byte & 0x0f));
+    }
+    out
+}
+
+fn hex_digit(value: u8) -> char {
+    match value {
+        0..=9 => (b'0' + value) as char,
+        _ => (b'a' + (value - 10)) as char,
+    }
+}
+
+fn now_iso() -> String {
+    OffsetDateTime::now_utc()
+        .format(&Rfc3339)
+        .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
 }
 
 fn map_workspace_error(err: anyhow::Error) -> ApiError {

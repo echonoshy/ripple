@@ -43,11 +43,16 @@ pub async fn delete_sandbox(
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     let cancelled_runs = state.jobs.stop_user(&user_id).await?;
     match state.sandboxes.teardown_sandbox(&user_id, false) {
-        Ok(true) => Ok(Json(json!({
-            "ok": true,
-            "user_id": user_id,
-            "cancelled_run_count": cancelled_runs.len()
-        }))),
+        Ok(true) => {
+            state.storage.delete_user_data(&user_id).await?;
+            state.sessions.clear_user_cache(&user_id).await;
+            state.jobs.clear_user_cache(&user_id).await;
+            Ok(Json(json!({
+                "ok": true,
+                "user_id": user_id,
+                "cancelled_run_count": cancelled_runs.len()
+            })))
+        }
         Ok(false) => Err(ApiError::not_found(format!(
             "Sandbox for user {user_id:?} not found"
         ))),

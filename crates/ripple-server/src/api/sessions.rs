@@ -54,7 +54,8 @@ pub async fn get_session(
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     if state
         .sessions
-        .load(&user_id, &session_id)?
+        .load(&user_id, &session_id)
+        .await?
         .is_some_and(|record| record.status == "suspended")
     {
         let _ = state.sessions.resume_session(&user_id, &session_id).await?;
@@ -91,7 +92,7 @@ pub async fn clear_session_context(
     Path(session_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    let Some(session) = state.sessions.load(&user_id, &session_id)? else {
+    let Some(session) = state.sessions.load(&user_id, &session_id).await? else {
         return Err(ApiError::not_found("Session not found"));
     };
     if matches!(session.status.as_str(), "queued" | "running") {
@@ -111,7 +112,7 @@ pub async fn stop_session(
     Path(session_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    let Some(mut session) = state.sessions.load(&user_id, &session_id)? else {
+    let Some(mut session) = state.sessions.load(&user_id, &session_id).await? else {
         return Err(ApiError::not_found("Session not found"));
     };
     let stopped = state.jobs.cancel_session_run(&user_id, &session_id).await?;
@@ -218,7 +219,7 @@ pub async fn resolve_permission_request(
     Json(input): Json<PermissionResolveInput>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    let Some(mut session) = state.sessions.load(&user_id, &session_id)? else {
+    let Some(mut session) = state.sessions.load(&user_id, &session_id).await? else {
         return Err(ApiError::not_found("Session not found"));
     };
     let pending = session
@@ -289,7 +290,7 @@ async fn finalize_resolved_permission_session(
             .flatten();
         if let Some(info) = info {
             if matches!(info.status.as_str(), "completed" | "failed" | "cancelled") {
-                if let Ok(Some(mut session)) = state.sessions.load(&user_id, &session_id) {
+                if let Ok(Some(mut session)) = state.sessions.load(&user_id, &session_id).await {
                     if session.pending_permission_request.is_none()
                         && matches!(
                             session.status.as_str(),
@@ -321,7 +322,7 @@ pub async fn session_usage(
     Path(session_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    let Some(session) = state.sessions.load(&user_id, &session_id)? else {
+    let Some(session) = state.sessions.load(&user_id, &session_id).await? else {
         return Err(ApiError::not_found("Session not found"));
     };
     Ok(Json(json!({

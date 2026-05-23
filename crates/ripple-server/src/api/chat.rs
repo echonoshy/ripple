@@ -361,7 +361,7 @@ pub async fn poll_session_connector_auth(
 ) -> Result<Response<Body>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     let workspace_root = state.sandboxes.ensure_sandbox(&user_id)?;
-    let Some(mut session) = state.sessions.load(&user_id, &session_id)? else {
+    let Some(mut session) = state.sessions.load(&user_id, &session_id).await? else {
         return Err(ApiError::not_found("Session not found"));
     };
     if session_has_active_run(&session) {
@@ -454,7 +454,7 @@ async fn load_or_create_session(
     request: &ChatCompletionRequest,
 ) -> Result<SessionRecord, ApiError> {
     if let Some(session_id) = request.session_id.as_deref() {
-        if let Some(session) = state.sessions.load(user_id, session_id)? {
+        if let Some(session) = state.sessions.load(user_id, session_id).await? {
             return Ok(session);
         }
     }

@@ -12,11 +12,13 @@ use uuid::Uuid;
 
 use crate::config::AppConfig;
 use crate::sandbox::SandboxManager;
+use crate::storage::Storage;
 
 #[derive(Clone)]
 pub struct SessionManager {
     config: Arc<AppConfig>,
     sandboxes: SandboxManager,
+    storage: Storage,
     active: Arc<RwLock<HashMap<(String, String), SessionRecord>>>,
     deleted: Arc<RwLock<HashSet<(String, String)>>>,
 }
@@ -89,9 +91,19 @@ pub struct CreateSessionInput {
 
 impl SessionManager {
     pub fn new(config: Arc<AppConfig>, sandboxes: SandboxManager) -> Self {
+        let storage = Storage::new(config.clone()).expect("failed to initialize Ripple storage");
+        Self::new_with_storage(config, sandboxes, storage)
+    }
+
+    pub fn new_with_storage(
+        config: Arc<AppConfig>,
+        sandboxes: SandboxManager,
+        storage: Storage,
+    ) -> Self {
         Self {
             config,
             sandboxes,
+            storage,
             active: Arc::new(RwLock::new(HashMap::new())),
             deleted: Arc::new(RwLock::new(HashSet::new())),
         }
@@ -135,7 +147,7 @@ impl SessionManager {
             plan_steps: Vec::new(),
             plan_progress: None,
         };
-        self.persist(&session)?;
+        self.persist(&session).await?;
         self.active
             .write()
             .await
@@ -144,12 +156,13 @@ impl SessionManager {
     }
 
     pub async fn list_sessions(&self, user_id: &str) -> anyhow::Result<Vec<SessionInfo>> {
-        let mut records = Vec::new();
-        for session_id in self.sandboxes.list_user_sessions(user_id)? {
-            if let Some(record) = self.load(user_id, &session_id)? {
-                records.push(self.info_from_record(&record)?);
-            }
-        }
+        let mut records = self
+            .storage
+            .list_sessions(user_id)
+            .await?
+            .into_iter()
+            .map(|record| self.info_from_record(&record))
+            .collect::<anyhow::Result<Vec<_>>>()?;
         records.sort_by(|a, b| b.last_active.cmp(&a.last_active));
         Ok(records)
     }
@@ -169,7 +182,8 @@ impl SessionManager {
             return Ok(Some(self.detail_from_record(&session)?));
         }
         Ok(self
-            .load(user_id, session_id)?
+            .load(user_id, session_id)
+            .await?
             .map(|record| self.detail_from_record(&record))
             .transpose()?)
     }
@@ -178,9 +192,9 @@ impl SessionManager {
         let key = (user_id.to_string(), session_id.to_string());
         self.deleted.write().await.insert(key.clone());
         let had_active = self.active.write().await.remove(&key).is_some();
+        let existed = self.storage.delete_session(user_id, session_id).await?;
         let dir = self.sandboxes.session_dir(user_id, session_id)?;
-        let existed = dir.exists();
-        if existed {
+        if dir.exists() {
             remove_dir_all_with_retry(&dir).await?;
         }
         if had_active || existed {
@@ -189,6 +203,17 @@ impl SessionManager {
             self.deleted.write().await.remove(&key);
             Ok(false)
         }
+    }
+
+    pub async fn clear_user_cache(&self, user_id: &str) {
+        self.active
+            .write()
+            .await
+            .retain(|(cached_user_id, _), _| cached_user_id != user_id);
+        self.deleted
+            .write()
+            .await
+            .retain(|(cached_user_id, _)| cached_user_id != user_id);
     }
 
     pub async fn save_record_if_exists(&self, record: SessionRecord) -> anyhow::Result<bool> {
@@ -216,10 +241,12 @@ impl SessionManager {
             anyhow::bail!("Session was deleted");
         }
 
-        let dir = self
-            .sandboxes
-            .session_dir(&record.user_id, &record.session_id)?;
-        if require_existing && !dir.join("meta.json").is_file() {
+        if require_existing
+            && !self
+                .storage
+                .session_exists(&record.user_id, &record.session_id)
+                .await?
+        {
             drop(deleted);
             self.active.write().await.remove(&key);
             return Ok(false);
@@ -227,7 +254,7 @@ impl SessionManager {
 
         record.message_count = record.messages.len();
         record.last_active = now_iso();
-        self.persist(&record)?;
+        self.persist(&record).await?;
         self.active
             .write()
             .await
@@ -245,7 +272,7 @@ impl SessionManager {
         let record = self.active.write().await.remove(&key);
         let record = match record {
             Some(record) => Some(record),
-            None => self.load(user_id, session_id)?,
+            None => self.load(user_id, session_id).await?,
         };
         let Some(mut record) = record else {
             return Ok(None);
@@ -255,7 +282,7 @@ impl SessionManager {
         }
         record.status = "suspended".to_string();
         record.last_active = now_iso();
-        self.persist(&record)?;
+        self.persist(&record).await?;
         Ok(Some(record))
     }
 
@@ -264,7 +291,7 @@ impl SessionManager {
         user_id: &str,
         session_id: &str,
     ) -> anyhow::Result<Option<SessionRecord>> {
-        let Some(mut record) = self.load(user_id, session_id)? else {
+        let Some(mut record) = self.load(user_id, session_id).await? else {
             return Ok(None);
         };
         if record.status == "suspended" {
@@ -276,10 +303,7 @@ impl SessionManager {
 
     pub async fn list_suspended_sessions(&self, user_id: &str) -> anyhow::Result<Vec<Value>> {
         let mut records = Vec::new();
-        for session_id in self.sandboxes.list_user_sessions(user_id)? {
-            let Some(record) = self.load(user_id, &session_id)? else {
-                continue;
-            };
+        for record in self.storage.list_sessions(user_id).await? {
             if record.status != "suspended" {
                 continue;
             }
@@ -309,10 +333,7 @@ impl SessionManager {
         connector_name: &str,
     ) -> anyhow::Result<usize> {
         let mut cleared = 0_usize;
-        for session_id in self.sandboxes.list_user_sessions(user_id)? {
-            let Some(mut record) = self.load(user_id, &session_id)? else {
-                continue;
-            };
+        for mut record in self.storage.list_sessions(user_id).await? {
             let Some(mut pending) = record.pending_connector_auth.clone() else {
                 continue;
             };
@@ -338,8 +359,8 @@ impl SessionManager {
                 record.status = "idle".to_string();
             }
             record.last_active = now_iso();
-            self.persist(&record)?;
-            let key = (user_id.to_string(), session_id);
+            self.persist(&record).await?;
+            let key = (user_id.to_string(), record.session_id.clone());
             if self.active.read().await.contains_key(&key) {
                 self.active.write().await.insert(key, record);
             }
@@ -372,7 +393,7 @@ impl SessionManager {
             if should_auto_suspend(record, now, idle_suspend_seconds) {
                 record.status = "suspended".to_string();
                 record.last_active = now_iso();
-                self.persist(record)?;
+                self.persist(record).await?;
                 suspended += 1;
             }
         }
@@ -381,20 +402,21 @@ impl SessionManager {
 
         if retention_seconds > 0 {
             for user_id in self.sandboxes.list_user_sandboxes()? {
-                for session_id in self.sandboxes.list_user_sessions(&user_id)? {
-                    let Some(record) = self.load(&user_id, &session_id)? else {
-                        continue;
-                    };
+                for record in self.storage.list_sessions(&user_id).await? {
                     if record.status != "suspended" {
                         continue;
                     }
                     if session_age_seconds(&record, now).is_some_and(|age| age > retention_seconds)
                     {
-                        let dir = self.sandboxes.session_dir(&user_id, &session_id)?;
+                        let _ = self
+                            .storage
+                            .delete_session(&user_id, &record.session_id)
+                            .await?;
+                        let dir = self.sandboxes.session_dir(&user_id, &record.session_id)?;
                         if dir.exists() {
                             tokio::fs::remove_dir_all(dir).await?;
-                            removed += 1;
                         }
+                        removed += 1;
                     }
                 }
             }
@@ -407,7 +429,7 @@ impl SessionManager {
         user_id: &str,
         session_id: &str,
     ) -> anyhow::Result<Option<usize>> {
-        let Some(mut record) = self.load(user_id, session_id)? else {
+        let Some(mut record) = self.load(user_id, session_id).await? else {
             return Ok(None);
         };
         record.messages.clear();
@@ -426,7 +448,7 @@ impl SessionManager {
         record.plan_steps.clear();
         record.plan_progress = None;
         record.last_active = now_iso();
-        self.persist(&record)?;
+        self.persist(&record).await?;
         self.active
             .write()
             .await
@@ -434,37 +456,16 @@ impl SessionManager {
         Ok(Some(0))
     }
 
-    pub fn load(&self, user_id: &str, session_id: &str) -> anyhow::Result<Option<SessionRecord>> {
-        let meta_file = self
-            .sandboxes
-            .session_dir(user_id, session_id)?
-            .join("meta.json");
-        if !meta_file.is_file() {
-            return Ok(None);
-        }
-        let mut record: SessionRecord = serde_json::from_slice(&std::fs::read(meta_file)?)?;
-        record.messages = read_jsonl(
-            self.sandboxes
-                .session_dir(user_id, session_id)?
-                .join("messages.jsonl"),
-        )?;
-        record.message_count = record.messages.len();
-        Ok(Some(record))
+    pub async fn load(
+        &self,
+        user_id: &str,
+        session_id: &str,
+    ) -> anyhow::Result<Option<SessionRecord>> {
+        self.storage.load_session(user_id, session_id).await
     }
 
-    pub fn persist(&self, record: &SessionRecord) -> anyhow::Result<()> {
-        let dir = self
-            .sandboxes
-            .session_dir(&record.user_id, &record.session_id)?;
-        std::fs::create_dir_all(&dir)?;
-        std::fs::write(dir.join("meta.json"), serde_json::to_vec_pretty(record)?)?;
-        let messages = record
-            .messages
-            .iter()
-            .map(|message| serde_json::to_string(message))
-            .collect::<Result<Vec<_>, _>>()?
-            .join("\n");
-        std::fs::write(dir.join("messages.jsonl"), messages)?;
+    pub async fn persist(&self, record: &SessionRecord) -> anyhow::Result<()> {
+        self.storage.save_session(record).await?;
         Ok(())
     }
 
@@ -568,24 +569,6 @@ pub fn extract_title_from_messages(messages: &[Value]) -> String {
 
 fn usage_u64(value: &Value, key: &str) -> u64 {
     value.get(key).and_then(Value::as_u64).unwrap_or(0)
-}
-
-fn read_jsonl(path: std::path::PathBuf) -> anyhow::Result<Vec<Value>> {
-    if !path.is_file() {
-        return Ok(Vec::new());
-    }
-    let text = std::fs::read_to_string(path)?;
-    Ok(text
-        .lines()
-        .filter_map(|line| {
-            let line = line.trim();
-            if line.is_empty() {
-                None
-            } else {
-                serde_json::from_str::<Value>(line).ok()
-            }
-        })
-        .collect())
 }
 
 fn now_iso() -> String {
@@ -715,7 +698,7 @@ mod tests {
             )
             .await?;
         idle.last_active = old_time.clone();
-        manager.persist(&idle)?;
+        manager.persist(&idle).await?;
         manager
             .active
             .write()
@@ -734,7 +717,7 @@ mod tests {
             .await?;
         expired.status = "suspended".to_string();
         expired.last_active = old_time;
-        manager.persist(&expired)?;
+        manager.persist(&expired).await?;
         manager
             .active
             .write()
@@ -746,12 +729,13 @@ mod tests {
         assert_eq!(removed, 1);
         assert_eq!(
             manager
-                .load(user_id, &idle.session_id)?
+                .load(user_id, &idle.session_id)
+                .await?
                 .expect("idle session should exist")
                 .status,
             "suspended"
         );
-        assert!(manager.load(user_id, &expired.session_id)?.is_none());
+        assert!(manager.load(user_id, &expired.session_id).await?.is_none());
 
         let _ = std::fs::remove_dir_all(root);
         Ok(())
@@ -792,7 +776,8 @@ mod tests {
             Some(0)
         );
         let cleared = manager
-            .load(user_id, &session.session_id)?
+            .load(user_id, &session.session_id)
+            .await?
             .expect("session should exist");
         assert!(cleared.messages.is_empty());
         assert_eq!(cleared.message_count, 0);
@@ -805,6 +790,46 @@ mod tests {
         assert!(cleared.codex_thread_id.is_none());
         assert!(cleared.plan_steps.is_empty());
         assert!(cleared.plan_progress.is_none());
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn session_records_persist_without_legacy_json_files() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("ripple-session-test-{}", Uuid::new_v4()));
+        let config = test_config(&root);
+        let manager = SessionManager::new(config.clone(), SandboxManager::new(config.clone()));
+        let user_id = "alice";
+        let mut session = manager
+            .create_session(
+                user_id,
+                CreateSessionInput {
+                    model: None,
+                    max_turns: None,
+                    system_prompt: None,
+                },
+            )
+            .await?;
+        session
+            .messages
+            .push(serde_json::json!({"role": "user", "content": "hello"}));
+        manager.save_record(session.clone()).await?;
+
+        let legacy_dir = config
+            .sandbox
+            .sandboxes_root
+            .join(user_id)
+            .join("sessions")
+            .join(&session.session_id);
+        assert!(!legacy_dir.join("meta.json").exists());
+        assert!(!legacy_dir.join("messages.jsonl").exists());
+
+        let reloaded = manager
+            .load(user_id, &session.session_id)
+            .await?
+            .expect("session should reload from SQLite");
+        assert_eq!(reloaded.messages, session.messages);
 
         let _ = std::fs::remove_dir_all(root);
         Ok(())
@@ -859,7 +884,8 @@ mod tests {
             2
         );
         let resumable = manager
-            .load(user_id, &resumable.session_id)?
+            .load(user_id, &resumable.session_id)
+            .await?
             .expect("resumable");
         assert_eq!(resumable.status, "idle");
         assert_eq!(
@@ -871,7 +897,8 @@ mod tests {
             Some("authorized")
         );
         let clearable = manager
-            .load(user_id, &clearable.session_id)?
+            .load(user_id, &clearable.session_id)
+            .await?
             .expect("clearable");
         assert_eq!(clearable.status, "idle");
         assert!(clearable.pending_connector_auth.is_none());

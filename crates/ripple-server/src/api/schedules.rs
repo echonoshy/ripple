@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::path::PathBuf;
 
 use axum::extract::{Path, State};
 use axum::http::HeaderMap;
@@ -380,7 +379,7 @@ pub async fn trigger_due_schedules(
 ) -> Result<BTreeMap<String, Vec<String>>, ApiError> {
     let now = OffsetDateTime::now_utc();
     let mut triggered = BTreeMap::<String, Vec<String>>::new();
-    for user_id in state.sandboxes.list_user_sandboxes()? {
+    for user_id in state.storage.list_schedule_user_ids().await? {
         let mut schedule_state = read_schedule_state(state, &user_id).await?;
         let mut changed = false;
         let schedule_ids = schedule_state.schedules.keys().cloned().collect::<Vec<_>>();
@@ -490,20 +489,16 @@ async fn start_schedule_run(
 }
 
 async fn read_schedule_state(state: &AppState, user_id: &str) -> Result<ScheduleState, ApiError> {
-    let path = schedule_state_path(state, user_id)?;
-    if !path.is_file() {
-        return Ok(ScheduleState {
-            version: 1,
-            schedules: BTreeMap::new(),
-        });
+    let mut schedules = BTreeMap::new();
+    for value in state.storage.list_schedules(user_id).await? {
+        if let Ok(record) = serde_json::from_value::<ScheduleRecord>(value) {
+            schedules.insert(record.schedule_id.clone(), record);
+        }
     }
-    let value = serde_json::from_slice::<ScheduleState>(&tokio::fs::read(path).await?).unwrap_or(
-        ScheduleState {
-            version: 1,
-            schedules: BTreeMap::new(),
-        },
-    );
-    Ok(value)
+    Ok(ScheduleState {
+        version: 1,
+        schedules,
+    })
 }
 
 async fn write_schedule_state(
@@ -511,23 +506,15 @@ async fn write_schedule_state(
     user_id: &str,
     schedule_state: &ScheduleState,
 ) -> Result<(), ApiError> {
-    let path = schedule_state_path(state, user_id)?;
-    if let Some(parent) = path.parent() {
-        tokio::fs::create_dir_all(parent).await?;
-    }
-    tokio::fs::write(
-        path,
-        serde_json::to_vec_pretty(schedule_state).map_err(anyhow::Error::from)?,
-    )
-    .await?;
+    let records = schedule_state
+        .schedules
+        .values()
+        .cloned()
+        .map(serde_json::to_value)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(anyhow::Error::from)?;
+    state.storage.replace_schedules(user_id, &records).await?;
     Ok(())
-}
-
-fn schedule_state_path(state: &AppState, user_id: &str) -> Result<PathBuf, ApiError> {
-    Ok(state
-        .sandboxes
-        .sandbox_dir(user_id)?
-        .join("schedules/schedules.json"))
 }
 
 async fn list_schedule_job_records(
@@ -535,33 +522,13 @@ async fn list_schedule_job_records(
     user_id: &str,
     schedule_id: &str,
 ) -> Result<Vec<AgentRunInfo>, ApiError> {
-    let root = state
-        .sandboxes
-        .sandbox_dir(user_id)?
-        .join("agent-runs/external-agents");
-    if !root.exists() {
-        return Ok(Vec::new());
-    }
-    let mut out = Vec::new();
-    let mut entries = tokio::fs::read_dir(root).await?;
-    while let Some(entry) = entries.next_entry().await? {
-        if !entry.file_type().await?.is_dir() {
-            continue;
-        }
-        let meta_file = entry.path().join("meta.json");
-        if !meta_file.is_file() {
-            continue;
-        }
-        let Ok(value) = serde_json::from_slice::<Value>(&tokio::fs::read(meta_file).await?) else {
-            continue;
-        };
-        if value.get("schedule_id").and_then(Value::as_str) != Some(schedule_id) {
-            continue;
-        }
-        if let Some(info) = agent_run_info_from_record(&value) {
-            out.push(info);
-        }
-    }
+    let mut out = state
+        .storage
+        .list_jobs_for_schedule(user_id, schedule_id)
+        .await?
+        .into_iter()
+        .filter_map(|value| agent_run_info_from_record(&value))
+        .collect::<Vec<_>>();
     out.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
     Ok(out)
 }

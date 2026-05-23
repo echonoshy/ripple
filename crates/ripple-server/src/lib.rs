@@ -2,10 +2,12 @@ pub mod api;
 pub mod codex;
 pub mod config;
 pub mod jobs;
+pub mod migration;
 pub mod sandbox;
 pub mod sessions;
 pub mod skills;
 pub mod state;
+pub mod storage;
 pub mod user;
 pub mod workspace;
 

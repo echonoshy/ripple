@@ -11,10 +11,12 @@ use uuid::Uuid;
 
 use crate::codex::app_server::{AgentRunnerRequest, AgentRunnerStatus, CodexAppServerProvider};
 use crate::config::AppConfig;
+use crate::storage::Storage;
 
 #[derive(Clone)]
 pub struct JobManager {
     provider: Arc<CodexAppServerProvider>,
+    storage: Storage,
     jobs: Arc<RwLock<HashMap<String, Arc<RwLock<ExternalAgentJob>>>>>,
 }
 
@@ -92,8 +94,14 @@ pub struct ExternalAgentJob {
 
 impl JobManager {
     pub fn new(config: Arc<AppConfig>) -> Self {
+        let storage = Storage::new(config.clone()).expect("failed to initialize Ripple storage");
+        Self::new_with_storage(config, storage)
+    }
+
+    pub fn new_with_storage(config: Arc<AppConfig>, storage: Storage) -> Self {
         Self {
             provider: Arc::new(CodexAppServerProvider::new(config)),
+            storage,
             jobs: Arc::new(RwLock::new(HashMap::new())),
         }
     }
@@ -162,9 +170,10 @@ impl JobManager {
             error: None,
         }));
         self.jobs.write().await.insert(job_id.clone(), job.clone());
-        write_job_meta(&*job.read().await).await?;
+        self.write_job_meta(&*job.read().await).await?;
 
         let provider = self.provider.clone();
+        let storage = self.storage.clone();
         let max_runtime_seconds = create.max_runtime_seconds.clamp(1, 86_400);
         let request = AgentRunnerRequest {
             provider: "codex".to_string(),
@@ -185,18 +194,18 @@ impl JobManager {
                 let mut job = job.write().await;
                 if job.status == AgentRunnerStatus::Cancelled {
                     job.updated_at = now_iso();
-                    let _ = write_job_meta(&job).await;
+                    let _ = write_job_meta_to_storage(&storage, &job).await;
                     return;
                 }
                 job.status = AgentRunnerStatus::Running;
                 job.updated_at = now_iso();
-                let _ = write_job_meta(&job).await;
+                let _ = write_job_meta_to_storage(&storage, &job).await;
             }
             let result = provider.run(request, job_dir).await;
             let mut job = job.write().await;
             if job.status == AgentRunnerStatus::Cancelled {
                 job.updated_at = now_iso();
-                let _ = write_job_meta(&job).await;
+                let _ = write_job_meta_to_storage(&storage, &job).await;
                 return;
             }
             match result {
@@ -216,7 +225,7 @@ impl JobManager {
                 }
             }
             job.updated_at = now_iso();
-            let _ = write_job_meta(&job).await;
+            let _ = write_job_meta_to_storage(&storage, &job).await;
         });
 
         self.info(&job_id)
@@ -230,7 +239,8 @@ impl JobManager {
         agent_runs_dir: &Path,
     ) -> anyhow::Result<Vec<AgentRunInfo>> {
         let mut merged = HashMap::<String, AgentRunInfo>::new();
-        for record in list_job_records(agent_runs_dir).await? {
+        let _ = agent_runs_dir;
+        for record in self.storage.list_jobs_for_user(user_id).await? {
             if let Some(info) = info_from_record(&record) {
                 merged.insert(info.job_id.clone(), info);
             }
@@ -277,7 +287,10 @@ impl JobManager {
             }
             return Ok(None);
         }
-        Ok(find_job_record(agent_runs_dir, job_id)
+        let _ = agent_runs_dir;
+        Ok(self
+            .storage
+            .get_job_for_user(user_id, job_id)
             .await?
             .as_ref()
             .and_then(info_from_record))
@@ -375,7 +388,7 @@ impl JobManager {
         let mut job = job.write().await;
         job.status = AgentRunnerStatus::Cancelled;
         job.updated_at = now_iso();
-        write_job_meta(&job).await?;
+        self.write_job_meta(&job).await?;
         Ok(Some(info_from_job(
             &job,
             self.provider.pending_approval(job_id).await,
@@ -442,6 +455,26 @@ impl JobManager {
         let _ = self.provider.stop_user(user_id).await;
         Ok(cancelled)
     }
+
+    pub async fn clear_user_cache(&self, user_id: &str) {
+        let jobs = self.jobs.read().await;
+        let mut remove_ids = Vec::new();
+        for (job_id, job) in jobs.iter() {
+            let job = job.read().await;
+            if job.user_id.as_deref() == Some(user_id) {
+                remove_ids.push(job_id.clone());
+            }
+        }
+        drop(jobs);
+        let mut jobs = self.jobs.write().await;
+        for job_id in remove_ids {
+            jobs.remove(&job_id);
+        }
+    }
+
+    async fn write_job_meta(&self, job: &ExternalAgentJob) -> anyhow::Result<()> {
+        write_job_meta_to_storage(&self.storage, job).await
+    }
 }
 
 fn info_from_job(job: &ExternalAgentJob, pending_approval: Option<Value>) -> AgentRunInfo {
@@ -484,20 +517,14 @@ fn merge_metadata(left: Value, right: Value) -> Value {
     Value::Object(base)
 }
 
-async fn write_job_meta(job: &ExternalAgentJob) -> anyhow::Result<()> {
-    let Some(job_dir) = job
-        .events_file
-        .as_ref()
-        .and_then(|path| path.parent().map(Path::to_path_buf))
-        .or_else(|| {
-            job.output_file
-                .as_ref()
-                .and_then(|path| path.parent().map(Path::to_path_buf))
-        })
-    else {
-        return Ok(());
-    };
-    tokio::fs::create_dir_all(&job_dir).await?;
+async fn write_job_meta_to_storage(
+    storage: &Storage,
+    job: &ExternalAgentJob,
+) -> anyhow::Result<()> {
+    storage.upsert_job(&job_record_value(job)).await
+}
+
+fn job_record_value(job: &ExternalAgentJob) -> Value {
     let mut record = json!({
         "version": 1,
         "job_id": job.job_id,
@@ -535,56 +562,7 @@ async fn write_job_meta(job: &ExternalAgentJob) -> anyhow::Result<()> {
             object.insert("codex_persistent_thread".to_string(), json!(true));
         }
     }
-    tokio::fs::write(
-        job_dir.join("meta.json"),
-        serde_json::to_vec_pretty(&record)?,
-    )
-    .await?;
-    Ok(())
-}
-
-async fn list_job_records(agent_runs_dir: &Path) -> anyhow::Result<Vec<Value>> {
-    let external_agents_dir = agent_runs_dir.join("external-agents");
-    if !external_agents_dir.exists() {
-        return Ok(Vec::new());
-    }
-    let mut records = Vec::new();
-    let mut entries = tokio::fs::read_dir(external_agents_dir).await?;
-    while let Some(entry) = entries.next_entry().await? {
-        if !entry.file_type().await?.is_dir() {
-            continue;
-        }
-        if let Some(record) = read_job_record(&entry.path()).await? {
-            records.push(record);
-        }
-    }
-    records.sort_by(|a, b| record_str(b, "updated_at").cmp(&record_str(a, "updated_at")));
-    Ok(records)
-}
-
-async fn find_job_record(agent_runs_dir: &Path, job_id: &str) -> anyhow::Result<Option<Value>> {
-    let job_dir = agent_runs_dir.join("external-agents").join(job_id);
-    let Some(record) = read_job_record(&job_dir).await? else {
-        return Ok(None);
-    };
-    if record.get("job_id").and_then(Value::as_str) == Some(job_id) {
-        Ok(Some(record))
-    } else {
-        Ok(None)
-    }
-}
-
-async fn read_job_record(job_dir: &Path) -> anyhow::Result<Option<Value>> {
-    let meta_file = job_dir.join("meta.json");
-    if !meta_file.is_file() {
-        return Ok(None);
-    }
-    let value = serde_json::from_slice::<Value>(&tokio::fs::read(meta_file).await?)?;
-    if value.is_object() {
-        Ok(Some(value))
-    } else {
-        Ok(None)
-    }
+    record
 }
 
 fn info_from_record(record: &Value) -> Option<AgentRunInfo> {

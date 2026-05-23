@@ -5,12 +5,14 @@ use axum::http::HeaderMap;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::api::ApiError;
 use crate::state::AppState;
+use crate::storage::FileRefRecord;
 use crate::user::user_id_from_headers;
 use crate::workspace as ws;
 
@@ -113,6 +115,7 @@ pub async fn create_document(
         last_modified_at: now,
     };
     state_doc.documents.push(document.clone());
+    record_document_file_ref(&state, &user_id, &target, &document).await?;
     write_document_state(&state, &user_id, &state_doc).await?;
     Ok(Json(
         serde_json::to_value(document).unwrap_or_else(|_| json!({})),
@@ -193,24 +196,17 @@ pub async fn delete_document(
 }
 
 async fn read_document_state(state: &AppState, user_id: &str) -> Result<DocumentState, ApiError> {
-    let path = state
-        .sandboxes
-        .sandbox_dir(user_id)?
-        .join("documents/index.json");
-    if !path.is_file() {
-        return Ok(DocumentState {
-            version: 1,
-            documents: Vec::new(),
-        });
-    }
-    Ok(
-        serde_json::from_slice::<DocumentState>(&tokio::fs::read(path).await?).unwrap_or(
-            DocumentState {
-                version: 1,
-                documents: Vec::new(),
-            },
-        ),
-    )
+    let documents = state
+        .storage
+        .list_documents(user_id)
+        .await?
+        .into_iter()
+        .filter_map(|value| serde_json::from_value::<DocumentRecord>(value).ok())
+        .collect::<Vec<_>>();
+    Ok(DocumentState {
+        version: 1,
+        documents,
+    })
 }
 
 async fn write_document_state(
@@ -218,18 +214,14 @@ async fn write_document_state(
     user_id: &str,
     document_state: &DocumentState,
 ) -> Result<(), ApiError> {
-    let path = state
-        .sandboxes
-        .sandbox_dir(user_id)?
-        .join("documents/index.json");
-    if let Some(parent) = path.parent() {
-        tokio::fs::create_dir_all(parent).await?;
-    }
-    tokio::fs::write(
-        path,
-        serde_json::to_vec_pretty(document_state).map_err(anyhow::Error::from)?,
-    )
-    .await?;
+    let records = document_state
+        .documents
+        .iter()
+        .cloned()
+        .map(serde_json::to_value)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(anyhow::Error::from)?;
+    state.storage.replace_documents(user_id, &records).await?;
     Ok(())
 }
 
@@ -255,6 +247,49 @@ fn map_workspace_error(err: anyhow::Error) -> ApiError {
         ApiError::new(axum::http::StatusCode::FORBIDDEN, "Access denied")
     } else {
         ApiError::bad_request(message)
+    }
+}
+
+async fn record_document_file_ref(
+    state: &AppState,
+    user_id: &str,
+    target: &Path,
+    document: &DocumentRecord,
+) -> Result<(), ApiError> {
+    let bytes = tokio::fs::read(target).await?;
+    let file_id = document.document_id.clone();
+    state
+        .storage
+        .upsert_file_ref(&FileRefRecord {
+            file_id,
+            user_id: user_id.to_string(),
+            storage_backend: "local".to_string(),
+            storage_uri: document.path.clone(),
+            workspace_path: Some(document.path.clone()),
+            mime_type: Some(ws::mime_type_for_path(target)),
+            size_bytes: Some(bytes.len() as u64),
+            sha256: Some(sha256_hex(&bytes)),
+            created_at: now_iso(),
+            linked_session_id: document.linked_session_id.clone(),
+        })
+        .await?;
+    Ok(())
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    let mut out = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        out.push(hex_digit(byte >> 4));
+        out.push(hex_digit(byte & 0x0f));
+    }
+    out
+}
+
+fn hex_digit(value: u8) -> char {
+    match value {
+        0..=9 => (b'0' + value) as char,
+        _ => (b'a' + (value - 10)) as char,
     }
 }
 

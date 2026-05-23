@@ -534,6 +534,16 @@ fn test_state_and_app_with_config(config: AppConfig) -> (AppState, axum::Router)
 }
 
 #[tokio::test]
+async fn app_state_initializes_sqlite_control_plane() {
+    let root = std::env::temp_dir().join(format!("ripple-api-test-{}", Uuid::new_v4()));
+    let _state = AppState::new(test_config(&root));
+
+    assert!(root.join(".ripple/ripple.sqlite").is_file());
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[tokio::test]
 async fn router_serves_core_control_plane_routes() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let (_state, app) = test_state_and_app(&root);
@@ -1393,6 +1403,14 @@ async fn delete_sandbox_cancels_live_user_runs_before_teardown() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert!(run.get("job_id").and_then(Value::as_str).is_some());
+    let (status, _session) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/sessions",
+        json!({"model": "codex-test"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
 
     let (status, deleted) = call(app.clone(), Method::DELETE, "/v1/sandboxes", Value::Null).await;
     assert_eq!(status, StatusCode::OK);
@@ -1406,10 +1424,14 @@ async fn delete_sandbox_cancels_live_user_runs_before_teardown() {
     );
 
     let response = app
+        .clone()
         .oneshot(request(Method::GET, "/v1/sandboxes", Value::Null, true))
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let (status, sessions) = call(app.clone(), Method::GET, "/v1/sessions", Value::Null).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(sessions.get("count").and_then(Value::as_u64), Some(0));
 
     let _ = std::fs::remove_dir_all(root);
 }
@@ -1574,19 +1596,17 @@ async fn schedule_due_trigger_starts_fake_codex_app_server_run() {
         .expect("schedule id")
         .to_string();
 
-    let state_file = root
-        .join("sandboxes")
-        .join("smoke-user")
-        .join("schedules")
-        .join("schedules.json");
-    let mut schedule_state: Value = serde_json::from_str(&fs::read_to_string(&state_file).unwrap())
-        .expect("schedule state json");
-    schedule_state["schedules"][&schedule_id]["next_run_at"] = json!("2000-01-01T00:00:00Z");
-    fs::write(
-        &state_file,
-        serde_json::to_vec_pretty(&schedule_state).unwrap(),
-    )
-    .unwrap();
+    let mut schedule_records = state.storage.list_schedules("smoke-user").await.unwrap();
+    for record in &mut schedule_records {
+        if record.get("schedule_id").and_then(Value::as_str) == Some(schedule_id.as_str()) {
+            record["next_run_at"] = json!("2000-01-01T00:00:00Z");
+        }
+    }
+    state
+        .storage
+        .replace_schedules("smoke-user", &schedule_records)
+        .await
+        .unwrap();
 
     let triggered = trigger_due_schedules(&state)
         .await
@@ -1813,6 +1833,7 @@ async fn connector_auth_route_clears_matching_pending_session_auth() {
     let reloaded = state
         .sessions
         .load(user_id, &session.session_id)
+        .await
         .unwrap()
         .expect("session");
     assert_eq!(reloaded.status, "idle");
@@ -1885,6 +1906,7 @@ async fn chat_route_confirms_pending_schedule_without_starting_codex() {
             user_id,
             chat.get("session_id").and_then(Value::as_str).unwrap(),
         )
+        .await
         .unwrap()
         .expect("session");
     assert_eq!(reloaded.status, "idle");
@@ -1945,6 +1967,7 @@ async fn chat_route_proposes_schedule_with_fake_codex_extraction() {
     let reloaded = state
         .sessions
         .load(user_id, session_id)
+        .await
         .unwrap()
         .expect("session");
     assert_eq!(reloaded.status, "awaiting_user_input");
@@ -2009,6 +2032,7 @@ async fn chat_route_completes_non_streaming_with_fake_codex_app_server() {
     let reloaded = state
         .sessions
         .load(user_id, &session_id)
+        .await
         .unwrap()
         .expect("session");
     assert_eq!(reloaded.status, "idle");
@@ -2048,6 +2072,7 @@ async fn chat_route_completes_non_streaming_with_fake_codex_app_server() {
             user_id,
             follow_up.get("session_id").and_then(Value::as_str).unwrap(),
         )
+        .await
         .unwrap()
         .expect("session");
     assert_eq!(reloaded.status, "idle");
@@ -2154,7 +2179,12 @@ async fn deleting_running_chat_session_does_not_recreate_session() {
     assert_ne!(chat_response.status(), StatusCode::OK);
     let _ = response_text(chat_response).await;
 
-    assert!(state.sessions.load(user_id, &session_id).unwrap().is_none());
+    assert!(state
+        .sessions
+        .load(user_id, &session_id)
+        .await
+        .unwrap()
+        .is_none());
     let response = app
         .oneshot(request(
             Method::GET,
@@ -2334,6 +2364,7 @@ async fn chat_stream_completes_with_fake_codex_app_server() {
     let reloaded = state
         .sessions
         .load(user_id, &session_id)
+        .await
         .unwrap()
         .expect("session");
     assert_eq!(reloaded.status, "idle");
@@ -2439,6 +2470,7 @@ async fn chat_approval_bridge_resolves_fake_codex_request() {
     let reloaded = state
         .sessions
         .load(user_id, &session_id)
+        .await
         .unwrap()
         .expect("session");
     assert_eq!(reloaded.status, "awaiting_permission");
@@ -2481,6 +2513,7 @@ async fn chat_approval_bridge_resolves_fake_codex_request() {
         let reloaded = state
             .sessions
             .load(user_id, &session_id)
+            .await
             .unwrap()
             .expect("session");
         if reloaded.status == "idle" && reloaded.pending_permission_request.is_none() {
@@ -2581,6 +2614,7 @@ async fn chat_stream_cancels_pending_schedule_without_codex() {
     let reloaded = state
         .sessions
         .load(user_id, &session.session_id)
+        .await
         .unwrap()
         .expect("session");
     assert!(reloaded.pending_schedule_request.is_none());

@@ -171,45 +171,15 @@ pub(crate) async fn assert_workspace_writes_within_quota(
 }
 
 async fn user_usage(state: &AppState, user_id: &str) -> Result<Value, ApiError> {
-    let sandbox_dir = state.sandboxes.sandbox_dir(user_id)?;
     let workspace = state.sandboxes.workspace_dir(user_id)?;
-    let sessions_dir = state.sandboxes.sessions_dir(user_id)?;
     let today = now_iso().chars().take(10).collect::<String>();
-    let mut runs_today = 0_u64;
-    let mut active_runs = 0_u64;
-    let mut records = list_job_meta_records(&sandbox_dir.join("agent-runs")).await?;
-    if sessions_dir.exists() {
-        let mut entries = tokio::fs::read_dir(&sessions_dir).await?;
-        while let Some(entry) = entries.next_entry().await? {
-            if entry.file_type().await?.is_dir() {
-                records.extend(list_job_meta_records(&entry.path()).await?);
-            }
-        }
-    }
-    for record in records {
-        let created = record
-            .get("created_at")
-            .and_then(Value::as_str)
-            .unwrap_or("");
-        if created.starts_with(&today) {
-            runs_today += 1;
-        }
-        if record.get("status").and_then(Value::as_str) == Some("running") {
-            active_runs += 1;
-        }
-    }
-    let session_count = std::fs::read_dir(&sessions_dir)
-        .ok()
-        .into_iter()
-        .flatten()
-        .filter_map(Result::ok)
-        .filter(|entry| entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false))
-        .count();
+    let run_stats = state.storage.job_usage_stats(user_id, &today).await?;
+    let session_count = state.storage.count_sessions(user_id).await?;
     Ok(json!({
         "workspace_size_bytes": workspace_size_bytes(&workspace),
         "session_count": session_count,
-        "runs_today": runs_today,
-        "active_runs": active_runs
+        "runs_today": run_stats.runs_today,
+        "active_runs": run_stats.active_runs
     }))
 }
 
@@ -233,32 +203,9 @@ fn quota_error(resource: &str, limit: u64, used: u64) -> ApiError {
     )
 }
 
-async fn list_job_meta_records(root: &std::path::Path) -> Result<Vec<Value>, ApiError> {
-    let external_agents = root.join("external-agents");
-    if !external_agents.exists() {
-        return Ok(Vec::new());
-    }
-    let mut records = Vec::new();
-    let mut entries = tokio::fs::read_dir(external_agents).await?;
-    while let Some(entry) = entries.next_entry().await? {
-        let meta = entry.path().join("meta.json");
-        if !meta.is_file() {
-            continue;
-        }
-        if let Ok(value) = serde_json::from_slice::<Value>(&tokio::fs::read(meta).await?) {
-            if value.is_object() {
-                records.push(value);
-            }
-        }
-    }
-    Ok(records)
-}
-
 async fn ensure_user_record(state: &AppState, user_id: &str) -> Result<UserRecord, ApiError> {
-    let path = user_meta_path(state, user_id)?;
-    if path.is_file() {
-        if let Ok(mut record) = serde_json::from_slice::<UserRecord>(&tokio::fs::read(&path).await?)
-        {
+    if let Some(value) = state.storage.get_user(user_id).await? {
+        if let Ok(mut record) = serde_json::from_value::<UserRecord>(value) {
             let defaults = default_quota();
             for (key, value) in defaults {
                 record.quota.entry(key).or_insert(value);
@@ -272,20 +219,14 @@ async fn ensure_user_record(state: &AppState, user_id: &str) -> Result<UserRecor
 }
 
 async fn write_user_record(state: &AppState, record: &UserRecord) -> Result<(), ApiError> {
-    let path = user_meta_path(state, &record.user_id)?;
-    if let Some(parent) = path.parent() {
-        tokio::fs::create_dir_all(parent).await?;
-    }
-    tokio::fs::write(
-        path,
-        serde_json::to_vec_pretty(record).map_err(anyhow::Error::from)?,
-    )
-    .await?;
+    state
+        .storage
+        .upsert_user(
+            &record.user_id,
+            &serde_json::to_value(record).map_err(anyhow::Error::from)?,
+        )
+        .await?;
     Ok(())
-}
-
-fn user_meta_path(state: &AppState, user_id: &str) -> Result<PathBuf, ApiError> {
-    Ok(state.sandboxes.sandbox_dir(user_id)?.join("user.json"))
 }
 
 fn default_user_record(user_id: &str) -> UserRecord {
@@ -385,22 +326,19 @@ mod tests {
         record.quota.insert("max_runs_per_day".to_string(), 1);
         write_user_record(&state, &record).await.unwrap();
 
-        let job_dir = state
-            .sandboxes
-            .session_dir(user_id, "session-1")
-            .unwrap()
-            .join("external-agents/agent-test");
-        tokio::fs::create_dir_all(&job_dir).await.unwrap();
-        tokio::fs::write(
-            job_dir.join("meta.json"),
-            serde_json::to_vec(&json!({
+        state
+            .storage
+            .upsert_job(&json!({
+                "job_id": "agent-test",
+                "provider": "codex",
+                "user_id": user_id,
+                "session_id": "session-1",
                 "created_at": now_iso(),
+                "updated_at": now_iso(),
                 "status": "running"
             }))
-            .unwrap(),
-        )
-        .await
-        .unwrap();
+            .await
+            .unwrap();
 
         let err = assert_can_create_run(&state, user_id, 60)
             .await

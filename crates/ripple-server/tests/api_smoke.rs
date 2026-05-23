@@ -2707,6 +2707,11 @@ async fn chat_stream_returns_connector_auth_required_event_without_codex() {
     let body = response_text(response).await;
     assert!(body.contains("\"type\":\"connector_auth_required\""));
     assert!(body.contains("\"connector\":\"notion\""));
+    assert!(body.contains("https://www.notion.so/profile/integrations"));
+    assert!(body.contains("Internal Integration"));
+    assert!(body.contains("Share"));
+    assert!(body.contains("ntn_"));
+    assert!(body.contains("secret_"));
     assert!(body.contains("data: [DONE]"));
 
     let _ = std::fs::remove_dir_all(root);

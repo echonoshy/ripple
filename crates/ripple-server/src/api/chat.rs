@@ -999,8 +999,10 @@ async fn start_connector_auth_for_chat(
             "notion",
             "connector_auth_required",
             "awaiting_token",
-            "请提供 Notion integration token（以 ntn_ 或 secret_ 开头），我会保存到当前 user 的凭证里。",
-            Some(json!({"name": "notion", "ok": true, "stage": "awaiting_token", "detail": "api_token is required.", "data": {}})),
+            notion_token_guidance_message(),
+            Some(
+                json!({"name": "notion", "ok": true, "stage": "awaiting_token", "detail": "api_token is required.", "data": {}}),
+            ),
         );
         session.pending_connector_auth = Some(pending_from_event(
             connector,
@@ -1036,7 +1038,7 @@ async fn continue_notion_auth(
             "notion",
             "connector_auth_required",
             "awaiting_token",
-            "请把 Notion integration token 发给我（以 ntn_ 或 secret_ 开头）。",
+            notion_token_guidance_message(),
             pending.get("action").cloned(),
         );
         return Ok(Some(ConnectorAuthDecision {
@@ -1507,6 +1509,16 @@ fn connector_authorized_message(connector: &str) -> &'static str {
         "bilibili" => "Bilibili 已授权。继续执行刚才的请求。",
         _ => "Connector authorization completed. Continuing.",
     }
+}
+
+fn notion_token_guidance_message() -> &'static str {
+    "我需要先绑定 Notion integration token，才能读取你的 Notion 内容。\n\n\
+获取方式：\n\
+1. 打开 https://www.notion.so/profile/integrations\n\
+2. 创建或选择一个 Internal Integration。\n\
+3. 复制 Token，格式通常以 ntn_ 或 secret_ 开头。\n\
+4. 回到这里，把 Token 直接粘贴发送给我。\n\n\
+另外，请在 Notion 里把要读取的 page 或 database Share 给这个 Integration；否则 token 正确也可能读不到内容。"
 }
 
 fn pending_resume_user_input(pending: &Value) -> Option<String> {

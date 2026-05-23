@@ -201,7 +201,7 @@ lark-cli 是 Go 静态二进制，由项目脚本 `scripts/install-feishu-cli.sh
 `lark-cli update` 升级；Ripple 的升级需要同步两部分：
 
 1. `scripts/install-feishu-cli.sh <version>` 安装并切换 `vendor/lark-cli/current`。
-2. 将同 tag 的官方 `skills/` 内容同步到本仓库 `src/skills/lark/`，并保留 Ripple 必需的
+2. 将同 tag 的官方 `skills/` 内容同步到本仓库 `skills/lark/`，并保留 Ripple 必需的
    `lark-shared` 运行约束。
 
 如果 lark-cli 命令 JSON 输出里出现 `_notice.update`，完成当前用户请求后应告知当前版本和

@@ -322,7 +322,7 @@ impl AppConfig {
             skills: SkillsConfig {
                 shared_dirs: skills_raw
                     .shared_dirs
-                    .unwrap_or_else(|| vec!["src/skills/*".to_string()]),
+                    .unwrap_or_else(|| vec!["skills/*".to_string()]),
             },
             public_base_url,
             feishu,
@@ -467,4 +467,30 @@ fn find_on_path(binary: &str) -> Option<PathBuf> {
     std::env::split_paths(&path)
         .map(|dir| dir.join(binary))
         .find(|candidate| candidate.is_file())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AppConfig;
+
+    #[test]
+    fn default_skills_shared_dirs_use_top_level_skills() {
+        let previous = std::env::var_os("RIPPLE_CONFIG");
+        let config_path = std::env::temp_dir().join(format!(
+            "ripple-missing-config-{}-{}.yaml",
+            std::process::id(),
+            "default-skills"
+        ));
+        std::env::set_var("RIPPLE_CONFIG", &config_path);
+
+        let loaded = AppConfig::load();
+
+        match previous {
+            Some(value) => std::env::set_var("RIPPLE_CONFIG", value),
+            None => std::env::remove_var("RIPPLE_CONFIG"),
+        }
+
+        let config = loaded.expect("load default config");
+        assert_eq!(config.skills.shared_dirs, vec!["skills/*".to_string()]);
+    }
 }

@@ -9,7 +9,7 @@ Ripple 的 Rust 迁移目标是重写后端控制面，而不是把后端嵌进 
 - 后端继续保持多用户模型，`X-Ripple-User-Id` 是 user 隔离入口。
 - sandbox 以 `user_id` 为单位，一个 user 拥有长期 workspace，多个 session 共享该 workspace。
 - Codex app-server 是执行面。Rust 后端负责启动、隔离、转发 JSON-RPC、收集事件、持久化状态。
-- Skills 继续使用 Markdown/YAML frontmatter；Python 仅允许作为 `src/skills` 下的 helper。
+- Skills 继续使用 Markdown/YAML frontmatter；Python 仅允许作为 `skills` 下的 helper。
 
 ## Current State
 
@@ -31,7 +31,7 @@ crates/ripple-server/
 - Codex managed permissions profile、服务端 Codex auth deny-read、skill manifest rendering。
 - Rust route smoke coverage覆盖主要 `/v1` API、fake Codex app-server、fake nsjail connector CLI 边界和 server listener 启动。
 
-Python/FastAPI 后端和 legacy `src/ripple` 控制面已经移除，不再作为参考实现或新增能力入口。Python 仅保留在 skill helper 中。
+Python/FastAPI 后端和 legacy Python `ripple` 控制面已经移除，不再作为参考实现或新增能力入口。Python 仅保留在 skill helper 中。
 
 ## Remaining Hardening
 
@@ -70,7 +70,7 @@ bash scripts/smoke-rust-server.sh
 前端相关改动另跑：
 
 ```bash
-cd src/interfaces/app
+cd app
 bun run lint
 bun run build
 ```

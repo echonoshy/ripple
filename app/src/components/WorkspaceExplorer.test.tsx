@@ -148,8 +148,7 @@ testWorkspaceExplorerCachesListingsAndAvoidsCurrentPathReloadEffect();
 function testWorkspaceFileActionsStayVisibleOnTouchScreens() {
   const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /opacity-100 sm:opacity-0/);
-  assert.match(source, /sm:group-hover:opacity-100/);
+  assert.match(source, /className="[^"]*opacity-100[^"]*sm:opacity-0[^"]*sm:group-hover:opacity-100/);
 }
 
 testWorkspaceFileActionsStayVisibleOnTouchScreens();

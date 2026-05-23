@@ -173,7 +173,7 @@ node_modules/
 .expo/
 
 # Tauri-generated schema files
-src/interfaces/*/src-tauri/gen/schemas/
+app/src-tauri/gen/schemas/
 
 # Config files with sensitive data
 config/settings.yaml

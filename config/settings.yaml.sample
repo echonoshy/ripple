@@ -186,7 +186,7 @@ server:
 
 # 外部服务配置（第三方 API）
 services:
-  # Shazam 音乐识别 API（用于 src/skills/podcast/music-identify）
+  # Shazam 音乐识别 API（用于 skills/podcast/music-identify）
   shazam:
     api_key: "<SHAZAM_API_KEY>"
     base_url: "https://shazam-api.com/api"
@@ -205,7 +205,7 @@ services:
 # Skills 配置
 skills:
   # 共享 skill 目录（所有 Server session 可见）
-  # 支持 glob：src/skills/* 会展开为所有顶层子目录；也可写具体路径如 src/skills/lark
+  # 支持 glob：skills/* 会展开为所有顶层子目录；也可写具体路径如 skills/lark
   # 路径相对于项目根目录，或使用 ~ 展开为绝对路径
   shared_dirs:
-    - "src/skills/*"
+    - "skills/*"

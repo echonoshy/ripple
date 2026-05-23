@@ -29,7 +29,7 @@
 
 ## 当前后端方向
 
-后端控制面由 Rust 实现；旧 Python/FastAPI 后端和 `src/ripple` legacy 控制面已清理。Python 只作为部分 skill helper 的实现语言保留。
+后端控制面由 Rust 实现；旧 Python/FastAPI 后端和 legacy Python `ripple` 控制面已清理。Python 只作为部分 skill helper 的实现语言保留。
 
 - Rust 后端：`crates/ripple-server`
 - Rust 后端要保持 Web / Tauri / Mobile 客户端依赖的 `/v1` response shape、SSE 事件、session 状态和 connector auth 流程稳定。
@@ -89,7 +89,7 @@ cargo test -p ripple-server
 App / Tauri 客户端：
 
 ```bash
-cd src/interfaces/app
+cd app
 bun run dev
 bun run build
 bun run lint
@@ -125,7 +125,7 @@ Rust 规则：
 
 Python helper 规则：
 
-- Python 仅用于 `src/skills` 下的 helper、脚本和资源处理，不恢复后端控制面或 model-facing tool runtime。
+- Python 仅用于 `skills` 下的 helper、脚本和资源处理，不恢复后端控制面或 model-facing tool runtime。
 - 使用内置泛型注解，如 `list[str]`、`dict[str, str]`。
 - 不要新增无必要的 `__init__.py`。
 - 不要新增 `from __future__ import annotations`。
@@ -134,7 +134,7 @@ Python helper 规则：
 
 - App/Tauri 只做客户端展示和交互，不承载后端控制面能力。
 - 前端只调用 Ripple Server `/v1` API。
-- 修改前端后在 `src/interfaces/app` 运行 `bun run lint`、`bun run build` 或相应最小验证。
+- 修改前端后在 `app` 运行 `bun run lint`、`bun run build` 或相应最小验证。
 - UI 变更优先保持现有 Vite + React + Tauri 结构，不引入新的前端框架。
 
 ## 配置
@@ -143,7 +143,7 @@ Python helper 规则：
 - 示例配置：`config/settings.yaml.sample`
 - `RIPPLE_CONFIG` 可指定配置路径。
 - API key、模型、Codex、connector、skill、server 参数放在 YAML 配置中。
-- 前端配置集中在 `src/interfaces/app/package.json`、`vite.config.ts`、`eslint.config.mjs`、`tsconfig.json`。
+- 前端配置集中在 `app/package.json`、`vite.config.ts`、`eslint.config.mjs`、`tsconfig.json`。
 
 ## Server / Codex 链路
 
@@ -232,7 +232,7 @@ Codex 授权是服务端统一授权，不是 per-user Codex 授权：
 
 Google Workspace 约定：
 
-- 使用任何 gog 能力前，先读 `src/skills/gog/gog-shared/SKILL.md`。
+- 使用任何 gog 能力前，先读 `skills/gog/gog-shared/SKILL.md`。
 - 当前支持服务：`gmail, drive, calendar, docs, sheets, slides`。
 - 授权入口：`/v1/connectors/google_workspace/auth/start`。
 - 状态/账号检查：`/v1/connectors/google_workspace/accounts?check=true`。
@@ -259,7 +259,7 @@ Skills 是带 YAML frontmatter 的 Markdown 文件。
 
 加载层级：
 
-1. Shared Skills：默认来自 `src/skills/*`。
+1. Shared Skills：默认来自 `skills/*`。
 2. Workspace Skills：来自每个 user workspace 内的 `skills/`。
 
 Codex-only runtime 下，Ripple 主要把 skill manifest 注入 prompt，而不是通过 `SkillTool` 让模型回调 Server。
@@ -291,8 +291,8 @@ Rust 后端：
 
 客户端：
 
-- `src/interfaces/app/src/App.tsx`：当前主 App UI。
-- `src/interfaces/app/src-tauri/`：Tauri desktop/iOS/Android shell。
+- `app/src/App.tsx`：当前主 App UI。
+- `app/src-tauri/`：Tauri desktop/iOS/Android shell。
 
 ## 安全
 

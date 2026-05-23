@@ -6,7 +6,7 @@
 
 Ripple mobile 主线采用 **Tauri 复用主 App 工作台**。
 
-- `src/interfaces/app` 已经包含完整 App 工作台和 Tauri v2 shell，覆盖 Sessions/Chat、Files、Connectors、Automations、Settings 等核心能力。
+- `app` 已经包含完整 App 工作台和 Tauri v2 shell，覆盖 Sessions/Chat、Files、Connectors、Automations、Settings 等核心能力。
 - iOS/Android app 仍然只是 Ripple Server 客户端，不嵌入后端控制面，也不运行 agent loop、sandbox、connector CLI 或 Codex app-server。
 - 首阶段分发目标是 Android APK 真机安装、iOS 真机调试和 TestFlight。
 - 登录方式保留设置页手填 API key 和 `X-Ripple-User-Id`。
@@ -20,7 +20,7 @@ Ripple mobile 主线采用 **Tauri 复用主 App 工作台**。
 
 ## 项目依据
 
-现有 Tauri shell 位于 `src/interfaces/app/src-tauri`：
+现有 Tauri shell 位于 `app/src-tauri`：
 
 - `tauri.conf.json` 已是 Tauri v2 配置。
 - `src/lib.rs` 已带 `#[cfg_attr(mobile, tauri::mobile_entry_point)]`。
@@ -33,7 +33,7 @@ Ripple mobile 主线采用 **Tauri 复用主 App 工作台**。
 1. 恢复 App/Tauri 工具链。
 
    ```bash
-   cd src/interfaces/app
+   cd app
    bun install
    bun run tauri --version
    ```
@@ -43,7 +43,7 @@ Ripple mobile 主线采用 **Tauri 复用主 App 工作台**。
 2. 初始化 mobile targets。
 
    ```bash
-   cd src/interfaces/app
+   cd app
    bun run tauri ios init
    bun run tauri android init
    ```
@@ -61,7 +61,7 @@ Ripple mobile 主线采用 **Tauri 复用主 App 工作台**。
 
 4. 增加 package scripts。
 
-   建议在 `src/interfaces/app/package.json` 中补充：
+   建议在 `app/package.json` 中补充：
 
    ```json
    {
@@ -91,7 +91,7 @@ Ripple mobile 主线采用 **Tauri 复用主 App 工作台**。
 静态验证：
 
 ```bash
-cd src/interfaces/app
+cd app
 bun run lint
 bun run build
 cargo check --manifest-path src-tauri/Cargo.toml
@@ -100,7 +100,7 @@ cargo check --manifest-path src-tauri/Cargo.toml
 真机开发验证：
 
 ```bash
-cd src/interfaces/app
+cd app
 bun run tauri ios dev --host <LAN_IP>
 bun run tauri android dev --host <LAN_IP>
 ```
@@ -108,14 +108,14 @@ bun run tauri android dev --host <LAN_IP>
 TestFlight 构建验证：
 
 ```bash
-cd src/interfaces/app
+cd app
 bun run tauri ios build --export-method release-testing --build-number 1
 ```
 
 Android APK 构建验证：
 
 ```bash
-cd src/interfaces/app
+cd app
 bun run tauri android build --apk --target aarch64 --split-per-abi
 ```
 
@@ -154,7 +154,7 @@ bun run tauri android build --apk --target aarch64 --split-per-abi
 1. 生成 arm64 APK。
 
    ```bash
-   cd src/interfaces/app
+   cd app
    bun run tauri android build --apk --target aarch64 --split-per-abi
    ```
 

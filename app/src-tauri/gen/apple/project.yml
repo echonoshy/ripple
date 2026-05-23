@@ -54,6 +54,8 @@ targets:
         CFBundleShortVersionString: 0.1.0
         CFBundleVersion: "0.1.0"
         ITSAppUsesNonExemptEncryption: false
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
     entitlements:
       path: ripple-desktop_iOS/ripple-desktop_iOS.entitlements
     scheme:

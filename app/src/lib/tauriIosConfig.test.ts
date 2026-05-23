@@ -23,6 +23,14 @@ const generatedIosInfoPlist = readFileSync(
   new URL("../../src-tauri/gen/apple/ripple-desktop_iOS/Info.plist", import.meta.url),
   "utf8"
 );
+const generatedIosProject = readFileSync(
+  new URL("../../src-tauri/gen/apple/project.yml", import.meta.url),
+  "utf8"
+);
+const androidGradle = readFileSync(
+  new URL("../../src-tauri/gen/android/app/build.gradle.kts", import.meta.url),
+  "utf8"
+);
 
 function testPackageExposesIosTauriScripts() {
   assert.equal(packageJson.scripts["tauri:ios:init"], "tauri ios init");
@@ -43,29 +51,39 @@ function testPackageExposesAndroidTauriScripts() {
 
 testPackageExposesAndroidTauriScripts();
 
-function testTauriConfigKeepsProductionApiAndAssetCsp() {
+function testTauriConfigKeepsTemporaryHttpIpApiAndAssetCsp() {
   const csp = tauriConfig.app.security.csp;
 
   assert.equal(tauriConfig.identifier, "ai.weilai.ripple");
+  assert.match(csp, /connect-src[^;]*http:\/\/140\.143\.229\.103:8810/);
   assert.match(csp, /connect-src[^;]*https:\/\/test-oauth\.weilai\.ai/);
   assert.match(csp, /img-src[^;]*asset:/);
   assert.match(csp, /img-src[^;]*blob:/);
+  assert.match(csp, /img-src[^;]*http:\/\/140\.143\.229\.103:8810/);
   assert.equal(tauriConfig.bundle.iOS.infoPlist, "Info.plist");
   assert.equal(tauriConfig.bundle.iOS.minimumSystemVersion, "14.0");
 }
 
-testTauriConfigKeepsProductionApiAndAssetCsp();
+testTauriConfigKeepsTemporaryHttpIpApiAndAssetCsp();
 
-function testIosInfoPlistDeclaresExportCompliance() {
+function testAppleInfoPlistsAllowTemporaryHttpIpApi() {
   assert.match(commonInfoPlist, /ITSAppUsesNonExemptEncryption/);
   assert.match(commonInfoPlist, /<false\/>/);
+  assert.match(commonInfoPlist, /NSAppTransportSecurity/);
+  assert.match(commonInfoPlist, /NSAllowsArbitraryLoads/);
   assert.match(iosPlatformInfoPlist, /ITSAppUsesNonExemptEncryption/);
   assert.match(iosPlatformInfoPlist, /<false\/>/);
+  assert.match(iosPlatformInfoPlist, /NSAppTransportSecurity/);
+  assert.match(iosPlatformInfoPlist, /NSAllowsArbitraryLoads/);
   assert.match(generatedIosInfoPlist, /ITSAppUsesNonExemptEncryption/);
   assert.match(generatedIosInfoPlist, /<false\/>/);
+  assert.match(generatedIosInfoPlist, /NSAppTransportSecurity/);
+  assert.match(generatedIosInfoPlist, /NSAllowsArbitraryLoads/);
+  assert.match(generatedIosProject, /NSAppTransportSecurity/);
+  assert.match(generatedIosProject, /NSAllowsArbitraryLoads:\s*true/);
 }
 
-testIosInfoPlistDeclaresExportCompliance();
+testAppleInfoPlistsAllowTemporaryHttpIpApi();
 
 function testAndroidTargetHasBeenInitialized() {
   assert.equal(
@@ -73,6 +91,7 @@ function testAndroidTargetHasBeenInitialized() {
     true
   );
   assert.equal(existsSync(new URL("../../src-tauri/gen/android/gradlew", import.meta.url)), true);
+  assert.match(androidGradle, /manifestPlaceholders\["usesCleartextTraffic"\]\s*=\s*"true"/);
 }
 
 testAndroidTargetHasBeenInitialized();

@@ -96,11 +96,11 @@ async function testSessionIdIsEncodedInPath() {
   );
 
   assert.deepEqual(urls, [
-    "https://test-oauth.weilai.ai/v1/sessions/session%2Fwith%20space",
-    "https://test-oauth.weilai.ai/v1/sessions/session%2Fwith%20space",
-    "https://test-oauth.weilai.ai/v1/sessions/session%2Fwith%20space/stop",
-    "https://test-oauth.weilai.ai/v1/sessions/session%2Fwith%20space/connector-auth/cancel",
-    "https://test-oauth.weilai.ai/v1/sessions/session%2Fwith%20space/permissions/resolve",
+    "http://140.143.229.103:8810/v1/sessions/session%2Fwith%20space",
+    "http://140.143.229.103:8810/v1/sessions/session%2Fwith%20space",
+    "http://140.143.229.103:8810/v1/sessions/session%2Fwith%20space/stop",
+    "http://140.143.229.103:8810/v1/sessions/session%2Fwith%20space/connector-auth/cancel",
+    "http://140.143.229.103:8810/v1/sessions/session%2Fwith%20space/permissions/resolve",
   ]);
 }
 
@@ -124,9 +124,9 @@ async function testScheduleIdIsEncodedInPath() {
   );
 
   assert.deepEqual(urls, [
-    "https://test-oauth.weilai.ai/v1/schedules/schedule%2Fwith%20space",
-    "https://test-oauth.weilai.ai/v1/schedules/schedule%2Fwith%20space",
-    "https://test-oauth.weilai.ai/v1/schedules/schedule%2Fwith%20space/run-now",
+    "http://140.143.229.103:8810/v1/schedules/schedule%2Fwith%20space",
+    "http://140.143.229.103:8810/v1/schedules/schedule%2Fwith%20space",
+    "http://140.143.229.103:8810/v1/schedules/schedule%2Fwith%20space/run-now",
   ]);
 }
 
@@ -189,8 +189,8 @@ async function testScheduleApiUsesExpectedBackendShape() {
 
   assert.deepEqual(methods, ["GET", "POST"]);
   assert.deepEqual(urls, [
-    "https://test-oauth.weilai.ai/v1/schedules",
-    "https://test-oauth.weilai.ai/v1/schedules",
+    "http://140.143.229.103:8810/v1/schedules",
+    "http://140.143.229.103:8810/v1/schedules",
   ]);
 }
 
@@ -392,7 +392,7 @@ async function testChatStreamUsesServerConflictDetail() {
 }
 
 function testDefaultApiOriginUsesPublicBaseUrl() {
-  assert.equal(getApiOrigin(), "https://test-oauth.weilai.ai");
+  assert.equal(getApiOrigin(), "http://140.143.229.103:8810");
 }
 
 function testDevDefaultApiUrlUsesSameOriginProxy() {
@@ -401,7 +401,7 @@ function testDevDefaultApiUrlUsesSameOriginProxy() {
     resolveApiUrl({ DEV: true, VITE_RIPPLE_API_URL: "http://localhost:8810/v1" }),
     "http://localhost:8810/v1"
   );
-  assert.equal(resolveApiUrl({ PROD: true }), "https://test-oauth.weilai.ai/v1");
+  assert.equal(resolveApiUrl({ PROD: true }), "http://140.143.229.103:8810/v1");
 }
 
 function testViteDevServerProxiesV1ToLocalRippleServer() {

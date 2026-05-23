@@ -17,7 +17,8 @@ android {
     compileSdk = 36
     namespace = "ai.weilai.ripple"
     defaultConfig {
-        manifestPlaceholders["usesCleartextTraffic"] = "false"
+        // TEMP_HTTP_IP_API: allow release builds to call http://140.143.229.103:8810/v1.
+        manifestPlaceholders["usesCleartextTraffic"] = "true"
         applicationId = "ai.weilai.ripple"
         minSdk = 24
         targetSdk = 36

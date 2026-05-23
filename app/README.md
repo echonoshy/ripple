@@ -22,8 +22,10 @@ In development, the client calls `/v1` on the Vite origin, and Vite proxies it t
 VITE_RIPPLE_API_URL=http://localhost:8810/v1
 ```
 
-Production builds without `VITE_RIPPLE_API_URL` fall back to
-`https://test-oauth.weilai.ai/v1`.
+Production builds without `VITE_RIPPLE_API_URL` temporarily fall back to
+`http://140.143.229.103:8810/v1` while `test-oauth.weilai.ai` is blocked by Tencent
+Cloud备案/domain enforcement. This HTTP IP path also requires the Tauri CSP,
+macOS/iOS ATS exceptions, and Android cleartext traffic setting to stay aligned.
 
 ## Tauri
 

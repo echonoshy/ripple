@@ -22,7 +22,7 @@
     ],
     "security": {
       "capabilities": ["main"],
-      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:* http://localhost:* https://test-oauth.weilai.ai; img-src 'self' asset: http://asset.localhost data: blob: http://127.0.0.1:* http://localhost:* https://test-oauth.weilai.ai; style-src 'self' 'unsafe-inline'; font-src 'self' data:; script-src 'self'"
+      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:* http://localhost:* http://140.143.229.103:8810 http://140.143.229.103 http://140.143.229.103:* https://test-oauth.weilai.ai; img-src 'self' asset: http://asset.localhost data: blob: http://127.0.0.1:* http://localhost:* http://140.143.229.103:8810 http://140.143.229.103 http://140.143.229.103:* https://test-oauth.weilai.ai; style-src 'self' 'unsafe-inline'; font-src 'self' data:; script-src 'self'"
     }
   },
   "bundle": {

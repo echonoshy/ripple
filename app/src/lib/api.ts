@@ -27,7 +27,8 @@ import { buildChatMessageContent, type ChatFileRef } from "@/lib/chatInput";
 import { readableApiErrorMessage } from "@/lib/apiErrors";
 import { getClientStorage } from "@/lib/platform";
 
-const DEFAULT_PUBLIC_API_URL = "https://test-oauth.weilai.ai/v1";
+// TEMP_HTTP_IP_API: use direct HTTP IP until test-oauth.weilai.ai is unblocked.
+const DEFAULT_PUBLIC_API_URL = "http://140.143.229.103:8810/v1";
 
 type ApiUrlEnv = {
   DEV?: boolean;

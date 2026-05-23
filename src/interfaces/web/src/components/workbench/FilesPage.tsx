@@ -9,7 +9,7 @@ interface FilesPageProps {
 
 export default function FilesPage({ userId, refreshToken }: FilesPageProps) {
   return (
-    <div className="flex h-full min-h-0 flex-col bg-white">
+    <div className="flex h-full min-h-0 flex-col bg-white pb-[calc(72px+env(safe-area-inset-bottom))] lg:pb-0">
       <div className="shrink-0 border-b border-[#e5e7eb] bg-white px-4 py-3 md:px-5">
         <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
           <div className="flex min-w-0 items-baseline gap-3">

@@ -203,7 +203,7 @@ export default function SessionComposer({
   };
 
   return (
-    <div className="shrink-0 border-t border-[#e5e7eb] bg-white px-5 pt-3 pb-[92px] md:px-8 lg:pb-5">
+    <div className="shrink-0 border-t border-[#e5e7eb] bg-white px-4 pt-3 pb-[calc(88px+env(safe-area-inset-bottom))] sm:px-5 md:px-8 lg:pb-[max(env(safe-area-inset-bottom),20px)]">
       <div className="mx-auto max-w-4xl rounded-xl border border-[#d7dce3] bg-white p-2 shadow-[0_10px_30px_rgba(23,26,31,0.06)] transition-colors focus-within:border-[#aab4c2]">
         <input
           ref={fileInputRef}
@@ -231,7 +231,7 @@ export default function SessionComposer({
                   ? "Ask Codex anything about your codebase..."
                   : "Ask Codex anything about your codebase..."
           }
-          className="session-composer-input max-h-[220px] min-h-[46px] w-full resize-none bg-transparent px-2 py-2 text-[14px] leading-6 text-[#0d0d0d] outline-none placeholder:text-[#8b8f94] disabled:opacity-60"
+          className="session-composer-input max-h-[220px] min-h-[48px] w-full resize-none bg-transparent px-2 py-2 text-[14px] leading-6 text-[#0d0d0d] outline-none placeholder:text-[#8b8f94] disabled:opacity-60"
         />
         {pendingFiles.length > 0 && (
           <div className="flex flex-wrap gap-1.5 px-1 pb-2">
@@ -286,7 +286,7 @@ export default function SessionComposer({
                 title="Attach files"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={inputDisabled}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#e5e7eb] bg-white text-[#374151] hover:bg-[#f7f8fa] hover:text-[#0d0d0d] disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-[#e5e7eb] bg-white text-[#374151] hover:bg-[#f7f8fa] hover:text-[#0d0d0d] disabled:cursor-not-allowed disabled:opacity-50 sm:h-8 sm:w-8"
               >
                 <Paperclip size={15} />
               </button>
@@ -337,7 +337,7 @@ export default function SessionComposer({
                 onClick={onStop}
                 aria-label="Stop generation"
                 title={isBlocked ? "Stop running session" : "Stop generation"}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#cf222e]/25 bg-[#ffebe9] text-[#cf222e] hover:bg-[#ffd7d5]"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-[#cf222e]/25 bg-[#ffebe9] text-[#cf222e] hover:bg-[#ffd7d5] sm:h-8 sm:w-8"
               >
                 <Square size={13} fill="currentColor" />
               </button>
@@ -348,7 +348,7 @@ export default function SessionComposer({
                 disabled={!canSend || sendDisabled}
                 aria-label="Send message"
                 title="Send message"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#2463eb] bg-[#2463eb] text-white shadow-[0_8px_24px_rgba(36,99,235,0.18)] hover:bg-[#1d56d8] disabled:cursor-not-allowed disabled:border-[#e5e7eb] disabled:bg-[#f7f8fa] disabled:text-[#8b8f94] disabled:shadow-none"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-[#2463eb] bg-[#2463eb] text-white shadow-[0_8px_24px_rgba(36,99,235,0.18)] hover:bg-[#1d56d8] disabled:cursor-not-allowed disabled:border-[#e5e7eb] disabled:bg-[#f7f8fa] disabled:text-[#8b8f94] disabled:shadow-none sm:h-8 sm:w-8"
               >
                 <Send size={14} />
               </button>

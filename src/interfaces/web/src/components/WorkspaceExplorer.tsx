@@ -868,7 +868,7 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
                         aria-label={`Rename ${entry.name}`}
                         title="Rename"
                         onClick={() => startRename(entry)}
-                        className="mr-2 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-transparent text-[#6b7280] opacity-0 transition-opacity group-hover:opacity-100 hover:border-[#dde2ea] hover:bg-white hover:text-[#0d0d0d] focus:opacity-100"
+                        className="mr-2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-transparent text-[#6b7280] opacity-100 transition-opacity hover:border-[#dde2ea] hover:bg-white hover:text-[#0d0d0d] focus:opacity-100 sm:h-7 sm:w-7 sm:opacity-0 sm:group-hover:opacity-100"
                       >
                         <Edit3 size={12} />
                       </button>
@@ -879,7 +879,7 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
                           title="Download"
                           onClick={() => void handleDownloadFile(entry.path)}
                           disabled={downloadingPath === entry.path}
-                          className="mr-2 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-transparent text-[#6b7280] opacity-0 transition-opacity group-hover:opacity-100 hover:border-[#dde2ea] hover:bg-white hover:text-[#0d0d0d] focus:opacity-100 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="mr-2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-transparent text-[#6b7280] opacity-100 transition-opacity hover:border-[#dde2ea] hover:bg-white hover:text-[#0d0d0d] focus:opacity-100 disabled:cursor-not-allowed disabled:opacity-50 sm:h-7 sm:w-7 sm:opacity-0 sm:group-hover:opacity-100"
                         >
                           {downloadingPath === entry.path ? (
                             <Loader2 size={12} className="animate-spin" />

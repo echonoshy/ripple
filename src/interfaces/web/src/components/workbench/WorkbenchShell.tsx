@@ -157,7 +157,7 @@ export default function WorkbenchShell({
   );
 
   return (
-    <div className="h-screen w-screen overflow-hidden bg-white text-[#0d0d0d]">
+    <div className="h-dvh h-screen min-h-dvh min-h-screen w-screen overflow-hidden bg-white text-[#0d0d0d]">
       <div className="flex h-full min-h-0">
         <div className="relative hidden shrink-0 bg-[#fbfbfc] lg:block" style={{ width: navWidth }}>
           <div className="h-full border-r border-[#e5e7eb]">{nav}</div>

@@ -70,9 +70,17 @@ function testBlockedComposerStillAllowsDraftingAndShowsStop() {
   assert.doesNotMatch(html, /aria-label="Send message"/);
 }
 
+function testComposerClearsIosHomeIndicatorAndUsesTouchSizedActions() {
+  const html = renderComposer();
+
+  assert.match(html, /pb-\[calc\(88px\+env\(safe-area-inset-bottom\)\)\]/);
+  assert.match(html, /h-10 w-10/);
+}
+
 testShowsSelectedModelAndMenuOptions();
 testComposerToolbarNamesRealActions();
 testComposerInputSuppressesGlobalBlueFocusOutline();
 testBlockedComposerStillAllowsDraftingAndShowsStop();
+testComposerClearsIosHomeIndicatorAndUsesTouchSizedActions();
 
 console.log("session composer tests passed");

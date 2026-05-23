@@ -2,6 +2,10 @@
 
 Expo/React Native mobile client for Ripple Server.
 
+This package is the experimental chat-focused mobile client. The main iOS app
+route for the full Ripple workbench is Tauri iOS; see
+[`docs/IOS_TAURI.md`](../../../docs/IOS_TAURI.md).
+
 This app is only a front-end caller. It does not run the agent loop, tools, sandbox, or backend locally. It talks to Ripple Server through the current `/v1` API.
 
 ## First Version Scope
@@ -17,8 +21,9 @@ This app is only a front-end caller. It does not run the agent loop, tools, sand
 
 ## Run On iOS
 
-For a fuller command reference, including Release builds and CocoaPods/codegen notes, see [`docs/MOBILE_IOS.md`](../../../docs/MOBILE_IOS.md).
-For recent mobile UI and Markdown rendering changes, see [`docs/MOBILE_APP_CHANGES.md`](../../../docs/MOBILE_APP_CHANGES.md).
+For the full workbench/TestFlight route, use the Tauri iOS plan in
+[`docs/IOS_TAURI.md`](../../../docs/IOS_TAURI.md). The commands below run this
+Expo chat MVP client.
 
 From the repository root:
 
@@ -41,7 +46,7 @@ The client automatically calls the `/v1` API under that base URL.
 
 ## Android
 
-The same client can run on Android. For a fuller command reference, including IP-only builds and EAS release profiles, see [`docs/MOBILE_ANDROID.md`](../../../docs/MOBILE_ANDROID.md).
+The same experimental chat client can run on Android.
 
 ```bash
 npm run android

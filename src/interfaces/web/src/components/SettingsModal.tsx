@@ -93,9 +93,9 @@ export default function SettingsModal({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.98, y: 8 }}
             transition={{ type: "spring", stiffness: 420, damping: 34 }}
-            className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center p-4"
+            className="pointer-events-none fixed inset-0 z-50 flex items-end justify-center p-3 sm:items-center sm:p-4"
           >
-            <div className="pointer-events-auto w-full max-w-lg overflow-hidden rounded-lg border border-[#d0d7de] bg-white shadow-xl">
+            <div className="pointer-events-auto flex max-h-[calc(100dvh-24px)] w-full max-w-lg flex-col overflow-hidden rounded-lg border border-[#d0d7de] bg-white shadow-xl">
               <div className="flex items-center justify-between border-b border-[#d0d7de] bg-[#f6f8fa] px-4 py-3">
                 <h2 className="text-sm font-semibold text-[#24292f]">Preferences</h2>
                 <button
@@ -108,9 +108,9 @@ export default function SettingsModal({
                 </button>
               </div>
 
-              <div className="space-y-4 p-4">
+              <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 pb-[max(env(safe-area-inset-bottom),16px)]">
                 <section className="rounded-md border border-[#d0d7de] bg-white p-4">
-                  <div className="flex items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex min-w-0 items-center gap-3">
                       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[#d0d7de] bg-[#f6f8fa] text-[#57606a]">
                         <KeyRound size={17} />
@@ -133,8 +133,8 @@ export default function SettingsModal({
                 </section>
 
                 <section className="rounded-md border border-[#d0d7de] bg-white p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex min-w-0 items-center gap-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex min-w-0 flex-1 items-center gap-3">
                       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[#d0d7de] bg-[#f6f8fa] text-[#57606a]">
                         <UserRound size={17} />
                       </span>
@@ -150,7 +150,7 @@ export default function SettingsModal({
                               if (event.key === "Enter") void handleSaveUserId();
                               if (event.key === "Escape") setIsEditingUserId(false);
                             }}
-                            className="mt-1 w-48 rounded-md border border-[#d0d7de] px-2 py-1 font-[family-name:var(--font-mono)] text-xs text-[#24292f] outline-none focus:border-[#0969da]"
+                            className="mt-1 w-full min-w-[180px] rounded-md border border-[#d0d7de] px-2 py-1 font-[family-name:var(--font-mono)] text-xs text-[#24292f] outline-none focus:border-[#0969da] sm:w-48"
                           />
                         ) : (
                           <div className="truncate font-[family-name:var(--font-mono)] text-xs text-[#6e7781]">

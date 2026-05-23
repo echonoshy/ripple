@@ -219,7 +219,7 @@ export default function AutomationsPage({ selectedModel, onAuthExpired }: Automa
   );
 
   return (
-    <div className="h-full min-h-0 overflow-y-auto bg-white px-4 py-4 text-[#0d0d0d] md:px-6">
+    <div className="h-full min-h-0 overflow-y-auto bg-white px-4 pt-4 pb-[calc(88px+env(safe-area-inset-bottom))] text-[#0d0d0d] md:px-6 lg:pb-4">
       <div className="mx-auto max-w-6xl space-y-4">
         <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e5e7eb] pb-4">
           <div className="min-w-0">

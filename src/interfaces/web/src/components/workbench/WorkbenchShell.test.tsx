@@ -73,6 +73,15 @@ function testDesktopNavigationDefaultsWiderAndResizable() {
 
 testDesktopNavigationDefaultsWiderAndResizable();
 
+function testShellUsesDynamicViewportForIosWebview() {
+  const html = renderShell();
+
+  assert.match(html, /h-dvh/);
+  assert.match(html, /min-h-dvh/);
+}
+
+testShellUsesDynamicViewportForIosWebview();
+
 function testInspectorDefaultsWiderAndResizable() {
   const html = renderShellWithInspector();
 

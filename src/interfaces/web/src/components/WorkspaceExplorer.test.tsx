@@ -145,4 +145,13 @@ function testWorkspaceExplorerCachesListingsAndAvoidsCurrentPathReloadEffect() {
 
 testWorkspaceExplorerCachesListingsAndAvoidsCurrentPathReloadEffect();
 
+function testWorkspaceFileActionsStayVisibleOnTouchScreens() {
+  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /opacity-100 sm:opacity-0/);
+  assert.match(source, /sm:group-hover:opacity-100/);
+}
+
+testWorkspaceFileActionsStayVisibleOnTouchScreens();
+
 console.log("workspace explorer tests passed");

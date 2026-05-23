@@ -161,7 +161,7 @@ export default function ConnectorsPage({
   const connectorSections = useMemo(() => connectorGroupSections(connectors), [connectors]);
 
   return (
-    <div className="h-full min-h-0 overflow-y-auto bg-white px-5 py-5 text-[#0d0d0d] md:px-8">
+    <div className="h-full min-h-0 overflow-y-auto bg-white px-5 pt-5 pb-[calc(88px+env(safe-area-inset-bottom))] text-[#0d0d0d] md:px-8 lg:pb-5">
       <div className="mx-auto max-w-5xl space-y-5">
         <header className="flex flex-wrap items-start justify-between gap-3 border-b border-[#e5e7eb] pb-5">
           <div>

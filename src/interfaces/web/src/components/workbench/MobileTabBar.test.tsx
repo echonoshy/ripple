@@ -28,4 +28,13 @@ function testUsesShortMobileNavigationLabels() {
 
 testUsesShortMobileNavigationLabels();
 
+function testReservesIosSafeAreaAndStableTouchHeight() {
+  const html = renderMobileTabBar();
+
+  assert.match(html, /min-h-\[calc\(64px\+env\(safe-area-inset-bottom\)\)\]/);
+  assert.match(html, /pb-\[max\(env\(safe-area-inset-bottom\),12px\)\]/);
+}
+
+testReservesIosSafeAreaAndStableTouchHeight();
+
 console.log("mobile tab bar tests passed");

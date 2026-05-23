@@ -27,6 +27,10 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all"
+    "targets": "all",
+    "iOS": {
+      "infoPlist": "Info.plist",
+      "minimumSystemVersion": "14.0"
+    }
   }
 }

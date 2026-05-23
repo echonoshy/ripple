@@ -9,7 +9,7 @@ const tauriConfig = JSON.parse(
 ) as {
   identifier: string;
   app: { security: { csp: string } };
-  bundle: { iOS: { infoPlist: string; minimumSystemVersion: string } };
+  bundle: { icon: string[]; iOS: { infoPlist: string; minimumSystemVersion: string } };
 };
 const commonInfoPlist = readFileSync(
   new URL("../../src-tauri/Info.plist", import.meta.url),
@@ -60,6 +60,13 @@ function testTauriConfigKeepsTemporaryHttpIpApiAndAssetCsp() {
   assert.match(csp, /img-src[^;]*asset:/);
   assert.match(csp, /img-src[^;]*blob:/);
   assert.match(csp, /img-src[^;]*http:\/\/140\.143\.229\.103:8810/);
+  assert.deepEqual(tauriConfig.bundle.icon, [
+    "icons/32x32.png",
+    "icons/128x128.png",
+    "icons/128x128@2x.png",
+    "icons/icon.icns",
+    "icons/icon.ico",
+  ]);
   assert.equal(tauriConfig.bundle.iOS.infoPlist, "Info.plist");
   assert.equal(tauriConfig.bundle.iOS.minimumSystemVersion, "14.0");
 }

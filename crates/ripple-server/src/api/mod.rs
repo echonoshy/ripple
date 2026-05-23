@@ -69,6 +69,10 @@ pub fn router(state: AppState) -> Router {
             "/sessions/:session_id/connector-auth/poll",
             post(chat::poll_session_connector_auth),
         )
+        .route(
+            "/sessions/:session_id/connector-auth/cancel",
+            post(sessions::cancel_connector_auth),
+        )
         .route("/sessions/:session_id/usage", get(sessions::session_usage))
         .route(
             "/sandboxes",

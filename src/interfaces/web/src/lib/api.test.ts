@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import {
+  cancelSessionConnectorAuth,
   createSchedule,
   createSession,
   deleteSchedule,
@@ -89,6 +90,7 @@ async function testSessionIdIsEncodedInPath() {
       await fetchSessionDetails(sessionId);
       await deleteSession(sessionId);
       await stopSession(sessionId);
+      await cancelSessionConnectorAuth(sessionId);
       await resolveSessionPermissionRequest(sessionId, "allow");
     }
   );
@@ -97,6 +99,7 @@ async function testSessionIdIsEncodedInPath() {
     "https://test-oauth.weilai.ai/v1/sessions/session%2Fwith%20space",
     "https://test-oauth.weilai.ai/v1/sessions/session%2Fwith%20space",
     "https://test-oauth.weilai.ai/v1/sessions/session%2Fwith%20space/stop",
+    "https://test-oauth.weilai.ai/v1/sessions/session%2Fwith%20space/connector-auth/cancel",
     "https://test-oauth.weilai.ai/v1/sessions/session%2Fwith%20space/permissions/resolve",
   ]);
 }

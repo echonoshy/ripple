@@ -5,8 +5,8 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::api::users::assert_can_create_session;
-use crate::api::ApiError;
-use crate::sessions::CreateSessionInput;
+use crate::api::{connectors, ApiError};
+use crate::sessions::{CreateSessionInput, SessionRecord};
 use crate::state::AppState;
 use crate::user::user_id_from_headers;
 
@@ -115,38 +115,93 @@ pub async fn stop_session(
     let Some(mut session) = state.sessions.load(&user_id, &session_id).await? else {
         return Err(ApiError::not_found("Session not found"));
     };
+    let connector_auth_cancelled = pending_connector_auth_name(&session);
     let stopped = state.jobs.cancel_session_run(&user_id, &session_id).await?;
     if let Some(info) = stopped {
         session.status = "cancelled".to_string();
-        session.pending_permission_request = None;
-        session.pending_question = None;
-        session.pending_options = None;
+        clear_pending_waits(&mut session, true);
         state.sessions.save_record(session).await?;
+        cancel_connector_runtime_if_needed(&user_id, connector_auth_cancelled.as_deref()).await;
         Ok(Json(json!({
             "ok": true,
             "session_id": session_id,
             "stopped": true,
             "job_id": info.job_id,
-            "status": info.status
+            "status": info.status,
+            "connector_auth_cancelled": connector_auth_cancelled.is_some(),
+            "connector": connector_auth_cancelled
         })))
-    } else if matches!(session.status.as_str(), "queued" | "running") {
+    } else if matches!(session.status.as_str(), "queued" | "running")
+        || connector_auth_cancelled.is_some()
+    {
         session.status = "cancelled".to_string();
-        session.pending_permission_request = None;
-        session.pending_question = None;
-        session.pending_options = None;
+        clear_pending_waits(&mut session, true);
         state.sessions.save_record(session).await?;
+        cancel_connector_runtime_if_needed(&user_id, connector_auth_cancelled.as_deref()).await;
         Ok(Json(json!({
             "ok": true,
             "session_id": session_id,
             "stopped": false,
-            "status": "cancelled"
+            "status": "cancelled",
+            "connector_auth_cancelled": connector_auth_cancelled.is_some(),
+            "connector": connector_auth_cancelled
         })))
     } else {
         Ok(Json(json!({
             "ok": true,
             "session_id": session_id,
-            "stopped": false
+            "stopped": false,
+            "connector_auth_cancelled": false
         })))
+    }
+}
+
+pub async fn cancel_connector_auth(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(session_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    let Some(mut session) = state.sessions.load(&user_id, &session_id).await? else {
+        return Err(ApiError::not_found("Session not found"));
+    };
+    let connector = pending_connector_auth_name(&session);
+    if connector.is_some() {
+        session.status = "cancelled".to_string();
+        clear_pending_waits(&mut session, true);
+        state.sessions.save_record(session).await?;
+        cancel_connector_runtime_if_needed(&user_id, connector.as_deref()).await;
+    }
+    Ok(Json(json!({
+        "ok": true,
+        "session_id": session_id,
+        "connector_auth_cancelled": connector.is_some(),
+        "connector": connector
+    })))
+}
+
+fn pending_connector_auth_name(session: &SessionRecord) -> Option<String> {
+    session
+        .pending_connector_auth
+        .as_ref()
+        .and_then(|pending| pending.get("connector"))
+        .and_then(Value::as_str)
+        .filter(|connector| !connector.trim().is_empty())
+        .map(ToString::to_string)
+}
+
+fn clear_pending_waits(session: &mut SessionRecord, include_connector_auth: bool) {
+    session.pending_permission_request = None;
+    session.pending_question = None;
+    session.pending_options = None;
+    if include_connector_auth {
+        session.pending_connector_auth = None;
+    }
+}
+
+async fn cancel_connector_runtime_if_needed(user_id: &str, connector: Option<&str>) {
+    if connector == Some("feishu") {
+        connectors::cancel_feishu_setup(user_id).await;
     }
 }
 

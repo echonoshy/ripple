@@ -11,6 +11,7 @@ import type {
 } from "@/types";
 import {
   AuthError,
+  cancelSessionConnectorAuth,
   fetchSessionDetails,
   pollSessionConnectorAuth,
   resolveSessionPermissionRequest,
@@ -28,9 +29,10 @@ import {
 import { bumpInputFocusToken } from "@/lib/inputFocus";
 import { mapSessionMessages } from "@/lib/sessionMessages";
 import {
-  codexRuntimeEventToTimelineEvent,
   extractChangedFilePaths,
+  mergeTimelineEvents,
   messagesToTimelineEvents,
+  upsertRuntimeTimelineEvent,
 } from "@/lib/workbench";
 import { openExternalUrl } from "@/lib/platform";
 import type { FeishuAuthOpenPayload, FeishuAuthWaitingState } from "@/components/MarkdownRenderer";
@@ -58,6 +60,9 @@ const emptyUsage: UsageInfo = {
   total_tokens: 0,
 };
 
+export const CONNECTOR_AUTH_POLL_TIMEOUT_MS = 5 * 60 * 1000;
+const CONNECTOR_AUTH_POLL_INTERVAL_MS = 2000;
+
 function shouldShowRuntimeEvent(event: CodexRuntimeEvent): boolean {
   return event.type !== "tool_output_delta";
 }
@@ -77,6 +82,48 @@ interface ConnectorAuthPollOptions {
   baseMessages?: Message[];
   allowWhileGenerating?: boolean;
   openAuthWindow?: boolean;
+}
+
+export function connectorAuthPollPayloadFromEvent(
+  event: ConnectorAuthChatEvent
+): FeishuAuthOpenPayload | null {
+  const data = event.action?.data || {};
+  const nextUrl =
+    typeof data.oauth_url === "string"
+      ? data.oauth_url
+      : typeof data.setup_url === "string"
+        ? data.setup_url
+        : "";
+  if (
+    event.type !== "connector_auth_required" ||
+    (event.connector !== "google_workspace" && event.connector !== "feishu") ||
+    !nextUrl
+  ) {
+    return null;
+  }
+
+  return {
+    connector: event.connector === "google_workspace" ? "google_workspace" : "feishu",
+    tag: event.connector === "feishu" && data.setup_url === nextUrl ? "setup" : "auth",
+    url: nextUrl,
+    popup: null,
+  };
+}
+
+export function shouldContinueConnectorAuthPoll(
+  lastEvent: ConnectorAuthChatEvent | null,
+  targetConnector: FeishuAuthOpenPayload["connector"],
+  elapsedMs: number,
+  timeoutMs: number = CONNECTOR_AUTH_POLL_TIMEOUT_MS
+): boolean {
+  return (
+    elapsedMs < timeoutMs &&
+    lastEvent !== null &&
+    lastEvent.connector === targetConnector &&
+    lastEvent.type === "connector_auth_required" &&
+    lastEvent.stage !== "auth_failed" &&
+    lastEvent.stage !== "invalid_request"
+  );
 }
 
 export function useChatRun({
@@ -349,7 +396,13 @@ export function useChatRun({
       const initialMessages: Message[] = [
         ...messages,
         { id: userMessageId, role: "user", content: displayText, created_at: sentAt },
-        { id: assistantMessageId, role: "assistant", content: "", toolCalls: [] },
+        {
+          id: assistantMessageId,
+          role: "assistant",
+          content: "",
+          toolCalls: [],
+          created_at: sentAt,
+        },
       ];
       runningViewStatesRef.current.set(activeSessionId, {
         sessionId: activeSessionId,
@@ -531,6 +584,7 @@ export function useChatRun({
                 role: "assistant",
                 content: "",
                 toolCalls: [],
+                created_at: new Date().toISOString(),
               },
             ]);
           },
@@ -570,13 +624,15 @@ export function useChatRun({
             if (isStaleRequest()) return;
             if (!shouldShowRuntimeEvent(event)) return;
             const createdAt = new Date().toISOString();
-            updateRunningTimelineEvents((prev) => [
-              ...prev,
-              codexRuntimeEventToTimelineEvent(event, {
-                id: `runtime-${requestId}-${prev.length}`,
+            updateRunningTimelineEvents((prev) =>
+              upsertRuntimeTimelineEvent(prev, event, {
+                id:
+                  event.type === "codex_turn_diff_updated"
+                    ? `runtime-${requestId}-workspace-diff`
+                    : `runtime-${requestId}-${prev.length}`,
                 createdAt,
-              }),
-            ]);
+              })
+            );
           },
           onAgentStop: (data) => {
             if (isStaleRequest()) return;
@@ -646,20 +702,9 @@ export function useChatRun({
           },
           onConnectorAuth: (event) => {
             if (isStaleRequest()) return;
-            const data = event.action?.data || {};
-            const nextUrl = typeof data.oauth_url === "string" ? data.oauth_url : "";
-            if (
-              event.connector === "google_workspace" &&
-              event.type === "connector_auth_required" &&
-              event.stage === "awaiting_browser_callback" &&
-              nextUrl
-            ) {
-              pendingConnectorAuthPayload = {
-                connector: "google_workspace",
-                tag: "auth",
-                url: nextUrl,
-                popup: null,
-              };
+            const nextPayload = connectorAuthPollPayloadFromEvent(event);
+            if (nextPayload) {
+              pendingConnectorAuthPayload = nextPayload;
             }
           },
           onComplete: () => {
@@ -823,6 +868,7 @@ export function useChatRun({
       startFeishuAuthWaiting(url, targetConnector);
       const pollId = connectorAuthPollIdRef.current + 1;
       connectorAuthPollIdRef.current = pollId;
+      const pollStartedAt = Date.now();
       const baseMessages = options.baseMessages || messages;
       const initialMessages: Message[] = [
         ...baseMessages,
@@ -831,6 +877,7 @@ export function useChatRun({
           role: "assistant",
           content: "",
           toolCalls: [],
+          created_at: new Date().toISOString(),
         },
       ];
       runningViewStatesRef.current.set(activeSessionId, {
@@ -923,8 +970,40 @@ export function useChatRun({
             role: "assistant",
             content: "",
             toolCalls: [],
+            created_at: new Date().toISOString(),
           },
         ]);
+      };
+      const setLastAssistantMessage = (content: string) => {
+        renderedPollContent = true;
+        updateRunningMessages((prev) => {
+          const msgs = [...prev];
+          const last = msgs[msgs.length - 1];
+          if (last?.role === "assistant") {
+            last.content = content;
+            last.toolCalls = last.toolCalls || [];
+            return msgs;
+          }
+          return [
+            ...msgs,
+            {
+              id: Date.now() + Math.random(),
+              role: "assistant",
+              content,
+              toolCalls: [],
+              created_at: new Date().toISOString(),
+            },
+          ];
+        });
+      };
+      const cancelPendingConnectorAuth = async () => {
+        try {
+          await cancelSessionConnectorAuth(activeSessionId);
+        } catch (error) {
+          if (error instanceof AuthError) {
+            handleAuthExpired();
+          }
+        }
       };
 
       let renderedPollContent = false;
@@ -992,6 +1071,7 @@ export function useChatRun({
                 role: "assistant",
                 content: "",
                 toolCalls: [],
+                created_at: new Date().toISOString(),
               },
             ];
           });
@@ -1084,13 +1164,15 @@ export function useChatRun({
               if (!shouldShowRuntimeEvent(event)) return;
               renderedPollContent = true;
               const createdAt = new Date().toISOString();
-              updateRunningTimelineEvents((prev) => [
-                ...prev,
-                codexRuntimeEventToTimelineEvent(event, {
-                  id: `runtime-${targetConnector}-${pollId}-${prev.length}`,
+              updateRunningTimelineEvents((prev) =>
+                upsertRuntimeTimelineEvent(prev, event, {
+                  id:
+                    event.type === "codex_turn_diff_updated"
+                      ? `runtime-${targetConnector}-${pollId}-workspace-diff`
+                      : `runtime-${targetConnector}-${pollId}-${prev.length}`,
                   createdAt,
-                }),
-              ]);
+                })
+              );
             },
             onUsage: (usage) => {
               if (isStalePoll()) return;
@@ -1113,18 +1195,12 @@ export function useChatRun({
               if (event.type === "connector_auth_updated") {
                 clearFeishuAuthWaiting();
               }
-              const data = event.action?.data || {};
-              const nextUrl =
-                typeof data.oauth_url === "string"
-                  ? data.oauth_url
-                  : typeof data.setup_url === "string"
-                    ? data.setup_url
-                    : "";
-              if (event.connector === targetConnector && nextUrl) {
+              const pollPayload = connectorAuthPollPayloadFromEvent(event);
+              if (pollPayload?.connector === targetConnector) {
                 if (shouldOpenAuthWindow) {
-                  navigateFeishuAuthPopup(nextUrl);
+                  navigateFeishuAuthPopup(pollPayload.url);
                 }
-                startFeishuAuthWaiting(nextUrl, targetConnector);
+                startFeishuAuthWaiting(pollPayload.url, targetConnector);
               }
             },
             onComplete: () => {},
@@ -1143,6 +1219,8 @@ export function useChatRun({
             return;
           }
           console.error("Connector auth poll error:", pollState.streamError);
+          await cancelPendingConnectorAuth();
+          if (isStalePoll()) return;
           updateRunningMessages((prev) => {
             const msgs = [...prev];
             const last = msgs[msgs.length - 1];
@@ -1159,14 +1237,34 @@ export function useChatRun({
         if (!refreshed) return;
         if (isStalePoll()) return;
         const lastEvent = pollState.lastEvent;
-        const shouldContinue =
-          lastEvent !== null &&
-          lastEvent.connector === targetConnector &&
-          lastEvent.type === "connector_auth_required" &&
-          lastEvent.stage !== "auth_failed" &&
-          lastEvent.stage !== "invalid_request";
+        const elapsedMs = Date.now() - pollStartedAt;
+        const waitingForAuth = shouldContinueConnectorAuthPoll(
+          lastEvent,
+          targetConnector,
+          0,
+          Number.POSITIVE_INFINITY
+        );
+        if (waitingForAuth && elapsedMs >= CONNECTOR_AUTH_POLL_TIMEOUT_MS) {
+          setLastAssistantMessage(
+            targetConnector === "google_workspace"
+              ? "Google 授权等待超时，已停止本次授权轮询。请重新发起授权。"
+              : "飞书授权等待超时，已停止本次授权轮询。请重新发起授权。"
+          );
+          await cancelPendingConnectorAuth();
+          if (isStalePoll()) return;
+          await finishPoll();
+          return;
+        }
+        const shouldContinue = shouldContinueConnectorAuthPoll(
+          lastEvent,
+          targetConnector,
+          elapsedMs
+        );
         if (shouldContinue) {
-          connectorAuthPollTimerRef.current = window.setTimeout(runPoll, 2000);
+          connectorAuthPollTimerRef.current = window.setTimeout(
+            runPoll,
+            CONNECTOR_AUTH_POLL_INTERVAL_MS
+          );
           return;
         }
         await finishPoll();
@@ -1221,13 +1319,14 @@ export function useChatRun({
         ? ("waiting_for_user" as const)
         : null;
   const timelineEvents = useMemo(
-    () => [
-      ...messagesToTimelineEvents(messages, {
-        showToolActivity: true,
-        maxToolActivityItems: 4,
-      }),
-      ...runtimeTimelineEvents,
-    ],
+    () =>
+      mergeTimelineEvents(
+        messagesToTimelineEvents(messages, {
+          showToolActivity: true,
+          maxToolActivityItems: 4,
+        }),
+        runtimeTimelineEvents
+      ),
     [messages, runtimeTimelineEvents]
   );
   const changedFiles = useMemo(() => extractChangedFilePaths(messages), [messages]);

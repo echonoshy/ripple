@@ -135,6 +135,49 @@ function stringifyRuntimeBody(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
+function normalizeDiffPath(path: string): string {
+  return path
+    .trim()
+    .replace(/^"|"$/g, "")
+    .replace(/^[ab]\//, "")
+    .trim();
+}
+
+function diffText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value === undefined || value === null) return "";
+  return stringifyRuntimeBody(value);
+}
+
+function changedPathsFromDiff(diff: unknown): string[] {
+  const paths = new Set<string>();
+  const text = diffText(diff);
+  for (const line of text.split("\n")) {
+    if (line.startsWith("diff --git ")) {
+      const parts = line.trim().split(/\s+/);
+      const path = normalizeDiffPath(parts[3] || parts[2] || "");
+      if (path && path !== "/dev/null") paths.add(path);
+      continue;
+    }
+
+    if (line.startsWith("+++ ")) {
+      const path = normalizeDiffPath(line.slice(4));
+      if (path && path !== "/dev/null") paths.add(path);
+    }
+  }
+  return [...paths];
+}
+
+function runtimeDiffSummary(event: CodexRuntimeEvent): string {
+  const paths = changedPathsFromDiff(event.diff);
+  if (paths.length === 0) return "Workspace changes updated.";
+
+  const visible = paths.slice(0, 4);
+  const more = paths.length > visible.length ? `, +${paths.length - visible.length} more` : "";
+  const noun = paths.length === 1 ? "file" : "files";
+  return `${paths.length} ${noun} changed: ${visible.join(", ")}${more}`;
+}
+
 function runtimeBody(event: CodexRuntimeEvent): string {
   if (event.type === "tool_output_delta") {
     return event.delta || stringifyRuntimeBody(event);
@@ -150,7 +193,7 @@ function runtimeBody(event: CodexRuntimeEvent): string {
     return event.message || stringifyRuntimeBody(event);
   }
   if (event.type === "codex_turn_diff_updated") {
-    return stringifyRuntimeBody(event.diff) || stringifyRuntimeBody(event);
+    return runtimeDiffSummary(event);
   }
   if (event.type === "context_compaction") {
     return "Codex compacted conversation context.";
@@ -166,7 +209,7 @@ function runtimeTitle(event: CodexRuntimeEvent): string {
   if (event.type === "codex_warning") return "Codex warning";
   if (event.type === "codex_error") return "Codex error";
   if (event.type === "context_compaction") return "Context compacted";
-  if (event.type === "codex_turn_diff_updated") return "Workspace diff updated";
+  if (event.type === "codex_turn_diff_updated") return "Workspace diff";
   return "Codex runtime update";
 }
 
@@ -197,6 +240,58 @@ export function codexRuntimeEventToTimelineEvent(
     createdAt: options.createdAt,
     status,
   };
+}
+
+export function upsertRuntimeTimelineEvent(
+  events: WorkbenchTimelineEvent[],
+  event: CodexRuntimeEvent,
+  options: { id?: string; createdAt?: string } = {}
+): WorkbenchTimelineEvent[] {
+  const nextEvent = codexRuntimeEventToTimelineEvent(event, options);
+  if (event.type !== "codex_turn_diff_updated") return [...events, nextEvent];
+
+  const existingIndex = events.findIndex((candidate) => candidate.id === nextEvent.id);
+  if (existingIndex < 0) return [...events, nextEvent];
+
+  return events.map((candidate, index) => (index === existingIndex ? nextEvent : candidate));
+}
+
+function eventTime(value: string | undefined): number | null {
+  if (!value) return null;
+  const time = Date.parse(value);
+  return Number.isNaN(time) ? null : time;
+}
+
+export function mergeTimelineEvents(
+  messageEvents: WorkbenchTimelineEvent[],
+  runtimeEvents: WorkbenchTimelineEvent[]
+): WorkbenchTimelineEvent[] {
+  const merged = [...messageEvents];
+  const orderedRuntime = runtimeEvents
+    .map((event, index) => ({ event, index, time: eventTime(event.createdAt) }))
+    .sort((a, b) => {
+      if (a.time !== null && b.time !== null && a.time !== b.time) return a.time - b.time;
+      return a.index - b.index;
+    });
+
+  for (const { event, time } of orderedRuntime) {
+    if (time === null) {
+      merged.push(event);
+      continue;
+    }
+
+    const insertAt = merged.findIndex((candidate) => {
+      const candidateTime = eventTime(candidate.createdAt);
+      return candidateTime !== null && candidateTime > time;
+    });
+    if (insertAt < 0) {
+      merged.push(event);
+    } else {
+      merged.splice(insertAt, 0, event);
+    }
+  }
+
+  return merged;
 }
 
 function changedPathsFromValue(value: unknown): string[] {

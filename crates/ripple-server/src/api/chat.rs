@@ -432,6 +432,7 @@ pub async fn poll_session_connector_auth(
         .await;
     }
 
+    let emit_message = connector_auth_poll_should_emit_message(&decision.event, &pending);
     if connector_auth_poll_should_persist_message(&decision.event, &pending) {
         persist_connector_auth_event(&state, &mut session, &Value::Null, "", &decision.event)
             .await?;
@@ -439,11 +440,12 @@ pub async fn poll_session_connector_auth(
         session.status = connector_auth_status(&decision.event).to_string();
         state.sessions.save_record(session.clone()).await?;
     }
-    Ok(connector_auth_event_response(
+    Ok(connector_auth_event_response_with_message(
         &model,
         &session.session_id,
         decision.event,
         request.stream.unwrap_or(true),
+        emit_message,
     ))
 }
 
@@ -1208,6 +1210,12 @@ fn decision_from_action(
                 Some(resume_user_input)
             },
         })
+    } else if is_terminal_connector_auth_stage(&stage) {
+        session.pending_connector_auth = None;
+        Ok(ConnectorAuthDecision {
+            event,
+            resume_user_input: None,
+        })
     } else {
         session.pending_connector_auth =
             Some(pending_from_event(connector, &event, resume_user_input));
@@ -1261,11 +1269,18 @@ async fn persist_connector_auth_event(
 }
 
 fn connector_auth_status(event: &Value) -> &'static str {
-    if event.get("type").and_then(Value::as_str) == Some("connector_auth_required") {
+    let stage = event.get("stage").and_then(Value::as_str).unwrap_or("");
+    if event.get("type").and_then(Value::as_str) == Some("connector_auth_required")
+        && !is_terminal_connector_auth_stage(stage)
+    {
         "awaiting_user_input"
     } else {
         "idle"
     }
+}
+
+fn is_terminal_connector_auth_stage(stage: &str) -> bool {
+    matches!(stage, "auth_failed" | "invalid_request")
 }
 
 fn connector_auth_poll_should_persist_message(event: &Value, previous_pending: &Value) -> bool {
@@ -1297,6 +1312,10 @@ fn connector_auth_poll_should_persist_message(event: &Value, previous_pending: &
         }
     }
     false
+}
+
+fn connector_auth_poll_should_emit_message(event: &Value, previous_pending: &Value) -> bool {
+    connector_auth_poll_should_persist_message(event, previous_pending)
 }
 
 fn public_connector_auth_event(event: &Value) -> Value {
@@ -1604,12 +1623,26 @@ fn connector_auth_event_response(
     event: Value,
     stream_response: bool,
 ) -> Response<Body> {
+    connector_auth_event_response_with_message(model, session_id, event, stream_response, true)
+}
+
+fn connector_auth_event_response_with_message(
+    model: &str,
+    session_id: &str,
+    event: Value,
+    stream_response: bool,
+    emit_message: bool,
+) -> Response<Body> {
     let public_event = public_connector_auth_event(&event);
     if stream_response {
         let chunk_id = format!("chatcmpl-{}", &Uuid::new_v4().simple().to_string()[..24]);
         let model_id = model.to_string();
         let created = now_epoch_seconds();
-        let message = event_message(&event);
+        let message = if emit_message {
+            event_message(&event)
+        } else {
+            String::new()
+        };
         let stream = stream! {
             yield Ok::<Bytes, Infallible>(Bytes::from(chunk(&chunk_id, &model_id, created, json!({"role": "assistant"}), None)));
             yield Ok::<Bytes, Infallible>(sse_json(&public_event));
@@ -1634,7 +1667,12 @@ fn connector_auth_event_response(
         return response;
     }
 
-    let mut payload = chat_completion_payload(model, session_id, event_message(&event));
+    let output_text = if emit_message {
+        event_message(&event)
+    } else {
+        String::new()
+    };
+    let mut payload = chat_completion_payload(model, session_id, output_text);
     payload["connector_auth"] = public_event;
     let mut response = Json(payload).into_response();
     response.headers_mut().insert(
@@ -2459,6 +2497,86 @@ mod tests {
             &authorized,
             &previous
         ));
+    }
+
+    #[test]
+    fn connector_auth_poll_emits_text_only_for_meaningful_progress() {
+        let previous = json!({"setup_url": "https://open.feishu.cn/page/cli?user_code=abc"});
+        let unchanged = json!({
+            "type": "connector_auth_required",
+            "stage": "awaiting_setup",
+            "message": "重复的飞书 setup 文案",
+            "action": {"data": {"setup_url": "https://open.feishu.cn/page/cli?user_code=abc"}}
+        });
+        let changed = json!({
+            "type": "connector_auth_required",
+            "stage": "awaiting_user_auth",
+            "message": "新的飞书账号授权文案",
+            "action": {"data": {"oauth_url": "https://accounts.feishu.cn/device"}}
+        });
+        let failed = json!({
+            "type": "connector_auth_required",
+            "stage": "auth_failed",
+            "message": "config init --new failed (exit=141)",
+            "action": {"data": {}}
+        });
+
+        assert!(!connector_auth_poll_should_emit_message(
+            &unchanged, &previous
+        ));
+        assert!(connector_auth_poll_should_emit_message(&changed, &previous));
+        assert!(connector_auth_poll_should_emit_message(&failed, &previous));
+    }
+
+    #[test]
+    fn auth_failed_connector_action_clears_pending_auth() {
+        let now = now_iso();
+        let mut session = SessionRecord {
+            session_id: "srv-test".to_string(),
+            user_id: "alice".to_string(),
+            title: String::new(),
+            model: "codex-test".to_string(),
+            max_turns: 200,
+            caller_system_prompt: None,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            last_input_tokens: 0,
+            created_at: now.clone(),
+            last_active: now,
+            status: "awaiting_user_input".to_string(),
+            message_count: 0,
+            messages: Vec::new(),
+            pending_question: None,
+            pending_options: None,
+            pending_permission_request: None,
+            pending_connector_auth: Some(json!({"connector": "feishu"})),
+            pending_schedule_request: None,
+            codex_thread_id: None,
+            plan_steps: Vec::new(),
+            plan_progress: None,
+        };
+
+        let decision = decision_from_action(
+            &mut session,
+            "feishu",
+            json!({
+                "name": "feishu",
+                "ok": false,
+                "stage": "auth_failed",
+                "detail": "config init --new failed (exit=141)",
+                "data": {}
+            }),
+            "继续发飞书消息".to_string(),
+        )
+        .expect("decision");
+
+        assert!(session.pending_connector_auth.is_none());
+        assert_eq!(decision.resume_user_input, None);
+        assert_eq!(
+            decision.event.get("type").and_then(Value::as_str),
+            Some("connector_auth_required")
+        );
+        assert_eq!(connector_auth_status(&decision.event), "idle");
     }
 
     #[test]

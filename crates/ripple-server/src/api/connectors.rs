@@ -1627,7 +1627,7 @@ async fn check_feishu_setup(
     }
 }
 
-async fn cancel_feishu_setup(user_id: &str) {
+pub(crate) async fn cancel_feishu_setup(user_id: &str) {
     let setup = pending_feishu_setup_map().lock().await.remove(user_id);
     if let Some(mut setup) = setup {
         let _ = setup.process.kill().await;
@@ -1653,6 +1653,9 @@ async fn extract_url_from_stdout(
         match tokio::time::timeout(remaining.min(Duration::from_secs(5)), lines.next_line()).await {
             Ok(Ok(Some(line))) => {
                 if let Some(url) = first_url_in_text(&line) {
+                    tokio::spawn(
+                        async move { while matches!(lines.next_line().await, Ok(Some(_))) {} },
+                    );
                     return url;
                 }
             }
@@ -3102,6 +3105,31 @@ mod tests {
             Some("abc")
         );
         assert_eq!(value_as_u64(fields.get("expires_at")), Some(1_731_536_000));
+    }
+
+    #[tokio::test]
+    async fn extracting_setup_url_keeps_stdout_drained_after_url() {
+        let mut child = Command::new("/bin/bash")
+            .args([
+                "-c",
+                "printf 'https://open.feishu.cn/page/cli?user_code=abc\\n'; sleep 0.1; printf 'still alive\\n'",
+            ])
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let stdout = child.stdout.take().unwrap();
+
+        let url = extract_url_from_stdout(stdout, 5).await;
+        assert_eq!(url, "https://open.feishu.cn/page/cli?user_code=abc");
+
+        let status = tokio::time::timeout(Duration::from_secs(2), child.wait())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            status.success(),
+            "setup stdout reader closed early: {status}"
+        );
     }
 
     #[test]

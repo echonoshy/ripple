@@ -1857,6 +1857,139 @@ async fn connector_auth_route_clears_matching_pending_session_auth() {
 }
 
 #[tokio::test]
+async fn stop_session_clears_pending_connector_auth_without_running_job() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let (state, app) = test_state_and_app(&root);
+    let user_id = "smoke-user";
+    let mut session = state
+        .sessions
+        .create_session(
+            user_id,
+            CreateSessionInput {
+                model: Some("codex-test".to_string()),
+                max_turns: None,
+                system_prompt: None,
+            },
+        )
+        .await
+        .unwrap();
+    session.status = "awaiting_user_input".to_string();
+    session.pending_connector_auth = Some(json!({
+        "connector": "feishu",
+        "stage": "awaiting_setup",
+        "resume_user_input": "发一条飞书消息"
+    }));
+    state.sessions.save_record(session.clone()).await.unwrap();
+
+    let (status, body) = call(
+        app,
+        Method::POST,
+        &format!("/v1/sessions/{}/stop", session.session_id),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body.get("connector_auth_cancelled")
+            .and_then(Value::as_bool),
+        Some(true)
+    );
+
+    let reloaded = state
+        .sessions
+        .load(user_id, &session.session_id)
+        .await
+        .unwrap()
+        .expect("session");
+    assert_eq!(reloaded.status, "cancelled");
+    assert!(reloaded.pending_connector_auth.is_none());
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn cancel_connector_auth_route_clears_only_target_session() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let (state, app) = test_state_and_app(&root);
+    let user_id = "smoke-user";
+    let mut first = state
+        .sessions
+        .create_session(
+            user_id,
+            CreateSessionInput {
+                model: Some("codex-test".to_string()),
+                max_turns: None,
+                system_prompt: None,
+            },
+        )
+        .await
+        .unwrap();
+    first.status = "awaiting_user_input".to_string();
+    first.pending_connector_auth = Some(json!({
+        "connector": "feishu",
+        "stage": "awaiting_setup"
+    }));
+    state.sessions.save_record(first.clone()).await.unwrap();
+
+    let mut second = state
+        .sessions
+        .create_session(
+            user_id,
+            CreateSessionInput {
+                model: Some("codex-test".to_string()),
+                max_turns: None,
+                system_prompt: None,
+            },
+        )
+        .await
+        .unwrap();
+    second.status = "awaiting_user_input".to_string();
+    second.pending_connector_auth = Some(json!({
+        "connector": "google_workspace",
+        "stage": "awaiting_browser_callback"
+    }));
+    state.sessions.save_record(second.clone()).await.unwrap();
+
+    let (status, body) = call(
+        app,
+        Method::POST,
+        &format!("/v1/sessions/{}/connector-auth/cancel", first.session_id),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body.get("connector_auth_cancelled")
+            .and_then(Value::as_bool),
+        Some(true)
+    );
+    assert_eq!(
+        body.get("connector").and_then(Value::as_str),
+        Some("feishu")
+    );
+
+    let first = state
+        .sessions
+        .load(user_id, &first.session_id)
+        .await
+        .unwrap()
+        .expect("first");
+    assert_eq!(first.status, "cancelled");
+    assert!(first.pending_connector_auth.is_none());
+
+    let second = state
+        .sessions
+        .load(user_id, &second.session_id)
+        .await
+        .unwrap()
+        .expect("second");
+    assert_eq!(second.status, "awaiting_user_input");
+    assert!(second.pending_connector_auth.is_some());
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
 async fn chat_route_confirms_pending_schedule_without_starting_codex() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let (state, app) = test_state_and_app(&root);

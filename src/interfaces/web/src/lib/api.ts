@@ -438,6 +438,23 @@ export async function stopSession(sessionId: string): Promise<boolean> {
   }
 }
 
+export async function cancelSessionConnectorAuth(sessionId: string): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${API_URL}/sessions/${encodeURIComponent(sessionId)}/connector-auth/cancel`,
+      {
+        method: "POST",
+        headers: { ...authHeaders() },
+      }
+    );
+    if (res.status === 401) throw new AuthError();
+    return res.ok;
+  } catch (error) {
+    if (error instanceof AuthError) throw error;
+    return false;
+  }
+}
+
 export async function resolveSessionPermissionRequest(
   sessionId: string,
   action: "allow" | "always" | "deny"

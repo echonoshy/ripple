@@ -4,10 +4,12 @@ import {
   applyCurrentSessionRuntimeStatus,
   codexRuntimeEventToTimelineEvent,
   extractChangedFilePaths,
+  mergeTimelineEvents,
   mergeInferredWorkbenchSessions,
   mapSessionSummariesToWorkbenchSessions,
   messagesToTimelineEvents,
   sortWorkbenchSessions,
+  upsertRuntimeTimelineEvent,
 } from "./workbench";
 import type { CodexRuntimeEvent, Message, SessionSummary } from "@/types";
 
@@ -329,6 +331,93 @@ function testMapsCodexRuntimeEventsIntoTimelineEvents() {
   assert.equal(compactEvent.status, "completed");
 }
 
+function testSummarizesCodexRuntimeDiffInsteadOfShowingFullPatch() {
+  const event = codexRuntimeEventToTimelineEvent(
+    {
+      type: "codex_turn_diff_updated",
+      diff: ["diff --git a/src/App.tsx b/src/App.tsx", "@@ -1,2 +1,2 @@", "-old", "+new"].join(
+        "\n"
+      ),
+      status: "running",
+    },
+    { id: "runtime-diff-1", createdAt: "2026-05-19T00:00:03.000Z" }
+  );
+
+  assert.equal(event.id, "runtime-diff-1");
+  assert.equal(event.type, "file_change");
+  assert.equal(event.title, "Workspace diff");
+  assert.equal(event.status, "running");
+  assert.match(event.body, /1 file/);
+  assert.match(event.body, /src\/App\.tsx/);
+  assert.doesNotMatch(event.body, /@@ -1/);
+}
+
+function testUpsertsCodexRuntimeDiffEvents() {
+  const first = upsertRuntimeTimelineEvent(
+    [],
+    {
+      type: "codex_turn_diff_updated",
+      diff: "diff --git a/src/App.tsx b/src/App.tsx",
+      status: "running",
+    },
+    { id: "runtime-diff", createdAt: "2026-05-19T00:00:01.000Z" }
+  );
+  const second = upsertRuntimeTimelineEvent(
+    first,
+    {
+      type: "codex_turn_diff_updated",
+      diff: "diff --git a/src/Session.tsx b/src/Session.tsx",
+      status: "completed",
+    },
+    { id: "runtime-diff", createdAt: "2026-05-19T00:00:02.000Z" }
+  );
+
+  assert.equal(second.length, 1);
+  assert.equal(second[0].id, "runtime-diff");
+  assert.equal(second[0].status, "completed");
+  assert.match(second[0].body, /src\/Session\.tsx/);
+  assert.doesNotMatch(second[0].body, /src\/App\.tsx/);
+}
+
+function testMergesRuntimeEventsByTimestamp() {
+  const messageEvents = messagesToTimelineEvents([
+    {
+      id: "old-user",
+      role: "user",
+      content: "write a doc",
+      created_at: "2026-05-19T00:00:01.000Z",
+    },
+    {
+      id: "old-assistant",
+      role: "assistant",
+      content: "done",
+      created_at: "2026-05-19T00:00:02.000Z",
+    },
+    {
+      id: "new-user",
+      role: "user",
+      content: "send a Feishu message",
+      created_at: "2026-05-19T00:00:04.000Z",
+    },
+  ]);
+  const runtimeEvents = [
+    codexRuntimeEventToTimelineEvent(
+      {
+        type: "codex_turn_diff_updated",
+        diff: "diff --git a/codex-goal-mode.md b/codex-goal-mode.md",
+      },
+      { id: "runtime-diff", createdAt: "2026-05-19T00:00:03.000Z" }
+    ),
+  ];
+
+  const merged = mergeTimelineEvents(messageEvents, runtimeEvents);
+
+  assert.deepEqual(
+    merged.map((event) => event.id),
+    ["old-user", "old-assistant", "runtime-diff", "new-user"]
+  );
+}
+
 testMapsSessionSummariesToWorkbenchSummaries();
 testSortsApprovalSessionsBeforeOrdinaryRunningSessions();
 testAppliesCurrentRunningStatusToExistingSession();
@@ -339,5 +428,8 @@ testLimitsToolActivityToRecentSummaries();
 testPlacesAssistantContentAfterItsToolCalls();
 testExtractsChangedFilesFromToolCalls();
 testMapsCodexRuntimeEventsIntoTimelineEvents();
+testSummarizesCodexRuntimeDiffInsteadOfShowingFullPatch();
+testUpsertsCodexRuntimeDiffEvents();
+testMergesRuntimeEventsByTimestamp();
 
 console.log("workbench tests passed");

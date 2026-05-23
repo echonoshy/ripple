@@ -1,6 +1,6 @@
-# Ripple Web
+# Ripple App
 
-Ripple Web is a Vite + React single-page client for the Ripple server. The same client is also embedded by the Tauri desktop shell under `src-tauri/`.
+Ripple App is a Vite + React single-page client for the Ripple server. The same client is used directly in browsers and embedded by the Tauri desktop/iOS/Android shells under `src-tauri/`.
 
 ## Development
 
@@ -32,6 +32,8 @@ The Tauri shell is frontend-only: it embeds this React client and still talks to
 ```bash
 bun run tauri:dev
 bun run tauri:build
+bun run tauri:ios:dev
+bun run tauri:android:build
 ```
 
 On Linux, `tauri:build` includes AppImage packaging and may download Tauri's

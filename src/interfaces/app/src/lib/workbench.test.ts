@@ -153,7 +153,7 @@ function testMapsToolCallsIntoTimelineEvents() {
         {
           id: "tool-1",
           name: "command_execution",
-          arguments: { command: "bun run lint", cwd: "/workspace/src/interfaces/web" },
+          arguments: { command: "bun run lint", cwd: "/workspace/src/interfaces/app" },
           status: "success",
           result: "very long command output that should not be shown in the main timeline",
         },
@@ -162,8 +162,8 @@ function testMapsToolCallsIntoTimelineEvents() {
           name: "file_change",
           arguments: {
             changes: [
-              { path: "/workspace/src/interfaces/web/src/App.tsx" },
-              { path: "src/interfaces/web/src/components/workbench/InspectorPanel.tsx" },
+              { path: "/workspace/src/interfaces/app/src/App.tsx" },
+              { path: "src/interfaces/app/src/components/workbench/InspectorPanel.tsx" },
             ],
           },
           status: "success",

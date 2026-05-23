@@ -1426,21 +1426,36 @@ fn connector_auth_message(connector: &str, action: &Value) -> String {
                 detail.to_string()
             }
         }
-        "bilibili" => data
-            .and_then(|data| data.get("qrcode_image_url"))
-            .and_then(Value::as_str)
-            .map(|url| {
-                format!(
-                    "请打开这个二维码链接，用 B 站 App 扫码并确认登录：\n\n{url}\n\n扫完后回到这里告诉我「好了」。"
-                )
-            })
-            .unwrap_or_else(|| {
-                if stage == "authorized" {
+        "bilibili" => {
+            if let Some(data) = data {
+                let qrcode_image_url = data.get("qrcode_image_url").and_then(Value::as_str);
+                let qrcode_content = data.get("qrcode_content").and_then(Value::as_str);
+                if let (Some(qrcode_image_url), Some(qrcode_content)) =
+                    (qrcode_image_url, qrcode_content)
+                {
+                    let app_url = data
+                        .get("app_url")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
+                    let app_url_section = if app_url.trim().is_empty() {
+                        String::new()
+                    } else {
+                        format!("\n\n{app_url}")
+                    };
+                    format!(
+                        "[BILIBILI_AUTH]\nB 站扫码登录\n\n{qrcode_image_url}\n\n{qrcode_content}{app_url_section}\n\n扫码或点链接确认后，回到这里发送「好了」。"
+                    )
+                } else if stage == "authorized" {
                     connector_authorized_message(connector).to_string()
                 } else {
                     detail.to_string()
                 }
-            }),
+            } else if stage == "authorized" {
+                connector_authorized_message(connector).to_string()
+            } else {
+                detail.to_string()
+            }
+        }
         "notion" => {
             if stage == "authorized" {
                 connector_authorized_message(connector).to_string()
@@ -2497,6 +2512,27 @@ mod tests {
             &authorized,
             &previous
         ));
+    }
+
+    #[test]
+    fn bilibili_auth_message_renders_manual_qr_card_tag() {
+        let message = connector_auth_message(
+            "bilibili",
+            &json!({
+                "stage": "awaiting_user",
+                "detail": "Open qrcode_image_url with the Bilibili app.",
+                "data": {
+                    "qrcode_image_url": "/v1/bilibili/qrcode.png?content=encoded",
+                    "qrcode_content": "https://account.bilibili.com/h5/account-h5/auth/scan-web?qrcode_key=abc",
+                    "app_url": "bilibili://browser?url=https%3A%2F%2Faccount.bilibili.com%2Fh5%2Faccount-h5%2Fauth%2Fscan-web%3Fqrcode_key%3Dabc"
+                }
+            }),
+        );
+
+        assert!(message.contains("[BILIBILI_AUTH]"));
+        assert!(message.contains("/v1/bilibili/qrcode.png"));
+        assert!(message.contains("https://account.bilibili.com/h5/account-h5/auth/scan-web"));
+        assert!(message.contains("bilibili://browser?url="));
     }
 
     #[test]

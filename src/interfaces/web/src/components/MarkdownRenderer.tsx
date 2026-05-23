@@ -7,7 +7,15 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
-import { ChevronRight, Brain, ExternalLink, KeyRound, Loader2, Settings2 } from "lucide-react";
+import {
+  ChevronRight,
+  Brain,
+  ExternalLink,
+  KeyRound,
+  Loader2,
+  QrCode,
+  Settings2,
+} from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { resolveBackendUrl } from "@/lib/api";
 import { openExternalUrl } from "@/lib/platform";
@@ -81,10 +89,12 @@ export interface FeishuAuthWaitingState {
 }
 
 interface ContentSegment {
-  type: "text" | "thinking" | "feishu" | "google";
+  type: "text" | "thinking" | "feishu" | "google" | "bilibili";
   content: string;
   tag?: FeishuTag;
   url?: string;
+  qrcodeImageUrl?: string;
+  appUrl?: string;
 }
 
 function parseThinkingBlocks(content: string): ContentSegment[] {
@@ -123,6 +133,39 @@ function parseThinkingBlocks(content: string): ContentSegment[] {
  * 前后的普通文本保留为独立的 text segment。
  */
 function parseConnectorAuthBlocks(text: string): ContentSegment[] {
+  const segments: ContentSegment[] = [];
+  const bilibiliRe =
+    /\[BILIBILI_AUTH\][\s\S]*?(\/v1\/bilibili\/qrcode\.png\?\S+)[\s\S]*?(https?:\/\/\S+)(?:[\s\S]*?(bilibili:\/\/\S+))?/g;
+  let lastBilibili = 0;
+  let bilibiliMatch: RegExpExecArray | null;
+
+  while ((bilibiliMatch = bilibiliRe.exec(text)) !== null) {
+    if (bilibiliMatch.index > lastBilibili) {
+      const before = text.slice(lastBilibili, bilibiliMatch.index).trim();
+      if (before) segments.push(...parseBrowserConnectorAuthBlocks(before));
+    }
+    segments.push({
+      type: "bilibili",
+      content: bilibiliMatch[0],
+      qrcodeImageUrl: bilibiliMatch[1],
+      url: bilibiliMatch[2],
+      appUrl: bilibiliMatch[3],
+    });
+    lastBilibili = bilibiliMatch.index + bilibiliMatch[0].length;
+  }
+
+  if (segments.length > 0) {
+    if (lastBilibili < text.length) {
+      const tail = text.slice(lastBilibili).trim();
+      if (tail) segments.push(...parseBrowserConnectorAuthBlocks(tail));
+    }
+    return segments;
+  }
+
+  return parseBrowserConnectorAuthBlocks(text);
+}
+
+function parseBrowserConnectorAuthBlocks(text: string): ContentSegment[] {
   const segments: ContentSegment[] = [];
   const re = /\[(FEISHU_(SETUP|AUTH)|GOOGLE_AUTH)\][\s\S]*?(https?:\/\/\S+)/g;
   let last = 0;
@@ -281,6 +324,77 @@ function GoogleAuthCard({
   );
 }
 
+function BilibiliAuthCard({
+  qrcodeImageUrl,
+  scanUrl,
+  appUrl,
+}: {
+  qrcodeImageUrl: string;
+  scanUrl: string;
+  appUrl?: string;
+}) {
+  const qrSrc = resolveBackendUrl(qrcodeImageUrl) || qrcodeImageUrl;
+  const href = resolveBackendUrl(scanUrl) || scanUrl;
+  const appHref = appUrl?.trim();
+
+  const handleOpen = (targetHref: string) => (event: React.MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault();
+    void openExternalUrl(targetHref, "ripple-connector-auth");
+  };
+
+  return (
+    <div className="my-2 overflow-hidden rounded-lg border border-[#e5e7eb] bg-white">
+      <div className="flex items-center gap-2 border-b border-[#e5e7eb] bg-[#fff4e5] px-4 py-3 text-[#9a3412]">
+        <QrCode size={16} />
+        <span className="text-sm font-semibold">B 站扫码登录</span>
+      </div>
+      <div className="space-y-3 px-4 py-3">
+        <p className="text-sm font-medium text-[#374151]">
+          用 B 站 App 扫描二维码，或手动打开授权链接确认登录。
+        </p>
+        <div className="flex flex-wrap items-start gap-4">
+          <img
+            src={qrSrc}
+            alt="Bilibili login QR code"
+            loading="lazy"
+            className="h-36 w-36 rounded-md border border-[#dde2ea] bg-white object-contain p-2"
+          />
+          <div className="min-w-0 flex-1 space-y-2">
+            <a
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={handleOpen(href)}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[#f97316]/25 bg-[#fff4e5] px-3 text-sm font-medium text-[#9a3412] hover:bg-[#ffedd5]"
+            >
+              打开 B 站授权链接
+              <ExternalLink size={13} />
+            </a>
+            {appHref && (
+              <a
+                href={appHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={handleOpen(appHref)}
+                className="ml-2 inline-flex h-8 items-center gap-1.5 rounded-md border border-[#d1d5db] bg-white px-3 text-sm font-medium text-[#374151] hover:bg-[#f7f8fa]"
+              >
+                打开 B 站 App
+                <ExternalLink size={13} />
+              </a>
+            )}
+            <p className="text-xs font-medium text-[#6b7280]">
+              扫码或点链接确认后，回到这里发送「好了」。
+            </p>
+          </div>
+        </div>
+        <div className="font-[family-name:var(--font-mono)] text-[11px] break-all text-[#6b7280]">
+          {scanUrl}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ThinkingBlock({
   content,
   onFeishuAuthOpen,
@@ -345,7 +459,8 @@ function MarkdownContent({
   const normalized = normalizeLlmMatrixNewlines(content);
   const segments = parseConnectorAuthBlocks(normalized);
   const hasConnectorAuth = segments.some(
-    (segment) => segment.type === "feishu" || segment.type === "google"
+    (segment) =>
+      segment.type === "feishu" || segment.type === "google" || segment.type === "bilibili"
   );
 
   if (hasConnectorAuth) {
@@ -370,6 +485,16 @@ function MarkdownContent({
                 url={segment.url}
                 onOpen={onFeishuAuthOpen}
                 waiting={feishuAuthWaiting}
+              />
+            );
+          }
+          if (segment.type === "bilibili" && segment.qrcodeImageUrl && segment.url) {
+            return (
+              <BilibiliAuthCard
+                key={index}
+                qrcodeImageUrl={segment.qrcodeImageUrl}
+                scanUrl={segment.url}
+                appUrl={segment.appUrl}
               />
             );
           }
@@ -516,6 +641,16 @@ export default function MarkdownRenderer({
               url={segment.url}
               onOpen={onFeishuAuthOpen}
               waiting={feishuAuthWaiting}
+            />
+          );
+        }
+        if (segment.type === "bilibili" && segment.qrcodeImageUrl && segment.url) {
+          return (
+            <BilibiliAuthCard
+              key={i}
+              qrcodeImageUrl={segment.qrcodeImageUrl}
+              scanUrl={segment.url}
+              appUrl={segment.appUrl}
             />
           );
         }

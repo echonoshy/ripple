@@ -54,9 +54,30 @@ function testGoogleAuthCardDoesNotAskForManualCallback() {
   assert.doesNotMatch(html, /好了/);
 }
 
+function testBilibiliAuthCardShowsQrAndManualOpenLink() {
+  const html = renderToStaticMarkup(
+    <MarkdownRenderer
+      content={
+        "[BILIBILI_AUTH]\n" +
+        "/v1/bilibili/qrcode.png?content=encoded\n" +
+        "https://account.bilibili.com/h5/account-h5/auth/scan-web?qrcode_key=abc\n" +
+        "bilibili://browser?url=https%3A%2F%2Faccount.bilibili.com%2Fh5%2Faccount-h5%2Fauth%2Fscan-web%3Fqrcode_key%3Dabc"
+      }
+    />
+  );
+
+  assert.match(html, /B 站扫码登录/);
+  assert.match(html, /src="[^"]*\/v1\/bilibili\/qrcode\.png\?content=encoded"/);
+  assert.match(html, /打开 B 站授权链接/);
+  assert.match(html, /扫码或点链接确认后/);
+  assert.match(html, /好了/);
+  assert.doesNotMatch(html, /自动继续/);
+}
+
 testPreservesSingleNewlineAsLineBreak();
 testFeishuAuthCardDoesNotCompleteAuthDirectly();
 testFeishuAuthCardShowsWaitingState();
 testGoogleAuthCardDoesNotAskForManualCallback();
+testBilibiliAuthCardShowsQrAndManualOpenLink();
 
 console.log("markdown renderer tests passed");

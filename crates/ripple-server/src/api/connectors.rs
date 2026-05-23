@@ -1006,16 +1006,18 @@ async fn bilibili_auth_start(state: &AppState, user_id: &str) -> Result<Json<Val
     register_pending_bilibili_qr(user_id);
     let encoded_content =
         form_urlencoded::byte_serialize(generated.qrcode_content.as_bytes()).collect::<String>();
+    let app_url = bilibili_app_url(&generated.qrcode_content);
     Ok(Json(action_response(
         "bilibili",
         true,
         "awaiting_user",
-        "Open qrcode_image_url with the Bilibili app, then complete the auth flow.",
+        "Open qrcode_content with the Bilibili app, then complete the auth flow.",
         json!({
             "bound": false,
             "qrcode_key": generated.qrcode_key,
             "qrcode_image_url": format!("/v1/bilibili/qrcode.png?content={encoded_content}"),
             "qrcode_content": generated.qrcode_content,
+            "app_url": app_url,
             "expires_in_seconds": BILIBILI_QRCODE_TTL_SECONDS
         }),
     )))
@@ -2150,6 +2152,12 @@ async fn bilibili_qrcode_generate(client: &reqwest::Client) -> anyhow::Result<Bi
     })
 }
 
+fn bilibili_app_url(qrcode_content: &str) -> String {
+    let encoded_content =
+        form_urlencoded::byte_serialize(qrcode_content.trim().as_bytes()).collect::<String>();
+    format!("bilibili://browser?url={encoded_content}")
+}
+
 async fn bilibili_qrcode_poll(
     client: &reqwest::Client,
     qrcode_key: &str,
@@ -3105,6 +3113,18 @@ mod tests {
             Some("abc")
         );
         assert_eq!(value_as_u64(fields.get("expires_at")), Some(1_731_536_000));
+    }
+
+    #[test]
+    fn builds_bilibili_app_deep_link_from_scan_url() {
+        let app_url = bilibili_app_url(
+            "https://account.bilibili.com/h5/account-h5/auth/scan-web?navhide=1&callback=close&qrcode_key=abc&from=",
+        );
+
+        assert_eq!(
+            app_url,
+            "bilibili://browser?url=https%3A%2F%2Faccount.bilibili.com%2Fh5%2Faccount-h5%2Fauth%2Fscan-web%3Fnavhide%3D1%26callback%3Dclose%26qrcode_key%3Dabc%26from%3D"
+        );
     }
 
     #[tokio::test]

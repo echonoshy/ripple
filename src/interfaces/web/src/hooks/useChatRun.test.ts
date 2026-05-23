@@ -75,6 +75,24 @@ function testGoogleAuthStillStartsAutomaticPoll() {
   });
 }
 
+function testBilibiliAuthDoesNotStartAutomaticPollOrOpen() {
+  const payload = connectorAuthPollPayloadFromEvent(
+    authEvent({
+      connector: "bilibili",
+      display_name: "Bilibili",
+      stage: "awaiting_user",
+      data: {
+        qrcode_image_url: "/v1/bilibili/qrcode.png?content=encoded",
+        app_url:
+          "bilibili://browser?url=https%3A%2F%2Faccount.bilibili.com%2Fh5%2Faccount-h5%2Fauth%2Fscan-web%3Fqrcode_key%3Dabc",
+        qrcode_content: "https://account.bilibili.com/h5/account-h5/auth/scan-web?qrcode_key=abc",
+      },
+    })
+  );
+
+  assert.equal(payload, null);
+}
+
 function testAuthorizedConnectorEventDoesNotStartPoll() {
   const payload = connectorAuthPollPayloadFromEvent(
     authEvent({
@@ -129,6 +147,7 @@ function testConnectorAuthPollStopsOnTerminalStages() {
 testFeishuSetupAuthStartsAutomaticPoll();
 testFeishuUserAuthStartsAutomaticPoll();
 testGoogleAuthStillStartsAutomaticPoll();
+testBilibiliAuthDoesNotStartAutomaticPollOrOpen();
 testAuthorizedConnectorEventDoesNotStartPoll();
 testConnectorAuthPollContinuesOnlyBeforeTimeout();
 testConnectorAuthPollStopsOnTerminalStages();

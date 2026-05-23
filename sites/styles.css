@@ -46,6 +46,10 @@ img {
   max-width: 100%;
 }
 
+.no-wrap {
+  white-space: nowrap;
+}
+
 .site-header {
   position: sticky;
   top: 0;
@@ -176,7 +180,9 @@ h3 {
 .hero-note,
 .quickstart-copy p,
 .feature-card p,
-.flow-item p {
+.flow-item p,
+.architecture-grid p,
+.status-grid li {
   color: var(--muted);
   font-size: 17px;
   line-height: 1.7;
@@ -309,6 +315,7 @@ h3 {
 
 .content-section,
 .flow-section,
+.status-section,
 .quickstart-section {
   padding: clamp(58px, 9vw, 112px) clamp(18px, 4vw, 56px);
 }
@@ -330,7 +337,9 @@ h3 {
 }
 
 .feature-card,
-.flow-item {
+.flow-item,
+.architecture-grid article,
+.status-grid article {
   border: 2px solid var(--ink);
   border-radius: var(--radius);
   background: white;
@@ -338,7 +347,7 @@ h3 {
 }
 
 .feature-card {
-  min-height: 265px;
+  min-height: 295px;
   padding: 22px;
 }
 
@@ -410,24 +419,57 @@ h3 {
   gap: 14px;
 }
 
-.architecture-grid div {
-  border: 2px solid var(--ink);
-  border-radius: 7px;
-  background: white;
-  box-shadow: var(--shadow-small);
+.architecture-grid article {
   padding: 18px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-  font-size: 14px;
-  font-weight: 900;
+}
+
+.architecture-grid h3,
+.status-grid h3 {
   overflow-wrap: anywhere;
 }
 
-.architecture-grid div:nth-child(2n) {
+.architecture-grid h3 {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 15px;
+}
+
+.architecture-grid p {
+  margin-bottom: 0;
+  font-size: 15px;
+}
+
+.architecture-grid article:nth-child(2n) {
   background: var(--yellow);
 }
 
-.architecture-grid div:nth-child(3n) {
+.architecture-grid article:nth-child(3n) {
   background: var(--lavender);
+}
+
+.status-section {
+  border-top: 2px solid var(--ink);
+  background: var(--sidebar);
+}
+
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.status-grid article {
+  padding: clamp(22px, 4vw, 34px);
+}
+
+.status-grid ul {
+  display: grid;
+  gap: 12px;
+  margin: 18px 0 0;
+  padding-left: 20px;
+}
+
+.status-grid li {
+  padding-left: 4px;
 }
 
 .quickstart-section {
@@ -488,6 +530,7 @@ h3 {
 
   .feature-grid,
   .flow-list,
+  .status-grid,
   .architecture-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -519,6 +562,7 @@ h3 {
   .section-strip,
   .feature-grid,
   .flow-list,
+  .status-grid,
   .architecture-grid {
     grid-template-columns: 1fr;
   }

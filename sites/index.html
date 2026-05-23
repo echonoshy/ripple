@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="Ripple is a Rust control plane for Codex app-server with Skills, sandbox isolation, connector auth, and Web/Tauri clients."
+      content="Ripple is a Rust control plane for Codex app-server, with multi-user sandboxes, connector auth, schedules, runs, skill manifests, and Web/Tauri/Mobile clients."
     />
-    <title>Ripple 涟漪 | Agent System</title>
+    <title>Ripple 涟漪 | Codex Control Plane</title>
     <link rel="icon" href="assets/ripple-icon.svg" />
     <link rel="stylesheet" href="styles.css" />
   </head>
@@ -18,8 +18,10 @@
         <span>Ripple</span>
       </a>
       <nav class="nav-links" aria-label="Primary navigation">
-        <a href="#features">Features</a>
+        <a href="#features">Capabilities</a>
         <a href="#flow">Flow</a>
+        <a href="#architecture">Architecture</a>
+        <a href="#status">Status</a>
         <a href="#quickstart">Quickstart</a>
         <a href="https://github.com/echonoshy/ripple">GitHub</a>
       </nav>
@@ -28,14 +30,15 @@
     <main id="top">
       <section class="hero">
         <div class="hero-copy">
-          <p class="stamp">WIP Agent Runtime</p>
-          <h1>Ripple <span style="white-space: nowrap;">涟漪</span></h1>
+          <p class="stamp">Codex Control Plane</p>
+          <h1>Ripple <span class="no-wrap">涟漪</span></h1>
           <p class="hero-lede">
-            一个运行在 Codex app-server 之上的 Rust Agent 控制面。
+            运行在 Codex app-server 之上的多用户 Agent 控制面。
           </p>
           <p class="hero-note">
-            Ripple 管理 user sandbox、session、connector auth、skill manifest、approval bridge 和统一 `/v1` API，
-            让一次提问可以稳定地扩展成可追踪、可验证的执行过程。
+            Ripple 用 Rust 管理 user sandbox、session、run、workspace、connector 授权、
+            skill manifest、approval bridge、schedule 和统一 `/v1` API。真正的执行交给服务端
+            Codex app-server，客户端只负责展示和交互。
           </p>
           <div class="hero-actions">
             <a class="button button-primary" href="#quickstart">Start locally</a>
@@ -48,54 +51,54 @@
             <span></span>
             <span></span>
             <span></span>
-            <strong>ripple://agent-loop</strong>
+            <strong>ripple://control-plane</strong>
           </div>
           <div class="interface-frame">
-            <img src="assets/use-case.png" alt="Ripple Web interface preview" />
+            <img src="assets/use-case.png" alt="Ripple macOS app interface preview" />
           </div>
         </div>
       </section>
 
       <section class="section-strip" aria-label="Project summary">
         <div>
-          <strong>Rust</strong>
-          <span>控制面后端</span>
+          <strong>Rust ripple-server</strong>
+          <span>独立 Linux 后端，稳定提供 `/v1` API</span>
         </div>
         <div>
           <strong>Codex app-server</strong>
-          <span>可信执行面</span>
+          <span>服务端统一授权的可信执行面</span>
         </div>
         <div>
-          <strong>Skills + Connectors</strong>
-          <span>可复用流程与授权边界</span>
+          <strong>Web / Tauri / Mobile</strong>
+          <span>同一套客户端体验，只调用 Ripple Server</span>
         </div>
       </section>
 
       <section id="features" class="content-section">
         <div class="section-heading">
-          <p class="eyebrow">What makes Ripple different</p>
-          <h2>不是一个聊天壳，而是一套 Agent 运行系统。</h2>
+          <p class="eyebrow">What Ripple Owns</p>
+          <h2>Ripple 负责控制边界，Codex 负责执行任务。</h2>
         </div>
         <div class="feature-grid">
           <article class="feature-card accent-pink">
             <span class="feature-index">01</span>
-            <h3>Agentic loop</h3>
-            <p>多轮对话、工具调用、状态转换和停止条件共同组成主循环。</p>
+            <h3>Multi-user control</h3>
+            <p>API key middleware 和 `X-Ripple-User-Id` 共同定义 user 隔离入口，session、quota、workspace 都按 user 归属管理。</p>
           </article>
           <article class="feature-card accent-yellow">
             <span class="feature-index">02</span>
-            <h3>Skills</h3>
-            <p>用 Markdown + YAML frontmatter 定义可复用任务模板和领域流程。</p>
+            <h3>User sandbox</h3>
+            <p>隔离单位是 user，不是 session。同一用户的多个 session 共享长期 workspace、credentials 和运行历史。</p>
           </article>
           <article class="feature-card accent-cyan">
             <span class="feature-index">03</span>
-            <h3>Hooks</h3>
-            <p>在工具调用前后做验证、拦截和权限判断，让执行链路更可控。</p>
+            <h3>Connector auth</h3>
+            <p>Google Workspace、Notion、Feishu/Lark、Bilibili 的授权、状态、账号和断开流程都由后端控制面收口。</p>
           </article>
           <article class="feature-card accent-lime">
             <span class="feature-index">04</span>
-            <h3>User sandbox</h3>
-            <p>以 user_id 隔离长期 workspace，同一用户的多个 session 共享上下文。</p>
+            <h3>Jobs and schedules</h3>
+            <p>`/v1/runs`、chat completions、approval bridge、run history、run-now 和后台 due schedule trigger 走同一条执行边界。</p>
           </article>
         </div>
       </section>
@@ -103,28 +106,28 @@
       <section id="flow" class="flow-section">
         <div class="section-heading">
           <p class="eyebrow">How it works</p>
-          <h2>一次请求，从上下文进入，到工具结果回流。</h2>
+          <h2>一次请求先进入控制面，再进入 Codex 执行面。</h2>
         </div>
         <div class="flow-list">
           <div class="flow-item">
             <span>1</span>
-            <h3>Session starts</h3>
-            <p>Server 根据 user_id 准备 sandbox、会话状态和可用工具。</p>
+            <h3>Request boundary</h3>
+            <p>Server 校验 API key，解析 `X-Ripple-User-Id`，把请求绑定到当前 user 的隔离空间。</p>
           </div>
           <div class="flow-item">
             <span>2</span>
-            <h3>Agent decides</h3>
-            <p>核心 loop 读取上下文，决定回复、调用工具或继续推理。</p>
+            <h3>Control events</h3>
+            <p>Chat 侧先处理 connector auth、schedule proposal、session 状态、workspace attachment 和权限桥接。</p>
           </div>
           <div class="flow-item">
             <span>3</span>
-            <h3>Tools run</h3>
-            <p>工具系统处理并发、权限、Hook 和执行结果。</p>
+            <h3>Codex run</h3>
+            <p>Ripple 按 user 懒启动可信 app-server 进程，用 managed permissions profile 限制读写边界。</p>
           </div>
           <div class="flow-item">
             <span>4</span>
             <h3>State returns</h3>
-            <p>消息、任务进度和输出回写到会话，前端持续更新。</p>
+            <p>Codex event 被映射成 OpenAI-compatible response 或 SSE，同时持久化 session、job、usage 和输出。</p>
           </div>
         </div>
       </section>
@@ -132,33 +135,86 @@
       <section id="architecture" class="content-section architecture-section">
         <div class="section-heading">
           <p class="eyebrow">Architecture</p>
-          <h2>核心能力清晰拆在几个边界里。</h2>
+          <h2>后端业务逻辑留在 Rust Server，客户端保持轻量。</h2>
         </div>
         <div class="architecture-grid">
-          <div>ripple-server / api</div>
-          <div>codex / app-server</div>
-          <div>skills / manifest</div>
-          <div>approval / bridge</div>
-          <div>sandbox / nsjail</div>
-          <div>connectors / auth</div>
-          <div>app</div>
-          <div>schedules / runs</div>
+          <article>
+            <h3>crates/ripple-server</h3>
+            <p>独立 Rust 控制面，注册 `/v1` API，处理鉴权、配额、状态和兼容响应。</p>
+          </article>
+          <article>
+            <h3>codex/app_server.rs</h3>
+            <p>Codex app-server JSON-RPC provider，按 user 懒启动可信服务端进程。</p>
+          </article>
+          <article>
+            <h3>sandbox.rs</h3>
+            <p>维护 `.ripple/sandboxes/&lt;user_id&gt;` 的 workspace、credentials、sessions 和 nsjail 配置。</p>
+          </article>
+          <article>
+            <h3>sessions.rs + jobs.rs</h3>
+            <p>保存 session metadata/messages、run history、events、outputs、usage 和 lifecycle 状态。</p>
+          </article>
+          <article>
+            <h3>api/connectors.rs</h3>
+            <p>收口 Notion、Google Workspace、Feishu/Lark、Bilibili 的 auth、status、accounts 和 disconnect。</p>
+          </article>
+          <article>
+            <h3>api/schedules.rs</h3>
+            <p>提供 schedule CRUD、run-now、历史查询和后台 due schedule trigger。</p>
+          </article>
+          <article>
+            <h3>skills.rs</h3>
+            <p>渲染 Markdown/YAML frontmatter skill manifest，交给 Codex 自行读取对应 `SKILL.md`。</p>
+          </article>
+          <article>
+            <h3>app</h3>
+            <p>Vite + React + Tauri 客户端，覆盖 Web、macOS、iOS、Android，只调用 Ripple `/v1` API。</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="status" class="status-section">
+        <div class="section-heading">
+          <p class="eyebrow">Current State</p>
+          <h2>Rust 主链路已成形，剩下的是真实运行边界的硬化。</h2>
+        </div>
+        <div class="status-grid">
+          <article>
+            <h3>已经迁移到 Rust</h3>
+            <ul>
+              <li>配置加载、API key middleware、user id 校验和 quota。</li>
+              <li>sessions、workspace files、documents、users、runs、chat completions。</li>
+              <li>connector list/status/auth/disconnect/accounts。</li>
+              <li>Codex approval bridge、managed permissions profile、skill manifest。</li>
+            </ul>
+          </article>
+          <article>
+            <h3>正在重点 hardening</h3>
+            <ul>
+              <li>真实 Codex streaming 事件和 attachment follow-up fixtures。</li>
+              <li>chat 侧 schedule creation 在真实 extraction 输出下的端到端链路。</li>
+              <li>真实 nsjail runtime 下 connector CLI auth/status flow。</li>
+              <li>确认旧客户端不再依赖后，清理 deprecated `/v1/tasks` compatibility。</li>
+            </ul>
+          </article>
         </div>
       </section>
 
       <section id="quickstart" class="quickstart-section">
         <div class="quickstart-copy">
           <p class="eyebrow">Quickstart</p>
-          <h2>本地启动只保留必要步骤。</h2>
+          <h2>本地启动一前一后两条进程。</h2>
           <p>
-            主页只做介绍，完整配置细节仍然放在 README 和项目文档里。Ripple 当前仍处于快速开发阶段，
-            接口和机制可能持续调整。
+            先复制配置并准备服务端 Codex 登录态，再启动 Rust 后端。Web/Tauri 开发客户端位于
+            `app`，开发模式会把 `/v1` 代理到本地 `8810` 端口。
           </p>
         </div>
         <pre class="terminal"><code>cp config/settings.yaml.sample config/settings.yaml
+CODEX_HOME=.ripple/codex-service-home codex login
 cargo run -p ripple-server
 
 cd app
+bun install
 bun run dev</code></pre>
       </section>
     </main>

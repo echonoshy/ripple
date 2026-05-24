@@ -300,6 +300,39 @@ impl JobManager {
             .map(|info| info.status))
     }
 
+    pub async fn has_active_session_run(&self, user_id: &str, session_id: &str) -> bool {
+        let jobs = self.jobs.read().await;
+        for job in jobs.values() {
+            let job = job.read().await;
+            if job.user_id.as_deref() == Some(user_id)
+                && job.session_id.as_deref() == Some(session_id)
+                && matches!(
+                    job.status,
+                    AgentRunnerStatus::Queued | AgentRunnerStatus::Running
+                )
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    pub async fn latest_stored_session_run_status(
+        &self,
+        user_id: &str,
+        session_id: &str,
+    ) -> anyhow::Result<Option<String>> {
+        for record in self.storage.list_jobs_for_user(user_id).await? {
+            if record.get("session_id").and_then(Value::as_str) == Some(session_id) {
+                return Ok(record
+                    .get("status")
+                    .and_then(Value::as_str)
+                    .map(str::to_string));
+            }
+        }
+        Ok(None)
+    }
+
     pub async fn events_file_for_user(
         &self,
         job_id: &str,

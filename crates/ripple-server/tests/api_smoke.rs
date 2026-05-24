@@ -2462,6 +2462,87 @@ async fn chat_sessions_for_same_user_execute_in_parallel_with_isolated_fake_code
 }
 
 #[tokio::test]
+async fn dropped_chat_stream_does_not_block_follow_up_after_job_completes() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+    let user_id = "smoke-user";
+
+    let response = app
+        .clone()
+        .oneshot(request(
+            Method::POST,
+            "/v1/chat/completions",
+            json!({
+                "model": "codex-test",
+                "messages": [{"role": "user", "content": "[slow] stream that will disconnect"}],
+                "stream": true
+            }),
+            true,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let session_id = response
+        .headers()
+        .get("x-ripple-session-id")
+        .and_then(|value| value.to_str().ok())
+        .expect("session header")
+        .to_string();
+    drop(response);
+
+    let mut job_completed = false;
+    let mut last_jobs = Vec::new();
+    for _ in 0..80 {
+        let jobs = state.jobs.list_user(user_id).await.unwrap();
+        last_jobs = jobs.clone();
+        if jobs.iter().any(|info| info.status == "completed") {
+            job_completed = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(
+        job_completed,
+        "background Codex job should complete, jobs: {last_jobs:?}"
+    );
+
+    let (status, follow_up) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/chat/completions",
+        json!({
+            "model": "codex-test",
+            "session_id": session_id,
+            "messages": [{"role": "user", "content": "follow up after disconnect"}],
+            "stream": false
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "follow-up response: {follow_up}");
+    assert_eq!(
+        follow_up
+            .pointer("/choices/0/message/content")
+            .and_then(Value::as_str),
+        Some("fake codex completed")
+    );
+
+    let reloaded = state
+        .sessions
+        .load(
+            user_id,
+            follow_up.get("session_id").and_then(Value::as_str).unwrap(),
+        )
+        .await
+        .unwrap()
+        .expect("session");
+    assert_eq!(reloaded.status, "idle");
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
 async fn chat_stream_completes_with_fake_codex_app_server() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let fake_codex = write_fake_codex_app_server(&root);

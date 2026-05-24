@@ -129,6 +129,7 @@ pub async fn chat_completions(
         .clone()
         .or_else(|| session.caller_system_prompt.clone());
     session.caller_system_prompt = effective_caller_system_prompt.clone();
+    reconcile_stale_active_session(&state, &user_id, &mut session).await?;
     if session_has_active_run(&session) {
         return Err(ApiError::conflict("Session already has a running task"));
     }
@@ -364,6 +365,7 @@ pub async fn poll_session_connector_auth(
     let Some(mut session) = state.sessions.load(&user_id, &session_id).await? else {
         return Err(ApiError::not_found("Session not found"));
     };
+    reconcile_stale_active_session(&state, &user_id, &mut session).await?;
     if session_has_active_run(&session) {
         return Err(ApiError::conflict("Session already has a running task"));
     }
@@ -808,6 +810,47 @@ fn record_codex_thread(session: &mut SessionRecord, info: &AgentRunInfo) {
 
 fn session_has_active_run(session: &SessionRecord) -> bool {
     matches!(session.status.as_str(), "queued" | "running")
+}
+
+async fn reconcile_stale_active_session(
+    state: &AppState,
+    user_id: &str,
+    session: &mut SessionRecord,
+) -> Result<(), ApiError> {
+    if !session_has_active_run(session) {
+        return Ok(());
+    }
+    if state
+        .jobs
+        .has_active_session_run(user_id, &session.session_id)
+        .await
+    {
+        return Ok(());
+    }
+    let Some(latest_status) = state
+        .jobs
+        .latest_stored_session_run_status(user_id, &session.session_id)
+        .await?
+    else {
+        return Ok(());
+    };
+    if !TERMINAL_STATUSES.contains(&latest_status.as_str()) {
+        return Ok(());
+    }
+
+    session.status = match latest_status.as_str() {
+        "completed" => "idle",
+        "cancelled" => "cancelled",
+        _ => "failed",
+    }
+    .to_string();
+    session.pending_permission_request = None;
+    clear_session_plan(session);
+    let _ = state
+        .sessions
+        .save_record_if_exists(session.clone())
+        .await?;
+    Ok(())
 }
 
 fn record_session_plan_update(session: &mut SessionRecord, update: &Value) {

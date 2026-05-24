@@ -124,6 +124,14 @@ pub async fn chat_completions(
     let caller_system_prompt = extract_caller_system_prompt(&request.messages);
     let (model, preset_effort) = state.config.resolve_model(request.model.as_deref());
     let effort = request.effort.clone().or(preset_effort);
+    let session_run_lock = request
+        .session_id
+        .as_deref()
+        .map(|session_id| state.sessions.session_lock(&user_id, session_id));
+    let session_run_guard = match session_run_lock {
+        Some(lock) => Some(lock.lock_owned().await),
+        None => None,
+    };
     let mut session = load_or_create_session(&state, &user_id, &request).await?;
     let effective_caller_system_prompt = caller_system_prompt
         .clone()
@@ -187,7 +195,7 @@ pub async fn chat_completions(
             assert_can_create_run(&state, &user_id, state.config.codex.max_runtime_seconds).await?;
             session.status = "running".to_string();
             state.sessions.save_record(session.clone()).await?;
-            return start_codex_chat_response(CodexChatStart {
+            let start = CodexChatStart {
                 state,
                 user_id,
                 session,
@@ -201,8 +209,10 @@ pub async fn chat_completions(
                 attachment_items: Vec::new(),
                 caller_system_prompt: effective_caller_system_prompt.clone(),
                 prefix_event: Some(public_connector_auth_event(&decision.event)),
-            })
-            .await;
+            };
+            let info = create_codex_chat_run_marking_start_failure(&start).await?;
+            drop(session_run_guard);
+            return finish_codex_chat_response(start, info).await;
         }
         persist_connector_auth_event(
             &state,
@@ -224,7 +234,7 @@ pub async fn chat_completions(
     session.status = "running".to_string();
     state.sessions.save_record(session.clone()).await?;
 
-    start_codex_chat_response(CodexChatStart {
+    let start = CodexChatStart {
         state,
         user_id,
         session,
@@ -238,11 +248,79 @@ pub async fn chat_completions(
         attachment_items,
         caller_system_prompt: effective_caller_system_prompt,
         prefix_event: None,
-    })
-    .await
+    };
+    let info = create_codex_chat_run_marking_start_failure(&start).await?;
+    drop(session_run_guard);
+    finish_codex_chat_response(start, info).await
 }
 
-async fn start_codex_chat_response(args: CodexChatStart) -> Result<Response<Body>, ApiError> {
+async fn create_codex_chat_run(args: &CodexChatStart) -> Result<AgentRunInfo, ApiError> {
+    let prompt = build_codex_chat_prompt(
+        &args.state,
+        &args.user_id,
+        &args.session.session_id,
+        &args.workspace_root,
+        &args.user_input,
+        &args.attachment_items,
+        args.caller_system_prompt.as_deref(),
+    );
+    let mut native_items = args.input_items.clone();
+    native_items.push(json!({"type": "text", "text": prompt}));
+    let runtime_dir = args
+        .state
+        .sandboxes
+        .session_dir(&args.user_id, &args.session.session_id)?;
+    let create = AgentRunCreateRequest {
+        prompt,
+        provider: "codex".to_string(),
+        cwd: Some("/workspace".to_string()),
+        input_items: native_items,
+        model: Some(args.model.clone()),
+        effort: args.effort.clone(),
+        summary: args.request.summary.clone(),
+        output_schema: args.request.output_schema.clone(),
+        max_runtime_seconds: args.state.config.codex.max_runtime_seconds,
+        schedule_id: None,
+        schedule_title: None,
+        schedule_trigger: None,
+        codex_thread_id: args.session.codex_thread_id.clone(),
+        codex_persistent_thread: true,
+    };
+    args.state
+        .jobs
+        .start(
+            create,
+            args.user_id.clone(),
+            Some(args.session.session_id.clone()),
+            args.workspace_root.clone(),
+            runtime_dir,
+        )
+        .await
+        .map_err(|err| ApiError::bad_request(err.to_string()))
+}
+
+async fn create_codex_chat_run_marking_start_failure(
+    args: &CodexChatStart,
+) -> Result<AgentRunInfo, ApiError> {
+    match create_codex_chat_run(args).await {
+        Ok(info) => Ok(info),
+        Err(err) => {
+            let mut session = args.session.clone();
+            session.status = "failed".to_string();
+            let _ = args
+                .state
+                .sessions
+                .save_record_if_exists(session.clone())
+                .await?;
+            Err(err)
+        }
+    }
+}
+
+async fn finish_codex_chat_response(
+    args: CodexChatStart,
+    info: AgentRunInfo,
+) -> Result<Response<Body>, ApiError> {
     let CodexChatStart {
         state,
         user_id,
@@ -250,53 +328,14 @@ async fn start_codex_chat_response(args: CodexChatStart) -> Result<Response<Body
         workspace_root,
         request,
         model,
-        effort,
+        effort: _,
         user_input,
-        input_items,
+        input_items: _,
         user_content,
-        attachment_items,
-        caller_system_prompt,
+        attachment_items: _,
+        caller_system_prompt: _,
         prefix_event,
     } = args;
-    let prompt = build_codex_chat_prompt(
-        &state,
-        &user_id,
-        &session.session_id,
-        &workspace_root,
-        &user_input,
-        &attachment_items,
-        caller_system_prompt.as_deref(),
-    );
-    let mut native_items = input_items;
-    native_items.push(json!({"type": "text", "text": prompt}));
-    let runtime_dir = state.sandboxes.session_dir(&user_id, &session.session_id)?;
-    let create = AgentRunCreateRequest {
-        prompt,
-        provider: "codex".to_string(),
-        cwd: Some("/workspace".to_string()),
-        input_items: native_items,
-        model: Some(model.clone()),
-        effort,
-        summary: request.summary,
-        output_schema: request.output_schema,
-        max_runtime_seconds: state.config.codex.max_runtime_seconds,
-        schedule_id: None,
-        schedule_title: None,
-        schedule_trigger: None,
-        codex_thread_id: session.codex_thread_id.clone(),
-        codex_persistent_thread: true,
-    };
-    let info = state
-        .jobs
-        .start(
-            create,
-            user_id.clone(),
-            Some(session.session_id.clone()),
-            workspace_root.clone(),
-            runtime_dir.clone(),
-        )
-        .await
-        .map_err(|err| ApiError::bad_request(err.to_string()))?;
 
     if request.stream.unwrap_or(false) {
         return Ok(stream_chat_response(CodexChatStream {
@@ -362,6 +401,11 @@ pub async fn poll_session_connector_auth(
 ) -> Result<Response<Body>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     let workspace_root = state.sandboxes.ensure_sandbox(&user_id)?;
+    let session_run_guard = state
+        .sessions
+        .session_lock(&user_id, &session_id)
+        .lock_owned()
+        .await;
     let Some(mut session) = state.sessions.load(&user_id, &session_id).await? else {
         return Err(ApiError::not_found("Session not found"));
     };
@@ -417,7 +461,7 @@ pub async fn poll_session_connector_auth(
             .unwrap_or("")
             .to_string();
         let caller_system_prompt = session.caller_system_prompt.clone();
-        return start_codex_chat_response(CodexChatStart {
+        let start = CodexChatStart {
             state,
             user_id,
             session,
@@ -431,8 +475,10 @@ pub async fn poll_session_connector_auth(
             attachment_items: Vec::new(),
             caller_system_prompt,
             prefix_event: Some(public_connector_auth_event(&decision.event)),
-        })
-        .await;
+        };
+        let info = create_codex_chat_run_marking_start_failure(&start).await?;
+        drop(session_run_guard);
+        return finish_codex_chat_response(start, info).await;
     }
 
     let emit_message = connector_auth_poll_should_emit_message(&decision.event, &pending);
@@ -829,7 +875,7 @@ async fn reconcile_stale_active_session(
     }
     let Some(latest_status) = state
         .jobs
-        .latest_stored_session_run_status(user_id, &session.session_id)
+        .recover_stale_stored_session_run(user_id, &session.session_id)
         .await?
     else {
         return Ok(());

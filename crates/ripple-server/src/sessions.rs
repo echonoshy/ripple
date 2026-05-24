@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 use tokio::time::{interval, sleep, Duration};
 use uuid::Uuid;
 
@@ -21,6 +21,7 @@ pub struct SessionManager {
     storage: Storage,
     active: Arc<RwLock<HashMap<(String, String), SessionRecord>>>,
     deleted: Arc<RwLock<HashSet<(String, String)>>>,
+    run_locks: Arc<std::sync::Mutex<HashMap<(String, String), Arc<Mutex<()>>>>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -106,7 +107,16 @@ impl SessionManager {
             storage,
             active: Arc::new(RwLock::new(HashMap::new())),
             deleted: Arc::new(RwLock::new(HashSet::new())),
+            run_locks: Arc::new(std::sync::Mutex::new(HashMap::new())),
         }
+    }
+
+    pub fn session_lock(&self, user_id: &str, session_id: &str) -> Arc<Mutex<()>> {
+        let mut locks = self.run_locks.lock().expect("session run locks poisoned");
+        locks
+            .entry((user_id.to_string(), session_id.to_string()))
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone()
     }
 
     pub async fn create_session(
@@ -197,6 +207,10 @@ impl SessionManager {
         if dir.exists() {
             remove_dir_all_with_retry(&dir).await?;
         }
+        self.run_locks
+            .lock()
+            .expect("session run locks poisoned")
+            .remove(&key);
         if had_active || existed {
             Ok(true)
         } else {
@@ -214,6 +228,10 @@ impl SessionManager {
             .write()
             .await
             .retain(|(cached_user_id, _)| cached_user_id != user_id);
+        self.run_locks
+            .lock()
+            .expect("session run locks poisoned")
+            .retain(|(cached_user_id, _), _| cached_user_id != user_id);
     }
 
     pub async fn save_record_if_exists(&self, record: SessionRecord) -> anyhow::Result<bool> {

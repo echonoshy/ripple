@@ -2462,6 +2462,167 @@ async fn chat_sessions_for_same_user_execute_in_parallel_with_isolated_fake_code
 }
 
 #[tokio::test]
+async fn concurrent_chat_requests_for_same_session_start_single_run() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+    let user_id = "smoke-user";
+
+    let (status, session) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/sessions",
+        json!({"model": "codex-test"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let session_id = session
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("session id")
+        .to_string();
+
+    let first_app = app.clone();
+    let first_session_id = session_id.clone();
+    let first = tokio::spawn(async move {
+        call(
+            first_app,
+            Method::POST,
+            "/v1/chat/completions",
+            json!({
+                "model": "codex-test",
+                "session_id": first_session_id,
+                "messages": [{"role": "user", "content": "schedule this every hour: [slow] Check build"}],
+                "stream": false
+            }),
+        )
+        .await
+    });
+    let second_app = app.clone();
+    let second_session_id = session_id.clone();
+    let second = tokio::spawn(async move {
+        call(
+            second_app,
+            Method::POST,
+            "/v1/chat/completions",
+            json!({
+                "model": "codex-test",
+                "session_id": second_session_id,
+                "messages": [{"role": "user", "content": "schedule this every hour: [slow] Check build"}],
+                "stream": false
+            }),
+        )
+        .await
+    });
+
+    let (first_status, first_body) = first.await.unwrap();
+    let (second_status, second_body) = second.await.unwrap();
+    assert_eq!(first_status, StatusCode::OK, "first response: {first_body}");
+    assert_eq!(
+        second_status,
+        StatusCode::OK,
+        "second response: {second_body}"
+    );
+    let proposed = [first_body.clone(), second_body.clone()]
+        .into_iter()
+        .filter(|body| {
+            body.pointer("/event/type").and_then(Value::as_str) == Some("schedule_proposed")
+        })
+        .count();
+    assert_eq!(proposed, 1, "only one request should start extraction");
+
+    let jobs = state.jobs.list_user(user_id).await.unwrap();
+    assert_eq!(jobs.len(), 1, "only one Codex job should be created");
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn chat_recovers_restart_stale_running_job_before_starting_follow_up() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+    let user_id = "smoke-user";
+    let mut session = state
+        .sessions
+        .create_session(
+            user_id,
+            CreateSessionInput {
+                model: Some("codex-test".to_string()),
+                max_turns: None,
+                system_prompt: None,
+            },
+        )
+        .await
+        .unwrap();
+    session.status = "running".to_string();
+    state.sessions.save_record(session.clone()).await.unwrap();
+    state
+        .storage
+        .upsert_job(&json!({
+            "version": 1,
+            "job_id": "agent-stale",
+            "provider": "codex",
+            "user_id": user_id,
+            "session_id": session.session_id,
+            "prompt_preview": "stale run before restart",
+            "cwd": state.sandboxes.workspace_dir(user_id).unwrap(),
+            "sandbox_cwd": "/workspace",
+            "status": "running",
+            "created_at": "2026-05-24T00:00:00Z",
+            "updated_at": "2026-05-24T00:00:00Z",
+            "events_file": null,
+            "output_file": null,
+            "exit_code": null,
+            "stdout_tail": "",
+            "stderr_tail": "",
+            "error": null
+        }))
+        .await
+        .unwrap();
+
+    let (status, follow_up) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/chat/completions",
+        json!({
+            "model": "codex-test",
+            "session_id": session.session_id,
+            "messages": [{"role": "user", "content": "follow up after restart"}],
+            "stream": false
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "follow-up response: {follow_up}");
+
+    let stale = state
+        .jobs
+        .info_for_user("agent-stale", user_id)
+        .await
+        .unwrap()
+        .expect("stale job");
+    assert_eq!(stale.status, "failed");
+    assert!(stale
+        .error
+        .as_deref()
+        .is_some_and(|value| value.contains("restarted")));
+    let reloaded = state
+        .sessions
+        .load(
+            user_id,
+            follow_up.get("session_id").and_then(Value::as_str).unwrap(),
+        )
+        .await
+        .unwrap()
+        .expect("session");
+    assert_eq!(reloaded.status, "idle");
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
 async fn dropped_chat_stream_does_not_block_follow_up_after_job_completes() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let fake_codex = write_fake_codex_app_server(&root);

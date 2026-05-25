@@ -172,6 +172,10 @@ node_modules/
 # Expo / React Native local state
 .expo/
 
+# Expo / React Native generated native projects
+src/interfaces/mobile/ios/
+src/interfaces/mobile/android/
+
 # Tauri-generated schema files
 app/src-tauri/gen/schemas/
 

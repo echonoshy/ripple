@@ -6,6 +6,7 @@ on:
       - master
     paths:
       - "sites/**"
+      - "assets/ripple-icon.svg"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -31,10 +32,21 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
+      - name: Prepare Pages artifact
+        id: prepare-pages
+        run: |
+          artifact_dir="${RUNNER_TEMP}/ripple-pages"
+          rm -rf "$artifact_dir"
+          mkdir -p "$artifact_dir"
+          cp -R sites/. "$artifact_dir"/
+          mkdir -p "$artifact_dir/assets"
+          cp assets/ripple-icon.svg "$artifact_dir/assets/ripple-icon.svg"
+          echo "path=$artifact_dir" >> "$GITHUB_OUTPUT"
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5
         with:
-          path: sites
+          path: ${{ steps.prepare-pages.outputs.path }}
 
       - name: Deploy to GitHub Pages
         id: deployment

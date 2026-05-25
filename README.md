@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="sites/assets/ripple-icon.svg" alt="Ripple Logo" width="96" />
+<img src="assets/ripple-icon.svg" alt="Ripple Logo" width="96" />
 
 # Ripple
 

@@ -11,8 +11,18 @@ const tauriConfig = JSON.parse(
   app: { security: { csp: string } };
   bundle: { icon: string[]; iOS: { infoPlist: string; minimumSystemVersion: string } };
 };
+const tauriIosConfig = JSON.parse(
+  readFileSync(new URL("../../src-tauri/tauri.ios.conf.json", import.meta.url), "utf8")
+) as {
+  identifier: string;
+  build: { beforeDevCommand: string; beforeBuildCommand: string };
+};
 const commonInfoPlist = readFileSync(
   new URL("../../src-tauri/Info.plist", import.meta.url),
+  "utf8"
+);
+const appleProjectConfig = readFileSync(
+  new URL("../../src-tauri/gen/apple/project.yml", import.meta.url),
   "utf8"
 );
 const iosPlatformInfoPlist = readFileSync(
@@ -72,6 +82,22 @@ function testTauriConfigKeepsTemporaryHttpIpApiAndAssetCsp() {
 }
 
 testTauriConfigKeepsTemporaryHttpIpApiAndAssetCsp();
+
+function testTauriIosDevUsesPublicRippleServer() {
+  assert.equal(tauriIosConfig.identifier, "com.lake.ripple.dev");
+  assert.match(appleProjectConfig, /PRODUCT_NAME: Ripple/);
+  assert.match(appleProjectConfig, /PRODUCT_BUNDLE_IDENTIFIER: com\.lake\.ripple\.dev/);
+  assert.match(
+    tauriIosConfig.build.beforeDevCommand,
+    /VITE_RIPPLE_API_URL=http:\/\/140\.143\.229\.103:8810/
+  );
+  assert.match(
+    tauriIosConfig.build.beforeBuildCommand,
+    /VITE_RIPPLE_API_URL=http:\/\/140\.143\.229\.103:8810/
+  );
+}
+
+testTauriIosDevUsesPublicRippleServer();
 
 function testAppleInfoPlistsAllowTemporaryHttpIpApi() {
   assert.match(commonInfoPlist, /ITSAppUsesNonExemptEncryption/);

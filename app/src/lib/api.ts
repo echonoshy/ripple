@@ -36,9 +36,14 @@ type ApiUrlEnv = {
   VITE_RIPPLE_API_URL?: string;
 };
 
+function normalizeApiUrl(value: string): string {
+  const trimmed = value.replace(/\/+$/, "");
+  return trimmed.endsWith("/v1") ? trimmed : `${trimmed}/v1`;
+}
+
 export function resolveApiUrl(env: ApiUrlEnv): string {
   if (env.VITE_RIPPLE_API_URL) {
-    return env.VITE_RIPPLE_API_URL;
+    return normalizeApiUrl(env.VITE_RIPPLE_API_URL);
   }
   if (env.DEV) {
     return "/v1";

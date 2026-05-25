@@ -175,6 +175,12 @@ node_modules/
 # Tauri-generated schema files
 app/src-tauri/gen/schemas/
 
+# Local app packaging artifacts
+app/build-artifacts/
+
+# Local design exports
+.ripple-design-exports/
+
 # Config files with sensitive data
 config/settings.yaml
 

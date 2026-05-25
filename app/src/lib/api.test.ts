@@ -404,6 +404,10 @@ function testDevDefaultApiUrlUsesSameOriginProxy() {
     resolveApiUrl({ DEV: true, VITE_RIPPLE_API_URL: "http://localhost:8810/v1" }),
     "http://localhost:8810/v1"
   );
+  assert.equal(
+    resolveApiUrl({ DEV: true, VITE_RIPPLE_API_URL: "http://140.143.229.103:8810" }),
+    "http://140.143.229.103:8810/v1"
+  );
   assert.equal(resolveApiUrl({ PROD: true }), "http://140.143.229.103:8810/v1");
 }
 

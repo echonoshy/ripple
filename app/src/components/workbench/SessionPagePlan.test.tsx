@@ -30,6 +30,7 @@ function renderSessionPageWithPlan() {
       sessionIdCopied={false}
       onInputChange={noop}
       onClearContext={noop}
+      onCompactContext={noop}
       onAttachFiles={noop}
       onRemovePendingFile={noop}
       onToggleModelDropdown={noop}

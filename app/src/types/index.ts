@@ -281,6 +281,7 @@ export interface AgentStopData {
 export type WorkbenchSessionStatus =
   | "queued"
   | "running"
+  | "compacting"
   | "waiting_for_user"
   | "waiting_for_approval"
   | "review"

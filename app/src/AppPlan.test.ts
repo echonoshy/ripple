@@ -66,6 +66,20 @@ function testStopRefreshesSessionsAfterInterrupt() {
   assert.match(handleStopBlock, /getSessionActions\(\)\.loadSessions\(\)/);
 }
 
+function testCompactSchedulesDelayedSessionRefreshes() {
+  const clearBlock =
+    chatRunSource.match(
+      /const handleClearContext = useCallback\([\s\S]*?\n\s{2}const handleCompactContext = useCallback/
+    )?.[0] || "";
+  const compactBlock =
+    chatRunSource.match(
+      /const handleCompactContext = useCallback\([\s\S]*?\n\s{2}const handleAttachFiles = useCallback/
+    )?.[0] || "";
+
+  assert.doesNotMatch(clearBlock, /window\.setTimeout/);
+  assert.match(compactBlock, /window\.setTimeout/);
+}
+
 function testStopTargetsOneRunningSession() {
   const handleStopBlock =
     chatRunSource.match(
@@ -110,6 +124,7 @@ testAppDelegatesSessionLifecycle();
 testAppDelegatesChatRun();
 testNewSessionCreationDoesNotDependOnGlobalGenerationState();
 testStopRefreshesSessionsAfterInterrupt();
+testCompactSchedulesDelayedSessionRefreshes();
 testStopTargetsOneRunningSession();
 testChatSendIsNotBlockedByAnotherRunningSession();
 testChatRunStoresActiveRunsBySession();

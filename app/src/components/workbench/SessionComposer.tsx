@@ -16,6 +16,7 @@ interface SessionComposerProps {
   onSend: () => void;
   onStop: () => void;
   onClearContext: () => void;
+  onCompactContext: () => void;
   onAttachFiles: (files: File[]) => void | Promise<void>;
   onRemovePendingFile: (path: string) => void;
   pendingFiles: ChatFileRef[];
@@ -41,6 +42,7 @@ export default function SessionComposer({
   onSend,
   onStop,
   onClearContext,
+  onCompactContext,
   onAttachFiles,
   onRemovePendingFile,
   pendingFiles,
@@ -144,9 +146,15 @@ export default function SessionComposer({
         onChange("");
         onClearContext();
         requestAnimationFrame(() => textareaRef.current?.focus());
+        return;
+      }
+      if (action.id === "compact") {
+        onChange("");
+        onCompactContext();
+        requestAnimationFrame(() => textareaRef.current?.focus());
       }
     },
-    [onChange, onClearContext]
+    [onChange, onClearContext, onCompactContext]
   );
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {

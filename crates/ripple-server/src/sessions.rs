@@ -474,6 +474,82 @@ impl SessionManager {
         Ok(Some(0))
     }
 
+    pub async fn begin_context_compaction(
+        &self,
+        user_id: &str,
+        session_id: &str,
+    ) -> anyhow::Result<Option<String>> {
+        let Some(mut record) = self.load(user_id, session_id).await? else {
+            return Ok(None);
+        };
+        let thread_id = record
+            .codex_thread_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .ok_or_else(|| anyhow::anyhow!("Session has no Codex thread to compact"))?;
+        record.status = "compacting".to_string();
+        record.pending_question = None;
+        record.pending_options = None;
+        record.pending_permission_request = None;
+        record.pending_schedule_request = None;
+        record.plan_steps.clear();
+        record.plan_progress = None;
+        self.save_record(record).await?;
+        Ok(Some(thread_id))
+    }
+
+    pub async fn finish_context_compaction(
+        &self,
+        user_id: &str,
+        session_id: &str,
+        succeeded: bool,
+    ) -> anyhow::Result<bool> {
+        let Some(mut record) = self.load(user_id, session_id).await? else {
+            return Ok(false);
+        };
+        if record.status != "compacting" {
+            return Ok(false);
+        }
+        record.status = if succeeded { "idle" } else { "failed" }.to_string();
+        record.pending_permission_request = None;
+        record.plan_steps.clear();
+        record.plan_progress = None;
+        self.save_record_if_exists(record).await
+    }
+
+    pub async fn recover_stale_context_compaction(
+        &self,
+        user_id: &str,
+        session_id: &str,
+    ) -> anyhow::Result<bool> {
+        let lock = self.session_lock(user_id, session_id);
+        let Ok(_guard) = lock.try_lock() else {
+            return Ok(false);
+        };
+        self.recover_context_compaction_after_lock(user_id, session_id)
+            .await
+    }
+
+    pub async fn recover_context_compaction_after_lock(
+        &self,
+        user_id: &str,
+        session_id: &str,
+    ) -> anyhow::Result<bool> {
+        let Some(mut record) = self.load(user_id, session_id).await? else {
+            return Ok(false);
+        };
+        if record.status != "compacting" {
+            return Ok(false);
+        }
+        record.status = "idle".to_string();
+        record.pending_permission_request = None;
+        record.plan_steps.clear();
+        record.plan_progress = None;
+        self.save_record_if_exists(record).await
+    }
+
     pub async fn load(
         &self,
         user_id: &str,
@@ -601,7 +677,7 @@ fn should_auto_suspend(record: &SessionRecord, now: OffsetDateTime, limit_second
     }
     if matches!(
         record.status.as_str(),
-        "queued" | "running" | "awaiting_permission" | "waiting_for_approval"
+        "queued" | "running" | "compacting" | "awaiting_permission" | "waiting_for_approval"
     ) {
         return false;
     }
@@ -624,6 +700,7 @@ fn public_status(status: &str, pending_permission: Option<&Value>) -> String {
     }
     match status {
         "running" => "running",
+        "compacting" => "compacting",
         "awaiting_user_input" | "waiting_for_user" => "waiting_for_user",
         "awaiting_permission" | "waiting_for_approval" => "waiting_for_approval",
         "queued" => "queued",
@@ -808,6 +885,126 @@ mod tests {
         assert!(cleared.codex_thread_id.is_none());
         assert!(cleared.plan_steps.is_empty());
         assert!(cleared.plan_progress.is_none());
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn context_compaction_preserves_thread_and_tracks_status() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("ripple-session-test-{}", Uuid::new_v4()));
+        let config = test_config(&root);
+        let manager = SessionManager::new(config.clone(), SandboxManager::new(config));
+        let user_id = "alice";
+        let mut session = manager
+            .create_session(
+                user_id,
+                CreateSessionInput {
+                    model: None,
+                    max_turns: None,
+                    system_prompt: None,
+                },
+            )
+            .await?;
+        session.codex_thread_id = Some("thr_123".to_string());
+        manager.save_record(session.clone()).await?;
+
+        let thread_id = manager
+            .begin_context_compaction(user_id, &session.session_id)
+            .await?
+            .expect("session should exist");
+        assert_eq!(thread_id, "thr_123");
+
+        let compacting = manager
+            .get_session(user_id, &session.session_id)
+            .await?
+            .expect("session should exist");
+        assert_eq!(compacting.info.status, "compacting");
+
+        assert!(
+            manager
+                .finish_context_compaction(user_id, &session.session_id, true)
+                .await?
+        );
+        let finished = manager
+            .load(user_id, &session.session_id)
+            .await?
+            .expect("session should exist");
+        assert_eq!(finished.status, "idle");
+        assert_eq!(finished.codex_thread_id.as_deref(), Some("thr_123"));
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stale_context_compaction_recovers_when_no_lock_is_active() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("ripple-session-test-{}", Uuid::new_v4()));
+        let config = test_config(&root);
+        let manager = SessionManager::new(config.clone(), SandboxManager::new(config));
+        let user_id = "alice";
+        let mut session = manager
+            .create_session(
+                user_id,
+                CreateSessionInput {
+                    model: None,
+                    max_turns: None,
+                    system_prompt: None,
+                },
+            )
+            .await?;
+        session.status = "compacting".to_string();
+        session.codex_thread_id = Some("thr_123".to_string());
+        manager.save_record(session.clone()).await?;
+
+        assert!(
+            manager
+                .recover_stale_context_compaction(user_id, &session.session_id)
+                .await?
+        );
+        let recovered = manager
+            .load(user_id, &session.session_id)
+            .await?
+            .expect("session should exist");
+        assert_eq!(recovered.status, "idle");
+        assert_eq!(recovered.codex_thread_id.as_deref(), Some("thr_123"));
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn active_context_compaction_is_not_recovered() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("ripple-session-test-{}", Uuid::new_v4()));
+        let config = test_config(&root);
+        let manager = SessionManager::new(config.clone(), SandboxManager::new(config));
+        let user_id = "alice";
+        let mut session = manager
+            .create_session(
+                user_id,
+                CreateSessionInput {
+                    model: None,
+                    max_turns: None,
+                    system_prompt: None,
+                },
+            )
+            .await?;
+        session.status = "compacting".to_string();
+        session.codex_thread_id = Some("thr_123".to_string());
+        manager.save_record(session.clone()).await?;
+        let lock = manager.session_lock(user_id, &session.session_id);
+        let _guard = lock.lock_owned().await;
+
+        assert!(
+            !manager
+                .recover_stale_context_compaction(user_id, &session.session_id)
+                .await?
+        );
+        let current = manager
+            .load(user_id, &session.session_id)
+            .await?
+            .expect("session should exist");
+        assert_eq!(current.status, "compacting");
 
         let _ = std::fs::remove_dir_all(root);
         Ok(())

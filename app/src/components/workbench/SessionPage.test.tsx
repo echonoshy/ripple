@@ -34,6 +34,7 @@ function renderSessionPage({
       sessionIdCopied={false}
       onInputChange={noop}
       onClearContext={noop}
+      onCompactContext={noop}
       onAttachFiles={noop}
       onRemovePendingFile={noop}
       onToggleModelDropdown={noop}
@@ -75,6 +76,7 @@ function renderSessionPageWithTimelineContent() {
       sessionIdCopied={false}
       onInputChange={noop}
       onClearContext={noop}
+      onCompactContext={noop}
       onAttachFiles={noop}
       onRemovePendingFile={noop}
       onToggleModelDropdown={noop}

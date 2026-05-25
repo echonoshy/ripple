@@ -1,4 +1,4 @@
-export type QuickActionId = "clear";
+export type QuickActionId = "clear" | "compact";
 
 export interface QuickAction {
   id: QuickActionId;
@@ -13,19 +13,18 @@ export interface SlashCommandTrigger {
 
 export const QUICK_ACTIONS: QuickAction[] = [
   { id: "clear", command: "clear", label: "Clear context" },
+  { id: "compact", command: "compact", label: "Compact context" },
 ];
 
 function clampCursorToText(text: string, cursor: number): number {
   return Math.max(0, Math.min(cursor, text.length));
 }
 
-function isFuzzyMatch(query: string, target: string): boolean {
+function fuzzyMatches(query: string, target: string): boolean {
   const needle = query.trim().toLowerCase();
   if (!needle) return true;
 
   const haystack = target.toLowerCase();
-  if (haystack.startsWith(needle) || haystack.includes(needle)) return true;
-
   let needleIndex = 0;
   for (const char of haystack) {
     if (char === needle[needleIndex]) needleIndex += 1;
@@ -35,7 +34,22 @@ function isFuzzyMatch(query: string, target: string): boolean {
 }
 
 export function getQuickActionMatches(query: string): QuickAction[] {
-  return QUICK_ACTIONS.filter((action) => isFuzzyMatch(query, `${action.command} ${action.label}`));
+  const needle = query.trim().toLowerCase();
+  return QUICK_ACTIONS.map((action, index) => {
+    const command = action.command.toLowerCase();
+    const label = action.label.toLowerCase();
+    const target = `${command} ${label}`;
+    let rank: number | null = null;
+    if (!needle) rank = 0;
+    else if (command.startsWith(needle)) rank = 1;
+    else if (label.startsWith(needle)) rank = 2;
+    else if (target.includes(needle)) rank = 3;
+    else if (fuzzyMatches(needle, target)) rank = 4;
+    return rank === null ? null : { action, rank, index };
+  })
+    .filter((match): match is { action: QuickAction; rank: number; index: number } => match !== null)
+    .sort((a, b) => a.rank - b.rank || a.index - b.index)
+    .map((match) => match.action);
 }
 
 export function getSlashCommandTrigger(

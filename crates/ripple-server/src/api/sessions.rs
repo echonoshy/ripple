@@ -4,7 +4,7 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::api::users::assert_can_create_session;
+use crate::api::users::{assert_can_create_run, assert_can_create_session};
 use crate::api::{connectors, ApiError};
 use crate::sessions::{CreateSessionInput, SessionRecord};
 use crate::state::AppState;
@@ -52,6 +52,10 @@ pub async fn get_session(
     Path(session_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    let _ = state
+        .sessions
+        .recover_stale_context_compaction(&user_id, &session_id)
+        .await?;
     if state
         .sessions
         .load(&user_id, &session_id)
@@ -92,10 +96,14 @@ pub async fn clear_session_context(
     Path(session_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    let _ = state
+        .sessions
+        .recover_stale_context_compaction(&user_id, &session_id)
+        .await?;
     let Some(session) = state.sessions.load(&user_id, &session_id).await? else {
         return Err(ApiError::not_found("Session not found"));
     };
-    if matches!(session.status.as_str(), "queued" | "running") {
+    if matches!(session.status.as_str(), "queued" | "running" | "compacting") {
         return Err(ApiError::conflict("Session is currently running"));
     }
     let Some(message_count) = state.sessions.clear_context(&user_id, &session_id).await? else {
@@ -106,12 +114,123 @@ pub async fn clear_session_context(
     ))
 }
 
+pub async fn compact_session_context(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(session_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    let lock = state.sessions.session_lock(&user_id, &session_id);
+    let guard = lock.lock_owned().await;
+    let _ = state
+        .sessions
+        .recover_context_compaction_after_lock(&user_id, &session_id)
+        .await?;
+    let Some(session) = state.sessions.load(&user_id, &session_id).await? else {
+        return Err(ApiError::not_found("Session not found"));
+    };
+    if matches!(session.status.as_str(), "queued" | "running" | "compacting") {
+        return Err(ApiError::conflict("Session is currently running"));
+    }
+    if session
+        .codex_thread_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_none()
+    {
+        return Err(ApiError::conflict("Session has no Codex thread to compact"));
+    }
+
+    assert_can_create_run(&state, &user_id, state.config.codex.max_runtime_seconds).await?;
+    let workspace_root = state.sandboxes.ensure_sandbox(&user_id)?;
+    let Some(codex_thread_id) = state
+        .sessions
+        .begin_context_compaction(&user_id, &session_id)
+        .await?
+    else {
+        return Err(ApiError::not_found("Session not found"));
+    };
+    let response_thread_id = codex_thread_id.clone();
+
+    let jobs = state.jobs.clone();
+    let sessions = state.sessions.clone();
+    let compact_user_id = user_id.clone();
+    let compact_session_id = session_id.clone();
+    let max_runtime_seconds = state.config.codex.max_runtime_seconds;
+    tokio::spawn(async move {
+        let _guard = guard;
+        let result = jobs
+            .compact_thread(
+                compact_user_id.clone(),
+                workspace_root,
+                codex_thread_id,
+                max_runtime_seconds,
+            )
+            .await;
+        let _ = sessions
+            .finish_context_compaction(&compact_user_id, &compact_session_id, result.is_ok())
+            .await;
+    });
+
+    Ok(Json(json!({
+        "ok": true,
+        "session_id": session_id,
+        "codex_thread_id": response_thread_id,
+        "status": "compacting"
+    })))
+}
+
+pub async fn get_session_codex_thread(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(session_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    let _ = state
+        .sessions
+        .recover_stale_context_compaction(&user_id, &session_id)
+        .await?;
+    let Some(session) = state.sessions.load(&user_id, &session_id).await? else {
+        return Err(ApiError::not_found("Session not found"));
+    };
+    if matches!(session.status.as_str(), "queued" | "running" | "compacting") {
+        return Err(ApiError::conflict("Session is currently running"));
+    }
+    let Some(codex_thread_id) = session
+        .codex_thread_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+    else {
+        return Err(ApiError::conflict("Session has no Codex thread"));
+    };
+    let workspace_root = state.sandboxes.ensure_sandbox(&user_id)?;
+    let thread = state
+        .jobs
+        .read_thread(user_id, workspace_root, codex_thread_id.clone())
+        .await
+        .map_err(|err| ApiError::bad_request(err.to_string()))?;
+
+    Ok(Json(json!({
+        "ok": true,
+        "session_id": session_id,
+        "codex_thread_id": codex_thread_id,
+        "thread": thread.get("thread").cloned().unwrap_or(Value::Null)
+    })))
+}
+
 pub async fn stop_session(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(session_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    let _ = state
+        .sessions
+        .recover_stale_context_compaction(&user_id, &session_id)
+        .await?;
     let Some(mut session) = state.sessions.load(&user_id, &session_id).await? else {
         return Err(ApiError::not_found("Session not found"));
     };

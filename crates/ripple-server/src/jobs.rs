@@ -233,6 +233,29 @@ impl JobManager {
             .ok_or_else(|| anyhow::anyhow!("job disappeared after start"))
     }
 
+    pub async fn compact_thread(
+        &self,
+        user_id: String,
+        workspace_root: PathBuf,
+        thread_id: String,
+        max_runtime_seconds: u64,
+    ) -> anyhow::Result<()> {
+        self.provider
+            .compact_thread(user_id, workspace_root, thread_id, max_runtime_seconds)
+            .await
+    }
+
+    pub async fn read_thread(
+        &self,
+        user_id: String,
+        workspace_root: PathBuf,
+        thread_id: String,
+    ) -> anyhow::Result<Value> {
+        self.provider
+            .read_thread(user_id, workspace_root, thread_id)
+            .await
+    }
+
     pub async fn list_user(&self, user_id: &str) -> anyhow::Result<Vec<AgentRunInfo>> {
         let mut merged = HashMap::<String, AgentRunInfo>::new();
         for record in self.storage.list_jobs_for_user(user_id).await? {

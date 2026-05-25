@@ -3,6 +3,7 @@ import type { SessionDetail, SessionSummary } from "@/types";
 import {
   AuthError,
   clearSessionContext,
+  compactSessionContext,
   createSession,
   deleteSession,
   fetchSessionDetails,
@@ -201,6 +202,18 @@ export function useSessionLifecycle({
     }
   }, [handleAuthExpired, sessionId]);
 
+  const compactCurrentSessionContext = useCallback(async (): Promise<boolean> => {
+    if (!sessionId) return false;
+    try {
+      return await compactSessionContext(sessionId);
+    } catch (err) {
+      if (err instanceof AuthError) {
+        handleAuthExpired();
+      }
+      return false;
+    }
+  }, [handleAuthExpired, sessionId]);
+
   return {
     sessionId,
     setSessionId,
@@ -217,5 +230,6 @@ export function useSessionLifecycle({
     stopCurrentSession,
     stopSessionById,
     clearCurrentSessionContext,
+    compactCurrentSessionContext,
   };
 }

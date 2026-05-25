@@ -22,6 +22,7 @@ use crate::config::AppConfig;
 
 const TAIL_CHARS: usize = 64_000;
 const CODEX_NATIVE_INPUT_TYPES: &[&str] = &["text", "image", "localImage", "skill", "mention"];
+const THREAD_NOTIFICATION_QUEUE: &str = "__thread__";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentRunnerRequest {
@@ -361,6 +362,33 @@ impl CodexAppServerSession {
         rx
     }
 
+    async fn register_thread(&self, thread_id: String) -> mpsc::UnboundedReceiver<Value> {
+        let (tx, rx) = mpsc::unbounded_channel();
+        let mut routes = self.routes.lock().await;
+        if let Some(messages) = routes.pending_thread.remove(&thread_id) {
+            for message in messages {
+                let _ = tx.send(message);
+            }
+        }
+        let pending_turn_keys = routes
+            .pending_turn
+            .keys()
+            .filter(|(pending_thread_id, _)| pending_thread_id == &thread_id)
+            .cloned()
+            .collect::<Vec<_>>();
+        for key in pending_turn_keys {
+            if let Some(messages) = routes.pending_turn.remove(&key) {
+                for message in messages {
+                    let _ = tx.send(message);
+                }
+            }
+        }
+        routes
+            .queues
+            .insert((thread_id, THREAD_NOTIFICATION_QUEUE.to_string()), tx);
+        rx
+    }
+
     async fn unregister_turn(&self, thread_id: &str, turn_id: &str) {
         self.routes
             .lock()
@@ -369,13 +397,26 @@ impl CodexAppServerSession {
             .remove(&(thread_id.to_string(), turn_id.to_string()));
     }
 
+    async fn unregister_thread(&self, thread_id: &str) {
+        self.routes
+            .lock()
+            .await
+            .queues
+            .remove(&(thread_id.to_string(), THREAD_NOTIFICATION_QUEUE.to_string()));
+    }
+
     async fn dispatch_notification(&self, message: Value) {
         let thread_id = notification_thread_id(&message);
         let turn_id = notification_turn_id(&message);
         let mut routes = self.routes.lock().await;
         if let (Some(thread_id), Some(turn_id)) = (thread_id.clone(), turn_id) {
-            let key = (thread_id, turn_id);
+            let key = (thread_id.clone(), turn_id);
             if let Some(queue) = routes.queues.get(&key) {
+                let _ = queue.send(message);
+            } else if let Some(queue) = routes
+                .queues
+                .get(&(thread_id.clone(), THREAD_NOTIFICATION_QUEUE.to_string()))
+            {
                 let _ = queue.send(message);
             } else {
                 routes.pending_turn.entry(key).or_default().push(message);
@@ -901,6 +942,93 @@ impl CodexAppServerProvider {
             .is_ok()
     }
 
+    pub async fn compact_thread(
+        &self,
+        user_id: String,
+        workspace_root: PathBuf,
+        thread_id: String,
+        max_runtime_seconds: u64,
+    ) -> anyhow::Result<()> {
+        let session = CodexAppServerSession::new(user_id, self.config.clone(), workspace_root);
+        let result = self
+            .compact_thread_with_session(&session, thread_id, max_runtime_seconds)
+            .await;
+        session.shutdown().await;
+        result
+    }
+
+    pub async fn read_thread(
+        &self,
+        user_id: String,
+        workspace_root: PathBuf,
+        thread_id: String,
+    ) -> anyhow::Result<Value> {
+        let session = CodexAppServerSession::new(user_id, self.config.clone(), workspace_root);
+        let result = async {
+            session.ensure_started().await?;
+            session.ensure_initialized().await?;
+            session
+                .request(
+                    "thread/read",
+                    json!({
+                        "threadId": thread_id,
+                        "includeTurns": false
+                    }),
+                )
+                .await
+        }
+        .await;
+        session.shutdown().await;
+        result
+    }
+
+    async fn compact_thread_with_session(
+        &self,
+        session: &Arc<CodexAppServerSession>,
+        thread_id: String,
+        max_runtime_seconds: u64,
+    ) -> anyhow::Result<()> {
+        session.ensure_started().await?;
+        session.ensure_initialized().await?;
+        let permission_config = thread_permission_config(&session.cwd, &self.config);
+        let thread_result = session
+            .request(
+                "thread/resume",
+                json!({
+                    "threadId": thread_id.clone(),
+                    "cwd": session.cwd.clone(),
+                    "approvalPolicy": self.config.codex.approval_policy,
+                    "config": permission_config,
+                    "permissions": RIPPLE_CODEX_PERMISSION_PROFILE,
+                    "excludeTurns": true
+                }),
+            )
+            .await?;
+        let thread_id = thread_result
+            .pointer("/thread/id")
+            .and_then(Value::as_str)
+            .unwrap_or(thread_id.as_str())
+            .to_string();
+        session
+            .loaded_thread_ids
+            .lock()
+            .await
+            .insert(thread_id.clone());
+        let mut rx = session.register_thread(thread_id.clone()).await;
+        let result = async {
+            session
+                .request(
+                    "thread/compact/start",
+                    json!({ "threadId": thread_id.clone() }),
+                )
+                .await?;
+            collect_context_compaction(&thread_id, max_runtime_seconds, &mut rx).await
+        }
+        .await;
+        session.unregister_thread(&thread_id).await;
+        result
+    }
+
     pub async fn stop_user(&self, user_id: &str) -> usize {
         let sessions = {
             let mut sessions = self.sessions.lock().await;
@@ -959,6 +1087,41 @@ impl CodexAppServerProvider {
         session.shutdown().await;
         true
     }
+}
+
+async fn collect_context_compaction(
+    thread_id: &str,
+    max_runtime_seconds: u64,
+    rx: &mut mpsc::UnboundedReceiver<Value>,
+) -> anyhow::Result<()> {
+    let deadline = Duration::from_secs(max_runtime_seconds.max(1));
+    let collect = async {
+        while let Some(message) = rx.recv().await {
+            if is_context_compaction_completed(&message, thread_id) {
+                return Ok::<_, anyhow::Error>(());
+            }
+            if is_compaction_turn_failed(&message, thread_id) {
+                anyhow::bail!("codex context compaction failed");
+            }
+            if message.get("method").and_then(Value::as_str) == Some("error") {
+                let detail = message
+                    .pointer("/params/message")
+                    .or_else(|| message.pointer("/params/error/message"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("codex context compaction failed");
+                anyhow::bail!(detail.to_string());
+            }
+        }
+        anyhow::bail!(
+            "codex app-server notification stream ended before context compaction completed"
+        )
+    };
+    timeout(deadline, collect).await.with_context(|| {
+        format!(
+            "context compaction timed out after {}s",
+            max_runtime_seconds.max(1)
+        )
+    })?
 }
 
 fn turn_start_params(
@@ -1047,6 +1210,37 @@ fn notification_turn_id(message: &Value) -> Option<String> {
                 .and_then(Value::as_str)
                 .map(str::to_string)
         })
+}
+
+fn is_context_compaction_completed(message: &Value, thread_id: &str) -> bool {
+    if !message_thread_matches(message, thread_id) {
+        return false;
+    }
+    match message.get("method").and_then(Value::as_str) {
+        Some("thread/compacted") => true,
+        Some("item/completed") => {
+            message.pointer("/params/item/type").and_then(Value::as_str)
+                == Some("contextCompaction")
+        }
+        Some("turn/completed") => message
+            .pointer("/params/turn/status")
+            .and_then(Value::as_str)
+            .map_or(true, |status| status == "completed"),
+        _ => false,
+    }
+}
+
+fn is_compaction_turn_failed(message: &Value, thread_id: &str) -> bool {
+    message_thread_matches(message, thread_id)
+        && message.get("method").and_then(Value::as_str) == Some("turn/completed")
+        && message
+            .pointer("/params/turn/status")
+            .and_then(Value::as_str)
+            == Some("failed")
+}
+
+fn message_thread_matches(message: &Value, thread_id: &str) -> bool {
+    notification_thread_id(message).as_deref() == Some(thread_id)
 }
 
 fn parse_approval_request(

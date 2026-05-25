@@ -59,6 +59,7 @@ export default function Home() {
     ensureSession: async () => null,
     loadSessions: async () => [],
     clearCurrentSessionContext: async () => true,
+    compactCurrentSessionContext: async () => false,
     stopCurrentSession: async () => false,
     stopSession: async () => false,
   });
@@ -98,6 +99,7 @@ export default function Home() {
     applySessionDetails,
     handleStop,
     handleClearContext,
+    handleCompactContext,
     handleAttachFiles,
     handleRemovePendingFile,
     handleSendMessage,
@@ -132,6 +134,7 @@ export default function Home() {
     stopCurrentSession,
     stopSessionById,
     clearCurrentSessionContext,
+    compactCurrentSessionContext,
   } = useSessionLifecycle({
     authState,
     isGenerating,
@@ -148,11 +151,13 @@ export default function Home() {
       ensureSession,
       loadSessions,
       clearCurrentSessionContext,
+      compactCurrentSessionContext,
       stopCurrentSession,
       stopSession: stopSessionById,
     };
   }, [
     clearCurrentSessionContext,
+    compactCurrentSessionContext,
     ensureSession,
     loadSessions,
     sessionId,
@@ -249,7 +254,6 @@ export default function Home() {
   }, []);
 
   const selectedSessionIsGenerating = Boolean(sessionId && runningSessionIds.includes(sessionId));
-  const isComposerBlocked = false;
   const selectedSessionRuntimeStatus =
     currentSessionRuntimeStatus && sessionId ? currentSessionRuntimeStatus : null;
   const workbenchSessions = useMemo(() => {
@@ -295,6 +299,7 @@ export default function Home() {
       pendingApprovalCount: 0,
     }));
   const selectedWorkbenchSession = selectedExistingSession || inferredCurrentSession;
+  const isComposerBlocked = selectedWorkbenchSession?.status === "compacting";
   const displayWorkbenchSessions = mergeInferredWorkbenchSessions(workbenchSessions, [
     inferredCurrentSession,
     ...inferredRunningSessions,
@@ -336,6 +341,7 @@ export default function Home() {
         sessionIdCopied={sessionIdCopied}
         onInputChange={setInput}
         onClearContext={handleClearContext}
+        onCompactContext={handleCompactContext}
         onAttachFiles={handleAttachFiles}
         onRemovePendingFile={handleRemovePendingFile}
         onToggleModelDropdown={() =>

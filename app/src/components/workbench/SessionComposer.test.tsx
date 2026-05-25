@@ -15,6 +15,7 @@ function renderComposer(overrides: Partial<React.ComponentProps<typeof SessionCo
       onSend={noop}
       onStop={noop}
       onClearContext={noop}
+      onCompactContext={noop}
       onAttachFiles={noop}
       onRemovePendingFile={noop}
       pendingFiles={[]}

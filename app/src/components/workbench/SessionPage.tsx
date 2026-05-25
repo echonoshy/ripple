@@ -35,6 +35,7 @@ interface SessionPageProps {
   sessionIdCopied: boolean;
   onInputChange: (value: string) => void;
   onClearContext: () => void;
+  onCompactContext: () => void;
   onAttachFiles: (files: File[]) => void | Promise<void>;
   onRemovePendingFile: (path: string) => void;
   onToggleModelDropdown: () => void;
@@ -68,6 +69,7 @@ export default function SessionPage({
   sessionIdCopied,
   onInputChange,
   onClearContext,
+  onCompactContext,
   onAttachFiles,
   onRemovePendingFile,
   onToggleModelDropdown,
@@ -256,6 +258,7 @@ export default function SessionPage({
         onSend={onSend}
         onStop={onStop}
         onClearContext={onClearContext}
+        onCompactContext={onCompactContext}
         onAttachFiles={onAttachFiles}
         onRemovePendingFile={onRemovePendingFile}
         pendingFiles={pendingFiles}

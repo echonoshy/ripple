@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 
 import {
   cancelSessionConnectorAuth,
+  compactSessionContext,
   createSchedule,
   createSession,
   deleteSchedule,
@@ -91,6 +92,7 @@ async function testSessionIdIsEncodedInPath() {
       await deleteSession(sessionId);
       await stopSession(sessionId);
       await cancelSessionConnectorAuth(sessionId);
+      await compactSessionContext(sessionId);
       await resolveSessionPermissionRequest(sessionId, "allow");
     }
   );
@@ -100,6 +102,7 @@ async function testSessionIdIsEncodedInPath() {
     "http://140.143.229.103:8810/v1/sessions/session%2Fwith%20space",
     "http://140.143.229.103:8810/v1/sessions/session%2Fwith%20space/stop",
     "http://140.143.229.103:8810/v1/sessions/session%2Fwith%20space/connector-auth/cancel",
+    "http://140.143.229.103:8810/v1/sessions/session%2Fwith%20space/context/compact",
     "http://140.143.229.103:8810/v1/sessions/session%2Fwith%20space/permissions/resolve",
   ]);
 }

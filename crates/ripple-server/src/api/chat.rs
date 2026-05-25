@@ -124,6 +124,12 @@ pub async fn chat_completions(
     let caller_system_prompt = extract_caller_system_prompt(&request.messages);
     let (model, preset_effort) = state.config.resolve_model(request.model.as_deref());
     let effort = request.effort.clone().or(preset_effort);
+    if let Some(session_id) = request.session_id.as_deref() {
+        let _ = state
+            .sessions
+            .recover_stale_context_compaction(&user_id, session_id)
+            .await?;
+    }
     let session_run_lock = request
         .session_id
         .as_deref()

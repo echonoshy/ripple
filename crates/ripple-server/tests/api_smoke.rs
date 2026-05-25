@@ -375,6 +375,23 @@ fn main() {
                     json_string(&thread_id)
                 ));
             }
+            (Some(id), Some("thread/read")) => {
+                let thread_id = extract_string_field(&line, "threadId")
+                    .unwrap_or_else(|| "thread-read".to_string());
+                send(format!(
+                    "{{\"id\":{},\"result\":{{\"thread\":{{\"id\":{},\"status\":\"notLoaded\"}}}}}}",
+                    id.raw_json(),
+                    json_string(&thread_id)
+                ));
+            }
+            (Some(id), Some("thread/compact/start")) => {
+                let thread_id = extract_string_field(&line, "threadId")
+                    .unwrap_or_else(|| "thread-unknown".to_string());
+                send(format!("{{\"id\":{},\"result\":{{}}}}", id.raw_json()));
+                let thread_json = json_string(&thread_id);
+                send(format!("{{\"method\":\"item/started\",\"params\":{{\"threadId\":{thread_json},\"turnId\":\"compact-turn\",\"item\":{{\"id\":\"compact-1\",\"type\":\"contextCompaction\"}}}}}}"));
+                send(format!("{{\"method\":\"item/completed\",\"params\":{{\"threadId\":{thread_json},\"turnId\":\"compact-turn\",\"item\":{{\"id\":\"compact-1\",\"type\":\"contextCompaction\"}}}}}}"));
+            }
             (Some(id), Some("turn/start")) => {
                 turn_counter += 1;
                 let thread_id = extract_string_field(&line, "threadId")
@@ -902,6 +919,105 @@ async fn router_serves_session_lifecycle_routes() {
         cleared.get("message_count").and_then(Value::as_u64),
         Some(0)
     );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn compact_session_context_triggers_codex_thread_compaction() {
+    let root = std::env::temp_dir().join(format!("ripple-api-compact-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let config = test_config_with_codex_executable(&root, fake_codex);
+    let (state, app) = test_state_and_app_with_config(config);
+    let user_id = "smoke-user";
+    let mut session = state
+        .sessions
+        .create_session(
+            user_id,
+            CreateSessionInput {
+                model: None,
+                max_turns: None,
+                system_prompt: None,
+            },
+        )
+        .await
+        .unwrap();
+    session.codex_thread_id = Some("thread-compact".to_string());
+    state.sessions.save_record(session.clone()).await.unwrap();
+
+    let (status, compact) = call(
+        app,
+        Method::POST,
+        &format!("/v1/sessions/{}/context/compact", session.session_id),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        compact.get("status").and_then(Value::as_str),
+        Some("compacting")
+    );
+    assert_eq!(
+        compact.get("codex_thread_id").and_then(Value::as_str),
+        Some("thread-compact")
+    );
+
+    for _ in 0..40 {
+        let current = state
+            .sessions
+            .load(user_id, &session.session_id)
+            .await
+            .unwrap()
+            .expect("session should exist");
+        if current.status == "idle" {
+            assert_eq!(current.codex_thread_id.as_deref(), Some("thread-compact"));
+            let _ = std::fs::remove_dir_all(root);
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    panic!("session did not finish compacting");
+}
+
+#[tokio::test]
+async fn session_codex_thread_route_reads_thread_metadata_without_turns() {
+    let root = std::env::temp_dir().join(format!("ripple-api-thread-read-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let config = test_config_with_codex_executable(&root, fake_codex);
+    let (state, app) = test_state_and_app_with_config(config);
+    let user_id = "smoke-user";
+    let mut session = state
+        .sessions
+        .create_session(
+            user_id,
+            CreateSessionInput {
+                model: None,
+                max_turns: None,
+                system_prompt: None,
+            },
+        )
+        .await
+        .unwrap();
+    session.codex_thread_id = Some("thread-read".to_string());
+    state.sessions.save_record(session.clone()).await.unwrap();
+
+    let (status, thread) = call(
+        app,
+        Method::GET,
+        &format!("/v1/sessions/{}/codex-thread", session.session_id),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        thread.get("codex_thread_id").and_then(Value::as_str),
+        Some("thread-read")
+    );
+    assert_eq!(
+        thread.pointer("/thread/status").and_then(Value::as_str),
+        Some("notLoaded")
+    );
+    assert!(thread.pointer("/thread/turns").is_none());
 
     let _ = std::fs::remove_dir_all(root);
 }

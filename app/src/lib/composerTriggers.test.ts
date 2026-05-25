@@ -10,9 +10,10 @@ function testSlashCommandTriggersOnlyAtStartOfFirstLine() {
 }
 
 function testQuickActionMatchesUsePrefixAndFuzzySearch() {
-  assert.equal(getQuickActionMatches("").length, 1);
+  assert.equal(getQuickActionMatches("").length, 2);
   assert.equal(getQuickActionMatches("cl")[0]?.id, "clear");
   assert.equal(getQuickActionMatches("cc")[0]?.id, "clear");
+  assert.equal(getQuickActionMatches("co")[0]?.id, "compact");
   assert.equal(getQuickActionMatches("zzz").length, 0);
 }
 

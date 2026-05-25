@@ -50,6 +50,14 @@ pub fn router(state: AppState) -> Router {
             post(sessions::clear_session_context),
         )
         .route(
+            "/sessions/:session_id/context/compact",
+            post(sessions::compact_session_context),
+        )
+        .route(
+            "/sessions/:session_id/codex-thread",
+            get(sessions::get_session_codex_thread),
+        )
+        .route(
             "/sessions/:session_id/suspend",
             post(sessions::suspend_session),
         )

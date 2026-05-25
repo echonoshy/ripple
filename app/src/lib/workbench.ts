@@ -13,11 +13,12 @@ const STATUS_PRIORITY: Record<WorkbenchSessionStatus, number> = {
   waiting_for_user: 1,
   failed: 2,
   running: 3,
-  review: 4,
-  queued: 5,
-  idle: 6,
-  completed: 7,
-  cancelled: 8,
+  compacting: 4,
+  review: 5,
+  queued: 6,
+  idle: 7,
+  completed: 8,
+  cancelled: 9,
 };
 
 export function sessionStatusToWorkbenchStatus(status: string): WorkbenchSessionStatus {
@@ -29,6 +30,7 @@ export function sessionStatusToWorkbenchStatus(status: string): WorkbenchSession
     return "waiting_for_user";
   }
   if (normalized === "running") return "running";
+  if (normalized === "compacting") return "compacting";
   if (normalized === "queued") return "queued";
   if (normalized === "completed") return "completed";
   if (normalized === "failed" || normalized === "error") return "failed";

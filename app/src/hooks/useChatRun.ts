@@ -42,6 +42,7 @@ export interface ChatRunSessionActions {
   ensureSession: () => Promise<string | null>;
   loadSessions: () => Promise<unknown>;
   clearCurrentSessionContext: () => Promise<boolean>;
+  compactCurrentSessionContext: () => Promise<boolean>;
   stopCurrentSession: () => Promise<boolean>;
   stopSession: (sessionId: string) => Promise<boolean>;
 }
@@ -332,6 +333,38 @@ export function useChatRun({
     }
   }, [getSessionActions, handleAuthExpired, isSessionRunning, resetCurrentContextView]);
 
+  const handleCompactContext = useCallback(async () => {
+    if (isSessionRunning(getSessionActions().getSessionId())) return;
+    try {
+      const ok = await getSessionActions().compactCurrentSessionContext();
+      if (!ok) throw new Error("Failed to compact session context");
+      setRuntimeTimelineEvents((prev) =>
+        upsertRuntimeTimelineEvent(
+          prev,
+          {
+            type: "context_compaction",
+            id: `manual-${Date.now()}`,
+            status: "running",
+          },
+          { createdAt: new Date().toISOString() }
+        )
+      );
+      setInputFocusToken((prev) => bumpInputFocusToken(prev));
+      await getSessionActions().loadSessions();
+      for (const delayMs of [1000, 3000, 8000]) {
+        window.setTimeout(() => {
+          void getSessionActions().loadSessions();
+        }, delayMs);
+      }
+    } catch (err) {
+      if (err instanceof AuthError) {
+        handleAuthExpired();
+        return;
+      }
+      console.error("Compact context error:", err);
+    }
+  }, [getSessionActions, handleAuthExpired, isSessionRunning]);
+
   const handleAttachFiles = useCallback(
     async (files: File[]) => {
       if (isSessionRunning(getSessionActions().getSessionId()) || files.length === 0) return;
@@ -372,6 +405,10 @@ export function useChatRun({
       const filesForSend = typeof overrideText === "string" ? [] : pendingFiles;
       if (text === "/clear") {
         await handleClearContext();
+        return;
+      }
+      if (text === "/compact") {
+        await handleCompactContext();
         return;
       }
       if (!text && filesForSend.length === 0) return;
@@ -757,6 +794,7 @@ export function useChatRun({
       getSessionActions,
       handleAuthExpired,
       handleClearContext,
+      handleCompactContext,
       input,
       lastContextTokens,
       markSessionRunning,
@@ -1355,6 +1393,7 @@ export function useChatRun({
     applySessionDetails,
     handleStop,
     handleClearContext,
+    handleCompactContext,
     handleAttachFiles,
     handleRemovePendingFile,
     handleSendMessage,

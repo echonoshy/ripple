@@ -6,6 +6,7 @@ type StatusTone = "blue" | "green" | "yellow" | "red" | "gray";
 const STATUS_LABELS: Record<WorkbenchSessionStatus, string> = {
   queued: "Queued",
   running: "Running",
+  compacting: "Compacting",
   waiting_for_user: "Needs input",
   waiting_for_approval: "Approval",
   review: "Review",
@@ -18,6 +19,7 @@ const STATUS_LABELS: Record<WorkbenchSessionStatus, string> = {
 const STATUS_TONES: Record<WorkbenchSessionStatus, StatusTone> = {
   queued: "gray",
   running: "green",
+  compacting: "blue",
   waiting_for_user: "yellow",
   waiting_for_approval: "yellow",
   review: "blue",

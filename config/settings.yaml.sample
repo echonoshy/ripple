@@ -39,14 +39,6 @@ agent:
   max_turns: 200
   session_prefix: "ripple"
 
-# 内部用户配额配置（非 billing）
-users:
-  quota_defaults:
-    max_workspace_mb: 2048
-    max_sessions: 200
-    max_runs_per_day: 200
-    max_run_runtime_seconds: 3600
-
 # Codex app-server runner 配置
 #
 # Ripple 管理 user sandbox、任务状态、事件日志和生命周期；实际执行交给
@@ -148,9 +140,8 @@ server:
     #   <server.public_base_url>/v1/sandboxes/gogcli/oauth/callback
     # callback_url: "http://localhost:8810/v1/sandboxes/gogcli/oauth/callback"
   api_keys:
-    # Bootstrap admin key. Use this to create SQLite-backed local_user,
-    # trusted_client, or admin keys; normal app users should use those
-    # generated keys instead of this shared deployment key.
+    # Service API key for trusted upstream services. Ripple does not manage
+    # end-user auth; callers pass a verified X-Ripple-User-Id for isolation.
     - "<RIPPLE_SERVER_API_KEY>"
   session:
     ttl_seconds: 3600

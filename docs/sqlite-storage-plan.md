@@ -12,7 +12,6 @@
 
 进入 SQLite：
 
-- users / quota / usage 统计元数据
 - sessions
 - session messages
 - runs/jobs metadata
@@ -55,7 +54,6 @@ linked_session_id
   - JobStore 管 runs/jobs metadata。
   - ScheduleStore 管 schedules。
   - DocumentStore 管 document index。
-  - UserStore 管 user profile、quota、usage 统计。
 - 使用 sqlx：
   - 第一阶段使用 SQLite pool。
   - SQL 避免 SQLite 专有能力，JSON 先用 TEXT 存储。
@@ -144,7 +142,7 @@ PRAGMA foreign_keys = ON;
   - /v1/runs history 正常。
   - schedule CRUD/run-now 正常。
   - documents list/search 正常。
-  - quota 统计正常。
+  - 内部资源限制统计正常。
 - Migration tests:
   - 构造旧文件树，迁移后 API 能读到旧数据。
   - 重复执行迁移不重复插入。

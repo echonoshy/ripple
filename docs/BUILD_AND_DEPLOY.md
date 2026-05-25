@@ -237,7 +237,7 @@ cp config/settings.yaml.sample config/settings.yaml
 
 至少修改：
 
-- `server.api_keys`：后端 API key。
+- `server.api_keys`：可信上游服务调用 Ripple 的服务级 API key。
 - `server.host` / `server.port`：监听地址和端口，默认 `0.0.0.0:8810`。
 - `external_agents.codex.codex_home`：服务端 Codex 登录态目录。
 - connector OAuth 配置，例如 Google Workspace / Feishu。

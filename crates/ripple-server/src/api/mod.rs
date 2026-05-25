@@ -22,8 +22,7 @@ use axum::{Json, Router};
 use serde_json::{json, Value};
 
 use crate::state::AppState;
-use crate::storage::api_key_hash;
-use crate::user::{user_id_from_headers, AuthContext, AuthUserError};
+use crate::user::{user_id_from_headers, AuthContext};
 
 pub fn router(state: AppState) -> Router {
     let v1 = Router::new()
@@ -33,24 +32,6 @@ pub fn router(state: AppState) -> Router {
         .route("/tasks/*task_path", any(sessions::deprecated_tasks_api))
         .route("/chat/completions", post(chat::chat_completions))
         .route("/users/me", get(users::current_user_profile))
-        .route("/users/me/quota", get(users::current_user_quota))
-        .route(
-            "/users/:target_user_id/quota",
-            axum::routing::put(users::update_user_quota),
-        )
-        .route(
-            "/users/:target_user_id/api-keys",
-            post(users::create_user_api_key),
-        )
-        .route(
-            "/api-keys/trusted-clients",
-            post(users::create_trusted_client_key),
-        )
-        .route("/api-keys/admin", post(users::create_admin_api_key))
-        .route(
-            "/api-keys/:key_id",
-            axum::routing::delete(users::revoke_api_key),
-        )
         .route(
             "/sessions",
             get(sessions::list_sessions).post(sessions::create_session),
@@ -207,31 +188,21 @@ async fn authenticate_request(
     state: &AppState,
     headers: &axum::http::HeaderMap,
 ) -> Result<AuthContext, ApiError> {
+    if state.config.api_keys.is_empty() {
+        let user_id = user_id_from_headers(headers).map_err(ApiError::bad_request)?;
+        return Ok(AuthContext::open(user_id));
+    }
+
     let supplied = supplied_api_key(headers);
     if let Some(key) = supplied {
         if state.config.api_keys.iter().any(|expected| expected == key) {
             let user_id = user_id_from_headers(headers).map_err(ApiError::bad_request)?;
-            return Ok(AuthContext::bootstrap_admin(user_id));
+            return Ok(AuthContext::service(user_id));
         }
-        let key_hash = api_key_hash(key);
-        let Some(record) = state
-            .storage
-            .get_api_key_by_hash(&key_hash)
-            .await
-            .map_err(internal_error)?
-        else {
-            return Err(invalid_api_key());
-        };
-        return AuthContext::from_api_key_record(record, headers)
-            .map_err(auth_user_error_to_api_error);
+        return Err(invalid_api_key());
     }
 
-    if state.config.api_keys.is_empty() {
-        let user_id = user_id_from_headers(headers).map_err(ApiError::bad_request)?;
-        Ok(AuthContext::open(user_id))
-    } else {
-        Err(invalid_api_key())
-    }
+    Err(invalid_api_key())
 }
 
 fn supplied_api_key(headers: &axum::http::HeaderMap) -> Option<&str> {
@@ -249,25 +220,6 @@ fn supplied_api_key(headers: &axum::http::HeaderMap) -> Option<&str> {
 
 fn invalid_api_key() -> ApiError {
     ApiError::new(StatusCode::UNAUTHORIZED, "Invalid or missing API key")
-}
-
-fn auth_user_error_to_api_error(err: AuthUserError) -> ApiError {
-    match err {
-        AuthUserError::InvalidUser(message) => ApiError::bad_request(message),
-        AuthUserError::Revoked => invalid_api_key(),
-        AuthUserError::UserMismatch { expected, supplied } => ApiError::new(
-            StatusCode::FORBIDDEN,
-            json!({
-                "code": "user_mismatch",
-                "expected_user_id": expected,
-                "supplied_user_id": supplied
-            }),
-        ),
-    }
-}
-
-fn internal_error(err: anyhow::Error) -> ApiError {
-    ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
 }
 
 #[derive(Debug)]
@@ -320,8 +272,6 @@ mod tests {
     use crate::config::{
         AppConfig, CodexConfig, FeishuConfig, GogcliOAuthConfig, SandboxConfig, SkillsConfig,
     };
-    use crate::storage::{api_key_hash, ApiKeyKind, ApiKeyRecord};
-
     fn test_state(api_keys: Vec<String>) -> AppState {
         let root =
             std::env::temp_dir().join(format!("ripple-api-auth-test-{}", uuid::Uuid::new_v4()));
@@ -375,22 +325,6 @@ mod tests {
         })
     }
 
-    async fn store_key(state: &AppState, raw_key: &str, kind: ApiKeyKind, user_id: Option<&str>) {
-        state
-            .storage
-            .upsert_api_key(&ApiKeyRecord {
-                key_id: format!("key-{}", uuid::Uuid::new_v4()),
-                key_hash: api_key_hash(raw_key),
-                kind,
-                user_id: user_id.map(str::to_string),
-                display_name: Some("test key".to_string()),
-                created_at: "2026-05-23T00:00:00Z".to_string(),
-                revoked_at: None,
-            })
-            .await
-            .unwrap();
-    }
-
     async fn request_json(
         state: AppState,
         method: Method,
@@ -421,226 +355,148 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn local_user_key_uses_bound_user_without_header() {
-        let state = test_state(vec!["bootstrap-admin".to_string()]);
-        store_key(&state, "local-alice", ApiKeyKind::LocalUser, Some("alice")).await;
+    async fn service_key_uses_trusted_header_user() {
+        let state = test_state(vec!["service-key".to_string()]);
 
         let (status, body) = request_json(
             state,
             Method::GET,
             "/v1/users/me",
-            "local-alice",
-            None,
+            "service-key",
+            Some("upstream-user"),
             None,
         )
         .await;
 
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(body.get("user_id").and_then(Value::as_str), Some("alice"));
+        assert_eq!(
+            body.get("user_id").and_then(Value::as_str),
+            Some("upstream-user")
+        );
         assert_eq!(
             body.pointer("/auth/kind").and_then(Value::as_str),
-            Some("local_user")
+            Some("service")
         );
     }
 
     #[tokio::test]
-    async fn local_user_key_rejects_mismatched_header_user() {
-        let state = test_state(vec!["bootstrap-admin".to_string()]);
-        store_key(&state, "local-alice", ApiKeyKind::LocalUser, Some("alice")).await;
+    async fn service_key_defaults_to_default_user_without_header() {
+        let state = test_state(vec!["service-key".to_string()]);
 
         let (status, body) = request_json(
             state,
             Method::GET,
             "/v1/users/me",
-            "local-alice",
-            Some("bob"),
+            "service-key",
             None,
-        )
-        .await;
-
-        assert_eq!(status, StatusCode::FORBIDDEN);
-        assert_eq!(
-            body.pointer("/detail/code").and_then(Value::as_str),
-            Some("user_mismatch")
-        );
-    }
-
-    #[tokio::test]
-    async fn trusted_client_key_allows_header_user() {
-        let state = test_state(vec!["bootstrap-admin".to_string()]);
-        store_key(&state, "trusted-client", ApiKeyKind::TrustedClient, None).await;
-
-        let (status, body) = request_json(
-            state,
-            Method::GET,
-            "/v1/users/me",
-            "trusted-client",
-            Some("bob"),
             None,
         )
         .await;
 
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(body.get("user_id").and_then(Value::as_str), Some("bob"));
+        assert_eq!(body.get("user_id").and_then(Value::as_str), Some("default"));
         assert_eq!(
             body.pointer("/auth/kind").and_then(Value::as_str),
-            Some("trusted_client")
+            Some("service")
         );
     }
 
     #[tokio::test]
-    async fn local_user_key_cannot_update_quota() {
-        let state = test_state(vec!["bootstrap-admin".to_string()]);
-        store_key(&state, "local-alice", ApiKeyKind::LocalUser, Some("alice")).await;
+    async fn invalid_service_key_is_rejected() {
+        let state = test_state(vec!["service-key".to_string()]);
 
-        let (status, body) = request_json(
-            state,
-            Method::PUT,
-            "/v1/users/alice/quota",
-            "local-alice",
-            None,
-            Some(json!({ "max_sessions": 1 })),
-        )
-        .await;
+        let (status, _) =
+            request_json(state, Method::GET, "/v1/users/me", "wrong-key", None, None).await;
 
-        assert_eq!(status, StatusCode::FORBIDDEN);
-        assert_eq!(
-            body.pointer("/detail/code").and_then(Value::as_str),
-            Some("admin_required")
-        );
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]
-    async fn bootstrap_config_key_can_update_quota_as_admin() {
-        let state = test_state(vec!["bootstrap-admin".to_string()]);
+    async fn open_dev_mode_uses_header_user() {
+        let state = test_state(Vec::new());
 
         let (status, body) = request_json(
             state,
-            Method::PUT,
-            "/v1/users/alice/quota",
-            "bootstrap-admin",
+            Method::GET,
+            "/v1/users/me",
+            "ignored-key",
+            Some("dev-user"),
             None,
-            Some(json!({ "max_sessions": 1 })),
         )
         .await;
 
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(body.get("user_id").and_then(Value::as_str), Some("alice"));
         assert_eq!(
-            body.pointer("/quota/max_sessions").and_then(Value::as_u64),
-            Some(1)
+            body.get("user_id").and_then(Value::as_str),
+            Some("dev-user")
+        );
+        assert_eq!(
+            body.pointer("/auth/kind").and_then(Value::as_str),
+            Some("open")
         );
     }
 
     #[tokio::test]
-    async fn admin_can_create_and_revoke_local_user_key() {
-        let state = test_state(vec!["bootstrap-admin".to_string()]);
+    async fn invalid_header_user_is_rejected() {
+        let state = test_state(vec!["service-key".to_string()]);
 
-        let (create_status, created) = request_json(
-            state.clone(),
-            Method::POST,
-            "/v1/users/alice/api-keys",
-            "bootstrap-admin",
-            None,
-            Some(json!({ "display_name": "Alice laptop" })),
-        )
-        .await;
-
-        assert_eq!(create_status, StatusCode::OK);
-        assert_eq!(
-            created.get("kind").and_then(Value::as_str),
-            Some("local_user")
-        );
-        assert_eq!(
-            created.get("user_id").and_then(Value::as_str),
-            Some("alice")
-        );
-        let api_key = created
-            .get("api_key")
-            .and_then(Value::as_str)
-            .expect("api_key")
-            .to_string();
-        let key_id = created
-            .get("key_id")
-            .and_then(Value::as_str)
-            .expect("key_id")
-            .to_string();
-
-        let (use_status, profile) = request_json(
-            state.clone(),
-            Method::GET,
-            "/v1/users/me",
-            &api_key,
-            None,
-            None,
-        )
-        .await;
-
-        assert_eq!(use_status, StatusCode::OK);
-        assert_eq!(
-            profile.get("user_id").and_then(Value::as_str),
-            Some("alice")
-        );
-
-        let (revoke_status, revoked) = request_json(
-            state.clone(),
-            Method::DELETE,
-            &format!("/v1/api-keys/{key_id}"),
-            "bootstrap-admin",
-            None,
-            None,
-        )
-        .await;
-
-        assert_eq!(revoke_status, StatusCode::OK);
-        assert_eq!(revoked.get("revoked").and_then(Value::as_bool), Some(true));
-
-        let (after_revoke_status, _) =
-            request_json(state, Method::GET, "/v1/users/me", &api_key, None, None).await;
-
-        assert_eq!(after_revoke_status, StatusCode::UNAUTHORIZED);
-    }
-
-    #[tokio::test]
-    async fn admin_can_create_trusted_client_key() {
-        let state = test_state(vec!["bootstrap-admin".to_string()]);
-
-        let (create_status, created) = request_json(
-            state.clone(),
-            Method::POST,
-            "/v1/api-keys/trusted-clients",
-            "bootstrap-admin",
-            None,
-            Some(json!({ "display_name": "upstream app" })),
-        )
-        .await;
-
-        assert_eq!(create_status, StatusCode::OK);
-        assert_eq!(
-            created.get("kind").and_then(Value::as_str),
-            Some("trusted_client")
-        );
-        let api_key = created
-            .get("api_key")
-            .and_then(Value::as_str)
-            .expect("api_key")
-            .to_string();
-
-        let (use_status, profile) = request_json(
+        let (status, body) = request_json(
             state,
             Method::GET,
             "/v1/users/me",
-            &api_key,
-            Some("external-user"),
+            "service-key",
+            Some("../alice"),
             None,
         )
         .await;
 
-        assert_eq!(use_status, StatusCode::OK);
+        assert_eq!(status, StatusCode::BAD_REQUEST);
         assert_eq!(
-            profile.get("user_id").and_then(Value::as_str),
-            Some("external-user")
+            body.get("detail").and_then(Value::as_str),
+            Some("user_id must match ^[a-zA-Z0-9_-]{1,64}$")
         );
+    }
+
+    #[tokio::test]
+    async fn user_management_routes_are_not_registered() {
+        let state = test_state(vec!["service-key".to_string()]);
+        let cases = [
+            (Method::GET, "/v1/users/me/quota", None),
+            (
+                Method::PUT,
+                "/v1/users/alice/quota",
+                Some(json!({ "max_sessions": 1 })),
+            ),
+            (
+                Method::POST,
+                "/v1/users/alice/api-keys",
+                Some(json!({ "display_name": "Alice laptop" })),
+            ),
+            (
+                Method::POST,
+                "/v1/api-keys/trusted-clients",
+                Some(json!({ "display_name": "upstream app" })),
+            ),
+            (
+                Method::POST,
+                "/v1/api-keys/admin",
+                Some(json!({ "display_name": "admin" })),
+            ),
+            (Method::DELETE, "/v1/api-keys/key_test", None),
+        ];
+
+        for (method, path, body) in cases {
+            let (status, _) = request_json(
+                state.clone(),
+                method,
+                path,
+                "service-key",
+                Some("upstream-user"),
+                body,
+            )
+            .await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{path}");
+        }
     }
 }
 

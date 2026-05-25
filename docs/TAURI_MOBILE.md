@@ -11,7 +11,7 @@ Ripple mobile 主线采用 **Tauri 复用主 App 工作台**。
 - `app` 已经包含完整 App 工作台和 Tauri v2 shell，覆盖 Sessions/Chat、Files、Connectors、Automations、Settings 等核心能力。
 - iOS/Android app 仍然只是 Ripple Server 客户端，不嵌入后端控制面，也不运行 agent loop、sandbox、connector CLI 或 Codex app-server。
 - 首阶段分发目标是 Android APK 真机安装、iOS 真机调试和 TestFlight。
-- 登录方式保留设置页手填 API key 和 `X-Ripple-User-Id`。
+- 开发阶段保留设置页手填服务级 API key 和 user id；生产形态由可信上游服务注入 `X-Ripple-User-Id`。
 - 临时服务端使用 HTTP IP `/v1` API：`http://140.143.229.103:8810/v1`。这是 `test-oauth.weilai.ai` 被腾讯云备案/域名拦截期间的过渡方案，恢复 HTTPS 域名后需要同步回滚前端默认 API、Tauri CSP、iOS ATS 和 Android cleartext 配置。
 
 参考：
@@ -123,7 +123,7 @@ bun run tauri android build --apk --target aarch64 --split-per-abi
 
 功能验收：
 
-- Settings 中 API key、user id、server URL 保存后重启仍可用。
+- Settings 中服务级 API key、开发 user id、server URL 保存后重启仍可用。
 - 能拉取 models 和 sessions。
 - 能创建/切换 session。
 - `/v1/chat/completions` 流式输出正常。

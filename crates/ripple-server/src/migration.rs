@@ -9,7 +9,6 @@ use crate::storage::Storage;
 
 #[derive(Debug, Default)]
 pub struct MigrationReport {
-    pub users_imported: usize,
     pub sessions_imported: usize,
     pub jobs_imported: usize,
     pub schedules_imported: usize,
@@ -21,7 +20,6 @@ pub struct MigrationReport {
 impl MigrationReport {
     pub fn print(&self) {
         println!("SQLite migration completed");
-        println!("users_imported={}", self.users_imported);
         println!("sessions_imported={}", self.sessions_imported);
         println!("jobs_imported={}", self.jobs_imported);
         println!("schedules_imported={}", self.schedules_imported);
@@ -72,16 +70,6 @@ async fn migrate_user_sandbox(
     sandbox_dir: &Path,
     report: &mut MigrationReport,
 ) {
-    if let Some(user) = read_json_value(sandbox_dir.join("user.json"), report).await {
-        if storage.upsert_user(user_id, &user).await.is_ok() {
-            report.users_imported += 1;
-        } else {
-            report
-                .errors
-                .push(sandbox_dir.join("user.json").display().to_string());
-        }
-    }
-
     migrate_sessions(storage, user_id, &sandbox_dir.join("sessions"), report).await;
     migrate_job_root(
         storage,

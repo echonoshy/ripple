@@ -6,7 +6,7 @@ Ripple 的 Rust 迁移目标是重写后端控制面，而不是把后端嵌进 
 
 - `ripple-server` 是独立 Linux 后端服务。
 - Web、Tauri 和 Mobile 都只是客户端，只调用 Ripple Server 的 `/v1` API。
-- 后端继续保持多用户模型，`X-Ripple-User-Id` 是 user 隔离入口。
+- 后端继续保持多用户模型，`X-Ripple-User-Id` 是可信上游传入的 user 隔离入口；Ripple 不做终端用户鉴权和用户权限管理。
 - sandbox 以 `user_id` 为单位，一个 user 拥有长期 workspace，多个 session 共享该 workspace。
 - Codex app-server 是执行面。Rust 后端负责启动、隔离、转发 JSON-RPC、收集事件、持久化状态。
 - Skills 继续使用 Markdown/YAML frontmatter；Python 仅允许作为 `skills` 下的 helper。
@@ -21,8 +21,8 @@ crates/ripple-server/
 
 当前 Rust 控制面已经覆盖主链路：
 
-- 配置加载、API key middleware、`X-Ripple-User-Id` 校验。
-- user sandbox、session metadata/messages、workspace 文件 API、documents、users/quota。
+- 配置加载、服务级 API key middleware、`X-Ripple-User-Id` 校验。
+- user sandbox、session metadata/messages、workspace 文件 API、documents、最小 user profile。
 - Notion、Google Workspace、Feishu/Lark、Bilibili connector 授权、状态和断开。
 - Codex app-server JSON-RPC provider、per-user 执行锁、`/v1/runs`、`/v1/chat/completions`。
 - OpenAI-compatible 非流式和 SSE 响应、Codex event 映射、token usage 持久化、workspace attachment 和 image 事件导入。

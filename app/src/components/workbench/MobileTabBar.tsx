@@ -1,31 +1,25 @@
 "use client";
 
 import React from "react";
-import { Settings } from "lucide-react";
 import { mainNavItems, type WorkspaceView } from "@/lib/workspaceViews";
 
 interface MobileTabBarProps {
   activeView: WorkspaceView;
   onSelectView: (view: WorkspaceView) => void;
-  onOpenSettings: () => void;
 }
 
 const mobileNavLabels: Record<WorkspaceView, string> = {
-  home: "Home",
-  sessions: "Sessions",
-  automations: "Auto",
+  sessions: "Session",
   files: "Files",
-  connectors: "Apps",
+  connectors: "Connector",
+  automations: "Scheduler",
+  home: "Settings",
 };
 
-export default function MobileTabBar({
-  activeView,
-  onSelectView,
-  onOpenSettings,
-}: MobileTabBarProps) {
+export default function MobileTabBar({ activeView, onSelectView }: MobileTabBarProps) {
   return (
-    <nav className="fixed right-0 bottom-0 left-0 z-30 min-h-[calc(64px+env(safe-area-inset-bottom))] border-t border-[#e5e7eb] bg-white/96 px-3 pt-1 pb-[max(env(safe-area-inset-bottom),12px)] shadow-[0_-10px_30px_rgba(23,26,31,0.06)] backdrop-blur lg:hidden">
-      <div className="mx-auto grid h-16 max-w-md grid-cols-6">
+    <nav className="fixed right-0 bottom-0 left-0 z-30 min-h-[calc(64px+env(safe-area-inset-bottom))] border-t border-[#dfe6f4] bg-[linear-gradient(180deg,rgba(255,255,255,0.84)_0%,rgba(248,251,255,0.98)_100%)] px-2 pt-1 pb-[max(env(safe-area-inset-bottom),10px)] shadow-[0_-14px_34px_rgba(44,63,123,0.10)] backdrop-blur-2xl lg:hidden">
+      <div className="mx-auto grid h-[60px] max-w-md grid-cols-5">
         {mainNavItems.map((item) => {
           const Icon = item.icon;
           const selected = item.id === activeView;
@@ -35,24 +29,23 @@ export default function MobileTabBar({
               type="button"
               aria-label={`Open ${mobileNavLabels[item.id]}`}
               onClick={() => onSelectView(item.id)}
-              className={`flex flex-col items-center justify-center gap-1 text-[11px] font-medium ${
-                selected ? "text-[#2463eb]" : "text-[#374151]"
+              className={`group flex min-w-0 flex-col items-center justify-center gap-0.5 text-[9px] leading-none font-semibold ${
+                selected ? "text-[#2457e6]" : "text-[#3f4655]"
               }`}
             >
-              <Icon size={18} />
-              {mobileNavLabels[item.id]}
+              <span
+                className={`flex h-7 w-7 items-center justify-center rounded-full transition-all ${
+                  selected
+                    ? "bg-[linear-gradient(135deg,#2f6bff_0%,#7b5cff_100%)] text-white shadow-[0_8px_18px_rgba(64,92,255,0.28)]"
+                    : "text-[#1f2937] group-active:bg-[#eef3ff]"
+                }`}
+              >
+                <Icon size={selected ? 16 : 18} strokeWidth={selected ? 2.5 : 2.25} />
+              </span>
+              <span className="max-w-full truncate">{mobileNavLabels[item.id]}</span>
             </button>
           );
         })}
-        <button
-          type="button"
-          aria-label="Open Settings"
-          onClick={onOpenSettings}
-          className="flex flex-col items-center justify-center gap-1 text-[11px] font-medium text-[#374151]"
-        >
-          <Settings size={18} />
-          Settings
-        </button>
       </div>
     </nav>
   );

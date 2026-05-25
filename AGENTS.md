@@ -134,7 +134,9 @@ Python helper 规则：
 
 - App/Tauri 只做客户端展示和交互，不承载后端控制面能力。
 - 前端只调用 Ripple Server `/v1` API。
+- API 地址按运行位置区分：部署在与 `ripple-server` 同一台机器上的 Web 服务可以通过 `localhost` / `127.0.0.1` 访问后端；在开发者本地 Mac 或其他非后端机器上打包、运行、调试的客户端不能依赖 `localhost`，尤其是 iOS/Tauri mobile/TestFlight、Android 和独立桌面客户端，必须显式使用 `http://140.143.229.103:8810/v1`，除非后端恢复 HTTPS 域名或另行提供可从设备访问的地址。
 - 临时打包链路：在 `test-oauth.weilai.ai` 解除腾讯云备案/域名拦截前，Web / macOS / iOS / Android 客户端生产默认 API 暂时指向 `http://140.143.229.103:8810/v1`。这是为了先跑通链路的 HTTP IP 直连方案；恢复 HTTPS 域名时，同步回滚前端默认 API、Tauri CSP、macOS/iOS ATS 明文例外和 Android cleartext 配置。
+- 客户端产品形态以真实终端用户体验为主；除非明确要做 Ripple 控制面/管理台，不要把其他 App 默认设计成“工作台”壳子。优先围绕用户能完成的核心任务、移动触控、信息密度、关键流程和功能体验来组织界面。
 - 修改前端后在 `app` 运行 `bun run lint`、`bun run build` 或相应最小验证。
 - UI 变更优先保持现有 Vite + React + Tauri 结构，不引入新的前端框架。
 

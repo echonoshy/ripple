@@ -5,8 +5,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import ConnectorsPage from "./ConnectorsPage";
 
+const noop = () => {};
+
 function renderConnectorsPage() {
-  return renderToStaticMarkup(<ConnectorsPage userId="default" />);
+  return renderToStaticMarkup(<ConnectorsPage userId="default" onBack={noop} />);
 }
 
 function testConnectorsPageHasMobileSpecificCopy() {
@@ -20,6 +22,8 @@ function testConnectorsPageHasMobileSpecificCopy() {
   assert.match(html, /hidden sm:inline[^>]*>Refresh</);
   assert.match(html, /sm:hidden[^>]*>No apps yet</);
   assert.match(html, /hidden sm:inline[^>]*>No connectors</);
+  assert.match(html, /aria-label="Back to settings"/);
+  assert.match(html, /lg:hidden/);
 }
 
 testConnectorsPageHasMobileSpecificCopy();

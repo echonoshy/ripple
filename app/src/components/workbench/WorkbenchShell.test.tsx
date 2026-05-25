@@ -18,6 +18,19 @@ function renderShell() {
   );
 }
 
+function renderShellWithMobileNav() {
+  return renderToStaticMarkup(
+    <WorkbenchShell
+      nav={<div>Navigation</div>}
+      content={<div>Content</div>}
+      inspector={null}
+      mobileNav={<div>Mobile nav</div>}
+      isNavOpen={false}
+      onCloseNav={noop}
+    />
+  );
+}
+
 function renderShellWithInspector() {
   return renderToStaticMarkup(
     <WorkbenchShell
@@ -81,6 +94,14 @@ function testShellUsesDynamicViewportForIosWebview() {
 }
 
 testShellUsesDynamicViewportForIosWebview();
+
+function testShellCanRenderTopLevelMobileNavigation() {
+  const html = renderShellWithMobileNav();
+
+  assert.match(html, />Mobile nav</);
+}
+
+testShellCanRenderTopLevelMobileNavigation();
 
 function testInspectorDefaultsWiderAndResizable() {
   const html = renderShellWithInspector();

@@ -116,6 +116,18 @@ function testChatRunStoresActiveRunsBySession() {
   assert.match(chatRunSource, /runningSessionIds/);
 }
 
+function testMobileUsesBottomTabBarForTopLevelViews() {
+  assert.match(appSource, /import MobileTabBar/);
+  assert.match(appSource, /mobileNav=\{mobileNav\}/);
+  assert.match(appSource, /activeView === "sessions" && mobileSessionMode === "chat" \? null/);
+}
+
+function testMobileSecondaryViewsCanReturnToSettings() {
+  assert.match(appSource, /const handleOpenMobileSettings = useCallback/);
+  assert.match(appSource, /const handleOpenMobileSessionList = useCallback/);
+  assert.match(appSource, /onBackToMobileSessions=\{handleOpenMobileSessionList\}/);
+}
+
 testChatCompletionClearsResidualPlan();
 testSessionDetailsRestorePersistedPlan();
 testRestoringSessionRefreshesWorkspaceViews();
@@ -128,5 +140,7 @@ testCompactSchedulesDelayedSessionRefreshes();
 testStopTargetsOneRunningSession();
 testChatSendIsNotBlockedByAnotherRunningSession();
 testChatRunStoresActiveRunsBySession();
+testMobileUsesBottomTabBarForTopLevelViews();
+testMobileSecondaryViewsCanReturnToSettings();
 
 console.log("app plan tests passed");

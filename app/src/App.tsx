@@ -16,6 +16,7 @@ import ConnectorsPage from "@/components/workbench/ConnectorsPage";
 import FilesPage from "@/components/workbench/FilesPage";
 import HomePage from "@/components/workbench/HomePage";
 import InspectorPanel from "@/components/workbench/InspectorPanel";
+import MobileSessionsPage from "@/components/workbench/MobileSessionsPage";
 import MobileTabBar from "@/components/workbench/MobileTabBar";
 import SessionPage from "@/components/workbench/SessionPage";
 import WorkbenchShell from "@/components/workbench/WorkbenchShell";
@@ -53,6 +54,7 @@ export default function Home() {
   // ── UI state ──
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [mobileSessionMode, setMobileSessionMode] = useState<"list" | "chat">("list");
   const [sessionIdCopied, setSessionIdCopied] = useState(false);
   const [workspaceRefreshToken, setWorkspaceRefreshToken] = useState(0);
   const [activeView, setActiveView] = useState<WorkspaceView>("sessions");
@@ -271,14 +273,19 @@ export default function Home() {
   };
 
   // ── Session switch ──
-  const handleSwitchSession = async (targetSessionId: string) => {
-    const switched = await switchSession(targetSessionId);
-    if (switched) acknowledgeSessionCompletion(targetSessionId);
-  };
+  const handleSwitchSession = useCallback(
+    async (targetSessionId: string) => {
+      const switched = await switchSession(targetSessionId);
+      if (switched) acknowledgeSessionCompletion(targetSessionId);
+    },
+    [acknowledgeSessionCompletion, switchSession]
+  );
 
   // ── New session ──
   const handleNewSession = async () => {
     await createNewSession();
+    setActiveView("sessions");
+    setMobileSessionMode("chat");
   };
 
   // ── Delete session ──
@@ -307,11 +314,27 @@ export default function Home() {
     (view: WorkspaceView) => {
       setActiveView(view);
       setIsSidebarOpen(false);
+      if (view === "sessions") {
+        setMobileSessionMode("list");
+      }
       if (view === "sessions" && sessionId) {
         acknowledgeSessionCompletion(sessionId);
       }
     },
     [acknowledgeSessionCompletion, sessionId]
+  );
+  const handleOpenMobileSettings = useCallback(() => {
+    handleSelectView("home");
+  }, [handleSelectView]);
+  const handleOpenMobileSessionList = useCallback(() => {
+    handleSelectView("sessions");
+  }, [handleSelectView]);
+  const handleSelectMobileSession = useCallback(
+    async (targetSessionId: string) => {
+      await handleSwitchSession(targetSessionId);
+      setMobileSessionMode("chat");
+    },
+    [handleSwitchSession]
   );
 
   const selectedSessionIsGenerating = Boolean(sessionId && runningSessionIds.includes(sessionId));
@@ -405,9 +428,11 @@ export default function Home() {
         userId={userId}
         sessions={displayWorkbenchSessions}
         isLoadingSessions={isLoadingSessions}
+        selectedModel={selectedModel}
         onNewSession={handleNewSession}
         onSelectSession={(selectedSessionId) => void handleSwitchSession(selectedSessionId)}
         onSelectView={handleSelectView}
+        onOpenSettings={() => setIsSettingsOpen(true)}
       />
     ) : activeView === "files" ? (
       <FilesPage userId={userId} refreshToken={workspaceRefreshToken} />
@@ -416,44 +441,66 @@ export default function Home() {
     ) : activeView === "connectors" ? (
       <ConnectorsPage userId={userId} onConnectorStateChange={loadSessions} />
     ) : (
-      <SessionPage
-        session={selectedWorkbenchSession}
-        messages={messages}
-        timelineEvents={timelineEvents}
-        planProgress={planProgress}
-        planSteps={planSteps}
-        tokenUsage={tokenUsage}
-        lastContextTokens={lastContextTokens}
-        input={input}
-        pendingFiles={pendingFiles}
-        isGenerating={selectedSessionIsGenerating}
-        isComposerBlocked={isComposerBlocked}
-        focusToken={inputFocusToken}
-        selectedModel={selectedModel}
-        models={models}
-        isModelDropdownOpen={openModelDropdown === "composer"}
-        sessionId={sessionId}
-        sessionIdCopied={sessionIdCopied}
-        onInputChange={setInput}
-        onClearContext={handleClearContext}
-        onCompactContext={handleCompactContext}
-        onAttachFiles={handleAttachFiles}
-        onRemovePendingFile={handleRemovePendingFile}
-        onToggleModelDropdown={() =>
-          setOpenModelDropdown((open) => (open === "composer" ? null : "composer"))
-        }
-        onSelectModel={(model) => {
-          setSelectedModel(model);
-          setOpenModelDropdown(null);
-        }}
-        onCopySessionId={handleCopySessionId}
-        onSend={handleSendMessage}
-        onStop={handleStop}
-        onQuickReply={handleQuickReply}
-        onPermissionResolve={handlePermissionResolve}
-        onFeishuAuthOpen={handleFeishuAuthOpen}
-        feishuAuthWaiting={feishuAuthWaiting}
-      />
+      <div className="h-full min-h-0">
+        <div className={mobileSessionMode === "list" ? "h-full lg:hidden" : "hidden"}>
+          <MobileSessionsPage
+            sessions={displayWorkbenchSessions}
+            isLoading={isLoadingSessions}
+            sessionLoadError={sessionLoadError}
+            selectedSessionId={sessionId}
+            onNewSession={handleNewSession}
+            onSelectSession={(selectedSessionId) =>
+              void handleSelectMobileSession(selectedSessionId)
+            }
+          />
+        </div>
+        <div className={mobileSessionMode === "chat" ? "h-full" : "hidden h-full lg:block"}>
+          <SessionPage
+            session={selectedWorkbenchSession}
+            messages={messages}
+            timelineEvents={timelineEvents}
+            planProgress={planProgress}
+            planSteps={planSteps}
+            tokenUsage={tokenUsage}
+            lastContextTokens={lastContextTokens}
+            input={input}
+            pendingFiles={pendingFiles}
+            isGenerating={selectedSessionIsGenerating}
+            isComposerBlocked={isComposerBlocked}
+            focusToken={inputFocusToken}
+            selectedModel={selectedModel}
+            models={models}
+            isModelDropdownOpen={openModelDropdown === "composer"}
+            sessionId={sessionId}
+            sessionIdCopied={sessionIdCopied}
+            onInputChange={setInput}
+            onClearContext={handleClearContext}
+            onCompactContext={handleCompactContext}
+            onAttachFiles={handleAttachFiles}
+            onRemovePendingFile={handleRemovePendingFile}
+            onToggleModelDropdown={() =>
+              setOpenModelDropdown((open) => (open === "composer" ? null : "composer"))
+            }
+            onSelectModel={(model) => {
+              setSelectedModel(model);
+              setOpenModelDropdown(null);
+            }}
+            onCopySessionId={handleCopySessionId}
+            onSend={handleSendMessage}
+            onStop={handleStop}
+            onQuickReply={handleQuickReply}
+            onPermissionResolve={handlePermissionResolve}
+            onFeishuAuthOpen={handleFeishuAuthOpen}
+            feishuAuthWaiting={feishuAuthWaiting}
+            onBackToMobileSessions={handleOpenMobileSessionList}
+            onOpenMobileSettings={handleOpenMobileSettings}
+          />
+        </div>
+      </div>
+    );
+  const mobileNav =
+    activeView === "sessions" && mobileSessionMode === "chat" ? null : (
+      <MobileTabBar activeView={activeView} onSelectView={handleSelectView} />
     );
 
   // ═══════════════════════════════════════════════════════
@@ -546,13 +593,7 @@ export default function Home() {
             <InspectorPanel userId={userId} refreshToken={workspaceRefreshToken} />
           ) : null
         }
-        mobileNav={
-          <MobileTabBar
-            activeView={activeView}
-            onSelectView={handleSelectView}
-            onOpenSettings={() => setIsSettingsOpen(true)}
-          />
-        }
+        mobileNav={mobileNav}
       />
 
       <SettingsModal

@@ -89,14 +89,6 @@ export default function WorkspaceNav({
               </button>
             );
           })}
-          <button
-            type="button"
-            onClick={onOpenSettings}
-            className="flex h-9 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-medium text-[#374151] transition-colors hover:bg-white hover:text-[#0d0d0d]"
-          >
-            <Settings size={16} className="text-[#6b7280]" />
-            Settings
-          </button>
         </nav>
 
         <div className="mt-10">

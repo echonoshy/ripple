@@ -44,8 +44,8 @@ function testRendersAllSessionsWithoutDeadViewAllButton() {
   assert.doesNotMatch(html, />Idle</);
   assert.doesNotMatch(html, /View all tasks/);
   assert.doesNotMatch(html, />Tasks</);
-  assert.match(html, />Automations</);
-  assert.match(html, />Sessions</);
+  assert.match(html, />Scheduler</);
+  assert.match(html, />Session</);
   assert.match(html, />New Session</);
 }
 

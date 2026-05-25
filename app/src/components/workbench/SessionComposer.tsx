@@ -75,7 +75,7 @@ export default function SessionComposer({
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
+    el.style.height = `${Math.min(el.scrollHeight, 180)}px`;
   }, []);
 
   useEffect(() => {
@@ -211,8 +211,8 @@ export default function SessionComposer({
   };
 
   return (
-    <div className="shrink-0 border-t border-[#e5e7eb] bg-white px-4 pt-3 pb-[calc(88px+env(safe-area-inset-bottom))] sm:px-5 md:px-8 lg:pb-[max(env(safe-area-inset-bottom),20px)]">
-      <div className="mx-auto max-w-4xl rounded-xl border border-[#d7dce3] bg-white p-2 shadow-[0_10px_30px_rgba(23,26,31,0.06)] transition-colors focus-within:border-[#aab4c2]">
+    <div className="shrink-0 border-t border-[#e8edf7] bg-white/76 px-3 pt-1.5 pb-[max(env(safe-area-inset-bottom),10px)] shadow-[0_-14px_32px_rgba(44,63,123,0.08)] backdrop-blur-2xl sm:px-5 sm:pt-3 md:px-8 lg:pb-[max(env(safe-area-inset-bottom),20px)]">
+      <div className="mx-auto max-w-4xl rounded-[24px] border border-[#dfe6f4] bg-white/92 p-1.5 shadow-[0_12px_30px_rgba(44,63,123,0.12)] transition-colors focus-within:border-[#8da0ff] sm:rounded-2xl sm:p-2">
         <input
           ref={fileInputRef}
           type="file"
@@ -221,32 +221,66 @@ export default function SessionComposer({
           onChange={handleAttachChange}
           disabled={inputDisabled}
         />
-        <textarea
-          ref={textareaRef}
-          value={value}
-          onChange={handleComposerChange}
-          onKeyDown={handleKeyDown}
-          onKeyUp={handleComposerSelection}
-          onSelect={handleComposerSelection}
-          disabled={inputDisabled}
-          rows={1}
-          placeholder={
-            isGenerating
-              ? "Codex is working..."
-              : isBlocked
-                ? "Draft your next message..."
-                : hasSession
-                  ? "Ask Codex anything about your codebase..."
-                  : "Ask Codex anything about your codebase..."
-          }
-          className="session-composer-input max-h-[220px] min-h-[48px] w-full resize-none bg-transparent px-2 py-2 text-[14px] leading-6 text-[#0d0d0d] outline-none placeholder:text-[#8b8f94] disabled:opacity-60"
-        />
+        <div className="flex items-end gap-1.5 sm:block">
+          <button
+            type="button"
+            aria-label="Attach files"
+            title="Attach files"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={inputDisabled}
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[#172033] active:bg-[#eef3ff] disabled:cursor-not-allowed disabled:opacity-50 sm:hidden"
+          >
+            <Paperclip size={15} />
+          </button>
+          <textarea
+            ref={textareaRef}
+            value={value}
+            onChange={handleComposerChange}
+            onKeyDown={handleKeyDown}
+            onKeyUp={handleComposerSelection}
+            onSelect={handleComposerSelection}
+            disabled={inputDisabled}
+            rows={1}
+            placeholder={
+              isGenerating
+                ? "Codex is working..."
+                : isBlocked
+                  ? "Draft your next message..."
+                  : hasSession
+                    ? "Ask Codex..."
+                    : "Ask Codex..."
+            }
+            className="session-composer-input max-h-[104px] min-h-9 min-w-0 flex-1 resize-none bg-transparent px-1.5 py-1 text-[16px] leading-5 text-[#111827] outline-none placeholder:text-[#9aa3af] disabled:opacity-60 sm:max-h-[180px] sm:min-h-[44px] sm:w-full sm:px-2 sm:py-2 sm:text-[14px] sm:leading-6 sm:placeholder:text-[#8b8f94]"
+          />
+          {isGenerating || isBlocked ? (
+            <button
+              type="button"
+              onClick={onStop}
+              aria-label="Stop generation"
+              title={isBlocked ? "Stop running session" : "Stop generation"}
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#cf222e]/20 bg-[#ffebe9] text-[#cf222e] shadow-[0_8px_18px_rgba(207,34,46,0.10)] hover:bg-[#ffd7d5] sm:hidden"
+            >
+              <Square size={13} fill="currentColor" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onSend}
+              disabled={!canSend || sendDisabled}
+              aria-label="Send message"
+              title="Send message"
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#4067ff]/20 bg-[linear-gradient(135deg,#2f6bff,#7b5cff)] text-white shadow-[0_10px_22px_rgba(64,92,255,0.30)] disabled:cursor-not-allowed disabled:border-[#dfe6f4] disabled:bg-[#f3f6fb] disabled:bg-none disabled:text-[#9aa3af] disabled:shadow-none sm:hidden"
+            >
+              <Send size={14} />
+            </button>
+          )}
+        </div>
         {pendingFiles.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 px-1 pb-2">
+          <div className="flex flex-wrap gap-1.5 px-1 pt-1 pb-2">
             {pendingFiles.map((file) => (
               <span
                 key={file.path}
-                className="inline-flex max-w-[240px] items-center gap-1.5 rounded-md border border-[#d7dce3] bg-[#f7f8fa] px-2 py-1 text-xs text-[#374151]"
+                className="inline-flex max-w-[240px] items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-[#f6f8ff] px-2 py-1 text-[11px] text-[#384152]"
                 title={file.path}
               >
                 <FileText size={13} className="shrink-0 text-[#6b7280]" />
@@ -256,7 +290,7 @@ export default function SessionComposer({
                   aria-label={`Remove ${file.name}`}
                   title={`Remove ${file.name}`}
                   onClick={() => onRemovePendingFile(file.path)}
-                  className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-[#6b7280] hover:bg-[#e5e7eb] hover:text-[#0d0d0d]"
+                  className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[#667085] hover:bg-[#e5e7eb] hover:text-[#111827]"
                 >
                   <X size={11} />
                 </button>
@@ -264,18 +298,18 @@ export default function SessionComposer({
             ))}
           </div>
         )}
-        <div className="flex items-center justify-between gap-2 pt-1">
+        <div className="hidden items-center justify-between gap-2 pt-0.5 sm:flex sm:pt-1">
           <div className="flex items-center gap-1">
             <div ref={quickActionsRef} className="relative">
               {isQuickActionsOpen && (
-                <div className="absolute bottom-full left-0 z-30 mb-2 w-52 overflow-hidden rounded-lg border border-[#e5e7eb] bg-white shadow-lg">
+                <div className="absolute bottom-full left-0 z-30 mb-2 w-52 overflow-hidden rounded-xl border border-[#dfe6f4] bg-white shadow-[0_14px_34px_rgba(44,63,123,0.14)]">
                   {quickActionMatches.map((action, index) => (
                     <button
                       key={action.id}
                       type="button"
                       onClick={() => runQuickAction(action)}
-                      className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[#0d0d0d] hover:bg-[#f7f8fa] ${
-                        index === quickActionIndex ? "bg-[#f7f8fa]" : ""
+                      className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[#111827] hover:bg-[#f7f8fa] ${
+                        index === quickActionIndex ? "bg-[#eef3ff]" : ""
                       }`}
                     >
                       <Trash2 size={14} className="text-[#6b7280]" />
@@ -294,7 +328,7 @@ export default function SessionComposer({
                 title="Attach files"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={inputDisabled}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-[#e5e7eb] bg-white text-[#374151] hover:bg-[#f7f8fa] hover:text-[#0d0d0d] disabled:cursor-not-allowed disabled:opacity-50 sm:h-8 sm:w-8"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[#dfe6f4] bg-white text-[#384152] hover:bg-[#f7f8fa] hover:text-[#111827] disabled:cursor-not-allowed disabled:opacity-50 sm:h-8 sm:w-8"
               >
                 <Paperclip size={15} />
               </button>
@@ -308,7 +342,7 @@ export default function SessionComposer({
                 aria-label="Select model"
                 title={`Model: ${selectedModel}`}
                 onClick={onToggleModelDropdown}
-                className="hidden h-8 max-w-[180px] items-center gap-1.5 rounded-md px-2 font-[family-name:var(--font-mono)] text-xs font-medium text-[#0d0d0d] hover:bg-[#f7f8fa] sm:inline-flex"
+                className="hidden h-8 max-w-[180px] items-center gap-1.5 rounded-full px-2 font-[family-name:var(--font-mono)] text-xs font-medium text-[#111827] hover:bg-[#f7f8fa] sm:inline-flex"
               >
                 <span className="truncate">{selectedModel}</span>
                 <ChevronDown
@@ -319,7 +353,7 @@ export default function SessionComposer({
                 />
               </button>
               {isModelDropdownOpen && (
-                <div className="absolute right-0 bottom-full z-30 mb-2 w-48 overflow-hidden rounded-lg border border-[#e5e7eb] bg-white shadow-lg">
+                <div className="absolute right-0 bottom-full z-30 mb-2 w-48 overflow-hidden rounded-xl border border-[#dfe6f4] bg-white shadow-[0_14px_34px_rgba(44,63,123,0.14)]">
                   <div className="p-1">
                     {models.map((model) => (
                       <button
@@ -328,8 +362,8 @@ export default function SessionComposer({
                         onClick={() => onSelectModel(model.id)}
                         className={`flex w-full items-center rounded px-3 py-2 text-left font-[family-name:var(--font-mono)] text-xs hover:bg-[#f7f8fa] ${
                           selectedModel === model.id
-                            ? "bg-[#eef4ff] text-[#0b57d0]"
-                            : "text-[#0d0d0d]"
+                            ? "bg-[#eef3ff] text-[#2457e6]"
+                            : "text-[#111827]"
                         }`}
                       >
                         {model.id}
@@ -345,7 +379,7 @@ export default function SessionComposer({
                 onClick={onStop}
                 aria-label="Stop generation"
                 title={isBlocked ? "Stop running session" : "Stop generation"}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-[#cf222e]/25 bg-[#ffebe9] text-[#cf222e] hover:bg-[#ffd7d5] sm:h-8 sm:w-8"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[#cf222e]/20 bg-[#ffebe9] text-[#cf222e] hover:bg-[#ffd7d5] sm:h-8 sm:w-8"
               >
                 <Square size={13} fill="currentColor" />
               </button>
@@ -356,7 +390,7 @@ export default function SessionComposer({
                 disabled={!canSend || sendDisabled}
                 aria-label="Send message"
                 title="Send message"
-                className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-[#2463eb] bg-[#2463eb] text-white shadow-[0_8px_24px_rgba(36,99,235,0.18)] hover:bg-[#1d56d8] disabled:cursor-not-allowed disabled:border-[#e5e7eb] disabled:bg-[#f7f8fa] disabled:text-[#8b8f94] disabled:shadow-none sm:h-8 sm:w-8"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[#4067ff]/20 bg-[linear-gradient(135deg,#2f6bff,#7b5cff)] text-white shadow-[0_10px_22px_rgba(64,92,255,0.26)] disabled:cursor-not-allowed disabled:border-[#dfe6f4] disabled:bg-[#f3f6fb] disabled:bg-none disabled:text-[#9aa3af] disabled:shadow-none sm:h-8 sm:w-8"
               >
                 <Send size={14} />
               </button>

@@ -94,7 +94,9 @@ function testOmitsPlaceholderSessionHeaderControls() {
   const html = renderSessionPage();
 
   assert.match(html, /title="Copy session ID: srv-test"/);
-  assert.match(html, /absolute top-3 right-4/);
+  assert.match(html, /absolute top-3 right-4 z-30 hidden sm:block/);
+  assert.match(html, /aria-label="Back to sessions"/);
+  assert.match(html, /aria-label="Session options"/);
   assert.doesNotMatch(html, />New Codex task</);
   assert.doesNotMatch(html, /border-b border-\[#e5e7eb\] bg-white px-4 py-3 md:px-5/);
   assert.doesNotMatch(html, />Idle</);
@@ -121,8 +123,8 @@ function testOmitsPlaceholderSessionHeaderControls() {
 function testGivesSessionContentMoreHorizontalRoom() {
   const html = renderSessionPage();
 
-  assert.match(html, /overflow-y-auto bg-white px-4 py-5 md:px-5/);
-  assert.match(html, /mx-auto max-w-5xl space-y-5/);
+  assert.match(html, /overflow-y-auto bg-transparent px-3 py-2 sm:px-4 sm:py-5 md:px-5/);
+  assert.match(html, /mx-auto max-w-5xl space-y-2 sm:space-y-5/);
 }
 
 function testTimelineTextUsesWiderContentWidth() {

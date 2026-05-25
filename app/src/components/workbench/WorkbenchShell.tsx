@@ -53,7 +53,7 @@ export default function WorkbenchShell({
   nav,
   content,
   inspector,
-  mobileNav,
+  mobileNav = null,
   isNavOpen,
   onCloseNav,
 }: WorkbenchShellProps) {

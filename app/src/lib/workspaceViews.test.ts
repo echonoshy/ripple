@@ -5,16 +5,16 @@ import { mainNavItems, shouldShowInspector, viewTitle } from "./workspaceViews";
 function testMainNavItemsExposeRealWorkspaceViews() {
   assert.deepEqual(
     mainNavItems.map((item) => item.id),
-    ["home", "sessions", "automations", "files", "connectors"]
+    ["sessions", "files", "connectors", "automations", "home"]
   );
 }
 
 function testViewTitlesAreHumanReadable() {
-  assert.equal(viewTitle("home"), "Home");
-  assert.equal(viewTitle("sessions"), "Sessions");
-  assert.equal(viewTitle("automations"), "Automations");
+  assert.equal(viewTitle("home"), "Settings");
+  assert.equal(viewTitle("sessions"), "Session");
+  assert.equal(viewTitle("automations"), "Scheduler");
   assert.equal(viewTitle("files"), "Files");
-  assert.equal(viewTitle("connectors"), "Connectors");
+  assert.equal(viewTitle("connectors"), "Connector");
 }
 
 function testInspectorOnlyAppearsForSessionWorkbench() {

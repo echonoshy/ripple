@@ -1,7 +1,16 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { AlertTriangle, Check, CheckCircle2, Circle, Copy, Loader2 } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Check,
+  CheckCircle2,
+  Circle,
+  Copy,
+  Loader2,
+  MoreHorizontal,
+} from "lucide-react";
 import type {
   Message,
   PlanStep,
@@ -47,6 +56,8 @@ interface SessionPageProps {
   onPermissionResolve: (action: "allow" | "always" | "deny") => void;
   onFeishuAuthOpen?: (payload: FeishuAuthOpenPayload) => void;
   feishuAuthWaiting?: FeishuAuthWaitingState | null;
+  onBackToMobileSessions?: () => void;
+  onOpenMobileSettings?: () => void;
 }
 
 export default function SessionPage({
@@ -81,6 +92,8 @@ export default function SessionPage({
   onPermissionResolve,
   onFeishuAuthOpen,
   feishuAuthWaiting,
+  onBackToMobileSessions,
+  onOpenMobileSettings,
 }: SessionPageProps) {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const hasMessages = messages.length > 0;
@@ -113,9 +126,43 @@ export default function SessionPage({
   }, [isGenerating, messages.length, planSteps.length, timelineEvents, tokenUsage.total_tokens]);
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col bg-white">
+    <div className="relative flex h-full min-h-0 flex-col bg-[radial-gradient(circle_at_18%_0%,rgba(47,107,255,0.10),transparent_32%),radial-gradient(circle_at_88%_5%,rgba(139,92,246,0.10),transparent_34%),#fbfdff]">
+      <div className="grid h-14 shrink-0 grid-cols-[44px_minmax(0,1fr)_44px] items-center border-b border-[#e8edf7] bg-white/72 px-2.5 shadow-[0_8px_22px_rgba(44,63,123,0.04)] backdrop-blur-2xl lg:hidden">
+        <button
+          type="button"
+          aria-label="Back to sessions"
+          title="Back to sessions"
+          onClick={onBackToMobileSessions}
+          className="inline-flex h-10 w-10 items-center justify-center rounded-full text-[#172033] active:bg-[#eef3ff]"
+        >
+          <ArrowLeft size={22} strokeWidth={2.4} />
+        </button>
+        <div className="min-w-0 text-center">
+          <div className="truncate text-[17px] leading-5 font-semibold text-[#111827]">
+            {session?.title || "Session"}
+          </div>
+          <div className="mt-0.5 flex min-w-0 items-center justify-center gap-1.5 text-[11px] leading-4 text-[#7a8496]">
+            <span
+              className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                isGenerating ? "animate-pulse bg-[#2f6bff]" : "bg-[#2fbf71]"
+              }`}
+            />
+            <span className="truncate">{isGenerating ? "Codex is working" : selectedModel}</span>
+          </div>
+        </div>
+        <button
+          type="button"
+          aria-label="Session options"
+          title="Session options"
+          onClick={onOpenMobileSettings}
+          className="inline-flex h-10 w-10 items-center justify-center rounded-full text-[#172033] active:bg-[#eef3ff]"
+        >
+          <MoreHorizontal size={22} strokeWidth={2.4} />
+        </button>
+      </div>
+
       {sessionId && (
-        <div className="pointer-events-none absolute top-3 right-4 z-30">
+        <div className="pointer-events-none absolute top-3 right-4 z-30 hidden sm:block">
           <button
             type="button"
             onClick={onCopySessionId}
@@ -134,20 +181,20 @@ export default function SessionPage({
 
       <div
         ref={scrollContainerRef}
-        className="min-h-0 flex-1 overflow-y-auto bg-white px-4 py-5 md:px-5"
+        className="min-h-0 flex-1 overflow-y-auto bg-transparent px-3 py-2 sm:px-4 sm:py-5 md:px-5"
       >
-        <div className="mx-auto max-w-5xl space-y-5">
+        <div className="mx-auto max-w-5xl space-y-2 sm:space-y-5">
           {planSteps.length > 0 && (
-            <section className="rounded-lg border border-[#e5e7eb] bg-[#f7f8fa]">
-              <div className="flex items-center justify-between border-b border-[#e5e7eb] px-3 py-2">
-                <div className="text-sm font-semibold text-[#0d0d0d]">Current plan</div>
+            <section className="rounded-2xl border border-[#dfe6f4] bg-white/78 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl">
+              <div className="flex items-center justify-between border-b border-[#e8edf7] px-3 py-1.5">
+                <div className="text-[12px] font-semibold text-[#111827]">Current plan</div>
                 {planProgress && (
-                  <div className="font-[family-name:var(--font-mono)] text-xs text-[#6b7280]">
+                  <div className="font-[family-name:var(--font-mono)] text-[10px] text-[#7a8496]">
                     {planProgress.completed}/{planProgress.total}
                   </div>
                 )}
               </div>
-              <div className="divide-y divide-[#e5e7eb]">
+              <div className="divide-y divide-[#e8edf7]">
                 {planSteps.map((step) => {
                   const Icon =
                     step.status === "completed"
@@ -156,7 +203,7 @@ export default function SessionPage({
                         ? Loader2
                         : Circle;
                   return (
-                    <div key={step.id} className="flex items-start gap-2 px-3 py-2 text-sm">
+                    <div key={step.id} className="flex items-start gap-2 px-3 py-1.5 text-[12px]">
                       <Icon
                         size={15}
                         className={`mt-0.5 shrink-0 ${
@@ -170,8 +217,8 @@ export default function SessionPage({
                       <span
                         className={
                           step.status === "completed"
-                            ? "text-[#6b7280] line-through decoration-[#8b8f94]"
-                            : "text-[#0d0d0d]"
+                            ? "text-[#667085] line-through decoration-[#98a2b3]"
+                            : "text-[#111827]"
                         }
                       >
                         {step.subject}
@@ -184,7 +231,7 @@ export default function SessionPage({
           )}
 
           {contextPercent > 75 && (
-            <div className="flex items-start gap-2 rounded-lg border border-[#bf8700]/35 bg-[#fff8c5] p-3 text-sm text-[#7d4e00]">
+            <div className="flex items-start gap-2 rounded-2xl border border-[#f2cc79]/55 bg-[#fff8df]/90 p-3 text-[13px] text-[#7d4e00] shadow-[0_10px_24px_rgba(196,122,0,0.08)]">
               <AlertTriangle size={16} className="mt-0.5 shrink-0" />
               Context usage is around {contextPercent}% ({contextUsageLabel} tokens). Consider
               starting a new session soon.
@@ -192,14 +239,14 @@ export default function SessionPage({
           )}
 
           {!hasMessages && (
-            <section className="rounded-lg border border-[#e5e7eb] bg-[#fbfbfc] px-4 py-3">
-              <div className="text-sm font-semibold text-[#0d0d0d]">
+            <section className="rounded-2xl border border-[#dfe6f4] bg-white/78 px-4 py-3 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl">
+              <div className="text-[13px] font-semibold text-[#111827]">
                 <span className="sm:hidden">Start here</span>
                 <span className="hidden sm:inline">Workspace briefing</span>
               </div>
-              <div className="mt-3 grid gap-3 text-sm leading-6 text-[#6b7280] md:grid-cols-3">
+              <div className="mt-2 grid gap-2 text-[13px] leading-5 text-[#667085] md:grid-cols-3">
                 <div>
-                  <div className="font-medium text-[#0d0d0d]">
+                  <div className="font-medium text-[#111827]">
                     <span className="sm:hidden">Files</span>
                     <span className="hidden sm:inline">Open the Files view</span>
                   </div>
@@ -209,7 +256,7 @@ export default function SessionPage({
                   </span>
                 </div>
                 <div>
-                  <div className="font-medium text-[#0d0d0d]">
+                  <div className="font-medium text-[#111827]">
                     <span className="sm:hidden">Sessions</span>
                     <span className="hidden sm:inline">Review recent sessions</span>
                   </div>
@@ -219,7 +266,7 @@ export default function SessionPage({
                   </span>
                 </div>
                 <div>
-                  <div className="font-medium text-[#0d0d0d]">
+                  <div className="font-medium text-[#111827]">
                     <span className="sm:hidden">Ask</span>
                     <span className="hidden sm:inline">Ask Codex from the composer</span>
                   </div>
@@ -244,7 +291,7 @@ export default function SessionPage({
         </div>
 
         {tokenUsage.total_tokens > 0 && (
-          <div className="mx-auto mt-4 max-w-5xl font-[family-name:var(--font-mono)] text-xs text-[#6b7280]">
+          <div className="mx-auto mt-4 max-w-5xl font-[family-name:var(--font-mono)] text-[11px] text-[#7a8496]">
             tokens in {tokenUsage.prompt_tokens.toLocaleString()} / out{" "}
             {tokenUsage.completion_tokens.toLocaleString()}
             {contextUsageLabel ? <> · context {contextUsageLabel}</> : null}

@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  ArrowLeft,
   CalendarClock,
   Loader2,
   Pause,
@@ -24,6 +25,7 @@ import type { ScheduleInfo, ScheduleKind } from "@/types";
 interface AutomationsPageProps {
   selectedModel: string;
   onAuthExpired: (message: string) => void;
+  onBack?: () => void;
 }
 
 type IntervalUnit = "minutes" | "hours" | "days";
@@ -89,7 +91,11 @@ function defaultRunAt(): string {
   return localDatetimeValue(date);
 }
 
-export default function AutomationsPage({ selectedModel, onAuthExpired }: AutomationsPageProps) {
+export default function AutomationsPage({
+  selectedModel,
+  onAuthExpired,
+  onBack,
+}: AutomationsPageProps) {
   const [schedules, setSchedules] = useState<ScheduleInfo[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -219,13 +225,26 @@ export default function AutomationsPage({ selectedModel, onAuthExpired }: Automa
   );
 
   return (
-    <div className="h-full min-h-0 overflow-y-auto bg-white px-4 pt-4 pb-[calc(88px+env(safe-area-inset-bottom))] text-[#0d0d0d] md:px-6 lg:pb-4">
+    <div className="h-full min-h-0 overflow-y-auto bg-[radial-gradient(circle_at_16%_0%,rgba(47,107,255,0.10),transparent_34%),radial-gradient(circle_at_90%_10%,rgba(139,92,246,0.09),transparent_32%),#fbfdff] px-4 pt-4 pb-[calc(88px+env(safe-area-inset-bottom))] text-[#111827] md:px-6 lg:pb-4">
       <div className="mx-auto max-w-6xl space-y-4">
-        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e5e7eb] pb-4">
-          <div className="min-w-0">
-            <h1 className="text-[22px] leading-7 font-semibold tracking-normal">Automations</h1>
-            <div className="mt-1 font-[family-name:var(--font-mono)] text-xs text-[#6b7280]">
-              {schedules.length} total
+        <header className="flex flex-wrap items-center justify-between gap-3 pb-1">
+          <div className="flex min-w-0 items-center gap-3">
+            {onBack ? (
+              <button
+                type="button"
+                onClick={onBack}
+                aria-label="Back to settings"
+                title="Back to settings"
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#dfe6f4] bg-white text-[#384152] hover:bg-[#f7f8fa] lg:hidden"
+              >
+                <ArrowLeft size={17} />
+              </button>
+            ) : null}
+            <div className="min-w-0">
+              <h1 className="text-[22px] leading-7 font-semibold tracking-normal">Automations</h1>
+              <div className="mt-1 font-[family-name:var(--font-mono)] text-[11px] text-[#7a8496]">
+                {schedules.length} total
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -235,14 +254,14 @@ export default function AutomationsPage({ selectedModel, onAuthExpired }: Automa
               disabled={isLoading}
               aria-label="Refresh automations"
               title="Refresh automations"
-              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-[#d7dce3] bg-white text-[#374151] hover:bg-[#f7f8fa] disabled:opacity-60"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[#dfe6f4] bg-white/78 text-[#384152] shadow-[0_10px_24px_rgba(44,63,123,0.06)] hover:bg-white disabled:opacity-60"
             >
               {isLoading ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
             </button>
             <button
               type="button"
               onClick={() => setIsCreating((open) => !open)}
-              className="inline-flex h-9 items-center gap-2 rounded-md bg-[#2463eb] px-3 text-sm font-semibold text-white hover:bg-[#1d56d8]"
+              className="inline-flex h-9 items-center gap-2 rounded-full bg-[linear-gradient(135deg,#2f6bff,#7b5cff)] px-3 text-[13px] font-semibold text-white shadow-[0_12px_26px_rgba(64,92,255,0.24)]"
             >
               <Plus size={15} />
               New
@@ -251,7 +270,7 @@ export default function AutomationsPage({ selectedModel, onAuthExpired }: Automa
         </header>
 
         {error ? (
-          <div className="flex items-start gap-2 rounded-lg border border-[#cf222e]/25 bg-[#ffebe9] px-3 py-3 text-sm font-medium text-[#cf222e]">
+          <div className="flex items-start gap-2 rounded-xl border border-[#cf222e]/25 bg-[#ffebe9] px-3 py-3 text-sm font-medium text-[#cf222e]">
             <AlertTriangle size={14} className="mt-0.5 shrink-0" />
             <span className="min-w-0 break-words">{error}</span>
           </div>
@@ -260,41 +279,41 @@ export default function AutomationsPage({ selectedModel, onAuthExpired }: Automa
         {isCreating ? (
           <form
             onSubmit={handleCreate}
-            className="grid gap-4 rounded-lg border border-[#e5e7eb] bg-[#f7f8fa] p-4"
+            className="grid gap-4 rounded-2xl border border-[#dfe6f4] bg-white/74 p-4 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl"
           >
             <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px]">
               <label className="block min-w-0">
-                <span className="mb-1 block text-xs font-medium text-[#6b7280]">Title</span>
+                <span className="mb-1 block text-[11px] font-medium text-[#667085]">Title</span>
                 <input
                   value={title}
                   onChange={(event) => setTitle(event.target.value)}
-                  className="h-9 w-full rounded-md border border-[#d7dce3] bg-white px-3 text-sm outline-none focus:border-[#2463eb]"
+                  className="h-9 w-full rounded-xl border border-[#dfe6f4] bg-white px-3 text-[13px] outline-none focus:border-[#8da0ff]"
                 />
               </label>
               <label className="block min-w-0">
-                <span className="mb-1 block text-xs font-medium text-[#6b7280]">Timezone</span>
+                <span className="mb-1 block text-[11px] font-medium text-[#667085]">Timezone</span>
                 <input
                   value={timezone}
                   onChange={(event) => setTimezone(event.target.value)}
-                  className="h-9 w-full rounded-md border border-[#d7dce3] bg-white px-3 font-[family-name:var(--font-mono)] text-xs outline-none focus:border-[#2463eb]"
+                  className="h-9 w-full rounded-xl border border-[#dfe6f4] bg-white px-3 font-[family-name:var(--font-mono)] text-xs outline-none focus:border-[#8da0ff]"
                 />
               </label>
             </div>
 
             <label className="block">
-              <span className="mb-1 block text-xs font-medium text-[#6b7280]">Prompt</span>
+              <span className="mb-1 block text-[11px] font-medium text-[#667085]">Prompt</span>
               <textarea
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
                 rows={4}
-                className="w-full resize-none rounded-md border border-[#d7dce3] bg-white px-3 py-2 text-sm leading-6 outline-none focus:border-[#2463eb]"
+                className="w-full resize-none rounded-xl border border-[#dfe6f4] bg-white px-3 py-2 text-[13px] leading-5 outline-none focus:border-[#8da0ff]"
               />
             </label>
 
             <div className="grid gap-3 md:grid-cols-[190px_minmax(0,1fr)_auto] md:items-end">
               <div>
-                <span className="mb-1 block text-xs font-medium text-[#6b7280]">Mode</span>
-                <div className="grid grid-cols-2 rounded-md border border-[#d7dce3] bg-white p-0.5">
+                <span className="mb-1 block text-[11px] font-medium text-[#667085]">Mode</span>
+                <div className="grid grid-cols-2 rounded-xl border border-[#dfe6f4] bg-white p-0.5">
                   {(["once", "interval"] as ScheduleKind[]).map((option) => (
                     <button
                       key={option}
@@ -302,8 +321,8 @@ export default function AutomationsPage({ selectedModel, onAuthExpired }: Automa
                       onClick={() => setKind(option)}
                       className={`h-8 rounded text-xs font-semibold capitalize ${
                         kind === option
-                          ? "bg-[#2463eb] text-white"
-                          : "text-[#374151] hover:bg-[#f7f8fa]"
+                          ? "bg-[linear-gradient(135deg,#2f6bff,#7b5cff)] text-white"
+                          : "text-[#384152] hover:bg-[#f7f8fa]"
                       }`}
                     >
                       {option}
@@ -314,32 +333,32 @@ export default function AutomationsPage({ selectedModel, onAuthExpired }: Automa
 
               {kind === "once" ? (
                 <label className="block min-w-0">
-                  <span className="mb-1 block text-xs font-medium text-[#6b7280]">Run at</span>
+                  <span className="mb-1 block text-[11px] font-medium text-[#667085]">Run at</span>
                   <input
                     type="datetime-local"
                     value={runAt}
                     onChange={(event) => setRunAt(event.target.value)}
-                    className="h-9 w-full rounded-md border border-[#d7dce3] bg-white px-3 text-sm outline-none focus:border-[#2463eb]"
+                    className="h-9 w-full rounded-xl border border-[#dfe6f4] bg-white px-3 text-[13px] outline-none focus:border-[#8da0ff]"
                   />
                 </label>
               ) : (
                 <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_120px_130px]">
                   <label className="block min-w-0">
-                    <span className="mb-1 block text-xs font-medium text-[#6b7280]">Every</span>
+                    <span className="mb-1 block text-[11px] font-medium text-[#667085]">Every</span>
                     <input
                       type="number"
                       min={1}
                       value={intervalValue}
                       onChange={(event) => setIntervalValue(Number(event.target.value) || 1)}
-                      className="h-9 w-full rounded-md border border-[#d7dce3] bg-white px-3 text-sm outline-none focus:border-[#2463eb]"
+                      className="h-9 w-full rounded-xl border border-[#dfe6f4] bg-white px-3 text-[13px] outline-none focus:border-[#8da0ff]"
                     />
                   </label>
                   <label className="block min-w-0">
-                    <span className="mb-1 block text-xs font-medium text-[#6b7280]">Unit</span>
+                    <span className="mb-1 block text-[11px] font-medium text-[#667085]">Unit</span>
                     <select
                       value={intervalUnit}
                       onChange={(event) => setIntervalUnit(event.target.value as IntervalUnit)}
-                      className="h-9 w-full rounded-md border border-[#d7dce3] bg-white px-3 text-sm outline-none focus:border-[#2463eb]"
+                      className="h-9 w-full rounded-xl border border-[#dfe6f4] bg-white px-3 text-[13px] outline-none focus:border-[#8da0ff]"
                     >
                       <option value="minutes">Minutes</option>
                       <option value="hours">Hours</option>
@@ -347,14 +366,16 @@ export default function AutomationsPage({ selectedModel, onAuthExpired }: Automa
                     </select>
                   </label>
                   <label className="block min-w-0">
-                    <span className="mb-1 block text-xs font-medium text-[#6b7280]">Max runs</span>
+                    <span className="mb-1 block text-[11px] font-medium text-[#667085]">
+                      Max runs
+                    </span>
                     <input
                       type="number"
                       min={1}
                       placeholder="No limit"
                       value={maxRuns}
                       onChange={(event) => setMaxRuns(event.target.value)}
-                      className="h-9 w-full rounded-md border border-[#d7dce3] bg-white px-3 text-sm outline-none focus:border-[#2463eb]"
+                      className="h-9 w-full rounded-xl border border-[#dfe6f4] bg-white px-3 text-[13px] outline-none focus:border-[#8da0ff]"
                     />
                   </label>
                 </div>
@@ -363,7 +384,7 @@ export default function AutomationsPage({ selectedModel, onAuthExpired }: Automa
               <button
                 type="submit"
                 disabled={isSubmitting || !title.trim() || !prompt.trim()}
-                className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-[#2463eb] px-4 text-sm font-semibold text-white hover:bg-[#1d56d8] disabled:cursor-not-allowed disabled:bg-[#e5e7eb] disabled:text-[#8b8f94]"
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-full bg-[linear-gradient(135deg,#2f6bff,#7b5cff)] px-4 text-[13px] font-semibold text-white shadow-[0_12px_26px_rgba(64,92,255,0.22)] disabled:cursor-not-allowed disabled:bg-[#e5e7eb] disabled:bg-none disabled:text-[#8b8f94] disabled:shadow-none"
               >
                 {isSubmitting ? (
                   <Loader2 size={14} className="animate-spin" />
@@ -376,13 +397,13 @@ export default function AutomationsPage({ selectedModel, onAuthExpired }: Automa
           </form>
         ) : null}
 
-        <div className="overflow-hidden rounded-lg border border-[#e5e7eb] bg-white">
+        <div className="overflow-hidden rounded-2xl border border-[#dfe6f4] bg-white/74 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl">
           {schedules.length === 0 && !isLoading ? (
-            <div className="flex h-44 items-center justify-center text-sm text-[#6b7280]">
+            <div className="flex h-44 items-center justify-center text-[13px] text-[#667085]">
               No automations
             </div>
           ) : (
-            <div className="divide-y divide-[#e5e7eb]">
+            <div className="divide-y divide-[#e8edf7]">
               {schedules.map((schedule) => (
                 <div
                   key={schedule.schedule_id}
@@ -390,7 +411,7 @@ export default function AutomationsPage({ selectedModel, onAuthExpired }: Automa
                 >
                   <div className="min-w-0">
                     <div className="flex min-w-0 items-center gap-2">
-                      <span className="truncate text-sm font-semibold">{schedule.title}</span>
+                      <span className="truncate text-[13px] font-semibold">{schedule.title}</span>
                       <span
                         className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold capitalize ${statusClass(
                           schedule.status
@@ -399,7 +420,9 @@ export default function AutomationsPage({ selectedModel, onAuthExpired }: Automa
                         {schedule.status}
                       </span>
                     </div>
-                    <div className="mt-1 truncate text-sm text-[#6b7280]">{schedule.prompt}</div>
+                    <div className="mt-1 truncate text-[12px] text-[#667085]">
+                      {schedule.prompt}
+                    </div>
                     {schedule.last_error ? (
                       <div className="mt-1 truncate text-xs font-medium text-[#cf222e]">
                         {schedule.last_error}
@@ -407,20 +430,20 @@ export default function AutomationsPage({ selectedModel, onAuthExpired }: Automa
                     ) : null}
                   </div>
 
-                  <div className="min-w-0 text-sm">
+                  <div className="min-w-0 text-[13px]">
                     <div className="font-medium">{formatDate(schedule.next_run_at)}</div>
-                    <div className="mt-1 font-[family-name:var(--font-mono)] text-xs text-[#6b7280]">
+                    <div className="mt-1 font-[family-name:var(--font-mono)] text-[11px] text-[#667085]">
                       {schedule.kind === "interval"
                         ? `${intervalLabel(schedule.interval_seconds)} · ${runCountLabel(schedule)}`
                         : "Once"}
                     </div>
                   </div>
 
-                  <div className="min-w-0 text-sm">
-                    <div className="truncate font-[family-name:var(--font-mono)] text-xs text-[#374151]">
+                  <div className="min-w-0 text-[13px]">
+                    <div className="truncate font-[family-name:var(--font-mono)] text-[11px] text-[#384152]">
                       {schedule.last_run_id || "No run"}
                     </div>
-                    <div className="mt-1 text-xs text-[#6b7280]">
+                    <div className="mt-1 text-[11px] text-[#667085]">
                       {schedule.last_run_at ? formatDate(schedule.last_run_at) : "Never"}
                     </div>
                   </div>
@@ -433,7 +456,7 @@ export default function AutomationsPage({ selectedModel, onAuthExpired }: Automa
                       }
                       aria-label={schedule.enabled ? "Pause automation" : "Resume automation"}
                       title={schedule.enabled ? "Pause automation" : "Resume automation"}
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#d7dce3] bg-white text-[#374151] hover:bg-[#f7f8fa]"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[#dfe6f4] bg-white text-[#384152] hover:bg-[#f7f8fa]"
                     >
                       {pendingActionId === `${schedule.schedule_id}:toggle` ? (
                         <Loader2 size={14} className="animate-spin" />
@@ -448,7 +471,7 @@ export default function AutomationsPage({ selectedModel, onAuthExpired }: Automa
                       onClick={() => void handleAction(schedule.schedule_id, "run")}
                       aria-label="Run automation now"
                       title="Run automation now"
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#d7dce3] bg-white text-[#374151] hover:bg-[#f7f8fa]"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[#dfe6f4] bg-white text-[#384152] hover:bg-[#f7f8fa]"
                     >
                       {pendingActionId === `${schedule.schedule_id}:run` ? (
                         <Loader2 size={14} className="animate-spin" />
@@ -461,7 +484,7 @@ export default function AutomationsPage({ selectedModel, onAuthExpired }: Automa
                       onClick={() => void handleAction(schedule.schedule_id, "delete")}
                       aria-label="Delete automation"
                       title="Delete automation"
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#d7dce3] bg-white text-[#8b8f94] hover:bg-[#ffebe9] hover:text-[#cf222e]"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[#dfe6f4] bg-white text-[#8b8f94] hover:bg-[#ffebe9] hover:text-[#cf222e]"
                     >
                       {pendingActionId === `${schedule.schedule_id}:delete` ? (
                         <Loader2 size={14} className="animate-spin" />

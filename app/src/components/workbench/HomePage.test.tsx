@@ -26,9 +26,11 @@ function renderHomePage() {
       userId="default"
       sessions={sessions}
       isLoadingSessions={false}
+      selectedModel="codex-medium"
       onNewSession={noop}
       onSelectSession={noop}
       onSelectView={noop}
+      onOpenSettings={noop}
     />
   );
 }
@@ -36,14 +38,17 @@ function renderHomePage() {
 function testHomeHasMobileSpecificCopy() {
   const html = renderHomePage();
 
-  assert.match(html, /sm:hidden[^>]*>Workspace</);
-  assert.match(html, /hidden sm:inline[^>]*>Home</);
+  assert.match(html, />Ripple/);
+  assert.match(html, />Settings/);
   assert.match(html, /sm:hidden[^>]*>New</);
   assert.match(html, /hidden sm:inline[^>]*>New Session</);
-  assert.match(html, /sm:hidden[^>]*>Apps</);
-  assert.match(html, /sm:hidden[^>]*>Ready</);
-  assert.match(html, /sm:hidden[^>]*>Recent</);
-  assert.match(html, /hidden sm:inline[^>]*>Recent sessions</);
+  assert.match(html, />Sessions/);
+  assert.match(html, />Files/);
+  assert.match(html, />Connectors/);
+  assert.match(html, />Automations/);
+  assert.match(html, />API endpoint/);
+  assert.match(html, /http:\/\/140\.143\.229\.103:8810\/v1/);
+  assert.match(html, />Recent sessions</);
   assert.doesNotMatch(html, />Tasks</);
   assert.doesNotMatch(html, /tasks yet/);
 }

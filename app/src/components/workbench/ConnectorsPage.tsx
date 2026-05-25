@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Loader2, Plug, RefreshCw, ShieldCheck } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Loader2, Plug, RefreshCw, ShieldCheck } from "lucide-react";
 import { fetchConnectorStatuses, fetchConnectors, fetchGogcliAccounts } from "@/lib/api";
 import { connectorGroupSections, connectorStatusTone } from "@/lib/connectors";
 import type { ConnectorInfo, ConnectorStatus, GogcliAccountInfo } from "@/types";
@@ -76,9 +76,11 @@ function mobileStatusLabel(status: ConnectorStatus | null | undefined): string {
 export default function ConnectorsPage({
   userId,
   onConnectorStateChange,
+  onBack,
 }: {
   userId: string;
   onConnectorStateChange?: () => Promise<unknown> | unknown;
+  onBack?: () => void;
 }) {
   const [connectors, setConnectors] = useState<ConnectorInfo[]>(
     () => cachedConnectorSnapshot(userId)?.connectors || []
@@ -161,27 +163,40 @@ export default function ConnectorsPage({
   const connectorSections = useMemo(() => connectorGroupSections(connectors), [connectors]);
 
   return (
-    <div className="h-full min-h-0 overflow-y-auto bg-white px-5 pt-5 pb-[calc(88px+env(safe-area-inset-bottom))] text-[#0d0d0d] md:px-8 lg:pb-5">
-      <div className="mx-auto max-w-5xl space-y-5">
-        <header className="flex flex-wrap items-start justify-between gap-3 border-b border-[#e5e7eb] pb-5">
-          <div>
-            <h1 className="text-[24px] leading-tight font-semibold tracking-normal">
-              <span className="sm:hidden">Apps</span>
-              <span className="hidden sm:inline">Connectors</span>
-            </h1>
-            <div className="mt-2 text-sm text-[#6b7280]">
-              <span className="sm:hidden">
-                {connected}/{connectors.length || 0} ready
-              </span>
-              <span className="hidden sm:inline">
-                {connected}/{connectors.length || 0} connected
-              </span>
+    <div className="h-full min-h-0 overflow-y-auto bg-[radial-gradient(circle_at_16%_0%,rgba(47,107,255,0.10),transparent_34%),radial-gradient(circle_at_90%_10%,rgba(139,92,246,0.09),transparent_32%),#fbfdff] px-4 pt-4 pb-[calc(88px+env(safe-area-inset-bottom))] text-[#111827] md:px-8 lg:pb-5">
+      <div className="mx-auto max-w-5xl space-y-4">
+        <header className="flex flex-wrap items-start justify-between gap-3 pb-1">
+          <div className="flex min-w-0 items-start gap-3">
+            {onBack ? (
+              <button
+                type="button"
+                onClick={onBack}
+                aria-label="Back to settings"
+                title="Back to settings"
+                className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#dfe6f4] bg-white text-[#384152] hover:bg-[#f7f8fa] lg:hidden"
+              >
+                <ArrowLeft size={17} />
+              </button>
+            ) : null}
+            <div className="min-w-0">
+              <h1 className="text-[22px] leading-tight font-semibold tracking-normal">
+                <span className="sm:hidden">Apps</span>
+                <span className="hidden sm:inline">Connectors</span>
+              </h1>
+              <div className="mt-1.5 text-[12px] text-[#7a8496]">
+                <span className="sm:hidden">
+                  {connected}/{connectors.length || 0} ready
+                </span>
+                <span className="hidden sm:inline">
+                  {connected}/{connectors.length || 0} connected
+                </span>
+              </div>
             </div>
           </div>
           <button
             type="button"
             onClick={() => void loadConnectors({ force: true })}
-            className="inline-flex h-9 items-center gap-2 rounded-md border border-[#e5e7eb] bg-white px-3 text-sm font-medium text-[#374151] hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
+            className="inline-flex h-9 items-center gap-2 rounded-full border border-[#dfe6f4] bg-white/78 px-3 text-[13px] font-medium text-[#384152] shadow-[0_10px_24px_rgba(44,63,123,0.06)] hover:bg-white"
           >
             {isLoading ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
             <span className="sm:hidden">Sync</span>
@@ -190,25 +205,25 @@ export default function ConnectorsPage({
         </header>
 
         {pageError && (
-          <div className="flex items-start gap-2 rounded-md border border-[#cf222e]/25 bg-[#ffebe9] p-3 text-sm font-medium text-[#cf222e]">
+          <div className="flex items-start gap-2 rounded-xl border border-[#cf222e]/25 bg-[#ffebe9] p-3 text-sm font-medium text-[#cf222e]">
             <AlertTriangle size={15} className="mt-0.5 shrink-0" />
             <span>{pageError}</span>
           </div>
         )}
 
-        <div className="space-y-6">
+        <div className="space-y-5">
           {connectorSections.map((section) => (
             <section key={section.kind} className="space-y-3">
               <div className="flex items-end justify-between gap-3">
                 <div>
-                  <h2 className="text-sm font-semibold text-[#0d0d0d]">{section.title}</h2>
-                  <p className="mt-1 text-xs leading-5 text-[#6b7280]">
+                  <h2 className="text-[13px] font-semibold text-[#111827]">{section.title}</h2>
+                  <p className="mt-1 text-[11px] leading-4 text-[#667085]">
                     {section.kind === "runtime_capability"
                       ? "Server-side Codex capabilities shared by the runtime."
                       : "Per-user credentials stored inside the current sandbox boundary."}
                   </p>
                 </div>
-                <span className="text-xs font-medium text-[#6b7280]">
+                <span className="text-[11px] font-medium text-[#667085]">
                   {section.connectors.length}
                 </span>
               </div>
@@ -220,35 +235,35 @@ export default function ConnectorsPage({
                   return (
                     <section
                       key={connector.name}
-                      className="min-w-0 rounded-lg border border-[#e5e7eb] bg-white"
+                      className="min-w-0 rounded-2xl border border-[#dfe6f4] bg-white/74 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl"
                     >
-                      <div className="flex items-start gap-3 border-b border-[#e5e7eb] p-4">
+                      <div className="flex items-start gap-3 border-b border-[#e8edf7] p-3.5">
                         <span
-                          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md border ${
+                          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${
                             tone === "connected"
                               ? "border-[#1a7f37]/25 bg-[#dafbe1] text-[#1a7f37]"
                               : tone === "needs_setup"
                                 ? "border-[#bf8700]/25 bg-[#fff8c5] text-[#7d4e00]"
-                                : "border-[#e5e7eb] bg-[#f7f8fa] text-[#6b7280]"
+                                : "border-[#dfe6f4] bg-[#f6f8ff] text-[#667085]"
                           }`}
                         >
                           {tone === "connected" ? <ShieldCheck size={17} /> : <Plug size={17} />}
                         </span>
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
-                            <h3 className="truncate text-sm font-semibold">
+                            <h3 className="truncate text-[13px] font-semibold">
                               {connector.display_name}
                             </h3>
-                            <span className="rounded-md border border-[#e5e7eb] bg-[#f7f8fa] px-2 py-0.5 text-[11px] font-medium text-[#6b7280]">
+                            <span className="rounded-full border border-[#dfe6f4] bg-white/76 px-2 py-0.5 text-[10px] font-medium text-[#667085]">
                               <span className="sm:hidden">{mobileStatusLabel(status)}</span>
                               <span className="hidden sm:inline">{statusLabel(status)}</span>
                             </span>
                           </div>
-                          <p className="mt-1 text-sm leading-5 text-[#6b7280]">
+                          <p className="mt-1 text-[12px] leading-5 text-[#667085]">
                             {connector.description}
                           </p>
                           {status?.detail && (
-                            <div className="mt-2 text-xs leading-5 text-[#6b7280]">
+                            <div className="mt-2 text-[11px] leading-5 text-[#667085]">
                               {status.detail}
                             </div>
                           )}
@@ -257,7 +272,7 @@ export default function ConnectorsPage({
 
                       {connector.name === "google_workspace" && accounts.length > 0 && (
                         <div className="p-4">
-                          <div className="rounded-md border border-[#e5e7eb] bg-white">
+                          <div className="rounded-xl border border-[#dfe6f4] bg-white/82">
                             {accounts.map((account) => (
                               <div
                                 key={account.email}
@@ -283,7 +298,7 @@ export default function ConnectorsPage({
         </div>
 
         {connectors.length === 0 && !isLoading && (
-          <div className="flex h-40 items-center justify-center rounded-lg border border-dashed border-[#e5e7eb] text-sm text-[#6b7280]">
+          <div className="flex h-40 items-center justify-center rounded-2xl border border-dashed border-[#dfe6f4] bg-white/52 text-[13px] text-[#667085]">
             <span className="sm:hidden">No apps yet</span>
             <span className="hidden sm:inline">No connectors</span>
           </div>

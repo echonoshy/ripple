@@ -3,6 +3,10 @@
 .AppleDouble
 .LSOverride
 Icon?
+!icons/
+!icons/**
+!**/icons/
+!**/icons/**
 ._*
 .Spotlight-V100/
 .Trashes/
@@ -177,13 +181,71 @@ src/interfaces/mobile/ios/
 src/interfaces/mobile/android/
 
 # Tauri-generated schema files
-app/src-tauri/gen/schemas/
+**/src-tauri/gen/schemas/
+
+# Tauri / native app generated state and build artifacts
+**/src-tauri/.tauri/
+**/src-tauri/gen/**/.tauri/
+
+# Tauri Android generated build state
+**/src-tauri/gen/android/.gradle/
+**/src-tauri/gen/android/**/.gradle/
+**/src-tauri/gen/android/**/build/
+**/src-tauri/gen/android/**/outputs/
+**/src-tauri/gen/android/**/.externalNativeBuild/
+**/src-tauri/gen/android/**/.cxx/
+**/src-tauri/gen/android/**/captures/
+**/src-tauri/gen/android/**/local.properties
+**/src-tauri/gen/android/**/key.properties
+**/src-tauri/gen/android/**/keystore.properties
+**/src-tauri/gen/android/**/*.jks
+**/src-tauri/gen/android/**/*.keystore
+**/src-tauri/gen/android/**/*.apk
+**/src-tauri/gen/android/**/*.ap_
+**/src-tauri/gen/android/**/*.aab
+**/src-tauri/gen/android/**/*.idsig
+**/src-tauri/gen/android/**/*.hprof
+**/src-tauri/gen/android/tauri.settings.gradle
+**/src-tauri/gen/android/app/tauri.build.gradle.kts
+**/src-tauri/gen/android/app/tauri.properties
+**/src-tauri/gen/android/app/proguard-tauri.pro
+**/src-tauri/gen/android/app/src/main/**/generated/
+**/src-tauri/gen/android/app/src/main/assets/tauri.conf.json
+
+# Tauri Apple / Xcode generated build state
+**/src-tauri/gen/apple/.build/
+**/src-tauri/gen/apple/build/
+**/src-tauri/gen/apple/DerivedData/
+**/src-tauri/gen/apple/Externals/
+**/src-tauri/gen/apple/Pods/
+**/src-tauri/gen/apple/*.xcworkspace/
+**/src-tauri/gen/apple/**/*.xcarchive/
+**/src-tauri/gen/apple/**/*.xcresult/
+**/src-tauri/gen/apple/**/*.xcuserdatad/
+**/src-tauri/gen/apple/**/*.xcuserstate
+**/src-tauri/gen/apple/**/*.xccheckout
+**/src-tauri/gen/apple/**/*.moved-aside
+**/src-tauri/gen/apple/**/*.dSYM/
+**/src-tauri/gen/apple/**/*.ipa
+**/src-tauri/gen/apple/**/*.app/
+**/src-tauri/gen/apple/**/*.dmg
+**/src-tauri/gen/apple/**/*.pkg
+
+# Tauri macOS desktop package exports outside Cargo target
+**/src-tauri/**/*.app/
+**/src-tauri/**/*.dmg
+**/src-tauri/**/*.pkg
+**/src-tauri/**/*.xcarchive/
+**/src-tauri/**/*.xcresult/
 
 # Local app packaging artifacts
-app/build-artifacts/
+**/build-artifacts/
 
 # Local design exports
 .ripple-design-exports/
+
+# Local Ripple runtime state
+.ripple/
 
 # Config files with sensitive data
 config/settings.yaml

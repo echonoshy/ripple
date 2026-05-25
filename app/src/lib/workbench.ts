@@ -9,14 +9,10 @@ import type {
   WorkbenchTimelineEvent,
 } from "@/types";
 
-const ATTENTION_PRIORITY: Record<SessionAttention, number> = {
-  needs_input: 0,
-  error: 1,
-  completed: 2,
-};
-
-function attentionPriority(attention: SessionAttention | undefined): number {
-  return attention ? ATTENTION_PRIORITY[attention] : 99;
+function activityTimeValue(value: string | undefined): number {
+  if (!value) return 0;
+  const time = Date.parse(value);
+  return Number.isNaN(time) ? 0 : time;
 }
 
 export function sessionStatusToWorkbenchStatus(status: string): WorkbenchSessionStatus {
@@ -70,16 +66,41 @@ export function sortWorkbenchSessions(
   sessions: WorkbenchSessionSummary[]
 ): WorkbenchSessionSummary[] {
   return [...sessions].sort((a, b) => {
-    const priority = attentionPriority(a.attention) - attentionPriority(b.attention);
-    if (priority !== 0) return priority;
-    return Date.parse(b.lastActivityAt) - Date.parse(a.lastActivityAt);
+    return activityTimeValue(b.lastActivityAt) - activityTimeValue(a.lastActivityAt);
+  });
+}
+
+function startOfLocalDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+export function formatSessionActivityTime(value: string, now = new Date()): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  const today = startOfLocalDay(now);
+  const activityDay = startOfLocalDay(date);
+  const dayDiff = Math.round((today.getTime() - activityDay.getTime()) / 86_400_000);
+
+  if (dayDiff === 0) {
+    return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  }
+  if (dayDiff === 1) return "Yesterday";
+  if (date.getFullYear() === now.getFullYear()) {
+    return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  }
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
   });
 }
 
 export function applyCurrentSessionRuntimeStatus(
   sessions: WorkbenchSessionSummary[],
   currentSessionId: string | null,
-  runtimeStatus: WorkbenchSessionStatus | null
+  runtimeStatus: WorkbenchSessionStatus | null,
+  activityAt?: string
 ): WorkbenchSessionSummary[] {
   if (!currentSessionId || !runtimeStatus) return sessions;
 
@@ -93,6 +114,7 @@ export function applyCurrentSessionRuntimeStatus(
       ...session,
       status: runtimeStatus,
       attention: attention || undefined,
+      lastActivityAt: activityAt || session.lastActivityAt,
     };
   });
 

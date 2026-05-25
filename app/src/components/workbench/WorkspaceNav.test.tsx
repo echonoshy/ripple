@@ -85,6 +85,19 @@ function testSessionAttentionUsesDotsInsteadOfStatusLabels() {
   assert.doesNotMatch(html, />Running</);
 }
 
+function testRendersSessionActivityTime() {
+  const html = renderWorkspaceNav({
+    sessions: [
+      {
+        ...sessions[0],
+        lastActivityAt: new Date(2000, 0, 2, 12, 0).toISOString(),
+      },
+    ],
+  });
+
+  assert.match(html, /Jan 2, 2000/);
+}
+
 function testSessionLoadErrorDoesNotLookLikeEmptyState() {
   const html = renderWorkspaceNav({
     sessions: [],
@@ -101,6 +114,7 @@ testUsesSessionIdSelectionNaming();
 testSessionsHeaderDoesNotDuplicateNewSessionAction();
 testNewSessionStaysAvailableWhileAnotherSessionRuns();
 testSessionAttentionUsesDotsInsteadOfStatusLabels();
+testRendersSessionActivityTime();
 testSessionLoadErrorDoesNotLookLikeEmptyState();
 
 console.log("workspace nav tests passed");

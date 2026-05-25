@@ -32,6 +32,7 @@ import {
 } from "@/lib/workbench";
 import { shouldShowInspector, type WorkspaceView } from "@/lib/workspaceViews";
 import type { SessionAttention } from "@/types";
+import { sortModelOptions } from "@/lib/models";
 
 export default function Home() {
   // ── Auth state ──
@@ -242,7 +243,7 @@ export default function Home() {
     if (authState !== "authenticated") return;
     (async () => {
       try {
-        const fetched = await fetchModels();
+        const fetched = sortModelOptions(await fetchModels());
         setModels(fetched);
         if (fetched.length > 0) {
           setSelectedModel(fetched.find((m) => m.id === "codex-medium")?.id || fetched[0].id);
@@ -318,11 +319,17 @@ export default function Home() {
     currentSessionRuntimeStatus && sessionId ? currentSessionRuntimeStatus : null;
   const baseWorkbenchSessions = useMemo(() => {
     const base = createWorkbenchSessionsFromSessionSummaries(sessionSummaries);
+    const runtimeActivityAt = new Date().toISOString();
     return runningSessionIds.reduce(
       (sessions, activeSessionId) =>
-        applyCurrentSessionRuntimeStatus(sessions, activeSessionId, "running"),
+        applyCurrentSessionRuntimeStatus(sessions, activeSessionId, "running", runtimeActivityAt),
       currentSessionRuntimeStatus && sessionId
-        ? applyCurrentSessionRuntimeStatus(base, sessionId, currentSessionRuntimeStatus)
+        ? applyCurrentSessionRuntimeStatus(
+            base,
+            sessionId,
+            currentSessionRuntimeStatus,
+            runtimeActivityAt
+          )
         : base
     );
   }, [currentSessionRuntimeStatus, runningSessionIds, sessionId, sessionSummaries]);

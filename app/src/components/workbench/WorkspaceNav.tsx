@@ -3,8 +3,9 @@
 import React from "react";
 import { AlertTriangle, Loader2, Plus, Settings, Trash2 } from "lucide-react";
 import RippleIcon from "@/components/icons/RippleIcon";
-import type { WorkbenchSessionSummary } from "@/types";
+import { formatSessionActivityTime } from "@/lib/workbench";
 import { mainNavItems, type WorkspaceView } from "@/lib/workspaceViews";
+import type { WorkbenchSessionSummary } from "@/types";
 import SessionAttentionDot from "./SessionAttentionDot";
 
 interface WorkspaceNavProps {
@@ -119,6 +120,7 @@ export default function WorkspaceNav({
             <div className="space-y-1">
               {sessions.map((session) => {
                 const selected = session.sessionId === selectedSessionId;
+                const activityTime = formatSessionActivityTime(session.lastActivityAt);
                 return (
                   <div
                     key={session.sessionId}
@@ -132,9 +134,18 @@ export default function WorkspaceNav({
                     <button
                       type="button"
                       onClick={() => onSelectSession(session.sessionId)}
-                      className="min-w-0 flex-1 truncate py-0.5 text-left text-sm font-medium"
+                      className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 py-0.5 text-left text-sm font-medium"
                     >
-                      {session.title}
+                      <span className="truncate">{session.title}</span>
+                      {activityTime && (
+                        <span
+                          className={`font-[family-name:var(--font-mono)] text-[11px] font-normal ${
+                            selected ? "text-[#4d6fb8]" : "text-[#8b8f94]"
+                          }`}
+                        >
+                          {activityTime}
+                        </span>
+                      )}
                     </button>
                     <button
                       type="button"

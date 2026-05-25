@@ -291,6 +291,8 @@ async fn create_codex_chat_run(args: &CodexChatStart) -> Result<AgentRunInfo, Ap
         schedule_trigger: None,
         codex_thread_id: args.session.codex_thread_id.clone(),
         codex_persistent_thread: true,
+        chat_user_input: Some(args.user_input.clone()),
+        chat_user_content: Some(args.user_content.clone()),
     };
     args.state
         .jobs
@@ -879,14 +881,20 @@ async fn reconcile_stale_active_session(
     {
         return Ok(());
     }
-    let Some(latest_status) = state
+    let Some(latest_info) = state
         .jobs
         .recover_stale_stored_session_run(user_id, &session.session_id)
         .await?
     else {
         return Ok(());
     };
+    let latest_status = latest_info.status.clone();
     if !TERMINAL_STATUSES.contains(&latest_status.as_str()) {
+        return Ok(());
+    }
+    if latest_status == "completed"
+        && finalize_stale_completed_chat_run(state, session, &latest_info).await?
+    {
         return Ok(());
     }
 
@@ -903,6 +911,39 @@ async fn reconcile_stale_active_session(
         .save_record_if_exists(session.clone())
         .await?;
     Ok(())
+}
+
+async fn finalize_stale_completed_chat_run(
+    state: &AppState,
+    session: &mut SessionRecord,
+    info: &AgentRunInfo,
+) -> Result<bool, ApiError> {
+    let Some(user_input) = info
+        .metadata
+        .get("chat_user_input")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+    else {
+        return Ok(false);
+    };
+    let user_content = info
+        .metadata
+        .get("chat_user_content")
+        .cloned()
+        .unwrap_or(Value::Null);
+    let output_text = read_run_output(info).await;
+    let usage = read_run_usage(info).await;
+    record_codex_thread(session, info);
+    append_chat_messages(session, user_content, &user_input, &output_text);
+    record_usage(session, &usage);
+    session.status = "idle".to_string();
+    session.pending_permission_request = None;
+    clear_session_plan(session);
+    let _ = state
+        .sessions
+        .save_record_if_exists(session.clone())
+        .await?;
+    Ok(true)
 }
 
 fn record_session_plan_update(session: &mut SessionRecord, update: &Value) {
@@ -1946,6 +1987,19 @@ async fn read_run_output(info: &AgentRunInfo) -> String {
         }
     }
     info.stdout_tail.clone()
+}
+
+async fn read_run_usage(info: &AgentRunInfo) -> Value {
+    let mut usage = empty_usage();
+    let mut offset = 0_usize;
+    if let Some(events_file) = info.events_file.as_deref() {
+        for event in read_events_from_offset(FsPath::new(events_file), &mut offset).await {
+            if let Some(usage_event) = extract_usage_event(&event) {
+                usage = usage_event;
+            }
+        }
+    }
+    usage
 }
 
 async fn extract_image_event(

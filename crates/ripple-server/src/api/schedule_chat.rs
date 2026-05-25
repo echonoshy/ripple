@@ -228,6 +228,8 @@ async fn extract_schedule_with_codex(
         schedule_trigger: None,
         codex_thread_id: None,
         codex_persistent_thread: false,
+        chat_user_input: None,
+        chat_user_content: None,
     };
     let info = state
         .jobs

@@ -473,6 +473,8 @@ async fn start_schedule_run(
         schedule_trigger: Some(trigger.to_string()),
         codex_thread_id: None,
         codex_persistent_thread: false,
+        chat_user_input: None,
+        chat_user_content: None,
     };
     assert_can_create_run(state, user_id, create.max_runtime_seconds).await?;
     state

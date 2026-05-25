@@ -369,10 +369,15 @@ fn main() {
             (Some(id), Some("thread/resume")) => {
                 let thread_id = extract_string_field(&line, "threadId")
                     .unwrap_or_else(|| "thread-resumed".to_string());
+                let response_thread_id = if line.contains("\"excludeTurns\":true") {
+                    thread_id
+                } else {
+                    "thread-resume-missing-exclude-turns".to_string()
+                };
                 send(format!(
                     "{{\"id\":{},\"result\":{{\"thread\":{{\"id\":{}}}}}}}",
                     id.raw_json(),
-                    json_string(&thread_id)
+                    json_string(&response_thread_id)
                 ));
             }
             (Some(id), Some("thread/read")) => {
@@ -404,7 +409,13 @@ fn main() {
                     json_string(&turn_id)
                 ));
 
-                let text = if line.contains("\"outputSchema\"") {
+                let text = if line.contains("[env-check]") {
+                    if std::env::var("RIPPLE_SECRET_SHOULD_NOT_LEAK").is_ok() {
+                        "env leaked".to_string()
+                    } else {
+                        "env clean".to_string()
+                    }
+                } else if line.contains("\"outputSchema\"") {
                     schedule_extraction_text().to_string()
                 } else if line.contains("[ids]") {
                     format!("fake codex completed {thread_id} {turn_id}")
@@ -2655,6 +2666,85 @@ async fn concurrent_chat_requests_for_same_session_start_single_run() {
 }
 
 #[tokio::test]
+async fn codex_app_server_does_not_inherit_server_secret_env() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (_state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    std::env::set_var("RIPPLE_SECRET_SHOULD_NOT_LEAK", "secret-from-server-env");
+    let (status, chat) = call(
+        app,
+        Method::POST,
+        "/v1/chat/completions",
+        json!({
+            "model": "codex-test",
+            "messages": [{"role": "user", "content": "[env-check] inspect environment"}],
+            "stream": false
+        }),
+    )
+    .await;
+    std::env::remove_var("RIPPLE_SECRET_SHOULD_NOT_LEAK");
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        chat.pointer("/choices/0/message/content")
+            .and_then(Value::as_str),
+        Some("env clean")
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn chat_follow_up_resumes_codex_thread_without_replaying_turns() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (_state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    let (status, first) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/chat/completions",
+        json!({
+            "model": "codex-test",
+            "messages": [{"role": "user", "content": "start a persistent thread"}],
+            "stream": false
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let session_id = first
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("session id")
+        .to_string();
+
+    let (status, follow_up) = call(
+        app,
+        Method::POST,
+        "/v1/chat/completions",
+        json!({
+            "model": "codex-test",
+            "session_id": session_id,
+            "messages": [{"role": "user", "content": "[ids] continue the persistent thread"}],
+            "stream": false
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "follow-up response: {follow_up}");
+    assert_eq!(
+        follow_up
+            .pointer("/choices/0/message/content")
+            .and_then(Value::as_str),
+        Some("fake codex completed thread-1 turn-1")
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
 async fn chat_recovers_restart_stale_running_job_before_starting_follow_up() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let fake_codex = write_fake_codex_app_server(&root);
@@ -2815,6 +2905,13 @@ async fn dropped_chat_stream_does_not_block_follow_up_after_job_completes() {
         .unwrap()
         .expect("session");
     assert_eq!(reloaded.status, "idle");
+    assert_eq!(
+        reloaded.message_count, 4,
+        "dropped stream turn and follow-up turn should both be persisted"
+    );
+    assert_eq!(reloaded.total_input_tokens, 20);
+    assert_eq!(reloaded.total_output_tokens, 10);
+    assert_eq!(reloaded.codex_thread_id.as_deref(), Some("thread-1"));
 
     let _ = std::fs::remove_dir_all(root);
 }

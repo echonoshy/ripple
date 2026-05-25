@@ -142,6 +142,7 @@ impl CodexAppServerSession {
         }
 
         let mut command = Command::new(&self.config.codex.codex_executable);
+        command.env_clear();
         command
             .args(&self.config.codex.app_server_args)
             .current_dir(&self.cwd)
@@ -166,6 +167,9 @@ impl CodexAppServerSession {
         );
         command.env("XDG_CONFIG_HOME", self.cwd.join(".config"));
         command.env("TMPDIR", self.cwd.join(".tmp"));
+        if let Some(path) = std::env::var_os("PATH") {
+            command.env("PATH", path);
+        }
         if let Some(codex_home) = &self.config.codex.codex_home {
             command.env("CODEX_HOME", codex_home);
         }
@@ -801,7 +805,8 @@ impl CodexAppServerProvider {
                             "cwd": request.cwd,
                             "approvalPolicy": self.config.codex.approval_policy,
                             "config": permission_config,
-                            "permissions": RIPPLE_CODEX_PERMISSION_PROFILE
+                            "permissions": RIPPLE_CODEX_PERMISSION_PROFILE,
+                            "excludeTurns": true
                         }),
                     )
                     .await?;

@@ -49,6 +49,10 @@ pub struct AgentRunCreateRequest {
     pub codex_thread_id: Option<String>,
     #[serde(default)]
     pub codex_persistent_thread: bool,
+    #[serde(default, skip_deserializing)]
+    pub chat_user_input: Option<String>,
+    #[serde(default, skip_deserializing)]
+    pub chat_user_content: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -149,6 +153,12 @@ impl JobManager {
             }
             if create.codex_persistent_thread {
                 object.insert("codex_persistent_thread".to_string(), json!(true));
+            }
+            if let Some(chat_user_input) = &create.chat_user_input {
+                object.insert("chat_user_input".to_string(), json!(chat_user_input));
+            }
+            if let Some(chat_user_content) = &create.chat_user_content {
+                object.insert("chat_user_content".to_string(), chat_user_content.clone());
             }
         }
         let job = Arc::new(RwLock::new(ExternalAgentJob {
@@ -344,7 +354,7 @@ impl JobManager {
         &self,
         user_id: &str,
         session_id: &str,
-    ) -> anyhow::Result<Option<String>> {
+    ) -> anyhow::Result<Option<AgentRunInfo>> {
         for mut record in self.storage.list_jobs_for_user(user_id).await? {
             if record.get("session_id").and_then(Value::as_str) != Some(session_id) {
                 continue;
@@ -355,7 +365,7 @@ impl JobManager {
                 .unwrap_or("")
                 .to_string();
             if status != "queued" && status != "running" {
-                return Ok(Some(status));
+                return Ok(info_from_record(&record));
             }
             if let Some(object) = record.as_object_mut() {
                 object.insert("status".to_string(), json!("failed"));
@@ -366,7 +376,7 @@ impl JobManager {
                 );
             }
             self.storage.upsert_job(&record).await?;
-            return Ok(Some("failed".to_string()));
+            return Ok(info_from_record(&record));
         }
         Ok(None)
     }
@@ -622,6 +632,12 @@ fn job_record_value(job: &ExternalAgentJob) -> Value {
             .unwrap_or(false)
         {
             object.insert("codex_persistent_thread".to_string(), json!(true));
+        }
+        if let Some(value) = job.metadata.get("chat_user_input").and_then(Value::as_str) {
+            object.insert("chat_user_input".to_string(), json!(value));
+        }
+        if let Some(value) = job.metadata.get("chat_user_content") {
+            object.insert("chat_user_content".to_string(), value.clone());
         }
     }
     record

@@ -412,8 +412,12 @@ fn main() {
                 let text = if line.contains("[env-check]") {
                     if std::env::var("RIPPLE_SECRET_SHOULD_NOT_LEAK").is_ok() {
                         "env leaked".to_string()
+                    } else if std::env::var("HTTP_PROXY").ok().as_deref()
+                        == Some("http://proxy.example:8080")
+                    {
+                        "env clean proxy present".to_string()
                     } else {
-                        "env clean".to_string()
+                        "env clean proxy missing".to_string()
                     }
                 } else if line.contains("\"outputSchema\"") {
                     schedule_extraction_text().to_string()
@@ -2672,7 +2676,9 @@ async fn codex_app_server_does_not_inherit_server_secret_env() {
     let (_state, app) =
         test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
 
+    let old_http_proxy = std::env::var_os("HTTP_PROXY");
     std::env::set_var("RIPPLE_SECRET_SHOULD_NOT_LEAK", "secret-from-server-env");
+    std::env::set_var("HTTP_PROXY", "http://proxy.example:8080");
     let (status, chat) = call(
         app,
         Method::POST,
@@ -2685,12 +2691,16 @@ async fn codex_app_server_does_not_inherit_server_secret_env() {
     )
     .await;
     std::env::remove_var("RIPPLE_SECRET_SHOULD_NOT_LEAK");
+    match old_http_proxy {
+        Some(value) => std::env::set_var("HTTP_PROXY", value),
+        None => std::env::remove_var("HTTP_PROXY"),
+    }
 
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
         chat.pointer("/choices/0/message/content")
             .and_then(Value::as_str),
-        Some("env clean")
+        Some("env clean proxy present")
     );
 
     let _ = std::fs::remove_dir_all(root);

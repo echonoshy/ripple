@@ -363,12 +363,34 @@ fn tool_result_for_item(item: &Value) -> Value {
 }
 
 fn message_text(params: &Value) -> String {
-    for key in ["message", "warning", "error", "detail", "details"] {
-        if let Some(value) = params.get(key).and_then(Value::as_str) {
-            return value.to_string();
+    for key in [
+        "message",
+        "warning",
+        "error",
+        "detail",
+        "details",
+        "additionalDetails",
+    ] {
+        if let Some(value) = params.get(key).and_then(message_text_value) {
+            return value;
         }
     }
     String::new()
+}
+
+fn message_text_value(value: &Value) -> Option<String> {
+    if let Some(text) = value.as_str() {
+        if !text.is_empty() {
+            return Some(text.to_string());
+        }
+    }
+    let object = value.as_object()?;
+    for key in ["message", "detail", "details", "additionalDetails"] {
+        if let Some(text) = object.get(key).and_then(message_text_value) {
+            return Some(text);
+        }
+    }
+    None
 }
 
 fn delta_text(params: &Value) -> String {
@@ -464,6 +486,34 @@ mod tests {
         assert_eq!(
             usage.get("model_context_window").and_then(Value::as_u64),
             Some(200000)
+        );
+    }
+
+    #[test]
+    fn extracts_nested_error_message_for_runtime_event() {
+        let event = json!({
+            "type": "codex.notification",
+            "data": {
+                "message": {
+                    "method": "error",
+                    "params": {
+                        "threadId": "thread-1",
+                        "turnId": "turn-1",
+                        "error": {
+                            "message": "Reconnecting... 2/5",
+                            "additionalDetails": "request timed out"
+                        },
+                        "willRetry": true
+                    }
+                }
+            }
+        });
+
+        let runtime_event = extract_codex_runtime_event(&event).expect("runtime event");
+
+        assert_eq!(
+            runtime_event.get("message").and_then(Value::as_str),
+            Some("Reconnecting... 2/5")
         );
     }
 

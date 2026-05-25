@@ -23,6 +23,21 @@ use crate::config::AppConfig;
 const TAIL_CHARS: usize = 64_000;
 const CODEX_NATIVE_INPUT_TYPES: &[&str] = &["text", "image", "localImage", "skill", "mention"];
 const THREAD_NOTIFICATION_QUEUE: &str = "__thread__";
+const INHERITED_NETWORK_ENV: &[&str] = &[
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "ALL_PROXY",
+    "all_proxy",
+    "NO_PROXY",
+    "no_proxy",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "NODE_EXTRA_CA_CERTS",
+    "CURL_CA_BUNDLE",
+    "REQUESTS_CA_BUNDLE",
+];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentRunnerRequest {
@@ -143,6 +158,7 @@ impl CodexAppServerSession {
 
         let mut command = Command::new(&self.config.codex.codex_executable);
         command.env_clear();
+        inherit_env_allowlist(&mut command, INHERITED_NETWORK_ENV);
         command
             .args(&self.config.codex.app_server_args)
             .current_dir(&self.cwd)
@@ -1163,6 +1179,16 @@ fn persistent_thread(request: &AgentRunnerRequest) -> bool {
         .get("codex_persistent_thread")
         .and_then(Value::as_bool)
         .unwrap_or(false)
+}
+
+fn inherit_env_allowlist(command: &mut Command, keys: &[&str]) {
+    for key in keys {
+        if let Some(value) = std::env::var_os(key) {
+            if !value.is_empty() {
+                command.env(*key, value);
+            }
+        }
+    }
 }
 
 fn codex_input_items(request: &AgentRunnerRequest) -> Vec<Value> {

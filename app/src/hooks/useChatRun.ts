@@ -4,6 +4,7 @@ import type {
   ConnectorAuthChatEvent,
   Message,
   SessionDetail,
+  SessionAttention,
   PlanStep,
   PlanProgress,
   UsageInfo,
@@ -53,6 +54,7 @@ interface UseChatRunOptions {
   onAuthExpired: (message: string) => void;
   onWorkspaceRefresh: () => void;
   getSessionActions: () => ChatRunSessionActions;
+  onSessionAttention?: (sessionId: string, attention: SessionAttention | null) => void;
 }
 
 const emptyUsage: UsageInfo = {
@@ -133,6 +135,7 @@ export function useChatRun({
   onAuthExpired,
   onWorkspaceRefresh,
   getSessionActions,
+  onSessionAttention,
 }: UseChatRunOptions) {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
@@ -159,9 +162,13 @@ export function useChatRun({
     ((payload: FeishuAuthOpenPayload, options?: ConnectorAuthPollOptions) => void) | null
   >(null);
 
-  const markSessionRunning = useCallback((sessionId: string) => {
-    setRunningSessionIds((prev) => (prev.includes(sessionId) ? prev : [...prev, sessionId]));
-  }, []);
+  const markSessionRunning = useCallback(
+    (sessionId: string) => {
+      setRunningSessionIds((prev) => (prev.includes(sessionId) ? prev : [...prev, sessionId]));
+      onSessionAttention?.(sessionId, null);
+    },
+    [onSessionAttention]
+  );
 
   const clearSessionRunning = useCallback((sessionId: string) => {
     setRunningSessionIds((prev) => prev.filter((id) => id !== sessionId));
@@ -527,6 +534,7 @@ export function useChatRun({
 
       let currentContent = "";
       let pendingConnectorAuthPayload: FeishuAuthOpenPayload | null = null;
+      let blockedForInteraction = false;
       const assistantUpdates = new Map<string, string>();
       const upsertAssistantUpdate = (id: string, content: string) => {
         updateRunningMessages((prev) => {
@@ -602,6 +610,8 @@ export function useChatRun({
                         : toolCall.arguments;
                     if (args?.question) {
                       last.askUser = { question: args.question, options: args.options || [] };
+                      blockedForInteraction = true;
+                      onSessionAttention?.(activeSessionId, "needs_input");
                     }
                   } catch {
                     /* ignore parse error */
@@ -679,6 +689,8 @@ export function useChatRun({
               if (last.role !== "assistant") return msgs;
 
               if (data.stop_reason === "ask_user" && typeof data.metadata.question === "string") {
+                blockedForInteraction = true;
+                onSessionAttention?.(activeSessionId, "needs_input");
                 if (typeof data.metadata.message === "string") {
                   last.content = data.metadata.message;
                 }
@@ -693,6 +705,8 @@ export function useChatRun({
               }
 
               if (data.stop_reason === "permission_request") {
+                blockedForInteraction = true;
+                onSessionAttention?.(activeSessionId, "needs_input");
                 last.permissionRequest = {
                   tool: typeof data.metadata.tool === "string" ? data.metadata.tool : "unknown",
                   params:
@@ -712,6 +726,8 @@ export function useChatRun({
           },
           onPermissionRequest: (request) => {
             if (isStaleRequest()) return;
+            blockedForInteraction = true;
+            onSessionAttention?.(activeSessionId, "needs_input");
             clearSessionRunning(activeSessionId);
             if (isRunVisible()) setInputFocusToken((prev) => bumpInputFocusToken(prev));
             updateRunningMessages((prev) => {
@@ -742,6 +758,7 @@ export function useChatRun({
             const nextPayload = connectorAuthPollPayloadFromEvent(event);
             if (nextPayload) {
               pendingConnectorAuthPayload = nextPayload;
+              onSessionAttention?.(activeSessionId, "needs_input");
             }
           },
           onComplete: () => {
@@ -756,6 +773,9 @@ export function useChatRun({
                 openAuthWindow: false,
               });
               return;
+            }
+            if (!blockedForInteraction) {
+              onSessionAttention?.(activeSessionId, "completed");
             }
             clearSessionRunning(activeSessionId);
             const nextPlan = clearPlanState();
@@ -775,6 +795,7 @@ export function useChatRun({
               return;
             }
             console.error("Chat error:", err);
+            onSessionAttention?.(activeSessionId, "error");
             clearSessionRunning(activeSessionId);
             if (isRunVisible()) setInputFocusToken((prev) => bumpInputFocusToken(prev));
             updateRunningMessages((prev) => {
@@ -798,6 +819,7 @@ export function useChatRun({
       input,
       lastContextTokens,
       markSessionRunning,
+      onSessionAttention,
       messages,
       onWorkspaceRefresh,
       pendingFiles,
@@ -929,6 +951,7 @@ export function useChatRun({
         planProgress,
       });
       markSessionRunning(activeSessionId);
+      onSessionAttention?.(activeSessionId, "needs_input");
       setMessages(initialMessages);
 
       const isStalePoll = () => connectorAuthPollIdRef.current !== pollId;
@@ -1232,6 +1255,7 @@ export function useChatRun({
               pollState.lastEvent = event;
               if (event.type === "connector_auth_updated") {
                 clearFeishuAuthWaiting();
+                onSessionAttention?.(activeSessionId, null);
               }
               const pollPayload = connectorAuthPollPayloadFromEvent(event);
               if (pollPayload?.connector === targetConnector) {
@@ -1257,6 +1281,7 @@ export function useChatRun({
             return;
           }
           console.error("Connector auth poll error:", pollState.streamError);
+          onSessionAttention?.(activeSessionId, "error");
           await cancelPendingConnectorAuth();
           if (isStalePoll()) return;
           updateRunningMessages((prev) => {
@@ -1320,6 +1345,7 @@ export function useChatRun({
       isSessionRunning,
       lastContextTokens,
       markSessionRunning,
+      onSessionAttention,
       messages,
       navigateFeishuAuthPopup,
       onWorkspaceRefresh,

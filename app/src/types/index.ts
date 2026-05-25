@@ -294,12 +294,15 @@ export interface WorkbenchSessionSummary {
   sessionId: string;
   title: string;
   status: WorkbenchSessionStatus;
+  attention?: SessionAttention;
   model: string;
   lastActivityAt: string;
   messageCount: number;
   changedFileCount: number;
   pendingApprovalCount: number;
 }
+
+export type SessionAttention = "completed" | "needs_input" | "error";
 
 export type WorkbenchTimelineEventType =
   | "user_message"

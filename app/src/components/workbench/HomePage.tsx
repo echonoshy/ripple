@@ -13,7 +13,7 @@ import {
 import { fetchConnectorStatuses, fetchConnectors, fetchCurrentSandbox } from "@/lib/api";
 import type { ConnectorInfo, ConnectorStatus, SandboxInfo, WorkbenchSessionSummary } from "@/types";
 import type { WorkspaceView } from "@/lib/workspaceViews";
-import StatusChip from "./StatusChip";
+import SessionAttentionDot from "./SessionAttentionDot";
 
 interface HomePageProps {
   userId: string;
@@ -191,7 +191,7 @@ export default function HomePage({
                         {session.messageCount} messages
                       </span>
                     </span>
-                    <StatusChip status={session.status} compact />
+                    <SessionAttentionDot attention={session.attention} />
                   </button>
                 ))
               )}

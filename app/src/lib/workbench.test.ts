@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 
 import {
   applyCurrentSessionRuntimeStatus,
+  applySessionAttentionMarkers,
   codexRuntimeEventToTimelineEvent,
   extractChangedFilePaths,
+  formatSessionActivityTime,
   mergeTimelineEvents,
   mergeInferredWorkbenchSessions,
   mapSessionSummariesToWorkbenchSessions,
@@ -52,10 +54,12 @@ function testMapsSessionSummariesToWorkbenchSummaries() {
   assert.equal(sessions[0].messageCount, 3);
   assert.equal(sessions[0].changedFileCount, 2);
   assert.equal(sessions[0].pendingApprovalCount, 1);
+  assert.equal(sessions[0].attention, "needs_input");
   assert.equal(sessions[1].title, "Session srv-empty");
+  assert.equal(sessions[1].attention, undefined);
 }
 
-function testSortsApprovalSessionsBeforeOrdinaryRunningSessions() {
+function testSortsSessionsByRecentActivity() {
   const sessions = mapSessionSummariesToWorkbenchSessions([
     makeSession({
       sessionId: "running",
@@ -74,10 +78,30 @@ function testSortsApprovalSessionsBeforeOrdinaryRunningSessions() {
 
   const sorted = sortWorkbenchSessions(sessions);
 
-  assert.equal(sorted[0].sessionId, "approval");
-  assert.equal(sorted[0].status, "waiting_for_approval");
-  assert.equal(sorted[0].pendingApprovalCount, 1);
-  assert.equal(sorted[1].sessionId, "running");
+  assert.equal(sorted[0].sessionId, "running");
+  assert.equal(sorted[1].sessionId, "approval");
+  assert.equal(sorted[1].status, "waiting_for_approval");
+  assert.equal(sorted[1].attention, "needs_input");
+  assert.equal(sorted[1].pendingApprovalCount, 1);
+}
+
+function testFormatsSessionActivityTimeLikeCodexSidebar() {
+  const now = new Date(2026, 4, 25, 15, 30);
+
+  assert.match(formatSessionActivityTime(new Date(2026, 4, 25, 9, 5).toISOString(), now), /9:05/);
+  assert.equal(
+    formatSessionActivityTime(new Date(2026, 4, 24, 23, 0).toISOString(), now),
+    "Yesterday"
+  );
+  assert.equal(
+    formatSessionActivityTime(new Date(2026, 4, 17, 12, 0).toISOString(), now),
+    "May 17"
+  );
+  assert.equal(
+    formatSessionActivityTime(new Date(2025, 11, 31, 12, 0).toISOString(), now),
+    "Dec 31, 2025"
+  );
+  assert.equal(formatSessionActivityTime("not-a-date", now), "");
 }
 
 function testAppliesCurrentRunningStatusToExistingSession() {
@@ -86,18 +110,27 @@ function testAppliesCurrentRunningStatusToExistingSession() {
       sessionId: "srv-current",
       title: "Current session",
       status: "idle",
+      lastActiveAt: "2026-05-15T01:00:00.000Z",
     }),
     makeSession({
       sessionId: "srv-other",
       title: "Other session",
       status: "idle",
+      lastActiveAt: "2026-05-15T02:00:00.000Z",
     }),
   ]);
 
-  const updated = applyCurrentSessionRuntimeStatus(sessions, "srv-current", "running");
+  const updated = applyCurrentSessionRuntimeStatus(
+    sessions,
+    "srv-current",
+    "running",
+    "2026-05-15T03:00:00.000Z"
+  );
 
   assert.equal(updated[0].sessionId, "srv-current");
   assert.equal(updated[0].status, "running");
+  assert.equal(updated[0].attention, undefined);
+  assert.equal(updated[0].lastActivityAt, "2026-05-15T03:00:00.000Z");
   assert.equal(updated[1].status, "idle");
 }
 
@@ -113,6 +146,35 @@ function testAppliesCurrentApprovalStatusToExistingSession() {
   const updated = applyCurrentSessionRuntimeStatus(sessions, "srv-current", "waiting_for_approval");
 
   assert.equal(updated[0].status, "waiting_for_approval");
+  assert.equal(updated[0].attention, "needs_input");
+}
+
+function testAppliesUnreadCompletionAttentionOnlyOffCurrentSession() {
+  const sessions = mapSessionSummariesToWorkbenchSessions([
+    makeSession({
+      sessionId: "srv-current",
+      title: "Current session",
+      status: "idle",
+      lastActiveAt: "2026-05-15T02:00:00.000Z",
+    }),
+    makeSession({
+      sessionId: "srv-background",
+      title: "Background session",
+      status: "idle",
+      lastActiveAt: "2026-05-15T01:00:00.000Z",
+    }),
+  ]);
+
+  const marked = applySessionAttentionMarkers(
+    sessions,
+    { "srv-current": "completed", "srv-background": "completed" },
+    "srv-current"
+  );
+
+  assert.equal(marked[0].sessionId, "srv-current");
+  assert.equal(marked[0].attention, undefined);
+  assert.equal(marked[1].sessionId, "srv-background");
+  assert.equal(marked[1].attention, "completed");
 }
 
 function testMergesMissingRunningSessionIntoSidebarSessions() {
@@ -419,9 +481,11 @@ function testMergesRuntimeEventsByTimestamp() {
 }
 
 testMapsSessionSummariesToWorkbenchSummaries();
-testSortsApprovalSessionsBeforeOrdinaryRunningSessions();
+testSortsSessionsByRecentActivity();
+testFormatsSessionActivityTimeLikeCodexSidebar();
 testAppliesCurrentRunningStatusToExistingSession();
 testAppliesCurrentApprovalStatusToExistingSession();
+testAppliesUnreadCompletionAttentionOnlyOffCurrentSession();
 testMergesMissingRunningSessionIntoSidebarSessions();
 testMapsToolCallsIntoTimelineEvents();
 testLimitsToolActivityToRecentSummaries();

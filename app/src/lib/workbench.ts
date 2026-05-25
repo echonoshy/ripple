@@ -1,6 +1,7 @@
 import type {
   CodexRuntimeEvent,
   Message,
+  SessionAttention,
   SessionSummary,
   ToolCall,
   WorkbenchSessionStatus,
@@ -8,18 +9,11 @@ import type {
   WorkbenchTimelineEvent,
 } from "@/types";
 
-const STATUS_PRIORITY: Record<WorkbenchSessionStatus, number> = {
-  waiting_for_approval: 0,
-  waiting_for_user: 1,
-  failed: 2,
-  running: 3,
-  compacting: 4,
-  review: 5,
-  queued: 6,
-  idle: 7,
-  completed: 8,
-  cancelled: 9,
-};
+function activityTimeValue(value: string | undefined): number {
+  if (!value) return 0;
+  const time = Date.parse(value);
+  return Number.isNaN(time) ? 0 : time;
+}
 
 export function sessionStatusToWorkbenchStatus(status: string): WorkbenchSessionStatus {
   const normalized = status.toLowerCase();
@@ -39,35 +33,74 @@ export function sessionStatusToWorkbenchStatus(status: string): WorkbenchSession
   return "idle";
 }
 
+export function sessionAttentionFromStatus(
+  status: WorkbenchSessionStatus,
+  pendingApprovalCount = 0
+): SessionAttention | null {
+  if (pendingApprovalCount > 0) return "needs_input";
+  if (status === "waiting_for_user" || status === "waiting_for_approval") return "needs_input";
+  if (status === "failed") return "error";
+  return null;
+}
+
 export function mapSessionSummariesToWorkbenchSessions(
   sessions: SessionSummary[]
 ): WorkbenchSessionSummary[] {
-  return sessions.map((session) => ({
-    sessionId: session.sessionId,
-    title: session.title?.trim() || `Session ${session.sessionId}`,
-    status: sessionStatusToWorkbenchStatus(session.status),
-    model: session.model,
-    lastActivityAt: session.lastActiveAt,
-    messageCount: session.messageCount,
-    changedFileCount: session.changedFileCount,
-    pendingApprovalCount: session.pendingApprovalCount,
-  }));
+  return sessions.map((session) => {
+    const status = sessionStatusToWorkbenchStatus(session.status);
+    return {
+      sessionId: session.sessionId,
+      title: session.title?.trim() || `Session ${session.sessionId}`,
+      status,
+      attention: sessionAttentionFromStatus(status, session.pendingApprovalCount) || undefined,
+      model: session.model,
+      lastActivityAt: session.lastActiveAt,
+      messageCount: session.messageCount,
+      changedFileCount: session.changedFileCount,
+      pendingApprovalCount: session.pendingApprovalCount,
+    };
+  });
 }
 
 export function sortWorkbenchSessions(
   sessions: WorkbenchSessionSummary[]
 ): WorkbenchSessionSummary[] {
   return [...sessions].sort((a, b) => {
-    const priority = STATUS_PRIORITY[a.status] - STATUS_PRIORITY[b.status];
-    if (priority !== 0) return priority;
-    return Date.parse(b.lastActivityAt) - Date.parse(a.lastActivityAt);
+    return activityTimeValue(b.lastActivityAt) - activityTimeValue(a.lastActivityAt);
+  });
+}
+
+function startOfLocalDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+export function formatSessionActivityTime(value: string, now = new Date()): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  const today = startOfLocalDay(now);
+  const activityDay = startOfLocalDay(date);
+  const dayDiff = Math.round((today.getTime() - activityDay.getTime()) / 86_400_000);
+
+  if (dayDiff === 0) {
+    return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  }
+  if (dayDiff === 1) return "Yesterday";
+  if (date.getFullYear() === now.getFullYear()) {
+    return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  }
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
   });
 }
 
 export function applyCurrentSessionRuntimeStatus(
   sessions: WorkbenchSessionSummary[],
   currentSessionId: string | null,
-  runtimeStatus: WorkbenchSessionStatus | null
+  runtimeStatus: WorkbenchSessionStatus | null,
+  activityAt?: string
 ): WorkbenchSessionSummary[] {
   if (!currentSessionId || !runtimeStatus) return sessions;
 
@@ -75,10 +108,45 @@ export function applyCurrentSessionRuntimeStatus(
   const updated = sessions.map((session) => {
     if (session.sessionId !== currentSessionId) return session;
     changed = true;
-    return session.status === runtimeStatus ? session : { ...session, status: runtimeStatus };
+    const pendingApprovalCount = runtimeStatus === "running" ? 0 : session.pendingApprovalCount;
+    const attention = sessionAttentionFromStatus(runtimeStatus, pendingApprovalCount);
+    return {
+      ...session,
+      status: runtimeStatus,
+      attention: attention || undefined,
+      lastActivityAt: activityAt || session.lastActivityAt,
+    };
   });
 
   return changed ? sortWorkbenchSessions(updated) : sessions;
+}
+
+export function applySessionAttentionMarkers(
+  sessions: WorkbenchSessionSummary[],
+  attentionBySessionId: Record<string, SessionAttention | undefined>,
+  openSessionId: string | null
+): WorkbenchSessionSummary[] {
+  const marked = sessions.map((session) => {
+    const statusAttention = sessionAttentionFromStatus(
+      session.status,
+      session.pendingApprovalCount
+    );
+    const storedAttention = attentionBySessionId[session.sessionId];
+    const attention =
+      statusAttention ||
+      (storedAttention === "completed" && session.sessionId === openSessionId
+        ? null
+        : storedAttention) ||
+      null;
+
+    if ((session.attention || null) === attention) return session;
+    return {
+      ...session,
+      attention: attention || undefined,
+    };
+  });
+
+  return sortWorkbenchSessions(marked);
 }
 
 export function mergeInferredWorkbenchSessions(

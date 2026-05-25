@@ -26,10 +26,12 @@ import { useSessionLifecycle } from "@/hooks/useSessionLifecycle";
 import { clearStoredCurrentSessionId } from "@/lib/sessionPersistence";
 import {
   applyCurrentSessionRuntimeStatus,
+  applySessionAttentionMarkers,
   createWorkbenchSessionsFromSessionSummaries,
   mergeInferredWorkbenchSessions,
 } from "@/lib/workbench";
 import { shouldShowInspector, type WorkspaceView } from "@/lib/workspaceViews";
+import type { SessionAttention } from "@/types";
 
 export default function Home() {
   // ── Auth state ──
@@ -53,6 +55,11 @@ export default function Home() {
   const [sessionIdCopied, setSessionIdCopied] = useState(false);
   const [workspaceRefreshToken, setWorkspaceRefreshToken] = useState(0);
   const [activeView, setActiveView] = useState<WorkspaceView>("sessions");
+  const [sessionAttentionById, setSessionAttentionById] = useState<
+    Record<string, SessionAttention | undefined>
+  >({});
+  const selectedSessionIdRef = useRef<string | null>(null);
+  const activeViewRef = useRef<WorkspaceView>("sessions");
 
   const sessionActionsRef = useRef<ChatRunSessionActions>({
     getSessionId: () => null,
@@ -77,6 +84,36 @@ export default function Home() {
 
   const getSessionActions = useCallback(() => sessionActionsRef.current, []);
 
+  const acknowledgeSessionCompletion = useCallback((targetSessionId: string) => {
+    setSessionAttentionById((prev) => {
+      if (prev[targetSessionId] !== "completed") return prev;
+      const next = { ...prev };
+      delete next[targetSessionId];
+      return next;
+    });
+  }, []);
+
+  const handleSessionAttention = useCallback(
+    (targetSessionId: string, attention: SessionAttention | null) => {
+      setSessionAttentionById((prev) => {
+        const sessionIsOpen =
+          selectedSessionIdRef.current === targetSessionId && activeViewRef.current === "sessions";
+        const shouldClear = !attention || (attention === "completed" && sessionIsOpen);
+
+        if (shouldClear) {
+          if (!prev[targetSessionId]) return prev;
+          const next = { ...prev };
+          delete next[targetSessionId];
+          return next;
+        }
+
+        if (prev[targetSessionId] === attention) return prev;
+        return { ...prev, [targetSessionId]: attention };
+      });
+    },
+    []
+  );
+
   const {
     input,
     setInput,
@@ -89,10 +126,8 @@ export default function Home() {
     lastContextTokens,
     planSteps,
     planProgress,
-    pendingPermission,
     currentSessionRuntimeStatus,
     timelineEvents,
-    changedFiles,
     feishuAuthWaiting,
     resetSessionView,
     abortRunAndResetSessionView,
@@ -112,6 +147,7 @@ export default function Home() {
     onAuthExpired: handleAuthExpired,
     onWorkspaceRefresh: handleWorkspaceRefresh,
     getSessionActions,
+    onSessionAttention: handleSessionAttention,
   });
 
   const handleSessionActivated = useCallback(() => {
@@ -146,6 +182,14 @@ export default function Home() {
   });
 
   useEffect(() => {
+    selectedSessionIdRef.current = sessionId;
+  }, [sessionId]);
+
+  useEffect(() => {
+    activeViewRef.current = activeView;
+  }, [activeView]);
+
+  useEffect(() => {
     sessionActionsRef.current = {
       getSessionId: () => sessionId,
       ensureSession,
@@ -173,6 +217,7 @@ export default function Home() {
         return;
       }
       setUserIdState(newUid);
+      setSessionAttentionById({});
       abortRunAndResetSessionView();
       resetSessionsForUserChange();
       if (authState === "authenticated") {
@@ -226,7 +271,8 @@ export default function Home() {
 
   // ── Session switch ──
   const handleSwitchSession = async (targetSessionId: string) => {
-    await switchSession(targetSessionId);
+    const switched = await switchSession(targetSessionId);
+    if (switched) acknowledgeSessionCompletion(targetSessionId);
   };
 
   // ── New session ──
@@ -237,7 +283,15 @@ export default function Home() {
   // ── Delete session ──
   const handleDeleteSession = async (targetSessionId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    await deleteSessionById(targetSessionId);
+    const deleted = await deleteSessionById(targetSessionId);
+    if (deleted) {
+      setSessionAttentionById((prev) => {
+        if (!prev[targetSessionId]) return prev;
+        const next = { ...prev };
+        delete next[targetSessionId];
+        return next;
+      });
+    }
   };
 
   const handleCopySessionId = useCallback(async () => {
@@ -248,15 +302,21 @@ export default function Home() {
     window.setTimeout(() => setSessionIdCopied(false), 1600);
   }, [sessionId]);
 
-  const handleSelectView = useCallback((view: WorkspaceView) => {
-    setActiveView(view);
-    setIsSidebarOpen(false);
-  }, []);
+  const handleSelectView = useCallback(
+    (view: WorkspaceView) => {
+      setActiveView(view);
+      setIsSidebarOpen(false);
+      if (view === "sessions" && sessionId) {
+        acknowledgeSessionCompletion(sessionId);
+      }
+    },
+    [acknowledgeSessionCompletion, sessionId]
+  );
 
   const selectedSessionIsGenerating = Boolean(sessionId && runningSessionIds.includes(sessionId));
   const selectedSessionRuntimeStatus =
     currentSessionRuntimeStatus && sessionId ? currentSessionRuntimeStatus : null;
-  const workbenchSessions = useMemo(() => {
+  const baseWorkbenchSessions = useMemo(() => {
     const base = createWorkbenchSessionsFromSessionSummaries(sessionSummaries);
     return runningSessionIds.reduce(
       (sessions, activeSessionId) =>
@@ -267,43 +327,71 @@ export default function Home() {
     );
   }, [currentSessionRuntimeStatus, runningSessionIds, sessionId, sessionSummaries]);
   const selectedExistingSession = sessionId
-    ? workbenchSessions.find((session) => session.sessionId === sessionId) || null
+    ? baseWorkbenchSessions.find((session) => session.sessionId === sessionId) || null
     : null;
-  const inferredCurrentSession =
-    sessionId && !selectedExistingSession
-      ? {
-          sessionId,
-          title: "Current Codex session",
-          status: selectedSessionRuntimeStatus || ("idle" as const),
+  const inferredCurrentSession = useMemo(
+    () =>
+      sessionId && !selectedExistingSession
+        ? {
+            sessionId,
+            title: "Current Codex session",
+            status: selectedSessionRuntimeStatus || ("idle" as const),
+            model: selectedModel,
+            lastActivityAt: new Date().toISOString(),
+            messageCount: messages.length,
+            changedFileCount: 0,
+            pendingApprovalCount: 0,
+          }
+        : null,
+    [
+      messages.length,
+      selectedExistingSession,
+      selectedModel,
+      selectedSessionRuntimeStatus,
+      sessionId,
+    ]
+  );
+  const inferredRunningSessions = useMemo(
+    () =>
+      runningSessionIds
+        .filter(
+          (activeSessionId) =>
+            activeSessionId !== sessionId &&
+            !baseWorkbenchSessions.some((session) => session.sessionId === activeSessionId)
+        )
+        .map((activeSessionId) => ({
+          sessionId: activeSessionId,
+          title: "Running Codex session",
+          status: "running" as const,
           model: selectedModel,
           lastActivityAt: new Date().toISOString(),
-          messageCount: messages.length,
+          messageCount: 0,
           changedFileCount: 0,
           pendingApprovalCount: 0,
-        }
-      : null;
-  const inferredRunningSessions = runningSessionIds
-    .filter(
-      (activeSessionId) =>
-        activeSessionId !== sessionId &&
-        !workbenchSessions.some((session) => session.sessionId === activeSessionId)
-    )
-    .map((activeSessionId) => ({
-      sessionId: activeSessionId,
-      title: "Running Codex session",
-      status: "running" as const,
-      model: selectedModel,
-      lastActivityAt: new Date().toISOString(),
-      messageCount: 0,
-      changedFileCount: 0,
-      pendingApprovalCount: 0,
-    }));
-  const selectedWorkbenchSession = selectedExistingSession || inferredCurrentSession;
+        })),
+    [baseWorkbenchSessions, runningSessionIds, selectedModel, sessionId]
+  );
+  const mergedWorkbenchSessions = useMemo(
+    () =>
+      mergeInferredWorkbenchSessions(baseWorkbenchSessions, [
+        inferredCurrentSession,
+        ...inferredRunningSessions,
+      ]),
+    [baseWorkbenchSessions, inferredCurrentSession, inferredRunningSessions]
+  );
+  const displayWorkbenchSessions = useMemo(
+    () =>
+      applySessionAttentionMarkers(
+        mergedWorkbenchSessions,
+        sessionAttentionById,
+        activeView === "sessions" ? sessionId : null
+      ),
+    [activeView, mergedWorkbenchSessions, sessionAttentionById, sessionId]
+  );
+  const selectedWorkbenchSession = sessionId
+    ? displayWorkbenchSessions.find((session) => session.sessionId === sessionId) || null
+    : null;
   const isComposerBlocked = selectedWorkbenchSession?.status === "compacting";
-  const displayWorkbenchSessions = mergeInferredWorkbenchSessions(workbenchSessions, [
-    inferredCurrentSession,
-    ...inferredRunningSessions,
-  ]);
   const mainContent =
     activeView === "home" ? (
       <HomePage
@@ -448,14 +536,7 @@ export default function Home() {
         content={mainContent}
         inspector={
           shouldShowInspector(activeView) ? (
-            <InspectorPanel
-              userId={userId}
-              refreshToken={workspaceRefreshToken}
-              events={timelineEvents}
-              changedFiles={changedFiles}
-              pendingPermission={pendingPermission}
-              onPermissionResolve={handlePermissionResolve}
-            />
+            <InspectorPanel userId={userId} refreshToken={workspaceRefreshToken} />
           ) : null
         }
         mobileNav={

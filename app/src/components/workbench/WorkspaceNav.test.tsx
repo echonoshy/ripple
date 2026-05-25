@@ -69,6 +69,22 @@ function testNewSessionStaysAvailableWhileAnotherSessionRuns() {
   assert.doesNotMatch(html, /disabled=""/);
 }
 
+function testSessionAttentionUsesDotsInsteadOfStatusLabels() {
+  const html = renderWorkspaceNav({
+    sessions: [
+      {
+        ...sessions[0],
+        attention: "needs_input",
+        status: "waiting_for_user",
+      },
+    ],
+  });
+
+  assert.match(html, /aria-label="Needs input"/);
+  assert.doesNotMatch(html, />Needs input</);
+  assert.doesNotMatch(html, />Running</);
+}
+
 function testSessionLoadErrorDoesNotLookLikeEmptyState() {
   const html = renderWorkspaceNav({
     sessions: [],
@@ -84,6 +100,7 @@ testRendersAllSessionsWithoutDeadViewAllButton();
 testUsesSessionIdSelectionNaming();
 testSessionsHeaderDoesNotDuplicateNewSessionAction();
 testNewSessionStaysAvailableWhileAnotherSessionRuns();
+testSessionAttentionUsesDotsInsteadOfStatusLabels();
 testSessionLoadErrorDoesNotLookLikeEmptyState();
 
 console.log("workspace nav tests passed");

@@ -5,7 +5,7 @@ import { AlertTriangle, Loader2, Plus, Settings, Trash2 } from "lucide-react";
 import RippleIcon from "@/components/icons/RippleIcon";
 import type { WorkbenchSessionSummary } from "@/types";
 import { mainNavItems, type WorkspaceView } from "@/lib/workspaceViews";
-import StatusChip from "./StatusChip";
+import SessionAttentionDot from "./SessionAttentionDot";
 
 interface WorkspaceNavProps {
   sessions: WorkbenchSessionSummary[];
@@ -128,7 +128,7 @@ export default function WorkspaceNav({
                         : "text-[#374151] hover:bg-white hover:text-[#0d0d0d]"
                     }`}
                   >
-                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-current opacity-70" />
+                    <SessionAttentionDot attention={session.attention} reserveSpace />
                     <button
                       type="button"
                       onClick={() => onSelectSession(session.sessionId)}
@@ -136,9 +136,6 @@ export default function WorkspaceNav({
                     >
                       {session.title}
                     </button>
-                    <span className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100">
-                      <StatusChip status={session.status} compact />
-                    </span>
                     <button
                       type="button"
                       onClick={(event) => onDeleteSession(session.sessionId, event)}

@@ -223,9 +223,9 @@ export default function SessionPage({
                     <span className="sm:hidden">Ask</span>
                     <span className="hidden sm:inline">Ask Codex from the composer</span>
                   </div>
-                  <span className="sm:hidden">Updates and approvals land here.</span>
+                  <span className="sm:hidden">Updates land here.</span>
                   <span className="hidden sm:inline">
-                    New activity, plans, and approvals will appear here once the session starts.
+                    Agent updates will appear here once the session starts.
                   </span>
                 </div>
               </div>

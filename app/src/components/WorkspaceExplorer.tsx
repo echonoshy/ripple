@@ -17,6 +17,12 @@ import {
   SlidersHorizontal,
   Undo2,
   Upload,
+  Copy,
+  Scissors,
+  Clipboard,
+  Trash2,
+  FilePlus,
+  FolderPlus,
 } from "lucide-react";
 import {
   downloadWorkspaceFile,
@@ -27,6 +33,9 @@ import {
   searchWorkspaceFiles,
   uploadWorkspaceFiles,
   WorkspaceUploadConflictError,
+  deleteWorkspaceEntry,
+  pasteWorkspaceEntry,
+  createWorkspaceEntry,
   type WorkspaceSearchOptions,
 } from "@/lib/api";
 import { saveBlobAsDownload } from "@/lib/platform";
@@ -36,6 +45,7 @@ import { WorkspaceEntry, WorkspaceFilePreview, WorkspaceListing } from "@/types"
 interface WorkspaceExplorerProps {
   userId: string;
   refreshToken: number;
+  testInitialPreview?: WorkspaceFilePreview;
 }
 
 const SPLIT_PERCENT_STORAGE_KEY = "ripple.workspaceExplorer.splitPercent";
@@ -132,13 +142,17 @@ export function displayError(error: string): string {
   return readableApiErrorMessage(error);
 }
 
-export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExplorerProps) {
+export default function WorkspaceExplorer({
+  userId,
+  refreshToken,
+  testInitialPreview,
+}: WorkspaceExplorerProps) {
   const initialPath = workspaceLastPathCache.get(userId) || DEFAULT_WORKSPACE_PATH;
   const [currentPath, setCurrentPath] = useState(initialPath);
   const [listing, setListing] = useState<WorkspaceListing | null>(
     () => workspaceListingCache.get(workspaceCacheKey(userId, initialPath)) || null
   );
-  const [preview, setPreview] = useState<WorkspaceFilePreview | null>(null);
+  const [preview, setPreview] = useState<WorkspaceFilePreview | null>(testInitialPreview || null);
   const [draft, setDraft] = useState("");
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -165,6 +179,27 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isDraggingUpload, setIsDraggingUpload] = useState(false);
   const [downloadingPath, setDownloadingPath] = useState<string | null>(null);
+
+  const [clipboard, setClipboard] = useState<{
+    path: string;
+    name: string;
+    kind: "file" | "directory";
+    action: "copy" | "move";
+  } | null>(null);
+
+  const [contextMenu, setContextMenu] = useState<{
+    visible: boolean;
+    x: number;
+    y: number;
+    entry: WorkspaceEntry | null;
+  }>({ visible: false, x: 0, y: 0, entry: null });
+
+  const [creationModal, setCreationModal] = useState<{
+    visible: boolean;
+    kind: "file" | "directory";
+  } | null>(null);
+  const [creationDraft, setCreationDraft] = useState("");
+  const [creationSaving, setCreationSaving] = useState(false);
   const splitPercentRef = useRef(splitPercent);
   const splitContainerRef = useRef<HTMLDivElement | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
@@ -554,7 +589,138 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
     setSplitPercent((current) => getSplitPercentAfterFileDoubleClick(current));
     void openEntry(entry);
   };
-  const isPreviewPanelHidden = splitPercent >= MAX_SPLIT_PERCENT;
+
+  const handleCreate = async (event?: React.FormEvent) => {
+    if (event) event.preventDefault();
+    if (!creationModal || creationSaving) return;
+    const name = creationDraft.trim();
+    if (!name) {
+      setCreationModal(null);
+      return;
+    }
+    setCreationSaving(true);
+    setError(null);
+    try {
+      const parentPrefix = currentPath === "/workspace" ? "/workspace" : currentPath;
+      const targetPath = `${parentPrefix}/${name}`;
+      const newEntry = await createWorkspaceEntry(targetPath, creationModal.kind);
+      setListing((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          entries: sortWorkspaceEntries([...current.entries, newEntry]),
+        };
+      });
+      setCreationModal(null);
+      setCreationDraft("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCreationSaving(false);
+    }
+  };
+
+  const handleDelete = async (entry: WorkspaceEntry) => {
+    const confirmed = window.confirm(`Are you sure you want to delete ${entry.name}?`);
+    if (!confirmed) return;
+    setError(null);
+    try {
+      await deleteWorkspaceEntry(entry.path);
+      if (preview?.path === entry.path) {
+        setPreview(null);
+        setDraft("");
+      }
+      setListing((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          entries: current.entries.filter((item) => item.path !== entry.path),
+        };
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleCut = (entry: WorkspaceEntry) => {
+    setClipboard({
+      path: entry.path,
+      name: entry.name,
+      kind: entry.kind,
+      action: "move",
+    });
+    setContextMenu((prev) => ({ ...prev, visible: false }));
+  };
+
+  const handleCopy = (entry: WorkspaceEntry) => {
+    setClipboard({
+      path: entry.path,
+      name: entry.name,
+      kind: entry.kind,
+      action: "copy",
+    });
+    setContextMenu((prev) => ({ ...prev, visible: false }));
+  };
+
+  const handlePaste = async () => {
+    if (!clipboard) return;
+    setError(null);
+    try {
+      const destination = currentPath;
+      await pasteWorkspaceEntry(clipboard.path, destination, clipboard.action);
+      if (clipboard.action === "move") {
+        setClipboard(null);
+      }
+      await loadDirectory(destination);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setContextMenu((prev) => ({ ...prev, visible: false }));
+    }
+  };
+
+  const handleCopyAbsoluteSandboxPath = (entry: WorkspaceEntry) => {
+    navigator.clipboard.writeText(entry.path);
+    setContextMenu((prev) => ({ ...prev, visible: false }));
+  };
+
+  const onEntryContextMenu = (event: React.MouseEvent, entry: WorkspaceEntry) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setContextMenu({
+      visible: true,
+      x: event.clientX,
+      y: event.clientY,
+      entry,
+    });
+  };
+
+  const onContainerContextMenu = (event: React.MouseEvent) => {
+    if (
+      event.target === event.currentTarget ||
+      (event.target as HTMLElement).classList.contains("context-trigger-area")
+    ) {
+      event.preventDefault();
+      setContextMenu({
+        visible: true,
+        x: event.clientX,
+        y: event.clientY,
+        entry: null,
+      });
+    }
+  };
+
+  useEffect(() => {
+    const handleGlobalClick = () => {
+      setContextMenu((prev) => (prev.visible ? { ...prev, visible: false } : prev));
+    };
+    window.addEventListener("click", handleGlobalClick);
+    return () => {
+      window.removeEventListener("click", handleGlobalClick);
+    };
+  }, []);
+
+  const isPreviewPanelHidden = splitPercent >= MAX_SPLIT_PERCENT || !preview;
   const splitGridTemplateRows = isPreviewPanelHidden
     ? "minmax(0,1fr) 0px"
     : `minmax(0,${splitPercent}%) minmax(0,1fr)`;
@@ -756,7 +922,10 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
               )}
             </div>
           </div>
-          <div className="h-full overflow-y-auto pb-10">
+          <div
+            onContextMenu={onContainerContextMenu}
+            className="context-trigger-area h-full overflow-y-auto pb-10"
+          >
             {(loading && !listing) || (searchLoading && visibleEntries.length === 0) ? (
               <div className="flex h-40 items-center justify-center gap-2 text-sm font-medium text-[#68707d]">
                 <Loader2 size={16} className="animate-spin" />
@@ -815,8 +984,13 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
                   ) : (
                     <div
                       key={entry.path}
+                      onContextMenu={(event) => onEntryContextMenu(event, entry)}
                       className={`group flex w-full items-center transition-colors hover:bg-[#f7f8fa] ${
                         preview?.path === entry.path ? "bg-[#eef4ff]" : "bg-white"
+                      } ${
+                        clipboard?.action === "move" && clipboard?.path === entry.path
+                          ? "opacity-35 select-none"
+                          : ""
                       }`}
                     >
                       <button
@@ -1033,6 +1207,146 @@ export default function WorkspaceExplorer({ userId, refreshToken }: WorkspaceExp
           </div>
         )}
       </div>
+
+      {/* 右键菜单 */}
+      {contextMenu.visible && (
+        <div
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+          className="fixed z-50 min-w-[160px] rounded-lg border border-[#e5e7eb] bg-white p-1.5 shadow-[0_4px_16px_rgba(0,0,0,0.08)] text-xs text-[#374151]"
+          onClick={(e) => e.stopPropagation()}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          {contextMenu.entry ? (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  if (contextMenu.entry) startRename(contextMenu.entry);
+                  setContextMenu((prev) => ({ ...prev, visible: false }));
+                }}
+                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 hover:bg-[#f3f4f6] text-left"
+              >
+                <Edit3 size={13} /> Rename
+              </button>
+              <button
+                type="button"
+                onClick={() => contextMenu.entry && handleCut(contextMenu.entry)}
+                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 hover:bg-[#f3f4f6] text-left"
+              >
+                <Scissors size={13} /> Cut (Move)
+              </button>
+              <button
+                type="button"
+                onClick={() => contextMenu.entry && handleCopy(contextMenu.entry)}
+                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 hover:bg-[#f3f4f6] text-left"
+              >
+                <Copy size={13} /> Copy
+              </button>
+              <button
+                type="button"
+                onClick={() => contextMenu.entry && handleCopyAbsoluteSandboxPath(contextMenu.entry)}
+                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 hover:bg-[#f3f4f6] text-left font-[family-name:var(--font-mono)]"
+              >
+                <FileText size={13} /> Copy Sandbox Path
+              </button>
+              {contextMenu.entry.kind === "file" && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (contextMenu.entry) void handleDownloadFile(contextMenu.entry.path);
+                    setContextMenu((prev) => ({ ...prev, visible: false }));
+                  }}
+                  className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 hover:bg-[#f3f4f6] text-left"
+                >
+                  <Download size={13} /> Download
+                </button>
+              )}
+              <hr className="my-1 border-[#f3f4f6]" />
+              <button
+                type="button"
+                onClick={() => contextMenu.entry && void handleDelete(contextMenu.entry)}
+                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 hover:bg-[#ffeef0] text-[#cf222e] text-left"
+              >
+                <Trash2 size={13} /> Delete
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                disabled={!clipboard}
+                onClick={handlePaste}
+                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 hover:bg-[#f3f4f6] text-left disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Clipboard size={13} /> Paste {clipboard ? `(${clipboard.name})` : ""}
+              </button>
+              <hr className="my-1 border-[#f3f4f6]" />
+              <button
+                type="button"
+                onClick={() => {
+                  setCreationModal({ visible: true, kind: "file" });
+                  setContextMenu((prev) => ({ ...prev, visible: false }));
+                }}
+                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 hover:bg-[#f3f4f6] text-left"
+              >
+                <FilePlus size={13} /> New File
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setCreationModal({ visible: true, kind: "directory" });
+                  setContextMenu((prev) => ({ ...prev, visible: false }));
+                }}
+                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 hover:bg-[#f3f4f6] text-left"
+              >
+                <FolderPlus size={13} /> New Folder
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* 新建模态对话框 */}
+      {creationModal?.visible && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-[1px]">
+          <form
+            onSubmit={handleCreate}
+            className="w-80 rounded-xl border border-[#e5e7eb] bg-white p-4 shadow-xl"
+          >
+            <h3 className="mb-3 text-sm font-semibold text-[#0d0d0d]">
+              {creationModal.kind === "file" ? "Create New File" : "Create New Folder"}
+            </h3>
+            <input
+              autoFocus
+              value={creationDraft}
+              onChange={(e) => setCreationDraft(e.target.value)}
+              placeholder={creationModal.kind === "file" ? "e.g. main.py" : "e.g. src_folder"}
+              className="mb-4 h-9 w-full rounded-md border border-[#e5e7eb] bg-white px-3 text-sm outline-none focus:border-[#2463eb]"
+              disabled={creationSaving}
+            />
+            <div className="flex justify-end gap-2 text-xs font-medium">
+              <button
+                type="button"
+                onClick={() => {
+                  setCreationModal(null);
+                  setCreationDraft("");
+                }}
+                className="rounded-md border border-[#e5e7eb] bg-white px-3 py-1.5 text-[#374151] hover:bg-[#f9fafb]"
+                disabled={creationSaving}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="rounded-md bg-[#2463eb] px-3 py-1.5 text-white hover:bg-[#1d4ed8]"
+                disabled={creationSaving}
+              >
+                {creationSaving ? "Creating..." : "Create"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }

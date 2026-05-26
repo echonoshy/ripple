@@ -162,6 +162,91 @@ pub fn rename_entry(
     entry_for_path(workspace_root, &destination, None)
 }
 
+pub fn delete_entry(workspace_root: &Path, path: &str) -> anyhow::Result<()> {
+    let target = validate_existing_path(path, workspace_root)?;
+    let canonical_workspace = workspace_root.canonicalize()?;
+    if target == canonical_workspace {
+        anyhow::bail!("Cannot delete workspace root");
+    }
+    if target.is_dir() {
+        std::fs::remove_dir_all(&target)?;
+    } else {
+        std::fs::remove_file(&target)?;
+    }
+    Ok(())
+}
+
+pub fn create_entry(
+    workspace_root: &Path,
+    path: &str,
+    kind: &str,
+) -> anyhow::Result<WorkspaceEntry> {
+    let target = validate_write_path(path, workspace_root)?;
+    if target.exists() {
+        anyhow::bail!("A file or folder with that name already exists");
+    }
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    if kind == "directory" {
+        std::fs::create_dir_all(&target)?;
+    } else {
+        std::fs::write(&target, "")?;
+    }
+    entry_for_path(workspace_root, &target, None)
+}
+
+pub fn paste_entry(
+    workspace_root: &Path,
+    src_path: &str,
+    dest_dir: &str,
+    action: &str,
+) -> anyhow::Result<WorkspaceEntry> {
+    let src = validate_existing_path(src_path, workspace_root)?;
+    let dest_parent = validate_existing_path(dest_dir, workspace_root)?;
+    if !dest_parent.is_dir() {
+        anyhow::bail!("Destination path is not a directory");
+    }
+    let file_name = src.file_name().ok_or_else(|| anyhow::anyhow!("Invalid source file name"))?;
+    let dest = dest_parent.join(file_name);
+    let dest = validate_write_path(
+        &workspace_path(workspace_root, &dest)?,
+        workspace_root,
+    )?;
+
+    if dest.exists() {
+        anyhow::bail!("A file or folder with that name already exists");
+    }
+
+    if action == "move" {
+        std::fs::rename(&src, &dest)?;
+    } else if action == "copy" {
+        if src.is_dir() {
+            copy_dir_recursive(&src, &dest)?;
+        } else {
+            std::fs::copy(&src, &dest)?;
+        }
+    } else {
+        anyhow::bail!("Invalid paste action");
+    }
+
+    entry_for_path(workspace_root, &dest, None)
+}
+
+fn copy_dir_recursive(src: &Path, dst: &Path) -> anyhow::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        if ty.is_dir() {
+            copy_dir_recursive(&entry.path(), &dst.join(entry.file_name()))?;
+        } else {
+            std::fs::copy(&entry.path(), &dst.join(entry.file_name()))?;
+        }
+    }
+    Ok(())
+}
+
 pub fn entry_for_existing_path(
     workspace_root: &Path,
     path: &Path,

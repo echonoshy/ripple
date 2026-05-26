@@ -9,8 +9,13 @@ import WorkspaceExplorer, {
   getSplitPercentAfterFileDoubleClick,
 } from "./WorkspaceExplorer";
 
-function renderExplorer() {
-  return renderToStaticMarkup(<WorkspaceExplorer userId="test-user" refreshToken={0} />);
+function renderExplorer(overrides: Partial<React.ComponentProps<typeof WorkspaceExplorer>> = {}) {
+  const props = {
+    userId: "test-user",
+    refreshToken: 0,
+    ...overrides,
+  };
+  return renderToStaticMarkup(<WorkspaceExplorer {...props} />);
 }
 
 function renderExplorerWithStoredSplitPercent(storedValue: string) {
@@ -42,7 +47,18 @@ function renderExplorerWithStoredSplitPercent(storedValue: string) {
 }
 
 function testWorkspaceExplorerSplitIsResizable() {
-  const html = renderExplorer();
+  const html = renderExplorer({
+    testInitialPreview: {
+      path: "/workspace/notes.txt",
+      name: "notes.txt",
+      size_bytes: 123,
+      modified_at: "2026-05-17T00:00:00Z",
+      mime_type: "text/plain",
+      encoding: "utf-8",
+      content: "test content",
+      truncated: false,
+    },
+  });
 
   assert.match(html, /grid-template-rows:minmax\(0,48%\) minmax\(0,1fr\)/);
   assert.match(html, /role="separator"/);

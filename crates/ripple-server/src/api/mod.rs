@@ -94,6 +94,9 @@ pub fn router(state: AppState) -> Router {
             get(workspace::get_workspace_file).put(workspace::save_workspace_file),
         )
         .route("/workspace/rename", post(workspace::rename_workspace))
+        .route("/workspace/delete", post(workspace::delete_workspace))
+        .route("/workspace/create", post(workspace::create_workspace))
+        .route("/workspace/paste", post(workspace::paste_workspace))
         .route("/workspace/upload", post(workspace::upload_workspace_files))
         .route(
             "/workspace/attachments",

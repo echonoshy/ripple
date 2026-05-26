@@ -1091,3 +1091,53 @@ export async function saveWorkspaceFile(
   if (!res.ok) throw new Error(`Failed to save file (${res.status})`);
   return (await res.json()) as WorkspaceFilePreview;
 }
+
+export async function deleteWorkspaceEntry(path: string): Promise<boolean> {
+  const res = await fetch(`${API_URL}/workspace/delete`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ path }),
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to delete entry (${res.status})`);
+  }
+  return res.ok;
+}
+
+export async function pasteWorkspaceEntry(
+  path: string,
+  destinationDir: string,
+  action: "copy" | "move"
+): Promise<WorkspaceEntry> {
+  const res = await fetch(`${API_URL}/workspace/paste`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ path, destination_dir: destinationDir, action }),
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Paste failed (${res.status})`);
+  }
+  return (await res.json()) as WorkspaceEntry;
+}
+
+export async function createWorkspaceEntry(
+  path: string,
+  kind: "file" | "directory"
+): Promise<WorkspaceEntry> {
+  const res = await fetch(`${API_URL}/workspace/create`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ path, kind }),
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Create failed (${res.status})`);
+  }
+  return (await res.json()) as WorkspaceEntry;
+}
+

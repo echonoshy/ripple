@@ -74,7 +74,7 @@ function testBlockedComposerStillAllowsDraftingAndShowsStop() {
 function testComposerClearsIosHomeIndicatorAndUsesTouchSizedActions() {
   const html = renderComposer();
 
-  assert.match(html, /pb-\[max\(env\(safe-area-inset-bottom\),10px\)\]/);
+  assert.match(html, /pb-\[max\(env\(safe-area-inset-bottom\),8px\)\]/);
   assert.match(html, /h-10 w-10/);
   assert.match(html, /text-\[16px\][^"]*sm:text-\[14px\]/);
 }

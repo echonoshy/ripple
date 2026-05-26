@@ -125,7 +125,7 @@ export default function MobileSessionsPage({
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search sessions"
-              className="min-w-0 flex-1 bg-transparent text-[16px] outline-none placeholder:text-[#9aa3af]"
+              className="search-sessions-input min-w-0 flex-1 bg-transparent text-[16px] outline-none placeholder:text-[#9aa3af] focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
               autoFocus
             />
           </div>

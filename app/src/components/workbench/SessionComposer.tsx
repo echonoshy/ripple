@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, FileText, Paperclip, Send, Square, Trash2, X } from "lucide-react";
+import { ChevronDown, FileText, Paperclip, Send, Sparkles, Square, Trash2, X } from "lucide-react";
 import type { ChatFileRef } from "@/lib/chatInput";
 import {
   getQuickActionMatches,
@@ -59,6 +59,8 @@ export default function SessionComposer({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const quickActionsRef = useRef<HTMLDivElement>(null);
+  const modelDropdownSmallRef = useRef<HTMLDivElement>(null);
+  const modelDropdownLargeRef = useRef<HTMLDivElement>(null);
   const [quickActionsState, setQuickActionsState] = useState<QuickActionsState | null>(null);
   const [dismissedSlashKey, setDismissedSlashKey] = useState<string | null>(null);
   const [quickActionIndex, setQuickActionIndex] = useState(0);
@@ -141,6 +143,21 @@ export default function SessionComposer({
     document.addEventListener("pointerdown", handlePointerDown, true);
     return () => document.removeEventListener("pointerdown", handlePointerDown, true);
   }, [closeOpenPopups, isQuickActionsOpen]);
+
+  useEffect(() => {
+    if (!isModelDropdownOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (modelDropdownSmallRef.current?.contains(target)) return;
+      if (modelDropdownLargeRef.current?.contains(target)) return;
+      onToggleModelDropdown();
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    return () => document.removeEventListener("pointerdown", handlePointerDown, true);
+  }, [onToggleModelDropdown, isModelDropdownOpen]);
 
   const runQuickAction = useCallback(
     (action: QuickAction) => {
@@ -226,53 +243,49 @@ export default function SessionComposer({
           disabled={inputDisabled}
         />
         <div className="flex items-end gap-1.5 sm:block">
-          <div className="relative shrink-0 sm:hidden">
+          <div className="flex shrink-0 items-center gap-0.5 sm:hidden">
             <button
               type="button"
-              aria-label="Select model"
-              title={`Model: ${selectedModel}`}
-              onClick={onToggleModelDropdown}
-              className="inline-flex h-9 max-w-[118px] items-center gap-1 rounded-full px-1.5 font-[family-name:var(--font-mono)] text-[11px] font-medium text-[#172033] active:bg-[#eef3ff]"
+              aria-label="Attach files"
+              title="Attach files"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={inputDisabled}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full text-[#4b5563] hover:bg-[#f3f4f6] hover:text-[#111827] active:bg-[#eef3ff] disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <span className="truncate">{selectedModel}</span>
-              <ChevronDown
-                size={12}
-                className={`shrink-0 text-[#6b7280] transition-transform ${
-                  isModelDropdownOpen ? "rotate-180" : ""
-                }`}
-              />
+              <Paperclip size={15} />
             </button>
-            {isModelDropdownOpen && (
-              <div className="absolute bottom-full left-0 z-30 mb-2 w-48 overflow-hidden rounded-xl border border-[#dfe6f4] bg-white shadow-[0_14px_34px_rgba(44,63,123,0.14)]">
-                <div className="p-1">
-                  {availableModels.map((model) => (
-                    <button
-                      key={model.id}
-                      type="button"
-                      onClick={() => onSelectModel(model.id)}
-                      className={`flex w-full items-center rounded px-3 py-2 text-left font-[family-name:var(--font-mono)] text-xs hover:bg-[#f7f8fa] ${
-                        selectedModel === model.id
-                          ? "bg-[#eef3ff] text-[#2457e6]"
-                          : "text-[#111827]"
-                      }`}
-                    >
-                      {model.id}
-                    </button>
-                  ))}
+            <div ref={modelDropdownSmallRef} className="relative shrink-0">
+              <button
+                type="button"
+                aria-label="Select model"
+                title={`Model: ${selectedModel}`}
+                onClick={onToggleModelDropdown}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full text-[#4b5563] hover:bg-[#f3f4f6] hover:text-[#111827] active:bg-[#eef3ff]"
+              >
+                <Sparkles size={15} />
+              </button>
+              {isModelDropdownOpen && (
+                <div className="absolute bottom-full left-0 z-30 mb-2 w-48 overflow-hidden rounded-xl border border-[#dfe6f4] bg-white shadow-[0_14px_34px_rgba(44,63,123,0.14)]">
+                  <div className="p-1">
+                    {availableModels.map((model) => (
+                      <button
+                        key={model.id}
+                        type="button"
+                        onClick={() => onSelectModel(model.id)}
+                        className={`flex w-full items-center rounded px-3 py-2 text-left font-[family-name:var(--font-mono)] text-xs hover:bg-[#f7f8fa] ${
+                          selectedModel === model.id
+                            ? "bg-[#eef3ff] text-[#2457e6]"
+                            : "text-[#111827]"
+                        }`}
+                      >
+                        {model.id}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
-          <button
-            type="button"
-            aria-label="Attach files"
-            title="Attach files"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={inputDisabled}
-            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[#172033] active:bg-[#eef3ff] disabled:cursor-not-allowed disabled:opacity-50 sm:hidden"
-          >
-            <Paperclip size={15} />
-          </button>
           <textarea
             ref={textareaRef}
             value={value}
@@ -291,7 +304,7 @@ export default function SessionComposer({
                     ? "Ask Codex..."
                     : "Ask Codex..."
             }
-            className="session-composer-input max-h-[104px] min-h-9 min-w-0 flex-1 resize-none bg-transparent px-1.5 py-1 text-[16px] leading-5 text-[#111827] outline-none placeholder:text-[#9aa3af] disabled:opacity-60 sm:max-h-[180px] sm:min-h-[36px] sm:w-full sm:px-2 sm:py-1.5 sm:text-[14px] sm:leading-6 sm:placeholder:text-[#8b8f94]"
+            className="session-composer-input max-h-[104px] min-h-9 min-w-0 flex-1 resize-none bg-transparent px-1.5 py-2 text-[16px] leading-5 text-[#111827] outline-none placeholder:text-[14px] placeholder:text-[#9aa3af] disabled:opacity-60 sm:max-h-[180px] sm:min-h-[36px] sm:w-full sm:px-2 sm:py-1.5 sm:text-[14px] sm:leading-6 sm:placeholder:text-[#8b8f94]"
           />
           {isGenerating || isBlocked ? (
             <button
@@ -377,7 +390,7 @@ export default function SessionComposer({
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="relative">
+            <div ref={modelDropdownLargeRef} className="relative">
               <button
                 type="button"
                 aria-label="Select model"

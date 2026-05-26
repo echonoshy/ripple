@@ -1,4 +1,3 @@
-import { test } from "bun:test";
 import assert from "node:assert/strict";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -34,7 +33,7 @@ function renderHomePage() {
   );
 }
 
-test("home page has expected specific copy", () => {
+function testHomePageHasExpectedSpecificCopy() {
   const html = renderHomePage();
 
   assert.match(html, />Ripple/);
@@ -48,4 +47,8 @@ test("home page has expected specific copy", () => {
   assert.match(html, />Sandbox Status</);
   assert.doesNotMatch(html, />Tasks</);
   assert.doesNotMatch(html, /tasks yet/);
-});
+}
+
+testHomePageHasExpectedSpecificCopy();
+
+console.log("home page tests passed");

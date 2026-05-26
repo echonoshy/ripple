@@ -242,7 +242,7 @@ export default function SessionComposer({
           disabled={inputDisabled}
         />
         <div className="flex items-end gap-1.5">
-          <div className="-mr-1 flex h-10 shrink-0 items-center sm:h-8">
+          <div className="-mr-1 flex h-10 shrink-0 items-center sm:mb-[2px] sm:h-8">
             <div ref={quickActionsRef} className="relative flex items-center">
               {isQuickActionsOpen && (
                 <div className="absolute bottom-full left-0 z-30 mb-2 w-52 overflow-hidden rounded-xl border border-[#dfe6f4] bg-white shadow-[0_14px_34px_rgba(44,63,123,0.14)]">
@@ -325,7 +325,7 @@ export default function SessionComposer({
                     ? "Ask anything..."
                     : "Ask anything..."
             }
-            className="session-composer-input max-h-[104px] min-h-9 min-w-0 flex-1 resize-none bg-transparent px-1.5 py-2 text-[16px] leading-5 text-[#111827] outline-none placeholder:text-[14px] placeholder:text-[#9aa3af] disabled:opacity-60 sm:max-h-[180px] sm:min-h-[36px] sm:w-full sm:px-2 sm:py-1.5 sm:text-[14px] sm:leading-6 sm:placeholder:text-[#8b8f94]"
+            className="session-composer-input mb-[2px] max-h-[104px] min-h-9 min-w-0 flex-1 resize-none bg-transparent px-1.5 py-2 text-[16px] leading-5 text-[#111827] outline-none placeholder:text-[14px] placeholder:text-[#9aa3af] disabled:opacity-60 sm:mb-0 sm:max-h-[180px] sm:min-h-[36px] sm:w-full sm:px-2 sm:py-1.5 sm:text-[14px] sm:leading-6 sm:placeholder:text-[#8b8f94]"
           />
           {isGenerating || isBlocked ? (
             <button
@@ -333,7 +333,7 @@ export default function SessionComposer({
               onClick={onStop}
               aria-label="Stop generation"
               title={isBlocked ? "Stop running session" : "Stop generation"}
-              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#cf222e]/20 bg-[#ffebe9] text-[#cf222e] shadow-[0_8px_18px_rgba(207,34,46,0.10)] hover:bg-[#ffd7d5] sm:h-8 sm:w-8"
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#cf222e]/20 bg-[#ffebe9] text-[#cf222e] shadow-[0_8px_18px_rgba(207,34,46,0.10)] hover:bg-[#ffd7d5] sm:mb-[2px] sm:h-8 sm:w-8"
             >
               <Square size={13} fill="currentColor" />
             </button>
@@ -344,7 +344,7 @@ export default function SessionComposer({
               disabled={!canSend || sendDisabled}
               aria-label="Send message"
               title="Send message"
-              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#4067ff]/20 bg-[linear-gradient(135deg,#2f6bff,#7b5cff)] text-white shadow-[0_10px_22px_rgba(64,92,255,0.30)] disabled:cursor-not-allowed disabled:border-[#dfe6f4] disabled:bg-[#f3f6fb] disabled:bg-none disabled:text-[#9aa3af] disabled:shadow-none sm:h-8 sm:w-8"
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#4067ff]/20 bg-[linear-gradient(135deg,#2f6bff,#7b5cff)] text-white shadow-[0_10px_22px_rgba(64,92,255,0.30)] disabled:cursor-not-allowed disabled:border-[#dfe6f4] disabled:bg-[#f3f6fb] disabled:bg-none disabled:text-[#9aa3af] disabled:shadow-none sm:mb-[2px] sm:h-8 sm:w-8"
             >
               <Send size={14} />
             </button>

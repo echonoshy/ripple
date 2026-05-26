@@ -824,7 +824,7 @@ export default function WorkspaceExplorer({
               value={query}
               onChange={(event) => handleQueryChange(event.target.value)}
               placeholder="Find files by name..."
-              className="h-8 w-full rounded-full border border-[#e5e7eb] bg-white pr-2 pl-8 text-sm text-[#0d0d0d] outline-none placeholder:text-[#8b8f94] focus:border-[#8da0ff]"
+              className="h-8 w-full rounded-full border border-[#e5e7eb] bg-white pr-2 pl-8 text-sm text-[#0d0d0d] outline-none placeholder:text-xs placeholder:text-[#8b8f94] focus:border-[#8da0ff]"
             />
           </div>
           <button
@@ -919,17 +919,17 @@ export default function WorkspaceExplorer({
           </div>
         )}
         <div className="flex items-center justify-between gap-2">
-          <p className="min-w-0 truncate font-[family-name:var(--font-mono)] text-[11px] text-[#6b7280]">
+          <p className="min-w-0 truncate font-[family-name:var(--font-mono)] text-xs text-[#6b7280]">
             {isSearchMode ? searchModeLabel(searchScope) : listing?.path || currentPath}
           </p>
           <button
             type="button"
             onClick={() => void loadDirectory(currentPath)}
-            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-transparent text-[#6b7280] hover:border-[#e5e7eb] hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#e5e7eb] bg-white text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d] disabled:cursor-not-allowed disabled:opacity-50"
             title="Refresh workspace"
             disabled={loading}
           >
-            {loading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+            {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
           </button>
         </div>
       </div>

@@ -15,6 +15,7 @@ import {
 import { formatSessionActivityTime } from "@/lib/workbench";
 import type { WorkbenchSessionSummary } from "@/types";
 import SessionAttentionDot from "./SessionAttentionDot";
+import RippleIcon from "@/components/icons/RippleIcon";
 
 interface MobileSessionsPageProps {
   sessions: WorkbenchSessionSummary[];
@@ -97,29 +98,36 @@ export default function MobileSessionsPage({
       )}
       <header className="shrink-0 border-b border-[#e8edf7] bg-white/72 px-4 pt-[max(env(safe-area-inset-top),10px)] pb-2 backdrop-blur-2xl">
         <div className="flex h-10 items-center justify-between">
-          <button
-            type="button"
-            aria-label="Search sessions"
-            title="Search sessions"
-            onClick={() => setIsSearching((open) => !open)}
-            className={`inline-flex h-9 w-9 items-center justify-center rounded-xl border transition-all duration-150 active:scale-[0.96] shadow-sm ${
-              isSearching
-                ? "border-[#7d8cff]/50 bg-[#eef3ff] text-[#2f6bff]"
-                : "border-[#dfe6f4] bg-[#f6f8ff] text-[#5c6e8d] active:bg-[#eef3ff]"
-            }`}
-          >
-            <Search size={20} strokeWidth={2.2} />
-          </button>
-          <h1 className="text-[18px] leading-none font-semibold tracking-normal">Sessions</h1>
-          <button
-            type="button"
-            aria-label="New session"
-            title="New session"
-            onClick={onNewSession}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-[#dfe6f4] bg-[#f6f8ff] text-[#5c6e8d] shadow-sm transition-all duration-150 active:bg-[#eef3ff] active:scale-[0.96]"
-          >
-            <Plus size={20} strokeWidth={2.2} />
-          </button>
+          <div className="flex items-center gap-2">
+            <RippleIcon size={24} className="h-6 w-6" />
+            <span className="bg-gradient-to-r from-[#2f6bff] to-[#8a5cff] bg-clip-text text-transparent font-bold text-[18px] tracking-tight">
+              Ripple
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              aria-label="Search sessions"
+              title="Search sessions"
+              onClick={() => setIsSearching((open) => !open)}
+              className={`inline-flex h-9 w-9 items-center justify-center rounded-xl transition-all duration-150 active:scale-[0.94] ${
+                isSearching
+                  ? "bg-[#2f6bff] text-white shadow-[0_4px_12px_rgba(47,107,255,0.2)]"
+                  : "bg-[#f1f5f9] text-[#5c6e8d] hover:bg-[#e2e8f0] active:bg-[#e2e8f0]"
+              }`}
+            >
+              <Search size={18} strokeWidth={2.2} />
+            </button>
+            <button
+              type="button"
+              aria-label="New session"
+              title="New session"
+              onClick={onNewSession}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-tr from-[#2f6bff] to-[#8a5cff] text-white shadow-[0_4px_12px_rgba(47,107,255,0.24)] transition-all duration-150 active:scale-[0.94] active:brightness-95"
+            >
+              <Plus size={18} strokeWidth={2.2} />
+            </button>
+          </div>
         </div>
         {isSearching ? (
           <div className="mt-2 flex h-9 items-center gap-2 rounded-full border border-[#dfe6f4] bg-white/86 px-3 shadow-[0_8px_22px_rgba(44,63,123,0.06)]">

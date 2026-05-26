@@ -41,7 +41,7 @@ function renderMobileSessionsPage(
 function testRendersChatAppStyleSessionList() {
   const html = renderMobileSessionsPage();
 
-  assert.match(html, />Sessions</);
+  assert.match(html, />Ripple</);
   assert.match(html, /aria-label="Search sessions"/);
   assert.match(html, /aria-label="New session"/);
   assert.match(html, />Mobile redesign</);

@@ -102,7 +102,11 @@ export default function MobileSessionsPage({
             aria-label="Search sessions"
             title="Search sessions"
             onClick={() => setIsSearching((open) => !open)}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full text-[#172033] active:bg-[#eef3ff]"
+            className={`inline-flex h-9 w-9 items-center justify-center rounded-xl border transition-all duration-150 active:scale-[0.96] shadow-sm ${
+              isSearching
+                ? "border-[#7d8cff]/50 bg-[#eef3ff] text-[#2f6bff]"
+                : "border-[#dfe6f4] bg-[#f6f8ff] text-[#5c6e8d] active:bg-[#eef3ff]"
+            }`}
           >
             <Search size={20} strokeWidth={2.2} />
           </button>
@@ -112,7 +116,7 @@ export default function MobileSessionsPage({
             aria-label="New session"
             title="New session"
             onClick={onNewSession}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full text-[#172033] active:bg-[#eef3ff]"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-[#dfe6f4] bg-[#f6f8ff] text-[#5c6e8d] shadow-sm transition-all duration-150 active:bg-[#eef3ff] active:scale-[0.96]"
           >
             <Plus size={20} strokeWidth={2.2} />
           </button>

@@ -1,3 +1,4 @@
+import { test } from "bun:test";
 import assert from "node:assert/strict";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -33,7 +34,7 @@ function renderHomePage() {
   );
 }
 
-function testHomeHasMobileSpecificCopy() {
+test("home page has expected specific copy", () => {
   const html = renderHomePage();
 
   assert.match(html, />Ripple/);
@@ -47,8 +48,4 @@ function testHomeHasMobileSpecificCopy() {
   assert.match(html, />Sandbox Status</);
   assert.doesNotMatch(html, />Tasks</);
   assert.doesNotMatch(html, /tasks yet/);
-}
-
-testHomeHasMobileSpecificCopy();
-
-console.log("home page tests passed");
+});

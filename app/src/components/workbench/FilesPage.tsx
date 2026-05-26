@@ -31,7 +31,6 @@ export default function FilesPage({ userId, refreshToken, onBack }: FilesPagePro
             </h1>
             <div className="font-[family-name:var(--font-mono)] text-[11px] text-[#7a8496]">
               <span className="sm:hidden">Workspace</span>
-              <span className="hidden sm:inline">/workspace</span>
             </div>
           </div>
         </div>

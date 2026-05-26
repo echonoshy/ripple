@@ -15,7 +15,6 @@ function testFilesHeaderDoesNotRenderTaskScopedActions() {
 
   assert.match(html, />Files</);
   assert.match(html, /sm:hidden[^>]*>Workspace</);
-  assert.match(html, /hidden sm:inline[^>]*>\/workspace</);
   assert.match(html, /aria-label="Back to settings"/);
   assert.match(html, /lg:hidden/);
   assert.doesNotMatch(html, />Header actions</);

@@ -243,14 +243,14 @@ export default function SessionComposer({
           disabled={inputDisabled}
         />
         <div className="flex items-end gap-1.5 sm:block">
-          <div className="flex shrink-0 items-center gap-0.5 sm:hidden">
+          <div className="flex shrink-0 items-center h-9 sm:hidden -mr-1">
             <button
               type="button"
               aria-label="Attach files"
               title="Attach files"
               onClick={() => fileInputRef.current?.click()}
               disabled={inputDisabled}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full text-[#4b5563] hover:bg-[#f3f4f6] hover:text-[#111827] active:bg-[#eef3ff] disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[#4b5563] hover:bg-[#f3f4f6] hover:text-[#111827] active:bg-[#eef3ff] disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Paperclip size={15} />
             </button>
@@ -260,7 +260,7 @@ export default function SessionComposer({
                 aria-label="Select model"
                 title={`Model: ${selectedModel}`}
                 onClick={onToggleModelDropdown}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-full text-[#4b5563] hover:bg-[#f3f4f6] hover:text-[#111827] active:bg-[#eef3ff]"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[#4b5563] hover:bg-[#f3f4f6] hover:text-[#111827] active:bg-[#eef3ff]"
               >
                 <Sparkles size={15} />
               </button>

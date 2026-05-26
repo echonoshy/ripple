@@ -188,7 +188,7 @@ export default function SessionPage({
           <ArrowLeft size={22} strokeWidth={2.4} />
         </button>
         <div className="min-w-0 text-center">
-          <div className="truncate text-[17px] leading-5 font-semibold text-[#111827]">
+          <div className="truncate text-[15px] leading-5 font-semibold text-[#111827]">
             {session?.title || "Session"}
           </div>
           <div className="mt-0.5 flex min-w-0 items-center justify-center gap-1.5 text-[11px] leading-4 text-[#7a8496]">

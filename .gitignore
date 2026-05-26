@@ -176,6 +176,22 @@ node_modules/
 # Expo / React Native local state
 .expo/
 
+# Android local SDK, Gradle caches, and packaging outputs
+.android/
+.android-sdk/
+.gradle/
+.kotlin/
+local.properties
+key.properties
+keystore.properties
+*.jks
+*.keystore
+*.apk
+*.ap_
+*.aab
+*.idsig
+*.hprof
+
 # Expo / React Native generated native projects
 src/interfaces/mobile/ios/
 src/interfaces/mobile/android/

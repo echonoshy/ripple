@@ -389,47 +389,6 @@ export default function SessionPage({
             </div>
           )}
 
-          {!hasMessages && (
-            <section className="rounded-2xl border border-[#dfe6f4] bg-white/78 px-4 py-3 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl">
-              <div className="text-[13px] font-semibold text-[#111827]">
-                <span className="sm:hidden">Start here</span>
-                <span className="hidden sm:inline">Workspace briefing</span>
-              </div>
-              <div className="mt-2 grid gap-2 text-[13px] leading-5 text-[#667085] md:grid-cols-3">
-                <div>
-                  <div className="font-medium text-[#111827]">
-                    <span className="sm:hidden">Files</span>
-                    <span className="hidden sm:inline">Open the Files view</span>
-                  </div>
-                  <span className="sm:hidden">Review files before edits.</span>
-                  <span className="hidden sm:inline">
-                    Browse, preview, and edit workspace files before starting.
-                  </span>
-                </div>
-                <div>
-                  <div className="font-medium text-[#111827]">
-                    <span className="sm:hidden">Sessions</span>
-                    <span className="hidden sm:inline">Review recent sessions</span>
-                  </div>
-                  <span className="sm:hidden">Reopen work with context.</span>
-                  <span className="hidden sm:inline">
-                    Pick up an existing run from the sidebar when context already exists.
-                  </span>
-                </div>
-                <div>
-                  <div className="font-medium text-[#111827]">
-                    <span className="sm:hidden">Ask</span>
-                    <span className="hidden sm:inline">Ask Codex from the composer</span>
-                  </div>
-                  <span className="sm:hidden">Updates land here.</span>
-                  <span className="hidden sm:inline">
-                    Agent updates will appear here once the session starts.
-                  </span>
-                </div>
-              </div>
-            </section>
-          )}
-
           <SessionTimeline
             messages={messages}
             events={timelineEvents}

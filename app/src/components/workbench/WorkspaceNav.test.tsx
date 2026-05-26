@@ -31,6 +31,7 @@ function renderWorkspaceNav(overrides: Partial<React.ComponentProps<typeof Works
     onSelectView: noop,
     onSelectSession: noop,
     onDeleteSession: noop,
+    onUpdateSession: async () => {},
     onOpenSettings: noop,
     ...overrides,
   } as React.ComponentProps<typeof WorkspaceNav> & { sessionLoadError?: string | null };
@@ -117,5 +118,78 @@ testNewSessionStaysAvailableWhileAnotherSessionRuns();
 testSessionAttentionUsesDotsInsteadOfStatusLabels();
 testRendersSessionActivityTime();
 testSessionLoadErrorDoesNotLookLikeEmptyState();
+
+function testRendersPinnedSessionWithIcon() {
+  const html = renderWorkspaceNav({
+    sessions: [
+      {
+        sessionId: "pinned-1",
+        title: "Pinned Session",
+        pinned: true,
+        status: "idle",
+        model: "codex-medium",
+        lastActivityAt: "2026-05-17T00:00:00Z",
+        messageCount: 0,
+        changedFileCount: 0,
+        pendingApprovalCount: 0,
+      },
+    ],
+  });
+
+  assert.match(html, /Pinned Session/);
+  // Matches lucide-pin icon (uses lucide-pin class or SVG markup)
+  assert.match(html, /lucide-pin/);
+}
+
+function testRendersUnpinnedSessionWithoutPinIcon() {
+  const html = renderWorkspaceNav({
+    sessions: [
+      {
+        sessionId: "unpinned-1",
+        title: "Unpinned Session",
+        pinned: false,
+        status: "idle",
+        model: "codex-medium",
+        lastActivityAt: "2026-05-17T00:00:00Z",
+        messageCount: 0,
+        changedFileCount: 0,
+        pendingApprovalCount: 0,
+      },
+    ],
+  });
+
+  assert.match(html, /Unpinned Session/);
+  assert.doesNotMatch(html, /lucide-pin/);
+}
+
+function testRendersSessionOptionsButton() {
+  const html = renderWorkspaceNav({
+    sessions: [
+      {
+        sessionId: "sess-1",
+        title: "Session 1",
+        pinned: false,
+        status: "idle",
+        model: "codex-medium",
+        lastActivityAt: "2026-05-17T00:00:00Z",
+        messageCount: 0,
+        changedFileCount: 0,
+        pendingApprovalCount: 0,
+      },
+    ],
+  });
+
+  assert.match(html, /title="Session options"/);
+}
+
+function testRendersSettingsButtonWithCorrectUserLabel() {
+  const html = renderWorkspaceNav({ userId: "user-alpha-99" });
+  assert.match(html, /aria-label="Settings for user-alpha-99"/);
+}
+
+testRendersPinnedSessionWithIcon();
+testRendersUnpinnedSessionWithoutPinIcon();
+testRendersSessionOptionsButton();
+testRendersSettingsButtonWithCorrectUserLabel();
 
 console.log("workspace nav tests passed");

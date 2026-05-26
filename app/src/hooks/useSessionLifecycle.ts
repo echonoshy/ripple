@@ -193,10 +193,7 @@ export function useSessionLifecycle({
   }, []);
 
   const updateSessionById = useCallback(
-    async (
-      targetSessionId: string,
-      input: SessionUpdateInput
-    ): Promise<SessionSummary | null> => {
+    async (targetSessionId: string, input: SessionUpdateInput): Promise<SessionSummary | null> => {
       try {
         const updatedSession = await updateSession(targetSessionId, input);
         setSessionSummaries((prev) => {

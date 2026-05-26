@@ -1,22 +1,30 @@
-"use client";
+# Workspace Session Context Menu Implementation Plan
 
-import React from "react";
-import {
-  AlertTriangle,
-  Edit3,
-  Loader2,
-  MoreHorizontal,
-  Pin,
-  Plus,
-  Settings,
-  Trash2,
-} from "lucide-react";
-import RippleIcon from "@/components/icons/RippleIcon";
-import { formatSessionActivityTime } from "@/lib/workbench";
-import { mainNavItems, type WorkspaceView } from "@/lib/workspaceViews";
-import type { WorkbenchSessionSummary } from "@/types";
-import SessionAttentionDot from "./SessionAttentionDot";
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Goal:** Implement an elegant dropdown actions menu (More Actions) for workspace session list items in `WorkspaceNav`, supporting Pinned toggle, Inline renaming, and Delete actions with keyboard and click-outside control.
+
+**Architecture:** 
+- Propagate session update capabilities to `WorkspaceNav` using an `onUpdateSession` prop.
+- Introduce relative row layouts, lightweight overlay-based click-outside mechanism, dynamic button visibility, and inline text `<input />` editor with Escape/Enter/Blur lifecycle hooks.
+- Write direct tests in `WorkspaceNav.test.tsx` to assert pin indicators, menu visibility, and inline editor rendering under correct mock callbacks.
+
+**Tech Stack:** React 19, TypeScript, Tailwind CSS v4, Bun, Node standard assert.
+
+---
+
+### Task 1: Update API Interfaces and Hook/App integration
+
+**Files:**
+- Modify: `app/src/components/workbench/WorkspaceNav.tsx`
+- Modify: `app/src/App.tsx`
+
+- [ ] **Step 1: Update WorkspaceNavProps interface**
+
+Modify `WorkspaceNavProps` in `app/src/components/workbench/WorkspaceNav.tsx` to include `onUpdateSession` prop.
+
+```typescript
+// app/src/components/workbench/WorkspaceNav.tsx
 interface WorkspaceNavProps {
   sessions: WorkbenchSessionSummary[];
   selectedSessionId: string | null;
@@ -32,30 +40,59 @@ interface WorkspaceNavProps {
   onUpdateSession: (
     sessionId: string,
     updates: { title?: string; pinned?: boolean }
-  ) => Promise<unknown>;
+  ) => Promise<any>;
   onOpenSettings: () => void;
 }
+```
 
-export default function WorkspaceNav({
-  sessions,
-  selectedSessionId,
-  activeView,
-  isLoading,
-  sessionLoadError,
-  isGenerating,
-  userId,
-  onNewSession,
-  onSelectView,
-  onSelectSession,
-  onDeleteSession,
-  onUpdateSession,
-  onOpenSettings,
-}: WorkspaceNavProps) {
+- [ ] **Step 2: Connect updateSessionById from App.tsx**
+
+Update `app/src/App.tsx` where `<WorkspaceNav />` is rendered (both in mobile view if applicable, and main app desktop sidebar) to pass down `onUpdateSession`. Since `App.tsx` receives `updateSessionById` from `useSessionLifecycle`, we can pass it down as:
+
+```typescript
+// app/src/App.tsx
+            onDeleteSession={handleDeleteSession}
+            onUpdateSession={updateSessionById}
+            onOpenSettings={() => setIsSettingsOpen(true)}
+```
+
+Let's double-check if there are multiple occurrences of `<WorkspaceNav` in `App.tsx`.
+Yes, there are multiple matches in `App.tsx`:
+- Line 437: mobile view block if any.
+- Line 455: another layout if any.
+- Line 582: main App.
+Let's pass `onUpdateSession={updateSessionById}` to ALL of them.
+
+---
+
+### Task 2: Implement Dropdown Menu and Inline Renaming in WorkspaceNav
+
+**Files:**
+- Modify: `app/src/components/workbench/WorkspaceNav.tsx`
+
+- [ ] **Step 1: Add Lucide imports**
+
+Ensure `Edit3` and `MoreHorizontal` are imported from `lucide-react`.
+
+```typescript
+import { AlertTriangle, Edit3, Loader2, MoreHorizontal, Pin, Plus, Settings, Trash2 } from "lucide-react";
+```
+
+- [ ] **Step 2: Add local dropdown & rename states**
+
+Add React state variables at the beginning of `WorkspaceNav`:
+
+```typescript
   const [activeMenuSessionId, setActiveMenuSessionId] = React.useState<string | null>(null);
   const [editingSessionId, setEditingSessionId] = React.useState<string | null>(null);
   const [editingTitle, setEditingTitle] = React.useState<string>("");
-  const isCancellingRef = React.useRef(false);
+```
 
+- [ ] **Step 3: Add Click-Outside Backdrop**
+
+Render a viewport-covering overlay under the list when any menu is open:
+
+```typescript
   return (
     <div className="flex h-full min-h-0 flex-col text-[#0d0d0d]" aria-busy={isGenerating}>
       {activeMenuSessionId && (
@@ -64,76 +101,17 @@ export default function WorkspaceNav({
           onClick={() => setActiveMenuSessionId(null)}
         />
       )}
-      <div className="border-b border-[#e5e7eb] px-4 pt-4 pb-4">
-        <div className="mb-5 flex h-8 items-center gap-3">
-          <RippleIcon size={30} className="h-[30px] w-[30px] shrink-0 rounded-lg" />
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-[17px] leading-none font-semibold">Ripple</div>
-          </div>
-          <button
-            type="button"
-            onClick={onOpenSettings}
-            aria-label={`Settings for ${userId}`}
-            title="Settings"
-            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-transparent text-[#6b7280] hover:border-[#e5e7eb] hover:bg-white hover:text-[#0d0d0d]"
-          >
-            <Settings size={15} />
-          </button>
-        </div>
+```
 
-        <button
-          type="button"
-          onClick={onNewSession}
-          className="flex h-9 w-full items-center justify-between gap-2 rounded-lg bg-[#2463eb] px-3 text-sm font-semibold text-white shadow-[0_8px_24px_rgba(36,99,235,0.18)] hover:bg-[#1d56d8]"
-        >
-          <span className="inline-flex items-center gap-2">
-            <Plus size={15} />
-            New session
-          </span>
-        </button>
-      </div>
+- [ ] **Step 4: Refactor Session Mapping UI**
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
-        <nav className="space-y-1">
-          {mainNavItems.map((item) => {
-            const Icon = item.icon;
-            const selected = item.id === activeView;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => onSelectView(item.id)}
-                className={`flex h-9 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-medium transition-colors ${
-                  selected
-                    ? "bg-[#eef4ff] text-[#0b57d0]"
-                    : "text-[#374151] hover:bg-white hover:text-[#0d0d0d]"
-                }`}
-              >
-                <Icon size={16} className={selected ? "text-[#2463eb]" : "text-[#6b7280]"} />
-                {item.label}
-              </button>
-            );
-          })}
-        </nav>
+Replace the current session item list block with:
+1. An inline-editing block when `editingSessionId === session.sessionId`.
+2. A list item with a `group relative` wrapping `div`, replacing the direct hover Trash button with a dynamic `MoreHorizontal` options button and absolute Dropdown menu container.
 
-        <div className="mt-10">
-          <div className="mb-2 flex items-center justify-between px-2">
-            <span className="text-[11px] font-medium tracking-wide text-[#6b7280] uppercase">
-              Sessions
-            </span>
-            {isLoading ? <Loader2 size={13} className="animate-spin text-[#6b7280]" /> : null}
-          </div>
+**Code implementation:**
 
-          {sessionLoadError && !isLoading ? (
-            <div className="flex items-start gap-2 rounded-lg border border-[#cf222e]/25 bg-[#ffebe9] px-3 py-3 text-sm font-medium text-[#cf222e]">
-              <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-              <span className="min-w-0 break-words">{sessionLoadError}</span>
-            </div>
-          ) : sessions.length === 0 && !isLoading ? (
-            <div className="rounded-lg border border-dashed border-[#e5e7eb] bg-white px-3 py-5 text-center text-sm text-[#6b7280]">
-              No sessions yet
-            </div>
-          ) : (
+```typescript
             <div className="space-y-1">
               {sessions.map((session) => {
                 const selected = session.sessionId === selectedSessionId;
@@ -142,10 +120,6 @@ export default function WorkspaceNav({
 
                 if (isEditing) {
                   const handleSave = () => {
-                    if (isCancellingRef.current) {
-                      isCancellingRef.current = false;
-                      return;
-                    }
                     const trimmed = editingTitle.trim();
                     if (trimmed && trimmed !== session.title) {
                       void onUpdateSession(session.sessionId, { title: trimmed });
@@ -156,7 +130,7 @@ export default function WorkspaceNav({
                   return (
                     <div
                       key={session.sessionId}
-                      className="flex items-center gap-2 rounded-lg border border-[#2463eb] bg-white px-2.5 py-1.5 text-[#0d0d0d]"
+                      className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[#0d0d0d] bg-white border border-[#2463eb]"
                       onClick={(e) => e.stopPropagation()}
                     >
                       <SessionAttentionDot attention={session.attention} reserveSpace />
@@ -170,7 +144,6 @@ export default function WorkspaceNav({
                           if (e.key === "Enter") {
                             handleSave();
                           } else if (e.key === "Escape") {
-                            isCancellingRef.current = true;
                             setEditingSessionId(null);
                           }
                         }}
@@ -213,7 +186,7 @@ export default function WorkspaceNav({
                         </span>
                       )}
                     </button>
-
+                    
                     <button
                       type="button"
                       onClick={(e) => {
@@ -224,7 +197,7 @@ export default function WorkspaceNav({
                       }}
                       className={`h-6 w-6 shrink-0 items-center justify-center rounded border transition-colors ${
                         activeMenuSessionId === session.sessionId
-                          ? "z-50 flex border-[#e5e7eb] bg-white text-[#0d0d0d]"
+                          ? "flex border-[#e5e7eb] bg-white text-[#0d0d0d] z-50"
                           : "hidden border-transparent text-[#8b8f94] group-hover:flex hover:border-[#e5e7eb] hover:bg-white hover:text-[#0d0d0d]"
                       }`}
                       title="Session options"
@@ -233,7 +206,7 @@ export default function WorkspaceNav({
                     </button>
 
                     {activeMenuSessionId === session.sessionId && (
-                      <div className="absolute top-9 right-2 z-50 w-36 rounded-lg border border-[#e5e7eb] bg-white py-1 shadow-[0_4px_12px_rgba(0,0,0,0.08)]">
+                      <div className="absolute right-2 top-9 z-50 w-36 rounded-lg border border-[#e5e7eb] bg-white py-1 shadow-[0_4px_12px_rgba(0,0,0,0.08)]">
                         <button
                           type="button"
                           onClick={(e) => {
@@ -278,25 +251,73 @@ export default function WorkspaceNav({
                 );
               })}
             </div>
-          )}
-        </div>
-      </div>
+```
 
-      <div className="border-t border-[#e5e7eb] px-4 py-3">
-        <button
-          type="button"
-          onClick={onOpenSettings}
-          className="flex w-full items-center gap-3 rounded-lg px-1 py-1.5 text-left hover:bg-white"
-        >
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#2463eb] text-xs font-semibold text-white">
-            {userId.slice(0, 2).toUpperCase()}
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm font-medium text-[#0d0d0d]">{userId}</span>
-            <span className="block truncate text-xs text-[#6b7280]">Workspace user</span>
-          </span>
-        </button>
-      </div>
-    </div>
-  );
+---
+
+### Task 3: Add Tests and Linting
+
+**Files:**
+- Modify: `app/src/components/workbench/WorkspaceNav.test.tsx`
+
+- [ ] **Step 1: Add new assertions to tests**
+
+Add `onUpdateSession` to the default props inside `renderWorkspaceNav`:
+
+```typescript
+function renderWorkspaceNav(overrides: Partial<React.ComponentProps<typeof WorkspaceNav>> = {}) {
+  const props = {
+    // ... other props ...
+    onDeleteSession: noop,
+    onUpdateSession: async () => {},
+    onOpenSettings: noop,
+    ...overrides,
+  } as React.ComponentProps<typeof WorkspaceNav> & { sessionLoadError?: string | null };
+
+  return renderToStaticMarkup(<WorkspaceNav {...props} />);
 }
+```
+
+Add a new unit test at the bottom of the file to verify `Pin` indicator rendering:
+
+```typescript
+function testRendersPinnedSessionWithIcon() {
+  const html = renderWorkspaceNav({
+    sessions: [
+      {
+        sessionId: "pinned-1",
+        title: "Pinned Session",
+        pinned: true,
+        status: "idle",
+        model: "codex-medium",
+        lastActivityAt: "2026-05-17T00:00:00Z",
+        messageCount: 0,
+        changedFileCount: 0,
+        pendingApprovalCount: 0,
+      },
+    ],
+  });
+
+  assert.match(html, /Pinned Session/);
+  // Matches lucide-pin icon (uses lucide-pin class or SVG markup)
+  assert.match(html, /lucide-pin/);
+}
+
+testRendersPinnedSessionWithIcon();
+```
+
+- [ ] **Step 2: Run Tests**
+
+Run the test suite using:
+```bash
+bun run app/src/components/workbench/WorkspaceNav.test.tsx
+```
+Expected output: `workspace nav tests passed`
+
+- [ ] **Step 3: Run Linter and Formatter**
+
+Run ruff / bun lint commands if applicable. In frontend:
+```bash
+cd app && bun run lint && bun run build
+```
+Verify no TypeScript errors or linter compilation failures.

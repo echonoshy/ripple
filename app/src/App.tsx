@@ -593,6 +593,7 @@ export default function Home() {
               setIsSidebarOpen(false);
             }}
             onDeleteSession={handleDeleteSession}
+            onUpdateSession={updateSessionById}
             onOpenSettings={() => setIsSettingsOpen(true)}
           />
         }

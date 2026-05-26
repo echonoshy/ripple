@@ -105,7 +105,6 @@ function testOmitsPlaceholderSessionHeaderControls() {
   assert.match(html, /aria-label="Back to sessions"/);
   assert.match(html, /aria-label="New session"/);
   assert.match(html, /aria-label="Session options"/);
-  assert.match(html, /aria-label="Session settings"/);
   assert.doesNotMatch(html, />New Codex task</);
   assert.doesNotMatch(html, /border-b border-\[#e5e7eb\] bg-white px-4 py-3 md:px-5/);
   assert.doesNotMatch(html, />Idle</);

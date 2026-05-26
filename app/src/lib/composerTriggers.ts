@@ -47,7 +47,9 @@ export function getQuickActionMatches(query: string): QuickAction[] {
     else if (fuzzyMatches(needle, target)) rank = 4;
     return rank === null ? null : { action, rank, index };
   })
-    .filter((match): match is { action: QuickAction; rank: number; index: number } => match !== null)
+    .filter(
+      (match): match is { action: QuickAction; rank: number; index: number } => match !== null
+    )
     .sort((a, b) => a.rank - b.rank || a.index - b.index)
     .map((match) => match.action);
 }

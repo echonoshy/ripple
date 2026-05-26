@@ -12,7 +12,6 @@ import {
   MoreHorizontal,
   Pin,
   Plus,
-  Settings,
 } from "lucide-react";
 import type {
   Message,
@@ -226,24 +225,6 @@ export default function SessionPage({
 
       {sessionId && (
         <div className="pointer-events-none absolute top-3 right-4 z-30 hidden items-center gap-1.5 sm:flex">
-          <button
-            type="button"
-            onClick={onNewSession}
-            title="New session"
-            aria-label="New session"
-            className="pointer-events-auto inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#e5e7eb] bg-white/95 text-[#6b7280] shadow-[0_8px_24px_rgba(23,26,31,0.08)] backdrop-blur hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
-          >
-            <Plus size={14} />
-          </button>
-          <button
-            type="button"
-            onClick={openSessionSettings}
-            title="Session settings"
-            aria-label="Session settings"
-            className="pointer-events-auto inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#e5e7eb] bg-white/95 text-[#6b7280] shadow-[0_8px_24px_rgba(23,26,31,0.08)] backdrop-blur hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
-          >
-            <Settings size={14} />
-          </button>
           <button
             type="button"
             onClick={onCopySessionId}

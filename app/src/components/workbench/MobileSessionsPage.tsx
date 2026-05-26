@@ -87,7 +87,7 @@ export default function MobileSessionsPage({
   );
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[radial-gradient(circle_at_16%_0%,rgba(47,107,255,0.13),transparent_34%),radial-gradient(circle_at_88%_8%,rgba(139,92,246,0.12),transparent_32%),#fbfdff] text-[#111827] lg:hidden">
+    <div className="flex h-full min-h-0 flex-col bg-[radial-gradient(circle_at_16%_0%,rgba(47,107,255,0.12),transparent_34%),radial-gradient(circle_at_88%_8%,rgba(139,92,246,0.11),transparent_32%),#fbfdff] text-[#111827] lg:hidden">
       {activeMenuSessionId && (
         <div
           className="fixed inset-0 z-40 bg-transparent"
@@ -283,7 +283,7 @@ export default function MobileSessionsPage({
                   </button>
 
                   {activeMenuSessionId === session.sessionId && (
-                    <div className="animate-in fade-in-50 zoom-in-95 absolute top-11 right-2.5 z-50 w-36 rounded-2xl border border-[#e2e8f0] bg-white p-1.5 shadow-[0_12px_36px_-4px_rgba(0,0,0,0.12),0_4px_16px_-2px_rgba(0,0,0,0.06)] duration-100">
+                    <div className="animate-in fade-in-50 zoom-in-95 absolute top-11 right-2.5 z-50 w-36 rounded-2xl border border-[#dfe6f4] bg-white p-1.5 shadow-[0_12px_36px_-4px_rgba(0,0,0,0.12),0_4px_16px_-2px_rgba(0,0,0,0.06)] duration-100">
                       <button
                         type="button"
                         onClick={(e) => {
@@ -291,7 +291,7 @@ export default function MobileSessionsPage({
                           void onUpdateSession(session.sessionId, { pinned: !session.pinned });
                           setActiveMenuSessionId(null);
                         }}
-                        className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] active:bg-[#f3f4f6]"
+                        className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
                       >
                         <Pin size={13} className="shrink-0 text-[#6b7280]" />
                         {session.pinned ? "Unpin" : "Pin"}
@@ -304,12 +304,12 @@ export default function MobileSessionsPage({
                           setEditingTitle(session.title);
                           setActiveMenuSessionId(null);
                         }}
-                        className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] active:bg-[#f3f4f6]"
+                        className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
                       >
                         <Edit3 size={13} className="shrink-0 text-[#6b7280]" />
                         Rename
                       </button>
-                      <div className="my-1 border-t border-[#e2e8f0]" />
+                      <div className="my-1 border-t border-[#dfe6f4]" />
                       <button
                         type="button"
                         onClick={(e) => {
@@ -317,7 +317,7 @@ export default function MobileSessionsPage({
                           onDeleteSession(session.sessionId, e);
                           setActiveMenuSessionId(null);
                         }}
-                        className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#cf222e] active:bg-[#ffebe9]"
+                        className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#cf222e] transition-colors hover:bg-[#ffebe9] active:bg-[#ffd5d6]"
                       >
                         <Trash2 size={13} className="shrink-0 text-[#cf222e]" />
                         Delete

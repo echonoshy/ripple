@@ -307,18 +307,18 @@ export default function WorkspaceNav({
                           activeMenuSessionId === session.sessionId ? null : session.sessionId
                         );
                       }}
-                      className={`h-6 w-6 shrink-0 items-center justify-center rounded border transition-colors ${
+                      className={`h-6 w-6 shrink-0 items-center justify-center rounded-lg border transition-all ${
                         activeMenuSessionId === session.sessionId
-                          ? "z-50 flex border-[#e5e7eb] bg-white text-[#0d0d0d]"
-                          : "hidden border-transparent text-[#8b8f94] group-hover:flex hover:border-[#e5e7eb] hover:bg-white hover:text-[#0d0d0d]"
+                          ? "z-50 flex border-[#dfe6f4] bg-white text-[#0d0d0d] shadow-[0_2px_8px_rgba(0,0,0,0.04)]"
+                          : "hidden border-transparent text-[#8b8f94] group-hover:flex hover:border-[#dfe6f4] hover:bg-white hover:text-[#0d0d0d] active:scale-[0.92]"
                       }`}
                       title="Session options"
                     >
-                      <MoreHorizontal size={13} />
+                      <MoreHorizontal size={14} />
                     </button>
 
                     {activeMenuSessionId === session.sessionId && (
-                      <div className="absolute top-9 right-2 z-50 w-36 rounded-lg border border-[#e5e7eb]/80 bg-white/95 py-1 shadow-[0_10px_30px_-6px_rgba(0,0,0,0.06),0_4px_12px_-2px_rgba(0,0,0,0.03)] ring-1 ring-black/5 backdrop-blur-md">
+                      <div className="animate-in fade-in-50 zoom-in-95 absolute top-9 right-2 z-50 w-36 rounded-2xl border border-[#dfe6f4] bg-white p-1.5 shadow-[0_12px_36px_-4px_rgba(0,0,0,0.12),0_4px_16px_-2px_rgba(0,0,0,0.06)] duration-100">
                         <button
                           type="button"
                           onClick={(e) => {
@@ -326,9 +326,9 @@ export default function WorkspaceNav({
                             void onUpdateSession(session.sessionId, { pinned: !session.pinned });
                             setActiveMenuSessionId(null);
                           }}
-                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs font-medium text-[#374151] hover:bg-[#f3f4f6] hover:text-[#0d0d0d]"
+                          className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
                         >
-                          <Pin size={12} className="shrink-0 text-[#6b7280]" />
+                          <Pin size={13} className="shrink-0 text-[#6b7280]" />
                           {session.pinned ? "Unpin" : "Pin"}
                         </button>
                         <button
@@ -339,12 +339,12 @@ export default function WorkspaceNav({
                             setEditingTitle(session.title);
                             setActiveMenuSessionId(null);
                           }}
-                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs font-medium text-[#374151] hover:bg-[#f3f4f6] hover:text-[#0d0d0d]"
+                          className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
                         >
-                          <Edit3 size={12} className="shrink-0 text-[#6b7280]" />
+                          <Edit3 size={13} className="shrink-0 text-[#6b7280]" />
                           Rename
                         </button>
-                        <div className="my-1 border-t border-[#e5e7eb]" />
+                        <div className="my-1 border-t border-[#dfe6f4]" />
                         <button
                           type="button"
                           onClick={(e) => {
@@ -352,9 +352,9 @@ export default function WorkspaceNav({
                             onDeleteSession(session.sessionId, e);
                             setActiveMenuSessionId(null);
                           }}
-                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs font-medium text-[#cf222e] hover:bg-[#ffebe9]"
+                          className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#cf222e] transition-colors hover:bg-[#ffebe9] active:bg-[#ffd5d6]"
                         >
-                          <Trash2 size={12} className="shrink-0 text-[#cf222e]" />
+                          <Trash2 size={13} className="shrink-0 text-[#cf222e]" />
                           Delete
                         </button>
                       </div>
@@ -370,10 +370,10 @@ export default function WorkspaceNav({
       <div className="relative border-t border-[#e5e7eb] px-4 py-3">
         {isUserMenuOpen && (
           <div
-            className="absolute bottom-14 left-3 z-50 w-64 rounded-xl border border-[#e5e7eb]/80 bg-white/95 p-3.5 shadow-[0_12px_36px_-6px_rgba(0,0,0,0.1),0_4px_16px_rgba(0,0,0,0.04)] backdrop-blur-md"
+            className="animate-in fade-in-50 zoom-in-95 absolute bottom-14 left-3 z-50 w-64 rounded-2xl border border-[#dfe6f4] bg-white/95 p-3.5 shadow-[0_12px_36px_-4px_rgba(0,0,0,0.12),0_4px_16px_-2px_rgba(0,0,0,0.06)] duration-100 backdrop-blur-md"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="mb-3 flex items-center gap-2 border-b border-[#e5e7eb]/60 pb-2">
+            <div className="mb-3 flex items-center gap-2 border-b border-[#dfe6f4]/60 pb-2">
               <span className="relative flex h-1.5 w-1.5">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
                 <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
@@ -490,7 +490,7 @@ export default function WorkspaceNav({
               </div>
             </div>
 
-            <div className="mt-2 border-t border-[#e5e7eb] pt-2">
+            <div className="mt-2 border-t border-[#dfe6f4] pt-2">
               <button
                 type="button"
                 onClick={() => {
@@ -498,7 +498,7 @@ export default function WorkspaceNav({
                   setNewUserDraft(userId);
                   setIsUserMenuOpen(false);
                 }}
-                className="flex w-full items-center justify-center gap-1 rounded bg-[#f3f4f6] px-2 py-1 text-xs font-semibold text-[#374151] transition-colors hover:bg-[#e5e7eb]"
+                className="flex w-full items-center justify-center gap-1 rounded-xl bg-[#f3f4f6] px-2 py-2 text-xs font-semibold text-[#374151] transition-all hover:bg-[#e5e7eb] active:bg-[#eef3ff]"
               >
                 Switch User
               </button>

@@ -23,7 +23,7 @@ import {
   Trash2,
   FilePlus,
   FolderPlus,
-  MoreVertical,
+  MoreHorizontal,
 } from "lucide-react";
 import {
   downloadWorkspaceFile,
@@ -1111,7 +1111,7 @@ export default function WorkspaceExplorer({
                         onClick={(event) => onMoreButtonClick(event, entry)}
                         className="mr-2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-transparent text-[#6b7280] opacity-100 transition-opacity hover:border-[#dde2ea] hover:bg-white hover:text-[#0d0d0d] focus:opacity-100 sm:h-7 sm:w-7 sm:opacity-0 sm:group-hover:opacity-100"
                       >
-                        <MoreVertical size={14} />
+                        <MoreHorizontal size={14} />
                       </button>
                     </div>
                   )
@@ -1273,7 +1273,7 @@ export default function WorkspaceExplorer({
       {contextMenu.visible && (
         <div
           style={{ top: contextMenu.y, left: contextMenu.x }}
-          className="fixed z-50 min-w-[160px] rounded-lg border border-[#e5e7eb] bg-white p-1.5 text-xs text-[#374151] shadow-[0_4px_16px_rgba(0,0,0,0.08)]"
+          className="fixed z-50 min-w-[160px] rounded-2xl border border-[#dfe6f4] bg-white p-1.5 text-xs text-[#374151] shadow-[0_12px_36px_-4px_rgba(0,0,0,0.12),0_4px_16px_-2px_rgba(0,0,0,0.06)] animate-in fade-in-50 zoom-in-95 duration-100"
           onClick={(e) => e.stopPropagation()}
           onContextMenu={(e) => e.preventDefault()}
         >
@@ -1285,32 +1285,32 @@ export default function WorkspaceExplorer({
                   if (contextMenu.entry) startRename(contextMenu.entry);
                   setContextMenu((prev) => ({ ...prev, visible: false }));
                 }}
-                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left hover:bg-[#f3f4f6]"
+                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
               >
-                <Edit3 size={13} /> Rename
+                <Edit3 size={13} className="shrink-0 text-[#6b7280]" /> Rename
               </button>
               <button
                 type="button"
                 onClick={() => contextMenu.entry && handleCut(contextMenu.entry)}
-                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left hover:bg-[#f3f4f6]"
+                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
               >
-                <Scissors size={13} /> Cut (Move)
+                <Scissors size={13} className="shrink-0 text-[#6b7280]" /> Cut (Move)
               </button>
               <button
                 type="button"
                 onClick={() => contextMenu.entry && handleCopy(contextMenu.entry)}
-                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left hover:bg-[#f3f4f6]"
+                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
               >
-                <Copy size={13} /> Copy
+                <Copy size={13} className="shrink-0 text-[#6b7280]" /> Copy
               </button>
               <button
                 type="button"
                 onClick={() =>
                   contextMenu.entry && handleCopyAbsoluteSandboxPath(contextMenu.entry)
                 }
-                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left font-[family-name:var(--font-mono)] hover:bg-[#f3f4f6]"
+                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] font-[family-name:var(--font-mono)] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
               >
-                <FileText size={13} /> Copy Sandbox Path
+                <FileText size={13} className="shrink-0 text-[#6b7280]" /> Copy Sandbox Path
               </button>
               {contextMenu.entry.kind === "file" && (
                 <button
@@ -1319,18 +1319,18 @@ export default function WorkspaceExplorer({
                     if (contextMenu.entry) void handleDownloadFile(contextMenu.entry.path);
                     setContextMenu((prev) => ({ ...prev, visible: false }));
                   }}
-                  className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left hover:bg-[#f3f4f6]"
+                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
                 >
-                  <Download size={13} /> Download
+                  <Download size={13} className="shrink-0 text-[#6b7280]" /> Download
                 </button>
               )}
-              <hr className="my-1 border-[#f3f4f6]" />
+              <div className="my-1 border-t border-[#dfe6f4]" />
               <button
                 type="button"
                 onClick={() => contextMenu.entry && void handleDelete(contextMenu.entry)}
-                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-[#cf222e] hover:bg-[#ffeef0]"
+                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#cf222e] transition-colors hover:bg-[#ffebe9] active:bg-[#ffd5d6]"
               >
-                <Trash2 size={13} /> Delete
+                <Trash2 size={13} className="shrink-0 text-[#cf222e]" /> Delete
               </button>
             </>
           ) : (
@@ -1339,20 +1339,20 @@ export default function WorkspaceExplorer({
                 type="button"
                 disabled={!clipboard}
                 onClick={handlePaste}
-                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left hover:bg-[#f3f4f6] disabled:cursor-not-allowed disabled:opacity-40"
+                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff] disabled:cursor-not-allowed disabled:opacity-40"
               >
-                <Clipboard size={13} /> Paste {clipboard ? `(${clipboard.name})` : ""}
+                <Clipboard size={13} className="shrink-0 text-[#6b7280]" /> Paste {clipboard ? `(${clipboard.name})` : ""}
               </button>
-              <hr className="my-1 border-[#f3f4f6]" />
+              <div className="my-1 border-t border-[#dfe6f4]" />
               <button
                 type="button"
                 onClick={() => {
                   setCreationModal({ visible: true, kind: "file" });
                   setContextMenu((prev) => ({ ...prev, visible: false }));
                 }}
-                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left hover:bg-[#f3f4f6]"
+                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
               >
-                <FilePlus size={13} /> New File
+                <FilePlus size={13} className="shrink-0 text-[#6b7280]" /> New File
               </button>
               <button
                 type="button"
@@ -1360,9 +1360,9 @@ export default function WorkspaceExplorer({
                   setCreationModal({ visible: true, kind: "directory" });
                   setContextMenu((prev) => ({ ...prev, visible: false }));
                 }}
-                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left hover:bg-[#f3f4f6]"
+                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
               >
-                <FolderPlus size={13} /> New Folder
+                <FolderPlus size={13} className="shrink-0 text-[#6b7280]" /> New Folder
               </button>
             </>
           )}

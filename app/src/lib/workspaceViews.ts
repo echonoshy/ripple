@@ -10,10 +10,10 @@ export interface WorkspaceNavItem {
 }
 
 export const mainNavItems: WorkspaceNavItem[] = [
-  { id: "sessions", label: "Session", icon: MessageCircle },
+  { id: "sessions", label: "Sessions", icon: MessageCircle },
   { id: "files", label: "Files", icon: FileText },
-  { id: "connectors", label: "Connector", icon: Plug },
-  { id: "automations", label: "Scheduler", icon: CalendarClock },
+  { id: "connectors", label: "Connectors", icon: Plug },
+  { id: "automations", label: "Automations", icon: CalendarClock },
   { id: "home", label: "Settings", icon: Settings },
 ];
 

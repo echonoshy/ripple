@@ -51,6 +51,7 @@ export function mapSessionSummariesToWorkbenchSessions(
     return {
       sessionId: session.sessionId,
       title: session.title?.trim() || `Session ${session.sessionId}`,
+      pinned: session.pinned,
       status,
       attention: sessionAttentionFromStatus(status, session.pendingApprovalCount) || undefined,
       model: session.model,
@@ -66,6 +67,7 @@ export function sortWorkbenchSessions(
   sessions: WorkbenchSessionSummary[]
 ): WorkbenchSessionSummary[] {
   return [...sessions].sort((a, b) => {
+    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
     return activityTimeValue(b.lastActivityAt) - activityTimeValue(a.lastActivityAt);
   });
 }

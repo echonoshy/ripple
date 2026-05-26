@@ -172,6 +172,7 @@ export default function Home() {
     deleteSessionById,
     stopCurrentSession,
     stopSessionById,
+    updateSessionById,
     clearCurrentSessionContext,
     compactCurrentSessionContext,
   } = useSessionLifecycle({
@@ -256,7 +257,7 @@ export default function Home() {
         }
       } catch (err) {
         if (err instanceof AuthError) {
-          handleAuthExpired("API Key 无效，请重新输入");
+          handleAuthExpired("API key 无效，请重新输入");
         }
       }
     })();
@@ -287,6 +288,14 @@ export default function Home() {
     setActiveView("sessions");
     setMobileSessionMode("chat");
   };
+
+  const handleUpdateSessionSettings = useCallback(
+    async (updates: { title?: string; pinned?: boolean }) => {
+      if (!sessionId) return null;
+      return updateSessionById(sessionId, updates);
+    },
+    [sessionId, updateSessionById]
+  );
 
   // ── Delete session ──
   const handleDeleteSession = async (targetSessionId: string, e: React.MouseEvent) => {
@@ -323,9 +332,6 @@ export default function Home() {
     },
     [acknowledgeSessionCompletion, sessionId]
   );
-  const handleOpenMobileSettings = useCallback(() => {
-    handleSelectView("home");
-  }, [handleSelectView]);
   const handleOpenMobileSessionList = useCallback(() => {
     handleSelectView("sessions");
   }, [handleSelectView]);
@@ -365,6 +371,7 @@ export default function Home() {
         ? {
             sessionId,
             title: "Current Codex session",
+            pinned: false,
             status: selectedSessionRuntimeStatus || ("idle" as const),
             model: selectedModel,
             lastActivityAt: new Date().toISOString(),
@@ -392,6 +399,7 @@ export default function Home() {
         .map((activeSessionId) => ({
           sessionId: activeSessionId,
           title: "Running Codex session",
+          pinned: false,
           status: "running" as const,
           model: selectedModel,
           lastActivityAt: new Date().toISOString(),
@@ -473,6 +481,8 @@ export default function Home() {
             isModelDropdownOpen={openModelDropdown === "composer"}
             sessionId={sessionId}
             sessionIdCopied={sessionIdCopied}
+            onNewSession={handleNewSession}
+            onUpdateSessionSettings={handleUpdateSessionSettings}
             onInputChange={setInput}
             onClearContext={handleClearContext}
             onCompactContext={handleCompactContext}
@@ -493,7 +503,6 @@ export default function Home() {
             onFeishuAuthOpen={handleFeishuAuthOpen}
             feishuAuthWaiting={feishuAuthWaiting}
             onBackToMobileSessions={handleOpenMobileSessionList}
-            onOpenMobileSettings={handleOpenMobileSettings}
           />
         </div>
       </div>
@@ -522,7 +531,7 @@ export default function Home() {
                   Enter your API key to continue
                 </p>
                 <p className="mt-1 text-center font-[family-name:var(--font-cjk)] text-sm text-[#687280]">
-                  请输入 API Key 以访问服务
+                  请输入 API key 以访问服务
                 </p>
               </div>
               {authErrorMsg && (

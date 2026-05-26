@@ -14,13 +14,13 @@ function renderConnectorsPage() {
 function testConnectorsPageHasMobileSpecificCopy() {
   const html = renderConnectorsPage();
 
-  assert.match(html, /sm:hidden[^>]*>Apps</);
+  assert.match(html, /sm:hidden[^>]*>Connectors</);
   assert.match(html, /hidden sm:inline[^>]*>Connectors</);
   assert.match(html, /sm:hidden[^>]*>0\/0 ready</);
   assert.match(html, /hidden sm:inline[^>]*>0\/0 connected</);
-  assert.match(html, /sm:hidden[^>]*>Sync</);
+  assert.match(html, /sm:hidden[^>]*>Refresh</);
   assert.match(html, /hidden sm:inline[^>]*>Refresh</);
-  assert.match(html, /sm:hidden[^>]*>No apps yet</);
+  assert.match(html, /sm:hidden[^>]*>No connectors</);
   assert.match(html, /hidden sm:inline[^>]*>No connectors</);
   assert.match(html, /aria-label="Back to settings"/);
   assert.match(html, /lg:hidden/);

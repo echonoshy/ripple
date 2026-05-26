@@ -6,6 +6,9 @@ import SessionPage from "./SessionPage";
 import type { UsageInfo } from "@/types";
 
 function noop() {}
+async function noopAsync() {
+  return {};
+}
 
 function renderSessionPage({
   tokenUsage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
@@ -32,6 +35,8 @@ function renderSessionPage({
       isModelDropdownOpen={false}
       sessionId="srv-test"
       sessionIdCopied={false}
+      onNewSession={noop}
+      onUpdateSessionSettings={noopAsync}
       onInputChange={noop}
       onClearContext={noop}
       onCompactContext={noop}
@@ -74,6 +79,8 @@ function renderSessionPageWithTimelineContent() {
       isModelDropdownOpen={false}
       sessionId="srv-test"
       sessionIdCopied={false}
+      onNewSession={noop}
+      onUpdateSessionSettings={noopAsync}
       onInputChange={noop}
       onClearContext={noop}
       onCompactContext={noop}
@@ -94,9 +101,11 @@ function testOmitsPlaceholderSessionHeaderControls() {
   const html = renderSessionPage();
 
   assert.match(html, /title="Copy session ID: srv-test"/);
-  assert.match(html, /absolute top-3 right-4 z-30 hidden sm:block/);
+  assert.match(html, /absolute top-3 right-4 z-30 hidden items-center gap-1\.5 sm:flex/);
   assert.match(html, /aria-label="Back to sessions"/);
+  assert.match(html, /aria-label="New session"/);
   assert.match(html, /aria-label="Session options"/);
+  assert.match(html, /aria-label="Session settings"/);
   assert.doesNotMatch(html, />New Codex task</);
   assert.doesNotMatch(html, /border-b border-\[#e5e7eb\] bg-white px-4 py-3 md:px-5/);
   assert.doesNotMatch(html, />Idle</);

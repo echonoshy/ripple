@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { AlertTriangle, Loader2, MessageCircle, Plus, Search, SquarePen } from "lucide-react";
+import { AlertTriangle, Loader2, MessageCircle, Pin, Plus, Search, SquarePen } from "lucide-react";
 import { formatSessionActivityTime } from "@/lib/workbench";
 import type { WorkbenchSessionSummary } from "@/types";
 import SessionAttentionDot from "./SessionAttentionDot";
@@ -29,9 +29,17 @@ function sessionInitial(title: string): string {
 }
 
 function sessionPreview(session: WorkbenchSessionSummary): string {
-  const parts = [`${session.messageCount} messages`];
-  if (session.changedFileCount > 0) parts.push(`${session.changedFileCount} files`);
-  if (session.pendingApprovalCount > 0) parts.push(`${session.pendingApprovalCount} approvals`);
+  const parts = [`${session.messageCount} ${session.messageCount === 1 ? "message" : "messages"}`];
+  if (session.changedFileCount > 0) {
+    parts.push(`${session.changedFileCount} ${session.changedFileCount === 1 ? "file" : "files"}`);
+  }
+  if (session.pendingApprovalCount > 0) {
+    parts.push(
+      `${session.pendingApprovalCount} ${
+        session.pendingApprovalCount === 1 ? "approval" : "approvals"
+      }`
+    );
+  }
   parts.push(session.status || "idle");
   return parts.join(" · ");
 }
@@ -68,7 +76,7 @@ export default function MobileSessionsPage({
           >
             <Search size={21} strokeWidth={2.45} />
           </button>
-          <h1 className="text-[18px] leading-none font-semibold tracking-normal">Session</h1>
+          <h1 className="text-[18px] leading-none font-semibold tracking-normal">Sessions</h1>
           <button
             type="button"
             aria-label="New session"
@@ -157,6 +165,9 @@ export default function MobileSessionsPage({
                       <span className="truncate text-[14px] leading-5 font-semibold text-[#111827]">
                         {session.title}
                       </span>
+                      {session.pinned ? (
+                        <Pin size={12} className="shrink-0 text-[#7a8496]" />
+                      ) : null}
                       <SessionAttentionDot attention={session.attention} reserveSpace />
                     </span>
                     <span className="mt-0.5 block truncate text-[11px] leading-4 text-[#7a8496]">

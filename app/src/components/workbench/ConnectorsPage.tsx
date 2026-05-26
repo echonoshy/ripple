@@ -180,7 +180,7 @@ export default function ConnectorsPage({
             ) : null}
             <div className="min-w-0">
               <h1 className="text-[22px] leading-tight font-semibold tracking-normal">
-                <span className="sm:hidden">Apps</span>
+                <span className="sm:hidden">Connectors</span>
                 <span className="hidden sm:inline">Connectors</span>
               </h1>
               <div className="mt-1.5 text-[12px] text-[#7a8496]">
@@ -199,7 +199,7 @@ export default function ConnectorsPage({
             className="inline-flex h-9 items-center gap-2 rounded-full border border-[#dfe6f4] bg-white/78 px-3 text-[13px] font-medium text-[#384152] shadow-[0_10px_24px_rgba(44,63,123,0.06)] hover:bg-white"
           >
             {isLoading ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
-            <span className="sm:hidden">Sync</span>
+            <span className="sm:hidden">Refresh</span>
             <span className="hidden sm:inline">Refresh</span>
           </button>
         </header>
@@ -299,7 +299,7 @@ export default function ConnectorsPage({
 
         {connectors.length === 0 && !isLoading && (
           <div className="flex h-40 items-center justify-center rounded-2xl border border-dashed border-[#dfe6f4] bg-white/52 text-[13px] text-[#667085]">
-            <span className="sm:hidden">No apps yet</span>
+            <span className="sm:hidden">No connectors</span>
             <span className="hidden sm:inline">No connectors</span>
           </div>
         )}

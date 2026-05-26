@@ -9,6 +9,8 @@ import {
   fetchSessionDetails,
   fetchSessions,
   stopSession,
+  updateSession,
+  type SessionUpdateInput,
 } from "@/lib/api";
 import { readableApiErrorMessage } from "@/lib/apiErrors";
 import {
@@ -45,7 +47,7 @@ export function useSessionLifecycle({
   const [sessionLoadError, setSessionLoadError] = useState<string | null>(null);
 
   const handleAuthExpired = useCallback(
-    (message = "API Key 已失效") => {
+    (message = "API key 已失效") => {
       clearStoredCurrentSessionId();
       onAuthExpired(message);
     },
@@ -190,6 +192,31 @@ export function useSessionLifecycle({
     return stopSession(targetSessionId);
   }, []);
 
+  const updateSessionById = useCallback(
+    async (
+      targetSessionId: string,
+      input: SessionUpdateInput
+    ): Promise<SessionSummary | null> => {
+      try {
+        const updatedSession = await updateSession(targetSessionId, input);
+        setSessionSummaries((prev) => {
+          const found = prev.some((session) => session.sessionId === updatedSession.sessionId);
+          if (!found) return [updatedSession, ...prev];
+          return prev.map((session) =>
+            session.sessionId === updatedSession.sessionId ? updatedSession : session
+          );
+        });
+        return updatedSession;
+      } catch (err) {
+        if (err instanceof AuthError) {
+          handleAuthExpired();
+        }
+        return null;
+      }
+    },
+    [handleAuthExpired]
+  );
+
   const clearCurrentSessionContext = useCallback(async (): Promise<boolean> => {
     if (!sessionId) return true;
     try {
@@ -229,6 +256,7 @@ export function useSessionLifecycle({
     deleteSessionById,
     stopCurrentSession,
     stopSessionById,
+    updateSessionById,
     clearCurrentSessionContext,
     compactCurrentSessionContext,
   };

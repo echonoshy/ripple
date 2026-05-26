@@ -19,6 +19,7 @@ function makeSession(overrides: Partial<SessionSummary>): SessionSummary {
   return {
     sessionId: "session-default",
     title: "",
+    pinned: false,
     model: "codex-medium",
     createdAt: "2026-05-15T01:00:00.000Z",
     lastActiveAt: "2026-05-15T01:00:00.000Z",
@@ -191,6 +192,7 @@ function testMergesMissingRunningSessionIntoSidebarSessions() {
     {
       sessionId: "srv-running",
       title: "Running Codex session",
+      pinned: false,
       status: "running",
       model: "codex-medium",
       lastActivityAt: "2026-05-15T02:00:00.000Z",

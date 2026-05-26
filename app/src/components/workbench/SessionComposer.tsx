@@ -66,6 +66,10 @@ export default function SessionComposer({
   const inputDisabled = isGenerating;
   const sendDisabled = isGenerating || isBlocked;
   const isQuickActionsOpen = quickActionsState !== null;
+  const availableModels = useMemo(
+    () => (models.length > 0 ? models : [{ id: selectedModel, owned_by: "ripple" }]),
+    [models, selectedModel]
+  );
   const quickActionMatches = useMemo(
     () => getQuickActionMatches(quickActionsState?.query ?? ""),
     [quickActionsState?.query]
@@ -222,6 +226,43 @@ export default function SessionComposer({
           disabled={inputDisabled}
         />
         <div className="flex items-end gap-1.5 sm:block">
+          <div className="relative shrink-0 sm:hidden">
+            <button
+              type="button"
+              aria-label="Select model"
+              title={`Model: ${selectedModel}`}
+              onClick={onToggleModelDropdown}
+              className="inline-flex h-9 max-w-[118px] items-center gap-1 rounded-full px-1.5 font-[family-name:var(--font-mono)] text-[11px] font-medium text-[#172033] active:bg-[#eef3ff]"
+            >
+              <span className="truncate">{selectedModel}</span>
+              <ChevronDown
+                size={12}
+                className={`shrink-0 text-[#6b7280] transition-transform ${
+                  isModelDropdownOpen ? "rotate-180" : ""
+                }`}
+              />
+            </button>
+            {isModelDropdownOpen && (
+              <div className="absolute bottom-full left-0 z-30 mb-2 w-48 overflow-hidden rounded-xl border border-[#dfe6f4] bg-white shadow-[0_14px_34px_rgba(44,63,123,0.14)]">
+                <div className="p-1">
+                  {availableModels.map((model) => (
+                    <button
+                      key={model.id}
+                      type="button"
+                      onClick={() => onSelectModel(model.id)}
+                      className={`flex w-full items-center rounded px-3 py-2 text-left font-[family-name:var(--font-mono)] text-xs hover:bg-[#f7f8fa] ${
+                        selectedModel === model.id
+                          ? "bg-[#eef3ff] text-[#2457e6]"
+                          : "text-[#111827]"
+                      }`}
+                    >
+                      {model.id}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
           <button
             type="button"
             aria-label="Attach files"
@@ -355,7 +396,7 @@ export default function SessionComposer({
               {isModelDropdownOpen && (
                 <div className="absolute right-0 bottom-full z-30 mb-2 w-48 overflow-hidden rounded-xl border border-[#dfe6f4] bg-white shadow-[0_14px_34px_rgba(44,63,123,0.14)]">
                   <div className="p-1">
-                    {models.map((model) => (
+                    {availableModels.map((model) => (
                       <button
                         key={model.id}
                         type="button"

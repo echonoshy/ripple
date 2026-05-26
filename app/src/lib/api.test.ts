@@ -20,6 +20,7 @@ import {
   sendChatMessage,
   stopSession,
   updateSchedule,
+  updateSession,
 } from "./api";
 
 function response(status: number, detail: string): Response {
@@ -89,6 +90,7 @@ async function testSessionIdIsEncodedInPath() {
     },
     async () => {
       await fetchSessionDetails(sessionId);
+      await updateSession(sessionId, { title: "Renamed", pinned: true });
       await deleteSession(sessionId);
       await stopSession(sessionId);
       await cancelSessionConnectorAuth(sessionId);
@@ -98,6 +100,7 @@ async function testSessionIdIsEncodedInPath() {
   );
 
   assert.deepEqual(urls, [
+    "http://140.143.229.103:8810/v1/sessions/session%2Fwith%20space",
     "http://140.143.229.103:8810/v1/sessions/session%2Fwith%20space",
     "http://140.143.229.103:8810/v1/sessions/session%2Fwith%20space",
     "http://140.143.229.103:8810/v1/sessions/session%2Fwith%20space/stop",
@@ -206,6 +209,7 @@ async function testFetchSessionsNormalizesBackendShape() {
             {
               session_id: "srv-normalized",
               title: "Normalized session",
+              pinned: true,
               model: "codex-medium",
               created_at: "2026-05-18T00:00:00.000Z",
               last_active: "2026-05-19T00:00:00.000Z",
@@ -223,6 +227,7 @@ async function testFetchSessionsNormalizesBackendShape() {
         {
           sessionId: "srv-normalized",
           title: "Normalized session",
+          pinned: true,
           model: "codex-medium",
           createdAt: "2026-05-18T00:00:00.000Z",
           lastActiveAt: "2026-05-19T00:00:00.000Z",
@@ -243,6 +248,7 @@ async function testCreateSessionNormalizesBackendShape() {
         JSON.stringify({
           session_id: "srv-created",
           title: "",
+          pinned: false,
           model: "codex-medium",
           created_at: "2026-05-19T00:00:00.000Z",
           last_active: "2026-05-19T00:00:00.000Z",
@@ -266,6 +272,7 @@ async function testFetchSessionDetailsNormalizesBackendShape() {
         JSON.stringify({
           session_id: "srv-detail",
           title: "Detail session",
+          pinned: false,
           model: "codex-high",
           created_at: "2026-05-18T00:00:00.000Z",
           last_active: "2026-05-19T00:00:00.000Z",
@@ -286,6 +293,7 @@ async function testFetchSessionDetailsNormalizesBackendShape() {
       assert.deepEqual(await fetchSessionDetails("srv-detail"), {
         sessionId: "srv-detail",
         title: "Detail session",
+        pinned: false,
         model: "codex-high",
         createdAt: "2026-05-18T00:00:00.000Z",
         lastActiveAt: "2026-05-19T00:00:00.000Z",

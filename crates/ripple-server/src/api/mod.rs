@@ -42,7 +42,9 @@ pub fn router(state: AppState) -> Router {
         )
         .route(
             "/sessions/:session_id",
-            get(sessions::get_session).delete(sessions::delete_session),
+            get(sessions::get_session)
+                .patch(sessions::update_session)
+                .delete(sessions::delete_session),
         )
         .route("/sessions/:session_id/stop", post(sessions::stop_session))
         .route(

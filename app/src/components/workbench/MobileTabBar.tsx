@@ -9,10 +9,10 @@ interface MobileTabBarProps {
 }
 
 const mobileNavLabels: Record<WorkspaceView, string> = {
-  sessions: "Session",
+  sessions: "Sessions",
   files: "Files",
-  connectors: "Connector",
-  automations: "Scheduler",
+  connectors: "Connectors",
+  automations: "Automations",
   home: "Settings",
 };
 

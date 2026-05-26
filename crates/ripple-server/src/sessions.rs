@@ -29,6 +29,8 @@ pub struct SessionRecord {
     pub session_id: String,
     pub user_id: String,
     pub title: String,
+    #[serde(default)]
+    pub pinned: bool,
     pub model: String,
     pub max_turns: u32,
     #[serde(default)]
@@ -58,6 +60,7 @@ pub struct SessionRecord {
 pub struct SessionInfo {
     pub session_id: String,
     pub title: String,
+    pub pinned: bool,
     pub model: String,
     pub created_at: String,
     pub last_active: String,
@@ -135,6 +138,7 @@ impl SessionManager {
             session_id: session_id.clone(),
             user_id: user_id.to_string(),
             title: String::new(),
+            pinned: false,
             model: input
                 .model
                 .unwrap_or_else(|| self.config.default_model.clone()),
@@ -241,6 +245,40 @@ impl SessionManager {
     pub async fn save_record(&self, record: SessionRecord) -> anyhow::Result<()> {
         self.save_record_inner(record, false).await?;
         Ok(())
+    }
+
+    pub async fn update_session_metadata(
+        &self,
+        user_id: &str,
+        session_id: &str,
+        title: Option<String>,
+        pinned: Option<bool>,
+    ) -> anyhow::Result<Option<SessionInfo>> {
+        let key = (user_id.to_string(), session_id.to_string());
+        if self.deleted.read().await.contains(&key) {
+            self.active.write().await.remove(&key);
+            return Ok(None);
+        }
+
+        let record = if let Some(record) = self.active.read().await.get(&key).cloned() {
+            Some(record)
+        } else {
+            self.load(user_id, session_id).await?
+        };
+        let Some(mut record) = record else {
+            return Ok(None);
+        };
+
+        if let Some(title) = title {
+            record.title = title;
+        }
+        if let Some(pinned) = pinned {
+            record.pinned = pinned;
+        }
+
+        self.persist(&record).await?;
+        self.active.write().await.insert(key, record.clone());
+        Ok(Some(self.info_from_record(&record)?))
     }
 
     async fn save_record_inner(
@@ -571,6 +609,7 @@ impl SessionManager {
             } else {
                 record.title.clone()
             },
+            pinned: record.pinned,
             model: record.model.clone(),
             created_at: record.created_at.clone(),
             last_active: record.last_active.clone(),

@@ -97,7 +97,7 @@ export default function SettingsModal({
           >
             <div className="pointer-events-auto flex max-h-[calc(100dvh-24px)] w-full max-w-lg flex-col overflow-hidden rounded-lg border border-[#d0d7de] bg-white shadow-xl">
               <div className="flex items-center justify-between border-b border-[#d0d7de] bg-[#f6f8fa] px-4 py-3">
-                <h2 className="text-sm font-semibold text-[#24292f]">Preferences</h2>
+                <h2 className="text-sm font-semibold text-[#24292f]">Settings</h2>
                 <button
                   type="button"
                   onClick={onClose}
@@ -139,7 +139,7 @@ export default function SettingsModal({
                         <UserRound size={17} />
                       </span>
                       <div className="min-w-0">
-                        <div className="text-sm font-semibold text-[#24292f]">User</div>
+                        <div className="text-sm font-semibold text-[#24292f]">User ID</div>
                         {isEditingUserId ? (
                           <input
                             type="text"
@@ -210,7 +210,7 @@ export default function SettingsModal({
                         </div>
                       </div>
                       <div className="rounded-md border border-[#d0d7de] bg-white p-3">
-                        <div className="text-xs text-[#6e7781]">Chats</div>
+                        <div className="text-xs text-[#6e7781]">Sessions</div>
                         <div className="mt-1 font-[family-name:var(--font-mono)] text-sm font-semibold text-[#24292f]">
                           {sandbox.session_count}
                         </div>

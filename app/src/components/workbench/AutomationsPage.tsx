@@ -123,7 +123,7 @@ export default function AutomationsPage({
       setSchedules(await fetchSchedules());
     } catch (err) {
       if (err instanceof AuthError) {
-        onAuthExpired("API Key 已失效");
+        onAuthExpired("API key 已失效");
         return;
       }
       setError(err instanceof Error ? err.message : "Failed to load automations");
@@ -174,7 +174,7 @@ export default function AutomationsPage({
         await loadSchedules();
       } catch (err) {
         if (err instanceof AuthError) {
-          onAuthExpired("API Key 已失效");
+          onAuthExpired("API key 已失效");
           return;
         }
         setError(err instanceof Error ? err.message : "Failed to create automation");
@@ -213,7 +213,7 @@ export default function AutomationsPage({
         await loadSchedules();
       } catch (err) {
         if (err instanceof AuthError) {
-          onAuthExpired("API Key 已失效");
+          onAuthExpired("API key 已失效");
           return;
         }
         setError(err instanceof Error ? err.message : "Action failed");

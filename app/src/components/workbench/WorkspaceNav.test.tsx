@@ -10,6 +10,7 @@ function noop() {}
 const sessions: WorkbenchSessionSummary[] = Array.from({ length: 9 }, (_, index) => ({
   sessionId: `srv-${index + 1}`,
   title: `Session ${index + 1}`,
+  pinned: false,
   status: "idle",
   model: "codex-medium",
   lastActivityAt: `2026-05-17T00:0${Math.min(index, 9)}:00Z`,
@@ -44,9 +45,9 @@ function testRendersAllSessionsWithoutDeadViewAllButton() {
   assert.doesNotMatch(html, />Idle</);
   assert.doesNotMatch(html, /View all tasks/);
   assert.doesNotMatch(html, />Tasks</);
-  assert.match(html, />Scheduler</);
-  assert.match(html, />Session</);
-  assert.match(html, />New Session</);
+  assert.match(html, />Automations</);
+  assert.match(html, />Sessions</);
+  assert.match(html, />New session</);
 }
 
 function testUsesSessionIdSelectionNaming() {
@@ -65,7 +66,7 @@ function testSessionsHeaderDoesNotDuplicateNewSessionAction() {
 function testNewSessionStaysAvailableWhileAnotherSessionRuns() {
   const html = renderWorkspaceNav({ isGenerating: true });
 
-  assert.match(html, />New Session</);
+  assert.match(html, />New session</);
   assert.doesNotMatch(html, /disabled=""/);
 }
 

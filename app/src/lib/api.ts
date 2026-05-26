@@ -245,6 +245,7 @@ function parsePlanUpdate(data: Record<string, unknown>): PlanUpdate {
 interface RawSessionSummary {
   session_id: string;
   title: string;
+  pinned?: boolean;
   model: string;
   created_at: string;
   last_active: string;
@@ -269,6 +270,7 @@ function normalizeSessionSummary(raw: RawSessionSummary): SessionSummary {
   return {
     sessionId: raw.session_id,
     title: raw.title,
+    pinned: raw.pinned === true,
     model: raw.model,
     createdAt: raw.created_at,
     lastActiveAt: raw.last_active,
@@ -371,6 +373,28 @@ export async function createSession(): Promise<SessionSummary> {
   });
   if (res.status === 401) throw new AuthError();
   if (!res.ok) throw new Error("Failed to create session");
+  return normalizeSessionSummary((await res.json()) as RawSessionSummary);
+}
+
+export interface SessionUpdateInput {
+  title?: string;
+  pinned?: boolean;
+}
+
+export async function updateSession(
+  sessionId: string,
+  input: SessionUpdateInput
+): Promise<SessionSummary> {
+  const res = await fetch(`${API_URL}/sessions/${encodeURIComponent(sessionId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(input),
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to update session (${res.status})`);
+  }
   return normalizeSessionSummary((await res.json()) as RawSessionSummary);
 }
 

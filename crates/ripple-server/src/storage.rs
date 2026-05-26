@@ -81,6 +81,7 @@ impl Storage {
                     }
                     sqlx::query(statement).execute(&self.pool).await?;
                 }
+                ensure_schema_columns(&self.pool).await?;
                 Ok(())
             })
             .await
@@ -93,16 +94,17 @@ impl Storage {
         sqlx::query(
             r#"
             INSERT INTO sessions (
-                user_id, session_id, title, model, max_turns, caller_system_prompt,
+                user_id, session_id, title, pinned, model, max_turns, caller_system_prompt,
                 total_input_tokens, total_output_tokens, last_input_tokens,
                 created_at, last_active, status, message_count,
                 pending_question, pending_options_json, pending_permission_request_json,
                 pending_connector_auth_json, pending_schedule_request_json, codex_thread_id,
                 plan_steps_json, plan_progress_json
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(user_id, session_id) DO UPDATE SET
                 title = excluded.title,
+                pinned = excluded.pinned,
                 model = excluded.model,
                 max_turns = excluded.max_turns,
                 caller_system_prompt = excluded.caller_system_prompt,
@@ -126,6 +128,7 @@ impl Storage {
         .bind(&record.user_id)
         .bind(&record.session_id)
         .bind(&record.title)
+        .bind(i64::from(record.pinned))
         .bind(&record.model)
         .bind(i64::from(record.max_turns))
         .bind(&record.caller_system_prompt)
@@ -181,6 +184,7 @@ impl Storage {
         let Some(row) = sqlx::query(
             r#"
             SELECT user_id, session_id, title, model, max_turns, caller_system_prompt,
+                   pinned,
                    total_input_tokens, total_output_tokens, last_input_tokens,
                    created_at, last_active, status, message_count,
                    pending_question, pending_options_json, pending_permission_request_json,
@@ -205,6 +209,7 @@ impl Storage {
         let rows = sqlx::query(
             r#"
             SELECT user_id, session_id, title, model, max_turns, caller_system_prompt,
+                   pinned,
                    total_input_tokens, total_output_tokens, last_input_tokens,
                    created_at, last_active, status, message_count,
                    pending_question, pending_options_json, pending_permission_request_json,
@@ -577,6 +582,7 @@ impl Storage {
             session_id,
             user_id,
             title: row.get("title"),
+            pinned: row.get::<i64, _>("pinned") != 0,
             model: row.get("model"),
             max_turns: i64_to_u32(row.get::<i64, _>("max_turns"))?,
             caller_system_prompt: row.get("caller_system_prompt"),
@@ -735,6 +741,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     user_id TEXT NOT NULL,
     session_id TEXT NOT NULL,
     title TEXT NOT NULL,
+    pinned INTEGER NOT NULL DEFAULT 0,
     model TEXT NOT NULL,
     max_turns INTEGER NOT NULL,
     caller_system_prompt TEXT,
@@ -834,6 +841,21 @@ CREATE INDEX IF NOT EXISTS idx_file_refs_user_workspace_path
     ON file_refs(user_id, workspace_path);
 "#;
 
+async fn ensure_schema_columns(pool: &SqlitePool) -> anyhow::Result<()> {
+    let rows = sqlx::query("PRAGMA table_info(sessions)")
+        .fetch_all(pool)
+        .await?;
+    let has_pinned = rows
+        .iter()
+        .any(|row| row.get::<String, _>("name") == "pinned");
+    if !has_pinned {
+        sqlx::query("ALTER TABLE sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")
+            .execute(pool)
+            .await?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -848,6 +870,7 @@ mod tests {
             session_id: "srv-test".to_string(),
             user_id: "alice".to_string(),
             title: "hello".to_string(),
+            pinned: true,
             model: "codex-test".to_string(),
             max_turns: 200,
             caller_system_prompt: None,
@@ -876,6 +899,7 @@ mod tests {
             .expect("session");
 
         assert_eq!(loaded.messages, record.messages);
+        assert!(loaded.pinned);
         assert_eq!(loaded.total_output_tokens, 2);
 
         let _ = std::fs::remove_dir_all(root);

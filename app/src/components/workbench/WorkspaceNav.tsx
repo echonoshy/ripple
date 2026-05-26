@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { AlertTriangle, Loader2, Plus, Settings, Trash2 } from "lucide-react";
+import { AlertTriangle, Loader2, Pin, Plus, Settings, Trash2 } from "lucide-react";
 import RippleIcon from "@/components/icons/RippleIcon";
 import { formatSessionActivityTime } from "@/lib/workbench";
 import { mainNavItems, type WorkspaceView } from "@/lib/workspaceViews";
@@ -63,7 +63,7 @@ export default function WorkspaceNav({
         >
           <span className="inline-flex items-center gap-2">
             <Plus size={15} />
-            New Session
+            New session
           </span>
         </button>
       </div>
@@ -128,7 +128,12 @@ export default function WorkspaceNav({
                       onClick={() => onSelectSession(session.sessionId)}
                       className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 py-0.5 text-left text-sm font-medium"
                     >
-                      <span className="truncate">{session.title}</span>
+                      <span className="inline-flex min-w-0 items-center gap-1.5">
+                        {session.pinned ? (
+                          <Pin size={11} className="shrink-0 text-[#8b8f94]" />
+                        ) : null}
+                        <span className="truncate">{session.title}</span>
+                      </span>
                       {activityTime && (
                         <span
                           className={`font-[family-name:var(--font-mono)] text-[11px] font-normal ${
@@ -166,7 +171,7 @@ export default function WorkspaceNav({
           </span>
           <span className="min-w-0 flex-1">
             <span className="block truncate text-sm font-medium text-[#0d0d0d]">{userId}</span>
-            <span className="block truncate text-xs text-[#6b7280]">workspace user</span>
+            <span className="block truncate text-xs text-[#6b7280]">Workspace user</span>
           </span>
         </button>
       </div>

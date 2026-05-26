@@ -46,6 +46,10 @@ function connectedCount(
   return connectors.filter((connector) => statuses[connector.name]?.connected).length;
 }
 
+function countLabel(count: number, singular: string, plural = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
 export default function HomePage({
   userId,
   sessions,
@@ -111,7 +115,7 @@ export default function HomePage({
           >
             <Plus size={15} />
             <span className="sm:hidden">New</span>
-            <span className="hidden sm:inline">New Session</span>
+            <span className="hidden sm:inline">New session</span>
           </button>
         </header>
 
@@ -119,7 +123,7 @@ export default function HomePage({
           <SettingsRow
             icon={<BriefcaseBusiness size={16} />}
             title="Sessions"
-            detail={`${sessions.length} total`}
+            detail={countLabel(sessions.length, "session")}
             onClick={() => onSelectView("sessions")}
           />
           <SettingsRow
@@ -138,7 +142,7 @@ export default function HomePage({
           <SettingsRow
             icon={<CalendarClock size={16} />}
             title="Automations"
-            detail="Schedules"
+            detail="Scheduled tasks"
             onClick={() => onSelectView("automations")}
           />
         </section>
@@ -160,7 +164,7 @@ export default function HomePage({
                 <KeyRound size={16} />
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block text-[13px] font-medium">API Key</span>
+                <span className="block text-[13px] font-medium">API key</span>
                 <span className="mt-0.5 block truncate font-[family-name:var(--font-mono)] text-[11px] text-[#667085]">
                   hidden
                 </span>
@@ -193,7 +197,7 @@ export default function HomePage({
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[13px] font-medium">{session.title}</span>
                     <span className="mt-1 block text-[11px] text-[#667085]">
-                      {session.messageCount} messages
+                      {countLabel(session.messageCount, "message")}
                     </span>
                   </span>
                   <SessionAttentionDot attention={session.attention} />

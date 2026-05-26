@@ -209,6 +209,7 @@ export interface ScheduleInfo {
 export interface SessionSummary {
   sessionId: string;
   title: string;
+  pinned: boolean;
   model: string;
   createdAt: string;
   lastActiveAt: string;
@@ -293,6 +294,7 @@ export type WorkbenchSessionStatus =
 export interface WorkbenchSessionSummary {
   sessionId: string;
   title: string;
+  pinned: boolean;
   status: WorkbenchSessionStatus;
   attention?: SessionAttention;
   model: string;

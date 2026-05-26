@@ -11,10 +11,10 @@ function testMainNavItemsExposeRealWorkspaceViews() {
 
 function testViewTitlesAreHumanReadable() {
   assert.equal(viewTitle("home"), "Settings");
-  assert.equal(viewTitle("sessions"), "Session");
-  assert.equal(viewTitle("automations"), "Scheduler");
+  assert.equal(viewTitle("sessions"), "Sessions");
+  assert.equal(viewTitle("automations"), "Automations");
   assert.equal(viewTitle("files"), "Files");
-  assert.equal(viewTitle("connectors"), "Connector");
+  assert.equal(viewTitle("connectors"), "Connectors");
 }
 
 function testInspectorOnlyAppearsForSessionWorkbench() {

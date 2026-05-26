@@ -7,6 +7,7 @@ function makeSessionDetail(overrides: Partial<SessionDetail>): SessionDetail {
   return {
     sessionId: "srv-messages",
     title: "Message mapping",
+    pinned: false,
     model: "codex-medium",
     createdAt: "2026-05-19T00:00:00.000Z",
     lastActiveAt: "2026-05-19T00:00:00.000Z",

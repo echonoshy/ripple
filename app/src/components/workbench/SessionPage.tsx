@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -10,6 +10,9 @@ import {
   Copy,
   Loader2,
   MoreHorizontal,
+  Pin,
+  Plus,
+  Settings,
 } from "lucide-react";
 import type {
   Message,
@@ -42,6 +45,8 @@ interface SessionPageProps {
   isModelDropdownOpen: boolean;
   sessionId: string | null;
   sessionIdCopied: boolean;
+  onNewSession: () => void;
+  onUpdateSessionSettings: (updates: { title?: string; pinned?: boolean }) => Promise<unknown>;
   onInputChange: (value: string) => void;
   onClearContext: () => void;
   onCompactContext: () => void;
@@ -57,7 +62,6 @@ interface SessionPageProps {
   onFeishuAuthOpen?: (payload: FeishuAuthOpenPayload) => void;
   feishuAuthWaiting?: FeishuAuthWaitingState | null;
   onBackToMobileSessions?: () => void;
-  onOpenMobileSettings?: () => void;
 }
 
 export default function SessionPage({
@@ -78,6 +82,8 @@ export default function SessionPage({
   isModelDropdownOpen,
   sessionId,
   sessionIdCopied,
+  onNewSession,
+  onUpdateSessionSettings,
   onInputChange,
   onClearContext,
   onCompactContext,
@@ -93,9 +99,13 @@ export default function SessionPage({
   onFeishuAuthOpen,
   feishuAuthWaiting,
   onBackToMobileSessions,
-  onOpenMobileSettings,
 }: SessionPageProps) {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const [isSessionSettingsOpen, setIsSessionSettingsOpen] = useState(false);
+  const [settingsTitle, setSettingsTitle] = useState(session?.title || "");
+  const [settingsPinned, setSettingsPinned] = useState(Boolean(session?.pinned));
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
   const hasMessages = messages.length > 0;
   const contextWindow =
     typeof tokenUsage.model_context_window === "number" && tokenUsage.model_context_window > 0
@@ -125,9 +135,50 @@ export default function SessionPage({
     return () => window.cancelAnimationFrame(frame);
   }, [isGenerating, messages.length, planSteps.length, timelineEvents, tokenUsage.total_tokens]);
 
+  useEffect(() => {
+    if (!isSessionSettingsOpen) return;
+    setSettingsTitle(session?.title || "");
+    setSettingsPinned(Boolean(session?.pinned));
+    setSettingsError(null);
+  }, [isSessionSettingsOpen, session?.pinned, session?.sessionId, session?.title]);
+
+  const openSessionSettings = () => {
+    if (!sessionId) return;
+    setIsSessionSettingsOpen(true);
+  };
+
+  const closeSessionSettings = () => {
+    setIsSessionSettingsOpen(false);
+    setSettingsError(null);
+  };
+
+  const handleSettingsSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!sessionId || isSavingSettings) return;
+    const title = settingsTitle.trim();
+    if (!title) {
+      setSettingsError("Session name cannot be empty.");
+      return;
+    }
+    try {
+      setIsSavingSettings(true);
+      setSettingsError(null);
+      const saved = await onUpdateSessionSettings({ title, pinned: settingsPinned });
+      if (!saved) {
+        setSettingsError("Could not save session settings.");
+        return;
+      }
+      closeSessionSettings();
+    } catch (err) {
+      setSettingsError(err instanceof Error ? err.message : "Could not save session settings.");
+    } finally {
+      setIsSavingSettings(false);
+    }
+  };
+
   return (
     <div className="relative flex h-full min-h-0 flex-col bg-[radial-gradient(circle_at_18%_0%,rgba(47,107,255,0.10),transparent_32%),radial-gradient(circle_at_88%_5%,rgba(139,92,246,0.10),transparent_34%),#fbfdff]">
-      <div className="grid h-14 shrink-0 grid-cols-[44px_minmax(0,1fr)_44px] items-center border-b border-[#e8edf7] bg-white/72 px-2.5 shadow-[0_8px_22px_rgba(44,63,123,0.04)] backdrop-blur-2xl lg:hidden">
+      <div className="grid h-14 shrink-0 grid-cols-[44px_minmax(0,1fr)_88px] items-center border-b border-[#e8edf7] bg-white/72 px-2.5 shadow-[0_8px_22px_rgba(44,63,123,0.04)] backdrop-blur-2xl lg:hidden">
         <button
           type="button"
           aria-label="Back to sessions"
@@ -150,19 +201,49 @@ export default function SessionPage({
             <span className="truncate">{isGenerating ? "Codex is working" : selectedModel}</span>
           </div>
         </div>
-        <button
-          type="button"
-          aria-label="Session options"
-          title="Session options"
-          onClick={onOpenMobileSettings}
-          className="inline-flex h-10 w-10 items-center justify-center rounded-full text-[#172033] active:bg-[#eef3ff]"
-        >
-          <MoreHorizontal size={22} strokeWidth={2.4} />
-        </button>
+        <div className="flex items-center justify-end gap-1">
+          <button
+            type="button"
+            aria-label="New session"
+            title="New session"
+            onClick={onNewSession}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full text-[#172033] active:bg-[#eef3ff]"
+          >
+            <Plus size={21} strokeWidth={2.4} />
+          </button>
+          <button
+            type="button"
+            aria-label="Session options"
+            title="Session options"
+            onClick={openSessionSettings}
+            disabled={!sessionId}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full text-[#172033] active:bg-[#eef3ff] disabled:opacity-40"
+          >
+            <MoreHorizontal size={22} strokeWidth={2.4} />
+          </button>
+        </div>
       </div>
 
       {sessionId && (
-        <div className="pointer-events-none absolute top-3 right-4 z-30 hidden sm:block">
+        <div className="pointer-events-none absolute top-3 right-4 z-30 hidden items-center gap-1.5 sm:flex">
+          <button
+            type="button"
+            onClick={onNewSession}
+            title="New session"
+            aria-label="New session"
+            className="pointer-events-auto inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#e5e7eb] bg-white/95 text-[#6b7280] shadow-[0_8px_24px_rgba(23,26,31,0.08)] backdrop-blur hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
+          >
+            <Plus size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={openSessionSettings}
+            title="Session settings"
+            aria-label="Session settings"
+            className="pointer-events-auto inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#e5e7eb] bg-white/95 text-[#6b7280] shadow-[0_8px_24px_rgba(23,26,31,0.08)] backdrop-blur hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
+          >
+            <Settings size={14} />
+          </button>
           <button
             type="button"
             onClick={onCopySessionId}
@@ -176,6 +257,95 @@ export default function SessionPage({
               <Copy size={12} className="shrink-0" />
             )}
           </button>
+        </div>
+      )}
+
+      {isSessionSettingsOpen && (
+        <div className="absolute inset-0 z-40 flex justify-end bg-[#172033]/14 backdrop-blur-[1px]">
+          <button
+            type="button"
+            aria-label="Close session settings"
+            className="absolute inset-0 hidden cursor-default sm:block"
+            onClick={closeSessionSettings}
+          />
+          <section className="relative flex h-full w-full flex-col border-l border-[#dfe6f4] bg-white shadow-[-18px_0_44px_rgba(44,63,123,0.12)] sm:max-w-[380px]">
+            <div className="grid h-14 shrink-0 grid-cols-[44px_minmax(0,1fr)_44px] items-center border-b border-[#e8edf7] px-2.5">
+              <button
+                type="button"
+                aria-label="Back to session"
+                title="Back to session"
+                onClick={closeSessionSettings}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full text-[#172033] hover:bg-[#f7f8fa]"
+              >
+                <ArrowLeft size={21} strokeWidth={2.35} />
+              </button>
+              <div className="truncate text-center text-[15px] font-semibold text-[#111827]">
+                Session settings
+              </div>
+            </div>
+
+            <form onSubmit={handleSettingsSubmit} className="flex min-h-0 flex-1 flex-col">
+              <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-4">
+                <label className="block">
+                  <span className="mb-2 block text-[12px] font-medium text-[#667085]">
+                    Session name
+                  </span>
+                  <input
+                    value={settingsTitle}
+                    onChange={(event) => setSettingsTitle(event.target.value)}
+                    maxLength={120}
+                    className="h-10 w-full rounded-lg border border-[#dfe6f4] bg-white px-3 text-[14px] text-[#111827] outline-none focus:border-[#8da0ff]"
+                    autoFocus
+                  />
+                </label>
+
+                <button
+                  type="button"
+                  aria-pressed={settingsPinned}
+                  onClick={() => setSettingsPinned((pinned) => !pinned)}
+                  className={`flex h-11 w-full items-center justify-between rounded-lg border px-3 text-left text-[14px] font-medium ${
+                    settingsPinned
+                      ? "border-[#9bb5ff] bg-[#eef4ff] text-[#0b57d0]"
+                      : "border-[#dfe6f4] bg-white text-[#111827] hover:bg-[#f7f8fa]"
+                  }`}
+                >
+                  <span className="inline-flex min-w-0 items-center gap-2">
+                    <Pin size={15} className="shrink-0" />
+                    <span className="truncate">Pinned</span>
+                  </span>
+                  <span
+                    className={`h-5 w-9 rounded-full p-0.5 transition-colors ${
+                      settingsPinned ? "bg-[#2463eb]" : "bg-[#d0d7e2]"
+                    }`}
+                  >
+                    <span
+                      className={`block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+                        settingsPinned ? "translate-x-4" : "translate-x-0"
+                      }`}
+                    />
+                  </span>
+                </button>
+
+                {settingsError ? (
+                  <div className="flex items-start gap-2 rounded-lg border border-[#cf222e]/25 bg-[#ffebe9] px-3 py-2 text-[13px] font-medium text-[#cf222e]">
+                    <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                    <span className="min-w-0 break-words">{settingsError}</span>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="shrink-0 border-t border-[#e8edf7] p-3 pb-[max(env(safe-area-inset-bottom),12px)]">
+                <button
+                  type="submit"
+                  disabled={!sessionId || !settingsTitle.trim() || isSavingSettings}
+                  className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-[#2463eb] px-4 text-sm font-semibold text-white shadow-[0_10px_24px_rgba(36,99,235,0.18)] hover:bg-[#1d56d8] disabled:cursor-not-allowed disabled:bg-[#eef2f7] disabled:text-[#9aa3af] disabled:shadow-none"
+                >
+                  {isSavingSettings ? <Loader2 size={15} className="animate-spin" /> : null}
+                  Save
+                </button>
+              </div>
+            </form>
+          </section>
         </div>
       )}
 

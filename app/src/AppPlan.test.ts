@@ -3,6 +3,10 @@ import { readFileSync } from "node:fs";
 
 const appSource = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
 const chatRunSource = readFileSync(new URL("./hooks/useChatRun.ts", import.meta.url), "utf8");
+const sessionPageSource = readFileSync(
+  new URL("./components/workbench/SessionPage.tsx", import.meta.url),
+  "utf8"
+);
 const sessionLifecycleSource = readFileSync(
   new URL("./hooks/useSessionLifecycle.ts", import.meta.url),
   "utf8"
@@ -122,10 +126,13 @@ function testMobileUsesBottomTabBarForTopLevelViews() {
   assert.match(appSource, /activeView === "sessions" && mobileSessionMode === "chat" \? null/);
 }
 
-function testMobileSecondaryViewsCanReturnToSettings() {
-  assert.match(appSource, /const handleOpenMobileSettings = useCallback/);
+function testMobileSessionOptionsUseSessionSettings() {
+  assert.doesNotMatch(appSource, /handleOpenMobileSettings/);
   assert.match(appSource, /const handleOpenMobileSessionList = useCallback/);
   assert.match(appSource, /onBackToMobileSessions=\{handleOpenMobileSessionList\}/);
+  assert.match(appSource, /onUpdateSessionSettings=\{handleUpdateSessionSettings\}/);
+  assert.match(sessionPageSource, /aria-label="Back to session"/);
+  assert.match(sessionPageSource, /Session settings/);
 }
 
 testChatCompletionClearsResidualPlan();
@@ -141,6 +148,6 @@ testStopTargetsOneRunningSession();
 testChatSendIsNotBlockedByAnotherRunningSession();
 testChatRunStoresActiveRunsBySession();
 testMobileUsesBottomTabBarForTopLevelViews();
-testMobileSecondaryViewsCanReturnToSettings();
+testMobileSessionOptionsUseSessionSettings();
 
 console.log("app plan tests passed");

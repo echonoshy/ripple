@@ -241,7 +241,7 @@ export function useChatRun({
     activeRequestIdsRef.current.clear();
     runningViewStatesRef.current.clear();
     setRunningSessionIds([]);
-    onAuthExpired("API Key 已失效");
+    onAuthExpired("API key 已失效");
   }, [clearConnectorAuthPoll, onAuthExpired]);
 
   const resetSessionView = useCallback(() => {

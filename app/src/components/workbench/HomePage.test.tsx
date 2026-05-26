@@ -11,6 +11,7 @@ const sessions: WorkbenchSessionSummary[] = [
   {
     sessionId: "srv-1",
     title: "Review mobile copy",
+    pinned: false,
     status: "idle",
     model: "codex-medium",
     lastActivityAt: "2026-05-17T00:00:00Z",
@@ -41,7 +42,7 @@ function testHomeHasMobileSpecificCopy() {
   assert.match(html, />Ripple/);
   assert.match(html, />Settings/);
   assert.match(html, /sm:hidden[^>]*>New</);
-  assert.match(html, /hidden sm:inline[^>]*>New Session</);
+  assert.match(html, /hidden sm:inline[^>]*>New session</);
   assert.match(html, />Sessions/);
   assert.match(html, />Files/);
   assert.match(html, />Connectors/);

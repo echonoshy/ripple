@@ -10,6 +10,14 @@ use crate::sessions::{CreateSessionInput, SessionRecord};
 use crate::state::AppState;
 use crate::user::user_id_from_headers;
 
+const MAX_SESSION_TITLE_CHARS: usize = 120;
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateSessionInput {
+    pub title: Option<String>,
+    pub pinned: Option<bool>,
+}
+
 pub async fn list_sessions(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -69,6 +77,40 @@ pub async fn get_session(
     };
     Ok(Json(
         serde_json::to_value(session).unwrap_or_else(|_| json!({})),
+    ))
+}
+
+pub async fn update_session(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(session_id): Path<String>,
+    Json(input): Json<UpdateSessionInput>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    let title = input
+        .title
+        .map(|title| {
+            let title = title.trim().to_string();
+            if title.is_empty() {
+                return Err(ApiError::bad_request("Session name cannot be empty"));
+            }
+            if title.chars().count() > MAX_SESSION_TITLE_CHARS {
+                return Err(ApiError::bad_request("Session name is too long"));
+            }
+            Ok(title)
+        })
+        .transpose()?;
+
+    let Some(info) = state
+        .sessions
+        .update_session_metadata(&user_id, &session_id, title, input.pinned)
+        .await?
+    else {
+        return Err(ApiError::not_found("Session not found"));
+    };
+
+    Ok(Json(
+        serde_json::to_value(info).unwrap_or_else(|_| json!({})),
     ))
 }
 

@@ -11,6 +11,7 @@ const sessions: WorkbenchSessionSummary[] = [
   {
     sessionId: "srv-1",
     title: "Mobile redesign",
+    pinned: false,
     status: "idle",
     model: "codex-medium",
     lastActivityAt: "2026-05-17T00:00:00Z",
@@ -38,7 +39,7 @@ function renderMobileSessionsPage(
 function testRendersChatAppStyleSessionList() {
   const html = renderMobileSessionsPage();
 
-  assert.match(html, />Session</);
+  assert.match(html, />Sessions</);
   assert.match(html, /aria-label="Search sessions"/);
   assert.match(html, /aria-label="New session"/);
   assert.match(html, />Mobile redesign</);

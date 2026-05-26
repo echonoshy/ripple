@@ -2750,6 +2750,7 @@ mod tests {
             session_id: "srv-test".to_string(),
             user_id: "alice".to_string(),
             title: String::new(),
+            pinned: false,
             model: "codex-test".to_string(),
             max_turns: 200,
             caller_system_prompt: None,

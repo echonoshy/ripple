@@ -168,6 +168,15 @@ server:
     # PyPI 镜像 URL（设置为空字符串则使用官方源）
     pypi_mirror_url: "https://pypi.tuna.tsinghua.edu.cn/simple"
 
+    # 通用 skill + bin 工具。每个工具以只读方式挂载进 sandbox，并把 bin_dirs 加入 PATH。
+    # 后续新增 youtube-cli 等工具时，只需放置二进制并新增一段配置。
+    # cli_tools:
+    #   - name: bilibili
+    #     install_root: "vendor/bilibili-cli"
+    #     sandbox_root: "/opt/bilibili-cli"
+    #     bin_dirs:
+    #       - "current/bin"
+
     # 资源限制
     resource_limits:
       max_memory_mb: 4096

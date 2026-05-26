@@ -5,7 +5,7 @@ when-to-use: 用户想"抽取字幕 / 拿视频原料 / 看 AI 总结 / 准备�
 allowed-tools: [Bash, Read]
 metadata:
   requires:
-    bins: ["python"]
+    bins: ["bilibili"]
 ---
 
 # bilibili-episode-extract
@@ -23,7 +23,7 @@ metadata:
 ```json
 {
   "url": "https://www.bilibili.com/video/BV1GJ411x7h7?p=1",  // 或 "bvid": "BV1..."
-  "sessdata": "可选；未提供则读 /workspace/.bilibili/sessdata.txt；仍无则字幕/总结降级"
+  "sessdata": "可选；未提供则读 /workspace/.bilibili/sessdata.json；仍无则字幕/总结降级"
 }
 ```
 
@@ -32,11 +32,16 @@ metadata:
 ## 执行（一条命令搞定）
 
 ```bash
-python pipeline.py \
-  --args '<上面的 JSON>'
+bilibili extract --url "<URL 或 BV>" --json
 ```
 
-> 脚本内部顺序：解析输入 → `/x/web-interface/view` 拿 meta + cid →（有 SESSDATA 时）拿 WBI mixin_key → `/x/player/wbi/v2` 拿字幕 → `/x/web-interface/view/conclusion/get` 拿官方 AI 总结 → 全部落盘。
+如果需要传一次性 SESSDATA（仅开发调试，不要让用户手贴 Cookie）：
+
+```bash
+bilibili extract --url "<URL 或 BV>" --sessdata "<SESSDATA>" --json
+```
+
+> CLI 内部顺序：解析输入 → `/x/web-interface/view` 拿 meta + cid →（有 SESSDATA 时）拿 WBI mixin_key → `/x/player/wbi/v2` 拿字幕 → `/x/web-interface/view/conclusion/get` 拿官方 AI 总结 → 全部落盘。
 
 ## 输出
 
@@ -95,13 +100,13 @@ python pipeline.py \
 
 ```bash
 # 完整链路（有 SESSDATA 持久化文件）
-python .../pipeline.py --args '{"url":"https://www.bilibili.com/video/BV1xx411c7mD"}'
+bilibili extract --url "https://www.bilibili.com/video/BV1xx411c7mD" --json
 
 # 一次性带 SESSDATA（不落盘）
-python .../pipeline.py --args '{"bvid":"BV1xx411c7mD","sessdata":"abc...xxx"}'
+bilibili extract --bvid "BV1xx411c7mD" --sessdata "abc...xxx" --json
 
 # 分 P
-python .../pipeline.py --args '{"url":"https://www.bilibili.com/video/BV1xx411c7mD?p=3"}'
+bilibili extract --url "https://www.bilibili.com/video/BV1xx411c7mD?p=3" --json
 ```
 
 ## 硬规则

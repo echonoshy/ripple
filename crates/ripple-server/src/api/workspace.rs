@@ -490,10 +490,12 @@ pub async fn create_workspace(
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     let workspace = state.sandboxes.ensure_sandbox(&user_id)?;
-    let entry = ws::create_entry(&workspace, &input.path, &input.kind).map_err(map_workspace_error)?;
-    
+    let entry =
+        ws::create_entry(&workspace, &input.path, &input.kind).map_err(map_workspace_error)?;
+
     if input.kind == "file" {
-        let target_path = ws::validate_existing_path(&entry.path, &workspace).map_err(map_workspace_error)?;
+        let target_path =
+            ws::validate_existing_path(&entry.path, &workspace).map_err(map_workspace_error)?;
         record_file_ref(
             &state,
             &user_id,
@@ -506,7 +508,9 @@ pub async fn create_workspace(
         .await?;
     }
 
-    Ok(Json(serde_json::to_value(entry).unwrap_or_else(|_| json!({}))))
+    Ok(Json(
+        serde_json::to_value(entry).unwrap_or_else(|_| json!({})),
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -523,39 +527,84 @@ pub async fn paste_workspace(
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     let workspace = state.sandboxes.ensure_sandbox(&user_id)?;
-    
-    let entry = ws::paste_entry(&workspace, &input.path, &input.destination_dir, &input.action)
-        .map_err(map_workspace_error)?;
+
+    let entry = ws::paste_entry(
+        &workspace,
+        &input.path,
+        &input.destination_dir,
+        &input.action,
+    )
+    .map_err(map_workspace_error)?;
 
     if input.action == "copy" {
-        let target_path = ws::validate_existing_path(&entry.path, &workspace).map_err(map_workspace_error)?;
+        let target_path =
+            ws::validate_existing_path(&entry.path, &workspace).map_err(map_workspace_error)?;
         if target_path.is_file() {
             if let Ok(bytes) = tokio::fs::read(&target_path).await {
-                assert_workspace_save_within_quota(&state, &user_id, &target_path, bytes.len() as u64).await?;
-                record_file_ref(&state, &user_id, &workspace, &target_path, &ws::mime_type_for_path(&target_path), &bytes, None).await?;
+                assert_workspace_save_within_quota(
+                    &state,
+                    &user_id,
+                    &target_path,
+                    bytes.len() as u64,
+                )
+                .await?;
+                record_file_ref(
+                    &state,
+                    &user_id,
+                    &workspace,
+                    &target_path,
+                    &ws::mime_type_for_path(&target_path),
+                    &bytes,
+                    None,
+                )
+                .await?;
             }
         } else {
-            let mut walk = walkdir::WalkDir::new(&target_path).into_iter().filter_map(Result::ok);
+            let mut walk = walkdir::WalkDir::new(&target_path)
+                .into_iter()
+                .filter_map(Result::ok);
             while let Some(e) = walk.next() {
                 let p = e.path();
                 if p.is_file() {
                     if let Ok(bytes) = tokio::fs::read(p).await {
-                        assert_workspace_save_within_quota(&state, &user_id, p, bytes.len() as u64).await?;
-                        record_file_ref(&state, &user_id, &workspace, p, &ws::mime_type_for_path(p), &bytes, None).await?;
+                        assert_workspace_save_within_quota(&state, &user_id, p, bytes.len() as u64)
+                            .await?;
+                        record_file_ref(
+                            &state,
+                            &user_id,
+                            &workspace,
+                            p,
+                            &ws::mime_type_for_path(p),
+                            &bytes,
+                            None,
+                        )
+                        .await?;
                     }
                 }
             }
         }
     } else if input.action == "move" {
-        let target_path = ws::validate_existing_path(&entry.path, &workspace).map_err(map_workspace_error)?;
+        let target_path =
+            ws::validate_existing_path(&entry.path, &workspace).map_err(map_workspace_error)?;
         if target_path.is_file() {
             if let Ok(bytes) = tokio::fs::read(&target_path).await {
-                record_file_ref(&state, &user_id, &workspace, &target_path, &ws::mime_type_for_path(&target_path), &bytes, None).await?;
+                record_file_ref(
+                    &state,
+                    &user_id,
+                    &workspace,
+                    &target_path,
+                    &ws::mime_type_for_path(&target_path),
+                    &bytes,
+                    None,
+                )
+                .await?;
             }
         }
     }
 
-    Ok(Json(serde_json::to_value(entry).unwrap_or_else(|_| json!({}))))
+    Ok(Json(
+        serde_json::to_value(entry).unwrap_or_else(|_| json!({})),
+    ))
 }
 
 fn map_workspace_error(err: anyhow::Error) -> ApiError {

@@ -39,6 +39,7 @@ fn test_config(root: &Path) -> AppConfig {
             lark_cli_install_root: None,
             notion_cli_install_root: None,
             gogcli_cli_install_root: None,
+            cli_tools: Vec::new(),
             pypi_mirror_url: None,
             npm_registry_url: None,
         },

@@ -372,6 +372,16 @@ keep_env: false
                 ));
             }
         }
+        for tool in &self.config.sandbox.cli_tools {
+            if tool.install_root.exists() {
+                mounts.push(mount_block(
+                    Some(tool.install_root.to_string_lossy().as_ref()),
+                    tool.sandbox_root.to_string_lossy().as_ref(),
+                    false,
+                    None,
+                ));
+            }
+        }
         Ok(())
     }
 
@@ -399,6 +409,17 @@ keep_env: false
         }
         if self.config.sandbox.gogcli_cli_install_root.is_some() {
             path_parts.insert(0, GOGCLI_CLI_SANDBOX_BIN_DIR.to_string());
+        }
+        for tool in self.config.sandbox.cli_tools.iter().rev() {
+            for bin_dir in tool.bin_dirs.iter().rev() {
+                path_parts.insert(
+                    0,
+                    tool.sandbox_root
+                        .join(bin_dir)
+                        .to_string_lossy()
+                        .to_string(),
+                );
+            }
         }
 
         let mut env = vec![
@@ -555,18 +576,21 @@ fn read_json_string_field(path: &Path, field: &str) -> Option<String> {
 mod tests {
     use super::*;
     use crate::config::{
-        AppConfig, CodexConfig, FeishuConfig, GogcliOAuthConfig, SandboxConfig, SkillsConfig,
+        AppConfig, CliToolConfig, CodexConfig, FeishuConfig, GogcliOAuthConfig, SandboxConfig,
+        SkillsConfig,
     };
 
     fn test_config(root: &Path) -> Arc<AppConfig> {
         let lark_root = root.join("vendor/lark-cli");
         let notion_root = root.join("vendor/notion-cli");
         let gog_root = root.join("vendor/gogcli-cli");
+        let bilibili_root = root.join("vendor/bilibili-cli");
         let node_root = root.join("node");
         for path in [
             lark_root.join("current/bin"),
             notion_root.join("current/bin"),
             gog_root.join("current/bin"),
+            bilibili_root.join("current/bin"),
             node_root.join("bin"),
         ] {
             std::fs::create_dir_all(path).unwrap();
@@ -591,6 +615,12 @@ mod tests {
                 lark_cli_install_root: Some(lark_root),
                 notion_cli_install_root: Some(notion_root),
                 gogcli_cli_install_root: Some(gog_root),
+                cli_tools: vec![CliToolConfig {
+                    name: "bilibili".to_string(),
+                    install_root: bilibili_root,
+                    sandbox_root: PathBuf::from("/opt/bilibili-cli"),
+                    bin_dirs: vec![PathBuf::from("current/bin")],
+                }],
                 pypi_mirror_url: Some("https://pypi.example/simple".to_string()),
                 npm_registry_url: Some("https://npm.example".to_string()),
             },
@@ -641,12 +671,14 @@ mod tests {
         assert!(cfg.contains(r#"dst: "/opt/lark-cli""#));
         assert!(cfg.contains(r#"dst: "/opt/notion-cli""#));
         assert!(cfg.contains(r#"dst: "/opt/gogcli-cli""#));
+        assert!(cfg.contains(r#"dst: "/opt/bilibili-cli""#));
         assert!(cfg.contains(r#"dst: "/uv-cache""#));
         assert!(cfg.contains(r#"dst: "/pnpm-store""#));
         assert!(cfg.contains(r#"options: "size=64M""#));
         assert!(cfg.contains("NOTION_API_TOKEN=secret_test"));
         assert!(cfg.contains("GOG_KEYRING_PASSWORD=pw"));
         assert!(cfg.contains("/opt/gogcli-cli/current/bin"));
+        assert!(cfg.contains("/opt/bilibili-cli/current/bin"));
 
         let _ = std::fs::remove_dir_all(root);
     }

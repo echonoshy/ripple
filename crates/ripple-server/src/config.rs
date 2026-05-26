@@ -40,8 +40,17 @@ pub struct SandboxConfig {
     pub lark_cli_install_root: Option<PathBuf>,
     pub notion_cli_install_root: Option<PathBuf>,
     pub gogcli_cli_install_root: Option<PathBuf>,
+    pub cli_tools: Vec<CliToolConfig>,
     pub pypi_mirror_url: Option<String>,
     pub npm_registry_url: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct CliToolConfig {
+    pub name: String,
+    pub install_root: PathBuf,
+    pub sandbox_root: PathBuf,
+    pub bin_dirs: Vec<PathBuf>,
 }
 
 #[derive(Clone, Debug)]
@@ -140,8 +149,17 @@ struct RawSandbox {
     lark_cli_install_root: Option<String>,
     notion_cli_install_root: Option<String>,
     gogcli_cli_install_root: Option<String>,
+    cli_tools: Option<Vec<RawCliTool>>,
     pypi_mirror_url: Option<String>,
     npm_registry_url: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RawCliTool {
+    name: Option<String>,
+    install_root: Option<String>,
+    sandbox_root: Option<String>,
+    bin_dirs: Option<Vec<String>>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -287,6 +305,7 @@ impl AppConfig {
                     .gogcli_cli_install_root
                     .map(|value| resolve_path(&repo_root, &value))
                     .or_else(|| discover_vendor_root(&repo_root, "gogcli-cli", "gog")),
+                cli_tools: parse_cli_tools(&repo_root, sandbox.cli_tools)?,
                 pypi_mirror_url: sandbox.pypi_mirror_url,
                 npm_registry_url: sandbox.npm_registry_url,
             },
@@ -345,6 +364,39 @@ impl AppConfig {
         }
         (alias.to_string(), None)
     }
+}
+
+fn parse_cli_tools(
+    repo_root: &Path,
+    raw_tools: Option<Vec<RawCliTool>>,
+) -> anyhow::Result<Vec<CliToolConfig>> {
+    let mut tools = Vec::new();
+    for raw in raw_tools.unwrap_or_default() {
+        let name = clean_config_string(raw.name.as_deref())
+            .ok_or_else(|| anyhow::anyhow!("sandbox.cli_tools entry is missing name"))?;
+        let install_root = clean_config_string(raw.install_root.as_deref())
+            .ok_or_else(|| anyhow::anyhow!("sandbox.cli_tools.{name} is missing install_root"))?;
+        let sandbox_root = clean_config_string(raw.sandbox_root.as_deref())
+            .unwrap_or_else(|| format!("/opt/{name}-cli"));
+        let bin_dirs = raw
+            .bin_dirs
+            .unwrap_or_else(|| vec!["current/bin".to_string()]);
+        let bin_dirs = bin_dirs
+            .into_iter()
+            .map(|value| PathBuf::from(value.trim()))
+            .filter(|path| !path.as_os_str().is_empty())
+            .collect::<Vec<_>>();
+        if bin_dirs.is_empty() {
+            anyhow::bail!("sandbox.cli_tools.{name} must have at least one bin_dir");
+        }
+        tools.push(CliToolConfig {
+            name,
+            install_root: resolve_path(repo_root, &install_root),
+            sandbox_root: PathBuf::from(sandbox_root),
+            bin_dirs,
+        });
+    }
+    Ok(tools)
 }
 
 fn parse_feishu_config(raw: Option<RawFeishu>) -> FeishuConfig {
@@ -473,6 +525,25 @@ fn find_on_path(binary: &str) -> Option<PathBuf> {
 mod tests {
     use super::AppConfig;
 
+    fn with_temp_config<T>(name: &str, text: &str, f: impl FnOnce() -> T) -> T {
+        let previous = std::env::var_os("RIPPLE_CONFIG");
+        let path = std::env::temp_dir().join(format!(
+            "ripple-config-test-{}-{name}.yaml",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::write(&path, text).expect("write temp config");
+        std::env::set_var("RIPPLE_CONFIG", &path);
+
+        let result = f();
+
+        match previous {
+            Some(value) => std::env::set_var("RIPPLE_CONFIG", value),
+            None => std::env::remove_var("RIPPLE_CONFIG"),
+        }
+        let _ = std::fs::remove_file(path);
+        result
+    }
+
     #[test]
     fn default_skills_shared_dirs_use_top_level_skills() {
         let previous = std::env::var_os("RIPPLE_CONFIG");
@@ -492,5 +563,34 @@ mod tests {
 
         let config = loaded.expect("load default config");
         assert_eq!(config.skills.shared_dirs, vec!["skills/*".to_string()]);
+    }
+
+    #[test]
+    fn parses_configured_cli_tools() {
+        let config = with_temp_config(
+            "cli-tools",
+            r#"
+server:
+  sandbox:
+    cli_tools:
+      - name: bilibili
+        install_root: vendor/bilibili-cli
+        sandbox_root: /opt/bilibili-cli
+        bin_dirs:
+          - current/bin
+"#,
+            AppConfig::load,
+        )
+        .expect("load config");
+
+        assert_eq!(config.sandbox.cli_tools.len(), 1);
+        let tool = &config.sandbox.cli_tools[0];
+        assert_eq!(tool.name, "bilibili");
+        assert!(tool.install_root.ends_with("vendor/bilibili-cli"));
+        assert_eq!(
+            tool.sandbox_root,
+            std::path::PathBuf::from("/opt/bilibili-cli")
+        );
+        assert_eq!(tool.bin_dirs, vec![std::path::PathBuf::from("current/bin")]);
     }
 }

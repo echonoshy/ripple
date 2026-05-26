@@ -34,6 +34,12 @@ pub fn thread_permission_config(workspace: &Path, config: &AppConfig) -> Value {
     {
         filesystem.insert(path.to_string_lossy().to_string(), json!("read"));
     }
+    for tool in &config.sandbox.cli_tools {
+        filesystem.insert(
+            tool.install_root.to_string_lossy().to_string(),
+            json!("read"),
+        );
+    }
     for path in [
         config.sandbox.caches_root.join("uv-cache"),
         config.sandbox.caches_root.join("pnpm-store"),

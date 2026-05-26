@@ -121,7 +121,11 @@ async fn user_usage(state: &AppState, user_id: &str) -> Result<Value, ApiError> 
     let run_stats = state.storage.job_usage_stats(user_id, &today).await?;
     let session_count = state.storage.count_sessions(user_id).await?;
     let total_tokens = state.storage.total_tokens_used(user_id).await.unwrap_or(0);
-    let (daily_tokens, weekly_tokens) = state.storage.token_usage_by_period(user_id).await.unwrap_or((0, 0));
+    let (daily_tokens, weekly_tokens) = state
+        .storage
+        .token_usage_by_period(user_id)
+        .await
+        .unwrap_or((0, 0));
     Ok(json!({
         "workspace_size_bytes": workspace_size_bytes(&workspace),
         "session_count": session_count,
@@ -188,6 +192,7 @@ mod tests {
                 lark_cli_install_root: None,
                 notion_cli_install_root: None,
                 gogcli_cli_install_root: None,
+                cli_tools: Vec::new(),
                 pypi_mirror_url: None,
                 npm_registry_url: None,
             },

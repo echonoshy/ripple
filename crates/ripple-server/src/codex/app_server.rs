@@ -204,6 +204,11 @@ impl CodexAppServerSession {
         if let Some(root) = &self.config.sandbox.gogcli_cli_install_root {
             prepend_path(&mut command, root.join("current/bin"));
         }
+        for tool in &self.config.sandbox.cli_tools {
+            for bin_dir in &tool.bin_dirs {
+                prepend_path(&mut command, tool.install_root.join(bin_dir));
+            }
+        }
         let uv_cache_dir = self.config.sandbox.caches_root.join("uv-cache");
         tokio::fs::create_dir_all(&uv_cache_dir).await?;
         command.env("UV_CACHE_DIR", uv_cache_dir);

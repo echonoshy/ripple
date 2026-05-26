@@ -207,12 +207,11 @@ pub fn paste_entry(
     if !dest_parent.is_dir() {
         anyhow::bail!("Destination path is not a directory");
     }
-    let file_name = src.file_name().ok_or_else(|| anyhow::anyhow!("Invalid source file name"))?;
+    let file_name = src
+        .file_name()
+        .ok_or_else(|| anyhow::anyhow!("Invalid source file name"))?;
     let dest = dest_parent.join(file_name);
-    let dest = validate_write_path(
-        &workspace_path(workspace_root, &dest)?,
-        workspace_root,
-    )?;
+    let dest = validate_write_path(&workspace_path(workspace_root, &dest)?, workspace_root)?;
 
     if dest.exists() {
         anyhow::bail!("A file or folder with that name already exists");

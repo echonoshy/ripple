@@ -582,8 +582,9 @@ Ripple is the control plane: it owns user identity, sandbox isolation, connector
 {}\n\n\
 ## Execution Environment Guardrails\n\
 - Do not run or mention `proxy_on` in user-facing Codex app-server tasks.\n\
-- Do not call legacy Ripple connector auth tools such as `GoogleWorkspaceLoginStart`, `GoogleWorkspaceLoginComplete`, `GoogleWorkspaceAuthStatus`, `GoogleWorkspaceLogout`, `NotionTokenSet`, `BilibiliLoginStart`, `BilibiliLoginPoll`, `BilibiliAuthStatus`, `BilibiliLogout`, or `AskUser`. Connector authorization is handled by Ripple before the Codex turn starts.\n\
-- Do not collect connector credentials inside Codex; if a required connector is not connected, ask the user to authorize it through Ripple.\n\n\
+- Do not call legacy Ripple connector auth tools such as `GoogleWorkspaceLoginStart`, `GoogleWorkspaceLoginComplete`, `GoogleWorkspaceAuthStatus`, `GoogleWorkspaceLogout`, `NotionTokenSet`, `BilibiliLoginStart`, `BilibiliLoginPoll`, `BilibiliAuthStatus`, `BilibiliLogout`, or `AskUser`.\n\
+- Google Workspace, Notion, and Feishu authorization is handled by Ripple before the Codex turn starts. For Bilibili tasks, follow the `bilibili` CLI workflow documented by the Bilibili skills.\n\
+- Do not collect connector credentials inside Codex; if Google Workspace, Notion, or Feishu is required and not connected, ask the user to authorize it through Ripple.\n\n\
 ## Available Skills\n\
 {}\n\n\
 ## System Instructions\n\
@@ -1109,7 +1110,7 @@ async fn maybe_handle_connector_auth(
         return continue_pending_connector_auth(state, user_id, session, user_input).await;
     }
 
-    for connector in ["notion", "google_workspace", "feishu", "bilibili"] {
+    for connector in ["notion", "google_workspace", "feishu"] {
         if !mentions_connector(connector, user_input) {
             continue;
         }

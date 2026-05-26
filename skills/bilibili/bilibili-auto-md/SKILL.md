@@ -5,7 +5,7 @@ when-to-use: 用户发送一个 B 站视频链接/BV 号，希望直接拿到 Ma
 allowed-tools: [Skill, Bash, Write, Read]
 metadata:
   requires:
-    bins: ["python"]
+    bins: ["bilibili"]
 ---
 
 # bilibili-auto-md
@@ -29,76 +29,80 @@ metadata:
 - 短链：`https://b23.tv/xxxxxx`
 - JSON：`{"url": "...", "sessdata": "...", "output_dir": "..."}`
 
-`allow_unauthenticated` 是内部降级开关，默认 `false`。**只有**用户明确说过
+`--allow-unauthenticated` 是内部降级开关，默认不传。**只有**用户明确说过
 「不要登录 / 不用登录 / 别扫码 / 只要元数据 / 直接给我」时，才允许传
-`{"allow_unauthenticated": true}`。其它情况下禁止传这个字段。
+`--allow-unauthenticated`。其它情况下禁止传这个参数。
 
 ## 流程（3 步：确认登录态 → 抓取 → 写 MD）
 
 ### Step 0 — 一次调用确认登录态（**两段式扫码**，默认先登录，别降级）
 
-直接调 `BilibiliLoginStart`——它**自带状态检查**，不需要先调 `BilibiliAuthStatus`
-预热一次（那是白烧一个 round-trip）。根据返回的 `bound` 字段分两支处理：
+直接运行 `bilibili auth start --json`——它**自带状态检查**，不需要先跑
+`auth status` 预热一次（那是白烧一个 round-trip）。根据返回 JSON 的
+`stage` / `data.bound` 字段分两支处理：
 
-- `bound=true` → 凭证已绑定且未过期。可顺便看 `days_until_expiry`：≤ 7 时礼貌提
+- `data.bound=true` 或 `stage="authorized"` → 凭证已绑定且未过期。可顺便看 `expires_at`：≤ 7 天时礼貌提
   醒一句"登录还有 N 天到期，要不要顺便续一下"，然后**直接进 Step 1**。
 
-- `bound=false` → 工具已发了新二维码 + 把扫码闸门关上了，走两段式扫码：
+- `stage="awaiting_user"` → CLI 已返回新二维码，走两段式扫码：
 
-  **Turn A（当前这个 turn）**：拿到 `qrcode_key` + `qrcode_image_url` 后，回复里
-  **只给**用户两样东西：
-    1. 一个 markdown 链接 `[点此查看扫码二维码](qrcode_image_url)`（用户在浏览器
-       打开就是一张真正可扫的 PNG 二维码）；
-    2. 一句指引「请用 B 站 App 扫一扫 → 在 App 里点『确认登录』→ 扫完后回我一句
-       「好了」我再继续」。
-  然后**结束本 turn**——**不要**在本 turn 内调 `BilibiliLoginPoll`；**不要**在
+  **Turn A（当前这个 turn）**：从 `data` 里拿到 `qrcode_key`、`qrcode_image_url`、
+  `qrcode_content`、`app_url` 后，回复里**只输出**下面这个授权块和一句指引：
+
+  ```text
+  [BILIBILI_AUTH]
+  B 站扫码登录
+
+  <qrcode_image_url>
+
+  <qrcode_content>
+
+  <app_url>
+
+  扫码或点链接确认后，回到这里发送「好了」。
+  ```
+
+  然后**结束本 turn**——**不要**在本 turn 内运行 `bilibili auth poll`；**不要**在
   本 turn 内抢跑 Step 1（抢了也会被扫码闸门挡回）。
 
-  ⚠️ **绝对不要**把 `qrcode_content` 字段当链接给用户——它是扫码**完成后**的 B
-  站落地页，浏览器打开只会看到"下载 B 站 App"，不是二维码。
-  ⚠️ 也**不要**尝试 `![image](qrcode_image_url)` 直接内嵌——这条相对路径图片在
-  不少 markdown 渲染器里会 fail，改用 link 形式最稳。
-  ⚠️ **绝对禁止**在回复里贴 ASCII / Unicode 方块二维码。工具从 v2 起不再返回
-  `qrcode_ascii` 字段；也**不要**自己渲染。只给链接就够。
+  ⚠️ **绝对禁止**在回复里贴 ASCII / Unicode 方块二维码。前端会把
+  `[BILIBILI_AUTH]` 授权块渲染成二维码卡片。
 
-  **Turn B（用户回「好了/ok/扫好了」之后的下一 turn）**：调
-  `BilibiliLoginPoll(qrcode_key=...)`（默认 30s 短等待）：
-    - state=`ok`      → 凭证已落盘，继续 Step 1。
-    - state=`pending` + `last_state: "scanned"` → 用户扫了但没点确认登录。回复
+  **Turn B（用户回「好了/ok/扫好了」之后的下一 turn）**：运行
+  `bilibili auth poll --qrcode-key "<qrcode_key>" --max-wait 30 --json`：
+    - `stage="authorized"` → 凭证已落盘，继续 Step 1。
+    - `stage="pending"` + `data.last_state: "scanned"` → 用户扫了但没点确认登录。回复
       「扫到了，但你还要在 B 站 App 里点一下『确认登录』。点完回我一句我重试。」
       然后**结束本 turn**，等用户回话再 poll 一次。
-    - state=`pending` + `last_state: "waiting_scan"` → 用户还没扫。回复「好像
+    - `stage="pending"` + `data.last_state: "waiting_scan"` → 用户还没扫。回复「好像
       还没收到扫码——二维码还在那条链接里，麻烦扫一下，扫完回我。」然后**结束
       本 turn**，等用户回话再 poll 一次。
-    - state=`expired` → 二维码超时；问用户「要不要重新来」，同意再 `LoginStart`。
-    - state=`timeout` → 同上。
+    - `stage="expired"` → 二维码超时；问用户「要不要重新来」，同意再 `bilibili auth start --json`。
+    - `stage="timeout"` → 同上。
 
-  若用户中途说「算了/不登录了/取消」：调 `BilibiliLogout` 释放闸门，然后按用户
+  若用户中途说「算了/不登录了/取消」：运行 `bilibili auth logout --json` 释放本地状态，然后按用户
   意图继续（或走下面的降级路径）。
 
   - **禁止自作主张降级**：没登录就产出一份带 `⚠️ 未登录` 警告的残疾 MD 是糟糕
     UX，属于违规；用户问「总结一下 XXX」默认是"要质量好的总结"，不是"任何半成品都行"。
   - **降级的唯一触发条件**：用户在对话里**明确说过**"不要登录 / 不用登录 / 别扫码 /
     直接给我 / 只要元数据 / 就用标题简介" 之类的字样。否则一律走扫码。
-  - 只有走降级路径时，Step 1 的 pipeline 参数才允许加入
-    `"allow_unauthenticated": true`；默认路径禁止加入。
+  - 只有走降级路径时，Step 1 才允许加入 `--allow-unauthenticated`；默认路径禁止加入。
 
 Step 1 跑完如果 `subtitle.status` 或 `ai_summary.status` 出现
-`need_sessdata` / 疑似鉴权失败，再调一次 `BilibiliAuthStatus(verify=true)` 确认
-是不是 SESSDATA 失效了；失效就重新扫码再重跑 pipeline。
+`need_sessdata` / 疑似鉴权失败，再运行一次 `bilibili auth status --verify --json` 确认
+是不是 SESSDATA 失效了；失效就重新扫码再重跑 `prepare-md`。
 
-### Step 1 — 用 pipeline.py 一键抓取 + 算出 output_path
+### Step 1 — 用 `bilibili prepare-md` 一键抓取 + 算出 output_path
 
 ```bash
-python pipeline.py \
-  --args '{"url": "<url 或 BV>"}'
+bilibili prepare-md --url "<url 或 BV>" --json
 ```
 
 若用户已经明确拒绝登录，才可以这样降级运行：
 
 ```bash
-python pipeline.py \
-  --args '{"url": "<url 或 BV>", "allow_unauthenticated": true}'
+bilibili prepare-md --url "<url 或 BV>" --allow-unauthenticated --json
 ```
 
 输出一行 JSON，关键字段：
@@ -257,9 +261,9 @@ MD，**不**调用 `Write`，也**不要**自己构造 `/workspace/.outputs/bili
 
 | 场景 | 行为 |
 |---|---|
-| pipeline **顶层**返回 `error`（找不到 BV / 进程异常 / extract 子进程崩）| 把 `error.message` 告诉用户，**不**产出 MD（这种是真的没法继续） |
-| pipeline 返回 `auth_required=true` | **不写 MD，不调用 Write**。发起或继续 `BilibiliLoginStart` / `BilibiliLoginPoll` 扫码流程；只有用户明确拒绝登录后，才可重跑并传 `allow_unauthenticated=true` |
-| `subtitle.status = need_sessdata` 且 `ai_summary.status = need_sessdata` | 凭证真的失效了。**先不写 MD**，调 `BilibiliAuthStatus(verify=true)` 确认后走扫码流程（Step 0），绑定成功再重跑 pipeline |
+| `prepare-md` **顶层**返回 `error`（找不到 BV / 进程异常 / extract 子进程崩）| 把 `error.message` 告诉用户，**不**产出 MD（这种是真的没法继续） |
+| `prepare-md` 返回 `auth_required=true` | **不写 MD，不调用 Write**。发起或继续 `bilibili auth start/poll` 扫码流程；只有用户明确拒绝登录后，才可重跑并传 `--allow-unauthenticated` |
+| `subtitle.status = need_sessdata` 且 `ai_summary.status = need_sessdata` | 凭证真的失效了。**先不写 MD**，运行 `bilibili auth status --verify --json` 确认后走扫码流程（Step 0），绑定成功再重跑 `prepare-md` |
 | **仅** `subtitle.status = need_sessdata`，`ai_summary` 正常 | 通常意味着 UP 主没开字幕（B 站返回 -101 也有这种歧义）。正常产出，"字幕节选"章节写 `_（本期未提供字幕）_` 即可，**不要**为此重登 |
 | `subtitle.status = error`（**任何原因**：风控 / WBI / 网络 / 字幕文件下载失败） | **静默**按"无字幕"处理 —— 模板里"字幕节选" / "要点"分支按 `empty` 走（写 `_（本期未提供字幕）_`），**不**在 MD 任何位置写错误码、不加 `⚠️`、不告诉用户「被风控了 / 接口失败」。如果同时 AI 总结正常，输出体验对用户来说就是"这视频没字幕"，刚好和"empty"一样 |
 | `ai_summary.status = error`（**任何原因**） | **静默**按"无 AI 总结"处理，等同于 `empty` |
@@ -271,13 +275,13 @@ MD，**不**调用 `Write`，也**不要**自己构造 `/workspace/.outputs/bili
 
 ## 禁用项
 
-- ❌ 不要生成任何 `summary.json` / `outline.json`（pipeline 已生成，你只读不写）
-- ❌ 不要调完 pipeline 之后又反复 `Read meta.json` 多次 —— 一次就够
+- ❌ 不要生成任何 `summary.json` / `outline.json`（`bilibili prepare-md` 已生成，你只读不写）
+- ❌ 不要调完 `prepare-md` 之后又反复 `Read meta.json` 多次 —— 一次就够
 - ❌ 不要把"对话正文"和"Write 文件"做成两份差异化产物。两者必须**完全等同**
   （一字不差）。**严禁**给对话版加 emoji 标题（📌 📖 🕐 🔑 等）、把列表改成表格、
   给章节小标题加粗、重排章节顺序、添加对话专用的介绍语 / 总结语。**贴给用户的
   版本 = 文件内容**，不是"文件内容 + 装饰"
-- ❌ **不要先调 `BilibiliAuthStatus` 再调 `BilibiliLoginStart`**——LoginStart 已经
-  自带 bound 检查；多调一次 AuthStatus 就是多浪费一个模型 round-trip
-- ❌ 不要用正则 / 字符串扣 B 站网页来替代 `pipeline.py`——API 路径已经封装稳了
+- ❌ **不要先跑 `bilibili auth status` 再跑 `bilibili auth start`**——`auth start`
+  自带 bound 检查；多跑一次 status 就是多浪费一个模型 round-trip
+- ❌ 不要用正则 / 字符串扣 B 站网页来替代 `bilibili extract/prepare-md`——API 路径已经封装稳了
 - ❌ 不要对无 AI 总结的视频硬编"伪时间轴"——缺就缺，明确标注

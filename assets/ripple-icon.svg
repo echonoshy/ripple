@@ -1,48 +1,44 @@
 <svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
   <title>Ripple logo</title>
   <defs>
-    <!-- Sharp vibrant yellow-green gradient -->
-    <linearGradient id="yellowGreenGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#fde047" /> <!-- Vibrant Yellow -->
-      <stop offset="50%" stop-color="#a3e635" /> <!-- Bright Lime Green -->
-      <stop offset="100%" stop-color="#10b981" /> <!-- Crisp Emerald -->
+    <!-- Vibrant colorful gradient for the crisp outer border and center glow -->
+    <linearGradient id="vibrantGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2f6bff" />    <!-- Neon Blue -->
+      <stop offset="35%" stop-color="#7b5cff" />   <!-- Electric Violet -->
+      <stop offset="70%" stop-color="#ff5ea6" />   <!-- Cyber Pink -->
+      <stop offset="100%" stop-color="#a3e635" />  <!-- Lime Green -->
     </linearGradient>
 
-    <!-- Glass overlay borders and shadows -->
-    <linearGradient id="glassBorder" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.6"/>
-      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.2"/>
-    </linearGradient>
+    <!-- Subtle radial glow for the center of the dark background -->
+    <radialGradient id="centerGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#7b5cff" stop-opacity="0.35" />
+      <stop offset="50%" stop-color="#2f6bff" stop-opacity="0.15" />
+      <stop offset="100%" stop-color="#2f6bff" stop-opacity="0" />
+    </radialGradient>
 
-    <!-- Drop shadow for the paths to pop with extreme clarity -->
-    <filter id="pathShadow" x="-10%" y="-10%" width="120%" height="120%">
-      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#0c2005" flood-opacity="0.45"/>
-    </filter>
-    <filter id="cardShadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="16" stdDeviation="24" flood-color="#04060a" flood-opacity="0.4"/>
+    <!-- Sharp drop shadow for the pure white paths to pop -->
+    <filter id="waveShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#000000" flood-opacity="0.65"/>
     </filter>
   </defs>
 
-  <!-- Deep dark premium background -->
-  <rect width="512" height="512" rx="112" fill="#090b11" />
+  <!-- Base dark premium card background (pure blackish) -->
+  <rect width="512" height="512" rx="112" fill="#08080a" />
 
-  <!-- Outer Card container with Shadow -->
-  <g filter="url(#cardShadow)">
-    <!-- The vibrant yellow-green gradient core -->
-    <rect x="76" y="76" width="360" height="360" rx="88" fill="url(#yellowGreenGrad)" />
-    
-    <!-- Overlaid Frosted Glass plate (for glassmorphism) -->
-    <rect x="76" y="76" width="360" height="360" rx="88" fill="#ffffff" fill-opacity="0.1" />
-    <rect x="76" y="76" width="360" height="360" rx="88" stroke="url(#glassBorder)" stroke-width="3" />
-  </g>
+  <!-- Soft colorful radial glow in the center to highlight the waves from behind -->
+  <circle cx="256" cy="256" r="220" fill="url(#centerGlow)" />
 
-  <!-- Razor-sharp Wave paths in pure high-contrast white -->
-  <g filter="url(#pathShadow)">
+  <!-- Ultra-thin, crisp vibrant colorful gradient border around the entire 512x512 card -->
+  <!-- Keeps the logo in original full boundaries (no shrinking!) -->
+  <rect x="1.5" y="1.5" width="509" height="509" rx="111" stroke="url(#vibrantGrad)" stroke-width="3" stroke-opacity="0.8" />
+
+  <!-- Razor-sharp, high-contrast Wave paths in pure white with full boundaries -->
+  <g filter="url(#waveShadow)">
     <!-- Wave 1 (top arch) -->
     <path
       d="M125 237C162 170 209 139 258 139C310 139 356 171 387 237"
       stroke="#ffffff"
-      stroke-width="30"
+      stroke-width="32"
       stroke-linecap="round"
       stroke-linejoin="round"
     />
@@ -50,7 +46,7 @@
     <path
       d="M123 346L204 247C230 218 267 211 296 228C325 246 330 284 305 305C285 322 253 317 234 298"
       stroke="#ffffff"
-      stroke-width="30"
+      stroke-width="32"
       stroke-linecap="round"
       stroke-linejoin="round"
     />
@@ -58,7 +54,7 @@
     <path
       d="M236 299L304 370C329 397 368 397 394 366"
       stroke="#ffffff"
-      stroke-width="30"
+      stroke-width="32"
       stroke-linecap="round"
       stroke-linejoin="round"
     />

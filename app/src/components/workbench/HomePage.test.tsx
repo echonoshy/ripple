@@ -49,6 +49,13 @@ function testHomePageHasExpectedSpecificCopy() {
   assert.doesNotMatch(html, /tasks yet/);
 }
 
+function testHomePageReservesMobileTopSafeArea() {
+  const html = renderHomePage();
+
+  assert.match(html, /pt-\[max\(env\(safe-area-inset-top\),16px\)\]/);
+}
+
 testHomePageHasExpectedSpecificCopy();
+testHomePageReservesMobileTopSafeArea();
 
 console.log("home page tests passed");

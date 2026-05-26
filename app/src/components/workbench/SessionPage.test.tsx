@@ -129,6 +129,12 @@ function testGivesSessionContentMoreHorizontalRoom() {
   assert.match(html, /mx-auto max-w-5xl space-y-2 sm:space-y-5/);
 }
 
+function testMobileHeaderReservesTopSafeArea() {
+  const html = renderSessionPage();
+
+  assert.match(html, /pt-\[max\(env\(safe-area-inset-top\),0px\)\]/);
+}
+
 function testTimelineTextUsesWiderContentWidth() {
   const html = renderSessionPageWithTimelineContent();
 
@@ -169,6 +175,7 @@ function testContextWarningWaitsForModelWindow() {
 
 testOmitsPlaceholderSessionHeaderControls();
 testGivesSessionContentMoreHorizontalRoom();
+testMobileHeaderReservesTopSafeArea();
 testTimelineTextUsesWiderContentWidth();
 testContextWarningUsesReportedModelWindow();
 testContextWarningWaitsForModelWindow();

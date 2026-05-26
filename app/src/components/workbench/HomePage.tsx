@@ -122,7 +122,7 @@ export default function HomePage({
   const connected = connectedCount(connectors, connectorStatuses);
 
   return (
-    <div className="h-full min-h-0 overflow-y-auto bg-[radial-gradient(circle_at_16%_0%,rgba(47,107,255,0.12),transparent_34%),radial-gradient(circle_at_88%_8%,rgba(139,92,246,0.11),transparent_32%),#fbfdff] px-4 pt-4 pb-[calc(88px+env(safe-area-inset-bottom))] text-[#111827] md:px-8 md:py-5 lg:pb-5">
+    <div className="h-full min-h-0 overflow-y-auto bg-[radial-gradient(circle_at_16%_0%,rgba(47,107,255,0.12),transparent_34%),radial-gradient(circle_at_88%_8%,rgba(139,92,246,0.11),transparent_32%),#fbfdff] px-4 pt-[max(env(safe-area-inset-top),16px)] pb-[calc(88px+env(safe-area-inset-bottom))] text-[#111827] md:px-8 md:pt-[max(env(safe-area-inset-top),20px)] md:pb-5">
       <div className="mx-auto max-w-5xl space-y-4">
         <header className="flex items-start justify-between gap-3 pb-1">
           <div className="min-w-0">

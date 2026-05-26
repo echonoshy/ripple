@@ -54,6 +54,14 @@ export default function Home() {
   // ── UI state ──
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isNavCollapsed, setIsNavCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem("ripple.workbench.navCollapsed") === "true";
+  });
+  const [isInspectorCollapsed, setIsInspectorCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem("ripple.workbench.inspectorCollapsed") === "true";
+  });
   const [mobileSessionMode, setMobileSessionMode] = useState<"list" | "chat">("list");
   const [sessionIdCopied, setSessionIdCopied] = useState(false);
   const [workspaceRefreshToken, setWorkspaceRefreshToken] = useState(0);
@@ -184,6 +192,14 @@ export default function Home() {
     onDeleteCurrentSession: resetSessionView,
     onSessionActivated: handleSessionActivated,
   });
+
+  useEffect(() => {
+    window.localStorage.setItem("ripple.workbench.navCollapsed", String(isNavCollapsed));
+  }, [isNavCollapsed]);
+
+  useEffect(() => {
+    window.localStorage.setItem("ripple.workbench.inspectorCollapsed", String(isInspectorCollapsed));
+  }, [isInspectorCollapsed]);
 
   useEffect(() => {
     selectedSessionIdRef.current = sessionId;
@@ -504,6 +520,7 @@ export default function Home() {
             onFeishuAuthOpen={handleFeishuAuthOpen}
             feishuAuthWaiting={feishuAuthWaiting}
             onBackToMobileSessions={handleOpenMobileSessionList}
+            isInspectorCollapsed={isInspectorCollapsed}
           />
         </div>
       </div>
@@ -578,6 +595,10 @@ export default function Home() {
       <WorkbenchShell
         isNavOpen={isSidebarOpen}
         onCloseNav={() => setIsSidebarOpen(false)}
+        isNavCollapsed={isNavCollapsed}
+        onExpandNav={() => setIsNavCollapsed(false)}
+        isInspectorCollapsed={isInspectorCollapsed}
+        onExpandInspector={() => setIsInspectorCollapsed(false)}
         nav={
           <WorkspaceNav
             sessions={displayWorkbenchSessions}
@@ -597,12 +618,17 @@ export default function Home() {
             onDeleteSession={handleDeleteSession}
             onUpdateSession={updateSessionById}
             onOpenSettings={() => setIsSettingsOpen(true)}
+            onCollapse={() => setIsNavCollapsed(true)}
           />
         }
         content={mainContent}
         inspector={
           shouldShowInspector(activeView) ? (
-            <InspectorPanel userId={userId} refreshToken={workspaceRefreshToken} />
+            <InspectorPanel
+              userId={userId}
+              refreshToken={workspaceRefreshToken}
+              onCollapse={() => setIsInspectorCollapsed(true)}
+            />
           ) : null
         }
         mobileNav={mobileNav}

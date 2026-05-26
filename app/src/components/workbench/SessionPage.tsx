@@ -61,6 +61,7 @@ interface SessionPageProps {
   onFeishuAuthOpen?: (payload: FeishuAuthOpenPayload) => void;
   feishuAuthWaiting?: FeishuAuthWaitingState | null;
   onBackToMobileSessions?: () => void;
+  isInspectorCollapsed?: boolean;
 }
 
 export default function SessionPage({
@@ -98,6 +99,7 @@ export default function SessionPage({
   onFeishuAuthOpen,
   feishuAuthWaiting,
   onBackToMobileSessions,
+  isInspectorCollapsed = false,
 }: SessionPageProps) {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const [isSessionSettingsOpen, setIsSessionSettingsOpen] = useState(false);
@@ -224,7 +226,7 @@ export default function SessionPage({
       </div>
 
       {sessionId && (
-        <div className="pointer-events-none absolute top-3 right-4 z-30 hidden items-center gap-1.5 sm:flex">
+        <div className={`pointer-events-none absolute top-3 ${isInspectorCollapsed ? "right-14" : "right-4"} z-30 hidden items-center gap-1.5 sm:flex transition-all duration-300`}>
           <button
             type="button"
             onClick={onCopySessionId}

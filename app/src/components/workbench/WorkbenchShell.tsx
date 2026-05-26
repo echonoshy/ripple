@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { X } from "lucide-react";
+import { X, ChevronLeft, ChevronRight } from "lucide-react";
 import RippleIcon from "@/components/icons/RippleIcon";
 
 const NAV_WIDTH_STORAGE_KEY = "ripple.workbench.navWidth";
@@ -47,6 +47,10 @@ interface WorkbenchShellProps {
   mobileNav?: React.ReactNode;
   isNavOpen: boolean;
   onCloseNav: () => void;
+  isNavCollapsed?: boolean;
+  onExpandNav?: () => void;
+  isInspectorCollapsed?: boolean;
+  onExpandInspector?: () => void;
 }
 
 export default function WorkbenchShell({
@@ -56,6 +60,10 @@ export default function WorkbenchShell({
   mobileNav = null,
   isNavOpen,
   onCloseNav,
+  isNavCollapsed = false,
+  onExpandNav,
+  isInspectorCollapsed = false,
+  onExpandInspector,
 }: WorkbenchShellProps) {
   const [navWidth, setNavWidth] = useState(initialNavWidth);
   const navWidthRef = useRef(navWidth);
@@ -159,27 +167,29 @@ export default function WorkbenchShell({
   return (
     <div className="h-dvh h-screen min-h-dvh min-h-screen w-screen overflow-hidden bg-[radial-gradient(circle_at_5%_5%,rgba(36,99,235,0.035),transparent_40%),radial-gradient(circle_at_80%_10%,rgba(139,92,246,0.035),transparent_40%),#fbfdff] text-[#0d0d0d]">
       <div className="flex h-full min-h-0">
-        <div
-          className="relative hidden shrink-0 bg-[#fbfbfc]/75 backdrop-blur-xl lg:block"
-          style={{ width: navWidth }}
-        >
-          <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(circle_at_15%_15%,rgba(36,99,235,0.03),transparent_50%)]" />
-          <div className="h-full border-r border-[#e5e7eb]/80">{nav}</div>
+        {!isNavCollapsed && (
           <div
-            role="separator"
-            aria-label="Resize navigation"
-            aria-orientation="vertical"
-            aria-valuemin={MIN_NAV_WIDTH}
-            aria-valuemax={MAX_NAV_WIDTH}
-            aria-valuenow={navWidth}
-            tabIndex={0}
-            onPointerDown={handleResizeStart}
-            onKeyDown={handleResizeKeyDown}
-            className="group absolute top-0 right-0 bottom-0 z-20 flex w-2 translate-x-1/2 cursor-col-resize items-center justify-center bg-transparent transition-colors outline-none hover:bg-[#dbe6ff] focus:bg-[#dbe6ff]"
+            className="relative hidden shrink-0 bg-[#fbfbfc]/75 backdrop-blur-xl lg:block"
+            style={{ width: navWidth }}
           >
-            <span className="h-12 w-0.5 rounded-full bg-[#2463eb] opacity-0 transition-opacity group-hover:opacity-100 group-focus:opacity-100" />
+            <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(circle_at_15%_15%,rgba(36,99,235,0.03),transparent_50%)]" />
+            <div className="h-full border-r border-[#e5e7eb]/80">{nav}</div>
+            <div
+              role="separator"
+              aria-label="Resize navigation"
+              aria-orientation="vertical"
+              aria-valuemin={MIN_NAV_WIDTH}
+              aria-valuemax={MAX_NAV_WIDTH}
+              aria-valuenow={navWidth}
+              tabIndex={0}
+              onPointerDown={handleResizeStart}
+              onKeyDown={handleResizeKeyDown}
+              className="group absolute top-0 right-0 bottom-0 z-20 flex w-2 translate-x-1/2 cursor-col-resize items-center justify-center bg-transparent transition-colors outline-none hover:bg-[#dbe6ff] focus:bg-[#dbe6ff]"
+            >
+              <span className="h-12 w-0.5 rounded-full bg-[#2463eb] opacity-0 transition-opacity group-hover:opacity-100 group-focus:opacity-100" />
+            </div>
           </div>
-        </div>
+        )}
 
         {isNavOpen && (
           <div className="fixed inset-0 z-40 lg:hidden">
@@ -211,10 +221,32 @@ export default function WorkbenchShell({
           </div>
         )}
 
-        <main className="flex min-w-0 flex-1 flex-col bg-white">
+        <main className="relative flex min-w-0 flex-1 flex-col bg-white">
+          {isNavCollapsed && (
+            <button
+              type="button"
+              onClick={onExpandNav}
+              aria-label="Expand sidebar"
+              title="Expand sidebar"
+              className="absolute left-4 top-[14px] z-30 inline-flex h-8 w-8 items-center justify-center rounded-full border border-[#e5e7eb]/80 bg-white/95 text-[#6b7280] shadow-[0_2px_8px_rgba(0,0,0,0.04)] backdrop-blur-sm transition-all duration-200 hover:border-[#dfe6f4] hover:bg-white hover:text-[#0d0d0d] hover:scale-105 active:scale-95"
+            >
+              <ChevronRight size={16} />
+            </button>
+          )}
+          {inspector && isInspectorCollapsed && (
+            <button
+              type="button"
+              onClick={onExpandInspector}
+              aria-label="Expand workspace panel"
+              title="Expand workspace panel"
+              className="absolute right-4 top-[14px] z-30 inline-flex h-8 w-8 items-center justify-center rounded-full border border-[#e5e7eb]/80 bg-white/95 text-[#6b7280] shadow-[0_2px_8px_rgba(0,0,0,0.04)] backdrop-blur-sm transition-all duration-200 hover:border-[#dfe6f4] hover:bg-white hover:text-[#0d0d0d] hover:scale-105 active:scale-95"
+            >
+              <ChevronLeft size={16} />
+            </button>
+          )}
           <div className="min-h-0 flex-1">{content}</div>
         </main>
-        {inspector && (
+        {inspector && !isInspectorCollapsed && (
           <div className="relative hidden shrink-0 xl:block" style={{ width: inspectorWidth }}>
             <div
               role="separator"

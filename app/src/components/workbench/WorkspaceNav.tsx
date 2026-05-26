@@ -10,6 +10,7 @@ import {
   HardDrive,
   Layers,
   Loader2,
+  ChevronLeft,
   MoreHorizontal,
   Pin,
   Plus,
@@ -64,6 +65,7 @@ interface WorkspaceNavProps {
     updates: { title?: string; pinned?: boolean }
   ) => Promise<unknown>;
   onOpenSettings: () => void;
+  onCollapse?: () => void;
 }
 
 export default function WorkspaceNav({
@@ -81,6 +83,7 @@ export default function WorkspaceNav({
   onDeleteSession,
   onUpdateSession,
   onOpenSettings,
+  onCollapse,
 }: WorkspaceNavProps) {
   const [activeMenuSessionId, setActiveMenuSessionId] = React.useState<string | null>(null);
   const [editingSessionId, setEditingSessionId] = React.useState<string | null>(null);
@@ -95,6 +98,39 @@ export default function WorkspaceNav({
   > | null>(null);
   const [isLoadingUsage, setIsLoadingUsage] = React.useState(false);
   const isSwitchCancelRef = React.useRef(false);
+
+  const userMenuRef = React.useRef<HTMLDivElement>(null);
+  const activeMenuRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (!isUserMenuOpen) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+        setIsUserMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isUserMenuOpen]);
+
+  React.useEffect(() => {
+    if (!activeMenuSessionId) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (activeMenuRef.current && !activeMenuRef.current.contains(event.target as Node)) {
+        setActiveMenuSessionId(null);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [activeMenuSessionId]);
 
   React.useEffect(() => {
     let isMounted = true;
@@ -138,19 +174,8 @@ export default function WorkspaceNav({
     }
   };
 
-  const isBackdropVisible = Boolean(activeMenuSessionId || isUserMenuOpen);
-
   return (
     <div className="flex h-full min-h-0 flex-col text-[#0d0d0d]" aria-busy={isGenerating}>
-      {isBackdropVisible && (
-        <div
-          className="fixed inset-0 z-40 bg-transparent"
-          onClick={() => {
-            setActiveMenuSessionId(null);
-            setIsUserMenuOpen(false);
-          }}
-        />
-      )}
       <div className="border-b border-[#e5e7eb] px-4 pt-4 pb-4">
         <div className="mb-5 flex h-8 items-center gap-3">
           <RippleIcon size={30} className="h-[30px] w-[30px] shrink-0 rounded-lg" />
@@ -159,12 +184,12 @@ export default function WorkspaceNav({
           </div>
           <button
             type="button"
-            onClick={onOpenSettings}
-            aria-label={`Settings for ${userId}`}
-            title="Settings"
+            onClick={onCollapse}
+            aria-label="Collapse sidebar"
+            title="Collapse sidebar"
             className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-transparent text-[#6b7280] hover:border-[#e5e7eb] hover:bg-white hover:text-[#0d0d0d]"
           >
-            <Settings size={15} />
+            <ChevronLeft size={16} />
           </button>
         </div>
 
@@ -224,6 +249,7 @@ export default function WorkspaceNav({
                 const selected = session.sessionId === selectedSessionId;
                 const activityTime = formatSessionActivityTime(session.lastActivityAt);
                 const isEditing = editingSessionId === session.sessionId;
+                const isMenuOpen = activeMenuSessionId === session.sessionId;
 
                 if (isEditing) {
                   const handleSave = () => {
@@ -270,6 +296,7 @@ export default function WorkspaceNav({
                 return (
                   <div
                     key={session.sessionId}
+                    ref={isMenuOpen ? activeMenuRef : undefined}
                     className={`group relative flex items-center gap-2 rounded-lg border px-2.5 py-1.5 transition-all ${
                       selected
                         ? "border-[#2463eb]/10 bg-white text-[#0b57d0] shadow-[0_2px_8px_rgba(36,99,235,0.06),0_1px_2px_rgba(36,99,235,0.02)]"
@@ -367,7 +394,7 @@ export default function WorkspaceNav({
         </div>
       </div>
 
-      <div className="relative border-t border-[#e5e7eb] px-4 py-3">
+      <div ref={userMenuRef} className="relative border-t border-[#e5e7eb] px-4 py-3">
         {isUserMenuOpen && (
           <div
             className="animate-in fade-in-50 zoom-in-95 absolute bottom-14 left-3 z-50 w-64 rounded-2xl border border-[#dfe6f4] bg-white/95 p-3.5 shadow-[0_12px_36px_-4px_rgba(0,0,0,0.12),0_4px_16px_-2px_rgba(0,0,0,0.06)] duration-100 backdrop-blur-md"
@@ -490,7 +517,7 @@ export default function WorkspaceNav({
               </div>
             </div>
 
-            <div className="mt-2 border-t border-[#dfe6f4] pt-2">
+            <div className="mt-2 border-t border-[#dfe6f4] pt-2 flex gap-2">
               <button
                 type="button"
                 onClick={() => {
@@ -498,9 +525,21 @@ export default function WorkspaceNav({
                   setNewUserDraft(userId);
                   setIsUserMenuOpen(false);
                 }}
-                className="flex w-full items-center justify-center gap-1 rounded-xl bg-[#f3f4f6] px-2 py-2 text-xs font-semibold text-[#374151] transition-all hover:bg-[#e5e7eb] active:bg-[#eef3ff]"
+                className="flex-1 flex items-center justify-center gap-1 rounded-xl bg-[#f3f4f6] px-2 py-2 text-xs font-semibold text-[#374151] transition-all hover:bg-[#e5e7eb] active:bg-[#eef3ff]"
               >
                 Switch User
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onOpenSettings();
+                  setIsUserMenuOpen(false);
+                }}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#f3f4f6] text-[#374151] hover:bg-[#e5e7eb] active:bg-[#eef3ff] transition-all"
+                title="Settings"
+                aria-label="Settings"
+              >
+                <Settings size={14} />
               </button>
             </div>
           </div>

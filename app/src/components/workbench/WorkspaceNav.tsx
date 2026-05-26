@@ -174,7 +174,7 @@ export default function WorkspaceNav({
                             setEditingSessionId(null);
                           }
                         }}
-                        className="min-w-0 flex-1 bg-transparent py-0.5 text-sm font-medium text-[#0d0d0d] outline-none"
+                        className="min-w-0 flex-1 bg-transparent py-0.5 text-[13px] font-medium text-[#0d0d0d] outline-none"
                         autoFocus
                         maxLength={120}
                       />
@@ -195,7 +195,7 @@ export default function WorkspaceNav({
                     <button
                       type="button"
                       onClick={() => onSelectSession(session.sessionId)}
-                      className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 py-0.5 text-left text-sm font-medium"
+                      className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 py-0.5 text-left text-[13px] font-medium"
                     >
                       <span className="inline-flex min-w-0 items-center gap-1.5">
                         {session.pinned ? (

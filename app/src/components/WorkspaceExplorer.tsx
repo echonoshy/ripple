@@ -899,7 +899,7 @@ export default function WorkspaceExplorer({
             </span>
             <div className="flex items-center gap-1">
               {searchLoading && <Loader2 size={13} className="animate-spin text-[#6b7280]" />}
-              {isPreviewPanelHidden && (
+              {preview && splitPercent >= MAX_SPLIT_PERCENT && (
                 <button
                   type="button"
                   aria-label="Show preview panel"

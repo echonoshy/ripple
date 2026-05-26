@@ -1148,6 +1148,9 @@ export async function fetchUserProfile(): Promise<{
     session_count: number;
     runs_today: number;
     active_runs: number;
+    total_tokens?: number;
+    daily_tokens?: number;
+    weekly_tokens?: number;
   };
 }> {
   const res = await fetch(`${API_URL}/users/me`, { headers: { ...authHeaders() } });
@@ -1161,6 +1164,9 @@ export async function fetchUserProfile(): Promise<{
       session_count: number;
       runs_today: number;
       active_runs: number;
+      total_tokens?: number;
+      daily_tokens?: number;
+      weekly_tokens?: number;
     };
   };
 }

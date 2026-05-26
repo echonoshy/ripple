@@ -786,7 +786,7 @@ export default function WorkspaceExplorer({
           </button>
         </div>
         {isFilterOpen && (
-          <div className="mb-2 grid gap-2 rounded-2xl border border-[#e5e7eb] bg-[#fbfbfc] p-3 text-xs text-[#374151] sm:grid-cols-2 shadow-sm">
+          <div className="mb-2 grid gap-2 rounded-2xl border border-[#e5e7eb] bg-[#fbfbfc] p-3 text-xs text-[#374151] shadow-sm sm:grid-cols-2">
             <label className="flex items-center gap-2">
               <span className="w-16 text-[#6b7280]">Scope</span>
               <select
@@ -1333,14 +1333,14 @@ export default function WorkspaceExplorer({
                   setCreationModal(null);
                   setCreationDraft("");
                 }}
-                className="rounded-full border border-[#dfe6f4] bg-white px-4 py-1.5 text-[#374151] hover:bg-[#f9fafb] transition-all duration-200"
+                className="rounded-full border border-[#dfe6f4] bg-white px-4 py-1.5 text-[#374151] transition-all duration-200 hover:bg-[#f9fafb]"
                 disabled={creationSaving}
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                className="rounded-full bg-[linear-gradient(135deg,#2f6bff,#7b5cff)] px-4 py-1.5 text-white shadow-[0_8px_18px_rgba(64,92,255,0.18)] hover:brightness-110 active:scale-[0.98] transition-all duration-200"
+                className="rounded-full bg-[linear-gradient(135deg,#2f6bff,#7b5cff)] px-4 py-1.5 text-white shadow-[0_8px_18px_rgba(64,92,255,0.18)] transition-all duration-200 hover:brightness-110 active:scale-[0.98]"
                 disabled={creationSaving}
               >
                 {creationSaving ? "Creating..." : "Create"}

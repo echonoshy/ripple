@@ -125,7 +125,7 @@ export default function SettingsModal({
                     <button
                       type="button"
                       onClick={onApiKeyChange}
-                      className="inline-flex h-8 items-center rounded-full border border-[#dfe6f4] bg-white px-4 text-sm font-semibold text-[#384152] hover:bg-[#f7f8fa] transition-all duration-200 active:scale-[0.98]"
+                      className="inline-flex h-8 items-center rounded-full border border-[#dfe6f4] bg-white px-4 text-sm font-semibold text-[#384152] transition-all duration-200 hover:bg-[#f7f8fa] active:scale-[0.98]"
                     >
                       Change
                     </button>
@@ -164,14 +164,14 @@ export default function SettingsModal({
                         <button
                           type="button"
                           onClick={() => setIsEditingUserId(false)}
-                          className="inline-flex h-8 items-center rounded-full border border-[#dfe6f4] bg-white px-4 text-sm font-semibold text-[#384152] hover:bg-[#f7f8fa] transition-all duration-200"
+                          className="inline-flex h-8 items-center rounded-full border border-[#dfe6f4] bg-white px-4 text-sm font-semibold text-[#384152] transition-all duration-200 hover:bg-[#f7f8fa]"
                         >
                           Cancel
                         </button>
                         <button
                           type="button"
                           onClick={() => void handleSaveUserId()}
-                          className="inline-flex h-8 items-center rounded-full bg-[linear-gradient(135deg,#2f6bff,#7b5cff)] px-4 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(64,92,255,0.2)] hover:brightness-110 active:scale-[0.98] transition-all duration-200"
+                          className="inline-flex h-8 items-center rounded-full bg-[linear-gradient(135deg,#2f6bff,#7b5cff)] px-4 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(64,92,255,0.2)] transition-all duration-200 hover:brightness-110 active:scale-[0.98]"
                         >
                           Save
                         </button>
@@ -180,7 +180,7 @@ export default function SettingsModal({
                       <button
                         type="button"
                         onClick={handleStartEditUserId}
-                        className="inline-flex h-8 items-center rounded-full border border-[#dfe6f4] bg-white px-4 text-sm font-semibold text-[#384152] hover:bg-[#f7f8fa] transition-all duration-200 active:scale-[0.98]"
+                        className="inline-flex h-8 items-center rounded-full border border-[#dfe6f4] bg-white px-4 text-sm font-semibold text-[#384152] transition-all duration-200 hover:bg-[#f7f8fa] active:scale-[0.98]"
                       >
                         Change
                       </button>

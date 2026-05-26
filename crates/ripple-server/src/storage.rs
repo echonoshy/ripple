@@ -253,6 +253,33 @@ impl Storage {
         i64_to_u64(row.get::<i64, _>("count"))
     }
 
+    pub async fn total_tokens_used(&self, user_id: &str) -> anyhow::Result<u64> {
+        self.initialize().await?;
+        let row = sqlx::query("SELECT SUM(total_input_tokens + total_output_tokens) AS total FROM sessions WHERE user_id = ?")
+            .bind(user_id)
+            .fetch_one(&self.pool)
+            .await?;
+        let total = row.get::<Option<i64>, _>("total").unwrap_or(0);
+        i64_to_u64(total)
+    }
+
+    pub async fn token_usage_by_period(&self, user_id: &str) -> anyhow::Result<(u64, u64)> {
+        self.initialize().await?;
+        let row_daily = sqlx::query("SELECT SUM(total_input_tokens + total_output_tokens) AS daily FROM sessions WHERE user_id = ? AND last_active >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-1 day')")
+            .bind(user_id)
+            .fetch_one(&self.pool)
+            .await?;
+        let daily = row_daily.get::<Option<i64>, _>("daily").unwrap_or(0);
+
+        let row_weekly = sqlx::query("SELECT SUM(total_input_tokens + total_output_tokens) AS weekly FROM sessions WHERE user_id = ? AND last_active >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-7 days')")
+            .bind(user_id)
+            .fetch_one(&self.pool)
+            .await?;
+        let weekly = row_weekly.get::<Option<i64>, _>("weekly").unwrap_or(0);
+
+        Ok((i64_to_u64(daily)?, i64_to_u64(weekly)?))
+    }
+
     pub async fn session_exists(&self, user_id: &str, session_id: &str) -> anyhow::Result<bool> {
         self.initialize().await?;
         let row = sqlx::query(

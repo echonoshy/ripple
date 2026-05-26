@@ -120,11 +120,16 @@ async fn user_usage(state: &AppState, user_id: &str) -> Result<Value, ApiError> 
     let today = now_iso().chars().take(10).collect::<String>();
     let run_stats = state.storage.job_usage_stats(user_id, &today).await?;
     let session_count = state.storage.count_sessions(user_id).await?;
+    let total_tokens = state.storage.total_tokens_used(user_id).await.unwrap_or(0);
+    let (daily_tokens, weekly_tokens) = state.storage.token_usage_by_period(user_id).await.unwrap_or((0, 0));
     Ok(json!({
         "workspace_size_bytes": workspace_size_bytes(&workspace),
         "session_count": session_count,
         "runs_today": run_stats.runs_today,
-        "active_runs": run_stats.active_runs
+        "active_runs": run_stats.active_runs,
+        "total_tokens": total_tokens,
+        "daily_tokens": daily_tokens,
+        "weekly_tokens": weekly_tokens
     }))
 }
 

@@ -31,6 +31,19 @@ function formatBytes(bytes: number): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
 }
 
+function formatTokens(num: number): string {
+  if (num >= 1_000_000_000) {
+    return (num / 1_000_000_000).toFixed(1) + "B";
+  }
+  if (num >= 1_000_000) {
+    return (num / 1_000_000).toFixed(1) + "M";
+  }
+  if (num >= 1_000) {
+    return (num / 1_000).toFixed(1) + "K";
+  }
+  return num.toString();
+}
+
 interface WorkspaceNavProps {
   sessions: WorkbenchSessionSummary[];
   selectedSessionId: string | null;
@@ -442,9 +455,37 @@ export default function WorkspaceNav({
               </div>
             )}
 
-            <div className="mt-2 flex items-center gap-1.5 rounded-lg border border-slate-100 bg-slate-50 p-2 text-xs text-slate-500">
-              <Cpu size={12} className="shrink-0 text-[#6b7280]" />
-              <span>Token usage (placeholder): ~k tokens</span>
+            <div className="mt-2 rounded-lg border border-slate-100 bg-slate-50 p-2 text-[11px] text-slate-500">
+              <div className="mb-1.5 flex items-center gap-1.5 border-b border-slate-200/50 pb-1 font-medium text-slate-600">
+                <Cpu size={12} className="text-[#6b7280]" />
+                <span>Token Usage Stats</span>
+              </div>
+              <div className="mt-1 grid grid-cols-3 gap-1 divide-x divide-slate-200/60 text-center">
+                <div>
+                  <div className="text-[10px] text-slate-400">Daily</div>
+                  <div className="font-semibold text-slate-700">
+                    {userUsageData?.usage?.daily_tokens !== undefined
+                      ? formatTokens(userUsageData.usage.daily_tokens)
+                      : "0"}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-slate-400">Weekly</div>
+                  <div className="font-semibold text-slate-700">
+                    {userUsageData?.usage?.weekly_tokens !== undefined
+                      ? formatTokens(userUsageData.usage.weekly_tokens)
+                      : "0"}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-slate-400">All-time</div>
+                  <div className="font-semibold text-slate-700">
+                    {userUsageData?.usage?.total_tokens !== undefined
+                      ? formatTokens(userUsageData.usage.total_tokens)
+                      : "0"}
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div className="mt-2 border-t border-[#e5e7eb] pt-2">

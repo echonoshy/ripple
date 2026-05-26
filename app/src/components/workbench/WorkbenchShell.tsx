@@ -228,7 +228,7 @@ export default function WorkbenchShell({
               onClick={onExpandNav}
               aria-label="Expand sidebar"
               title="Expand sidebar"
-              className="absolute left-4 top-[14px] z-30 inline-flex h-8 w-8 items-center justify-center rounded-full border border-[#e5e7eb]/80 bg-white/95 text-[#6b7280] shadow-[0_2px_8px_rgba(0,0,0,0.04)] backdrop-blur-sm transition-all duration-200 hover:border-[#dfe6f4] hover:bg-white hover:text-[#0d0d0d] hover:scale-105 active:scale-95"
+              className="absolute top-[14px] left-4 z-30 inline-flex h-8 w-8 items-center justify-center rounded-full border border-[#e5e7eb]/80 bg-white/95 text-[#6b7280] shadow-[0_2px_8px_rgba(0,0,0,0.04)] backdrop-blur-sm transition-all duration-200 hover:scale-105 hover:border-[#dfe6f4] hover:bg-white hover:text-[#0d0d0d] active:scale-95"
             >
               <ChevronRight size={16} />
             </button>
@@ -239,7 +239,7 @@ export default function WorkbenchShell({
               onClick={onExpandInspector}
               aria-label="Expand workspace panel"
               title="Expand workspace panel"
-              className="absolute right-4 top-[14px] z-30 inline-flex h-8 w-8 items-center justify-center rounded-full border border-[#e5e7eb]/80 bg-white/95 text-[#6b7280] shadow-[0_2px_8px_rgba(0,0,0,0.04)] backdrop-blur-sm transition-all duration-200 hover:border-[#dfe6f4] hover:bg-white hover:text-[#0d0d0d] hover:scale-105 active:scale-95"
+              className="absolute top-[14px] right-4 z-30 inline-flex h-8 w-8 items-center justify-center rounded-full border border-[#e5e7eb]/80 bg-white/95 text-[#6b7280] shadow-[0_2px_8px_rgba(0,0,0,0.04)] backdrop-blur-sm transition-all duration-200 hover:scale-105 hover:border-[#dfe6f4] hover:bg-white hover:text-[#0d0d0d] active:scale-95"
             >
               <ChevronLeft size={16} />
             </button>

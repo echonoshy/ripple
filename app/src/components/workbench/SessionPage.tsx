@@ -226,7 +226,9 @@ export default function SessionPage({
       </div>
 
       {sessionId && (
-        <div className={`pointer-events-none absolute top-3 ${isInspectorCollapsed ? "right-14" : "right-4"} z-30 hidden items-center gap-1.5 sm:flex transition-all duration-300`}>
+        <div
+          className={`pointer-events-none absolute top-3 ${isInspectorCollapsed ? "right-14" : "right-4"} z-30 hidden items-center gap-1.5 transition-all duration-300 sm:flex`}
+        >
           <button
             type="button"
             onClick={onCopySessionId}

@@ -243,7 +243,7 @@ export default function SessionComposer({
           disabled={inputDisabled}
         />
         <div className="flex items-end gap-1.5 sm:block">
-          <div className="flex shrink-0 items-center h-9 sm:hidden -mr-1">
+          <div className="-mr-1 flex h-9 shrink-0 items-center sm:hidden">
             <button
               type="button"
               aria-label="Attach files"

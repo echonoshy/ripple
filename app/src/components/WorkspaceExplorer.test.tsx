@@ -115,7 +115,7 @@ function testWorkspaceExplorerSplitStaysInsidePanelBounds() {
   });
 
   assert.match(html, /grid-template-rows:minmax\(0,1fr\) 0px/);
-  assert.match(html, /aria-label="Show preview panel"/);
+  assert.doesNotMatch(html, /aria-label="Show preview panel"/);
   assert.doesNotMatch(html, /aria-label="Resize workspace split"/);
   assert.doesNotMatch(html, /Select a text file/);
 }

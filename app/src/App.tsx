@@ -198,7 +198,10 @@ export default function Home() {
   }, [isNavCollapsed]);
 
   useEffect(() => {
-    window.localStorage.setItem("ripple.workbench.inspectorCollapsed", String(isInspectorCollapsed));
+    window.localStorage.setItem(
+      "ripple.workbench.inspectorCollapsed",
+      String(isInspectorCollapsed)
+    );
   }, [isInspectorCollapsed]);
 
   useEffect(() => {

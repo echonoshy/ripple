@@ -397,7 +397,7 @@ export default function WorkspaceNav({
       <div ref={userMenuRef} className="relative border-t border-[#e5e7eb] px-4 py-3">
         {isUserMenuOpen && (
           <div
-            className="animate-in fade-in-50 zoom-in-95 absolute bottom-14 left-3 z-50 w-64 rounded-2xl border border-[#dfe6f4] bg-white/95 p-3.5 shadow-[0_12px_36px_-4px_rgba(0,0,0,0.12),0_4px_16px_-2px_rgba(0,0,0,0.06)] duration-100 backdrop-blur-md"
+            className="animate-in fade-in-50 zoom-in-95 absolute bottom-14 left-3 z-50 w-64 rounded-2xl border border-[#dfe6f4] bg-white/95 p-3.5 shadow-[0_12px_36px_-4px_rgba(0,0,0,0.12),0_4px_16px_-2px_rgba(0,0,0,0.06)] backdrop-blur-md duration-100"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-3 flex items-center gap-2 border-b border-[#dfe6f4]/60 pb-2">
@@ -517,7 +517,7 @@ export default function WorkspaceNav({
               </div>
             </div>
 
-            <div className="mt-2 border-t border-[#dfe6f4] pt-2 flex gap-2">
+            <div className="mt-2 flex gap-2 border-t border-[#dfe6f4] pt-2">
               <button
                 type="button"
                 onClick={() => {
@@ -525,7 +525,7 @@ export default function WorkspaceNav({
                   setNewUserDraft(userId);
                   setIsUserMenuOpen(false);
                 }}
-                className="flex-1 flex items-center justify-center gap-1 rounded-xl bg-[#f3f4f6] px-2 py-2 text-xs font-semibold text-[#374151] transition-all hover:bg-[#e5e7eb] active:bg-[#eef3ff]"
+                className="flex flex-1 items-center justify-center gap-1 rounded-xl bg-[#f3f4f6] px-2 py-2 text-xs font-semibold text-[#374151] transition-all hover:bg-[#e5e7eb] active:bg-[#eef3ff]"
               >
                 Switch User
               </button>
@@ -535,7 +535,7 @@ export default function WorkspaceNav({
                   onOpenSettings();
                   setIsUserMenuOpen(false);
                 }}
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#f3f4f6] text-[#374151] hover:bg-[#e5e7eb] active:bg-[#eef3ff] transition-all"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#f3f4f6] text-[#374151] transition-all hover:bg-[#e5e7eb] active:bg-[#eef3ff]"
                 title="Settings"
                 aria-label="Settings"
               >

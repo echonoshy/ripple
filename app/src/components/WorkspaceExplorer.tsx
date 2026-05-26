@@ -7,7 +7,6 @@ import {
   ChevronDown,
   Download,
   Edit3,
-  Eye,
   FileText,
   Folder,
   Loader2,
@@ -966,17 +965,6 @@ export default function WorkspaceExplorer({
             </span>
             <div className="flex items-center gap-1">
               {searchLoading && <Loader2 size={13} className="animate-spin text-[#6b7280]" />}
-              {preview && splitPercent >= MAX_SPLIT_PERCENT && (
-                <button
-                  type="button"
-                  aria-label="Show preview panel"
-                  title="Show preview"
-                  onClick={() => updateSplitPercent(DEFAULT_SPLIT_PERCENT)}
-                  className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[#e5e7eb] bg-white text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
-                >
-                  <Eye size={13} />
-                </button>
-              )}
               {!isSearchMode && listing?.parent_path && (
                 <button
                   type="button"
@@ -1273,7 +1261,7 @@ export default function WorkspaceExplorer({
       {contextMenu.visible && (
         <div
           style={{ top: contextMenu.y, left: contextMenu.x }}
-          className="fixed z-50 min-w-[160px] rounded-2xl border border-[#dfe6f4] bg-white p-1.5 text-xs text-[#374151] shadow-[0_12px_36px_-4px_rgba(0,0,0,0.12),0_4px_16px_-2px_rgba(0,0,0,0.06)] animate-in fade-in-50 zoom-in-95 duration-100"
+          className="animate-in fade-in-50 zoom-in-95 fixed z-50 min-w-[160px] rounded-2xl border border-[#dfe6f4] bg-white p-1.5 text-xs text-[#374151] shadow-[0_12px_36px_-4px_rgba(0,0,0,0.12),0_4px_16px_-2px_rgba(0,0,0,0.06)] duration-100"
           onClick={(e) => e.stopPropagation()}
           onContextMenu={(e) => e.preventDefault()}
         >
@@ -1308,7 +1296,7 @@ export default function WorkspaceExplorer({
                 onClick={() =>
                   contextMenu.entry && handleCopyAbsoluteSandboxPath(contextMenu.entry)
                 }
-                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] font-[family-name:var(--font-mono)] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
+                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left font-[family-name:var(--font-mono)] text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
               >
                 <FileText size={13} className="shrink-0 text-[#6b7280]" /> Copy Sandbox Path
               </button>
@@ -1341,7 +1329,8 @@ export default function WorkspaceExplorer({
                 onClick={handlePaste}
                 className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff] disabled:cursor-not-allowed disabled:opacity-40"
               >
-                <Clipboard size={13} className="shrink-0 text-[#6b7280]" /> Paste {clipboard ? `(${clipboard.name})` : ""}
+                <Clipboard size={13} className="shrink-0 text-[#6b7280]" /> Paste{" "}
+                {clipboard ? `(${clipboard.name})` : ""}
               </button>
               <div className="my-1 border-t border-[#dfe6f4]" />
               <button

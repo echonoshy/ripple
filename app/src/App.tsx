@@ -258,6 +258,23 @@ export default function Home() {
     ]
   );
 
+  useEffect(() => {
+    const handleOpenWorkspaceFile = (event: Event) => {
+      const customEvent = event as CustomEvent<{ path: string; lineNumber?: number; userId?: string }>;
+      const { userId: targetUserId } = customEvent.detail;
+      
+      setIsInspectorCollapsed(false);
+      
+      if (targetUserId && targetUserId !== userId) {
+        void handleUserIdChange(targetUserId);
+      }
+    };
+    window.addEventListener("open-workspace-file", handleOpenWorkspaceFile);
+    return () => {
+      window.removeEventListener("open-workspace-file", handleOpenWorkspaceFile);
+    };
+  }, [userId, handleUserIdChange]);
+
   // ── Init on auth ──
   useEffect(() => {
     if (authState !== "authenticated") return;

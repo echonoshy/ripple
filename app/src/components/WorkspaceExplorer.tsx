@@ -175,6 +175,9 @@ export default function WorkspaceExplorer({
   const [renameDraft, setRenameDraft] = useState("");
   const [renameSaving, setRenameSaving] = useState(false);
   const [splitPercent, setSplitPercent] = useState(initialSplitPercent);
+  const [highlightedLine, setHighlightedLine] = useState<number | null>(null);
+  const preContainerRef = useRef<HTMLDivElement | null>(null);
+  const highlightedLineRef = useRef<HTMLDivElement | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isDraggingUpload, setIsDraggingUpload] = useState(false);
@@ -202,6 +205,7 @@ export default function WorkspaceExplorer({
   const [creationDraft, setCreationDraft] = useState("");
   const [creationSaving, setCreationSaving] = useState(false);
   const splitPercentRef = useRef(splitPercent);
+  const pendingFileOpenRef = useRef<{ path: string; lineNumber?: number; userId?: string } | null>(null);
   const splitContainerRef = useRef<HTMLDivElement | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const renameInputRef = useRef<HTMLInputElement | null>(null);
@@ -344,9 +348,43 @@ export default function WorkspaceExplorer({
       currentPathRef.current = path;
       setCurrentPath(path);
       setListing(workspaceListingCache.get(workspaceCacheKey(userId, path)) || null);
-      setPreview(null);
-      setDraft("");
-      setIsEditing(false);
+      
+      const pending = pendingFileOpenRef.current;
+      if (pending && pending.userId === userId) {
+        pendingFileOpenRef.current = null;
+        
+        const loadPendingFile = async () => {
+          setPreviewLoading(true);
+          setError(null);
+          try {
+            const filePreview = await fetchWorkspaceFilePreview(pending.path, 256 * 1024);
+            setPreview(filePreview);
+            setDraft(filePreview.content);
+            setIsEditing(false);
+            setSaveError(null);
+            if (pending.lineNumber !== undefined) {
+              setHighlightedLine(pending.lineNumber);
+            } else {
+              setHighlightedLine(null);
+            }
+          } catch (err) {
+            setPreview(null);
+            setDraft("");
+            setIsEditing(false);
+            setError(err instanceof Error ? err.message : String(err));
+            setHighlightedLine(null);
+          } finally {
+            setPreviewLoading(false);
+          }
+        };
+        void loadPendingFile();
+      } else {
+        setPreview(null);
+        setDraft("");
+        setIsEditing(false);
+        setHighlightedLine(null);
+      }
+      
       setQuery("");
       setSearchResults([]);
     }
@@ -401,6 +439,7 @@ export default function WorkspaceExplorer({
     }
     setPreviewLoading(true);
     setError(null);
+    setHighlightedLine(null);
     setImagePreviewUrl((prev) => {
       if (prev) {
         try {
@@ -785,6 +824,61 @@ export default function WorkspaceExplorer({
       window.removeEventListener("click", handleGlobalClick);
     };
   }, []);
+
+  useEffect(() => {
+    const handleOpenWorkspaceFile = (event: Event) => {
+      const customEvent = event as CustomEvent<{ path: string; lineNumber?: number; userId?: string }>;
+      const { path: targetPath, lineNumber, userId: targetUserId } = customEvent.detail;
+      
+      if (targetUserId && targetUserId !== userId) {
+        pendingFileOpenRef.current = { path: targetPath, lineNumber, userId: targetUserId };
+        return;
+      }
+      
+      // Load and preview the target file
+      const loadTargetFile = async () => {
+        setPreviewLoading(true);
+        setError(null);
+        try {
+          const filePreview = await fetchWorkspaceFilePreview(targetPath, 256 * 1024);
+          setPreview(filePreview);
+          setDraft(filePreview.content);
+          setIsEditing(false);
+          setSaveError(null);
+          
+          if (lineNumber !== undefined) {
+            setHighlightedLine(lineNumber);
+          } else {
+            setHighlightedLine(null);
+          }
+        } catch (err) {
+          setPreview(null);
+          setDraft("");
+          setIsEditing(false);
+          setError(err instanceof Error ? err.message : String(err));
+          setHighlightedLine(null);
+        } finally {
+          setPreviewLoading(false);
+        }
+      };
+
+      void loadTargetFile();
+    };
+
+    window.addEventListener("open-workspace-file", handleOpenWorkspaceFile);
+    return () => {
+      window.removeEventListener("open-workspace-file", handleOpenWorkspaceFile);
+    };
+  }, [userId]);
+
+  useEffect(() => {
+    if (highlightedLine !== null && highlightedLineRef.current) {
+      highlightedLineRef.current.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    }
+  }, [highlightedLine, preview?.path]);
 
   const isPreviewPanelHidden = splitPercent >= MAX_SPLIT_PERCENT || !preview;
   const splitGridTemplateRows = isPreviewPanelHidden
@@ -1242,9 +1336,40 @@ export default function WorkspaceExplorer({
                       className="min-h-0 flex-1 resize-none overflow-auto border-0 bg-white p-3 font-[family-name:var(--font-mono)] text-[12px] leading-relaxed text-[#171a1f] outline-none"
                     />
                   ) : (
-                    <pre className="min-h-0 flex-1 overflow-auto p-3 font-[family-name:var(--font-mono)] text-[12px] leading-relaxed break-words whitespace-pre-wrap text-[#171a1f]">
-                      {preview.content}
-                    </pre>
+                    <div
+                      ref={preContainerRef}
+                      className="min-h-0 flex-1 overflow-auto bg-white"
+                    >
+                      {(() => {
+                        const lines = preview.content.split("\n");
+                        return (
+                          <div className="py-2">
+                            {lines.map((line, idx) => {
+                              const lineNum = idx + 1;
+                              const isLineHighlighted = highlightedLine === lineNum;
+                              return (
+                                <div
+                                  key={lineNum}
+                                  ref={isLineHighlighted ? highlightedLineRef : undefined}
+                                  className={`flex min-w-0 items-start font-[family-name:var(--font-mono)] text-[12px] leading-relaxed transition-colors ${
+                                    isLineHighlighted
+                                      ? "bg-[#fff8c5] border-l-2 border-[#bf8700] pl-[10px]"
+                                      : "hover:bg-[#f8fafc] pl-3"
+                                  }`}
+                                >
+                                  <span className="w-9 shrink-0 select-none text-right pr-3 text-[#afb1b7]">
+                                    {lineNum}
+                                  </span>
+                                  <span className="flex-1 whitespace-pre-wrap break-all text-[#171a1f]">
+                                    {line || " "}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })()}
+                    </div>
                   )}
                 </div>
               ) : (

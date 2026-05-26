@@ -17,7 +17,7 @@ import {
   Settings2,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { resolveBackendUrl } from "@/lib/api";
+import { resolveBackendUrl, parseWorkspaceLink } from "@/lib/api";
 import { openExternalUrl } from "@/lib/platform";
 
 /**
@@ -95,6 +95,14 @@ interface ContentSegment {
   url?: string;
   qrcodeImageUrl?: string;
   appUrl?: string;
+}
+
+type ConnectorAuthLinkVariant = "primary" | "info" | "warning" | "neutral";
+
+function connectorAuthLinkClass(variant: ConnectorAuthLinkVariant, extra = ""): string {
+  return ["connector-auth-link", `connector-auth-link--${variant}`, extra]
+    .filter(Boolean)
+    .join(" ");
 }
 
 function parseThinkingBlocks(content: string): ContentSegment[] {
@@ -241,7 +249,7 @@ function FeishuCard({
           target="_blank"
           rel="noopener noreferrer"
           onClick={handleOpen}
-          className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[#2f6bff]/25 bg-[#eef3ff] px-4 text-xs font-semibold text-[#2f6bff] transition-all duration-200 hover:bg-[#dbeafe] active:scale-[0.98]"
+          className={connectorAuthLinkClass("info")}
         >
           {isSetup ? "打开飞书页面" : "打开授权页面"}
           <ExternalLink size={13} />
@@ -302,7 +310,7 @@ function GoogleAuthCard({
           target="_blank"
           rel="noopener noreferrer"
           onClick={handleOpen}
-          className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[#2f6bff]/25 bg-[linear-gradient(135deg,#2f6bff,#7b5cff)] px-4 text-xs font-semibold text-white shadow-[0_8px_20px_rgba(64,92,255,0.18)] transition-all duration-200 hover:brightness-110 active:scale-[0.98]"
+          className={connectorAuthLinkClass("primary")}
         >
           打开 Google 授权
           <ExternalLink size={13} />
@@ -365,7 +373,7 @@ function BilibiliAuthCard({
               target="_blank"
               rel="noopener noreferrer"
               onClick={handleOpen(href)}
-              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[#f97316]/25 bg-[#fff4e5] px-4 text-xs font-semibold text-[#9a3412] transition-all duration-200 hover:bg-[#ffedd5] active:scale-[0.98]"
+              className={connectorAuthLinkClass("warning")}
             >
               打开 B 站授权链接
               <ExternalLink size={13} />
@@ -376,7 +384,7 @@ function BilibiliAuthCard({
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={handleOpen(appHref)}
-                className="ml-2 inline-flex h-8 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-4 text-xs font-semibold text-[#374151] transition-all duration-200 hover:bg-[#f7f8fa] active:scale-[0.98]"
+                className={connectorAuthLinkClass("neutral", "ml-2")}
               >
                 打开 B 站 App
                 <ExternalLink size={13} />
@@ -518,7 +526,7 @@ function MarkdownContent({
       components={{
         pre({ children }) {
           return (
-            <pre className="not-prose my-4 max-w-full overflow-x-auto overflow-y-hidden rounded-md border border-[#30363d] bg-[#0d1117] p-4 font-[family-name:var(--font-mono)] text-[13px] [overflow-wrap:normal] whitespace-pre text-[#c9d1d9]">
+            <pre className="not-prose my-4 max-w-full overflow-x-auto overflow-y-hidden rounded-md border border-[#dde2ea] bg-[#f7f8fa] p-4 font-[family-name:var(--font-mono)] text-[13px] [overflow-wrap:normal] whitespace-pre text-[#334155]">
               {children}
             </pre>
           );
@@ -542,12 +550,30 @@ function MarkdownContent({
           );
         },
         a({ href, children }) {
+          const wsLink = parseWorkspaceLink(href);
+
+          const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+            if (wsLink) {
+              e.preventDefault();
+              window.dispatchEvent(
+                new CustomEvent("open-workspace-file", {
+                  detail: {
+                    path: wsLink.workspacePath,
+                    lineNumber: wsLink.lineNumber,
+                    userId: wsLink.userId,
+                  },
+                })
+              );
+            }
+          };
+
           return (
             <a
-              href={resolveBackendUrl(href)}
-              target="_blank"
+              href={wsLink ? undefined : resolveBackendUrl(href)}
+              target={wsLink ? undefined : "_blank"}
               rel="noopener noreferrer"
-              className="font-semibold break-words text-[#2463eb] underline underline-offset-4 hover:text-[#174ea6]"
+              onClick={handleClick}
+              className="font-semibold break-words text-[#2463eb] underline underline-offset-4 hover:text-[#174ea6] cursor-pointer"
             >
               {children}
             </a>

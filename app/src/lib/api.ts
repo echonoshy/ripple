@@ -77,6 +77,68 @@ export function resolveBackendUrl(href: string | undefined): string | undefined 
   }
   return href;
 }
+
+export interface ParsedWorkspaceLink {
+  isWorkspaceFile: boolean;
+  workspacePath: string;
+  lineNumber?: number;
+  userId?: string;
+}
+
+/**
+ * Parse and normalize potential workspace paths (absolute or relative) into standard
+ * workspace-relative paths and optionally extract line numbers.
+ * E.g., "/home/lake/workspace/ripple/.ripple/sandboxes/lake/workspace/.outputs/bilibili/BV1z5Gd6WEST/summary.md:1"
+ * becomes { isWorkspaceFile: true, workspacePath: "/workspace/.outputs/bilibili/BV1z5Gd6WEST/summary.md", lineNumber: 1, userId: "lake" }
+ */
+export function parseWorkspaceLink(href: string | undefined): ParsedWorkspaceLink | null {
+  if (!href) return null;
+
+  // 1. Check if it's a full sandbox path on the server: ".../sandboxes/<user_id>/workspace/<raw_path>"
+  const sandboxMatch = href.match(/sandboxes\/([a-zA-Z0-9_-]{1,64})\/workspace\/(.+)$/);
+  
+  let rawPath = "";
+  let userId: string | undefined;
+
+  if (sandboxMatch) {
+    userId = sandboxMatch[1];
+    rawPath = sandboxMatch[2];
+  } else {
+    // 2. If it's not a sandbox path, check if it is a standard workspace path like "/workspace/foo" or "workspace/foo"
+    // Since the host path might contain "/workspace", we look for the last occurrence of "/workspace/" or if it starts with "/workspace/" or "workspace/"
+    if (href.startsWith("/workspace/")) {
+      rawPath = href.slice("/workspace/".length);
+    } else if (href.startsWith("workspace/")) {
+      rawPath = href.slice("workspace/".length);
+    } else {
+      // Check for last "/workspace/" to avoid matching the project root directory
+      const lastWsIndex = href.lastIndexOf("/workspace/");
+      if (lastWsIndex !== -1) {
+        rawPath = href.slice(lastWsIndex + "/workspace/".length);
+      } else {
+        return null;
+      }
+    }
+  }
+
+  const lineMatch = rawPath.match(/:(\d+)(?::\d+)?$/);
+  let lineNumber: number | undefined;
+  let cleanPath = rawPath;
+
+  if (lineMatch) {
+    lineNumber = parseInt(lineMatch[1], 10);
+    cleanPath = rawPath.slice(0, lineMatch.index);
+  }
+
+  const workspacePath = cleanPath.startsWith("/") ? cleanPath : `/workspace/${cleanPath}`;
+
+  return {
+    isWorkspaceFile: true,
+    workspacePath,
+    lineNumber,
+    userId,
+  };
+}
 const API_KEY_STORAGE_KEY = "ripple-api-key";
 const USER_ID_STORAGE_KEY = "ripple-user-id";
 const DEFAULT_USER_ID = "default";

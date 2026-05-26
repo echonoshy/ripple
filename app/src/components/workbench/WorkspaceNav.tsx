@@ -103,10 +103,10 @@ export default function WorkspaceNav({
                 key={item.id}
                 type="button"
                 onClick={() => onSelectView(item.id)}
-                className={`flex h-9 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-medium transition-colors ${
+                className={`flex h-9 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-medium border transition-all ${
                   selected
-                    ? "bg-[#eef4ff] text-[#0b57d0]"
-                    : "text-[#374151] hover:bg-white hover:text-[#0d0d0d]"
+                    ? "bg-white text-[#0b57d0] border-[#2463eb]/10 shadow-[0_2px_8px_rgba(36,99,235,0.06),0_1px_2px_rgba(36,99,235,0.02)]"
+                    : "border-transparent text-[#374151] hover:bg-white/80 hover:text-[#0d0d0d] hover:shadow-[0_2px_6px_rgba(0,0,0,0.02)]"
                 }`}
               >
                 <Icon size={16} className={selected ? "text-[#2463eb]" : "text-[#6b7280]"} />
@@ -185,10 +185,10 @@ export default function WorkspaceNav({
                 return (
                   <div
                     key={session.sessionId}
-                    className={`group relative flex items-center gap-2 rounded-lg px-2.5 py-1.5 transition-colors ${
+                    className={`group relative flex items-center gap-2 rounded-lg px-2.5 py-1.5 border transition-all ${
                       selected
-                        ? "bg-[#eef4ff] text-[#0b57d0]"
-                        : "text-[#374151] hover:bg-white hover:text-[#0d0d0d]"
+                        ? "bg-white text-[#0b57d0] border-[#2463eb]/10 shadow-[0_2px_8px_rgba(36,99,235,0.06),0_1px_2px_rgba(36,99,235,0.02)]"
+                        : "border-transparent text-[#374151] hover:bg-white/80 hover:text-[#0d0d0d] hover:shadow-[0_2px_6px_rgba(0,0,0,0.02)]"
                     }`}
                   >
                     <SessionAttentionDot attention={session.attention} reserveSpace />
@@ -233,7 +233,7 @@ export default function WorkspaceNav({
                     </button>
 
                     {activeMenuSessionId === session.sessionId && (
-                      <div className="absolute top-9 right-2 z-50 w-36 rounded-lg border border-[#e5e7eb] bg-white py-1 shadow-[0_4px_12px_rgba(0,0,0,0.08)]">
+                      <div className="absolute top-9 right-2 z-50 w-36 rounded-lg border border-[#e5e7eb]/80 bg-white/95 backdrop-blur-md py-1 shadow-[0_10px_30px_-6px_rgba(0,0,0,0.06),0_4px_12px_-2px_rgba(0,0,0,0.03)] ring-1 ring-black/5">
                         <button
                           type="button"
                           onClick={(e) => {

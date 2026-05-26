@@ -55,7 +55,7 @@ function testUsesSessionIdSelectionNaming() {
   const html = renderWorkspaceNav();
 
   assert.match(html, /Session 9/);
-  assert.match(html, /bg-\[#eef4ff\]/);
+  assert.match(html, /border-\[#2463eb\]\/10/);
 }
 
 function testSessionsHeaderDoesNotDuplicateNewSessionAction() {

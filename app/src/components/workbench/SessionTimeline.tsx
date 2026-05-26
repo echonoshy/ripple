@@ -224,7 +224,7 @@ export default function SessionTimeline({
               </div>
             </div>
             {isToolEvent ? (
-              <div className="mt-2 rounded-xl border border-[#111827]/10 bg-[linear-gradient(135deg,#111827,#050914)] px-3 py-2 font-[family-name:var(--font-mono)] text-[10px] leading-[18px] text-[#d8dee9] shadow-[0_14px_30px_rgba(15,23,42,0.16)] sm:text-xs">
+              <div className="mt-2 rounded-xl border border-[#e2e8f0] bg-[linear-gradient(135deg,rgba(248,250,252,0.7),rgba(241,245,249,0.7))] px-3 py-2.5 font-[family-name:var(--font-mono)] text-[10px] leading-[18px] text-[#334155] shadow-[0_10px_24px_rgba(44,63,123,0.04)] backdrop-blur-md sm:text-xs">
                 {event.body.split("\n").map((line, index) => (
                   <div key={`${event.id}-${index}`} className="truncate" title={line}>
                     {line}
@@ -286,7 +286,7 @@ export default function SessionTimeline({
             <ShieldAlert size={14} />
             Permission required: {pendingPermission.tool}
           </div>
-          <pre className="mb-3 max-h-48 overflow-auto rounded-xl bg-[linear-gradient(135deg,#111827,#050914)] p-3 font-[family-name:var(--font-mono)] text-[11px] whitespace-pre-wrap text-[#d8dee9]">
+          <pre className="mb-3 max-h-48 overflow-auto rounded-xl border border-[#e2e8f0] bg-[linear-gradient(135deg,rgba(248,250,252,0.7),rgba(241,245,249,0.7))] p-3 font-[family-name:var(--font-mono)] text-[11px] whitespace-pre-wrap text-[#334155] backdrop-blur-md">
             {typeof pendingPermission.params === "string"
               ? pendingPermission.params
               : JSON.stringify(pendingPermission.params, null, 2)}

@@ -54,6 +54,44 @@ function testGoogleAuthCardDoesNotAskForManualCallback() {
   assert.doesNotMatch(html, /好了/);
 }
 
+function testConnectorAuthLinksUseScopedButtonStyles() {
+  const googleHtml = renderToStaticMarkup(
+    <MarkdownRenderer
+      content={"[GOOGLE_AUTH]\nhttps://accounts.google.com/o/oauth2/auth?state=abc"}
+    />
+  );
+  const feishuHtml = renderToStaticMarkup(
+    <MarkdownRenderer content={"[FEISHU_AUTH]\nhttps://accounts.feishu.cn/device"} />
+  );
+  const bilibiliHtml = renderToStaticMarkup(
+    <MarkdownRenderer
+      content={
+        "[BILIBILI_AUTH]\n" +
+        "/v1/bilibili/qrcode.png?content=encoded\n" +
+        "https://account.bilibili.com/h5/account-h5/auth/scan-web?qrcode_key=abc\n" +
+        "bilibili://browser?url=https%3A%2F%2Faccount.bilibili.com%2Fh5%2Faccount-h5%2Fauth%2Fscan-web%3Fqrcode_key%3Dabc"
+      }
+    />
+  );
+
+  assert.match(
+    googleHtml,
+    /class="(?=[^"]*\bconnector-auth-link\b)(?=[^"]*\bconnector-auth-link--primary\b)[^"]*"/
+  );
+  assert.match(
+    feishuHtml,
+    /class="(?=[^"]*\bconnector-auth-link\b)(?=[^"]*\bconnector-auth-link--info\b)[^"]*"/
+  );
+  assert.match(
+    bilibiliHtml,
+    /class="(?=[^"]*\bconnector-auth-link\b)(?=[^"]*\bconnector-auth-link--warning\b)[^"]*"/
+  );
+  assert.match(
+    bilibiliHtml,
+    /class="(?=[^"]*\bconnector-auth-link\b)(?=[^"]*\bconnector-auth-link--neutral\b)[^"]*"/
+  );
+}
+
 function testBilibiliAuthCardShowsQrAndManualOpenLink() {
   const html = renderToStaticMarkup(
     <MarkdownRenderer
@@ -78,6 +116,7 @@ testPreservesSingleNewlineAsLineBreak();
 testFeishuAuthCardDoesNotCompleteAuthDirectly();
 testFeishuAuthCardShowsWaitingState();
 testGoogleAuthCardDoesNotAskForManualCallback();
+testConnectorAuthLinksUseScopedButtonStyles();
 testBilibiliAuthCardShowsQrAndManualOpenLink();
 
 console.log("markdown renderer tests passed");

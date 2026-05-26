@@ -41,10 +41,10 @@ body {
 }
 
 .markdown-body pre {
-  background-color: #0d1117 !important;
-  border: 1px solid #30363d !important;
+  background-color: #f7f8fa !important;
+  border: 1px solid #dde2ea !important;
   border-radius: 6px;
-  color: #c9d1d9;
+  color: #334155;
   max-width: 100%;
   overflow-x: auto;
   overflow-y: hidden;
@@ -83,7 +83,7 @@ body {
 }
 
 .workbench-markdown pre {
-  border: 1px solid #30363d !important;
+  border: 1px solid #dde2ea !important;
   box-shadow: none;
 }
 
@@ -284,6 +284,88 @@ body {
   text-decoration: underline;
 }
 
+.markdown-body a.connector-auth-link,
+.workbench-markdown a.connector-auth-link {
+  align-items: center;
+  background: var(--connector-auth-bg);
+  border: 1px solid var(--connector-auth-border);
+  border-radius: 9999px;
+  box-shadow: var(--connector-auth-shadow, none);
+  color: var(--connector-auth-fg) !important;
+  display: inline-flex;
+  font-size: 0.75rem;
+  font-weight: 650;
+  gap: 0.375rem;
+  height: 2rem;
+  line-height: 1;
+  padding: 0 1rem;
+  text-decoration: none;
+  text-decoration-thickness: 0;
+  text-underline-offset: 0;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    color 0.2s ease,
+    filter 0.2s ease,
+    transform 0.2s ease;
+  white-space: nowrap;
+}
+
+.markdown-body a.connector-auth-link:hover,
+.workbench-markdown a.connector-auth-link:hover {
+  background: var(--connector-auth-hover-bg, var(--connector-auth-bg));
+  border-color: var(--connector-auth-hover-border, var(--connector-auth-border));
+  box-shadow: var(--connector-auth-hover-shadow, var(--connector-auth-shadow, none));
+  color: var(--connector-auth-hover-fg, var(--connector-auth-fg)) !important;
+  filter: var(--connector-auth-hover-filter, none);
+  text-decoration: none;
+}
+
+.markdown-body a.connector-auth-link:active,
+.workbench-markdown a.connector-auth-link:active {
+  transform: scale(0.98);
+}
+
+.markdown-body a.connector-auth-link svg,
+.workbench-markdown a.connector-auth-link svg {
+  flex-shrink: 0;
+}
+
+.connector-auth-link--primary {
+  --connector-auth-bg: linear-gradient(135deg, #2f6bff, #7b5cff);
+  --connector-auth-border: rgba(47, 107, 255, 0.25);
+  --connector-auth-fg: #ffffff;
+  --connector-auth-hover-bg: linear-gradient(135deg, #3b76ff, #8768ff);
+  --connector-auth-hover-fg: #ffffff;
+  --connector-auth-shadow: 0 8px 20px rgba(64, 92, 255, 0.18);
+  --connector-auth-hover-shadow: 0 10px 24px rgba(64, 92, 255, 0.22);
+}
+
+.connector-auth-link--info {
+  --connector-auth-bg: #eef3ff;
+  --connector-auth-border: rgba(47, 107, 255, 0.25);
+  --connector-auth-fg: #2f6bff;
+  --connector-auth-hover-bg: #dbeafe;
+  --connector-auth-hover-fg: #174ea6;
+}
+
+.connector-auth-link--warning {
+  --connector-auth-bg: #fff4e5;
+  --connector-auth-border: rgba(249, 115, 22, 0.25);
+  --connector-auth-fg: #9a3412;
+  --connector-auth-hover-bg: #ffedd5;
+  --connector-auth-hover-fg: #9a3412;
+}
+
+.connector-auth-link--neutral {
+  --connector-auth-bg: #ffffff;
+  --connector-auth-border: #dfe6f4;
+  --connector-auth-fg: #374151;
+  --connector-auth-hover-bg: #f7f8fa;
+  --connector-auth-hover-fg: #111827;
+}
+
 .workbench-markdown img {
   border: 1px solid #dde2ea;
   border-radius: 8px;
@@ -295,7 +377,7 @@ body {
 }
 
 .hljs {
-  color: #c9d1d9;
+  color: #24292f;
 }
 
 .hljs-keyword,
@@ -303,55 +385,55 @@ body {
 .hljs-literal,
 .hljs-section,
 .hljs-link {
-  color: #ff7b72;
+  color: #cf222e;
 }
 
 .hljs-string,
 .hljs-attr {
-  color: #a5d6ff;
+  color: #0a3069;
 }
 
 .hljs-title,
 .hljs-name,
 .hljs-type,
 .hljs-attribute {
-  color: #d2a8ff;
+  color: #8250df;
 }
 
 .hljs-number,
 .hljs-symbol,
 .hljs-bullet {
-  color: #79c0ff;
+  color: #0550ae;
 }
 
 .hljs-comment,
 .hljs-quote,
 .hljs-meta {
-  color: #8b949e;
+  color: #6e7781;
 }
 
 .hljs-built_in,
 .hljs-builtin-name {
-  color: #ffa657;
+  color: #953800;
 }
 
 .hljs-variable,
 .hljs-template-variable {
-  color: #79c0ff;
+  color: #24292f;
 }
 
 .hljs-params {
-  color: #c9d1d9;
+  color: #24292f;
 }
 
 .hljs-addition {
-  color: #3fb950;
-  background: rgba(46, 160, 67, 0.15);
+  color: #1a7f37;
+  background: rgba(74, 222, 128, 0.1);
 }
 
 .hljs-deletion {
-  color: #ff7b72;
-  background: rgba(248, 81, 73, 0.15);
+  color: #cf222e;
+  background: rgba(248, 113, 113, 0.1);
 }
 
 ::-webkit-scrollbar {

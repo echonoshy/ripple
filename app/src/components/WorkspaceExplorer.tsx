@@ -23,6 +23,7 @@ import {
   Trash2,
   FilePlus,
   FolderPlus,
+  MoreVertical,
 } from "lucide-react";
 import {
   downloadWorkspaceFile,
@@ -179,6 +180,7 @@ export default function WorkspaceExplorer({
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isDraggingUpload, setIsDraggingUpload] = useState(false);
   const [downloadingPath, setDownloadingPath] = useState<string | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
 
   const [clipboard, setClipboard] = useState<{
     path: string;
@@ -218,6 +220,21 @@ export default function WorkspaceExplorer({
     splitPercentRef.current = splitPercent;
     window.localStorage.setItem(SPLIT_PERCENT_STORAGE_KEY, String(splitPercent));
   }, [splitPercent]);
+
+  useEffect(() => {
+    return () => {
+      setImagePreviewUrl((prev) => {
+        if (prev) {
+          try {
+            URL.revokeObjectURL(prev);
+          } catch {
+            // ignore
+          }
+        }
+        return null;
+      });
+    };
+  }, [preview?.path]);
 
   useEffect(() => {
     if (!renamingPath) return;
@@ -372,6 +389,12 @@ export default function WorkspaceExplorer({
     };
   }, [fileType, includeHidden, normalizedQuery, searchKind, searchLimit, searchScope]);
 
+  const isImageFile = (entry: WorkspaceEntry) => {
+    if (entry.mime_type?.startsWith("image/")) return true;
+    const ext = entry.name.split(".").pop()?.toLowerCase();
+    return ["png", "jpg", "jpeg", "gif", "svg", "webp", "bmp", "ico"].includes(ext || "");
+  };
+
   const openEntry = async (entry: WorkspaceEntry) => {
     if (entry.kind === "directory") {
       await loadDirectory(entry.path);
@@ -379,12 +402,41 @@ export default function WorkspaceExplorer({
     }
     setPreviewLoading(true);
     setError(null);
+    setImagePreviewUrl((prev) => {
+      if (prev) {
+        try {
+          URL.revokeObjectURL(prev);
+        } catch {
+          // ignore
+        }
+      }
+      return null;
+    });
+
     try {
-      const filePreview = await fetchWorkspaceFilePreview(entry.path, 256 * 1024);
-      setPreview(filePreview);
-      setDraft(filePreview.content);
-      setIsEditing(false);
-      setSaveError(null);
+      if (isImageFile(entry)) {
+        const downloaded = await downloadWorkspaceFile(entry.path);
+        const objectUrl = URL.createObjectURL(downloaded.blob);
+        setPreview({
+          path: entry.path,
+          name: entry.name,
+          size_bytes: entry.size_bytes,
+          modified_at: entry.modified_at,
+          mime_type: entry.mime_type || downloaded.blob.type || "image/png",
+          encoding: "binary",
+          content: "",
+          truncated: false,
+        });
+        setImagePreviewUrl(objectUrl);
+        setIsEditing(false);
+        setSaveError(null);
+      } else {
+        const filePreview = await fetchWorkspaceFilePreview(entry.path, 256 * 1024);
+        setPreview(filePreview);
+        setDraft(filePreview.content);
+        setIsEditing(false);
+        setSaveError(null);
+      }
     } catch (err) {
       setPreview(null);
       setDraft("");
@@ -682,6 +734,21 @@ export default function WorkspaceExplorer({
   const handleCopyAbsoluteSandboxPath = (entry: WorkspaceEntry) => {
     navigator.clipboard.writeText(entry.path);
     setContextMenu((prev) => ({ ...prev, visible: false }));
+  };
+
+  const onMoreButtonClick = (event: React.MouseEvent, entry: WorkspaceEntry) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const menuWidth = 160;
+    const x = Math.max(8, rect.right - menuWidth);
+    const y = rect.bottom + 4;
+    setContextMenu({
+      visible: true,
+      x,
+      y,
+      entry,
+    });
   };
 
   const onEntryContextMenu = (event: React.MouseEvent, entry: WorkspaceEntry) => {
@@ -1039,29 +1106,13 @@ export default function WorkspaceExplorer({
                       </button>
                       <button
                         type="button"
-                        aria-label={`Rename ${entry.name}`}
-                        title="Rename"
-                        onClick={() => startRename(entry)}
+                        aria-label={`More actions for ${entry.name}`}
+                        title="More actions"
+                        onClick={(event) => onMoreButtonClick(event, entry)}
                         className="mr-2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-transparent text-[#6b7280] opacity-100 transition-opacity hover:border-[#dde2ea] hover:bg-white hover:text-[#0d0d0d] focus:opacity-100 sm:h-7 sm:w-7 sm:opacity-0 sm:group-hover:opacity-100"
                       >
-                        <Edit3 size={12} />
+                        <MoreVertical size={14} />
                       </button>
-                      {entry.kind === "file" && (
-                        <button
-                          type="button"
-                          aria-label={`Download ${entry.name}`}
-                          title="Download"
-                          onClick={() => void handleDownloadFile(entry.path)}
-                          disabled={downloadingPath === entry.path}
-                          className="mr-2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-transparent text-[#6b7280] opacity-100 transition-opacity hover:border-[#dde2ea] hover:bg-white hover:text-[#0d0d0d] focus:opacity-100 disabled:cursor-not-allowed disabled:opacity-50 sm:h-7 sm:w-7 sm:opacity-0 sm:group-hover:opacity-100"
-                        >
-                          {downloadingPath === entry.path ? (
-                            <Loader2 size={12} className="animate-spin" />
-                          ) : (
-                            <Download size={12} />
-                          )}
-                        </button>
-                      )}
                     </div>
                   )
                 )}
@@ -1109,20 +1160,22 @@ export default function WorkspaceExplorer({
                     )}
                     Download
                   </button>
-                  <button
-                    type="button"
-                    disabled={preview.truncated}
-                    onClick={() => setIsEditing((current) => !current)}
-                    className={`inline-flex h-7 items-center gap-1 rounded-md border px-2 text-xs font-medium ${
-                      isEditing
-                        ? "border-[#171a1f] bg-white text-[#171a1f]"
-                        : "border-[#dde2ea] bg-white text-[#68707d] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:text-[#8b8f94]"
-                    }`}
-                    title={preview.truncated ? "Truncated files cannot be edited safely" : "Edit"}
-                  >
-                    <Edit3 size={12} />
-                    Edit
-                  </button>
+                  {!imagePreviewUrl && (
+                    <button
+                      type="button"
+                      disabled={preview.truncated}
+                      onClick={() => setIsEditing((current) => !current)}
+                      className={`inline-flex h-7 items-center gap-1 rounded-md border px-2 text-xs font-medium ${
+                        isEditing
+                          ? "border-[#171a1f] bg-white text-[#171a1f]"
+                          : "border-[#dde2ea] bg-white text-[#68707d] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:text-[#8b8f94]"
+                      }`}
+                      title={preview.truncated ? "Truncated files cannot be edited safely" : "Edit"}
+                    >
+                      <Edit3 size={12} />
+                      Edit
+                    </button>
+                  )}
                 </div>
               )}
               <button
@@ -1185,7 +1238,15 @@ export default function WorkspaceExplorer({
                       <span>{saveError}</span>
                     </div>
                   )}
-                  {isEditing ? (
+                  {imagePreviewUrl ? (
+                    <div className="flex min-h-[300px] flex-1 items-center justify-center overflow-auto bg-[#f8fafc] p-6">
+                      <img
+                        src={imagePreviewUrl}
+                        alt={preview.name}
+                        className="max-h-[480px] max-w-full rounded-md border border-[#e2e8f0] bg-white object-contain p-1.5 shadow-sm transition-all hover:shadow"
+                      />
+                    </div>
+                  ) : isEditing ? (
                     <textarea
                       value={draft}
                       onChange={(event) => setDraft(event.target.value)}
@@ -1200,7 +1261,7 @@ export default function WorkspaceExplorer({
                 </div>
               ) : (
                 <div className="flex h-full items-center justify-center px-4 text-center text-sm font-medium text-[#68707d]">
-                  Select a text file
+                  Select a file
                 </div>
               )}
             </div>

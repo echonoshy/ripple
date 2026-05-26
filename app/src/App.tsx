@@ -459,6 +459,8 @@ export default function Home() {
             onSelectSession={(selectedSessionId) =>
               void handleSelectMobileSession(selectedSessionId)
             }
+            onDeleteSession={handleDeleteSession}
+            onUpdateSession={updateSessionById}
           />
         </div>
         <div className={mobileSessionMode === "chat" ? "h-full" : "hidden h-full lg:block"}>

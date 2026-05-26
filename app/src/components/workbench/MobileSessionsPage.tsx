@@ -1,7 +1,18 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { AlertTriangle, Loader2, MessageCircle, Pin, Plus, Search, SquarePen } from "lucide-react";
+import {
+  AlertTriangle,
+  Loader2,
+  MessageCircle,
+  Pin,
+  Plus,
+  Search,
+  SquarePen,
+  MoreHorizontal,
+  Edit3,
+  Trash2,
+} from "lucide-react";
 import { formatSessionActivityTime } from "@/lib/workbench";
 import type { WorkbenchSessionSummary } from "@/types";
 import SessionAttentionDot from "./SessionAttentionDot";
@@ -13,6 +24,11 @@ interface MobileSessionsPageProps {
   selectedSessionId: string | null;
   onNewSession: () => void;
   onSelectSession: (sessionId: string) => void;
+  onDeleteSession: (sessionId: string, event: React.MouseEvent) => void;
+  onUpdateSession: (
+    sessionId: string,
+    updates: { title?: string; pinned?: boolean }
+  ) => Promise<unknown>;
 }
 
 const avatarPalette = [
@@ -40,7 +56,6 @@ function sessionPreview(session: WorkbenchSessionSummary): string {
       }`
     );
   }
-  parts.push(session.status || "idle");
   return parts.join(" · ");
 }
 
@@ -51,9 +66,17 @@ export default function MobileSessionsPage({
   selectedSessionId,
   onNewSession,
   onSelectSession,
+  onDeleteSession,
+  onUpdateSession,
 }: MobileSessionsPageProps) {
   const [isSearching, setIsSearching] = useState(false);
   const [query, setQuery] = useState("");
+
+  const [activeMenuSessionId, setActiveMenuSessionId] = useState<string | null>(null);
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState<string>("");
+  const isCancellingRef = React.useRef(false);
+
   const normalizedQuery = query.trim().toLowerCase();
   const visibleSessions = useMemo(
     () =>
@@ -65,6 +88,14 @@ export default function MobileSessionsPage({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[radial-gradient(circle_at_16%_0%,rgba(47,107,255,0.13),transparent_34%),radial-gradient(circle_at_88%_8%,rgba(139,92,246,0.12),transparent_32%),#fbfdff] text-[#111827] lg:hidden">
+      {activeMenuSessionId && (
+        <div
+          className="fixed inset-0 z-40 bg-transparent"
+          onClick={() => {
+            setActiveMenuSessionId(null);
+          }}
+        />
+      )}
       <header className="shrink-0 border-b border-[#e8edf7] bg-white/72 px-4 pt-[max(env(safe-area-inset-top),10px)] pb-2 backdrop-blur-2xl">
         <div className="flex h-10 items-center justify-between">
           <button
@@ -142,44 +173,158 @@ export default function MobileSessionsPage({
             {visibleSessions.map((session, index) => {
               const selected = session.sessionId === selectedSessionId;
               const activityTime = formatSessionActivityTime(session.lastActivityAt);
+              const isEditing = editingSessionId === session.sessionId;
+              const isMenuActive = activeMenuSessionId === session.sessionId;
+
+              if (isEditing) {
+                const handleSave = () => {
+                  if (isCancellingRef.current) {
+                    isCancellingRef.current = false;
+                    return;
+                  }
+                  const trimmed = editingTitle.trim();
+                  if (trimmed && trimmed !== session.title) {
+                    void onUpdateSession(session.sessionId, { title: trimmed });
+                  }
+                  setEditingSessionId(null);
+                };
+
+                return (
+                  <div
+                    key={session.sessionId}
+                    className="flex w-full items-center gap-2 rounded-[18px] border border-[#2463eb] bg-white px-2.5 py-2 text-[#0d0d0d]"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <span
+                      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[13px] font-semibold ${
+                        avatarPalette[index % avatarPalette.length]
+                      }`}
+                    >
+                      {sessionInitial(session.title)}
+                    </span>
+                    <input
+                      type="text"
+                      value={editingTitle}
+                      onChange={(e) => setEditingTitle(e.target.value)}
+                      onBlur={handleSave}
+                      onFocus={(e) => e.target.select()}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          handleSave();
+                        } else if (e.key === "Escape") {
+                          isCancellingRef.current = true;
+                          setEditingSessionId(null);
+                        }
+                      }}
+                      className="min-w-0 flex-1 bg-transparent py-0.5 text-[14px] font-medium text-[#0d0d0d] outline-none"
+                      autoFocus
+                      maxLength={120}
+                    />
+                  </div>
+                );
+              }
+
               return (
-                <button
+                <div
                   key={session.sessionId}
-                  type="button"
-                  onClick={() => onSelectSession(session.sessionId)}
-                  className={`flex w-full items-center gap-2.5 rounded-[18px] border px-2.5 py-2 text-left shadow-[0_10px_28px_rgba(44,63,123,0.05)] backdrop-blur-xl active:scale-[0.992] ${
+                  className={`relative flex w-full items-center gap-2.5 rounded-[18px] border px-2.5 py-2 text-left shadow-[0_10px_28px_rgba(44,63,123,0.05)] backdrop-blur-xl transition-all ${
                     selected
                       ? "border-[#7d8cff] bg-white/88 ring-1 ring-[#5976ff]/30"
                       : "border-white/70 bg-white/64 active:bg-white/88"
-                  }`}
+                  } ${isMenuActive ? "z-50" : "z-10"}`}
                 >
-                  <span
-                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[13px] font-semibold ${
-                      avatarPalette[index % avatarPalette.length]
-                    }`}
+                  <button
+                    type="button"
+                    onClick={() => onSelectSession(session.sessionId)}
+                    className="flex min-w-0 flex-1 items-center gap-2.5 py-0.5 text-left transition-transform outline-none active:scale-[0.992]"
                   >
-                    {sessionInitial(session.title)}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="flex min-w-0 items-center gap-2">
-                      <span className="truncate text-[14px] leading-5 font-semibold text-[#111827]">
-                        {session.title}
+                    <span
+                      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[13px] font-semibold ${
+                        avatarPalette[index % avatarPalette.length]
+                      }`}
+                    >
+                      {sessionInitial(session.title)}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className="truncate text-[14px] leading-5 font-semibold text-[#111827]">
+                          {session.title}
+                        </span>
+                        {session.pinned ? (
+                          <Pin size={12} className="shrink-0 text-[#7a8496]" />
+                        ) : null}
+                        <SessionAttentionDot attention={session.attention} reserveSpace />
                       </span>
-                      {session.pinned ? (
-                        <Pin size={12} className="shrink-0 text-[#7a8496]" />
-                      ) : null}
-                      <SessionAttentionDot attention={session.attention} reserveSpace />
+                      <span className="mt-0.5 block truncate text-[11px] leading-4 text-[#7a8496]">
+                        {sessionPreview(session)}
+                      </span>
                     </span>
-                    <span className="mt-0.5 block truncate text-[11px] leading-4 text-[#7a8496]">
-                      {sessionPreview(session)}
-                    </span>
-                  </span>
-                  {activityTime ? (
-                    <span className="shrink-0 self-start pt-0.5 font-[family-name:var(--font-mono)] text-[9px] text-[#98a2b3]">
-                      {activityTime}
-                    </span>
-                  ) : null}
-                </button>
+                    {activityTime ? (
+                      <span className="shrink-0 self-start pt-0.5 font-[family-name:var(--font-mono)] text-[9px] text-[#98a2b3]">
+                        {activityTime}
+                      </span>
+                    ) : null}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveMenuSessionId(
+                        activeMenuSessionId === session.sessionId ? null : session.sessionId
+                      );
+                    }}
+                    className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-transparent text-[#6b7280] active:bg-[#eef3ff] ${
+                      activeMenuSessionId === session.sessionId ? "bg-[#eef3ff] text-[#0d0d0d]" : ""
+                    }`}
+                    title="Session options"
+                  >
+                    <MoreHorizontal size={18} strokeWidth={2.4} />
+                  </button>
+
+                  {activeMenuSessionId === session.sessionId && (
+                    <div className="animate-in fade-in-50 zoom-in-95 absolute top-11 right-2.5 z-50 w-36 rounded-2xl border border-[#e2e8f0] bg-white p-1.5 shadow-[0_12px_36px_-4px_rgba(0,0,0,0.12),0_4px_16px_-2px_rgba(0,0,0,0.06)] duration-100">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void onUpdateSession(session.sessionId, { pinned: !session.pinned });
+                          setActiveMenuSessionId(null);
+                        }}
+                        className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] active:bg-[#f3f4f6]"
+                      >
+                        <Pin size={13} className="shrink-0 text-[#6b7280]" />
+                        {session.pinned ? "Unpin" : "Pin"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingSessionId(session.sessionId);
+                          setEditingTitle(session.title);
+                          setActiveMenuSessionId(null);
+                        }}
+                        className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] active:bg-[#f3f4f6]"
+                      >
+                        <Edit3 size={13} className="shrink-0 text-[#6b7280]" />
+                        Rename
+                      </button>
+                      <div className="my-1 border-t border-[#e2e8f0]" />
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteSession(session.sessionId, e);
+                          setActiveMenuSessionId(null);
+                        }}
+                        className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#cf222e] active:bg-[#ffebe9]"
+                      >
+                        <Trash2 size={13} className="shrink-0 text-[#cf222e]" />
+                        Delete
+                      </button>
+                    </div>
+                  )}
+                </div>
               );
             })}
           </div>

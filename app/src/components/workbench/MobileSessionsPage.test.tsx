@@ -31,6 +31,8 @@ function renderMobileSessionsPage(
       selectedSessionId="srv-1"
       onNewSession={noop}
       onSelectSession={noop}
+      onDeleteSession={noop}
+      onUpdateSession={async () => {}}
       {...overrides}
     />
   );
@@ -43,7 +45,8 @@ function testRendersChatAppStyleSessionList() {
   assert.match(html, /aria-label="Search sessions"/);
   assert.match(html, /aria-label="New session"/);
   assert.match(html, />Mobile redesign</);
-  assert.match(html, /4 messages · 2 files · idle/);
+  assert.match(html, /4 messages · 2 files/);
+  assert.doesNotMatch(html, /idle/);
   assert.match(html, /pb-\[calc\(88px\+env\(safe-area-inset-bottom\)\)\]/);
 }
 

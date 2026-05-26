@@ -18,7 +18,10 @@ function renderExplorer(overrides: Partial<React.ComponentProps<typeof Workspace
   return renderToStaticMarkup(<WorkspaceExplorer {...props} />);
 }
 
-function renderExplorerWithStoredSplitPercent(storedValue: string) {
+function renderExplorerWithStoredSplitPercent(
+  storedValue: string,
+  overrides: Partial<React.ComponentProps<typeof WorkspaceExplorer>> = {}
+) {
   const globalWithWindow = globalThis as typeof globalThis & { window?: unknown };
   const previousWindow = globalWithWindow.window;
 
@@ -33,7 +36,7 @@ function renderExplorerWithStoredSplitPercent(storedValue: string) {
   });
 
   try {
-    return renderExplorer();
+    return renderExplorer(overrides);
   } finally {
     if (previousWindow === undefined) {
       Reflect.deleteProperty(globalWithWindow, "window");
@@ -92,13 +95,24 @@ function testWorkspaceExplorerSourceSupportsDropUploadAndFileDownload() {
   assert.match(source, /onDrop/);
   assert.match(source, /onDragOver/);
   assert.match(source, /downloadWorkspaceFile/);
-  assert.match(source, /aria-label=\{`Download \$\{entry\.name\}`\}/);
+  assert.match(source, /aria-label=\{`More actions for \$\{entry\.name\}`\}/);
 }
 
 testWorkspaceExplorerSourceSupportsDropUploadAndFileDownload();
 
 function testWorkspaceExplorerSplitStaysInsidePanelBounds() {
-  const html = renderExplorerWithStoredSplitPercent("120");
+  const html = renderExplorerWithStoredSplitPercent("120", {
+    testInitialPreview: {
+      path: "/workspace/notes.txt",
+      name: "notes.txt",
+      size_bytes: 123,
+      modified_at: "2026-05-17T00:00:00Z",
+      mime_type: "text/plain",
+      encoding: "utf-8",
+      content: "test content",
+      truncated: false,
+    },
+  });
 
   assert.match(html, /grid-template-rows:minmax\(0,1fr\) 0px/);
   assert.match(html, /aria-label="Show preview panel"/);

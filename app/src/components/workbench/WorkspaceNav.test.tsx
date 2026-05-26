@@ -191,7 +191,7 @@ function testRendersSettingsButtonWithCorrectUserLabel() {
 function testRendersWorkspaceUserLabel() {
   const html = renderWorkspaceNav({ userId: "workspace-user-id-xyz" });
   assert.match(html, /workspace-user-id-xyz/);
-  assert.match(html, /Workspace user/);
+  assert.match(html, /Active Sandbox/);
 }
 
 testRendersPinnedSessionWithIcon();

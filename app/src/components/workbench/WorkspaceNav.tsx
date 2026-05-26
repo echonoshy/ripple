@@ -4,6 +4,7 @@ import React from "react";
 import {
   AlertTriangle,
   Check,
+  ChevronsUpDown,
   Cpu,
   Edit3,
   HardDrive,
@@ -14,6 +15,7 @@ import {
   Plus,
   Settings,
   Trash2,
+  User,
   X,
 } from "lucide-react";
 import RippleIcon from "@/components/icons/RippleIcon";
@@ -555,15 +557,30 @@ export default function WorkspaceNav({
           <button
             type="button"
             onClick={() => setIsUserMenuOpen(true)}
-            className="flex w-full items-center gap-3 rounded-lg px-1 py-1.5 text-left hover:bg-white"
+            className="group flex w-full items-center gap-3 rounded-xl border border-transparent bg-[#fbfbfc]/40 p-2 text-left transition-all duration-300 hover:border-[#0d0d0d]/10 hover:bg-white hover:shadow-[0_4px_12px_rgba(0,0,0,0.02)]"
           >
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#2463eb] text-xs font-semibold text-white">
-              {userId.slice(0, 2).toUpperCase()}
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm font-medium text-[#0d0d0d]">{userId}</span>
-              <span className="block truncate text-xs text-[#6b7280]">Workspace user</span>
-            </span>
+            <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[#0d0d0d]/10 bg-white shadow-[0_2px_6px_rgba(0,0,0,0.04)] transition-all duration-300 group-hover:scale-[1.02] group-hover:border-[#0d0d0d]/20">
+              <User
+                size={15}
+                className="text-[#374151] transition-colors group-hover:text-[#0d0d0d]"
+              />
+              <span className="absolute -right-0.5 -bottom-0.5 flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex h-2 w-2 rounded-full border border-white bg-emerald-500"></span>
+              </span>
+            </div>
+            <div className="min-w-0 flex-1">
+              <span className="block truncate text-[13px] font-semibold text-[#374151] transition-colors group-hover:text-[#0d0d0d]">
+                {userId}
+              </span>
+              <span className="mt-0.5 block truncate font-mono text-[9px] font-medium tracking-wider text-slate-400 uppercase">
+                Active Sandbox
+              </span>
+            </div>
+            <ChevronsUpDown
+              size={13}
+              className="ml-auto shrink-0 text-[#8b8f94] transition-colors group-hover:text-[#374151]"
+            />
           </button>
         )}
       </div>

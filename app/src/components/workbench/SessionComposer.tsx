@@ -215,8 +215,8 @@ export default function SessionComposer({
   };
 
   return (
-    <div className="shrink-0 border-t border-[#e8edf7] bg-white/76 px-3 pt-1.5 pb-[max(env(safe-area-inset-bottom),10px)] shadow-[0_-14px_32px_rgba(44,63,123,0.08)] backdrop-blur-2xl sm:px-5 sm:pt-3 md:px-8 lg:pb-[max(env(safe-area-inset-bottom),20px)]">
-      <div className="mx-auto max-w-4xl rounded-[24px] border border-[#dfe6f4] bg-white/92 p-1.5 shadow-[0_12px_30px_rgba(44,63,123,0.12)] transition-colors focus-within:border-[#8da0ff] sm:rounded-2xl sm:p-2">
+    <div className="shrink-0 border-t border-[#e8edf7] bg-white/76 px-3 pt-1 pb-[max(env(safe-area-inset-bottom),8px)] shadow-[0_-14px_32px_rgba(44,63,123,0.08)] backdrop-blur-2xl sm:px-4 sm:pt-2 md:px-6 lg:pb-[max(env(safe-area-inset-bottom),12px)]">
+      <div className="mx-auto max-w-4xl rounded-[20px] border border-[#dfe6f4] bg-white/92 p-1.5 shadow-[0_12px_30px_rgba(44,63,123,0.12)] transition-colors focus-within:border-[#8da0ff] sm:rounded-2xl sm:p-1.5">
         <input
           ref={fileInputRef}
           type="file"
@@ -291,7 +291,7 @@ export default function SessionComposer({
                     ? "Ask Codex..."
                     : "Ask Codex..."
             }
-            className="session-composer-input max-h-[104px] min-h-9 min-w-0 flex-1 resize-none bg-transparent px-1.5 py-1 text-[16px] leading-5 text-[#111827] outline-none placeholder:text-[#9aa3af] disabled:opacity-60 sm:max-h-[180px] sm:min-h-[44px] sm:w-full sm:px-2 sm:py-2 sm:text-[14px] sm:leading-6 sm:placeholder:text-[#8b8f94]"
+            className="session-composer-input max-h-[104px] min-h-9 min-w-0 flex-1 resize-none bg-transparent px-1.5 py-1 text-[16px] leading-5 text-[#111827] outline-none placeholder:text-[#9aa3af] disabled:opacity-60 sm:max-h-[180px] sm:min-h-[36px] sm:w-full sm:px-2 sm:py-1.5 sm:text-[14px] sm:leading-6 sm:placeholder:text-[#8b8f94]"
           />
           {isGenerating || isBlocked ? (
             <button
@@ -339,7 +339,7 @@ export default function SessionComposer({
             ))}
           </div>
         )}
-        <div className="hidden items-center justify-between gap-2 pt-0.5 sm:flex sm:pt-1">
+        <div className="hidden items-center justify-between gap-2 pt-0.5 sm:flex sm:pt-0.5">
           <div className="flex items-center gap-1">
             <div ref={quickActionsRef} className="relative">
               {isQuickActionsOpen && (

@@ -1,0 +1,6 @@
+{
+  "default": "../../assets/ripple-icon.svg",
+  "bg_color": "#faf9f5",
+  "android_fg": "icons/android-ripple-foreground.svg",
+  "android_fg_scale": 72
+}

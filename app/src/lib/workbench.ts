@@ -268,7 +268,7 @@ function runtimeBody(event: CodexRuntimeEvent): string {
     return runtimeDiffSummary(event);
   }
   if (event.type === "context_compaction") {
-    return "Codex compacted conversation context.";
+    return "Compacted conversation context.";
   }
   return stringifyRuntimeBody(event);
 }
@@ -278,11 +278,11 @@ function runtimeTitle(event: CodexRuntimeEvent): string {
     return event.kind === "file_change" ? "File output" : "Command output";
   }
   if (event.type === "file_change_patch_updated") return "File patch updated";
-  if (event.type === "codex_warning") return "Codex warning";
-  if (event.type === "codex_error") return "Codex error";
+  if (event.type === "codex_warning") return "System warning";
+  if (event.type === "codex_error") return "System error";
   if (event.type === "context_compaction") return "Context compacted";
   if (event.type === "codex_turn_diff_updated") return "Workspace diff";
-  return "Codex runtime update";
+  return "Runtime update";
 }
 
 function runtimeTimelineType(event: CodexRuntimeEvent): WorkbenchTimelineEvent["type"] {
@@ -497,7 +497,7 @@ export function messagesToTimelineEvents(
       events.push({
         id,
         type: hasTools ? "final_summary" : "assistant_message",
-        title: hasTools ? "Codex response" : "Codex update",
+        title: hasTools ? "Response" : "Update",
         body: message.content,
         createdAt: message.created_at,
       });

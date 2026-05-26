@@ -8,7 +8,6 @@ import {
   Pin,
   Plus,
   Search,
-  SquarePen,
   MoreHorizontal,
   Edit3,
   Trash2,
@@ -105,7 +104,7 @@ export default function MobileSessionsPage({
             onClick={() => setIsSearching((open) => !open)}
             className="inline-flex h-9 w-9 items-center justify-center rounded-full text-[#172033] active:bg-[#eef3ff]"
           >
-            <Search size={21} strokeWidth={2.45} />
+            <Search size={20} strokeWidth={2.2} />
           </button>
           <h1 className="text-[18px] leading-none font-semibold tracking-normal">Sessions</h1>
           <button
@@ -115,7 +114,7 @@ export default function MobileSessionsPage({
             onClick={onNewSession}
             className="inline-flex h-9 w-9 items-center justify-center rounded-full text-[#172033] active:bg-[#eef3ff]"
           >
-            <SquarePen size={21} strokeWidth={2.45} />
+            <Plus size={20} strokeWidth={2.2} />
           </button>
         </div>
         {isSearching ? (
@@ -247,7 +246,7 @@ export default function MobileSessionsPage({
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="flex min-w-0 items-center gap-2">
-                        <span className="truncate text-[14px] leading-5 font-semibold text-[#111827]">
+                        <span className="truncate text-[14px] leading-5 font-medium text-[#111827]">
                           {session.title}
                         </span>
                         {session.pinned ? (

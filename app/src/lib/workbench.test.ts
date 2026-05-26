@@ -309,7 +309,7 @@ function testPlacesAssistantContentAfterItsToolCalls() {
   assert.equal(events.length, 2);
   assert.equal(events[0].type, "tool_call");
   assert.equal(events[1].type, "final_summary");
-  assert.equal(events[1].title, "Codex response");
+  assert.equal(events[1].title, "Response");
   assert.equal(events[1].body, "Done.\n\n- One\n- Two");
 }
 
@@ -379,7 +379,7 @@ function testMapsCodexRuntimeEventsIntoTimelineEvents() {
     { id: "runtime-3" }
   );
   assert.equal(warningEvent.type, "warning");
-  assert.equal(warningEvent.title, "Codex warning");
+  assert.equal(warningEvent.title, "System warning");
   assert.equal(warningEvent.body, "context is getting full");
 
   const compactEvent = codexRuntimeEventToTimelineEvent(

@@ -26,11 +26,9 @@ function renderHomePage() {
     <HomePage
       userId="default"
       sessions={sessions}
-      isLoadingSessions={false}
-      onNewSession={noop}
-      onSelectSession={noop}
       onSelectView={noop}
       onOpenSettings={noop}
+      onUserIdChange={noop}
     />
   );
 }
@@ -46,7 +44,7 @@ function testHomeHasMobileSpecificCopy() {
   assert.match(html, />Automations/);
   assert.match(html, />API endpoint/);
   assert.match(html, /http:\/\/140\.143\.229\.103:8810\/v1/);
-  assert.match(html, />Recent sessions</);
+  assert.match(html, />Sandbox Status</);
   assert.doesNotMatch(html, />Tasks</);
   assert.doesNotMatch(html, /tasks yet/);
 }

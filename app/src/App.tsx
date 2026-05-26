@@ -379,7 +379,7 @@ export default function Home() {
       sessionId && !selectedExistingSession
         ? {
             sessionId,
-            title: "Current Codex session",
+            title: "Current session",
             pinned: false,
             status: selectedSessionRuntimeStatus || ("idle" as const),
             model: selectedModel,
@@ -407,7 +407,7 @@ export default function Home() {
         )
         .map((activeSessionId) => ({
           sessionId: activeSessionId,
-          title: "Running Codex session",
+          title: "Running session",
           pinned: false,
           status: "running" as const,
           model: selectedModel,
@@ -444,11 +444,9 @@ export default function Home() {
       <HomePage
         userId={userId}
         sessions={displayWorkbenchSessions}
-        isLoadingSessions={isLoadingSessions}
-        onNewSession={handleNewSession}
-        onSelectSession={(selectedSessionId) => void handleSwitchSession(selectedSessionId)}
         onSelectView={handleSelectView}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        onUserIdChange={handleUserIdChange}
       />
     ) : activeView === "files" ? (
       <FilesPage userId={userId} refreshToken={workspaceRefreshToken} />

@@ -91,7 +91,7 @@ export default function SessionTimeline({
           </span>
           <div className="text-[12px] font-semibold text-[#111827]">Ready</div>
           <div className="mt-1 max-w-xl text-[12px] leading-5 text-[#667085]">
-            Start a session and Codex activity will appear here as a timeline.
+            Start a session and your workspace activity will appear here as a timeline.
           </div>
         </div>
       </div>
@@ -169,7 +169,7 @@ export default function SessionTimeline({
             <Bot size={13} />
             {feishuAuthWaiting
               ? `正在等待浏览器中的${feishuAuthWaiting.label}完成... 已等待 ${feishuAuthWaiting.elapsedSeconds} 秒`
-              : "Codex is starting work..."}
+              : "Starting work..."}
           </div>
         </article>
       )}

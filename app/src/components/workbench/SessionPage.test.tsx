@@ -60,7 +60,7 @@ function renderSessionPageWithTimelineContent() {
         {
           id: "assistant-1",
           type: "assistant_message",
-          title: "Codex update",
+          title: "Update",
           body: "A wider timeline body should use the available session content width.",
         },
       ]}

@@ -21,6 +21,7 @@ import type {
 } from "@/types";
 import type { FeishuAuthOpenPayload, FeishuAuthWaitingState } from "@/components/MarkdownRenderer";
 import type { ChatFileRef } from "@/lib/chatInput";
+import { formatModelName } from "@/lib/models";
 import SessionComposer from "./SessionComposer";
 import SessionTimeline from "./SessionTimeline";
 
@@ -192,7 +193,9 @@ export default function SessionPage({
                 isGenerating ? "animate-pulse bg-[#2f6bff]" : "bg-[#2fbf71]"
               }`}
             />
-            <span className="truncate">{isGenerating ? "Codex is working" : selectedModel}</span>
+            <span className="truncate">
+              {isGenerating ? "Working..." : formatModelName(selectedModel)}
+            </span>
           </div>
         </div>
         <div className="flex items-center justify-end gap-1">
@@ -217,7 +220,6 @@ export default function SessionPage({
           </button>
         </div>
       </div>
-
 
       {isSessionSettingsOpen && (
         <div className="absolute inset-0 z-40 flex justify-end bg-[#172033]/14 backdrop-blur-[1px]">

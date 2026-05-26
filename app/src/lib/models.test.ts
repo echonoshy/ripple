@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { sortModelOptions } from "./models";
+import { sortModelOptions, formatModelName } from "./models";
 
 function testSortsCodexPresetsByReasoningEffort() {
   const sorted = sortModelOptions([
@@ -29,7 +29,21 @@ function testKeepsUnknownModelsInBackendOrder() {
   );
 }
 
+function testFormatModelNameKnown() {
+  assert.equal(formatModelName("codex-low"), "Standard");
+  assert.equal(formatModelName("codex-medium"), "Balanced");
+  assert.equal(formatModelName("codex-high"), "Pro");
+  assert.equal(formatModelName("codex-xhigh"), "Expert");
+}
+
+function testFormatModelNameFallback() {
+  assert.equal(formatModelName("custom-model"), "custom-model");
+  assert.equal(formatModelName(""), "");
+}
+
 testSortsCodexPresetsByReasoningEffort();
 testKeepsUnknownModelsInBackendOrder();
+testFormatModelNameKnown();
+testFormatModelNameFallback();
 
 console.log("model sorting tests passed");

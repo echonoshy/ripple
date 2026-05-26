@@ -3,6 +3,17 @@ export interface ModelOption {
   owned_by: string;
 }
 
+export const MODEL_DISPLAY_MAPPING: Record<string, string> = {
+  "codex-low": "Standard",
+  "codex-medium": "Balanced",
+  "codex-high": "Pro",
+  "codex-xhigh": "Expert",
+};
+
+export function formatModelName(id: string): string {
+  return MODEL_DISPLAY_MAPPING[id] ?? id;
+}
+
 const CODEX_MODEL_ORDER = ["codex-low", "codex-medium", "codex-high", "codex-xhigh"];
 const MODEL_ORDER_RANK = new Map(CODEX_MODEL_ORDER.map((id, index) => [id, index]));
 

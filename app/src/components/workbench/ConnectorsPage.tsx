@@ -219,7 +219,7 @@ export default function ConnectorsPage({
                   <h2 className="text-[13px] font-semibold text-[#111827]">{section.title}</h2>
                   <p className="mt-1 text-[11px] leading-4 text-[#667085]">
                     {section.kind === "runtime_capability"
-                      ? "Server-side Codex capabilities shared by the runtime."
+                      ? "Server-side capabilities shared by the runtime."
                       : "Per-user credentials stored inside the current sandbox boundary."}
                   </p>
                 </div>

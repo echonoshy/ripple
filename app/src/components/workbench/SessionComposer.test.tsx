@@ -38,8 +38,8 @@ function renderComposer(overrides: Partial<React.ComponentProps<typeof SessionCo
 function testShowsSelectedModelAndMenuOptions() {
   const html = renderComposer();
 
-  assert.match(html, />codex-high</);
-  assert.match(html, />codex-medium</);
+  assert.match(html, />Pro</);
+  assert.match(html, />Balanced</);
   assert.doesNotMatch(html, />Codex</);
 }
 

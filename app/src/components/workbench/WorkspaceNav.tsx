@@ -596,6 +596,7 @@ export default function WorkspaceNav({
           <button
             type="button"
             onClick={() => setIsUserMenuOpen(true)}
+            aria-label={`Settings for ${userId}`}
             className="group flex w-full items-center gap-3 rounded-xl border border-transparent bg-[#fbfbfc]/40 p-2 text-left transition-all duration-300 hover:border-[#0d0d0d]/10 hover:bg-white hover:shadow-[0_4px_12px_rgba(0,0,0,0.02)]"
           >
             <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[#0d0d0d]/10 bg-white shadow-[0_2px_6px_rgba(0,0,0,0.04)] transition-all duration-300 group-hover:scale-[1.02] group-hover:border-[#0d0d0d]/20">

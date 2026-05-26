@@ -436,7 +436,6 @@ export default function Home() {
         userId={userId}
         sessions={displayWorkbenchSessions}
         isLoadingSessions={isLoadingSessions}
-        selectedModel={selectedModel}
         onNewSession={handleNewSession}
         onSelectSession={(selectedSessionId) => void handleSwitchSession(selectedSessionId)}
         onSelectView={handleSelectView}

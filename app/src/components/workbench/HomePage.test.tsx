@@ -27,7 +27,6 @@ function renderHomePage() {
       userId="default"
       sessions={sessions}
       isLoadingSessions={false}
-      selectedModel="codex-medium"
       onNewSession={noop}
       onSelectSession={noop}
       onSelectView={noop}

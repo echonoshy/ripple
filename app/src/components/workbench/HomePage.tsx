@@ -11,7 +11,6 @@ import {
   Plug,
   Plus,
   Server,
-  Settings,
   UserRound,
 } from "lucide-react";
 import { fetchConnectorStatuses, fetchConnectors, fetchCurrentSandbox } from "@/lib/api";
@@ -23,7 +22,6 @@ interface HomePageProps {
   userId: string;
   sessions: WorkbenchSessionSummary[];
   isLoadingSessions: boolean;
-  selectedModel: string;
   onNewSession: () => void;
   onSelectSession: (sessionId: string) => void;
   onSelectView: (view: WorkspaceView) => void;
@@ -54,7 +52,6 @@ export default function HomePage({
   userId,
   sessions,
   isLoadingSessions,
-  selectedModel,
   onNewSession,
   onSelectSession,
   onSelectView,
@@ -154,7 +151,6 @@ export default function HomePage({
           <div className="divide-y divide-[#e8edf7]">
             <SettingsInfo icon={<Server size={16} />} title="API endpoint" value={PUBLIC_API_URL} />
             <SettingsInfo icon={<UserRound size={16} />} title="User ID" value={userId} />
-            <SettingsInfo icon={<Settings size={16} />} title="Model" value={selectedModel} />
             <button
               type="button"
               onClick={onOpenSettings}

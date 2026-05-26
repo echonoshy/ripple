@@ -26,7 +26,7 @@ export default function FilesPage({ userId, refreshToken, onBack }: FilesPagePro
                 <ArrowLeft size={17} />
               </button>
             ) : null}
-            <h1 className="text-[19px] leading-7 font-semibold tracking-normal text-[#111827]">
+            <h1 className="text-[20px] leading-7 font-semibold tracking-normal text-[#111827]">
               Files
             </h1>
             <div className="font-[family-name:var(--font-mono)] text-[11px] text-[#7a8496]">

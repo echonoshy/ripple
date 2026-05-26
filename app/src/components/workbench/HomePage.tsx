@@ -99,7 +99,7 @@ export default function HomePage({
             <div className="flex items-center gap-2">
               <RippleIcon size={32} className="h-8 w-8 shrink-0 rounded-xl shadow-[0_10px_22px_rgba(64,92,255,0.24)]" />
               <div className="min-w-0">
-                <h1 className="text-[21px] leading-tight font-semibold tracking-normal">Ripple</h1>
+                <h1 className="text-[20px] leading-tight font-semibold tracking-normal">Ripple</h1>
                 <div className="text-[11px] text-[#7a8496]">Settings</div>
               </div>
             </div>

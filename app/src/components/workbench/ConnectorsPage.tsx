@@ -179,7 +179,7 @@ export default function ConnectorsPage({
               </button>
             ) : null}
             <div className="min-w-0">
-              <h1 className="text-[22px] leading-tight font-semibold tracking-normal">
+              <h1 className="text-[20px] leading-tight font-semibold tracking-normal">
                 <span className="sm:hidden">Connectors</span>
                 <span className="hidden sm:inline">Connectors</span>
               </h1>

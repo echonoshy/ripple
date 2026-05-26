@@ -241,7 +241,7 @@ export default function AutomationsPage({
               </button>
             ) : null}
             <div className="min-w-0">
-              <h1 className="text-[22px] leading-7 font-semibold tracking-normal">Automations</h1>
+              <h1 className="text-[20px] leading-7 font-semibold tracking-normal">Automations</h1>
               <div className="mt-1 font-[family-name:var(--font-mono)] text-[11px] text-[#7a8496]">
                 {schedules.length} total
               </div>

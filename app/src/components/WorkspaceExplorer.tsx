@@ -758,14 +758,14 @@ export default function WorkspaceExplorer({
               value={query}
               onChange={(event) => handleQueryChange(event.target.value)}
               placeholder="Find files by name..."
-              className="h-8 w-full rounded-md border border-[#e5e7eb] bg-white pr-2 pl-8 text-sm text-[#0d0d0d] outline-none placeholder:text-[#8b8f94] focus:border-[#2463eb]"
+              className="h-8 w-full rounded-full border border-[#e5e7eb] bg-white pr-2 pl-8 text-sm text-[#0d0d0d] outline-none placeholder:text-[#8b8f94] focus:border-[#8da0ff]"
             />
           </div>
           <button
             type="button"
-            className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border ${
+            className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border ${
               isFilterOpen
-                ? "border-[#2463eb] bg-[#eef4ff] text-[#0b57d0]"
+                ? "border-[#2f6bff]/30 bg-[#eef4ff] text-[#2f6bff]"
                 : "border-[#e5e7eb] bg-white text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
             }`}
             title="Search filters"
@@ -776,7 +776,7 @@ export default function WorkspaceExplorer({
           </button>
           <button
             type="button"
-            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#e5e7eb] bg-white text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d] disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#e5e7eb] bg-white text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d] disabled:cursor-not-allowed disabled:opacity-50"
             title="Upload files"
             aria-label="Upload files"
             disabled={uploading}
@@ -786,7 +786,7 @@ export default function WorkspaceExplorer({
           </button>
         </div>
         {isFilterOpen && (
-          <div className="mb-2 grid gap-2 rounded-md border border-[#e5e7eb] bg-[#fbfbfc] p-2 text-xs text-[#374151] sm:grid-cols-2">
+          <div className="mb-2 grid gap-2 rounded-2xl border border-[#e5e7eb] bg-[#fbfbfc] p-3 text-xs text-[#374151] sm:grid-cols-2 shadow-sm">
             <label className="flex items-center gap-2">
               <span className="w-16 text-[#6b7280]">Scope</span>
               <select
@@ -1212,7 +1212,7 @@ export default function WorkspaceExplorer({
       {contextMenu.visible && (
         <div
           style={{ top: contextMenu.y, left: contextMenu.x }}
-          className="fixed z-50 min-w-[160px] rounded-lg border border-[#e5e7eb] bg-white p-1.5 shadow-[0_4px_16px_rgba(0,0,0,0.08)] text-xs text-[#374151]"
+          className="fixed z-50 min-w-[160px] rounded-lg border border-[#e5e7eb] bg-white p-1.5 text-xs text-[#374151] shadow-[0_4px_16px_rgba(0,0,0,0.08)]"
           onClick={(e) => e.stopPropagation()}
           onContextMenu={(e) => e.preventDefault()}
         >
@@ -1224,28 +1224,30 @@ export default function WorkspaceExplorer({
                   if (contextMenu.entry) startRename(contextMenu.entry);
                   setContextMenu((prev) => ({ ...prev, visible: false }));
                 }}
-                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 hover:bg-[#f3f4f6] text-left"
+                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left hover:bg-[#f3f4f6]"
               >
                 <Edit3 size={13} /> Rename
               </button>
               <button
                 type="button"
                 onClick={() => contextMenu.entry && handleCut(contextMenu.entry)}
-                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 hover:bg-[#f3f4f6] text-left"
+                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left hover:bg-[#f3f4f6]"
               >
                 <Scissors size={13} /> Cut (Move)
               </button>
               <button
                 type="button"
                 onClick={() => contextMenu.entry && handleCopy(contextMenu.entry)}
-                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 hover:bg-[#f3f4f6] text-left"
+                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left hover:bg-[#f3f4f6]"
               >
                 <Copy size={13} /> Copy
               </button>
               <button
                 type="button"
-                onClick={() => contextMenu.entry && handleCopyAbsoluteSandboxPath(contextMenu.entry)}
-                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 hover:bg-[#f3f4f6] text-left font-[family-name:var(--font-mono)]"
+                onClick={() =>
+                  contextMenu.entry && handleCopyAbsoluteSandboxPath(contextMenu.entry)
+                }
+                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left font-[family-name:var(--font-mono)] hover:bg-[#f3f4f6]"
               >
                 <FileText size={13} /> Copy Sandbox Path
               </button>
@@ -1256,7 +1258,7 @@ export default function WorkspaceExplorer({
                     if (contextMenu.entry) void handleDownloadFile(contextMenu.entry.path);
                     setContextMenu((prev) => ({ ...prev, visible: false }));
                   }}
-                  className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 hover:bg-[#f3f4f6] text-left"
+                  className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left hover:bg-[#f3f4f6]"
                 >
                   <Download size={13} /> Download
                 </button>
@@ -1265,7 +1267,7 @@ export default function WorkspaceExplorer({
               <button
                 type="button"
                 onClick={() => contextMenu.entry && void handleDelete(contextMenu.entry)}
-                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 hover:bg-[#ffeef0] text-[#cf222e] text-left"
+                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-[#cf222e] hover:bg-[#ffeef0]"
               >
                 <Trash2 size={13} /> Delete
               </button>
@@ -1276,7 +1278,7 @@ export default function WorkspaceExplorer({
                 type="button"
                 disabled={!clipboard}
                 onClick={handlePaste}
-                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 hover:bg-[#f3f4f6] text-left disabled:opacity-40 disabled:cursor-not-allowed"
+                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left hover:bg-[#f3f4f6] disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Clipboard size={13} /> Paste {clipboard ? `(${clipboard.name})` : ""}
               </button>
@@ -1287,7 +1289,7 @@ export default function WorkspaceExplorer({
                   setCreationModal({ visible: true, kind: "file" });
                   setContextMenu((prev) => ({ ...prev, visible: false }));
                 }}
-                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 hover:bg-[#f3f4f6] text-left"
+                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left hover:bg-[#f3f4f6]"
               >
                 <FilePlus size={13} /> New File
               </button>
@@ -1297,7 +1299,7 @@ export default function WorkspaceExplorer({
                   setCreationModal({ visible: true, kind: "directory" });
                   setContextMenu((prev) => ({ ...prev, visible: false }));
                 }}
-                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 hover:bg-[#f3f4f6] text-left"
+                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left hover:bg-[#f3f4f6]"
               >
                 <FolderPlus size={13} /> New Folder
               </button>
@@ -1311,9 +1313,9 @@ export default function WorkspaceExplorer({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-[1px]">
           <form
             onSubmit={handleCreate}
-            className="w-80 rounded-xl border border-[#e5e7eb] bg-white p-4 shadow-xl"
+            className="w-80 rounded-2xl border border-[#dfe6f4] bg-white p-5 shadow-2xl"
           >
-            <h3 className="mb-3 text-sm font-semibold text-[#0d0d0d]">
+            <h3 className="mb-3 text-sm font-semibold text-[#111827]">
               {creationModal.kind === "file" ? "Create New File" : "Create New Folder"}
             </h3>
             <input
@@ -1321,24 +1323,24 @@ export default function WorkspaceExplorer({
               value={creationDraft}
               onChange={(e) => setCreationDraft(e.target.value)}
               placeholder={creationModal.kind === "file" ? "e.g. main.py" : "e.g. src_folder"}
-              className="mb-4 h-9 w-full rounded-md border border-[#e5e7eb] bg-white px-3 text-sm outline-none focus:border-[#2463eb]"
+              className="mb-4 h-9 w-full rounded-full border border-[#dfe6f4] bg-white px-4 text-sm outline-none focus:border-[#8da0ff]"
               disabled={creationSaving}
             />
-            <div className="flex justify-end gap-2 text-xs font-medium">
+            <div className="flex justify-end gap-2 text-xs font-semibold">
               <button
                 type="button"
                 onClick={() => {
                   setCreationModal(null);
                   setCreationDraft("");
                 }}
-                className="rounded-md border border-[#e5e7eb] bg-white px-3 py-1.5 text-[#374151] hover:bg-[#f9fafb]"
+                className="rounded-full border border-[#dfe6f4] bg-white px-4 py-1.5 text-[#374151] hover:bg-[#f9fafb] transition-all duration-200"
                 disabled={creationSaving}
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                className="rounded-md bg-[#2463eb] px-3 py-1.5 text-white hover:bg-[#1d4ed8]"
+                className="rounded-full bg-[linear-gradient(135deg,#2f6bff,#7b5cff)] px-4 py-1.5 text-white shadow-[0_8px_18px_rgba(64,92,255,0.18)] hover:brightness-110 active:scale-[0.98] transition-all duration-200"
                 disabled={creationSaving}
               >
                 {creationSaving ? "Creating..." : "Create"}

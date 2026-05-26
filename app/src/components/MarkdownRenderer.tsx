@@ -213,7 +213,7 @@ function FeishuCard({
     ? "完成后 Ripple 会自动打开第 2 步授权链接。"
     : "授权完成后 Ripple 会自动继续当前任务。";
   const Icon = isSetup ? Settings2 : KeyRound;
-  const accentClass = isSetup ? "bg-[#ddf4ff] text-[#0969da]" : "bg-[#dafbe1] text-[#1a7f37]";
+  const accentClass = isSetup ? "bg-[#eef3ff]/60 text-[#2f6bff]" : "bg-[#dafbe1]/60 text-[#1a7f37]";
   const href = resolveBackendUrl(url) || url;
   const isWaiting =
     waiting?.connector === "feishu" && (waiting.url === href || waiting.url === url);
@@ -229,8 +229,8 @@ function FeishuCard({
   };
 
   return (
-    <div className="my-2 overflow-hidden rounded-lg border border-[#e5e7eb] bg-white">
-      <div className={`flex items-center gap-2 border-b border-[#e5e7eb] px-4 py-3 ${accentClass}`}>
+    <div className="my-3 overflow-hidden rounded-2xl border border-[#dfe6f4] bg-white/74 backdrop-blur-xl shadow-[0_12px_30px_rgba(44,63,123,0.06)]">
+      <div className={`flex items-center gap-2 border-b border-[#dfe6f4] px-4 py-3 ${accentClass}`}>
         <Icon size={16} />
         <span className="text-sm font-semibold">{title}</span>
       </div>
@@ -241,14 +241,14 @@ function FeishuCard({
           target="_blank"
           rel="noopener noreferrer"
           onClick={handleOpen}
-          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[#0969da]/25 bg-[#ddf4ff] px-3 text-sm font-medium text-[#0969da] hover:bg-[#cbeeff]"
+          className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[#2f6bff]/25 bg-[#eef3ff] px-4 text-xs font-semibold text-[#2f6bff] hover:bg-[#dbeafe] transition-all duration-200 active:scale-[0.98]"
         >
           {isSetup ? "打开飞书页面" : "打开授权页面"}
           <ExternalLink size={13} />
         </a>
         <p className="text-xs font-medium text-[#6b7280]">{hint}</p>
         {isWaiting && (
-          <div className="flex items-start gap-2 rounded-md border border-[#0969da]/20 bg-[#f6fbff] px-3 py-2 text-xs font-medium text-[#374151]">
+          <div className="flex items-start gap-2 rounded-xl border border-[#0969da]/20 bg-[#f6fbff] px-3 py-2 text-xs font-medium text-[#374151]">
             <Loader2 size={13} className="mt-0.5 shrink-0 animate-spin text-[#0969da]" />
             <span>
               正在等待你在浏览器完成飞书操作，Ripple 会自动继续。已等待 {waiting.elapsedSeconds}{" "}
@@ -288,8 +288,8 @@ function GoogleAuthCard({
   };
 
   return (
-    <div className="my-2 overflow-hidden rounded-lg border border-[#e5e7eb] bg-white">
-      <div className="flex items-center gap-2 border-b border-[#e5e7eb] bg-[#eef4ff] px-4 py-3 text-[#2463eb]">
+    <div className="my-3 overflow-hidden rounded-2xl border border-[#dfe6f4] bg-white/74 backdrop-blur-xl shadow-[0_12px_30px_rgba(44,63,123,0.06)]">
+      <div className="flex items-center gap-2 border-b border-[#dfe6f4] bg-[#eef3ff]/60 px-4 py-3 text-[#2f6bff]">
         <KeyRound size={16} />
         <span className="text-sm font-semibold">授权 Google Workspace</span>
       </div>
@@ -302,13 +302,13 @@ function GoogleAuthCard({
           target="_blank"
           rel="noopener noreferrer"
           onClick={handleOpen}
-          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[#2463eb]/25 bg-[#eef4ff] px-3 text-sm font-medium text-[#2463eb] hover:bg-[#dbeafe]"
+          className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[#2f6bff]/25 bg-[linear-gradient(135deg,#2f6bff,#7b5cff)] px-4 text-xs font-semibold text-white shadow-[0_8px_20px_rgba(64,92,255,0.18)] hover:brightness-110 active:scale-[0.98] transition-all duration-200"
         >
           打开 Google 授权
           <ExternalLink size={13} />
         </a>
         {isWaiting && (
-          <div className="flex items-start gap-2 rounded-md border border-[#2463eb]/20 bg-[#f6fbff] px-3 py-2 text-xs font-medium text-[#374151]">
+          <div className="flex items-start gap-2 rounded-xl border border-[#2f6bff]/20 bg-[#f6fbff] px-3 py-2 text-xs font-medium text-[#374151]">
             <Loader2 size={13} className="mt-0.5 shrink-0 animate-spin text-[#2463eb]" />
             <span>
               正在等待你在浏览器完成 Google 授权，Ripple 会自动继续。已等待 {waiting.elapsedSeconds}{" "}
@@ -343,8 +343,8 @@ function BilibiliAuthCard({
   };
 
   return (
-    <div className="my-2 overflow-hidden rounded-lg border border-[#e5e7eb] bg-white">
-      <div className="flex items-center gap-2 border-b border-[#e5e7eb] bg-[#fff4e5] px-4 py-3 text-[#9a3412]">
+    <div className="my-3 overflow-hidden rounded-2xl border border-[#dfe6f4] bg-white/74 backdrop-blur-xl shadow-[0_12px_30px_rgba(44,63,123,0.06)]">
+      <div className="flex items-center gap-2 border-b border-[#dfe6f4] bg-[#fff4e5]/60 px-4 py-3 text-[#9a3412]">
         <QrCode size={16} />
         <span className="text-sm font-semibold">B 站扫码登录</span>
       </div>
@@ -357,7 +357,7 @@ function BilibiliAuthCard({
             src={qrSrc}
             alt="Bilibili login QR code"
             loading="lazy"
-            className="h-36 w-36 rounded-md border border-[#dde2ea] bg-white object-contain p-2"
+            className="h-36 w-36 rounded-xl border border-[#dfe6f4] bg-white object-contain p-2 shadow-sm"
           />
           <div className="min-w-0 flex-1 space-y-2">
             <a
@@ -365,7 +365,7 @@ function BilibiliAuthCard({
               target="_blank"
               rel="noopener noreferrer"
               onClick={handleOpen(href)}
-              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[#f97316]/25 bg-[#fff4e5] px-3 text-sm font-medium text-[#9a3412] hover:bg-[#ffedd5]"
+              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[#f97316]/25 bg-[#fff4e5] px-4 text-xs font-semibold text-[#9a3412] hover:bg-[#ffedd5] transition-all duration-200 active:scale-[0.98]"
             >
               打开 B 站授权链接
               <ExternalLink size={13} />
@@ -376,7 +376,7 @@ function BilibiliAuthCard({
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={handleOpen(appHref)}
-                className="ml-2 inline-flex h-8 items-center gap-1.5 rounded-md border border-[#d1d5db] bg-white px-3 text-sm font-medium text-[#374151] hover:bg-[#f7f8fa]"
+                className="ml-2 inline-flex h-8 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-4 text-xs font-semibold text-[#374151] hover:bg-[#f7f8fa] transition-all duration-200 active:scale-[0.98]"
               >
                 打开 B 站 App
                 <ExternalLink size={13} />

@@ -95,29 +95,29 @@ export default function SettingsModal({
             transition={{ type: "spring", stiffness: 420, damping: 34 }}
             className="pointer-events-none fixed inset-0 z-50 flex items-end justify-center p-3 sm:items-center sm:p-4"
           >
-            <div className="pointer-events-auto flex max-h-[calc(100dvh-24px)] w-full max-w-lg flex-col overflow-hidden rounded-lg border border-[#d0d7de] bg-white shadow-xl">
-              <div className="flex items-center justify-between border-b border-[#d0d7de] bg-[#f6f8fa] px-4 py-3">
-                <h2 className="text-sm font-semibold text-[#24292f]">Settings</h2>
+            <div className="pointer-events-auto flex max-h-[calc(100dvh-24px)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-[#dfe6f4] bg-white shadow-2xl">
+              <div className="flex items-center justify-between border-b border-[#dfe6f4] bg-white/74 px-4 py-3">
+                <h2 className="text-sm font-semibold text-[#111827]">Settings</h2>
                 <button
                   type="button"
                   onClick={onClose}
                   aria-label="Close settings"
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#d0d7de] bg-white text-[#57606a] hover:bg-[#f6f8fa] hover:text-[#24292f]"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[#dfe6f4] bg-white text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#111827]"
                 >
                   <X size={15} />
                 </button>
               </div>
 
               <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 pb-[max(env(safe-area-inset-bottom),16px)]">
-                <section className="rounded-md border border-[#d0d7de] bg-white p-4">
+                <section className="rounded-2xl border border-[#dfe6f4] bg-white/74 p-4 shadow-[0_12px_30px_rgba(44,63,123,0.06)]">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex min-w-0 items-center gap-3">
-                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[#d0d7de] bg-[#f6f8fa] text-[#57606a]">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[#dfe6f4] bg-[#f6f8ff] text-[#2457e6]">
                         <KeyRound size={17} />
                       </span>
                       <div className="min-w-0">
-                        <div className="text-sm font-semibold text-[#24292f]">API key</div>
-                        <div className="truncate font-[family-name:var(--font-mono)] text-xs text-[#6e7781]">
+                        <div className="text-sm font-semibold text-[#111827]">API key</div>
+                        <div className="truncate font-[family-name:var(--font-mono)] text-xs text-[#667085]">
                           {apiKey ? `${apiKey.slice(0, 6)}${"*".repeat(8)}` : "Not set"}
                         </div>
                       </div>
@@ -125,21 +125,21 @@ export default function SettingsModal({
                     <button
                       type="button"
                       onClick={onApiKeyChange}
-                      className="inline-flex h-8 items-center rounded-md border border-[#d0d7de] bg-white px-3 text-sm font-medium text-[#24292f] hover:bg-[#f6f8fa]"
+                      className="inline-flex h-8 items-center rounded-full border border-[#dfe6f4] bg-white px-4 text-sm font-semibold text-[#384152] hover:bg-[#f7f8fa] transition-all duration-200 active:scale-[0.98]"
                     >
                       Change
                     </button>
                   </div>
                 </section>
 
-                <section className="rounded-md border border-[#d0d7de] bg-white p-4">
+                <section className="rounded-2xl border border-[#dfe6f4] bg-white/74 p-4 shadow-[0_12px_30px_rgba(44,63,123,0.06)]">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex min-w-0 flex-1 items-center gap-3">
-                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[#d0d7de] bg-[#f6f8fa] text-[#57606a]">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[#dfe6f4] bg-[#f6f8ff] text-[#2457e6]">
                         <UserRound size={17} />
                       </span>
                       <div className="min-w-0">
-                        <div className="text-sm font-semibold text-[#24292f]">User ID</div>
+                        <div className="text-sm font-semibold text-[#111827]">User ID</div>
                         {isEditingUserId ? (
                           <input
                             type="text"
@@ -150,10 +150,10 @@ export default function SettingsModal({
                               if (event.key === "Enter") void handleSaveUserId();
                               if (event.key === "Escape") setIsEditingUserId(false);
                             }}
-                            className="mt-1 w-full min-w-[180px] rounded-md border border-[#d0d7de] px-2 py-1 font-[family-name:var(--font-mono)] text-xs text-[#24292f] outline-none focus:border-[#0969da] sm:w-48"
+                            className="mt-1 w-full min-w-[180px] rounded-full border border-[#dfe6f4] px-3 py-1 font-[family-name:var(--font-mono)] text-xs text-[#111827] outline-none focus:border-[#8da0ff] sm:w-48"
                           />
                         ) : (
-                          <div className="truncate font-[family-name:var(--font-mono)] text-xs text-[#6e7781]">
+                          <div className="truncate font-[family-name:var(--font-mono)] text-xs text-[#667085]">
                             {userId}
                           </div>
                         )}
@@ -164,14 +164,14 @@ export default function SettingsModal({
                         <button
                           type="button"
                           onClick={() => setIsEditingUserId(false)}
-                          className="inline-flex h-8 items-center rounded-md border border-[#d0d7de] bg-white px-3 text-sm font-medium text-[#24292f] hover:bg-[#f6f8fa]"
+                          className="inline-flex h-8 items-center rounded-full border border-[#dfe6f4] bg-white px-4 text-sm font-semibold text-[#384152] hover:bg-[#f7f8fa] transition-all duration-200"
                         >
                           Cancel
                         </button>
                         <button
                           type="button"
                           onClick={() => void handleSaveUserId()}
-                          className="inline-flex h-8 items-center rounded-md border border-[#0969da] bg-[#0969da] px-3 text-sm font-semibold text-white hover:bg-[#075dbd]"
+                          className="inline-flex h-8 items-center rounded-full bg-[linear-gradient(135deg,#2f6bff,#7b5cff)] px-4 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(64,92,255,0.2)] hover:brightness-110 active:scale-[0.98] transition-all duration-200"
                         >
                           Save
                         </button>
@@ -180,7 +180,7 @@ export default function SettingsModal({
                       <button
                         type="button"
                         onClick={handleStartEditUserId}
-                        className="inline-flex h-8 items-center rounded-md border border-[#d0d7de] bg-white px-3 text-sm font-medium text-[#24292f] hover:bg-[#f6f8fa]"
+                        className="inline-flex h-8 items-center rounded-full border border-[#dfe6f4] bg-white px-4 text-sm font-semibold text-[#384152] hover:bg-[#f7f8fa] transition-all duration-200 active:scale-[0.98]"
                       >
                         Change
                       </button>
@@ -191,33 +191,33 @@ export default function SettingsModal({
                   )}
                 </section>
 
-                <section className="rounded-md border border-[#d0d7de] bg-[#f6f8fa] p-4">
-                  <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[#24292f]">
+                <section className="rounded-2xl border border-[#dfe6f4] bg-white/74 p-4 shadow-[0_12px_30px_rgba(44,63,123,0.06)]">
+                  <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[#111827]">
                     <HardDrive size={16} />
                     Workspace
                   </div>
                   {sandboxLoading ? (
-                    <div className="flex items-center gap-2 text-sm text-[#6e7781]">
+                    <div className="flex items-center gap-2 text-sm text-[#667085]">
                       <Loader2 size={14} className="animate-spin" />
                       Loading
                     </div>
                   ) : sandbox ? (
                     <div className="grid grid-cols-2 gap-2">
-                      <div className="rounded-md border border-[#d0d7de] bg-white p-3">
-                        <div className="text-xs text-[#6e7781]">Files</div>
-                        <div className="mt-1 font-[family-name:var(--font-mono)] text-sm font-semibold text-[#24292f]">
+                      <div className="rounded-xl border border-[#dfe6f4] bg-white/80 p-3">
+                        <div className="text-xs text-[#667085]">Files</div>
+                        <div className="mt-1 font-[family-name:var(--font-mono)] text-sm font-semibold text-[#111827]">
                           {formatBytes(sandbox.workspace_size_bytes)}
                         </div>
                       </div>
-                      <div className="rounded-md border border-[#d0d7de] bg-white p-3">
-                        <div className="text-xs text-[#6e7781]">Sessions</div>
-                        <div className="mt-1 font-[family-name:var(--font-mono)] text-sm font-semibold text-[#24292f]">
+                      <div className="rounded-xl border border-[#dfe6f4] bg-white/80 p-3">
+                        <div className="text-xs text-[#667085]">Sessions</div>
+                        <div className="mt-1 font-[family-name:var(--font-mono)] text-sm font-semibold text-[#111827]">
                           {sandbox.session_count}
                         </div>
                       </div>
                     </div>
                   ) : (
-                    <div className="text-sm text-[#6e7781]">No workspace yet</div>
+                    <div className="text-sm text-[#667085]">No workspace yet</div>
                   )}
                 </section>
               </div>

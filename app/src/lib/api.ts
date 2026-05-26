@@ -1141,3 +1141,26 @@ export async function createWorkspaceEntry(
   return (await res.json()) as WorkspaceEntry;
 }
 
+export async function fetchUserProfile(): Promise<{
+  user_id: string;
+  usage?: {
+    workspace_size_bytes: number;
+    session_count: number;
+    runs_today: number;
+    active_runs: number;
+  };
+}> {
+  const res = await fetch(`${API_URL}/users/me`, { headers: { ...authHeaders() } });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) throw new Error("Failed to fetch user profile");
+  const data = (await res.json()) as unknown;
+  return data as {
+    user_id: string;
+    usage?: {
+      workspace_size_bytes: number;
+      session_count: number;
+      runs_today: number;
+      active_runs: number;
+    };
+  };
+}

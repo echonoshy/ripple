@@ -229,7 +229,7 @@ export default function SessionPage({
             type="button"
             onClick={onCopySessionId}
             title={sessionIdCopied ? "Copied" : `Copy session ID: ${sessionId}`}
-            className="pointer-events-auto inline-flex h-8 max-w-[180px] items-center gap-1.5 rounded-md border border-[#e5e7eb] bg-white/95 px-2 font-[family-name:var(--font-mono)] text-xs text-[#6b7280] shadow-[0_8px_24px_rgba(23,26,31,0.08)] backdrop-blur hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
+            className="pointer-events-auto inline-flex h-8 max-w-[180px] items-center gap-1.5 rounded-full border border-[#e5e7eb] bg-white/95 px-3 font-[family-name:var(--font-mono)] text-xs text-[#6b7280] shadow-[0_8px_24px_rgba(23,26,31,0.08)] backdrop-blur hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
           >
             <span className="truncate">{sessionId}</span>
             {sessionIdCopied ? (
@@ -275,7 +275,7 @@ export default function SessionPage({
                     value={settingsTitle}
                     onChange={(event) => setSettingsTitle(event.target.value)}
                     maxLength={120}
-                    className="h-10 w-full rounded-lg border border-[#dfe6f4] bg-white px-3 text-[14px] text-[#111827] outline-none focus:border-[#8da0ff]"
+                    className="h-10 w-full rounded-full border border-[#dfe6f4] bg-white px-4 text-[14px] text-[#111827] outline-none focus:border-[#8da0ff]"
                     autoFocus
                   />
                 </label>
@@ -284,7 +284,7 @@ export default function SessionPage({
                   type="button"
                   aria-pressed={settingsPinned}
                   onClick={() => setSettingsPinned((pinned) => !pinned)}
-                  className={`flex h-11 w-full items-center justify-between rounded-lg border px-3 text-left text-[14px] font-medium ${
+                  className={`flex h-11 w-full items-center justify-between rounded-full border px-4 text-left text-[14px] font-medium ${
                     settingsPinned
                       ? "border-[#9bb5ff] bg-[#eef4ff] text-[#0b57d0]"
                       : "border-[#dfe6f4] bg-white text-[#111827] hover:bg-[#f7f8fa]"
@@ -296,7 +296,7 @@ export default function SessionPage({
                   </span>
                   <span
                     className={`h-5 w-9 rounded-full p-0.5 transition-colors ${
-                      settingsPinned ? "bg-[#2463eb]" : "bg-[#d0d7e2]"
+                      settingsPinned ? "bg-[#2f6bff]" : "bg-[#d0d7e2]"
                     }`}
                   >
                     <span
@@ -308,7 +308,7 @@ export default function SessionPage({
                 </button>
 
                 {settingsError ? (
-                  <div className="flex items-start gap-2 rounded-lg border border-[#cf222e]/25 bg-[#ffebe9] px-3 py-2 text-[13px] font-medium text-[#cf222e]">
+                  <div className="flex items-start gap-2 rounded-xl border border-[#cf222e]/25 bg-[#ffebe9] px-3 py-2 text-[13px] font-medium text-[#cf222e]">
                     <AlertTriangle size={14} className="mt-0.5 shrink-0" />
                     <span className="min-w-0 break-words">{settingsError}</span>
                   </div>
@@ -319,7 +319,7 @@ export default function SessionPage({
                 <button
                   type="submit"
                   disabled={!sessionId || !settingsTitle.trim() || isSavingSettings}
-                  className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-[#2463eb] px-4 text-sm font-semibold text-white shadow-[0_10px_24px_rgba(36,99,235,0.18)] hover:bg-[#1d56d8] disabled:cursor-not-allowed disabled:bg-[#eef2f7] disabled:text-[#9aa3af] disabled:shadow-none"
+                  className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-full bg-[linear-gradient(135deg,#2f6bff,#7b5cff)] px-4 text-sm font-semibold text-white shadow-[0_12px_26px_rgba(64,92,255,0.24)] transition-all duration-200 hover:brightness-110 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-[#eef2f7] disabled:bg-none disabled:text-[#9aa3af] disabled:shadow-none"
                 >
                   {isSavingSettings ? <Loader2 size={15} className="animate-spin" /> : null}
                   Save

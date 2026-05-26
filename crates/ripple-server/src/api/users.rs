@@ -23,9 +23,11 @@ pub async fn current_user_profile(
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     state.sandboxes.ensure_sandbox(&user_id)?;
+    let usage = user_usage(&state, &user_id).await.unwrap_or(json!({}));
     Ok(Json(json!({
         "user_id": user_id,
-        "auth": auth.public_json()
+        "auth": auth.public_json(),
+        "usage": usage
     })))
 }
 

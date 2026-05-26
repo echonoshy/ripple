@@ -159,8 +159,11 @@ export default function WorkbenchShell({
   return (
     <div className="h-dvh h-screen min-h-dvh min-h-screen w-screen overflow-hidden bg-[radial-gradient(circle_at_5%_5%,rgba(36,99,235,0.035),transparent_40%),radial-gradient(circle_at_80%_10%,rgba(139,92,246,0.035),transparent_40%),#fbfdff] text-[#0d0d0d]">
       <div className="flex h-full min-h-0">
-        <div className="relative hidden shrink-0 bg-[#fbfbfc]/75 backdrop-blur-xl lg:block" style={{ width: navWidth }}>
-          <div className="absolute inset-0 pointer-events-none -z-10 bg-[radial-gradient(circle_at_15%_15%,rgba(36,99,235,0.03),transparent_50%)]" />
+        <div
+          className="relative hidden shrink-0 bg-[#fbfbfc]/75 backdrop-blur-xl lg:block"
+          style={{ width: navWidth }}
+        >
+          <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(circle_at_15%_15%,rgba(36,99,235,0.03),transparent_50%)]" />
           <div className="h-full border-r border-[#e5e7eb]/80">{nav}</div>
           <div
             role="separator"
@@ -186,8 +189,8 @@ export default function WorkbenchShell({
               className="absolute inset-0 bg-[#171a1f]/28"
               onClick={onCloseNav}
             />
-            <div className="absolute top-0 bottom-0 left-0 w-[min(86vw,320px)] border-r border-[#e5e7eb]/80 bg-[#fbfbfc]/85 backdrop-blur-2xl shadow-xl">
-              <div className="absolute inset-0 pointer-events-none -z-10 bg-[radial-gradient(circle_at_15%_15%,rgba(36,99,235,0.03),transparent_50%)]" />
+            <div className="absolute top-0 bottom-0 left-0 w-[min(86vw,320px)] border-r border-[#e5e7eb]/80 bg-[#fbfbfc]/85 shadow-xl backdrop-blur-2xl">
+              <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(circle_at_15%_15%,rgba(36,99,235,0.03),transparent_50%)]" />
               <div className="flex h-12 items-center justify-between border-b border-[#e5e7eb] px-3">
                 <span className="flex items-center gap-2 text-sm font-semibold">
                   <RippleIcon size={26} className="h-[26px] w-[26px] rounded-md" />

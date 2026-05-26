@@ -585,6 +585,7 @@ export default function Home() {
             sessionLoadError={sessionLoadError}
             isGenerating={isGenerating}
             userId={userId}
+            onUserIdChange={handleUserIdChange}
             onNewSession={handleNewSession}
             onSelectView={handleSelectView}
             onSelectSession={(selectedSessionId) => {

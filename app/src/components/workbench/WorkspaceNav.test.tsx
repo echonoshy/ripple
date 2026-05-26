@@ -27,6 +27,7 @@ function renderWorkspaceNav(overrides: Partial<React.ComponentProps<typeof Works
     isLoading: false,
     isGenerating: false,
     userId: "default",
+    onUserIdChange: noop,
     onNewSession: noop,
     onSelectView: noop,
     onSelectSession: noop,
@@ -187,9 +188,16 @@ function testRendersSettingsButtonWithCorrectUserLabel() {
   assert.match(html, /aria-label="Settings for user-alpha-99"/);
 }
 
+function testRendersWorkspaceUserLabel() {
+  const html = renderWorkspaceNav({ userId: "workspace-user-id-xyz" });
+  assert.match(html, /workspace-user-id-xyz/);
+  assert.match(html, /Workspace user/);
+}
+
 testRendersPinnedSessionWithIcon();
 testRendersUnpinnedSessionWithoutPinIcon();
 testRendersSessionOptionsButton();
 testRendersSettingsButtonWithCorrectUserLabel();
+testRendersWorkspaceUserLabel();
 
 console.log("workspace nav tests passed");

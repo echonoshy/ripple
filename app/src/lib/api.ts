@@ -169,6 +169,8 @@ const CODEX_RUNTIME_EVENT_TYPES = new Set<CodexRuntimeEvent["type"]>([
   "codex_turn_diff_updated",
   "tool_output_delta",
   "file_change_patch_updated",
+  "image_generation",
+  "image_view",
   "codex_warning",
   "codex_error",
   "context_compaction",

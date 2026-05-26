@@ -139,6 +139,9 @@ impl JobManager {
             "workspace_root": workspace_root
         });
         if let Some(object) = metadata.as_object_mut() {
+            if let Some(session_id) = &session_id {
+                object.insert("session_id".to_string(), json!(session_id));
+            }
             if let Some(schedule_id) = &create.schedule_id {
                 object.insert("schedule_id".to_string(), json!(schedule_id));
             }

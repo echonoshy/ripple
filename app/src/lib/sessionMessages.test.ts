@@ -94,7 +94,43 @@ function testMapsInternalMessagesAndPendingInteractions() {
   });
 }
 
+function testMapsGeneratedImageBlocksToArtifacts() {
+  const messages = mapSessionMessages(
+    makeSessionDetail({
+      messages: [
+        {
+          role: "assistant",
+          created_at: "2026-05-19T00:00:02.000Z",
+          content: [
+            { type: "text", text: "" },
+            {
+              type: "image",
+              workspace_path: "/workspace/.ripple/generated/img-1.png",
+              mime_type: "image/png",
+              size: 128,
+              revised_prompt: "studio toy photo",
+            },
+          ],
+        },
+      ],
+    })
+  );
+
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].content, "");
+  assert.deepEqual(messages[0].artifacts, [
+    {
+      type: "image",
+      workspacePath: "/workspace/.ripple/generated/img-1.png",
+      mimeType: "image/png",
+      size: 128,
+      revisedPrompt: "studio toy photo",
+    },
+  ]);
+}
+
 testExtractsTextAndAttachedFiles();
 testMapsInternalMessagesAndPendingInteractions();
+testMapsGeneratedImageBlocksToArtifacts();
 
 console.log("session messages tests passed");

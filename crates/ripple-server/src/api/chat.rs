@@ -378,8 +378,16 @@ async fn finish_codex_chat_response(
         ));
     }
     let output_text = read_run_output(&final_info).await;
+    let image_events =
+        collect_chat_image_events(&state, &user_id, &final_info, &workspace_root).await;
     record_codex_thread(&mut session, &final_info);
-    append_chat_messages(&mut session, user_content, &user_input, &output_text);
+    append_chat_messages_with_images(
+        &mut session,
+        user_content,
+        &user_input,
+        &output_text,
+        &image_events,
+    );
     record_usage(&mut session, &usage);
     session.status = "idle".to_string();
     session.pending_permission_request = None;
@@ -731,6 +739,7 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
         }
         let mut offset = 0_usize;
         let mut emitted = String::new();
+        let mut image_events = Vec::<Value>::new();
         let mut latest_usage = empty_usage();
         let mut agent_messages = AgentMessageTracker::default();
         let mut last_emit = now_epoch_seconds();
@@ -744,6 +753,7 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                     if let Some(image_event) =
                         extract_image_event(&state, &user_id, &event, &workspace_root).await
                     {
+                        image_events.push(image_event.clone());
                         yield Ok::<Bytes, Infallible>(sse_json(&image_event));
                         last_emit = now_epoch_seconds();
                         continue;
@@ -804,7 +814,13 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                         yield Ok::<Bytes, Infallible>(Bytes::from(chunk(&chunk_id, &model, created, json!({"content": output_text}), None)));
                     }
                     record_codex_thread(&mut session, &info);
-                    append_chat_messages(&mut session, user_content.clone(), &user_input, &emitted);
+                    append_chat_messages_with_images(
+                        &mut session,
+                        user_content.clone(),
+                        &user_input,
+                        &emitted,
+                        &image_events,
+                    );
                     record_usage(&mut session, &latest_usage);
                     session.status = "idle".to_string();
                     session.pending_permission_request = None;
@@ -933,8 +949,20 @@ async fn finalize_stale_completed_chat_run(
         .unwrap_or(Value::Null);
     let output_text = read_run_output(info).await;
     let usage = read_run_usage(info).await;
+    let image_events = match state.sandboxes.workspace_dir(&session.user_id) {
+        Ok(workspace_root) => {
+            collect_chat_image_events(state, &session.user_id, info, &workspace_root).await
+        }
+        Err(_) => Vec::new(),
+    };
     record_codex_thread(session, info);
-    append_chat_messages(session, user_content, &user_input, &output_text);
+    append_chat_messages_with_images(
+        session,
+        user_content,
+        &user_input,
+        &output_text,
+        &image_events,
+    );
     record_usage(session, &usage);
     session.status = "idle".to_string();
     session.pending_permission_request = None;
@@ -1009,6 +1037,30 @@ fn append_chat_messages(
     user_input: &str,
     assistant_text: &str,
 ) {
+    append_chat_messages_with_images(session, user_content, user_input, assistant_text, &[]);
+}
+
+fn append_chat_messages_with_images(
+    session: &mut SessionRecord,
+    user_content: Value,
+    user_input: &str,
+    assistant_text: &str,
+    image_events: &[Value],
+) {
+    let mut assistant_content = vec![json!({"type": "text", "text": assistant_text})];
+    let mut seen_image_paths = HashSet::<String>::new();
+    for image_event in image_events {
+        let Some(block) = image_event_to_message_block(image_event) else {
+            continue;
+        };
+        let Some(workspace_path) = block.get("workspace_path").and_then(Value::as_str) else {
+            continue;
+        };
+        if seen_image_paths.insert(workspace_path.to_string()) {
+            assistant_content.push(block);
+        }
+    }
+
     session.messages.push(json!({
         "role": "user",
         "content": if user_content.is_null() { json!(user_input) } else { user_content },
@@ -1016,13 +1068,34 @@ fn append_chat_messages(
     }));
     session.messages.push(json!({
         "role": "assistant",
-        "content": [{"type": "text", "text": assistant_text}],
+        "content": assistant_content,
         "created_at": now_iso()
     }));
     session.message_count = session.messages.len();
     if session.title.trim().is_empty() {
         session.title = extract_title_from_messages(&session.messages);
     }
+}
+
+pub(crate) fn image_event_to_message_block(event: &Value) -> Option<Value> {
+    match event.get("type").and_then(Value::as_str) {
+        Some("image_generation") | Some("image_view") => {}
+        _ => return None,
+    }
+    let workspace_path = event.get("workspace_path").and_then(Value::as_str)?;
+    let mut object = serde_json::Map::new();
+    object.insert("type".to_string(), json!("image"));
+    object.insert("workspace_path".to_string(), json!(workspace_path));
+    if let Some(mime_type) = event.get("mime_type").and_then(Value::as_str) {
+        object.insert("mime_type".to_string(), json!(mime_type));
+    }
+    if let Some(size) = event.get("size").and_then(Value::as_u64) {
+        object.insert("size".to_string(), json!(size));
+    }
+    if let Some(revised_prompt) = event.get("revised_prompt").and_then(Value::as_str) {
+        object.insert("revised_prompt".to_string(), json!(revised_prompt));
+    }
+    Some(Value::Object(object))
 }
 
 async fn maybe_handle_connector_auth(
@@ -2000,6 +2073,26 @@ async fn read_run_usage(info: &AgentRunInfo) -> Value {
         }
     }
     usage
+}
+
+pub(crate) async fn collect_chat_image_events(
+    state: &AppState,
+    user_id: &str,
+    info: &AgentRunInfo,
+    workspace_root: &FsPath,
+) -> Vec<Value> {
+    let mut image_events = Vec::new();
+    let mut offset = 0_usize;
+    if let Some(events_file) = info.events_file.as_deref() {
+        for event in read_events_from_offset(FsPath::new(events_file), &mut offset).await {
+            if let Some(image_event) =
+                extract_image_event(state, user_id, &event, workspace_root).await
+            {
+                image_events.push(image_event);
+            }
+        }
+    }
+    image_events
 }
 
 async fn extract_image_event(

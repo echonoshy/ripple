@@ -6,6 +6,7 @@ import {
   Bot,
   CheckCircle2,
   FileCode2,
+  ImageIcon,
   ShieldAlert,
   Terminal,
   UserRound,
@@ -15,6 +16,7 @@ import MarkdownRenderer, {
   type FeishuAuthOpenPayload,
   type FeishuAuthWaitingState,
 } from "@/components/MarkdownRenderer";
+import { downloadWorkspaceFile } from "@/lib/api";
 import type { Message, WorkbenchTimelineEvent } from "@/types";
 
 function formatTime(value: string | undefined): string {
@@ -29,6 +31,7 @@ function EventIcon({ type }: { type: WorkbenchTimelineEvent["type"] }) {
   if (type === "approval_request") return <ShieldAlert size={13} />;
   if (type === "command") return <Terminal size={13} />;
   if (type === "file_change") return <FileCode2 size={13} />;
+  if (type === "image_generation" || type === "image_view") return <ImageIcon size={13} />;
   if (type === "warning" || type === "error") return <AlertTriangle size={13} />;
   if (type === "tool_call") return <Wrench size={13} />;
   if (type === "final_summary") return <CheckCircle2 size={13} />;
@@ -48,6 +51,9 @@ function eventIconClass(type: WorkbenchTimelineEvent["type"]): string {
   if (type === "file_change" || type === "final_summary") {
     return "border-[#d3e5ff] bg-[linear-gradient(135deg,#eef7ff,#ffffff)] text-[#0b7cd3]";
   }
+  if (type === "image_generation" || type === "image_view") {
+    return "border-[#ccebd7] bg-[linear-gradient(135deg,#f0fff7,#ffffff)] text-[#16824a]";
+  }
   if (type === "approval_request") {
     return "border-[#f7d796] bg-[linear-gradient(135deg,#fff8df,#ffffff)] text-[#c47a00]";
   }
@@ -55,6 +61,84 @@ function eventIconClass(type: WorkbenchTimelineEvent["type"]): string {
     return "border-[#ffd0cc] bg-[linear-gradient(135deg,#fff0ef,#ffffff)] text-[#cf222e]";
   }
   return "border-[#dfe6f4] bg-white text-[#596579]";
+}
+
+function formatBytes(value: number | undefined): string {
+  if (!value || value <= 0) return "";
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${Math.round(value / 1024)} KB`;
+  return `${(value / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function TimelineImagePreview({ event }: { event: WorkbenchTimelineEvent }) {
+  const [imageUrl, setImageUrl] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+  const [loading, setLoading] = React.useState(Boolean(event.workspacePath));
+
+  React.useEffect(() => {
+    let cancelled = false;
+    let objectUrl: string | null = null;
+
+    setImageUrl(null);
+    setError(null);
+    setLoading(Boolean(event.workspacePath));
+
+    if (!event.workspacePath) {
+      setLoading(false);
+      setError("Image path is unavailable.");
+      return () => undefined;
+    }
+
+    void downloadWorkspaceFile(event.workspacePath)
+      .then(({ blob }) => {
+        objectUrl = URL.createObjectURL(blob);
+        if (cancelled) {
+          URL.revokeObjectURL(objectUrl);
+          return;
+        }
+        setImageUrl(objectUrl);
+        setLoading(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setError("Could not load image preview.");
+        setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [event.workspacePath]);
+
+  const sizeLabel = formatBytes(event.size);
+
+  return (
+    <div className="mt-2 max-w-3xl">
+      <div className="overflow-hidden rounded-lg border border-[#d9e4ef] bg-white">
+        {imageUrl ? (
+          <img
+            src={imageUrl}
+            alt={event.revisedPrompt || event.title}
+            className="block max-h-[460px] w-full object-contain"
+          />
+        ) : (
+          <div className="flex min-h-44 items-center justify-center bg-[#f7fafc] px-4 py-8 text-[12px] text-[#667085]">
+            {loading ? "Loading image..." : error}
+          </div>
+        )}
+      </div>
+      <div className="mt-2 space-y-1 text-[11px] leading-5 text-[#5f6b7c] sm:text-xs">
+        {event.revisedPrompt && <div>{event.revisedPrompt}</div>}
+        {event.workspacePath && (
+          <div className="font-[family-name:var(--font-mono)] break-all text-[#6b7280]">
+            {event.workspacePath}
+            {sizeLabel ? ` · ${sizeLabel}` : ""}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 interface SessionTimelineProps {
@@ -147,6 +231,8 @@ export default function SessionTimeline({
                   </div>
                 ))}
               </div>
+            ) : event.type === "image_generation" || event.type === "image_view" ? (
+              <TimelineImagePreview event={event} />
             ) : (
               <div className="markdown-body workbench-markdown max-w-4xl text-[12px] leading-5 text-[#384152] sm:text-sm sm:leading-6">
                 <MarkdownRenderer

@@ -393,6 +393,51 @@ function testMapsCodexRuntimeEventsIntoTimelineEvents() {
   assert.equal(compactEvent.type, "context_compaction");
   assert.equal(compactEvent.title, "Context compacted");
   assert.equal(compactEvent.status, "completed");
+
+  const imageEvent = codexRuntimeEventToTimelineEvent(
+    {
+      type: "image_generation",
+      id: "img-1",
+      status: "completed",
+      workspace_path: "/workspace/.ripple/generated/img-1.png",
+      mime_type: "image/png",
+      size: 128,
+      revised_prompt: "studio toy photo",
+    } as CodexRuntimeEvent,
+    { id: "runtime-5" }
+  );
+  assert.equal(imageEvent.type, "image_generation");
+  assert.equal(imageEvent.title, "Generated image");
+  assert.equal(imageEvent.workspacePath, "/workspace/.ripple/generated/img-1.png");
+  assert.equal(imageEvent.mimeType, "image/png");
+  assert.equal(imageEvent.size, 128);
+  assert.match(imageEvent.body, /studio toy photo/);
+}
+
+function testMapsMessageImageArtifactsIntoTimelineEvents() {
+  const events = messagesToTimelineEvents([
+    {
+      id: "assistant-image",
+      role: "assistant",
+      content: "",
+      artifacts: [
+        {
+          type: "image",
+          workspacePath: "/workspace/.ripple/generated/img-1.png",
+          mimeType: "image/png",
+          size: 128,
+          revisedPrompt: "studio toy photo",
+        },
+      ],
+      created_at: "2026-05-19T00:00:02.000Z",
+    },
+  ]);
+
+  assert.equal(events.length, 1);
+  assert.equal(events[0].type, "image_generation");
+  assert.equal(events[0].title, "Generated image");
+  assert.equal(events[0].workspacePath, "/workspace/.ripple/generated/img-1.png");
+  assert.equal(events[0].createdAt, "2026-05-19T00:00:02.000Z");
 }
 
 function testSummarizesCodexRuntimeDiffInsteadOfShowingFullPatch() {
@@ -494,6 +539,7 @@ testLimitsToolActivityToRecentSummaries();
 testPlacesAssistantContentAfterItsToolCalls();
 testExtractsChangedFilesFromToolCalls();
 testMapsCodexRuntimeEventsIntoTimelineEvents();
+testMapsMessageImageArtifactsIntoTimelineEvents();
 testSummarizesCodexRuntimeDiffInsteadOfShowingFullPatch();
 testUpsertsCodexRuntimeDiffEvents();
 testMergesRuntimeEventsByTimestamp();

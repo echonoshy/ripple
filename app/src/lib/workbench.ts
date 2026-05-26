@@ -1,6 +1,7 @@
 import type {
   CodexRuntimeEvent,
   Message,
+  MessageArtifact,
   SessionAttention,
   SessionSummary,
   ToolCall,
@@ -267,10 +268,22 @@ function runtimeBody(event: CodexRuntimeEvent): string {
   if (event.type === "codex_turn_diff_updated") {
     return runtimeDiffSummary(event);
   }
+  if (event.type === "image_generation" || event.type === "image_view") {
+    return imageEventBody(event.revised_prompt, event.workspace_path);
+  }
   if (event.type === "context_compaction") {
     return "Compacted conversation context.";
   }
   return stringifyRuntimeBody(event);
+}
+
+function imageEventBody(revisedPrompt: string | undefined, workspacePath: string | undefined) {
+  return [
+    revisedPrompt ? `Prompt: ${revisedPrompt}` : "",
+    workspacePath ? `Saved to ${workspacePath}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 function runtimeTitle(event: CodexRuntimeEvent): string {
@@ -282,6 +295,8 @@ function runtimeTitle(event: CodexRuntimeEvent): string {
   if (event.type === "codex_error") return "System error";
   if (event.type === "context_compaction") return "Context compacted";
   if (event.type === "codex_turn_diff_updated") return "Workspace diff";
+  if (event.type === "image_generation") return "Generated image";
+  if (event.type === "image_view") return "Image";
   return "Runtime update";
 }
 
@@ -295,6 +310,7 @@ function runtimeTimelineType(event: CodexRuntimeEvent): WorkbenchTimelineEvent["
   if (event.type === "codex_warning") return "warning";
   if (event.type === "codex_error") return "error";
   if (event.type === "context_compaction") return "context_compaction";
+  if (event.type === "image_generation" || event.type === "image_view") return event.type;
   return "runtime_update";
 }
 
@@ -311,6 +327,30 @@ export function codexRuntimeEventToTimelineEvent(
     body: runtimeBody(event),
     createdAt: options.createdAt,
     status,
+    workspacePath: event.workspace_path,
+    mimeType: event.mime_type,
+    size: event.size,
+    revisedPrompt: event.revised_prompt,
+  };
+}
+
+function imageArtifactToTimelineEvent(
+  messageId: string,
+  artifact: MessageArtifact,
+  index: number,
+  createdAt: string | undefined
+): WorkbenchTimelineEvent {
+  return {
+    id: `${messageId}-image-${index}`,
+    type: "image_generation",
+    title: "Generated image",
+    body: imageEventBody(artifact.revisedPrompt, artifact.workspacePath),
+    createdAt,
+    status: "completed",
+    workspacePath: artifact.workspacePath,
+    mimeType: artifact.mimeType,
+    size: artifact.size,
+    revisedPrompt: artifact.revisedPrompt,
   };
 }
 
@@ -490,6 +530,10 @@ export function messagesToTimelineEvents(
 
     if (showToolActivity && toolCalls.length > 0) {
       events.push(toolsEvent(message, toolCalls, options));
+    }
+
+    for (const [index, artifact] of (message.artifacts || []).entries()) {
+      events.push(imageArtifactToTimelineEvent(id, artifact, index, message.created_at));
     }
 
     if (message.role === "assistant" && message.content) {

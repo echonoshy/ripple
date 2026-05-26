@@ -3001,6 +3001,12 @@ async fn chat_stream_forwards_codex_runtime_tool_plan_and_image_events() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
+    let session_id = response
+        .headers()
+        .get("x-ripple-session-id")
+        .and_then(|value| value.to_str().ok())
+        .expect("session header")
+        .to_string();
     let body = response_text(response).await;
 
     assert!(body.contains("\"type\":\"task_plan_updated\""));
@@ -3033,6 +3039,104 @@ async fn chat_stream_forwards_codex_runtime_tool_plan_and_image_events() {
         .iter()
         .any(|record| record.workspace_path.as_deref()
             == Some("/workspace/.ripple/generated/img-1.png")));
+    let reloaded = state
+        .sessions
+        .load(user_id, &session_id)
+        .await
+        .unwrap()
+        .expect("session");
+    let assistant_content = reloaded
+        .messages
+        .get(1)
+        .and_then(|message| message.get("content"))
+        .and_then(Value::as_array)
+        .expect("assistant content");
+    assert!(assistant_content.iter().any(|item| {
+        item.get("type").and_then(Value::as_str) == Some("image")
+            && item.get("workspace_path").and_then(Value::as_str)
+                == Some("/workspace/.ripple/generated/img-1.png")
+            && item.get("mime_type").and_then(Value::as_str) == Some("image/png")
+            && item.get("size").and_then(Value::as_u64) == Some(5)
+            && item.get("revised_prompt").and_then(Value::as_str) == Some("tiny fake image")
+    }));
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn session_detail_backfills_generated_images_from_run_events() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+    let user_id = "smoke-user";
+
+    let response = app
+        .clone()
+        .oneshot(request(
+            Method::POST,
+            "/v1/chat/completions",
+            json!({
+                "model": "codex-test",
+                "messages": [{"role": "user", "content": "[runtime-events] stream rich codex events"}],
+                "stream": true
+            }),
+            true,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let session_id = response
+        .headers()
+        .get("x-ripple-session-id")
+        .and_then(|value| value.to_str().ok())
+        .expect("session header")
+        .to_string();
+    let _ = response_text(response).await;
+
+    let mut legacy = state
+        .sessions
+        .load(user_id, &session_id)
+        .await
+        .unwrap()
+        .expect("session");
+    for message in &mut legacy.messages {
+        if message.get("role").and_then(Value::as_str) != Some("assistant") {
+            continue;
+        }
+        if let Some(content) = message.get_mut("content").and_then(Value::as_array_mut) {
+            content.retain(|item| item.get("type").and_then(Value::as_str) != Some("image"));
+        }
+    }
+    state.sessions.save_record_if_exists(legacy).await.unwrap();
+    for mut record in state.storage.list_jobs_for_user(user_id).await.unwrap() {
+        if record.get("session_id").and_then(Value::as_str) == Some(session_id.as_str()) {
+            record.as_object_mut().unwrap().remove("session_id");
+            state.storage.upsert_job(&record).await.unwrap();
+        }
+    }
+    state.jobs.clear_user_cache(user_id).await;
+
+    let (status, detail) = call(
+        app.clone(),
+        Method::GET,
+        &format!("/v1/sessions/{session_id}"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "session detail: {detail}");
+    let assistant_content = detail
+        .get("messages")
+        .and_then(Value::as_array)
+        .and_then(|messages| messages.get(1))
+        .and_then(|message| message.get("content"))
+        .and_then(Value::as_array)
+        .expect("assistant content");
+    assert!(assistant_content.iter().any(|item| {
+        item.get("type").and_then(Value::as_str) == Some("image")
+            && item.get("workspace_path").and_then(Value::as_str)
+                == Some("/workspace/.ripple/generated/img-1.png")
+    }));
 
     let _ = std::fs::remove_dir_all(root);
 }

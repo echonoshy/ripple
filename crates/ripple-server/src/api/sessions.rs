@@ -4,9 +4,11 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use crate::api::chat::{collect_chat_image_events, image_event_to_message_block};
 use crate::api::users::{assert_can_create_run, assert_can_create_session};
 use crate::api::{connectors, ApiError};
-use crate::sessions::{CreateSessionInput, SessionRecord};
+use crate::jobs::AgentRunInfo;
+use crate::sessions::{CreateSessionInput, SessionDetail, SessionRecord};
 use crate::state::AppState;
 use crate::user::user_id_from_headers;
 
@@ -72,12 +74,137 @@ pub async fn get_session(
     {
         let _ = state.sessions.resume_session(&user_id, &session_id).await?;
     }
-    let Some(session) = state.sessions.get_session(&user_id, &session_id).await? else {
+    let Some(mut session) = state.sessions.get_session(&user_id, &session_id).await? else {
         return Err(ApiError::not_found("Session not found"));
     };
+    backfill_generated_images_from_runs(&state, &user_id, &session_id, &mut session).await?;
     Ok(Json(
         serde_json::to_value(session).unwrap_or_else(|_| json!({})),
     ))
+}
+
+async fn backfill_generated_images_from_runs(
+    state: &AppState,
+    user_id: &str,
+    session_id: &str,
+    detail: &mut SessionDetail,
+) -> Result<(), ApiError> {
+    let Ok(workspace_root) = state.sandboxes.workspace_dir(user_id) else {
+        return Ok(());
+    };
+    let mut jobs = state
+        .jobs
+        .list_user(user_id)
+        .await?
+        .into_iter()
+        .filter(|job| {
+            job.status == "completed"
+                && job_belongs_to_session(job, session_id)
+                && job
+                    .metadata
+                    .get("chat_user_input")
+                    .and_then(Value::as_str)
+                    .is_some()
+        })
+        .collect::<Vec<_>>();
+    jobs.sort_by(|left, right| left.updated_at.cmp(&right.updated_at));
+
+    for job in jobs {
+        let blocks = collect_chat_image_events(state, user_id, &job, &workspace_root)
+            .await
+            .into_iter()
+            .filter_map(|event| image_event_to_message_block(&event))
+            .collect::<Vec<_>>();
+        append_image_blocks_to_session_detail(&mut detail.messages, &job.updated_at, blocks);
+    }
+    Ok(())
+}
+
+fn job_belongs_to_session(job: &AgentRunInfo, session_id: &str) -> bool {
+    if job.metadata.get("session_id").and_then(Value::as_str) == Some(session_id) {
+        return true;
+    }
+    job.events_file
+        .as_deref()
+        .is_some_and(|path| path_has_session_component(path, session_id))
+        || job
+            .output_file
+            .as_deref()
+            .is_some_and(|path| path_has_session_component(path, session_id))
+}
+
+fn path_has_session_component(path: &str, session_id: &str) -> bool {
+    let components = std::path::Path::new(path)
+        .components()
+        .filter_map(|component| component.as_os_str().to_str());
+    let mut previous_was_sessions = false;
+    for component in components {
+        if previous_was_sessions && component == session_id {
+            return true;
+        }
+        previous_was_sessions = component == "sessions";
+    }
+    false
+}
+
+fn append_image_blocks_to_session_detail(
+    messages: &mut [Value],
+    job_updated_at: &str,
+    image_blocks: Vec<Value>,
+) {
+    if image_blocks.is_empty() {
+        return;
+    }
+
+    let target_index = messages
+        .iter()
+        .enumerate()
+        .filter(|(_, message)| message.get("role").and_then(Value::as_str) == Some("assistant"))
+        .find(|(_, message)| {
+            message
+                .get("created_at")
+                .and_then(Value::as_str)
+                .is_some_and(|created_at| created_at >= job_updated_at)
+        })
+        .map(|(index, _)| index)
+        .or_else(|| {
+            messages
+                .iter()
+                .enumerate()
+                .rev()
+                .find(|(_, message)| {
+                    message.get("role").and_then(Value::as_str) == Some("assistant")
+                })
+                .map(|(index, _)| index)
+        });
+
+    let Some(target_index) = target_index else {
+        return;
+    };
+
+    let mut existing_paths = messages
+        .iter()
+        .filter_map(|message| message.get("content").and_then(Value::as_array))
+        .flatten()
+        .filter(|item| item.get("type").and_then(Value::as_str) == Some("image"))
+        .filter_map(|item| item.get("workspace_path").and_then(Value::as_str))
+        .map(str::to_string)
+        .collect::<std::collections::HashSet<_>>();
+
+    let Some(content) = messages[target_index]
+        .get_mut("content")
+        .and_then(Value::as_array_mut)
+    else {
+        return;
+    };
+    for block in image_blocks {
+        let Some(workspace_path) = block.get("workspace_path").and_then(Value::as_str) else {
+            continue;
+        };
+        if existing_paths.insert(workspace_path.to_string()) {
+            content.push(block);
+        }
+    }
 }
 
 pub async fn update_session(

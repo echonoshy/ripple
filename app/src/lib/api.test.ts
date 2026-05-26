@@ -433,10 +433,18 @@ function testChatStreamingStaysOpenWhenPageIsHidden() {
   assert.match(source, /openWhenHidden:\s*true/);
 }
 
+function testChatStreamingAcceptsImageRuntimeEvents() {
+  const source = readFileSync(new URL("./api.ts", import.meta.url), "utf8");
+
+  assert.match(source, /"image_generation"/);
+  assert.match(source, /"image_view"/);
+}
+
 testDefaultApiOriginUsesPublicBaseUrl();
 testDevDefaultApiUrlUsesSameOriginProxy();
 testViteDevServerProxiesV1ToLocalRippleServer();
 testChatStreamingStaysOpenWhenPageIsHidden();
+testChatStreamingAcceptsImageRuntimeEvents();
 await testRenameEndpointNotFoundAsksForServerRestart();
 await testRenamePathNotFoundStaysFileSpecific();
 await testRenameConflictUsesFriendlyMessage();

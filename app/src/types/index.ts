@@ -17,12 +17,21 @@ export interface PermissionRequestData {
   riskLevel: string;
 }
 
+export interface MessageArtifact {
+  type: "image";
+  workspacePath: string;
+  mimeType?: string;
+  size?: number;
+  revisedPrompt?: string;
+}
+
 export interface Message {
   id: string | number;
   role: "user" | "assistant";
   content: string;
   created_at?: string;
   toolCalls?: ToolCall[];
+  artifacts?: MessageArtifact[];
   askUser?: AskUserData;
   permissionRequest?: PermissionRequestData;
 }
@@ -254,6 +263,8 @@ export type CodexRuntimeEventType =
   | "codex_turn_diff_updated"
   | "tool_output_delta"
   | "file_change_patch_updated"
+  | "image_generation"
+  | "image_view"
   | "codex_warning"
   | "codex_error"
   | "context_compaction";
@@ -272,6 +283,10 @@ export interface CodexRuntimeEvent {
   patch?: unknown;
   changes?: unknown;
   status?: string;
+  workspace_path?: string;
+  mime_type?: string;
+  size?: number;
+  revised_prompt?: string;
 }
 
 export interface AgentStopData {
@@ -312,6 +327,8 @@ export type WorkbenchTimelineEventType =
   | "tool_call"
   | "command"
   | "file_change"
+  | "image_generation"
+  | "image_view"
   | "warning"
   | "error"
   | "context_compaction"
@@ -326,4 +343,8 @@ export interface WorkbenchTimelineEvent {
   body: string;
   createdAt?: string;
   status?: string;
+  workspacePath?: string;
+  mimeType?: string;
+  size?: number;
+  revisedPrompt?: string;
 }

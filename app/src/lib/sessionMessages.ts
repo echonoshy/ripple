@@ -1,4 +1,4 @@
-import type { Message, SessionDetail } from "@/types";
+import type { Message, MessageArtifact, SessionDetail } from "@/types";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -57,6 +57,36 @@ export function extractSessionMessageText(content: unknown): string {
       .join("\n\n");
   }
   return content ? JSON.stringify(content) : "";
+}
+
+function imageArtifactFromBlock(block: Record<string, unknown>): MessageArtifact | null {
+  if (block.type !== "image" && block.type !== "image_generation") return null;
+  const workspacePath =
+    typeof block.workspace_path === "string"
+      ? block.workspace_path
+      : typeof block.workspacePath === "string"
+        ? block.workspacePath
+        : "";
+  if (!workspacePath) return null;
+
+  const artifact: MessageArtifact = {
+    type: "image",
+    workspacePath,
+  };
+  if (typeof block.mime_type === "string") artifact.mimeType = block.mime_type;
+  if (typeof block.mimeType === "string") artifact.mimeType = block.mimeType;
+  if (typeof block.size === "number") artifact.size = block.size;
+  if (typeof block.revised_prompt === "string") artifact.revisedPrompt = block.revised_prompt;
+  if (typeof block.revisedPrompt === "string") artifact.revisedPrompt = block.revisedPrompt;
+  return artifact;
+}
+
+function extractSessionMessageArtifacts(content: unknown): MessageArtifact[] {
+  if (!Array.isArray(content)) return [];
+  return content.filter(isRecord).flatMap((block) => {
+    const artifact = imageArtifactFromBlock(block);
+    return artifact ? [artifact] : [];
+  });
 }
 
 export function mapSessionMessages(
@@ -122,6 +152,8 @@ export function mapSessionMessages(
         created_at: createdAt,
         toolCalls,
       };
+      const artifacts = extractSessionMessageArtifacts(content);
+      if (artifacts.length > 0) assistantMessage.artifacts = artifacts;
 
       const askUserTool = content.find(
         (block) => isRecord(block) && block.type === "tool_use" && block.name === "AskUser"
@@ -177,6 +209,8 @@ export function mapSessionMessages(
         created_at: createdAt,
         toolCalls,
       };
+      const artifacts = extractSessionMessageArtifacts(msg.content);
+      if (artifacts.length > 0) assistantMessage.artifacts = artifacts;
       result.push(assistantMessage);
     } else if (role === "tool") {
       for (let i = result.length - 1; i >= 0; i--) {

@@ -56,7 +56,7 @@ function testMapsSessionSummariesToWorkbenchSummaries() {
   assert.equal(sessions[0].changedFileCount, 2);
   assert.equal(sessions[0].pendingApprovalCount, 1);
   assert.equal(sessions[0].attention, "needs_input");
-  assert.equal(sessions[1].title, "Session srv-empty");
+  assert.equal(sessions[1].title, "New Session");
   assert.equal(sessions[1].attention, undefined);
 }
 

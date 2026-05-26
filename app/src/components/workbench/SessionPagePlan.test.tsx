@@ -30,7 +30,6 @@ function renderSessionPageWithPlan() {
       models={[{ id: "codex-medium", owned_by: "ripple" }]}
       isModelDropdownOpen={false}
       sessionId="srv-plan"
-      sessionIdCopied={false}
       onNewSession={noop}
       onUpdateSessionSettings={noopAsync}
       onInputChange={noop}
@@ -40,7 +39,6 @@ function renderSessionPageWithPlan() {
       onRemovePendingFile={noop}
       onToggleModelDropdown={noop}
       onSelectModel={noop}
-      onCopySessionId={noop}
       onSend={noop}
       onStop={noop}
       onQuickReply={noop}

@@ -34,7 +34,6 @@ function renderSessionPage({
       models={[{ id: "codex-medium", owned_by: "ripple" }]}
       isModelDropdownOpen={false}
       sessionId="srv-test"
-      sessionIdCopied={false}
       onNewSession={noop}
       onUpdateSessionSettings={noopAsync}
       onInputChange={noop}
@@ -44,7 +43,6 @@ function renderSessionPage({
       onRemovePendingFile={noop}
       onToggleModelDropdown={noop}
       onSelectModel={noop}
-      onCopySessionId={noop}
       onSend={noop}
       onStop={noop}
       onQuickReply={noop}
@@ -78,7 +76,6 @@ function renderSessionPageWithTimelineContent() {
       models={[{ id: "codex-medium", owned_by: "ripple" }]}
       isModelDropdownOpen={false}
       sessionId="srv-test"
-      sessionIdCopied={false}
       onNewSession={noop}
       onUpdateSessionSettings={noopAsync}
       onInputChange={noop}
@@ -88,7 +85,6 @@ function renderSessionPageWithTimelineContent() {
       onRemovePendingFile={noop}
       onToggleModelDropdown={noop}
       onSelectModel={noop}
-      onCopySessionId={noop}
       onSend={noop}
       onStop={noop}
       onQuickReply={noop}
@@ -100,8 +96,6 @@ function renderSessionPageWithTimelineContent() {
 function testOmitsPlaceholderSessionHeaderControls() {
   const html = renderSessionPage();
 
-  assert.match(html, /title="Copy session ID: srv-test"/);
-  assert.match(html, /absolute top-3 right-4 z-30 hidden items-center gap-1\.5 sm:flex/);
   assert.match(html, /aria-label="Back to sessions"/);
   assert.match(html, /aria-label="New session"/);
   assert.match(html, /aria-label="Session options"/);

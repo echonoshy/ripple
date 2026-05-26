@@ -21,7 +21,6 @@ import MobileTabBar from "@/components/workbench/MobileTabBar";
 import SessionPage from "@/components/workbench/SessionPage";
 import WorkbenchShell from "@/components/workbench/WorkbenchShell";
 import WorkspaceNav from "@/components/workbench/WorkspaceNav";
-import { copyTextToClipboard } from "@/lib/clipboard";
 import { type ChatRunSessionActions, useChatRun } from "@/hooks/useChatRun";
 import { useSessionLifecycle } from "@/hooks/useSessionLifecycle";
 import { clearStoredCurrentSessionId } from "@/lib/sessionPersistence";
@@ -63,7 +62,6 @@ export default function Home() {
     return window.localStorage.getItem("ripple.workbench.inspectorCollapsed") === "true";
   });
   const [mobileSessionMode, setMobileSessionMode] = useState<"list" | "chat">("list");
-  const [sessionIdCopied, setSessionIdCopied] = useState(false);
   const [workspaceRefreshToken, setWorkspaceRefreshToken] = useState(0);
   const [activeView, setActiveView] = useState<WorkspaceView>("sessions");
   const [sessionAttentionById, setSessionAttentionById] = useState<
@@ -330,14 +328,6 @@ export default function Home() {
     }
   };
 
-  const handleCopySessionId = useCallback(async () => {
-    if (!sessionId) return;
-    const ok = await copyTextToClipboard(sessionId);
-    if (!ok) return;
-    setSessionIdCopied(true);
-    window.setTimeout(() => setSessionIdCopied(false), 1600);
-  }, [sessionId]);
-
   const handleSelectView = useCallback(
     (view: WorkspaceView) => {
       setActiveView(view);
@@ -500,7 +490,6 @@ export default function Home() {
             models={models}
             isModelDropdownOpen={openModelDropdown === "composer"}
             sessionId={sessionId}
-            sessionIdCopied={sessionIdCopied}
             onNewSession={handleNewSession}
             onUpdateSessionSettings={handleUpdateSessionSettings}
             onInputChange={setInput}
@@ -515,7 +504,6 @@ export default function Home() {
               setSelectedModel(model);
               setOpenModelDropdown(null);
             }}
-            onCopySessionId={handleCopySessionId}
             onSend={handleSendMessage}
             onStop={handleStop}
             onQuickReply={handleQuickReply}

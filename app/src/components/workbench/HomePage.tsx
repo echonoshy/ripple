@@ -9,7 +9,6 @@ import {
   KeyRound,
   Loader2,
   Plug,
-  Plus,
   Server,
   UserRound,
 } from "lucide-react";
@@ -107,15 +106,6 @@ export default function HomePage({
               </div>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onNewSession}
-            className="inline-flex h-9 items-center gap-2 rounded-full bg-[linear-gradient(135deg,#2f6bff,#7b5cff)] px-3 text-[13px] font-semibold text-white shadow-[0_12px_26px_rgba(64,92,255,0.24)]"
-          >
-            <Plus size={15} />
-            <span className="sm:hidden">New</span>
-            <span className="hidden sm:inline">New session</span>
-          </button>
         </header>
 
         <section className="grid gap-2 md:grid-cols-2">

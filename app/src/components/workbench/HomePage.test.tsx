@@ -40,8 +40,6 @@ function testHomeHasMobileSpecificCopy() {
 
   assert.match(html, />Ripple/);
   assert.match(html, />Settings/);
-  assert.match(html, /sm:hidden[^>]*>New</);
-  assert.match(html, /hidden sm:inline[^>]*>New session</);
   assert.match(html, />Sessions/);
   assert.match(html, />Files/);
   assert.match(html, />Connectors/);

@@ -50,7 +50,7 @@ export function mapSessionSummariesToWorkbenchSessions(
     const status = sessionStatusToWorkbenchStatus(session.status);
     return {
       sessionId: session.sessionId,
-      title: session.title?.trim() || `Session ${session.sessionId}`,
+      title: session.title?.trim() || "New Session",
       pinned: session.pinned,
       status,
       attention: sessionAttentionFromStatus(status, session.pendingApprovalCount) || undefined,

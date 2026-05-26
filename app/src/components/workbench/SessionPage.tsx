@@ -4,10 +4,8 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
-  Check,
   CheckCircle2,
   Circle,
-  Copy,
   Loader2,
   MoreHorizontal,
   Pin,
@@ -43,7 +41,6 @@ interface SessionPageProps {
   models: { id: string; owned_by: string }[];
   isModelDropdownOpen: boolean;
   sessionId: string | null;
-  sessionIdCopied: boolean;
   onNewSession: () => void;
   onUpdateSessionSettings: (updates: { title?: string; pinned?: boolean }) => Promise<unknown>;
   onInputChange: (value: string) => void;
@@ -53,7 +50,6 @@ interface SessionPageProps {
   onRemovePendingFile: (path: string) => void;
   onToggleModelDropdown: () => void;
   onSelectModel: (model: string) => void;
-  onCopySessionId: () => void;
   onSend: () => void;
   onStop: () => void;
   onQuickReply: (option: string) => void;
@@ -81,7 +77,6 @@ export default function SessionPage({
   models,
   isModelDropdownOpen,
   sessionId,
-  sessionIdCopied,
   onNewSession,
   onUpdateSessionSettings,
   onInputChange,
@@ -91,7 +86,6 @@ export default function SessionPage({
   onRemovePendingFile,
   onToggleModelDropdown,
   onSelectModel,
-  onCopySessionId,
   onSend,
   onStop,
   onQuickReply,
@@ -99,7 +93,6 @@ export default function SessionPage({
   onFeishuAuthOpen,
   feishuAuthWaiting,
   onBackToMobileSessions,
-  isInspectorCollapsed = false,
 }: SessionPageProps) {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const [isSessionSettingsOpen, setIsSessionSettingsOpen] = useState(false);
@@ -225,25 +218,6 @@ export default function SessionPage({
         </div>
       </div>
 
-      {sessionId && (
-        <div
-          className={`pointer-events-none absolute top-3 ${isInspectorCollapsed ? "right-14" : "right-4"} z-30 hidden items-center gap-1.5 transition-all duration-300 sm:flex`}
-        >
-          <button
-            type="button"
-            onClick={onCopySessionId}
-            title={sessionIdCopied ? "Copied" : `Copy session ID: ${sessionId}`}
-            className="pointer-events-auto inline-flex h-8 max-w-[180px] items-center gap-1.5 rounded-full border border-[#e5e7eb] bg-white/95 px-3 font-[family-name:var(--font-mono)] text-xs text-[#6b7280] shadow-[0_8px_24px_rgba(23,26,31,0.08)] backdrop-blur hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
-          >
-            <span className="truncate">{sessionId}</span>
-            {sessionIdCopied ? (
-              <Check size={12} className="shrink-0" />
-            ) : (
-              <Copy size={12} className="shrink-0" />
-            )}
-          </button>
-        </div>
-      )}
 
       {isSessionSettingsOpen && (
         <div className="absolute inset-0 z-40 flex justify-end bg-[#172033]/14 backdrop-blur-[1px]">

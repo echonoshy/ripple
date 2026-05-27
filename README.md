@@ -1,107 +1,139 @@
 <div align="center">
+<img src="assets/ripple-icon.svg" alt="Ripple Logo" width="100" />
 
-<img src="assets/ripple-icon.svg" alt="Ripple Logo" width="96" />
+# 涟漪 (Ripple)
 
-# Ripple
+> **每一次迭代，都是向解的蔓延**
 
-运行在 Codex app-server 之上的多用户 Agent 控制面。
+**基于 Codex 执行面构建的多用户沙箱数据与 Skill 控制系统**
 
-**状态：WIP。** Rust 后端是当前控制面实现；Python/FastAPI 后端和 legacy `src/ripple` 控制面已移除。Python 仅保留在部分 skill helper 中。
+[![Language](https://img.shields.io/badge/Backend-Rust-orange?style=flat-square&logo=rust)](crates/ripple-server)
+[![Frontend](https://img.shields.io/badge/Frontend-React-blue?style=flat-square&logo=react)](app)
+[![Runtime](https://img.shields.io/badge/Runtime-Bun-black?style=flat-square&logo=bun)](app)
+[![Desktop](https://img.shields.io/badge/Desktop-Tauri-lightgrey?style=flat-square&logo=tauri)](app/src-tauri)
 
-<img src="sites/assets/use-case.png" alt="Ripple macOS app screenshot" width="960" />
+[展示站点 (Site)](sites/index.html) · [构建与部署 (Build)](docs/BUILD_AND_DEPLOY.md) · [开发指南 (AGENTS)](AGENTS.md)
 
 </div>
 
+---
+
+<div align="center">
+  <img src="assets/app/ripple.app.001.png" alt="Ripple Mobile" width="47%" />
+  <img src="assets/app/ripple.app.002.png" alt="Ripple Mobile" width="48%" />
+</div>
+
+<br />
+
+<div align="center">
+  <img src="assets/app/ripple.app.003.png" alt="Ripple Desktop" width="47%" />
+  <img src="assets/app/ripple.app.004.png" alt="Ripple Desktop" width="47%" />
+</div>
+
+---
+
 ## 项目定位
 
-Ripple 是 Codex app-server 的控制面，不是另一个模型执行器。
+随着大语言模型（LLM）生态的快速演进，Agent 的**纯执行层能力**（如 Claude Code / Codex 等）正逐渐收敛为底层的标准化基础设施（Infrastructure）。
 
-Ripple 负责管理多用户、session、run、workspace、sandbox、connector 授权、skill manifest、approval bridge、schedule、quota 和统一 `/v1` API。实际任务执行交给服务端预装并统一授权的 Codex app-server。
+相反，**用户专属数据、开箱即用的交互体验、持久化记忆与个性化 Skill**，才是真正需要百花齐放、构建差异化竞争力的关键赛道。
 
-Web、Tauri desktop、iOS 和 Android 都是客户端，只调用 Ripple Server API，不承载后端业务逻辑。
+在这一背景下，**Ripple** 致力于成为高效的 **Agent 控制面**（Control Plane）。
 
-## 当前主线
+### 核心职责
 
-- Rust 后端：`crates/ripple-server`
-- 主 App 客户端（Web / Tauri desktop / iOS / Android）：`app`
-- 共享 skills：`skills`，其中部分 skill 自带 Python helper
-- 产品介绍页：`sites/index.html`
-- 运行时数据：`.ripple/`
+*   **多用户物理沙箱**：基于 `user_id` 的强沙箱环境隔离，确保多用户数据与运行环境物理安全隔离。
+*   **连接器凭证托管**：内置 Google Workspace、飞书/Lark、Notion、Bilibili 等连接器的安全授权流程与运行时账号拦截。
+*   **Skill 动态加载**：解析与加载 Shared / Workspace 级 Skill Manifest，通过控制面自动向提示词注入，按需执行。
+*   **全生命周期控制**：管理 Session 会话记录、Run 异步任务、后台 Schedule 周期调度任务以及用户 Quota 额度。
+*   **协同审批桥接**：在 Codex 自动化执行与客户端之间架起 Approval Bridge，提供人机协同的安全性二次确认。
 
-## 已覆盖能力
+---
 
-- 配置加载、API key middleware、`X-Ripple-User-Id` 校验和 user quota。
-- user sandbox、session metadata/messages、workspace file API、documents、users。
-- Notion、Google Workspace、Feishu/Lark、Bilibili connector 授权、状态、账号和断开。
-- Codex app-server JSON-RPC provider、per-user 执行锁、`/v1/runs`、`/v1/chat/completions`。
-- OpenAI-compatible 非流式和 SSE 响应、Codex event 映射、token usage 持久化。
-- Codex approval bridge、session stop/delete/context clear/suspend/resume。
-- Schedule CRUD、run history、run-now、due schedule trigger、chat-side schedule proposal/confirmation。
-- Codex managed permissions profile、服务端 Codex auth deny-read、skill manifest rendering。
+## 架构设计
 
-## 架构边界
+Ripple 采用 **控制面（Control Plane）与 执行面（Execution Plane）** 分离的高效设计：
 
-- Ripple Control Plane：API、鉴权、user/session/sandbox lifecycle、connector auth/status、skill manifest、approval bridge、job/event/output 状态。
-- Codex Execution Plane：服务端 Codex app-server，由 Ripple 按 user 懒启动为可信服务端进程。
-- Client Surface：`app` 里的 Web/Tauri/Mobile 客户端，只负责展示、交互和调用 `/v1`。
+*   **Ripple Control Plane (控制面)**：由 Rust (`crates/ripple-server`) 编写的高性能控制服务。负责外部 Web/Tauri/Mobile API 路由、状态持久化、连接器 OAuth 与安全拦截。
+*   **Codex Execution Plane (执行面)**：基于服务端预装的 `codex app-server`，由控制面根据 user 级执行锁按需启动并托管。通过受限的 permissions profile 策略实现沙箱内高安全性指令执行。
 
-隔离单位是 `user_id`，不是 session。同一 user 的多个 session 共享长期 workspace。调用方通过 HTTP header `X-Ripple-User-Id: <uid>` 传入 user_id。
+---
 
-## 运行
+## 快速开始
 
-1. 准备配置：
-
+### 1. 准备配置文件
+复制并创建本地配置文件：
 ```bash
 cp config/settings.yaml.sample config/settings.yaml
 ```
+*根据需要编辑 `config/settings.yaml`，至少在 `server.api_keys` 中配置授权 Key。*
 
-至少把 `server.api_keys` 改成本地 API key。需要真实 Codex 执行时，按示例配置里的 `external_agents.codex.codex_home` 登录服务端 Codex：
-
+### 2. 登录 Codex 凭证（可选）
+若需要在真实的 Codex 环境下执行沙箱指令，请登录服务端的 Codex 服务：
 ```bash
 CODEX_HOME=.ripple/codex-service-home codex login
 ```
 
-2. 启动 Rust 后端：
-
+### 3. 启动 Rust 服务端后端
 ```bash
 cargo run -p ripple-server
 ```
+*后端服务默认监听地址：`http://127.0.0.1:8810`*
 
-Rust 服务默认监听 `http://127.0.0.1:8810`（配置里是 `0.0.0.0:8810`），Web 开发代理默认转发 `/v1` 到这个端口。
-
-3. 启动主 App 的 Web 开发模式：
-
+### 4. 启动前端客户端（开发模式）
 ```bash
 cd app
 bun install
 bun run dev
 ```
+*前端开发服务器默认监听地址：`http://localhost:8820`*
 
-Web dev server 默认监听 `http://localhost:8820`。
+---
 
-## 验证
+## 开发与验证
 
-Rust 后端：
+为了确保代码质量与规范，请在提交代码前在本地完成以下检查。
 
+### Rust 后端静态检查
 ```bash
 cargo fmt -p ripple-server
 cargo check -p ripple-server
 cargo test -p ripple-server
-bash scripts/smoke-rust-server.sh
 ```
 
-前端：
-
+### 前端客户端构建检查
 ```bash
 cd app
 bun run lint
 bun run build
 ```
 
-## 文档
+---
 
-- 开发依据：[AGENTS.md](AGENTS.md)
-- 启动、打包和部署：[docs/BUILD_AND_DEPLOY.md](docs/BUILD_AND_DEPLOY.md)
-- Rust 后端迁移：[docs/rust-backend-migration.md](docs/rust-backend-migration.md)
-- Tauri mobile 打包：[docs/TAURI_MOBILE.md](docs/TAURI_MOBILE.md)
-- Skills：[docs/SKILLS.md](docs/SKILLS.md)
+## 系统文档导航
+
+为了方便您快速了解系统细节，我们准备了完备的文档库：
+
+| 文档指南 | 职责描述 | 路径 |
+| :--- | :--- | :--- |
+| **系统开发原则** | 最核心的开发原则、编码纪律与系统边界定义 | [AGENTS.md](AGENTS.md) |
+| **Rust 后端迁移** | 追踪后端从 Python/FastAPI 迁移至 Rust 的迁移状态与技术设计 | [rust-backend-migration.md](docs/rust-backend-migration.md) |
+| **Skill 开发规范** | 了解如何为系统编写、注册并集成新的能力（Skills） | [SKILLS.md](docs/SKILLS.md) |
+| **构建与部署指南** | 生产环境下的多用户部署、反向代理与物理隔离沙箱配置 | [BUILD_AND_DEPLOY.md](docs/BUILD_AND_DEPLOY.md) |
+| **Tauri 移动端开发** | 针对 iOS 和 Android 客户端的编译、明文例外及打包细节 | [TAURI_MOBILE.md](docs/TAURI_MOBILE.md) |
+
+---
+
+## 联系与合作
+
+如果您在项目运行、集成上遇到任何问题，或者想要加入 Ripple 的共同建设，欢迎通过以下渠道与我们取得联系。我们同样对优秀的开发者开放合作（包括实习）机会，并能够提供一定程度的算力支持：
+
+<p align="left">
+  <a href="mailto:echonoshy@gmail.com" target="_blank">
+    <img src="https://img.shields.io/badge/Email-echonoshy%40gmail.com-D14836?style=flat-square&logo=gmail&logoColor=white" alt="Email Contact" />
+  </a>
+  &nbsp;&nbsp;
+  <a href="https://www.feishu.cn/invitation/page/add_contact/?token=7c0pc01a-60b9-4c7e-bcc4-ed5a2cab4625&amp;unique_id=OQdBliNF4nT10nKMpk4g8g==" target="_blank">
+    <img src="https://img.shields.io/badge/Feishu-加入飞书联络-3370FF?style=flat-square&logo=lark&logoColor=white" alt="Feishu Contact" />
+  </a>
+</p>

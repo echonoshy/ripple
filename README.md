@@ -12,7 +12,7 @@
 [![Runtime](https://img.shields.io/badge/Runtime-Bun-black?style=flat-square&logo=bun)](app)
 [![Desktop](https://img.shields.io/badge/Desktop-Tauri-lightgrey?style=flat-square&logo=tauri)](app/src-tauri)
 
-[展示站点 (Site)](sites/index.html) · [构建与部署 (Build)](docs/BUILD_AND_DEPLOY.md) · [开发指南 (AGENTS)](AGENTS.md)
+[展示站点 (Site)](https://echonoshy.github.io/ripple) · [构建与部署 (Build)](docs/BUILD_AND_DEPLOY.md) · [开发指南 (AGENTS)](AGENTS.md)
 
 </div>
 

@@ -301,7 +301,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use crate::config::{
-        CodexConfig, FeishuConfig, GogcliOAuthConfig, SandboxConfig, SkillsConfig,
+        CodexConfig, FeishuConfig, GogcliOAuthConfig, LoggingConfig, SandboxConfig, SkillsConfig,
     };
 
     fn test_config(root: &Path) -> AppConfig {
@@ -312,6 +312,9 @@ mod tests {
             api_keys: Vec::new(),
             default_model: "codex-test".to_string(),
             model_presets: BTreeMap::new(),
+            logging: LoggingConfig {
+                level: "debug".to_string(),
+            },
             sandbox: SandboxConfig {
                 sandboxes_root: root.join("sandboxes"),
                 caches_root: root.join("cache"),

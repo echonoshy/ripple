@@ -9,7 +9,8 @@ use axum::body::{to_bytes, Body};
 use axum::http::{Method, Request, StatusCode};
 use ripple_server::api::{router, schedules::trigger_due_schedules};
 use ripple_server::config::{
-    AppConfig, CodexConfig, FeishuConfig, GogcliOAuthConfig, SandboxConfig, SkillsConfig,
+    AppConfig, CodexConfig, FeishuConfig, GogcliOAuthConfig, LoggingConfig, SandboxConfig,
+    SkillsConfig,
 };
 use ripple_server::sessions::CreateSessionInput;
 use ripple_server::state::AppState;
@@ -26,6 +27,9 @@ fn test_config(root: &Path) -> AppConfig {
         api_keys: vec!["test-key".to_string()],
         default_model: "codex-test".to_string(),
         model_presets: BTreeMap::new(),
+        logging: LoggingConfig {
+            level: "debug".to_string(),
+        },
         sandbox: SandboxConfig {
             sandboxes_root: root.join("sandboxes"),
             caches_root: root.join("cache"),

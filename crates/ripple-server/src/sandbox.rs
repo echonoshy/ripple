@@ -602,6 +602,9 @@ mod tests {
             api_keys: Vec::new(),
             default_model: "codex-test".to_string(),
             model_presets: Default::default(),
+            logging: crate::config::LoggingConfig {
+                level: "debug".to_string(),
+            },
             sandbox: SandboxConfig {
                 sandboxes_root: root.join("sandboxes"),
                 caches_root: root.join("cache"),

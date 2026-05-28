@@ -71,19 +71,11 @@ external_agents:
     #   PATH: "/usr/local/bin:/usr/bin:/bin"
 
 # 日志配置
-#   ripple.log — 唯一主日志。HTTP / session / agent / Codex / sandbox 事件
-#                按同一请求时间线写入，方便用 req= 或 session= grep 排查。
-#
-# 格式固定为人类可读：
-#   YYYY-MM-DD HH:mm:ss.SSS LEVEL req=<request_id> user=<user_id> session=<session_id> module=<module> | event=...
-#
-# rotation / retention 走 loguru 语义：
-#   rotation  — 单文件轮转阈值，支持 "50 MB" / "100 MB" / "00:00"（每日零点）
-#   retention — 轮转后保留策略，支持 "14 days" / "30 days" 或保留文件个数（int）
+# Ripple Server 日志只写 stdout/stderr；生产部署由 systemd/journald、
+# Docker 或外部日志采集系统负责持久化、轮转和检索。
+# RUST_LOG 环境变量优先级高于这里的 level。
 logging:
-  level: "DEBUG"
-  rotation: "50 MB"
-  retention: "14 days"
+  level: "INFO"
 
 # Server 配置
 server:

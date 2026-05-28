@@ -21,18 +21,17 @@ use tower_http::trace::TraceLayer;
 use tracing::info;
 
 use crate::api::router;
-use crate::config::AppConfig;
+use crate::config::{default_tracing_filter, AppConfig};
 use crate::state::AppState;
 
 pub async fn run() -> anyhow::Result<()> {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "ripple_server=debug,tower_http=info,axum=info".into()),
-        )
-        .try_init();
-
     let config = AppConfig::load().context("failed to load Ripple config")?;
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        tracing_subscriber::EnvFilter::try_new(config.tracing_filter())
+            .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(default_tracing_filter()))
+    });
+    let _ = tracing_subscriber::fmt().with_env_filter(filter).try_init();
+
     let addr: SocketAddr = format!("{}:{}", config.host, config.port)
         .parse()
         .context("invalid listen address")?;

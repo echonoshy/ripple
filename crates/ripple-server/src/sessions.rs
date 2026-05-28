@@ -757,7 +757,8 @@ mod tests {
     use std::path::Path;
 
     use crate::config::{
-        AppConfig, CodexConfig, FeishuConfig, GogcliOAuthConfig, SandboxConfig, SkillsConfig,
+        AppConfig, CodexConfig, FeishuConfig, GogcliOAuthConfig, LoggingConfig, SandboxConfig,
+        SkillsConfig,
     };
     use time::Duration as TimeDuration;
 
@@ -769,6 +770,9 @@ mod tests {
             api_keys: Vec::new(),
             default_model: "codex-test".to_string(),
             model_presets: Default::default(),
+            logging: LoggingConfig {
+                level: "debug".to_string(),
+            },
             sandbox: SandboxConfig {
                 sandboxes_root: root.join("sandboxes"),
                 caches_root: root.join("cache"),

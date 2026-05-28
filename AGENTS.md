@@ -197,7 +197,6 @@ Codex 授权是服务端统一授权，不是 per-user Codex 授权：
 
 ```text
 .ripple/
-├── logs/
 ├── sandboxes-cache/
 └── sandboxes/
     └── <user_id>/

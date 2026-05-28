@@ -11,6 +11,7 @@ pub struct AppConfig {
     pub api_keys: Vec<String>,
     pub default_model: String,
     pub model_presets: BTreeMap<String, ModelPreset>,
+    pub logging: LoggingConfig,
     pub sandbox: SandboxConfig,
     pub codex: CodexConfig,
     pub schedule_extraction_max_runtime_seconds: u64,
@@ -24,6 +25,11 @@ pub struct AppConfig {
 pub struct ModelPreset {
     pub model: String,
     pub reasoning_effort: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct LoggingConfig {
+    pub level: String,
 }
 
 #[derive(Clone, Debug)]
@@ -108,8 +114,14 @@ pub struct GogcliOAuthClient {
 struct RawConfig {
     server: Option<RawServer>,
     model: Option<RawModel>,
+    logging: Option<RawLogging>,
     external_agents: Option<RawExternalAgents>,
     skills: Option<RawSkills>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RawLogging {
+    level: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -244,6 +256,7 @@ impl AppConfig {
         let sandbox = server.sandbox.unwrap_or_default();
         let model = raw.model.unwrap_or_default();
         let public_base_url = clean_config_string(server.public_base_url.as_deref());
+        let logging = raw.logging.unwrap_or_default();
         let feishu = parse_feishu_config(server.feishu);
         let gogcli_oauth_raw = server.gogcli_oauth.unwrap_or_default();
         let codex_raw = raw
@@ -265,6 +278,10 @@ impl AppConfig {
             api_keys: server.api_keys.unwrap_or_default(),
             default_model,
             model_presets,
+            logging: LoggingConfig {
+                level: clean_config_string(logging.level.as_deref())
+                    .unwrap_or_else(|| "debug".to_string()),
+            },
             sandbox: SandboxConfig {
                 sandboxes_root: resolve_path(
                     &repo_root,
@@ -364,6 +381,23 @@ impl AppConfig {
         }
         (alias.to_string(), None)
     }
+
+    pub fn tracing_filter(&self) -> String {
+        tracing_filter_for_level(&self.logging.level)
+    }
+}
+
+pub fn default_tracing_filter() -> String {
+    tracing_filter_for_level("debug")
+}
+
+fn tracing_filter_for_level(level: &str) -> String {
+    let level = level.trim();
+    if level.contains('=') || level.contains(',') {
+        return level.to_string();
+    }
+    let level = level.to_ascii_lowercase();
+    format!("ripple_server={level},tower_http=info,axum=info")
 }
 
 fn parse_cli_tools(
@@ -524,8 +558,15 @@ fn find_on_path(binary: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::AppConfig;
+    use std::sync::{Mutex, OnceLock};
+
+    fn config_env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
 
     fn with_temp_config<T>(name: &str, text: &str, f: impl FnOnce() -> T) -> T {
+        let _guard = config_env_lock().lock().expect("config env lock poisoned");
         let previous = std::env::var_os("RIPPLE_CONFIG");
         let path = std::env::temp_dir().join(format!(
             "ripple-config-test-{}-{name}.yaml",
@@ -546,6 +587,7 @@ mod tests {
 
     #[test]
     fn default_skills_shared_dirs_use_top_level_skills() {
+        let _guard = config_env_lock().lock().expect("config env lock poisoned");
         let previous = std::env::var_os("RIPPLE_CONFIG");
         let config_path = std::env::temp_dir().join(format!(
             "ripple-missing-config-{}-{}.yaml",
@@ -592,5 +634,24 @@ server:
             std::path::PathBuf::from("/opt/bilibili-cli")
         );
         assert_eq!(tool.bin_dirs, vec![std::path::PathBuf::from("current/bin")]);
+    }
+
+    #[test]
+    fn parses_stdout_logging_level() {
+        let config = with_temp_config(
+            "logging-level",
+            r#"
+logging:
+  level: "INFO"
+"#,
+            AppConfig::load,
+        )
+        .expect("load config");
+
+        assert_eq!(config.logging.level, "INFO");
+        assert_eq!(
+            config.tracing_filter(),
+            "ripple_server=info,tower_http=info,axum=info"
+        );
     }
 }

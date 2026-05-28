@@ -283,7 +283,8 @@ mod tests {
 
     use super::*;
     use crate::config::{
-        AppConfig, CodexConfig, FeishuConfig, GogcliOAuthConfig, SandboxConfig, SkillsConfig,
+        AppConfig, CodexConfig, FeishuConfig, GogcliOAuthConfig, LoggingConfig, SandboxConfig,
+        SkillsConfig,
     };
     fn test_state(api_keys: Vec<String>) -> AppState {
         let root =
@@ -295,6 +296,9 @@ mod tests {
             api_keys,
             default_model: "codex-test".to_string(),
             model_presets: BTreeMap::new(),
+            logging: LoggingConfig {
+                level: "debug".to_string(),
+            },
             sandbox: SandboxConfig {
                 sandboxes_root: root.join("sandboxes"),
                 caches_root: root.join("cache"),

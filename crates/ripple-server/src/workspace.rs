@@ -400,6 +400,16 @@ pub fn validate_write_path(input: &str, workspace_root: &Path) -> anyhow::Result
     if !resolved_parent.starts_with(&workspace) {
         anyhow::bail!("Access denied");
     }
+    if let Ok(metadata) = std::fs::symlink_metadata(&target) {
+        if metadata.file_type().is_symlink() {
+            anyhow::bail!("Access denied");
+        }
+        let resolved = target.canonicalize()?;
+        if !resolved.starts_with(&workspace) {
+            anyhow::bail!("Access denied");
+        }
+        return Ok(resolved);
+    }
     Ok(resolved_parent.join(target.file_name().unwrap_or_default()))
 }
 
@@ -410,7 +420,9 @@ pub fn workspace_path(workspace_root: &Path, path: &Path) -> anyhow::Result<Stri
     } else {
         normalize_path(path)
     };
-    let relative = resolved.strip_prefix(&workspace).unwrap_or(Path::new(""));
+    let relative = resolved
+        .strip_prefix(&workspace)
+        .map_err(|_| anyhow::anyhow!("Access denied"))?;
     if relative.as_os_str().is_empty() {
         Ok("/workspace".to_string())
     } else {
@@ -535,6 +547,47 @@ mod tests {
         assert_eq!(empty.count, 0);
 
         let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn save_text_file_rejects_symlink_escape() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("ripple-workspace-test-{}", Uuid::new_v4()));
+        let outside =
+            std::env::temp_dir().join(format!("ripple-workspace-outside-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root)?;
+        std::fs::create_dir_all(&outside)?;
+        let outside_file = outside.join("secret.txt");
+        std::fs::write(&outside_file, "outside")?;
+        std::os::unix::fs::symlink(&outside_file, root.join("link.txt"))?;
+
+        let result = save_text_file(&root, "/workspace/link.txt", "escaped", None);
+
+        assert!(result.is_err());
+        assert_eq!(std::fs::read_to_string(&outside_file)?, "outside");
+
+        let _ = std::fs::remove_dir_all(root);
+        let _ = std::fs::remove_dir_all(outside);
+        Ok(())
+    }
+
+    #[test]
+    fn workspace_path_rejects_paths_outside_workspace() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("ripple-workspace-test-{}", Uuid::new_v4()));
+        let outside =
+            std::env::temp_dir().join(format!("ripple-workspace-outside-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root)?;
+        std::fs::create_dir_all(&outside)?;
+        let outside_file = outside.join("secret.txt");
+        std::fs::write(&outside_file, "outside")?;
+
+        let result = workspace_path(&root, &outside_file);
+
+        assert!(result.is_err());
+
+        let _ = std::fs::remove_dir_all(root);
+        let _ = std::fs::remove_dir_all(outside);
         Ok(())
     }
 }

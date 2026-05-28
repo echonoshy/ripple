@@ -44,8 +44,8 @@ agent:
 # Ripple 管理 user sandbox、任务状态、事件日志和生命周期；实际执行交给
 # 服务端预装的 Codex app-server。当前版本只接入 Codex。
 #
-# Codex 由管理员在服务端安装一次。Ripple 会为每个 user_id 懒启动独立
-# app-server 进程，每个任务创建独立 thread/turn。
+# Codex 由管理员在服务端安装一次。当前实现按 job 启动独立 app-server
+# 进程，job 完成后关闭；chat 连续上下文通过持久 Codex thread id 延续。
 #
 # 开发/MVP 模式下 Codex 是当前 user sandbox 内的受信执行器：可访问该
 # user 的 workspace、skills、credentials，但不应看到其他 user 的 sandbox。
@@ -63,6 +63,7 @@ external_agents:
     sandbox_type: "workspace-write"
     allow_danger_full_access: false
     network_access: true
+    # 保留配置；当前 app-server 进程按 job 生命周期启动和关闭，不依赖 idle 回收。
     idle_timeout_seconds: 1800
     # 可选：控制 Codex app-server 子进程环境。不要传入 server 级密钥；
     # user 级 token 应放在当前 user sandbox 可见的 credentials/workspace 配置中。
@@ -88,7 +89,7 @@ logging:
 server:
   host: "0.0.0.0"
   port: 8810
-  # /v1/chat/completions 直接启动当前 user sandbox 内的 Codex app-server。
+  # /v1/chat/completions 启动当前 job 的 Codex app-server，并以当前 user workspace 为 cwd。
   codex_chat:
     max_runtime_seconds: 3600
   # chat 侧定时任务创建意图的结构化提取超时。

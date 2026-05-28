@@ -41,7 +41,7 @@
 - user sandbox 目录、session metadata/messages、workspace 文件 API、documents、users/quota。
 - connector list/status/auth/disconnect/accounts。
 - Notion token、Google Workspace OAuth、Feishu/Lark auth、Bilibili QR auth。
-- Codex app-server JSON-RPC provider，按 user 懒启动可信服务端进程。
+- Codex app-server JSON-RPC provider，按 job 启动可信服务端进程；job 完成后关闭，chat 连续上下文依赖持久 Codex thread id。
 - `/v1/runs`、`/v1/chat/completions`、Codex approval bridge。
 - chat 侧 connector auth 拦截、轮询和授权后自动恢复。
 - schedule CRUD、run history、run-now、后台 due schedule trigger。
@@ -153,7 +153,7 @@ Python helper 规则：
 Ripple 采用控制面 / 执行面分离：
 
 - **Ripple Control Plane**：API、鉴权、user/session/sandbox lifecycle、connector auth/status、skill manifest、approval bridge、job/event/output 状态。
-- **Codex Execution Plane**：服务端预装 `codex app-server --listen stdio://`，由 Ripple 按 user 懒启动为可信服务端进程。
+- **Codex Execution Plane**：服务端预装 `codex app-server --listen stdio://`，由 Ripple 按 job 启动为可信服务端进程；job 完成后关闭。
 
 Codex 授权是服务端统一授权，不是 per-user Codex 授权：
 
@@ -186,7 +186,8 @@ Codex 授权是服务端统一授权，不是 per-user Codex 授权：
 
 - 隔离单位是 `user_id`，不是 session。
 - 同一 user 的多个 session 共享同一个长期 workspace。
-- Rust 侧用 user 级执行锁保证同一 user workspace 的关键执行互斥。
+- 同一 user 的多个 session 和 `/v1/runs` 可以并行执行，共享同一个 workspace；不要新增 user 级执行锁来串行化任务。
+- Rust 侧只对同一 session 的 chat、context compaction 等链路做 session 级互斥。共享 workspace 的并发写入语义由任务自身和客户端流程处理。
 - 调用方通过 HTTP header `X-Ripple-User-Id: <uid>` 传入 user_id。
 - 缺失 header 时回落到 `default`。
 - `user_id` 合法字符集为 `[a-zA-Z0-9_-]{1,64}`。

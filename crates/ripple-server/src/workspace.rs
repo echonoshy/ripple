@@ -389,28 +389,65 @@ pub fn validate_existing_path(input: &str, workspace_root: &Path) -> anyhow::Res
 }
 
 pub fn validate_write_path(input: &str, workspace_root: &Path) -> anyhow::Result<PathBuf> {
-    let target = map_workspace_path(input, workspace_root);
     let workspace = workspace_root.canonicalize()?;
-    let parent = target.parent().unwrap_or(workspace_root);
-    let resolved_parent = if parent.exists() {
-        parent.canonicalize()?
-    } else {
-        normalize_path(parent)
-    };
-    if !resolved_parent.starts_with(&workspace) {
+    let target = normalize_path(&map_workspace_path(input, &workspace));
+    if !target.starts_with(&workspace) {
         anyhow::bail!("Access denied");
     }
-    if let Ok(metadata) = std::fs::symlink_metadata(&target) {
+    let Some(file_name) = target.file_name() else {
+        anyhow::bail!("Invalid path");
+    };
+    let parent = target.parent().unwrap_or(&workspace);
+    let resolved_parent = validate_write_parent(parent, &workspace)?;
+    let resolved_target = resolved_parent.join(file_name);
+    if let Ok(metadata) = std::fs::symlink_metadata(&resolved_target) {
         if metadata.file_type().is_symlink() {
             anyhow::bail!("Access denied");
         }
-        let resolved = target.canonicalize()?;
+        let resolved = resolved_target.canonicalize()?;
         if !resolved.starts_with(&workspace) {
             anyhow::bail!("Access denied");
         }
         return Ok(resolved);
     }
-    Ok(resolved_parent.join(target.file_name().unwrap_or_default()))
+    Ok(resolved_target)
+}
+
+fn validate_write_parent(parent: &Path, workspace: &Path) -> anyhow::Result<PathBuf> {
+    let normalized_parent = normalize_path(parent);
+    if !normalized_parent.starts_with(workspace) {
+        anyhow::bail!("Access denied");
+    }
+    let relative = normalized_parent
+        .strip_prefix(workspace)
+        .map_err(|_| anyhow::anyhow!("Access denied"))?;
+    let mut current = workspace.to_path_buf();
+    for component in relative.components() {
+        let Component::Normal(name) = component else {
+            continue;
+        };
+        let next = current.join(name);
+        match std::fs::symlink_metadata(&next) {
+            Ok(metadata) => {
+                if metadata.file_type().is_symlink() {
+                    anyhow::bail!("Access denied");
+                }
+                if !metadata.is_dir() {
+                    anyhow::bail!("Path parent is not a directory");
+                }
+                let canonical = next.canonicalize()?;
+                if !canonical.starts_with(workspace) {
+                    anyhow::bail!("Access denied");
+                }
+                current = canonical;
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                current = next;
+            }
+            Err(err) => return Err(err.into()),
+        }
+    }
+    Ok(current)
 }
 
 pub fn workspace_path(workspace_root: &Path, path: &Path) -> anyhow::Result<String> {
@@ -566,6 +603,26 @@ mod tests {
 
         assert!(result.is_err());
         assert_eq!(std::fs::read_to_string(&outside_file)?, "outside");
+
+        let _ = std::fs::remove_dir_all(root);
+        let _ = std::fs::remove_dir_all(outside);
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn save_text_file_rejects_new_path_below_symlinked_directory() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("ripple-workspace-test-{}", Uuid::new_v4()));
+        let outside =
+            std::env::temp_dir().join(format!("ripple-workspace-outside-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root)?;
+        std::fs::create_dir_all(&outside)?;
+        std::os::unix::fs::symlink(&outside, root.join("link"))?;
+
+        let result = save_text_file(&root, "/workspace/link/newdir/secret.txt", "escaped", None);
+
+        assert!(result.is_err());
+        assert!(!outside.join("newdir").exists());
 
         let _ = std::fs::remove_dir_all(root);
         let _ = std::fs::remove_dir_all(outside);

@@ -16,8 +16,6 @@ use crate::jobs::{AgentRunCreateRequest, AgentRunInfo};
 use crate::state::AppState;
 use crate::user::user_id_from_headers;
 
-const SCHEDULE_POLL_SECONDS: u64 = 15;
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ScheduleState {
     version: u32,
@@ -149,7 +147,6 @@ pub(crate) async fn create_schedule_for_user(
     input: ScheduleCreateInput,
 ) -> Result<Value, ApiError> {
     state.sandboxes.ensure_sandbox(user_id)?;
-    let mut schedule_state = load_schedule_state(state, user_id).await?;
     let now = OffsetDateTime::now_utc();
     let kind = normalize_kind(&input.kind)?;
     let max_runs = normalize_max_runs(kind, input.max_runs)?;
@@ -184,10 +181,7 @@ pub(crate) async fn create_schedule_for_user(
         created_at: iso(now),
         updated_at: iso(now),
     };
-    schedule_state
-        .schedules
-        .insert(record.schedule_id.clone(), record.clone());
-    save_schedule_state(state, user_id, &schedule_state).await?;
+    persist_schedule_record(state, user_id, &record).await?;
     Ok(serde_json::to_value(record).unwrap_or_else(|_| json!({})))
 }
 
@@ -217,7 +211,7 @@ pub async fn update_schedule(
     Json(input): Json<ScheduleUpdateInput>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    let mut schedule_state = load_schedule_state(&state, &user_id).await?;
+    let schedule_state = load_schedule_state(&state, &user_id).await?;
     let Some(mut record) = schedule_state.schedules.get(&schedule_id).cloned() else {
         return Err(ApiError::not_found("Schedule not found"));
     };
@@ -292,8 +286,7 @@ pub async fn update_schedule(
         record.next_run_at = None;
     }
     record.updated_at = iso(now);
-    schedule_state.schedules.insert(schedule_id, record.clone());
-    save_schedule_state(&state, &user_id, &schedule_state).await?;
+    persist_schedule_record(&state, &user_id, &record).await?;
     Ok(Json(
         serde_json::to_value(record).unwrap_or_else(|_| json!({})),
     ))
@@ -305,11 +298,13 @@ pub async fn delete_schedule(
     Path(schedule_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    let mut schedule_state = load_schedule_state(&state, &user_id).await?;
-    if schedule_state.schedules.remove(&schedule_id).is_none() {
+    if !state
+        .storage
+        .delete_schedule(&user_id, &schedule_id)
+        .await?
+    {
         return Err(ApiError::not_found("Schedule not found"));
     }
-    save_schedule_state(&state, &user_id, &schedule_state).await?;
     Ok(Json(json!({ "ok": true, "schedule_id": schedule_id })))
 }
 
@@ -336,7 +331,7 @@ pub async fn run_schedule_now(
     Path(schedule_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    let mut schedule_state = load_schedule_state(&state, &user_id).await?;
+    let schedule_state = load_schedule_state(&state, &user_id).await?;
     let Some(mut record) = schedule_state.schedules.get(&schedule_id).cloned() else {
         return Err(ApiError::not_found("Schedule not found"));
     };
@@ -347,8 +342,7 @@ pub async fn run_schedule_now(
             record.status = "error".to_string();
             record.last_error = Some(format!("{err:?}"));
             record.updated_at = iso(now);
-            schedule_state.schedules.insert(schedule_id, record);
-            save_schedule_state(&state, &user_id, &schedule_state).await?;
+            persist_schedule_record(&state, &user_id, &record).await?;
             return Err(err);
         }
     };
@@ -359,15 +353,16 @@ pub async fn run_schedule_now(
         record.status = "active".to_string();
     }
     record.updated_at = iso(now);
-    schedule_state.schedules.insert(schedule_id, record);
-    save_schedule_state(&state, &user_id, &schedule_state).await?;
+    persist_schedule_record(&state, &user_id, &record).await?;
     Ok(Json(
         serde_json::to_value(info).unwrap_or_else(|_| json!({})),
     ))
 }
 
 pub async fn schedule_trigger_loop(state: AppState) {
-    let mut interval = tokio::time::interval(std::time::Duration::from_secs(SCHEDULE_POLL_SECONDS));
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(
+        state.config.schedule_poll_interval_seconds,
+    ));
     loop {
         interval.tick().await;
         let _ = trigger_due_schedules(&state).await;
@@ -380,8 +375,7 @@ pub async fn trigger_due_schedules(
     let now = OffsetDateTime::now_utc();
     let mut triggered = BTreeMap::<String, Vec<String>>::new();
     for user_id in state.storage.list_schedule_user_ids().await? {
-        let mut schedule_state = load_schedule_state(state, &user_id).await?;
-        let mut changed = false;
+        let schedule_state = load_schedule_state(state, &user_id).await?;
         let schedule_ids = schedule_state.schedules.keys().cloned().collect::<Vec<_>>();
         for schedule_id in schedule_ids {
             let Some(mut record) = schedule_state.schedules.get(&schedule_id).cloned() else {
@@ -395,8 +389,7 @@ pub async fn trigger_due_schedules(
                 record.status = "completed".to_string();
                 record.next_run_at = None;
                 record.updated_at = iso(now);
-                schedule_state.schedules.insert(schedule_id, record);
-                changed = true;
+                persist_schedule_record(state, &user_id, &record).await?;
                 continue;
             }
             let Some(next_run_at) = record.next_run_at.as_deref() else {
@@ -421,12 +414,11 @@ pub async fn trigger_due_schedules(
                         record.next_run_at = advance_next_run_at(&record, now)?;
                     }
                     record.updated_at = iso(now);
-                    schedule_state.schedules.insert(schedule_id.clone(), record);
+                    persist_schedule_record(state, &user_id, &record).await?;
                     triggered
                         .entry(user_id.clone())
                         .or_default()
                         .push(schedule_id);
-                    changed = true;
                 }
                 Err(err) => {
                     record.enabled = false;
@@ -434,13 +426,9 @@ pub async fn trigger_due_schedules(
                     record.next_run_at = None;
                     record.last_error = Some(format!("{err:?}"));
                     record.updated_at = iso(now);
-                    schedule_state.schedules.insert(schedule_id, record);
-                    changed = true;
+                    persist_schedule_record(state, &user_id, &record).await?;
                 }
             }
-        }
-        if changed {
-            save_schedule_state(state, &user_id, &schedule_state).await?;
         }
     }
     Ok(triggered)
@@ -503,19 +491,13 @@ async fn load_schedule_state(state: &AppState, user_id: &str) -> Result<Schedule
     })
 }
 
-async fn save_schedule_state(
+async fn persist_schedule_record(
     state: &AppState,
     user_id: &str,
-    schedule_state: &ScheduleState,
+    record: &ScheduleRecord,
 ) -> Result<(), ApiError> {
-    let records = schedule_state
-        .schedules
-        .values()
-        .cloned()
-        .map(serde_json::to_value)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(anyhow::Error::from)?;
-    state.storage.replace_schedules(user_id, &records).await?;
+    let value = serde_json::to_value(record).map_err(anyhow::Error::from)?;
+    state.storage.upsert_schedule(user_id, &value).await?;
     Ok(())
 }
 
@@ -635,10 +617,15 @@ fn normalize_max_runs(kind: &str, value: Option<u64>) -> Result<Option<u64>, Api
     Ok(value.map(|value| value.max(1)))
 }
 
-fn normalize_run_at(value: Option<&str>, _timezone: &str) -> Result<Option<String>, ApiError> {
+fn normalize_run_at(value: Option<&str>, timezone: &str) -> Result<Option<String>, ApiError> {
     let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
         return Ok(None);
     };
+    if !is_utc_timezone(timezone) && !has_datetime_offset(value) {
+        return Err(ApiError::bad_request(
+            "run_at must include a timezone offset when timezone is not UTC",
+        ));
+    }
     Ok(Some(iso(parse_datetime(value)?)))
 }
 
@@ -708,6 +695,26 @@ fn parse_datetime(value: &str) -> Result<OffsetDateTime, ApiError> {
     Err(ApiError::bad_request("invalid datetime"))
 }
 
+fn is_utc_timezone(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "" | "utc" | "z" | "etc/utc" | "etc/gmt"
+    )
+}
+
+fn has_datetime_offset(value: &str) -> bool {
+    let value = value.trim();
+    if value.ends_with('Z') || value.ends_with('z') {
+        return true;
+    }
+    let time_start = value
+        .find('T')
+        .or_else(|| value.find('t'))
+        .map(|index| index + 1)
+        .unwrap_or(value.len());
+    value[time_start..].contains('+') || value[time_start..].contains('-')
+}
+
 fn schedule_limit_reached(record: &ScheduleRecord) -> bool {
     record.kind == "interval"
         && record
@@ -735,4 +742,25 @@ fn default_true() -> bool {
 
 fn default_max_runtime() -> u64 {
     1800
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_run_at_rejects_naive_datetime_for_non_utc_timezone() {
+        let result = normalize_run_at(Some("2026-05-28T10:00:00"), "Asia/Shanghai");
+
+        let err = result.expect_err("non-UTC naive datetime should be rejected");
+        assert!(format!("{err:?}").contains("timezone offset"));
+    }
+
+    #[test]
+    fn normalize_run_at_accepts_offset_datetime_for_non_utc_timezone() -> Result<(), ApiError> {
+        let run_at = normalize_run_at(Some("2026-05-28T10:00:00+08:00"), "Asia/Shanghai")?;
+
+        assert_eq!(run_at.as_deref(), Some("2026-05-28T02:00:00Z"));
+        Ok(())
+    }
 }

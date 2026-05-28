@@ -15,6 +15,7 @@ pub struct AppConfig {
     pub sandbox: SandboxConfig,
     pub codex: CodexConfig,
     pub schedule_extraction_max_runtime_seconds: u64,
+    pub schedule_poll_interval_seconds: u64,
     pub skills: SkillsConfig,
     pub public_base_url: Option<String>,
     pub feishu: FeishuConfig,
@@ -132,6 +133,7 @@ struct RawServer {
     sandbox: Option<RawSandbox>,
     codex_chat: Option<RawCodexChat>,
     schedule_extraction: Option<RawScheduleExtraction>,
+    schedules: Option<RawSchedules>,
     public_base_url: Option<String>,
     feishu: Option<RawFeishu>,
     gogcli_oauth: Option<RawGogcliOAuth>,
@@ -145,6 +147,11 @@ struct RawCodexChat {
 #[derive(Debug, Default, Deserialize)]
 struct RawScheduleExtraction {
     max_runtime_seconds: Option<u64>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RawSchedules {
+    poll_interval_seconds: Option<u64>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -249,6 +256,12 @@ impl AppConfig {
             let text = std::fs::read_to_string(&config_path)?;
             serde_yaml::from_str::<RawConfig>(&text)?
         } else {
+            if !env_flag_enabled("RIPPLE_ALLOW_DEFAULT_CONFIG") {
+                anyhow::bail!(
+                    "Ripple config {} does not exist; set RIPPLE_ALLOW_DEFAULT_CONFIG=1 to use built-in defaults explicitly",
+                    config_path.display()
+                );
+            }
             RawConfig::default()
         };
 
@@ -266,12 +279,13 @@ impl AppConfig {
             .unwrap_or_default();
         let codex_chat = server.codex_chat.unwrap_or_default();
         let schedule_extraction = server.schedule_extraction.unwrap_or_default();
+        let schedules = server.schedules.unwrap_or_default();
         let skills_raw = raw.skills.unwrap_or_default();
 
         let model_presets = parse_model_presets(model.presets.unwrap_or_default());
         let default_model = model.default.unwrap_or_else(|| "codex-medium".to_string());
 
-        Ok(Self {
+        let config = Self {
             repo_root: repo_root.clone(),
             host: server.host.unwrap_or_else(|| "0.0.0.0".to_string()),
             port: server.port.unwrap_or(8810),
@@ -355,6 +369,7 @@ impl AppConfig {
                 .max_runtime_seconds
                 .unwrap_or(120)
                 .max(1),
+            schedule_poll_interval_seconds: schedules.poll_interval_seconds.unwrap_or(15).max(1),
             skills: SkillsConfig {
                 shared_dirs: skills_raw
                     .shared_dirs
@@ -371,7 +386,9 @@ impl AppConfig {
                 ),
                 client: parse_gogcli_oauth_client(gogcli_oauth_raw.client),
             },
-        })
+        };
+        validate_runtime_config(&config)?;
+        Ok(config)
     }
 
     pub fn resolve_model(&self, selected: Option<&str>) -> (String, Option<String>) {
@@ -385,6 +402,34 @@ impl AppConfig {
     pub fn tracing_filter(&self) -> String {
         tracing_filter_for_level(&self.logging.level)
     }
+}
+
+fn validate_runtime_config(config: &AppConfig) -> anyhow::Result<()> {
+    if config.api_keys.is_empty()
+        && is_wildcard_host(&config.host)
+        && !env_flag_enabled("RIPPLE_ALLOW_OPEN_API")
+    {
+        anyhow::bail!(
+            "server.api_keys cannot be empty when server.host is {}; set RIPPLE_ALLOW_OPEN_API=1 to allow unauthenticated public binding explicitly",
+            config.host
+        );
+    }
+    Ok(())
+}
+
+fn is_wildcard_host(host: &str) -> bool {
+    matches!(host.trim(), "0.0.0.0" | "::" | "[::]")
+}
+
+fn env_flag_enabled(name: &str) -> bool {
+    std::env::var(name)
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
 }
 
 pub fn default_tracing_filter() -> String {
@@ -589,12 +634,16 @@ mod tests {
     fn default_skills_shared_dirs_use_top_level_skills() {
         let _guard = config_env_lock().lock().expect("config env lock poisoned");
         let previous = std::env::var_os("RIPPLE_CONFIG");
+        let previous_allow_default = std::env::var_os("RIPPLE_ALLOW_DEFAULT_CONFIG");
+        let previous_allow_open = std::env::var_os("RIPPLE_ALLOW_OPEN_API");
         let config_path = std::env::temp_dir().join(format!(
             "ripple-missing-config-{}-{}.yaml",
             std::process::id(),
             "default-skills"
         ));
         std::env::set_var("RIPPLE_CONFIG", &config_path);
+        std::env::set_var("RIPPLE_ALLOW_DEFAULT_CONFIG", "1");
+        std::env::set_var("RIPPLE_ALLOW_OPEN_API", "1");
 
         let loaded = AppConfig::load();
 
@@ -602,9 +651,122 @@ mod tests {
             Some(value) => std::env::set_var("RIPPLE_CONFIG", value),
             None => std::env::remove_var("RIPPLE_CONFIG"),
         }
+        match previous_allow_default {
+            Some(value) => std::env::set_var("RIPPLE_ALLOW_DEFAULT_CONFIG", value),
+            None => std::env::remove_var("RIPPLE_ALLOW_DEFAULT_CONFIG"),
+        }
+        match previous_allow_open {
+            Some(value) => std::env::set_var("RIPPLE_ALLOW_OPEN_API", value),
+            None => std::env::remove_var("RIPPLE_ALLOW_OPEN_API"),
+        }
 
         let config = loaded.expect("load default config");
         assert_eq!(config.skills.shared_dirs, vec!["skills/*".to_string()]);
+    }
+
+    #[test]
+    fn missing_config_requires_explicit_default_config_opt_in() {
+        let _guard = config_env_lock().lock().expect("config env lock poisoned");
+        let previous = std::env::var_os("RIPPLE_CONFIG");
+        let previous_allow_default = std::env::var_os("RIPPLE_ALLOW_DEFAULT_CONFIG");
+        let previous_allow_open = std::env::var_os("RIPPLE_ALLOW_OPEN_API");
+        let config_path = std::env::temp_dir().join(format!(
+            "ripple-missing-config-{}-{}.yaml",
+            std::process::id(),
+            "fail-closed"
+        ));
+        std::env::set_var("RIPPLE_CONFIG", &config_path);
+        std::env::remove_var("RIPPLE_ALLOW_DEFAULT_CONFIG");
+        std::env::set_var("RIPPLE_ALLOW_OPEN_API", "1");
+
+        let loaded = AppConfig::load();
+
+        match previous {
+            Some(value) => std::env::set_var("RIPPLE_CONFIG", value),
+            None => std::env::remove_var("RIPPLE_CONFIG"),
+        }
+        match previous_allow_default {
+            Some(value) => std::env::set_var("RIPPLE_ALLOW_DEFAULT_CONFIG", value),
+            None => std::env::remove_var("RIPPLE_ALLOW_DEFAULT_CONFIG"),
+        }
+        match previous_allow_open {
+            Some(value) => std::env::set_var("RIPPLE_ALLOW_OPEN_API", value),
+            None => std::env::remove_var("RIPPLE_ALLOW_OPEN_API"),
+        }
+
+        let err = loaded.expect_err("missing config should fail closed");
+        assert!(err.to_string().contains("RIPPLE_ALLOW_DEFAULT_CONFIG"));
+    }
+
+    #[test]
+    fn wildcard_host_requires_api_key_unless_open_api_is_explicit() {
+        let _guard = config_env_lock().lock().expect("config env lock poisoned");
+        let previous_config = std::env::var_os("RIPPLE_CONFIG");
+        let previous_allow_open = std::env::var_os("RIPPLE_ALLOW_OPEN_API");
+        std::env::remove_var("RIPPLE_ALLOW_OPEN_API");
+        let path = std::env::temp_dir().join(format!(
+            "ripple-config-test-{}-open-api-public-host.yaml",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::write(
+            &path,
+            r#"
+server:
+  host: "0.0.0.0"
+  api_keys: []
+"#,
+        )
+        .expect("write temp config");
+        std::env::set_var("RIPPLE_CONFIG", &path);
+
+        let result = AppConfig::load();
+
+        match previous_config {
+            Some(value) => std::env::set_var("RIPPLE_CONFIG", value),
+            None => std::env::remove_var("RIPPLE_CONFIG"),
+        }
+        match previous_allow_open {
+            Some(value) => std::env::set_var("RIPPLE_ALLOW_OPEN_API", value),
+            None => std::env::remove_var("RIPPLE_ALLOW_OPEN_API"),
+        }
+        let _ = std::fs::remove_file(path);
+
+        let err = result.expect_err("public open API should fail closed");
+        assert!(err.to_string().contains("RIPPLE_ALLOW_OPEN_API"));
+    }
+
+    #[test]
+    fn wildcard_host_can_use_api_keys() {
+        let result = with_temp_config(
+            "public-host-with-api-key",
+            r#"
+server:
+  host: "0.0.0.0"
+  api_keys: ["test-key"]
+"#,
+            AppConfig::load,
+        )
+        .expect("public host with API key should load");
+
+        assert_eq!(result.host, "0.0.0.0");
+        assert_eq!(result.api_keys, vec!["test-key".to_string()]);
+    }
+
+    #[test]
+    fn parses_schedule_poll_interval() {
+        let config = with_temp_config(
+            "schedule-poll",
+            r#"
+server:
+  api_keys: ["test-key"]
+  schedules:
+    poll_interval_seconds: 30
+"#,
+            AppConfig::load,
+        )
+        .expect("load config");
+
+        assert_eq!(config.schedule_poll_interval_seconds, 30);
     }
 
     #[test]
@@ -613,6 +775,7 @@ mod tests {
             "cli-tools",
             r#"
 server:
+  api_keys: ["test-key"]
   sandbox:
     cli_tools:
       - name: bilibili
@@ -641,6 +804,8 @@ server:
         let config = with_temp_config(
             "logging-level",
             r#"
+server:
+  api_keys: ["test-key"]
 logging:
   level: "INFO"
 "#,

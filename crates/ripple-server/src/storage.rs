@@ -460,6 +460,43 @@ impl Storage {
         Ok(())
     }
 
+    pub async fn upsert_schedule(&self, user_id: &str, record: &Value) -> anyhow::Result<()> {
+        self.initialize().await?;
+        let Some(schedule_id) = record.get("schedule_id").and_then(Value::as_str) else {
+            anyhow::bail!("schedule record missing schedule_id");
+        };
+        sqlx::query(
+            r#"
+            INSERT INTO schedules (user_id, schedule_id, status, next_run_at, updated_at, record_json)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, schedule_id) DO UPDATE SET
+                status = excluded.status,
+                next_run_at = excluded.next_run_at,
+                updated_at = excluded.updated_at,
+                record_json = excluded.record_json
+            "#,
+        )
+        .bind(user_id)
+        .bind(schedule_id)
+        .bind(record_str(record, "status"))
+        .bind(record.get("next_run_at").and_then(Value::as_str))
+        .bind(record_str(record, "updated_at"))
+        .bind(json_text(record)?)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn delete_schedule(&self, user_id: &str, schedule_id: &str) -> anyhow::Result<bool> {
+        self.initialize().await?;
+        let result = sqlx::query("DELETE FROM schedules WHERE user_id = ? AND schedule_id = ?")
+            .bind(user_id)
+            .bind(schedule_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
     pub async fn list_schedules(&self, user_id: &str) -> anyhow::Result<Vec<Value>> {
         self.initialize().await?;
         let rows = sqlx::query(
@@ -957,6 +994,62 @@ mod tests {
                 active_runs: 1,
             }
         );
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn upsert_schedule_preserves_other_schedule_records() -> anyhow::Result<()> {
+        let root =
+            std::env::temp_dir().join(format!("ripple-storage-test-{}", uuid::Uuid::new_v4()));
+        let storage = Storage::open(root.join(".ripple/ripple.sqlite"))?;
+
+        storage
+            .upsert_schedule(
+                "alice",
+                &serde_json::json!({
+                    "schedule_id": "sch-one",
+                    "status": "active",
+                    "next_run_at": "2026-05-28T00:00:00Z",
+                    "updated_at": "2026-05-28T00:00:00Z"
+                }),
+            )
+            .await?;
+        storage
+            .upsert_schedule(
+                "alice",
+                &serde_json::json!({
+                    "schedule_id": "sch-two",
+                    "status": "active",
+                    "next_run_at": "2026-05-28T01:00:00Z",
+                    "updated_at": "2026-05-28T00:00:00Z"
+                }),
+            )
+            .await?;
+        storage
+            .upsert_schedule(
+                "alice",
+                &serde_json::json!({
+                    "schedule_id": "sch-one",
+                    "status": "paused",
+                    "next_run_at": null,
+                    "updated_at": "2026-05-28T00:01:00Z"
+                }),
+            )
+            .await?;
+
+        let schedules = storage.list_schedules("alice").await?;
+
+        assert_eq!(schedules.len(), 2);
+        assert!(schedules.iter().any(|record| {
+            record.get("schedule_id").and_then(Value::as_str) == Some("sch-one")
+                && record.get("status").and_then(Value::as_str) == Some("paused")
+        }));
+        assert!(schedules.iter().any(|record| {
+            record.get("schedule_id").and_then(Value::as_str) == Some("sch-two")
+                && record.get("status").and_then(Value::as_str) == Some("active")
+        }));
 
         let _ = std::fs::remove_dir_all(root);
         Ok(())

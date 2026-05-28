@@ -61,14 +61,9 @@ external_agents:
     codex_home: ".ripple/codex-service-home"
     approval_policy: "never"
     sandbox_type: "workspace-write"
-    allow_danger_full_access: false
     network_access: true
     # 保留配置；当前 app-server 进程按 job 生命周期启动和关闭，不依赖 idle 回收。
     idle_timeout_seconds: 1800
-    # 可选：控制 Codex app-server 子进程环境。不要传入 server 级密钥；
-    # user 级 token 应放在当前 user sandbox 可见的 credentials/workspace 配置中。
-    # env:
-    #   PATH: "/usr/local/bin:/usr/bin:/bin"
 
 # 日志配置
 # Ripple Server 日志只写 stdout/stderr；生产部署由 systemd/journald、
@@ -136,8 +131,6 @@ server:
     # Service API key for trusted upstream services. Ripple does not manage
     # end-user auth; callers pass a verified X-Ripple-User-Id for isolation.
     - "<RIPPLE_SERVER_API_KEY>"
-  session:
-    ttl_seconds: 3600
 
   # 沙箱配置（nsjail）
   sandbox:

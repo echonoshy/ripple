@@ -212,6 +212,7 @@ mod tests {
                 max_runtime_seconds: 3600,
             },
             schedule_extraction_max_runtime_seconds: 120,
+            schedule_poll_interval_seconds: 15,
             skills: SkillsConfig {
                 shared_dirs: Vec::new(),
             },

@@ -87,7 +87,13 @@ function testWorkspaceExplorerPageStacksHeaderControlsAwayFromTitle() {
   assert.match(html, /data-ripple-files-toolbar-layout="stacked"/);
   assert.match(html, /data-ripple-files-title-row="page"/);
   assert.match(html, /data-ripple-files-search-row="page"/);
+  assert.match(html, /data-ripple-files-mobile-search-trigger/);
   assert.match(html, /data-ripple-workspace-current-path="toolbar"[^>]*lg:hidden/);
+
+  const pageSearchRow = html.match(/<div[^>]*data-ripple-files-search-row="page"[^>]*>/)?.[0];
+  assert.ok(pageSearchRow);
+  assert.match(pageSearchRow, /hidden/);
+  assert.match(pageSearchRow, /lg:flex/);
 }
 
 testWorkspaceExplorerPageStacksHeaderControlsAwayFromTitle();
@@ -102,14 +108,18 @@ function testWorkspaceExplorerPageShowsMobileParentFolderControl() {
     },
   });
 
+  assert.match(html, /data-ripple-files-mobile-path-row/);
   assert.match(html, /data-ripple-files-action="parent-folder"/);
   assert.match(html, /aria-label="Go to parent folder"/);
-  assert.match(html, /data-ripple-files-action="parent-folder"[^>]*lg:hidden/);
+  assert.match(
+    html,
+    /data-ripple-files-mobile-path-row[\s\S]*data-ripple-files-action="parent-folder"/
+  );
 }
 
 testWorkspaceExplorerPageShowsMobileParentFolderControl();
 
-function testWorkspaceExplorerPageDifferentiatesUploadFromParentFolder() {
+function testWorkspaceExplorerPageKeepsMobileUploadSeparateFromParentFolder() {
   const html = renderExplorer({
     presentation: "page",
     testInitialListing: {
@@ -132,7 +142,28 @@ function testWorkspaceExplorerPageDifferentiatesUploadFromParentFolder() {
   assert.match(uploadButton, /bg-\[#2463eb\]/);
 }
 
-testWorkspaceExplorerPageDifferentiatesUploadFromParentFolder();
+testWorkspaceExplorerPageKeepsMobileUploadSeparateFromParentFolder();
+
+function testWorkspaceExplorerMobileSearchSheetKeepsSearchAndFiltersTogether() {
+  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const sheetIndex = source.indexOf("data-ripple-files-mobile-search-sheet");
+
+  assert.ok(sheetIndex >= 0);
+  assert.match(source, /data-ripple-files-mobile-search-trigger/);
+  assert.match(source, /data-ripple-files-mobile-actions-menu/);
+
+  const afterSheetIndex = source.indexOf("{error &&", sheetIndex);
+  assert.ok(afterSheetIndex > sheetIndex);
+
+  const sheetSource = source.slice(sheetIndex, afterSheetIndex);
+  assert.match(sheetSource, /aria-label="Search workspace files"/);
+  assert.match(sheetSource, /value=\{searchScope\}/);
+  assert.match(sheetSource, /value=\{searchKind\}/);
+  assert.match(sheetSource, /value=\{fileType\}/);
+  assert.match(sheetSource, /value=\{searchLimit\}/);
+}
+
+testWorkspaceExplorerMobileSearchSheetKeepsSearchAndFiltersTogether();
 
 function testWorkspaceExplorerPageMergesRepeatedLocationLabels() {
   const html = renderExplorer({ presentation: "page" });

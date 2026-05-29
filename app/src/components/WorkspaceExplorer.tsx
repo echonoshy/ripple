@@ -24,6 +24,7 @@ import {
   FilePlus,
   FolderPlus,
   MoreHorizontal,
+  X,
 } from "lucide-react";
 import {
   downloadWorkspaceFile,
@@ -218,6 +219,8 @@ export default function WorkspaceExplorer({
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
+  const [isMobileActionsOpen, setIsMobileActionsOpen] = useState(false);
   const [searchScope, setSearchScope] =
     useState<NonNullable<WorkspaceSearchOptions["scope"]>>("name");
   const [searchKind, setSearchKind] = useState<NonNullable<WorkspaceSearchOptions["kind"]>>("all");
@@ -876,6 +879,7 @@ export default function WorkspaceExplorer({
   useEffect(() => {
     const handleGlobalClick = () => {
       setContextMenu((prev) => (prev.visible ? { ...prev, visible: false } : prev));
+      setIsMobileActionsOpen(false);
     };
     window.addEventListener("click", handleGlobalClick);
     return () => {
@@ -979,6 +983,10 @@ export default function WorkspaceExplorer({
   const currentDisplayPath = isSearchMode
     ? searchModeLabel(searchScope)
     : listing?.path || currentPath;
+  const mobilePathLabel = isSearchMode
+    ? `Search: ${normalizedQuery}`
+    : listing?.path || currentPath;
+  const mobilePathDetail = isSearchMode ? searchModeLabel(searchScope) : null;
   const isPagePresentation = presentation === "page";
   const pageToolbarIconButtonClass =
     "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#dfe6f4] bg-white/78 text-[#384152] shadow-[0_10px_24px_rgba(44,63,123,0.06)] transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-50";
@@ -1028,7 +1036,7 @@ export default function WorkspaceExplorer({
           className={isPagePresentation ? "flex flex-col gap-3" : "mb-2 flex items-center gap-2"}
         >
           {isPagePresentation && (
-            <div data-ripple-files-title-row="page" className="flex min-w-0 items-center gap-3">
+            <div data-ripple-files-title-row="page" className="flex min-w-0 items-center gap-2">
               {onBack ? (
                 <button
                   type="button"
@@ -1051,6 +1059,48 @@ export default function WorkspaceExplorer({
                   {listing?.path || currentPath}
                 </p>
               </div>
+              <button
+                type="button"
+                data-ripple-files-mobile-search-trigger
+                onClick={() => {
+                  setIsMobileActionsOpen(false);
+                  setIsMobileSearchOpen(true);
+                }}
+                className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border shadow-[0_10px_24px_rgba(44,63,123,0.06)] transition-colors lg:hidden ${
+                  isSearchMode
+                    ? "border-[#d7e3f8] bg-[#eef4ff] text-[#2463eb]"
+                    : "border-[#dfe6f4] bg-white/78 text-[#384152] hover:bg-white"
+                }`}
+                title="Search workspace files"
+                aria-label="Search workspace files"
+              >
+                <Search size={14} />
+              </button>
+              <button
+                type="button"
+                data-ripple-files-action="upload"
+                className={`${pageToolbarPrimaryButtonClass} lg:hidden`}
+                title="Upload files"
+                aria-label="Upload files"
+                disabled={uploading}
+                onClick={() => uploadInputRef.current?.click()}
+              >
+                {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+              </button>
+              <button
+                type="button"
+                data-ripple-files-action="mobile-more"
+                className={`${pageToolbarIconButtonClass} lg:hidden`}
+                title="More file actions"
+                aria-label="More file actions"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setIsMobileSearchOpen(false);
+                  setIsMobileActionsOpen((open) => !open);
+                }}
+              >
+                <MoreHorizontal size={15} />
+              </button>
             </div>
           )}
 
@@ -1058,7 +1108,7 @@ export default function WorkspaceExplorer({
             data-ripple-files-search-row={isPagePresentation ? "page" : undefined}
             className={
               isPagePresentation
-                ? "flex min-w-0 items-center gap-2"
+                ? "hidden min-w-0 items-center gap-2 lg:flex"
                 : "flex min-w-0 flex-1 items-center gap-2"
             }
           >
@@ -1079,19 +1129,6 @@ export default function WorkspaceExplorer({
                 }
               />
             </div>
-            {isPagePresentation && listing?.parent_path && (
-              <button
-                type="button"
-                data-ripple-files-action="parent-folder"
-                className={pageParentButtonClass}
-                title="Go to parent folder"
-                aria-label="Go to parent folder"
-                onClick={() => void loadDirectory(listing.parent_path || DEFAULT_WORKSPACE_PATH)}
-              >
-                <ArrowUp size={15} />
-                <span>Up</span>
-              </button>
-            )}
             <button
               type="button"
               data-ripple-files-action="search-filters"
@@ -1144,11 +1181,113 @@ export default function WorkspaceExplorer({
             )}
           </div>
         </div>
+        {isPagePresentation && (
+          <div
+            data-ripple-files-mobile-path-row
+            className="mt-3 flex min-w-0 items-center gap-2 rounded-xl border border-[#dfe6f4]/80 bg-white/62 px-2.5 py-2 text-[#667085] lg:hidden"
+          >
+            {listing?.parent_path ? (
+              <button
+                type="button"
+                data-ripple-files-action="parent-folder"
+                className={pageParentButtonClass}
+                title="Go to parent folder"
+                aria-label="Go to parent folder"
+                onClick={() => void loadDirectory(listing.parent_path || DEFAULT_WORKSPACE_PATH)}
+              >
+                <ArrowUp size={15} />
+                <span>Up</span>
+              </button>
+            ) : (
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#f6f8ff] text-[#2463eb]">
+                <Folder size={14} />
+              </span>
+            )}
+            <div className="min-w-0 flex-1">
+              <div className="truncate font-[family-name:var(--font-mono)] text-[11px] font-semibold text-[#374151]">
+                {mobilePathLabel}
+              </div>
+              {mobilePathDetail && (
+                <div className="mt-0.5 truncate text-[10px] font-medium text-[#667085]">
+                  {mobilePathDetail}
+                </div>
+              )}
+            </div>
+            {isSearchMode && (
+              <button
+                type="button"
+                onClick={() => setIsMobileSearchOpen(true)}
+                className="inline-flex h-8 shrink-0 items-center rounded-lg border border-[#d7e3f8] bg-[#eef4ff] px-2 text-[11px] font-semibold text-[#2463eb]"
+              >
+                Edit
+              </button>
+            )}
+          </div>
+        )}
+        {isPagePresentation && isMobileActionsOpen && (
+          <div
+            data-ripple-files-mobile-actions-menu
+            className="absolute top-[76px] right-3 z-40 w-[220px] rounded-2xl border border-[#dfe6f4] bg-white p-1.5 text-xs text-[#374151] shadow-[0_18px_44px_rgba(44,63,123,0.16)] lg:hidden"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => {
+                setIsMobileActionsOpen(false);
+                void loadDirectory(currentPath);
+              }}
+              disabled={loading}
+              className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left font-semibold transition-colors hover:bg-[#f3f4f6] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {loading ? (
+                <Loader2 size={13} className="shrink-0 animate-spin text-[#6b7280]" />
+              ) : (
+                <RefreshCw size={13} className="shrink-0 text-[#6b7280]" />
+              )}
+              Refresh workspace
+            </button>
+            <button
+              type="button"
+              disabled={!clipboard}
+              onClick={() => {
+                setIsMobileActionsOpen(false);
+                void handlePaste();
+              }}
+              className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left font-semibold transition-colors hover:bg-[#f3f4f6] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Clipboard size={13} className="shrink-0 text-[#6b7280]" />
+              Paste {clipboard ? `(${clipboard.name})` : ""}
+            </button>
+            <div className="my-1 border-t border-[#dfe6f4]" />
+            <button
+              type="button"
+              onClick={() => {
+                setCreationModal({ visible: true, kind: "file" });
+                setIsMobileActionsOpen(false);
+              }}
+              className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left font-semibold transition-colors hover:bg-[#f3f4f6]"
+            >
+              <FilePlus size={13} className="shrink-0 text-[#6b7280]" />
+              New File
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setCreationModal({ visible: true, kind: "directory" });
+                setIsMobileActionsOpen(false);
+              }}
+              className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left font-semibold transition-colors hover:bg-[#f3f4f6]"
+            >
+              <FolderPlus size={13} className="shrink-0 text-[#6b7280]" />
+              New Folder
+            </button>
+          </div>
+        )}
         {isFilterOpen && (
           <div
             className={
               isPagePresentation
-                ? "mt-3 grid gap-2 rounded-2xl border border-[#dfe6f4] bg-[#ffffff]/76 p-3 text-xs text-[#374151] shadow-[0_14px_36px_rgba(44,63,123,0.06)] sm:grid-cols-2"
+                ? "mt-3 hidden gap-2 rounded-2xl border border-[#dfe6f4] bg-[#ffffff]/76 p-3 text-xs text-[#374151] shadow-[0_14px_36px_rgba(44,63,123,0.06)] lg:grid lg:grid-cols-2"
                 : "mb-2 grid gap-2 rounded-2xl border border-[#e5e7eb] bg-[#fbfbfc] p-3 text-xs text-[#374151] shadow-sm sm:grid-cols-2"
             }
           >
@@ -1227,6 +1366,146 @@ export default function WorkspaceExplorer({
           </div>
         )}
       </div>
+
+      {isPagePresentation && isMobileSearchOpen && (
+        <div
+          data-ripple-files-mobile-search-sheet
+          className="fixed inset-0 z-50 flex items-end bg-[#172033]/18 p-2 pb-[max(env(safe-area-inset-bottom),8px)] backdrop-blur-[1px] lg:hidden"
+          onClick={() => setIsMobileSearchOpen(false)}
+        >
+          <div
+            className="w-full rounded-[22px] border border-[#dfe6f4] bg-white text-[#111827] shadow-[0_-18px_48px_rgba(44,63,123,0.16)]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center gap-2 border-b border-[#edf2fb] px-3 py-3">
+              <button
+                type="button"
+                onClick={() => setIsMobileSearchOpen(false)}
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[#dfe6f4] bg-white text-[#667085] hover:bg-[#f7f8fa]"
+                aria-label="Close search"
+                title="Close search"
+              >
+                <X size={16} />
+              </button>
+              <div className="min-w-0 flex-1">
+                <div className="text-[14px] font-semibold text-[#111827]">Search workspace</div>
+                <div className="mt-0.5 truncate font-[family-name:var(--font-mono)] text-[10px] text-[#667085]">
+                  {listing?.path || currentPath}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleQueryChange("")}
+                disabled={!isSearchMode}
+                className="inline-flex h-9 items-center rounded-xl border border-[#dfe6f4] bg-white px-3 text-[12px] font-semibold text-[#667085] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                Clear
+              </button>
+            </div>
+            <div className="grid gap-3 px-3 py-3">
+              <div className="relative">
+                <Search
+                  size={14}
+                  className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[#8b8f94]"
+                />
+                <input
+                  value={query}
+                  onChange={(event) => handleQueryChange(event.target.value)}
+                  placeholder="Find files by name..."
+                  aria-label="Search workspace files"
+                  autoFocus
+                  className="h-11 w-full rounded-xl border border-[#dfe6f4] bg-[#fbfdff] pr-3 pl-9 text-sm text-[#111827] outline-none placeholder:text-xs placeholder:text-[#8b8f94] focus:border-[#2463eb]"
+                />
+              </div>
+              <div className="flex min-w-0 gap-1.5 overflow-x-auto pb-0.5">
+                <span className="shrink-0 rounded-full border border-[#b8cdf8] bg-[#eef4ff] px-2 py-1 text-[10px] font-semibold text-[#2457e6]">
+                  {searchScope === "content"
+                    ? "Content"
+                    : searchScope === "all"
+                      ? "Name + content"
+                      : "Name/path"}
+                </span>
+                <span className="shrink-0 rounded-full border border-[#dfe6f4] bg-[#f8fbff] px-2 py-1 text-[10px] font-medium text-[#667085]">
+                  {searchKind === "directory"
+                    ? "Folders"
+                    : searchKind === "file"
+                      ? "Files"
+                      : "Files + folders"}
+                </span>
+                <span className="shrink-0 rounded-full border border-[#dfe6f4] bg-[#f8fbff] px-2 py-1 text-[10px] font-medium text-[#667085]">
+                  {fileType === "all" ? "All types" : fileType}
+                </span>
+                <span className="shrink-0 rounded-full border border-[#dfe6f4] bg-[#f8fbff] px-2 py-1 text-[10px] font-medium text-[#667085]">
+                  {searchLimit} results
+                </span>
+              </div>
+              <div className="grid gap-2 text-xs text-[#374151]">
+                <label className="flex items-center gap-2">
+                  <span className="w-16 text-[#667085]">Scope</span>
+                  <select
+                    value={searchScope}
+                    onChange={(event) =>
+                      setSearchScope(
+                        event.target.value as NonNullable<WorkspaceSearchOptions["scope"]>
+                      )
+                    }
+                    className="h-9 min-w-0 flex-1 rounded-xl border border-[#dfe6f4] bg-white px-2 text-xs"
+                  >
+                    <option value="name">Name/path (default)</option>
+                    <option value="all">Name and content</option>
+                    <option value="content">Content</option>
+                  </select>
+                </label>
+                <label className="flex items-center gap-2">
+                  <span className="w-16 text-[#667085]">Kind</span>
+                  <select
+                    value={searchKind}
+                    onChange={(event) =>
+                      setSearchKind(
+                        event.target.value as NonNullable<WorkspaceSearchOptions["kind"]>
+                      )
+                    }
+                    className="h-9 min-w-0 flex-1 rounded-xl border border-[#dfe6f4] bg-white px-2 text-xs"
+                  >
+                    <option value="all">Files and folders</option>
+                    <option value="file">Files</option>
+                    <option value="directory">Folders</option>
+                  </select>
+                </label>
+                <label className="flex items-center gap-2">
+                  <span className="w-16 text-[#667085]">Type</span>
+                  <select
+                    value={fileType}
+                    onChange={(event) =>
+                      setFileType(
+                        event.target.value as NonNullable<WorkspaceSearchOptions["fileType"]>
+                      )
+                    }
+                    className="h-9 min-w-0 flex-1 rounded-xl border border-[#dfe6f4] bg-white px-2 text-xs"
+                  >
+                    <option value="all">All types</option>
+                    <option value="code">Code</option>
+                    <option value="markdown">Markdown</option>
+                    <option value="text">Text</option>
+                    <option value="image">Images</option>
+                  </select>
+                </label>
+                <label className="flex items-center gap-2">
+                  <span className="w-16 text-[#667085]">Results</span>
+                  <select
+                    value={searchLimit}
+                    onChange={(event) => setSearchLimit(Number(event.target.value))}
+                    className="h-9 min-w-0 flex-1 rounded-xl border border-[#dfe6f4] bg-white px-2 text-xs"
+                  >
+                    <option value={20}>20</option>
+                    <option value={50}>50</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="m-4 mb-0 flex items-start gap-2 rounded-md border border-[#cf222e]/25 bg-[#ffebe9] p-3 text-xs font-medium text-[#cf222e]">

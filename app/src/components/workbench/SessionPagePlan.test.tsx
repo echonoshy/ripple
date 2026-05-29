@@ -24,6 +24,7 @@ function renderSessionPageWithPlan() {
       lastContextTokens={0}
       input=""
       pendingFiles={[]}
+      pendingLocalImages={[]}
       isGenerating={false}
       focusToken={0}
       selectedModel="codex-medium"
@@ -37,6 +38,8 @@ function renderSessionPageWithPlan() {
       onCompactContext={noop}
       onAttachFiles={noop}
       onRemovePendingFile={noop}
+      onAddPendingImages={noop}
+      onRemovePendingLocalImage={noop}
       onToggleModelDropdown={noop}
       onSelectModel={noop}
       onSend={noop}

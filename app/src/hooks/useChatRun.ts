@@ -29,6 +29,12 @@ import {
   upsertPlanStep,
 } from "@/lib/chatState";
 import { bumpInputFocusToken } from "@/lib/inputFocus";
+import {
+  createPendingLocalImages,
+  revokePendingLocalImages,
+  type PendingImageSource,
+  type PendingLocalImage,
+} from "@/lib/pendingImages";
 import { mapSessionMessages } from "@/lib/sessionMessages";
 import {
   extractChangedFilePaths,
@@ -65,6 +71,7 @@ const emptyUsage: UsageInfo = {
 };
 
 export const CONNECTOR_AUTH_POLL_TIMEOUT_MS = 5 * 60 * 1000;
+export const SESSION_TITLE_REFRESH_DELAYS_MS = [750, 2000, 5000] as const;
 const CONNECTOR_AUTH_POLL_INTERVAL_MS = 2000;
 const MAX_ATTACHMENT_UPLOAD_ERRORS_SHOWN = 3;
 
@@ -149,6 +156,35 @@ function summarizeAttachmentUploadErrors(errors: string[]): string {
   return `${shown.join("; ")}${suffix}`;
 }
 
+type AttachmentUploadResult = Awaited<ReturnType<typeof uploadWorkspaceAttachment>>;
+
+export async function uploadPendingLocalImagesForSend(
+  images: PendingLocalImage[],
+  uploadAttachment: (file: File) => Promise<AttachmentUploadResult>
+): Promise<{ files: ChatFileRef[]; failures: string[] }> {
+  const files: ChatFileRef[] = [];
+  const failures: string[] = [];
+
+  for (const image of images) {
+    try {
+      const uploaded = await uploadAttachment(image.file);
+      files.push({
+        path: uploaded.path,
+        name: uploaded.name,
+        mime_type: uploaded.mime_type,
+        kind: uploaded.kind,
+      });
+    } catch (err) {
+      if (err instanceof AuthError) {
+        throw err;
+      }
+      failures.push(`${image.name}: ${attachmentUploadErrorMessage(err)}`);
+    }
+  }
+
+  return { files, failures };
+}
+
 export function useChatRun({
   selectedModel,
   onSelectedModelChange,
@@ -160,6 +196,7 @@ export function useChatRun({
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [pendingFiles, setPendingFiles] = useState<ChatFileRef[]>([]);
+  const [pendingLocalImages, setPendingLocalImages] = useState<PendingLocalImage[]>([]);
   const [isUploadingFiles, setIsUploadingFiles] = useState(false);
   const [attachmentUploadError, setAttachmentUploadError] = useState<string | null>(null);
   const [runningSessionIds, setRunningSessionIds] = useState<string[]>([]);
@@ -174,6 +211,7 @@ export function useChatRun({
   const activeRequestIdsRef = useRef<Map<string, number>>(new Map());
   const abortControllersRef = useRef<Map<string, AbortController>>(new Map());
   const runningViewStatesRef = useRef<Map<string, ChatRunViewState>>(new Map());
+  const pendingLocalImagesRef = useRef<PendingLocalImage[]>([]);
   const connectorAuthPollAbortRef = useRef<AbortController | null>(null);
   const connectorAuthPollTimerRef = useRef<number | null>(null);
   const connectorAuthPollIdRef = useRef(0);
@@ -183,6 +221,26 @@ export function useChatRun({
   const beginConnectorAuthPollRef = useRef<
     ((payload: FeishuAuthOpenPayload, options?: ConnectorAuthPollOptions) => void) | null
   >(null);
+
+  useEffect(() => {
+    pendingLocalImagesRef.current = pendingLocalImages;
+  }, [pendingLocalImages]);
+
+  useEffect(
+    () => () => {
+      revokePendingLocalImages(pendingLocalImagesRef.current);
+      pendingLocalImagesRef.current = [];
+    },
+    []
+  );
+
+  const clearPendingLocalImages = useCallback(() => {
+    setPendingLocalImages((prev) => {
+      revokePendingLocalImages(prev);
+      pendingLocalImagesRef.current = [];
+      return [];
+    });
+  }, []);
 
   const markSessionRunning = useCallback(
     (sessionId: string) => {
@@ -205,15 +263,19 @@ export function useChatRun({
   const isGenerating = runningSessionIds.length > 0;
   const runningSessionId = runningSessionIds[0] || null;
 
-  const applyViewState = useCallback((state: ChatRunViewState) => {
-    setMessages(state.messages);
-    setRuntimeTimelineEvents(state.runtimeTimelineEvents);
-    setPendingFiles(state.pendingFiles);
-    setTokenUsage(state.tokenUsage);
-    setLastContextTokens(state.lastContextTokens);
-    setPlanSteps(state.planSteps);
-    setPlanProgress(state.planProgress);
-  }, []);
+  const applyViewState = useCallback(
+    (state: ChatRunViewState) => {
+      setMessages(state.messages);
+      setRuntimeTimelineEvents(state.runtimeTimelineEvents);
+      setPendingFiles(state.pendingFiles);
+      clearPendingLocalImages();
+      setTokenUsage(state.tokenUsage);
+      setLastContextTokens(state.lastContextTokens);
+      setPlanSteps(state.planSteps);
+      setPlanProgress(state.planProgress);
+    },
+    [clearPendingLocalImages]
+  );
 
   const clearFeishuAuthWaiting = useCallback(() => {
     if (feishuAuthWaitingTimerRef.current) {
@@ -263,20 +325,22 @@ export function useChatRun({
     activeRequestIdsRef.current.clear();
     runningViewStatesRef.current.clear();
     setRunningSessionIds([]);
+    clearPendingLocalImages();
     onAuthExpired("API key 已失效");
-  }, [clearConnectorAuthPoll, onAuthExpired]);
+  }, [clearConnectorAuthPoll, clearPendingLocalImages, onAuthExpired]);
 
   const resetSessionView = useCallback(() => {
     setMessages([]);
     setRuntimeTimelineEvents([]);
     setPendingFiles([]);
+    clearPendingLocalImages();
     setIsUploadingFiles(false);
     setAttachmentUploadError(null);
     setPlanSteps([]);
     setPlanProgress(null);
     setTokenUsage(emptyUsage);
     setLastContextTokens(0);
-  }, []);
+  }, [clearPendingLocalImages]);
 
   const resetCurrentContextView = useCallback(() => {
     resetSessionView();
@@ -307,6 +371,7 @@ export function useChatRun({
       setMessages(mapSessionMessages(details));
       setRuntimeTimelineEvents([]);
       setPendingFiles([]);
+      clearPendingLocalImages();
       setIsUploadingFiles(false);
       setAttachmentUploadError(null);
       setTokenUsage(emptyUsage);
@@ -315,7 +380,7 @@ export function useChatRun({
       setPlanProgress(details.planProgress || null);
       onWorkspaceRefresh();
     },
-    [applyViewState, onSelectedModelChange, onWorkspaceRefresh]
+    [applyViewState, clearPendingLocalImages, onSelectedModelChange, onWorkspaceRefresh]
   );
 
   const handleStop = useCallback(async () => {
@@ -453,10 +518,38 @@ export function useChatRun({
     setPendingFiles((prev) => prev.filter((file) => file.path !== path));
   }, []);
 
+  const handleAddPendingImages = useCallback(
+    (files: File[], source: PendingImageSource) => {
+      if (isSessionRunning(getSessionActions().getSessionId()) || files.length === 0) return;
+      const images = createPendingLocalImages(files, source);
+      if (images.length === 0) return;
+
+      setPendingLocalImages((prev) => {
+        const next = [...prev, ...images];
+        pendingLocalImagesRef.current = next;
+        return next;
+      });
+      setAttachmentUploadError(null);
+      setInputFocusToken((prev) => bumpInputFocusToken(prev));
+    },
+    [getSessionActions, isSessionRunning]
+  );
+
+  const handleRemovePendingLocalImage = useCallback((id: string) => {
+    setPendingLocalImages((prev) => {
+      const removed = prev.filter((image) => image.id === id);
+      revokePendingLocalImages(removed);
+      const next = prev.filter((image) => image.id !== id);
+      pendingLocalImagesRef.current = next;
+      return next;
+    });
+  }, []);
+
   const handleSendMessage = useCallback(
     async (overrideText?: string) => {
       const text = typeof overrideText === "string" ? overrideText.trim() : input.trim();
-      const filesForSend = typeof overrideText === "string" ? [] : pendingFiles;
+      let filesForSend = typeof overrideText === "string" ? [] : pendingFiles;
+      const localImagesForSend = typeof overrideText === "string" ? [] : pendingLocalImages;
       if (text === "/clear") {
         await handleClearContext();
         return;
@@ -465,13 +558,40 @@ export function useChatRun({
         await handleCompactContext();
         return;
       }
-      if (!text && filesForSend.length === 0) return;
+      if (!text && filesForSend.length === 0 && localImagesForSend.length === 0) return;
 
       const activeSessionId = await getSessionActions().ensureSession();
       if (!activeSessionId) {
         return;
       }
       if (runningViewStatesRef.current.has(activeSessionId)) return;
+
+      if (localImagesForSend.length > 0) {
+        setIsUploadingFiles(true);
+        setAttachmentUploadError(null);
+        try {
+          const localUpload = await uploadPendingLocalImagesForSend(
+            localImagesForSend,
+            uploadWorkspaceAttachment
+          );
+          if (localUpload.failures.length > 0) {
+            setAttachmentUploadError(summarizeAttachmentUploadErrors(localUpload.failures));
+            return;
+          }
+          filesForSend = [...filesForSend, ...localUpload.files];
+          onWorkspaceRefresh();
+        } catch (err) {
+          if (err instanceof AuthError) {
+            handleAuthExpired();
+            return;
+          }
+          setAttachmentUploadError(attachmentUploadErrorMessage(err));
+          console.error("Local image upload error:", err);
+          return;
+        } finally {
+          setIsUploadingFiles(false);
+        }
+      }
 
       const requestId = (activeRequestIdsRef.current.get(activeSessionId) || 0) + 1;
       activeRequestIdsRef.current.set(activeSessionId, requestId);
@@ -509,6 +629,7 @@ export function useChatRun({
       setMessages(initialMessages);
       setInput("");
       setPendingFiles([]);
+      clearPendingLocalImages();
       setAttachmentUploadError(null);
 
       const isRunVisible = () => getSessionActions().getSessionId() === activeSessionId;
@@ -831,6 +952,11 @@ export function useChatRun({
             runningViewStatesRef.current.delete(activeSessionId);
             if (isRunVisible()) setInputFocusToken((prev) => bumpInputFocusToken(prev));
             getSessionActions().loadSessions();
+            for (const delayMs of SESSION_TITLE_REFRESH_DELAYS_MS) {
+              window.setTimeout(() => {
+                void getSessionActions().loadSessions();
+              }, delayMs);
+            }
             onWorkspaceRefresh();
           },
           onError: (err) => {
@@ -871,9 +997,11 @@ export function useChatRun({
       messages,
       onWorkspaceRefresh,
       pendingFiles,
+      pendingLocalImages,
       runtimeTimelineEvents,
       selectedModel,
       clearSessionRunning,
+      clearPendingLocalImages,
       planProgress,
       planSteps,
       tokenUsage,
@@ -1448,6 +1576,7 @@ export function useChatRun({
     setInput,
     messages,
     pendingFiles,
+    pendingLocalImages,
     isUploadingFiles,
     attachmentUploadError,
     isGenerating,
@@ -1472,6 +1601,8 @@ export function useChatRun({
     handleCompactContext,
     handleAttachFiles,
     handleRemovePendingFile,
+    handleAddPendingImages,
+    handleRemovePendingLocalImage,
     handleSendMessage,
     handleQuickReply,
     handlePermissionResolve,

@@ -4,8 +4,19 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import SessionComposer from "./SessionComposer";
+import type { PendingLocalImage } from "@/lib/pendingImages";
 
 function noop() {}
+
+const pastedImage: PendingLocalImage = {
+  id: "local-image-1",
+  file: new File(["png"], "pasted-image.png", { type: "image/png" }),
+  name: "pasted-image.png",
+  mimeType: "image/png",
+  previewUrl: "blob:ripple-local-image-1",
+  size: 3,
+  source: "paste",
+};
 
 function renderComposer(overrides: Partial<React.ComponentProps<typeof SessionComposer>> = {}) {
   return renderToStaticMarkup(
@@ -18,7 +29,10 @@ function renderComposer(overrides: Partial<React.ComponentProps<typeof SessionCo
       onCompactContext={noop}
       onAttachFiles={noop}
       onRemovePendingFile={noop}
+      onAddPendingImages={noop}
+      onRemovePendingLocalImage={noop}
       pendingFiles={[]}
+      pendingLocalImages={[]}
       isGenerating={false}
       hasSession={false}
       focusToken={0}
@@ -87,11 +101,39 @@ function testComposerShowsAttachmentUploadStateAndErrors() {
   assert.match(errorHtml, /phone-photo\.jpg: upload is too large/);
 }
 
+function testComposerShowsPendingLocalImagePreview() {
+  const html = renderComposer({ pendingLocalImages: [pastedImage] });
+
+  assert.match(html, /src="blob:ripple-local-image-1"/);
+  assert.match(html, /aria-label="Remove pasted-image\.png"/);
+}
+
+function testLocalImageOnlyMessageCanSend() {
+  const html = renderComposer({ pendingLocalImages: [pastedImage] });
+  const sendButton = html.match(/<button[^>]*aria-label="Send message"[^>]*>/)?.[0] || "";
+
+  assert.match(sendButton, /aria-label="Send message"/);
+  assert.doesNotMatch(sendButton, /\sdisabled(=""|\s|>)/);
+}
+
+function testComposerHasPasteAndDropImageHandlers() {
+  const source = readFileSync(new URL("./SessionComposer.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /onPaste=\{handlePaste\}/);
+  assert.match(source, /filesFromClipboardData/);
+  assert.match(source, /partitionTransferFiles/);
+  assert.match(source, /void onAttachFiles\(attachmentFiles\)/);
+  assert.doesNotMatch(source, /onDrop=\{handleDrop\}/);
+}
+
 testShowsSelectedModelAndMenuOptions();
 testComposerToolbarNamesRealActions();
 testComposerInputSuppressesGlobalBlueFocusOutline();
 testBlockedComposerStillAllowsDraftingAndShowsStop();
 testComposerClearsIosHomeIndicatorAndUsesTouchSizedActions();
 testComposerShowsAttachmentUploadStateAndErrors();
+testComposerShowsPendingLocalImagePreview();
+testLocalImageOnlyMessageCanSend();
+testComposerHasPasteAndDropImageHandlers();
 
 console.log("session composer tests passed");

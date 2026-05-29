@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   AlertTriangle,
   FileText,
+  Image as ImageIcon,
   Loader2,
   Paperclip,
   Send,
@@ -20,6 +21,12 @@ import {
 } from "@/lib/composerTriggers";
 import { shouldApplyInputFocus } from "@/lib/inputFocus";
 import { formatModelName } from "@/lib/models";
+import {
+  filesFromClipboardData,
+  partitionTransferFiles,
+  type PendingImageSource,
+  type PendingLocalImage,
+} from "@/lib/pendingImages";
 
 interface SessionComposerProps {
   value: string;
@@ -30,7 +37,10 @@ interface SessionComposerProps {
   onCompactContext: () => void;
   onAttachFiles: (files: File[]) => void | Promise<void>;
   onRemovePendingFile: (path: string) => void;
+  onAddPendingImages: (files: File[], source: PendingImageSource) => void;
+  onRemovePendingLocalImage: (id: string) => void;
   pendingFiles: ChatFileRef[];
+  pendingLocalImages: PendingLocalImage[];
   isUploadingFiles?: boolean;
   uploadError?: string | null;
   isGenerating: boolean;
@@ -58,7 +68,10 @@ export default function SessionComposer({
   onCompactContext,
   onAttachFiles,
   onRemovePendingFile,
+  onAddPendingImages,
+  onRemovePendingLocalImage,
   pendingFiles,
+  pendingLocalImages,
   isUploadingFiles = false,
   uploadError = null,
   isGenerating,
@@ -78,7 +91,7 @@ export default function SessionComposer({
   const [quickActionsState, setQuickActionsState] = useState<QuickActionsState | null>(null);
   const [dismissedSlashKey, setDismissedSlashKey] = useState<string | null>(null);
   const [quickActionIndex, setQuickActionIndex] = useState(0);
-  const canSend = Boolean(value.trim() || pendingFiles.length > 0);
+  const canSend = Boolean(value.trim() || pendingFiles.length > 0 || pendingLocalImages.length > 0);
   const inputDisabled = isGenerating;
   const attachDisabled = inputDisabled || isUploadingFiles;
   const sendDisabled = isGenerating || isBlocked || isUploadingFiles;
@@ -245,6 +258,19 @@ export default function SessionComposer({
     void onAttachFiles(files);
   };
 
+  const handlePaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    if (attachDisabled) return;
+    const files = filesFromClipboardData(event.clipboardData);
+    if (files.length === 0) return;
+    const { images, attachments: attachmentFiles } = partitionTransferFiles(files);
+    if (images.length === 0 && attachmentFiles.length === 0) return;
+
+    event.preventDefault();
+    closeOpenPopups(false);
+    if (images.length > 0) onAddPendingImages(images, "paste");
+    if (attachmentFiles.length > 0) void onAttachFiles(attachmentFiles);
+  };
+
   return (
     <div className="shrink-0 border-t border-[#e8edf7] bg-white/76 px-3 pt-1 pb-[max(env(safe-area-inset-bottom),8px)] shadow-[0_-14px_32px_rgba(44,63,123,0.08)] backdrop-blur-2xl sm:px-4 sm:pt-2 md:px-6 lg:pb-[max(env(safe-area-inset-bottom),12px)]">
       <div className="mx-auto max-w-4xl rounded-[20px] border border-[#dfe6f4] bg-white/92 p-1.5 shadow-[0_12px_30px_rgba(44,63,123,0.12)] transition-colors focus-within:border-[#8da0ff] sm:rounded-2xl sm:p-1.5">
@@ -333,6 +359,7 @@ export default function SessionComposer({
             onKeyDown={handleKeyDown}
             onKeyUp={handleComposerSelection}
             onSelect={handleComposerSelection}
+            onPaste={handlePaste}
             disabled={inputDisabled}
             rows={1}
             placeholder={
@@ -369,6 +396,38 @@ export default function SessionComposer({
             </button>
           )}
         </div>
+        {pendingLocalImages.length > 0 && (
+          <div className="flex flex-wrap gap-2 px-1 pt-1 pb-2">
+            {pendingLocalImages.map((image) => (
+              <span
+                key={image.id}
+                className="group relative inline-flex h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-[#dfe6f4] bg-[#f6f8ff]"
+                title={image.name}
+              >
+                {image.previewUrl ? (
+                  <img
+                    src={image.previewUrl}
+                    alt={image.name}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <span className="flex h-full w-full items-center justify-center text-[#6b7280]">
+                    <ImageIcon size={18} />
+                  </span>
+                )}
+                <button
+                  type="button"
+                  aria-label={`Remove ${image.name}`}
+                  title={`Remove ${image.name}`}
+                  onClick={() => onRemovePendingLocalImage(image.id)}
+                  className="absolute top-1 right-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-white/92 text-[#384152] shadow-[0_2px_8px_rgba(15,23,42,0.16)] hover:bg-[#ffebe9] hover:text-[#cf222e]"
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
         {pendingFiles.length > 0 && (
           <div className="flex flex-wrap gap-1.5 px-1 pt-1 pb-2">
             {pendingFiles.map((file) => (

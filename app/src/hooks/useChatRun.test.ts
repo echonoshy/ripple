@@ -3,10 +3,25 @@ import { readFileSync } from "node:fs";
 
 import {
   CONNECTOR_AUTH_POLL_TIMEOUT_MS,
+  SESSION_TITLE_REFRESH_DELAYS_MS,
   connectorAuthPollPayloadFromEvent,
   shouldContinueConnectorAuthPoll,
+  uploadPendingLocalImagesForSend,
 } from "./useChatRun";
+import type { PendingLocalImage } from "@/lib/pendingImages";
 import type { ConnectorAuthChatEvent } from "@/types";
+
+function pendingImage(name: string): PendingLocalImage {
+  return {
+    id: `local-${name}`,
+    file: new File(["image"], name, { type: "image/png" }),
+    name,
+    mimeType: "image/png",
+    previewUrl: `blob:${name}`,
+    size: 5,
+    source: "paste",
+  };
+}
 
 function authEvent(
   overrides: Partial<ConnectorAuthChatEvent> & { data?: Record<string, unknown> }
@@ -153,6 +168,63 @@ function testAttachmentUploadsKeepSuccessfulFilesWhenOneUploadFails() {
   assert.match(source, /setAttachmentUploadError/);
 }
 
+function testSessionTitleRefreshUsesShortDelayedPolls() {
+  assert.deepEqual(SESSION_TITLE_REFRESH_DELAYS_MS, [750, 2000, 5000]);
+}
+
+async function testPendingLocalImagesUploadToWorkspaceRefsBeforeSend() {
+  const uploadedNames: string[] = [];
+  const result = await uploadPendingLocalImagesForSend(
+    [pendingImage("paste-a.png"), pendingImage("paste-b.png")],
+    async (file) => {
+      uploadedNames.push(file.name);
+      return {
+        path: `/workspace/uploads/${file.name}`,
+        name: file.name,
+        mime_type: file.type,
+        size: file.size,
+        kind: "image" as const,
+      };
+    }
+  );
+
+  assert.deepEqual(uploadedNames, ["paste-a.png", "paste-b.png"]);
+  assert.deepEqual(result.failures, []);
+  assert.deepEqual(result.files, [
+    {
+      path: "/workspace/uploads/paste-a.png",
+      name: "paste-a.png",
+      mime_type: "image/png",
+      kind: "image",
+    },
+    {
+      path: "/workspace/uploads/paste-b.png",
+      name: "paste-b.png",
+      mime_type: "image/png",
+      kind: "image",
+    },
+  ]);
+}
+
+async function testPendingLocalImageUploadFailuresStopSendFlow() {
+  const result = await uploadPendingLocalImagesForSend([pendingImage("broken.png")], async () => {
+    throw new Error("upload exploded");
+  });
+
+  assert.deepEqual(result.files, []);
+  assert.deepEqual(result.failures, ["broken.png: upload exploded"]);
+}
+
+function testSendFlowKeepsLocalImagesWhenSendTimeUploadFails() {
+  const source = readFileSync(new URL("./useChatRun.ts", import.meta.url), "utf8");
+
+  assert.match(source, /uploadPendingLocalImagesForSend\(\s*localImagesForSend/);
+  assert.match(source, /if \(localUpload\.failures\.length > 0\) \{/);
+  assert.match(source, /setAttachmentUploadError\(summarizeAttachmentUploadErrors/);
+  assert.match(source, /return;/);
+  assert.match(source, /clearPendingLocalImages\(\);/);
+}
+
 testFeishuSetupAuthStartsAutomaticPoll();
 testFeishuUserAuthStartsAutomaticPoll();
 testGoogleAuthStillStartsAutomaticPoll();
@@ -161,5 +233,9 @@ testAuthorizedConnectorEventDoesNotStartPoll();
 testConnectorAuthPollContinuesOnlyBeforeTimeout();
 testConnectorAuthPollStopsOnTerminalStages();
 testAttachmentUploadsKeepSuccessfulFilesWhenOneUploadFails();
+testSessionTitleRefreshUsesShortDelayedPolls();
+await testPendingLocalImagesUploadToWorkspaceRefsBeforeSend();
+await testPendingLocalImageUploadFailuresStopSendFlow();
+testSendFlowKeepsLocalImagesWhenSendTimeUploadFails();
 
 console.log("useChatRun tests passed");

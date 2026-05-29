@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type DragEvent,
+  type FormEvent,
+} from "react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -22,6 +30,12 @@ import type {
 import type { FeishuAuthOpenPayload, FeishuAuthWaitingState } from "@/components/MarkdownRenderer";
 import type { ChatFileRef } from "@/lib/chatInput";
 import { formatModelName } from "@/lib/models";
+import {
+  filesFromDropData,
+  partitionTransferFiles,
+  type PendingImageSource,
+  type PendingLocalImage,
+} from "@/lib/pendingImages";
 import SessionComposer from "./SessionComposer";
 import SessionTimeline from "./SessionTimeline";
 
@@ -43,6 +57,7 @@ interface SessionPageProps {
   lastContextTokens: number;
   input: string;
   pendingFiles: ChatFileRef[];
+  pendingLocalImages: PendingLocalImage[];
   isUploadingFiles?: boolean;
   uploadError?: string | null;
   isGenerating: boolean;
@@ -60,6 +75,8 @@ interface SessionPageProps {
   onCompactContext: () => void;
   onAttachFiles: (files: File[]) => void | Promise<void>;
   onRemovePendingFile: (path: string) => void;
+  onAddPendingImages: (files: File[], source: PendingImageSource) => void;
+  onRemovePendingLocalImage: (id: string) => void;
   onToggleModelDropdown: () => void;
   onSelectModel: (model: string) => void;
   onSend: () => void;
@@ -83,6 +100,7 @@ export default function SessionPage({
   lastContextTokens,
   input,
   pendingFiles,
+  pendingLocalImages,
   isUploadingFiles = false,
   uploadError = null,
   isGenerating,
@@ -100,6 +118,8 @@ export default function SessionPage({
   onCompactContext,
   onAttachFiles,
   onRemovePendingFile,
+  onAddPendingImages,
+  onRemovePendingLocalImage,
   onToggleModelDropdown,
   onSelectModel,
   onSend,
@@ -121,6 +141,7 @@ export default function SessionPage({
   const [settingsPinned, setSettingsPinned] = useState(Boolean(session?.pinned));
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const hasMessages = messages.length > 0;
   const contextWindow =
     typeof tokenUsage.model_context_window === "number" && tokenUsage.model_context_window > 0
@@ -259,8 +280,51 @@ export default function SessionPage({
     }
   };
 
+  const handlePageDragOver = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      if (isGenerating || isUploadingFiles) return;
+      const hasFiles = Array.from(event.dataTransfer.types || []).includes("Files");
+      if (!hasFiles) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+      setIsDraggingFiles(true);
+    },
+    [isGenerating, isUploadingFiles]
+  );
+
+  const handlePageDragLeave = useCallback((event: DragEvent<HTMLDivElement>) => {
+    const relatedTarget = event.relatedTarget;
+    if (relatedTarget instanceof Node && event.currentTarget.contains(relatedTarget)) return;
+    setIsDraggingFiles(false);
+  }, []);
+
+  const handlePageDrop = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      if (isGenerating || isUploadingFiles) return;
+      const files = filesFromDropData(event.dataTransfer);
+      if (files.length === 0) {
+        setIsDraggingFiles(false);
+        return;
+      }
+
+      event.preventDefault();
+      setIsDraggingFiles(false);
+      const { images, attachments: attachmentFiles } = partitionTransferFiles(files);
+      if (images.length > 0) onAddPendingImages(images, "drop");
+      if (attachmentFiles.length > 0) void onAttachFiles(attachmentFiles);
+    },
+    [isGenerating, isUploadingFiles, onAddPendingImages, onAttachFiles]
+  );
+
   return (
-    <div className="relative flex h-full min-h-0 flex-col bg-[radial-gradient(circle_at_18%_0%,rgba(47,107,255,0.10),transparent_32%),radial-gradient(circle_at_88%_5%,rgba(139,92,246,0.10),transparent_34%),#fbfdff]">
+    <div
+      onDragOver={handlePageDragOver}
+      onDragLeave={handlePageDragLeave}
+      onDrop={handlePageDrop}
+      className={`relative flex h-full min-h-0 flex-col bg-[radial-gradient(circle_at_18%_0%,rgba(47,107,255,0.10),transparent_32%),radial-gradient(circle_at_88%_5%,rgba(139,92,246,0.10),transparent_34%),#fbfdff] ${
+        isDraggingFiles ? "ring-2 ring-[#8da0ff] ring-inset" : ""
+      }`}
+    >
       <div className="grid min-h-[calc(56px+env(safe-area-inset-top))] shrink-0 grid-cols-[44px_minmax(0,1fr)_88px] items-center border-b border-[#e8edf7] bg-white/72 px-2.5 pt-[max(env(safe-area-inset-top),0px)] shadow-[0_8px_22px_rgba(44,63,123,0.04)] backdrop-blur-2xl lg:hidden">
         <button
           type="button"
@@ -488,7 +552,10 @@ export default function SessionPage({
         onCompactContext={onCompactContext}
         onAttachFiles={onAttachFiles}
         onRemovePendingFile={onRemovePendingFile}
+        onAddPendingImages={onAddPendingImages}
+        onRemovePendingLocalImage={onRemovePendingLocalImage}
         pendingFiles={pendingFiles}
+        pendingLocalImages={pendingLocalImages}
         isUploadingFiles={isUploadingFiles}
         uploadError={uploadError}
         isGenerating={isGenerating}

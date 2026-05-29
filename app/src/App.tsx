@@ -140,6 +140,7 @@ export default function Home() {
     setInput,
     messages,
     pendingFiles,
+    pendingLocalImages,
     isUploadingFiles,
     attachmentUploadError,
     isGenerating,
@@ -160,6 +161,8 @@ export default function Home() {
     handleCompactContext,
     handleAttachFiles,
     handleRemovePendingFile,
+    handleAddPendingImages,
+    handleRemovePendingLocalImage,
     handleSendMessage,
     handleQuickReply,
     handlePermissionResolve,
@@ -539,6 +542,7 @@ export default function Home() {
             lastContextTokens={lastContextTokens}
             input={input}
             pendingFiles={pendingFiles}
+            pendingLocalImages={pendingLocalImages}
             isUploadingFiles={isUploadingFiles}
             uploadError={attachmentUploadError}
             isGenerating={selectedSessionIsGenerating}
@@ -556,6 +560,8 @@ export default function Home() {
             onCompactContext={handleCompactContext}
             onAttachFiles={handleAttachFiles}
             onRemovePendingFile={handleRemovePendingFile}
+            onAddPendingImages={handleAddPendingImages}
+            onRemovePendingLocalImage={handleRemovePendingLocalImage}
             onToggleModelDropdown={() =>
               setOpenModelDropdown((open) => (open === "composer" ? null : "composer"))
             }

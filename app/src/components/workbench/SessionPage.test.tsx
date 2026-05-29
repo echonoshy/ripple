@@ -38,6 +38,7 @@ function renderSessionPage({
       lastContextTokens={lastContextTokens}
       input=""
       pendingFiles={[]}
+      pendingLocalImages={[]}
       isGenerating={false}
       focusToken={0}
       selectedModel="codex-medium"
@@ -51,6 +52,8 @@ function renderSessionPage({
       onCompactContext={noop}
       onAttachFiles={noop}
       onRemovePendingFile={noop}
+      onAddPendingImages={noop}
+      onRemovePendingLocalImage={noop}
       onToggleModelDropdown={noop}
       onSelectModel={noop}
       onSend={noop}
@@ -80,6 +83,7 @@ function renderSessionPageWithTimelineContent() {
       lastContextTokens={0}
       input=""
       pendingFiles={[]}
+      pendingLocalImages={[]}
       isGenerating={false}
       focusToken={0}
       selectedModel="codex-medium"
@@ -93,6 +97,8 @@ function renderSessionPageWithTimelineContent() {
       onCompactContext={noop}
       onAttachFiles={noop}
       onRemovePendingFile={noop}
+      onAddPendingImages={noop}
+      onRemovePendingLocalImage={noop}
       onToggleModelDropdown={noop}
       onSelectModel={noop}
       onSend={noop}
@@ -137,6 +143,14 @@ function testGivesSessionContentMoreHorizontalRoom() {
 
   assert.match(html, /overflow-y-auto bg-transparent px-3 py-2 sm:px-4 sm:py-5 md:px-5/);
   assert.match(html, /mx-auto max-w-5xl space-y-2 sm:space-y-5/);
+}
+
+function testSessionPageHandlesDropAcrossWholeChat() {
+  assert.match(sessionPageSource, /onDrop=\{handlePageDrop\}/);
+  assert.match(sessionPageSource, /filesFromDropData/);
+  assert.match(sessionPageSource, /partitionTransferFiles/);
+  assert.match(sessionPageSource, /onAddPendingImages\(images, "drop"\)/);
+  assert.match(sessionPageSource, /void onAttachFiles\(attachmentFiles\)/);
 }
 
 function testMobileHeaderReservesTopSafeArea() {
@@ -235,6 +249,7 @@ function testExplicitSessionSelectionTriggersStickyBottom() {
 
 testOmitsPlaceholderSessionHeaderControls();
 testGivesSessionContentMoreHorizontalRoom();
+testSessionPageHandlesDropAcrossWholeChat();
 testMobileHeaderReservesTopSafeArea();
 testTimelineTextUsesWiderContentWidth();
 testContextWarningUsesReportedModelWindow();

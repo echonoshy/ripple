@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { AlertTriangle, KeyRound } from "lucide-react";
+import { AlertTriangle, KeyRound, UserRound } from "lucide-react";
 import {
   fetchModels,
   getApiKey,
@@ -25,6 +25,11 @@ import { type ChatRunSessionActions, useChatRun } from "@/hooks/useChatRun";
 import { useSessionLifecycle } from "@/hooks/useSessionLifecycle";
 import { clearStoredCurrentSessionId } from "@/lib/sessionPersistence";
 import {
+  initialLoginUserIdInput,
+  loginUserIdValidationMessage,
+  normalizeLoginUserId,
+} from "@/lib/authLogin";
+import {
   applyCurrentSessionRuntimeStatus,
   applySessionAttentionMarkers,
   createWorkbenchSessionsFromSessionSummaries,
@@ -41,6 +46,10 @@ export default function Home() {
   );
   const [authErrorMsg, setAuthErrorMsg] = useState("");
   const [keyInput, setKeyInput] = useState("");
+  const [authUserIdInput, setAuthUserIdInput] = useState(() =>
+    initialLoginUserIdInput(getUserId())
+  );
+  const [authUserIdError, setAuthUserIdError] = useState<string | null>(null);
 
   // ── Model state ──
   const [models, setModels] = useState<{ id: string; owned_by: string }[]>([]);
@@ -84,6 +93,8 @@ export default function Home() {
     clearApiKey();
     setAuthState("needs_auth");
     setAuthErrorMsg(message);
+    setAuthUserIdInput(initialLoginUserIdInput(getUserId()));
+    setAuthUserIdError(null);
     clearStoredCurrentSessionId();
   }, []);
 
@@ -303,9 +314,29 @@ export default function Home() {
   const handleAuthSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!keyInput.trim()) return;
+    const userIdError = loginUserIdValidationMessage(authUserIdInput);
+    if (userIdError) {
+      setAuthUserIdError(userIdError);
+      return;
+    }
+    const nextUserId = normalizeLoginUserId(authUserIdInput);
+    try {
+      setUserId(nextUserId);
+    } catch {
+      setAuthUserIdError("Use letters, numbers, underscores, or hyphens.");
+      return;
+    }
+    if (nextUserId !== userId) {
+      setUserIdState(nextUserId);
+      setSessionAttentionById({});
+      abortRunAndResetSessionView();
+      resetSessionsForUserChange();
+      clearStoredCurrentSessionId();
+    }
     setApiKey(keyInput.trim());
     setKeyInput("");
     setAuthErrorMsg("");
+    setAuthUserIdError(null);
     setAuthState("authenticated");
   };
 
@@ -557,10 +588,10 @@ export default function Home() {
                 />
                 <h1 className="text-[28px] leading-tight font-semibold tracking-normal">Ripple</h1>
                 <p className="mt-3 text-center text-sm text-[#687280]">
-                  Enter your API key to continue
+                  Enter your API key and optional User ID
                 </p>
                 <p className="mt-1 text-center font-[family-name:var(--font-cjk)] text-sm text-[#687280]">
-                  请输入 API key 以访问服务
+                  User ID 留空时使用 default
                 </p>
               </div>
               {authErrorMsg && (
@@ -583,6 +614,35 @@ export default function Home() {
                     className="w-full rounded-lg border border-[#e5e7eb] bg-white py-3 pr-4 pl-11 font-[family-name:var(--font-mono)] text-sm text-[#171a1f] outline-none focus:border-[#2463eb]"
                   />
                 </div>
+                <div className="mb-1.5 flex items-center justify-between text-xs font-medium text-[#687280]">
+                  <span>User ID</span>
+                  <span className="font-[family-name:var(--font-cjk)] font-normal">
+                    留空使用 default
+                  </span>
+                </div>
+                <div className="relative mb-2">
+                  <UserRound
+                    size={18}
+                    className="absolute top-1/2 left-4 -translate-y-1/2 text-[#6e7781]"
+                  />
+                  <input
+                    type="text"
+                    value={authUserIdInput}
+                    onChange={(e) => {
+                      setAuthUserIdInput(e.target.value);
+                      if (authUserIdError) setAuthUserIdError(null);
+                    }}
+                    placeholder="default"
+                    aria-label="User ID"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    className="w-full rounded-lg border border-[#e5e7eb] bg-white py-3 pr-4 pl-11 font-[family-name:var(--font-mono)] text-sm text-[#171a1f] outline-none focus:border-[#2463eb]"
+                  />
+                </div>
+                {authUserIdError && (
+                  <div className="mb-3 text-xs font-medium text-[#cf222e]">{authUserIdError}</div>
+                )}
                 <button
                   type="submit"
                   disabled={!keyInput.trim()}
@@ -654,6 +714,8 @@ export default function Home() {
         onApiKeyChange={() => {
           clearApiKey();
           clearStoredCurrentSessionId();
+          setAuthUserIdInput(initialLoginUserIdInput(getUserId()));
+          setAuthUserIdError(null);
           setIsSettingsOpen(false);
           setAuthState("needs_auth");
         }}

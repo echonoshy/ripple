@@ -1,13 +1,27 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ArrowLeft, Loader2, Plug, RefreshCw, ShieldCheck } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  ExternalLink,
+  KeyRound,
+  Loader2,
+  Plug,
+  RefreshCw,
+  ShieldCheck,
+  Trash2,
+  X,
+} from "lucide-react";
 import {
   AuthError,
+  cancelConnectorAuth,
+  completeConnectorAuth,
   disconnectConnector,
   fetchConnectorStatuses,
   fetchConnectors,
   fetchGogcliAccounts,
+  resolveBackendUrl,
   startConnectorAuth,
 } from "@/lib/api";
 import { connectorGroupSections, connectorStatusTone } from "@/lib/connectors";
@@ -21,6 +35,14 @@ interface ConnectorSnapshot {
   statuses: Record<string, ConnectorStatus>;
   accounts: GogcliAccountInfo[];
   loadedAt: number;
+}
+
+interface PendingConnectorAuth {
+  connector: string;
+  stage: string;
+  detail: string;
+  data: Record<string, unknown>;
+  startedAt: number;
 }
 
 const connectorSnapshotCache = new Map<string, ConnectorSnapshot>();
@@ -80,6 +102,29 @@ function mobileStatusLabel(status: ConnectorStatus | null | undefined): string {
   return status.connected ? "Ready" : "Setup";
 }
 
+function actionDetail(result: Record<string, unknown>, fallback: string): string {
+  return typeof result.detail === "string" && result.detail.trim() ? result.detail : fallback;
+}
+
+function actionData(result: Record<string, unknown>): Record<string, unknown> {
+  return result.data && typeof result.data === "object"
+    ? (result.data as Record<string, unknown>)
+    : {};
+}
+
+function authUrlFromData(data: Record<string, unknown>): string | null {
+  for (const key of ["oauth_url", "auth_url", "setup_url", "app_url"]) {
+    const value = data[key];
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return null;
+}
+
+function stringFromData(data: Record<string, unknown>, key: string): string | null {
+  const value = data[key];
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
 export default function ConnectorsPage({
   userId,
   onConnectorStateChange,
@@ -102,7 +147,9 @@ export default function ConnectorsPage({
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
-  const [confirmDisconnect, setConfirmDisconnect] = useState<string | null>(null);
+  const [confirmAction, setConfirmAction] = useState<string | null>(null);
+  const [notionToken, setNotionToken] = useState("");
+  const [pendingAuth, setPendingAuth] = useState<PendingConnectorAuth | null>(null);
   const loadRequestIdRef = useRef(0);
   const lastFocusRefreshAtRef = useRef(0);
 
@@ -172,48 +219,199 @@ export default function ConnectorsPage({
   );
   const connectorSections = useMemo(() => connectorGroupSections(connectors), [connectors]);
 
-  const handleConnectorAction = useCallback(
-    async (connector: ConnectorInfo, action: "connect" | "disconnect") => {
-      const actionKey = `${connector.name}:${action}`;
-      if (action === "disconnect" && confirmDisconnect !== connector.name) {
-        setConfirmDisconnect(connector.name);
-        return;
-      }
+  const runConnectorMutation = useCallback(
+    async (
+      actionKey: string,
+      mutation: () => Promise<Record<string, unknown>>,
+      options: { refresh?: boolean } = {}
+    ) => {
       setPendingAction(actionKey);
       setPageError(null);
       setActionMessage(null);
       try {
-        const result =
-          action === "connect"
-            ? await startConnectorAuth(connector.name)
-            : await disconnectConnector(connector.name);
-        const detail =
-          typeof result.detail === "string" ? result.detail : `${connector.display_name} updated`;
-        setActionMessage(detail);
-        setConfirmDisconnect(null);
-        const data = result.data && typeof result.data === "object" ? result.data : {};
-        const maybeUrl =
-          typeof (data as Record<string, unknown>).auth_url === "string"
-            ? ((data as Record<string, unknown>).auth_url as string)
-            : typeof (data as Record<string, unknown>).setup_url === "string"
-              ? ((data as Record<string, unknown>).setup_url as string)
-              : null;
-        if (maybeUrl) {
-          window.open(maybeUrl, "_blank", "noopener,noreferrer");
-        }
-        await loadConnectors({ force: true });
+        const result = await mutation();
+        setActionMessage(actionDetail(result, "Connector updated"));
+        if (options.refresh !== false) await loadConnectors({ force: true });
+        return result;
       } catch (error) {
         if (error instanceof AuthError) {
           setPageError("API key 已失效");
         } else {
           setPageError(error instanceof Error ? error.message : String(error));
         }
+        return null;
       } finally {
         setPendingAction(null);
       }
     },
-    [confirmDisconnect, loadConnectors]
+    [loadConnectors]
   );
+
+  const handleStartAuth = useCallback(
+    async (connector: ConnectorInfo) => {
+      if (connector.name === "notion") {
+        setConfirmAction("notion-token");
+        return;
+      }
+      const result = await runConnectorMutation(
+        `${connector.name}:connect`,
+        () => startConnectorAuth(connector.name),
+        { refresh: false }
+      );
+      if (!result) return;
+      const data = actionData(result);
+      const maybeUrl = authUrlFromData(data);
+      if (maybeUrl && connector.name !== "bilibili") {
+        window.open(maybeUrl, "_blank", "noopener,noreferrer");
+      }
+      const stage = typeof result.stage === "string" ? result.stage : "pending";
+      if (stage === "authorized") {
+        setPendingAuth(null);
+        await loadConnectors({ force: true });
+      } else {
+        setPendingAuth({
+          connector: connector.name,
+          stage,
+          detail: actionDetail(result, `${connector.display_name} authorization started`),
+          data,
+          startedAt: Date.now(),
+        });
+      }
+    },
+    [loadConnectors, runConnectorMutation]
+  );
+
+  const handleSubmitNotionToken = useCallback(async () => {
+    const token = notionToken.trim();
+    if (!token) {
+      setPageError("Notion token is required.");
+      return;
+    }
+    const result = await runConnectorMutation("notion:connect", () =>
+      startConnectorAuth("notion", { api_token: token })
+    );
+    if (!result) return;
+    setNotionToken("");
+    setConfirmAction(null);
+    setPendingAuth(null);
+  }, [notionToken, runConnectorMutation]);
+
+  const handleCancelPendingAuth = useCallback(
+    async (connector: ConnectorInfo) => {
+      const result = await runConnectorMutation(`${connector.name}:cancel-auth`, () =>
+        cancelConnectorAuth(connector.name)
+      );
+      if (!result) return;
+      setPendingAuth((current) => (current?.connector === connector.name ? null : current));
+    },
+    [runConnectorMutation]
+  );
+
+  const handleCompletePendingAuth = useCallback(
+    async (connector: ConnectorInfo) => {
+      if (!pendingAuth || pendingAuth.connector !== connector.name) return;
+      const qrcodeKey = stringFromData(pendingAuth.data, "qrcode_key");
+      const deviceCode = stringFromData(pendingAuth.data, "device_code");
+      if (connector.name === "feishu" && !deviceCode) {
+        const result = await runConnectorMutation(
+          `${connector.name}:continue-auth`,
+          () => startConnectorAuth(connector.name),
+          { refresh: false }
+        );
+        if (!result) return;
+        const data = actionData(result);
+        const nextUrl = authUrlFromData(data);
+        const currentUrl = authUrlFromData(pendingAuth.data);
+        if (nextUrl && nextUrl !== currentUrl) {
+          window.open(nextUrl, "_blank", "noopener,noreferrer");
+        }
+        const stage = typeof result.stage === "string" ? result.stage : "pending";
+        if (stage === "authorized") {
+          setPendingAuth(null);
+          await loadConnectors({ force: true });
+        } else {
+          setPendingAuth({
+            connector: connector.name,
+            stage,
+            detail: actionDetail(result, pendingAuth.detail),
+            data: { ...pendingAuth.data, ...data },
+            startedAt: pendingAuth.startedAt,
+          });
+        }
+        return;
+      }
+      const payload =
+        connector.name === "bilibili" && qrcodeKey
+          ? { qrcode_key: qrcodeKey, max_wait_seconds: 5 }
+          : connector.name === "feishu" && deviceCode
+            ? { device_code: deviceCode }
+            : {};
+      const result = await runConnectorMutation(
+        `${connector.name}:complete-auth`,
+        () => completeConnectorAuth(connector.name, payload),
+        { refresh: false }
+      );
+      if (!result) return;
+      const data = actionData(result);
+      const stage = typeof result.stage === "string" ? result.stage : "pending";
+      if (stage === "authorized") {
+        setPendingAuth(null);
+        await loadConnectors({ force: true });
+      } else {
+        setPendingAuth({
+          connector: connector.name,
+          stage,
+          detail: actionDetail(result, pendingAuth.detail),
+          data: { ...pendingAuth.data, ...data },
+          startedAt: pendingAuth.startedAt,
+        });
+      }
+    },
+    [loadConnectors, pendingAuth, runConnectorMutation]
+  );
+
+  const handleDisconnect = useCallback(
+    async (connector: ConnectorInfo, payload: Record<string, unknown> = {}) => {
+      const accountSuffix = typeof payload.email === "string" ? `:${payload.email}` : "";
+      const actionKey = `${connector.name}:disconnect${accountSuffix}`;
+      if (confirmAction !== actionKey) {
+        setConfirmAction(actionKey);
+        return;
+      }
+      const result = await runConnectorMutation(actionKey, () =>
+        disconnectConnector(connector.name, payload)
+      );
+      if (!result) return;
+      setConfirmAction(null);
+      if (connector.name === "google_workspace") {
+        const data = await fetchGogcliAccounts(false);
+        setAccounts(data?.accounts || []);
+      }
+    },
+    [confirmAction, runConnectorMutation]
+  );
+
+  useEffect(() => {
+    if (!pendingAuth) return;
+    const connectorName = pendingAuth.connector;
+    const timer = window.setInterval(() => {
+      const connector = connectors.find((item) => item.name === connectorName);
+      if (!connector) return;
+      if (connectorName === "google_workspace") {
+        void loadConnectors({ background: true, force: true });
+      } else if (connectorName === "feishu" || connectorName === "bilibili") {
+        void handleCompletePendingAuth(connector);
+      }
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [connectors, handleCompletePendingAuth, loadConnectors, pendingAuth]);
+
+  useEffect(() => {
+    if (!pendingAuth) return;
+    if (!statuses[pendingAuth.connector]?.connected) return;
+    setPendingAuth(null);
+    setActionMessage("Connector authorization completed.");
+  }, [pendingAuth, statuses]);
 
   return (
     <div className="h-full min-h-0 overflow-y-auto bg-[radial-gradient(circle_at_16%_0%,rgba(47,107,255,0.12),transparent_34%),radial-gradient(circle_at_88%_8%,rgba(139,92,246,0.11),transparent_32%),#fbfdff] px-4 pt-[max(env(safe-area-inset-top),16px)] pb-[calc(88px+env(safe-area-inset-bottom))] text-[#111827] md:px-8 lg:pb-5">
@@ -278,9 +476,7 @@ export default function ConnectorsPage({
                 <div>
                   <h2 className="text-[13px] font-semibold text-[#111827]">{section.title}</h2>
                   <p className="mt-1 text-[11px] leading-4 text-[#667085]">
-                    {section.kind === "runtime_capability"
-                      ? "Server-side capabilities shared by the runtime."
-                      : "Per-user credentials stored inside the current sandbox boundary."}
+                    Per-user credentials stored inside the current sandbox boundary.
                   </p>
                 </div>
                 <span className="text-[11px] font-medium text-[#667085]">
@@ -291,6 +487,27 @@ export default function ConnectorsPage({
                 {section.connectors.map((connector) => {
                   const status = statuses[connector.name] || null;
                   const tone = connectorStatusTone(status);
+                  const pendingForConnector =
+                    pendingAuth?.connector === connector.name ? pendingAuth : null;
+                  const qrcodeImageUrl = pendingForConnector
+                    ? resolveBackendUrl(
+                        stringFromData(pendingForConnector.data, "qrcode_image_url") || ""
+                      )
+                    : null;
+                  const qrcodeContent = pendingForConnector
+                    ? stringFromData(pendingForConnector.data, "qrcode_content")
+                    : null;
+                  const pendingExternalUrl =
+                    connector.name === "bilibili"
+                      ? null
+                      : qrcodeContent ||
+                        (pendingForConnector ? authUrlFromData(pendingForConnector.data) : null);
+                  const pendingExternalLabel = stringFromData(
+                    pendingForConnector?.data || {},
+                    "setup_url"
+                  )
+                    ? "Open setup"
+                    : "Open auth";
 
                   return (
                     <section
@@ -331,7 +548,7 @@ export default function ConnectorsPage({
                             {connector.auth_start_path && !status?.connected ? (
                               <button
                                 type="button"
-                                onClick={() => void handleConnectorAction(connector, "connect")}
+                                onClick={() => void handleStartAuth(connector)}
                                 disabled={pendingAction === `${connector.name}:connect`}
                                 className="inline-flex h-8 items-center gap-2 rounded-full border border-[#dfe6f4] bg-white px-3 text-[12px] font-semibold text-[#384152] hover:bg-[#f7f8fa] disabled:opacity-60"
                               >
@@ -343,28 +560,130 @@ export default function ConnectorsPage({
                                 Connect
                               </button>
                             ) : null}
+                            {pendingForConnector ? (
+                              <button
+                                type="button"
+                                onClick={() => void handleCancelPendingAuth(connector)}
+                                disabled={pendingAction === `${connector.name}:cancel-auth`}
+                                className="inline-flex h-8 items-center gap-2 rounded-full border border-[#cf222e]/25 bg-[#ffebe9] px-3 text-[12px] font-semibold text-[#cf222e] disabled:opacity-60"
+                              >
+                                {pendingAction === `${connector.name}:cancel-auth` ? (
+                                  <Loader2 size={13} className="animate-spin" />
+                                ) : (
+                                  <X size={13} />
+                                )}
+                                Cancel auth
+                              </button>
+                            ) : null}
                             {connector.disconnect_path && status?.connected ? (
                               <button
                                 type="button"
-                                onClick={() => void handleConnectorAction(connector, "disconnect")}
+                                onClick={() =>
+                                  void handleDisconnect(
+                                    connector,
+                                    connector.name === "google_workspace" ? { all: true } : {}
+                                  )
+                                }
                                 disabled={pendingAction === `${connector.name}:disconnect`}
                                 className={`inline-flex h-8 items-center gap-2 rounded-full border px-3 text-[12px] font-semibold disabled:opacity-60 ${
-                                  confirmDisconnect === connector.name
+                                  confirmAction === `${connector.name}:disconnect`
                                     ? "border-[#cf222e]/25 bg-[#ffebe9] text-[#cf222e]"
                                     : "border-[#dfe6f4] bg-white text-[#384152] hover:bg-[#f7f8fa]"
                                 }`}
                               >
                                 {pendingAction === `${connector.name}:disconnect` ? (
                                   <Loader2 size={13} className="animate-spin" />
-                                ) : null}
-                                {confirmDisconnect === connector.name
-                                  ? "Confirm disconnect"
-                                  : "Disconnect"}
+                                ) : (
+                                  <Trash2 size={13} />
+                                )}
+                                {confirmAction === `${connector.name}:disconnect`
+                                  ? "Confirm local disconnect"
+                                  : "Local disconnect"}
                               </button>
                             ) : null}
                           </div>
                         </div>
                       </div>
+
+                      {connector.name === "notion" && confirmAction === "notion-token" ? (
+                        <div className="border-b border-[#e8edf7] p-4">
+                          <div className="flex flex-col gap-2 sm:flex-row">
+                            <input
+                              value={notionToken}
+                              onChange={(event) => setNotionToken(event.target.value)}
+                              type="password"
+                              placeholder="Notion integration token"
+                              className="min-h-9 min-w-0 flex-1 rounded-lg border border-[#dfe6f4] bg-white px-3 text-[12px] text-[#111827] outline-none focus:border-[#2f6bff]"
+                            />
+                            <div className="flex shrink-0 gap-2">
+                              <button
+                                type="button"
+                                onClick={() => void handleSubmitNotionToken()}
+                                disabled={pendingAction === "notion:connect"}
+                                className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#2f6bff]/30 bg-[#2f6bff] px-3 text-[12px] font-semibold text-white disabled:opacity-60"
+                              >
+                                {pendingAction === "notion:connect" ? (
+                                  <Loader2 size={13} className="animate-spin" />
+                                ) : (
+                                  <KeyRound size={13} />
+                                )}
+                                Save
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setConfirmAction(null);
+                                  setNotionToken("");
+                                }}
+                                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#dfe6f4] bg-white text-[#384152] hover:bg-[#f7f8fa]"
+                                aria-label="Cancel Notion token entry"
+                                title="Cancel Notion token entry"
+                              >
+                                <X size={14} />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {pendingForConnector ? (
+                        <div className="border-b border-[#e8edf7] p-4 text-[12px] text-[#667085]">
+                          <div className="flex items-start gap-2">
+                            <Loader2
+                              size={14}
+                              className="mt-0.5 shrink-0 animate-spin text-[#2f6bff]"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <div className="font-semibold text-[#384152]">
+                                {pendingForConnector.stage}
+                              </div>
+                              <div className="mt-1 leading-5">{pendingForConnector.detail}</div>
+                              {qrcodeImageUrl || pendingExternalUrl ? (
+                                <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center">
+                                  {qrcodeImageUrl ? (
+                                    <img
+                                      src={qrcodeImageUrl}
+                                      alt="Bilibili login QR code"
+                                      className="h-32 w-32 rounded-lg border border-[#dfe6f4] bg-white object-contain p-1"
+                                    />
+                                  ) : null}
+                                  {pendingExternalUrl ? (
+                                    <a
+                                      href={pendingExternalUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="inline-flex h-8 items-center gap-2 rounded-full border border-[#dfe6f4] bg-white px-3 text-[12px] font-semibold text-[#384152] hover:bg-[#f7f8fa]"
+                                    >
+                                      <ExternalLink size={13} />
+                                      {qrcodeContent ? "Open link" : pendingExternalLabel}
+                                    </a>
+                                  ) : null}
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+                        </div>
+                      ) : null}
 
                       {connector.name === "google_workspace" && accounts.length > 0 && (
                         <div className="p-4">
@@ -372,14 +691,45 @@ export default function ConnectorsPage({
                             {accounts.map((account) => (
                               <div
                                 key={account.email}
-                                className="flex items-center justify-between gap-2 px-3 py-2 text-xs"
+                                className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-xs"
                               >
-                                <span className="truncate font-[family-name:var(--font-mono)]">
-                                  {account.email}
-                                </span>
-                                <span className="text-[#6b7280]">
-                                  {account.valid === false ? "Invalid" : "Ready"}
-                                </span>
+                                <div className="min-w-0">
+                                  <div className="truncate font-[family-name:var(--font-mono)]">
+                                    {account.email}
+                                  </div>
+                                  <div className="mt-0.5 text-[11px] text-[#6b7280]">
+                                    {account.valid === false ? "Invalid" : "Ready"}
+                                  </div>
+                                </div>
+                                <div className="flex shrink-0 flex-wrap gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      void handleDisconnect(connector, { email: account.email })
+                                    }
+                                    disabled={
+                                      pendingAction ===
+                                      `${connector.name}:disconnect:${account.email}`
+                                    }
+                                    className={`inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-semibold disabled:opacity-60 ${
+                                      confirmAction ===
+                                      `${connector.name}:disconnect:${account.email}`
+                                        ? "border-[#cf222e]/25 bg-[#ffebe9] text-[#cf222e]"
+                                        : "border-[#dfe6f4] bg-white text-[#384152] hover:bg-[#f7f8fa]"
+                                    }`}
+                                  >
+                                    {pendingAction ===
+                                    `${connector.name}:disconnect:${account.email}` ? (
+                                      <Loader2 size={12} className="animate-spin" />
+                                    ) : (
+                                      <Trash2 size={12} />
+                                    )}
+                                    {confirmAction ===
+                                    `${connector.name}:disconnect:${account.email}`
+                                      ? "Confirm"
+                                      : "Remove local"}
+                                  </button>
+                                </div>
                               </div>
                             ))}
                           </div>

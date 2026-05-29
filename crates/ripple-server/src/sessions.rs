@@ -529,6 +529,54 @@ impl SessionManager {
         Ok(cleared)
     }
 
+    pub async fn cancel_pending_connector_auth(
+        &self,
+        user_id: &str,
+        connector_name: &str,
+    ) -> anyhow::Result<usize> {
+        let mut cancelled = 0_usize;
+        for mut record in self.storage.list_sessions(user_id).await? {
+            let Some(pending) = record.pending_connector_auth.clone() else {
+                continue;
+            };
+            if pending.get("connector").and_then(Value::as_str) != Some(connector_name) {
+                continue;
+            }
+            record.pending_connector_auth = None;
+            if record.status_kind().is_waiting_for_user() {
+                record.set_status(SessionStatus::Idle);
+            }
+            record.last_active = now_iso();
+            self.persist(&record).await?;
+            let key = (user_id.to_string(), record.session_id.clone());
+            if self.active.read().await.contains_key(&key) {
+                self.active.write().await.insert(key, record);
+            }
+            cancelled += 1;
+        }
+        Ok(cancelled)
+    }
+
+    pub async fn pending_connector_auth_count(
+        &self,
+        user_id: &str,
+        connector_name: &str,
+    ) -> anyhow::Result<usize> {
+        let mut count = 0_usize;
+        for record in self.storage.list_sessions(user_id).await? {
+            if record
+                .pending_connector_auth
+                .as_ref()
+                .and_then(|pending| pending.get("connector"))
+                .and_then(Value::as_str)
+                == Some(connector_name)
+            {
+                count += 1;
+            }
+        }
+        Ok(count)
+    }
+
     pub async fn maintenance_loop(self) {
         let mut interval = interval(Duration::from_secs(60));
         loop {

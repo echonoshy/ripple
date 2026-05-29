@@ -213,6 +213,10 @@ pub fn router(state: AppState) -> Router {
             post(connectors::connector_auth_complete),
         )
         .route(
+            "/connectors/:connector_name/auth/cancel",
+            post(connectors::connector_auth_cancel),
+        )
+        .route(
             "/connectors/:connector_name/disconnect",
             post(connectors::connector_disconnect),
         )

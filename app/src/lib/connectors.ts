@@ -13,10 +13,8 @@ export function connectorKindLabel(kind: ConnectorKind): string {
 }
 
 export function connectorGroupSections(connectors: ConnectorInfo[]): ConnectorGroupSection[] {
-  const runtime = connectors.filter((connector) => connector.kind === "runtime_capability");
   const user = connectors.filter((connector) => connector.kind !== "runtime_capability");
   const sections: ConnectorGroupSection[] = [
-    { kind: "runtime_capability", title: "Runtime Capabilities", connectors: runtime },
     { kind: "user_connector", title: "User Connectors", connectors: user },
   ];
   return sections.filter((section) => section.connectors.length > 0);

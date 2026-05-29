@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import {
+  cancelConnectorAuth,
   cancelSessionConnectorAuth,
   compactSessionContext,
   createSchedule,
@@ -23,6 +24,7 @@ import {
   stopSession,
   updateSchedule,
   updateSession,
+  disconnectConnector,
 } from "./api";
 
 function response(status: number, detail: string): Response {
@@ -135,6 +137,41 @@ async function testScheduleIdIsEncodedInPath() {
     "http://140.143.229.103:8810/v1/schedules/schedule%2Fwith%20space",
     "http://140.143.229.103:8810/v1/schedules/schedule%2Fwith%20space",
     "http://140.143.229.103:8810/v1/schedules/schedule%2Fwith%20space/run-now",
+  ]);
+}
+
+async function testConnectorManagementApisEncodeNamesAndPayloads() {
+  const requests: Array<{ url: string; method: string; body: unknown }> = [];
+
+  await withFetch(
+    async (input, init) => {
+      requests.push({
+        url: String(input),
+        method: init?.method || "GET",
+        body: init?.body ? JSON.parse(String(init.body)) : null,
+      });
+      return new Response(JSON.stringify({ ok: true, stage: "ok", data: {} }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    },
+    async () => {
+      await disconnectConnector("google/workspace", { email: "worker@example.com" });
+      await cancelConnectorAuth("google/workspace");
+    }
+  );
+
+  assert.deepEqual(requests, [
+    {
+      url: "http://140.143.229.103:8810/v1/connectors/google%2Fworkspace/disconnect",
+      method: "POST",
+      body: { confirm: true, email: "worker@example.com" },
+    },
+    {
+      url: "http://140.143.229.103:8810/v1/connectors/google%2Fworkspace/auth/cancel",
+      method: "POST",
+      body: null,
+    },
   ]);
 }
 
@@ -480,6 +517,7 @@ await testRenamePathNotFoundStaysFileSpecific();
 await testRenameConflictUsesFriendlyMessage();
 await testSessionIdIsEncodedInPath();
 await testScheduleIdIsEncodedInPath();
+await testConnectorManagementApisEncodeNamesAndPayloads();
 testParseWorkspaceLinkDecodesEncodedSandboxPath();
 await testWorkspaceFilePreviewPathNotFoundStaysFileSpecific();
 await testScheduleApiUsesExpectedBackendShape();

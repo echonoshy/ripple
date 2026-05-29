@@ -1267,11 +1267,50 @@ export async function startConnectorAuth(
   return (await res.json()) as Record<string, unknown>;
 }
 
-export async function disconnectConnector(connectorName: string): Promise<Record<string, unknown>> {
+export async function completeConnectorAuth(
+  connectorName: string,
+  payload: Record<string, unknown> = {}
+): Promise<Record<string, unknown>> {
+  const res = await fetch(
+    `${API_URL}/connectors/${encodeURIComponent(connectorName)}/auth/complete`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(payload),
+    }
+  );
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to complete connector auth (${res.status})`);
+  }
+  return (await res.json()) as Record<string, unknown>;
+}
+
+export async function cancelConnectorAuth(connectorName: string): Promise<Record<string, unknown>> {
+  const res = await fetch(
+    `${API_URL}/connectors/${encodeURIComponent(connectorName)}/auth/cancel`,
+    {
+      method: "POST",
+      headers: { ...authHeaders() },
+    }
+  );
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to cancel connector auth (${res.status})`);
+  }
+  return (await res.json()) as Record<string, unknown>;
+}
+
+export async function disconnectConnector(
+  connectorName: string,
+  payload: Record<string, unknown> = {}
+): Promise<Record<string, unknown>> {
   const res = await fetch(`${API_URL}/connectors/${encodeURIComponent(connectorName)}/disconnect`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify({ confirm: true }),
+    body: JSON.stringify({ confirm: true, ...payload }),
   });
   if (res.status === 401) throw new AuthError();
   if (!res.ok) {

@@ -114,8 +114,10 @@ export interface ConnectorInfo {
   };
   auth_start_path: string | null;
   auth_complete_path: string | null;
+  auth_cancel_path: string | null;
   disconnect_path: string | null;
   accounts_path: string | null;
+  supports_account_disconnect?: boolean;
 }
 
 export interface ConnectorStatus {
@@ -124,6 +126,10 @@ export interface ConnectorStatus {
   required: boolean;
   detail: string;
   metadata: Record<string, unknown>;
+  pending_auth?: {
+    count: number;
+    cancel_path?: string;
+  };
 }
 
 export interface ConnectorActionResponse {

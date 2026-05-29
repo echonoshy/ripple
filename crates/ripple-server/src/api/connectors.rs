@@ -55,6 +55,23 @@ const BILIBILI_QR_STATE_NOT_CONFIRMED: i64 = 86090;
 const BILIBILI_QR_STATE_NOT_SCANNED: i64 = 86101;
 const BILIBILI_QRCODE_TTL_SECONDS: u64 = 180;
 const BILIBILI_PENDING_TTL_SECONDS: u64 = 600;
+#[derive(Clone, Copy)]
+struct ConnectorDefinition {
+    name: &'static str,
+    display_name: &'static str,
+    description: &'static str,
+    auth_type: &'static str,
+    kind: &'static str,
+    auth_flow: &'static str,
+    web_auth: bool,
+    chat_auth: bool,
+    auth_start: bool,
+    auth_complete: bool,
+    auth_cancel: bool,
+    disconnect: bool,
+    accounts: bool,
+    account_disconnect: bool,
+}
 
 #[derive(Clone, Debug)]
 struct GogcliClientConfig {
@@ -98,16 +115,7 @@ struct BilibiliLiveCredential {
 
 pub async fn list_connectors() -> Json<Value> {
     Json(json!({
-        "connectors": [
-            connector_info("google_workspace", "Google Workspace", "Gmail, Drive, Docs, Sheets, Slides, and Calendar through gogcli.", "oauth", "user_connector", "oauth_assisted", false, true),
-            connector_info("notion", "Notion", "Notion API access through a per-user integration token.", "token", "user_connector", "token", false, true),
-            connector_info("feishu", "Feishu", "Feishu/Lark access through browser authorization.", "oauth", "user_connector", "oauth_device", false, true),
-            connector_info("bilibili", "Bilibili", "Bilibili session access through QR login credentials.", "qr", "user_connector", "qr", false, true),
-            connector_info("openai_codex", "OpenAI Codex", "Server-side Codex CLI login used by the app-server executor.", "cli", "runtime_capability", "none", false, false),
-            connector_info("codex_image_generation", "Image Generation", "Generate images through the server-side Codex runtime.", "runtime", "runtime_capability", "none", false, false),
-            connector_info("codex_image_input", "Image Input", "Accept uploaded or remote images through Codex native input items.", "runtime", "runtime_capability", "none", false, false),
-            connector_info("codex_web_search", "Web Search", "Use Codex runtime web/search capabilities.", "runtime", "runtime_capability", "none", false, false)
-        ]
+        "connectors": connector_definitions().iter().map(connector_info).collect::<Vec<_>>()
     }))
 }
 
@@ -130,7 +138,7 @@ pub(crate) async fn connector_status_value(
 ) -> Result<Value, ApiError> {
     let workspace = state.sandboxes.workspace_dir(user_id)?;
     let credentials = state.sandboxes.credentials_dir(user_id)?;
-    let status = match connector_name {
+    let mut status = match connector_name {
         "notion" => {
             let connected =
                 read_json_string_field(&credentials.join("notion.json"), "api_token").is_some();
@@ -167,6 +175,19 @@ pub(crate) async fn connector_status_value(
             )))
         }
     };
+    if let Some(object) = status.as_object_mut() {
+        let pending_count = state
+            .sessions
+            .pending_connector_auth_count(user_id, connector_name)
+            .await
+            .unwrap_or(0);
+        if pending_count > 0 {
+            object.insert(
+                "pending_auth".to_string(),
+                json!({"count": pending_count, "cancel_path": format!("/v1/connectors/{connector_name}/auth/cancel")}),
+            );
+        }
+    }
     Ok(status)
 }
 
@@ -274,6 +295,32 @@ pub(crate) async fn connector_auth_complete_action(
             "Connector {connector_name:?} not found"
         ))),
     }
+}
+
+pub async fn connector_auth_cancel(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(connector_name): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    state.sandboxes.ensure_sandbox(&user_id)?;
+    let Some(definition) = connector_definition(&connector_name) else {
+        return Err(ApiError::not_found(format!(
+            "Connector {connector_name:?} not found"
+        )));
+    };
+    if !definition.auth_cancel {
+        return Err(ApiError::new(
+            StatusCode::METHOD_NOT_ALLOWED,
+            format!("Connector {connector_name:?} does not support auth cancellation"),
+        ));
+    }
+    let cancelled = cancel_connector_auth_state(&state, &user_id, &connector_name).await?;
+    Ok(Json(json!({
+        "ok": true,
+        "connector": connector_name,
+        "cancelled": cancelled
+    })))
 }
 
 pub async fn connector_disconnect(
@@ -416,28 +463,165 @@ pub async fn gogcli_oauth_callback(
     }
 }
 
-fn connector_info(
-    name: &str,
-    display_name: &str,
-    description: &str,
-    auth_type: &str,
-    kind: &str,
-    auth_flow: &str,
-    web: bool,
-    chat: bool,
-) -> Value {
+fn connector_definitions() -> &'static [ConnectorDefinition] {
+    &[
+        ConnectorDefinition {
+            name: "google_workspace",
+            display_name: "Google Workspace",
+            description: "Gmail, Drive, Docs, Sheets, Slides, and Calendar through gogcli.",
+            auth_type: "oauth",
+            kind: "user_connector",
+            auth_flow: "oauth_assisted",
+            web_auth: true,
+            chat_auth: true,
+            auth_start: true,
+            auth_complete: true,
+            auth_cancel: true,
+            disconnect: true,
+            accounts: true,
+            account_disconnect: true,
+        },
+        ConnectorDefinition {
+            name: "notion",
+            display_name: "Notion",
+            description: "Notion API access through a per-user integration token.",
+            auth_type: "token",
+            kind: "user_connector",
+            auth_flow: "token",
+            web_auth: true,
+            chat_auth: true,
+            auth_start: true,
+            auth_complete: false,
+            auth_cancel: true,
+            disconnect: true,
+            accounts: false,
+            account_disconnect: false,
+        },
+        ConnectorDefinition {
+            name: "feishu",
+            display_name: "Feishu",
+            description: "Feishu/Lark access through browser authorization.",
+            auth_type: "oauth",
+            kind: "user_connector",
+            auth_flow: "oauth_device",
+            web_auth: true,
+            chat_auth: true,
+            auth_start: true,
+            auth_complete: true,
+            auth_cancel: true,
+            disconnect: true,
+            accounts: false,
+            account_disconnect: false,
+        },
+        ConnectorDefinition {
+            name: "bilibili",
+            display_name: "Bilibili",
+            description: "Bilibili session access through QR login credentials.",
+            auth_type: "qr",
+            kind: "user_connector",
+            auth_flow: "qr",
+            web_auth: true,
+            chat_auth: true,
+            auth_start: true,
+            auth_complete: true,
+            auth_cancel: true,
+            disconnect: true,
+            accounts: false,
+            account_disconnect: false,
+        },
+        ConnectorDefinition {
+            name: "openai_codex",
+            display_name: "OpenAI Codex",
+            description: "Server-side Codex CLI login used by the app-server executor.",
+            auth_type: "cli",
+            kind: "runtime_capability",
+            auth_flow: "none",
+            web_auth: false,
+            chat_auth: false,
+            auth_start: false,
+            auth_complete: false,
+            auth_cancel: false,
+            disconnect: false,
+            accounts: false,
+            account_disconnect: false,
+        },
+        ConnectorDefinition {
+            name: "codex_image_generation",
+            display_name: "Image Generation",
+            description: "Generate images through the server-side Codex runtime.",
+            auth_type: "runtime",
+            kind: "runtime_capability",
+            auth_flow: "none",
+            web_auth: false,
+            chat_auth: false,
+            auth_start: false,
+            auth_complete: false,
+            auth_cancel: false,
+            disconnect: false,
+            accounts: false,
+            account_disconnect: false,
+        },
+        ConnectorDefinition {
+            name: "codex_image_input",
+            display_name: "Image Input",
+            description: "Accept uploaded or remote images through Codex native input items.",
+            auth_type: "runtime",
+            kind: "runtime_capability",
+            auth_flow: "none",
+            web_auth: false,
+            chat_auth: false,
+            auth_start: false,
+            auth_complete: false,
+            auth_cancel: false,
+            disconnect: false,
+            accounts: false,
+            account_disconnect: false,
+        },
+        ConnectorDefinition {
+            name: "codex_web_search",
+            display_name: "Web Search",
+            description: "Use Codex runtime web/search capabilities.",
+            auth_type: "runtime",
+            kind: "runtime_capability",
+            auth_flow: "none",
+            web_auth: false,
+            chat_auth: false,
+            auth_start: false,
+            auth_complete: false,
+            auth_cancel: false,
+            disconnect: false,
+            accounts: false,
+            account_disconnect: false,
+        },
+    ]
+}
+
+fn connector_definition(name: &str) -> Option<&'static ConnectorDefinition> {
+    connector_definitions()
+        .iter()
+        .find(|connector| connector.name == name)
+}
+
+fn connector_path(name: &str, suffix: &str) -> Value {
+    json!(format!("/v1/connectors/{name}/{suffix}"))
+}
+
+fn connector_info(connector: &ConnectorDefinition) -> Value {
+    let name = connector.name;
     json!({
         "name": name,
-        "display_name": display_name,
-        "description": description,
-        "auth_type": auth_type,
-        "kind": kind,
-        "auth_flow": auth_flow,
-        "auth_surfaces": {"web": web, "chat": chat},
-        "auth_start_path": Value::Null,
-        "auth_complete_path": Value::Null,
-        "disconnect_path": Value::Null,
-        "accounts_path": if name == "google_workspace" { json!("/v1/connectors/google_workspace/accounts") } else { Value::Null }
+        "display_name": connector.display_name,
+        "description": connector.description,
+        "auth_type": connector.auth_type,
+        "kind": connector.kind,
+        "auth_flow": connector.auth_flow,
+        "auth_surfaces": {"web": connector.web_auth, "chat": connector.chat_auth},
+        "auth_start_path": if connector.auth_start { connector_path(name, "auth/start") } else { Value::Null },
+        "auth_complete_path": if connector.auth_complete { connector_path(name, "auth/complete") } else { Value::Null },
+        "auth_cancel_path": if connector.auth_cancel { connector_path(name, "auth/cancel") } else { Value::Null },
+        "disconnect_path": if connector.disconnect { connector_path(name, "disconnect") } else { Value::Null },
+        "accounts_path": if connector.accounts { connector_path(name, "accounts") } else { Value::Null },
+        "supports_account_disconnect": connector.account_disconnect
     })
 }
 
@@ -449,6 +633,25 @@ fn ensure_sandbox_exists(state: &AppState, user_id: &str) -> Result<(), ApiError
             "Sandbox for user {user_id:?} not found"
         )))
     }
+}
+
+async fn cancel_connector_auth_state(
+    state: &AppState,
+    user_id: &str,
+    connector_name: &str,
+) -> Result<bool, ApiError> {
+    let sessions = state
+        .sessions
+        .cancel_pending_connector_auth(user_id, connector_name)
+        .await?;
+    let runtime_cancelled = match connector_name {
+        "google_workspace" => clear_pending_gogcli_oauth_for_user(state, user_id) > 0,
+        "feishu" => cancel_feishu_setup(state, user_id).await,
+        "bilibili" => release_pending_bilibili_qr(state, user_id).is_some(),
+        "notion" => false,
+        _ => false,
+    };
+    Ok(sessions > 0 || runtime_cancelled)
 }
 
 async fn notion_auth_start(
@@ -999,7 +1202,7 @@ async fn bilibili_auth_start(state: &AppState, user_id: &str) -> Result<Json<Val
         "bilibili",
         true,
         "awaiting_user",
-        "Open qrcode_content with the Bilibili app, then complete the auth flow.",
+        "Scan the QR code with the Bilibili app, then complete the auth flow.",
         json!({
             "bound": false,
             "qrcode_key": generated.qrcode_key,
@@ -1185,6 +1388,9 @@ async fn google_disconnect(
     user_id: &str,
     payload: &Value,
 ) -> Result<Json<Value>, ApiError> {
+    if value_as_bool(payload.get("all")).unwrap_or(false) {
+        return google_disconnect_all(state, user_id).await;
+    }
     let email = payload
         .get("email")
         .and_then(Value::as_str)
@@ -1247,6 +1453,32 @@ async fn google_disconnect(
         "disconnected",
         "Google Workspace account removed from this user's keyring.",
         json!({"email": email, "accounts": accounts}),
+    )))
+}
+
+async fn google_disconnect_all(state: &AppState, user_id: &str) -> Result<Json<Value>, ApiError> {
+    clear_pending_gogcli_oauth_for_user(state, user_id);
+    let workspace = state.sandboxes.workspace_dir(user_id)?;
+    let keyring = workspace.join(".config/gogcli/keyring");
+    let keyring_removed = if keyring.exists() {
+        tokio::fs::remove_dir_all(&keyring).await?;
+        true
+    } else {
+        false
+    };
+    let pass_file = state.sandboxes.gogcli_keyring_pass_file(user_id)?;
+    let password_removed = remove_file_if_exists(&pass_file).await?;
+    state.sandboxes.write_nsjail_config(user_id)?;
+    Ok(Json(action_response(
+        "google_workspace",
+        true,
+        "disconnected",
+        "All local Google Workspace account tokens were removed for this user.",
+        json!({
+            "all": true,
+            "keyring_removed": keyring_removed,
+            "password_removed": password_removed
+        }),
     )))
 }
 
@@ -1617,7 +1849,7 @@ async fn check_feishu_setup(
     }
 }
 
-pub(crate) async fn cancel_feishu_setup(state: &AppState, user_id: &str) {
+pub(crate) async fn cancel_feishu_setup(state: &AppState, user_id: &str) -> bool {
     let setup = state
         .connector_runtime
         .feishu_setup
@@ -1627,6 +1859,9 @@ pub(crate) async fn cancel_feishu_setup(state: &AppState, user_id: &str) {
     if let Some(mut setup) = setup {
         let _ = setup.process.kill().await;
         let _ = setup.process.wait().await;
+        true
+    } else {
+        false
     }
 }
 
@@ -2714,6 +2949,19 @@ fn pop_pending_gogcli_oauth(state: &AppState, oauth_state: &str) -> Option<Pendi
     values
         .remove(oauth_state)
         .filter(|pending| pending.expires_at >= now)
+}
+
+fn clear_pending_gogcli_oauth_for_user(state: &AppState, user_id: &str) -> usize {
+    let now = now_epoch_seconds();
+    let mut values = state
+        .connector_runtime
+        .gogcli_oauth
+        .lock()
+        .expect("pending oauth lock poisoned");
+    cleanup_expired_oauth_locked(&mut values, now);
+    let before = values.len();
+    values.retain(|_, pending| pending.user_id != user_id);
+    before.saturating_sub(values.len())
 }
 
 fn cleanup_expired_oauth_locked(values: &mut HashMap<String, PendingGogcliOAuth>, now: u64) {

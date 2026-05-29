@@ -152,6 +152,10 @@ if [ "$1" = "auth" ] && [ "$2" = "list" ]; then
   printf '{"accounts":[{"email":"worker@example.com","alias":"work","valid":true}]}\n'
   exit 0
 fi
+if [ "$1" = "auth" ] && [ "$2" = "remove" ]; then
+  printf '{"ok":true,"removed":"%s"}\n' "$3"
+  exit 0
+fi
 echo "unexpected gog args: $*" >&2
 exit 2
 "#,
@@ -2506,6 +2510,66 @@ async fn connector_status_and_accounts_require_existing_sandbox() {
 }
 
 #[tokio::test]
+async fn connector_manifest_exposes_management_paths_for_user_connectors() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let (_state, app) = test_state_and_app(&root);
+
+    let (status, body) = call(app, Method::GET, "/v1/connectors", Value::Null).await;
+    assert_eq!(status, StatusCode::OK);
+    let connectors = body
+        .get("connectors")
+        .and_then(Value::as_array)
+        .expect("connectors array");
+
+    let user_connector = connectors
+        .iter()
+        .find(|connector| connector.get("name").and_then(Value::as_str) == Some("notion"))
+        .expect("notion connector");
+    assert_eq!(
+        user_connector
+            .pointer("/auth_surfaces/web")
+            .and_then(Value::as_bool),
+        Some(true)
+    );
+    assert_eq!(
+        user_connector
+            .get("auth_start_path")
+            .and_then(Value::as_str),
+        Some("/v1/connectors/notion/auth/start")
+    );
+    assert_eq!(
+        user_connector
+            .get("auth_cancel_path")
+            .and_then(Value::as_str),
+        Some("/v1/connectors/notion/auth/cancel")
+    );
+    assert_eq!(
+        user_connector
+            .get("disconnect_path")
+            .and_then(Value::as_str),
+        Some("/v1/connectors/notion/disconnect")
+    );
+    assert!(user_connector.get("revoke_path").is_none());
+    assert!(user_connector.get("supports_guided_revoke").is_none());
+
+    let runtime_connector = connectors
+        .iter()
+        .find(|connector| connector.get("name").and_then(Value::as_str) == Some("openai_codex"))
+        .expect("runtime connector");
+    assert_eq!(
+        runtime_connector
+            .pointer("/auth_surfaces/web")
+            .and_then(Value::as_bool),
+        Some(false)
+    );
+    assert!(runtime_connector.get("auth_start_path").unwrap().is_null());
+    assert!(runtime_connector.get("disconnect_path").unwrap().is_null());
+    assert!(runtime_connector.get("revoke_path").is_none());
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
 async fn connector_routes_run_short_cli_commands_through_nsjail() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let (state, app) = test_state_and_app_with_config(test_config_with_fake_connector_cli(&root));
@@ -2564,6 +2628,170 @@ async fn connector_routes_run_short_cli_commands_through_nsjail() {
     assert!(log.contains("program=/opt/lark-cli/current/bin/lark-cli args=doctor"));
     assert!(log.contains("program=/opt/lark-cli/current/bin/lark-cli args=auth status"));
     assert!(log.contains("/sandboxes/smoke-user/nsjail.cfg"));
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn google_disconnect_supports_account_and_all_local_removal() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let (state, app) = test_state_and_app_with_config(test_config_with_fake_connector_cli(&root));
+    let user_id = "smoke-user";
+
+    state.sandboxes.ensure_sandbox(user_id).unwrap();
+    let workspace = state.sandboxes.workspace_dir(user_id).unwrap();
+    fs::create_dir_all(workspace.join(".config/gogcli/keyring")).unwrap();
+    fs::write(
+        workspace.join(".config/gogcli/keyring/worker@example.com"),
+        "refresh-token",
+    )
+    .unwrap();
+
+    let (status, missing_confirm) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/connectors/google_workspace/disconnect",
+        json!({"email": "worker@example.com"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::PRECONDITION_REQUIRED);
+    assert_eq!(
+        missing_confirm
+            .pointer("/detail/code")
+            .and_then(Value::as_str),
+        Some("confirmation_required")
+    );
+
+    let (status, removed) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/connectors/google_workspace/disconnect",
+        json!({"confirm": true, "email": "worker@example.com"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(removed.get("ok").and_then(Value::as_bool), Some(true));
+    assert_eq!(
+        removed.get("stage").and_then(Value::as_str),
+        Some("disconnected")
+    );
+    assert_eq!(
+        removed.pointer("/data/email").and_then(Value::as_str),
+        Some("worker@example.com")
+    );
+
+    let (status, cleared) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/connectors/google_workspace/disconnect",
+        json!({"confirm": true, "all": true}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(cleared.get("ok").and_then(Value::as_bool), Some(true));
+    assert_eq!(
+        cleared.get("stage").and_then(Value::as_str),
+        Some("disconnected")
+    );
+    assert_eq!(
+        cleared.pointer("/data/all").and_then(Value::as_bool),
+        Some(true)
+    );
+
+    let log = fs::read_to_string(root.join("fake-nsjail.log")).unwrap();
+    assert!(log.contains(
+        "program=/opt/gogcli-cli/current/bin/gog args=auth remove worker@example.com --force"
+    ));
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn connector_auth_cancel_route_is_idempotent_and_clears_pending_sessions() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let (state, app) = test_state_and_app(&root);
+    let user_id = "smoke-user";
+    state.sandboxes.ensure_sandbox(user_id).unwrap();
+
+    let mut session = state
+        .sessions
+        .create_session(
+            user_id,
+            CreateSessionInput {
+                model: Some("codex-test".to_string()),
+                max_turns: None,
+                system_prompt: None,
+            },
+        )
+        .await
+        .unwrap();
+    session.status = "awaiting_user_input".to_string();
+    session.pending_connector_auth = Some(json!({
+        "connector": "google_workspace",
+        "stage": "awaiting_browser_callback",
+        "resume_user_input": "读取 Gmail"
+    }));
+    state.sessions.save_record(session.clone()).await.unwrap();
+
+    let (status, cancelled) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/connectors/google_workspace/auth/cancel",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(cancelled.get("ok").and_then(Value::as_bool), Some(true));
+    assert_eq!(
+        cancelled.get("connector").and_then(Value::as_str),
+        Some("google_workspace")
+    );
+    assert_eq!(
+        cancelled.get("cancelled").and_then(Value::as_bool),
+        Some(true)
+    );
+
+    let reloaded = state
+        .sessions
+        .load(user_id, &session.session_id)
+        .await
+        .unwrap()
+        .expect("session");
+    assert_eq!(reloaded.status, "idle");
+    assert!(reloaded.pending_connector_auth.is_none());
+
+    let (status, second) = call(
+        app,
+        Method::POST,
+        "/v1/connectors/google_workspace/auth/cancel",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        second.get("cancelled").and_then(Value::as_bool),
+        Some(false)
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn connector_revoke_route_is_not_registered() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let (state, app) = test_state_and_app(&root);
+    state.sandboxes.ensure_sandbox("smoke-user").unwrap();
+
+    let response = app
+        .oneshot(request(
+            Method::POST,
+            "/v1/connectors/google_workspace/revoke",
+            json!({"confirm": true, "email": "worker@example.com"}),
+            true,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
 
     let _ = std::fs::remove_dir_all(root);
 }

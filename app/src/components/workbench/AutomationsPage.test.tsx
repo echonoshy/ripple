@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -20,6 +21,16 @@ function testAutomationsPageHasMobileBackNavigation() {
   assert.match(html, /lg:hidden/);
 }
 
+function testAutomationActionsUseVisibleDistinctLabels() {
+  const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, />Pause</);
+  assert.match(source, />Resume</);
+  assert.match(source, />Run now</);
+  assert.match(source, />Delete</);
+}
+
 testAutomationsPageHasMobileBackNavigation();
+testAutomationActionsUseVisibleDistinctLabels();
 
 console.log("automations page tests passed");

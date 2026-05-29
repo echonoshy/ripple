@@ -11,6 +11,7 @@ import {
   Plus,
   RefreshCw,
   Trash2,
+  Zap,
 } from "lucide-react";
 import {
   AuthError,
@@ -84,6 +85,12 @@ function statusClass(status: string): string {
   if (status === "error") return "border-[#cf222e]/25 bg-[#ffebe9] text-[#cf222e]";
   return "border-[#d7dce3] bg-[#f7f8fa] text-[#374151]";
 }
+
+const automationActionButtonClass =
+  "inline-flex h-8 min-w-[68px] shrink-0 items-center justify-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-2.5 text-[11px] font-semibold text-[#384152] hover:bg-[#f7f8fa]";
+
+const automationDeleteButtonClass =
+  "inline-flex h-8 min-w-[68px] shrink-0 items-center justify-center gap-1.5 rounded-full border px-2.5 text-[11px] font-semibold";
 
 function defaultRunAt(): string {
   const date = new Date(Date.now() + 60 * 60 * 1000);
@@ -475,7 +482,7 @@ export default function AutomationsPage({
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-1 justify-self-start md:justify-self-end">
+                  <div className="flex flex-wrap items-center gap-1.5 justify-self-start md:justify-self-end">
                     {confirmDeleteId === schedule.schedule_id ? (
                       <button
                         type="button"
@@ -492,7 +499,7 @@ export default function AutomationsPage({
                       }
                       aria-label={schedule.enabled ? "Pause automation" : "Resume automation"}
                       title={schedule.enabled ? "Pause automation" : "Resume automation"}
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[#dfe6f4] bg-white text-[#384152] hover:bg-[#f7f8fa]"
+                      className={automationActionButtonClass}
                     >
                       {pendingActionId === `${schedule.schedule_id}:toggle` ? (
                         <Loader2 size={14} className="animate-spin" />
@@ -501,19 +508,21 @@ export default function AutomationsPage({
                       ) : (
                         <Play size={14} />
                       )}
+                      {schedule.enabled ? <span>Pause</span> : <span>Resume</span>}
                     </button>
                     <button
                       type="button"
                       onClick={() => void handleAction(schedule.schedule_id, "run")}
                       aria-label="Run automation now"
                       title="Run automation now"
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[#dfe6f4] bg-white text-[#384152] hover:bg-[#f7f8fa]"
+                      className={automationActionButtonClass}
                     >
                       {pendingActionId === `${schedule.schedule_id}:run` ? (
                         <Loader2 size={14} className="animate-spin" />
                       ) : (
-                        <Play size={14} />
+                        <Zap size={14} />
                       )}
+                      <span>Run now</span>
                     </button>
                     <button
                       type="button"
@@ -524,7 +533,7 @@ export default function AutomationsPage({
                           ? "Confirm delete automation"
                           : "Delete automation"
                       }
-                      className={`inline-flex h-8 items-center justify-center rounded-full border px-2 ${
+                      className={`${automationDeleteButtonClass} ${
                         confirmDeleteId === schedule.schedule_id
                           ? "border-[#cf222e]/25 bg-[#ffebe9] text-[#cf222e]"
                           : "border-[#dfe6f4] bg-white text-[#8b8f94] hover:bg-[#ffebe9] hover:text-[#cf222e]"
@@ -535,7 +544,10 @@ export default function AutomationsPage({
                       ) : confirmDeleteId === schedule.schedule_id ? (
                         <span className="text-[11px] font-semibold">Confirm</span>
                       ) : (
-                        <Trash2 size={14} />
+                        <>
+                          <Trash2 size={14} />
+                          <span>Delete</span>
+                        </>
                       )}
                     </button>
                   </div>

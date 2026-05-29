@@ -593,20 +593,16 @@ function MarkdownContent({
         },
         table({ children }) {
           return (
-            <div className="my-4 max-w-full overflow-x-auto pb-1">
-              <table className="min-w-full border-collapse text-sm">{children}</table>
+            <div className="markdown-table-wrap">
+              <table className="markdown-table">{children}</table>
             </div>
           );
         },
         th({ children }) {
-          return (
-            <th className="border border-[#dde2ea] bg-[#f7f8fa] px-3 py-2 text-left text-sm font-semibold text-[#171a1f]">
-              {children}
-            </th>
-          );
+          return <th className="markdown-table-cell markdown-table-head">{children}</th>;
         },
         td({ children }) {
-          return <td className="border border-[#dde2ea] px-3 py-2 text-[#171a1f]">{children}</td>;
+          return <td className="markdown-table-cell">{children}</td>;
         },
       }}
     >

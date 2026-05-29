@@ -112,11 +112,28 @@ function testBilibiliAuthCardShowsQrAndManualOpenLink() {
   assert.doesNotMatch(html, /自动继续/);
 }
 
+function testMarkdownTablesUseReadableTableClasses() {
+  const html = renderToStaticMarkup(
+    <MarkdownRenderer
+      content={[
+        "| 编号 | 代号 | 已知事实身份 / 信息 | 截至本地章节的结局 |",
+        "|---|---|---|---|",
+        "| No.1 | 爱因斯坦 | 会长。疑似历史上的爱因斯坦本人。 | 没有明确死亡。 |",
+      ].join("\n")}
+    />
+  );
+
+  assert.match(html, /markdown-table-wrap/);
+  assert.match(html, /markdown-table"/);
+  assert.match(html, /markdown-table-cell/);
+}
+
 testPreservesSingleNewlineAsLineBreak();
 testFeishuAuthCardDoesNotCompleteAuthDirectly();
 testFeishuAuthCardShowsWaitingState();
 testGoogleAuthCardDoesNotAskForManualCallback();
 testConnectorAuthLinksUseScopedButtonStyles();
 testBilibiliAuthCardShowsQrAndManualOpenLink();
+testMarkdownTablesUseReadableTableClasses();
 
 console.log("markdown renderer tests passed");

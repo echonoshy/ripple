@@ -46,8 +46,8 @@ rich_text 结构）时 —— 凭记忆几乎一定会错。
 
 - **存储位置**：**per-user** 隔离。宿主侧文件
   `.ripple/sandboxes/<user_id>/credentials/notion.json`，仅当前 user 可读，不同 user 互不可见；同一 user 的多个 session 共享同一个 token。
-- **写入入口**：唯一合法入口是内置工具 **`NotionTokenSet`**（见下文）。
-  写入时会自动重生成 `nsjail.cfg`，下一次 bash 命令立刻能拿到 env。
+- **写入入口**：唯一合法入口是 Ripple chat/control-plane token capture。用户把 token 粘到对话后，
+  Ripple 会保存到当前 user credentials 并重生成 `nsjail.cfg`，下一次 bash 命令立刻能拿到 env。
 - **沙箱注入方式**：沙箱启动时（生成 `nsjail.cfg` 的那一刻）读取
   `notion.json`，把 token 以环境变量 `NOTION_API_TOKEN` 注入沙箱。
   **没有全局单 token**，也不走 `config/settings.yaml`。
@@ -76,12 +76,8 @@ Bash 守卫会拦下命令并返回带 `[NOTION_AUTH_REQUIRED]` 前缀的消息�
      即使 token 正确也会 403/404）。
 2. **不要**自己重试 `ntn`、写 `/workspace/.notion/...` 文件、跑
    `ntn config set`、调 `ntn login` 等。等用户回复。
-3. 用户回复 token（消息里就是一长串 `ntn_xxxxxxxxxxxxxxx...`）后，
-   **立刻调 `NotionTokenSet` 工具**：
-   ```
-   NotionTokenSet(api_token="<把用户贴的原文整段填进来>")
-   ```
-4. 工具返回 `ok: true` 后，**直接重跑被拦下的原 `ntn` 命令**继续业务。
+3. 用户回复 token（消息里就是一长串 `ntn_xxxxxxxxxxxxxxx...`）后，Ripple 会在 Codex turn 之前捕获并保存 token。
+4. token 保存后，**直接重跑被拦下的原 `ntn` 命令**继续业务。
 5. 在你绑定成功之后的所有回复里：
    - 默认**不要主动回显** token 的具体内容；如果非要展示（比如用户要求你确认绑定了哪一个），
      用前 6 字符 + `...` 掩码（如 `ntn_T543...`）。
@@ -93,7 +89,7 @@ Bash 守卫会拦下命令并返回带 `[NOTION_AUTH_REQUIRED]` 前缀的消息�
 
 1. **不要**尝试重新 login，也不要再调那个失败命令做"重试"。
 2. 告知用户当前 token 可能失效，**请重新贴一个新的**到对话里。
-3. 收到新 token → 同样调 `NotionTokenSet` 覆盖，重跑命令。
+3. 收到新 token → 等 Ripple 保存覆盖后，重跑命令。
 
 ## 权限错误（`object_not_found` / `restricted_resource`）
 
@@ -142,5 +138,5 @@ Integration，token 才能读/写它。
 - **写入 / 删除操作**（创建 page、`archived=true`、覆盖属性等）执行前**必须**向
   用户复述意图并获得确认，除非用户在本轮对话里已经明确授权本次操作。
 - 批量操作（循环里创建 >5 个 page）前先列出**完整计划**给用户过目，不要闷头跑完。
-- 不要把 token 写到 `/workspace` 下任何文件 —— 它应该通过 `NotionTokenSet` 落到宿主的
+- 不要把 token 写到 `/workspace` 下任何文件 —— 它应该通过 Ripple control-plane token capture 落到宿主的
   `.ripple/sandboxes/<user_id>/credentials/notion.json`，由沙箱自动注入成 env。

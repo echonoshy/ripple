@@ -10,7 +10,7 @@ metadata:
 
 # bilibili-shared
 
-所有 `bilibili-*` 子 skill 共享这套约定。`bilibili` 是预装在 sandbox PATH 里的单二进制 CLI；不要再调用旧的 Python pipeline，也不要再调用旧的 model-facing auth tools。
+所有 `bilibili-*` 子 skill 共享这套约定。`bilibili` 是预装在 sandbox PATH 里的单二进制 CLI；授权、二维码轮询和账号状态都走 Ripple connector 控制面与本 CLI，不要在 skill 里发明额外的鉴权工具。
 
 ## 输入形态
 

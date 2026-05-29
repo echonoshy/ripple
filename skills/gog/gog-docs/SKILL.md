@@ -1,7 +1,7 @@
 ---
 name: gog-docs
 version: 1.0.0
-description: "用 gog 读/写 Google Docs。**先读 gog-shared**。对 update/write/sed/find-replace **必须先 AskUser 确认 + 优先 --dry-run**。典型：读全文、追加段落、template 填充、找替换。"
+description: "用 gog 读/写 Google Docs。**先读 gog-shared**。对 update/write/sed/find-replace **必须先向用户确认并停止，下一轮明确同意后再执行；优先 --dry-run**。典型：读全文、追加段落、template 填充、找替换。"
 metadata:
   requires:
     bins: ["gog"]
@@ -33,7 +33,7 @@ gog --account <email> docs export <docId> --format docx --out ./doc.docx
 gog --account <email> docs export <docId> --format html --out ./doc.html
 ```
 
-## 写操作（⚠️ 必须先 AskUser）
+## 写操作（⚠️ 必须先确认）
 
 ```bash
 # 新建
@@ -64,14 +64,14 @@ gog --account <email> docs sed <docId> 's/{{LOGO}}/![](https://x.com/logo.png)/'
 ## 典型场景
 
 **场景：把 `/workspace/report.md` 替换成某个 doc 的全文**
-1. AskUser 确认要替换的 doc（拿 `docs info` 给看标题）
+1. 确认要替换的 doc（拿 `docs info` 给看标题），停止等待用户下一轮明确同意
 2. `gog docs write <docId> --file /workspace/report.md --replace --markdown`
 
 **场景：从 template 批量生成 doc**
 1. `gog docs copy <templateDocId> "Q2 Report"` → 拿新 docId
 2. `gog docs find-replace <newDocId> "{{quarter}}" "Q2 2026"`
 3. ... 重复若干次 ...
-（每组替换前 AskUser 一次，或把所有替换汇总一次 AskUser）
+（每组替换前确认一次，或把所有替换汇总一次确认）
 
 ## 注意
 

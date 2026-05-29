@@ -49,9 +49,10 @@ Ripple is the control plane: it owns user identity, sandbox isolation, connector
 ## Connector Status\n\
 {}\n\n\
 ## Execution Environment Guardrails\n\
-- Do not call legacy Ripple connector auth tools such as `GoogleWorkspaceLoginStart`, `GoogleWorkspaceLoginComplete`, `GoogleWorkspaceAuthStatus`, `GoogleWorkspaceLogout`, `NotionTokenSet`, `BilibiliLoginStart`, `BilibiliLoginPoll`, `BilibiliAuthStatus`, `BilibiliLogout`, or `AskUser`.\n\
+- Connector authorization, token capture, account disconnect, and QR login are Ripple control-plane flows. Do not invent ad-hoc auth tool calls.\n\
 - Google Workspace, Notion, and Feishu authorization is handled by Ripple before the Codex turn starts. For Bilibili tasks, follow the `bilibili` CLI workflow documented by the Bilibili skills.\n\
-- Do not collect connector credentials inside Codex; if Google Workspace, Notion, or Feishu is required and not connected, ask the user to authorize it through Ripple.\n\n\
+- Do not collect connector credentials inside Codex; if Google Workspace, Notion, or Feishu is required and not connected, ask the user to authorize it through Ripple.\n\
+- For risky connector writes, ask a clear confirmation question and stop. Continue only after the user's next message explicitly approves the specific action.\n\n\
 ## Available Skills\n\
 {}\n\n\
 ## System Instructions\n\

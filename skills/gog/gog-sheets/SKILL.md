@@ -1,7 +1,7 @@
 ---
 name: gog-sheets
 version: 1.0.0
-description: "用 gog 读/写 Google Sheets。**先读 gog-shared**。对 update/append/clear/delete-tab/format **必须先 AskUser 确认**。典型：读 range、append 一行、从 CSV 覆盖、按命名区间写入、插入/删除 tab。"
+description: "用 gog 读/写 Google Sheets。**先读 gog-shared**。对 update/append/clear/delete-tab/format **必须先向用户确认并停止，下一轮明确同意后再执行**。典型：读 range、append 一行、从 CSV 覆盖、按命名区间写入、插入/删除 tab。"
 metadata:
   requires:
     bins: ["gog"]
@@ -39,7 +39,7 @@ gog --account <email> sheets export <ssId> --format pdf --out ./s.pdf
 gog --account <email> sheets export <ssId> --format xlsx --out ./s.xlsx
 ```
 
-## 写操作（⚠️ 必须先 AskUser）
+## 写操作（⚠️ 必须先确认）
 
 ```bash
 # 更新（管道/逗号 格式：`row1col1|row1col2,row2col1|row2col2`）
@@ -79,13 +79,13 @@ gog --account <email> sheets create "New Spreadsheet" --sheets "Sheet1,Sheet2"
 ## 典型场景
 
 **场景：把 `/workspace/data.csv` 写进 Sheet1 A1 起**
-1. `cat /workspace/data.csv | tr ',' '|'` 预览（AskUser 看一行是不是对的）
-2. AskUser 确认目标 range
+1. `cat /workspace/data.csv | tr ',' '|'` 预览（让用户确认一行是不是对的）
+2. 确认目标 range，停止等待用户下一轮明确同意
 3. `cat /workspace/data.csv | tr ',' '|' | gog --account <email> sheets update <ssId> 'Sheet1!A1'`
 
 **场景：给某列加货币格式**
 1. `sheets metadata` 先确认 sheet 名和列范围
-2. AskUser 确认要改的范围 + 格式
+2. 确认要改的范围 + 格式，停止等待用户下一轮明确同意
 3. `sheets number-format <ssId> 'Revenue!C:C' --type CURRENCY --pattern '$#,##0.00'`
 
 ## 注意

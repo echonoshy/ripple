@@ -1,7 +1,7 @@
 ---
 name: gog-drive
 version: 1.0.0
-description: "用 gog 读/搜/上传/下载 Drive 文件。**先读 gog-shared**。对 delete/share/unshare/replace 写操作**必须先 AskUser 确认**。典型：搜近期发票 PDF 批量下载、上传 Markdown 自动转 Google Doc。"
+description: "用 gog 读/搜/上传/下载 Drive 文件。**先读 gog-shared**。对 delete/share/unshare/replace 写操作**必须先向用户确认并停止，下一轮明确同意后再执行**。典型：搜近期发票 PDF 批量下载、上传 Markdown 自动转 Google Doc。"
 metadata:
   requires:
     bins: ["gog"]
@@ -38,7 +38,7 @@ gog --account <email> --json drive drives --max 100
 gog --account <email> --json drive permissions <fileId>
 ```
 
-## 写操作（⚠️ 必须先 AskUser）
+## 写操作（⚠️ 必须先确认）
 
 ```bash
 # 上传（新建文件）
@@ -80,7 +80,7 @@ gog --account <email> --json drive search "invoice filetype:pdf newer_than:30d" 
 
 **场景：Markdown 报告发到 Drive 并分享**
 1. `gog drive upload ./report.md --convert --parent <folderId>` → 拿到 fileId
-2. AskUser 确认分享对象和权限
+2. 确认分享对象和权限，停止等待用户下一轮明确同意
 3. `gog drive share <fileId> --to user --email stakeholder@x.com --role reader`
 
 ## 注意

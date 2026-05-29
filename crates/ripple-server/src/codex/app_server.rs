@@ -1283,10 +1283,7 @@ mod tests {
                 "features.plugins=true",
             ]
         );
-        assert!(args.ends_with(&[
-            "-c".to_string(),
-            "skills.bundled.enabled=false".to_string()
-        ]));
+        assert!(args.ends_with(&["-c".to_string(), "skills.bundled.enabled=false".to_string()]));
         assert!(args.contains(&"include_apps_instructions=false".to_string()));
         assert!(args.contains(&"features.apps=false".to_string()));
         assert!(args.contains(&"features.plugins=false".to_string()));

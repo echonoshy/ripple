@@ -86,7 +86,7 @@ Ripple mobile 主线采用 **Tauri 复用主 App 工作台**。
    - `SessionPage` 和 `SessionComposer` 的键盘避让、输入框高度、发送/停止按钮触控区域。
    - Settings modal 在小屏上的高度、滚动、保存按钮位置。
    - Files、Connectors、Automations 的列表密度、横向溢出、长文本换行。
-   - tool call、permission request、AskUser、connector auth 卡片在 375px 宽度下不遮挡内容。
+   - tool call、permission request、用户确认、connector auth 卡片在 375px 宽度下不遮挡内容。
 
 ## 验证清单
 
@@ -127,7 +127,7 @@ bun run tauri android build --apk --target aarch64 --split-per-abi
 - 能拉取 models 和 sessions。
 - 能创建/切换 session。
 - `/v1/chat/completions` 流式输出正常。
-- tool call、tool result、permission request、AskUser、stop generation 正常。
+- tool call、tool result、permission request、用户确认、stop generation 正常。
 - Files 可浏览、预览、上传、下载。
 - Connectors 状态、账号列表和授权入口可用。
 - Automations 可创建、更新、删除和 run-now。

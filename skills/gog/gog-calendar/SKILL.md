@@ -1,7 +1,7 @@
 ---
 name: gog-calendar
 version: 1.0.0
-description: "用 gog 读/搜/创建/改 Calendar 事件。**先读 gog-shared**。对 create/update/delete/respond 写操作**必须先 AskUser 确认**。典型：今日日程、本周会议冲突、创建带 attendee 的会议。"
+description: "用 gog 读/搜/创建/改 Calendar 事件。**先读 gog-shared**。对 create/update/delete/respond 写操作**必须先向用户确认并停止，下一轮明确同意后再执行**。典型：今日日程、本周会议冲突、创建带 attendee 的会议。"
 metadata:
   requires:
     bins: ["gog"]
@@ -39,7 +39,7 @@ gog --account <email> --json calendar conflicts --all --today
 
 JSON 里的 `startDayOfWeek` / `timezone` / `startLocal` / `endLocal` 直接用，不要自己算。
 
-## 写操作（⚠️ 必须先 AskUser）
+## 写操作（⚠️ 必须先确认）
 
 ```bash
 # 创建事件
@@ -50,17 +50,17 @@ gog --account <email> calendar create primary \
   --attendees "alice@x.com,bob@x.com" \
   --location "Zoom"
 
-# 默认 **不发** attendee 邮件通知，显式加 --send-updates all 才发（发前 AskUser）
+# 默认 **不发** attendee 邮件通知，显式加 --send-updates all 才发（发前先确认）
 gog --account <email> calendar create ... --send-updates all  # ⚠️
 
-# 更新（AskUser 复述 diff）
+# 更新（先复述 diff 并确认）
 gog --account <email> calendar update <calId> <eventId> --summary "New" --from ...
 
 # 删除
 gog --account <email> calendar delete <calId> <eventId> --send-updates all --force  # ⚠️
 
 # 回复邀请
-gog --account <email> calendar respond <calId> <eventId> --status accepted  # ⚠️ 建议 AskUser
+gog --account <email> calendar respond <calId> <eventId> --status accepted  # ⚠️ 建议先确认
 ```
 
 ## 典型场景
@@ -75,7 +75,7 @@ gog --account <email> --json calendar conflicts --all --today
 **场景：协调 3 人会议**
 1. 拿所有人 freebusy
 2. 找一个 30 分钟空档
-3. AskUser 确认时间 + 主题 + 是否发通知
+3. 确认时间 + 主题 + 是否发通知，停止等待用户下一轮明确同意
 4. `calendar create` 用 `--send-updates all`
 
 ## 注意

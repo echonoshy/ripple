@@ -85,7 +85,7 @@ Notion 里**改**东西绝大多数用 `PATCH`，不是 `PUT`。不确定就先 
 
 | code | 含义 | 处理 |
 |------|------|------|
-| `unauthorized` | token 无效 / 过期 | 用一句话请用户把新 token 直接粘到对话里 → 收到后调 `NotionTokenSet` 工具覆盖（详见 notion-shared） |
+| `unauthorized` | token 无效 / 过期 | 用一句话请用户把新 token 直接粘到对话里 → Ripple 保存覆盖后重试（详见 notion-shared） |
 | `restricted_resource` / `object_not_found` | Integration 未被 share 到该资源 | 引导用户在 Notion 里 share（见 notion-shared） |
 | `validation_error` | 请求 body/params 结构错 | 重新跑 `ntn api --docs <endpoint>` 对照 schema |
 | `rate_limited` | 触发 3 req/s 限速 | 退避 1-2s 重试，不要死循环 |

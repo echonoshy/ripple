@@ -46,21 +46,21 @@ body {
   border-radius: 6px;
   color: #334155;
   max-width: 100%;
-  overflow-x: auto;
-  overflow-y: hidden;
-  white-space: pre;
-  overflow-wrap: normal;
+  overflow-x: hidden;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .markdown-body pre code {
   background: transparent !important;
   border: 0 !important;
   color: inherit !important;
-  display: inline-block;
-  min-width: 100%;
+  display: block;
+  min-width: 0;
   padding: 0;
-  white-space: pre;
-  overflow-wrap: normal;
+  white-space: inherit;
+  overflow-wrap: inherit;
 }
 
 .markdown-body > *:first-child {

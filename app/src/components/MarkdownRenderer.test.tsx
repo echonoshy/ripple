@@ -1,8 +1,16 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import MarkdownRenderer from "./MarkdownRenderer";
+
+function cssRule(selector: string): string {
+  const css = readFileSync(new URL("../globals.css", import.meta.url), "utf8");
+  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = css.match(new RegExp(`${escapedSelector}\\s*\\{([^}]*)\\}`));
+  return match?.[1] ?? "";
+}
 
 function testPreservesSingleNewlineAsLineBreak() {
   const html = renderToStaticMarkup(
@@ -128,6 +136,32 @@ function testMarkdownTablesUseReadableTableClasses() {
   assert.match(html, /markdown-table-cell/);
 }
 
+function testCodeBlocksWrapLongLinesWithoutHorizontalScroll() {
+  const html = renderToStaticMarkup(
+    <MarkdownRenderer
+      content={"```text\nbwrap: Can't create file at .../workspace/.agents: Is a directory\n```"}
+    />
+  );
+
+  assert.match(html, /whitespace-pre-wrap/);
+  assert.match(html, /\[overflow-wrap:anywhere\]/);
+  assert.doesNotMatch(html, /overflow-x-auto/);
+  assert.doesNotMatch(html, /break-all/);
+}
+
+function testGlobalCodeBlockCssKeepsWrappingEnabled() {
+  const preRule = cssRule(".markdown-body pre");
+  const preCodeRule = cssRule(".markdown-body pre code");
+
+  assert.match(preRule, /overflow-x:\s*hidden/);
+  assert.match(preRule, /white-space:\s*pre-wrap/);
+  assert.match(preRule, /overflow-wrap:\s*anywhere/);
+  assert.match(preCodeRule, /display:\s*block/);
+  assert.match(preCodeRule, /min-width:\s*0/);
+  assert.match(preCodeRule, /white-space:\s*inherit/);
+  assert.match(preCodeRule, /overflow-wrap:\s*inherit/);
+}
+
 testPreservesSingleNewlineAsLineBreak();
 testFeishuAuthCardDoesNotCompleteAuthDirectly();
 testFeishuAuthCardShowsWaitingState();
@@ -135,5 +169,7 @@ testGoogleAuthCardDoesNotAskForManualCallback();
 testConnectorAuthLinksUseScopedButtonStyles();
 testBilibiliAuthCardShowsQrAndManualOpenLink();
 testMarkdownTablesUseReadableTableClasses();
+testCodeBlocksWrapLongLinesWithoutHorizontalScroll();
+testGlobalCodeBlockCssKeepsWrappingEnabled();
 
 console.log("markdown renderer tests passed");

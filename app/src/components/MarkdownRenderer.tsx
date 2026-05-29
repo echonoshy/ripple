@@ -526,7 +526,7 @@ function MarkdownContent({
       components={{
         pre({ children }) {
           return (
-            <pre className="not-prose my-4 max-w-full overflow-x-auto overflow-y-hidden rounded-md border border-[#dde2ea] bg-[#f7f8fa] p-4 font-[family-name:var(--font-mono)] text-[13px] [overflow-wrap:normal] whitespace-pre text-[#334155]">
+            <pre className="not-prose my-2 max-h-40 max-w-full overflow-x-hidden overflow-y-auto rounded-md border border-[#dde2ea] bg-[#f7f8fa] p-2.5 font-[family-name:var(--font-mono)] text-[11px] [overflow-wrap:anywhere] whitespace-pre-wrap text-[#334155]">
               {children}
             </pre>
           );
@@ -536,7 +536,7 @@ function MarkdownContent({
           if (isInline) {
             return (
               <code
-                className="rounded border border-[#dde2ea] bg-[#f7f8fa] px-1.5 py-0.5 font-[family-name:var(--font-mono)] text-[13px] text-[#171a1f]"
+                className="rounded border border-[#dde2ea] bg-[#f7f8fa] px-1.5 py-0.5 font-[family-name:var(--font-mono)] text-[11.5px] text-[#171a1f]"
                 {...props}
               >
                 {children}
@@ -544,7 +544,10 @@ function MarkdownContent({
             );
           }
           return (
-            <code className={`${className} text-[13px] leading-relaxed whitespace-pre`} {...props}>
+            <code
+              className={`${className} text-[11px] leading-normal [overflow-wrap:anywhere] whitespace-pre-wrap`}
+              {...props}
+            >
               {children}
             </code>
           );

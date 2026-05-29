@@ -16,7 +16,7 @@ pub mod bilibili {
     const QRCODE_POLL_URL: &str = "https://passport.bilibili.com/x/passport-login/web/qrcode/poll";
     const NAV_URL: &str = "https://api.bilibili.com/x/web-interface/nav";
     const WORK_ROOT_DEFAULT: &str = "/workspace/.bilibili-work";
-    const OUTPUT_ROOT_DEFAULT: &str = "/workspace/.outputs/bilibili";
+    const OUTPUT_ROOT_DEFAULT: &str = "/workspace/outputs/bilibili";
     const CREDENTIAL_FILE_DEFAULT: &str = "/workspace/.bilibili/sessdata.json";
     const CREDENTIAL_FILE_LEGACY: &str = "/workspace/.bilibili/sessdata.txt";
 
@@ -246,7 +246,7 @@ pub mod bilibili {
             String::new()
         };
         let filename = format!("{date}-{bvid}{suffix}-{}.md", slugify(title, 40));
-        let out_dir = output_dir.unwrap_or(output_root);
+        let out_dir = prepare_md_output_dir(&output_root, output_dir, pubdate);
         tokio::fs::create_dir_all(&out_dir).await?;
         let output_path = out_dir.join(filename);
         let mut object = extracted.as_object().cloned().unwrap_or_default();
@@ -471,6 +471,18 @@ pub mod bilibili {
             }
         }
         out.trim_matches('-').to_string()
+    }
+
+    pub fn prepare_md_output_dir(
+        output_root: &Path,
+        output_dir: Option<PathBuf>,
+        pubdate: i64,
+    ) -> PathBuf {
+        if let Some(output_dir) = output_dir {
+            return output_dir;
+        }
+        let date = format_date(pubdate);
+        output_root.join(&date[0..4]).join(&date[5..7])
     }
 
     pub fn read_sessdata_from_path(path: &Path) -> Option<String> {
@@ -1200,7 +1212,7 @@ mod tests {
     use crate::bilibili::{
         build_mixin_key, credential_public_view, format_ts,
         parse_bilibili_cookie_fields_from_crossdomain_url, parse_video_input,
-        read_sessdata_from_path, slugify, wbi_sign,
+        prepare_md_output_dir, read_sessdata_from_path, slugify, wbi_sign,
     };
 
     #[test]
@@ -1217,6 +1229,24 @@ mod tests {
     #[test]
     fn slug_keeps_chinese_letters_digits_and_dashes() {
         assert_eq!(slugify("  A/B 测试：第 1 集!!  ", 40), "A-B-测试-第-1-集");
+    }
+
+    #[test]
+    fn prepare_md_default_output_dir_uses_visible_year_month_folders() {
+        let root = PathBuf::from("/workspace/outputs/bilibili");
+
+        assert_eq!(
+            prepare_md_output_dir(&root, None, 1_577_836_800),
+            PathBuf::from("/workspace/outputs/bilibili/2020/01")
+        );
+        assert_eq!(
+            prepare_md_output_dir(
+                &root,
+                Some(PathBuf::from("/workspace/custom")),
+                1_577_836_800
+            ),
+            PathBuf::from("/workspace/custom")
+        );
     }
 
     #[test]

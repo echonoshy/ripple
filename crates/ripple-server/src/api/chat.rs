@@ -2165,7 +2165,12 @@ async fn import_generated_image(
             .and_then(decode_base64_image_payload)
     })?;
 
-    let target_dir = workspace_root.join(".ripple/generated");
+    let now = OffsetDateTime::now_utc();
+    let target_dir = workspace_root
+        .join("outputs")
+        .join("images")
+        .join(format!("{:04}", now.year()))
+        .join(format!("{:02}", u8::from(now.month())));
     let target = target_dir.join(format!("{}.png", sanitize_filename(item_id)));
     assert_workspace_save_within_quota(state, user_id, &target, data.len() as u64)
         .await

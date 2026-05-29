@@ -62,6 +62,9 @@ pub fn list_directory(workspace_root: &Path, path: &str) -> anyhow::Result<Works
     let mut entries = Vec::new();
     for entry in std::fs::read_dir(&dir)? {
         let entry = entry?;
+        if is_hidden_path(workspace_root, &entry.path()) {
+            continue;
+        }
         entries.push(entry_for_path(workspace_root, &entry.path(), None)?);
     }
     entries.sort_by(|a, b| match (a.kind.as_str(), b.kind.as_str()) {
@@ -292,6 +295,11 @@ pub fn search_files(
     let mut entries = Vec::new();
     for entry in WalkDir::new(workspace_root)
         .into_iter()
+        .filter_entry(|entry| {
+            include_hidden
+                || entry.path() == workspace_root
+                || !is_hidden_path(workspace_root, entry.path())
+        })
         .filter_map(Result::ok)
     {
         if entries.len() >= limit {
@@ -305,9 +313,6 @@ pub fn search_files(
             .file_name()
             .and_then(|name| name.to_str())
             .unwrap_or("");
-        if !include_hidden && name.starts_with('.') {
-            continue;
-        }
         let metadata = match entry.metadata() {
             Ok(metadata) => metadata,
             Err(_) => continue,
@@ -497,6 +502,18 @@ fn normalize_path(path: &Path) -> PathBuf {
     normalized
 }
 
+fn is_hidden_path(workspace_root: &Path, path: &Path) -> bool {
+    path.strip_prefix(workspace_root)
+        .unwrap_or(path)
+        .components()
+        .any(|component| {
+            let Component::Normal(name) = component else {
+                return false;
+            };
+            name.to_string_lossy().starts_with('.')
+        })
+}
+
 fn entry_for_path(
     workspace_root: &Path,
     path: &Path,
@@ -509,7 +526,7 @@ fn entry_for_path(
         .unwrap_or("")
         .to_string();
     Ok(WorkspaceEntry {
-        is_hidden: name.starts_with('.'),
+        is_hidden: is_hidden_path(workspace_root, path),
         name,
         path: workspace_path(workspace_root, path)?,
         kind: if metadata.is_dir() {
@@ -559,6 +576,78 @@ pub fn mime_type_for_path(path: &Path) -> String {
 mod tests {
     use super::*;
     use uuid::Uuid;
+
+    #[test]
+    fn list_directory_hides_dot_entries_by_default() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("ripple-workspace-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(root.join(".config/gogcli"))?;
+        std::fs::write(root.join(".config/gogcli/credentials.json"), "secret")?;
+        std::fs::create_dir_all(root.join("outputs"))?;
+        std::fs::write(root.join("outputs/readme.md"), "visible")?;
+
+        let listing = list_directory(&root, "/workspace")?;
+        let names = listing
+            .entries
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(names, vec!["outputs"]);
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[test]
+    fn search_files_skips_hidden_subtrees_by_default() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("ripple-workspace-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(root.join(".config/gogcli"))?;
+        std::fs::write(
+            root.join(".config/gogcli/credentials.json"),
+            "needle-secret",
+        )?;
+        std::fs::write(root.join(".env"), "needle-hidden-file")?;
+        std::fs::write(root.join("notes.txt"), "needle-visible")?;
+
+        let hidden_default =
+            search_files(&root, "needle-secret", 20, "all", "all", "all", false, 1024)?;
+        assert_eq!(hidden_default.count, 0);
+        let hidden_file_default = search_files(
+            &root,
+            "needle-hidden-file",
+            20,
+            "all",
+            "all",
+            "all",
+            false,
+            1024,
+        )?;
+        assert_eq!(hidden_file_default.count, 0);
+
+        let visible_default = search_files(
+            &root,
+            "needle-visible",
+            20,
+            "all",
+            "all",
+            "all",
+            false,
+            1024,
+        )?;
+        assert_eq!(visible_default.count, 1);
+        assert_eq!(visible_default.entries[0].path, "/workspace/notes.txt");
+
+        let hidden_explicit =
+            search_files(&root, "needle-secret", 20, "all", "all", "all", true, 1024)?;
+        assert_eq!(hidden_explicit.count, 1);
+        assert_eq!(
+            hidden_explicit.entries[0].path,
+            "/workspace/.config/gogcli/credentials.json"
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
 
     #[test]
     fn search_files_filters_by_file_type() -> anyhow::Result<()> {

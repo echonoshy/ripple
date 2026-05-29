@@ -30,11 +30,11 @@ UA = (
 
 # 默认全部写到 sandbox 的 /workspace 下（nsjail 只把 <repo>/.ripple/sandboxes/<uid>/workspace
 # 挂成 /workspace，是沙箱内唯一可写位置；从宿主看即 .ripple/sandboxes/<uid>/workspace/...）。
-# .podcast-work/ 是中间产物（meta.json + content.txt），.outputs/podcast/ 是最终 md。
+# .podcast-work/ 是中间产物（meta.json + content.txt），outputs/podcast/ 是最终 md。
 # 如需自定义，可通过 --work-root / --output-root 或 args.output_dir 覆盖。
 _SANDBOX_WORKSPACE = pathlib.Path("/workspace")
 WORK_ROOT_DEFAULT = _SANDBOX_WORKSPACE / ".podcast-work"
-OUTPUT_ROOT_DEFAULT = _SANDBOX_WORKSPACE / ".outputs" / "podcast"
+OUTPUT_ROOT_DEFAULT = _SANDBOX_WORKSPACE / "outputs" / "podcast"
 
 
 def compute_episode_id(url: str, title: str) -> str:
@@ -229,6 +229,8 @@ def build_output_path(meta: dict, output_root: pathlib.Path) -> pathlib.Path:
     date = date_prefix(ep.get("published_at"))
     slug = slugify(title)
     name = f"{date}-{slug}.md" if date else f"{slug}.md"
+    if date:
+        return output_root / date[:4] / date[5:7] / name
     return output_root / name
 
 
@@ -272,7 +274,9 @@ def prepare(args: dict, work_root: pathlib.Path, output_root: pathlib.Path) -> d
             encoding="utf-8",
         )
         result["notes"] = f"provider={provider} 暂未内置解析，回退为只记录 URL"
-        result["output_path"] = str(build_output_path(meta, output_root))
+        output_path = build_output_path(meta, output_root)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        result["output_path"] = str(output_path)
         return result
 
     raw_html = fetch_html(url)
@@ -287,6 +291,7 @@ def prepare(args: dict, work_root: pathlib.Path, output_root: pathlib.Path) -> d
 
     strategy_info = decide_strategy(meta, content)
     output_path = build_output_path(meta, output_root)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
     ep = meta.get("episode") or {}
     result.update(

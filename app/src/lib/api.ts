@@ -88,8 +88,8 @@ export interface ParsedWorkspaceLink {
 /**
  * Parse and normalize potential workspace paths (absolute or relative) into standard
  * workspace-relative paths and optionally extract line numbers.
- * E.g., "/home/lake/workspace/ripple/.ripple/sandboxes/lake/workspace/.outputs/bilibili/BV1z5Gd6WEST/summary.md:1"
- * becomes { isWorkspaceFile: true, workspacePath: "/workspace/.outputs/bilibili/BV1z5Gd6WEST/summary.md", lineNumber: 1, userId: "lake" }
+ * E.g., "/home/lake/workspace/ripple/.ripple/sandboxes/lake/workspace/outputs/bilibili/2026/05/summary.md:1"
+ * becomes { isWorkspaceFile: true, workspacePath: "/workspace/outputs/bilibili/2026/05/summary.md", lineNumber: 1, userId: "lake" }
  */
 export function parseWorkspaceLink(href: string | undefined): ParsedWorkspaceLink | null {
   if (!href) return null;

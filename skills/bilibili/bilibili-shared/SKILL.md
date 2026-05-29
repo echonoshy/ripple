@@ -114,7 +114,7 @@ bilibili auth logout --json
 |---|---|
 | `/workspace/.bilibili/sessdata.json` | 扫码登录凭证 |
 | `/workspace/.bilibili-work/<bvid>[-p<N>]/` | `extract` 中间产物：`meta.json`、`subtitle.json`、`summary.json`、`content.txt` |
-| `/workspace/.outputs/bilibili/YYYY-MM-DD-<bvid>-<slug>.md` | `auto-md` 最终 Markdown |
+| `/workspace/outputs/bilibili/YYYY/MM/YYYY-MM-DD-<bvid>-<slug>.md` | `auto-md` 最终 Markdown |
 
 ## 鉴权降级
 

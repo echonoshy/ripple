@@ -167,7 +167,6 @@ export default function WorkspaceExplorer({
     useState<NonNullable<WorkspaceSearchOptions["scope"]>>("name");
   const [searchKind, setSearchKind] = useState<NonNullable<WorkspaceSearchOptions["kind"]>>("all");
   const [fileType, setFileType] = useState<NonNullable<WorkspaceSearchOptions["fileType"]>>("all");
-  const [includeHidden, setIncludeHidden] = useState(false);
   const [searchLimit, setSearchLimit] = useState(50);
   const [error, setError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -404,7 +403,6 @@ export default function WorkspaceExplorer({
         scope: searchScope,
         kind: searchKind,
         fileType,
-        includeHidden,
       })
         .then((entries) => {
           if (!cancelled) setSearchResults(entries);
@@ -424,7 +422,7 @@ export default function WorkspaceExplorer({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [fileType, includeHidden, normalizedQuery, searchKind, searchLimit, searchScope]);
+  }, [fileType, normalizedQuery, searchKind, searchLimit, searchScope]);
 
   const isImageFile = (entry: WorkspaceEntry) => {
     if (entry.mime_type?.startsWith("image/")) return true;
@@ -1001,14 +999,6 @@ export default function WorkspaceExplorer({
                 <option value={20}>20</option>
                 <option value={50}>50</option>
               </select>
-            </label>
-            <label className="flex items-center gap-2 sm:col-span-2">
-              <input
-                type="checkbox"
-                checked={includeHidden}
-                onChange={(event) => setIncludeHidden(event.target.checked)}
-              />
-              <span>Include hidden files</span>
             </label>
           </div>
         )}

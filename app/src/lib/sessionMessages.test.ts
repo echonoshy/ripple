@@ -105,7 +105,7 @@ function testMapsGeneratedImageBlocksToArtifacts() {
             { type: "text", text: "" },
             {
               type: "image",
-              workspace_path: "/workspace/.ripple/generated/img-1.png",
+              workspace_path: "/workspace/outputs/images/2026/05/img-1.png",
               mime_type: "image/png",
               size: 128,
               revised_prompt: "studio toy photo",
@@ -121,7 +121,7 @@ function testMapsGeneratedImageBlocksToArtifacts() {
   assert.deepEqual(messages[0].artifacts, [
     {
       type: "image",
-      workspacePath: "/workspace/.ripple/generated/img-1.png",
+      workspacePath: "/workspace/outputs/images/2026/05/img-1.png",
       mimeType: "image/png",
       size: 128,
       revisedPrompt: "studio toy photo",

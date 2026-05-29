@@ -165,6 +165,15 @@ function testWorkspaceSearchDefaultsToNameAndShowsMatchSource() {
 
 testWorkspaceSearchDefaultsToNameAndShowsMatchSource();
 
+function testWorkspaceExplorerDoesNotExposeHiddenFileSearchToggle() {
+  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+
+  assert.doesNotMatch(source, /Include hidden files/);
+  assert.doesNotMatch(source, /setIncludeHidden/);
+}
+
+testWorkspaceExplorerDoesNotExposeHiddenFileSearchToggle();
+
 function testWorkspaceExplorerCachesListingsAndAvoidsCurrentPathReloadEffect() {
   const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
 

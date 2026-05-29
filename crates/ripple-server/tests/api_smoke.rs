@@ -3026,25 +3026,30 @@ async fn chat_stream_forwards_codex_runtime_tool_plan_and_image_events() {
     assert!(body.contains("\"type\":\"image_view\""));
     assert!(body.contains("\"workspace_path\":\"/workspace/images/source.png\""));
     assert!(body.contains("\"type\":\"image_generation\""));
-    assert!(body.contains("\"workspace_path\":\"/workspace/.ripple/generated/img-1.png\""));
+    assert!(body.contains("\"workspace_path\":\"/workspace/outputs/images/"));
+    assert!(body.contains("/img-1.png\""));
     assert!(body.contains("\"type\":\"usage\""));
     assert!(body.contains("\"content\":\"fake codex completed\""));
     assert!(body.contains("data: [DONE]"));
 
-    let imported = state
-        .sandboxes
-        .workspace_dir(user_id)
-        .unwrap()
-        .join(".ripple/generated/img-1.png");
-    assert_eq!(fs::read(imported).unwrap(), b"Hello");
-    assert!(state
+    let image_workspace_path = state
         .storage
         .list_file_refs(user_id)
         .await
         .unwrap()
-        .iter()
-        .any(|record| record.workspace_path.as_deref()
-            == Some("/workspace/.ripple/generated/img-1.png")));
+        .into_iter()
+        .find_map(|record| {
+            record.workspace_path.filter(|path| {
+                path.starts_with("/workspace/outputs/images/") && path.ends_with("/img-1.png")
+            })
+        })
+        .expect("generated image file ref");
+    let imported = state.sandboxes.workspace_dir(user_id).unwrap().join(
+        image_workspace_path
+            .strip_prefix("/workspace/")
+            .expect("workspace path prefix"),
+    );
+    assert_eq!(fs::read(imported).unwrap(), b"Hello");
     let reloaded = state
         .sessions
         .load(user_id, &session_id)
@@ -3060,7 +3065,7 @@ async fn chat_stream_forwards_codex_runtime_tool_plan_and_image_events() {
     assert!(assistant_content.iter().any(|item| {
         item.get("type").and_then(Value::as_str) == Some("image")
             && item.get("workspace_path").and_then(Value::as_str)
-                == Some("/workspace/.ripple/generated/img-1.png")
+                == Some(image_workspace_path.as_str())
             && item.get("mime_type").and_then(Value::as_str) == Some("image/png")
             && item.get("size").and_then(Value::as_u64) == Some(5)
             && item.get("revised_prompt").and_then(Value::as_str) == Some("tiny fake image")
@@ -3140,8 +3145,12 @@ async fn session_detail_backfills_generated_images_from_run_events() {
         .expect("assistant content");
     assert!(assistant_content.iter().any(|item| {
         item.get("type").and_then(Value::as_str) == Some("image")
-            && item.get("workspace_path").and_then(Value::as_str)
-                == Some("/workspace/.ripple/generated/img-1.png")
+            && item
+                .get("workspace_path")
+                .and_then(Value::as_str)
+                .is_some_and(|path| {
+                    path.starts_with("/workspace/outputs/images/") && path.ends_with("/img-1.png")
+                })
     }));
 
     let _ = std::fs::remove_dir_all(root);

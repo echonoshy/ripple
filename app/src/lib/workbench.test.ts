@@ -399,7 +399,7 @@ function testMapsCodexRuntimeEventsIntoTimelineEvents() {
       type: "image_generation",
       id: "img-1",
       status: "completed",
-      workspace_path: "/workspace/.ripple/generated/img-1.png",
+      workspace_path: "/workspace/outputs/images/2026/05/img-1.png",
       mime_type: "image/png",
       size: 128,
       revised_prompt: "studio toy photo",
@@ -408,7 +408,7 @@ function testMapsCodexRuntimeEventsIntoTimelineEvents() {
   );
   assert.equal(imageEvent.type, "image_generation");
   assert.equal(imageEvent.title, "Generated image");
-  assert.equal(imageEvent.workspacePath, "/workspace/.ripple/generated/img-1.png");
+  assert.equal(imageEvent.workspacePath, "/workspace/outputs/images/2026/05/img-1.png");
   assert.equal(imageEvent.mimeType, "image/png");
   assert.equal(imageEvent.size, 128);
   assert.match(imageEvent.body, /studio toy photo/);
@@ -423,7 +423,7 @@ function testMapsMessageImageArtifactsIntoTimelineEvents() {
       artifacts: [
         {
           type: "image",
-          workspacePath: "/workspace/.ripple/generated/img-1.png",
+          workspacePath: "/workspace/outputs/images/2026/05/img-1.png",
           mimeType: "image/png",
           size: 128,
           revisedPrompt: "studio toy photo",
@@ -436,7 +436,7 @@ function testMapsMessageImageArtifactsIntoTimelineEvents() {
   assert.equal(events.length, 1);
   assert.equal(events[0].type, "image_generation");
   assert.equal(events[0].title, "Generated image");
-  assert.equal(events[0].workspacePath, "/workspace/.ripple/generated/img-1.png");
+  assert.equal(events[0].workspacePath, "/workspace/outputs/images/2026/05/img-1.png");
   assert.equal(events[0].createdAt, "2026-05-19T00:00:02.000Z");
 }
 

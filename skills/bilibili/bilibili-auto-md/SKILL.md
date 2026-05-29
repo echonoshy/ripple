@@ -1,6 +1,6 @@
 ---
 name: bilibili-auto-md
-description: 用户给一个 B 站视频 URL / BV 号，直接产出一份完整 Markdown：在对话里完整呈现，同时落盘到 /workspace/.outputs/bilibili/。内部先调 bilibili-episode-extract 抓字幕 + 官方 AI 总结 + 元数据，再由模型按模板写出 MD。
+description: 用户给一个 B 站视频 URL / BV 号，直接产出一份完整 Markdown：在对话里完整呈现，同时落盘到 /workspace/outputs/bilibili/。内部先调 bilibili-episode-extract 抓字幕 + 官方 AI 总结 + 元数据，再由模型按模板写出 MD。
 when-to-use: 用户发送一个 B 站视频链接/BV 号，希望直接拿到 Markdown 总结；或说"帮我整理 / 总结一下这个视频"。
 allowed-tools: [Skill, Bash, Write, Read]
 metadata:
@@ -110,7 +110,7 @@ bilibili prepare-md --url "<url 或 BV>" --allow-unauthenticated --json
 | 字段 | 说明 |
 |---|---|
 | `work_dir` | `/workspace/.bilibili-work/<bvid>[-p<N>]/`，含 `meta.json` / `subtitle.json` / `summary.json` / `content.txt`（字幕 ok 时） |
-| `output_path` | **最终 md 落盘路径**，默认 `/workspace/.outputs/bilibili/YYYY-MM-DD-<bvid>-<slug>.md` |
+| `output_path` | **最终 md 落盘路径**，默认 `/workspace/outputs/bilibili/YYYY/MM/YYYY-MM-DD-<bvid>-<slug>.md` |
 | `title` / `owner` / `duration` / `pubdate` / `url` / `stat` | 元信息摘要 |
 | `subtitle.status` | `ok` / `empty` / `need_sessdata` / `error` |
 | `ai_summary.status` | 同上 |
@@ -118,7 +118,7 @@ bilibili prepare-md --url "<url 或 BV>" --allow-unauthenticated --json
 
 如果输出**顶层**有 `error` 字段（找不到 BV / extract 子进程崩、或
 `auth_required=true` 等阻断），直接把错误告诉用户或继续扫码流程，**不**继续写
-MD，**不**调用 `Write`，也**不要**自己构造 `/workspace/.outputs/bilibili/*.md`
+MD，**不**调用 `Write`，也**不要**自己构造 `/workspace/outputs/bilibili/*.md`
 路径。注意：`subtitle.status = "error"` 或 `ai_summary.status = "error"` 是
 **字段级**错误，**不**算这里说的"顶层 error"——按下面"失败回退"表静默处理即可，
 **不要**因此中断流程。

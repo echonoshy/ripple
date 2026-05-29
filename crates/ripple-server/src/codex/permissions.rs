@@ -19,7 +19,9 @@ pub fn thread_permission_config(workspace: &Path, config: &AppConfig) -> Value {
             ".": "write",
             ".git": "write",
             ".agents": "read",
-            ".codex": "read"
+            ".agents/skills": "none",
+            ".codex": "read",
+            ".codex/skills": "none"
         }),
     );
     for path in [

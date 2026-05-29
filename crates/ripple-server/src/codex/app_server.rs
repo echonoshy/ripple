@@ -22,7 +22,14 @@ use crate::config::AppConfig;
 use crate::redaction::{redact_text, redact_value};
 
 const TAIL_CHARS: usize = 64_000;
-const CODEX_NATIVE_INPUT_TYPES: &[&str] = &["text", "image", "localImage", "skill", "mention"];
+const CODEX_NATIVE_INPUT_TYPES: &[&str] = &["text", "image", "localImage"];
+const CODEX_NATIVE_HARDENING_CONFIG_OVERRIDES: &[&str] = &[
+    "include_apps_instructions=false",
+    "features.apps=false",
+    "features.plugins=false",
+    "skills.include_instructions=false",
+    "skills.bundled.enabled=false",
+];
 const THREAD_NOTIFICATION_QUEUE: &str = "__thread__";
 const INHERITED_NETWORK_ENV: &[&str] = &[
     "HTTP_PROXY",
@@ -160,8 +167,9 @@ impl CodexAppServerSession {
         let mut command = Command::new(&self.config.codex.codex_executable);
         command.env_clear();
         inherit_env_allowlist(&mut command, INHERITED_NETWORK_ENV);
+        let app_server_args = hardened_app_server_args(&self.config.codex.app_server_args);
         command
-            .args(&self.config.codex.app_server_args)
+            .args(&app_server_args)
             .current_dir(&self.cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -184,31 +192,11 @@ impl CodexAppServerSession {
         );
         command.env("XDG_CONFIG_HOME", self.cwd.join(".config"));
         command.env("TMPDIR", self.cwd.join(".tmp"));
-        if let Some(path) = std::env::var_os("PATH") {
+        if let Some(path) = runtime_path(&self.config) {
             command.env("PATH", path);
         }
         if let Some(codex_home) = &self.config.codex.codex_home {
             command.env("CODEX_HOME", codex_home);
-        }
-        if let Some(uv_bin_dir) = &self.config.sandbox.uv_bin_dir {
-            prepend_path(&mut command, uv_bin_dir);
-        }
-        if let Some(node_dir) = &self.config.sandbox.node_dir {
-            prepend_path(&mut command, node_dir.join("bin"));
-        }
-        if let Some(root) = &self.config.sandbox.lark_cli_install_root {
-            prepend_path(&mut command, root.join("current/bin"));
-        }
-        if let Some(root) = &self.config.sandbox.notion_cli_install_root {
-            prepend_path(&mut command, root.join("current/bin"));
-        }
-        if let Some(root) = &self.config.sandbox.gogcli_cli_install_root {
-            prepend_path(&mut command, root.join("current/bin"));
-        }
-        for tool in &self.config.sandbox.cli_tools {
-            for bin_dir in &tool.bin_dirs {
-                prepend_path(&mut command, tool.install_root.join(bin_dir));
-            }
         }
         let uv_cache_dir = self.config.sandbox.caches_root.join("uv-cache");
         tokio::fs::create_dir_all(&uv_cache_dir).await?;
@@ -1267,8 +1255,42 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(item_types, vec!["text", "image", "localImage"]);
-        assert!(!items.iter().any(|item| item.get("type") == Some(&json!("skill"))));
-        assert!(!items.iter().any(|item| item.get("type") == Some(&json!("mention"))));
+        assert!(!items
+            .iter()
+            .any(|item| item.get("type") == Some(&json!("skill"))));
+        assert!(!items
+            .iter()
+            .any(|item| item.get("type") == Some(&json!("mention"))));
+    }
+
+    #[test]
+    fn app_server_args_append_native_hardening_overrides() {
+        let args = hardened_app_server_args(&[
+            "app-server".to_string(),
+            "--listen".to_string(),
+            "stdio://".to_string(),
+            "-c".to_string(),
+            "features.plugins=true".to_string(),
+        ]);
+
+        assert_eq!(
+            &args[..5],
+            [
+                "app-server",
+                "--listen",
+                "stdio://",
+                "-c",
+                "features.plugins=true",
+            ]
+        );
+        assert!(args.ends_with(&[
+            "-c".to_string(),
+            "skills.bundled.enabled=false".to_string()
+        ]));
+        assert!(args.contains(&"include_apps_instructions=false".to_string()));
+        assert!(args.contains(&"features.apps=false".to_string()));
+        assert!(args.contains(&"features.plugins=false".to_string()));
+        assert!(args.contains(&"skills.include_instructions=false".to_string()));
     }
 }
 
@@ -1511,11 +1533,42 @@ async fn read_json_string_field(path: &Path, field: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-fn prepend_path(command: &mut Command, entry: impl AsRef<Path>) {
-    let existing = std::env::var_os("PATH").unwrap_or_default();
-    let mut entries = vec![entry.as_ref().to_path_buf()];
-    entries.extend(std::env::split_paths(&existing));
-    if let Ok(joined) = std::env::join_paths(entries) {
-        command.env("PATH", joined);
+fn hardened_app_server_args(configured: &[String]) -> Vec<String> {
+    let mut args = configured.to_vec();
+    for config_override in CODEX_NATIVE_HARDENING_CONFIG_OVERRIDES {
+        args.push("-c".to_string());
+        args.push((*config_override).to_string());
     }
+    args
+}
+
+fn runtime_path(config: &AppConfig) -> Option<std::ffi::OsString> {
+    let mut entries = Vec::new();
+    if let Some(uv_bin_dir) = &config.sandbox.uv_bin_dir {
+        entries.push(uv_bin_dir.clone());
+    }
+    if let Some(node_dir) = &config.sandbox.node_dir {
+        entries.push(node_dir.join("bin"));
+    }
+    if let Some(root) = &config.sandbox.lark_cli_install_root {
+        entries.push(root.join("current/bin"));
+    }
+    if let Some(root) = &config.sandbox.notion_cli_install_root {
+        entries.push(root.join("current/bin"));
+    }
+    if let Some(root) = &config.sandbox.gogcli_cli_install_root {
+        entries.push(root.join("current/bin"));
+    }
+    for tool in &config.sandbox.cli_tools {
+        for bin_dir in &tool.bin_dirs {
+            entries.push(tool.install_root.join(bin_dir));
+        }
+    }
+    if let Some(path) = std::env::var_os("PATH") {
+        entries.extend(std::env::split_paths(&path));
+    }
+    if entries.is_empty() {
+        return None;
+    }
+    std::env::join_paths(entries).ok()
 }

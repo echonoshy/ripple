@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -79,8 +80,16 @@ function testHeaderActionsUseSharedGlassTreatment() {
 
 function testSessionRowsDoNotClipOptionsMenu() {
   const html = renderMobileSessionsPage();
+  const source = readFileSync(new URL("./MobileSessionsPage.tsx", import.meta.url), "utf8");
 
   assert.doesNotMatch(html, /overflow-hidden rounded-lg border/);
+  assert.match(source, /getMeasuredViewportMenuPosition/);
+  assert.match(source, /getMobileSessionMenuPosition/);
+  assert.match(source, /activeMenuRef/);
+  assert.match(source, /getBoundingClientRect\(\)\.height/);
+  assert.match(source, /useLayoutEffect/);
+  assert.match(source, /position: "fixed"/);
+  assert.doesNotMatch(source, /absolute top-12 right-3/);
 }
 
 function testRendersEmptyStateWithNewSessionAction() {

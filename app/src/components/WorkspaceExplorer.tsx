@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -41,6 +41,12 @@ import {
 } from "@/lib/api";
 import { saveBlobAsDownload } from "@/lib/platform";
 import { readableApiErrorMessage } from "@/lib/apiErrors";
+import {
+  getMeasuredViewportMenuPosition,
+  getResponsiveMenuBottomInsetPx,
+  VIEWPORT_MENU_MARGIN_PX,
+  type ViewportMenuAnchorRect,
+} from "@/lib/menuPosition";
 import { getWorkspaceImagePreviewUrl } from "@/lib/workspaceImageCache";
 import { WorkspaceEntry, WorkspaceFilePreview, WorkspaceListing } from "@/types";
 
@@ -58,6 +64,10 @@ const DEFAULT_SPLIT_PERCENT = 48;
 const MIN_SPLIT_PERCENT = 0;
 const MAX_SPLIT_PERCENT = 100;
 const DEFAULT_WORKSPACE_PATH = "/workspace";
+const WORKSPACE_CONTEXT_MENU_WIDTH = 220;
+const WORKSPACE_FILE_CONTEXT_MENU_HEIGHT = 244;
+const WORKSPACE_DIRECTORY_CONTEXT_MENU_HEIGHT = 208;
+const WORKSPACE_EMPTY_CONTEXT_MENU_HEIGHT = 132;
 
 const workspaceListingCache = new Map<string, WorkspaceListing>();
 const workspaceLastPathCache = new Map<string, string>();
@@ -72,6 +82,39 @@ export function getBoundedSplitPercent(value: number): number {
 
 export function getSplitPercentAfterFileDoubleClick(currentSplitPercent: number): number {
   return currentSplitPercent >= MAX_SPLIT_PERCENT ? DEFAULT_SPLIT_PERCENT : currentSplitPercent;
+}
+
+function workspaceContextMenuHeight(entry: WorkspaceEntry | null): number {
+  if (!entry) return WORKSPACE_EMPTY_CONTEXT_MENU_HEIGHT;
+  return entry.kind === "file"
+    ? WORKSPACE_FILE_CONTEXT_MENU_HEIGHT
+    : WORKSPACE_DIRECTORY_CONTEXT_MENU_HEIGHT;
+}
+
+function getWorkspaceContextMenuPosition({
+  anchorRect,
+  entry,
+  align,
+  measuredMenuHeight,
+}: {
+  anchorRect: ViewportMenuAnchorRect;
+  entry: WorkspaceEntry | null;
+  align: "left" | "right";
+  measuredMenuHeight?: number | null;
+}): { x: number; y: number } {
+  const position = getMeasuredViewportMenuPosition({
+    anchorRect,
+    menuWidth: WORKSPACE_CONTEXT_MENU_WIDTH,
+    estimatedMenuHeight: workspaceContextMenuHeight(entry),
+    measuredMenuHeight,
+    viewportWidth: window.innerWidth,
+    viewportHeight: window.innerHeight,
+    bottomInset: getResponsiveMenuBottomInsetPx(),
+    margin: VIEWPORT_MENU_MARGIN_PX,
+    align,
+  });
+
+  return { x: position.left, y: position.top };
 }
 
 function initialSplitPercent(): number {
@@ -207,7 +250,18 @@ export default function WorkspaceExplorer({
     x: number;
     y: number;
     entry: WorkspaceEntry | null;
-  }>({ visible: false, x: 0, y: 0, entry: null });
+    anchorRect: ViewportMenuAnchorRect | null;
+    align: "left" | "right";
+    measuredHeight: number | null;
+  }>({
+    visible: false,
+    x: 0,
+    y: 0,
+    entry: null,
+    anchorRect: null,
+    align: "right",
+    measuredHeight: null,
+  });
 
   const [creationModal, setCreationModal] = useState<{
     visible: boolean;
@@ -219,6 +273,7 @@ export default function WorkspaceExplorer({
     null
   );
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement | null>(null);
   const renameInputRef = useRef<HTMLInputElement | null>(null);
   const renameCommitKeyRef = useRef<string | null>(null);
   const currentPathRef = useRef(currentPath);
@@ -740,25 +795,48 @@ export default function WorkspaceExplorer({
     event.preventDefault();
     event.stopPropagation();
     const rect = event.currentTarget.getBoundingClientRect();
-    const menuWidth = 160;
-    const x = Math.max(8, rect.right - menuWidth);
-    const y = rect.bottom + 4;
+    const { x, y } = getWorkspaceContextMenuPosition({
+      anchorRect: rect,
+      entry,
+      align: "right",
+    });
     setContextMenu({
       visible: true,
       x,
       y,
       entry,
+      anchorRect: rect,
+      align: "right",
+      measuredHeight: null,
     });
   };
 
   const onEntryContextMenu = (event: React.MouseEvent, entry: WorkspaceEntry) => {
     event.preventDefault();
     event.stopPropagation();
+    const { x, y } = getWorkspaceContextMenuPosition({
+      anchorRect: {
+        top: event.clientY,
+        right: event.clientX,
+        bottom: event.clientY,
+        left: event.clientX,
+      },
+      entry,
+      align: "left",
+    });
     setContextMenu({
       visible: true,
-      x: event.clientX,
-      y: event.clientY,
+      x,
+      y,
       entry,
+      anchorRect: {
+        top: event.clientY,
+        right: event.clientX,
+        bottom: event.clientY,
+        left: event.clientX,
+      },
+      align: "left",
+      measuredHeight: null,
     });
   };
 
@@ -768,11 +846,29 @@ export default function WorkspaceExplorer({
       (event.target as HTMLElement).classList.contains("context-trigger-area")
     ) {
       event.preventDefault();
+      const { x, y } = getWorkspaceContextMenuPosition({
+        anchorRect: {
+          top: event.clientY,
+          right: event.clientX,
+          bottom: event.clientY,
+          left: event.clientX,
+        },
+        entry: null,
+        align: "left",
+      });
       setContextMenu({
         visible: true,
-        x: event.clientX,
-        y: event.clientY,
+        x,
+        y,
         entry: null,
+        anchorRect: {
+          top: event.clientY,
+          right: event.clientX,
+          bottom: event.clientY,
+          left: event.clientX,
+        },
+        align: "left",
+        measuredHeight: null,
       });
     }
   };
@@ -786,6 +882,35 @@ export default function WorkspaceExplorer({
       window.removeEventListener("click", handleGlobalClick);
     };
   }, []);
+
+  useLayoutEffect(() => {
+    if (!contextMenu.visible || !contextMenu.anchorRect) return;
+    const menuNode = contextMenuRef.current;
+    if (!menuNode) return;
+
+    const measuredMenuHeight = Math.ceil(menuNode.getBoundingClientRect().height);
+    if (!measuredMenuHeight || measuredMenuHeight === contextMenu.measuredHeight) return;
+
+    const { x, y } = getWorkspaceContextMenuPosition({
+      anchorRect: contextMenu.anchorRect,
+      entry: contextMenu.entry,
+      align: contextMenu.align,
+      measuredMenuHeight,
+    });
+
+    setContextMenu((current) => {
+      if (!current.visible || current.anchorRect !== contextMenu.anchorRect) return current;
+      if (current.measuredHeight === measuredMenuHeight && current.x === x && current.y === y) {
+        return current;
+      }
+      return {
+        ...current,
+        x,
+        y,
+        measuredHeight: measuredMenuHeight,
+      };
+    });
+  }, [contextMenu]);
 
   useEffect(() => {
     const handleOpenWorkspaceFile = (event: Event) => {
@@ -1658,8 +1783,9 @@ export default function WorkspaceExplorer({
       {/* 右键菜单 */}
       {contextMenu.visible && (
         <div
+          ref={contextMenuRef}
           style={{ top: contextMenu.y, left: contextMenu.x }}
-          className="animate-in fade-in-50 zoom-in-95 fixed z-50 min-w-[160px] rounded-2xl border border-[#dfe6f4] bg-white p-1.5 text-xs text-[#374151] shadow-[0_12px_36px_-4px_rgba(0,0,0,0.12),0_4px_16px_-2px_rgba(0,0,0,0.06)] duration-100"
+          className="animate-in fade-in-50 zoom-in-95 fixed z-50 max-h-[calc(100dvh-104px)] w-[220px] overflow-y-auto rounded-2xl border border-[#dfe6f4] bg-white p-1.5 text-xs text-[#374151] shadow-[0_12px_36px_-4px_rgba(0,0,0,0.12),0_4px_16px_-2px_rgba(0,0,0,0.06)] duration-100"
           onClick={(e) => e.stopPropagation()}
           onContextMenu={(e) => e.preventDefault()}
         >

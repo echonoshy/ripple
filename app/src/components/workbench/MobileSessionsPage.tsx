@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Loader2,
@@ -13,6 +13,12 @@ import {
   Trash2,
 } from "lucide-react";
 import { formatSessionActivityTime } from "@/lib/workbench";
+import {
+  getMeasuredViewportMenuPosition,
+  getResponsiveMenuBottomInsetPx,
+  VIEWPORT_MENU_MARGIN_PX,
+  type ViewportMenuAnchorRect,
+} from "@/lib/menuPosition";
 import type { WorkbenchSessionSummary } from "@/types";
 import SessionAttentionDot from "./SessionAttentionDot";
 import RippleIcon from "@/components/icons/RippleIcon";
@@ -46,6 +52,39 @@ function sessionPreview(session: WorkbenchSessionSummary): string {
   return parts.join(" · ");
 }
 
+const MOBILE_SESSION_MENU_WIDTH = 144;
+const MOBILE_SESSION_MENU_HEIGHT = 132;
+
+interface ActiveSessionMenu {
+  sessionId: string;
+  top: number;
+  left: number;
+  anchorRect: ViewportMenuAnchorRect;
+  measuredHeight: number | null;
+}
+
+export function getMobileSessionMenuPosition(
+  anchorRect: ViewportMenuAnchorRect,
+  measuredMenuHeight?: number | null
+): {
+  top: number;
+  left: number;
+} {
+  const position = getMeasuredViewportMenuPosition({
+    anchorRect,
+    menuWidth: MOBILE_SESSION_MENU_WIDTH,
+    estimatedMenuHeight: MOBILE_SESSION_MENU_HEIGHT,
+    measuredMenuHeight,
+    viewportWidth: window.innerWidth,
+    viewportHeight: window.innerHeight,
+    bottomInset: getResponsiveMenuBottomInsetPx(),
+    margin: VIEWPORT_MENU_MARGIN_PX,
+    align: "right",
+  });
+
+  return { top: position.top, left: position.left };
+}
+
 export default function MobileSessionsPage({
   sessions,
   isLoading,
@@ -59,10 +98,12 @@ export default function MobileSessionsPage({
   const [isSearching, setIsSearching] = useState(false);
   const [query, setQuery] = useState("");
 
-  const [activeMenuSessionId, setActiveMenuSessionId] = useState<string | null>(null);
+  const [activeMenu, setActiveMenu] = useState<ActiveSessionMenu | null>(null);
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState<string>("");
   const isCancellingRef = React.useRef(false);
+  const activeMenuRef = useRef<HTMLDivElement | null>(null);
+  const activeMenuSessionId = activeMenu?.sessionId ?? null;
 
   const normalizedQuery = query.trim().toLowerCase();
   const visibleSessions = useMemo(
@@ -73,13 +114,39 @@ export default function MobileSessionsPage({
     [normalizedQuery, sessions]
   );
 
+  useLayoutEffect(() => {
+    if (!activeMenu) return;
+    const menuNode = activeMenuRef.current;
+    if (!menuNode) return;
+
+    const measuredMenuHeight = Math.ceil(menuNode.getBoundingClientRect().height);
+    if (!measuredMenuHeight || measuredMenuHeight === activeMenu.measuredHeight) return;
+
+    const position = getMobileSessionMenuPosition(activeMenu.anchorRect, measuredMenuHeight);
+    setActiveMenu((current) => {
+      if (!current || current.sessionId !== activeMenu.sessionId) return current;
+      if (
+        current.measuredHeight === measuredMenuHeight &&
+        current.top === position.top &&
+        current.left === position.left
+      ) {
+        return current;
+      }
+      return {
+        ...current,
+        ...position,
+        measuredHeight: measuredMenuHeight,
+      };
+    });
+  }, [activeMenu]);
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-[#f7f9fc] text-[#111827] lg:hidden">
       {activeMenuSessionId && (
         <div
           className="fixed inset-0 z-40 bg-transparent"
           onClick={() => {
-            setActiveMenuSessionId(null);
+            setActiveMenu(null);
           }}
         />
       )}
@@ -258,9 +325,17 @@ export default function MobileSessionsPage({
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      setActiveMenuSessionId(
-                        activeMenuSessionId === session.sessionId ? null : session.sessionId
-                      );
+                      setActiveMenu((current) => {
+                        if (current?.sessionId === session.sessionId) return null;
+                        const anchorRect = e.currentTarget.getBoundingClientRect();
+                        const position = getMobileSessionMenuPosition(anchorRect);
+                        return {
+                          sessionId: session.sessionId,
+                          ...position,
+                          anchorRect,
+                          measuredHeight: null,
+                        };
+                      });
                     }}
                     className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/50 bg-white/32 text-[#6b7280] shadow-[0_4px_12px_rgba(44,63,123,0.05)] backdrop-blur-xl active:bg-[#eef4ff]/78 ${
                       activeMenuSessionId === session.sessionId
@@ -272,14 +347,18 @@ export default function MobileSessionsPage({
                     <MoreHorizontal size={18} strokeWidth={2.4} />
                   </button>
 
-                  {activeMenuSessionId === session.sessionId && (
-                    <div className="animate-in fade-in-50 zoom-in-95 absolute top-12 right-3 z-50 w-36 rounded-lg border border-white/72 bg-white/84 p-1.5 shadow-[0_14px_34px_rgba(44,63,123,0.14)] backdrop-blur-2xl duration-100">
+                  {activeMenu?.sessionId === session.sessionId && (
+                    <div
+                      ref={activeMenuRef}
+                      style={{ top: activeMenu.top, left: activeMenu.left, position: "fixed" }}
+                      className="animate-in fade-in-50 zoom-in-95 z-50 max-h-[calc(100dvh-104px)] w-36 overflow-y-auto rounded-lg border border-white/72 bg-white/84 p-1.5 shadow-[0_14px_34px_rgba(44,63,123,0.14)] backdrop-blur-2xl duration-100"
+                    >
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           void onUpdateSession(session.sessionId, { pinned: !session.pinned });
-                          setActiveMenuSessionId(null);
+                          setActiveMenu(null);
                         }}
                         className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-colors hover:bg-[#f3f4f6] active:bg-[#eef4ff]"
                       >
@@ -292,7 +371,7 @@ export default function MobileSessionsPage({
                           e.stopPropagation();
                           setEditingSessionId(session.sessionId);
                           setEditingTitle(session.title);
-                          setActiveMenuSessionId(null);
+                          setActiveMenu(null);
                         }}
                         className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-colors hover:bg-[#f3f4f6] active:bg-[#eef4ff]"
                       >
@@ -305,7 +384,7 @@ export default function MobileSessionsPage({
                         onClick={(e) => {
                           e.stopPropagation();
                           onDeleteSession(session.sessionId, e);
-                          setActiveMenuSessionId(null);
+                          setActiveMenu(null);
                         }}
                         className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-xs font-semibold text-[#cf222e] transition-colors hover:bg-[#ffebe9] active:bg-[#ffd5d6]"
                       >

@@ -279,4 +279,17 @@ function testWorkspaceFileActionsStayVisibleOnTouchScreens() {
 
 testWorkspaceFileActionsStayVisibleOnTouchScreens();
 
+function testWorkspaceContextMenuUsesViewportAwarePositioning() {
+  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /getWorkspaceContextMenuPosition/);
+  assert.match(source, /getMeasuredViewportMenuPosition/);
+  assert.match(source, /contextMenuRef/);
+  assert.match(source, /getBoundingClientRect\(\)\.height/);
+  assert.match(source, /useLayoutEffect/);
+  assert.doesNotMatch(source, /rect\.bottom \+ 4/);
+}
+
+testWorkspaceContextMenuUsesViewportAwarePositioning();
+
 console.log("workspace explorer tests passed");

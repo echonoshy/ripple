@@ -28,7 +28,6 @@ function renderHomePage() {
       sessions={sessions}
       onSelectView={noop}
       onOpenSettings={noop}
-      onUserIdChange={noop}
     />
   );
 }

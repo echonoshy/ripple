@@ -6,7 +6,6 @@ import {
   BriefcaseBusiness,
   ChevronRight,
   FileText,
-  KeyRound,
   Loader2,
   Plug,
   Server,
@@ -14,8 +13,6 @@ import {
   HardDrive,
   Layers,
   Cpu,
-  Check,
-  X,
   Settings,
 } from "lucide-react";
 import {
@@ -34,7 +31,6 @@ interface HomePageProps {
   sessions: WorkbenchSessionSummary[];
   onSelectView: (view: WorkspaceView) => void;
   onOpenSettings: () => void;
-  onUserIdChange: (newUserId: string) => void;
 }
 
 function formatBytes(n: number): string {
@@ -73,7 +69,6 @@ export default function HomePage({
   sessions,
   onSelectView,
   onOpenSettings,
-  onUserIdChange,
 }: HomePageProps) {
   const [sandbox, setSandbox] = useState<SandboxInfo | null>(null);
   const [connectors, setConnectors] = useState<ConnectorInfo[]>([]);
@@ -84,9 +79,6 @@ export default function HomePage({
     ReturnType<typeof fetchUserProfile>
   > | null>(null);
   const [isLoadingUsage, setIsLoadingUsage] = useState(false);
-  const [isSwitchingUser, setIsSwitchingUser] = useState(false);
-  const [newUserDraft, setNewUserDraft] = useState("");
-  const isSwitchCancelRef = React.useRef(false);
 
   const loadSummary = useCallback(async () => {
     setIsLoadingSummary(true);
@@ -180,22 +172,6 @@ export default function HomePage({
               value={getConfiguredApiUrl()}
             />
             <SettingsInfo icon={<UserRound size={16} />} title="User ID" value={userId} />
-            <button
-              type="button"
-              onClick={onOpenSettings}
-              className="flex min-h-12 w-full items-center gap-3 px-4 py-3 text-left hover:bg-white/70"
-            >
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-[#dfe6f4] bg-[#f6f8ff] text-[#667085]">
-                <KeyRound size={16} />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-[13px] font-medium">API key</span>
-                <span className="mt-0.5 block truncate font-[family-name:var(--font-mono)] text-[11px] text-[#667085]">
-                  hidden
-                </span>
-              </span>
-              <ChevronRight size={15} className="shrink-0 text-[#9aa3af]" />
-            </button>
           </div>
         </section>
 
@@ -314,97 +290,25 @@ export default function HomePage({
             </div>
 
             <div className="flex items-center justify-between gap-3 border-t border-[#dfe6f4] pt-3">
-              {isSwitchingUser ? (
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    if (isSwitchCancelRef.current) {
-                      isSwitchCancelRef.current = false;
-                      return;
-                    }
-                    const trimmed = newUserDraft.trim();
-                    if (/^[a-zA-Z0-9_-]{1,64}$/.test(trimmed)) {
-                      onUserIdChange(trimmed);
-                      setIsSwitchingUser(false);
-                    } else {
-                      alert(
-                        "User ID can only contain alphanumeric characters, dashes, and underscores (1-64 characters)."
-                      );
-                    }
-                  }}
-                  className="flex w-full items-center gap-2 rounded-lg border border-[#2463eb] bg-white px-2 py-1 shadow-[0_2px_8px_rgba(36,99,235,0.06)]"
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="shrink-0 text-[11px] font-semibold tracking-wider text-[#6b7280] uppercase">
+                  Active Sandbox:
+                </span>
+                <span className="truncate rounded-md bg-slate-100 px-2 py-0.5 font-mono text-xs font-semibold text-[#374151]">
+                  {userId}
+                </span>
+              </div>
+              <div className="flex shrink-0 items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={onOpenSettings}
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-[#f3f4f6] text-[#374151] transition-all hover:bg-[#e5e7eb] active:bg-[#eef3ff]"
+                  title="Settings"
+                  aria-label="Settings"
                 >
-                  <input
-                    type="text"
-                    value={newUserDraft}
-                    onChange={(e) => setNewUserDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Escape") {
-                        isSwitchCancelRef.current = true;
-                        setIsSwitchingUser(false);
-                      }
-                    }}
-                    className="min-w-0 flex-1 bg-transparent px-1 py-0.5 text-xs font-semibold text-[#0d0d0d] outline-none"
-                    autoFocus
-                    maxLength={64}
-                    placeholder="User ID"
-                  />
-                  <div className="flex shrink-0 items-center gap-1">
-                    <button
-                      type="submit"
-                      title="Save User ID"
-                      className="inline-flex h-6 w-6 items-center justify-center rounded text-[#2463eb] hover:bg-[#2463eb]/10"
-                    >
-                      <Check size={14} />
-                    </button>
-                    <button
-                      type="button"
-                      title="Cancel"
-                      onMouseDown={() => {
-                        isSwitchCancelRef.current = true;
-                      }}
-                      onClick={() => {
-                        setIsSwitchingUser(false);
-                      }}
-                      className="inline-flex h-6 w-6 items-center justify-center rounded text-[#6b7280] hover:bg-[#e5e7eb]"
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
-                </form>
-              ) : (
-                <>
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span className="shrink-0 text-[11px] font-semibold tracking-wider text-[#6b7280] uppercase">
-                      Active Sandbox:
-                    </span>
-                    <span className="truncate rounded-md bg-slate-100 px-2 py-0.5 font-mono text-xs font-semibold text-[#374151]">
-                      {userId}
-                    </span>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsSwitchingUser(true);
-                        setNewUserDraft(userId);
-                      }}
-                      className="inline-flex h-7 items-center justify-center rounded-lg bg-[#f3f4f6] px-2.5 text-[11px] font-semibold text-[#374151] transition-all hover:bg-[#e5e7eb] active:bg-[#eef3ff]"
-                    >
-                      Switch User
-                    </button>
-                    <button
-                      type="button"
-                      onClick={onOpenSettings}
-                      className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-[#f3f4f6] text-[#374151] transition-all hover:bg-[#e5e7eb] active:bg-[#eef3ff]"
-                      title="Settings"
-                      aria-label="Settings"
-                    >
-                      <Settings size={13} />
-                    </button>
-                  </div>
-                </>
-              )}
+                  <Settings size={13} />
+                </button>
+              </div>
             </div>
           </div>
         </section>

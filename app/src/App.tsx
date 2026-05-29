@@ -506,7 +506,6 @@ export default function Home() {
         sessions={displayWorkbenchSessions}
         onSelectView={handleSelectView}
         onOpenSettings={() => setIsSettingsOpen(true)}
-        onUserIdChange={handleUserIdChange}
       />
     ) : activeView === "files" ? (
       <FilesPage userId={userId} refreshToken={workspaceRefreshToken} />

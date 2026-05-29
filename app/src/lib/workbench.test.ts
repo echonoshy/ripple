@@ -552,6 +552,46 @@ function testMergesRuntimeEventsByTimestamp() {
   );
 }
 
+function testMergeSkipsRuntimeImageAlreadyRepresentedByMessageArtifact() {
+  const messageEvents = messagesToTimelineEvents([
+    {
+      id: "assistant-image",
+      role: "assistant",
+      content: "",
+      artifacts: [
+        {
+          type: "image",
+          workspacePath: "/workspace/outputs/images/2026/05/img-1.png",
+          mimeType: "image/png",
+          size: 128,
+          revisedPrompt: "studio toy photo",
+        },
+      ],
+      created_at: "2026-05-19T00:00:03.000Z",
+    },
+  ]);
+  const runtimeEvents = [
+    codexRuntimeEventToTimelineEvent(
+      {
+        type: "image_generation",
+        id: "img-1",
+        status: "completed",
+        workspace_path: "/workspace/outputs/images/2026/05/img-1.png",
+        mime_type: "image/png",
+        size: 128,
+        revised_prompt: "studio toy photo",
+      } as CodexRuntimeEvent,
+      { id: "runtime-image", createdAt: "2026-05-19T00:00:02.000Z" }
+    ),
+  ];
+
+  const merged = mergeTimelineEvents(messageEvents, runtimeEvents);
+
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].id, "assistant-image-image-0");
+  assert.equal(merged[0].workspacePath, "/workspace/outputs/images/2026/05/img-1.png");
+}
+
 function testRuntimeEventsStayBeforeOptimisticAssistantResponse() {
   const messageEvents = messagesToTimelineEvents([
     {
@@ -603,6 +643,7 @@ testSummarizesCodexRuntimeDiffInsteadOfShowingFullPatch();
 testUpsertsCodexRuntimeDiffEvents();
 testUpsertsContextCompactionLifecycleEvents();
 testMergesRuntimeEventsByTimestamp();
+testMergeSkipsRuntimeImageAlreadyRepresentedByMessageArtifact();
 testRuntimeEventsStayBeforeOptimisticAssistantResponse();
 
 console.log("workbench tests passed");

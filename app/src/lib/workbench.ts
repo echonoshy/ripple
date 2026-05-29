@@ -387,11 +387,21 @@ function trailingAssistantIndex(events: WorkbenchTimelineEvent[]): number {
   return last?.type === "assistant_message" || last?.type === "final_summary" ? lastIndex : -1;
 }
 
+function imageTimelineWorkspacePath(event: WorkbenchTimelineEvent): string | null {
+  if (event.type !== "image_generation" && event.type !== "image_view") return null;
+  return event.workspacePath || null;
+}
+
 export function mergeTimelineEvents(
   messageEvents: WorkbenchTimelineEvent[],
   runtimeEvents: WorkbenchTimelineEvent[]
 ): WorkbenchTimelineEvent[] {
   const merged = [...messageEvents];
+  const seenImagePaths = new Set(
+    messageEvents
+      .map(imageTimelineWorkspacePath)
+      .filter((path): path is string => typeof path === "string" && path.length > 0)
+  );
   const orderedRuntime = runtimeEvents
     .map((event, index) => ({ event, index, time: eventTime(event.createdAt) }))
     .sort((a, b) => {
@@ -400,6 +410,11 @@ export function mergeTimelineEvents(
     });
 
   for (const { event, time } of orderedRuntime) {
+    const imagePath = imageTimelineWorkspacePath(event);
+    if (imagePath && seenImagePaths.has(imagePath)) {
+      continue;
+    }
+
     if (time === null) {
       const assistantIndex = trailingAssistantIndex(merged);
       if (assistantIndex >= 0) {
@@ -407,6 +422,7 @@ export function mergeTimelineEvents(
       } else {
         merged.push(event);
       }
+      if (imagePath) seenImagePaths.add(imagePath);
       continue;
     }
 
@@ -424,6 +440,7 @@ export function mergeTimelineEvents(
     } else {
       merged.splice(insertAt, 0, event);
     }
+    if (imagePath) seenImagePaths.add(imagePath);
   }
 
   return merged;

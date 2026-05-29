@@ -37,12 +37,57 @@ const intervalUnitSeconds: Record<IntervalUnit, number> = {
   days: 86_400,
 };
 
+const commonTimezones = [
+  "UTC",
+  "Asia/Shanghai",
+  "Asia/Hong_Kong",
+  "Asia/Taipei",
+  "Asia/Tokyo",
+  "Asia/Seoul",
+  "Asia/Singapore",
+  "Europe/London",
+  "Europe/Berlin",
+  "Europe/Paris",
+  "America/New_York",
+  "America/Chicago",
+  "America/Denver",
+  "America/Los_Angeles",
+] as const;
+
 function browserTimezone(): string {
   try {
     return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
   } catch {
     return "UTC";
   }
+}
+
+function supportedTimezones(): string[] {
+  try {
+    const supported = Intl.supportedValuesOf?.("timeZone") || [];
+    return supported.length > 0 ? supported : [...commonTimezones];
+  } catch {
+    return [...commonTimezones];
+  }
+}
+
+function timezoneOptions(currentTimezone: string): string[] {
+  const options = new Set<string>();
+  const current = currentTimezone.trim();
+  if (current) {
+    options.add(current);
+  }
+  for (const timezone of commonTimezones) {
+    options.add(timezone);
+  }
+  for (const timezone of supportedTimezones()) {
+    options.add(timezone);
+  }
+  return [...options];
+}
+
+function timezoneLabel(value: string): string {
+  return value.replaceAll("_", " ");
 }
 
 function localDatetimeValue(date: Date): string {
@@ -123,6 +168,7 @@ export default function AutomationsPage({
     () => Math.max(1, intervalValue) * intervalUnitSeconds[intervalUnit],
     [intervalUnit, intervalValue]
   );
+  const availableTimezones = useMemo(() => timezoneOptions(timezone), [timezone]);
 
   const loadSchedules = useCallback(async () => {
     setIsLoading(true);
@@ -307,11 +353,17 @@ export default function AutomationsPage({
               </label>
               <label className="block min-w-0">
                 <span className="mb-1 block text-[11px] font-medium text-[#667085]">Timezone</span>
-                <input
+                <select
                   value={timezone}
                   onChange={(event) => setTimezone(event.target.value)}
                   className="h-9 w-full rounded-xl border border-[#dfe6f4] bg-white px-3 font-[family-name:var(--font-mono)] text-xs outline-none focus:border-[#8da0ff]"
-                />
+                >
+                  {availableTimezones.map((option) => (
+                    <option key={option} value={option}>
+                      {timezoneLabel(option)}
+                    </option>
+                  ))}
+                </select>
               </label>
             </div>
 

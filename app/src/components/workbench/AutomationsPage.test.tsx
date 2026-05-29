@@ -30,7 +30,16 @@ function testAutomationActionsUseVisibleDistinctLabels() {
   assert.match(source, />Delete</);
 }
 
+function testTimezoneUsesSelectControl() {
+  const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /<select[\s\S]*value=\{timezone\}/);
+  assert.doesNotMatch(source, /<input[\s\S]{0,200}value=\{timezone\}/);
+  assert.match(source, /Asia\/Shanghai/);
+}
+
 testAutomationsPageHasMobileBackNavigation();
 testAutomationActionsUseVisibleDistinctLabels();
+testTimezoneUsesSelectControl();
 
 console.log("automations page tests passed");

@@ -351,6 +351,62 @@ async function testScheduleApiUsesExpectedBackendShape() {
   ]);
 }
 
+async function testCreateScheduleAddsOffsetForNonUtcRunAt() {
+  let body: unknown = null;
+
+  await withFetch(
+    async (_input, init) => {
+      body = init?.body ? JSON.parse(String(init.body)) : null;
+      return new Response(
+        JSON.stringify({
+          schedule_id: "sch-created",
+          user_id: "alice",
+          title: "Ping",
+          prompt: "Say hi",
+          kind: "once",
+          timezone: "Asia/Shanghai",
+          run_at: "2026-05-29T18:01:00Z",
+          interval_seconds: null,
+          enabled: true,
+          status: "active",
+          next_run_at: "2026-05-29T18:01:00Z",
+          last_run_at: null,
+          last_run_id: null,
+          last_error: null,
+          cwd: null,
+          model: "codex-medium",
+          effort: null,
+          summary: null,
+          output_schema: null,
+          max_runtime_seconds: 1800,
+          max_runs: null,
+          run_count: 0,
+          created_at: "2026-05-29T17:00:00Z",
+          updated_at: "2026-05-29T17:00:00Z",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    },
+    async () => {
+      await createSchedule({
+        title: "Ping",
+        prompt: "Say hi",
+        kind: "once",
+        timezone: "Asia/Shanghai",
+        run_at: "2026-05-30T02:01",
+      });
+    }
+  );
+
+  assert.deepEqual(body, {
+    title: "Ping",
+    prompt: "Say hi",
+    kind: "once",
+    timezone: "Asia/Shanghai",
+    run_at: "2026-05-30T02:01:00+08:00",
+  });
+}
+
 async function testFetchSessionsNormalizesBackendShape() {
   await withFetch(
     async () =>
@@ -607,6 +663,7 @@ await testAuthHeadersKeepServiceKeyUserIdCompatibility();
 testParseWorkspaceLinkDecodesEncodedSandboxPath();
 await testWorkspaceFilePreviewPathNotFoundStaysFileSpecific();
 await testScheduleApiUsesExpectedBackendShape();
+await testCreateScheduleAddsOffsetForNonUtcRunAt();
 await testFetchSessionsNormalizesBackendShape();
 await testCreateSessionNormalizesBackendShape();
 await testFetchSessionDetailsNormalizesBackendShape();

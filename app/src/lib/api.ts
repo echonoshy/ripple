@@ -202,6 +202,164 @@ export interface ScheduleCreateInput {
 
 export type ScheduleUpdateInput = Partial<ScheduleCreateInput>;
 
+interface LocalDateTimeParts {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+  fractional: string;
+}
+
+function isUtcTimezone(value: string | null | undefined): boolean {
+  if (value === undefined || value === null) return false;
+  return ["", "utc", "z", "etc/utc", "etc/gmt"].includes(value.trim().toLowerCase());
+}
+
+function hasDatetimeOffset(value: string): boolean {
+  const trimmed = value.trim();
+  if (trimmed.endsWith("Z") || trimmed.endsWith("z")) return true;
+  const timeStart = Math.max(trimmed.indexOf("T"), trimmed.indexOf("t")) + 1;
+  return (
+    trimmed.slice(timeStart || trimmed.length).includes("+") ||
+    trimmed.slice(timeStart || trimmed.length).includes("-")
+  );
+}
+
+function parseLocalDateTime(value: string): LocalDateTimeParts | null {
+  const match = value
+    .trim()
+    .match(/^(\d{4})-(\d{2})-(\d{2})[Tt ](\d{2}):(\d{2})(?::(\d{2})(\.\d{1,9})?)?$/);
+  if (!match) return null;
+
+  const parts: LocalDateTimeParts = {
+    year: Number(match[1]),
+    month: Number(match[2]),
+    day: Number(match[3]),
+    hour: Number(match[4]),
+    minute: Number(match[5]),
+    second: match[6] ? Number(match[6]) : 0,
+    fractional: match[7] || "",
+  };
+  const date = new Date(
+    Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second)
+  );
+  if (
+    date.getUTCFullYear() !== parts.year ||
+    date.getUTCMonth() !== parts.month - 1 ||
+    date.getUTCDate() !== parts.day ||
+    date.getUTCHours() !== parts.hour ||
+    date.getUTCMinutes() !== parts.minute ||
+    date.getUTCSeconds() !== parts.second
+  ) {
+    return null;
+  }
+  return parts;
+}
+
+function partsAsUtcMillis(parts: LocalDateTimeParts): number {
+  return Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
+}
+
+function partsInTimezone(date: Date, timezone: string): LocalDateTimeParts | null {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  });
+  const values: Record<string, string> = {};
+  for (const part of formatter.formatToParts(date)) {
+    if (part.type !== "literal") {
+      values[part.type] = part.value;
+    }
+  }
+  if (
+    !values.year ||
+    !values.month ||
+    !values.day ||
+    !values.hour ||
+    !values.minute ||
+    !values.second
+  ) {
+    return null;
+  }
+  return {
+    year: Number(values.year),
+    month: Number(values.month),
+    day: Number(values.day),
+    hour: Number(values.hour),
+    minute: Number(values.minute),
+    second: Number(values.second),
+    fractional: "",
+  };
+}
+
+function timezoneOffsetMinutesForLocalTime(
+  localParts: LocalDateTimeParts,
+  timezone: string
+): number | null {
+  const targetLocalMillis = partsAsUtcMillis(localParts);
+  let utcMillis = targetLocalMillis;
+
+  try {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const zonedParts = partsInTimezone(new Date(utcMillis), timezone);
+      if (!zonedParts) return null;
+      const delta = targetLocalMillis - partsAsUtcMillis(zonedParts);
+      utcMillis += delta;
+      if (delta === 0) break;
+    }
+  } catch {
+    return null;
+  }
+
+  return Math.round((targetLocalMillis - utcMillis) / 60_000);
+}
+
+function timezoneOffsetText(offsetMinutes: number): string {
+  const sign = offsetMinutes >= 0 ? "+" : "-";
+  const absolute = Math.abs(offsetMinutes);
+  const hours = String(Math.floor(absolute / 60)).padStart(2, "0");
+  const minutes = String(absolute % 60).padStart(2, "0");
+  return `${sign}${hours}:${minutes}`;
+}
+
+function localDateTimeText(parts: LocalDateTimeParts): string {
+  const year = String(parts.year).padStart(4, "0");
+  const month = String(parts.month).padStart(2, "0");
+  const day = String(parts.day).padStart(2, "0");
+  const hour = String(parts.hour).padStart(2, "0");
+  const minute = String(parts.minute).padStart(2, "0");
+  const second = String(parts.second).padStart(2, "0");
+  return `${year}-${month}-${day}T${hour}:${minute}:${second}${parts.fractional}`;
+}
+
+function normalizeScheduleRunAtForRequest(
+  runAt: string | null | undefined,
+  timezone: string | null | undefined
+): string | null | undefined {
+  if (typeof runAt !== "string" || timezone === undefined || timezone === null) return runAt;
+  const trimmed = runAt.trim();
+  if (!trimmed || isUtcTimezone(timezone) || hasDatetimeOffset(trimmed)) return runAt;
+  const localParts = parseLocalDateTime(trimmed);
+  if (!localParts) return runAt;
+  const offsetMinutes = timezoneOffsetMinutesForLocalTime(localParts, timezone.trim());
+  if (offsetMinutes === null) return runAt;
+  return `${localDateTimeText(localParts)}${timezoneOffsetText(offsetMinutes)}`;
+}
+
+function scheduleInputForRequest<T extends ScheduleCreateInput | ScheduleUpdateInput>(input: T): T {
+  const runAt = normalizeScheduleRunAtForRequest(input.run_at, input.timezone);
+  if (runAt === input.run_at) return input;
+  return { ...input, run_at: runAt };
+}
+
 export function getApiKey(): string | null {
   return getClientStorage()?.getItem(API_KEY_STORAGE_KEY) ?? null;
 }
@@ -494,7 +652,7 @@ export async function createSchedule(input: ScheduleCreateInput): Promise<Schedu
   const res = await fetch(`${API_URL}/schedules`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify(input),
+    body: JSON.stringify(scheduleInputForRequest(input)),
   });
   if (res.status === 401) throw new AuthError();
   if (!res.ok) {
@@ -511,7 +669,7 @@ export async function updateSchedule(
   const res = await fetch(`${API_URL}/schedules/${encodeURIComponent(scheduleId)}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify(input),
+    body: JSON.stringify(scheduleInputForRequest(input)),
   });
   if (res.status === 401) throw new AuthError();
   if (!res.ok) {

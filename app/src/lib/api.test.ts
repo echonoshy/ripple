@@ -9,6 +9,7 @@ import {
   deleteSchedule,
   deleteSession,
   fetchSchedules,
+  fetchSessionOverview,
   fetchSessions,
   fetchSessionDetails,
   fetchWorkspaceFilePreview,
@@ -342,6 +343,90 @@ async function testFetchSessionDetailsNormalizesBackendShape() {
   );
 }
 
+async function testFetchSessionOverviewNormalizesBackendShape() {
+  let requestedUrl = "";
+  await withFetch(
+    async (input) => {
+      requestedUrl = String(input);
+      return new Response(
+        JSON.stringify({
+          sessions: [
+            {
+              session_id: "srv-overview",
+              title: "Weekly review",
+              pinned: true,
+              model: "codex-medium",
+              created_at: "2026-05-18T00:00:00.000Z",
+              last_active: "2026-05-19T00:00:00.000Z",
+              message_count: 4,
+              status: "waiting_for_user",
+              changed_file_count: 2,
+              pending_kind: "question",
+              pending_approval_count: 0,
+              plan_progress: { completed: 1, total: 2 },
+              current_step: "Wait for confirmation",
+              last_run: {
+                job_id: "agent-linked",
+                status: "completed",
+                updated_at: "2026-05-19T00:01:00.000Z",
+                output_file: "/workspace/out.txt",
+                error: null,
+              },
+              last_message_preview: "I drafted the review.",
+            },
+          ],
+          sections: {
+            needs_input: ["srv-overview"],
+            running: [],
+            pinned: ["srv-overview"],
+            recent_sessions: ["srv-overview"],
+          },
+          count: 1,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    },
+    async () => {
+      assert.deepEqual(await fetchSessionOverview(), {
+        sessions: [
+          {
+            sessionId: "srv-overview",
+            title: "Weekly review",
+            pinned: true,
+            model: "codex-medium",
+            createdAt: "2026-05-18T00:00:00.000Z",
+            lastActiveAt: "2026-05-19T00:00:00.000Z",
+            messageCount: 4,
+            status: "waiting_for_user",
+            changedFileCount: 2,
+            pendingKind: "question",
+            pendingApprovalCount: 0,
+            planProgress: { completed: 1, total: 2 },
+            currentStep: "Wait for confirmation",
+            lastRun: {
+              jobId: "agent-linked",
+              status: "completed",
+              updatedAt: "2026-05-19T00:01:00.000Z",
+              outputFile: "/workspace/out.txt",
+              error: null,
+            },
+            lastMessagePreview: "I drafted the review.",
+          },
+        ],
+        sections: {
+          needsInput: ["srv-overview"],
+          running: [],
+          pinned: ["srv-overview"],
+          recentSessions: ["srv-overview"],
+        },
+        count: 1,
+      });
+    }
+  );
+
+  assert.equal(requestedUrl, "http://140.143.229.103:8810/v1/sessions/overview");
+}
+
 async function testFetchSessionsRejectsServerFailures() {
   await withFetch(
     async () => response(500, "session store unavailable"),
@@ -410,7 +495,7 @@ async function testChatStreamUsesServerConflictDetail() {
 
   try {
     await withFetch(
-      async () => response(409, "Session already has a running task"),
+      async () => response(409, "Session already has work in progress"),
       async () => {
         await sendChatMessage("session-1", "hi", "codex-test", {
           onMessageDelta: () => undefined,
@@ -429,7 +514,7 @@ async function testChatStreamUsesServerConflictDetail() {
     globals.window = previousWindow;
   }
 
-  assert.equal(reportedMessage, "Session already has a running task");
+  assert.equal(reportedMessage, "Session already has work in progress");
 }
 
 function testDefaultApiOriginUsesPublicBaseUrl() {
@@ -486,6 +571,7 @@ await testScheduleApiUsesExpectedBackendShape();
 await testFetchSessionsNormalizesBackendShape();
 await testCreateSessionNormalizesBackendShape();
 await testFetchSessionDetailsNormalizesBackendShape();
+await testFetchSessionOverviewNormalizesBackendShape();
 await testFetchSessionsRejectsServerFailures();
 await testFetchSessionsRejectsNetworkFailures();
 await testWorkspaceSearchDefaultsToNameScope();

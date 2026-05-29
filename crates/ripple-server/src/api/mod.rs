@@ -19,10 +19,93 @@ use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get, post};
 use axum::{Json, Router};
+use serde::Deserialize;
 use serde_json::{json, Value};
+use uuid::Uuid;
 
 use crate::state::AppState;
 use crate::user::{user_id_from_headers, AuthContext};
+
+#[derive(Debug, Deserialize, Default)]
+pub struct ListQuery {
+    pub limit: Option<usize>,
+    pub cursor: Option<String>,
+}
+
+pub(crate) fn paginate<T>(items: Vec<T>, query: &ListQuery) -> (Vec<T>, Option<String>) {
+    let total = items.len();
+    let offset = query
+        .cursor
+        .as_deref()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(0)
+        .min(total);
+    let limit = query.limit.unwrap_or(total).clamp(1, 100);
+    let end = offset.saturating_add(limit).min(total);
+    let next_cursor = (end < total).then(|| end.to_string());
+    (
+        items.into_iter().skip(offset).take(end - offset).collect(),
+        next_cursor,
+    )
+}
+
+pub(crate) fn require_confirm(payload: Option<&Value>, action: &str) -> Result<(), ApiError> {
+    let confirmed = payload
+        .and_then(|value| value.get("confirm"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if confirmed {
+        return Ok(());
+    }
+    Err(ApiError::new(
+        StatusCode::PRECONDITION_REQUIRED,
+        json!({
+            "code": "confirmation_required",
+            "message": format!("{action} requires confirm: true"),
+            "action": action,
+            "confirm_required": true
+        }),
+    ))
+}
+
+pub(crate) async fn audit_event(
+    state: &AppState,
+    user_id: &str,
+    action: &str,
+    confirmed: bool,
+    details: Value,
+) -> Result<(), ApiError> {
+    use tokio::io::AsyncWriteExt;
+
+    let audit_path = state.config.repo_root.join(".ripple/audit.jsonl");
+    if let Some(parent) = audit_path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    let record = json!({
+        "version": 1,
+        "event_id": format!("audit-{}", Uuid::new_v4().simple()),
+        "action": action,
+        "user_id": user_id,
+        "confirmed": confirmed,
+        "details": details,
+        "created_at": now_iso()
+    });
+    let mut file = tokio::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(audit_path)
+        .await?;
+    let line = serde_json::to_string(&record).map_err(anyhow::Error::from)?;
+    file.write_all(line.as_bytes()).await?;
+    file.write_all(b"\n").await?;
+    Ok(())
+}
+
+fn now_iso() -> String {
+    time::OffsetDateTime::now_utc()
+        .format(&time::format_description::well_known::Rfc3339)
+        .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
+}
 
 pub fn router(state: AppState) -> Router {
     let v1 = Router::new()
@@ -31,11 +114,14 @@ pub fn router(state: AppState) -> Router {
         .route("/tasks", any(sessions::deprecated_tasks_api))
         .route("/tasks/*task_path", any(sessions::deprecated_tasks_api))
         .route("/chat/completions", post(chat::chat_completions))
+        .route("/health/ready", get(health::ready))
+        .route("/diagnostics/doctor", get(health::doctor))
         .route("/users/me", get(users::current_user_profile))
         .route(
             "/sessions",
             get(sessions::list_sessions).post(sessions::create_session),
         )
+        .route("/sessions/overview", get(sessions::session_overview))
         .route(
             "/sessions/suspended",
             get(sessions::list_suspended_sessions),
@@ -141,6 +227,7 @@ pub fn router(state: AppState) -> Router {
         .route("/runs", get(runs::list_runs).post(runs::create_run))
         .route("/runs/:job_id", get(runs::get_run))
         .route("/runs/:job_id/events", get(runs::run_events))
+        .route("/runs/:job_id/output", get(runs::run_output))
         .route("/runs/:job_id/steer", post(runs::steer_run))
         .route("/runs/:job_id/cancel", post(runs::cancel_run))
         .route(
@@ -275,7 +362,76 @@ impl ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        (self.status, Json(json!({ "detail": self.detail }))).into_response()
+        let request_id = format!("req-{}", Uuid::new_v4().simple());
+        let (code, message, details) = error_fields(self.status, &self.detail);
+        let mut response = (
+            self.status,
+            Json(json!({
+                "detail": self.detail,
+                "error": {
+                    "code": code,
+                    "message": message,
+                    "request_id": request_id,
+                    "details": details
+                }
+            })),
+        )
+            .into_response();
+        response.headers_mut().insert(
+            "x-request-id",
+            HeaderValue::from_str(&request_id).unwrap_or_else(|_| HeaderValue::from_static("")),
+        );
+        response
+    }
+}
+
+fn error_fields(status: StatusCode, detail: &Value) -> (String, String, Value) {
+    let status_code = status_code_slug(status).to_string();
+    match detail {
+        Value::Object(object) => {
+            let code = object
+                .get("code")
+                .and_then(Value::as_str)
+                .unwrap_or(&status_code)
+                .to_string();
+            let message = object
+                .get("message")
+                .and_then(Value::as_str)
+                .or_else(|| object.get("detail").and_then(Value::as_str))
+                .map(str::to_string)
+                .unwrap_or_else(|| {
+                    status
+                        .canonical_reason()
+                        .unwrap_or("Request failed")
+                        .to_string()
+                });
+            (code, message, detail.clone())
+        }
+        Value::String(message) => (status_code, message.clone(), detail.clone()),
+        _ => (
+            status_code,
+            status
+                .canonical_reason()
+                .unwrap_or("Request failed")
+                .to_string(),
+            detail.clone(),
+        ),
+    }
+}
+
+fn status_code_slug(status: StatusCode) -> &'static str {
+    match status {
+        StatusCode::BAD_REQUEST => "bad_request",
+        StatusCode::UNAUTHORIZED => "unauthorized",
+        StatusCode::FORBIDDEN => "forbidden",
+        StatusCode::NOT_FOUND => "not_found",
+        StatusCode::CONFLICT => "conflict",
+        StatusCode::GONE => "gone",
+        StatusCode::PRECONDITION_REQUIRED => "precondition_required",
+        StatusCode::SERVICE_UNAVAILABLE => "service_unavailable",
+        StatusCode::GATEWAY_TIMEOUT => "gateway_timeout",
+        StatusCode::NOT_IMPLEMENTED => "not_implemented",
+        _ => "request_failed",
     }
 }
 
@@ -290,8 +446,8 @@ mod tests {
 
     use super::*;
     use crate::config::{
-        AppConfig, CodexConfig, FeishuConfig, GogcliOAuthConfig, LoggingConfig, SandboxConfig,
-        SkillsConfig,
+        AppConfig, CodexConfig, CorsConfig, FeishuConfig, GogcliOAuthConfig, LoggingConfig,
+        SandboxConfig, SecurityConfig, SkillsConfig,
     };
     fn test_state(api_keys: Vec<String>) -> AppState {
         let root =
@@ -301,6 +457,8 @@ mod tests {
             host: "127.0.0.1".to_string(),
             port: 0,
             api_keys,
+            security: SecurityConfig::default(),
+            cors: CorsConfig::default(),
             default_model: "codex-test".to_string(),
             model_presets: BTreeMap::new(),
             logging: LoggingConfig {

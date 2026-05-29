@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
 use axum::Json;
 use serde::de::Error as DeError;
@@ -11,7 +11,7 @@ use time::{Duration as TimeDuration, OffsetDateTime, PrimitiveDateTime};
 use uuid::Uuid;
 
 use crate::api::users::assert_can_create_run;
-use crate::api::ApiError;
+use crate::api::{audit_event, paginate, require_confirm, ApiError, ListQuery};
 use crate::jobs::{AgentRunCreateRequest, AgentRunInfo};
 use crate::state::AppState;
 use crate::user::user_id_from_headers;
@@ -38,6 +38,16 @@ struct ScheduleRecord {
     last_run_at: Option<String>,
     last_run_id: Option<String>,
     last_error: Option<String>,
+    #[serde(default)]
+    failure_reason: Option<String>,
+    #[serde(default)]
+    last_run_status: Option<String>,
+    #[serde(default = "default_missed_run_policy")]
+    missed_run_policy: String,
+    #[serde(default = "default_overlap_policy")]
+    overlap_policy: String,
+    #[serde(default = "default_failure_policy")]
+    failure_policy: String,
     cwd: Option<String>,
     model: Option<String>,
     effort: Option<String>,
@@ -78,6 +88,12 @@ pub struct ScheduleCreateInput {
     pub(crate) max_runtime_seconds: u64,
     #[serde(default)]
     pub(crate) max_runs: Option<u64>,
+    #[serde(default = "default_missed_run_policy")]
+    pub(crate) missed_run_policy: String,
+    #[serde(default = "default_overlap_policy")]
+    pub(crate) overlap_policy: String,
+    #[serde(default = "default_failure_policy")]
+    pub(crate) failure_policy: String,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -109,11 +125,15 @@ pub struct ScheduleUpdateInput {
     max_runtime_seconds: Option<u64>,
     #[serde(default, deserialize_with = "nullable_field")]
     max_runs: Option<Option<u64>>,
+    missed_run_policy: Option<String>,
+    overlap_policy: Option<String>,
+    failure_policy: Option<String>,
 }
 
 pub async fn list_schedules(
     State(state): State<AppState>,
     headers: HeaderMap,
+    Query(query): Query<ListQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     state.sandboxes.ensure_sandbox(&user_id)?;
@@ -125,9 +145,14 @@ pub async fn list_schedules(
             .unwrap_or_else(|| "9999".to_string())
             .cmp(&b.next_run_at.clone().unwrap_or_else(|| "9999".to_string()))
     });
-    Ok(Json(
-        json!({ "schedules": records, "count": records.len() }),
-    ))
+    let total = records.len();
+    let (records, next_cursor) = paginate(records, &query);
+    Ok(Json(json!({
+        "schedules": records,
+        "count": records.len(),
+        "total": total,
+        "next_cursor": next_cursor
+    })))
 }
 
 pub async fn create_schedule(
@@ -170,6 +195,11 @@ pub(crate) async fn create_schedule_for_user(
         last_run_at: None,
         last_run_id: None,
         last_error: None,
+        failure_reason: None,
+        last_run_status: None,
+        missed_run_policy: normalize_missed_run_policy(&input.missed_run_policy)?.to_string(),
+        overlap_policy: normalize_overlap_policy(&input.overlap_policy)?.to_string(),
+        failure_policy: normalize_failure_policy(&input.failure_policy)?.to_string(),
         cwd: input.cwd,
         model: input.model,
         effort: input.effort,
@@ -263,6 +293,15 @@ pub async fn update_schedule(
     if let Some(max_runs) = input.max_runs {
         record.max_runs = normalize_max_runs(&record.kind, max_runs)?;
     }
+    if let Some(policy) = input.missed_run_policy {
+        record.missed_run_policy = normalize_missed_run_policy(&policy)?.to_string();
+    }
+    if let Some(policy) = input.overlap_policy {
+        record.overlap_policy = normalize_overlap_policy(&policy)?.to_string();
+    }
+    if let Some(policy) = input.failure_policy {
+        record.failure_policy = normalize_failure_policy(&policy)?.to_string();
+    }
     if record.kind != "interval" {
         record.max_runs = None;
     }
@@ -296,8 +335,13 @@ pub async fn delete_schedule(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(schedule_id): Path<String>,
+    body: Option<Json<Value>>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    let payload = body.map(|Json(value)| value).unwrap_or_else(|| json!({}));
+    if state.config.security.require_confirm_for_risky_api {
+        require_confirm(Some(&payload), "schedule.delete")?;
+    }
     if !state
         .storage
         .delete_schedule(&user_id, &schedule_id)
@@ -305,6 +349,14 @@ pub async fn delete_schedule(
     {
         return Err(ApiError::not_found("Schedule not found"));
     }
+    audit_event(
+        &state,
+        &user_id,
+        "schedule.delete",
+        true,
+        json!({"schedule_id": schedule_id}),
+    )
+    .await?;
     Ok(Json(json!({ "ok": true, "schedule_id": schedule_id })))
 }
 
@@ -341,6 +393,8 @@ pub async fn run_schedule_now(
         Err(err) => {
             record.status = "error".to_string();
             record.last_error = Some(format!("{err:?}"));
+            record.failure_reason = record.last_error.clone();
+            record.last_run_status = Some("failed".to_string());
             record.updated_at = iso(now);
             persist_schedule_record(&state, &user_id, &record).await?;
             return Err(err);
@@ -349,6 +403,8 @@ pub async fn run_schedule_now(
     record.last_run_at = Some(iso(now));
     record.last_run_id = Some(info.job_id.clone());
     record.last_error = None;
+    record.failure_reason = None;
+    record.last_run_status = Some(info.status.clone());
     if record.enabled && record.status != "completed" {
         record.status = "active".to_string();
     }
@@ -399,11 +455,27 @@ pub async fn trigger_due_schedules(
             if next_run_at > now {
                 continue;
             }
+            if record.overlap_policy == "skip"
+                && state
+                    .jobs
+                    .has_active_schedule_run(&user_id, &record.schedule_id)
+                    .await
+            {
+                record.last_error =
+                    Some("Skipped because previous run is still active".to_string());
+                record.last_run_status = Some("skipped_overlap".to_string());
+                record.next_run_at = advance_next_run_at(&record, now)?;
+                record.updated_at = iso(now);
+                persist_schedule_record(state, &user_id, &record).await?;
+                continue;
+            }
             match start_schedule_run(state, &user_id, &record, "scheduled").await {
                 Ok(info) => {
                     record.last_run_at = Some(iso(now));
                     record.last_run_id = Some(info.job_id);
                     record.last_error = None;
+                    record.failure_reason = None;
+                    record.last_run_status = Some("started".to_string());
                     record.run_count += 1;
                     if record.kind == "once" || schedule_limit_reached(&record) {
                         record.enabled = false;
@@ -421,10 +493,14 @@ pub async fn trigger_due_schedules(
                         .push(schedule_id);
                 }
                 Err(err) => {
-                    record.enabled = false;
+                    if record.failure_policy == "pause" {
+                        record.enabled = false;
+                    }
                     record.status = "error".to_string();
                     record.next_run_at = None;
                     record.last_error = Some(format!("{err:?}"));
+                    record.failure_reason = record.last_error.clone();
+                    record.last_run_status = Some("failed".to_string());
                     record.updated_at = iso(now);
                     persist_schedule_record(state, &user_id, &record).await?;
                 }
@@ -617,6 +693,36 @@ fn normalize_max_runs(kind: &str, value: Option<u64>) -> Result<Option<u64>, Api
     Ok(value.map(|value| value.max(1)))
 }
 
+fn normalize_missed_run_policy(value: &str) -> Result<&'static str, ApiError> {
+    match value.trim() {
+        "" | "run_once" => Ok("run_once"),
+        "skip" => Ok("skip"),
+        _ => Err(ApiError::bad_request(
+            "missed_run_policy must be one of: run_once, skip",
+        )),
+    }
+}
+
+fn normalize_overlap_policy(value: &str) -> Result<&'static str, ApiError> {
+    match value.trim() {
+        "" | "skip" => Ok("skip"),
+        "allow" => Ok("allow"),
+        _ => Err(ApiError::bad_request(
+            "overlap_policy must be one of: skip, allow",
+        )),
+    }
+}
+
+fn normalize_failure_policy(value: &str) -> Result<&'static str, ApiError> {
+    match value.trim() {
+        "" | "pause" => Ok("pause"),
+        "keep_active" => Ok("keep_active"),
+        _ => Err(ApiError::bad_request(
+            "failure_policy must be one of: pause, keep_active",
+        )),
+    }
+}
+
 fn normalize_run_at(value: Option<&str>, timezone: &str) -> Result<Option<String>, ApiError> {
     let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
         return Ok(None);
@@ -742,6 +848,18 @@ fn default_true() -> bool {
 
 fn default_max_runtime() -> u64 {
     1800
+}
+
+fn default_missed_run_policy() -> String {
+    "run_once".to_string()
+}
+
+fn default_overlap_policy() -> String {
+    "skip".to_string()
+}
+
+fn default_failure_policy() -> String {
+    "pause".to_string()
 }
 
 #[cfg(test)]

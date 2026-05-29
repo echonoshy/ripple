@@ -13,13 +13,17 @@ const mobileNavLabels: Record<WorkspaceView, string> = {
   files: "Files",
   connectors: "Connectors",
   automations: "Automations",
+  system: "System",
   home: "Settings",
 };
 
 export default function MobileTabBar({ activeView, onSelectView }: MobileTabBarProps) {
   return (
     <nav className="fixed right-0 bottom-0 left-0 z-30 min-h-[calc(64px+env(safe-area-inset-bottom))] border-t border-[#dfe6f4] bg-[linear-gradient(180deg,rgba(255,255,255,0.84)_0%,rgba(248,251,255,0.98)_100%)] px-2 pt-1 pb-[max(env(safe-area-inset-bottom),10px)] shadow-[0_-14px_34px_rgba(44,63,123,0.10)] backdrop-blur-2xl lg:hidden">
-      <div className="mx-auto grid h-[60px] max-w-md grid-cols-5">
+      <div
+        className="mx-auto grid h-[60px] max-w-md"
+        style={{ gridTemplateColumns: `repeat(${mainNavItems.length}, minmax(0, 1fr))` }}
+      >
         {mainNavItems.map((item) => {
           const Icon = item.icon;
           const selected = item.id === activeView;

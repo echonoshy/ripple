@@ -600,6 +600,8 @@ mod tests {
             host: "127.0.0.1".to_string(),
             port: 0,
             api_keys: Vec::new(),
+            security: crate::config::SecurityConfig::default(),
+            cors: crate::config::CorsConfig::default(),
             default_model: "codex-test".to_string(),
             model_presets: Default::default(),
             logging: crate::config::LoggingConfig {

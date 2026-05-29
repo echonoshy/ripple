@@ -151,3 +151,143 @@ fn parse_frontmatter(text: &str) -> Option<BTreeMap<String, serde_yaml::Value>> 
     let (yaml, _) = rest.split_once("\n---")?;
     serde_yaml::from_str(yaml).ok()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{
+        AppConfig, CodexConfig, CorsConfig, FeishuConfig, GogcliOAuthConfig, LoggingConfig,
+        SandboxConfig, SecurityConfig, SkillsConfig,
+    };
+    use uuid::Uuid;
+
+    fn test_config(root: &Path, shared_dirs: Vec<String>) -> AppConfig {
+        AppConfig {
+            repo_root: root.to_path_buf(),
+            host: "127.0.0.1".to_string(),
+            port: 0,
+            api_keys: vec!["test-key".to_string()],
+            security: SecurityConfig::default(),
+            cors: CorsConfig::default(),
+            default_model: "codex-test".to_string(),
+            model_presets: BTreeMap::new(),
+            logging: LoggingConfig {
+                level: "debug".to_string(),
+            },
+            sandbox: SandboxConfig {
+                sandboxes_root: root.join("sandboxes"),
+                caches_root: root.join("cache"),
+                idle_suspend_seconds: 1800,
+                retention_seconds: 604_800,
+                max_workspace_mb: 2048,
+                tmpfs_size_mb: 64,
+                nsjail_path: "nsjail".to_string(),
+                uv_bin_dir: None,
+                node_dir: None,
+                lark_cli_install_root: None,
+                notion_cli_install_root: None,
+                gogcli_cli_install_root: None,
+                cli_tools: Vec::new(),
+                pypi_mirror_url: None,
+                npm_registry_url: None,
+            },
+            codex: CodexConfig {
+                enabled: true,
+                codex_executable: "codex".to_string(),
+                app_server_args: Vec::new(),
+                codex_home: None,
+                approval_policy: "never".to_string(),
+                sandbox_type: "workspace-write".to_string(),
+                network_access: true,
+                idle_timeout_seconds: 1800,
+                max_runtime_seconds: 3600,
+            },
+            schedule_extraction_max_runtime_seconds: 120,
+            schedule_poll_interval_seconds: 15,
+            skills: SkillsConfig { shared_dirs },
+            public_base_url: None,
+            feishu: FeishuConfig::default(),
+            gogcli_oauth: GogcliOAuthConfig {
+                auto_register_client: true,
+                auto_from_request: true,
+                callback_url: None,
+                client_secret_json: None,
+                client: None,
+            },
+        }
+    }
+
+    fn write_skill(path: &Path, frontmatter: &str) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, format!("---\n{frontmatter}\n---\n# Test skill\n")).unwrap();
+    }
+
+    #[test]
+    fn shared_skill_wins_and_user_conflict_is_disabled() {
+        let root = std::env::temp_dir().join(format!("ripple-skills-test-{}", Uuid::new_v4()));
+        let shared = root.join("shared/demo/SKILL.md");
+        let workspace = root.join("workspace");
+        let user = workspace.join("skills/demo/SKILL.md");
+        write_skill(
+            &shared,
+            r#"name: demo
+description: shared demo
+version: "1.0.0""#,
+        );
+        write_skill(
+            &user,
+            r#"name: demo
+description: user demo
+version: "9.9.9""#,
+        );
+        let config = test_config(&root, vec![root.join("shared").to_string_lossy().to_string()]);
+
+        let entries = build_skill_manifest(&config, Some(&workspace));
+
+        let shared_entry = entries.iter().find(|entry| entry.id == "ripple:demo").unwrap();
+        assert_eq!(shared_entry.source, "ripple");
+        assert!(shared_entry.enabled);
+        assert_eq!(shared_entry.description, "shared demo");
+        let user_entry = entries.iter().find(|entry| entry.id == "user:demo").unwrap();
+        assert_eq!(user_entry.source, "user");
+        assert!(!user_entry.enabled);
+        assert_eq!(user_entry.status, "conflict_disabled");
+        assert_eq!(user_entry.conflict_with.as_deref(), Some("ripple:demo"));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn manifest_records_requirements_and_missing_status() {
+        let root = std::env::temp_dir().join(format!("ripple-skills-test-{}", Uuid::new_v4()));
+        let shared = root.join("shared/gmail/SKILL.md");
+        write_skill(
+            &shared,
+            r#"name: gmail
+description: Gmail workflow
+requires:
+  bins:
+    - definitely-missing-ripple-test-bin
+  connectors:
+    - google_workspace
+risk:
+  - destructive"#,
+        );
+        let config = test_config(&root, vec![root.join("shared").to_string_lossy().to_string()]);
+
+        let entries = build_skill_manifest(&config, None);
+        let entry = entries.iter().find(|entry| entry.id == "ripple:gmail").unwrap();
+
+        assert_eq!(entry.requires_bins, vec!["definitely-missing-ripple-test-bin"]);
+        assert_eq!(entry.requires_connectors, vec!["google_workspace"]);
+        assert_eq!(entry.risk_flags, vec!["destructive"]);
+        assert!(!entry.enabled);
+        assert_eq!(entry.status, "missing_requirements");
+
+        let rendered = render_skill_manifest(&config, None);
+        assert!(rendered.contains("ripple:gmail"));
+        assert!(rendered.contains("status: missing_requirements"));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+}

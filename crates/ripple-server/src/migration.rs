@@ -301,7 +301,8 @@ mod tests {
     use std::collections::BTreeMap;
 
     use crate::config::{
-        CodexConfig, FeishuConfig, GogcliOAuthConfig, LoggingConfig, SandboxConfig, SkillsConfig,
+        CodexConfig, CorsConfig, FeishuConfig, GogcliOAuthConfig, LoggingConfig, SandboxConfig,
+        SecurityConfig, SkillsConfig,
     };
 
     fn test_config(root: &Path) -> AppConfig {
@@ -310,6 +311,8 @@ mod tests {
             host: "127.0.0.1".to_string(),
             port: 0,
             api_keys: Vec::new(),
+            security: SecurityConfig::default(),
+            cors: CorsConfig::default(),
             default_model: "codex-test".to_string(),
             model_presets: BTreeMap::new(),
             logging: LoggingConfig {

@@ -9,9 +9,10 @@ use axum::body::{to_bytes, Body};
 use axum::http::{Method, Request, StatusCode};
 use ripple_server::api::{router, schedules::trigger_due_schedules};
 use ripple_server::config::{
-    AppConfig, CodexConfig, FeishuConfig, GogcliOAuthConfig, LoggingConfig, SandboxConfig,
-    SkillsConfig,
+    AppConfig, CodexConfig, CorsConfig, FeishuConfig, GogcliOAuthConfig, LoggingConfig,
+    SandboxConfig, SecurityConfig, SkillsConfig,
 };
+use ripple_server::jobs::AgentRunCreateRequest;
 use ripple_server::sessions::CreateSessionInput;
 use ripple_server::state::AppState;
 use serde_json::{json, Value};
@@ -25,6 +26,8 @@ fn test_config(root: &Path) -> AppConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
         api_keys: vec!["test-key".to_string()],
+        security: SecurityConfig::default(),
+        cors: CorsConfig::default(),
         default_model: "codex-test".to_string(),
         model_presets: BTreeMap::new(),
         logging: LoggingConfig {
@@ -521,6 +524,22 @@ fn request(method: Method, uri: &str, body: Value, authorized: bool) -> Request<
     }
 }
 
+fn request_as_user(method: Method, uri: &str, body: Value, user_id: &str) -> Request<Body> {
+    let builder = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header("authorization", "Bearer test-key")
+        .header("x-ripple-user-id", user_id);
+    if body.is_null() {
+        builder.body(Body::empty()).unwrap()
+    } else {
+        builder
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_vec(&body).unwrap()))
+            .unwrap()
+    }
+}
+
 async fn response_json(response: axum::response::Response) -> Value {
     let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     serde_json::from_slice(&bytes).unwrap_or(Value::Null)
@@ -655,6 +674,463 @@ async fn router_serves_core_control_plane_routes() {
         .await
         .unwrap();
     assert_eq!(tasks.status(), StatusCode::GONE);
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn session_overview_groups_sessions_and_enriches_linked_runs() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let codex_executable = write_fake_codex_app_server(&root);
+    let (state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, codex_executable));
+
+    let (status, session) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/sessions",
+        json!({"model": "codex-test"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let session_id = session
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("session id")
+        .to_string();
+
+    let mut record = state
+        .sessions
+        .load("smoke-user", &session_id)
+        .await
+        .unwrap()
+        .expect("session record");
+    record.title = "Plan the weekly review".to_string();
+    record.pinned = true;
+    record.status = "awaiting_user_input".to_string();
+    record.pending_question = Some("Send the draft?".to_string());
+    record.pending_options = Some(vec!["Send".to_string(), "Revise".to_string()]);
+    record.messages = vec![
+        json!({"role": "user", "content": "Prepare my weekly review"}),
+        json!({"role": "assistant", "content": "I drafted the review and need your confirmation."}),
+    ];
+    record.plan_steps = vec![
+        json!({"id": "step-1", "subject": "Read the notes", "status": "completed"}),
+        json!({"id": "step-2", "subject": "Wait for confirmation", "status": "in_progress"}),
+    ];
+    record.plan_progress = Some(json!({"completed": 1, "total": 2}));
+    state.sessions.save_record(record).await.unwrap();
+
+    let workspace_root = state.sandboxes.ensure_sandbox("smoke-user").unwrap();
+    let runtime_dir = state
+        .sandboxes
+        .sandbox_dir("smoke-user")
+        .unwrap()
+        .join("agent-runs");
+    let linked_run = state
+        .jobs
+        .start(
+            AgentRunCreateRequest {
+                prompt: "Linked session run".to_string(),
+                provider: "codex".to_string(),
+                cwd: None,
+                input_items: Vec::new(),
+                model: Some("codex-test".to_string()),
+                effort: None,
+                summary: None,
+                output_schema: None,
+                max_runtime_seconds: 5,
+                schedule_id: None,
+                schedule_title: None,
+                schedule_trigger: None,
+                codex_thread_id: None,
+                codex_persistent_thread: false,
+                chat_user_input: None,
+                chat_user_content: None,
+            },
+            "smoke-user".to_string(),
+            Some(session_id.clone()),
+            workspace_root.clone(),
+            runtime_dir.clone(),
+        )
+        .await
+        .unwrap();
+    let standalone_run = state
+        .jobs
+        .start(
+            AgentRunCreateRequest {
+                prompt: "Standalone run".to_string(),
+                provider: "codex".to_string(),
+                cwd: None,
+                input_items: Vec::new(),
+                model: Some("codex-test".to_string()),
+                effort: None,
+                summary: None,
+                output_schema: None,
+                max_runtime_seconds: 5,
+                schedule_id: None,
+                schedule_title: None,
+                schedule_trigger: None,
+                codex_thread_id: None,
+                codex_persistent_thread: false,
+                chat_user_input: None,
+                chat_user_content: None,
+            },
+            "smoke-user".to_string(),
+            None,
+            workspace_root,
+            runtime_dir,
+        )
+        .await
+        .unwrap();
+
+    let (status, overview) = call(
+        app.clone(),
+        Method::GET,
+        "/v1/sessions/overview",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(overview.get("count").and_then(Value::as_u64), Some(1));
+    assert_eq!(
+        overview
+            .pointer("/sessions/0/session_id")
+            .and_then(Value::as_str),
+        Some(session_id.as_str())
+    );
+    assert_eq!(
+        overview
+            .pointer("/sessions/0/pending_kind")
+            .and_then(Value::as_str),
+        Some("question")
+    );
+    assert_eq!(
+        overview
+            .pointer("/sessions/0/current_step")
+            .and_then(Value::as_str),
+        Some("Wait for confirmation")
+    );
+    assert_eq!(
+        overview
+            .pointer("/sessions/0/last_message_preview")
+            .and_then(Value::as_str),
+        Some("I drafted the review and need your confirmation.")
+    );
+    assert_eq!(
+        overview
+            .pointer("/sessions/0/last_run/job_id")
+            .and_then(Value::as_str),
+        Some(linked_run.job_id.as_str())
+    );
+    assert_ne!(
+        overview
+            .pointer("/sessions/0/last_run/job_id")
+            .and_then(Value::as_str),
+        Some(standalone_run.job_id.as_str())
+    );
+    assert_eq!(
+        overview
+            .pointer("/sections/needs_input/0")
+            .and_then(Value::as_str),
+        Some(session_id.as_str())
+    );
+    assert_eq!(
+        overview
+            .pointer("/sections/pinned/0")
+            .and_then(Value::as_str),
+        Some(session_id.as_str())
+    );
+    assert_eq!(
+        overview
+            .pointer("/sections/recent_sessions/0")
+            .and_then(Value::as_str),
+        Some(session_id.as_str())
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn session_overview_respects_user_id_isolation() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let (_state, app) = test_state_and_app(&root);
+
+    let first = app
+        .clone()
+        .oneshot(request_as_user(
+            Method::POST,
+            "/v1/sessions",
+            json!({"model": "codex-test"}),
+            "alice",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(first.status(), StatusCode::OK);
+    let first = response_json(first).await;
+    let alice_session_id = first
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("alice session")
+        .to_string();
+
+    let second = app
+        .clone()
+        .oneshot(request_as_user(
+            Method::POST,
+            "/v1/sessions",
+            json!({"model": "codex-test"}),
+            "bob",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(second.status(), StatusCode::OK);
+    let second = response_json(second).await;
+    let bob_session_id = second
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("bob session")
+        .to_string();
+
+    let response = app
+        .oneshot(request_as_user(
+            Method::GET,
+            "/v1/sessions/overview",
+            Value::Null,
+            "alice",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let overview = response_json(response).await;
+    let ids = overview
+        .get("sessions")
+        .and_then(Value::as_array)
+        .unwrap()
+        .iter()
+        .filter_map(|session| session.get("session_id").and_then(Value::as_str))
+        .collect::<Vec<_>>();
+    assert_eq!(ids, vec![alice_session_id.as_str()]);
+    assert!(!ids.contains(&bob_session_id.as_str()));
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn maturity_contract_routes_report_limits_security_and_diagnostics() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let (_state, app) = test_state_and_app(&root);
+
+    let (status, profile) = call(app.clone(), Method::GET, "/v1/users/me", Value::Null).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        profile
+            .pointer("/limits/max_workspace_bytes")
+            .and_then(Value::as_u64),
+        Some(2048 * 1024 * 1024)
+    );
+    assert_eq!(
+        profile
+            .pointer("/limits/max_sessions")
+            .and_then(Value::as_u64),
+        Some(200)
+    );
+    assert_eq!(
+        profile
+            .pointer("/limits/max_runs_per_day")
+            .and_then(Value::as_u64),
+        Some(200)
+    );
+
+    let (status, sandbox) = call(app.clone(), Method::GET, "/v1/sandbox/info", Value::Null).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        sandbox.get("deployment_mode").and_then(Value::as_str),
+        Some("trusted-proxy")
+    );
+    assert_eq!(
+        sandbox
+            .pointer("/execution/codex/runtime_boundary")
+            .and_then(Value::as_str),
+        Some("managed_permissions")
+    );
+    assert_eq!(
+        sandbox
+            .pointer("/execution/connectors/runtime_boundary")
+            .and_then(Value::as_str),
+        Some("nsjail")
+    );
+    assert_eq!(sandbox.get("mode").and_then(Value::as_str), None);
+
+    let (status, ready) = call(app.clone(), Method::GET, "/v1/health/ready", Value::Null).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(ready.pointer("/checks/sqlite/status").is_some());
+    assert!(ready.pointer("/checks/sandboxes_root/status").is_some());
+
+    let (status, doctor) = call(app, Method::GET, "/v1/diagnostics/doctor", Value::Null).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        doctor.get("deployment_mode").and_then(Value::as_str),
+        Some("trusted-proxy")
+    );
+    assert!(doctor
+        .get("checks")
+        .and_then(Value::as_array)
+        .is_some_and(|checks| checks.iter().any(|check| {
+            check.get("name").and_then(Value::as_str) == Some("config.security")
+        })));
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn api_errors_keep_detail_and_include_structured_error_envelope() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let (_state, app) = test_state_and_app(&root);
+
+    let response = app
+        .oneshot(request(Method::GET, "/v1/models", Value::Null, false))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    let body = response_json(response).await;
+
+    assert_eq!(
+        body.get("detail").and_then(Value::as_str),
+        Some("Invalid or missing API key")
+    );
+    assert_eq!(
+        body.pointer("/error/code").and_then(Value::as_str),
+        Some("unauthorized")
+    );
+    assert_eq!(
+        body.pointer("/error/message").and_then(Value::as_str),
+        Some("Invalid or missing API key")
+    );
+    assert!(body
+        .pointer("/error/request_id")
+        .and_then(Value::as_str)
+        .is_some());
+    assert_eq!(
+        body.pointer("/error/details").and_then(Value::as_str),
+        Some("Invalid or missing API key")
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn risky_delete_apis_require_confirm_true_and_audit() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let (_state, app) = test_state_and_app(&root);
+
+    let (status, schedule) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/schedules",
+        json!({
+            "title": "one shot",
+            "prompt": "say hi",
+            "kind": "once",
+            "timezone": "UTC",
+            "run_at": "2026-06-01T00:00:00Z"
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let schedule_id = schedule
+        .get("schedule_id")
+        .and_then(Value::as_str)
+        .expect("schedule id");
+
+    let (status, body) = call(
+        app.clone(),
+        Method::DELETE,
+        &format!("/v1/schedules/{schedule_id}"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::PRECONDITION_REQUIRED);
+    assert_eq!(
+        body.pointer("/detail/code").and_then(Value::as_str),
+        Some("confirmation_required")
+    );
+
+    let (status, deleted) = call(
+        app.clone(),
+        Method::DELETE,
+        &format!("/v1/schedules/{schedule_id}"),
+        json!({ "confirm": true }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(deleted.get("ok").and_then(Value::as_bool), Some(true));
+
+    let audit = fs::read_to_string(root.join(".ripple/audit.jsonl")).expect("audit log");
+    assert!(audit.contains("\"action\":\"schedule.delete\""));
+    assert!(audit.contains("\"confirmed\":true"));
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn list_schedules_support_limit_cursor_pagination() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let (_state, app) = test_state_and_app(&root);
+
+    for index in 0..3 {
+        let (status, _schedule) = call(
+            app.clone(),
+            Method::POST,
+            "/v1/schedules",
+            json!({
+                "title": format!("schedule {index}"),
+                "prompt": "say hi",
+                "kind": "once",
+                "timezone": "UTC",
+                "run_at": format!("2026-06-0{}T00:00:00Z", index + 1)
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    let (status, first_page) = call(
+        app.clone(),
+        Method::GET,
+        "/v1/schedules?limit=1",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        first_page
+            .get("schedules")
+            .and_then(Value::as_array)
+            .map(Vec::len),
+        Some(1)
+    );
+    let cursor = first_page
+        .get("next_cursor")
+        .and_then(Value::as_str)
+        .expect("next cursor");
+
+    let (status, second_page) = call(
+        app,
+        Method::GET,
+        &format!("/v1/schedules?limit=2&cursor={cursor}"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        second_page
+            .get("schedules")
+            .and_then(Value::as_array)
+            .map(Vec::len),
+        Some(2)
+    );
+    assert_eq!(second_page.get("next_cursor").and_then(Value::as_str), None);
 
     let _ = std::fs::remove_dir_all(root);
 }
@@ -1247,7 +1723,7 @@ async fn router_serves_schedule_crud_routes_without_starting_codex() {
         app.clone(),
         Method::DELETE,
         &format!("/v1/schedules/{schedule_id}"),
-        Value::Null,
+        json!({ "confirm": true }),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
@@ -1316,6 +1792,19 @@ async fn runs_route_completes_with_fake_codex_app_server() {
     );
 
     let response = app
+        .clone()
+        .oneshot(request(
+            Method::GET,
+            &format!("/v1/runs/{job_id}/output"),
+            Value::Null,
+            true,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response_text(response).await, "fake codex completed");
+
+    let response = app
         .oneshot(request(
             Method::GET,
             &format!("/v1/runs/{job_id}/events?from_start=true&follow=false"),
@@ -1327,9 +1816,74 @@ async fn runs_route_completes_with_fake_codex_app_server() {
     assert_eq!(response.status(), StatusCode::OK);
     let events = response_text(response).await;
     assert!(events.contains("\"type\":\"runner.started\""));
+    assert!(events.contains("\"event_version\":1"));
     assert!(events.contains("\"type\":\"codex.notification\""));
     assert!(events.contains("\"type\":\"runner.completed\""));
     assert!(events.contains("data: [DONE]"));
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn codex_disabled_rejects_runs_chat_and_schedule_extraction_before_starting_runtime() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let mut config = test_config_with_codex_executable(&root, fake_codex);
+    config.codex.enabled = false;
+    let (_state, app) = test_state_and_app_with_config(config);
+
+    let (status, run) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/runs",
+        json!({
+            "prompt": "this should not start",
+            "model": "codex-test",
+            "max_runtime_seconds": 5
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(
+        run.pointer("/detail/code").and_then(Value::as_str),
+        Some("codex_disabled")
+    );
+
+    let (status, chat) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/chat/completions",
+        json!({
+            "model": "codex-test",
+            "messages": [{"role": "user", "content": "hello"}],
+            "stream": false
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(
+        chat.pointer("/detail/code").and_then(Value::as_str),
+        Some("codex_disabled")
+    );
+
+    let (status, schedule_chat) = call(
+        app,
+        Method::POST,
+        "/v1/chat/completions",
+        json!({
+            "model": "codex-test",
+            "messages": [{"role": "user", "content": "请 1 分钟后提醒我测试"}],
+            "stream": false
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(
+        schedule_chat
+            .pointer("/detail/code")
+            .and_then(Value::as_str),
+        Some("codex_disabled")
+    );
 
     let _ = std::fs::remove_dir_all(root);
 }
@@ -1622,7 +2176,13 @@ async fn delete_sandbox_cancels_live_user_runs_before_teardown() {
     .await;
     assert_eq!(status, StatusCode::OK);
 
-    let (status, deleted) = call(app.clone(), Method::DELETE, "/v1/sandboxes", Value::Null).await;
+    let (status, deleted) = call(
+        app.clone(),
+        Method::DELETE,
+        "/v1/sandboxes",
+        json!({ "confirm": true }),
+    )
+    .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(deleted.get("ok").and_then(Value::as_bool), Some(true));
     assert!(

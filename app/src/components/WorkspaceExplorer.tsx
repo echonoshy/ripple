@@ -205,7 +205,9 @@ export default function WorkspaceExplorer({
   const [creationDraft, setCreationDraft] = useState("");
   const [creationSaving, setCreationSaving] = useState(false);
   const splitPercentRef = useRef(splitPercent);
-  const pendingFileOpenRef = useRef<{ path: string; lineNumber?: number; userId?: string } | null>(null);
+  const pendingFileOpenRef = useRef<{ path: string; lineNumber?: number; userId?: string } | null>(
+    null
+  );
   const splitContainerRef = useRef<HTMLDivElement | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const renameInputRef = useRef<HTMLInputElement | null>(null);
@@ -334,11 +336,11 @@ export default function WorkspaceExplorer({
       currentPathRef.current = path;
       setCurrentPath(path);
       setListing(workspaceListingCache.get(workspaceCacheKey(userId, path)) || null);
-      
+
       const pending = pendingFileOpenRef.current;
       if (pending && pending.userId === userId) {
         pendingFileOpenRef.current = null;
-        
+
         const loadPendingFile = async () => {
           setPreviewLoading(true);
           setError(null);
@@ -373,7 +375,7 @@ export default function WorkspaceExplorer({
         setIsEditing(false);
         setHighlightedLine(null);
       }
-      
+
       setQuery("");
       setSearchResults([]);
     }
@@ -820,14 +822,18 @@ export default function WorkspaceExplorer({
 
   useEffect(() => {
     const handleOpenWorkspaceFile = (event: Event) => {
-      const customEvent = event as CustomEvent<{ path: string; lineNumber?: number; userId?: string }>;
+      const customEvent = event as CustomEvent<{
+        path: string;
+        lineNumber?: number;
+        userId?: string;
+      }>;
       const { path: targetPath, lineNumber, userId: targetUserId } = customEvent.detail;
-      
+
       if (targetUserId && targetUserId !== userId) {
         pendingFileOpenRef.current = { path: targetPath, lineNumber, userId: targetUserId };
         return;
       }
-      
+
       // Load and preview the target file
       const loadTargetFile = async () => {
         setPreviewLoading(true);
@@ -839,7 +845,7 @@ export default function WorkspaceExplorer({
           setDraft(filePreview.content);
           setIsEditing(false);
           setSaveError(null);
-          
+
           if (lineNumber !== undefined) {
             setHighlightedLine(lineNumber);
           } else {
@@ -1323,10 +1329,7 @@ export default function WorkspaceExplorer({
                       className="min-h-0 flex-1 resize-none overflow-auto border-0 bg-white p-3 font-[family-name:var(--font-mono)] text-[12px] leading-relaxed text-[#171a1f] outline-none"
                     />
                   ) : (
-                    <div
-                      ref={preContainerRef}
-                      className="min-h-0 flex-1 overflow-auto bg-white"
-                    >
+                    <div ref={preContainerRef} className="min-h-0 flex-1 overflow-auto bg-white">
                       {(() => {
                         const lines = preview.content.split("\n");
                         return (
@@ -1340,14 +1343,14 @@ export default function WorkspaceExplorer({
                                   ref={isLineHighlighted ? highlightedLineRef : undefined}
                                   className={`flex min-w-0 items-start font-[family-name:var(--font-mono)] text-[12px] leading-relaxed transition-colors ${
                                     isLineHighlighted
-                                      ? "bg-[#fff8c5] border-l-2 border-[#bf8700] pl-[10px]"
-                                      : "hover:bg-[#f8fafc] pl-3"
+                                      ? "border-l-2 border-[#bf8700] bg-[#fff8c5] pl-[10px]"
+                                      : "pl-3 hover:bg-[#f8fafc]"
                                   }`}
                                 >
-                                  <span className="w-9 shrink-0 select-none text-right pr-3 text-[#afb1b7]">
+                                  <span className="w-9 shrink-0 pr-3 text-right text-[#afb1b7] select-none">
                                     {lineNum}
                                   </span>
-                                  <span className="flex-1 whitespace-pre-wrap break-all text-[#171a1f]">
+                                  <span className="flex-1 break-all whitespace-pre-wrap text-[#171a1f]">
                                     {line || " "}
                                   </span>
                                 </div>

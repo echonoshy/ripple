@@ -1,8 +1,11 @@
 pub mod api;
 pub mod codex;
 pub mod config;
+pub mod connector_runtime;
+pub mod diagnostics;
 pub mod jobs;
 pub mod migration;
+pub mod redaction;
 pub mod sandbox;
 pub mod sessions;
 pub mod skills;
@@ -14,9 +17,10 @@ pub mod workspace;
 use std::net::SocketAddr;
 
 use anyhow::Context;
+use axum::http::{header, HeaderName, HeaderValue, Method};
 use std::future::Future;
 use tokio::net::TcpListener;
-use tower_http::cors::CorsLayer;
+use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing::info;
 
@@ -49,11 +53,18 @@ where
     S: Future<Output = ()> + Send + 'static,
 {
     let addr = listener.local_addr()?;
-    let state = AppState::new(config);
+    let state = AppState::new(config.clone());
+    let recovered = state.jobs.recover_interrupted_stored_runs().await?;
+    if recovered > 0 {
+        info!(
+            "marked {} queued/running job(s) as interrupted_by_restart",
+            recovered
+        );
+    }
     let schedule_task = tokio::spawn(api::schedules::schedule_trigger_loop(state.clone()));
     let session_maintenance_task = tokio::spawn(state.sessions.clone().maintenance_loop());
     let app = router(state)
-        .layer(CorsLayer::permissive())
+        .layer(cors_layer(&config))
         .layer(TraceLayer::new_for_http());
 
     info!("Ripple Rust server listening on http://{}", addr);
@@ -64,6 +75,37 @@ where
     session_maintenance_task.abort();
     result?;
     Ok(())
+}
+
+fn cors_layer(config: &AppConfig) -> CorsLayer {
+    let layer = CorsLayer::new()
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::PATCH,
+            Method::DELETE,
+        ])
+        .allow_headers([
+            header::AUTHORIZATION,
+            header::CONTENT_TYPE,
+            HeaderName::from_static("x-api-key"),
+            HeaderName::from_static("x-ripple-user-id"),
+        ]);
+    if config.cors.allow_any_origin {
+        return layer.allow_origin(Any);
+    }
+    let origins = config
+        .cors
+        .allowed_origins
+        .iter()
+        .filter_map(|origin| HeaderValue::from_str(origin).ok())
+        .collect::<Vec<_>>();
+    if origins.is_empty() {
+        layer
+    } else {
+        layer.allow_origin(origins)
+    }
 }
 
 async fn shutdown_signal() {

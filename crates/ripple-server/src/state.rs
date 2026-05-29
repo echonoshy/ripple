@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::config::AppConfig;
+use crate::connector_runtime::ConnectorRuntime;
 use crate::jobs::JobManager;
 use crate::sandbox::SandboxManager;
 use crate::sessions::SessionManager;
@@ -13,6 +14,7 @@ pub struct AppState {
     pub sessions: SessionManager,
     pub jobs: JobManager,
     pub storage: Storage,
+    pub connector_runtime: ConnectorRuntime,
 }
 
 impl AppState {
@@ -23,12 +25,14 @@ impl AppState {
         let jobs = JobManager::new_with_storage(config.clone(), storage.clone());
         let sessions =
             SessionManager::new_with_storage(config.clone(), sandboxes.clone(), storage.clone());
+        let connector_runtime = ConnectorRuntime::default();
         Self {
             config,
             sandboxes,
             sessions,
             jobs,
             storage,
+            connector_runtime,
         }
     }
 }

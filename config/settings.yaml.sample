@@ -76,6 +76,17 @@ logging:
 server:
   host: "0.0.0.0"
   port: 8810
+  security:
+    # v1 推荐单机 trusted-proxy 部署：浏览器只访问上游 Web/proxy，
+    # proxy 完成用户认证后注入 X-Ripple-User-Id，并剥离客户端伪造 header。
+    deployment_mode: "trusted-proxy"
+    require_confirm_for_risky_api: true
+    # 远程生产恢复 HTTPS 域名后建议设为 true；当前临时 HTTP IP 直连阶段保持 false。
+    require_https: false
+  cors:
+    # 默认不开放浏览器跨域。若必须让独立 Web 前端直连 API，只填明确 origin。
+    allowed_origins: []
+    allow_any_origin: false
   # /v1/chat/completions 启动当前 job 的 Codex app-server，并以当前 user workspace 为 cwd。
   codex_chat:
     max_runtime_seconds: 3600

@@ -19,6 +19,7 @@ use tokio::time::timeout;
 use crate::codex::approvals::{approval_response_for_action, CodexApproval};
 use crate::codex::permissions::{thread_permission_config, RIPPLE_CODEX_PERMISSION_PROFILE};
 use crate::config::AppConfig;
+use crate::redaction::{redact_text, redact_value};
 
 const TAIL_CHARS: usize = 64_000;
 const CODEX_NATIVE_INPUT_TYPES: &[&str] = &["text", "image", "localImage", "skill", "mention"];
@@ -504,7 +505,7 @@ impl CodexAppServerSession {
         let mut lines = BufReader::new(stderr).lines();
         while let Ok(Some(line)) = lines.next_line().await {
             let mut tail = self.stderr_tail.lock().await;
-            tail.push_str(&line);
+            tail.push_str(&redact_text(&line));
             tail.push('\n');
             if tail.len() > TAIL_CHARS {
                 let keep_from = tail.len() - TAIL_CHARS;
@@ -633,7 +634,7 @@ impl CodexAppServerProvider {
                 metadata.insert("codex_thread_resumed".to_string(), json!(thread_resumed));
             }
         }
-        let stderr_tail = session.stderr_tail().await;
+        let stderr_tail = redact_text(&session.stderr_tail().await);
         self.shutdown_job_session(&job_id).await;
         Ok(AgentRunnerResult {
             job_id,
@@ -642,7 +643,7 @@ impl CodexAppServerProvider {
             events_file,
             output_file: Some(output_file),
             exit_code: None,
-            stdout_tail: tail(&output_text),
+            stdout_tail: redact_text(&tail(&output_text)),
             stderr_tail,
             error,
             metadata: Value::Object(metadata),
@@ -1232,6 +1233,45 @@ fn notification_thread_id(message: &Value) -> Option<String> {
         })
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn codex_input_items_filters_native_skill_and_mention_items() {
+        let request = AgentRunnerRequest {
+            provider: "codex".to_string(),
+            prompt: "fallback prompt".to_string(),
+            cwd: PathBuf::from("/tmp/ripple-test"),
+            input_items: vec![
+                json!({"type": "skill", "name": "google_workspace"}),
+                json!({"type": "mention", "app": "canva"}),
+                json!({"type": "text", "text": "hello"}),
+                json!({"type": "image", "image": "data"}),
+                json!({"type": "localImage", "path": "/tmp/a.png"}),
+            ],
+            model: None,
+            effort: None,
+            summary: None,
+            output_schema: None,
+            max_runtime_seconds: 60,
+            user_id: Some("alice".to_string()),
+            session_id: Some("session-1".to_string()),
+            metadata: json!({}),
+        };
+
+        let items = codex_input_items(&request);
+        let item_types = items
+            .iter()
+            .filter_map(|item| item.get("type").and_then(Value::as_str))
+            .collect::<Vec<_>>();
+
+        assert_eq!(item_types, vec!["text", "image", "localImage"]);
+        assert!(!items.iter().any(|item| item.get("type") == Some(&json!("skill"))));
+        assert!(!items.iter().any(|item| item.get("type") == Some(&json!("mention"))));
+    }
+}
+
 fn notification_turn_id(message: &Value) -> Option<String> {
     let params = message.get("params")?;
     params
@@ -1413,7 +1453,7 @@ async fn append_event(
     if let Some(parent) = events_file.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
-    let event = json!({
+    let event = redact_value(&json!({
         "type": event_type,
         "job_id": job_id,
         "provider": provider,
@@ -1421,7 +1461,7 @@ async fn append_event(
         "message": message,
         "data": data,
         "created_at": now_iso()
-    });
+    }));
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)

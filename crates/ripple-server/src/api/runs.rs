@@ -12,7 +12,7 @@ use serde_json::{json, Value};
 use tokio::time::{sleep, Duration};
 
 use crate::api::users::assert_can_create_run;
-use crate::api::ApiError;
+use crate::api::{paginate, ApiError, ListQuery};
 use crate::codex::events::{extract_codex_runtime_event, extract_plan_update_event};
 use crate::jobs::{AgentRunCreateRequest, AgentRunInfo};
 use crate::state::AppState;
@@ -23,10 +23,18 @@ const TERMINAL_STATUSES: &[&str] = &["completed", "failed", "cancelled"];
 pub async fn list_runs(
     State(state): State<AppState>,
     headers: HeaderMap,
+    Query(query): Query<ListQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     let runs = state.jobs.list_user(&user_id).await?;
-    Ok(Json(json!({ "runs": runs, "count": runs.len() })))
+    let total = runs.len();
+    let (runs, next_cursor) = paginate(runs, &query);
+    Ok(Json(json!({
+        "runs": runs,
+        "count": runs.len(),
+        "total": total,
+        "next_cursor": next_cursor
+    })))
 }
 
 pub async fn create_run(
@@ -131,6 +139,39 @@ pub async fn run_events(
     response
         .headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    Ok(response)
+}
+
+pub async fn run_output(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(job_id): Path<String>,
+) -> Result<Response<Body>, ApiError> {
+    let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    let Some(info) = info_for_user(&state, &user_id, &job_id).await? else {
+        return Err(ApiError::not_found("Agent run not found"));
+    };
+    let Some(output_file) = info.output_file.as_deref() else {
+        return Err(ApiError::not_found("Agent run output not found"));
+    };
+    let output_path = FsPath::new(output_file);
+    let sandbox_dir = state.sandboxes.sandbox_dir(&user_id)?;
+    let resolved = output_path.canonicalize().map_err(ApiError::from)?;
+    let sandbox_dir = sandbox_dir.canonicalize().map_err(ApiError::from)?;
+    if !resolved.starts_with(&sandbox_dir) || !resolved.is_file() {
+        return Err(ApiError::not_found("Agent run output not found"));
+    }
+    let bytes = tokio::fs::read(resolved).await?;
+    let mut response = Response::new(Body::from(bytes));
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/plain; charset=utf-8"),
+    );
+    response.headers_mut().insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_str(&format!("attachment; filename=\"{job_id}-output.txt\""))
+            .unwrap_or_else(|_| HeaderValue::from_static("attachment")),
+    );
     Ok(response)
 }
 
@@ -246,10 +287,23 @@ async fn read_events_from_offset(events_file: &FsPath, offset: &mut usize) -> Ve
 }
 
 fn sse_json(value: &Value) -> Bytes {
+    let value = versioned_event(value);
     Bytes::from(format!(
         "data: {}\n\n",
-        serde_json::to_string(value).unwrap_or_else(|_| "{}".to_string())
+        serde_json::to_string(&value).unwrap_or_else(|_| "{}".to_string())
     ))
+}
+
+fn versioned_event(value: &Value) -> Value {
+    let Some(object) = value.as_object() else {
+        return value.clone();
+    };
+    if object.contains_key("event_version") {
+        return value.clone();
+    }
+    let mut object = object.clone();
+    object.insert("event_version".to_string(), json!(1));
+    Value::Object(object)
 }
 
 fn now_epoch_seconds() -> u64 {

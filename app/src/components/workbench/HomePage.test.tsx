@@ -42,6 +42,7 @@ function testHomePageHasExpectedSpecificCopy() {
   assert.match(html, />Files/);
   assert.match(html, />Connectors/);
   assert.match(html, />Automations/);
+  assert.match(html, />System/);
   assert.match(html, />API endpoint/);
   assert.match(html, /http:\/\/140\.143\.229\.103:8810\/v1/);
   assert.match(html, />Sandbox Status</);

@@ -56,6 +56,84 @@ pub struct SessionRecord {
     pub plan_progress: Option<Value>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SessionStatus {
+    Idle,
+    Queued,
+    Running,
+    Compacting,
+    AwaitingUserInput,
+    WaitingForUser,
+    AwaitingPermission,
+    WaitingForApproval,
+    Suspended,
+    Cancelled,
+    Failed,
+    Other,
+}
+
+impl SessionStatus {
+    pub(crate) fn parse(status: &str) -> Self {
+        match status {
+            "idle" => Self::Idle,
+            "queued" => Self::Queued,
+            "running" => Self::Running,
+            "compacting" => Self::Compacting,
+            "awaiting_user_input" => Self::AwaitingUserInput,
+            "waiting_for_user" => Self::WaitingForUser,
+            "awaiting_permission" => Self::AwaitingPermission,
+            "waiting_for_approval" => Self::WaitingForApproval,
+            "suspended" => Self::Suspended,
+            "cancelled" => Self::Cancelled,
+            "failed" => Self::Failed,
+            _ => Self::Other,
+        }
+    }
+
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Idle => "idle",
+            Self::Queued => "queued",
+            Self::Running => "running",
+            Self::Compacting => "compacting",
+            Self::AwaitingUserInput => "awaiting_user_input",
+            Self::WaitingForUser => "waiting_for_user",
+            Self::AwaitingPermission => "awaiting_permission",
+            Self::WaitingForApproval => "waiting_for_approval",
+            Self::Suspended => "suspended",
+            Self::Cancelled => "cancelled",
+            Self::Failed => "failed",
+            Self::Other => "idle",
+        }
+    }
+
+    pub(crate) fn is_active_run(self) -> bool {
+        matches!(self, Self::Queued | Self::Running)
+    }
+
+    pub(crate) fn is_busy(self) -> bool {
+        matches!(self, Self::Queued | Self::Running | Self::Compacting)
+    }
+
+    pub(crate) fn is_waiting_for_user(self) -> bool {
+        matches!(self, Self::AwaitingUserInput | Self::WaitingForUser)
+    }
+
+    pub(crate) fn is_awaiting_approval(self) -> bool {
+        matches!(self, Self::AwaitingPermission | Self::WaitingForApproval)
+    }
+}
+
+impl SessionRecord {
+    pub(crate) fn status_kind(&self) -> SessionStatus {
+        SessionStatus::parse(&self.status)
+    }
+
+    pub(crate) fn set_status(&mut self, status: SessionStatus) {
+        self.status = status.as_str().to_string();
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct SessionInfo {
     pub session_id: String,
@@ -333,10 +411,10 @@ impl SessionManager {
         let Some(mut record) = record else {
             return Ok(None);
         };
-        if record.status == "suspended" {
+        if record.status_kind() == SessionStatus::Suspended {
             return Ok(None);
         }
-        record.status = "suspended".to_string();
+        record.set_status(SessionStatus::Suspended);
         record.last_active = now_iso();
         self.persist(&record).await?;
         Ok(Some(record))
@@ -350,8 +428,8 @@ impl SessionManager {
         let Some(mut record) = self.load(user_id, session_id).await? else {
             return Ok(None);
         };
-        if record.status == "suspended" {
-            record.status = "idle".to_string();
+        if record.status_kind() == SessionStatus::Suspended {
+            record.set_status(SessionStatus::Idle);
         }
         self.save_record(record.clone()).await?;
         Ok(Some(record))
@@ -360,7 +438,7 @@ impl SessionManager {
     pub async fn list_suspended_sessions(&self, user_id: &str) -> anyhow::Result<Vec<Value>> {
         let mut records = Vec::new();
         for record in self.storage.list_sessions(user_id).await? {
-            if record.status != "suspended" {
+            if record.status_kind() != SessionStatus::Suspended {
                 continue;
             }
             records.push(serde_json::json!({
@@ -408,11 +486,8 @@ impl SessionManager {
             } else {
                 record.pending_connector_auth = None;
             }
-            if matches!(
-                record.status.as_str(),
-                "awaiting_user_input" | "waiting_for_user"
-            ) {
-                record.status = "idle".to_string();
+            if record.status_kind().is_waiting_for_user() {
+                record.set_status(SessionStatus::Idle);
             }
             record.last_active = now_iso();
             self.persist(&record).await?;
@@ -447,19 +522,19 @@ impl SessionManager {
                 continue;
             };
             if should_auto_suspend(record, now, idle_suspend_seconds) {
-                record.status = "suspended".to_string();
+                record.set_status(SessionStatus::Suspended);
                 record.last_active = now_iso();
                 self.persist(record).await?;
                 suspended += 1;
             }
         }
-        active.retain(|_, record| record.status != "suspended");
+        active.retain(|_, record| record.status_kind() != SessionStatus::Suspended);
         drop(active);
 
         if retention_seconds > 0 {
             for user_id in self.sandboxes.list_user_sandboxes()? {
                 for record in self.storage.list_sessions(&user_id).await? {
-                    if record.status != "suspended" {
+                    if record.status_kind() != SessionStatus::Suspended {
                         continue;
                     }
                     if session_age_seconds(&record, now).is_some_and(|age| age > retention_seconds)
@@ -491,7 +566,7 @@ impl SessionManager {
         record.messages.clear();
         record.message_count = 0;
         record.title.clear();
-        record.status = "idle".to_string();
+        record.set_status(SessionStatus::Idle);
         record.total_input_tokens = 0;
         record.total_output_tokens = 0;
         record.last_input_tokens = 0;
@@ -527,7 +602,7 @@ impl SessionManager {
             .filter(|value| !value.is_empty())
             .map(str::to_string)
             .ok_or_else(|| anyhow::anyhow!("Session has no Codex thread to compact"))?;
-        record.status = "compacting".to_string();
+        record.set_status(SessionStatus::Compacting);
         record.pending_question = None;
         record.pending_options = None;
         record.pending_permission_request = None;
@@ -547,10 +622,14 @@ impl SessionManager {
         let Some(mut record) = self.load(user_id, session_id).await? else {
             return Ok(false);
         };
-        if record.status != "compacting" {
+        if record.status_kind() != SessionStatus::Compacting {
             return Ok(false);
         }
-        record.status = if succeeded { "idle" } else { "failed" }.to_string();
+        record.set_status(if succeeded {
+            SessionStatus::Idle
+        } else {
+            SessionStatus::Failed
+        });
         record.pending_permission_request = None;
         record.plan_steps.clear();
         record.plan_progress = None;
@@ -578,10 +657,10 @@ impl SessionManager {
         let Some(mut record) = self.load(user_id, session_id).await? else {
             return Ok(false);
         };
-        if record.status != "compacting" {
+        if record.status_kind() != SessionStatus::Compacting {
             return Ok(false);
         }
-        record.status = "idle".to_string();
+        record.set_status(SessionStatus::Idle);
         record.pending_permission_request = None;
         record.plan_steps.clear();
         record.plan_progress = None;
@@ -714,10 +793,8 @@ fn should_auto_suspend(record: &SessionRecord, now: OffsetDateTime, limit_second
     if limit_seconds == 0 {
         return false;
     }
-    if matches!(
-        record.status.as_str(),
-        "queued" | "running" | "compacting" | "awaiting_permission" | "waiting_for_approval"
-    ) {
+    let status = record.status_kind();
+    if status.is_busy() || status.is_awaiting_approval() {
         return false;
     }
     session_age_seconds(record, now).is_some_and(|age| age > limit_seconds)
@@ -757,8 +834,8 @@ mod tests {
     use std::path::Path;
 
     use crate::config::{
-        AppConfig, CodexConfig, FeishuConfig, GogcliOAuthConfig, LoggingConfig, SandboxConfig,
-        SkillsConfig,
+        AppConfig, CodexConfig, CorsConfig, FeishuConfig, GogcliOAuthConfig, LoggingConfig,
+        SandboxConfig, SecurityConfig, SkillsConfig,
     };
     use time::Duration as TimeDuration;
 
@@ -768,6 +845,8 @@ mod tests {
             host: "127.0.0.1".to_string(),
             port: 0,
             api_keys: Vec::new(),
+            security: SecurityConfig::default(),
+            cors: CorsConfig::default(),
             default_model: "codex-test".to_string(),
             model_presets: Default::default(),
             logging: LoggingConfig {

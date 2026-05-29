@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::path::{Path as FsPath, PathBuf};
 use std::process::Stdio;
-use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use axum::extract::{OriginalUri, Path, Query, State};
@@ -12,13 +11,14 @@ use reqwest::header;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::{Child, Command};
-use tokio::sync::Mutex as AsyncMutex;
+use tokio::process::Command;
 use url::{form_urlencoded, Url};
 use uuid::Uuid;
 
-use crate::api::ApiError;
+use crate::api::{audit_event, require_confirm, ApiError};
 use crate::config::{FeishuAppConfig, GogcliOAuthClient};
+use crate::connector_runtime::{PendingBilibiliQr, PendingFeishuSetup, PendingGogcliOAuth};
+use crate::redaction::{redact_text, redact_value};
 use crate::state::AppState;
 use crate::user::user_id_from_headers;
 
@@ -57,13 +57,6 @@ const BILIBILI_QRCODE_TTL_SECONDS: u64 = 180;
 const BILIBILI_PENDING_TTL_SECONDS: u64 = 600;
 
 #[derive(Clone, Debug)]
-struct PendingGogcliOAuth {
-    user_id: String,
-    redirect_uri: String,
-    expires_at: u64,
-}
-
-#[derive(Clone, Debug)]
 struct GogcliClientConfig {
     client_id: String,
     client_secret: String,
@@ -79,17 +72,6 @@ struct GoogleOAuthToken {
 struct GoogleOAuthIdentity {
     email: String,
     subject: String,
-}
-
-#[derive(Debug)]
-struct PendingFeishuSetup {
-    process: Child,
-    url: String,
-}
-
-#[derive(Clone, Debug)]
-struct PendingBilibiliQr {
-    expires_at: u64,
 }
 
 #[derive(Debug)]
@@ -113,11 +95,6 @@ struct BilibiliLiveCredential {
     mid: u64,
     raw_log: Option<String>,
 }
-
-static PENDING_GOGCLI_OAUTH: OnceLock<Mutex<HashMap<String, PendingGogcliOAuth>>> = OnceLock::new();
-static PENDING_FEISHU_SETUP: OnceLock<AsyncMutex<HashMap<String, PendingFeishuSetup>>> =
-    OnceLock::new();
-static PENDING_BILIBILI_QR: OnceLock<Mutex<HashMap<String, PendingBilibiliQr>>> = OnceLock::new();
 
 pub async fn list_connectors() -> Json<Value> {
     Json(json!({
@@ -308,6 +285,17 @@ pub async fn connector_disconnect(
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     state.sandboxes.ensure_sandbox(&user_id)?;
     let payload = body.map(|Json(value)| value).unwrap_or_else(|| json!({}));
+    if state.config.security.require_confirm_for_risky_api {
+        require_confirm(Some(&payload), "connector.disconnect")?;
+    }
+    audit_event(
+        &state,
+        &user_id,
+        "connector.disconnect",
+        true,
+        json!({"connector": connector_name}),
+    )
+    .await?;
     match connector_name.as_str() {
         "notion" => notion_disconnect(&state, &user_id).await,
         "google_workspace" => google_disconnect(&state, &user_id, &payload).await,
@@ -373,7 +361,7 @@ pub async fn gogcli_oauth_callback(
         );
     }
 
-    let Some(pending) = pop_pending_gogcli_oauth(&oauth_state) else {
+    let Some(pending) = pop_pending_gogcli_oauth(&state, &oauth_state) else {
         return gogcli_oauth_html(
             StatusCode::BAD_REQUEST,
             "Google 授权已过期",
@@ -604,7 +592,7 @@ async fn google_auth_start(
     let oauth_state = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
     let oauth_url =
         build_google_workspace_oauth_url(&client_config.client_id, &callback_url, &oauth_state)?;
-    register_pending_gogcli_oauth(&oauth_state, user_id, &callback_url);
+    register_pending_gogcli_oauth(state, &oauth_state, user_id, &callback_url);
     Ok(Json(action_response(
         "google_workspace",
         true,
@@ -649,7 +637,7 @@ async fn google_auth_complete(
     }
 
     if let Some(oauth_state) = extract_oauth_state(callback_url) {
-        if let Some(pending) = pop_pending_gogcli_oauth(&oauth_state) {
+        if let Some(pending) = pop_pending_gogcli_oauth(state, &oauth_state) {
             if pending.user_id != user_id {
                 return Ok(Json(action_response(
                     "google_workspace",
@@ -933,7 +921,7 @@ async fn feishu_auth_complete(
 }
 
 async fn feishu_disconnect(state: &AppState, user_id: &str) -> Result<Json<Value>, ApiError> {
-    cancel_feishu_setup(user_id).await;
+    cancel_feishu_setup(state, user_id).await;
     let seed = state
         .sandboxes
         .credentials_dir(user_id)?
@@ -957,7 +945,7 @@ async fn feishu_disconnect(state: &AppState, user_id: &str) -> Result<Json<Value
 }
 
 async fn bilibili_disconnect(state: &AppState, user_id: &str) -> Result<Json<Value>, ApiError> {
-    let pending_scan_cancelled = release_pending_bilibili_qr(user_id).is_some();
+    let pending_scan_cancelled = release_pending_bilibili_qr(state, user_id).is_some();
     let path = state.sandboxes.bilibili_config_file(user_id)?;
     let removed = remove_file_if_exists(&path).await?;
     state.sandboxes.write_nsjail_config(user_id)?;
@@ -1003,7 +991,7 @@ async fn bilibili_auth_start(state: &AppState, user_id: &str) -> Result<Json<Val
             )))
         }
     };
-    register_pending_bilibili_qr(user_id);
+    register_pending_bilibili_qr(state, user_id);
     let encoded_content =
         form_urlencoded::byte_serialize(generated.qrcode_content.as_bytes()).collect::<String>();
     let app_url = bilibili_app_url(&generated.qrcode_content);
@@ -1057,7 +1045,7 @@ async fn bilibili_auth_complete(
                 last_raw_message = result.raw_message.clone();
                 match result.state {
                     "expired" => {
-                        release_pending_bilibili_qr(user_id);
+                        release_pending_bilibili_qr(state, user_id);
                         return Ok(Json(action_response(
                             "bilibili",
                             true,
@@ -1074,7 +1062,7 @@ async fn bilibili_auth_complete(
                             .unwrap_or("")
                             .trim();
                         if sessdata.is_empty() {
-                            release_pending_bilibili_qr(user_id);
+                            release_pending_bilibili_qr(state, user_id);
                             return Ok(Json(action_response(
                                 "bilibili",
                                 false,
@@ -1095,7 +1083,7 @@ async fn bilibili_auth_complete(
                         let credential = Value::Object(credential);
                         write_bilibili_credential(state, user_id, &credential).await?;
                         state.sandboxes.write_nsjail_config(user_id)?;
-                        release_pending_bilibili_qr(user_id);
+                        release_pending_bilibili_qr(state, user_id);
                         return Ok(Json(action_response(
                             "bilibili",
                             true,
@@ -1129,7 +1117,7 @@ async fn bilibili_auth_complete(
 
     let stage = if max_wait >= 90 { "timeout" } else { "pending" };
     if stage == "timeout" {
-        release_pending_bilibili_qr(user_id);
+        release_pending_bilibili_qr(state, user_id);
     }
     Ok(Json(action_response(
         "bilibili",
@@ -1454,7 +1442,7 @@ async fn ensure_lark_cli_config(
     }
     let lark_dir = state.sandboxes.workspace_dir(user_id)?.join(".lark-cli");
     if force_new_setup {
-        cancel_feishu_setup(user_id).await;
+        cancel_feishu_setup(state, user_id).await;
         if lark_dir.exists() {
             tokio::fs::remove_dir_all(&lark_dir).await?;
         }
@@ -1579,7 +1567,7 @@ async fn start_feishu_setup(state: &AppState, user_id: &str) -> Result<(bool, St
             "Unable to extract setup URL from lark-cli config init --new output.".to_string(),
         ));
     }
-    pending_feishu_setup_map().lock().await.insert(
+    state.connector_runtime.feishu_setup.lock().await.insert(
         user_id.to_string(),
         PendingFeishuSetup {
             process: child,
@@ -1598,10 +1586,10 @@ async fn check_feishu_setup(
         .workspace_dir(user_id)?
         .join(".lark-cli/config.json");
     if config_file.is_file() {
-        cancel_feishu_setup(user_id).await;
+        cancel_feishu_setup(state, user_id).await;
         return Ok(Some((true, String::new())));
     }
-    let mut setups = pending_feishu_setup_map().lock().await;
+    let mut setups = state.connector_runtime.feishu_setup.lock().await;
     let Some(setup) = setups.get_mut(user_id) else {
         return Ok(None);
     };
@@ -1629,16 +1617,17 @@ async fn check_feishu_setup(
     }
 }
 
-pub(crate) async fn cancel_feishu_setup(user_id: &str) {
-    let setup = pending_feishu_setup_map().lock().await.remove(user_id);
+pub(crate) async fn cancel_feishu_setup(state: &AppState, user_id: &str) {
+    let setup = state
+        .connector_runtime
+        .feishu_setup
+        .lock()
+        .await
+        .remove(user_id);
     if let Some(mut setup) = setup {
         let _ = setup.process.kill().await;
         let _ = setup.process.wait().await;
     }
-}
-
-fn pending_feishu_setup_map() -> &'static AsyncMutex<HashMap<String, PendingFeishuSetup>> {
-    PENDING_FEISHU_SETUP.get_or_init(|| AsyncMutex::new(HashMap::new()))
 }
 
 async fn extract_url_from_stdout(
@@ -1885,8 +1874,8 @@ fn action_response(name: &str, ok: bool, stage: &str, detail: &str, data: Value)
         "name": name,
         "ok": ok,
         "stage": stage,
-        "detail": detail,
-        "data": data
+        "detail": redact_text(detail),
+        "data": redact_value(&data)
     })
 }
 
@@ -2346,29 +2335,29 @@ fn parse_url_or_query(raw_url: &str) -> Option<Url> {
     })
 }
 
-fn register_pending_bilibili_qr(user_id: &str) {
+fn register_pending_bilibili_qr(state: &AppState, user_id: &str) {
     let now = now_epoch_seconds();
     let pending = PendingBilibiliQr {
         expires_at: now + BILIBILI_PENDING_TTL_SECONDS,
     };
-    let mut values = pending_bilibili_qr_map()
+    let mut values = state
+        .connector_runtime
+        .bilibili_qr
         .lock()
         .expect("pending Bilibili QR lock poisoned");
     cleanup_expired_bilibili_qr_locked(&mut values, now);
     values.insert(user_id.to_string(), pending);
 }
 
-fn release_pending_bilibili_qr(user_id: &str) -> Option<PendingBilibiliQr> {
+fn release_pending_bilibili_qr(state: &AppState, user_id: &str) -> Option<PendingBilibiliQr> {
     let now = now_epoch_seconds();
-    let mut values = pending_bilibili_qr_map()
+    let mut values = state
+        .connector_runtime
+        .bilibili_qr
         .lock()
         .expect("pending Bilibili QR lock poisoned");
     cleanup_expired_bilibili_qr_locked(&mut values, now);
     values.remove(user_id)
-}
-
-fn pending_bilibili_qr_map() -> &'static Mutex<HashMap<String, PendingBilibiliQr>> {
-    PENDING_BILIBILI_QR.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 fn cleanup_expired_bilibili_qr_locked(values: &mut HashMap<String, PendingBilibiliQr>, now: u64) {
@@ -2693,33 +2682,38 @@ fn build_google_workspace_oauth_url(
     Ok(url.to_string())
 }
 
-fn register_pending_gogcli_oauth(oauth_state: &str, user_id: &str, redirect_uri: &str) {
+fn register_pending_gogcli_oauth(
+    state: &AppState,
+    oauth_state: &str,
+    user_id: &str,
+    redirect_uri: &str,
+) {
     let now = now_epoch_seconds();
     let pending = PendingGogcliOAuth {
         user_id: user_id.to_string(),
         redirect_uri: redirect_uri.to_string(),
         expires_at: now + GOGCLI_OAUTH_PENDING_TTL_SECONDS,
     };
-    let mut values = pending_oauth_map()
+    let mut values = state
+        .connector_runtime
+        .gogcli_oauth
         .lock()
         .expect("pending oauth lock poisoned");
     cleanup_expired_oauth_locked(&mut values, now);
     values.insert(oauth_state.to_string(), pending);
 }
 
-fn pop_pending_gogcli_oauth(oauth_state: &str) -> Option<PendingGogcliOAuth> {
+fn pop_pending_gogcli_oauth(state: &AppState, oauth_state: &str) -> Option<PendingGogcliOAuth> {
     let now = now_epoch_seconds();
-    let mut values = pending_oauth_map()
+    let mut values = state
+        .connector_runtime
+        .gogcli_oauth
         .lock()
         .expect("pending oauth lock poisoned");
     cleanup_expired_oauth_locked(&mut values, now);
     values
         .remove(oauth_state)
         .filter(|pending| pending.expires_at >= now)
-}
-
-fn pending_oauth_map() -> &'static Mutex<HashMap<String, PendingGogcliOAuth>> {
-    PENDING_GOGCLI_OAUTH.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 fn cleanup_expired_oauth_locked(values: &mut HashMap<String, PendingGogcliOAuth>, now: u64) {

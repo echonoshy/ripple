@@ -22,6 +22,7 @@ import {
   fetchConnectorStatuses,
   fetchConnectors,
   fetchCurrentSandbox,
+  getConfiguredApiUrl,
   fetchUserProfile,
 } from "@/lib/api";
 import type { ConnectorInfo, ConnectorStatus, SandboxInfo, WorkbenchSessionSummary } from "@/types";
@@ -35,8 +36,6 @@ interface HomePageProps {
   onOpenSettings: () => void;
   onUserIdChange: (newUserId: string) => void;
 }
-
-const PUBLIC_API_URL = "http://140.143.229.103:8810/v1";
 
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -120,6 +119,9 @@ export default function HomePage({
   }, [loadSummary, userId]);
 
   const connected = connectedCount(connectors, connectorStatuses);
+  const limits = userUsageData?.limits;
+  const maxWorkspaceBytes = limits?.max_workspace_bytes || 2 * 1024 * 1024 * 1024;
+  const maxSessions = limits?.max_sessions || 200;
 
   return (
     <div className="h-full min-h-0 overflow-y-auto bg-[radial-gradient(circle_at_16%_0%,rgba(47,107,255,0.12),transparent_34%),radial-gradient(circle_at_88%_8%,rgba(139,92,246,0.11),transparent_32%),#fbfdff] px-4 pt-[max(env(safe-area-inset-top),16px)] pb-[calc(88px+env(safe-area-inset-bottom))] text-[#111827] md:px-8 md:pt-[max(env(safe-area-inset-top),20px)] md:pb-5">
@@ -162,8 +164,14 @@ export default function HomePage({
           <SettingsRow
             icon={<CalendarClock size={16} />}
             title="Automations"
-            detail="Scheduled tasks"
+            detail="Scheduled runs"
             onClick={() => onSelectView("automations")}
+          />
+          <SettingsRow
+            icon={<Server size={16} />}
+            title="System"
+            detail="Health and diagnostics"
+            onClick={() => onSelectView("system")}
           />
         </section>
 
@@ -172,7 +180,11 @@ export default function HomePage({
             Client configuration
           </div>
           <div className="divide-y divide-[#e8edf7]">
-            <SettingsInfo icon={<Server size={16} />} title="API endpoint" value={PUBLIC_API_URL} />
+            <SettingsInfo
+              icon={<Server size={16} />}
+              title="API endpoint"
+              value={getConfiguredApiUrl()}
+            />
             <SettingsInfo icon={<UserRound size={16} />} title="User ID" value={userId} />
             <button
               type="button"
@@ -216,16 +228,14 @@ export default function HomePage({
                   <span>
                     {(() => {
                       const bytes = userUsageData?.usage?.workspace_size_bytes ?? 0;
-                      const mb = bytes / (1024 * 1024);
-                      const percent = Math.min(100, Math.max(0, (mb / 2048) * 100));
+                      const percent = Math.min(100, Math.max(0, (bytes / maxWorkspaceBytes) * 100));
                       return `${percent.toFixed(1)}%`;
                     })()}
                   </span>
                 </div>
                 {(() => {
                   const bytes = userUsageData?.usage?.workspace_size_bytes ?? 0;
-                  const mb = bytes / (1024 * 1024);
-                  const percent = Math.min(100, Math.max(0, (mb / 2048) * 100));
+                  const percent = Math.min(100, Math.max(0, (bytes / maxWorkspaceBytes) * 100));
                   return (
                     <>
                       <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#e5e7eb]">
@@ -235,7 +245,7 @@ export default function HomePage({
                         />
                       </div>
                       <div className="mt-1.5 text-[11px] text-[#8b8f94]">
-                        {formatBytes(bytes)} of 2 GB
+                        {formatBytes(bytes)} of {formatBytes(maxWorkspaceBytes)}
                       </div>
                     </>
                   );
@@ -251,14 +261,14 @@ export default function HomePage({
                   <span>
                     {(() => {
                       const count = userUsageData?.usage?.session_count ?? 0;
-                      const percent = Math.min(100, Math.max(0, (count / 200) * 100));
+                      const percent = Math.min(100, Math.max(0, (count / maxSessions) * 100));
                       return `${percent.toFixed(1)}%`;
                     })()}
                   </span>
                 </div>
                 {(() => {
                   const count = userUsageData?.usage?.session_count ?? 0;
-                  const percent = Math.min(100, Math.max(0, (count / 200) * 100));
+                  const percent = Math.min(100, Math.max(0, (count / maxSessions) * 100));
                   return (
                     <>
                       <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#e5e7eb]">
@@ -268,7 +278,7 @@ export default function HomePage({
                         />
                       </div>
                       <div className="mt-1.5 text-[11px] text-[#8b8f94]">
-                        {count} of 200 sessions
+                        {count} of {maxSessions} sessions
                       </div>
                     </>
                   );

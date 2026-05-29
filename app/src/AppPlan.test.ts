@@ -7,6 +7,10 @@ const sessionPageSource = readFileSync(
   new URL("./components/workbench/SessionPage.tsx", import.meta.url),
   "utf8"
 );
+const sessionOverviewSourcePath = new URL(
+  "./components/workbench/SessionOverviewPage.tsx",
+  import.meta.url
+);
 const sessionLifecycleSource = readFileSync(
   new URL("./hooks/useSessionLifecycle.ts", import.meta.url),
   "utf8"
@@ -148,6 +152,29 @@ function testSessionSelectionRequestsScrollToBottom() {
   assert.match(appSource, /scrollToBottomRequest=\{sessionScrollToBottomRequest\}/);
 }
 
+function testSessionsViewDefaultsToOverview() {
+  assert.match(appSource, /import SessionOverviewPage/);
+  assert.match(
+    appSource,
+    /const \[mobileSessionMode,\s*setMobileSessionMode\]\s*=\s*useState<"overview" \| "list" \| "chat">\(\s*"overview"\s*\)/
+  );
+  assert.match(appSource, /SessionOverviewPage/);
+  assert.match(appSource, /onSelectSession=\{handleOverviewSelectSession\}/);
+}
+
+function testSessionOverviewKeepsSessionLanguage() {
+  const source = readFileSync(sessionOverviewSourcePath, "utf8");
+  assert.match(source, /Needs input/);
+  assert.match(source, /Recent sessions/);
+  assert.doesNotMatch(source, /\bTask\b|\bTasks\b|Task Hub|task card/i);
+}
+
+function testSessionPageUsesCollapsibleWorkLog() {
+  assert.match(sessionPageSource, /Work log/);
+  assert.match(sessionPageSource, /isWorkLogOpen/);
+  assert.match(sessionPageSource, /setIsWorkLogOpen/);
+}
+
 testChatCompletionClearsResidualPlan();
 testSessionDetailsRestorePersistedPlan();
 testRestoringSessionRefreshesWorkspaceViews();
@@ -164,5 +191,8 @@ testMobileUsesBottomTabBarForTopLevelViews();
 testMobileSessionOptionsUseSessionSettings();
 testSessionScrollActivationStaysInsideSessionPage();
 testSessionSelectionRequestsScrollToBottom();
+testSessionsViewDefaultsToOverview();
+testSessionOverviewKeepsSessionLanguage();
+testSessionPageUsesCollapsibleWorkLog();
 
 console.log("app plan tests passed");

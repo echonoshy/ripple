@@ -323,7 +323,9 @@ export function codexRuntimeEventToTimelineEvent(
       ? `runtime-context_compaction-${event.id || event.turn_id || event.thread_id}`
       : null;
   const id =
-    contextCompactionId || options.id || `runtime-${event.type}-${event.id || event.turn_id || Date.now()}`;
+    contextCompactionId ||
+    options.id ||
+    `runtime-${event.type}-${event.id || event.turn_id || Date.now()}`;
   const status = event.type === "tool_output_delta" ? event.stream : event.status;
   return {
     id,

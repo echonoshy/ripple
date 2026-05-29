@@ -3,7 +3,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
 use serde_json::{json, Value};
 
-use crate::api::ApiError;
+use crate::api::{audit_event, require_confirm, ApiError};
 use crate::state::AppState;
 use crate::user::user_id_from_headers;
 
@@ -39,8 +39,21 @@ pub async fn get_sandbox(
 pub async fn delete_sandbox(
     State(state): State<AppState>,
     headers: HeaderMap,
+    body: Option<Json<Value>>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    let payload = body.map(|Json(value)| value).unwrap_or_else(|| json!({}));
+    if state.config.security.require_confirm_for_risky_api {
+        require_confirm(Some(&payload), "sandbox.delete")?;
+    }
+    audit_event(
+        &state,
+        &user_id,
+        "sandbox.delete",
+        true,
+        json!({"user_id": user_id}),
+    )
+    .await?;
     let cancelled_runs = state.jobs.stop_user(&user_id).await?;
     match state.sandboxes.teardown_sandbox(&user_id, false) {
         Ok(true) => {
@@ -63,9 +76,38 @@ pub async fn delete_sandbox(
 pub async fn sandbox_info(State(state): State<AppState>) -> Json<Value> {
     Json(json!({
         "enabled": true,
-        "mode": "nsjail",
+        "deployment_mode": state.config.security.deployment_mode,
         "sandboxes_root": state.config.sandbox.sandboxes_root,
         "caches_root": state.config.sandbox.caches_root,
+        "security": {
+            "trusted_proxy_mode": state.config.security.deployment_mode == "trusted-proxy",
+            "requires_confirm_for_risky_api": state.config.security.require_confirm_for_risky_api,
+            "cors": {
+                "allow_any_origin": state.config.cors.allow_any_origin,
+                "allowed_origins": state.config.cors.allowed_origins
+            },
+            "notes": [
+                "Ripple is a single-node trusted-team control plane.",
+                "Codex execution uses managed permissions profiles, not a general-purpose physical sandbox promise.",
+                "Connector CLI auth/status commands use nsjail when configured."
+            ]
+        },
+        "execution": {
+            "codex": {
+                "enabled": state.config.codex.enabled,
+                "runtime_boundary": "managed_permissions",
+                "executable": state.config.codex.codex_executable,
+                "permission_profile": "ripple-managed"
+            },
+            "connectors": {
+                "runtime_boundary": "nsjail",
+                "nsjail_path": state.config.sandbox.nsjail_path
+            },
+            "workspace": {
+                "isolation_unit": "user_id",
+                "path": ".ripple/sandboxes/<user_id>/workspace"
+            }
+        },
         "resource_limits": {
             "max_workspace_mb": state.config.sandbox.max_workspace_mb,
             "command_timeout": 120

@@ -15,7 +15,7 @@ use tokio::io::AsyncReadExt;
 use uuid::Uuid;
 
 use crate::api::users::{assert_workspace_save_within_quota, assert_workspace_writes_within_quota};
-use crate::api::ApiError;
+use crate::api::{audit_event, require_confirm, ApiError};
 use crate::state::AppState;
 use crate::storage::{sha256_hex, FileRefRecord};
 use crate::user::user_id_from_headers;
@@ -530,6 +530,8 @@ fn now_iso() -> String {
 #[derive(Debug, Deserialize)]
 pub struct DeleteInput {
     path: String,
+    #[serde(default)]
+    confirm: bool,
 }
 
 pub async fn delete_workspace(
@@ -538,11 +540,22 @@ pub async fn delete_workspace(
     Json(input): Json<DeleteInput>,
 ) -> Result<StatusCode, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    if state.config.security.require_confirm_for_risky_api {
+        require_confirm(Some(&json!({"confirm": input.confirm})), "workspace.delete")?;
+    }
     let workspace = state.sandboxes.workspace_dir(&user_id)?;
     if !workspace.exists() {
         return Err(ApiError::not_found(format!("Sandbox not found")));
     }
     ws::delete_entry(&workspace, &input.path).map_err(map_workspace_error)?;
+    audit_event(
+        &state,
+        &user_id,
+        "workspace.delete",
+        true,
+        json!({"path": input.path}),
+    )
+    .await?;
     Ok(StatusCode::OK)
 }
 
@@ -702,8 +715,8 @@ mod tests {
 
     use crate::api::router;
     use crate::config::{
-        AppConfig, CodexConfig, FeishuConfig, GogcliOAuthConfig, LoggingConfig, SandboxConfig,
-        SkillsConfig,
+        AppConfig, CodexConfig, CorsConfig, FeishuConfig, GogcliOAuthConfig, LoggingConfig,
+        SandboxConfig, SecurityConfig, SkillsConfig,
     };
     use crate::state::AppState;
 
@@ -717,6 +730,8 @@ mod tests {
             host: "127.0.0.1".to_string(),
             port: 0,
             api_keys: vec!["service-key".to_string()],
+            security: SecurityConfig::default(),
+            cors: CorsConfig::default(),
             default_model: "codex-test".to_string(),
             model_presets: BTreeMap::new(),
             logging: LoggingConfig {

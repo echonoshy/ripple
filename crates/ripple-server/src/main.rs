@@ -10,6 +10,18 @@ async fn main() -> anyhow::Result<()> {
         report.print();
         return Ok(());
     }
+    if args.get(1).map(String::as_str) == Some("doctor") {
+        if let Some(config_path) = config_arg(&args) {
+            std::env::set_var("RIPPLE_CONFIG", config_path);
+        }
+        let config = ripple_server::config::AppConfig::load()?;
+        let report = ripple_server::diagnostics::doctor_report(&config).await;
+        println!("{}", serde_json::to_string_pretty(&report)?);
+        if ripple_server::diagnostics::has_failed_checks(&report) {
+            std::process::exit(2);
+        }
+        return Ok(());
+    }
     ripple_server::run().await
 }
 

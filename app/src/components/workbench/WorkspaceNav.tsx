@@ -101,6 +101,8 @@ export default function WorkspaceNav({
 
   const userMenuRef = React.useRef<HTMLDivElement>(null);
   const activeMenuRef = React.useRef<HTMLDivElement>(null);
+  const maxWorkspaceBytes = userUsageData?.limits?.max_workspace_bytes || 2 * 1024 * 1024 * 1024;
+  const maxSessions = userUsageData?.limits?.max_sessions || 200;
 
   React.useEffect(() => {
     if (!isUserMenuOpen) return;
@@ -423,16 +425,17 @@ export default function WorkspaceNav({
                     <span>
                       {(() => {
                         const bytes = userUsageData?.usage?.workspace_size_bytes ?? 0;
-                        const mb = bytes / (1024 * 1024);
-                        const percent = Math.min(100, Math.max(0, (mb / 2048) * 100));
+                        const percent = Math.min(
+                          100,
+                          Math.max(0, (bytes / maxWorkspaceBytes) * 100)
+                        );
                         return `${percent.toFixed(1)}%`;
                       })()}
                     </span>
                   </div>
                   {(() => {
                     const bytes = userUsageData?.usage?.workspace_size_bytes ?? 0;
-                    const mb = bytes / (1024 * 1024);
-                    const percent = Math.min(100, Math.max(0, (mb / 2048) * 100));
+                    const percent = Math.min(100, Math.max(0, (bytes / maxWorkspaceBytes) * 100));
                     return (
                       <>
                         <div className="h-1 w-full overflow-hidden rounded-full bg-[#e5e7eb]">
@@ -442,7 +445,7 @@ export default function WorkspaceNav({
                           />
                         </div>
                         <div className="mt-1 text-[10px] text-[#8b8f94]">
-                          {formatBytes(bytes)} of 2 GB
+                          {formatBytes(bytes)} of {formatBytes(maxWorkspaceBytes)}
                         </div>
                       </>
                     );
@@ -458,14 +461,14 @@ export default function WorkspaceNav({
                     <span>
                       {(() => {
                         const count = userUsageData?.usage?.session_count ?? 0;
-                        const percent = Math.min(100, Math.max(0, (count / 200) * 100));
+                        const percent = Math.min(100, Math.max(0, (count / maxSessions) * 100));
                         return `${percent.toFixed(1)}%`;
                       })()}
                     </span>
                   </div>
                   {(() => {
                     const count = userUsageData?.usage?.session_count ?? 0;
-                    const percent = Math.min(100, Math.max(0, (count / 200) * 100));
+                    const percent = Math.min(100, Math.max(0, (count / maxSessions) * 100));
                     return (
                       <>
                         <div className="h-1 w-full overflow-hidden rounded-full bg-[#e5e7eb]">
@@ -475,7 +478,7 @@ export default function WorkspaceNav({
                           />
                         </div>
                         <div className="mt-1 text-[10px] text-[#8b8f94]">
-                          {count} of 200 sessions
+                          {count} of {maxSessions} sessions
                         </div>
                       </>
                     );

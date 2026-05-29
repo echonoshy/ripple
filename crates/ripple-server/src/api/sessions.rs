@@ -1,14 +1,16 @@
-use axum::extract::{Path, State};
+use std::collections::HashMap;
+
+use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::api::chat::{collect_chat_image_events, image_event_to_message_block};
 use crate::api::users::{assert_can_create_run, assert_can_create_session};
-use crate::api::{connectors, ApiError};
+use crate::api::{connectors, paginate, ApiError, ListQuery};
 use crate::jobs::AgentRunInfo;
-use crate::sessions::{CreateSessionInput, SessionDetail, SessionRecord};
+use crate::sessions::{CreateSessionInput, SessionDetail, SessionRecord, SessionStatus};
 use crate::state::AppState;
 use crate::user::user_id_from_headers;
 
@@ -20,14 +22,111 @@ pub struct UpdateSessionInput {
     pub pinned: Option<bool>,
 }
 
+#[derive(Debug, Serialize)]
+struct SessionOverviewResponse {
+    sessions: Vec<SessionOverviewItem>,
+    sections: SessionOverviewSections,
+    count: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct SessionOverviewSections {
+    needs_input: Vec<String>,
+    running: Vec<String>,
+    pinned: Vec<String>,
+    recent_sessions: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct SessionOverviewItem {
+    session_id: String,
+    title: String,
+    pinned: bool,
+    status: String,
+    model: String,
+    created_at: String,
+    last_active: String,
+    message_count: usize,
+    changed_file_count: u32,
+    pending_kind: Option<String>,
+    pending_approval_count: u32,
+    plan_progress: Option<Value>,
+    current_step: Option<String>,
+    last_run: Option<SessionOverviewRun>,
+    last_message_preview: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct SessionOverviewRun {
+    job_id: String,
+    status: String,
+    updated_at: String,
+    output_file: Option<String>,
+    error: Option<String>,
+    prompt_preview: Option<String>,
+}
+
 pub async fn list_sessions(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<ListQuery>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    let sessions = state.sessions.list_sessions(&user_id).await?;
+    let total = sessions.len();
+    let (sessions, next_cursor) = paginate(sessions, &query);
+    Ok(Json(json!({
+        "sessions": sessions,
+        "count": sessions.len(),
+        "total": total,
+        "next_cursor": next_cursor
+    })))
+}
+
+pub async fn session_overview(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    let sessions = state.sessions.list_sessions(&user_id).await?;
+    let summaries = state.sessions.list_sessions(&user_id).await?;
+    let runs_by_session = latest_runs_by_session(state.jobs.list_user(&user_id).await?);
+
+    let mut items = Vec::new();
+    for info in summaries {
+        let Some(record) = state.sessions.load(&user_id, &info.session_id).await? else {
+            continue;
+        };
+        let pending_kind = pending_kind(&record);
+        let last_run = runs_by_session
+            .get(&info.session_id)
+            .map(session_overview_run);
+        let status = overview_status(&info.status, pending_kind.as_deref(), last_run.as_ref());
+        items.push(SessionOverviewItem {
+            session_id: info.session_id,
+            title: info.title,
+            pinned: info.pinned,
+            status,
+            model: info.model,
+            created_at: info.created_at,
+            last_active: info.last_active,
+            message_count: info.message_count,
+            changed_file_count: info.changed_file_count,
+            pending_kind,
+            pending_approval_count: info.pending_approval_count,
+            plan_progress: record.plan_progress.clone(),
+            current_step: current_plan_step(&record),
+            last_run,
+            last_message_preview: last_message_preview(&record.messages),
+        });
+    }
+
     Ok(Json(
-        json!({ "sessions": sessions, "count": sessions.len() }),
+        serde_json::to_value(SessionOverviewResponse {
+            count: items.len(),
+            sections: overview_sections(&items),
+            sessions: items,
+        })
+        .unwrap_or_else(|_| json!({})),
     ))
 }
 
@@ -36,6 +135,204 @@ pub async fn deprecated_tasks_api() -> Result<Json<Value>, ApiError> {
         StatusCode::GONE,
         "/v1/tasks has been removed. Use /v1/sessions instead.",
     ))
+}
+
+fn latest_runs_by_session(jobs: Vec<AgentRunInfo>) -> HashMap<String, AgentRunInfo> {
+    let mut out = HashMap::<String, AgentRunInfo>::new();
+    for job in jobs {
+        let Some(session_id) = job
+            .metadata
+            .get("session_id")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+        else {
+            continue;
+        };
+        let should_replace = out
+            .get(&session_id)
+            .map_or(true, |existing| existing.updated_at < job.updated_at);
+        if should_replace {
+            out.insert(session_id, job);
+        }
+    }
+    out
+}
+
+fn session_overview_run(run: &AgentRunInfo) -> SessionOverviewRun {
+    SessionOverviewRun {
+        job_id: run.job_id.clone(),
+        status: run.status.clone(),
+        updated_at: run.updated_at.clone(),
+        output_file: run.output_file.clone(),
+        error: run.error.clone(),
+        prompt_preview: run.prompt_preview.clone(),
+    }
+}
+
+fn overview_sections(items: &[SessionOverviewItem]) -> SessionOverviewSections {
+    SessionOverviewSections {
+        needs_input: items
+            .iter()
+            .filter(|item| {
+                item.pending_kind.is_some()
+                    || matches!(
+                        item.status.as_str(),
+                        "waiting_for_user" | "waiting_for_approval"
+                    )
+            })
+            .map(|item| item.session_id.clone())
+            .collect(),
+        running: items
+            .iter()
+            .filter(|item| matches!(item.status.as_str(), "queued" | "running" | "compacting"))
+            .map(|item| item.session_id.clone())
+            .collect(),
+        pinned: items
+            .iter()
+            .filter(|item| item.pinned)
+            .map(|item| item.session_id.clone())
+            .collect(),
+        recent_sessions: items.iter().map(|item| item.session_id.clone()).collect(),
+    }
+}
+
+fn overview_status(
+    session_status: &str,
+    pending_kind: Option<&str>,
+    last_run: Option<&SessionOverviewRun>,
+) -> String {
+    if pending_kind == Some("approval") {
+        return "waiting_for_approval".to_string();
+    }
+    if pending_kind.is_some() {
+        return "waiting_for_user".to_string();
+    }
+    if let Some(run) = last_run {
+        if matches!(run.status.as_str(), "queued" | "running") {
+            return run.status.clone();
+        }
+    }
+    session_status.to_string()
+}
+
+fn pending_kind(record: &SessionRecord) -> Option<String> {
+    if record.pending_permission_request.is_some() {
+        Some("approval".to_string())
+    } else if record.pending_question.is_some() {
+        Some("question".to_string())
+    } else if record.pending_connector_auth.is_some() {
+        Some("connector_auth".to_string())
+    } else if record.pending_schedule_request.is_some() {
+        Some("schedule_request".to_string())
+    } else {
+        None
+    }
+}
+
+fn current_plan_step(record: &SessionRecord) -> Option<String> {
+    if let Some(current) = record
+        .plan_progress
+        .as_ref()
+        .and_then(|progress| {
+            progress
+                .get("currentTask")
+                .or_else(|| progress.get("current_task"))
+        })
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return Some(current.to_string());
+    }
+
+    record
+        .plan_steps
+        .iter()
+        .find(|step| {
+            matches!(
+                step.get("status").and_then(Value::as_str),
+                Some("in_progress") | Some("inProgress") | Some("running")
+            )
+        })
+        .and_then(plan_step_title)
+        .or_else(|| record.plan_steps.last().and_then(plan_step_title))
+}
+
+fn plan_step_title(step: &Value) -> Option<String> {
+    step.get("subject")
+        .or_else(|| step.get("step"))
+        .or_else(|| step.get("title"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn last_message_preview(messages: &[Value]) -> Option<String> {
+    messages
+        .iter()
+        .rev()
+        .filter_map(|message| message.get("content"))
+        .filter_map(message_content_preview)
+        .map(|preview| truncate_preview(&preview, 180))
+        .find(|preview| !preview.is_empty())
+}
+
+fn message_content_preview(content: &Value) -> Option<String> {
+    match content {
+        Value::String(text) => {
+            let text = text.trim();
+            if text.is_empty() {
+                None
+            } else {
+                Some(text.to_string())
+            }
+        }
+        Value::Array(items) => {
+            let text = items
+                .iter()
+                .filter_map(message_content_part_preview)
+                .collect::<Vec<_>>()
+                .join(" ");
+            if text.trim().is_empty() {
+                None
+            } else {
+                Some(text)
+            }
+        }
+        _ => None,
+    }
+}
+
+fn message_content_part_preview(item: &Value) -> Option<String> {
+    if let Some(text) = item
+        .get("text")
+        .or_else(|| item.get("content"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return Some(text.to_string());
+    }
+    match item.get("type").and_then(Value::as_str) {
+        Some("image" | "input_image" | "image_url" | "localImage" | "local_image") => {
+            Some("Image".to_string())
+        }
+        Some("file" | "attachment") => item
+            .get("name")
+            .and_then(Value::as_str)
+            .map(|name| format!("Attachment: {name}"))
+            .or_else(|| Some("Attachment".to_string())),
+        _ => None,
+    }
+}
+
+fn truncate_preview(value: &str, max_chars: usize) -> String {
+    let mut out = value.chars().take(max_chars).collect::<String>();
+    if value.chars().count() > max_chars {
+        out.push_str("...");
+    }
+    out
 }
 
 pub async fn create_session(
@@ -70,7 +367,7 @@ pub async fn get_session(
         .sessions
         .load(&user_id, &session_id)
         .await?
-        .is_some_and(|record| record.status == "suspended")
+        .is_some_and(|record| record.status_kind() == SessionStatus::Suspended)
     {
         let _ = state.sessions.resume_session(&user_id, &session_id).await?;
     }
@@ -272,7 +569,7 @@ pub async fn clear_session_context(
     let Some(session) = state.sessions.load(&user_id, &session_id).await? else {
         return Err(ApiError::not_found("Session not found"));
     };
-    if matches!(session.status.as_str(), "queued" | "running" | "compacting") {
+    if session.status_kind().is_busy() {
         return Err(ApiError::conflict("Session is currently running"));
     }
     let Some(message_count) = state.sessions.clear_context(&user_id, &session_id).await? else {
@@ -298,7 +595,7 @@ pub async fn compact_session_context(
     let Some(session) = state.sessions.load(&user_id, &session_id).await? else {
         return Err(ApiError::not_found("Session not found"));
     };
-    if matches!(session.status.as_str(), "queued" | "running" | "compacting") {
+    if session.status_kind().is_busy() {
         return Err(ApiError::conflict("Session is currently running"));
     }
     if session
@@ -363,7 +660,7 @@ pub async fn get_session_codex_thread(
     let Some(session) = state.sessions.load(&user_id, &session_id).await? else {
         return Err(ApiError::not_found("Session not found"));
     };
-    if matches!(session.status.as_str(), "queued" | "running" | "compacting") {
+    if session.status_kind().is_busy() {
         return Err(ApiError::conflict("Session is currently running"));
     }
     let Some(codex_thread_id) = session
@@ -406,10 +703,11 @@ pub async fn stop_session(
     let connector_auth_cancelled = pending_connector_auth_name(&session);
     let stopped = state.jobs.cancel_session_run(&user_id, &session_id).await?;
     if let Some(info) = stopped {
-        session.status = "cancelled".to_string();
+        session.set_status(SessionStatus::Cancelled);
         clear_pending_waits(&mut session, true);
         state.sessions.save_record(session).await?;
-        cancel_connector_runtime_if_needed(&user_id, connector_auth_cancelled.as_deref()).await;
+        cancel_connector_runtime_if_needed(&state, &user_id, connector_auth_cancelled.as_deref())
+            .await;
         Ok(Json(json!({
             "ok": true,
             "session_id": session_id,
@@ -419,13 +717,12 @@ pub async fn stop_session(
             "connector_auth_cancelled": connector_auth_cancelled.is_some(),
             "connector": connector_auth_cancelled
         })))
-    } else if matches!(session.status.as_str(), "queued" | "running")
-        || connector_auth_cancelled.is_some()
-    {
-        session.status = "cancelled".to_string();
+    } else if session.status_kind().is_active_run() || connector_auth_cancelled.is_some() {
+        session.set_status(SessionStatus::Cancelled);
         clear_pending_waits(&mut session, true);
         state.sessions.save_record(session).await?;
-        cancel_connector_runtime_if_needed(&user_id, connector_auth_cancelled.as_deref()).await;
+        cancel_connector_runtime_if_needed(&state, &user_id, connector_auth_cancelled.as_deref())
+            .await;
         Ok(Json(json!({
             "ok": true,
             "session_id": session_id,
@@ -455,10 +752,10 @@ pub async fn cancel_connector_auth(
     };
     let connector = pending_connector_auth_name(&session);
     if connector.is_some() {
-        session.status = "cancelled".to_string();
+        session.set_status(SessionStatus::Cancelled);
         clear_pending_waits(&mut session, true);
         state.sessions.save_record(session).await?;
-        cancel_connector_runtime_if_needed(&user_id, connector.as_deref()).await;
+        cancel_connector_runtime_if_needed(&state, &user_id, connector.as_deref()).await;
     }
     Ok(Json(json!({
         "ok": true,
@@ -487,9 +784,13 @@ fn clear_pending_waits(session: &mut SessionRecord, include_connector_auth: bool
     }
 }
 
-async fn cancel_connector_runtime_if_needed(user_id: &str, connector: Option<&str>) {
+async fn cancel_connector_runtime_if_needed(
+    state: &AppState,
+    user_id: &str,
+    connector: Option<&str>,
+) {
     if connector == Some("feishu") {
-        connectors::cancel_feishu_setup(user_id).await;
+        connectors::cancel_feishu_setup(state, user_id).await;
     }
 }
 
@@ -593,7 +894,7 @@ pub async fn resolve_permission_request(
         ));
     }
     session.pending_permission_request = None;
-    session.status = "running".to_string();
+    session.set_status(SessionStatus::Running);
     state.sessions.save_record(session).await?;
     tokio::spawn(finalize_resolved_permission_session(
         state.clone(),
@@ -628,15 +929,13 @@ async fn finalize_resolved_permission_session(
             if matches!(info.status.as_str(), "completed" | "failed" | "cancelled") {
                 if let Ok(Some(mut session)) = state.sessions.load(&user_id, &session_id).await {
                     if session.pending_permission_request.is_none()
-                        && matches!(
-                            session.status.as_str(),
-                            "running" | "awaiting_permission" | "waiting_for_approval"
-                        )
+                        && (session.status_kind() == SessionStatus::Running
+                            || session.status_kind().is_awaiting_approval())
                     {
                         session.status = match info.status.as_str() {
-                            "completed" => "idle",
-                            "cancelled" => "cancelled",
-                            _ => "failed",
+                            "completed" => SessionStatus::Idle.as_str(),
+                            "cancelled" => SessionStatus::Cancelled.as_str(),
+                            _ => SessionStatus::Failed.as_str(),
                         }
                         .to_string();
                         let _ = state.sessions.save_record_if_exists(session).await;

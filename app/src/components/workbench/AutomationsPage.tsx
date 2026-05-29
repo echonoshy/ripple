@@ -110,6 +110,7 @@ export default function AutomationsPage({
   const [intervalUnit, setIntervalUnit] = useState<IntervalUnit>("hours");
   const [maxRuns, setMaxRuns] = useState("");
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const intervalSeconds = useMemo(
     () => Math.max(1, intervalValue) * intervalUnitSeconds[intervalUnit],
@@ -167,6 +168,9 @@ export default function AutomationsPage({
           run_at: runAt,
           interval_seconds: kind === "interval" ? intervalSeconds : null,
           max_runs: maxRunsLimit,
+          missed_run_policy: "run_once",
+          overlap_policy: "skip",
+          failure_policy: "pause",
           model: selectedModel,
         });
         resetForm();
@@ -207,8 +211,12 @@ export default function AutomationsPage({
         } else if (action === "run") {
           await runScheduleNow(scheduleId);
         } else {
-          if (!window.confirm("Delete this automation?")) return;
+          if (confirmDeleteId !== scheduleId) {
+            setConfirmDeleteId(scheduleId);
+            return;
+          }
           await deleteSchedule(scheduleId);
+          setConfirmDeleteId(null);
         }
         await loadSchedules();
       } catch (err) {
@@ -221,7 +229,7 @@ export default function AutomationsPage({
         setPendingActionId(null);
       }
     },
-    [loadSchedules, onAuthExpired]
+    [confirmDeleteId, loadSchedules, onAuthExpired]
   );
 
   return (
@@ -450,6 +458,11 @@ export default function AutomationsPage({
                         ? `${intervalLabel(schedule.interval_seconds)} · ${runCountLabel(schedule)}`
                         : "Once"}
                     </div>
+                    <div className="mt-1 font-[family-name:var(--font-mono)] text-[10px] text-[#8b8f94]">
+                      missed {schedule.missed_run_policy || "run_once"} · overlap{" "}
+                      {schedule.overlap_policy || "skip"} · failure{" "}
+                      {schedule.failure_policy || "pause"}
+                    </div>
                   </div>
 
                   <div className="min-w-0 text-[13px]">
@@ -458,10 +471,20 @@ export default function AutomationsPage({
                     </div>
                     <div className="mt-1 text-[11px] text-[#667085]">
                       {schedule.last_run_at ? formatDate(schedule.last_run_at) : "Never"}
+                      {schedule.last_run_status ? ` · ${schedule.last_run_status}` : ""}
                     </div>
                   </div>
 
                   <div className="flex items-center gap-1 justify-self-start md:justify-self-end">
+                    {confirmDeleteId === schedule.schedule_id ? (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDeleteId(null)}
+                        className="inline-flex h-8 items-center justify-center rounded-full border border-[#dfe6f4] bg-white px-3 text-[11px] font-semibold text-[#384152] hover:bg-[#f7f8fa]"
+                      >
+                        Cancel
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() =>
@@ -496,11 +519,21 @@ export default function AutomationsPage({
                       type="button"
                       onClick={() => void handleAction(schedule.schedule_id, "delete")}
                       aria-label="Delete automation"
-                      title="Delete automation"
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[#dfe6f4] bg-white text-[#8b8f94] hover:bg-[#ffebe9] hover:text-[#cf222e]"
+                      title={
+                        confirmDeleteId === schedule.schedule_id
+                          ? "Confirm delete automation"
+                          : "Delete automation"
+                      }
+                      className={`inline-flex h-8 items-center justify-center rounded-full border px-2 ${
+                        confirmDeleteId === schedule.schedule_id
+                          ? "border-[#cf222e]/25 bg-[#ffebe9] text-[#cf222e]"
+                          : "border-[#dfe6f4] bg-white text-[#8b8f94] hover:bg-[#ffebe9] hover:text-[#cf222e]"
+                      }`}
                     >
                       {pendingActionId === `${schedule.schedule_id}:delete` ? (
                         <Loader2 size={14} className="animate-spin" />
+                      ) : confirmDeleteId === schedule.schedule_id ? (
+                        <span className="text-[11px] font-semibold">Confirm</span>
                       ) : (
                         <Trash2 size={14} />
                       )}

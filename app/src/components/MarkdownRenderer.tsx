@@ -573,7 +573,7 @@ function MarkdownContent({
               target={wsLink ? undefined : "_blank"}
               rel="noopener noreferrer"
               onClick={handleClick}
-              className="font-semibold break-words text-[#2463eb] underline underline-offset-4 hover:text-[#174ea6] cursor-pointer"
+              className="cursor-pointer font-semibold break-words text-[#2463eb] underline underline-offset-4 hover:text-[#174ea6]"
             >
               {children}
             </a>

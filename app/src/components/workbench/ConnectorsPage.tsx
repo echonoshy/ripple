@@ -2,7 +2,14 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowLeft, Loader2, Plug, RefreshCw, ShieldCheck } from "lucide-react";
-import { fetchConnectorStatuses, fetchConnectors, fetchGogcliAccounts } from "@/lib/api";
+import {
+  AuthError,
+  disconnectConnector,
+  fetchConnectorStatuses,
+  fetchConnectors,
+  fetchGogcliAccounts,
+  startConnectorAuth,
+} from "@/lib/api";
 import { connectorGroupSections, connectorStatusTone } from "@/lib/connectors";
 import type { ConnectorInfo, ConnectorStatus, GogcliAccountInfo } from "@/types";
 
@@ -92,7 +99,10 @@ export default function ConnectorsPage({
     () => cachedConnectorSnapshot(userId)?.accounts || []
   );
   const [pageError, setPageError] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const [confirmDisconnect, setConfirmDisconnect] = useState<string | null>(null);
   const loadRequestIdRef = useRef(0);
   const lastFocusRefreshAtRef = useRef(0);
 
@@ -162,6 +172,49 @@ export default function ConnectorsPage({
   );
   const connectorSections = useMemo(() => connectorGroupSections(connectors), [connectors]);
 
+  const handleConnectorAction = useCallback(
+    async (connector: ConnectorInfo, action: "connect" | "disconnect") => {
+      const actionKey = `${connector.name}:${action}`;
+      if (action === "disconnect" && confirmDisconnect !== connector.name) {
+        setConfirmDisconnect(connector.name);
+        return;
+      }
+      setPendingAction(actionKey);
+      setPageError(null);
+      setActionMessage(null);
+      try {
+        const result =
+          action === "connect"
+            ? await startConnectorAuth(connector.name)
+            : await disconnectConnector(connector.name);
+        const detail =
+          typeof result.detail === "string" ? result.detail : `${connector.display_name} updated`;
+        setActionMessage(detail);
+        setConfirmDisconnect(null);
+        const data = result.data && typeof result.data === "object" ? result.data : {};
+        const maybeUrl =
+          typeof (data as Record<string, unknown>).auth_url === "string"
+            ? ((data as Record<string, unknown>).auth_url as string)
+            : typeof (data as Record<string, unknown>).setup_url === "string"
+              ? ((data as Record<string, unknown>).setup_url as string)
+              : null;
+        if (maybeUrl) {
+          window.open(maybeUrl, "_blank", "noopener,noreferrer");
+        }
+        await loadConnectors({ force: true });
+      } catch (error) {
+        if (error instanceof AuthError) {
+          setPageError("API key 已失效");
+        } else {
+          setPageError(error instanceof Error ? error.message : String(error));
+        }
+      } finally {
+        setPendingAction(null);
+      }
+    },
+    [confirmDisconnect, loadConnectors]
+  );
+
   return (
     <div className="h-full min-h-0 overflow-y-auto bg-[radial-gradient(circle_at_16%_0%,rgba(47,107,255,0.12),transparent_34%),radial-gradient(circle_at_88%_8%,rgba(139,92,246,0.11),transparent_32%),#fbfdff] px-4 pt-[max(env(safe-area-inset-top),16px)] pb-[calc(88px+env(safe-area-inset-bottom))] text-[#111827] md:px-8 lg:pb-5">
       <div className="mx-auto max-w-5xl space-y-4">
@@ -208,6 +261,13 @@ export default function ConnectorsPage({
           <div className="flex items-start gap-2 rounded-xl border border-[#cf222e]/25 bg-[#ffebe9] p-3 text-sm font-medium text-[#cf222e]">
             <AlertTriangle size={15} className="mt-0.5 shrink-0" />
             <span>{pageError}</span>
+          </div>
+        )}
+
+        {actionMessage && (
+          <div className="flex items-start gap-2 rounded-xl border border-[#1a7f37]/20 bg-[#dafbe1] p-3 text-sm font-medium text-[#1a7f37]">
+            <ShieldCheck size={15} className="mt-0.5 shrink-0" />
+            <span>{actionMessage}</span>
           </div>
         )}
 
@@ -267,6 +327,42 @@ export default function ConnectorsPage({
                               {status.detail}
                             </div>
                           )}
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            {connector.auth_start_path && !status?.connected ? (
+                              <button
+                                type="button"
+                                onClick={() => void handleConnectorAction(connector, "connect")}
+                                disabled={pendingAction === `${connector.name}:connect`}
+                                className="inline-flex h-8 items-center gap-2 rounded-full border border-[#dfe6f4] bg-white px-3 text-[12px] font-semibold text-[#384152] hover:bg-[#f7f8fa] disabled:opacity-60"
+                              >
+                                {pendingAction === `${connector.name}:connect` ? (
+                                  <Loader2 size={13} className="animate-spin" />
+                                ) : (
+                                  <Plug size={13} />
+                                )}
+                                Connect
+                              </button>
+                            ) : null}
+                            {connector.disconnect_path && status?.connected ? (
+                              <button
+                                type="button"
+                                onClick={() => void handleConnectorAction(connector, "disconnect")}
+                                disabled={pendingAction === `${connector.name}:disconnect`}
+                                className={`inline-flex h-8 items-center gap-2 rounded-full border px-3 text-[12px] font-semibold disabled:opacity-60 ${
+                                  confirmDisconnect === connector.name
+                                    ? "border-[#cf222e]/25 bg-[#ffebe9] text-[#cf222e]"
+                                    : "border-[#dfe6f4] bg-white text-[#384152] hover:bg-[#f7f8fa]"
+                                }`}
+                              >
+                                {pendingAction === `${connector.name}:disconnect` ? (
+                                  <Loader2 size={13} className="animate-spin" />
+                                ) : null}
+                                {confirmDisconnect === connector.name
+                                  ? "Confirm disconnect"
+                                  : "Disconnect"}
+                              </button>
+                            ) : null}
+                          </div>
                         </div>
                       </div>
 

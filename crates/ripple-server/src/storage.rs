@@ -13,6 +13,8 @@ use tokio::sync::OnceCell;
 use crate::config::AppConfig;
 use crate::sessions::SessionRecord;
 
+pub const CURRENT_SCHEMA_VERSION: i64 = 1;
+
 #[derive(Clone)]
 pub struct Storage {
     pool: SqlitePool,
@@ -82,10 +84,21 @@ impl Storage {
                     sqlx::query(statement).execute(&self.pool).await?;
                 }
                 ensure_schema_columns(&self.pool).await?;
+                ensure_schema_migrations(&self.pool).await?;
                 Ok(())
             })
             .await
             .map(|_| ())
+    }
+
+    pub async fn schema_version(&self) -> anyhow::Result<i64> {
+        self.initialize().await?;
+        let row = sqlx::query("SELECT MAX(version) AS version FROM schema_migrations")
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(row
+            .get::<Option<i64>, _>("version")
+            .unwrap_or(CURRENT_SCHEMA_VERSION))
     }
 
     pub async fn save_session(&self, record: &SessionRecord) -> anyhow::Result<()> {
@@ -379,6 +392,18 @@ impl Storage {
                 .bind(user_id)
                 .fetch_all(&self.pool)
                 .await?;
+        rows.into_iter()
+            .map(|row| json_from_text(row.get::<String, _>("record_json").as_str()))
+            .collect()
+    }
+
+    pub async fn list_active_jobs(&self) -> anyhow::Result<Vec<Value>> {
+        self.initialize().await?;
+        let rows = sqlx::query(
+            "SELECT record_json FROM jobs WHERE status IN ('queued', 'running') ORDER BY updated_at DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
         rows.into_iter()
             .map(|row| json_from_text(row.get::<String, _>("record_json").as_str()))
             .collect()
@@ -883,6 +908,12 @@ CREATE TABLE IF NOT EXISTS file_refs (
     linked_session_id TEXT
 );
 
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    version INTEGER PRIMARY KEY NOT NULL,
+    name TEXT NOT NULL,
+    applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_sessions_user_last_active
     ON sessions(user_id, last_active);
 CREATE INDEX IF NOT EXISTS idx_sessions_user_status
@@ -917,6 +948,15 @@ async fn ensure_schema_columns(pool: &SqlitePool) -> anyhow::Result<()> {
             .execute(pool)
             .await?;
     }
+    Ok(())
+}
+
+async fn ensure_schema_migrations(pool: &SqlitePool) -> anyhow::Result<()> {
+    sqlx::query("INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (?, ?)")
+        .bind(CURRENT_SCHEMA_VERSION)
+        .bind("initial_sqlite_control_plane")
+        .execute(pool)
+        .await?;
     Ok(())
 }
 
@@ -994,6 +1034,18 @@ mod tests {
                 active_runs: 1,
             }
         );
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn records_schema_migration_version() -> anyhow::Result<()> {
+        let root =
+            std::env::temp_dir().join(format!("ripple-storage-test-{}", uuid::Uuid::new_v4()));
+        let storage = Storage::open(root.join(".ripple/ripple.sqlite"))?;
+
+        assert_eq!(storage.schema_version().await?, CURRENT_SCHEMA_VERSION);
 
         let _ = std::fs::remove_dir_all(root);
         Ok(())

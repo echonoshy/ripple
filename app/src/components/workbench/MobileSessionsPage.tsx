@@ -100,7 +100,7 @@ export default function MobileSessionsPage({
         <div className="flex h-10 items-center justify-between">
           <div className="flex items-center gap-2">
             <RippleIcon size={24} className="h-6 w-6" />
-            <span className="bg-gradient-to-r from-[#2f6bff] to-[#8a5cff] bg-clip-text text-transparent font-bold text-[18px] tracking-tight">
+            <span className="bg-gradient-to-r from-[#2f6bff] to-[#8a5cff] bg-clip-text text-[18px] font-bold tracking-tight text-transparent">
               Ripple
             </span>
           </div>

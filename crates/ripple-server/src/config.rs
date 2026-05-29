@@ -9,6 +9,8 @@ pub struct AppConfig {
     pub host: String,
     pub port: u16,
     pub api_keys: Vec<String>,
+    pub security: SecurityConfig,
+    pub cors: CorsConfig,
     pub default_model: String,
     pub model_presets: BTreeMap<String, ModelPreset>,
     pub logging: LoggingConfig,
@@ -31,6 +33,29 @@ pub struct ModelPreset {
 #[derive(Clone, Debug)]
 pub struct LoggingConfig {
     pub level: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct SecurityConfig {
+    pub deployment_mode: String,
+    pub require_confirm_for_risky_api: bool,
+    pub require_https: bool,
+}
+
+impl Default for SecurityConfig {
+    fn default() -> Self {
+        Self {
+            deployment_mode: "trusted-proxy".to_string(),
+            require_confirm_for_risky_api: true,
+            require_https: false,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct CorsConfig {
+    pub allowed_origins: Vec<String>,
+    pub allow_any_origin: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -130,6 +155,8 @@ struct RawServer {
     host: Option<String>,
     port: Option<u16>,
     api_keys: Option<Vec<String>>,
+    security: Option<RawSecurity>,
+    cors: Option<RawCors>,
     sandbox: Option<RawSandbox>,
     codex_chat: Option<RawCodexChat>,
     schedule_extraction: Option<RawScheduleExtraction>,
@@ -137,6 +164,19 @@ struct RawServer {
     public_base_url: Option<String>,
     feishu: Option<RawFeishu>,
     gogcli_oauth: Option<RawGogcliOAuth>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RawSecurity {
+    deployment_mode: Option<String>,
+    require_confirm_for_risky_api: Option<bool>,
+    require_https: Option<bool>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RawCors {
+    allowed_origins: Option<Vec<String>>,
+    allow_any_origin: Option<bool>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -266,6 +306,8 @@ impl AppConfig {
         };
 
         let server = raw.server.unwrap_or_default();
+        let security = server.security.unwrap_or_default();
+        let cors = server.cors.unwrap_or_default();
         let sandbox = server.sandbox.unwrap_or_default();
         let model = raw.model.unwrap_or_default();
         let public_base_url = clean_config_string(server.public_base_url.as_deref());
@@ -290,6 +332,23 @@ impl AppConfig {
             host: server.host.unwrap_or_else(|| "0.0.0.0".to_string()),
             port: server.port.unwrap_or(8810),
             api_keys: server.api_keys.unwrap_or_default(),
+            security: SecurityConfig {
+                deployment_mode: clean_config_string(security.deployment_mode.as_deref())
+                    .unwrap_or_else(|| "trusted-proxy".to_string()),
+                require_confirm_for_risky_api: security
+                    .require_confirm_for_risky_api
+                    .unwrap_or(true),
+                require_https: security.require_https.unwrap_or(false),
+            },
+            cors: CorsConfig {
+                allowed_origins: cors
+                    .allowed_origins
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter_map(|value| clean_config_string(Some(&value)))
+                    .collect(),
+                allow_any_origin: cors.allow_any_origin.unwrap_or(false),
+            },
             default_model,
             model_presets,
             logging: LoggingConfig {
@@ -767,6 +826,36 @@ server:
         .expect("load config");
 
         assert_eq!(config.schedule_poll_interval_seconds, 30);
+    }
+
+    #[test]
+    fn parses_security_and_cors_posture() {
+        let config = with_temp_config(
+            "security-cors",
+            r#"
+server:
+  api_keys: ["test-key"]
+  security:
+    deployment_mode: "trusted-proxy"
+    require_confirm_for_risky_api: true
+    require_https: true
+  cors:
+    allowed_origins:
+      - "https://ripple.example.com"
+    allow_any_origin: false
+"#,
+            AppConfig::load,
+        )
+        .expect("load config");
+
+        assert_eq!(config.security.deployment_mode, "trusted-proxy");
+        assert!(config.security.require_confirm_for_risky_api);
+        assert!(config.security.require_https);
+        assert_eq!(
+            config.cors.allowed_origins,
+            vec!["https://ripple.example.com".to_string()]
+        );
+        assert!(!config.cors.allow_any_origin);
     }
 
     #[test]

@@ -11,6 +11,7 @@ use uuid::Uuid;
 
 use crate::codex::app_server::{AgentRunnerRequest, AgentRunnerStatus, CodexAppServerProvider};
 use crate::config::AppConfig;
+use crate::redaction::redact_text;
 use crate::storage::Storage;
 
 #[derive(Clone)]
@@ -289,6 +290,16 @@ impl JobManager {
         Ok(infos)
     }
 
+    pub async fn recover_interrupted_stored_runs(&self) -> anyhow::Result<usize> {
+        let mut recovered = 0;
+        for mut record in self.storage.list_active_jobs().await? {
+            StoredJobRecord::mark_interrupted(&mut record);
+            self.storage.upsert_job(&record).await?;
+            recovered += 1;
+        }
+        Ok(recovered)
+    }
+
     pub async fn info(&self, job_id: &str) -> anyhow::Result<Option<AgentRunInfo>> {
         let jobs = self.jobs.read().await;
         let Some(job) = jobs.get(job_id) else {
@@ -353,31 +364,37 @@ impl JobManager {
         false
     }
 
+    pub async fn has_active_schedule_run(&self, user_id: &str, schedule_id: &str) -> bool {
+        let jobs = self.jobs.read().await;
+        for job in jobs.values() {
+            let job = job.read().await;
+            if job.user_id.as_deref() == Some(user_id)
+                && job.metadata.get("schedule_id").and_then(Value::as_str) == Some(schedule_id)
+                && matches!(
+                    job.status,
+                    AgentRunnerStatus::Queued | AgentRunnerStatus::Running
+                )
+            {
+                return true;
+            }
+        }
+        false
+    }
+
     pub async fn recover_stale_stored_session_run(
         &self,
         user_id: &str,
         session_id: &str,
     ) -> anyhow::Result<Option<AgentRunInfo>> {
         for mut record in self.storage.list_jobs_for_user(user_id).await? {
-            if record.get("session_id").and_then(Value::as_str) != Some(session_id) {
+            if StoredJobRecord::session_id(&record) != Some(session_id) {
                 continue;
             }
-            let status = record
-                .get("status")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string();
+            let status = StoredJobRecord::status(&record);
             if status != "queued" && status != "running" {
                 return Ok(info_from_record(&record));
             }
-            if let Some(object) = record.as_object_mut() {
-                object.insert("status".to_string(), json!("failed"));
-                object.insert("updated_at".to_string(), json!(now_iso()));
-                object.insert(
-                    "error".to_string(),
-                    json!("Server restarted before run completed"),
-                );
-            }
+            StoredJobRecord::mark_interrupted(&mut record);
             self.storage.upsert_job(&record).await?;
             return Ok(info_from_record(&record));
         }
@@ -574,9 +591,9 @@ fn info_from_job(job: &ExternalAgentJob, pending_approval: Option<Value>) -> Age
             .get("sandbox_cwd")
             .and_then(Value::as_str)
             .map(str::to_string),
-        stdout_tail: job.stdout_tail.clone(),
-        stderr_tail: job.stderr_tail.clone(),
-        error: job.error.clone(),
+        stdout_tail: redact_text(&job.stdout_tail),
+        stderr_tail: redact_text(&job.stderr_tail),
+        error: job.error.as_deref().map(redact_text),
         pending_approval,
         metadata: job.metadata.clone(),
     }
@@ -596,101 +613,121 @@ async fn save_job_record_to_storage(
     storage: &Storage,
     job: &ExternalAgentJob,
 ) -> anyhow::Result<()> {
-    storage.upsert_job(&job_record_value(job)).await
-}
-
-fn job_record_value(job: &ExternalAgentJob) -> Value {
-    let mut record = json!({
-        "version": 1,
-        "job_id": job.job_id,
-        "provider": job.provider,
-        "user_id": job.user_id,
-        "session_id": job.session_id,
-        "prompt_preview": job.prompt.chars().take(240).collect::<String>(),
-        "cwd": job.cwd,
-        "sandbox_cwd": job.metadata.get("sandbox_cwd").cloned().unwrap_or(Value::Null),
-        "status": job.status.as_str(),
-        "created_at": job.created_at,
-        "updated_at": job.updated_at,
-        "events_file": job.events_file,
-        "output_file": job.output_file,
-        "exit_code": job.exit_code,
-        "stdout_tail": job.stdout_tail,
-        "stderr_tail": job.stderr_tail,
-        "error": job.error,
-    });
-    if let Some(object) = record.as_object_mut() {
-        for key in ["schedule_id", "schedule_title", "schedule_trigger"] {
-            if let Some(value) = job.metadata.get(key).and_then(Value::as_str) {
-                object.insert(key.to_string(), json!(value));
-            }
-        }
-        if let Some(value) = job.metadata.get("codex_thread_id").and_then(Value::as_str) {
-            object.insert("codex_thread_id".to_string(), json!(value));
-        }
-        if job
-            .metadata
-            .get("codex_persistent_thread")
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
-        {
-            object.insert("codex_persistent_thread".to_string(), json!(true));
-        }
-        if let Some(value) = job.metadata.get("chat_user_input").and_then(Value::as_str) {
-            object.insert("chat_user_input".to_string(), json!(value));
-        }
-        if let Some(value) = job.metadata.get("chat_user_content") {
-            object.insert("chat_user_content".to_string(), value.clone());
-        }
-    }
-    record
+    storage.upsert_job(&StoredJobRecord::from_job(job)).await
 }
 
 fn info_from_record(record: &Value) -> Option<AgentRunInfo> {
-    let job_id = record.get("job_id")?.as_str()?.to_string();
-    Some(AgentRunInfo {
-        job_id,
-        provider: record_str(record, "provider"),
-        status: record_str(record, "status"),
-        output_file: record
-            .get("output_file")
-            .and_then(Value::as_str)
-            .map(str::to_string),
-        events_file: record
-            .get("events_file")
-            .and_then(Value::as_str)
-            .map(str::to_string),
-        created_at: record_str(record, "created_at"),
-        updated_at: record_str(record, "updated_at"),
-        exit_code: record
-            .get("exit_code")
-            .and_then(Value::as_i64)
-            .and_then(|value| i32::try_from(value).ok()),
-        prompt_preview: record
-            .get("prompt_preview")
-            .and_then(Value::as_str)
-            .map(str::to_string),
-        sandbox_cwd: record
-            .get("sandbox_cwd")
-            .and_then(Value::as_str)
-            .map(str::to_string),
-        stdout_tail: record_str(record, "stdout_tail"),
-        stderr_tail: record_str(record, "stderr_tail"),
-        error: record
-            .get("error")
-            .and_then(Value::as_str)
-            .map(str::to_string),
-        pending_approval: None,
-        metadata: record.clone(),
-    })
+    StoredJobRecord::to_info(record)
 }
 
-fn record_str(record: &Value, key: &str) -> String {
-    record
-        .get(key)
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string()
+struct StoredJobRecord;
+
+impl StoredJobRecord {
+    fn from_job(job: &ExternalAgentJob) -> Value {
+        let mut record = json!({
+            "version": 1,
+            "job_id": job.job_id,
+            "provider": job.provider,
+            "user_id": job.user_id,
+            "session_id": job.session_id,
+            "prompt_preview": job.prompt.chars().take(240).collect::<String>(),
+            "cwd": job.cwd,
+            "sandbox_cwd": job.metadata.get("sandbox_cwd").cloned().unwrap_or(Value::Null),
+            "status": job.status.as_str(),
+            "created_at": job.created_at,
+            "updated_at": job.updated_at,
+            "events_file": job.events_file,
+            "output_file": job.output_file,
+            "exit_code": job.exit_code,
+            "stdout_tail": redact_text(&job.stdout_tail),
+            "stderr_tail": redact_text(&job.stderr_tail),
+            "error": job.error.as_deref().map(redact_text),
+        });
+        if let Some(object) = record.as_object_mut() {
+            for key in ["schedule_id", "schedule_title", "schedule_trigger"] {
+                if let Some(value) = job.metadata.get(key).and_then(Value::as_str) {
+                    object.insert(key.to_string(), json!(value));
+                }
+            }
+            if let Some(value) = job.metadata.get("codex_thread_id").and_then(Value::as_str) {
+                object.insert("codex_thread_id".to_string(), json!(value));
+            }
+            if job
+                .metadata
+                .get("codex_persistent_thread")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
+                object.insert("codex_persistent_thread".to_string(), json!(true));
+            }
+            if let Some(value) = job.metadata.get("chat_user_input").and_then(Value::as_str) {
+                object.insert("chat_user_input".to_string(), json!(value));
+            }
+            if let Some(value) = job.metadata.get("chat_user_content") {
+                object.insert("chat_user_content".to_string(), value.clone());
+            }
+        }
+        record
+    }
+
+    fn to_info(record: &Value) -> Option<AgentRunInfo> {
+        let job_id = record.get("job_id")?.as_str()?.to_string();
+        Some(AgentRunInfo {
+            job_id,
+            provider: Self::str(record, "provider"),
+            status: Self::str(record, "status"),
+            output_file: Self::opt_str(record, "output_file"),
+            events_file: Self::opt_str(record, "events_file"),
+            created_at: Self::str(record, "created_at"),
+            updated_at: Self::str(record, "updated_at"),
+            exit_code: record
+                .get("exit_code")
+                .and_then(Value::as_i64)
+                .and_then(|value| i32::try_from(value).ok()),
+            prompt_preview: Self::opt_str(record, "prompt_preview"),
+            sandbox_cwd: Self::opt_str(record, "sandbox_cwd"),
+            stdout_tail: redact_text(&Self::str(record, "stdout_tail")),
+            stderr_tail: redact_text(&Self::str(record, "stderr_tail")),
+            error: record.get("error").and_then(Value::as_str).map(redact_text),
+            pending_approval: None,
+            metadata: record.clone(),
+        })
+    }
+
+    fn session_id(record: &Value) -> Option<&str> {
+        record.get("session_id").and_then(Value::as_str)
+    }
+
+    fn status(record: &Value) -> String {
+        Self::str(record, "status")
+    }
+
+    fn mark_interrupted(record: &mut Value) {
+        if let Some(object) = record.as_object_mut() {
+            object.insert("status".to_string(), json!("failed"));
+            object.insert("updated_at".to_string(), json!(now_iso()));
+            object.insert(
+                "error".to_string(),
+                json!("interrupted_by_restart: server restarted before run completed"),
+            );
+            object.insert(
+                "failure_reason".to_string(),
+                json!("interrupted_by_restart"),
+            );
+        }
+    }
+
+    fn str(record: &Value, key: &str) -> String {
+        record
+            .get(key)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string()
+    }
+
+    fn opt_str(record: &Value, key: &str) -> Option<String> {
+        record.get(key).and_then(Value::as_str).map(str::to_string)
+    }
 }
 
 fn resolve_workspace_cwd(raw_cwd: Option<&str>, workspace_root: &Path) -> anyhow::Result<PathBuf> {

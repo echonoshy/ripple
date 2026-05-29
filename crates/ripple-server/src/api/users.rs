@@ -13,8 +13,8 @@ use crate::sandbox::workspace_size_bytes;
 use crate::state::AppState;
 use crate::user::{user_id_from_headers, AuthContext};
 
-const MAX_SESSIONS_PER_USER: u64 = 200;
-const MAX_RUNS_PER_DAY: u64 = 200;
+pub(crate) const MAX_SESSIONS_PER_USER: u64 = 200;
+pub(crate) const MAX_RUNS_PER_DAY: u64 = 200;
 
 pub async fn current_user_profile(
     State(state): State<AppState>,
@@ -27,7 +27,8 @@ pub async fn current_user_profile(
     Ok(Json(json!({
         "user_id": user_id,
         "auth": auth.public_json(),
-        "usage": usage
+        "usage": usage,
+        "limits": user_limits(&state)
     })))
 }
 
@@ -49,6 +50,15 @@ pub(crate) async fn assert_can_create_run(
     user_id: &str,
     max_runtime_seconds: u64,
 ) -> Result<(), ApiError> {
+    if !state.config.codex.enabled {
+        return Err(ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            json!({
+                "code": "codex_disabled",
+                "message": "Codex runtime is disabled for this server."
+            }),
+        ));
+    }
     state.sandboxes.ensure_sandbox(user_id)?;
     let usage = user_usage(state, user_id).await?;
     let used_runs = usage_u64(&usage, "runs_today");
@@ -153,6 +163,16 @@ fn quota_error(resource: &str, limit: u64, used: u64) -> ApiError {
     )
 }
 
+pub(crate) fn user_limits(state: &AppState) -> Value {
+    json!({
+        "max_workspace_bytes": state.config.sandbox.max_workspace_mb.saturating_mul(1024 * 1024),
+        "max_workspace_mb": state.config.sandbox.max_workspace_mb,
+        "max_sessions": MAX_SESSIONS_PER_USER,
+        "max_runs_per_day": MAX_RUNS_PER_DAY,
+        "max_run_runtime_seconds": state.config.codex.max_runtime_seconds
+    })
+}
+
 fn now_iso() -> String {
     OffsetDateTime::now_utc()
         .format(&Rfc3339)
@@ -165,8 +185,8 @@ mod tests {
 
     use super::*;
     use crate::config::{
-        AppConfig, CodexConfig, FeishuConfig, GogcliOAuthConfig, LoggingConfig, SandboxConfig,
-        SkillsConfig,
+        AppConfig, CodexConfig, CorsConfig, FeishuConfig, GogcliOAuthConfig, LoggingConfig,
+        SandboxConfig, SecurityConfig, SkillsConfig,
     };
     use crate::state::AppState;
     use axum::response::IntoResponse;
@@ -178,6 +198,8 @@ mod tests {
             host: "127.0.0.1".to_string(),
             port: 0,
             api_keys: Vec::new(),
+            security: SecurityConfig::default(),
+            cors: CorsConfig::default(),
             default_model: "codex-test".to_string(),
             model_presets: BTreeMap::new(),
             logging: LoggingConfig {

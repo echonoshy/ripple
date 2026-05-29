@@ -9,7 +9,9 @@ use time::OffsetDateTime;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
-use crate::codex::app_server::{AgentRunnerRequest, AgentRunnerStatus, CodexAppServerProvider};
+use crate::codex::app_server::{
+    AgentRunnerRequest, AgentRunnerResult, AgentRunnerStatus, CodexAppServerProvider,
+};
 use crate::config::AppConfig;
 use crate::redaction::redact_text;
 use crate::storage::Storage;
@@ -257,6 +259,55 @@ impl JobManager {
         self.provider
             .compact_thread(user_id, workspace_root, thread_id, max_runtime_seconds)
             .await
+    }
+
+    pub(crate) async fn run_internal(
+        &self,
+        create: AgentRunCreateRequest,
+        user_id: String,
+        session_id: Option<String>,
+        workspace_root: PathBuf,
+        runtime_dir: PathBuf,
+    ) -> anyhow::Result<AgentRunInfo> {
+        if create.provider != "codex" && create.provider != "auto" {
+            anyhow::bail!("Only the codex provider is supported");
+        }
+        let prompt = create.prompt.trim().to_string();
+        if prompt.is_empty() {
+            anyhow::bail!("prompt is required");
+        }
+        let cwd = resolve_workspace_cwd(create.cwd.as_deref(), &workspace_root)?;
+        let job_id = format!("internal-{}", &Uuid::new_v4().simple().to_string()[..8]);
+        let job_dir = runtime_dir.join("internal-agents").join(&job_id);
+        let mut metadata = json!({
+            "job_id": job_id,
+            "route": "internal_agent_runner",
+            "internal": true,
+            "signals": [],
+            "sandbox_cwd": sandbox_cwd_for_host_path(&cwd, &workspace_root),
+            "workspace_root": workspace_root
+        });
+        if let Some(object) = metadata.as_object_mut() {
+            if let Some(session_id) = &session_id {
+                object.insert("session_id".to_string(), json!(session_id));
+            }
+        }
+        let request = AgentRunnerRequest {
+            provider: "codex".to_string(),
+            prompt: prompt.clone(),
+            cwd: cwd.clone(),
+            input_items: create.input_items,
+            model: create.model,
+            effort: create.effort,
+            summary: create.summary,
+            output_schema: create.output_schema,
+            max_runtime_seconds: create.max_runtime_seconds.clamp(1, 86_400),
+            user_id: Some(user_id),
+            session_id,
+            metadata: metadata.clone(),
+        };
+        let result = self.provider.run(request, job_dir).await?;
+        Ok(info_from_internal_result(prompt, cwd, metadata, result))
     }
 
     pub async fn read_thread(
@@ -596,6 +647,39 @@ fn info_from_job(job: &ExternalAgentJob, pending_approval: Option<Value>) -> Age
         error: job.error.as_deref().map(redact_text),
         pending_approval,
         metadata: job.metadata.clone(),
+    }
+}
+
+fn info_from_internal_result(
+    prompt: String,
+    cwd: PathBuf,
+    metadata: Value,
+    result: AgentRunnerResult,
+) -> AgentRunInfo {
+    let metadata = merge_metadata(metadata, result.metadata);
+    AgentRunInfo {
+        job_id: result.job_id,
+        provider: result.provider,
+        status: result.status.as_str().to_string(),
+        output_file: result
+            .output_file
+            .as_ref()
+            .map(|path| path.to_string_lossy().to_string()),
+        events_file: Some(result.events_file.to_string_lossy().to_string()),
+        created_at: now_iso(),
+        updated_at: now_iso(),
+        exit_code: result.exit_code,
+        prompt_preview: Some(prompt.chars().take(240).collect()),
+        sandbox_cwd: metadata
+            .get("sandbox_cwd")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .or_else(|| Some(cwd.to_string_lossy().to_string())),
+        stdout_tail: redact_text(&result.stdout_tail),
+        stderr_tail: redact_text(&result.stderr_tail),
+        error: result.error.as_deref().map(redact_text),
+        pending_approval: None,
+        metadata,
     }
 }
 

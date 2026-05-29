@@ -33,6 +33,7 @@ mod connector_auth;
 mod input;
 mod media;
 mod prompt;
+mod title;
 mod wire;
 
 #[cfg(test)]
@@ -49,6 +50,7 @@ pub(crate) use media::{
 #[cfg(test)]
 use media::{decode_base64_image_payload, workspace_path_or_none};
 pub(crate) use prompt::build_codex_chat_prompt;
+use title::spawn_session_title_generation;
 use wire::{
     chat_completion_payload, chunk, connector_auth_event_response,
     connector_auth_event_response_with_message, control_plane_event_response, event_message,
@@ -100,6 +102,7 @@ struct CodexChatStream {
     workspace_root: PathBuf,
     info: AgentRunInfo,
     model: String,
+    effort: Option<String>,
     user_input: String,
     user_content: Value,
     prefix_event: Option<Value>,
@@ -337,7 +340,7 @@ async fn finish_codex_chat_response(
         workspace_root,
         request,
         model,
-        effort: _,
+        effort,
         user_input,
         input_items: _,
         user_content,
@@ -354,6 +357,7 @@ async fn finish_codex_chat_response(
             workspace_root,
             info,
             model,
+            effort,
             user_input,
             user_content,
             prefix_event,
@@ -382,7 +386,7 @@ async fn finish_codex_chat_response(
     let image_events =
         collect_chat_image_events(&state, &user_id, &final_info, &workspace_root).await;
     record_codex_thread(&mut session, &final_info);
-    append_chat_messages_with_images(
+    let title_fallback = append_chat_messages_with_images(
         &mut session,
         user_content,
         &user_input,
@@ -396,6 +400,19 @@ async fn finish_codex_chat_response(
         .sessions
         .save_record_if_exists(session.clone())
         .await?;
+    if let Some(fallback_title) = title_fallback {
+        spawn_session_title_generation(
+            state.clone(),
+            user_id.clone(),
+            workspace_root.clone(),
+            session.session_id.clone(),
+            fallback_title,
+            user_input.clone(),
+            output_text.clone(),
+            model.clone(),
+            effort.clone(),
+        );
+    }
 
     let mut payload = chat_completion_payload(&model, &session.session_id, output_text);
     payload["usage"] = usage;
@@ -609,6 +626,7 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
         workspace_root,
         info,
         model,
+        effort,
         user_input,
         user_content,
         prefix_event,
@@ -707,7 +725,7 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                         yield Ok::<Bytes, Infallible>(Bytes::from(chunk(&chunk_id, &model, created, json!({"content": output_text}), None)));
                     }
                     record_codex_thread(&mut session, &info);
-                    append_chat_messages_with_images(
+                    let title_fallback = append_chat_messages_with_images(
                         &mut session,
                         user_content.clone(),
                         &user_input,
@@ -719,6 +737,19 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                     session.pending_permission_request = None;
                     clear_session_plan(&mut session);
                     let _ = state.sessions.save_record_if_exists(session.clone()).await;
+                    if let Some(fallback_title) = title_fallback {
+                        spawn_session_title_generation(
+                            state.clone(),
+                            user_id.clone(),
+                            workspace_root.clone(),
+                            session.session_id.clone(),
+                            fallback_title,
+                            user_input.clone(),
+                            emitted.clone(),
+                            model.clone(),
+                            effort.clone(),
+                        );
+                    }
                     if usage_total_tokens(&latest_usage) > 0 {
                         yield Ok::<Bytes, Infallible>(sse_json(&json!({"type": "usage", "usage": latest_usage})));
                     }
@@ -849,7 +880,7 @@ async fn finalize_stale_completed_chat_run(
         Err(_) => Vec::new(),
     };
     record_codex_thread(session, info);
-    append_chat_messages_with_images(
+    let _ = append_chat_messages_with_images(
         session,
         user_content,
         &user_input,
@@ -896,7 +927,7 @@ async fn persist_control_plane_chat_event(
     decision: &ScheduleChatDecision,
 ) -> Result<Value, ApiError> {
     let public_event = public_control_plane_event(&decision.event);
-    append_chat_messages(
+    let _ = append_chat_messages(
         session,
         user_content.clone(),
         user_input,
@@ -929,8 +960,8 @@ fn append_chat_messages(
     user_content: Value,
     user_input: &str,
     assistant_text: &str,
-) {
-    append_chat_messages_with_images(session, user_content, user_input, assistant_text, &[]);
+) -> Option<String> {
+    append_chat_messages_with_images(session, user_content, user_input, assistant_text, &[])
 }
 
 fn append_chat_messages_with_images(
@@ -939,7 +970,8 @@ fn append_chat_messages_with_images(
     user_input: &str,
     assistant_text: &str,
     image_events: &[Value],
-) {
+) -> Option<String> {
+    let should_generate_title = session.messages.is_empty() && session.title.trim().is_empty();
     let mut assistant_content = vec![json!({"type": "text", "text": assistant_text})];
     let mut seen_image_paths = HashSet::<String>::new();
     for image_event in image_events {
@@ -968,6 +1000,13 @@ fn append_chat_messages_with_images(
     if session.title.trim().is_empty() {
         session.title = extract_title_from_messages(&session.messages);
     }
+    if should_generate_title {
+        let title = session.title.trim();
+        if !title.is_empty() {
+            return Some(title.to_string());
+        }
+    }
+    None
 }
 
 fn request_base_url_from_headers(headers: &HeaderMap) -> Option<String> {

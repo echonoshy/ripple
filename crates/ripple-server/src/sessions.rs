@@ -359,6 +359,31 @@ impl SessionManager {
         Ok(Some(self.info_from_record(&record)?))
     }
 
+    pub async fn update_generated_title_if_unchanged(
+        &self,
+        user_id: &str,
+        session_id: &str,
+        fallback_title: &str,
+        generated_title: &str,
+    ) -> anyhow::Result<bool> {
+        let key = (user_id.to_string(), session_id.to_string());
+        if self.deleted.read().await.contains(&key) {
+            self.active.write().await.remove(&key);
+            return Ok(false);
+        }
+        let Some(mut record) = self.load(user_id, session_id).await? else {
+            return Ok(false);
+        };
+        let generated_title = generated_title.trim();
+        if generated_title.is_empty() || record.title.trim() != fallback_title.trim() {
+            return Ok(false);
+        }
+        record.title = generated_title.to_string();
+        self.persist(&record).await?;
+        self.active.write().await.insert(key, record);
+        Ok(true)
+    }
+
     async fn save_record_inner(
         &self,
         mut record: SessionRecord,
@@ -375,15 +400,19 @@ impl SessionManager {
             anyhow::bail!("Session was deleted");
         }
 
-        if require_existing
-            && !self
+        if require_existing {
+            let Some(existing) = self
                 .storage
-                .session_exists(&record.user_id, &record.session_id)
+                .load_session(&record.user_id, &record.session_id)
                 .await?
-        {
-            drop(deleted);
-            self.active.write().await.remove(&key);
-            return Ok(false);
+            else {
+                drop(deleted);
+                self.active.write().await.remove(&key);
+                return Ok(false);
+            };
+            if !existing.title.trim().is_empty() && existing.title != record.title {
+                record.title = existing.title;
+            }
         }
 
         record.message_count = record.messages.len();
@@ -1009,6 +1038,108 @@ mod tests {
         assert!(cleared.codex_thread_id.is_none());
         assert!(cleared.plan_steps.is_empty());
         assert!(cleared.plan_progress.is_none());
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn generated_title_updates_only_unchanged_fallback_title() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("ripple-session-test-{}", Uuid::new_v4()));
+        let config = test_config(&root);
+        let manager = SessionManager::new(config.clone(), SandboxManager::new(config));
+        let user_id = "alice";
+        let mut session = manager
+            .create_session(
+                user_id,
+                CreateSessionInput {
+                    model: None,
+                    max_turns: None,
+                    system_prompt: None,
+                },
+            )
+            .await?;
+        session.title = "please debug this weird mobile login failure".to_string();
+        manager.save_record(session.clone()).await?;
+
+        assert!(
+            manager
+                .update_generated_title_if_unchanged(
+                    user_id,
+                    &session.session_id,
+                    "please debug this weird mobile login failure",
+                    "Mobile Login Debugging"
+                )
+                .await?
+        );
+        let updated = manager
+            .load(user_id, &session.session_id)
+            .await?
+            .expect("session");
+        assert_eq!(updated.title, "Mobile Login Debugging");
+
+        assert!(
+            !manager
+                .update_generated_title_if_unchanged(
+                    user_id,
+                    &session.session_id,
+                    "please debug this weird mobile login failure",
+                    "Overwritten Title"
+                )
+                .await?
+        );
+        let reloaded = manager
+            .load(user_id, &session.session_id)
+            .await?
+            .expect("session");
+        assert_eq!(reloaded.title, "Mobile Login Debugging");
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stale_runtime_save_preserves_newer_session_title() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("ripple-session-test-{}", Uuid::new_v4()));
+        let config = test_config(&root);
+        let manager = SessionManager::new(config.clone(), SandboxManager::new(config));
+        let user_id = "alice";
+        let mut session = manager
+            .create_session(
+                user_id,
+                CreateSessionInput {
+                    model: None,
+                    max_turns: None,
+                    system_prompt: None,
+                },
+            )
+            .await?;
+        session.title = "please debug this weird mobile login failure".to_string();
+        manager.save_record(session.clone()).await?;
+
+        let mut stale_runtime_record = session.clone();
+        stale_runtime_record
+            .messages
+            .push(serde_json::json!({"role": "user", "content": "follow up"}));
+        stale_runtime_record.message_count = stale_runtime_record.messages.len();
+        assert!(
+            manager
+                .update_generated_title_if_unchanged(
+                    user_id,
+                    &session.session_id,
+                    "please debug this weird mobile login failure",
+                    "Mobile Login Debugging"
+                )
+                .await?
+        );
+
+        assert!(manager.save_record_if_exists(stale_runtime_record).await?);
+        let reloaded = manager
+            .load(user_id, &session.session_id)
+            .await?
+            .expect("session");
+        assert_eq!(reloaded.title, "Mobile Login Debugging");
+        assert_eq!(reloaded.message_count, 1);
 
         let _ = std::fs::remove_dir_all(root);
         Ok(())

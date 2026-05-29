@@ -350,6 +350,10 @@ fn schedule_extraction_text() -> &'static str {
     "{\"is_schedule_request\":true,\"missing_fields\":[],\"clarification_question\":null,\"schedule\":{\"title\":\"Check build\",\"prompt\":\"Check the build status\",\"kind\":\"interval\",\"timezone\":\"UTC\",\"run_at\":null,\"interval_seconds\":3600,\"enabled\":false,\"cwd\":null,\"model\":null,\"effort\":null,\"summary\":null,\"output_schema\":null,\"max_runtime_seconds\":60,\"max_runs\":null}}"
 }
 
+fn title_generation_text() -> &'static str {
+    "{\"title\":\"Chat Greeting\"}"
+}
+
 fn main() {
     let stdin = io::stdin();
     let mut thread_counter = 0_u64;
@@ -428,6 +432,8 @@ fn main() {
                     } else {
                         "env clean proxy missing".to_string()
                     }
+                } else if line.contains("strict chat-title generator") {
+                    title_generation_text().to_string()
                 } else if line.contains("\"outputSchema\"") {
                     schedule_extraction_text().to_string()
                 } else if line.contains("[ids]") {
@@ -3004,6 +3010,63 @@ async fn chat_route_completes_non_streaming_with_fake_codex_app_server() {
         usage.get("total_output_tokens").and_then(Value::as_u64),
         Some(10)
     );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn chat_generates_async_summary_title_without_public_run() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+    let user_id = "smoke-user";
+
+    let (status, chat) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/chat/completions",
+        json!({
+            "model": "codex-test",
+            "messages": [{"role": "user", "content": "hello from chat"}],
+            "stream": false
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let session_id = chat
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("session id")
+        .to_string();
+
+    let mut title = String::new();
+    for _ in 0..40 {
+        title = state
+            .sessions
+            .load(user_id, &session_id)
+            .await
+            .unwrap()
+            .expect("session")
+            .title;
+        if title == "Chat Greeting" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert_eq!(title, "Chat Greeting");
+
+    let (status, runs) = call(app.clone(), Method::GET, "/v1/runs", Value::Null).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(runs.get("count").and_then(Value::as_u64), Some(1));
+
+    let (status, overview) = call(app, Method::GET, "/v1/sessions/overview", Value::Null).await;
+    assert_eq!(status, StatusCode::OK);
+    let last_run_prompt = overview
+        .pointer("/sessions/0/last_run/prompt_preview")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    assert!(!last_run_prompt.contains("strict chat-title generator"));
 
     let _ = std::fs::remove_dir_all(root);
 }

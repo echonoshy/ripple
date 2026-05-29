@@ -156,8 +156,10 @@ export function parseWorkspaceLink(href: string | undefined): ParsedWorkspaceLin
 }
 const API_KEY_STORAGE_KEY = "ripple-api-key";
 const USER_ID_STORAGE_KEY = "ripple-user-id";
+const AUTH_MODE_STORAGE_KEY = "ripple-auth-mode";
 const DEFAULT_USER_ID = "default";
 const USER_ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
+export type AuthMode = "service" | "user";
 
 export class AuthError extends Error {
   constructor(message = "Authentication required") {
@@ -204,12 +206,33 @@ export function getApiKey(): string | null {
   return getClientStorage()?.getItem(API_KEY_STORAGE_KEY) ?? null;
 }
 
+export function getAuthMode(): AuthMode {
+  const mode = getClientStorage()?.getItem(AUTH_MODE_STORAGE_KEY);
+  if (mode === "user" || mode === "service") return mode;
+  return "service";
+}
+
 export function setApiKey(key: string): void {
-  getClientStorage()?.setItem(API_KEY_STORAGE_KEY, key);
+  const storage = getClientStorage();
+  storage?.setItem(API_KEY_STORAGE_KEY, key);
+  storage?.setItem(AUTH_MODE_STORAGE_KEY, "service");
+}
+
+export function setUserSessionToken(token: string, userId: string): void {
+  const storage = getClientStorage();
+  storage?.setItem(API_KEY_STORAGE_KEY, token);
+  storage?.setItem(AUTH_MODE_STORAGE_KEY, "user");
+  setUserId(userId);
 }
 
 export function clearApiKey(): void {
-  getClientStorage()?.removeItem(API_KEY_STORAGE_KEY);
+  const storage = getClientStorage();
+  storage?.removeItem(API_KEY_STORAGE_KEY);
+  storage?.removeItem(AUTH_MODE_STORAGE_KEY);
+}
+
+export function isUserSessionAuth(): boolean {
+  return getAuthMode() === "user" && Boolean(getApiKey());
 }
 
 export function isValidUserId(uid: string): boolean {
@@ -235,7 +258,10 @@ export function clearUserId(): void {
 }
 
 function authHeaders(): Record<string, string> {
-  const headers: Record<string, string> = { "X-Ripple-User-Id": getUserId() };
+  const headers: Record<string, string> = {};
+  if (getAuthMode() !== "user") {
+    headers["X-Ripple-User-Id"] = getUserId();
+  }
   const key = getApiKey();
   if (key) headers.Authorization = `Bearer ${key}`;
   return headers;
@@ -289,6 +315,76 @@ async function responseDetail(res: Response): Promise<string> {
     /* ignore parse error */
   }
   return "";
+}
+
+export interface UserAuthResponse {
+  token: string;
+  token_type: string;
+  user_id: string;
+  login: string;
+  display_name?: string | null;
+  expires_at: string;
+}
+
+export interface UserAuthConfigResponse {
+  user_auth?: {
+    enabled?: boolean;
+    session_ttl_seconds?: number;
+    service_login_allowed?: boolean;
+  };
+}
+
+export async function fetchAuthConfig(): Promise<UserAuthConfigResponse> {
+  const res = await fetch(`${API_URL}/auth/config`);
+  if (!res.ok) return { user_auth: { enabled: false, service_login_allowed: true } };
+  return (await res.json()) as UserAuthConfigResponse;
+}
+
+export async function loginWithPassword(
+  login: string,
+  password: string
+): Promise<UserAuthResponse> {
+  const res = await fetch(`${API_URL}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ login, password }),
+  });
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || "Invalid login or password.");
+  }
+  return (await res.json()) as UserAuthResponse;
+}
+
+export async function claimInvite(input: {
+  invite_code: string;
+  login: string;
+  password: string;
+  display_name?: string | null;
+}): Promise<UserAuthResponse> {
+  const res = await fetch(`${API_URL}/auth/invite/claim`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || "Could not claim invite.");
+  }
+  return (await res.json()) as UserAuthResponse;
+}
+
+export async function logoutUserSession(): Promise<void> {
+  if (!getApiKey()) return;
+  const res = await fetch(`${API_URL}/auth/logout`, {
+    method: "POST",
+    headers: { ...authHeaders() },
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || "Could not log out.");
+  }
 }
 
 function parsePlanStepStatus(value: unknown): PlanStep["status"] {

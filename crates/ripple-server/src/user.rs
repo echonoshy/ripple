@@ -8,6 +8,7 @@ pub const DEFAULT_USER_ID: &str = "default";
 pub enum AuthKind {
     Open,
     Service,
+    User,
 }
 
 impl AuthKind {
@@ -15,6 +16,7 @@ impl AuthKind {
         match self {
             Self::Open => "open",
             Self::Service => "service",
+            Self::User => "user",
         }
     }
 }
@@ -36,6 +38,13 @@ impl AuthContext {
     pub fn service(effective_user_id: String) -> Self {
         Self {
             kind: AuthKind::Service,
+            effective_user_id,
+        }
+    }
+
+    pub fn user(effective_user_id: String) -> Self {
+        Self {
+            kind: AuthKind::User,
             effective_user_id,
         }
     }

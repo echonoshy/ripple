@@ -1,3 +1,4 @@
+pub mod auth;
 pub mod bilibili;
 pub mod chat;
 pub mod connectors;
@@ -108,7 +109,13 @@ fn now_iso() -> String {
 }
 
 pub fn router(state: AppState) -> Router {
-    let v1 = Router::new()
+    let public_v1 = Router::new()
+        .route("/auth/config", get(auth::auth_config))
+        .route("/auth/invite/claim", post(auth::claim_invite))
+        .route("/auth/login", post(auth::login))
+        .route("/auth/logout", post(auth::logout));
+
+    let protected_v1 = Router::new()
         .route("/models", get(models::list_models))
         .route("/info", get(models::system_info))
         .route("/tasks", any(sessions::deprecated_tasks_api))
@@ -265,8 +272,9 @@ pub fn router(state: AppState) -> Router {
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             require_api_key,
-        ))
-        .with_state(state.clone());
+        ));
+
+    let v1 = public_v1.merge(protected_v1).with_state(state.clone());
 
     Router::new()
         .route("/health", get(health::health))
@@ -299,34 +307,53 @@ async fn authenticate_request(
     state: &AppState,
     headers: &axum::http::HeaderMap,
 ) -> Result<AuthContext, ApiError> {
-    if state.config.api_keys.is_empty() {
+    if state.config.api_keys.is_empty() && !state.config.user_auth.enabled {
         let user_id = user_id_from_headers(headers).map_err(ApiError::bad_request)?;
         return Ok(AuthContext::open(user_id));
     }
 
-    let supplied = supplied_api_key(headers);
+    let bearer = supplied_bearer_token(headers);
+    let supplied = bearer.or_else(|| supplied_x_api_key(headers));
     if let Some(key) = supplied {
         if state.config.api_keys.iter().any(|expected| expected == key) {
             let user_id = user_id_from_headers(headers).map_err(ApiError::bad_request)?;
             return Ok(AuthContext::service(user_id));
         }
+    }
+
+    if state.config.user_auth.enabled {
+        if let Some(token) = bearer {
+            if let Some(session) =
+                crate::auth::authenticate_session_token(&state.storage, token).await?
+            {
+                return Ok(AuthContext::user(session.user_id));
+            }
+        }
+        return Err(invalid_api_key());
+    }
+
+    if supplied.is_some() {
         return Err(invalid_api_key());
     }
 
     Err(invalid_api_key())
 }
 
-fn supplied_api_key(headers: &axum::http::HeaderMap) -> Option<&str> {
-    let bearer = headers
+fn supplied_bearer_token(headers: &axum::http::HeaderMap) -> Option<&str> {
+    headers
         .get("authorization")
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "))
-        .map(str::trim);
-    let x_api_key = headers
+        .map(str::trim)
+        .filter(|key| !key.is_empty())
+}
+
+fn supplied_x_api_key(headers: &axum::http::HeaderMap) -> Option<&str> {
+    headers
         .get("x-api-key")
         .and_then(|value| value.to_str().ok())
-        .map(str::trim);
-    bearer.or(x_api_key).filter(|key| !key.is_empty())
+        .map(str::trim)
+        .filter(|key| !key.is_empty())
 }
 
 fn invalid_api_key() -> ApiError {
@@ -451,7 +478,7 @@ mod tests {
     use super::*;
     use crate::config::{
         AppConfig, CodexConfig, CorsConfig, FeishuConfig, GogcliOAuthConfig, LoggingConfig,
-        SandboxConfig, SecurityConfig, SkillsConfig,
+        SandboxConfig, SecurityConfig, SkillsConfig, UserAuthConfig,
     };
     fn test_state(api_keys: Vec<String>) -> AppState {
         let root =
@@ -462,6 +489,7 @@ mod tests {
             port: 0,
             api_keys,
             security: SecurityConfig::default(),
+            user_auth: UserAuthConfig::default(),
             cors: CorsConfig::default(),
             default_model: "codex-test".to_string(),
             model_presets: BTreeMap::new(),

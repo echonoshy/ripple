@@ -10,8 +10,10 @@ interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   apiKey: string | null;
+  authMode: "service" | "user";
   onApiKeyChange: () => void;
   userId: string;
+  canChangeUserId?: boolean;
   onUserIdChange: (uid: string) => void | Promise<void>;
 }
 
@@ -26,8 +28,10 @@ export default function SettingsModal({
   isOpen,
   onClose,
   apiKey,
+  authMode,
   onApiKeyChange,
   userId,
+  canChangeUserId = true,
   onUserIdChange,
 }: SettingsModalProps) {
   const [sandbox, setSandbox] = useState<SandboxInfo | null>(null);
@@ -116,7 +120,9 @@ export default function SettingsModal({
                         <KeyRound size={17} />
                       </span>
                       <div className="min-w-0">
-                        <div className="text-sm font-semibold text-[#111827]">API key</div>
+                        <div className="text-sm font-semibold text-[#111827]">
+                          {authMode === "user" ? "Session" : "API key"}
+                        </div>
                         <div className="truncate font-[family-name:var(--font-mono)] text-xs text-[#667085]">
                           {apiKey ? `${apiKey.slice(0, 6)}${"*".repeat(8)}` : "Not set"}
                         </div>
@@ -127,7 +133,7 @@ export default function SettingsModal({
                       onClick={onApiKeyChange}
                       className="inline-flex h-8 items-center rounded-full border border-[#dfe6f4] bg-white px-4 text-sm font-semibold text-[#384152] transition-all duration-200 hover:bg-[#f7f8fa] active:scale-[0.98]"
                     >
-                      Change
+                      {authMode === "user" ? "Sign out" : "Change"}
                     </button>
                   </div>
                 </section>
@@ -159,7 +165,7 @@ export default function SettingsModal({
                         )}
                       </div>
                     </div>
-                    {isEditingUserId ? (
+                    {canChangeUserId && isEditingUserId ? (
                       <div className="flex shrink-0 items-center gap-2">
                         <button
                           type="button"
@@ -176,7 +182,7 @@ export default function SettingsModal({
                           Save
                         </button>
                       </div>
-                    ) : (
+                    ) : canChangeUserId ? (
                       <button
                         type="button"
                         onClick={handleStartEditUserId}
@@ -184,6 +190,10 @@ export default function SettingsModal({
                       >
                         Change
                       </button>
+                    ) : (
+                      <span className="rounded-full border border-[#dfe6f4] bg-[#f7f8fa] px-3 py-1 text-xs font-semibold text-[#667085]">
+                        Locked
+                      </span>
                     )}
                   </div>
                   {userIdError && (

@@ -7,11 +7,13 @@ rust-version = "1.77.2"
 
 [dependencies]
 anyhow = "1"
+argon2 = "0.5"
 async-stream = "0.3"
 axum = { version = "0.7", features = ["macros", "multipart"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 mime_guess = "2"
 qrcode = "0.14"
+rand_core = { version = "0.6", features = ["getrandom"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

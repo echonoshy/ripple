@@ -302,7 +302,7 @@ mod tests {
 
     use crate::config::{
         CodexConfig, CorsConfig, FeishuConfig, GogcliOAuthConfig, LoggingConfig, SandboxConfig,
-        SecurityConfig, SkillsConfig,
+        SecurityConfig, SkillsConfig, UserAuthConfig,
     };
 
     fn test_config(root: &Path) -> AppConfig {
@@ -312,6 +312,7 @@ mod tests {
             port: 0,
             api_keys: Vec::new(),
             security: SecurityConfig::default(),
+            user_auth: UserAuthConfig::default(),
             cors: CorsConfig::default(),
             default_model: "codex-test".to_string(),
             model_presets: BTreeMap::new(),

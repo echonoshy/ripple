@@ -55,6 +55,7 @@ interface WorkspaceNavProps {
   sessionLoadError?: string | null;
   isGenerating: boolean;
   userId: string;
+  canSwitchUser?: boolean;
   onUserIdChange: (newUserId: string) => void;
   onNewSession: () => void;
   onSelectView: (view: WorkspaceView) => void;
@@ -76,6 +77,7 @@ export default function WorkspaceNav({
   sessionLoadError,
   isGenerating,
   userId,
+  canSwitchUser = true,
   onUserIdChange,
   onNewSession,
   onSelectView,
@@ -521,17 +523,19 @@ export default function WorkspaceNav({
             </div>
 
             <div className="mt-2 flex gap-2 border-t border-[#dfe6f4] pt-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsSwitchingUser(true);
-                  setNewUserDraft(userId);
-                  setIsUserMenuOpen(false);
-                }}
-                className="flex flex-1 items-center justify-center gap-1 rounded-xl bg-[#f3f4f6] px-2 py-2 text-xs font-semibold text-[#374151] transition-all hover:bg-[#e5e7eb] active:bg-[#eef3ff]"
-              >
-                Switch User
-              </button>
+              {canSwitchUser && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsSwitchingUser(true);
+                    setNewUserDraft(userId);
+                    setIsUserMenuOpen(false);
+                  }}
+                  className="flex flex-1 items-center justify-center gap-1 rounded-xl bg-[#f3f4f6] px-2 py-2 text-xs font-semibold text-[#374151] transition-all hover:bg-[#e5e7eb] active:bg-[#eef3ff]"
+                >
+                  Switch User
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => {
@@ -548,7 +552,7 @@ export default function WorkspaceNav({
           </div>
         )}
 
-        {isSwitchingUser ? (
+        {canSwitchUser && isSwitchingUser ? (
           <form
             onSubmit={(e) => {
               e.preventDefault();

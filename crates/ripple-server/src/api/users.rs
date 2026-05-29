@@ -186,7 +186,7 @@ mod tests {
     use super::*;
     use crate::config::{
         AppConfig, CodexConfig, CorsConfig, FeishuConfig, GogcliOAuthConfig, LoggingConfig,
-        SandboxConfig, SecurityConfig, SkillsConfig,
+        SandboxConfig, SecurityConfig, SkillsConfig, UserAuthConfig,
     };
     use crate::state::AppState;
     use axum::response::IntoResponse;
@@ -199,6 +199,7 @@ mod tests {
             port: 0,
             api_keys: Vec::new(),
             security: SecurityConfig::default(),
+            user_auth: UserAuthConfig::default(),
             cors: CorsConfig::default(),
             default_model: "codex-test".to_string(),
             model_presets: BTreeMap::new(),

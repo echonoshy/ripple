@@ -592,6 +592,7 @@ mod tests {
             port: 0,
             api_keys: Vec::new(),
             security: crate::config::SecurityConfig::default(),
+            user_auth: crate::config::UserAuthConfig::default(),
             cors: crate::config::CorsConfig::default(),
             default_model: "codex-test".to_string(),
             model_presets: Default::default(),

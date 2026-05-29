@@ -3,10 +3,16 @@ import { AlertTriangle, KeyRound, UserRound } from "lucide-react";
 import {
   fetchModels,
   getApiKey,
+  getAuthMode,
   setApiKey,
+  setUserSessionToken,
   clearApiKey,
   getUserId,
   setUserId,
+  isUserSessionAuth,
+  loginWithPassword,
+  claimInvite,
+  logoutUserSession,
   AuthError,
 } from "@/lib/api";
 import RippleIcon from "@/components/icons/RippleIcon";
@@ -45,6 +51,14 @@ export default function Home() {
     getApiKey() ? "authenticated" : "needs_auth"
   );
   const [authErrorMsg, setAuthErrorMsg] = useState("");
+  const [authMode, setAuthMode] = useState<"login" | "invite" | "service">(() =>
+    getAuthMode() === "service" && getApiKey() ? "service" : "login"
+  );
+  const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
+  const [loginInput, setLoginInput] = useState("");
+  const [passwordInput, setPasswordInput] = useState("");
+  const [inviteCodeInput, setInviteCodeInput] = useState("");
+  const [inviteDisplayNameInput, setInviteDisplayNameInput] = useState("");
   const [keyInput, setKeyInput] = useState("");
   const [authUserIdInput, setAuthUserIdInput] = useState(() =>
     initialLoginUserIdInput(getUserId())
@@ -58,6 +72,7 @@ export default function Home() {
 
   // ── User identity ──
   const [userId, setUserIdState] = useState<string>(() => getUserId());
+  const productSessionActive = isUserSessionAuth();
 
   // ── UI state ──
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -93,6 +108,7 @@ export default function Home() {
   const handleAuthExpired = useCallback((message: string) => {
     clearApiKey();
     setAuthState("needs_auth");
+    setAuthMode("login");
     setAuthErrorMsg(message);
     setAuthUserIdInput(initialLoginUserIdInput(getUserId()));
     setAuthUserIdError(null);
@@ -249,6 +265,9 @@ export default function Home() {
 
   const handleUserIdChange = useCallback(
     async (newUid: string) => {
+      if (isUserSessionAuth()) {
+        return;
+      }
       try {
         setUserId(newUid);
       } catch {
@@ -312,7 +331,7 @@ export default function Home() {
         }
       } catch (err) {
         if (err instanceof AuthError) {
-          handleAuthExpired("API key 无效，请重新输入");
+          handleAuthExpired("登录已过期，请重新登录");
         }
       }
     })();
@@ -346,6 +365,60 @@ export default function Home() {
     setAuthErrorMsg("");
     setAuthUserIdError(null);
     setAuthState("authenticated");
+  };
+
+  const activateUserSession = useCallback(
+    (token: string, nextUserId: string) => {
+      setUserSessionToken(token, nextUserId);
+      setUserIdState(nextUserId);
+      setSessionAttentionById({});
+      abortRunAndResetSessionView();
+      resetSessionsForUserChange();
+      clearStoredCurrentSessionId();
+      setAuthErrorMsg("");
+      setAuthUserIdError(null);
+      setAuthState("authenticated");
+    },
+    [abortRunAndResetSessionView, resetSessionsForUserChange]
+  );
+
+  const handlePasswordLogin = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!loginInput.trim() || !passwordInput) return;
+    setIsAuthSubmitting(true);
+    setAuthErrorMsg("");
+    try {
+      const auth = await loginWithPassword(loginInput.trim(), passwordInput);
+      activateUserSession(auth.token, auth.user_id);
+      setPasswordInput("");
+    } catch (error) {
+      setAuthErrorMsg(error instanceof Error ? error.message : "登录失败，请重试");
+    } finally {
+      setIsAuthSubmitting(false);
+    }
+  };
+
+  const handleInviteClaim = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!inviteCodeInput.trim() || !loginInput.trim() || !passwordInput) return;
+    setIsAuthSubmitting(true);
+    setAuthErrorMsg("");
+    try {
+      const auth = await claimInvite({
+        invite_code: inviteCodeInput.trim(),
+        login: loginInput.trim(),
+        password: passwordInput,
+        display_name: inviteDisplayNameInput.trim() || null,
+      });
+      activateUserSession(auth.token, auth.user_id);
+      setInviteCodeInput("");
+      setInviteDisplayNameInput("");
+      setPasswordInput("");
+    } catch (error) {
+      setAuthErrorMsg(error instanceof Error ? error.message : "邀请码认领失败，请重试");
+    } finally {
+      setIsAuthSubmitting(false);
+    }
   };
 
   // ── Session switch ──
@@ -592,78 +665,183 @@ export default function Home() {
     return (
       <div className="flex h-screen w-screen items-center justify-center bg-white p-4 text-[#171a1f]">
         {authState === "needs_auth" && (
-          <div className="mx-4 w-full max-w-sm">
-            <div className="rounded-2xl border border-[#e5e7eb] bg-white p-8 shadow-[0_24px_70px_rgba(13,13,13,0.08)]">
-              <div className="mb-8 flex flex-col items-center">
+          <div className="mx-4 w-full max-w-[420px]">
+            <div className="rounded-2xl border border-[#e5e7eb] bg-white p-7 shadow-[0_24px_70px_rgba(13,13,13,0.08)]">
+              <div className="mb-6 flex flex-col items-center">
                 <RippleIcon
-                  size={72}
-                  className="mb-5 h-[72px] w-[72px] rounded-2xl shadow-[0_18px_45px_rgba(13,13,13,0.18)]"
+                  size={64}
+                  className="mb-4 h-16 w-16 rounded-2xl shadow-[0_18px_45px_rgba(13,13,13,0.18)]"
                 />
                 <h1 className="text-[28px] leading-tight font-semibold tracking-normal">Ripple</h1>
-                <p className="mt-3 text-center text-sm text-[#687280]">
-                  Enter your API key and optional User ID
-                </p>
-                <p className="mt-1 text-center font-[family-name:var(--font-cjk)] text-sm text-[#687280]">
-                  User ID 留空时使用 default
-                </p>
+                <p className="mt-3 text-center text-sm text-[#687280]">Sign in to your workspace</p>
               </div>
+
+              <div className="mb-5 grid grid-cols-3 rounded-lg border border-[#e5e7eb] bg-[#f7f8fa] p-1">
+                {[
+                  ["login", "Login"],
+                  ["invite", "Invite"],
+                  ["service", "API key"],
+                ].map(([mode, label]) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => {
+                      setAuthMode(mode as "login" | "invite" | "service");
+                      setAuthErrorMsg("");
+                      setAuthUserIdError(null);
+                    }}
+                    className={`h-8 rounded-md text-xs font-semibold transition ${
+                      authMode === mode
+                        ? "bg-white text-[#171a1f] shadow-sm"
+                        : "text-[#687280] hover:text-[#171a1f]"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
               {authErrorMsg && (
                 <div className="mb-4 flex items-center gap-2 rounded-md border border-[#cf222e]/25 bg-[#ffebe9] p-3 text-sm font-medium text-[#cf222e]">
                   <AlertTriangle size={16} />
                   <span>{authErrorMsg}</span>
                 </div>
               )}
-              <form onSubmit={handleAuthSubmit}>
-                <div className="relative mb-4">
-                  <KeyRound
-                    size={18}
-                    className="absolute top-1/2 left-4 -translate-y-1/2 text-[#6e7781]"
-                  />
-                  <input
-                    type="password"
-                    value={keyInput}
-                    onChange={(e) => setKeyInput(e.target.value)}
-                    placeholder="Enter API key..."
-                    className="w-full rounded-lg border border-[#e5e7eb] bg-white py-3 pr-4 pl-11 font-[family-name:var(--font-mono)] text-sm text-[#171a1f] outline-none focus:border-[#2463eb]"
-                  />
-                </div>
-                <div className="mb-1.5 flex items-center justify-between text-xs font-medium text-[#687280]">
-                  <span>User ID</span>
-                  <span className="font-[family-name:var(--font-cjk)] font-normal">
-                    留空使用 default
-                  </span>
-                </div>
-                <div className="relative mb-2">
-                  <UserRound
-                    size={18}
-                    className="absolute top-1/2 left-4 -translate-y-1/2 text-[#6e7781]"
-                  />
-                  <input
-                    type="text"
-                    value={authUserIdInput}
-                    onChange={(e) => {
-                      setAuthUserIdInput(e.target.value);
-                      if (authUserIdError) setAuthUserIdError(null);
-                    }}
-                    placeholder="default"
-                    aria-label="User ID"
-                    autoCapitalize="none"
-                    autoCorrect="off"
-                    spellCheck={false}
-                    className="w-full rounded-lg border border-[#e5e7eb] bg-white py-3 pr-4 pl-11 font-[family-name:var(--font-mono)] text-sm text-[#171a1f] outline-none focus:border-[#2463eb]"
-                  />
-                </div>
-                {authUserIdError && (
-                  <div className="mb-3 text-xs font-medium text-[#cf222e]">{authUserIdError}</div>
-                )}
-                <button
-                  type="submit"
-                  disabled={!keyInput.trim()}
-                  className="w-full rounded-lg border border-[#2463eb] bg-[#2463eb] py-3 text-sm font-semibold text-white shadow-[0_10px_28px_rgba(36,99,235,0.18)] hover:bg-[#1d56d8] disabled:cursor-not-allowed disabled:border-[#dde2ea] disabled:bg-[#f7f8fa] disabled:text-[#8b8f94] disabled:shadow-none"
-                >
-                  Connect
-                </button>
-              </form>
+
+              {authMode === "service" ? (
+                <form onSubmit={handleAuthSubmit}>
+                  <div className="relative mb-4">
+                    <KeyRound
+                      size={18}
+                      className="absolute top-1/2 left-4 -translate-y-1/2 text-[#6e7781]"
+                    />
+                    <input
+                      type="password"
+                      value={keyInput}
+                      onChange={(e) => setKeyInput(e.target.value)}
+                      placeholder="Service API key"
+                      className="w-full rounded-lg border border-[#e5e7eb] bg-white py-3 pr-4 pl-11 font-[family-name:var(--font-mono)] text-sm text-[#171a1f] outline-none focus:border-[#2463eb]"
+                    />
+                  </div>
+                  <div className="mb-1.5 flex items-center justify-between text-xs font-medium text-[#687280]">
+                    <span>User ID</span>
+                    <span className="font-[family-name:var(--font-cjk)] font-normal">
+                      留空使用 default
+                    </span>
+                  </div>
+                  <div className="relative mb-2">
+                    <UserRound
+                      size={18}
+                      className="absolute top-1/2 left-4 -translate-y-1/2 text-[#6e7781]"
+                    />
+                    <input
+                      type="text"
+                      value={authUserIdInput}
+                      onChange={(e) => {
+                        setAuthUserIdInput(e.target.value);
+                        if (authUserIdError) setAuthUserIdError(null);
+                      }}
+                      placeholder="default"
+                      aria-label="User ID"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      className="w-full rounded-lg border border-[#e5e7eb] bg-white py-3 pr-4 pl-11 font-[family-name:var(--font-mono)] text-sm text-[#171a1f] outline-none focus:border-[#2463eb]"
+                    />
+                  </div>
+                  {authUserIdError && (
+                    <div className="mb-3 text-xs font-medium text-[#cf222e]">{authUserIdError}</div>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={!keyInput.trim()}
+                    className="w-full rounded-lg border border-[#2463eb] bg-[#2463eb] py-3 text-sm font-semibold text-white shadow-[0_10px_28px_rgba(36,99,235,0.18)] hover:bg-[#1d56d8] disabled:cursor-not-allowed disabled:border-[#dde2ea] disabled:bg-[#f7f8fa] disabled:text-[#8b8f94] disabled:shadow-none"
+                  >
+                    Connect
+                  </button>
+                </form>
+              ) : (
+                <form onSubmit={authMode === "invite" ? handleInviteClaim : handlePasswordLogin}>
+                  {authMode === "invite" && (
+                    <div className="relative mb-3">
+                      <KeyRound
+                        size={18}
+                        className="absolute top-1/2 left-4 -translate-y-1/2 text-[#6e7781]"
+                      />
+                      <input
+                        type="text"
+                        value={inviteCodeInput}
+                        onChange={(e) => setInviteCodeInput(e.target.value)}
+                        placeholder="Invite code"
+                        autoCapitalize="none"
+                        autoCorrect="off"
+                        spellCheck={false}
+                        className="w-full rounded-lg border border-[#e5e7eb] bg-white py-3 pr-4 pl-11 font-[family-name:var(--font-mono)] text-sm text-[#171a1f] outline-none focus:border-[#2463eb]"
+                      />
+                    </div>
+                  )}
+                  <div className="relative mb-3">
+                    <UserRound
+                      size={18}
+                      className="absolute top-1/2 left-4 -translate-y-1/2 text-[#6e7781]"
+                    />
+                    <input
+                      type="text"
+                      value={loginInput}
+                      onChange={(e) => setLoginInput(e.target.value)}
+                      placeholder="Email or username"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      className="w-full rounded-lg border border-[#e5e7eb] bg-white py-3 pr-4 pl-11 text-sm text-[#171a1f] outline-none focus:border-[#2463eb]"
+                    />
+                  </div>
+                  {authMode === "invite" && (
+                    <div className="relative mb-3">
+                      <UserRound
+                        size={18}
+                        className="absolute top-1/2 left-4 -translate-y-1/2 text-[#6e7781]"
+                      />
+                      <input
+                        type="text"
+                        value={inviteDisplayNameInput}
+                        onChange={(e) => setInviteDisplayNameInput(e.target.value)}
+                        placeholder="Display name"
+                        className="w-full rounded-lg border border-[#e5e7eb] bg-white py-3 pr-4 pl-11 text-sm text-[#171a1f] outline-none focus:border-[#2463eb]"
+                      />
+                    </div>
+                  )}
+                  <div className="relative mb-4">
+                    <KeyRound
+                      size={18}
+                      className="absolute top-1/2 left-4 -translate-y-1/2 text-[#6e7781]"
+                    />
+                    <input
+                      type="password"
+                      value={passwordInput}
+                      onChange={(e) => setPasswordInput(e.target.value)}
+                      placeholder={authMode === "invite" ? "Create password" : "Password"}
+                      className="w-full rounded-lg border border-[#e5e7eb] bg-white py-3 pr-4 pl-11 text-sm text-[#171a1f] outline-none focus:border-[#2463eb]"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={
+                      isAuthSubmitting ||
+                      !loginInput.trim() ||
+                      !passwordInput ||
+                      (authMode === "invite" && !inviteCodeInput.trim())
+                    }
+                    className="w-full rounded-lg border border-[#2463eb] bg-[#2463eb] py-3 text-sm font-semibold text-white shadow-[0_10px_28px_rgba(36,99,235,0.18)] hover:bg-[#1d56d8] disabled:cursor-not-allowed disabled:border-[#dde2ea] disabled:bg-[#f7f8fa] disabled:text-[#8b8f94] disabled:shadow-none"
+                  >
+                    {isAuthSubmitting
+                      ? "Signing in..."
+                      : authMode === "invite"
+                        ? "Create account"
+                        : "Sign in"}
+                  </button>
+                </form>
+              )}
             </div>
           </div>
         )}
@@ -693,6 +871,7 @@ export default function Home() {
             isGenerating={isGenerating}
             userId={userId}
             onUserIdChange={handleUserIdChange}
+            canSwitchUser={!productSessionActive}
             onNewSession={handleNewSession}
             onSelectView={handleSelectView}
             onSelectSession={(selectedSessionId) => {
@@ -723,11 +902,17 @@ export default function Home() {
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         apiKey={getApiKey()}
+        authMode={getAuthMode()}
         userId={userId}
+        canChangeUserId={!productSessionActive}
         onUserIdChange={handleUserIdChange}
         onApiKeyChange={() => {
+          if (isUserSessionAuth()) {
+            void logoutUserSession().catch(() => undefined);
+          }
           clearApiKey();
           clearStoredCurrentSessionId();
+          setAuthMode("login");
           setAuthUserIdInput(initialLoginUserIdInput(getUserId()));
           setAuthUserIdError(null);
           setIsSettingsOpen(false);

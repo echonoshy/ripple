@@ -10,6 +10,7 @@ pub struct AppConfig {
     pub port: u16,
     pub api_keys: Vec<String>,
     pub security: SecurityConfig,
+    pub user_auth: UserAuthConfig,
     pub cors: CorsConfig,
     pub default_model: String,
     pub model_presets: BTreeMap<String, ModelPreset>,
@@ -48,6 +49,21 @@ impl Default for SecurityConfig {
             deployment_mode: "trusted-proxy".to_string(),
             require_confirm_for_risky_api: true,
             require_https: false,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct UserAuthConfig {
+    pub enabled: bool,
+    pub session_ttl_seconds: u64,
+}
+
+impl Default for UserAuthConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            session_ttl_seconds: 30 * 24 * 60 * 60,
         }
     }
 }
@@ -159,6 +175,7 @@ struct RawServer {
     port: Option<u16>,
     api_keys: Option<Vec<String>>,
     security: Option<RawSecurity>,
+    user_auth: Option<RawUserAuth>,
     cors: Option<RawCors>,
     sandbox: Option<RawSandbox>,
     codex_chat: Option<RawCodexChat>,
@@ -174,6 +191,12 @@ struct RawSecurity {
     deployment_mode: Option<String>,
     require_confirm_for_risky_api: Option<bool>,
     require_https: Option<bool>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RawUserAuth {
+    enabled: Option<bool>,
+    session_ttl_seconds: Option<u64>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -313,6 +336,7 @@ impl AppConfig {
 
         let server = raw.server.unwrap_or_default();
         let security = server.security.unwrap_or_default();
+        let user_auth = server.user_auth.unwrap_or_default();
         let cors = server.cors.unwrap_or_default();
         let sandbox = server.sandbox.unwrap_or_default();
         let model = raw.model.unwrap_or_default();
@@ -362,6 +386,13 @@ impl AppConfig {
                     .require_confirm_for_risky_api
                     .unwrap_or(true),
                 require_https: security.require_https.unwrap_or(false),
+            },
+            user_auth: UserAuthConfig {
+                enabled: user_auth.enabled.unwrap_or(false),
+                session_ttl_seconds: user_auth
+                    .session_ttl_seconds
+                    .unwrap_or_else(|| UserAuthConfig::default().session_ttl_seconds)
+                    .max(60),
             },
             cors: CorsConfig {
                 allowed_origins: cors
@@ -491,6 +522,7 @@ impl AppConfig {
 
 fn validate_runtime_config(config: &AppConfig) -> anyhow::Result<()> {
     if config.api_keys.is_empty()
+        && !config.user_auth.enabled
         && is_wildcard_host(&config.host)
         && !env_flag_enabled("RIPPLE_ALLOW_OPEN_API")
     {
@@ -882,6 +914,26 @@ server:
             vec!["https://ripple.example.com".to_string()]
         );
         assert!(!config.cors.allow_any_origin);
+    }
+
+    #[test]
+    fn parses_user_auth_config() {
+        let config = with_temp_config(
+            "user-auth",
+            r#"
+server:
+  host: "0.0.0.0"
+  api_keys: []
+  user_auth:
+    enabled: true
+    session_ttl_seconds: 3600
+"#,
+            AppConfig::load,
+        )
+        .expect("load config");
+
+        assert!(config.user_auth.enabled);
+        assert_eq!(config.user_auth.session_ttl_seconds, 3600);
     }
 
     #[test]

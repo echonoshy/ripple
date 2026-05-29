@@ -7,6 +7,16 @@
 - 受保护路由使用 `Authorization: Bearer <server_api_key>` 或 `X-API-Key`。
 - `X-Ripple-User-Id` 是用户隔离入口，合法字符为 `[a-zA-Z0-9_-]{1,64}`。
 - 生产推荐 `trusted-proxy`：普通浏览器不直接持有 server API key；上游认证后注入 `X-Ripple-User-Id`，并剥离客户端伪造 header。
+- 如果启用 `server.user_auth.enabled`，浏览器用户也可通过邀请制账号登录获取 Bearer session token。此时后端使用 token 绑定的 `user_id`，并忽略客户端传入的 `X-Ripple-User-Id`。
+
+轻量用户体系公开入口：
+
+- `GET /v1/auth/config`
+- `POST /v1/auth/invite/claim`
+- `POST /v1/auth/login`
+- `POST /v1/auth/logout`
+
+管理员通过 CLI 管理邀请码和用户：`ripple-server auth create-invite`、`list-users`、`disable-user`、`revoke-sessions`。
 
 ## Errors
 

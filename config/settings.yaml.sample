@@ -87,6 +87,12 @@ server:
     require_confirm_for_risky_api: true
     # 远程生产恢复 HTTPS 域名后建议设为 true；当前临时 HTTP IP 直连阶段保持 false。
     require_https: false
+  user_auth:
+    # 轻量产品壳：启用后浏览器用户可用邀请码 + 账号密码登录，后端把
+    # session token 绑定到 opaque user_id，并忽略客户端伪造的 X-Ripple-User-Id。
+    # 关闭时保持原 service API key + trusted header 模式。
+    enabled: false
+    session_ttl_seconds: 2592000
   cors:
     # 默认不开放浏览器跨域。若必须让独立 Web 前端直连 API，只填明确 origin。
     allowed_origins: []

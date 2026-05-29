@@ -1,4 +1,5 @@
 pub mod api;
+pub mod auth;
 pub mod codex;
 pub mod config;
 pub mod connector_runtime;

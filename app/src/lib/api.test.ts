@@ -12,6 +12,7 @@ import {
   fetchSchedules,
   fetchSessions,
   fetchSessionDetails,
+  fetchModels,
   fetchWorkspaceFilePreview,
   getApiOrigin,
   parseWorkspaceLink,
@@ -25,6 +26,10 @@ import {
   updateSchedule,
   updateSession,
   disconnectConnector,
+  clearApiKey,
+  getAuthMode,
+  setApiKey,
+  setUserSessionToken,
 } from "./api";
 
 function response(status: number, detail: string): Response {
@@ -41,6 +46,35 @@ async function withFetch(mock: typeof fetch, run: () => Promise<void>) {
     await run();
   } finally {
     globalThis.fetch = previousFetch;
+  }
+}
+
+async function withBrowserStorage(run: () => Promise<void>) {
+  const globals = globalThis as unknown as { window?: { localStorage: Storage } };
+  const previousWindow = globals.window;
+  const values = new Map<string, string>();
+  globals.window = {
+    localStorage: {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        values.set(key, value);
+      },
+      removeItem: (key: string) => {
+        values.delete(key);
+      },
+      clear: () => {
+        values.clear();
+      },
+      key: (index: number) => Array.from(values.keys())[index] ?? null,
+      get length() {
+        return values.size;
+      },
+    },
+  };
+  try {
+    await run();
+  } finally {
+    globals.window = previousWindow;
   }
 }
 
@@ -173,6 +207,56 @@ async function testConnectorManagementApisEncodeNamesAndPayloads() {
       body: null,
     },
   ]);
+}
+
+async function testAuthHeadersUseUserSessionWithoutSpoofableUserId() {
+  await withBrowserStorage(async () => {
+    setUserSessionToken("rip_usr_token", "usr_abc");
+    assert.equal(getAuthMode(), "user");
+    let headers: HeadersInit | undefined;
+
+    await withFetch(
+      async (_input, init) => {
+        headers = init?.headers;
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      },
+      async () => {
+        await fetchModels();
+      }
+    );
+
+    assert.deepEqual(headers, { Authorization: "Bearer rip_usr_token" });
+  });
+}
+
+async function testAuthHeadersKeepServiceKeyUserIdCompatibility() {
+  await withBrowserStorage(async () => {
+    setApiKey("service-key");
+    assert.equal(getAuthMode(), "service");
+    let headers: HeadersInit | undefined;
+
+    await withFetch(
+      async (_input, init) => {
+        headers = init?.headers;
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      },
+      async () => {
+        await fetchModels();
+      }
+    );
+
+    assert.deepEqual(headers, {
+      Authorization: "Bearer service-key",
+      "X-Ripple-User-Id": "default",
+    });
+    clearApiKey();
+  });
 }
 
 function testParseWorkspaceLinkDecodesEncodedSandboxPath() {
@@ -518,6 +602,8 @@ await testRenameConflictUsesFriendlyMessage();
 await testSessionIdIsEncodedInPath();
 await testScheduleIdIsEncodedInPath();
 await testConnectorManagementApisEncodeNamesAndPayloads();
+await testAuthHeadersUseUserSessionWithoutSpoofableUserId();
+await testAuthHeadersKeepServiceKeyUserIdCompatibility();
 testParseWorkspaceLinkDecodesEncodedSandboxPath();
 await testWorkspaceFilePreviewPathNotFoundStaysFileSpecific();
 await testScheduleApiUsesExpectedBackendShape();

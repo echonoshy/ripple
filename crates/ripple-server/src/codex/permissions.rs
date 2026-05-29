@@ -158,6 +158,7 @@ mod tests {
             port: 8810,
             api_keys: Vec::new(),
             security: SecurityConfig::default(),
+            user_auth: crate::config::UserAuthConfig::default(),
             cors: CorsConfig::default(),
             default_model: "codex-medium".to_string(),
             model_presets: BTreeMap::new(),

@@ -24,6 +24,74 @@ Codex app-server per job
 - 生产 CORS 使用明确 allowlist，不使用 `allow_any_origin`。
 - 恢复 HTTPS 域名后，将 `require_https` 设为 `true`，并同步客户端默认 API、Tauri CSP/ATS/cleartext 配置。
 
+## Lightweight User Auth
+
+轻量用户体系是一个可开关的外层产品壳。启用后，浏览器用户可以用邀请码认领账号并登录；后端仍然按 token 绑定的 `user_id` 隔离 sandbox、session、connector credential、runs 和 schedules。原有 service API key + `X-Ripple-User-Id` 可信上游模式继续可用。
+
+启用配置：
+
+```yaml
+server:
+  user_auth:
+    enabled: true
+    session_ttl_seconds: 2592000
+```
+
+启动长期服务：
+
+```bash
+cargo run -p ripple-server
+```
+
+指定配置文件启动：
+
+```bash
+RIPPLE_CONFIG=config/settings.yaml cargo run -p ripple-server
+```
+
+这个命令会一直占用终端并监听 HTTP 端口。配置变更后需要重启这个服务；如果原服务还在运行，再启动一个同端口服务会失败，但不会把原服务杀掉。
+
+创建邀请码：
+
+```bash
+cargo run -p ripple-server -- auth create-invite --max-uses 1 --expires-days 14 --config config/settings.yaml
+```
+
+`auth create-invite` 是一次性管理命令：它只往 SQLite 写入邀请码并打印结果，不会启动 HTTP 服务，也不会影响正在运行的服务。`--max-uses 1` 表示这个邀请码只能认领 1 个用户；想邀请多个人，可以多创建几次，或把 `--max-uses` 调大。
+
+查看用户：
+
+```bash
+cargo run -p ripple-server -- auth list-users --config config/settings.yaml
+```
+
+禁用用户：
+
+```bash
+cargo run -p ripple-server -- auth disable-user <login-or-user-id> --config config/settings.yaml
+```
+
+撤销用户所有登录态：
+
+```bash
+cargo run -p ripple-server -- auth revoke-sessions <login-or-user-id> --config config/settings.yaml
+```
+
+检查服务是否在线：
+
+```bash
+curl http://127.0.0.1:8810/health
+```
+
+用户登录相关公开接口：
+
+- `GET /v1/auth/config`
+- `POST /v1/auth/invite/claim`
+- `POST /v1/auth/login`
+- `POST /v1/auth/logout`
+
+产品用户登录后，客户端使用 `Authorization: Bearer <session_token>` 调用 `/v1`。这种 token 会固定到自己的 `user_id`，后端会忽略客户端伪造的 `X-Ripple-User-Id`。
+
 ## Runtime Boundaries
 
 Ripple 是控制面，Codex app-server 是执行面。

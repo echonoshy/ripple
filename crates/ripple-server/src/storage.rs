@@ -13,7 +13,7 @@ use tokio::sync::OnceCell;
 use crate::config::AppConfig;
 use crate::sessions::SessionRecord;
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 1;
+pub const CURRENT_SCHEMA_VERSION: i64 = 2;
 
 #[derive(Clone)]
 pub struct Storage {
@@ -39,6 +39,68 @@ pub struct FileRefRecord {
     pub sha256: Option<String>,
     pub created_at: String,
     pub linked_session_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AuthInviteCreate {
+    pub invite_id: String,
+    pub code_hash: String,
+    pub max_uses: u64,
+    pub expires_at: Option<String>,
+    pub created_by: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AuthInviteCreated {
+    pub invite_id: String,
+    pub code: String,
+    pub max_uses: u64,
+    pub expires_at: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AuthInviteClaim {
+    pub code_hash: String,
+    pub user_id: String,
+    pub login: String,
+    pub login_normalized: String,
+    pub password_hash: String,
+    pub display_name: Option<String>,
+    pub now: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AuthUserRecord {
+    pub user_id: String,
+    pub login: String,
+    pub login_normalized: String,
+    pub password_hash: String,
+    pub display_name: Option<String>,
+    pub status: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub disabled_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AuthSessionCreate {
+    pub session_id: String,
+    pub user_id: String,
+    pub token_hash: String,
+    pub created_at: String,
+    pub expires_at: String,
+    pub user_agent: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AuthSessionRecord {
+    pub session_id: String,
+    pub user_id: String,
+    pub login: String,
+    pub display_name: Option<String>,
+    pub expires_at: String,
 }
 
 impl Storage {
@@ -644,6 +706,297 @@ impl Storage {
             .collect()
     }
 
+    pub async fn create_auth_invite(&self, invite: &AuthInviteCreate) -> anyhow::Result<()> {
+        self.initialize().await?;
+        sqlx::query(
+            r#"
+            INSERT INTO auth_invites (
+                invite_id, code_hash, max_uses, uses, expires_at, created_at, created_by
+            )
+            VALUES (?, ?, ?, 0, ?, ?, ?)
+            "#,
+        )
+        .bind(&invite.invite_id)
+        .bind(&invite.code_hash)
+        .bind(u64_to_i64(invite.max_uses.max(1))?)
+        .bind(&invite.expires_at)
+        .bind(&invite.created_at)
+        .bind(&invite.created_by)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn create_user_auth_invite(
+        &self,
+        max_uses: u64,
+        expires_days: Option<u64>,
+        created_by: Option<&str>,
+    ) -> anyhow::Result<AuthInviteCreated> {
+        let now = crate::auth::now_iso();
+        let code = crate::auth::new_invite_code();
+        let expires_at = expires_days.map(|days| crate::auth::future_iso_days(days.max(1)));
+        let invite = AuthInviteCreate {
+            invite_id: format!("inv_{}", uuid::Uuid::new_v4().simple()),
+            code_hash: crate::auth::hash_secret(&code),
+            max_uses: max_uses.max(1),
+            expires_at,
+            created_by: created_by.map(str::to_string),
+            created_at: now,
+        };
+        self.create_auth_invite(&invite).await?;
+        Ok(AuthInviteCreated {
+            invite_id: invite.invite_id,
+            code,
+            max_uses: invite.max_uses,
+            expires_at: invite.expires_at,
+            created_at: invite.created_at,
+        })
+    }
+
+    pub async fn claim_auth_invite(
+        &self,
+        claim: &AuthInviteClaim,
+    ) -> anyhow::Result<AuthUserRecord> {
+        self.initialize().await?;
+        let mut tx = self.pool.begin().await?;
+        let invite = sqlx::query(
+            r#"
+            SELECT invite_id, max_uses, uses, expires_at
+            FROM auth_invites
+            WHERE code_hash = ? AND disabled_at IS NULL
+            "#,
+        )
+        .bind(&claim.code_hash)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        let Some(invite) = invite else {
+            anyhow::bail!("invalid or expired invite code");
+        };
+        let invite_id = invite.get::<String, _>("invite_id");
+        let max_uses = i64_to_u64(invite.get::<i64, _>("max_uses"))?;
+        let uses = i64_to_u64(invite.get::<i64, _>("uses"))?;
+        if uses >= max_uses {
+            anyhow::bail!("invite code has already been used");
+        }
+        if let Some(expires_at) = invite.get::<Option<String>, _>("expires_at") {
+            if expires_at.as_str() <= claim.now.as_str() {
+                anyhow::bail!("invite code has expired");
+            }
+        }
+        let existing_login =
+            sqlx::query("SELECT user_id FROM auth_users WHERE login_normalized = ?")
+                .bind(&claim.login_normalized)
+                .fetch_optional(&mut *tx)
+                .await?;
+        if existing_login.is_some() {
+            anyhow::bail!("login is already registered");
+        }
+
+        sqlx::query(
+            r#"
+            INSERT INTO auth_users (
+                user_id, login, login_normalized, password_hash, display_name,
+                status, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
+            "#,
+        )
+        .bind(&claim.user_id)
+        .bind(&claim.login)
+        .bind(&claim.login_normalized)
+        .bind(&claim.password_hash)
+        .bind(&claim.display_name)
+        .bind(&claim.now)
+        .bind(&claim.now)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query("UPDATE auth_invites SET uses = uses + 1 WHERE invite_id = ?")
+            .bind(&invite_id)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+
+        Ok(AuthUserRecord {
+            user_id: claim.user_id.clone(),
+            login: claim.login.clone(),
+            login_normalized: claim.login_normalized.clone(),
+            password_hash: claim.password_hash.clone(),
+            display_name: claim.display_name.clone(),
+            status: "active".to_string(),
+            created_at: claim.now.clone(),
+            updated_at: claim.now.clone(),
+            disabled_at: None,
+        })
+    }
+
+    pub async fn auth_user_by_login(
+        &self,
+        login_normalized: &str,
+    ) -> anyhow::Result<Option<AuthUserRecord>> {
+        self.initialize().await?;
+        let row = sqlx::query(
+            r#"
+            SELECT user_id, login, login_normalized, password_hash, display_name,
+                   status, created_at, updated_at, disabled_at
+            FROM auth_users
+            WHERE login_normalized = ?
+            "#,
+        )
+        .bind(login_normalized)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.map(auth_user_from_row).transpose()
+    }
+
+    pub async fn auth_user_by_identifier(
+        &self,
+        identifier: &str,
+    ) -> anyhow::Result<Option<AuthUserRecord>> {
+        self.initialize().await?;
+        let normalized = crate::auth::normalize_login(identifier);
+        let row = sqlx::query(
+            r#"
+            SELECT user_id, login, login_normalized, password_hash, display_name,
+                   status, created_at, updated_at, disabled_at
+            FROM auth_users
+            WHERE user_id = ? OR login_normalized = ?
+            "#,
+        )
+        .bind(identifier)
+        .bind(normalized)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.map(auth_user_from_row).transpose()
+    }
+
+    pub async fn create_auth_session(&self, session: &AuthSessionCreate) -> anyhow::Result<()> {
+        self.initialize().await?;
+        sqlx::query(
+            r#"
+            INSERT INTO auth_sessions (
+                session_id, user_id, token_hash, created_at, expires_at, last_seen_at, user_agent
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(&session.session_id)
+        .bind(&session.user_id)
+        .bind(&session.token_hash)
+        .bind(&session.created_at)
+        .bind(&session.expires_at)
+        .bind(&session.created_at)
+        .bind(&session.user_agent)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn authenticate_auth_session(
+        &self,
+        token_hash: &str,
+        now: &str,
+    ) -> anyhow::Result<Option<AuthSessionRecord>> {
+        self.initialize().await?;
+        let row = sqlx::query(
+            r#"
+            SELECT s.session_id, s.user_id, s.expires_at, u.login, u.display_name
+            FROM auth_sessions s
+            JOIN auth_users u ON u.user_id = s.user_id
+            WHERE s.token_hash = ?
+              AND s.revoked_at IS NULL
+              AND s.expires_at > ?
+              AND u.status = 'active'
+            "#,
+        )
+        .bind(token_hash)
+        .bind(now)
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        let session = AuthSessionRecord {
+            session_id: row.get("session_id"),
+            user_id: row.get("user_id"),
+            login: row.get("login"),
+            display_name: row.get("display_name"),
+            expires_at: row.get("expires_at"),
+        };
+        sqlx::query("UPDATE auth_sessions SET last_seen_at = ? WHERE session_id = ?")
+            .bind(now)
+            .bind(&session.session_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(Some(session))
+    }
+
+    pub async fn revoke_auth_session(&self, token_hash: &str) -> anyhow::Result<bool> {
+        self.initialize().await?;
+        let now = crate::auth::now_iso();
+        let result = sqlx::query(
+            "UPDATE auth_sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL",
+        )
+        .bind(now)
+        .bind(token_hash)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn list_auth_users(&self) -> anyhow::Result<Vec<AuthUserRecord>> {
+        self.initialize().await?;
+        let rows = sqlx::query(
+            r#"
+            SELECT user_id, login, login_normalized, password_hash, display_name,
+                   status, created_at, updated_at, disabled_at
+            FROM auth_users
+            ORDER BY created_at DESC
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter().map(auth_user_from_row).collect()
+    }
+
+    pub async fn disable_auth_user(&self, identifier: &str) -> anyhow::Result<bool> {
+        self.initialize().await?;
+        let Some(user) = self.auth_user_by_identifier(identifier).await? else {
+            return Ok(false);
+        };
+        let now = crate::auth::now_iso();
+        let result = sqlx::query(
+            r#"
+            UPDATE auth_users
+            SET status = 'disabled', disabled_at = ?, updated_at = ?
+            WHERE user_id = ? AND status != 'disabled'
+            "#,
+        )
+        .bind(&now)
+        .bind(&now)
+        .bind(&user.user_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn revoke_auth_sessions_for_user(&self, identifier: &str) -> anyhow::Result<u64> {
+        self.initialize().await?;
+        let Some(user) = self.auth_user_by_identifier(identifier).await? else {
+            return Ok(0);
+        };
+        let now = crate::auth::now_iso();
+        let result = sqlx::query(
+            "UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL",
+        )
+        .bind(now)
+        .bind(&user.user_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
     async fn session_from_row(
         &self,
         row: sqlx::sqlite::SqliteRow,
@@ -772,6 +1125,20 @@ async fn insert_document_record(
     .execute(&mut **tx)
     .await?;
     Ok(())
+}
+
+fn auth_user_from_row(row: sqlx::sqlite::SqliteRow) -> anyhow::Result<AuthUserRecord> {
+    Ok(AuthUserRecord {
+        user_id: row.get("user_id"),
+        login: row.get("login"),
+        login_normalized: row.get("login_normalized"),
+        password_hash: row.get("password_hash"),
+        display_name: row.get("display_name"),
+        status: row.get("status"),
+        created_at: row.get("created_at"),
+        updated_at: row.get("updated_at"),
+        disabled_at: row.get("disabled_at"),
+    })
 }
 
 fn json_text(value: &Value) -> anyhow::Result<String> {
@@ -908,6 +1275,43 @@ CREATE TABLE IF NOT EXISTS file_refs (
     linked_session_id TEXT
 );
 
+CREATE TABLE IF NOT EXISTS auth_users (
+    user_id TEXT PRIMARY KEY NOT NULL,
+    login TEXT NOT NULL,
+    login_normalized TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    display_name TEXT,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    disabled_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS auth_invites (
+    invite_id TEXT PRIMARY KEY NOT NULL,
+    code_hash TEXT NOT NULL UNIQUE,
+    max_uses INTEGER NOT NULL,
+    uses INTEGER NOT NULL DEFAULT 0,
+    expires_at TEXT,
+    created_at TEXT NOT NULL,
+    created_by TEXT,
+    disabled_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS auth_sessions (
+    session_id TEXT PRIMARY KEY NOT NULL,
+    user_id TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    revoked_at TEXT,
+    user_agent TEXT,
+    FOREIGN KEY (user_id)
+        REFERENCES auth_users(user_id)
+        ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS schema_migrations (
     version INTEGER PRIMARY KEY NOT NULL,
     name TEXT NOT NULL,
@@ -934,6 +1338,14 @@ CREATE INDEX IF NOT EXISTS idx_documents_user_updated
     ON documents(user_id, updated_at);
 CREATE INDEX IF NOT EXISTS idx_file_refs_user_workspace_path
     ON file_refs(user_id, workspace_path);
+CREATE INDEX IF NOT EXISTS idx_auth_users_status
+    ON auth_users(status);
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_user
+    ON auth_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_token
+    ON auth_sessions(token_hash);
+CREATE INDEX IF NOT EXISTS idx_auth_invites_code
+    ON auth_invites(code_hash);
 "#;
 
 async fn ensure_schema_columns(pool: &SqlitePool) -> anyhow::Result<()> {
@@ -953,8 +1365,13 @@ async fn ensure_schema_columns(pool: &SqlitePool) -> anyhow::Result<()> {
 
 async fn ensure_schema_migrations(pool: &SqlitePool) -> anyhow::Result<()> {
     sqlx::query("INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (?, ?)")
-        .bind(CURRENT_SCHEMA_VERSION)
+        .bind(1_i64)
         .bind("initial_sqlite_control_plane")
+        .execute(pool)
+        .await?;
+    sqlx::query("INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (?, ?)")
+        .bind(CURRENT_SCHEMA_VERSION)
+        .bind("lightweight_user_auth_shell")
         .execute(pool)
         .await?;
     Ok(())
@@ -1046,6 +1463,84 @@ mod tests {
         let storage = Storage::open(root.join(".ripple/ripple.sqlite"))?;
 
         assert_eq!(storage.schema_version().await?, CURRENT_SCHEMA_VERSION);
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn auth_invite_claim_login_and_session_lifecycle() -> anyhow::Result<()> {
+        let root =
+            std::env::temp_dir().join(format!("ripple-storage-test-{}", uuid::Uuid::new_v4()));
+        let storage = Storage::open(root.join(".ripple/ripple.sqlite"))?;
+
+        storage
+            .create_auth_invite(&AuthInviteCreate {
+                invite_id: "inv-test".to_string(),
+                code_hash: "invite-hash".to_string(),
+                max_uses: 1,
+                expires_at: Some("2026-06-01T00:00:00Z".to_string()),
+                created_by: Some("admin".to_string()),
+                created_at: "2026-05-29T00:00:00Z".to_string(),
+            })
+            .await?;
+
+        let claimed = storage
+            .claim_auth_invite(&AuthInviteClaim {
+                code_hash: "invite-hash".to_string(),
+                user_id: "usr_test".to_string(),
+                login: "Alice@Example.com".to_string(),
+                login_normalized: "alice@example.com".to_string(),
+                password_hash: "argon2-hash".to_string(),
+                display_name: Some("Alice".to_string()),
+                now: "2026-05-29T00:00:01Z".to_string(),
+            })
+            .await?;
+        assert_eq!(claimed.user_id, "usr_test");
+        assert_eq!(claimed.login, "Alice@Example.com");
+
+        let duplicate = storage
+            .claim_auth_invite(&AuthInviteClaim {
+                code_hash: "invite-hash".to_string(),
+                user_id: "usr_other".to_string(),
+                login: "Other@example.com".to_string(),
+                login_normalized: "other@example.com".to_string(),
+                password_hash: "argon2-hash".to_string(),
+                display_name: None,
+                now: "2026-05-29T00:00:02Z".to_string(),
+            })
+            .await;
+        assert!(duplicate.is_err(), "single-use invite must be exhausted");
+
+        let by_login = storage
+            .auth_user_by_login("alice@example.com")
+            .await?
+            .expect("auth user");
+        assert_eq!(by_login.user_id, "usr_test");
+        assert_eq!(by_login.status, "active");
+
+        storage
+            .create_auth_session(&AuthSessionCreate {
+                session_id: "auth-session".to_string(),
+                user_id: "usr_test".to_string(),
+                token_hash: "token-hash".to_string(),
+                created_at: "2026-05-29T00:00:03Z".to_string(),
+                expires_at: "2026-06-28T00:00:03Z".to_string(),
+                user_agent: Some("test-agent".to_string()),
+            })
+            .await?;
+        let session = storage
+            .authenticate_auth_session("token-hash", "2026-05-29T00:00:04Z")
+            .await?
+            .expect("auth session");
+        assert_eq!(session.user_id, "usr_test");
+        assert_eq!(session.login, "Alice@Example.com");
+
+        assert!(storage.revoke_auth_session("token-hash").await?);
+        assert!(storage
+            .authenticate_auth_session("token-hash", "2026-05-29T00:00:05Z")
+            .await?
+            .is_none());
 
         let _ = std::fs::remove_dir_all(root);
         Ok(())

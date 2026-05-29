@@ -7,10 +7,10 @@ use std::time::Duration;
 
 use axum::body::{to_bytes, Body};
 use axum::http::{Method, Request, StatusCode};
-use ripple_server::api::{router, schedules::trigger_due_schedules};
+use ripple_server::api::{auth::AuthClaimRequest, router, schedules::trigger_due_schedules};
 use ripple_server::config::{
     AppConfig, CodexConfig, CorsConfig, FeishuConfig, GogcliOAuthConfig, LoggingConfig,
-    SandboxConfig, SecurityConfig, SkillsConfig,
+    SandboxConfig, SecurityConfig, SkillsConfig, UserAuthConfig,
 };
 use ripple_server::jobs::AgentRunCreateRequest;
 use ripple_server::sessions::CreateSessionInput;
@@ -27,6 +27,7 @@ fn test_config(root: &Path) -> AppConfig {
         port: 0,
         api_keys: vec!["test-key".to_string()],
         security: SecurityConfig::default(),
+        user_auth: UserAuthConfig::default(),
         cors: CorsConfig::default(),
         default_model: "codex-test".to_string(),
         model_presets: BTreeMap::new(),
@@ -84,6 +85,12 @@ fn test_config(root: &Path) -> AppConfig {
 fn test_config_with_codex_executable(root: &Path, codex_executable: String) -> AppConfig {
     let mut config = test_config(root);
     config.codex.codex_executable = codex_executable;
+    config
+}
+
+fn test_config_with_user_auth(root: &Path) -> AppConfig {
+    let mut config = test_config(root);
+    config.user_auth.enabled = true;
     config
 }
 
@@ -553,6 +560,30 @@ fn request_as_user(method: Method, uri: &str, body: Value, user_id: &str) -> Req
     }
 }
 
+fn request_with_bearer(
+    method: Method,
+    uri: &str,
+    body: Value,
+    bearer: &str,
+    user_id: Option<&str>,
+) -> Request<Body> {
+    let mut builder = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header("authorization", format!("Bearer {bearer}"));
+    if let Some(user_id) = user_id {
+        builder = builder.header("x-ripple-user-id", user_id);
+    }
+    if body.is_null() {
+        builder.body(Body::empty()).unwrap()
+    } else {
+        builder
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_vec(&body).unwrap()))
+            .unwrap()
+    }
+}
+
 async fn response_json(response: axum::response::Response) -> Value {
     let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     serde_json::from_slice(&bytes).unwrap_or(Value::Null)
@@ -609,6 +640,135 @@ async fn app_state_initializes_sqlite_control_plane() {
     let _state = AppState::new(test_config(&root));
 
     assert!(root.join(".ripple/ripple.sqlite").is_file());
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn invite_auth_claim_login_and_user_token_isolate_user_id() {
+    let root = std::env::temp_dir().join(format!("ripple-api-auth-{}", Uuid::new_v4()));
+    let (state, app) = test_state_and_app_with_config(test_config_with_user_auth(&root));
+
+    let invite = state
+        .storage
+        .create_user_auth_invite(1, Some(14), Some("test-admin"))
+        .await
+        .expect("invite");
+    let claim_response = app
+        .clone()
+        .oneshot(request(
+            Method::POST,
+            "/v1/auth/invite/claim",
+            serde_json::to_value(AuthClaimRequest {
+                invite_code: invite.code,
+                login: "alice@example.com".to_string(),
+                password: "correct-password".to_string(),
+                display_name: Some("Alice".to_string()),
+            })
+            .unwrap(),
+            false,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(claim_response.status(), StatusCode::OK);
+    let claim_body = response_json(claim_response).await;
+    let token = claim_body
+        .get("token")
+        .and_then(Value::as_str)
+        .expect("token")
+        .to_string();
+    let user_id = claim_body
+        .get("user_id")
+        .and_then(Value::as_str)
+        .expect("user_id")
+        .to_string();
+    assert!(user_id.starts_with("usr_"));
+
+    let login_response = app
+        .clone()
+        .oneshot(request(
+            Method::POST,
+            "/v1/auth/login",
+            json!({"login": "alice@example.com", "password": "correct-password"}),
+            false,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(login_response.status(), StatusCode::OK);
+    let login_body = response_json(login_response).await;
+    assert_eq!(
+        login_body.get("user_id").and_then(Value::as_str),
+        Some(user_id.as_str())
+    );
+
+    let profile_response = app
+        .clone()
+        .oneshot(request_with_bearer(
+            Method::GET,
+            "/v1/users/me",
+            Value::Null,
+            &token,
+            Some("forged-user"),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(profile_response.status(), StatusCode::OK);
+    let profile = response_json(profile_response).await;
+    assert_eq!(
+        profile.get("user_id").and_then(Value::as_str),
+        Some(user_id.as_str())
+    );
+    assert_eq!(
+        profile.pointer("/auth/kind").and_then(Value::as_str),
+        Some("user")
+    );
+
+    let service_profile = app
+        .clone()
+        .oneshot(request_with_bearer(
+            Method::GET,
+            "/v1/users/me",
+            Value::Null,
+            "test-key",
+            Some("service-user"),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(service_profile.status(), StatusCode::OK);
+    let service_body = response_json(service_profile).await;
+    assert_eq!(
+        service_body.get("user_id").and_then(Value::as_str),
+        Some("service-user")
+    );
+    assert_eq!(
+        service_body.pointer("/auth/kind").and_then(Value::as_str),
+        Some("service")
+    );
+
+    let logout_response = app
+        .clone()
+        .oneshot(request_with_bearer(
+            Method::POST,
+            "/v1/auth/logout",
+            Value::Null,
+            &token,
+            Some("forged-user"),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(logout_response.status(), StatusCode::OK);
+
+    let revoked_response = app
+        .oneshot(request_with_bearer(
+            Method::GET,
+            "/v1/users/me",
+            Value::Null,
+            &token,
+            Some("forged-user"),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(revoked_response.status(), StatusCode::UNAUTHORIZED);
 
     let _ = fs::remove_dir_all(root);
 }

@@ -97,14 +97,6 @@ bun run format:check
 bun run tauri:dev
 ```
 
-维护本仓库、安装依赖、运行本地调试或启动开发服务前，如当前是开发者本机交互 shell，按本项目约定先执行：
-
-```bash
-proxy_on
-```
-
-注意：`proxy_on` 是开发者本机 shell 辅助命令，不属于 user-facing Codex app-server、skills 或 connector CLI 的执行步骤。处理终端用户请求时不要运行或向用户提及 `proxy_on`；网络与代理由 Ripple 服务端运行环境负责。
-
 ## 编码纪律
 
 - 优先保持当前主链路清晰、简单、可验证；不要为了旧实现保留过多兼容层。

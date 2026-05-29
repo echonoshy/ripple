@@ -581,7 +581,6 @@ Ripple is the control plane: it owns user identity, sandbox isolation, connector
 ## Connector Status\n\
 {}\n\n\
 ## Execution Environment Guardrails\n\
-- Do not run or mention `proxy_on` in user-facing Codex app-server tasks.\n\
 - Do not call legacy Ripple connector auth tools such as `GoogleWorkspaceLoginStart`, `GoogleWorkspaceLoginComplete`, `GoogleWorkspaceAuthStatus`, `GoogleWorkspaceLogout`, `NotionTokenSet`, `BilibiliLoginStart`, `BilibiliLoginPoll`, `BilibiliAuthStatus`, `BilibiliLogout`, or `AskUser`.\n\
 - Google Workspace, Notion, and Feishu authorization is handled by Ripple before the Codex turn starts. For Bilibili tasks, follow the `bilibili` CLI workflow documented by the Bilibili skills.\n\
 - Do not collect connector credentials inside Codex; if Google Workspace, Notion, or Feishu is required and not connected, ask the user to authorize it through Ripple.\n\n\
@@ -2733,6 +2732,92 @@ fn now_epoch_seconds() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
+
+    use crate::config::{
+        AppConfig, CodexConfig, FeishuConfig, GogcliOAuthConfig, LoggingConfig, SandboxConfig,
+        SkillsConfig,
+    };
+
+    fn test_config(root: &FsPath) -> AppConfig {
+        AppConfig {
+            repo_root: root.to_path_buf(),
+            host: "127.0.0.1".to_string(),
+            port: 0,
+            api_keys: vec!["test-key".to_string()],
+            default_model: "codex-test".to_string(),
+            model_presets: BTreeMap::new(),
+            logging: LoggingConfig {
+                level: "debug".to_string(),
+            },
+            sandbox: SandboxConfig {
+                sandboxes_root: root.join("sandboxes"),
+                caches_root: root.join("cache"),
+                idle_suspend_seconds: 1800,
+                retention_seconds: 604_800,
+                max_workspace_mb: 2048,
+                tmpfs_size_mb: 64,
+                nsjail_path: "nsjail".to_string(),
+                uv_bin_dir: None,
+                node_dir: None,
+                lark_cli_install_root: None,
+                notion_cli_install_root: None,
+                gogcli_cli_install_root: None,
+                cli_tools: Vec::new(),
+                pypi_mirror_url: None,
+                npm_registry_url: None,
+            },
+            codex: CodexConfig {
+                enabled: true,
+                codex_executable: "codex".to_string(),
+                app_server_args: Vec::new(),
+                codex_home: None,
+                approval_policy: "never".to_string(),
+                sandbox_type: "workspace-write".to_string(),
+                network_access: true,
+                idle_timeout_seconds: 1800,
+                max_runtime_seconds: 3600,
+            },
+            schedule_extraction_max_runtime_seconds: 120,
+            schedule_poll_interval_seconds: 15,
+            skills: SkillsConfig {
+                shared_dirs: Vec::new(),
+            },
+            public_base_url: None,
+            feishu: FeishuConfig::default(),
+            gogcli_oauth: GogcliOAuthConfig {
+                auto_register_client: true,
+                auto_from_request: true,
+                callback_url: None,
+                client_secret_json: None,
+                client: None,
+            },
+        }
+    }
+
+    #[tokio::test]
+    async fn codex_chat_prompt_omits_local_proxy_helper() {
+        let root = std::env::temp_dir().join(format!("ripple-chat-test-{}", Uuid::new_v4()));
+        let state = AppState::new(test_config(&root));
+        let workspace_root = state
+            .sandboxes
+            .ensure_sandbox("alice")
+            .expect("create sandbox");
+
+        let prompt = build_codex_chat_prompt(
+            &state,
+            "alice",
+            "session-1",
+            &workspace_root,
+            "hello",
+            &[],
+            None,
+        );
+
+        assert!(!prompt.contains("proxy_on"));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
 
     #[test]
     fn extracts_notion_token_without_trailing_punctuation() {

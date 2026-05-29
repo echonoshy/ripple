@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use ripple_server::config::{
     AppConfig, CodexConfig, CorsConfig, FeishuConfig, GogcliOAuthConfig, LoggingConfig,
-    SandboxConfig, SecurityConfig, SkillsConfig,
+    SandboxConfig, SecurityConfig, SkillsConfig, UserAuthConfig,
 };
 use ripple_server::python_env::{
     run_ripple_py_cli, PythonEnvKeyInput, PythonEnvManager, PythonEnvRequest,
@@ -228,6 +228,7 @@ fn test_config(root: &Path) -> AppConfig {
         port: 0,
         api_keys: Vec::new(),
         security: SecurityConfig::default(),
+        user_auth: UserAuthConfig::default(),
         cors: CorsConfig::default(),
         default_model: "codex-test".to_string(),
         model_presets: BTreeMap::new(),

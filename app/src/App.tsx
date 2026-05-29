@@ -71,6 +71,7 @@ export default function Home() {
     return window.localStorage.getItem("ripple.workbench.inspectorCollapsed") === "true";
   });
   const [mobileSessionMode, setMobileSessionMode] = useState<"list" | "chat">("list");
+  const [sessionScrollToBottomRequest, setSessionScrollToBottomRequest] = useState(0);
   const [workspaceRefreshToken, setWorkspaceRefreshToken] = useState(0);
   const [activeView, setActiveView] = useState<WorkspaceView>("sessions");
   const [sessionAttentionById, setSessionAttentionById] = useState<
@@ -344,7 +345,10 @@ export default function Home() {
   const handleSwitchSession = useCallback(
     async (targetSessionId: string) => {
       const switched = await switchSession(targetSessionId);
-      if (switched) acknowledgeSessionCompletion(targetSessionId);
+      if (switched) {
+        acknowledgeSessionCompletion(targetSessionId);
+        setSessionScrollToBottomRequest((request) => request + 1);
+      }
     },
     [acknowledgeSessionCompletion, switchSession]
   );
@@ -541,6 +545,7 @@ export default function Home() {
             models={models}
             isModelDropdownOpen={openModelDropdown === "composer"}
             sessionId={sessionId}
+            scrollToBottomRequest={sessionScrollToBottomRequest}
             onNewSession={handleNewSession}
             onUpdateSessionSettings={handleUpdateSessionSettings}
             onInputChange={setInput}

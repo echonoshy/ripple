@@ -135,6 +135,19 @@ function testMobileSessionOptionsUseSessionSettings() {
   assert.match(sessionPageSource, /Session settings/);
 }
 
+function testSessionScrollActivationStaysInsideSessionPage() {
+  assert.doesNotMatch(appSource, /scrollActivationKey/);
+}
+
+function testSessionSelectionRequestsScrollToBottom() {
+  assert.match(appSource, /sessionScrollToBottomRequest/);
+  assert.match(
+    appSource,
+    /if \(switched\) \{\s*acknowledgeSessionCompletion\(targetSessionId\);\s*setSessionScrollToBottomRequest\(\(request\) => request \+ 1\);/
+  );
+  assert.match(appSource, /scrollToBottomRequest=\{sessionScrollToBottomRequest\}/);
+}
+
 testChatCompletionClearsResidualPlan();
 testSessionDetailsRestorePersistedPlan();
 testRestoringSessionRefreshesWorkspaceViews();
@@ -149,5 +162,7 @@ testChatSendIsNotBlockedByAnotherRunningSession();
 testChatRunStoresActiveRunsBySession();
 testMobileUsesBottomTabBarForTopLevelViews();
 testMobileSessionOptionsUseSessionSettings();
+testSessionScrollActivationStaysInsideSessionPage();
+testSessionSelectionRequestsScrollToBottom();
 
 console.log("app plan tests passed");

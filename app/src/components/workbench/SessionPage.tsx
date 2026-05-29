@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -25,6 +25,13 @@ import { formatModelName } from "@/lib/models";
 import SessionComposer from "./SessionComposer";
 import SessionTimeline from "./SessionTimeline";
 
+const STICK_TO_BOTTOM_MS = 1200;
+const BOTTOM_LOCK_THRESHOLD_PX = 40;
+
+function currentTimeMs(): number {
+  return typeof performance === "undefined" ? Date.now() : performance.now();
+}
+
 interface SessionPageProps {
   userId?: string;
   session: WorkbenchSessionSummary | null;
@@ -45,6 +52,7 @@ interface SessionPageProps {
   models: { id: string; owned_by: string }[];
   isModelDropdownOpen: boolean;
   sessionId: string | null;
+  scrollToBottomRequest?: number;
   onNewSession: () => void;
   onUpdateSessionSettings: (updates: { title?: string; pinned?: boolean }) => Promise<unknown>;
   onInputChange: (value: string) => void;
@@ -84,6 +92,7 @@ export default function SessionPage({
   models,
   isModelDropdownOpen,
   sessionId,
+  scrollToBottomRequest = 0,
   onNewSession,
   onUpdateSessionSettings,
   onInputChange,
@@ -102,6 +111,11 @@ export default function SessionPage({
   onBackToMobileSessions,
 }: SessionPageProps) {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  const previousAutoScrollSessionIdRef = useRef<string | null | undefined>(undefined);
+  const previousScrollToBottomRequestRef = useRef(scrollToBottomRequest);
+  const stickToBottomUntilRef = useRef(0);
+  const isGeneratingRef = useRef(isGenerating);
   const [isSessionSettingsOpen, setIsSessionSettingsOpen] = useState(false);
   const [settingsTitle, setSettingsTitle] = useState(session?.title || "");
   const [settingsPinned, setSettingsPinned] = useState(Boolean(session?.pinned));
@@ -121,20 +135,88 @@ export default function SessionPage({
       ? `${lastContextTokens.toLocaleString()} / ${contextWindow.toLocaleString()}`
       : lastContextTokens.toLocaleString()
     : null;
+  const lastTimelineEvent = timelineEvents[timelineEvents.length - 1] || null;
+  const lastTimelineEventId = lastTimelineEvent?.id || "";
+  const lastTimelineEventBodyLength = lastTimelineEvent?.body.length || 0;
 
-  useEffect(() => {
+  const scrollToBottom = useCallback(() => {
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer) return;
+    scrollContainer.scrollTop = scrollContainer.scrollHeight;
+  }, []);
+
+  const shouldKeepStickingToBottom = useCallback(
+    () => isGeneratingRef.current || currentTimeMs() <= stickToBottomUntilRef.current,
+    []
+  );
+
+  const startStickToBottom = useCallback(() => {
+    stickToBottomUntilRef.current = currentTimeMs() + STICK_TO_BOTTOM_MS;
+    scrollToBottom();
+  }, [scrollToBottom]);
+
+  const handleScroll = useCallback(() => {
     const scrollContainer = scrollContainerRef.current;
     if (!scrollContainer) return;
 
-    const frame = window.requestAnimationFrame(() => {
-      scrollContainer.scrollTo({
-        top: scrollContainer.scrollHeight,
-        behavior: isGenerating ? "auto" : "smooth",
-      });
-    });
+    const distanceFromBottom =
+      scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight;
+    if (distanceFromBottom > BOTTOM_LOCK_THRESHOLD_PX) {
+      stickToBottomUntilRef.current = 0;
+    }
+  }, []);
 
-    return () => window.cancelAnimationFrame(frame);
-  }, [isGenerating, messages.length, planSteps.length, timelineEvents, tokenUsage.total_tokens]);
+  useEffect(() => {
+    isGeneratingRef.current = isGenerating;
+  }, [isGenerating]);
+
+  useLayoutEffect(() => {
+    const previousScrollSessionId = previousAutoScrollSessionIdRef.current;
+    const sessionChanged = previousScrollSessionId !== sessionId;
+    previousAutoScrollSessionIdRef.current = sessionId;
+
+    if (!sessionChanged) return;
+
+    startStickToBottom();
+  }, [sessionId, startStickToBottom]);
+
+  useLayoutEffect(() => {
+    const previousScrollToBottomRequest = previousScrollToBottomRequestRef.current;
+    const requestChanged = previousScrollToBottomRequest !== scrollToBottomRequest;
+    previousScrollToBottomRequestRef.current = scrollToBottomRequest;
+
+    if (!requestChanged) return;
+
+    startStickToBottom();
+  }, [scrollToBottomRequest, startStickToBottom]);
+
+  useLayoutEffect(() => {
+    if (!shouldKeepStickingToBottom()) return;
+    scrollToBottom();
+  }, [
+    isGenerating,
+    lastTimelineEventBodyLength,
+    lastTimelineEventId,
+    messages.length,
+    planSteps.length,
+    scrollToBottom,
+    shouldKeepStickingToBottom,
+    tokenUsage.total_tokens,
+  ]);
+
+  useEffect(() => {
+    const content = contentRef.current;
+    if (!content || typeof ResizeObserver === "undefined") return;
+
+    const observer = new ResizeObserver(() => {
+      if (shouldKeepStickingToBottom()) {
+        scrollToBottom();
+      }
+    });
+    observer.observe(content);
+
+    return () => observer.disconnect();
+  }, [scrollToBottom, shouldKeepStickingToBottom]);
 
   useEffect(() => {
     if (!isSessionSettingsOpen) return;
@@ -318,9 +400,10 @@ export default function SessionPage({
 
       <div
         ref={scrollContainerRef}
+        onScroll={handleScroll}
         className="min-h-0 flex-1 overflow-y-auto bg-transparent px-3 py-2 sm:px-4 sm:py-5 md:px-5"
       >
-        <div className="mx-auto max-w-5xl space-y-2 sm:space-y-5">
+        <div ref={contentRef} className="mx-auto max-w-5xl space-y-2 sm:space-y-5">
           {planSteps.length > 0 && (
             <section className="rounded-2xl border border-[#dfe6f4] bg-white/78 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl">
               <div className="flex items-center justify-between border-b border-[#e8edf7] px-3 py-1.5">

@@ -85,6 +85,14 @@ export interface ParsedWorkspaceLink {
   userId?: string;
 }
 
+function safeDecodeWorkspacePath(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 /**
  * Parse and normalize potential workspace paths (absolute or relative) into standard
  * workspace-relative paths and optionally extract line numbers.
@@ -96,7 +104,7 @@ export function parseWorkspaceLink(href: string | undefined): ParsedWorkspaceLin
 
   // 1. Check if it's a full sandbox path on the server: ".../sandboxes/<user_id>/workspace/<raw_path>"
   const sandboxMatch = href.match(/sandboxes\/([a-zA-Z0-9_-]{1,64})\/workspace\/(.+)$/);
-  
+
   let rawPath = "";
   let userId: string | undefined;
 
@@ -129,6 +137,8 @@ export function parseWorkspaceLink(href: string | undefined): ParsedWorkspaceLin
     lineNumber = parseInt(lineMatch[1], 10);
     cleanPath = rawPath.slice(0, lineMatch.index);
   }
+
+  cleanPath = safeDecodeWorkspacePath(cleanPath);
 
   const workspacePath = cleanPath.startsWith("/") ? cleanPath : `/workspace/${cleanPath}`;
 
@@ -1026,7 +1036,18 @@ export async function fetchWorkspaceFilePreview(
     headers: { ...authHeaders() },
   });
   if (res.status === 401) throw new AuthError();
-  if (!res.ok) throw new Error(`Failed to preview file (${res.status})`);
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    if (res.status === 404) {
+      if (detail.includes("Sandbox for user")) {
+        throw new Error("Workspace is not ready for this user.");
+      }
+      if (detail.includes("Path not found")) {
+        throw new Error("File or folder no longer exists. Refresh workspace.");
+      }
+    }
+    throw new Error(detail || `Failed to preview file (${res.status})`);
+  }
   return (await res.json()) as WorkspaceFilePreview;
 }
 

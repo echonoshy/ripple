@@ -11,7 +11,9 @@ import {
   fetchSchedules,
   fetchSessions,
   fetchSessionDetails,
+  fetchWorkspaceFilePreview,
   getApiOrigin,
+  parseWorkspaceLink,
   renameWorkspaceEntry,
   resolveSessionPermissionRequest,
   resolveApiUrl,
@@ -134,6 +136,34 @@ async function testScheduleIdIsEncodedInPath() {
     "http://140.143.229.103:8810/v1/schedules/schedule%2Fwith%20space",
     "http://140.143.229.103:8810/v1/schedules/schedule%2Fwith%20space/run-now",
   ]);
+}
+
+function testParseWorkspaceLinkDecodesEncodedSandboxPath() {
+  assert.deepEqual(
+    parseWorkspaceLink(
+      "/home/lake/workspace/ripple/.ripple/sandboxes/lake/workspace/meeting_record/%E9%80%9A%E7%94%A8%E4%BC%9A%E8%AE%AE82.json:34"
+    ),
+    {
+      isWorkspaceFile: true,
+      workspacePath: "/workspace/meeting_record/通用会议82.json",
+      lineNumber: 34,
+      userId: "lake",
+    }
+  );
+}
+
+async function testWorkspaceFilePreviewPathNotFoundStaysFileSpecific() {
+  await withFetch(
+    async () => response(404, "Path not found"),
+    async () => {
+      await assert.rejects(
+        () => fetchWorkspaceFilePreview("/workspace/missing.txt"),
+        (error) =>
+          error instanceof Error &&
+          error.message === "File or folder no longer exists. Refresh workspace."
+      );
+    }
+  );
 }
 
 async function testScheduleApiUsesExpectedBackendShape() {
@@ -450,6 +480,8 @@ await testRenamePathNotFoundStaysFileSpecific();
 await testRenameConflictUsesFriendlyMessage();
 await testSessionIdIsEncodedInPath();
 await testScheduleIdIsEncodedInPath();
+testParseWorkspaceLinkDecodesEncodedSandboxPath();
+await testWorkspaceFilePreviewPathNotFoundStaysFileSpecific();
 await testScheduleApiUsesExpectedBackendShape();
 await testFetchSessionsNormalizesBackendShape();
 await testCreateSessionNormalizesBackendShape();

@@ -17,6 +17,8 @@ use crate::storage::{sha256_hex, FileRefRecord};
 use crate::user::user_id_from_headers;
 use crate::workspace as ws;
 
+pub const WORKSPACE_UPLOAD_BODY_LIMIT_BYTES: usize = 128 * 1024 * 1024;
+
 #[derive(Debug, Deserialize)]
 pub struct WorkspacePathQuery {
     path: Option<String>,

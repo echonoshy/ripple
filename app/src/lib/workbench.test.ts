@@ -488,6 +488,31 @@ function testUpsertsCodexRuntimeDiffEvents() {
   assert.doesNotMatch(second[0].body, /src\/App\.tsx/);
 }
 
+function testUpsertsContextCompactionLifecycleEvents() {
+  const first = upsertRuntimeTimelineEvent(
+    [],
+    {
+      type: "context_compaction",
+      id: "compact-1",
+      status: "running",
+    },
+    { id: "runtime-1-0", createdAt: "2026-05-19T00:00:01.000Z" }
+  );
+  const second = upsertRuntimeTimelineEvent(
+    first,
+    {
+      type: "context_compaction",
+      id: "compact-1",
+      status: "completed",
+    },
+    { id: "runtime-1-1", createdAt: "2026-05-19T00:00:02.000Z" }
+  );
+
+  assert.equal(second.length, 1);
+  assert.equal(second[0].type, "context_compaction");
+  assert.equal(second[0].status, "completed");
+}
+
 function testMergesRuntimeEventsByTimestamp() {
   const messageEvents = messagesToTimelineEvents([
     {
@@ -527,6 +552,40 @@ function testMergesRuntimeEventsByTimestamp() {
   );
 }
 
+function testRuntimeEventsStayBeforeOptimisticAssistantResponse() {
+  const messageEvents = messagesToTimelineEvents([
+    {
+      id: "user-1",
+      role: "user",
+      content: "summarize these files",
+      created_at: "2026-05-19T00:00:00.000Z",
+    },
+    {
+      id: "assistant-1",
+      role: "assistant",
+      content: "Here is the summary.",
+      created_at: "2026-05-19T00:00:00.000Z",
+    },
+  ]);
+  const runtimeEvents = [
+    codexRuntimeEventToTimelineEvent(
+      {
+        type: "context_compaction",
+        id: "compact-1",
+        status: "completed",
+      },
+      { id: "runtime-compact", createdAt: "2026-05-19T00:00:01.000Z" }
+    ),
+  ];
+
+  const merged = mergeTimelineEvents(messageEvents, runtimeEvents);
+
+  assert.deepEqual(
+    merged.map((event) => event.id),
+    ["user-1", "runtime-context_compaction-compact-1", "assistant-1"]
+  );
+}
+
 testMapsSessionSummariesToWorkbenchSummaries();
 testSortsSessionsByRecentActivity();
 testFormatsSessionActivityTimeLikeCodexSidebar();
@@ -542,6 +601,8 @@ testMapsCodexRuntimeEventsIntoTimelineEvents();
 testMapsMessageImageArtifactsIntoTimelineEvents();
 testSummarizesCodexRuntimeDiffInsteadOfShowingFullPatch();
 testUpsertsCodexRuntimeDiffEvents();
+testUpsertsContextCompactionLifecycleEvents();
 testMergesRuntimeEventsByTimestamp();
+testRuntimeEventsStayBeforeOptimisticAssistantResponse();
 
 console.log("workbench tests passed");

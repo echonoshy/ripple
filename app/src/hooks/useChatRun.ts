@@ -19,6 +19,7 @@ import {
   sendChatMessage,
   uploadWorkspaceAttachment,
 } from "@/lib/api";
+import { readableApiErrorMessage } from "@/lib/apiErrors";
 import { chatErrorContent } from "@/lib/chatErrors";
 import { describeChatFilesForDisplay, type ChatFileRef } from "@/lib/chatInput";
 import {
@@ -65,6 +66,7 @@ const emptyUsage: UsageInfo = {
 
 export const CONNECTOR_AUTH_POLL_TIMEOUT_MS = 5 * 60 * 1000;
 const CONNECTOR_AUTH_POLL_INTERVAL_MS = 2000;
+const MAX_ATTACHMENT_UPLOAD_ERRORS_SHOWN = 3;
 
 function shouldShowRuntimeEvent(event: CodexRuntimeEvent): boolean {
   return event.type !== "tool_output_delta";
@@ -129,6 +131,24 @@ export function shouldContinueConnectorAuthPoll(
   );
 }
 
+function attachmentUploadErrorMessage(error: unknown): string {
+  const message = readableApiErrorMessage(error);
+  if (/length limit/i.test(message)) {
+    return "File exceeds the server upload limit.";
+  }
+  if (/\((413|400)\)/.test(message) && /upload|attachment/i.test(message)) {
+    return `${message}. The file may exceed the server upload limit.`;
+  }
+  return message;
+}
+
+function summarizeAttachmentUploadErrors(errors: string[]): string {
+  const shown = errors.slice(0, MAX_ATTACHMENT_UPLOAD_ERRORS_SHOWN);
+  const suffix =
+    errors.length > shown.length ? `; ${errors.length - shown.length} more failed` : "";
+  return `${shown.join("; ")}${suffix}`;
+}
+
 export function useChatRun({
   selectedModel,
   onSelectedModelChange,
@@ -140,6 +160,8 @@ export function useChatRun({
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [pendingFiles, setPendingFiles] = useState<ChatFileRef[]>([]);
+  const [isUploadingFiles, setIsUploadingFiles] = useState(false);
+  const [attachmentUploadError, setAttachmentUploadError] = useState<string | null>(null);
   const [runningSessionIds, setRunningSessionIds] = useState<string[]>([]);
   const [runtimeTimelineEvents, setRuntimeTimelineEvents] = useState<WorkbenchTimelineEvent[]>([]);
   const [inputFocusToken, setInputFocusToken] = useState(0);
@@ -248,6 +270,8 @@ export function useChatRun({
     setMessages([]);
     setRuntimeTimelineEvents([]);
     setPendingFiles([]);
+    setIsUploadingFiles(false);
+    setAttachmentUploadError(null);
     setPlanSteps([]);
     setPlanProgress(null);
     setTokenUsage(emptyUsage);
@@ -283,6 +307,8 @@ export function useChatRun({
       setMessages(mapSessionMessages(details));
       setRuntimeTimelineEvents([]);
       setPendingFiles([]);
+      setIsUploadingFiles(false);
+      setAttachmentUploadError(null);
       setTokenUsage(emptyUsage);
       setLastContextTokens(0);
       setPlanSteps(details.planSteps || []);
@@ -375,28 +401,49 @@ export function useChatRun({
   const handleAttachFiles = useCallback(
     async (files: File[]) => {
       if (isSessionRunning(getSessionActions().getSessionId()) || files.length === 0) return;
+      setIsUploadingFiles(true);
+      setAttachmentUploadError(null);
       try {
-        const uploaded = await Promise.all(files.map((file) => uploadWorkspaceAttachment(file)));
-        setPendingFiles((prev) => {
-          const next = new Map(prev.map((file) => [file.path, file]));
-          for (const file of uploaded) {
-            next.set(file.path, {
-              path: file.path,
-              name: file.name,
-              mime_type: file.mime_type,
-              kind: file.kind,
-            });
+        const uploaded: Awaited<ReturnType<typeof uploadWorkspaceAttachment>>[] = [];
+        const failures: string[] = [];
+        for (const file of files) {
+          try {
+            uploaded.push(await uploadWorkspaceAttachment(file));
+          } catch (err) {
+            if (err instanceof AuthError) {
+              throw err;
+            }
+            failures.push(`${file.name}: ${attachmentUploadErrorMessage(err)}`);
           }
-          return [...next.values()];
-        });
-        onWorkspaceRefresh();
-        setInputFocusToken((prev) => bumpInputFocusToken(prev));
+        }
+        if (uploaded.length > 0) {
+          setPendingFiles((prev) => {
+            const next = new Map(prev.map((file) => [file.path, file]));
+            for (const file of uploaded) {
+              next.set(file.path, {
+                path: file.path,
+                name: file.name,
+                mime_type: file.mime_type,
+                kind: file.kind,
+              });
+            }
+            return [...next.values()];
+          });
+          onWorkspaceRefresh();
+          setInputFocusToken((prev) => bumpInputFocusToken(prev));
+        }
+        if (failures.length > 0) {
+          setAttachmentUploadError(summarizeAttachmentUploadErrors(failures));
+        }
       } catch (err) {
         if (err instanceof AuthError) {
           handleAuthExpired();
           return;
         }
+        setAttachmentUploadError(attachmentUploadErrorMessage(err));
         console.error("Attachment upload error:", err);
+      } finally {
+        setIsUploadingFiles(false);
       }
     },
     [getSessionActions, handleAuthExpired, isSessionRunning, onWorkspaceRefresh]
@@ -462,6 +509,7 @@ export function useChatRun({
       setMessages(initialMessages);
       setInput("");
       setPendingFiles([]);
+      setAttachmentUploadError(null);
 
       const isRunVisible = () => getSessionActions().getSessionId() === activeSessionId;
       const getRunningState = () => {
@@ -1400,6 +1448,8 @@ export function useChatRun({
     setInput,
     messages,
     pendingFiles,
+    isUploadingFiles,
+    attachmentUploadError,
     isGenerating,
     runningSessionId,
     runningSessionIds,

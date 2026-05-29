@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import {
   CONNECTOR_AUTH_POLL_TIMEOUT_MS,
@@ -144,6 +145,14 @@ function testConnectorAuthPollStopsOnTerminalStages() {
   assert.equal(shouldContinueConnectorAuthPoll(null, "feishu", 0), false);
 }
 
+function testAttachmentUploadsKeepSuccessfulFilesWhenOneUploadFails() {
+  const source = readFileSync(new URL("./useChatRun.ts", import.meta.url), "utf8");
+
+  assert.doesNotMatch(source, /Promise\.all\(files\.map\(\(file\) => uploadWorkspaceAttachment/);
+  assert.match(source, /for \(const file of files\)/);
+  assert.match(source, /setAttachmentUploadError/);
+}
+
 testFeishuSetupAuthStartsAutomaticPoll();
 testFeishuUserAuthStartsAutomaticPoll();
 testGoogleAuthStillStartsAutomaticPoll();
@@ -151,5 +160,6 @@ testBilibiliAuthDoesNotStartAutomaticPollOrOpen();
 testAuthorizedConnectorEventDoesNotStartPoll();
 testConnectorAuthPollContinuesOnlyBeforeTimeout();
 testConnectorAuthPollStopsOnTerminalStages();
+testAttachmentUploadsKeepSuccessfulFilesWhenOneUploadFails();
 
 console.log("useChatRun tests passed");

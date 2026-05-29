@@ -128,6 +128,8 @@ export default function Home() {
     setInput,
     messages,
     pendingFiles,
+    isUploadingFiles,
+    attachmentUploadError,
     isGenerating,
     runningSessionIds,
     inputFocusToken,
@@ -498,6 +500,8 @@ export default function Home() {
             lastContextTokens={lastContextTokens}
             input={input}
             pendingFiles={pendingFiles}
+            isUploadingFiles={isUploadingFiles}
+            uploadError={attachmentUploadError}
             isGenerating={selectedSessionIsGenerating}
             isComposerBlocked={isComposerBlocked}
             focusToken={inputFocusToken}

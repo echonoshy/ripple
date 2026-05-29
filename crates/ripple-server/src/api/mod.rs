@@ -13,7 +13,7 @@ pub mod users;
 pub mod workspace;
 
 use axum::body::Body;
-use axum::extract::State;
+use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{HeaderValue, Request, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
@@ -97,10 +97,17 @@ pub fn router(state: AppState) -> Router {
         .route("/workspace/delete", post(workspace::delete_workspace))
         .route("/workspace/create", post(workspace::create_workspace))
         .route("/workspace/paste", post(workspace::paste_workspace))
-        .route("/workspace/upload", post(workspace::upload_workspace_files))
+        .route(
+            "/workspace/upload",
+            post(workspace::upload_workspace_files).layer(DefaultBodyLimit::max(
+                workspace::WORKSPACE_UPLOAD_BODY_LIMIT_BYTES,
+            )),
+        )
         .route(
             "/workspace/attachments",
-            post(workspace::upload_workspace_attachment),
+            post(workspace::upload_workspace_attachment).layer(DefaultBodyLimit::max(
+                workspace::WORKSPACE_UPLOAD_BODY_LIMIT_BYTES,
+            )),
         )
         .route(
             "/workspace/download",

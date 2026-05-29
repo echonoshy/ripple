@@ -1062,7 +1062,10 @@ export async function uploadWorkspaceAttachment(file: File): Promise<WorkspaceAt
     body,
   });
   if (res.status === 401) throw new AuthError();
-  if (!res.ok) throw new Error(`Failed to upload attachment (${res.status})`);
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to upload attachment (${res.status})`);
+  }
   return (await res.json()) as WorkspaceAttachmentResponse;
 }
 
@@ -1104,7 +1107,10 @@ export async function uploadWorkspaceFiles(
     }
     throw new WorkspaceUploadConflictError(parseWorkspaceUploadConflicts(parsed));
   }
-  if (!res.ok) throw new Error(`Failed to upload files (${res.status})`);
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to upload files (${res.status})`);
+  }
   const response = (await res.json()) as WorkspaceUploadResponse;
   return response.entries || [];
 }

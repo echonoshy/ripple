@@ -1,7 +1,17 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FileText, Paperclip, Send, Sparkles, Square, Trash2, X } from "lucide-react";
+import {
+  AlertTriangle,
+  FileText,
+  Loader2,
+  Paperclip,
+  Send,
+  Sparkles,
+  Square,
+  Trash2,
+  X,
+} from "lucide-react";
 import type { ChatFileRef } from "@/lib/chatInput";
 import {
   getQuickActionMatches,
@@ -21,6 +31,8 @@ interface SessionComposerProps {
   onAttachFiles: (files: File[]) => void | Promise<void>;
   onRemovePendingFile: (path: string) => void;
   pendingFiles: ChatFileRef[];
+  isUploadingFiles?: boolean;
+  uploadError?: string | null;
   isGenerating: boolean;
   isBlocked?: boolean;
   hasSession: boolean;
@@ -47,6 +59,8 @@ export default function SessionComposer({
   onAttachFiles,
   onRemovePendingFile,
   pendingFiles,
+  isUploadingFiles = false,
+  uploadError = null,
   isGenerating,
   isBlocked = false,
   hasSession,
@@ -66,7 +80,8 @@ export default function SessionComposer({
   const [quickActionIndex, setQuickActionIndex] = useState(0);
   const canSend = Boolean(value.trim() || pendingFiles.length > 0);
   const inputDisabled = isGenerating;
-  const sendDisabled = isGenerating || isBlocked;
+  const attachDisabled = inputDisabled || isUploadingFiles;
+  const sendDisabled = isGenerating || isBlocked || isUploadingFiles;
   const isQuickActionsOpen = quickActionsState !== null;
   const availableModels = useMemo(
     () => (models.length > 0 ? models : [{ id: selectedModel, owned_by: "ripple" }]),
@@ -239,7 +254,7 @@ export default function SessionComposer({
           multiple
           className="hidden"
           onChange={handleAttachChange}
-          disabled={inputDisabled}
+          disabled={attachDisabled}
         />
         <div className="flex items-end gap-1.5">
           <div className="-mr-1 flex h-10 shrink-0 items-center sm:mb-[2px] sm:h-8">
@@ -269,10 +284,14 @@ export default function SessionComposer({
                 aria-label="Attach files"
                 title="Attach files"
                 onClick={() => fileInputRef.current?.click()}
-                disabled={inputDisabled}
+                disabled={attachDisabled}
                 className="inline-flex h-10 w-10 items-center justify-center rounded-full text-[#4b5563] hover:bg-[#f3f4f6] hover:text-[#111827] active:bg-[#eef3ff] disabled:cursor-not-allowed disabled:opacity-50 sm:h-8 sm:w-8"
               >
-                <Paperclip size={15} />
+                {isUploadingFiles ? (
+                  <Loader2 size={15} className="animate-spin" />
+                ) : (
+                  <Paperclip size={15} />
+                )}
               </button>
             </div>
             <div ref={modelDropdownRef} className="relative flex shrink-0 items-center">
@@ -371,6 +390,22 @@ export default function SessionComposer({
                 </button>
               </span>
             ))}
+          </div>
+        )}
+        {(isUploadingFiles || uploadError) && (
+          <div
+            className={`flex min-w-0 items-start gap-1.5 px-2 pt-1 pb-2 text-[11px] ${
+              uploadError ? "text-[#cf222e]" : "text-[#57606a]"
+            }`}
+          >
+            {isUploadingFiles ? (
+              <Loader2 size={13} className="mt-0.5 shrink-0 animate-spin" />
+            ) : (
+              <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+            )}
+            <span className="min-w-0 break-words">
+              {isUploadingFiles ? "Uploading files" : uploadError}
+            </span>
           </div>
         )}
       </div>

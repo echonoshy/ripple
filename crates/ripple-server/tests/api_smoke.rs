@@ -818,6 +818,42 @@ Content-Type: image/png\r\n\r\n"
 }
 
 #[tokio::test]
+async fn workspace_attachment_upload_accepts_common_phone_photo_size() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let (_state, app) = test_state_and_app(&root);
+
+    let boundary = "ripple-large-attachment-boundary";
+    let mut body = format!(
+        "--{boundary}\r\n\
+Content-Disposition: form-data; name=\"kind\"\r\n\r\n\
+image\r\n\
+--{boundary}\r\n\
+Content-Disposition: form-data; name=\"file\"; filename=\"phone-photo.jpg\"\r\n\
+Content-Type: image/jpeg\r\n\r\n"
+    )
+    .into_bytes();
+    body.extend(vec![0x42; 3 * 1024 * 1024]);
+    body.extend(format!("\r\n--{boundary}--\r\n").into_bytes());
+
+    let response = app
+        .oneshot(multipart_request(
+            "/v1/workspace/attachments",
+            boundary,
+            body,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let attachment = response_json(response).await;
+    assert_eq!(
+        attachment.get("size").and_then(Value::as_u64),
+        Some(3 * 1024 * 1024)
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
 async fn router_serves_session_lifecycle_routes() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let (_state, app) = test_state_and_app(&root);

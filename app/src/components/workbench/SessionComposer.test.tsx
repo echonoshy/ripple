@@ -79,10 +79,19 @@ function testComposerClearsIosHomeIndicatorAndUsesTouchSizedActions() {
   assert.match(html, /text-\[16px\][^"]*sm:text-\[14px\]/);
 }
 
+function testComposerShowsAttachmentUploadStateAndErrors() {
+  const uploadingHtml = renderComposer({ isUploadingFiles: true });
+  const errorHtml = renderComposer({ uploadError: "phone-photo.jpg: upload is too large" });
+
+  assert.match(uploadingHtml, /Uploading files/);
+  assert.match(errorHtml, /phone-photo\.jpg: upload is too large/);
+}
+
 testShowsSelectedModelAndMenuOptions();
 testComposerToolbarNamesRealActions();
 testComposerInputSuppressesGlobalBlueFocusOutline();
 testBlockedComposerStillAllowsDraftingAndShowsStop();
 testComposerClearsIosHomeIndicatorAndUsesTouchSizedActions();
+testComposerShowsAttachmentUploadStateAndErrors();
 
 console.log("session composer tests passed");

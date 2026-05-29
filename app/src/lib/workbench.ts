@@ -318,7 +318,12 @@ export function codexRuntimeEventToTimelineEvent(
   event: CodexRuntimeEvent,
   options: { id?: string; createdAt?: string } = {}
 ): WorkbenchTimelineEvent {
-  const id = options.id || `runtime-${event.type}-${event.id || event.turn_id || Date.now()}`;
+  const contextCompactionId =
+    event.type === "context_compaction" && (event.id || event.turn_id || event.thread_id)
+      ? `runtime-context_compaction-${event.id || event.turn_id || event.thread_id}`
+      : null;
+  const id =
+    contextCompactionId || options.id || `runtime-${event.type}-${event.id || event.turn_id || Date.now()}`;
   const status = event.type === "tool_output_delta" ? event.stream : event.status;
   return {
     id,
@@ -360,7 +365,9 @@ export function upsertRuntimeTimelineEvent(
   options: { id?: string; createdAt?: string } = {}
 ): WorkbenchTimelineEvent[] {
   const nextEvent = codexRuntimeEventToTimelineEvent(event, options);
-  if (event.type !== "codex_turn_diff_updated") return [...events, nextEvent];
+  if (event.type !== "codex_turn_diff_updated" && event.type !== "context_compaction") {
+    return [...events, nextEvent];
+  }
 
   const existingIndex = events.findIndex((candidate) => candidate.id === nextEvent.id);
   if (existingIndex < 0) return [...events, nextEvent];
@@ -372,6 +379,12 @@ function eventTime(value: string | undefined): number | null {
   if (!value) return null;
   const time = Date.parse(value);
   return Number.isNaN(time) ? null : time;
+}
+
+function trailingAssistantIndex(events: WorkbenchTimelineEvent[]): number {
+  const lastIndex = events.length - 1;
+  const last = events[lastIndex];
+  return last?.type === "assistant_message" || last?.type === "final_summary" ? lastIndex : -1;
 }
 
 export function mergeTimelineEvents(
@@ -388,7 +401,12 @@ export function mergeTimelineEvents(
 
   for (const { event, time } of orderedRuntime) {
     if (time === null) {
-      merged.push(event);
+      const assistantIndex = trailingAssistantIndex(merged);
+      if (assistantIndex >= 0) {
+        merged.splice(assistantIndex, 0, event);
+      } else {
+        merged.push(event);
+      }
       continue;
     }
 
@@ -397,7 +415,12 @@ export function mergeTimelineEvents(
       return candidateTime !== null && candidateTime > time;
     });
     if (insertAt < 0) {
-      merged.push(event);
+      const assistantIndex = trailingAssistantIndex(merged);
+      if (assistantIndex >= 0) {
+        merged.splice(assistantIndex, 0, event);
+      } else {
+        merged.push(event);
+      }
     } else {
       merged.splice(insertAt, 0, event);
     }

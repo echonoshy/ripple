@@ -35,6 +35,8 @@ interface SessionPageProps {
   lastContextTokens: number;
   input: string;
   pendingFiles: ChatFileRef[];
+  isUploadingFiles?: boolean;
+  uploadError?: string | null;
   isGenerating: boolean;
   isComposerBlocked?: boolean;
   focusToken: number;
@@ -71,6 +73,8 @@ export default function SessionPage({
   lastContextTokens,
   input,
   pendingFiles,
+  isUploadingFiles = false,
+  uploadError = null,
   isGenerating,
   isComposerBlocked = false,
   focusToken,
@@ -399,6 +403,8 @@ export default function SessionPage({
         onAttachFiles={onAttachFiles}
         onRemovePendingFile={onRemovePendingFile}
         pendingFiles={pendingFiles}
+        isUploadingFiles={isUploadingFiles}
+        uploadError={uploadError}
         isGenerating={isGenerating}
         isBlocked={isComposerBlocked}
         hasSession={hasMessages || Boolean(session)}

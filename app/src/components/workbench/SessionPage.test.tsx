@@ -178,8 +178,12 @@ function testContextWarningUsesReportedModelWindow() {
 
   assert.match(html, /Context usage is around 76%/);
   assert.match(html, /76,000 \/ 100,000 tokens/);
-  assert.match(html, /tokens in 76,000 \/ out 10/);
-  assert.match(html, /context 76,000 \/ 100,000/);
+  assert.match(html, /Tokens 76k in \/ 10 out \u00b7 Ctx 76k \/ 100k \(76%\)/);
+  assert.match(html, /aria-label="Tokens in 76,000, out 10\. Context 76,000 \/ 100,000\."/);
+  assert.match(html, /title="Tokens in 76,000, out 10\. Context 76,000 \/ 100,000\."/);
+  assert.match(html, /italic/);
+  assert.match(html, /bg-white\/60/);
+  assert.doesNotMatch(html, /tokens in 76,000 \/ out 10/);
 }
 
 function testContextWarningWaitsForModelWindow() {
@@ -193,8 +197,24 @@ function testContextWarningWaitsForModelWindow() {
   });
 
   assert.doesNotMatch(html, /Context usage is around/);
-  assert.match(html, /context 76,000/);
+  assert.match(html, /Tokens 76k in \/ 10 out \u00b7 Ctx 76k/);
+  assert.match(html, /aria-label="Tokens in 76,000, out 10\. Context 76,000\."/);
   assert.doesNotMatch(html, /context 76,000 \/ 200,000/);
+}
+
+function testTokenBadgeOmitsContextWhenUnavailable() {
+  const html = renderSessionPage({
+    tokenUsage: {
+      prompt_tokens: 20742,
+      completion_tokens: 663,
+      total_tokens: 21405,
+    },
+    lastContextTokens: 0,
+  });
+
+  assert.match(html, /Tokens 20\.7k in \/ 663 out/);
+  assert.match(html, /aria-label="Tokens in 20,742, out 663\."/);
+  assert.doesNotMatch(html, /Ctx/);
 }
 
 function testSessionSwitchScrollsToBottomWithoutSmoothAnimation() {
@@ -254,6 +274,7 @@ testMobileHeaderReservesTopSafeArea();
 testTimelineTextUsesWiderContentWidth();
 testContextWarningUsesReportedModelWindow();
 testContextWarningWaitsForModelWindow();
+testTokenBadgeOmitsContextWhenUnavailable();
 testSessionSwitchScrollsToBottomWithoutSmoothAnimation();
 testAutoScrollEffectUsesStableTimelineKey();
 testResizeObserverKeepsSessionSwitchPinnedToBottom();

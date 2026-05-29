@@ -46,6 +46,19 @@ function currentTimeMs(): number {
   return typeof performance === "undefined" ? Date.now() : performance.now();
 }
 
+function formatCompactTokenCount(value: number): string {
+  const absoluteValue = Math.abs(value);
+  if (absoluteValue >= 1_000_000) return formatTokenUnit(value, 1_000_000, "m");
+  if (absoluteValue >= 1_000) return formatTokenUnit(value, 1_000, "k");
+  return value.toLocaleString();
+}
+
+function formatTokenUnit(value: number, unit: number, suffix: string): string {
+  const scaledValue = value / unit;
+  const precision = Math.abs(scaledValue) < 100 && !Number.isInteger(scaledValue) ? 1 : 0;
+  return `${scaledValue.toFixed(precision).replace(/\.0$/, "")}${suffix}`;
+}
+
 interface SessionPageProps {
   userId?: string;
   session: WorkbenchSessionSummary | null;
@@ -156,6 +169,21 @@ export default function SessionPage({
       ? `${lastContextTokens.toLocaleString()} / ${contextWindow.toLocaleString()}`
       : lastContextTokens.toLocaleString()
     : null;
+  const tokenBadgeContextLabel = lastContextTokens
+    ? contextWindow
+      ? `${formatCompactTokenCount(lastContextTokens)} / ${formatCompactTokenCount(
+          contextWindow
+        )} (${contextPercent}%)`
+      : formatCompactTokenCount(lastContextTokens)
+    : null;
+  const tokenBadgeText = `Tokens ${formatCompactTokenCount(
+    tokenUsage.prompt_tokens
+  )} in / ${formatCompactTokenCount(tokenUsage.completion_tokens)} out${
+    tokenBadgeContextLabel ? ` \u00b7 Ctx ${tokenBadgeContextLabel}` : ""
+  }`;
+  const tokenBadgeAccessibleLabel = `Tokens in ${tokenUsage.prompt_tokens.toLocaleString()}, out ${tokenUsage.completion_tokens.toLocaleString()}.${
+    contextUsageLabel ? ` Context ${contextUsageLabel}.` : ""
+  }`;
   const lastTimelineEvent = timelineEvents[timelineEvents.length - 1] || null;
   const lastTimelineEventId = lastTimelineEvent?.id || "";
   const lastTimelineEventBodyLength = lastTimelineEvent?.body.length || 0;
@@ -535,10 +563,14 @@ export default function SessionPage({
         </div>
 
         {tokenUsage.total_tokens > 0 && (
-          <div className="mx-auto mt-4 max-w-5xl font-[family-name:var(--font-mono)] text-[11px] text-[#7a8496]">
-            tokens in {tokenUsage.prompt_tokens.toLocaleString()} / out{" "}
-            {tokenUsage.completion_tokens.toLocaleString()}
-            {contextUsageLabel ? <> · context {contextUsageLabel}</> : null}
+          <div className="mx-auto mt-4 flex max-w-5xl justify-start">
+            <span
+              aria-label={tokenBadgeAccessibleLabel}
+              title={tokenBadgeAccessibleLabel}
+              className="inline-flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded-full border border-[#edf2fb]/70 bg-white/60 px-2.5 py-1 font-[family-name:var(--font-mono)] text-[11px] leading-4 text-[#8a94a6] italic shadow-[0_6px_18px_rgba(44,63,123,0.04)] backdrop-blur-xl"
+            >
+              {tokenBadgeText}
+            </span>
           </div>
         )}
       </div>

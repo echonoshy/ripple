@@ -1,4 +1,6 @@
 use std::collections::HashSet;
+use std::fs::Metadata;
+use std::time::UNIX_EPOCH;
 
 use axum::body::Body;
 use axum::extract::{Multipart, Query, State};
@@ -171,6 +173,28 @@ pub struct DownloadQuery {
     path: String,
 }
 
+fn workspace_download_etag(metadata: &Metadata) -> String {
+    let modified_nanos = metadata
+        .modified()
+        .ok()
+        .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    format!("W/\"{:x}-{modified_nanos:x}\"", metadata.len())
+}
+
+fn request_matches_etag(headers: &HeaderMap, etag: &str) -> bool {
+    headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| {
+            value
+                .split(',')
+                .map(str::trim)
+                .any(|candidate| candidate == "*" || candidate == etag)
+        })
+}
+
 pub async fn download_workspace_file(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -183,16 +207,32 @@ pub async fn download_workspace_file(
     if !target.is_file() {
         return Err(ApiError::bad_request("Path is not a file"));
     }
-    let data = tokio::fs::read(&target).await?;
+    let metadata = tokio::fs::metadata(&target).await?;
+    let etag = workspace_download_etag(&metadata);
     let filename = target
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("download");
-    let mut response = Response::new(Body::from(data));
+    let mut response = if request_matches_etag(&headers, &etag) {
+        let mut response = Response::new(Body::empty());
+        *response.status_mut() = StatusCode::NOT_MODIFIED;
+        response
+    } else {
+        let data = tokio::fs::read(&target).await?;
+        Response::new(Body::from(data))
+    };
     response.headers_mut().insert(
         header::CONTENT_TYPE,
         HeaderValue::from_str(&ws::mime_type_for_path(&target))
             .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
+    );
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, no-cache"),
+    );
+    response.headers_mut().insert(
+        header::ETAG,
+        HeaderValue::from_str(&etag).unwrap_or_else(|_| HeaderValue::from_static("W/\"0-0\"")),
     );
     response.headers_mut().insert(
         header::CONTENT_DISPOSITION,

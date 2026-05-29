@@ -17,6 +17,7 @@ import MarkdownRenderer, {
   type FeishuAuthWaitingState,
 } from "@/components/MarkdownRenderer";
 import { downloadWorkspaceFile } from "@/lib/api";
+import { getWorkspaceImagePreviewUrl } from "@/lib/workspaceImageCache";
 import type { Message, WorkbenchTimelineEvent } from "@/types";
 
 function formatTime(value: string | undefined): string {
@@ -70,14 +71,19 @@ function formatBytes(value: number | undefined): string {
   return `${(value / 1024 / 1024).toFixed(1)} MB`;
 }
 
-function TimelineImagePreview({ event }: { event: WorkbenchTimelineEvent }) {
+function TimelineImagePreview({
+  event,
+  userId,
+}: {
+  event: WorkbenchTimelineEvent;
+  userId?: string;
+}) {
   const [imageUrl, setImageUrl] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(Boolean(event.workspacePath));
 
   React.useEffect(() => {
     let cancelled = false;
-    let objectUrl: string | null = null;
 
     setImageUrl(null);
     setError(null);
@@ -89,14 +95,22 @@ function TimelineImagePreview({ event }: { event: WorkbenchTimelineEvent }) {
       return () => undefined;
     }
 
-    void downloadWorkspaceFile(event.workspacePath)
-      .then(({ blob }) => {
-        objectUrl = URL.createObjectURL(blob);
-        if (cancelled) {
-          URL.revokeObjectURL(objectUrl);
-          return;
-        }
-        setImageUrl(objectUrl);
+    const workspacePath = event.workspacePath;
+    void getWorkspaceImagePreviewUrl(
+      {
+        userId,
+        path: workspacePath,
+        size: event.size,
+        mimeType: event.mimeType,
+      },
+      async () => {
+        const downloaded = await downloadWorkspaceFile(workspacePath);
+        return downloaded.blob;
+      }
+    )
+      .then((url) => {
+        if (cancelled) return;
+        setImageUrl(url);
         setLoading(false);
       })
       .catch(() => {
@@ -107,9 +121,8 @@ function TimelineImagePreview({ event }: { event: WorkbenchTimelineEvent }) {
 
     return () => {
       cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [event.workspacePath]);
+  }, [event.mimeType, event.size, event.workspacePath, userId]);
 
   const sizeLabel = formatBytes(event.size);
 
@@ -142,6 +155,7 @@ function TimelineImagePreview({ event }: { event: WorkbenchTimelineEvent }) {
 }
 
 interface SessionTimelineProps {
+  userId?: string;
   messages: Message[];
   events: WorkbenchTimelineEvent[];
   isGenerating: boolean;
@@ -152,6 +166,7 @@ interface SessionTimelineProps {
 }
 
 export default function SessionTimeline({
+  userId,
   messages,
   events,
   isGenerating,
@@ -232,7 +247,7 @@ export default function SessionTimeline({
                 ))}
               </div>
             ) : event.type === "image_generation" || event.type === "image_view" ? (
-              <TimelineImagePreview event={event} />
+              <TimelineImagePreview event={event} userId={userId} />
             ) : (
               <div className="markdown-body workbench-markdown max-w-4xl text-[12px] leading-5 text-[#384152] sm:text-sm sm:leading-6">
                 <MarkdownRenderer

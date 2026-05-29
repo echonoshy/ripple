@@ -775,7 +775,37 @@ hello overwrite\r\n\
         .get("content-disposition")
         .and_then(|value| value.to_str().ok())
         .is_some_and(|value| value.contains("renamed.txt")));
+    let etag = response
+        .headers()
+        .get("etag")
+        .and_then(|value| value.to_str().ok())
+        .expect("workspace download should expose an etag")
+        .to_string();
+    assert_eq!(
+        response
+            .headers()
+            .get("cache-control")
+            .and_then(|value| value.to_str().ok()),
+        Some("private, no-cache")
+    );
     assert_eq!(response_bytes(response).await, b"hello overwrite");
+
+    let conditional = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/v1/workspace/download?path=%2Fworkspace%2Frenamed.txt")
+                .header("authorization", "Bearer test-key")
+                .header("x-ripple-user-id", "smoke-user")
+                .header("if-none-match", etag)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(conditional.status(), StatusCode::NOT_MODIFIED);
+    assert_eq!(response_bytes(conditional).await, b"");
 
     let attachment_boundary = "ripple-attachment-boundary";
     let attachment_body = format!(

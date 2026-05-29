@@ -40,6 +40,7 @@ import {
 } from "@/lib/api";
 import { saveBlobAsDownload } from "@/lib/platform";
 import { readableApiErrorMessage } from "@/lib/apiErrors";
+import { getWorkspaceImagePreviewUrl } from "@/lib/workspaceImageCache";
 import { WorkspaceEntry, WorkspaceFilePreview, WorkspaceListing } from "@/types";
 
 interface WorkspaceExplorerProps {
@@ -224,21 +225,6 @@ export default function WorkspaceExplorer({
   }, [splitPercent]);
 
   useEffect(() => {
-    return () => {
-      setImagePreviewUrl((prev) => {
-        if (prev) {
-          try {
-            URL.revokeObjectURL(prev);
-          } catch {
-            // ignore
-          }
-        }
-        return null;
-      });
-    };
-  }, [preview?.path]);
-
-  useEffect(() => {
     if (!renamingPath) return;
     queueMicrotask(() => {
       renameInputRef.current?.focus();
@@ -312,6 +298,7 @@ export default function WorkspaceExplorer({
           setListing(data);
           setCurrentPath(data.path);
           setPreview(null);
+          setImagePreviewUrl(null);
           setDraft("");
           setIsEditing(false);
           setSaveError(null);
@@ -358,6 +345,7 @@ export default function WorkspaceExplorer({
           try {
             const filePreview = await fetchWorkspaceFilePreview(pending.path, 256 * 1024);
             setPreview(filePreview);
+            setImagePreviewUrl(null);
             setDraft(filePreview.content);
             setIsEditing(false);
             setSaveError(null);
@@ -368,6 +356,7 @@ export default function WorkspaceExplorer({
             }
           } catch (err) {
             setPreview(null);
+            setImagePreviewUrl(null);
             setDraft("");
             setIsEditing(false);
             setError(err instanceof Error ? err.message : String(err));
@@ -379,6 +368,7 @@ export default function WorkspaceExplorer({
         void loadPendingFile();
       } else {
         setPreview(null);
+        setImagePreviewUrl(null);
         setDraft("");
         setIsEditing(false);
         setHighlightedLine(null);
@@ -438,43 +428,47 @@ export default function WorkspaceExplorer({
     setPreviewLoading(true);
     setError(null);
     setHighlightedLine(null);
-    setImagePreviewUrl((prev) => {
-      if (prev) {
-        try {
-          URL.revokeObjectURL(prev);
-        } catch {
-          // ignore
-        }
-      }
-      return null;
-    });
+    setImagePreviewUrl(null);
 
     try {
       if (isImageFile(entry)) {
-        const downloaded = await downloadWorkspaceFile(entry.path);
-        const objectUrl = URL.createObjectURL(downloaded.blob);
+        const imageUrl = await getWorkspaceImagePreviewUrl(
+          {
+            userId,
+            path: entry.path,
+            size: entry.size_bytes,
+            mimeType: entry.mime_type,
+            modifiedAt: entry.modified_at,
+          },
+          async () => {
+            const downloaded = await downloadWorkspaceFile(entry.path);
+            return downloaded.blob;
+          }
+        );
         setPreview({
           path: entry.path,
           name: entry.name,
           size_bytes: entry.size_bytes,
           modified_at: entry.modified_at,
-          mime_type: entry.mime_type || downloaded.blob.type || "image/png",
+          mime_type: entry.mime_type || "image/png",
           encoding: "binary",
           content: "",
           truncated: false,
         });
-        setImagePreviewUrl(objectUrl);
+        setImagePreviewUrl(imageUrl);
         setIsEditing(false);
         setSaveError(null);
       } else {
         const filePreview = await fetchWorkspaceFilePreview(entry.path, 256 * 1024);
         setPreview(filePreview);
+        setImagePreviewUrl(null);
         setDraft(filePreview.content);
         setIsEditing(false);
         setSaveError(null);
       }
     } catch (err) {
       setPreview(null);
+      setImagePreviewUrl(null);
       setDraft("");
       setIsEditing(false);
       setError(err instanceof Error ? err.message : String(err));
@@ -716,6 +710,7 @@ export default function WorkspaceExplorer({
       await deleteWorkspaceEntry(entry.path);
       if (preview?.path === entry.path) {
         setPreview(null);
+        setImagePreviewUrl(null);
         setDraft("");
       }
       setListing((current) => {
@@ -840,6 +835,7 @@ export default function WorkspaceExplorer({
         try {
           const filePreview = await fetchWorkspaceFilePreview(targetPath, 256 * 1024);
           setPreview(filePreview);
+          setImagePreviewUrl(null);
           setDraft(filePreview.content);
           setIsEditing(false);
           setSaveError(null);
@@ -851,6 +847,7 @@ export default function WorkspaceExplorer({
           }
         } catch (err) {
           setPreview(null);
+          setImagePreviewUrl(null);
           setDraft("");
           setIsEditing(false);
           setError(err instanceof Error ? err.message : String(err));

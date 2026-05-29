@@ -26,6 +26,7 @@ import SessionComposer from "./SessionComposer";
 import SessionTimeline from "./SessionTimeline";
 
 interface SessionPageProps {
+  userId?: string;
   session: WorkbenchSessionSummary | null;
   messages: Message[];
   timelineEvents: WorkbenchTimelineEvent[];
@@ -64,6 +65,7 @@ interface SessionPageProps {
 }
 
 export default function SessionPage({
+  userId,
   session,
   messages,
   timelineEvents,
@@ -374,6 +376,7 @@ export default function SessionPage({
           )}
 
           <SessionTimeline
+            userId={userId}
             messages={messages}
             events={timelineEvents}
             isGenerating={isGenerating}

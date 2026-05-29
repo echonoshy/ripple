@@ -491,6 +491,7 @@ export default function Home() {
         </div>
         <div className={mobileSessionMode === "chat" ? "h-full" : "hidden h-full lg:block"}>
           <SessionPage
+            userId={userId}
             session={selectedWorkbenchSession}
             messages={messages}
             timelineEvents={timelineEvents}

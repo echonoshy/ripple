@@ -95,6 +95,7 @@ function testWorkspaceExplorerSourceSupportsDropUploadAndFileDownload() {
   assert.match(source, /onDrop/);
   assert.match(source, /onDragOver/);
   assert.match(source, /downloadWorkspaceFile/);
+  assert.match(source, /getWorkspaceImagePreviewUrl/);
   assert.match(source, /aria-label=\{`More actions for \$\{entry\.name\}`\}/);
 }
 

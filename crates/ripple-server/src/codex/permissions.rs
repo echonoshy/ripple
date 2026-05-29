@@ -47,7 +47,13 @@ pub fn thread_permission_config(workspace: &Path, config: &AppConfig) -> Value {
         );
     }
     for path in [
-        config.sandbox.caches_root.join("uv-cache"),
+        config.sandbox.caches_root.join("bin"),
+        config.sandbox.python_envs_root.clone(),
+        config.sandbox.caches_root.join("python-env-locks"),
+    ] {
+        filesystem.insert(path.to_string_lossy().to_string(), json!("read"));
+    }
+    for path in [
         config.sandbox.caches_root.join("pnpm-store"),
         config.sandbox.caches_root.join("corepack-cache"),
     ] {
@@ -119,6 +125,28 @@ mod tests {
         let _ = std::fs::remove_dir_all(workspace);
     }
 
+    #[test]
+    fn shared_uv_cache_is_not_writable_by_codex_turns() {
+        let workspace =
+            std::env::temp_dir().join(format!("ripple-permissions-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&workspace).expect("create workspace");
+        let config = test_config();
+
+        let permissions = thread_permission_config(&workspace, &config);
+        let filesystem = permissions
+            .pointer("/permissions/ripple_workspace/filesystem")
+            .and_then(|filesystem| filesystem.as_object())
+            .expect("filesystem rules");
+        let uv_cache = config.sandbox.caches_root.join("uv-cache");
+
+        assert_ne!(
+            filesystem.get(uv_cache.to_string_lossy().as_ref()),
+            Some(&json!("write"))
+        );
+
+        let _ = std::fs::remove_dir_all(workspace);
+    }
+
     fn test_config() -> AppConfig {
         let root = std::env::temp_dir().join(format!(
             "ripple-permissions-config-{}",
@@ -144,6 +172,9 @@ mod tests {
                 max_workspace_mb: 2048,
                 tmpfs_size_mb: 512,
                 nsjail_path: "nsjail".to_string(),
+                python_envs_root: root.join("cache/python-envs"),
+                python_env_uv_cache: root.join("cache/uv-cache"),
+                python_env_max_packages: 20,
                 uv_bin_dir: None,
                 node_dir: None,
                 lark_cli_install_root: None,

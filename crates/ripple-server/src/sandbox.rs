@@ -14,7 +14,6 @@ const SANDBOX_NODE_DIR: &str = "/opt/node";
 const SANDBOX_NODE_BIN: &str = "/workspace/.local/bin";
 const SANDBOX_NODE_PREFIX: &str = "/workspace/.local";
 const SANDBOX_PNPM_STORE: &str = "/pnpm-store";
-const SANDBOX_UV_CACHE_PATH: &str = "/uv-cache";
 const SANDBOX_COREPACK_HOME: &str = "/corepack-cache";
 const LARK_CLI_INSTALL_ROOT: &str = "/opt/lark-cli";
 const LARK_CLI_SANDBOX_BIN_DIR: &str = "/opt/lark-cli/current/bin";
@@ -313,15 +312,6 @@ keep_env: false
             }
         }
 
-        let uv_cache = self.config.sandbox.caches_root.join("uv-cache");
-        std::fs::create_dir_all(&uv_cache)?;
-        mounts.push(mount_block(
-            Some(uv_cache.to_string_lossy().as_ref()),
-            SANDBOX_UV_CACHE_PATH,
-            true,
-            None,
-        ));
-
         if let Some(node_dir) = &self.config.sandbox.node_dir {
             if node_dir.exists() {
                 mounts.push(mount_block(
@@ -435,9 +425,10 @@ keep_env: false
             ),
             (
                 "UV_CACHE_DIR".to_string(),
-                SANDBOX_UV_CACHE_PATH.to_string(),
+                "/workspace/.cache/uv".to_string(),
             ),
-            ("UV_LINK_MODE".to_string(), "hardlink".to_string()),
+            ("UV_LINK_MODE".to_string(), "copy".to_string()),
+            ("PYTHONDONTWRITEBYTECODE".to_string(), "1".to_string()),
         ];
 
         if let Some(url) = &self.config.sandbox.pypi_mirror_url {
@@ -615,6 +606,9 @@ mod tests {
                 max_workspace_mb: 2048,
                 tmpfs_size_mb: 64,
                 nsjail_path: "nsjail".to_string(),
+                python_envs_root: root.join("cache/python-envs"),
+                python_env_uv_cache: root.join("cache/uv-cache"),
+                python_env_max_packages: 20,
                 uv_bin_dir: Some(root.join("uv-bin")),
                 node_dir: Some(node_root),
                 lark_cli_install_root: Some(lark_root),
@@ -678,7 +672,7 @@ mod tests {
         assert!(cfg.contains(r#"dst: "/opt/notion-cli""#));
         assert!(cfg.contains(r#"dst: "/opt/gogcli-cli""#));
         assert!(cfg.contains(r#"dst: "/opt/bilibili-cli""#));
-        assert!(cfg.contains(r#"dst: "/uv-cache""#));
+        assert!(cfg.contains("UV_CACHE_DIR=/workspace/.cache/uv"));
         assert!(cfg.contains(r#"dst: "/pnpm-store""#));
         assert!(cfg.contains(r#"options: "size=64M""#));
         assert!(cfg.contains("NOTION_API_TOKEN=secret_test"));

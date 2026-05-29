@@ -53,6 +53,7 @@ Ripple is the control plane: it owns user identity, sandbox isolation, connector
 - Google Workspace, Notion, and Feishu authorization is handled by Ripple before the Codex turn starts. For Bilibili tasks, follow the `bilibili` CLI workflow documented by the Bilibili skills.\n\
 - Do not collect connector credentials inside Codex; if Google Workspace, Notion, or Feishu is required and not connected, ask the user to authorize it through Ripple.\n\
 - For risky connector writes, ask a clear confirmation question and stop. Continue only after the user's next message explicitly approves the specific action.\n\n\
+- For temporary Python dependencies, use `ripple-py python --with <package> -- ...` so Ripple can reuse shared read-only package environments. Do not install temporary Python packages with pip install --target or workspace-local tool directories.\n\n\
 ## Available Skills\n\
 {}\n\n\
 ## System Instructions\n\

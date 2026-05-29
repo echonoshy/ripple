@@ -5,6 +5,7 @@ pub mod connector_runtime;
 pub mod diagnostics;
 pub mod jobs;
 pub mod migration;
+pub mod python_env;
 pub mod redaction;
 pub mod sandbox;
 pub mod sessions;

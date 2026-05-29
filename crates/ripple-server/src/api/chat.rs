@@ -1237,6 +1237,9 @@ mod tests {
                 max_workspace_mb: 2048,
                 tmpfs_size_mb: 64,
                 nsjail_path: "nsjail".to_string(),
+                python_envs_root: root.join("cache/python-envs"),
+                python_env_uv_cache: root.join("cache/uv-cache"),
+                python_env_max_packages: 20,
                 uv_bin_dir: None,
                 node_dir: None,
                 lark_cli_install_root: None,
@@ -1294,6 +1297,10 @@ mod tests {
         );
 
         assert!(!prompt.contains("proxy_on"));
+        assert!(prompt.contains("ripple-py"));
+        assert!(
+            prompt.contains("Do not install temporary Python packages with pip install --target")
+        );
 
         let _ = std::fs::remove_dir_all(root);
     }

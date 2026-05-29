@@ -19,6 +19,7 @@ use tokio::time::timeout;
 use crate::codex::approvals::{approval_response_for_action, CodexApproval};
 use crate::codex::permissions::{thread_permission_config, RIPPLE_CODEX_PERMISSION_PROFILE};
 use crate::config::AppConfig;
+use crate::python_env::{ensure_ripple_py_wrapper, ripple_py_bin_dir};
 use crate::redaction::{redact_text, redact_value};
 
 const TAIL_CHARS: usize = 64_000;
@@ -160,6 +161,7 @@ impl CodexAppServerSession {
         }
 
         tokio::fs::create_dir_all(&self.cwd).await?;
+        ensure_ripple_py_wrapper(&self.config)?;
         if let Some(codex_home) = &self.config.codex.codex_home {
             tokio::fs::create_dir_all(codex_home).await?;
         }
@@ -192,16 +194,17 @@ impl CodexAppServerSession {
         );
         command.env("XDG_CONFIG_HOME", self.cwd.join(".config"));
         command.env("TMPDIR", self.cwd.join(".tmp"));
+        command.env("PYTHONDONTWRITEBYTECODE", "1");
         if let Some(path) = runtime_path(&self.config) {
             command.env("PATH", path);
         }
         if let Some(codex_home) = &self.config.codex.codex_home {
             command.env("CODEX_HOME", codex_home);
         }
-        let uv_cache_dir = self.config.sandbox.caches_root.join("uv-cache");
+        let uv_cache_dir = self.cwd.join(".cache/uv");
         tokio::fs::create_dir_all(&uv_cache_dir).await?;
         command.env("UV_CACHE_DIR", uv_cache_dir);
-        command.env("UV_LINK_MODE", "hardlink");
+        command.env("UV_LINK_MODE", "copy");
         if let Some(url) = &self.config.sandbox.pypi_mirror_url {
             command.env("UV_INDEX_URL", url);
             command.env("PIP_INDEX_URL", url);
@@ -1541,6 +1544,7 @@ fn hardened_app_server_args(configured: &[String]) -> Vec<String> {
 
 fn runtime_path(config: &AppConfig) -> Option<std::ffi::OsString> {
     let mut entries = Vec::new();
+    entries.push(ripple_py_bin_dir(config));
     if let Some(uv_bin_dir) = &config.sandbox.uv_bin_dir {
         entries.push(uv_bin_dir.clone());
     }

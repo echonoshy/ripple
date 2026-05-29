@@ -67,6 +67,9 @@ pub struct SandboxConfig {
     pub max_workspace_mb: u64,
     pub tmpfs_size_mb: u64,
     pub nsjail_path: String,
+    pub python_envs_root: PathBuf,
+    pub python_env_uv_cache: PathBuf,
+    pub python_env_max_packages: usize,
     pub uv_bin_dir: Option<PathBuf>,
     pub node_dir: Option<PathBuf>,
     pub lark_cli_install_root: Option<PathBuf>,
@@ -203,6 +206,9 @@ struct RawSandbox {
     max_workspace_mb: Option<u64>,
     tmpfs_size_mb: Option<u64>,
     nsjail_path: Option<String>,
+    python_envs_root: Option<String>,
+    python_env_uv_cache: Option<String>,
+    python_env_max_packages: Option<usize>,
     uv_bin_dir: Option<String>,
     node_dir: Option<String>,
     lark_cli_install_root: Option<String>,
@@ -326,6 +332,23 @@ impl AppConfig {
 
         let model_presets = parse_model_presets(model.presets.unwrap_or_default());
         let default_model = model.default.unwrap_or_else(|| "codex-medium".to_string());
+        let sandbox_caches_root = resolve_path(
+            &repo_root,
+            sandbox
+                .caches_root
+                .as_deref()
+                .unwrap_or(".ripple/sandboxes-cache"),
+        );
+        let python_envs_root = sandbox
+            .python_envs_root
+            .as_deref()
+            .map(|value| resolve_path(&repo_root, value))
+            .unwrap_or_else(|| sandbox_caches_root.join("python-envs"));
+        let python_env_uv_cache = sandbox
+            .python_env_uv_cache
+            .as_deref()
+            .map(|value| resolve_path(&repo_root, value))
+            .unwrap_or_else(|| sandbox_caches_root.join("uv-cache"));
 
         let config = Self {
             repo_root: repo_root.clone(),
@@ -375,6 +398,9 @@ impl AppConfig {
                 max_workspace_mb: sandbox.max_workspace_mb.unwrap_or(2048),
                 tmpfs_size_mb: sandbox.tmpfs_size_mb.unwrap_or(512),
                 nsjail_path: sandbox.nsjail_path.unwrap_or_else(|| "nsjail".to_string()),
+                python_envs_root,
+                python_env_uv_cache,
+                python_env_max_packages: sandbox.python_env_max_packages.unwrap_or(20).max(1),
                 uv_bin_dir: sandbox
                     .uv_bin_dir
                     .map(|value| resolve_path(&repo_root, &value))

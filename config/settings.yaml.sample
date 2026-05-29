@@ -153,6 +153,10 @@ server:
     # sandboxes_root: ".ripple/sandboxes"
     # 跨 user 共享的包管理器缓存（uv / corepack / pnpm）
     # caches_root: ".ripple/sandboxes-cache"
+    # 跨 user 共享的只读 Python 依赖环境（由 ripple-py 创建和复用）
+    # python_envs_root: ".ripple/sandboxes-cache/python-envs"
+    # python_env_uv_cache: ".ripple/sandboxes-cache/uv-cache"
+    # python_env_max_packages: 20
 
     # 空闲自动挂起时间（秒），默认 30 分钟
     idle_suspend_seconds: 1800

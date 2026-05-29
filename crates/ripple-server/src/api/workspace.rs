@@ -2,7 +2,8 @@ use std::collections::HashSet;
 use std::fs::Metadata;
 use std::time::UNIX_EPOCH;
 
-use axum::body::Body;
+use async_stream::stream;
+use axum::body::{Body, Bytes};
 use axum::extract::{Multipart, Query, State};
 use axum::http::{header, HeaderMap, HeaderValue, Response, StatusCode};
 use axum::Json;
@@ -10,6 +11,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
+use tokio::io::AsyncReadExt;
 use uuid::Uuid;
 
 use crate::api::users::{assert_workspace_save_within_quota, assert_workspace_writes_within_quota};
@@ -195,6 +197,32 @@ fn request_matches_etag(headers: &HeaderMap, etag: &str) -> bool {
         })
 }
 
+fn streamed_file_body(path: std::path::PathBuf) -> Body {
+    Body::from_stream(stream! {
+        let mut file = match tokio::fs::File::open(path).await {
+            Ok(file) => file,
+            Err(err) => {
+                yield Err::<Bytes, std::io::Error>(err);
+                return;
+            }
+        };
+        let mut buffer = vec![0_u8; 64 * 1024];
+        loop {
+            let count = match file.read(&mut buffer).await {
+                Ok(count) => count,
+                Err(err) => {
+                    yield Err::<Bytes, std::io::Error>(err);
+                    return;
+                }
+            };
+            if count == 0 {
+                break;
+            }
+            yield Ok::<Bytes, std::io::Error>(Bytes::copy_from_slice(&buffer[..count]));
+        }
+    })
+}
+
 pub async fn download_workspace_file(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -218,8 +246,7 @@ pub async fn download_workspace_file(
         *response.status_mut() = StatusCode::NOT_MODIFIED;
         response
     } else {
-        let data = tokio::fs::read(&target).await?;
-        Response::new(Body::from(data))
+        Response::new(streamed_file_body(target.clone()))
     };
     response.headers_mut().insert(
         header::CONTENT_TYPE,
@@ -570,6 +597,15 @@ pub async fn paste_workspace(
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     let workspace = state.sandboxes.ensure_sandbox(&user_id)?;
 
+    if input.action == "copy" {
+        let copy_size =
+            ws::copy_source_size(&workspace, &input.path).map_err(map_workspace_error)?;
+        let destination =
+            ws::paste_destination_path(&workspace, &input.path, &input.destination_dir)
+                .map_err(map_workspace_error)?;
+        assert_workspace_save_within_quota(&state, &user_id, &destination, copy_size).await?;
+    }
+
     let entry = ws::paste_entry(
         &workspace,
         &input.path,
@@ -583,13 +619,6 @@ pub async fn paste_workspace(
             ws::validate_existing_path(&entry.path, &workspace).map_err(map_workspace_error)?;
         if target_path.is_file() {
             if let Ok(bytes) = tokio::fs::read(&target_path).await {
-                assert_workspace_save_within_quota(
-                    &state,
-                    &user_id,
-                    &target_path,
-                    bytes.len() as u64,
-                )
-                .await?;
                 record_file_ref(
                     &state,
                     &user_id,
@@ -609,8 +638,6 @@ pub async fn paste_workspace(
                 let p = e.path();
                 if p.is_file() {
                     if let Ok(bytes) = tokio::fs::read(p).await {
-                        assert_workspace_save_within_quota(&state, &user_id, p, bytes.len() as u64)
-                            .await?;
                         record_file_ref(
                             &state,
                             &user_id,
@@ -661,5 +688,133 @@ fn map_workspace_error(err: anyhow::Error) -> ApiError {
         ApiError::new(StatusCode::UNSUPPORTED_MEDIA_TYPE, message)
     } else {
         ApiError::bad_request(message)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use axum::body::{to_bytes, Body};
+    use axum::http::{header, Method, Request, StatusCode};
+    use serde_json::{json, Value};
+    use tower::ServiceExt;
+
+    use crate::api::router;
+    use crate::config::{
+        AppConfig, CodexConfig, FeishuConfig, GogcliOAuthConfig, LoggingConfig, SandboxConfig,
+        SkillsConfig,
+    };
+    use crate::state::AppState;
+
+    fn test_state(max_workspace_mb: u64) -> AppState {
+        let root = std::env::temp_dir().join(format!(
+            "ripple-api-workspace-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        AppState::new(AppConfig {
+            repo_root: root.clone(),
+            host: "127.0.0.1".to_string(),
+            port: 0,
+            api_keys: vec!["service-key".to_string()],
+            default_model: "codex-test".to_string(),
+            model_presets: BTreeMap::new(),
+            logging: LoggingConfig {
+                level: "debug".to_string(),
+            },
+            sandbox: SandboxConfig {
+                sandboxes_root: root.join("sandboxes"),
+                caches_root: root.join("cache"),
+                idle_suspend_seconds: 1800,
+                retention_seconds: 604_800,
+                max_workspace_mb,
+                tmpfs_size_mb: 512,
+                nsjail_path: "nsjail".to_string(),
+                uv_bin_dir: None,
+                node_dir: None,
+                lark_cli_install_root: None,
+                notion_cli_install_root: None,
+                gogcli_cli_install_root: None,
+                cli_tools: Vec::new(),
+                pypi_mirror_url: None,
+                npm_registry_url: None,
+            },
+            codex: CodexConfig {
+                enabled: true,
+                codex_executable: "codex".to_string(),
+                app_server_args: Vec::new(),
+                codex_home: None,
+                approval_policy: "never".to_string(),
+                sandbox_type: "workspace-write".to_string(),
+                network_access: true,
+                idle_timeout_seconds: 1800,
+                max_runtime_seconds: 3600,
+            },
+            schedule_extraction_max_runtime_seconds: 120,
+            schedule_poll_interval_seconds: 15,
+            skills: SkillsConfig {
+                shared_dirs: Vec::new(),
+            },
+            public_base_url: None,
+            feishu: FeishuConfig::default(),
+            gogcli_oauth: GogcliOAuthConfig {
+                auto_register_client: true,
+                auto_from_request: true,
+                callback_url: None,
+                client_secret_json: None,
+                client: None,
+            },
+        })
+    }
+
+    async fn request_json(
+        state: AppState,
+        method: Method,
+        path: &str,
+        body: Option<Value>,
+    ) -> (StatusCode, Value) {
+        let mut builder = Request::builder()
+            .method(method)
+            .uri(path)
+            .header(header::AUTHORIZATION, "Bearer service-key")
+            .header("X-Ripple-User-Id", "alice");
+        if body.is_some() {
+            builder = builder.header(header::CONTENT_TYPE, "application/json");
+        }
+        let body = body
+            .map(|value| Body::from(value.to_string()))
+            .unwrap_or_else(Body::empty);
+        let response = router(state)
+            .oneshot(builder.body(body).unwrap())
+            .await
+            .unwrap();
+        let status = response.status();
+        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let value = serde_json::from_slice(&bytes).unwrap_or_else(|_| json!({}));
+        (status, value)
+    }
+
+    #[tokio::test]
+    async fn paste_copy_checks_quota_before_writing() -> anyhow::Result<()> {
+        let state = test_state(0);
+        let workspace = state.sandboxes.ensure_sandbox("alice")?;
+        std::fs::write(workspace.join("source.txt"), "new bytes")?;
+        std::fs::create_dir_all(workspace.join("dest"))?;
+
+        let (status, body) = request_json(
+            state,
+            Method::POST,
+            "/v1/workspace/paste",
+            Some(json!({
+                "path": "/workspace/source.txt",
+                "destination_dir": "/workspace/dest",
+                "action": "copy"
+            })),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body:?}");
+        assert!(!workspace.join("dest/source.txt").exists());
+        Ok(())
     }
 }

@@ -1,3 +1,4 @@
+use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 
 use mime_guess::MimeGuess;
@@ -14,6 +15,9 @@ const MARKDOWN_EXTENSIONS: &[&str] = &["md", "markdown", "mdx", "rst"];
 const TEXT_EXTENSIONS: &[&str] = &[
     "cfg", "conf", "csv", "env", "ini", "json", "jsonl", "log", "txt", "toml", "xml", "yaml", "yml",
 ];
+const MAX_PREVIEW_BYTES: usize = 1024 * 1024;
+const SENSITIVE_TOP_LEVEL_ENTRIES: &[&str] =
+    &[".bilibili", ".codex", ".config", ".lark-cli", ".tmp"];
 
 #[derive(Debug, Serialize)]
 pub struct WorkspaceEntry {
@@ -89,7 +93,10 @@ pub fn preview_file(
         anyhow::bail!("Path is not a file");
     }
     let metadata = target.metadata()?;
-    let bytes = std::fs::read(&target)?;
+    let limit = limit.clamp(1, MAX_PREVIEW_BYTES);
+    let mut bytes = Vec::with_capacity(limit.min(metadata.len() as usize));
+    let mut reader = std::fs::File::open(&target)?.take(limit as u64 + 1);
+    reader.read_to_end(&mut bytes)?;
     if bytes
         .iter()
         .take(limit.min(bytes.len()))
@@ -206,25 +213,14 @@ pub fn paste_entry(
     action: &str,
 ) -> anyhow::Result<WorkspaceEntry> {
     let src = validate_existing_path(src_path, workspace_root)?;
-    let dest_parent = validate_existing_path(dest_dir, workspace_root)?;
-    if !dest_parent.is_dir() {
-        anyhow::bail!("Destination path is not a directory");
-    }
-    let file_name = src
-        .file_name()
-        .ok_or_else(|| anyhow::anyhow!("Invalid source file name"))?;
-    let dest = dest_parent.join(file_name);
-    let dest = validate_write_path(&workspace_path(workspace_root, &dest)?, workspace_root)?;
-
-    if dest.exists() {
-        anyhow::bail!("A file or folder with that name already exists");
-    }
+    let dest = paste_destination_path(workspace_root, src_path, dest_dir)?;
 
     if action == "move" {
         std::fs::rename(&src, &dest)?;
     } else if action == "copy" {
+        copy_source_size_for_path(workspace_root, &src)?;
         if src.is_dir() {
-            copy_dir_recursive(&src, &dest)?;
+            copy_dir_recursive(workspace_root, &src, &dest)?;
         } else {
             std::fs::copy(&src, &dest)?;
         }
@@ -235,15 +231,72 @@ pub fn paste_entry(
     entry_for_path(workspace_root, &dest, None)
 }
 
-fn copy_dir_recursive(src: &Path, dst: &Path) -> anyhow::Result<()> {
+pub fn paste_destination_path(
+    workspace_root: &Path,
+    src_path: &str,
+    dest_dir: &str,
+) -> anyhow::Result<PathBuf> {
+    let src = validate_existing_path(src_path, workspace_root)?;
+    let dest_parent = validate_existing_path(dest_dir, workspace_root)?;
+    if !dest_parent.is_dir() {
+        anyhow::bail!("Destination path is not a directory");
+    }
+    let file_name = src
+        .file_name()
+        .ok_or_else(|| anyhow::anyhow!("Invalid source file name"))?;
+    let dest = dest_parent.join(file_name);
+    let dest = validate_write_path(&workspace_path(workspace_root, &dest)?, workspace_root)?;
+    if dest.exists() {
+        anyhow::bail!("A file or folder with that name already exists");
+    }
+    Ok(dest)
+}
+
+pub fn copy_source_size(workspace_root: &Path, src_path: &str) -> anyhow::Result<u64> {
+    let src = validate_existing_path(src_path, workspace_root)?;
+    copy_source_size_for_path(workspace_root, &src)
+}
+
+fn copy_source_size_for_path(workspace_root: &Path, src: &Path) -> anyhow::Result<u64> {
+    if src.is_file() {
+        return Ok(src.metadata()?.len());
+    }
+    if !src.is_dir() {
+        anyhow::bail!("Path is not a file or directory");
+    }
+    let mut total = 0_u64;
+    for entry in WalkDir::new(src).follow_links(false) {
+        let entry = entry?;
+        let path = entry.path();
+        if path == src {
+            continue;
+        }
+        ensure_not_sensitive_path_for_root(workspace_root, path)?;
+        let metadata = std::fs::symlink_metadata(path)?;
+        if metadata.file_type().is_symlink() {
+            anyhow::bail!("Access denied");
+        }
+        if metadata.is_file() {
+            total = total.saturating_add(metadata.len());
+        }
+    }
+    Ok(total)
+}
+
+fn copy_dir_recursive(workspace_root: &Path, src: &Path, dst: &Path) -> anyhow::Result<()> {
     std::fs::create_dir_all(dst)?;
     for entry in std::fs::read_dir(src)? {
         let entry = entry?;
-        let ty = entry.file_type()?;
-        if ty.is_dir() {
-            copy_dir_recursive(&entry.path(), &dst.join(entry.file_name()))?;
+        let path = entry.path();
+        ensure_not_sensitive_path_for_root(workspace_root, &path)?;
+        let metadata = std::fs::symlink_metadata(&path)?;
+        if metadata.file_type().is_symlink() {
+            anyhow::bail!("Access denied");
+        }
+        if metadata.is_dir() {
+            copy_dir_recursive(workspace_root, &path, &dst.join(entry.file_name()))?;
         } else {
-            std::fs::copy(&entry.path(), &dst.join(entry.file_name()))?;
+            std::fs::copy(&path, dst.join(entry.file_name()))?;
         }
     }
     Ok(())
@@ -307,6 +360,9 @@ pub fn search_files(
         }
         let path = entry.path();
         if path == workspace_root {
+            continue;
+        }
+        if ensure_not_sensitive_path_for_root(workspace_root, path).is_err() {
             continue;
         }
         let name = path
@@ -390,6 +446,11 @@ pub fn validate_existing_path(input: &str, workspace_root: &Path) -> anyhow::Res
     if !resolved.starts_with(&workspace) {
         anyhow::bail!("Access denied");
     }
+    ensure_not_sensitive_path(
+        &workspace,
+        &normalize_path(&map_workspace_path(input, &workspace)),
+    )?;
+    ensure_not_sensitive_path(&workspace, &resolved)?;
     Ok(resolved)
 }
 
@@ -399,6 +460,7 @@ pub fn validate_write_path(input: &str, workspace_root: &Path) -> anyhow::Result
     if !target.starts_with(&workspace) {
         anyhow::bail!("Access denied");
     }
+    ensure_not_sensitive_path(&workspace, &target)?;
     let Some(file_name) = target.file_name() else {
         anyhow::bail!("Invalid path");
     };
@@ -413,6 +475,7 @@ pub fn validate_write_path(input: &str, workspace_root: &Path) -> anyhow::Result
         if !resolved.starts_with(&workspace) {
             anyhow::bail!("Access denied");
         }
+        ensure_not_sensitive_path(&workspace, &resolved)?;
         return Ok(resolved);
     }
     Ok(resolved_target)
@@ -512,6 +575,32 @@ fn is_hidden_path(workspace_root: &Path, path: &Path) -> bool {
             };
             name.to_string_lossy().starts_with('.')
         })
+}
+
+fn ensure_not_sensitive_path_for_root(workspace_root: &Path, path: &Path) -> anyhow::Result<()> {
+    let workspace = workspace_root.canonicalize()?;
+    let target = if path.exists() {
+        path.canonicalize()?
+    } else {
+        normalize_path(path)
+    };
+    ensure_not_sensitive_path(&workspace, &target)
+}
+
+fn ensure_not_sensitive_path(workspace: &Path, path: &Path) -> anyhow::Result<()> {
+    let relative = path
+        .strip_prefix(workspace)
+        .map_err(|_| anyhow::anyhow!("Access denied"))?;
+    let Some(Component::Normal(first)) = relative.components().next() else {
+        return Ok(());
+    };
+    if SENSITIVE_TOP_LEVEL_ENTRIES
+        .iter()
+        .any(|entry| first == std::ffi::OsStr::new(entry))
+    {
+        anyhow::bail!("Access denied");
+    }
+    Ok(())
 }
 
 fn entry_for_path(
@@ -637,13 +726,22 @@ mod tests {
         assert_eq!(visible_default.count, 1);
         assert_eq!(visible_default.entries[0].path, "/workspace/notes.txt");
 
-        let hidden_explicit =
+        let sensitive_explicit =
             search_files(&root, "needle-secret", 20, "all", "all", "all", true, 1024)?;
+        assert_eq!(sensitive_explicit.count, 0);
+
+        let hidden_explicit = search_files(
+            &root,
+            "needle-hidden-file",
+            20,
+            "all",
+            "all",
+            "all",
+            true,
+            1024,
+        )?;
         assert_eq!(hidden_explicit.count, 1);
-        assert_eq!(
-            hidden_explicit.entries[0].path,
-            "/workspace/.config/gogcli/credentials.json"
-        );
+        assert_eq!(hidden_explicit.entries[0].path, "/workspace/.env");
 
         let _ = std::fs::remove_dir_all(root);
         Ok(())
@@ -715,6 +813,44 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(root);
         let _ = std::fs::remove_dir_all(outside);
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn paste_directory_rejects_symlink_escape() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("ripple-workspace-test-{}", Uuid::new_v4()));
+        let outside =
+            std::env::temp_dir().join(format!("ripple-workspace-outside-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("src"))?;
+        std::fs::create_dir_all(root.join("dest"))?;
+        std::fs::create_dir_all(&outside)?;
+        let outside_file = outside.join("secret.txt");
+        std::fs::write(&outside_file, "outside")?;
+        std::os::unix::fs::symlink(&outside_file, root.join("src/link.txt"))?;
+
+        let result = paste_entry(&root, "/workspace/src", "/workspace/dest", "copy");
+
+        assert!(result.is_err());
+        assert!(!root.join("dest/src/link.txt").exists());
+
+        let _ = std::fs::remove_dir_all(root);
+        let _ = std::fs::remove_dir_all(outside);
+        Ok(())
+    }
+
+    #[test]
+    fn sensitive_runtime_paths_are_denied() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("ripple-workspace-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(root.join(".config/gogcli"))?;
+        std::fs::write(root.join(".config/gogcli/keyring"), "secret")?;
+
+        let result = preview_file(&root, "/workspace/.config/gogcli/keyring", 1024);
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().to_string(), "Access denied");
+
+        let _ = std::fs::remove_dir_all(root);
         Ok(())
     }
 

@@ -88,75 +88,6 @@ export interface UserProfile {
   limits?: UserLimits;
 }
 
-export interface RuntimeSandboxInfo {
-  enabled: boolean;
-  deployment_mode: string;
-  sandboxes_root: string;
-  caches_root: string;
-  security?: {
-    trusted_proxy_mode?: boolean;
-    requires_confirm_for_risky_api?: boolean;
-    cors?: {
-      allow_any_origin?: boolean;
-      allowed_origins?: string[];
-    };
-    notes?: string[];
-  };
-  execution?: {
-    codex?: {
-      enabled?: boolean;
-      runtime_boundary?: string;
-      executable?: string;
-      permission_profile?: string;
-    };
-    connectors?: {
-      runtime_boundary?: string;
-      nsjail_path?: string;
-    };
-    workspace?: {
-      isolation_unit?: string;
-      path?: string;
-    };
-  };
-  resource_limits?: {
-    max_workspace_mb?: number;
-    command_timeout?: number;
-  };
-}
-
-export interface HealthCheck {
-  name: string;
-  category: string;
-  status: "pass" | "warn" | "fail" | string;
-  message: string;
-  details?: Record<string, unknown>;
-}
-
-export interface ReadyHealth {
-  status: string;
-  service: string;
-  generated_at: string;
-  checks: Record<string, HealthCheck>;
-}
-
-export interface DoctorReport {
-  status: string;
-  service: string;
-  generated_at: string;
-  deployment_mode: string;
-  checks: HealthCheck[];
-  summary?: {
-    pass: number;
-    warn: number;
-    fail: number;
-  };
-  backup_contract?: {
-    include?: string[];
-    exclude?: string[];
-    codex_auth?: string;
-  };
-}
-
 export interface GogcliAccountInfo {
   email: string;
   alias: string | null;
@@ -331,53 +262,6 @@ export interface SessionDetail extends SessionSummary {
   pendingPermissionRequest?: PermissionRequestData | null;
   planSteps?: PlanStep[];
   planProgress?: PlanProgress | null;
-}
-
-export type SessionOverviewPendingKind =
-  | "question"
-  | "approval"
-  | "connector_auth"
-  | "schedule_request"
-  | string;
-
-export interface SessionOverviewRun {
-  jobId: string;
-  status: string;
-  updatedAt: string;
-  outputFile?: string | null;
-  error?: string | null;
-  promptPreview?: string | null;
-}
-
-export interface SessionOverviewItem {
-  sessionId: string;
-  title: string;
-  pinned: boolean;
-  status: string;
-  model: string;
-  createdAt: string;
-  lastActiveAt: string;
-  messageCount: number;
-  changedFileCount: number;
-  pendingKind?: SessionOverviewPendingKind | null;
-  pendingApprovalCount: number;
-  planProgress?: PlanProgress | null;
-  currentStep?: string | null;
-  lastRun?: SessionOverviewRun | null;
-  lastMessagePreview?: string | null;
-}
-
-export interface SessionOverviewSections {
-  needsInput: string[];
-  running: string[];
-  pinned: string[];
-  recentSessions: string[];
-}
-
-export interface SessionOverview {
-  sessions: SessionOverviewItem[];
-  sections: SessionOverviewSections;
-  count: number;
 }
 
 export interface PlanStep {

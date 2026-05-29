@@ -18,9 +18,7 @@ import HomePage from "@/components/workbench/HomePage";
 import InspectorPanel from "@/components/workbench/InspectorPanel";
 import MobileSessionsPage from "@/components/workbench/MobileSessionsPage";
 import MobileTabBar from "@/components/workbench/MobileTabBar";
-import SessionOverviewPage from "@/components/workbench/SessionOverviewPage";
 import SessionPage from "@/components/workbench/SessionPage";
-import SystemPage from "@/components/workbench/SystemPage";
 import WorkbenchShell from "@/components/workbench/WorkbenchShell";
 import WorkspaceNav from "@/components/workbench/WorkspaceNav";
 import { type ChatRunSessionActions, useChatRun } from "@/hooks/useChatRun";
@@ -72,9 +70,7 @@ export default function Home() {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem("ripple.workbench.inspectorCollapsed") === "true";
   });
-  const [mobileSessionMode, setMobileSessionMode] = useState<"overview" | "list" | "chat">(
-    "overview"
-  );
+  const [mobileSessionMode, setMobileSessionMode] = useState<"list" | "chat">("list");
   const [sessionScrollToBottomRequest, setSessionScrollToBottomRequest] = useState(0);
   const [workspaceRefreshToken, setWorkspaceRefreshToken] = useState(0);
   const [activeView, setActiveView] = useState<WorkspaceView>("sessions");
@@ -362,14 +358,10 @@ export default function Home() {
   );
 
   // ── New session ──
-  const handleNewSession = async (draft?: unknown) => {
+  const handleNewSession = async () => {
     await createNewSession();
     setActiveView("sessions");
     setMobileSessionMode("chat");
-    const initialDraft = typeof draft === "string" ? draft.trim() : "";
-    if (initialDraft) {
-      setInput(initialDraft);
-    }
   };
 
   const handleUpdateSessionSettings = useCallback(
@@ -399,7 +391,7 @@ export default function Home() {
       setActiveView(view);
       setIsSidebarOpen(false);
       if (view === "sessions") {
-        setMobileSessionMode("overview");
+        setMobileSessionMode("list");
       }
       if (view === "sessions" && sessionId) {
         acknowledgeSessionCompletion(sessionId);
@@ -408,9 +400,8 @@ export default function Home() {
     [acknowledgeSessionCompletion, sessionId]
   );
   const handleOpenMobileSessionList = useCallback(() => {
-    setActiveView("sessions");
-    setMobileSessionMode("overview");
-  }, []);
+    handleSelectView("sessions");
+  }, [handleSelectView]);
   const handleSelectMobileSession = useCallback(
     async (targetSessionId: string) => {
       await handleSwitchSession(targetSessionId);
@@ -418,14 +409,6 @@ export default function Home() {
     },
     [handleSwitchSession]
   );
-  const handleOverviewSelectSession = useCallback(
-    async (targetSessionId: string) => {
-      await handleSwitchSession(targetSessionId);
-      setMobileSessionMode("chat");
-    },
-    [handleSwitchSession]
-  );
-
   const selectedSessionIsGenerating = Boolean(sessionId && runningSessionIds.includes(sessionId));
   const selectedSessionRuntimeStatus =
     currentSessionRuntimeStatus && sessionId ? currentSessionRuntimeStatus : null;
@@ -528,19 +511,8 @@ export default function Home() {
       <AutomationsPage selectedModel={selectedModel} onAuthExpired={handleAuthExpired} />
     ) : activeView === "connectors" ? (
       <ConnectorsPage userId={userId} onConnectorStateChange={loadSessions} />
-    ) : activeView === "system" ? (
-      <SystemPage userId={userId} onAuthExpired={handleAuthExpired} />
     ) : (
       <div className="h-full min-h-0">
-        <div className={mobileSessionMode === "overview" ? "h-full" : "hidden"}>
-          <SessionOverviewPage
-            userId={userId}
-            refreshToken={workspaceRefreshToken}
-            onAuthExpired={handleAuthExpired}
-            onStartSession={handleNewSession}
-            onSelectSession={handleOverviewSelectSession}
-          />
-        </div>
         <div className={mobileSessionMode === "list" ? "h-full lg:hidden" : "hidden"}>
           <MobileSessionsPage
             sessions={displayWorkbenchSessions}
@@ -555,7 +527,7 @@ export default function Home() {
             onUpdateSession={updateSessionById}
           />
         </div>
-        <div className={mobileSessionMode === "chat" ? "h-full" : "hidden h-full"}>
+        <div className={mobileSessionMode === "chat" ? "h-full" : "hidden h-full lg:block"}>
           <SessionPage
             userId={userId}
             session={selectedWorkbenchSession}

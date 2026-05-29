@@ -13,7 +13,6 @@ const mobileNavLabels: Record<WorkspaceView, string> = {
   files: "Files",
   connectors: "Connectors",
   automations: "Automations",
-  system: "System",
   home: "Settings",
 };
 

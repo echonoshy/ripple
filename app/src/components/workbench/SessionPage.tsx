@@ -19,10 +19,7 @@ import type {
   WorkbenchSessionSummary,
   WorkbenchTimelineEvent,
 } from "@/types";
-import MarkdownRenderer, {
-  type FeishuAuthOpenPayload,
-  type FeishuAuthWaitingState,
-} from "@/components/MarkdownRenderer";
+import type { FeishuAuthOpenPayload, FeishuAuthWaitingState } from "@/components/MarkdownRenderer";
 import type { ChatFileRef } from "@/lib/chatInput";
 import { formatModelName } from "@/lib/models";
 import SessionComposer from "./SessionComposer";
@@ -124,11 +121,7 @@ export default function SessionPage({
   const [settingsPinned, setSettingsPinned] = useState(Boolean(session?.pinned));
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
-  const [isWorkLogOpen, setIsWorkLogOpen] = useState(true);
   const hasMessages = messages.length > 0;
-  const latestAssistantMessage = [...messages]
-    .reverse()
-    .find((message) => message.role === "assistant" && message.content.trim());
   const contextWindow =
     typeof tokenUsage.model_context_window === "number" && tokenUsage.model_context_window > 0
       ? tokenUsage.model_context_window
@@ -465,45 +458,16 @@ export default function SessionPage({
             </div>
           )}
 
-          {latestAssistantMessage ? (
-            <section className="rounded-lg border border-[#dfe6f4] bg-white/82 px-4 py-3 shadow-[0_10px_24px_rgba(44,63,123,0.05)] backdrop-blur-xl">
-              <div className="mb-2 text-[12px] font-semibold text-[#111827]">Latest response</div>
-              <div className="markdown-body workbench-markdown max-w-4xl text-[13px] leading-6 text-[#384152] sm:text-sm">
-                <MarkdownRenderer
-                  content={latestAssistantMessage.content}
-                  onFeishuAuthOpen={onFeishuAuthOpen}
-                  feishuAuthWaiting={feishuAuthWaiting}
-                />
-              </div>
-            </section>
-          ) : null}
-
-          <section className="rounded-lg border border-[#dfe6f4] bg-white/74 shadow-[0_10px_24px_rgba(44,63,123,0.05)] backdrop-blur-xl">
-            <button
-              type="button"
-              onClick={() => setIsWorkLogOpen((open) => !open)}
-              className="flex h-11 w-full items-center justify-between px-4 text-left text-[13px] font-semibold text-[#111827]"
-            >
-              <span>Work log</span>
-              <span className="text-[11px] font-medium text-[#7a8496]">
-                {timelineEvents.length} events
-              </span>
-            </button>
-            {isWorkLogOpen ? (
-              <div className="border-t border-[#e8edf7] px-4 py-3">
-                <SessionTimeline
-                  userId={userId}
-                  messages={messages}
-                  events={timelineEvents}
-                  isGenerating={isGenerating}
-                  onQuickReply={onQuickReply}
-                  onPermissionResolve={onPermissionResolve}
-                  onFeishuAuthOpen={onFeishuAuthOpen}
-                  feishuAuthWaiting={feishuAuthWaiting}
-                />
-              </div>
-            ) : null}
-          </section>
+          <SessionTimeline
+            userId={userId}
+            messages={messages}
+            events={timelineEvents}
+            isGenerating={isGenerating}
+            onQuickReply={onQuickReply}
+            onPermissionResolve={onPermissionResolve}
+            onFeishuAuthOpen={onFeishuAuthOpen}
+            feishuAuthWaiting={feishuAuthWaiting}
+          />
         </div>
 
         {tokenUsage.total_tokens > 0 && (

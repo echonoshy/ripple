@@ -10,9 +10,6 @@ import {
   AgentRunInfo,
   GogcliAccountsResponse,
   ScheduleInfo,
-  SessionOverview,
-  SessionOverviewItem,
-  SessionOverviewRun,
   SessionDetail,
   SessionSummary,
   PlanStep,
@@ -26,9 +23,6 @@ import {
   WorkspaceSearchResponse,
   WorkspaceUploadResponse,
   UserProfile,
-  RuntimeSandboxInfo,
-  ReadyHealth,
-  DoctorReport,
 } from "@/types";
 import { buildChatMessageContent, type ChatFileRef } from "@/lib/chatInput";
 import { readableApiErrorMessage } from "@/lib/apiErrors";
@@ -354,34 +348,6 @@ interface RawSessionDetail extends RawSessionSummary {
   task_progress?: PlanProgress | null;
 }
 
-interface RawSessionOverviewRun {
-  job_id: string;
-  status: string;
-  updated_at: string;
-  output_file?: string | null;
-  error?: string | null;
-  prompt_preview?: string | null;
-}
-
-interface RawSessionOverviewItem extends RawSessionSummary {
-  pending_kind?: string | null;
-  plan_progress?: PlanProgress | null;
-  current_step?: string | null;
-  last_run?: RawSessionOverviewRun | null;
-  last_message_preview?: string | null;
-}
-
-interface RawSessionOverview {
-  sessions?: RawSessionOverviewItem[];
-  sections?: {
-    needs_input?: string[];
-    running?: string[];
-    pinned?: string[];
-    recent_sessions?: string[];
-  };
-  count?: number;
-}
-
 function normalizeSessionSummary(raw: RawSessionSummary): SessionSummary {
   return {
     sessionId: raw.session_id,
@@ -406,35 +372,6 @@ function normalizeSessionDetail(raw: RawSessionDetail): SessionDetail {
     pendingPermissionRequest: raw.pending_permission_request ?? null,
     planSteps: raw.plan_steps || raw.task_steps || [],
     planProgress: raw.plan_progress ?? raw.task_progress ?? null,
-  };
-}
-
-function normalizeSessionOverviewRun(
-  raw: RawSessionOverviewRun | null | undefined
-): SessionOverviewRun | null {
-  if (!raw) return null;
-  const run: SessionOverviewRun = {
-    jobId: raw.job_id,
-    status: raw.status,
-    updatedAt: raw.updated_at,
-    outputFile: raw.output_file ?? null,
-    error: raw.error ?? null,
-  };
-  if (raw.prompt_preview !== undefined) {
-    run.promptPreview = raw.prompt_preview;
-  }
-  return run;
-}
-
-function normalizeSessionOverviewItem(raw: RawSessionOverviewItem): SessionOverviewItem {
-  const summary = normalizeSessionSummary(raw);
-  return {
-    ...summary,
-    pendingKind: raw.pending_kind ?? null,
-    planProgress: raw.plan_progress ?? null,
-    currentStep: raw.current_step ?? null,
-    lastRun: normalizeSessionOverviewRun(raw.last_run),
-    lastMessagePreview: raw.last_message_preview ?? null,
   };
 }
 
@@ -554,32 +491,6 @@ export async function fetchSessions(): Promise<SessionSummary[]> {
     }
     const data = (await res.json()) as { sessions?: RawSessionSummary[] };
     return (data.sessions || []).map(normalizeSessionSummary);
-  } catch (error) {
-    if (error instanceof AuthError) throw error;
-    throw new Error(readableApiErrorMessage(error));
-  }
-}
-
-export async function fetchSessionOverview(): Promise<SessionOverview> {
-  try {
-    const res = await fetch(`${API_URL}/sessions/overview`, { headers: { ...authHeaders() } });
-    if (res.status === 401) throw new AuthError();
-    if (!res.ok) {
-      const detail = await responseDetail(res);
-      throw new Error(detail || `Failed to fetch session overview (${res.status})`);
-    }
-    const data = (await res.json()) as RawSessionOverview;
-    const sections = data.sections || {};
-    return {
-      sessions: (data.sessions || []).map(normalizeSessionOverviewItem),
-      sections: {
-        needsInput: sections.needs_input || [],
-        running: sections.running || [],
-        pinned: sections.pinned || [],
-        recentSessions: sections.recent_sessions || [],
-      },
-      count: data.count ?? data.sessions?.length ?? 0,
-    };
   } catch (error) {
     if (error instanceof AuthError) throw error;
     throw new Error(readableApiErrorMessage(error));
@@ -1337,27 +1248,6 @@ export async function fetchUserProfile(): Promise<UserProfile> {
   if (!res.ok) throw new Error("Failed to fetch user profile");
   const data = (await res.json()) as unknown;
   return data as UserProfile;
-}
-
-export async function fetchSandboxRuntimeInfo(): Promise<RuntimeSandboxInfo> {
-  const res = await fetch(`${API_URL}/sandbox/info`, { headers: { ...authHeaders() } });
-  if (res.status === 401) throw new AuthError();
-  if (!res.ok) throw new Error(`Failed to fetch sandbox info (${res.status})`);
-  return (await res.json()) as RuntimeSandboxInfo;
-}
-
-export async function fetchReadyHealth(): Promise<ReadyHealth> {
-  const res = await fetch(`${API_URL}/health/ready`, { headers: { ...authHeaders() } });
-  if (res.status === 401) throw new AuthError();
-  if (!res.ok) throw new Error(`Failed to fetch health (${res.status})`);
-  return (await res.json()) as ReadyHealth;
-}
-
-export async function fetchDoctorReport(): Promise<DoctorReport> {
-  const res = await fetch(`${API_URL}/diagnostics/doctor`, { headers: { ...authHeaders() } });
-  if (res.status === 401) throw new AuthError();
-  if (!res.ok) throw new Error(`Failed to fetch doctor report (${res.status})`);
-  return (await res.json()) as DoctorReport;
 }
 
 export async function startConnectorAuth(

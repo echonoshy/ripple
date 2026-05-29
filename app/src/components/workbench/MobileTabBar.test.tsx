@@ -21,8 +21,6 @@ function testUsesShortMobileNavigationLabels() {
   assert.match(html, /aria-label="Open Connectors"/);
   assert.match(html, />Automations</);
   assert.match(html, /aria-label="Open Automations"/);
-  assert.match(html, />System</);
-  assert.match(html, /aria-label="Open System"/);
   assert.match(html, />Settings</);
   assert.match(html, /aria-label="Open Settings"/);
   assert.doesNotMatch(html, />New</);

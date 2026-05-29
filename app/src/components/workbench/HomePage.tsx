@@ -167,12 +167,6 @@ export default function HomePage({
             detail="Scheduled runs"
             onClick={() => onSelectView("automations")}
           />
-          <SettingsRow
-            icon={<Server size={16} />}
-            title="System"
-            detail="Health and diagnostics"
-            onClick={() => onSelectView("system")}
-          />
         </section>
 
         <section className="rounded-2xl border border-[#dfe6f4] bg-white/74 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl">

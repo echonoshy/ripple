@@ -31,19 +31,6 @@ interface MobileSessionsPageProps {
   ) => Promise<unknown>;
 }
 
-const avatarPalette = [
-  "bg-[linear-gradient(135deg,#2f6bff,#8a5cff)] text-white shadow-[0_8px_18px_rgba(64,92,255,0.24)]",
-  "bg-[linear-gradient(135deg,#11a66a,#5fd68a)] text-white shadow-[0_8px_18px_rgba(37,160,105,0.18)]",
-  "bg-[linear-gradient(135deg,#f3aa22,#f7d56b)] text-white shadow-[0_8px_18px_rgba(205,137,20,0.18)]",
-  "bg-[linear-gradient(135deg,#7b5cff,#c78cff)] text-white shadow-[0_8px_18px_rgba(123,92,255,0.20)]",
-  "bg-[linear-gradient(135deg,#21a8ff,#7bdcff)] text-white shadow-[0_8px_18px_rgba(33,168,255,0.18)]",
-];
-
-function sessionInitial(title: string): string {
-  const trimmed = title.trim();
-  return trimmed ? trimmed.slice(0, 1).toUpperCase() : "R";
-}
-
 function sessionPreview(session: WorkbenchSessionSummary): string {
   const parts = [`${session.messageCount} ${session.messageCount === 1 ? "message" : "messages"}`];
   if (session.changedFileCount > 0) {
@@ -87,7 +74,7 @@ export default function MobileSessionsPage({
   );
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[radial-gradient(circle_at_16%_0%,rgba(47,107,255,0.12),transparent_34%),radial-gradient(circle_at_88%_8%,rgba(139,92,246,0.11),transparent_32%),#fbfdff] text-[#111827] lg:hidden">
+    <div className="flex h-full min-h-0 flex-col bg-[#fbfcfe] text-[#111827] lg:hidden">
       {activeMenuSessionId && (
         <div
           className="fixed inset-0 z-40 bg-transparent"
@@ -96,13 +83,11 @@ export default function MobileSessionsPage({
           }}
         />
       )}
-      <header className="shrink-0 border-b border-[#e8edf7] bg-white/72 px-4 pt-[max(env(safe-area-inset-top),10px)] pb-2 backdrop-blur-2xl">
+      <header className="shrink-0 border-b border-[#e5e7eb] bg-white px-4 pt-[max(env(safe-area-inset-top),10px)] pb-2">
         <div className="flex h-10 items-center justify-between">
           <div className="flex items-center gap-2">
             <RippleIcon size={24} className="h-6 w-6" />
-            <span className="bg-gradient-to-r from-[#2f6bff] to-[#8a5cff] bg-clip-text text-[18px] font-bold tracking-tight text-transparent">
-              Ripple
-            </span>
+            <span className="text-[18px] font-semibold tracking-normal text-[#111827]">Ripple</span>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -110,10 +95,10 @@ export default function MobileSessionsPage({
               aria-label="Search sessions"
               title="Search sessions"
               onClick={() => setIsSearching((open) => !open)}
-              className={`inline-flex h-9 w-9 items-center justify-center rounded-xl transition-all duration-150 active:scale-[0.94] ${
+              className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border transition-colors active:bg-[#eef4ff] ${
                 isSearching
-                  ? "bg-[#2f6bff] text-white shadow-[0_4px_12px_rgba(47,107,255,0.2)]"
-                  : "bg-[#f1f5f9] text-[#5c6e8d] hover:bg-[#e2e8f0] active:bg-[#e2e8f0]"
+                  ? "border-[#d7e3f8] bg-[#eef4ff] text-[#2463eb]"
+                  : "border-[#e5e7eb] bg-[#f7f8fa] text-[#5f6b7a] hover:bg-[#eef1f5]"
               }`}
             >
               <Search size={18} strokeWidth={2.2} />
@@ -123,14 +108,14 @@ export default function MobileSessionsPage({
               aria-label="New session"
               title="New session"
               onClick={onNewSession}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-tr from-[#2f6bff] to-[#8a5cff] text-white shadow-[0_4px_12px_rgba(47,107,255,0.24)] transition-all duration-150 active:scale-[0.94] active:brightness-95"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#2463eb] bg-[#2463eb] text-white transition-colors hover:bg-[#1d56d8] active:bg-[#174ea6]"
             >
               <Plus size={18} strokeWidth={2.2} />
             </button>
           </div>
         </div>
         {isSearching ? (
-          <div className="mt-2 flex h-9 items-center gap-2 rounded-full border border-[#dfe6f4] bg-white/86 px-3 shadow-[0_8px_22px_rgba(44,63,123,0.06)]">
+          <div className="mt-2 flex h-9 items-center gap-2 rounded-lg border border-[#dfe6f4] bg-white px-3">
             <Search size={15} className="shrink-0 text-[#7a8496]" />
             <input
               value={query}
@@ -143,7 +128,7 @@ export default function MobileSessionsPage({
         ) : null}
       </header>
 
-      <main className="min-h-0 flex-1 overflow-y-auto px-2.5 pt-1.5 pb-[calc(88px+env(safe-area-inset-bottom))]">
+      <main className="min-h-0 flex-1 overflow-y-auto px-3 pt-2 pb-[calc(88px+env(safe-area-inset-bottom))]">
         {sessionLoadError && !isLoading ? (
           <div className="mt-2 flex items-start gap-2 rounded-xl border border-[#cf222e]/25 bg-[#ffebe9] p-3 text-sm font-medium text-[#cf222e]">
             <AlertTriangle size={16} className="mt-0.5 shrink-0" />
@@ -157,7 +142,7 @@ export default function MobileSessionsPage({
           </div>
         ) : visibleSessions.length === 0 ? (
           <div className="flex h-72 flex-col items-center justify-center px-8 text-center">
-            <span className="mb-4 flex h-[60px] w-[60px] items-center justify-center rounded-full bg-[linear-gradient(135deg,#eaf1ff,#f5edff)] text-[#2f6bff] shadow-[0_12px_28px_rgba(64,92,255,0.16)]">
+            <span className="mb-4 flex h-[60px] w-[60px] items-center justify-center rounded-lg border border-[#d7e3f8] bg-[#eef4ff] text-[#2463eb]">
               <MessageCircle size={28} />
             </span>
             <div className="text-[17px] font-semibold">
@@ -172,7 +157,7 @@ export default function MobileSessionsPage({
               <button
                 type="button"
                 onClick={onNewSession}
-                className="mt-5 inline-flex h-9 items-center gap-2 rounded-full bg-[linear-gradient(135deg,#2f6bff,#7b5cff)] px-4 text-[13px] font-semibold text-white shadow-[0_12px_26px_rgba(64,92,255,0.24)]"
+                className="mt-5 inline-flex h-9 items-center gap-2 rounded-lg bg-[#2463eb] px-4 text-[13px] font-semibold text-white hover:bg-[#1d56d8]"
               >
                 <Plus size={16} />
                 New session
@@ -180,8 +165,8 @@ export default function MobileSessionsPage({
             ) : null}
           </div>
         ) : (
-          <div className="space-y-1">
-            {visibleSessions.map((session, index) => {
+          <div className="space-y-1.5">
+            {visibleSessions.map((session) => {
               const selected = session.sessionId === selectedSessionId;
               const activityTime = formatSessionActivityTime(session.lastActivityAt);
               const isEditing = editingSessionId === session.sessionId;
@@ -203,15 +188,11 @@ export default function MobileSessionsPage({
                 return (
                   <div
                     key={session.sessionId}
-                    className="flex w-full items-center gap-2 rounded-[18px] border border-[#2463eb] bg-white px-2.5 py-2 text-[#0d0d0d]"
+                    className="flex w-full items-center gap-2 rounded-lg border border-[#2463eb] bg-white px-3 py-2.5 text-[#0d0d0d]"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <span
-                      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[13px] font-semibold ${
-                        avatarPalette[index % avatarPalette.length]
-                      }`}
-                    >
-                      {sessionInitial(session.title)}
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#dfe6f4] bg-[#f6f8ff] text-[#667085]">
+                      <MessageCircle size={16} strokeWidth={2.1} />
                     </span>
                     <input
                       type="text"
@@ -238,23 +219,25 @@ export default function MobileSessionsPage({
               return (
                 <div
                   key={session.sessionId}
-                  className={`relative flex w-full items-center gap-2.5 rounded-[18px] border px-2.5 py-2 text-left shadow-[0_10px_28px_rgba(44,63,123,0.05)] backdrop-blur-xl transition-all ${
+                  className={`relative flex w-full items-center gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-colors ${
                     selected
-                      ? "border-[#7d8cff] bg-white/88 ring-1 ring-[#5976ff]/30"
-                      : "border-white/70 bg-white/64 active:bg-white/88"
+                      ? "border-[#d7e3f8] bg-[#eef4ff]"
+                      : "border-[#e5e7eb] bg-white active:bg-[#f7f8fa]"
                   } ${isMenuActive ? "z-50" : "z-10"}`}
                 >
+                  {selected ? (
+                    <span
+                      aria-hidden="true"
+                      className="absolute top-2 bottom-2 left-0 w-[3px] rounded-r-full bg-[#2463eb]"
+                    />
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => onSelectSession(session.sessionId)}
-                    className="flex min-w-0 flex-1 items-center gap-2.5 py-0.5 text-left transition-transform outline-none active:scale-[0.992]"
+                    className="flex min-w-0 flex-1 items-center gap-2.5 py-0.5 text-left outline-none"
                   >
-                    <span
-                      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[13px] font-semibold ${
-                        avatarPalette[index % avatarPalette.length]
-                      }`}
-                    >
-                      {sessionInitial(session.title)}
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#dfe6f4] bg-[#f6f8ff] text-[#667085]">
+                      <MessageCircle size={16} strokeWidth={2.1} />
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="flex min-w-0 items-center gap-2">
@@ -262,16 +245,16 @@ export default function MobileSessionsPage({
                           {session.title}
                         </span>
                         {session.pinned ? (
-                          <Pin size={12} className="shrink-0 text-[#7a8496]" />
+                          <Pin size={12} className="shrink-0 text-[#6b7280]" />
                         ) : null}
                         <SessionAttentionDot attention={session.attention} reserveSpace />
                       </span>
-                      <span className="mt-0.5 block truncate text-[11px] leading-4 text-[#7a8496]">
+                      <span className="mt-0.5 block truncate text-[11px] leading-4 text-[#667085]">
                         {sessionPreview(session)}
                       </span>
                     </span>
                     {activityTime ? (
-                      <span className="shrink-0 self-start pt-0.5 font-[family-name:var(--font-mono)] text-[9px] text-[#98a2b3]">
+                      <span className="shrink-0 self-start pt-0.5 font-[family-name:var(--font-mono)] text-[9px] text-[#8b95a5]">
                         {activityTime}
                       </span>
                     ) : null}
@@ -285,8 +268,8 @@ export default function MobileSessionsPage({
                         activeMenuSessionId === session.sessionId ? null : session.sessionId
                       );
                     }}
-                    className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-transparent text-[#6b7280] active:bg-[#eef3ff] ${
-                      activeMenuSessionId === session.sessionId ? "bg-[#eef3ff] text-[#0d0d0d]" : ""
+                    className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-transparent text-[#6b7280] active:bg-[#eef4ff] ${
+                      activeMenuSessionId === session.sessionId ? "bg-[#eef4ff] text-[#0d0d0d]" : ""
                     }`}
                     title="Session options"
                   >
@@ -294,7 +277,7 @@ export default function MobileSessionsPage({
                   </button>
 
                   {activeMenuSessionId === session.sessionId && (
-                    <div className="animate-in fade-in-50 zoom-in-95 absolute top-11 right-2.5 z-50 w-36 rounded-2xl border border-[#dfe6f4] bg-white p-1.5 shadow-[0_12px_36px_-4px_rgba(0,0,0,0.12),0_4px_16px_-2px_rgba(0,0,0,0.06)] duration-100">
+                    <div className="animate-in fade-in-50 zoom-in-95 absolute top-12 right-3 z-50 w-36 rounded-lg border border-[#dfe6f4] bg-white p-1.5 shadow-[0_12px_30px_rgba(0,0,0,0.10)] duration-100">
                       <button
                         type="button"
                         onClick={(e) => {
@@ -302,7 +285,7 @@ export default function MobileSessionsPage({
                           void onUpdateSession(session.sessionId, { pinned: !session.pinned });
                           setActiveMenuSessionId(null);
                         }}
-                        className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
+                        className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-colors hover:bg-[#f3f4f6] active:bg-[#eef4ff]"
                       >
                         <Pin size={13} className="shrink-0 text-[#6b7280]" />
                         {session.pinned ? "Unpin" : "Pin"}
@@ -315,7 +298,7 @@ export default function MobileSessionsPage({
                           setEditingTitle(session.title);
                           setActiveMenuSessionId(null);
                         }}
-                        className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
+                        className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-colors hover:bg-[#f3f4f6] active:bg-[#eef4ff]"
                       >
                         <Edit3 size={13} className="shrink-0 text-[#6b7280]" />
                         Rename
@@ -328,7 +311,7 @@ export default function MobileSessionsPage({
                           onDeleteSession(session.sessionId, e);
                           setActiveMenuSessionId(null);
                         }}
-                        className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#cf222e] transition-colors hover:bg-[#ffebe9] active:bg-[#ffd5d6]"
+                        className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-xs font-semibold text-[#cf222e] transition-colors hover:bg-[#ffebe9] active:bg-[#ffd5d6]"
                       >
                         <Trash2 size={13} className="shrink-0 text-[#cf222e]" />
                         Delete

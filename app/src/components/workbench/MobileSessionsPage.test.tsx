@@ -50,6 +50,24 @@ function testRendersChatAppStyleSessionList() {
   assert.match(html, /pb-\[calc\(88px\+env\(safe-area-inset-bottom\)\)\]/);
 }
 
+function testUsesQuietAgentControlPlaneStyling() {
+  const html = renderMobileSessionsPage();
+
+  assert.match(html, /bg-\[#eef4ff\]/);
+  assert.match(html, /border-\[#d7e3f8\]/);
+  assert.match(html, /rounded-lg/);
+  assert.doesNotMatch(html, /bg-gradient/);
+  assert.doesNotMatch(html, /linear-gradient/);
+  assert.doesNotMatch(html, /radial-gradient/);
+  assert.doesNotMatch(html, /rounded-\[18px\]/);
+}
+
+function testSessionRowsDoNotClipOptionsMenu() {
+  const html = renderMobileSessionsPage();
+
+  assert.doesNotMatch(html, /overflow-hidden rounded-lg border/);
+}
+
 function testRendersEmptyStateWithNewSessionAction() {
   const html = renderMobileSessionsPage({ sessions: [], selectedSessionId: null });
 
@@ -58,6 +76,8 @@ function testRendersEmptyStateWithNewSessionAction() {
 }
 
 testRendersChatAppStyleSessionList();
+testUsesQuietAgentControlPlaneStyling();
+testSessionRowsDoNotClipOptionsMenu();
 testRendersEmptyStateWithNewSessionAction();
 
 console.log("mobile sessions page tests passed");

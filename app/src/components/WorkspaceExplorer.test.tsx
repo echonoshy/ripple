@@ -49,8 +49,9 @@ function renderExplorerWithStoredSplitPercent(
   }
 }
 
-function testWorkspaceExplorerSplitIsResizable() {
+function testWorkspaceExplorerUsesFinderThreePaneLayout() {
   const html = renderExplorer({
+    presentation: "page",
     testInitialPreview: {
       path: "/workspace/notes.txt",
       name: "notes.txt",
@@ -63,20 +64,61 @@ function testWorkspaceExplorerSplitIsResizable() {
     },
   });
 
-  assert.match(html, /grid-template-rows:minmax\(0,48%\) minmax\(0,1fr\)/);
-  assert.match(html, /role="separator"/);
-  assert.match(html, /aria-label="Resize workspace split"/);
-  assert.match(html, /aria-orientation="horizontal"/);
-  assert.match(html, /aria-valuemin="0"/);
-  assert.match(html, /aria-valuemax="100"/);
-  assert.match(html, /aria-valuenow="48"/);
-  assert.match(html, /cursor-row-resize/);
+  assert.match(html, /data-ripple-workspace-explorer="finder-window"/);
+  assert.match(html, /data-ripple-workspace-location="current-path"/);
+  assert.match(html, /data-ripple-workspace-file-list="browser"/);
+  assert.match(html, /data-ripple-workspace-preview="preview"/);
+  assert.match(html, /lg:grid-cols-\[210px_minmax\(260px,330px\)_minmax\(0,1fr\)\]/);
+  assert.match(html, /aria-label="Search workspace files"/);
   assert.match(html, /aria-label="Collapse preview panel"/);
+  assert.doesNotMatch(html, /#ec6a5e/);
+  assert.doesNotMatch(html, /#f5bf4f/);
+  assert.doesNotMatch(html, /#61c554/);
+  assert.doesNotMatch(html, /aria-hidden="true"><span class="h-3 w-3 rounded-full/);
   assert.doesNotMatch(html, /aria-label="Hide preview panel"/);
   assert.doesNotMatch(html, /title="Hide preview"/);
 }
 
-testWorkspaceExplorerSplitIsResizable();
+testWorkspaceExplorerUsesFinderThreePaneLayout();
+
+function testWorkspaceExplorerPageStacksHeaderControlsAwayFromTitle() {
+  const html = renderExplorer({ presentation: "page" });
+
+  assert.match(html, /data-ripple-files-toolbar-layout="stacked"/);
+  assert.match(html, /data-ripple-files-title-row="page"/);
+  assert.match(html, /data-ripple-files-search-row="page"/);
+  assert.match(html, /data-ripple-workspace-current-path="toolbar"[^>]*lg:hidden/);
+}
+
+testWorkspaceExplorerPageStacksHeaderControlsAwayFromTitle();
+
+function testWorkspaceExplorerPageMergesRepeatedLocationLabels() {
+  const html = renderExplorer({ presentation: "page" });
+
+  assert.match(html, /data-ripple-workspace-location="current-path"/);
+  assert.match(html, /data-ripple-workspace-location="current-path"[^>]*hidden/);
+  assert.doesNotMatch(html, /grid-rows-\[auto_/);
+  assert.doesNotMatch(html, />Workspace<\/div>/);
+  assert.doesNotMatch(html, />Workspace<\/span>/);
+  assert.doesNotMatch(html, />Current<\/div>/);
+  assert.doesNotMatch(html, />Name<\/div>/);
+  assert.doesNotMatch(html, /data-ripple-workspace-file-list-path=/);
+}
+
+testWorkspaceExplorerPageMergesRepeatedLocationLabels();
+
+function testWorkspaceExplorerDefaultsToCompactPanelLayout() {
+  const html = renderExplorer();
+
+  assert.match(html, /data-presentation="compact"/);
+  assert.doesNotMatch(html, /data-ripple-workspace-sidebar="places"/);
+  assert.doesNotMatch(html, /lg:grid-cols-\[210px_minmax\(260px,330px\)_minmax\(0,1fr\)\]/);
+  assert.doesNotMatch(html, /rounded-\[22px\]/);
+  assert.doesNotMatch(html, /shadow-\[0_22px_70px/);
+  assert.doesNotMatch(html, />Files<\/h1>/);
+}
+
+testWorkspaceExplorerDefaultsToCompactPanelLayout();
 
 function testWorkspaceExplorerExposesUploadControl() {
   const html = renderExplorer();
@@ -115,7 +157,7 @@ function testWorkspaceExplorerSplitStaysInsidePanelBounds() {
     },
   });
 
-  assert.match(html, /grid-template-rows:minmax\(0,1fr\) 0px/);
+  assert.match(html, /data-preview-state="collapsed"/);
   assert.doesNotMatch(html, /aria-label="Show preview panel"/);
   assert.doesNotMatch(html, /aria-label="Resize workspace split"/);
   assert.doesNotMatch(html, /Select a text file/);
@@ -188,10 +230,9 @@ testWorkspaceExplorerCachesListingsAndAvoidsCurrentPathReloadEffect();
 function testWorkspaceFileActionsStayVisibleOnTouchScreens() {
   const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
 
-  assert.match(
-    source,
-    /className="[^"]*opacity-100[^"]*sm:opacity-0[^"]*sm:group-hover:opacity-100/
-  );
+  assert.match(source, /opacity-100/);
+  assert.match(source, /sm:opacity-0/);
+  assert.match(source, /sm:group-hover:opacity-100/);
 }
 
 testWorkspaceFileActionsStayVisibleOnTouchScreens();

@@ -13,16 +13,17 @@ function renderFilesPage() {
 function testFilesHeaderDoesNotRenderTaskScopedActions() {
   const html = renderFilesPage();
 
-  assert.match(html, />Files</);
-  assert.match(html, /sm:hidden[^>]*>Workspace</);
+  assert.match(html, /data-ripple-files-page="finder-stage"/);
+  assert.match(html, /data-presentation="page"/);
   assert.match(html, /aria-label="Back to settings"/);
   assert.match(html, /lg:hidden/);
+  assert.match(html, /#fbfdff/);
+  assert.doesNotMatch(html, /#ece6dc/);
+  assert.doesNotMatch(html, /#faf6ee/);
   assert.doesNotMatch(html, />Header actions</);
   assert.doesNotMatch(html, /Copy task ID/);
-  assert.match(
-    html,
-    /border-b border-\[#e8edf7\] bg-white\/72 px-4 pt-\[max\(env\(safe-area-inset-top\),12px\)\] pb-3/
-  );
+  assert.doesNotMatch(html, /sm:hidden[^>]*>Workspace</);
+  assert.doesNotMatch(html, /bg-white\/72 px-4 pt-\[max\(env\(safe-area-inset-top\),12px\)\] pb-3/);
   assert.doesNotMatch(html, /px-5 py-5 md:px-8/);
 }
 

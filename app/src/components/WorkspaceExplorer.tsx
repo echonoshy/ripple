@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
+  ArrowLeft,
   ArrowUp,
   ChevronDown,
   Download,
@@ -46,6 +47,8 @@ import { WorkspaceEntry, WorkspaceFilePreview, WorkspaceListing } from "@/types"
 interface WorkspaceExplorerProps {
   userId: string;
   refreshToken: number;
+  presentation?: "compact" | "page";
+  onBack?: () => void;
   testInitialPreview?: WorkspaceFilePreview;
 }
 
@@ -146,6 +149,8 @@ export function displayError(error: string): string {
 export default function WorkspaceExplorer({
   userId,
   refreshToken,
+  presentation = "compact",
+  onBack,
   testInitialPreview,
 }: WorkspaceExplorerProps) {
   const initialPath = workspaceLastPathCache.get(userId) || DEFAULT_WORKSPACE_PATH;
@@ -204,11 +209,9 @@ export default function WorkspaceExplorer({
   } | null>(null);
   const [creationDraft, setCreationDraft] = useState("");
   const [creationSaving, setCreationSaving] = useState(false);
-  const splitPercentRef = useRef(splitPercent);
   const pendingFileOpenRef = useRef<{ path: string; lineNumber?: number; userId?: string } | null>(
     null
   );
-  const splitContainerRef = useRef<HTMLDivElement | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const renameInputRef = useRef<HTMLInputElement | null>(null);
   const renameCommitKeyRef = useRef<string | null>(null);
@@ -222,7 +225,6 @@ export default function WorkspaceExplorer({
   const visibleEntries = isSearchMode ? searchResults : listing?.entries || [];
 
   useEffect(() => {
-    splitPercentRef.current = splitPercent;
     window.localStorage.setItem(SPLIT_PERCENT_STORAGE_KEY, String(splitPercent));
   }, [splitPercent]);
 
@@ -237,47 +239,6 @@ export default function WorkspaceExplorer({
   const updateSplitPercent = useCallback((value: number) => {
     setSplitPercent(getBoundedSplitPercent(value));
   }, []);
-
-  const handleSplitResizeStart = useCallback(
-    (event: React.PointerEvent<HTMLDivElement>) => {
-      event.preventDefault();
-      const containerHeight = splitContainerRef.current?.getBoundingClientRect().height || 0;
-      if (containerHeight <= 0) return;
-
-      const startY = event.clientY;
-      const startPercent = splitPercentRef.current;
-
-      const handlePointerMove = (moveEvent: PointerEvent) => {
-        updateSplitPercent(startPercent + ((moveEvent.clientY - startY) / containerHeight) * 100);
-      };
-      const handlePointerUp = () => {
-        window.removeEventListener("pointermove", handlePointerMove);
-        window.removeEventListener("pointerup", handlePointerUp);
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
-      };
-
-      document.body.style.cursor = "row-resize";
-      document.body.style.userSelect = "none";
-      window.addEventListener("pointermove", handlePointerMove);
-      window.addEventListener("pointerup", handlePointerUp);
-    },
-    [updateSplitPercent]
-  );
-
-  const handleSplitResizeKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLDivElement>) => {
-      if (event.key === "ArrowUp") {
-        event.preventDefault();
-        updateSplitPercent(splitPercentRef.current - (event.shiftKey ? 8 : 3));
-      }
-      if (event.key === "ArrowDown") {
-        event.preventDefault();
-        updateSplitPercent(splitPercentRef.current + (event.shiftKey ? 8 : 3));
-      }
-    },
-    [updateSplitPercent]
-  );
 
   const loadDirectory = useCallback(
     async (path: string) => {
@@ -881,14 +842,24 @@ export default function WorkspaceExplorer({
     }
   }, [highlightedLine, preview?.path]);
 
-  const isPreviewPanelHidden = splitPercent >= MAX_SPLIT_PERCENT || !preview;
-  const splitGridTemplateRows = isPreviewPanelHidden
-    ? "minmax(0,1fr) 0px"
-    : `minmax(0,${splitPercent}%) minmax(0,1fr)`;
+  const isPreviewCollapsed = splitPercent >= MAX_SPLIT_PERCENT;
+  const isPreviewPanelHidden = isPreviewCollapsed || !preview;
+  const previewState = isPreviewCollapsed ? "collapsed" : preview ? "open" : "empty";
+  const currentDisplayPath = isSearchMode
+    ? searchModeLabel(searchScope)
+    : listing?.path || currentPath;
+  const isPagePresentation = presentation === "page";
 
   return (
     <div
-      className="relative flex h-full flex-col overflow-hidden bg-white text-[#0d0d0d]"
+      data-ripple-workspace-explorer="finder-window"
+      data-presentation={presentation}
+      data-preview-state={previewState}
+      className={
+        isPagePresentation
+          ? "relative flex h-full min-h-0 flex-col overflow-hidden rounded-[22px] border border-[#dfe6f4] bg-[#ffffff] text-[#111827] shadow-[0_22px_70px_rgba(44,63,123,0.08),inset_0_1px_0_rgba(255,255,255,0.92)]"
+          : "relative flex h-full min-h-0 flex-col overflow-hidden bg-white text-[#0d0d0d]"
+      }
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -902,60 +873,136 @@ export default function WorkspaceExplorer({
         onChange={handleUploadInputChange}
       />
       {isDraggingUpload && (
-        <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center bg-white/85 p-4 backdrop-blur-sm">
-          <div className="rounded-lg border border-dashed border-[#2463eb] bg-[#eef4ff] px-4 py-3 text-sm font-semibold text-[#0b57d0] shadow-lg">
+        <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center bg-[#ffffff]/86 p-4 backdrop-blur-sm">
+          <div className="rounded-2xl border border-dashed border-[#2463eb] bg-[#eef4ff] px-4 py-3 text-sm font-semibold text-[#2457e6] shadow-[0_18px_42px_rgba(44,63,123,0.12)]">
             Drop files to upload
           </div>
         </div>
       )}
-      <div className="shrink-0 border-b border-[#e5e7eb] bg-white px-4 py-3">
-        <div className="mb-2 flex items-center gap-2">
-          <div className="relative min-w-0 flex-1">
-            <Search
-              size={14}
-              className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-[#8b8f94]"
-            />
-            <input
-              value={query}
-              onChange={(event) => handleQueryChange(event.target.value)}
-              placeholder="Find files by name..."
-              className="h-8 w-full rounded-full border border-[#e5e7eb] bg-white pr-2 pl-8 text-sm text-[#0d0d0d] outline-none placeholder:text-xs placeholder:text-[#8b8f94] focus:border-[#8da0ff]"
-            />
+      <div
+        className={
+          isPagePresentation
+            ? "shrink-0 border-b border-[#dfe6f4]/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.78),rgba(255,255,255,0.62))] px-3 py-3 backdrop-blur-2xl sm:px-4"
+            : "shrink-0 border-b border-[#e5e7eb] bg-white px-4 py-3"
+        }
+      >
+        <div
+          data-ripple-files-toolbar-layout={isPagePresentation ? "stacked" : "compact"}
+          className={isPagePresentation ? "flex flex-col gap-3" : "mb-2 flex items-center gap-2"}
+        >
+          {isPagePresentation && (
+            <div data-ripple-files-title-row="page" className="flex min-w-0 items-center gap-3">
+              {onBack ? (
+                <button
+                  type="button"
+                  onClick={onBack}
+                  aria-label="Back to settings"
+                  title="Back to settings"
+                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[#dfe6f4] bg-white/78 text-[#6b7280] shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] hover:bg-[#f7f8fa] lg:hidden"
+                >
+                  <ArrowLeft size={17} />
+                </button>
+              ) : null}
+              <div className="min-w-0 flex-1">
+                <h1 className="text-[15px] leading-tight font-semibold tracking-normal text-[#111827]">
+                  Files
+                </h1>
+                <p
+                  data-ripple-workspace-current-path="toolbar"
+                  className="mt-1 truncate font-[family-name:var(--font-mono)] text-[11px] text-[#667085] lg:hidden"
+                >
+                  {listing?.path || currentPath}
+                </p>
+              </div>
+            </div>
+          )}
+
+          <div
+            data-ripple-files-search-row={isPagePresentation ? "page" : undefined}
+            className={
+              isPagePresentation
+                ? "flex min-w-0 items-center gap-2"
+                : "flex min-w-0 flex-1 items-center gap-2"
+            }
+          >
+            <div className="relative min-w-0 flex-1">
+              <Search
+                size={14}
+                className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[#8b8f94]"
+              />
+              <input
+                value={query}
+                onChange={(event) => handleQueryChange(event.target.value)}
+                placeholder="Find files by name..."
+                aria-label="Search workspace files"
+                className={
+                  isPagePresentation
+                    ? "h-8 w-full rounded-full border border-[#dfe6f4] bg-white/72 pr-3 pl-9 text-sm text-[#111827] shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] outline-none placeholder:text-xs placeholder:text-[#8b8f94] focus:border-[#2463eb]"
+                    : "h-8 w-full rounded-full border border-[#e5e7eb] bg-white pr-2 pl-9 text-sm text-[#0d0d0d] outline-none placeholder:text-xs placeholder:text-[#8b8f94] focus:border-[#8da0ff]"
+                }
+              />
+            </div>
+            <button
+              type="button"
+              className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border ${
+                isFilterOpen
+                  ? isPagePresentation
+                    ? "border-[#2463eb]/35 bg-[#eef4ff] text-[#384152]"
+                    : "border-[#2f6bff]/30 bg-[#eef4ff] text-[#2f6bff]"
+                  : isPagePresentation
+                    ? "border-[#dfe6f4] bg-white/74 text-[#667085] hover:bg-[#f7f8fa] hover:text-[#111827]"
+                    : "border-[#e5e7eb] bg-white text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
+              }`}
+              title="Search filters"
+              aria-label="Search filters"
+              onClick={() => setIsFilterOpen((open) => !open)}
+            >
+              <SlidersHorizontal size={14} />
+            </button>
+            <button
+              type="button"
+              className={
+                isPagePresentation
+                  ? "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#dfe6f4] bg-white/74 text-[#667085] hover:bg-[#f7f8fa] hover:text-[#111827] disabled:cursor-not-allowed disabled:opacity-50"
+                  : "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#e5e7eb] bg-white text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d] disabled:cursor-not-allowed disabled:opacity-50"
+              }
+              title="Upload files"
+              aria-label="Upload files"
+              disabled={uploading}
+              onClick={() => uploadInputRef.current?.click()}
+            >
+              {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+            </button>
+            {isPagePresentation && (
+              <button
+                type="button"
+                onClick={() => void loadDirectory(currentPath)}
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#dfe6f4] bg-white/74 text-[#667085] hover:bg-[#f7f8fa] hover:text-[#111827] disabled:cursor-not-allowed disabled:opacity-50"
+                title="Refresh workspace"
+                aria-label="Refresh workspace"
+                disabled={loading}
+              >
+                {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+              </button>
+            )}
           </div>
-          <button
-            type="button"
-            className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border ${
-              isFilterOpen
-                ? "border-[#2f6bff]/30 bg-[#eef4ff] text-[#2f6bff]"
-                : "border-[#e5e7eb] bg-white text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
-            }`}
-            title="Search filters"
-            aria-label="Search filters"
-            onClick={() => setIsFilterOpen((open) => !open)}
-          >
-            <SlidersHorizontal size={14} />
-          </button>
-          <button
-            type="button"
-            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#e5e7eb] bg-white text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d] disabled:cursor-not-allowed disabled:opacity-50"
-            title="Upload files"
-            aria-label="Upload files"
-            disabled={uploading}
-            onClick={() => uploadInputRef.current?.click()}
-          >
-            {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-          </button>
         </div>
         {isFilterOpen && (
-          <div className="mb-2 grid gap-2 rounded-2xl border border-[#e5e7eb] bg-[#fbfbfc] p-3 text-xs text-[#374151] shadow-sm sm:grid-cols-2">
+          <div
+            className={
+              isPagePresentation
+                ? "mt-3 grid gap-2 rounded-2xl border border-[#dfe6f4] bg-[#ffffff]/76 p-3 text-xs text-[#374151] shadow-[0_14px_36px_rgba(44,63,123,0.06)] sm:grid-cols-2"
+                : "mb-2 grid gap-2 rounded-2xl border border-[#e5e7eb] bg-[#fbfbfc] p-3 text-xs text-[#374151] shadow-sm sm:grid-cols-2"
+            }
+          >
             <label className="flex items-center gap-2">
-              <span className="w-16 text-[#6b7280]">Scope</span>
+              <span className="w-16 text-[#667085]">Scope</span>
               <select
                 value={searchScope}
                 onChange={(event) =>
                   setSearchScope(event.target.value as NonNullable<WorkspaceSearchOptions["scope"]>)
                 }
-                className="h-7 min-w-0 flex-1 rounded border border-[#d7dce3] bg-white px-2 text-xs"
+                className="h-7 min-w-0 flex-1 rounded-lg border border-[#dfe6f4] bg-white/84 px-2 text-xs"
               >
                 <option value="name">Name/path (default)</option>
                 <option value="all">Name and content</option>
@@ -963,13 +1010,13 @@ export default function WorkspaceExplorer({
               </select>
             </label>
             <label className="flex items-center gap-2">
-              <span className="w-16 text-[#6b7280]">Kind</span>
+              <span className="w-16 text-[#667085]">Kind</span>
               <select
                 value={searchKind}
                 onChange={(event) =>
                   setSearchKind(event.target.value as NonNullable<WorkspaceSearchOptions["kind"]>)
                 }
-                className="h-7 min-w-0 flex-1 rounded border border-[#d7dce3] bg-white px-2 text-xs"
+                className="h-7 min-w-0 flex-1 rounded-lg border border-[#dfe6f4] bg-white/84 px-2 text-xs"
               >
                 <option value="all">Files and folders</option>
                 <option value="file">Files</option>
@@ -977,13 +1024,13 @@ export default function WorkspaceExplorer({
               </select>
             </label>
             <label className="flex items-center gap-2">
-              <span className="w-16 text-[#6b7280]">Type</span>
+              <span className="w-16 text-[#667085]">Type</span>
               <select
                 value={fileType}
                 onChange={(event) =>
                   setFileType(event.target.value as NonNullable<WorkspaceSearchOptions["fileType"]>)
                 }
-                className="h-7 min-w-0 flex-1 rounded border border-[#d7dce3] bg-white px-2 text-xs"
+                className="h-7 min-w-0 flex-1 rounded-lg border border-[#dfe6f4] bg-white/84 px-2 text-xs"
               >
                 <option value="all">All types</option>
                 <option value="code">Code</option>
@@ -993,11 +1040,11 @@ export default function WorkspaceExplorer({
               </select>
             </label>
             <label className="flex items-center gap-2">
-              <span className="w-16 text-[#6b7280]">Results</span>
+              <span className="w-16 text-[#667085]">Results</span>
               <select
                 value={searchLimit}
                 onChange={(event) => setSearchLimit(Number(event.target.value))}
-                className="h-7 min-w-0 flex-1 rounded border border-[#d7dce3] bg-white px-2 text-xs"
+                className="h-7 min-w-0 flex-1 rounded-lg border border-[#dfe6f4] bg-white/84 px-2 text-xs"
               >
                 <option value={20}>20</option>
                 <option value={50}>50</option>
@@ -1005,20 +1052,23 @@ export default function WorkspaceExplorer({
             </label>
           </div>
         )}
-        <div className="flex items-center justify-between gap-2">
-          <p className="min-w-0 truncate font-[family-name:var(--font-mono)] text-xs text-[#6b7280]">
-            {isSearchMode ? searchModeLabel(searchScope) : listing?.path || currentPath}
-          </p>
-          <button
-            type="button"
-            onClick={() => void loadDirectory(currentPath)}
-            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#e5e7eb] bg-white text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d] disabled:cursor-not-allowed disabled:opacity-50"
-            title="Refresh workspace"
-            disabled={loading}
-          >
-            {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-          </button>
-        </div>
+        {!isPagePresentation && (
+          <div className="flex items-center justify-between gap-2">
+            <p className="min-w-0 truncate font-[family-name:var(--font-mono)] text-xs text-[#6b7280]">
+              {currentDisplayPath}
+            </p>
+            <button
+              type="button"
+              onClick={() => void loadDirectory(currentPath)}
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#e5e7eb] bg-white text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d] disabled:cursor-not-allowed disabled:opacity-50"
+              title="Refresh workspace"
+              aria-label="Refresh workspace"
+              disabled={loading}
+            >
+              {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+            </button>
+          </div>
+        )}
       </div>
 
       {error && (
@@ -1041,40 +1091,117 @@ export default function WorkspaceExplorer({
       )}
 
       <div
-        ref={splitContainerRef}
-        className="grid min-h-0 flex-1"
-        style={{ gridTemplateRows: splitGridTemplateRows }}
+        className={`grid min-h-0 flex-1 overflow-hidden ${
+          isPagePresentation
+            ? isPreviewPanelHidden
+              ? "grid-rows-[minmax(0,1fr)] lg:grid-cols-[210px_minmax(0,1fr)] lg:grid-rows-none"
+              : "grid-rows-[minmax(220px,42%)_minmax(0,1fr)] lg:grid-cols-[210px_minmax(260px,330px)_minmax(0,1fr)] lg:grid-rows-none"
+            : isPreviewPanelHidden
+              ? "grid-rows-[minmax(0,1fr)]"
+              : "grid-rows-[minmax(0,48%)_minmax(0,1fr)]"
+        }`}
       >
-        <div className="min-h-0 overflow-hidden border-b border-[#e5e7eb] bg-white">
-          <div className="flex items-center justify-between border-b border-[#e5e7eb] bg-white px-3 py-2">
-            <span className="text-xs font-semibold tracking-wider text-[#6b7280] uppercase">
-              {isSearchMode ? "Search results" : "Workspace"}
-            </span>
-            <div className="flex items-center gap-1">
-              {searchLoading && <Loader2 size={13} className="animate-spin text-[#6b7280]" />}
-              {!isSearchMode && listing?.parent_path && (
-                <button
-                  type="button"
-                  onClick={() => void loadDirectory(listing.parent_path || "/workspace")}
-                  className="flex items-center gap-1 rounded-md border border-[#e5e7eb] bg-white px-2 py-1 text-[11px] font-medium text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
-                >
-                  <ArrowUp size={12} />
-                  Up
-                </button>
+        {isPagePresentation && (
+          <aside
+            data-ripple-workspace-location="current-path"
+            className="hidden min-h-0 border-b border-[#dfe6f4]/70 bg-[linear-gradient(180deg,rgba(246,248,255,0.86),rgba(255,255,255,0.74))] p-3 lg:block lg:border-r lg:border-b-0"
+          >
+            <div className="rounded-2xl border border-[#dfe6f4]/80 bg-[#ffffff]/66 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)]">
+              <div className="flex items-start gap-2">
+                <Folder size={15} className="mt-0.5 shrink-0 text-[#2463eb]" />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-[family-name:var(--font-mono)] text-[11px] font-semibold text-[#374151]">
+                    {listing?.path || currentPath}
+                  </div>
+                  {isSearchMode && (
+                    <div className="mt-1 truncate text-[11px] text-[#6b7280]">
+                      {searchModeLabel(searchScope)}
+                    </div>
+                  )}
+                </div>
+              </div>
+              {(currentPath !== DEFAULT_WORKSPACE_PATH || listing?.parent_path) && (
+                <div className="mt-3 flex items-center gap-2">
+                  {listing?.parent_path && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void loadDirectory(listing.parent_path || DEFAULT_WORKSPACE_PATH)
+                      }
+                      className="inline-flex h-7 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white/74 px-2.5 text-[11px] font-semibold text-[#667085] hover:bg-[#f7f8fa] hover:text-[#111827]"
+                    >
+                      <ArrowUp size={12} />
+                      Up
+                    </button>
+                  )}
+                  {currentPath !== DEFAULT_WORKSPACE_PATH && (
+                    <button
+                      type="button"
+                      onClick={() => void loadDirectory(DEFAULT_WORKSPACE_PATH)}
+                      className="inline-flex h-7 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white/74 px-2.5 text-[11px] font-semibold text-[#667085] hover:bg-[#f7f8fa] hover:text-[#111827]"
+                    >
+                      <Folder size={12} />
+                      Root
+                    </button>
+                  )}
+                </div>
               )}
             </div>
-          </div>
+          </aside>
+        )}
+
+        <section
+          data-ripple-workspace-file-list="browser"
+          className={
+            isPagePresentation
+              ? "flex min-h-0 flex-col overflow-hidden border-b border-[#dfe6f4]/70 bg-[#ffffff] lg:border-r lg:border-b-0"
+              : "flex min-h-0 flex-col overflow-hidden border-b border-[#e5e7eb] bg-white"
+          }
+        >
+          {!isPagePresentation && (
+            <div className="flex items-center justify-between border-b border-[#e5e7eb] bg-white px-3 py-2">
+              <span className="text-xs font-semibold tracking-wider text-[#6b7280] uppercase">
+                {isSearchMode ? "Search results" : "Workspace"}
+              </span>
+              <div className="flex items-center gap-1">
+                {searchLoading && (
+                  <Loader2 size={13} className="shrink-0 animate-spin text-[#667085]" />
+                )}
+                {!isSearchMode && listing?.parent_path && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void loadDirectory(listing.parent_path || DEFAULT_WORKSPACE_PATH)
+                    }
+                    className="flex items-center gap-1 rounded-md border border-[#e5e7eb] bg-white px-2 py-1 text-[11px] font-medium text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
+                  >
+                    <ArrowUp size={12} />
+                    Up
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+          {isPagePresentation && searchLoading && visibleEntries.length > 0 && (
+            <div className="flex h-[34px] items-center justify-end border-b border-[#dfe6f4]/60 px-3 text-[#667085]">
+              <Loader2 size={13} className="animate-spin" />
+            </div>
+          )}
           <div
             onContextMenu={onContainerContextMenu}
-            className="context-trigger-area h-full overflow-y-auto pb-10"
+            className={
+              isPagePresentation
+                ? "context-trigger-area min-h-0 flex-1 overflow-y-auto p-2 pb-10"
+                : "context-trigger-area min-h-0 flex-1 overflow-y-auto pb-10"
+            }
           >
             {(loading && !listing) || (searchLoading && visibleEntries.length === 0) ? (
-              <div className="flex h-40 items-center justify-center gap-2 text-sm font-medium text-[#68707d]">
+              <div className="flex h-40 items-center justify-center gap-2 text-sm font-medium text-[#667085]">
                 <Loader2 size={16} className="animate-spin" />
                 Loading
               </div>
             ) : (listing || isSearchMode) && visibleEntries.length === 0 ? (
-              <div className="flex h-40 items-center justify-center px-4 text-center text-sm font-medium text-[#6b7280]">
+              <div className="flex h-40 items-center justify-center px-4 text-center text-sm font-medium text-[#667085]">
                 {isSearchMode ? "No matching files" : "Empty workspace"}
               </div>
             ) : (
@@ -1087,14 +1214,28 @@ export default function WorkspaceExplorer({
                         event.preventDefault();
                         void commitRename(entry);
                       }}
-                      className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left ${
-                        preview?.path === entry.path ? "bg-[#eef4ff]" : "bg-white"
-                      }`}
+                      className={
+                        isPagePresentation
+                          ? `mb-1 grid min-h-10 w-full grid-cols-[20px_minmax(0,1fr)_auto] items-center gap-2 rounded-xl px-2 py-1.5 text-left ${
+                              preview?.path === entry.path ? "bg-[#eef4ff]" : "bg-transparent"
+                            }`
+                          : `flex w-full items-center gap-2.5 px-3 py-1.5 text-left ${
+                              preview?.path === entry.path ? "bg-[#eef4ff]" : "bg-white"
+                            }`
+                      }
                     >
                       <span
-                        className={`flex h-5 w-5 shrink-0 items-center justify-center text-[#374151] ${
-                          entry.kind === "directory" ? "bg-[#f7f8fa]" : "bg-white"
-                        }`}
+                        className={
+                          isPagePresentation
+                            ? `flex h-5 w-5 shrink-0 items-center justify-center rounded-md ${
+                                entry.kind === "directory"
+                                  ? "bg-[#f6f8ff] text-[#2457e6]"
+                                  : "bg-[#f6f8ff] text-[#2463eb]"
+                              }`
+                            : `flex h-5 w-5 shrink-0 items-center justify-center text-[#374151] ${
+                                entry.kind === "directory" ? "bg-[#f7f8fa]" : "bg-white"
+                              }`
+                        }
                       >
                         {entry.kind === "directory" ? <Folder size={14} /> : <FileText size={14} />}
                       </span>
@@ -1107,7 +1248,7 @@ export default function WorkspaceExplorer({
                           onKeyDown={handleRenameKeyDown}
                           disabled={renameSaving}
                           spellCheck={false}
-                          className="h-7 w-full rounded-md border border-[#2463eb] bg-white px-2 font-[family-name:var(--font-mono)] text-[13px] font-medium text-[#0d0d0d] outline-none"
+                          className="h-7 w-full rounded-lg border border-[#2463eb] bg-white px-2 font-[family-name:var(--font-mono)] text-[13px] font-medium text-[#111827] outline-none"
                         />
                         {isSearchMode ? (
                           <SearchResultMeta entry={entry} />
@@ -1127,13 +1268,25 @@ export default function WorkspaceExplorer({
                     <div
                       key={entry.path}
                       onContextMenu={(event) => onEntryContextMenu(event, entry)}
-                      className={`group flex w-full items-center transition-colors hover:bg-[#f7f8fa] ${
-                        preview?.path === entry.path ? "bg-[#eef4ff]" : "bg-white"
-                      } ${
-                        clipboard?.action === "move" && clipboard?.path === entry.path
-                          ? "opacity-35 select-none"
-                          : ""
-                      }`}
+                      className={
+                        isPagePresentation
+                          ? `group mb-1 grid min-h-10 w-full grid-cols-[minmax(0,1fr)_auto] items-center rounded-xl transition-colors hover:bg-[#f7f8fa] ${
+                              preview?.path === entry.path
+                                ? "bg-[#eef4ff] shadow-[inset_0_0_0_1px_rgba(47,107,255,0.08)]"
+                                : "bg-transparent"
+                            } ${
+                              clipboard?.action === "move" && clipboard?.path === entry.path
+                                ? "opacity-35 select-none"
+                                : ""
+                            }`
+                          : `group flex w-full items-center transition-colors hover:bg-[#f7f8fa] ${
+                              preview?.path === entry.path ? "bg-[#eef4ff]" : "bg-white"
+                            } ${
+                              clipboard?.action === "move" && clipboard?.path === entry.path
+                                ? "opacity-35 select-none"
+                                : ""
+                            }`
+                      }
                     >
                       <button
                         type="button"
@@ -1145,12 +1298,24 @@ export default function WorkspaceExplorer({
                             startRename(entry);
                           }
                         }}
-                        className="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2 text-left"
+                        className={
+                          isPagePresentation
+                            ? "flex min-w-0 items-center gap-2.5 px-2 py-2 text-left"
+                            : "flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2 text-left"
+                        }
                       >
                         <span
-                          className={`flex h-5 w-5 shrink-0 items-center justify-center text-[#374151] ${
-                            entry.kind === "directory" ? "bg-[#f7f8fa]" : "bg-white"
-                          }`}
+                          className={
+                            isPagePresentation
+                              ? `flex h-5 w-5 shrink-0 items-center justify-center rounded-md ${
+                                  entry.kind === "directory"
+                                    ? "bg-[#f6f8ff] text-[#2457e6]"
+                                    : "bg-[#f6f8ff] text-[#2463eb]"
+                                }`
+                              : `flex h-5 w-5 shrink-0 items-center justify-center text-[#374151] ${
+                                  entry.kind === "directory" ? "bg-[#f7f8fa]" : "bg-white"
+                                }`
+                          }
                         >
                           {entry.kind === "directory" ? (
                             <Folder size={14} />
@@ -1184,7 +1349,11 @@ export default function WorkspaceExplorer({
                         aria-label={`More actions for ${entry.name}`}
                         title="More actions"
                         onClick={(event) => onMoreButtonClick(event, entry)}
-                        className="mr-2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-transparent text-[#6b7280] opacity-100 transition-opacity hover:border-[#dde2ea] hover:bg-white hover:text-[#0d0d0d] focus:opacity-100 sm:h-7 sm:w-7 sm:opacity-0 sm:group-hover:opacity-100"
+                        className={
+                          isPagePresentation
+                            ? "mr-2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-transparent text-[#667085] opacity-100 transition-opacity hover:border-[#dfe6f4] hover:bg-white/78 hover:text-[#111827] focus:opacity-100 sm:h-7 sm:w-7 sm:opacity-0 sm:group-hover:opacity-100"
+                            : "mr-2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-transparent text-[#6b7280] opacity-100 transition-opacity hover:border-[#dde2ea] hover:bg-white hover:text-[#0d0d0d] focus:opacity-100 sm:h-7 sm:w-7 sm:opacity-0 sm:group-hover:opacity-100"
+                        }
                       >
                         <MoreHorizontal size={14} />
                       </button>
@@ -1194,29 +1363,50 @@ export default function WorkspaceExplorer({
               </div>
             )}
           </div>
-        </div>
+        </section>
 
         {!isPreviewPanelHidden && (
-          <div className="relative flex min-h-0 flex-col overflow-hidden bg-white">
+          <section
+            data-ripple-workspace-preview="preview"
+            className={
+              isPagePresentation
+                ? "flex min-h-0 flex-col overflow-hidden bg-[linear-gradient(180deg,#ffffff,#fbfdff)]"
+                : "relative flex min-h-0 flex-col overflow-hidden bg-white"
+            }
+          >
             <div
-              role="separator"
-              aria-label="Resize workspace split"
-              aria-orientation="horizontal"
-              aria-valuemin={MIN_SPLIT_PERCENT}
-              aria-valuemax={MAX_SPLIT_PERCENT}
-              aria-valuenow={splitPercent}
-              aria-valuetext={`${splitPercent}%`}
-              tabIndex={0}
-              onPointerDown={handleSplitResizeStart}
-              onKeyDown={handleSplitResizeKeyDown}
-              className="group absolute top-0 right-0 left-0 z-20 flex h-2 -translate-y-1/2 cursor-row-resize items-center justify-center bg-transparent transition-colors outline-none hover:bg-[#dbe6ff] focus:bg-[#dbe6ff]"
+              className={
+                isPagePresentation
+                  ? "flex min-h-[68px] shrink-0 items-center gap-3 border-b border-[#dfe6f4]/60 px-4 py-3 text-[#667085]"
+                  : "flex shrink-0 items-center gap-2 border-b border-[#e5e7eb] bg-white px-3 py-2 text-[#6b7280]"
+              }
             >
-              <span className="h-0.5 w-12 rounded-full bg-[#2463eb] opacity-0 transition-opacity group-hover:opacity-100 group-focus:opacity-100" />
-            </div>
-            <div className="flex shrink-0 items-center gap-2 border-b border-[#e5e7eb] bg-white px-3 py-2 text-[#6b7280]">
-              <FileText size={13} />
-              <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-[#0d0d0d]">
-                {preview?.path || "Select a file"}
+              <span
+                className={
+                  isPagePresentation
+                    ? "flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#f6f8ff] text-[#2463eb]"
+                    : "shrink-0 text-[#6b7280]"
+                }
+              >
+                <FileText size={15} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span
+                  className={
+                    isPagePresentation
+                      ? "block truncate text-[14px] font-semibold text-[#111827]"
+                      : "block truncate text-[13px] font-semibold text-[#0d0d0d]"
+                  }
+                >
+                  {isPagePresentation
+                    ? preview?.name || "Select a file"
+                    : preview?.path || "Select a file"}
+                </span>
+                {isPagePresentation && (
+                  <span className="mt-1 block truncate font-[family-name:var(--font-mono)] text-[11px] text-[#667085]">
+                    {preview?.path || "Select a file"}
+                  </span>
+                )}
               </span>
               {previewLoading && <Loader2 size={12} className="animate-spin" />}
               {preview && (
@@ -1225,7 +1415,11 @@ export default function WorkspaceExplorer({
                     type="button"
                     onClick={() => void handleDownloadFile(preview.path)}
                     disabled={downloadingPath === preview.path}
-                    className="inline-flex h-7 items-center gap-1 rounded-md border border-[#dde2ea] bg-white px-2 text-xs font-medium text-[#68707d] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:text-[#8b8f94]"
+                    className={
+                      isPagePresentation
+                        ? "inline-flex h-7 items-center gap-1 rounded-full border border-[#dfe6f4] bg-white/76 px-2 text-xs font-medium text-[#667085] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:text-[#8b8f94]"
+                        : "inline-flex h-7 items-center gap-1 rounded-md border border-[#dde2ea] bg-white px-2 text-xs font-medium text-[#68707d] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:text-[#8b8f94]"
+                    }
                     title="Download"
                   >
                     {downloadingPath === preview.path ? (
@@ -1240,10 +1434,12 @@ export default function WorkspaceExplorer({
                       type="button"
                       disabled={preview.truncated}
                       onClick={() => setIsEditing((current) => !current)}
-                      className={`inline-flex h-7 items-center gap-1 rounded-md border px-2 text-xs font-medium ${
+                      className={`inline-flex h-7 items-center gap-1 rounded-full border px-2 text-xs font-medium ${
                         isEditing
-                          ? "border-[#171a1f] bg-white text-[#171a1f]"
-                          : "border-[#dde2ea] bg-white text-[#68707d] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:text-[#8b8f94]"
+                          ? "border-[#2463eb] bg-[#eef4ff] text-[#384152]"
+                          : isPagePresentation
+                            ? "border-[#dfe6f4] bg-white/76 text-[#667085] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:text-[#8b8f94]"
+                            : "border-[#dde2ea] bg-white text-[#68707d] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:text-[#8b8f94]"
                       }`}
                       title={preview.truncated ? "Truncated files cannot be edited safely" : "Edit"}
                     >
@@ -1258,25 +1454,41 @@ export default function WorkspaceExplorer({
                 aria-label="Collapse preview panel"
                 title="Collapse panel"
                 onClick={() => updateSplitPercent(MAX_SPLIT_PERCENT)}
-                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[#dde2ea] bg-white text-[#68707d] hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
+                className={
+                  isPagePresentation
+                    ? "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[#dfe6f4] bg-white/76 text-[#667085] hover:bg-[#f7f8fa] hover:text-[#111827]"
+                    : "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[#dde2ea] bg-white text-[#68707d] hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
+                }
               >
                 <ChevronDown size={13} />
               </button>
             </div>
-            <div className="min-h-0 flex-1 overflow-auto bg-white">
+            <div
+              className={
+                isPagePresentation
+                  ? "min-h-0 flex-1 overflow-auto"
+                  : "min-h-0 flex-1 overflow-auto bg-white"
+              }
+            >
               {preview ? (
                 <div className="flex min-h-full flex-col">
-                  <div className="flex flex-wrap items-center gap-2 border-b border-[#dde2ea] px-3 py-2 font-[family-name:var(--font-mono)] text-[11px] font-medium text-[#68707d]">
+                  <div
+                    className={
+                      isPagePresentation
+                        ? "flex flex-wrap items-center gap-2 border-b border-[#dfe6f4]/60 px-4 py-2 font-[family-name:var(--font-mono)] text-[11px] font-medium text-[#667085]"
+                        : "flex flex-wrap items-center gap-2 border-b border-[#dde2ea] px-3 py-2 font-[family-name:var(--font-mono)] text-[11px] font-medium text-[#68707d]"
+                    }
+                  >
                     <span>{formatBytes(preview.size_bytes)}</span>
                     <span>{preview.mime_type}</span>
                     <span>{formatModified(preview.modified_at)}</span>
                     {isDirty && (
-                      <span className="rounded-full border border-[#0969da]/25 bg-[#ddf4ff] px-1.5 py-0.5 text-[10px] text-[#0969da] uppercase">
+                      <span className="rounded-full border border-[#2463eb]/25 bg-[#eef4ff] px-1.5 py-0.5 text-[10px] text-[#2457e6] uppercase">
                         unsaved
                       </span>
                     )}
                     {preview.truncated && (
-                      <span className="rounded-full border border-[#bf8700]/35 bg-[#fff8c5] px-1.5 py-0.5 text-[10px] text-[#7d4e00] uppercase">
+                      <span className="rounded-full border border-[#2463eb]/35 bg-[#eef4ff] px-1.5 py-0.5 text-[10px] text-[#1d56d8] uppercase">
                         truncated
                       </span>
                     )}
@@ -1286,7 +1498,11 @@ export default function WorkspaceExplorer({
                           type="button"
                           onClick={handleRevert}
                           disabled={!isDirty || saving}
-                          className="inline-flex h-7 items-center gap-1 rounded-md border border-[#dde2ea] bg-white px-2 text-xs font-medium text-[#68707d] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:text-[#8b8f94]"
+                          className={
+                            isPagePresentation
+                              ? "inline-flex h-7 items-center gap-1 rounded-full border border-[#dfe6f4] bg-white/76 px-2 text-xs font-medium text-[#667085] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:text-[#8b8f94]"
+                              : "inline-flex h-7 items-center gap-1 rounded-md border border-[#dde2ea] bg-white px-2 text-xs font-medium text-[#68707d] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:text-[#8b8f94]"
+                          }
                         >
                           <Undo2 size={12} />
                           Revert
@@ -1295,7 +1511,11 @@ export default function WorkspaceExplorer({
                           type="button"
                           onClick={() => void handleSave()}
                           disabled={!isDirty || saving || preview.truncated}
-                          className="inline-flex h-7 items-center gap-1 rounded-md border border-[#171a1f] bg-[#171a1f] px-2 text-xs font-semibold text-white hover:bg-[#2a2f37] disabled:cursor-not-allowed disabled:border-[#dde2ea] disabled:bg-[#f7f8fa] disabled:text-[#8b8f94]"
+                          className={
+                            isPagePresentation
+                              ? "inline-flex h-7 items-center gap-1 rounded-full border border-[#384152] bg-[#384152] px-2 text-xs font-semibold text-white hover:bg-[#111827] disabled:cursor-not-allowed disabled:border-[#dfe6f4] disabled:bg-[#f7f8fa] disabled:text-[#8b8f94]"
+                              : "inline-flex h-7 items-center gap-1 rounded-md border border-[#171a1f] bg-[#171a1f] px-2 text-xs font-semibold text-white hover:bg-[#2a2f37] disabled:cursor-not-allowed disabled:border-[#dde2ea] disabled:bg-[#f7f8fa] disabled:text-[#8b8f94]"
+                          }
                         >
                           {saving ? (
                             <Loader2 size={12} className="animate-spin" />
@@ -1308,17 +1528,27 @@ export default function WorkspaceExplorer({
                     )}
                   </div>
                   {saveError && (
-                    <div className="m-3 mb-0 flex items-start gap-2 rounded-md border border-[#cf222e]/25 bg-[#ffebe9] p-3 text-xs font-medium text-[#cf222e]">
+                    <div className="m-3 mb-0 flex items-start gap-2 rounded-xl border border-[#cf222e]/25 bg-[#ffebe9] p-3 text-xs font-medium text-[#cf222e]">
                       <AlertTriangle size={14} className="mt-0.5 shrink-0" />
                       <span>{saveError}</span>
                     </div>
                   )}
                   {imagePreviewUrl ? (
-                    <div className="flex min-h-[300px] flex-1 items-center justify-center overflow-auto bg-[#f8fafc] p-6">
+                    <div
+                      className={
+                        isPagePresentation
+                          ? "flex min-h-[300px] flex-1 items-center justify-center overflow-auto bg-[#fbfdff] p-6"
+                          : "flex min-h-[300px] flex-1 items-center justify-center overflow-auto bg-[#f8fafc] p-6"
+                      }
+                    >
                       <img
                         src={imagePreviewUrl}
                         alt={preview.name}
-                        className="max-h-[480px] max-w-full rounded-md border border-[#e2e8f0] bg-white object-contain p-1.5 shadow-sm transition-all hover:shadow"
+                        className={
+                          isPagePresentation
+                            ? "max-h-[480px] max-w-full rounded-2xl border border-[#dfe6f4] bg-white object-contain p-1.5 shadow-[0_14px_34px_rgba(44,63,123,0.06)] transition-all hover:shadow-[0_18px_42px_rgba(44,63,123,0.10)]"
+                            : "max-h-[480px] max-w-full rounded-md border border-[#e2e8f0] bg-white object-contain p-1.5 shadow-sm transition-all hover:shadow"
+                        }
                       />
                     </div>
                   ) : isEditing ? (
@@ -1326,14 +1556,31 @@ export default function WorkspaceExplorer({
                       value={draft}
                       onChange={(event) => setDraft(event.target.value)}
                       spellCheck={false}
-                      className="min-h-0 flex-1 resize-none overflow-auto border-0 bg-white p-3 font-[family-name:var(--font-mono)] text-[12px] leading-relaxed text-[#171a1f] outline-none"
+                      className={
+                        isPagePresentation
+                          ? "min-h-0 flex-1 resize-none overflow-auto border-0 bg-[#ffffff] p-4 font-[family-name:var(--font-mono)] text-[12px] leading-relaxed text-[#111827] outline-none"
+                          : "min-h-0 flex-1 resize-none overflow-auto border-0 bg-white p-3 font-[family-name:var(--font-mono)] text-[12px] leading-relaxed text-[#171a1f] outline-none"
+                      }
                     />
                   ) : (
-                    <div ref={preContainerRef} className="min-h-0 flex-1 overflow-auto bg-white">
+                    <div
+                      ref={preContainerRef}
+                      className={
+                        isPagePresentation
+                          ? "min-h-0 flex-1 overflow-auto bg-[#ffffff] p-4"
+                          : "min-h-0 flex-1 overflow-auto bg-white"
+                      }
+                    >
                       {(() => {
                         const lines = preview.content.split("\n");
                         return (
-                          <div className="py-2">
+                          <div
+                            className={
+                              isPagePresentation
+                                ? "rounded-2xl border border-[#dfe6f4]/80 bg-white/70 py-3 shadow-[0_14px_34px_rgba(44,63,123,0.06),inset_0_1px_0_rgba(255,255,255,0.72)]"
+                                : "py-2"
+                            }
+                          >
                             {lines.map((line, idx) => {
                               const lineNum = idx + 1;
                               const isLineHighlighted = highlightedLine === lineNum;
@@ -1343,14 +1590,18 @@ export default function WorkspaceExplorer({
                                   ref={isLineHighlighted ? highlightedLineRef : undefined}
                                   className={`flex min-w-0 items-start font-[family-name:var(--font-mono)] text-[12px] leading-relaxed transition-colors ${
                                     isLineHighlighted
-                                      ? "border-l-2 border-[#bf8700] bg-[#fff8c5] pl-[10px]"
-                                      : "pl-3 hover:bg-[#f8fafc]"
+                                      ? isPagePresentation
+                                        ? "border-l-4 border-[#2463eb] bg-[#eef4ff] pl-2"
+                                        : "border-l-2 border-[#2463eb] bg-[#eef4ff] pl-[10px]"
+                                      : isPagePresentation
+                                        ? "pl-3 hover:bg-[#f7f8fa]"
+                                        : "pl-3 hover:bg-[#f8fafc]"
                                   }`}
                                 >
                                   <span className="w-9 shrink-0 pr-3 text-right text-[#afb1b7] select-none">
                                     {lineNum}
                                   </span>
-                                  <span className="flex-1 break-all whitespace-pre-wrap text-[#171a1f]">
+                                  <span className="flex-1 break-all whitespace-pre-wrap text-[#111827]">
                                     {line || " "}
                                   </span>
                                 </div>
@@ -1363,12 +1614,12 @@ export default function WorkspaceExplorer({
                   )}
                 </div>
               ) : (
-                <div className="flex h-full items-center justify-center px-4 text-center text-sm font-medium text-[#68707d]">
+                <div className="flex h-full items-center justify-center px-4 text-center text-sm font-medium text-[#667085]">
                   Select a file
                 </div>
               )}
             </div>
-          </div>
+          </section>
         )}
       </div>
 

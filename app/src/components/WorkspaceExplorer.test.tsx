@@ -92,6 +92,48 @@ function testWorkspaceExplorerPageStacksHeaderControlsAwayFromTitle() {
 
 testWorkspaceExplorerPageStacksHeaderControlsAwayFromTitle();
 
+function testWorkspaceExplorerPageShowsMobileParentFolderControl() {
+  const html = renderExplorer({
+    presentation: "page",
+    testInitialListing: {
+      path: "/workspace/novel",
+      parent_path: "/workspace",
+      entries: [],
+    },
+  });
+
+  assert.match(html, /data-ripple-files-action="parent-folder"/);
+  assert.match(html, /aria-label="Go to parent folder"/);
+  assert.match(html, /data-ripple-files-action="parent-folder"[^>]*lg:hidden/);
+}
+
+testWorkspaceExplorerPageShowsMobileParentFolderControl();
+
+function testWorkspaceExplorerPageDifferentiatesUploadFromParentFolder() {
+  const html = renderExplorer({
+    presentation: "page",
+    testInitialListing: {
+      path: "/workspace/novel",
+      parent_path: "/workspace",
+      entries: [],
+    },
+  });
+
+  const parentButton = html.match(
+    /<button[^>]*data-ripple-files-action="parent-folder"[^>]*>/
+  )?.[0];
+  const uploadButton = html.match(/<button[^>]*data-ripple-files-action="upload"[^>]*>/)?.[0];
+
+  assert.ok(parentButton);
+  assert.ok(uploadButton);
+  assert.match(parentButton, /border-\[#dfe6f4\]/);
+  assert.match(parentButton, /bg-white\/78/);
+  assert.match(uploadButton, /border-\[#2463eb\]/);
+  assert.match(uploadButton, /bg-\[#2463eb\]/);
+}
+
+testWorkspaceExplorerPageDifferentiatesUploadFromParentFolder();
+
 function testWorkspaceExplorerPageMergesRepeatedLocationLabels() {
   const html = renderExplorer({ presentation: "page" });
 

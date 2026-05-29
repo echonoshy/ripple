@@ -50,6 +50,7 @@ interface WorkspaceExplorerProps {
   presentation?: "compact" | "page";
   onBack?: () => void;
   testInitialPreview?: WorkspaceFilePreview;
+  testInitialListing?: WorkspaceListing;
 }
 
 const SPLIT_PERCENT_STORAGE_KEY = "ripple.workspaceExplorer.splitPercent";
@@ -152,11 +153,16 @@ export default function WorkspaceExplorer({
   presentation = "compact",
   onBack,
   testInitialPreview,
+  testInitialListing,
 }: WorkspaceExplorerProps) {
-  const initialPath = workspaceLastPathCache.get(userId) || DEFAULT_WORKSPACE_PATH;
+  const initialPath =
+    testInitialListing?.path || workspaceLastPathCache.get(userId) || DEFAULT_WORKSPACE_PATH;
   const [currentPath, setCurrentPath] = useState(initialPath);
   const [listing, setListing] = useState<WorkspaceListing | null>(
-    () => workspaceListingCache.get(workspaceCacheKey(userId, initialPath)) || null
+    () =>
+      testInitialListing ||
+      workspaceListingCache.get(workspaceCacheKey(userId, initialPath)) ||
+      null
   );
   const [preview, setPreview] = useState<WorkspaceFilePreview | null>(testInitialPreview || null);
   const [draft, setDraft] = useState("");
@@ -849,6 +855,12 @@ export default function WorkspaceExplorer({
     ? searchModeLabel(searchScope)
     : listing?.path || currentPath;
   const isPagePresentation = presentation === "page";
+  const pageToolbarIconButtonClass =
+    "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#dfe6f4] bg-white/78 text-[#384152] shadow-[0_10px_24px_rgba(44,63,123,0.06)] transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-50";
+  const pageToolbarPrimaryButtonClass =
+    "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#2463eb] bg-[#2463eb] text-white shadow-[0_10px_24px_rgba(36,99,235,0.2)] transition-colors hover:bg-[#1d56d8] disabled:cursor-not-allowed disabled:opacity-60";
+  const pageParentButtonClass =
+    "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-[#dfe6f4] bg-white/78 px-2.5 text-[12px] font-semibold text-[#384152] shadow-[0_10px_24px_rgba(44,63,123,0.06)] transition-colors hover:bg-white lg:hidden";
 
   return (
     <div
@@ -937,22 +949,40 @@ export default function WorkspaceExplorer({
                 aria-label="Search workspace files"
                 className={
                   isPagePresentation
-                    ? "h-8 w-full rounded-full border border-[#dfe6f4] bg-white/72 pr-3 pl-9 text-sm text-[#111827] shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] outline-none placeholder:text-xs placeholder:text-[#8b8f94] focus:border-[#2463eb]"
+                    ? "h-9 w-full rounded-lg border border-[#dfe6f4] bg-white/84 pr-3 pl-9 text-sm text-[#111827] shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] outline-none placeholder:text-xs placeholder:text-[#8b8f94] focus:border-[#2463eb]"
                     : "h-8 w-full rounded-full border border-[#e5e7eb] bg-white pr-2 pl-9 text-sm text-[#0d0d0d] outline-none placeholder:text-xs placeholder:text-[#8b8f94] focus:border-[#8da0ff]"
                 }
               />
             </div>
+            {isPagePresentation && listing?.parent_path && (
+              <button
+                type="button"
+                data-ripple-files-action="parent-folder"
+                className={pageParentButtonClass}
+                title="Go to parent folder"
+                aria-label="Go to parent folder"
+                onClick={() => void loadDirectory(listing.parent_path || DEFAULT_WORKSPACE_PATH)}
+              >
+                <ArrowUp size={15} />
+                <span>Up</span>
+              </button>
+            )}
             <button
               type="button"
-              className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border ${
-                isFilterOpen
-                  ? isPagePresentation
-                    ? "border-[#2463eb]/35 bg-[#eef4ff] text-[#384152]"
-                    : "border-[#2f6bff]/30 bg-[#eef4ff] text-[#2f6bff]"
-                  : isPagePresentation
-                    ? "border-[#dfe6f4] bg-white/74 text-[#667085] hover:bg-[#f7f8fa] hover:text-[#111827]"
-                    : "border-[#e5e7eb] bg-white text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
-              }`}
+              data-ripple-files-action="search-filters"
+              className={
+                isPagePresentation
+                  ? `inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border transition-colors ${
+                      isFilterOpen
+                        ? "border-[#d7e3f8] bg-[#eef4ff] text-[#2463eb]"
+                        : "border-[#dfe6f4] bg-white/78 text-[#384152] shadow-[0_10px_24px_rgba(44,63,123,0.06)] hover:bg-white"
+                    }`
+                  : `inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border ${
+                      isFilterOpen
+                        ? "border-[#2f6bff]/30 bg-[#eef4ff] text-[#2f6bff]"
+                        : "border-[#e5e7eb] bg-white text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
+                    }`
+              }
               title="Search filters"
               aria-label="Search filters"
               onClick={() => setIsFilterOpen((open) => !open)}
@@ -961,9 +991,10 @@ export default function WorkspaceExplorer({
             </button>
             <button
               type="button"
+              data-ripple-files-action="upload"
               className={
                 isPagePresentation
-                  ? "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#dfe6f4] bg-white/74 text-[#667085] hover:bg-[#f7f8fa] hover:text-[#111827] disabled:cursor-not-allowed disabled:opacity-50"
+                  ? pageToolbarPrimaryButtonClass
                   : "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#e5e7eb] bg-white text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d] disabled:cursor-not-allowed disabled:opacity-50"
               }
               title="Upload files"
@@ -976,8 +1007,9 @@ export default function WorkspaceExplorer({
             {isPagePresentation && (
               <button
                 type="button"
+                data-ripple-files-action="refresh"
                 onClick={() => void loadDirectory(currentPath)}
-                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#dfe6f4] bg-white/74 text-[#667085] hover:bg-[#f7f8fa] hover:text-[#111827] disabled:cursor-not-allowed disabled:opacity-50"
+                className={pageToolbarIconButtonClass}
                 title="Refresh workspace"
                 aria-label="Refresh workspace"
                 disabled={loading}

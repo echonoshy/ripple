@@ -41,7 +41,10 @@ testReservesIosSafeAreaAndStableTouchHeight();
 function testUsesQuietSelectedTabTreatment() {
   const html = renderMobileTabBar();
 
-  assert.match(html, /bg-\[#eef4ff\]/);
+  assert.match(html, /bg-white\/72/);
+  assert.match(html, /backdrop-blur-2xl/);
+  assert.match(html, /shadow-\[0_-12px_30px_rgba\(44,63,123,0\.10\)\]/);
+  assert.match(html, /bg-\[#eef4ff\]\/80/);
   assert.match(html, /text-\[#2463eb\]/);
   assert.doesNotMatch(html, /linear-gradient/);
   assert.doesNotMatch(html, /shadow-\[0_-14px_34px/);

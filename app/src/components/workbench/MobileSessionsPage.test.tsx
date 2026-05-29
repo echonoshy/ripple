@@ -53,13 +53,28 @@ function testRendersChatAppStyleSessionList() {
 function testUsesQuietAgentControlPlaneStyling() {
   const html = renderMobileSessionsPage();
 
-  assert.match(html, /bg-\[#eef4ff\]/);
-  assert.match(html, /border-\[#d7e3f8\]/);
+  assert.match(html, /bg-white\/70/);
+  assert.match(html, /backdrop-blur-xl/);
+  assert.match(html, /shadow-\[0_8px_24px_rgba\(44,63,123,0\.06\)\]/);
   assert.match(html, /rounded-lg/);
   assert.doesNotMatch(html, /bg-gradient/);
   assert.doesNotMatch(html, /linear-gradient/);
   assert.doesNotMatch(html, /radial-gradient/);
   assert.doesNotMatch(html, /rounded-\[18px\]/);
+}
+
+function testSessionRowsRemoveRepeatedChatIcon() {
+  const html = renderMobileSessionsPage();
+
+  assert.doesNotMatch(html, /lucide-message-circle/);
+}
+
+function testHeaderActionsUseSharedGlassTreatment() {
+  const html = renderMobileSessionsPage();
+
+  assert.match(html, /bg-white\/68/);
+  assert.match(html, /backdrop-blur-xl/);
+  assert.doesNotMatch(html, /border-\[#2463eb\] bg-\[#2463eb\] text-white/);
 }
 
 function testSessionRowsDoNotClipOptionsMenu() {
@@ -77,6 +92,8 @@ function testRendersEmptyStateWithNewSessionAction() {
 
 testRendersChatAppStyleSessionList();
 testUsesQuietAgentControlPlaneStyling();
+testSessionRowsRemoveRepeatedChatIcon();
+testHeaderActionsUseSharedGlassTreatment();
 testSessionRowsDoNotClipOptionsMenu();
 testRendersEmptyStateWithNewSessionAction();
 

@@ -13,7 +13,7 @@ use tokio::sync::OnceCell;
 use crate::config::AppConfig;
 use crate::sessions::SessionRecord;
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 3;
+pub const CURRENT_SCHEMA_VERSION: i64 = 4;
 
 #[derive(Clone)]
 pub struct Storage {
@@ -33,6 +33,13 @@ pub struct TokenUsageBreakdown {
     pub total_output_tokens: u64,
 }
 
+impl TokenUsageBreakdown {
+    pub fn total_tokens(&self) -> u64 {
+        self.total_input_tokens
+            .saturating_add(self.total_output_tokens)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FileRefRecord {
     pub file_id: String,
@@ -45,6 +52,14 @@ pub struct FileRefRecord {
     pub sha256: Option<String>,
     pub created_at: String,
     pub linked_session_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UserProfileRecord {
+    pub user_id: String,
+    pub avatar_uri: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -389,21 +404,53 @@ impl Storage {
         })
     }
 
-    pub async fn token_usage_by_period(&self, user_id: &str) -> anyhow::Result<(u64, u64)> {
+    pub async fn token_usage_by_period(
+        &self,
+        user_id: &str,
+    ) -> anyhow::Result<(TokenUsageBreakdown, TokenUsageBreakdown)> {
         self.initialize().await?;
-        let row_daily = sqlx::query("SELECT SUM(total_input_tokens + total_output_tokens) AS daily FROM sessions WHERE user_id = ? AND last_active >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-1 day')")
-            .bind(user_id)
-            .fetch_one(&self.pool)
-            .await?;
-        let daily = row_daily.get::<Option<i64>, _>("daily").unwrap_or(0);
+        let row_daily = sqlx::query(
+            r#"
+            SELECT
+              SUM(total_input_tokens) AS input,
+              SUM(total_output_tokens) AS output
+            FROM sessions
+            WHERE user_id = ?
+              AND last_active >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-1 day')
+            "#,
+        )
+        .bind(user_id)
+        .fetch_one(&self.pool)
+        .await?;
+        let daily_input = row_daily.get::<Option<i64>, _>("input").unwrap_or(0);
+        let daily_output = row_daily.get::<Option<i64>, _>("output").unwrap_or(0);
 
-        let row_weekly = sqlx::query("SELECT SUM(total_input_tokens + total_output_tokens) AS weekly FROM sessions WHERE user_id = ? AND last_active >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-7 days')")
-            .bind(user_id)
-            .fetch_one(&self.pool)
-            .await?;
-        let weekly = row_weekly.get::<Option<i64>, _>("weekly").unwrap_or(0);
+        let row_weekly = sqlx::query(
+            r#"
+            SELECT
+              SUM(total_input_tokens) AS input,
+              SUM(total_output_tokens) AS output
+            FROM sessions
+            WHERE user_id = ?
+              AND last_active >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-7 days')
+            "#,
+        )
+        .bind(user_id)
+        .fetch_one(&self.pool)
+        .await?;
+        let weekly_input = row_weekly.get::<Option<i64>, _>("input").unwrap_or(0);
+        let weekly_output = row_weekly.get::<Option<i64>, _>("output").unwrap_or(0);
 
-        Ok((i64_to_u64(daily)?, i64_to_u64(weekly)?))
+        Ok((
+            TokenUsageBreakdown {
+                total_input_tokens: i64_to_u64(daily_input)?,
+                total_output_tokens: i64_to_u64(daily_output)?,
+            },
+            TokenUsageBreakdown {
+                total_input_tokens: i64_to_u64(weekly_input)?,
+                total_output_tokens: i64_to_u64(weekly_output)?,
+            },
+        ))
     }
 
     pub async fn session_exists(&self, user_id: &str, session_id: &str) -> anyhow::Result<bool> {
@@ -439,6 +486,7 @@ impl Storage {
             "documents",
             "file_refs",
             "projects",
+            "user_profiles",
         ] {
             sqlx::query(&format!("DELETE FROM {table} WHERE user_id = ?"))
                 .bind(user_id)
@@ -447,6 +495,48 @@ impl Storage {
         }
         tx.commit().await?;
         Ok(())
+    }
+
+    pub async fn user_profile(&self, user_id: &str) -> anyhow::Result<Option<UserProfileRecord>> {
+        self.initialize().await?;
+        let row = sqlx::query(
+            r#"
+            SELECT user_id, avatar_uri, created_at, updated_at
+            FROM user_profiles
+            WHERE user_id = ?
+            "#,
+        )
+        .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.map(user_profile_from_row).transpose()
+    }
+
+    pub async fn upsert_user_avatar_uri(
+        &self,
+        user_id: &str,
+        avatar_uri: Option<&str>,
+    ) -> anyhow::Result<UserProfileRecord> {
+        self.initialize().await?;
+        let now = crate::auth::now_iso();
+        sqlx::query(
+            r#"
+            INSERT INTO user_profiles (user_id, avatar_uri, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                avatar_uri = excluded.avatar_uri,
+                updated_at = excluded.updated_at
+            "#,
+        )
+        .bind(user_id)
+        .bind(avatar_uri)
+        .bind(&now)
+        .bind(&now)
+        .execute(&self.pool)
+        .await?;
+        self.user_profile(user_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("failed to load user profile"))
     }
 
     pub async fn upsert_project(&self, record: &ProjectRecord) -> anyhow::Result<()> {
@@ -1311,6 +1401,15 @@ fn auth_user_from_row(row: sqlx::sqlite::SqliteRow) -> anyhow::Result<AuthUserRe
     })
 }
 
+fn user_profile_from_row(row: sqlx::sqlite::SqliteRow) -> anyhow::Result<UserProfileRecord> {
+    Ok(UserProfileRecord {
+        user_id: row.get("user_id"),
+        avatar_uri: row.get("avatar_uri"),
+        created_at: row.get("created_at"),
+        updated_at: row.get("updated_at"),
+    })
+}
+
 fn project_from_row(row: sqlx::sqlite::SqliteRow) -> anyhow::Result<ProjectRecord> {
     Ok(ProjectRecord {
         user_id: row.get("user_id"),
@@ -1460,6 +1559,13 @@ CREATE TABLE IF NOT EXISTS file_refs (
     linked_session_id TEXT
 );
 
+CREATE TABLE IF NOT EXISTS user_profiles (
+    user_id TEXT PRIMARY KEY NOT NULL,
+    avatar_uri TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS projects (
     user_id TEXT NOT NULL,
     project_id TEXT NOT NULL,
@@ -1590,8 +1696,13 @@ async fn ensure_schema_migrations(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await?;
     sqlx::query("INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (?, ?)")
-        .bind(CURRENT_SCHEMA_VERSION)
+        .bind(3_i64)
         .bind("project_context_v1")
+        .execute(pool)
+        .await?;
+    sqlx::query("INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (?, ?)")
+        .bind(4_i64)
+        .bind("user_profile_avatar_uri")
         .execute(pool)
         .await?;
     Ok(())
@@ -1693,6 +1804,104 @@ mod tests {
 
         assert_eq!(breakdown.total_input_tokens, 200);
         assert_eq!(breakdown.total_output_tokens, 50);
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn token_usage_by_period_sums_input_and_output_tokens() -> anyhow::Result<()> {
+        let root =
+            std::env::temp_dir().join(format!("ripple-storage-test-{}", uuid::Uuid::new_v4()));
+        let storage = Storage::open(root.join(".ripple/ripple.sqlite"))?;
+        let now = time::OffsetDateTime::now_utc();
+        let format_time = |time: time::OffsetDateTime| {
+            time.format(&time::format_description::well_known::Rfc3339)
+                .unwrap()
+        };
+        let mut record = SessionRecord {
+            session_id: "srv-token-window-daily".to_string(),
+            user_id: "alice".to_string(),
+            title: "tokens".to_string(),
+            pinned: false,
+            project_id: None,
+            project_name: None,
+            project_root: None,
+            model: "codex-test".to_string(),
+            max_turns: 200,
+            caller_system_prompt: None,
+            total_input_tokens: 120,
+            total_output_tokens: 30,
+            last_input_tokens: 120,
+            created_at: format_time(now - Duration::from_secs(2 * 60 * 60)),
+            last_active: format_time(now - Duration::from_secs(2 * 60 * 60)),
+            status: "idle".to_string(),
+            message_count: 1,
+            messages: Vec::new(),
+            pending_question: None,
+            pending_options: None,
+            pending_permission_request: None,
+            pending_connector_auth: None,
+            pending_schedule_request: None,
+            codex_thread_id: None,
+            plan_steps: Vec::new(),
+            plan_progress: None,
+        };
+        storage.save_session(&record).await?;
+
+        record.session_id = "srv-token-window-weekly".to_string();
+        record.total_input_tokens = 80;
+        record.total_output_tokens = 20;
+        record.last_active = format_time(now - Duration::from_secs(3 * 24 * 60 * 60));
+        storage.save_session(&record).await?;
+
+        record.session_id = "srv-token-window-old".to_string();
+        record.total_input_tokens = 40;
+        record.total_output_tokens = 10;
+        record.last_active = format_time(now - Duration::from_secs(9 * 24 * 60 * 60));
+        storage.save_session(&record).await?;
+
+        let (daily, weekly) = storage.token_usage_by_period("alice").await?;
+
+        assert_eq!(daily.total_input_tokens, 120);
+        assert_eq!(daily.total_output_tokens, 30);
+        assert_eq!(weekly.total_input_tokens, 200);
+        assert_eq!(weekly.total_output_tokens, 50);
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn user_profile_avatar_uri_is_persisted_without_image_blob() -> anyhow::Result<()> {
+        let root =
+            std::env::temp_dir().join(format!("ripple-storage-test-{}", uuid::Uuid::new_v4()));
+        let storage = Storage::open(root.join(".ripple/ripple.sqlite"))?;
+        let avatar_uri = "/v1/users/me/avatar/avatar.png";
+
+        assert!(storage.user_profile("alice").await?.is_none());
+
+        let profile = storage
+            .upsert_user_avatar_uri("alice", Some(avatar_uri))
+            .await?;
+        assert_eq!(profile.user_id, "alice");
+        assert_eq!(profile.avatar_uri.as_deref(), Some(avatar_uri));
+
+        let reloaded = storage
+            .user_profile("alice")
+            .await?
+            .expect("profile row should exist");
+        assert_eq!(reloaded.avatar_uri.as_deref(), Some(avatar_uri));
+
+        let cleared = storage.upsert_user_avatar_uri("alice", None).await?;
+        assert_eq!(cleared.avatar_uri, None);
+        assert_eq!(
+            storage
+                .user_profile("alice")
+                .await?
+                .and_then(|row| row.avatar_uri),
+            None
+        );
 
         let _ = std::fs::remove_dir_all(root);
         Ok(())

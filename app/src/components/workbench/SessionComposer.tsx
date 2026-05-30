@@ -447,7 +447,7 @@ export default function SessionComposer({
               ? "Ask anything..."
               : "Ask anything..."
       }
-      className={`session-composer-input mb-[2px] max-h-[104px] min-h-9 min-w-0 resize-none bg-transparent px-1.5 py-2 text-[15px] leading-5 text-[#111827] outline-none placeholder:text-[13px] placeholder:text-[#9aa3af] disabled:opacity-60 sm:mb-0 sm:max-h-[180px] sm:min-h-[36px] sm:px-2 sm:py-1.5 sm:text-[14px] sm:leading-6 sm:placeholder:text-[#8b8f94] ${
+      className={`session-composer-input mb-[2px] max-h-[104px] min-h-9 min-w-0 resize-none bg-transparent px-1.5 py-2 text-[14px] leading-5 text-[#111827] outline-none placeholder:text-[13px] placeholder:text-[#9aa3af] disabled:opacity-60 sm:mb-0 sm:max-h-[180px] sm:min-h-[36px] sm:px-2 sm:py-1.5 sm:text-[14px] sm:leading-6 sm:placeholder:text-[#8b8f94] ${
         isExpandedComposer ? "col-span-2 row-start-1 w-full" : "flex-1"
       }`}
     />

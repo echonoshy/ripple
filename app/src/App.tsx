@@ -807,7 +807,6 @@ export default function Home() {
         defaultModel={defaultModel}
         selectedModel={selectedModel}
         onSelectDefaultModel={handleSelectDefaultModel}
-        onSelectView={handleSelectView}
         onApiKeyChange={handleAuthReset}
       />
     ) : activeView === "files" ? (

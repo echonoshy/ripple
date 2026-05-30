@@ -254,9 +254,33 @@ function runtimeDiffSummary(event: CodexRuntimeEvent): string {
   return `${paths.length} ${noun} changed: ${visible.join(", ")}${more}`;
 }
 
+function projectSearchBody(event: CodexRuntimeEvent): string {
+  const matchCount = event.match_count ?? event.matches?.length ?? 0;
+  const scannedFiles = event.scanned_files ?? 0;
+  const lines = [
+    event.project_root ? `Scope: ${event.project_root}` : "",
+    event.query ? `Query: ${event.query}` : "",
+    `${matchCount} ${matchCount === 1 ? "match" : "matches"} from ${scannedFiles} scanned file${
+      scannedFiles === 1 ? "" : "s"
+    }${event.truncated ? " (truncated)" : ""}`,
+  ].filter(Boolean);
+
+  for (const item of event.matches?.slice(0, 4) || []) {
+    const path = item.path || "project file";
+    const location = typeof item.line === "number" ? `${path}:${item.line}` : path;
+    const snippet = item.snippet ? ` ${compactLine(item.snippet, 96)}` : "";
+    lines.push(`${location}${snippet}`);
+  }
+
+  return lines.join("\n");
+}
+
 function runtimeBody(event: CodexRuntimeEvent): string {
   if (event.type === "tool_output_delta") {
     return event.delta || stringifyRuntimeBody(event);
+  }
+  if (event.type === "project_file_search") {
+    return projectSearchBody(event);
   }
   if (event.type === "file_change_patch_updated") {
     return (
@@ -293,6 +317,7 @@ function runtimeTitle(event: CodexRuntimeEvent): string {
   if (event.type === "tool_output_delta") {
     return event.kind === "file_change" ? "File output" : "Command output";
   }
+  if (event.type === "project_file_search") return "Project file search";
   if (event.type === "file_change_patch_updated") return "File patch updated";
   if (event.type === "codex_warning") return "System warning";
   if (event.type === "codex_error") return "System error";
@@ -307,6 +332,7 @@ function runtimeTimelineType(event: CodexRuntimeEvent): WorkbenchTimelineEvent["
   if (event.type === "tool_output_delta") {
     return event.kind === "file_change" ? "file_change" : "command";
   }
+  if (event.type === "project_file_search") return "tool_call";
   if (event.type === "file_change_patch_updated" || event.type === "codex_turn_diff_updated") {
     return "file_change";
   }

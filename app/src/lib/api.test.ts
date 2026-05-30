@@ -9,6 +9,7 @@ import {
   createProject,
   createSchedule,
   createSession,
+  deleteUserAvatar,
   deleteProject,
   deleteSchedule,
   deleteSession,
@@ -16,6 +17,7 @@ import {
   fetchSchedules,
   fetchSessions,
   fetchSessionDetails,
+  fetchUserAvatarImage,
   fetchModels,
   fetchWorkspaceFilePreview,
   getApiOrigin,
@@ -30,6 +32,7 @@ import {
   updateProject,
   updateSchedule,
   updateSession,
+  uploadUserAvatar,
   disconnectConnector,
   clearApiKey,
   getAuthMode,
@@ -244,6 +247,72 @@ async function testChangePasswordPostsCurrentAndNewPassword() {
       body: { current_password: "old-password", new_password: "new-password" },
     },
   ]);
+}
+
+async function testAvatarApisUseServerProfileStorage() {
+  await withBrowserStorage(async () => {
+    setApiKey("service-key");
+    const seen: Array<{ url: string; method: string; headers: Headers; body: unknown }> = [];
+    await withFetch(
+      async (input, init) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        const headers = new Headers(init?.headers);
+        seen.push({ url, method, headers, body: init?.body ?? null });
+        if (url.endsWith("/users/me/avatar") && method === "POST") {
+          assert.ok(init?.body instanceof FormData);
+          assert.equal(headers.get("content-type"), null);
+          return new Response(
+            JSON.stringify({
+              user_id: "default",
+              profile: {
+                user_id: "default",
+                user_name: "default",
+                avatar_uri: "/v1/users/me/avatar/avatar.png",
+              },
+              avatar_uri: "/v1/users/me/avatar/avatar.png",
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        if (url.endsWith("/users/me/avatar/avatar.png") && method === "GET") {
+          return new Response("avatar-bytes", {
+            status: 200,
+            headers: { "Content-Type": "image/png" },
+          });
+        }
+        if (url.endsWith("/users/me/avatar") && method === "DELETE") {
+          return new Response(
+            JSON.stringify({
+              user_id: "default",
+              profile: { user_id: "default", user_name: "default", avatar_uri: null },
+              avatar_uri: null,
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        return response(404, "not found");
+      },
+      async () => {
+        const uploaded = await uploadUserAvatar(
+          new File([new Uint8Array([1, 2, 3])], "avatar.png", { type: "image/png" })
+        );
+        assert.equal(uploaded.profile?.avatar_uri, "/v1/users/me/avatar/avatar.png");
+
+        const blob = await fetchUserAvatarImage("/v1/users/me/avatar/avatar.png");
+        assert.equal(blob.type, "image/png");
+
+        const removed = await deleteUserAvatar();
+        assert.equal(removed.profile?.avatar_uri, null);
+      }
+    );
+
+    assert.equal(seen[0].method, "POST");
+    assert.equal(seen[0].headers.get("x-ripple-user-id"), "default");
+    assert.equal(seen[1].method, "GET");
+    assert.equal(seen[1].headers.get("authorization"), "Bearer service-key");
+    assert.equal(seen[2].method, "DELETE");
+  });
 }
 
 async function testAuthHeadersUseUserSessionWithoutSpoofableUserId() {
@@ -858,6 +927,7 @@ await testSessionIdIsEncodedInPath();
 await testScheduleIdIsEncodedInPath();
 await testConnectorManagementApisEncodeNamesAndPayloads();
 await testChangePasswordPostsCurrentAndNewPassword();
+await testAvatarApisUseServerProfileStorage();
 await testAuthHeadersUseUserSessionWithoutSpoofableUserId();
 await testAuthHeadersKeepServiceKeyUserIdCompatibility();
 testParseWorkspaceLinkDecodesEncodedSandboxPath();

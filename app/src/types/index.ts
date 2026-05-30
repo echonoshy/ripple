@@ -76,6 +76,18 @@ export interface UserLimits {
 
 export interface UserProfile {
   user_id: string;
+  avatar_uri?: string | null;
+  auth?: {
+    kind?: "open" | "service" | "user" | string;
+    effective_user_id?: string;
+  };
+  profile?: {
+    user_id?: string;
+    user_name?: string;
+    display_name?: string | null;
+    login?: string | null;
+    avatar_uri?: string | null;
+  };
   usage?: {
     workspace_size_bytes: number;
     session_count: number;
@@ -85,7 +97,11 @@ export interface UserProfile {
     total_input_tokens?: number;
     total_output_tokens?: number;
     daily_tokens?: number;
+    daily_input_tokens?: number;
+    daily_output_tokens?: number;
     weekly_tokens?: number;
+    weekly_input_tokens?: number;
+    weekly_output_tokens?: number;
   };
   limits?: UserLimits;
 }
@@ -311,6 +327,7 @@ export type CodexRuntimeEventType =
   | "codex_turn_diff_updated"
   | "tool_output_delta"
   | "file_change_patch_updated"
+  | "project_file_search"
   | "image_generation"
   | "image_view"
   | "codex_warning"
@@ -331,6 +348,16 @@ export interface CodexRuntimeEvent {
   patch?: unknown;
   changes?: unknown;
   status?: string;
+  project_root?: string;
+  query?: string;
+  match_count?: number;
+  scanned_files?: number;
+  truncated?: boolean;
+  matches?: Array<{
+    path?: string;
+    line?: number;
+    snippet?: string;
+  }>;
   workspace_path?: string;
   mime_type?: string;
   size?: number;

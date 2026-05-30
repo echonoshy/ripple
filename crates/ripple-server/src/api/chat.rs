@@ -32,6 +32,7 @@ use crate::user::user_id_from_headers;
 mod connector_auth;
 mod input;
 mod media;
+mod project_context;
 mod prompt;
 mod title;
 mod wire;
@@ -49,6 +50,7 @@ pub(crate) use media::{
 };
 #[cfg(test)]
 use media::{decode_base64_image_payload, workspace_path_or_none};
+use project_context::collect_project_file_context;
 pub(crate) use prompt::build_codex_chat_prompt;
 use title::spawn_session_title_generation;
 use wire::{
@@ -93,6 +95,8 @@ struct CodexChatStart {
     attachment_items: Vec<Value>,
     caller_system_prompt: Option<String>,
     prefix_event: Option<Value>,
+    project_file_evidence: Option<String>,
+    project_context_event: Option<Value>,
 }
 
 struct CodexChatStream {
@@ -106,6 +110,7 @@ struct CodexChatStream {
     user_input: String,
     user_content: Value,
     prefix_event: Option<Value>,
+    project_context_event: Option<Value>,
 }
 
 struct ChatRunFinal {
@@ -210,6 +215,11 @@ pub async fn chat_completions(
             assert_can_create_run(&state, &user_id, state.config.codex.max_runtime_seconds).await?;
             session.set_status(SessionStatus::Running);
             state.sessions.save_record(session.clone()).await?;
+            let project_context = collect_project_file_context(
+                &workspace_root,
+                session.project_root.as_deref(),
+                &resume_user_input,
+            );
             let start = CodexChatStart {
                 state,
                 user_id,
@@ -224,6 +234,10 @@ pub async fn chat_completions(
                 attachment_items: Vec::new(),
                 caller_system_prompt: effective_caller_system_prompt.clone(),
                 prefix_event: Some(public_connector_auth_event(&decision.event)),
+                project_file_evidence: project_context
+                    .as_ref()
+                    .map(|context| context.prompt_section.clone()),
+                project_context_event: project_context.map(|context| context.runtime_event),
             };
             let info = create_codex_chat_run_marking_start_failure(&start).await?;
             drop(session_run_guard);
@@ -249,6 +263,11 @@ pub async fn chat_completions(
     session.set_status(SessionStatus::Running);
     state.sessions.save_record(session.clone()).await?;
 
+    let project_context = collect_project_file_context(
+        &workspace_root,
+        session.project_root.as_deref(),
+        &user_input,
+    );
     let start = CodexChatStart {
         state,
         user_id,
@@ -263,6 +282,10 @@ pub async fn chat_completions(
         attachment_items,
         caller_system_prompt: effective_caller_system_prompt,
         prefix_event: None,
+        project_file_evidence: project_context
+            .as_ref()
+            .map(|context| context.prompt_section.clone()),
+        project_context_event: project_context.map(|context| context.runtime_event),
     };
     let info = create_codex_chat_run_marking_start_failure(&start).await?;
     drop(session_run_guard);
@@ -277,6 +300,7 @@ async fn create_codex_chat_run(args: &CodexChatStart) -> Result<AgentRunInfo, Ap
         &args.workspace_root,
         args.session.project_name.as_deref(),
         args.session.project_root.as_deref(),
+        args.project_file_evidence.as_deref(),
         &args.user_input,
         &args.attachment_items,
         args.caller_system_prompt.as_deref(),
@@ -354,6 +378,8 @@ async fn finish_codex_chat_response(
         attachment_items: _,
         caller_system_prompt: _,
         prefix_event,
+        project_file_evidence: _,
+        project_context_event,
     } = args;
 
     if request.stream.unwrap_or(false) {
@@ -368,6 +394,7 @@ async fn finish_codex_chat_response(
             user_input,
             user_content,
             prefix_event,
+            project_context_event,
         }));
     }
 
@@ -425,6 +452,9 @@ async fn finish_codex_chat_response(
     payload["usage"] = usage;
     if let Some(event) = prefix_event {
         payload["connector_auth"] = event;
+    }
+    if let Some(event) = project_context_event {
+        payload["project_file_search"] = event;
     }
     let mut response = Json(payload).into_response();
     response.headers_mut().insert(
@@ -507,6 +537,11 @@ pub async fn poll_session_connector_auth(
             .unwrap_or("")
             .to_string();
         let caller_system_prompt = session.caller_system_prompt.clone();
+        let project_context = collect_project_file_context(
+            &workspace_root,
+            session.project_root.as_deref(),
+            &user_input,
+        );
         let start = CodexChatStart {
             state,
             user_id,
@@ -521,6 +556,10 @@ pub async fn poll_session_connector_auth(
             attachment_items: Vec::new(),
             caller_system_prompt,
             prefix_event: Some(public_connector_auth_event(&decision.event)),
+            project_file_evidence: project_context
+                .as_ref()
+                .map(|context| context.prompt_section.clone()),
+            project_context_event: project_context.map(|context| context.runtime_event),
         };
         let info = create_codex_chat_run_marking_start_failure(&start).await?;
         drop(session_run_guard);
@@ -653,6 +692,7 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
         user_input,
         user_content,
         prefix_event,
+        project_context_event,
     } = args;
     let session_id = session.session_id.clone();
     let chunk_id = format!("chatcmpl-{}", &Uuid::new_v4().simple().to_string()[..24]);
@@ -670,6 +710,9 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
             }
         } else {
             yield Ok::<Bytes, Infallible>(Bytes::from(chunk(&chunk_id, &model, created, json!({"role": "assistant"}), None)));
+        }
+        if let Some(event) = project_context_event {
+            yield Ok::<Bytes, Infallible>(sse_json(&event));
         }
         let mut offset = 0_usize;
         let mut emitted = String::new();
@@ -1329,6 +1372,7 @@ mod tests {
             &workspace_root,
             None,
             None,
+            None,
             "hello",
             &[],
             None,
@@ -1339,6 +1383,36 @@ mod tests {
         assert!(
             prompt.contains("Do not install temporary Python packages with pip install --target")
         );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn codex_chat_prompt_prefers_project_files_with_web_as_supplement() {
+        let root = std::env::temp_dir().join(format!("ripple-chat-test-{}", Uuid::new_v4()));
+        let state = AppState::new(test_config(&root));
+        let workspace_root = state
+            .sandboxes
+            .ensure_sandbox("alice")
+            .expect("create sandbox");
+
+        let prompt = build_codex_chat_prompt(
+            &state,
+            "alice",
+            "session-1",
+            &workspace_root,
+            Some("genius_club"),
+            Some("/workspace/genius_club"),
+            Some("Matches:\n1. /workspace/genius_club/001.txt:1\n   天才俱乐部成员名单"),
+            "天才俱乐部成员分别是谁？",
+            &[],
+            None,
+        );
+
+        assert!(prompt.contains("Use local project files first"));
+        assert!(prompt.contains("Use web_search as a supplement"));
+        assert!(prompt.contains("Project File Evidence"));
+        assert!(prompt.contains("/workspace/genius_club/001.txt:1"));
 
         let _ = std::fs::remove_dir_all(root);
     }

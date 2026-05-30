@@ -13,6 +13,7 @@ pub(crate) fn build_codex_chat_prompt(
     workspace_root: &FsPath,
     project_name: Option<&str>,
     project_root: Option<&str>,
+    project_file_evidence: Option<&str>,
     user_input: &str,
     attachment_items: &[Value],
     system_prompt: Option<&str>,
@@ -43,9 +44,14 @@ pub(crate) fn build_codex_chat_prompt(
     };
     let project_section = match (project_name, project_root) {
         (Some(name), Some(root)) => format!(
-            "- Project name: {name}\n- Project root: {root}\n- Use this project root as the default context for reading, writing, commands, and file references unless the user explicitly asks for another workspace path."
+            "- Project name: {name}\n- Project root: {root}\n- Use this project root as the default context for reading, writing, commands, and file references unless the user explicitly asks for another workspace path.\n- Use local project files first for questions about this project.\n- Use web_search as a supplement when the user explicitly asks for online/latest information or when local project evidence is insufficient. When using web_search, distinguish local evidence from web-sourced additions."
         ),
         _ => "- Project name: (none)\n- Project root: /workspace".to_string(),
+    };
+    let project_file_evidence_section = match project_file_evidence {
+        Some(section) if !section.trim().is_empty() => section.trim().to_string(),
+        _ if project_root.is_some() => "No automatic project file evidence was collected. Search or read files under the project root before using web_search unless the user explicitly asked for online/latest information.".to_string(),
+        _ => "(none)".to_string(),
     };
     format!(
         "You are Codex, running as Ripple's trusted execution plane.\n\
@@ -55,6 +61,8 @@ Ripple is the control plane: it owns user identity, sandbox isolation, connector
 - session_id: {session_id}\n\
 - workspace: current working directory\n\n\
 ## Ripple Project\n\
+{}\n\n\
+## Project File Evidence\n\
 {}\n\n\
 ## Connector Status\n\
 {}\n\n\
@@ -75,6 +83,7 @@ Ripple is the control plane: it owns user identity, sandbox isolation, connector
 ## Current User Request\n\
 {}\n",
         project_section,
+        project_file_evidence_section,
         connector_manifest(state, user_id),
         render_skill_manifest(&state.config, Some(workspace_root)),
         system_prompt.unwrap_or("(none)"),

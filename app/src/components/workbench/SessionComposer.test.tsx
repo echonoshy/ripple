@@ -128,7 +128,8 @@ function testComposerClearsIosHomeIndicatorAndUsesTouchSizedActions() {
 
   assert.match(html, /pb-\[max\(env\(safe-area-inset-bottom\),8px\)\]/);
   assert.match(html, /h-10 w-10/);
-  assert.match(html, /text-\[15px\][^"]*sm:text-\[14px\]/);
+  assert.match(html, /session-composer-input[^"]*text-\[14px\][^"]*sm:text-\[14px\]/);
+  assert.doesNotMatch(html, /session-composer-input[^"]*text-\[15px\]/);
 }
 
 function testComposerExpandsActionsBelowTextAfterInput() {

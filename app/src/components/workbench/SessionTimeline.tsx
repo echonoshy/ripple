@@ -192,7 +192,7 @@ export default function SessionTimeline({
           </IconTile>
           <div className="text-[12px] font-semibold text-[#111827]">Ready</div>
           <div className="mt-1 max-w-xl text-[12px] leading-5 text-[#667085]">
-            Start a session and your workspace activity will appear here as a timeline.
+            Activity will appear here.
           </div>
         </div>
       </div>

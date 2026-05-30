@@ -418,6 +418,28 @@ function testMapsCodexRuntimeEventsIntoTimelineEvents() {
   assert.equal(imageEvent.mimeType, "image/png");
   assert.equal(imageEvent.size, 128);
   assert.match(imageEvent.body, /studio toy photo/);
+
+  const projectSearchEvent = codexRuntimeEventToTimelineEvent(
+    {
+      type: "project_file_search",
+      id: "project-search-1",
+      status: "completed",
+      project_root: "/workspace/genius_club",
+      query: "天才俱乐部成员分别是谁？",
+      match_count: 2,
+      scanned_files: 12,
+      matches: [
+        { path: "/workspace/genius_club/001.txt", line: 8, snippet: "天才俱乐部成员名单" },
+        { path: "/workspace/genius_club/489.txt", line: 20, snippet: "结局相关片段" },
+      ],
+    } as CodexRuntimeEvent,
+    { id: "runtime-6" }
+  );
+  assert.equal(projectSearchEvent.type, "tool_call");
+  assert.equal(projectSearchEvent.title, "Project file search");
+  assert.match(projectSearchEvent.body, /genius_club/);
+  assert.match(projectSearchEvent.body, /2 matches/);
+  assert.match(projectSearchEvent.body, /001\.txt:8/);
 }
 
 function testMapsMessageImageArtifactsIntoTimelineEvents() {

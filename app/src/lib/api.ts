@@ -441,6 +441,7 @@ const CODEX_RUNTIME_EVENT_TYPES = new Set<CodexRuntimeEvent["type"]>([
   "codex_turn_diff_updated",
   "tool_output_delta",
   "file_change_patch_updated",
+  "project_file_search",
   "image_generation",
   "image_view",
   "codex_warning",
@@ -1621,6 +1622,46 @@ export async function fetchUserProfile(): Promise<UserProfile> {
   if (!res.ok) throw new Error("Failed to fetch user profile");
   const data = (await res.json()) as unknown;
   return data as UserProfile;
+}
+
+export async function uploadUserAvatar(file: File): Promise<UserProfile> {
+  const form = new FormData();
+  form.append("avatar", file);
+  const res = await fetch(`${API_URL}/users/me/avatar`, {
+    method: "POST",
+    headers: { ...authHeaders() },
+    body: form,
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to upload avatar (${res.status})`);
+  }
+  return (await res.json()) as UserProfile;
+}
+
+export async function deleteUserAvatar(): Promise<UserProfile> {
+  const res = await fetch(`${API_URL}/users/me/avatar`, {
+    method: "DELETE",
+    headers: { ...authHeaders() },
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to remove avatar (${res.status})`);
+  }
+  return (await res.json()) as UserProfile;
+}
+
+export async function fetchUserAvatarImage(avatarUri: string): Promise<Blob> {
+  const href = resolveBackendUrl(avatarUri) ?? avatarUri;
+  const res = await fetch(href, { headers: { ...authHeaders() } });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to fetch avatar (${res.status})`);
+  }
+  return res.blob();
 }
 
 export async function startConnectorAuth(

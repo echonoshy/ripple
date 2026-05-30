@@ -127,6 +127,15 @@ pub fn router(state: AppState) -> Router {
         .route("/diagnostics/doctor", get(health::doctor))
         .route("/users/me", get(users::current_user_profile))
         .route(
+            "/users/me/avatar",
+            post(users::upload_user_avatar)
+                .delete(users::delete_user_avatar)
+                .layer(DefaultBodyLimit::max(
+                    users::USER_AVATAR_UPLOAD_BODY_LIMIT_BYTES,
+                )),
+        )
+        .route("/users/me/avatar/:file_name", get(users::get_user_avatar))
+        .route(
             "/projects",
             get(projects::list_projects).post(projects::create_project),
         )
@@ -583,6 +592,36 @@ mod tests {
         (status, value)
     }
 
+    async fn request_bytes(
+        state: AppState,
+        method: Method,
+        path: &str,
+        key: &str,
+        user_id: Option<&str>,
+        content_type: Option<&str>,
+        body: Vec<u8>,
+    ) -> (StatusCode, axum::http::HeaderMap, Vec<u8>) {
+        let mut builder = Request::builder().method(method).uri(path);
+        builder = builder.header(header::AUTHORIZATION, format!("Bearer {key}"));
+        if let Some(user_id) = user_id {
+            builder = builder.header("X-Ripple-User-Id", user_id);
+        }
+        if let Some(content_type) = content_type {
+            builder = builder.header(header::CONTENT_TYPE, content_type);
+        }
+        let response = router(state)
+            .oneshot(builder.body(Body::from(body)).unwrap())
+            .await
+            .unwrap();
+        let status = response.status();
+        let headers = response.headers().clone();
+        let bytes = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap()
+            .to_vec();
+        (status, headers, bytes)
+    }
+
     #[tokio::test]
     async fn service_key_uses_trusted_header_user() {
         let state = test_state(vec!["service-key".to_string()]);
@@ -628,6 +667,76 @@ mod tests {
             body.pointer("/auth/kind").and_then(Value::as_str),
             Some("service")
         );
+    }
+
+    #[tokio::test]
+    async fn avatar_upload_persists_profile_uri_and_serves_image_file() {
+        let state = test_state(vec!["service-key".to_string()]);
+        let boundary = "ripple-avatar-boundary";
+        let avatar_bytes = b"\x89PNG\r\n\x1a\nripple-avatar";
+        let mut body = Vec::new();
+        body.extend_from_slice(
+            format!(
+                "--{boundary}\r\nContent-Disposition: form-data; name=\"avatar\"; filename=\"avatar.png\"\r\nContent-Type: image/png\r\n\r\n"
+            )
+            .as_bytes(),
+        );
+        body.extend_from_slice(avatar_bytes);
+        body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+
+        let (status, _, bytes) = request_bytes(
+            state.clone(),
+            Method::POST,
+            "/v1/users/me/avatar",
+            "service-key",
+            Some("avatar-user"),
+            Some(&format!("multipart/form-data; boundary={boundary}")),
+            body,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let uploaded: Value = serde_json::from_slice(&bytes).unwrap();
+        let avatar_uri = uploaded
+            .pointer("/profile/avatar_uri")
+            .and_then(Value::as_str)
+            .expect("avatar uri should be present");
+        assert!(avatar_uri.starts_with("/v1/users/me/avatar/"));
+
+        let (status, profile) = request_json(
+            state.clone(),
+            Method::GET,
+            "/v1/users/me",
+            "service-key",
+            Some("avatar-user"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            profile
+                .pointer("/profile/avatar_uri")
+                .and_then(Value::as_str),
+            Some(avatar_uri)
+        );
+
+        let (status, headers, bytes) = request_bytes(
+            state,
+            Method::GET,
+            avatar_uri,
+            "service-key",
+            Some("avatar-user"),
+            None,
+            Vec::new(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            headers
+                .get(header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok()),
+            Some("image/png")
+        );
+        assert_eq!(bytes, avatar_bytes);
     }
 
     #[tokio::test]

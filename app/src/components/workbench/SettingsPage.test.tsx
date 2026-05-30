@@ -21,7 +21,21 @@ function renderSettingsPage() {
       selectedModel="codex-medium"
       onApiKeyChange={noop}
       onSelectDefaultModel={noop}
-      onSelectView={noop}
+    />
+  );
+}
+
+function renderServiceSettingsPage() {
+  return renderToStaticMarkup(
+    <SettingsPage
+      userId="lake"
+      apiKey="rip_1234567890"
+      authMode="service"
+      models={[{ id: "codex-medium", owned_by: "ripple" }]}
+      defaultModel="codex-medium"
+      selectedModel="codex-medium"
+      onApiKeyChange={noop}
+      onSelectDefaultModel={noop}
     />
   );
 }
@@ -40,7 +54,6 @@ function renderSettingsPageWithDifferentCurrentAndDefaultModel() {
       selectedModel="codex-medium"
       onApiKeyChange={noop}
       onSelectDefaultModel={noop}
-      onSelectView={noop}
     />
   );
 }
@@ -51,14 +64,47 @@ function testSettingsPageHasExpectedUserSections() {
   assert.match(html, />Ripple/);
   assert.match(html, />Settings/);
   assert.match(html, />Account/);
-  assert.match(html, />Connected Accounts/);
+  assert.doesNotMatch(html, />Connected Accounts/);
   assert.match(html, />Usage &amp; Limits/);
   assert.match(html, />Defaults/);
   assert.match(html, />About &amp; Diagnostics/);
   assert.match(html, />Default model/);
   assert.match(html, />Sign out/);
   assert.match(html, />Change password/);
+  assert.match(html, />Invite account/);
+  assert.match(html, />DE</);
+  assert.match(html, />Upload avatar/);
+  assert.doesNotMatch(html, />Default avatars/);
   assert.doesNotMatch(html, /Switch workspace/);
+}
+
+function testSettingsPageShowsDeveloperModeForServiceAccess() {
+  const html = renderServiceSettingsPage();
+
+  assert.match(html, />Developer mode/);
+  assert.match(html, />API key access/);
+  assert.match(html, />Change access/);
+  assert.match(html, />LA</);
+  assert.match(html, />Upload avatar/);
+  assert.doesNotMatch(html, />Default avatars/);
+  assert.doesNotMatch(html, />Change password/);
+}
+
+function testSettingsPageSupportsLocalAvatarUpload() {
+  const source = readFileSync(new URL("./SettingsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /deriveAvatarInitials/);
+  assert.match(source, /avatarFileInputRef/);
+  assert.match(source, /accept="image\/\*"/);
+  assert.match(source, /uploadUserAvatar/);
+  assert.match(source, /deleteUserAvatar/);
+  assert.match(source, /fetchUserAvatarImage/);
+  assert.doesNotMatch(source, /FileReader/);
+  assert.doesNotMatch(source, /readAsDataURL/);
+  assert.doesNotMatch(source, /getClientStorage/);
+  assert.doesNotMatch(source, /localStorage/);
+  assert.doesNotMatch(source, /DEFAULT_AVATARS/);
+  assert.doesNotMatch(source, /handleAvatarSelect/);
 }
 
 function testSettingsPageDoesNotDuplicatePrimaryWorkspaceTabs() {
@@ -87,6 +133,7 @@ function testSettingsPageReservesMobileTopSafeArea() {
 
 function testSettingsPageUsesInlineModelMenuAndTokenBreakdown() {
   const source = readFileSync(new URL("./SettingsPage.tsx", import.meta.url), "utf8");
+  const html = renderSettingsPage();
 
   assert.doesNotMatch(source, /<select/);
   assert.match(source, /isModelMenuOpen/);
@@ -98,7 +145,29 @@ function testSettingsPageUsesInlineModelMenuAndTokenBreakdown() {
   assert.doesNotMatch(source, /absolute top-full/);
   assert.match(source, /total_input_tokens/);
   assert.match(source, /total_output_tokens/);
+  assert.match(source, /daily_input_tokens/);
+  assert.match(source, /daily_output_tokens/);
+  assert.match(source, /weekly_input_tokens/);
+  assert.match(source, /weekly_output_tokens/);
   assert.doesNotMatch(source, /label="Connectors"/);
+  assert.match(html, />24h input/);
+  assert.match(html, />24h output/);
+  assert.match(html, />7d input/);
+  assert.match(html, />7d output/);
+  assert.match(html, />Total input/);
+  assert.match(html, />Total output/);
+  assert.doesNotMatch(html, />24h total/);
+  assert.doesNotMatch(html, />7d total/);
+  assert.match(html, />Input and output are shown separately for each window/);
+}
+
+function testSettingsPageDoesNotFetchConnectorData() {
+  const source = readFileSync(new URL("./SettingsPage.tsx", import.meta.url), "utf8");
+
+  assert.doesNotMatch(source, /fetchConnectors/);
+  assert.doesNotMatch(source, /fetchConnectorStatuses/);
+  assert.doesNotMatch(source, /connectorReadinessSummary/);
+  assert.doesNotMatch(source, /onSelectView/);
 }
 
 function testSettingsPageUsesSoftTilesForEntitySections() {
@@ -122,19 +191,22 @@ function testDefaultModelControlUsesDefaultModelNotCurrentSessionModel() {
 function testSettingsPageUsesCompactMobileDensity() {
   const source = readFileSync(new URL("./SettingsPage.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /pb-\[calc\(76px\+env\(safe-area-inset-bottom\)\)\]/);
-  assert.match(source, /className="mx-auto max-w-5xl space-y-3"/);
-  assert.match(source, /RippleIcon\s*\n\s*size=\{28\}/);
-  assert.match(source, /className="flex h-9 items-center gap-2 border-b/);
-  assert.match(source, /inline-flex h-8 items-center gap-1\.5 rounded-full/);
-  assert.match(source, /className="grid gap-3 p-3 md:grid-cols-2"/);
+  assert.match(source, /pb-\[calc\(68px\+env\(safe-area-inset-bottom\)\)\]/);
+  assert.match(source, /className="mx-auto max-w-5xl space-y-2"/);
+  assert.match(source, /RippleIcon\s*\n\s*size=\{24\}/);
+  assert.match(source, /className="flex h-8 items-center gap-1\.5 border-b/);
+  assert.match(source, /inline-flex h-7 items-center gap-1\.5 rounded-full/);
+  assert.match(source, /className="grid gap-2 p-2\.5 md:grid-cols-2"/);
 }
 
 testSettingsPageHasExpectedUserSections();
+testSettingsPageShowsDeveloperModeForServiceAccess();
+testSettingsPageSupportsLocalAvatarUpload();
 testSettingsPageDoesNotDuplicatePrimaryWorkspaceTabs();
 testSettingsPageHidesDiagnosticsByDefault();
 testSettingsPageReservesMobileTopSafeArea();
 testSettingsPageUsesInlineModelMenuAndTokenBreakdown();
+testSettingsPageDoesNotFetchConnectorData();
 testSettingsPageUsesSoftTilesForEntitySections();
 testDefaultModelControlUsesDefaultModelNotCurrentSessionModel();
 testSettingsPageUsesCompactMobileDensity();

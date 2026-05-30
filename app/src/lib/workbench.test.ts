@@ -36,6 +36,9 @@ function testMapsSessionSummariesToWorkbenchSummaries() {
     makeSession({
       sessionId: "srv-auth",
       title: "Refactor auth flow",
+      projectId: "prj-demo",
+      projectName: "Demo",
+      projectRoot: "/workspace/demo",
       status: "waiting_for_approval",
       messageCount: 3,
       changedFileCount: 2,
@@ -56,6 +59,9 @@ function testMapsSessionSummariesToWorkbenchSummaries() {
   assert.equal(sessions[0].changedFileCount, 2);
   assert.equal(sessions[0].pendingApprovalCount, 1);
   assert.equal(sessions[0].attention, "needs_input");
+  assert.equal(sessions[0].projectId, "prj-demo");
+  assert.equal(sessions[0].projectName, "Demo");
+  assert.equal(sessions[0].projectRoot, "/workspace/demo");
   assert.equal(sessions[1].title, "New Session");
   assert.equal(sessions[1].attention, undefined);
 }

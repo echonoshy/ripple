@@ -67,6 +67,32 @@ function testComposerToolbarNamesRealActions() {
   assert.doesNotMatch(html, /title="Mention workspace file"/);
 }
 
+function testComposerShowsWorkspaceFolderPickerButton() {
+  const html = renderComposer({
+    workspaceScopeLabel: "Demo",
+    workspaceScopePath: "/workspace/demo",
+    projects: [
+      {
+        projectId: "prj-demo",
+        name: "Demo",
+        rootPath: "/workspace/demo",
+        createdAt: "2026-05-30T00:00:00Z",
+        updatedAt: "2026-05-30T00:00:00Z",
+        lastActiveAt: "2026-05-30T00:00:00Z",
+        exists: true,
+      },
+    ],
+    activeProjectId: "prj-demo",
+    currentSessionProjectId: null,
+    onSelectWorkspaceFolder: noop,
+  });
+
+  assert.match(html, /data-ripple-composer-folder-button/);
+  assert.match(html, /aria-label="Choose workspace folder"/);
+  assert.match(html, /title="Workspace folder: Demo"/);
+  assert.match(html, />Demo</);
+}
+
 function testComposerInputSuppressesGlobalBlueFocusOutline() {
   const html = renderComposer();
   const globalCss = readFileSync(new URL("../../globals.css", import.meta.url), "utf8");
@@ -145,6 +171,7 @@ function testComposerHasPasteAndDropImageHandlers() {
 
 testShowsSelectedModelAndMenuOptions();
 testComposerToolbarNamesRealActions();
+testComposerShowsWorkspaceFolderPickerButton();
 testComposerInputSuppressesGlobalBlueFocusOutline();
 testBlockedComposerStillAllowsDraftingAndShowsStop();
 testComposerClearsIosHomeIndicatorAndUsesTouchSizedActions();

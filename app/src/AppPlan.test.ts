@@ -176,6 +176,20 @@ function testActiveProjectSeedsNewSessionsAndFilesView() {
   assert.match(appSource, /activeProjectId=\{activeProjectId\}/);
 }
 
+function testChatFolderPickerSelectsFoldersAsProjectContext() {
+  assert.match(appSource, /handleSelectChatFolder/);
+  assert.match(appSource, /projectNameFromWorkspacePath/);
+  assert.match(appSource, /projects\.find\(\(project\) => project\.rootPath === normalizedPath\)/);
+  assert.match(
+    appSource,
+    /createProject\(\{\s*name: projectNameFromWorkspacePath\(normalizedPath\),\s*rootPath: normalizedPath,\s*\}\)/
+  );
+  assert.match(appSource, /createNewSession\(defaultModel,\s*nextProjectId\)/);
+  assert.match(appSource, /window\.confirm/);
+  assert.match(appSource, /setInput\(""\)/);
+  assert.match(appSource, /onSelectWorkspaceFolder=\{handleSelectChatFolder\}/);
+}
+
 testChatCompletionClearsResidualPlan();
 testSessionDetailsRestorePersistedPlan();
 testRestoringSessionRefreshesWorkspaceViews();
@@ -195,5 +209,6 @@ testSessionScrollActivationStaysInsideSessionPage();
 testSessionSelectionRequestsScrollToBottom();
 testDefaultModelSeedsNewSessionsAndChatRuns();
 testActiveProjectSeedsNewSessionsAndFilesView();
+testChatFolderPickerSelectsFoldersAsProjectContext();
 
 console.log("app plan tests passed");

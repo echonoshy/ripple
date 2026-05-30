@@ -52,6 +52,21 @@ import {
   setStoredDefaultModel,
 } from "@/lib/modelPreference";
 
+const WORKSPACE_ROOT_PATH = "/workspace";
+
+function normalizeWorkspaceFolderPath(path: string): string {
+  const trimmed = path.trim().replace(/\/+$/, "");
+  if (!trimmed || trimmed === WORKSPACE_ROOT_PATH) return WORKSPACE_ROOT_PATH;
+  if (trimmed.startsWith(`${WORKSPACE_ROOT_PATH}/`)) return trimmed;
+  return WORKSPACE_ROOT_PATH;
+}
+
+function projectNameFromWorkspacePath(path: string): string {
+  const normalizedPath = normalizeWorkspaceFolderPath(path);
+  if (normalizedPath === WORKSPACE_ROOT_PATH) return "Workspace";
+  return normalizedPath.split("/").filter(Boolean).pop() || "Project";
+}
+
 export default function Home() {
   // ── Auth state ──
   const [authState, setAuthState] = useState<"checking" | "needs_auth" | "authenticated">(() =>
@@ -564,6 +579,11 @@ export default function Home() {
     [handleAuthExpired]
   );
 
+  const activeProject = useMemo(
+    () => projects.find((project) => project.projectId === activeProjectId) || null,
+    [activeProjectId, projects]
+  );
+
   // ── New session ──
   const handleNewSession = async () => {
     const session = await createNewSession(defaultModel, activeProjectId);
@@ -648,6 +668,9 @@ export default function Home() {
             sessionId,
             title: "Current session",
             pinned: false,
+            projectId: activeProject?.projectId ?? null,
+            projectName: activeProject?.name ?? null,
+            projectRoot: activeProject?.rootPath ?? null,
             status: selectedSessionRuntimeStatus || ("idle" as const),
             model: selectedModel,
             lastActivityAt: new Date().toISOString(),
@@ -657,6 +680,7 @@ export default function Home() {
           }
         : null,
     [
+      activeProject,
       messages.length,
       selectedExistingSession,
       selectedModel,
@@ -706,6 +730,73 @@ export default function Home() {
     ? displayWorkbenchSessions.find((session) => session.sessionId === sessionId) || null
     : null;
   const isComposerBlocked = selectedWorkbenchSession?.status === "compacting";
+
+  const handleSelectChatFolder = useCallback(
+    async (path: string) => {
+      const normalizedPath = normalizeWorkspaceFolderPath(path);
+      const currentSessionRoot = normalizeWorkspaceFolderPath(
+        selectedWorkbenchSession?.projectRoot || WORKSPACE_ROOT_PATH
+      );
+      if (sessionId && currentSessionRoot === normalizedPath) {
+        setActiveProjectId(selectedWorkbenchSession?.projectId ?? null);
+        return;
+      }
+
+      const hasPendingDraft =
+        input.trim().length > 0 || pendingFiles.length > 0 || pendingLocalImages.length > 0;
+      if (
+        sessionId &&
+        hasPendingDraft &&
+        typeof window !== "undefined" &&
+        !window.confirm("Switch workspace folder and start a new empty chat? Drafts and pending attachments will be cleared.")
+      ) {
+        return;
+      }
+
+      let nextProjectId: string | null = null;
+      if (normalizedPath !== WORKSPACE_ROOT_PATH) {
+        let project = projects.find((project) => project.rootPath === normalizedPath) || null;
+        if (!project) {
+          const createdProject = await createProject({
+            name: projectNameFromWorkspacePath(normalizedPath),
+            rootPath: normalizedPath,
+          });
+          project = createdProject;
+          setProjects((currentProjects) => [
+            createdProject,
+            ...currentProjects.filter((item) => item.projectId !== createdProject.projectId),
+          ]);
+        }
+        nextProjectId = project.projectId;
+      }
+
+      if (!sessionId) {
+        setActiveProjectId(nextProjectId);
+        return;
+      }
+
+      const session = await createNewSession(defaultModel, nextProjectId);
+      if (session) {
+        setInput("");
+        setSelectedModel(session.model || defaultModel);
+        setActiveProjectId(nextProjectId);
+        setActiveView("sessions");
+        setMobileSessionMode("chat");
+      }
+    },
+    [
+      createNewSession,
+      defaultModel,
+      input,
+      pendingFiles.length,
+      pendingLocalImages.length,
+      projects,
+      selectedWorkbenchSession,
+      sessionId,
+      setInput,
+    ]
+  );
+
   const mainContent =
     activeView === "home" ? (
       <SettingsPage
@@ -771,6 +862,9 @@ export default function Home() {
             isModelDropdownOpen={openModelDropdown === "composer"}
             sessionId={sessionId}
             scrollToBottomRequest={sessionScrollToBottomRequest}
+            projects={projects}
+            activeProjectId={activeProjectId}
+            onSelectWorkspaceFolder={handleSelectChatFolder}
             onNewSession={handleNewSession}
             onUpdateSessionSettings={handleUpdateSessionSettings}
             onInputChange={setInput}

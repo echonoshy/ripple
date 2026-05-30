@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   AlertTriangle,
   FileText,
+  Folder,
   Image as ImageIcon,
   Loader2,
   Paperclip,
@@ -27,8 +28,11 @@ import {
   type PendingImageSource,
   type PendingLocalImage,
 } from "@/lib/pendingImages";
+import type { ProjectInfo } from "@/types";
+import WorkspaceFolderPicker from "./WorkspaceFolderPicker";
 
 interface SessionComposerProps {
+  userId?: string;
   value: string;
   onChange: (value: string) => void;
   onSend: () => void;
@@ -52,6 +56,12 @@ interface SessionComposerProps {
   isModelDropdownOpen: boolean;
   onToggleModelDropdown: () => void;
   onSelectModel: (model: string) => void;
+  projects?: ProjectInfo[];
+  activeProjectId?: string | null;
+  currentSessionProjectId?: string | null;
+  workspaceScopeLabel?: string;
+  workspaceScopePath?: string;
+  onSelectWorkspaceFolder?: (path: string) => void | Promise<void>;
 }
 
 type QuickActionsState = {
@@ -64,6 +74,7 @@ export function shouldExpandComposer(value: string, isComposerFocused: boolean):
 }
 
 export default function SessionComposer({
+  userId,
   value,
   onChange,
   onSend,
@@ -87,15 +98,23 @@ export default function SessionComposer({
   isModelDropdownOpen,
   onToggleModelDropdown,
   onSelectModel,
+  projects = [],
+  activeProjectId = null,
+  currentSessionProjectId = null,
+  workspaceScopeLabel = "Workspace",
+  workspaceScopePath = "/workspace",
+  onSelectWorkspaceFolder,
 }: SessionComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const quickActionsRef = useRef<HTMLDivElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
+  const folderPickerRef = useRef<HTMLDivElement>(null);
   const [quickActionsState, setQuickActionsState] = useState<QuickActionsState | null>(null);
   const [dismissedSlashKey, setDismissedSlashKey] = useState<string | null>(null);
   const [quickActionIndex, setQuickActionIndex] = useState(0);
   const [isComposerFocused, setIsComposerFocused] = useState(false);
+  const [isFolderPickerOpen, setIsFolderPickerOpen] = useState(false);
   const canSend = Boolean(value.trim() || pendingFiles.length > 0 || pendingLocalImages.length > 0);
   const inputDisabled = isGenerating;
   const attachDisabled = inputDisabled || isUploadingFiles;
@@ -191,6 +210,20 @@ export default function SessionComposer({
     document.addEventListener("pointerdown", handlePointerDown, true);
     return () => document.removeEventListener("pointerdown", handlePointerDown, true);
   }, [onToggleModelDropdown, isModelDropdownOpen]);
+
+  useEffect(() => {
+    if (!isFolderPickerOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (folderPickerRef.current?.contains(target)) return;
+      setIsFolderPickerOpen(false);
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    return () => document.removeEventListener("pointerdown", handlePointerDown, true);
+  }, [isFolderPickerOpen]);
 
   const runQuickAction = useCallback(
     (action: QuickAction) => {
@@ -291,6 +324,36 @@ export default function SessionComposer({
         isExpandedComposer ? "col-start-1 row-start-2 -ml-1" : "-mr-1 sm:mb-[2px]"
       }`}
     >
+      {onSelectWorkspaceFolder && (
+        <div ref={folderPickerRef} className="relative flex shrink-0 items-center">
+          <button
+            type="button"
+            data-ripple-composer-folder-button
+            aria-label="Choose workspace folder"
+            title={`Workspace folder: ${workspaceScopeLabel}`}
+            onClick={() => {
+              setQuickActionsState(null);
+              if (isModelDropdownOpen) onToggleModelDropdown();
+              setIsFolderPickerOpen((open) => !open);
+            }}
+            className="inline-flex h-10 max-w-[136px] items-center gap-1.5 rounded-full px-2 text-[12px] font-semibold text-[#4b5563] hover:bg-[#f3f4f6] hover:text-[#111827] active:bg-[#eef3ff] sm:h-8 sm:max-w-[156px] sm:px-2.5"
+          >
+            <Folder size={15} className="shrink-0" />
+            <span className="truncate">{workspaceScopeLabel}</span>
+          </button>
+          {isFolderPickerOpen && (
+            <WorkspaceFolderPicker
+              userId={userId}
+              projects={projects}
+              activeProjectId={activeProjectId}
+              currentSessionProjectId={currentSessionProjectId}
+              onSelectFolder={onSelectWorkspaceFolder}
+              onClose={() => setIsFolderPickerOpen(false)}
+            />
+          )}
+          <span className="sr-only">{workspaceScopePath}</span>
+        </div>
+      )}
       <div ref={quickActionsRef} className="relative flex items-center">
         {isQuickActionsOpen && (
           <div className="absolute bottom-full left-0 z-30 mb-2 w-52 overflow-hidden rounded-xl border border-[#dfe6f4] bg-white shadow-[0_14px_34px_rgba(44,63,123,0.14)]">
@@ -332,7 +395,10 @@ export default function SessionComposer({
           type="button"
           aria-label="Select model"
           title={`Model: ${formatModelName(selectedModel)}`}
-          onClick={onToggleModelDropdown}
+          onClick={() => {
+            setIsFolderPickerOpen(false);
+            onToggleModelDropdown();
+          }}
           className="inline-flex h-10 w-10 items-center justify-center rounded-full text-[#4b5563] hover:bg-[#f3f4f6] hover:text-[#111827] active:bg-[#eef3ff] sm:h-8 sm:w-8"
         >
           <Sparkles size={15} />

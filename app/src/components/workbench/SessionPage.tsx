@@ -23,6 +23,7 @@ import type {
   Message,
   PlanStep,
   PlanProgress,
+  ProjectInfo,
   UsageInfo,
   WorkbenchSessionSummary,
   WorkbenchTimelineEvent,
@@ -81,6 +82,9 @@ interface SessionPageProps {
   isModelDropdownOpen: boolean;
   sessionId: string | null;
   scrollToBottomRequest?: number;
+  projects?: ProjectInfo[];
+  activeProjectId?: string | null;
+  onSelectWorkspaceFolder?: (path: string) => void | Promise<void>;
   onNewSession: () => void;
   onUpdateSessionSettings: (updates: { title?: string; pinned?: boolean }) => Promise<unknown>;
   onInputChange: (value: string) => void;
@@ -124,6 +128,9 @@ export default function SessionPage({
   isModelDropdownOpen,
   sessionId,
   scrollToBottomRequest = 0,
+  projects = [],
+  activeProjectId = null,
+  onSelectWorkspaceFolder,
   onNewSession,
   onUpdateSessionSettings,
   onInputChange,
@@ -190,6 +197,11 @@ export default function SessionPage({
   const modelDisplayName = formatModelName(selectedModel);
   const currentModelLabel = isGenerating ? "Working..." : modelDisplayName;
   const currentModelAccessibleLabel = `Current model: ${modelDisplayName}`;
+  const activeProject = projects.find((project) => project.projectId === activeProjectId) || null;
+  const workspaceScopeLabel = session?.projectName || activeProject?.name || "Workspace";
+  const workspaceScopePath = session?.projectRoot || activeProject?.rootPath || "/workspace";
+  const projectBadgeLabel = session?.projectName ? `Project: ${session.projectName}` : null;
+  const projectBadgeTitle = session?.projectRoot || session?.projectName || "";
 
   const scrollToBottom = useCallback(() => {
     const scrollContainer = scrollContainerRef.current;
@@ -377,6 +389,11 @@ export default function SessionPage({
               }`}
             />
             <span className="truncate">{currentModelLabel}</span>
+            {projectBadgeLabel && (
+              <span title={projectBadgeTitle} className="min-w-0 truncate">
+                {projectBadgeLabel}
+              </span>
+            )}
           </div>
         </div>
         <div className="flex items-center justify-end gap-1">
@@ -408,18 +425,28 @@ export default function SessionPage({
             {session?.title || "Session"}
           </div>
         </div>
-        <span
-          aria-label={currentModelAccessibleLabel}
-          title={currentModelAccessibleLabel}
-          className="inline-flex max-w-[220px] shrink-0 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white/82 px-3 py-1.5 text-[12px] font-semibold text-[#374151] shadow-[0_8px_18px_rgba(44,63,123,0.06)]"
-        >
+        <div className="flex min-w-0 shrink-0 items-center gap-2">
+          {projectBadgeLabel && (
+            <span
+              title={projectBadgeTitle}
+              className="inline-flex max-w-[220px] shrink-0 items-center rounded-full border border-[#dfe6f4] bg-white/82 px-3 py-1.5 text-[12px] font-semibold text-[#374151] shadow-[0_8px_18px_rgba(44,63,123,0.06)]"
+            >
+              <span className="truncate">{projectBadgeLabel}</span>
+            </span>
+          )}
           <span
-            className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-              isGenerating ? "animate-pulse bg-[#2f6bff]" : "bg-[#2fbf71]"
-            }`}
-          />
-          <span className="truncate">{currentModelLabel}</span>
-        </span>
+            aria-label={currentModelAccessibleLabel}
+            title={currentModelAccessibleLabel}
+            className="inline-flex max-w-[220px] shrink-0 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white/82 px-3 py-1.5 text-[12px] font-semibold text-[#374151] shadow-[0_8px_18px_rgba(44,63,123,0.06)]"
+          >
+            <span
+              className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                isGenerating ? "animate-pulse bg-[#2f6bff]" : "bg-[#2fbf71]"
+              }`}
+            />
+            <span className="truncate">{currentModelLabel}</span>
+          </span>
+        </div>
       </div>
 
       {isSessionSettingsOpen && (
@@ -597,6 +624,7 @@ export default function SessionPage({
       </div>
 
       <SessionComposer
+        userId={userId}
         value={input}
         onChange={onInputChange}
         onSend={onSend}
@@ -620,6 +648,12 @@ export default function SessionPage({
         isModelDropdownOpen={isModelDropdownOpen}
         onToggleModelDropdown={onToggleModelDropdown}
         onSelectModel={onSelectModel}
+        projects={projects}
+        activeProjectId={activeProjectId}
+        currentSessionProjectId={session?.projectId ?? null}
+        workspaceScopeLabel={workspaceScopeLabel}
+        workspaceScopePath={workspaceScopePath}
+        onSelectWorkspaceFolder={onSelectWorkspaceFolder}
       />
     </div>
   );

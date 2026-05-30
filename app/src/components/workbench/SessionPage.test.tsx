@@ -4,7 +4,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import SessionPage from "./SessionPage";
-import type { UsageInfo } from "@/types";
+import type { UsageInfo, WorkbenchSessionSummary } from "@/types";
 
 const sessionPageSource = readFileSync(new URL("./SessionPage.tsx", import.meta.url), "utf8");
 
@@ -167,6 +167,61 @@ function testDesktopHeaderShowsCurrentModelLikeMobile() {
   assert.match(html, /title="Current model: Balanced"/);
 }
 
+function testSessionPageShowsCurrentProjectBadge() {
+  const projectSession: WorkbenchSessionSummary = {
+    sessionId: "srv-demo",
+    title: "Project session",
+    pinned: false,
+    status: "idle",
+    model: "codex-medium",
+    lastActivityAt: "2026-05-30T00:00:00Z",
+    messageCount: 0,
+    changedFileCount: 0,
+    pendingApprovalCount: 0,
+    projectId: "prj-demo",
+    projectName: "Demo",
+    projectRoot: "/workspace/demo",
+  };
+  const html = renderToStaticMarkup(
+    <SessionPage
+      session={projectSession}
+      messages={[]}
+      timelineEvents={[]}
+      planProgress={null}
+      planSteps={[]}
+      tokenUsage={{ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }}
+      lastContextTokens={0}
+      input=""
+      pendingFiles={[]}
+      pendingLocalImages={[]}
+      isGenerating={false}
+      focusToken={0}
+      selectedModel="codex-medium"
+      models={[{ id: "codex-medium", owned_by: "ripple" }]}
+      isModelDropdownOpen={false}
+      sessionId="srv-demo"
+      onNewSession={noop}
+      onUpdateSessionSettings={noopAsync}
+      onInputChange={noop}
+      onClearContext={noop}
+      onCompactContext={noop}
+      onAttachFiles={noop}
+      onRemovePendingFile={noop}
+      onAddPendingImages={noop}
+      onRemovePendingLocalImage={noop}
+      onToggleModelDropdown={noop}
+      onSelectModel={noop}
+      onSend={noop}
+      onStop={noop}
+      onQuickReply={noop}
+      onPermissionResolve={noop}
+    />
+  );
+
+  assert.match(html, /Project: Demo/);
+  assert.match(html, /title="\/workspace\/demo"/);
+}
+
 function testTimelineTextUsesWiderContentWidth() {
   const html = renderSessionPageWithTimelineContent();
 
@@ -280,6 +335,7 @@ testGivesSessionContentMoreHorizontalRoom();
 testSessionPageHandlesDropAcrossWholeChat();
 testMobileHeaderReservesTopSafeArea();
 testDesktopHeaderShowsCurrentModelLikeMobile();
+testSessionPageShowsCurrentProjectBadge();
 testTimelineTextUsesWiderContentWidth();
 testContextWarningUsesReportedModelWindow();
 testContextWarningWaitsForModelWindow();

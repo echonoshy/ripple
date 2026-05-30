@@ -4,8 +4,8 @@ export interface ModelOption {
 }
 
 export const MODEL_DISPLAY_MAPPING: Record<string, string> = {
-  "codex-low": "Standard",
-  "codex-medium": "Balanced",
+  "codex-low": "Lite",
+  "codex-medium": "Standard",
   "codex-high": "Pro",
   "codex-xhigh": "Expert",
 };

@@ -168,6 +168,12 @@ function testComposerExpandsWhenFocusedWithoutInput() {
   assert.equal(shouldExpandComposer("", false), false);
 }
 
+function testComposerRecalculatesTextareaHeightAfterExpansion() {
+  const source = readFileSync(new URL("./SessionComposer.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /\[value,\s*isExpandedComposer,\s*adjustHeight\]/);
+}
+
 function testComposerShowsAttachmentUploadStateAndErrors() {
   const uploadingHtml = renderComposer({ isUploadingFiles: true });
   const errorHtml = renderComposer({ uploadError: "phone-photo.jpg: upload is too large" });
@@ -212,6 +218,7 @@ testComposerExpandsActionsBelowTextAfterInput();
 testExpandedComposerKeepsToolbarHorizontalOrigin();
 testComposerOnlyTextInputFocusExpandsEmptyComposer();
 testComposerExpandsWhenFocusedWithoutInput();
+testComposerRecalculatesTextareaHeightAfterExpansion();
 testComposerShowsAttachmentUploadStateAndErrors();
 testComposerShowsPendingLocalImagePreview();
 testLocalImageOnlyMessageCanSend();

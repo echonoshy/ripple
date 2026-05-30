@@ -145,7 +145,7 @@ export default function SessionComposer({
 
   useEffect(() => {
     adjustHeight();
-  }, [value, adjustHeight]);
+  }, [value, isExpandedComposer, adjustHeight]);
 
   useEffect(() => {
     if (shouldApplyInputFocus(focusToken, inputDisabled)) {

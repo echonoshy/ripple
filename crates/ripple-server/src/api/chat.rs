@@ -275,6 +275,8 @@ async fn create_codex_chat_run(args: &CodexChatStart) -> Result<AgentRunInfo, Ap
         &args.user_id,
         &args.session.session_id,
         &args.workspace_root,
+        args.session.project_name.as_deref(),
+        args.session.project_root.as_deref(),
         &args.user_input,
         &args.attachment_items,
         args.caller_system_prompt.as_deref(),
@@ -288,7 +290,7 @@ async fn create_codex_chat_run(args: &CodexChatStart) -> Result<AgentRunInfo, Ap
     let create = AgentRunCreateRequest {
         prompt,
         provider: "codex".to_string(),
-        cwd: Some("/workspace".to_string()),
+        cwd: Some(chat_cwd_for_session(&args.session)),
         input_items: native_items,
         model: Some(args.model.clone()),
         effort: args.effort.clone(),
@@ -561,9 +563,20 @@ async fn load_or_create_session(
                 model: request.model.clone(),
                 max_turns: request.max_turns,
                 system_prompt: None,
+                project_id: None,
             },
         )
         .await?)
+}
+
+fn chat_cwd_for_session(session: &SessionRecord) -> String {
+    session
+        .project_root
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("/workspace")
+        .to_string()
 }
 
 async fn wait_for_chat_run(
@@ -1314,6 +1327,8 @@ mod tests {
             "alice",
             "session-1",
             &workspace_root,
+            None,
+            None,
             "hello",
             &[],
             None,
@@ -1345,6 +1360,9 @@ mod tests {
             user_id: "alice".to_string(),
             title: String::new(),
             pinned: false,
+            project_id: None,
+            project_name: None,
+            project_root: None,
             model: "codex-medium".to_string(),
             max_turns: 200,
             caller_system_prompt: None,
@@ -1478,6 +1496,9 @@ mod tests {
             user_id: "alice".to_string(),
             title: String::new(),
             pinned: false,
+            project_id: None,
+            project_name: None,
+            project_root: None,
             model: "codex-test".to_string(),
             max_turns: 200,
             caller_system_prompt: None,

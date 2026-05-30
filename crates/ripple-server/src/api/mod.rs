@@ -5,6 +5,7 @@ pub mod connectors;
 pub mod documents;
 pub mod health;
 pub mod models;
+pub mod projects;
 pub mod runs;
 pub mod sandboxes;
 pub mod schedule_chat;
@@ -18,7 +19,7 @@ use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{HeaderValue, Request, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{any, get, post};
+use axum::routing::{any, get, patch, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -125,6 +126,14 @@ pub fn router(state: AppState) -> Router {
         .route("/health/ready", get(health::ready))
         .route("/diagnostics/doctor", get(health::doctor))
         .route("/users/me", get(users::current_user_profile))
+        .route(
+            "/projects",
+            get(projects::list_projects).post(projects::create_project),
+        )
+        .route(
+            "/projects/:project_id",
+            patch(projects::update_project).delete(projects::delete_project),
+        )
         .route(
             "/sessions",
             get(sessions::list_sessions).post(sessions::create_session),

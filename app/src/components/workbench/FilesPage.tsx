@@ -1,14 +1,27 @@
 "use client";
 
 import WorkspaceExplorer from "@/components/WorkspaceExplorer";
+import type { ProjectInfo } from "@/types";
 
 interface FilesPageProps {
   userId: string;
   refreshToken: number;
   onBack?: () => void;
+  projects?: ProjectInfo[];
+  activeProjectId?: string | null;
+  onProjectSelect?: (project: ProjectInfo | null) => void;
+  onCreateProject?: (input: { name: string; rootPath: string }) => Promise<ProjectInfo | null>;
 }
 
-export default function FilesPage({ userId, refreshToken, onBack }: FilesPageProps) {
+export default function FilesPage({
+  userId,
+  refreshToken,
+  onBack,
+  projects = [],
+  activeProjectId = null,
+  onProjectSelect,
+  onCreateProject,
+}: FilesPageProps) {
   return (
     <div
       data-ripple-files-page="finder-stage"
@@ -19,6 +32,10 @@ export default function FilesPage({ userId, refreshToken, onBack }: FilesPagePro
         refreshToken={refreshToken}
         presentation="page"
         onBack={onBack}
+        projects={projects}
+        activeProjectId={activeProjectId}
+        onProjectSelect={onProjectSelect}
+        onCreateProject={onCreateProject}
       />
     </div>
   );

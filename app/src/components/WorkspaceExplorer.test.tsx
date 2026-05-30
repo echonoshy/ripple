@@ -98,6 +98,33 @@ function testWorkspaceExplorerPageStacksHeaderControlsAwayFromTitle() {
 
 testWorkspaceExplorerPageStacksHeaderControlsAwayFromTitle();
 
+function testWorkspaceExplorerPageShowsProjectControls() {
+  const html = renderExplorer({
+    presentation: "page",
+    projects: [
+      {
+        projectId: "prj-demo",
+        name: "Demo",
+        rootPath: "/workspace/demo",
+        createdAt: "2026-05-30T00:00:00Z",
+        updatedAt: "2026-05-30T00:00:00Z",
+        lastActiveAt: "2026-05-30T00:00:00Z",
+        exists: true,
+      },
+    ],
+    activeProjectId: "prj-demo",
+    onCreateProject: async () => null,
+  });
+
+  assert.match(html, /data-ripple-files-project-switcher/);
+  assert.match(html, /aria-label="Select project"/);
+  assert.match(html, /Demo/);
+  assert.match(html, /data-ripple-files-action="create-project"/);
+  assert.match(html, /aria-label="Set current folder as project"/);
+}
+
+testWorkspaceExplorerPageShowsProjectControls();
+
 function testWorkspaceExplorerPageShowsMobileParentFolderControl() {
   const html = renderExplorer({
     presentation: "page",

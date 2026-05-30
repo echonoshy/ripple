@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::{Path as FsPath, PathBuf};
 
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
@@ -342,7 +343,11 @@ pub async fn create_session(
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     assert_can_create_session(&state, &user_id).await?;
-    let session = state.sessions.create_session(&user_id, input).await?;
+    let session = state
+        .sessions
+        .create_session(&user_id, input)
+        .await
+        .map_err(|err| ApiError::bad_request(err.to_string()))?;
     let detail = state
         .sessions
         .get_session(&user_id, &session.session_id)
@@ -610,6 +615,7 @@ pub async fn compact_session_context(
 
     assert_can_create_run(&state, &user_id, state.config.codex.max_runtime_seconds).await?;
     let workspace_root = state.sandboxes.ensure_sandbox(&user_id)?;
+    let compact_cwd = session_cwd_for_project(&workspace_root, &session);
     let Some(codex_thread_id) = state
         .sessions
         .begin_context_compaction(&user_id, &session_id)
@@ -630,6 +636,7 @@ pub async fn compact_session_context(
             .compact_thread(
                 compact_user_id.clone(),
                 workspace_root,
+                compact_cwd,
                 codex_thread_id,
                 max_runtime_seconds,
             )
@@ -645,6 +652,24 @@ pub async fn compact_session_context(
         "codex_thread_id": response_thread_id,
         "status": "compacting"
     })))
+}
+
+fn session_cwd_for_project(workspace_root: &FsPath, session: &SessionRecord) -> PathBuf {
+    let Some(project_root) = session
+        .project_root
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return workspace_root.to_path_buf();
+    };
+    if project_root == "/workspace" {
+        return workspace_root.to_path_buf();
+    }
+    if let Some(relative) = project_root.strip_prefix("/workspace/") {
+        return workspace_root.join(relative);
+    }
+    workspace_root.to_path_buf()
 }
 
 pub async fn get_session_codex_thread(

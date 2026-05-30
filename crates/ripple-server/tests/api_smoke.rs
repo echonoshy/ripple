@@ -450,6 +450,10 @@ fn main() {
                     title_generation_text().to_string()
                 } else if line.contains("\"outputSchema\"") {
                     schedule_extraction_text().to_string()
+                } else if line.contains("## Ripple Project")
+                    && line.contains("Project root: /workspace/demo")
+                {
+                    "project prompt present".to_string()
                 } else if line.contains("[ids]") {
                     format!("fake codex completed {thread_id} {turn_id}")
                 } else {
@@ -1309,6 +1313,96 @@ async fn list_schedules_support_limit_cursor_pagination() {
 }
 
 #[tokio::test]
+async fn project_routes_create_list_update_and_delete_metadata_only() {
+    let root = std::env::temp_dir().join(format!("ripple-api-projects-{}", Uuid::new_v4()));
+    let (state, app) = test_state_and_app(&root);
+    let workspace = state.sandboxes.ensure_sandbox("smoke-user").unwrap();
+    fs::create_dir_all(workspace.join("demo")).unwrap();
+    fs::create_dir_all(workspace.join("other")).unwrap();
+    fs::write(workspace.join("notes.txt"), "not a project directory").unwrap();
+
+    let (status, invalid_file) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/projects",
+        json!({"name": "Notes", "root_path": "/workspace/notes.txt"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{invalid_file}");
+
+    let (status, invalid_outside) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/projects",
+        json!({"name": "Outside", "root_path": "/tmp/outside"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{invalid_outside}");
+
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/projects",
+        json!({"name": "Demo", "root_path": "/workspace/demo"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+    let project_id = created
+        .get("project_id")
+        .and_then(Value::as_str)
+        .expect("project id")
+        .to_string();
+    assert!(project_id.starts_with("prj-"));
+    assert_eq!(created.get("name").and_then(Value::as_str), Some("Demo"));
+    assert_eq!(
+        created.get("root_path").and_then(Value::as_str),
+        Some("/workspace/demo")
+    );
+    assert_eq!(created.get("exists").and_then(Value::as_bool), Some(true));
+
+    let (status, listed) = call(app.clone(), Method::GET, "/v1/projects", Value::Null).await;
+    assert_eq!(status, StatusCode::OK, "{listed}");
+    assert_eq!(listed.get("count").and_then(Value::as_u64), Some(1));
+    assert_eq!(
+        listed
+            .pointer("/projects/0/project_id")
+            .and_then(Value::as_str),
+        Some(project_id.as_str())
+    );
+
+    let (status, updated) = call(
+        app.clone(),
+        Method::PATCH,
+        &format!("/v1/projects/{project_id}"),
+        json!({"name": "Renamed", "root_path": "/workspace/other"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{updated}");
+    assert_eq!(updated.get("name").and_then(Value::as_str), Some("Renamed"));
+    assert_eq!(
+        updated.get("root_path").and_then(Value::as_str),
+        Some("/workspace/other")
+    );
+
+    let (status, deleted) = call(
+        app.clone(),
+        Method::DELETE,
+        &format!("/v1/projects/{project_id}"),
+        json!({"confirm": true}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{deleted}");
+    assert_eq!(deleted.get("ok").and_then(Value::as_bool), Some(true));
+    assert!(workspace.join("other").is_dir());
+
+    let (status, listed) = call(app, Method::GET, "/v1/projects", Value::Null).await;
+    assert_eq!(status, StatusCode::OK, "{listed}");
+    assert_eq!(listed.get("count").and_then(Value::as_u64), Some(0));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[tokio::test]
 async fn workspace_routes_cover_web_upload_attachment_rename_and_download() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let (_state, app) = test_state_and_app(&root);
@@ -1674,6 +1768,7 @@ async fn compact_session_context_triggers_codex_thread_compaction() {
                 model: None,
                 max_turns: None,
                 system_prompt: None,
+                project_id: None,
             },
         )
         .await
@@ -1730,6 +1825,7 @@ async fn session_codex_thread_route_reads_thread_metadata_without_turns() {
                 model: None,
                 max_turns: None,
                 system_prompt: None,
+                project_id: None,
             },
         )
         .await
@@ -1771,6 +1867,7 @@ async fn stopping_stale_running_session_clears_running_status() {
                 model: Some("codex-test".to_string()),
                 max_turns: None,
                 system_prompt: None,
+                project_id: None,
             },
         )
         .await
@@ -2884,6 +2981,7 @@ async fn connector_auth_cancel_route_is_idempotent_and_clears_pending_sessions()
                 model: Some("codex-test".to_string()),
                 max_turns: None,
                 system_prompt: None,
+                project_id: None,
             },
         )
         .await
@@ -2972,6 +3070,7 @@ async fn connector_auth_route_clears_matching_pending_session_auth() {
                 model: Some("codex-test".to_string()),
                 max_turns: None,
                 system_prompt: None,
+                project_id: None,
             },
         )
         .await
@@ -3029,6 +3128,7 @@ async fn stop_session_clears_pending_connector_auth_without_running_job() {
                 model: Some("codex-test".to_string()),
                 max_turns: None,
                 system_prompt: None,
+                project_id: None,
             },
         )
         .await
@@ -3080,6 +3180,7 @@ async fn cancel_connector_auth_route_clears_only_target_session() {
                 model: Some("codex-test".to_string()),
                 max_turns: None,
                 system_prompt: None,
+                project_id: None,
             },
         )
         .await
@@ -3099,6 +3200,7 @@ async fn cancel_connector_auth_route_clears_only_target_session() {
                 model: Some("codex-test".to_string()),
                 max_turns: None,
                 system_prompt: None,
+                project_id: None,
             },
         )
         .await
@@ -3162,6 +3264,7 @@ async fn chat_route_confirms_pending_schedule_without_starting_codex() {
                 model: Some("codex-test".to_string()),
                 max_turns: None,
                 system_prompt: None,
+                project_id: None,
             },
         )
         .await
@@ -3793,6 +3896,108 @@ async fn codex_app_server_does_not_inherit_server_secret_env() {
 }
 
 #[tokio::test]
+async fn chat_session_bound_to_project_runs_from_project_root() {
+    let root = std::env::temp_dir().join(format!("ripple-api-project-chat-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+    let user_id = "smoke-user";
+    let workspace = state.sandboxes.ensure_sandbox(user_id).unwrap();
+    fs::create_dir_all(workspace.join("demo")).unwrap();
+
+    let (status, project) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/projects",
+        json!({"name": "Demo", "root_path": "/workspace/demo"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{project}");
+    let project_id = project
+        .get("project_id")
+        .and_then(Value::as_str)
+        .expect("project id")
+        .to_string();
+
+    let (status, session) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/sessions",
+        json!({"model": "codex-test", "project_id": project_id}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let session_id = session
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("session id")
+        .to_string();
+    assert_eq!(
+        session.get("project_id").and_then(Value::as_str),
+        Some(project_id.as_str())
+    );
+    assert_eq!(
+        session.get("project_name").and_then(Value::as_str),
+        Some("Demo")
+    );
+    assert_eq!(
+        session.get("project_root").and_then(Value::as_str),
+        Some("/workspace/demo")
+    );
+
+    let (status, chat) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/chat/completions",
+        json!({
+            "model": "codex-test",
+            "session_id": session_id,
+            "messages": [{"role": "user", "content": "hello from project"}],
+            "stream": false
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{chat}");
+    assert_eq!(
+        chat.pointer("/choices/0/message/content")
+            .and_then(Value::as_str),
+        Some("project prompt present")
+    );
+
+    let jobs = state.jobs.list_user(user_id).await.unwrap();
+    let chat_job = jobs
+        .iter()
+        .find(|job| {
+            job.metadata.get("session_id").and_then(Value::as_str) == Some(session_id.as_str())
+        })
+        .expect("chat job");
+    assert_eq!(chat_job.sandbox_cwd.as_deref(), Some("/workspace/demo"));
+
+    let (status, detail) = call(
+        app,
+        Method::GET,
+        &format!("/v1/sessions/{session_id}"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{detail}");
+    assert_eq!(
+        detail.get("project_id").and_then(Value::as_str),
+        Some(project_id.as_str())
+    );
+    assert_eq!(
+        detail.get("project_name").and_then(Value::as_str),
+        Some("Demo")
+    );
+    assert_eq!(
+        detail.get("project_root").and_then(Value::as_str),
+        Some("/workspace/demo")
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[tokio::test]
 async fn chat_follow_up_resumes_codex_thread_without_replaying_turns() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let fake_codex = write_fake_codex_app_server(&root);
@@ -3855,6 +4060,7 @@ async fn chat_recovers_restart_stale_running_job_before_starting_follow_up() {
                 model: Some("codex-test".to_string()),
                 max_turns: None,
                 system_prompt: None,
+                project_id: None,
             },
         )
         .await
@@ -4394,6 +4600,7 @@ async fn chat_stream_cancels_pending_schedule_without_codex() {
                 model: Some("codex-test".to_string()),
                 max_turns: None,
                 system_prompt: None,
+                project_id: None,
             },
         )
         .await

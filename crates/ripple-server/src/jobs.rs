@@ -253,11 +253,12 @@ impl JobManager {
         &self,
         user_id: String,
         workspace_root: PathBuf,
+        cwd: PathBuf,
         thread_id: String,
         max_runtime_seconds: u64,
     ) -> anyhow::Result<()> {
         self.provider
-            .compact_thread(user_id, workspace_root, thread_id, max_runtime_seconds)
+            .compact_thread(user_id, workspace_root, cwd, thread_id, max_runtime_seconds)
             .await
     }
 

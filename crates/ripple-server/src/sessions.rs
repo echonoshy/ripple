@@ -31,6 +31,12 @@ pub struct SessionRecord {
     pub title: String,
     #[serde(default)]
     pub pinned: bool,
+    #[serde(default)]
+    pub project_id: Option<String>,
+    #[serde(default)]
+    pub project_name: Option<String>,
+    #[serde(default)]
+    pub project_root: Option<String>,
     pub model: String,
     pub max_turns: u32,
     #[serde(default)]
@@ -139,6 +145,9 @@ pub struct SessionInfo {
     pub session_id: String,
     pub title: String,
     pub pinned: bool,
+    pub project_id: Option<String>,
+    pub project_name: Option<String>,
+    pub project_root: Option<String>,
     pub model: String,
     pub created_at: String,
     pub last_active: String,
@@ -169,6 +178,7 @@ pub struct CreateSessionInput {
     pub model: Option<String>,
     pub max_turns: Option<u32>,
     pub system_prompt: Option<String>,
+    pub project_id: Option<String>,
 }
 
 impl SessionManager {
@@ -207,6 +217,25 @@ impl SessionManager {
     ) -> anyhow::Result<SessionRecord> {
         self.sandboxes.ensure_sandbox(user_id)?;
         let session_id = format!("srv-{}", &Uuid::new_v4().simple().to_string()[..12]);
+        let project = match input
+            .project_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            Some(project_id) => self.storage.get_project(user_id, project_id).await?,
+            None => None,
+        };
+        if input
+            .project_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .is_some()
+            && project.is_none()
+        {
+            anyhow::bail!("Project not found");
+        }
         self.deleted
             .write()
             .await
@@ -217,6 +246,9 @@ impl SessionManager {
             user_id: user_id.to_string(),
             title: String::new(),
             pinned: false,
+            project_id: project.as_ref().map(|project| project.project_id.clone()),
+            project_name: project.as_ref().map(|project| project.name.clone()),
+            project_root: project.as_ref().map(|project| project.root_path.clone()),
             model: input
                 .model
                 .unwrap_or_else(|| self.config.default_model.clone()),
@@ -766,6 +798,9 @@ impl SessionManager {
                 record.title.clone()
             },
             pinned: record.pinned,
+            project_id: record.project_id.clone(),
+            project_name: record.project_name.clone(),
+            project_root: record.project_root.clone(),
             model: record.model.clone(),
             created_at: record.created_at.clone(),
             last_active: record.last_active.clone(),
@@ -994,6 +1029,7 @@ mod tests {
                     model: None,
                     max_turns: None,
                     system_prompt: None,
+                    project_id: None,
                 },
             )
             .await?;
@@ -1012,6 +1048,7 @@ mod tests {
                     model: None,
                     max_turns: None,
                     system_prompt: None,
+                    project_id: None,
                 },
             )
             .await?;
@@ -1054,6 +1091,7 @@ mod tests {
                     model: None,
                     max_turns: None,
                     system_prompt: None,
+                    project_id: None,
                 },
             )
             .await?;
@@ -1108,6 +1146,7 @@ mod tests {
                     model: None,
                     max_turns: None,
                     system_prompt: None,
+                    project_id: None,
                 },
             )
             .await?;
@@ -1163,6 +1202,7 @@ mod tests {
                     model: None,
                     max_turns: None,
                     system_prompt: None,
+                    project_id: None,
                 },
             )
             .await?;
@@ -1210,6 +1250,7 @@ mod tests {
                     model: None,
                     max_turns: None,
                     system_prompt: None,
+                    project_id: None,
                 },
             )
             .await?;
@@ -1257,6 +1298,7 @@ mod tests {
                     model: None,
                     max_turns: None,
                     system_prompt: None,
+                    project_id: None,
                 },
             )
             .await?;
@@ -1293,6 +1335,7 @@ mod tests {
                     model: None,
                     max_turns: None,
                     system_prompt: None,
+                    project_id: None,
                 },
             )
             .await?;
@@ -1330,6 +1373,7 @@ mod tests {
                     model: None,
                     max_turns: None,
                     system_prompt: None,
+                    project_id: None,
                 },
             )
             .await?;
@@ -1371,6 +1415,7 @@ mod tests {
                     model: None,
                     max_turns: None,
                     system_prompt: None,
+                    project_id: None,
                 },
             )
             .await?;
@@ -1389,6 +1434,7 @@ mod tests {
                     model: None,
                     max_turns: None,
                     system_prompt: None,
+                    project_id: None,
                 },
             )
             .await?;

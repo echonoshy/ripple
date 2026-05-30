@@ -14,6 +14,8 @@ import {
   claimInvite,
   logoutUserSession,
   AuthError,
+  createProject,
+  fetchProjects,
 } from "@/lib/api";
 import { IconTile } from "@/components/icons/IconTile";
 import RippleIcon from "@/components/icons/RippleIcon";
@@ -42,7 +44,7 @@ import {
   mergeInferredWorkbenchSessions,
 } from "@/lib/workbench";
 import { shouldShowInspector, type WorkspaceView } from "@/lib/workspaceViews";
-import type { SessionAttention } from "@/types";
+import type { ProjectInfo, SessionAttention, SessionDetail } from "@/types";
 import { sortModelOptions } from "@/lib/models";
 import {
   getStoredDefaultModel,
@@ -93,6 +95,8 @@ export default function Home() {
   const [mobileSessionMode, setMobileSessionMode] = useState<"list" | "chat">("list");
   const [sessionScrollToBottomRequest, setSessionScrollToBottomRequest] = useState(0);
   const [workspaceRefreshToken, setWorkspaceRefreshToken] = useState(0);
+  const [projects, setProjects] = useState<ProjectInfo[]>([]);
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<WorkspaceView>("sessions");
   const [sessionAttentionById, setSessionAttentionById] = useState<
     Record<string, SessionAttention | undefined>
@@ -117,12 +121,34 @@ export default function Home() {
     setAuthErrorMsg(message);
     setAuthUserIdInput(initialLoginUserIdInput(getUserId()));
     setAuthUserIdError(null);
+    setProjects([]);
+    setActiveProjectId(null);
     clearStoredCurrentSessionId();
   }, []);
 
   const handleWorkspaceRefresh = useCallback(() => {
     setWorkspaceRefreshToken((prev) => prev + 1);
   }, []);
+
+  const loadProjects = useCallback(async (): Promise<ProjectInfo[]> => {
+    if (authState !== "authenticated") return [];
+    try {
+      const loadedProjects = await fetchProjects();
+      setProjects(loadedProjects);
+      setActiveProjectId((currentProjectId) => {
+        if (!currentProjectId) return null;
+        return loadedProjects.some((project) => project.projectId === currentProjectId)
+          ? currentProjectId
+          : null;
+      });
+      return loadedProjects;
+    } catch (err) {
+      if (err instanceof AuthError) {
+        handleAuthExpired("登录已过期，请重新登录");
+      }
+      return [];
+    }
+  }, [authState, handleAuthExpired]);
 
   const persistDefaultModel = useCallback(
     (model: string) => {
@@ -156,6 +182,8 @@ export default function Home() {
     setAuthMode("login");
     setAuthUserIdInput(initialLoginUserIdInput(getUserId()));
     setAuthUserIdError(null);
+    setProjects([]);
+    setActiveProjectId(null);
     setAuthState("needs_auth");
   }, []);
 
@@ -232,6 +260,14 @@ export default function Home() {
     onSessionAttention: handleSessionAttention,
   });
 
+  const handleApplySessionDetails = useCallback(
+    (details: SessionDetail) => {
+      applySessionDetails(details);
+      setActiveProjectId(details.projectId ?? null);
+    },
+    [applySessionDetails]
+  );
+
   const handleSessionActivated = useCallback(() => {
     setActiveView("sessions");
     setIsSidebarOpen(false);
@@ -258,7 +294,7 @@ export default function Home() {
     authState,
     isGenerating,
     onAuthExpired: handleAuthExpired,
-    onApplySessionDetails: applySessionDetails,
+    onApplySessionDetails: handleApplySessionDetails,
     onNewSessionView: resetSessionView,
     onDeleteCurrentSession: resetSessionView,
     onSessionActivated: handleSessionActivated,
@@ -296,7 +332,7 @@ export default function Home() {
   useEffect(() => {
     sessionActionsRef.current = {
       getSessionId: () => sessionId,
-      ensureSession: (model) => ensureSession(model),
+      ensureSession: (model) => ensureSession(model, activeProjectId),
       loadSessions,
       clearCurrentSessionContext,
       compactCurrentSessionContext,
@@ -304,6 +340,7 @@ export default function Home() {
       stopSession: stopSessionById,
     };
   }, [
+    activeProjectId,
     clearCurrentSessionContext,
     compactCurrentSessionContext,
     ensureSession,
@@ -328,9 +365,12 @@ export default function Home() {
       setDefaultModel(preferredModel);
       setSelectedModel(preferredModel);
       setSessionAttentionById({});
+      setProjects([]);
+      setActiveProjectId(null);
       abortRunAndResetSessionView();
       resetSessionsForUserChange();
       if (authState === "authenticated") {
+        await loadProjects();
         const loaded = await loadSessions();
         console.info(`[ripple] switched to user "${newUid}", loaded ${loaded.length} sessions`);
         if (loaded.length > 0) {
@@ -341,6 +381,7 @@ export default function Home() {
     [
       authState,
       abortRunAndResetSessionView,
+      loadProjects,
       loadSessions,
       models,
       resetSessionsForUserChange,
@@ -385,6 +426,7 @@ export default function Home() {
           setDefaultModel(preferredModel);
           setSelectedModel(preferredModel);
         }
+        await loadProjects();
         const loadedSessions = await loadSessions();
         if (loadedSessions.length > 0) {
           await restoreStoredSession(loadedSessions);
@@ -395,7 +437,7 @@ export default function Home() {
         }
       }
     })();
-  }, [authState, handleAuthExpired, loadSessions, restoreStoredSession]);
+  }, [authState, handleAuthExpired, loadProjects, loadSessions, restoreStoredSession]);
 
   // ── Auth submit ──
   const handleAuthSubmit = (e: React.FormEvent) => {
@@ -416,6 +458,8 @@ export default function Home() {
     if (nextUserId !== userId) {
       setUserIdState(nextUserId);
       setSessionAttentionById({});
+      setProjects([]);
+      setActiveProjectId(null);
       abortRunAndResetSessionView();
       resetSessionsForUserChange();
       clearStoredCurrentSessionId();
@@ -432,6 +476,8 @@ export default function Home() {
       setUserSessionToken(token, nextUserId);
       setUserIdState(nextUserId);
       setSessionAttentionById({});
+      setProjects([]);
+      setActiveProjectId(null);
       abortRunAndResetSessionView();
       resetSessionsForUserChange();
       clearStoredCurrentSessionId();
@@ -493,9 +539,34 @@ export default function Home() {
     [acknowledgeSessionCompletion, switchSession]
   );
 
+  const handleProjectSelect = useCallback((project: ProjectInfo | null) => {
+    setActiveProjectId(project?.projectId ?? null);
+  }, []);
+
+  const handleCreateProject = useCallback(
+    async (input: { name: string; rootPath: string }): Promise<ProjectInfo | null> => {
+      try {
+        const project = await createProject(input);
+        setProjects((currentProjects) => [
+          project,
+          ...currentProjects.filter((item) => item.projectId !== project.projectId),
+        ]);
+        setActiveProjectId(project.projectId);
+        return project;
+      } catch (err) {
+        if (err instanceof AuthError) {
+          handleAuthExpired("登录已过期，请重新登录");
+          return null;
+        }
+        throw err;
+      }
+    },
+    [handleAuthExpired]
+  );
+
   // ── New session ──
   const handleNewSession = async () => {
-    const session = await createNewSession(defaultModel);
+    const session = await createNewSession(defaultModel, activeProjectId);
     if (session) {
       setSelectedModel(session.model || defaultModel);
     }
@@ -649,7 +720,14 @@ export default function Home() {
         onApiKeyChange={handleAuthReset}
       />
     ) : activeView === "files" ? (
-      <FilesPage userId={userId} refreshToken={workspaceRefreshToken} />
+      <FilesPage
+        userId={userId}
+        refreshToken={workspaceRefreshToken}
+        projects={projects}
+        activeProjectId={activeProjectId}
+        onProjectSelect={handleProjectSelect}
+        onCreateProject={handleCreateProject}
+      />
     ) : activeView === "automations" ? (
       <AutomationsPage selectedModel={defaultModel} onAuthExpired={handleAuthExpired} />
     ) : activeView === "connectors" ? (

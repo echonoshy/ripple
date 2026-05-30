@@ -13,7 +13,7 @@ use tokio::sync::OnceCell;
 use crate::config::AppConfig;
 use crate::sessions::SessionRecord;
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 2;
+pub const CURRENT_SCHEMA_VERSION: i64 = 3;
 
 #[derive(Clone)]
 pub struct Storage {
@@ -45,6 +45,17 @@ pub struct FileRefRecord {
     pub sha256: Option<String>,
     pub created_at: String,
     pub linked_session_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProjectRecord {
+    pub project_id: String,
+    pub user_id: String,
+    pub name: String,
+    pub root_path: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub last_active_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -176,19 +187,23 @@ impl Storage {
             r#"
             INSERT INTO sessions (
                 user_id, session_id, title, pinned, model, max_turns, caller_system_prompt,
+                project_id, project_name, project_root,
                 total_input_tokens, total_output_tokens, last_input_tokens,
                 created_at, last_active, status, message_count,
                 pending_question, pending_options_json, pending_permission_request_json,
                 pending_connector_auth_json, pending_schedule_request_json, codex_thread_id,
                 plan_steps_json, plan_progress_json
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(user_id, session_id) DO UPDATE SET
                 title = excluded.title,
                 pinned = excluded.pinned,
                 model = excluded.model,
                 max_turns = excluded.max_turns,
                 caller_system_prompt = excluded.caller_system_prompt,
+                project_id = excluded.project_id,
+                project_name = excluded.project_name,
+                project_root = excluded.project_root,
                 total_input_tokens = excluded.total_input_tokens,
                 total_output_tokens = excluded.total_output_tokens,
                 last_input_tokens = excluded.last_input_tokens,
@@ -213,6 +228,9 @@ impl Storage {
         .bind(&record.model)
         .bind(i64::from(record.max_turns))
         .bind(&record.caller_system_prompt)
+        .bind(&record.project_id)
+        .bind(&record.project_name)
+        .bind(&record.project_root)
         .bind(u64_to_i64(record.total_input_tokens)?)
         .bind(u64_to_i64(record.total_output_tokens)?)
         .bind(u64_to_i64(record.last_input_tokens)?)
@@ -266,6 +284,7 @@ impl Storage {
             r#"
             SELECT user_id, session_id, title, model, max_turns, caller_system_prompt,
                    pinned,
+                   project_id, project_name, project_root,
                    total_input_tokens, total_output_tokens, last_input_tokens,
                    created_at, last_active, status, message_count,
                    pending_question, pending_options_json, pending_permission_request_json,
@@ -291,6 +310,7 @@ impl Storage {
             r#"
             SELECT user_id, session_id, title, model, max_turns, caller_system_prompt,
                    pinned,
+                   project_id, project_name, project_root,
                    total_input_tokens, total_output_tokens, last_input_tokens,
                    created_at, last_active, status, message_count,
                    pending_question, pending_options_json, pending_permission_request_json,
@@ -418,6 +438,7 @@ impl Storage {
             "schedules",
             "documents",
             "file_refs",
+            "projects",
         ] {
             sqlx::query(&format!("DELETE FROM {table} WHERE user_id = ?"))
                 .bind(user_id)
@@ -426,6 +447,83 @@ impl Storage {
         }
         tx.commit().await?;
         Ok(())
+    }
+
+    pub async fn upsert_project(&self, record: &ProjectRecord) -> anyhow::Result<()> {
+        self.initialize().await?;
+        sqlx::query(
+            r#"
+            INSERT INTO projects (
+                user_id, project_id, name, root_path,
+                created_at, updated_at, last_active_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, project_id) DO UPDATE SET
+                name = excluded.name,
+                root_path = excluded.root_path,
+                created_at = excluded.created_at,
+                updated_at = excluded.updated_at,
+                last_active_at = excluded.last_active_at
+            "#,
+        )
+        .bind(&record.user_id)
+        .bind(&record.project_id)
+        .bind(&record.name)
+        .bind(&record.root_path)
+        .bind(&record.created_at)
+        .bind(&record.updated_at)
+        .bind(&record.last_active_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn get_project(
+        &self,
+        user_id: &str,
+        project_id: &str,
+    ) -> anyhow::Result<Option<ProjectRecord>> {
+        self.initialize().await?;
+        let row = sqlx::query(
+            r#"
+            SELECT user_id, project_id, name, root_path,
+                   created_at, updated_at, last_active_at
+            FROM projects
+            WHERE user_id = ? AND project_id = ?
+            "#,
+        )
+        .bind(user_id)
+        .bind(project_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.map(project_from_row).transpose()
+    }
+
+    pub async fn list_projects(&self, user_id: &str) -> anyhow::Result<Vec<ProjectRecord>> {
+        self.initialize().await?;
+        let rows = sqlx::query(
+            r#"
+            SELECT user_id, project_id, name, root_path,
+                   created_at, updated_at, last_active_at
+            FROM projects
+            WHERE user_id = ?
+            ORDER BY last_active_at DESC, updated_at DESC
+            "#,
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter().map(project_from_row).collect()
+    }
+
+    pub async fn delete_project(&self, user_id: &str, project_id: &str) -> anyhow::Result<bool> {
+        self.initialize().await?;
+        let result = sqlx::query("DELETE FROM projects WHERE user_id = ? AND project_id = ?")
+            .bind(user_id)
+            .bind(project_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected() > 0)
     }
 
     pub async fn upsert_job(&self, record: &Value) -> anyhow::Result<()> {
@@ -1097,6 +1195,9 @@ impl Storage {
             model: row.get("model"),
             max_turns: i64_to_u32(row.get::<i64, _>("max_turns"))?,
             caller_system_prompt: row.get("caller_system_prompt"),
+            project_id: row.get("project_id"),
+            project_name: row.get("project_name"),
+            project_root: row.get("project_root"),
             total_input_tokens: i64_to_u64(row.get::<i64, _>("total_input_tokens"))?,
             total_output_tokens: i64_to_u64(row.get::<i64, _>("total_output_tokens"))?,
             last_input_tokens: i64_to_u64(row.get::<i64, _>("last_input_tokens"))?,
@@ -1210,6 +1311,18 @@ fn auth_user_from_row(row: sqlx::sqlite::SqliteRow) -> anyhow::Result<AuthUserRe
     })
 }
 
+fn project_from_row(row: sqlx::sqlite::SqliteRow) -> anyhow::Result<ProjectRecord> {
+    Ok(ProjectRecord {
+        user_id: row.get("user_id"),
+        project_id: row.get("project_id"),
+        name: row.get("name"),
+        root_path: row.get("root_path"),
+        created_at: row.get("created_at"),
+        updated_at: row.get("updated_at"),
+        last_active_at: row.get("last_active_at"),
+    })
+}
+
 fn json_text(value: &Value) -> anyhow::Result<String> {
     serde_json::to_string(value).map_err(anyhow::Error::from)
 }
@@ -1270,6 +1383,9 @@ CREATE TABLE IF NOT EXISTS sessions (
     model TEXT NOT NULL,
     max_turns INTEGER NOT NULL,
     caller_system_prompt TEXT,
+    project_id TEXT,
+    project_name TEXT,
+    project_root TEXT,
     total_input_tokens INTEGER NOT NULL DEFAULT 0,
     total_output_tokens INTEGER NOT NULL DEFAULT 0,
     last_input_tokens INTEGER NOT NULL DEFAULT 0,
@@ -1344,6 +1460,17 @@ CREATE TABLE IF NOT EXISTS file_refs (
     linked_session_id TEXT
 );
 
+CREATE TABLE IF NOT EXISTS projects (
+    user_id TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    root_path TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    last_active_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, project_id)
+);
+
 CREATE TABLE IF NOT EXISTS auth_users (
     user_id TEXT PRIMARY KEY NOT NULL,
     login TEXT NOT NULL,
@@ -1407,6 +1534,8 @@ CREATE INDEX IF NOT EXISTS idx_documents_user_updated
     ON documents(user_id, updated_at);
 CREATE INDEX IF NOT EXISTS idx_file_refs_user_workspace_path
     ON file_refs(user_id, workspace_path);
+CREATE INDEX IF NOT EXISTS idx_projects_user_last_active
+    ON projects(user_id, last_active_at);
 CREATE INDEX IF NOT EXISTS idx_auth_users_status
     ON auth_users(status);
 CREATE INDEX IF NOT EXISTS idx_auth_sessions_user
@@ -1421,13 +1550,30 @@ async fn ensure_schema_columns(pool: &SqlitePool) -> anyhow::Result<()> {
     let rows = sqlx::query("PRAGMA table_info(sessions)")
         .fetch_all(pool)
         .await?;
-    let has_pinned = rows
-        .iter()
-        .any(|row| row.get::<String, _>("name") == "pinned");
-    if !has_pinned {
-        sqlx::query("ALTER TABLE sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")
-            .execute(pool)
-            .await?;
+    for (column, ddl) in [
+        (
+            "pinned",
+            "ALTER TABLE sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0",
+        ),
+        (
+            "project_id",
+            "ALTER TABLE sessions ADD COLUMN project_id TEXT",
+        ),
+        (
+            "project_name",
+            "ALTER TABLE sessions ADD COLUMN project_name TEXT",
+        ),
+        (
+            "project_root",
+            "ALTER TABLE sessions ADD COLUMN project_root TEXT",
+        ),
+    ] {
+        let exists = rows
+            .iter()
+            .any(|row| row.get::<String, _>("name") == column);
+        if !exists {
+            sqlx::query(ddl).execute(pool).await?;
+        }
     }
     Ok(())
 }
@@ -1439,8 +1585,13 @@ async fn ensure_schema_migrations(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await?;
     sqlx::query("INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (?, ?)")
-        .bind(CURRENT_SCHEMA_VERSION)
+        .bind(2_i64)
         .bind("lightweight_user_auth_shell")
+        .execute(pool)
+        .await?;
+    sqlx::query("INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (?, ?)")
+        .bind(CURRENT_SCHEMA_VERSION)
+        .bind("project_context_v1")
         .execute(pool)
         .await?;
     Ok(())
@@ -1461,6 +1612,9 @@ mod tests {
             user_id: "alice".to_string(),
             title: "hello".to_string(),
             pinned: true,
+            project_id: None,
+            project_name: None,
+            project_root: None,
             model: "codex-test".to_string(),
             max_turns: 200,
             caller_system_prompt: None,
@@ -1506,6 +1660,9 @@ mod tests {
             user_id: "alice".to_string(),
             title: "tokens".to_string(),
             pinned: false,
+            project_id: None,
+            project_name: None,
+            project_root: None,
             model: "codex-test".to_string(),
             max_turns: 200,
             caller_system_prompt: None,

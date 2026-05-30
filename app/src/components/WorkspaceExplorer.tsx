@@ -50,13 +50,17 @@ import {
   type ViewportMenuAnchorRect,
 } from "@/lib/menuPosition";
 import { getWorkspaceImagePreviewUrl } from "@/lib/workspaceImageCache";
-import { WorkspaceEntry, WorkspaceFilePreview, WorkspaceListing } from "@/types";
+import { ProjectInfo, WorkspaceEntry, WorkspaceFilePreview, WorkspaceListing } from "@/types";
 
 interface WorkspaceExplorerProps {
   userId: string;
   refreshToken: number;
   presentation?: "compact" | "page";
   onBack?: () => void;
+  projects?: ProjectInfo[];
+  activeProjectId?: string | null;
+  onProjectSelect?: (project: ProjectInfo | null) => void;
+  onCreateProject?: (input: { name: string; rootPath: string }) => Promise<ProjectInfo | null>;
   testInitialPreview?: WorkspaceFilePreview;
   testInitialListing?: WorkspaceListing;
 }
@@ -197,6 +201,10 @@ export default function WorkspaceExplorer({
   refreshToken,
   presentation = "compact",
   onBack,
+  projects = [],
+  activeProjectId = null,
+  onProjectSelect,
+  onCreateProject,
   testInitialPreview,
   testInitialListing,
 }: WorkspaceExplorerProps) {
@@ -241,6 +249,7 @@ export default function WorkspaceExplorer({
   const [isDraggingUpload, setIsDraggingUpload] = useState(false);
   const [downloadingPath, setDownloadingPath] = useState<string | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+  const [projectSaving, setProjectSaving] = useState(false);
 
   const [clipboard, setClipboard] = useState<{
     path: string;
@@ -288,6 +297,10 @@ export default function WorkspaceExplorer({
   const normalizedQuery = query.trim();
   const isSearchMode = normalizedQuery.length > 0;
   const visibleEntries = isSearchMode ? searchResults : listing?.entries || [];
+  const activeProject = useMemo(
+    () => projects.find((project) => project.projectId === activeProjectId) || null,
+    [activeProjectId, projects]
+  );
 
   useEffect(() => {
     window.localStorage.setItem(SPLIT_PERCENT_STORAGE_KEY, String(splitPercent));
@@ -352,6 +365,46 @@ export default function WorkspaceExplorer({
     },
     [userId]
   );
+
+  useEffect(() => {
+    if (!activeProject) return;
+    if (currentPathRef.current === activeProject.rootPath) return;
+    void loadDirectory(activeProject.rootPath);
+  }, [activeProject, loadDirectory]);
+
+  const handleProjectSelect = useCallback(
+    (projectId: string) => {
+      if (!projectId) {
+        onProjectSelect?.(null);
+        return;
+      }
+      const project = projects.find((item) => item.projectId === projectId) || null;
+      onProjectSelect?.(project);
+      if (project) {
+        void loadDirectory(project.rootPath);
+      }
+    },
+    [loadDirectory, onProjectSelect, projects]
+  );
+
+  const handleCreateProject = useCallback(async () => {
+    if (!onCreateProject || projectSaving) return;
+    const rootPath = listing?.path || currentPath;
+    const trimmed = rootPath.replace(/\/+$/, "");
+    const fallbackName = trimmed.split("/").filter(Boolean).pop() || "Workspace";
+    setProjectSaving(true);
+    setError(null);
+    try {
+      const project = await onCreateProject({ name: fallbackName, rootPath });
+      if (project) {
+        onProjectSelect?.(project);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setProjectSaving(false);
+    }
+  }, [currentPath, listing?.path, onCreateProject, onProjectSelect, projectSaving]);
 
   useEffect(() => {
     const userChanged = lastLoadedUserIdRef.current !== userId;
@@ -1060,6 +1113,43 @@ export default function WorkspaceExplorer({
                   {listing?.path || currentPath}
                 </p>
               </div>
+              {(projects.length > 0 || onCreateProject) && (
+                <div
+                  data-ripple-files-project-switcher
+                  className="hidden min-w-0 items-center gap-2 lg:flex"
+                >
+                  <select
+                    aria-label="Select project"
+                    value={activeProjectId || ""}
+                    onChange={(event) => handleProjectSelect(event.target.value)}
+                    className="h-9 max-w-[180px] rounded-lg border border-[#dfe6f4] bg-white/84 px-2 text-xs font-semibold text-[#374151] shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] outline-none focus:border-[#2463eb]"
+                  >
+                    <option value="">Workspace</option>
+                    {projects.map((project) => (
+                      <option key={project.projectId} value={project.projectId}>
+                        {project.name}
+                      </option>
+                    ))}
+                  </select>
+                  {onCreateProject && (
+                    <button
+                      type="button"
+                      data-ripple-files-action="create-project"
+                      onClick={() => void handleCreateProject()}
+                      disabled={projectSaving}
+                      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#dfe6f4] bg-white/78 text-[#384152] shadow-[0_10px_24px_rgba(44,63,123,0.06)] transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                      title="Set current folder as project"
+                      aria-label="Set current folder as project"
+                    >
+                      {projectSaving ? (
+                        <Loader2 size={14} className="animate-spin" />
+                      ) : (
+                        <FolderPlus size={14} />
+                      )}
+                    </button>
+                  )}
+                </div>
+              )}
               <button
                 type="button"
                 data-ripple-files-mobile-search-trigger

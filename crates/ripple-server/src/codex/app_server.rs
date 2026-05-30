@@ -964,12 +964,13 @@ impl CodexAppServerProvider {
         &self,
         user_id: String,
         workspace_root: PathBuf,
+        cwd: PathBuf,
         thread_id: String,
         max_runtime_seconds: u64,
     ) -> anyhow::Result<()> {
         let session = CodexAppServerSession::new(user_id, self.config.clone(), workspace_root);
         let result = self
-            .compact_thread_with_session(&session, thread_id, max_runtime_seconds)
+            .compact_thread_with_session(&session, cwd, thread_id, max_runtime_seconds)
             .await;
         session.shutdown().await;
         result
@@ -1003,6 +1004,7 @@ impl CodexAppServerProvider {
     async fn compact_thread_with_session(
         &self,
         session: &Arc<CodexAppServerSession>,
+        cwd: PathBuf,
         thread_id: String,
         max_runtime_seconds: u64,
     ) -> anyhow::Result<()> {
@@ -1014,7 +1016,7 @@ impl CodexAppServerProvider {
                 "thread/resume",
                 json!({
                     "threadId": thread_id.clone(),
-                    "cwd": session.cwd.clone(),
+                    "cwd": cwd,
                     "approvalPolicy": self.config.codex.approval_policy,
                     "config": permission_config,
                     "permissions": RIPPLE_CODEX_PERMISSION_PROFILE,

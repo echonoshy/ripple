@@ -198,6 +198,16 @@ export interface WorkspaceUploadResponse {
   entries: WorkspaceEntry[];
 }
 
+export interface ProjectInfo {
+  projectId: string;
+  name: string;
+  rootPath: string;
+  createdAt: string;
+  updatedAt: string;
+  lastActiveAt: string;
+  exists: boolean;
+}
+
 export type ScheduleKind = "once" | "interval";
 export type ScheduleStatus = "active" | "paused" | "completed" | "error" | string;
 
@@ -254,6 +264,9 @@ export interface SessionSummary {
   sessionId: string;
   title: string;
   pinned: boolean;
+  projectId?: string | null;
+  projectName?: string | null;
+  projectRoot?: string | null;
   model: string;
   createdAt: string;
   lastActiveAt: string;

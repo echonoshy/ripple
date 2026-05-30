@@ -157,8 +157,23 @@ function testSessionSelectionRequestsScrollToBottom() {
 
 function testDefaultModelSeedsNewSessionsAndChatRuns() {
   assert.match(appSource, /createNewSession\(defaultModel(?:,\s*activeProjectId)?\)/);
-  assert.match(appSource, /ensureSession:\s*\(model\) => ensureSession\(model\)/);
+  assert.match(
+    appSource,
+    /ensureSession:\s*\(model\) => ensureSession\(model(?:,\s*activeProjectId)?\)/
+  );
   assert.match(chatRunSource, /getSessionActions\(\)\.ensureSession\(selectedModel\)/);
+}
+
+function testActiveProjectSeedsNewSessionsAndFilesView() {
+  assert.match(appSource, /activeProjectId/);
+  assert.match(appSource, /fetchProjects/);
+  assert.match(appSource, /createNewSession\(defaultModel,\s*activeProjectId\)/);
+  assert.match(
+    appSource,
+    /ensureSession:\s*\(model\) => ensureSession\(model,\s*activeProjectId\)/
+  );
+  assert.match(appSource, /<FilesPage[\s\S]*projects=\{projects\}/);
+  assert.match(appSource, /activeProjectId=\{activeProjectId\}/);
 }
 
 testChatCompletionClearsResidualPlan();
@@ -179,5 +194,6 @@ testMobileSessionOptionsUseSessionSettings();
 testSessionScrollActivationStaysInsideSessionPage();
 testSessionSelectionRequestsScrollToBottom();
 testDefaultModelSeedsNewSessionsAndChatRuns();
+testActiveProjectSeedsNewSessionsAndFilesView();
 
 console.log("app plan tests passed");

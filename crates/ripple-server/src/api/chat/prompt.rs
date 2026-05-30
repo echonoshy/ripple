@@ -11,6 +11,8 @@ pub(crate) fn build_codex_chat_prompt(
     user_id: &str,
     session_id: &str,
     workspace_root: &FsPath,
+    project_name: Option<&str>,
+    project_root: Option<&str>,
     user_input: &str,
     attachment_items: &[Value],
     system_prompt: Option<&str>,
@@ -39,6 +41,12 @@ pub(crate) fn build_codex_chat_prompt(
     } else {
         attachment_lines.join("\n")
     };
+    let project_section = match (project_name, project_root) {
+        (Some(name), Some(root)) => format!(
+            "- Project name: {name}\n- Project root: {root}\n- Use this project root as the default context for reading, writing, commands, and file references unless the user explicitly asks for another workspace path."
+        ),
+        _ => "- Project name: (none)\n- Project root: /workspace".to_string(),
+    };
     format!(
         "You are Codex, running as Ripple's trusted execution plane.\n\
 Ripple is the control plane: it owns user identity, sandbox isolation, connector state, permissions, and API/session lifecycle. Do the real work inside the current user's workspace.\n\n\
@@ -46,6 +54,8 @@ Ripple is the control plane: it owns user identity, sandbox isolation, connector
 - user_id: {user_id}\n\
 - session_id: {session_id}\n\
 - workspace: current working directory\n\n\
+## Ripple Project\n\
+{}\n\n\
 ## Connector Status\n\
 {}\n\n\
 ## Execution Environment Guardrails\n\
@@ -64,6 +74,7 @@ Ripple is the control plane: it owns user identity, sandbox isolation, connector
 {}\n\n\
 ## Current User Request\n\
 {}\n",
+        project_section,
         connector_manifest(state, user_id),
         render_skill_manifest(&state.config, Some(workspace_root)),
         system_prompt.unwrap_or("(none)"),

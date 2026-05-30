@@ -689,56 +689,84 @@ export default function AutomationsPage({
                   <div
                     key={schedule.schedule_id}
                     data-ripple-automation-card-main
-                    className="px-4 py-3"
+                    className="px-4 py-4 sm:px-5"
                   >
-                    <div
-                      data-ripple-automation-meta-grid
-                      className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_minmax(170px,220px)_auto] md:items-center"
-                    >
+                    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(250px,310px)] xl:items-start">
                       <div data-ripple-automation-summary className="min-w-0">
-                        <div className="flex min-w-0 items-center gap-2">
-                          <IconTile tone={schedule.enabled ? "accent" : "neutral"} size="sm">
+                        <div className="flex min-w-0 items-start gap-3">
+                          <IconTile
+                            tone={schedule.enabled ? "accent" : "neutral"}
+                            size="sm"
+                            className="mt-0.5"
+                          >
                             <CalendarClock size={14} />
                           </IconTile>
-                          <span className="truncate text-[13px] font-semibold">
-                            {schedule.title}
-                          </span>
-                          <span
-                            className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold capitalize ${statusClass(
-                              schedule.status
-                            )}`}
-                          >
-                            {schedule.status}
-                          </span>
-                        </div>
-                        <div className="mt-1 truncate text-[12px] text-[#667085]">
-                          {schedule.prompt}
-                        </div>
-                        {schedule.last_error ? (
-                          <div className="mt-1 truncate text-xs font-medium text-[#cf222e]">
-                            {schedule.last_error}
+                          <div className="min-w-0 flex-1">
+                            <div className="flex min-w-0 flex-wrap items-center gap-2">
+                              <span className="min-w-0 truncate text-[14px] font-semibold">
+                                {schedule.title}
+                              </span>
+                              <span
+                                className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold capitalize ${statusClass(
+                                  schedule.status
+                                )}`}
+                              >
+                                {schedule.status}
+                              </span>
+                            </div>
+                            <div className="mt-1 line-clamp-2 text-[12px] leading-5 text-[#667085]">
+                              {schedule.prompt}
+                            </div>
+                            {schedule.last_error ? (
+                              <div className="mt-1 truncate text-xs font-medium text-[#cf222e]">
+                                {schedule.last_error}
+                              </div>
+                            ) : null}
                           </div>
-                        ) : null}
+                        </div>
+
+                        <div
+                          data-ripple-automation-meta-grid
+                          className="mt-3 grid gap-2 pl-11 sm:grid-cols-3"
+                        >
+                          <div className="min-w-0">
+                            <div className="text-[10px] font-semibold tracking-normal text-[#8b8f94] uppercase">
+                              Next
+                            </div>
+                            <div className="mt-0.5 truncate text-[13px] font-medium text-[#111827]">
+                              {formatDate(schedule.next_run_at)}
+                            </div>
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-[10px] font-semibold tracking-normal text-[#8b8f94] uppercase">
+                              Repeat
+                            </div>
+                            <div className="mt-0.5 truncate font-[family-name:var(--font-mono)] text-[11px] text-[#384152]">
+                              {schedule.kind === "interval"
+                                ? `${intervalLabel(schedule.interval_seconds)} · ${runCountLabel(schedule)}`
+                                : "Once"}
+                            </div>
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-[10px] font-semibold tracking-normal text-[#8b8f94] uppercase">
+                              Policy
+                            </div>
+                            <div className="mt-0.5 truncate font-[family-name:var(--font-mono)] text-[10px] text-[#667085]">
+                              missed {schedule.missed_run_policy || "run_once"} · overlap{" "}
+                              {schedule.overlap_policy || "skip"} · failure{" "}
+                              {schedule.failure_policy || "pause"}
+                            </div>
+                          </div>
+                        </div>
                       </div>
 
-                      <div className="min-w-0 text-[13px]">
-                        <div className="font-medium">{formatDate(schedule.next_run_at)}</div>
-                        <div className="mt-1 font-[family-name:var(--font-mono)] text-[11px] text-[#667085]">
-                          {schedule.kind === "interval"
-                            ? `${intervalLabel(schedule.interval_seconds)} · ${runCountLabel(schedule)}`
-                            : "Once"}
-                        </div>
-                        <div className="mt-1 font-[family-name:var(--font-mono)] text-[10px] text-[#8b8f94]">
-                          missed {schedule.missed_run_policy || "run_once"} · overlap{" "}
-                          {schedule.overlap_policy || "skip"} · failure{" "}
-                          {schedule.failure_policy || "pause"}
-                        </div>
-                      </div>
-
-                      <div data-ripple-automation-latest-run className="min-w-0 text-[13px]">
+                      <div
+                        data-ripple-automation-latest-run
+                        className="min-w-0 border-l-2 border-[#e8edf7] pl-3 text-[13px]"
+                      >
                         <div className="flex min-w-0 items-center gap-1.5">
-                          <span className="text-[10px] font-semibold uppercase tracking-normal text-[#8b8f94]">
-                            Run
+                          <span className="text-[10px] font-semibold tracking-normal text-[#8b8f94] uppercase">
+                            Latest run
                           </span>
                           <span
                             className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${runStatusClass(
@@ -805,210 +833,222 @@ export default function AutomationsPage({
                           ) : null}
                         </div>
                       </div>
+                    </div>
 
-                      <div
-                        data-ripple-automation-actions
-                        className="flex flex-wrap items-center gap-1.5 justify-self-start md:justify-self-end"
+                    <div
+                      data-ripple-automation-actions
+                      className="mt-4 flex flex-wrap items-center gap-1.5 border-t border-[#e8edf7] pt-3 sm:justify-end"
+                    >
+                      {confirmDeleteId === schedule.schedule_id ? (
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteId(null)}
+                          className="inline-flex h-8 items-center justify-center rounded-full border border-[#dfe6f4] bg-white px-3 text-[11px] font-semibold text-[#384152] hover:bg-[#f7f8fa]"
+                        >
+                          Cancel
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void handleAction(schedule.schedule_id, "toggle", schedule.enabled)
+                        }
+                        aria-label={schedule.enabled ? "Pause automation" : "Resume automation"}
+                        title={schedule.enabled ? "Pause automation" : "Resume automation"}
+                        className={automationActionButtonClass}
                       >
-                        {confirmDeleteId === schedule.schedule_id ? (
-                          <button
-                            type="button"
-                            onClick={() => setConfirmDeleteId(null)}
-                            className="inline-flex h-8 items-center justify-center rounded-full border border-[#dfe6f4] bg-white px-3 text-[11px] font-semibold text-[#384152] hover:bg-[#f7f8fa]"
-                          >
-                            Cancel
-                          </button>
-                        ) : null}
-                        <button
-                          type="button"
-                          onClick={() =>
-                            void handleAction(schedule.schedule_id, "toggle", schedule.enabled)
+                        {pendingActionId === `${schedule.schedule_id}:toggle` ? (
+                          <Loader2 size={14} className="animate-spin" />
+                        ) : schedule.enabled ? (
+                          <Pause size={14} />
+                        ) : (
+                          <Play size={14} />
+                        )}
+                        {schedule.enabled ? <span>Pause</span> : <span>Resume</span>}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleAction(schedule.schedule_id, "run")}
+                        aria-label="Run automation now"
+                        title="Run automation now"
+                        className={automationActionButtonClass}
+                      >
+                        {pendingActionId === `${schedule.schedule_id}:run` ? (
+                          <Loader2 size={14} className="animate-spin" />
+                        ) : (
+                          <Zap size={14} />
+                        )}
+                        <span>Run now</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpandedScheduleId((current) =>
+                            current === schedule.schedule_id ? null : schedule.schedule_id
+                          )
+                        }
+                        aria-label="Toggle run history"
+                        title="Toggle run history"
+                        className={automationActionButtonClass}
+                      >
+                        <ChevronDown
+                          size={14}
+                          className={
+                            isExpanded ? "rotate-180 transition-transform" : "transition-transform"
                           }
-                          aria-label={schedule.enabled ? "Pause automation" : "Resume automation"}
-                          title={schedule.enabled ? "Pause automation" : "Resume automation"}
-                          className={automationActionButtonClass}
-                        >
-                          {pendingActionId === `${schedule.schedule_id}:toggle` ? (
-                            <Loader2 size={14} className="animate-spin" />
-                          ) : schedule.enabled ? (
-                            <Pause size={14} />
-                          ) : (
-                            <Play size={14} />
-                          )}
-                          {schedule.enabled ? <span>Pause</span> : <span>Resume</span>}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void handleAction(schedule.schedule_id, "run")}
-                          aria-label="Run automation now"
-                          title="Run automation now"
-                          className={automationActionButtonClass}
-                        >
-                          {pendingActionId === `${schedule.schedule_id}:run` ? (
-                            <Loader2 size={14} className="animate-spin" />
-                          ) : (
-                            <Zap size={14} />
-                          )}
-                          <span>Run now</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setExpandedScheduleId((current) =>
-                              current === schedule.schedule_id ? null : schedule.schedule_id
-                            )
-                          }
-                          aria-label="Toggle run history"
-                          title="Toggle run history"
-                          className={automationActionButtonClass}
-                        >
-                          <ChevronDown
-                            size={14}
-                            className={isExpanded ? "rotate-180 transition-transform" : "transition-transform"}
-                          />
-                          <span>运行记录</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void handleAction(schedule.schedule_id, "delete")}
-                          aria-label="Delete automation"
-                          title={
-                            confirmDeleteId === schedule.schedule_id
-                              ? "Confirm delete automation"
-                              : "Delete automation"
-                          }
-                          className={`${automationDeleteButtonClass} ${
-                            confirmDeleteId === schedule.schedule_id
-                              ? "border-[#cf222e]/25 bg-[#ffebe9] text-[#cf222e]"
-                              : "border-[#dfe6f4] bg-white text-[#8b8f94] hover:bg-[#ffebe9] hover:text-[#cf222e]"
-                          }`}
-                        >
-                          {pendingActionId === `${schedule.schedule_id}:delete` ? (
-                            <Loader2 size={14} className="animate-spin" />
-                          ) : confirmDeleteId === schedule.schedule_id ? (
-                            <span className="text-[11px] font-semibold">Confirm</span>
-                          ) : (
-                            <>
-                              <Trash2 size={14} />
-                              <span>Delete</span>
-                            </>
-                          )}
-                        </button>
-                      </div>
+                        />
+                        <span>运行记录</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleAction(schedule.schedule_id, "delete")}
+                        aria-label="Delete automation"
+                        title={
+                          confirmDeleteId === schedule.schedule_id
+                            ? "Confirm delete automation"
+                            : "Delete automation"
+                        }
+                        className={`${automationDeleteButtonClass} ${
+                          confirmDeleteId === schedule.schedule_id
+                            ? "border-[#cf222e]/25 bg-[#ffebe9] text-[#cf222e]"
+                            : "border-[#dfe6f4] bg-white text-[#8b8f94] hover:bg-[#ffebe9] hover:text-[#cf222e]"
+                        }`}
+                      >
+                        {pendingActionId === `${schedule.schedule_id}:delete` ? (
+                          <Loader2 size={14} className="animate-spin" />
+                        ) : confirmDeleteId === schedule.schedule_id ? (
+                          <span className="text-[11px] font-semibold">Confirm</span>
+                        ) : (
+                          <>
+                            <Trash2 size={14} />
+                            <span>Delete</span>
+                          </>
+                        )}
+                      </button>
                     </div>
 
                     {isExpanded ? (
                       <div
                         data-ripple-automation-run-history
-                        className="mt-3 divide-y divide-[#eef2fb] border-t border-[#e8edf7] pt-3"
+                        className="mt-4 border-t border-[#e8edf7] pt-3"
                       >
+                        <div className="mb-2 flex items-center justify-between gap-3">
+                          <div className="text-[11px] font-semibold tracking-normal text-[#667085] uppercase">
+                            运行记录
+                          </div>
+                          <div className="font-[family-name:var(--font-mono)] text-[10px] text-[#8b8f94]">
+                            {runs.length} run{runs.length === 1 ? "" : "s"}
+                          </div>
+                        </div>
                         {runs.length === 0 ? (
                           <div className="text-[12px] text-[#667085]">No runs yet</div>
                         ) : (
-                          runs.map((run) => {
-                            const errorText = runErrorText(run);
-                            const runDeleteKey = `${schedule.schedule_id}:${run.job_id}`;
-                            const confirmingRunDelete = confirmRunDeleteId === runDeleteKey;
-                            return (
-                              <div
-                                key={run.job_id}
-                                data-ripple-automation-run-row
-                                className="grid gap-2 py-2 text-[12px] first:pt-0 last:pb-0 sm:grid-cols-[90px_minmax(0,1fr)_120px] sm:items-start"
-                              >
-                                <div className="min-w-0">
-                                  <span
-                                    className={`inline-flex rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${runStatusClass(
-                                      run.status
-                                    )}`}
-                                  >
-                                    {run.status}
-                                  </span>
-                                  <div className="mt-1 text-[11px] text-[#667085]">
-                                    {formatDate(run.updated_at)}
-                                  </div>
-                                </div>
-                                <div className="min-w-0">
-                                  <div className="truncate font-[family-name:var(--font-mono)] text-[11px] text-[#384152]">
-                                    {run.job_id}
-                                  </div>
-                                  {errorText ? (
-                                    <div className="mt-1 truncate text-[11px] font-medium text-[#cf222e]">
-                                      {errorText}
+                          <div className="divide-y divide-[#eef2fb]">
+                            {runs.map((run) => {
+                              const errorText = runErrorText(run);
+                              const runDeleteKey = `${schedule.schedule_id}:${run.job_id}`;
+                              const confirmingRunDelete = confirmRunDeleteId === runDeleteKey;
+                              return (
+                                <div
+                                  key={run.job_id}
+                                  data-ripple-automation-run-row
+                                  className="grid gap-2 py-2.5 text-[12px] md:grid-cols-[minmax(0,1fr)_auto] md:items-center"
+                                >
+                                  <div className="min-w-0">
+                                    <div className="grid min-w-0 gap-1.5 sm:grid-cols-[90px_minmax(0,1fr)_120px] sm:items-center">
+                                      <span
+                                        className={`w-fit rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${runStatusClass(
+                                          run.status
+                                        )}`}
+                                      >
+                                        {run.status}
+                                      </span>
+                                      <span className="truncate font-[family-name:var(--font-mono)] text-[11px] text-[#384152]">
+                                        {run.job_id}
+                                      </span>
+                                      <span className="text-[11px] text-[#667085]">
+                                        {formatDate(run.updated_at)}
+                                      </span>
                                     </div>
-                                  ) : null}
-                                </div>
-                                <div className="flex flex-wrap gap-1.5 sm:justify-end">
-                                  {hasRunOutput(run) ? (
-                                    <>
+                                    {errorText ? (
+                                      <div className="mt-1 truncate text-[11px] font-medium text-[#cf222e]">
+                                        {errorText}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                  <div className="flex flex-wrap gap-1.5 md:justify-end">
+                                    {hasRunOutput(run) ? (
+                                      <>
+                                        <button
+                                          type="button"
+                                          onClick={() => void handleViewOutput(run, schedule.title)}
+                                          disabled={pendingRunActionId === `${run.job_id}:view`}
+                                          className={runActionButtonClass}
+                                        >
+                                          <Eye size={12} />
+                                          <span>查看结果</span>
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => void handleDownloadOutput(run)}
+                                          disabled={pendingRunActionId === `${run.job_id}:download`}
+                                          className={runActionButtonClass}
+                                        >
+                                          <Download size={12} />
+                                          <span>下载结果</span>
+                                        </button>
+                                      </>
+                                    ) : null}
+                                    {confirmingRunDelete ? (
                                       <button
                                         type="button"
-                                        onClick={() => void handleViewOutput(run, schedule.title)}
-                                        disabled={pendingRunActionId === `${run.job_id}:view`}
+                                        onClick={() => setConfirmRunDeleteId(null)}
                                         className={runActionButtonClass}
                                       >
-                                        <Eye size={12} />
-                                        <span>查看结果</span>
+                                        <span>取消</span>
                                       </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => void handleDownloadOutput(run)}
-                                        disabled={pendingRunActionId === `${run.job_id}:download`}
-                                        className={runActionButtonClass}
-                                      >
-                                        <Download size={12} />
-                                        <span>下载结果</span>
-                                      </button>
-                                    </>
-                                  ) : null}
-                                  {confirmingRunDelete ? (
+                                    ) : null}
                                     <button
                                       type="button"
-                                      onClick={() => setConfirmRunDeleteId(null)}
-                                      className={runActionButtonClass}
+                                      onClick={() =>
+                                        void handleDeleteRun(schedule.schedule_id, run)
+                                      }
+                                      disabled={
+                                        pendingRunActionId === `${run.job_id}:delete` ||
+                                        isActiveRunStatus(run.status)
+                                      }
+                                      title={
+                                        isActiveRunStatus(run.status)
+                                          ? "运行中请先取消再删除"
+                                          : confirmingRunDelete
+                                            ? "确认删除执行记录"
+                                            : "删除执行记录"
+                                      }
+                                      aria-label={
+                                        confirmingRunDelete ? "确认删除执行记录" : "删除执行记录"
+                                      }
+                                      className={`${runActionButtonClass} ${
+                                        confirmingRunDelete
+                                          ? "border-[#cf222e]/25 bg-[#ffebe9] text-[#cf222e]"
+                                          : "text-[#8b8f94] hover:bg-[#ffebe9] hover:text-[#cf222e]"
+                                      }`}
                                     >
-                                      <span>取消</span>
+                                      {pendingRunActionId === `${run.job_id}:delete` ? (
+                                        <Loader2 size={12} className="animate-spin" />
+                                      ) : confirmingRunDelete ? (
+                                        <span>确认删除</span>
+                                      ) : (
+                                        <>
+                                          <Trash2 size={12} />
+                                          <span>删除记录</span>
+                                        </>
+                                      )}
                                     </button>
-                                  ) : null}
-                                  <button
-                                    type="button"
-                                    onClick={() => void handleDeleteRun(schedule.schedule_id, run)}
-                                    disabled={
-                                      pendingRunActionId === `${run.job_id}:delete` ||
-                                      isActiveRunStatus(run.status)
-                                    }
-                                    title={
-                                      isActiveRunStatus(run.status)
-                                        ? "运行中请先取消再删除"
-                                        : confirmingRunDelete
-                                          ? "确认删除执行记录"
-                                          : "删除执行记录"
-                                    }
-                                    aria-label={
-                                      confirmingRunDelete
-                                        ? "确认删除执行记录"
-                                        : "删除执行记录"
-                                    }
-                                    className={`${runActionButtonClass} ${
-                                      confirmingRunDelete
-                                        ? "border-[#cf222e]/25 bg-[#ffebe9] text-[#cf222e]"
-                                        : "text-[#8b8f94] hover:bg-[#ffebe9] hover:text-[#cf222e]"
-                                    }`}
-                                  >
-                                    {pendingRunActionId === `${run.job_id}:delete` ? (
-                                      <Loader2 size={12} className="animate-spin" />
-                                    ) : confirmingRunDelete ? (
-                                      <span>确认删除</span>
-                                    ) : (
-                                      <>
-                                        <Trash2 size={12} />
-                                        <span>删除记录</span>
-                                      </>
-                                    )}
-                                  </button>
+                                  </div>
                                 </div>
-                              </div>
-                            );
-                          })
+                              );
+                            })}
+                          </div>
                         )}
                       </div>
                     ) : null}
@@ -1048,7 +1088,7 @@ export default function AutomationsPage({
                     {outputPreview.error}
                   </div>
                 ) : (
-                  <pre className="whitespace-pre-wrap break-words font-[family-name:var(--font-mono)] text-[12px] leading-5 text-[#1f2937]">
+                  <pre className="font-[family-name:var(--font-mono)] text-[12px] leading-5 break-words whitespace-pre-wrap text-[#1f2937]">
                     {outputPreview.text || "(empty output)"}
                   </pre>
                 )}

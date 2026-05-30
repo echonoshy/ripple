@@ -16,6 +16,7 @@ import MarkdownRenderer, {
   type FeishuAuthOpenPayload,
   type FeishuAuthWaitingState,
 } from "@/components/MarkdownRenderer";
+import { IconTile, type IconTileTone } from "@/components/icons/IconTile";
 import { downloadWorkspaceFile } from "@/lib/api";
 import { getWorkspaceImagePreviewUrl } from "@/lib/workspaceImageCache";
 import type { Message, WorkbenchTimelineEvent } from "@/types";
@@ -39,29 +40,26 @@ function EventIcon({ type }: { type: WorkbenchTimelineEvent["type"] }) {
   return <Bot size={13} />;
 }
 
-function eventIconClass(type: WorkbenchTimelineEvent["type"]): string {
-  if (type === "user_message") {
-    return "border-[#c8d6ff] bg-[linear-gradient(135deg,#edf4ff,#ffffff)] text-[#2f6bff]";
-  }
-  if (type === "assistant_message" || type === "runtime_update") {
-    return "border-[#ded3ff] bg-[linear-gradient(135deg,#f2edff,#ffffff)] text-[#7b5cff]";
+function eventIconTone(type: WorkbenchTimelineEvent["type"]): IconTileTone {
+  if (type === "user_message" || type === "assistant_message" || type === "runtime_update") {
+    return "accent";
   }
   if (type === "command" || type === "tool_call") {
-    return "border-[#ccebd7] bg-[linear-gradient(135deg,#edfff3,#ffffff)] text-[#1a9f5c]";
+    return "success";
   }
   if (type === "file_change" || type === "final_summary") {
-    return "border-[#d3e5ff] bg-[linear-gradient(135deg,#eef7ff,#ffffff)] text-[#0b7cd3]";
+    return "accent";
   }
   if (type === "image_generation" || type === "image_view") {
-    return "border-[#ccebd7] bg-[linear-gradient(135deg,#f0fff7,#ffffff)] text-[#16824a]";
+    return "success";
   }
   if (type === "approval_request") {
-    return "border-[#f7d796] bg-[linear-gradient(135deg,#fff8df,#ffffff)] text-[#c47a00]";
+    return "warning";
   }
   if (type === "warning" || type === "error") {
-    return "border-[#ffd0cc] bg-[linear-gradient(135deg,#fff0ef,#ffffff)] text-[#cf222e]";
+    return "danger";
   }
-  return "border-[#dfe6f4] bg-white text-[#596579]";
+  return "neutral";
 }
 
 function formatBytes(value: number | undefined): string {
@@ -185,9 +183,13 @@ export default function SessionTimeline({
       <div className="relative min-h-[140px] pl-8">
         <div className="absolute top-2 bottom-2 left-[11px] w-px bg-[#dfe6f4]" />
         <div className="relative py-2">
-          <span className="absolute top-2.5 -left-8 flex h-6 w-6 items-center justify-center rounded-full border border-[#c8d6ff] bg-white text-[#2f6bff] shadow-[0_8px_18px_rgba(64,92,255,0.12)]">
+          <IconTile
+            tone="accent"
+            size="xs"
+            className="absolute top-2.5 -left-8 rounded-full shadow-[0_8px_18px_rgba(64,92,255,0.12)]"
+          >
             <span className="h-2 w-2 rounded-full bg-current" />
-          </span>
+          </IconTile>
           <div className="text-[12px] font-semibold text-[#111827]">Ready</div>
           <div className="mt-1 max-w-xl text-[12px] leading-5 text-[#667085]">
             Start a session and your workspace activity will appear here as a timeline.
@@ -218,11 +220,13 @@ export default function SessionTimeline({
             key={event.id}
             className="relative border-b border-[#e9eef7]/80 py-2.5 last:border-b-0 sm:py-4"
           >
-            <span
-              className={`absolute top-2.5 -left-8 flex h-6 w-6 items-center justify-center rounded-full border shadow-[0_8px_18px_rgba(44,63,123,0.10)] ${eventIconClass(event.type)}`}
+            <IconTile
+              tone={eventIconTone(event.type)}
+              size="xs"
+              className="absolute top-2.5 -left-8 rounded-full shadow-[0_8px_18px_rgba(44,63,123,0.10)]"
             >
               <EventIcon type={event.type} />
-            </span>
+            </IconTile>
             <div className="mb-1.5 flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="truncate text-[12px] leading-5 font-semibold text-[#111827] sm:text-sm">
@@ -263,9 +267,13 @@ export default function SessionTimeline({
 
       {isGenerating && lastMessage?.role === "assistant" && !lastMessage.content && (
         <article className="relative border-b border-[#e9eef7]/80 py-2.5">
-          <span className="absolute top-2.5 -left-8 flex h-6 w-6 items-center justify-center rounded-full border border-[#ded3ff] bg-white text-[#7b5cff] shadow-[0_8px_18px_rgba(123,92,255,0.14)]">
+          <IconTile
+            tone="accent"
+            size="xs"
+            className="absolute top-2.5 -left-8 rounded-full shadow-[0_8px_18px_rgba(123,92,255,0.14)]"
+          >
             <span className="h-2 w-2 animate-pulse rounded-full bg-current" />
-          </span>
+          </IconTile>
           <div className="flex items-center gap-2 text-[12px] text-[#667085]">
             <Bot size={13} />
             {feishuAuthWaiting

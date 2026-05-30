@@ -13,6 +13,7 @@ import {
   Edit3,
   Trash2,
 } from "lucide-react";
+import { IconTile } from "@/components/icons/IconTile";
 import { formatSessionActivityTime } from "@/lib/workbench";
 import {
   getMeasuredViewportMenuPosition,
@@ -255,7 +256,9 @@ export default function MobileSessionsPage({
       <main className="min-h-0 flex-1 overflow-y-auto px-3 pt-2.5 pb-[calc(88px+env(safe-area-inset-bottom))]">
         {sessionLoadError && !isLoading ? (
           <div className="mt-2 flex items-start gap-2 rounded-xl border border-[#cf222e]/25 bg-[#ffebe9] p-3 text-sm font-medium text-[#cf222e]">
-            <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+            <IconTile tone="danger" size="sm" className="mt-0.5">
+              <AlertTriangle size={14} />
+            </IconTile>
             <span className="min-w-0 break-words">{sessionLoadError}</span>
           </div>
         ) : null}
@@ -266,9 +269,13 @@ export default function MobileSessionsPage({
           </div>
         ) : visibleSessions.length === 0 ? (
           <div className="flex h-72 flex-col items-center justify-center px-8 text-center">
-            <span className="mb-4 flex h-[60px] w-[60px] items-center justify-center rounded-lg border border-white/72 bg-white/68 text-[#2463eb] shadow-[0_8px_24px_rgba(44,63,123,0.06)] backdrop-blur-xl">
+            <IconTile
+              tone="accent"
+              size="xl"
+              className="mb-4 h-[60px] w-[60px] rounded-2xl shadow-[0_8px_24px_rgba(44,63,123,0.06)]"
+            >
               <MessageCircle size={28} />
-            </span>
+            </IconTile>
             <div className="text-[17px] font-semibold">
               {normalizedQuery ? "No matching sessions" : "No sessions yet"}
             </div>

@@ -3,15 +3,20 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";
+import rippleIconAsset from "./src/components/icons/rippleIconAsset.json";
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 const tauriDevHost = process.env.TAURI_DEV_HOST;
 const rippleIconPath = path.resolve(dirname, "../assets/ripple-icon.svg");
-const rippleIconOutputPath = "assets/ripple-icon.svg";
+const rippleIconOutputPath = rippleIconAsset.path.replace(/^\//, "");
+const rippleIconSrc = `${rippleIconAsset.path}?v=${rippleIconAsset.version}`;
 
 function rippleIconAssetPlugin(): Plugin {
   return {
     name: "ripple-icon-asset",
+    transformIndexHtml(html) {
+      return html.replace("%RIPPLE_ICON_SRC%", rippleIconSrc);
+    },
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         const { pathname } = new URL(req.url ?? "/", "http://localhost");

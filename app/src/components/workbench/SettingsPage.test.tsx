@@ -81,10 +81,21 @@ function testSettingsPageUsesInlineModelMenuAndTokenBreakdown() {
   assert.doesNotMatch(source, /label="Connectors"/);
 }
 
+function testSettingsPageUsesSoftTilesForEntitySections() {
+  const html = renderSettingsPage();
+  const source = readFileSync(new URL("./SettingsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /IconTile/);
+  assert.match(html, /data-ripple-icon-tile="true"/);
+  assert.match(html, /data-tone="accent"/);
+  assert.match(html, /data-tone="neutral"/);
+}
+
 testSettingsPageHasExpectedUserSections();
 testSettingsPageDoesNotDuplicatePrimaryWorkspaceTabs();
 testSettingsPageHidesDiagnosticsByDefault();
 testSettingsPageReservesMobileTopSafeArea();
 testSettingsPageUsesInlineModelMenuAndTokenBreakdown();
+testSettingsPageUsesSoftTilesForEntitySections();
 
 console.log("settings page tests passed");

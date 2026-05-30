@@ -26,6 +26,7 @@ import {
   MoreHorizontal,
   X,
 } from "lucide-react";
+import { IconTile } from "@/components/icons/IconTile";
 import {
   downloadWorkspaceFile,
   fetchWorkspaceFilePreview,
@@ -1544,7 +1545,9 @@ export default function WorkspaceExplorer({
           >
             <div className="rounded-2xl border border-[#dfe6f4]/80 bg-[#ffffff]/66 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)]">
               <div className="flex items-start gap-2">
-                <Folder size={15} className="mt-0.5 shrink-0 text-[#2463eb]" />
+                <IconTile tone="accent" size="sm" className="mt-0.5">
+                  <Folder size={14} />
+                </IconTile>
                 <div className="min-w-0 flex-1">
                   <div className="truncate font-[family-name:var(--font-mono)] text-[11px] font-semibold text-[#374151]">
                     {listing?.path || currentPath}
@@ -1660,21 +1663,9 @@ export default function WorkspaceExplorer({
                             }`
                       }
                     >
-                      <span
-                        className={
-                          isPagePresentation
-                            ? `flex h-5 w-5 shrink-0 items-center justify-center rounded-md ${
-                                entry.kind === "directory"
-                                  ? "bg-[#f6f8ff] text-[#2457e6]"
-                                  : "bg-[#f6f8ff] text-[#2463eb]"
-                              }`
-                            : `flex h-5 w-5 shrink-0 items-center justify-center text-[#374151] ${
-                                entry.kind === "directory" ? "bg-[#f7f8fa]" : "bg-white"
-                              }`
-                        }
-                      >
+                      <IconTile tone={entry.kind === "directory" ? "accent" : "neutral"} size="xs">
                         {entry.kind === "directory" ? <Folder size={14} /> : <FileText size={14} />}
-                      </span>
+                      </IconTile>
                       <span className="min-w-0 flex-1">
                         <input
                           ref={renameInputRef}
@@ -1740,25 +1731,16 @@ export default function WorkspaceExplorer({
                             : "flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2 text-left"
                         }
                       >
-                        <span
-                          className={
-                            isPagePresentation
-                              ? `flex h-5 w-5 shrink-0 items-center justify-center rounded-md ${
-                                  entry.kind === "directory"
-                                    ? "bg-[#f6f8ff] text-[#2457e6]"
-                                    : "bg-[#f6f8ff] text-[#2463eb]"
-                                }`
-                              : `flex h-5 w-5 shrink-0 items-center justify-center text-[#374151] ${
-                                  entry.kind === "directory" ? "bg-[#f7f8fa]" : "bg-white"
-                                }`
-                          }
+                        <IconTile
+                          tone={entry.kind === "directory" ? "accent" : "neutral"}
+                          size="xs"
                         >
                           {entry.kind === "directory" ? (
                             <Folder size={14} />
                           ) : (
                             <FileText size={14} />
                           )}
-                        </span>
+                        </IconTile>
                         <span className="min-w-0 flex-1">
                           <span
                             className={`block truncate font-[family-name:var(--font-mono)] text-[13px] font-medium text-[#0d0d0d] ${
@@ -1817,15 +1799,9 @@ export default function WorkspaceExplorer({
                   : "flex shrink-0 items-center gap-2 border-b border-[#e5e7eb] bg-white px-3 py-2 text-[#6b7280]"
               }
             >
-              <span
-                className={
-                  isPagePresentation
-                    ? "flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#f6f8ff] text-[#2463eb]"
-                    : "shrink-0 text-[#6b7280]"
-                }
-              >
+              <IconTile tone={isPagePresentation ? "accent" : "neutral"} size="md">
                 <FileText size={15} />
-              </span>
+              </IconTile>
               <span className="min-w-0 flex-1">
                 <span
                   className={

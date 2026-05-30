@@ -17,6 +17,7 @@ import {
   Settings2,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { IconTile } from "@/components/icons/IconTile";
 import { resolveBackendUrl, parseWorkspaceLink } from "@/lib/api";
 import { openExternalUrl } from "@/lib/platform";
 
@@ -222,6 +223,7 @@ function FeishuCard({
     : "授权完成后 Ripple 会自动继续当前任务。";
   const Icon = isSetup ? Settings2 : KeyRound;
   const accentClass = isSetup ? "bg-[#eef3ff]/60 text-[#2f6bff]" : "bg-[#dafbe1]/60 text-[#1a7f37]";
+  const iconTone = isSetup ? "accent" : "success";
   const href = resolveBackendUrl(url) || url;
   const isWaiting =
     waiting?.connector === "feishu" && (waiting.url === href || waiting.url === url);
@@ -239,7 +241,9 @@ function FeishuCard({
   return (
     <div className="my-3 overflow-hidden rounded-2xl border border-[#dfe6f4] bg-white/74 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl">
       <div className={`flex items-center gap-2 border-b border-[#dfe6f4] px-4 py-3 ${accentClass}`}>
-        <Icon size={16} />
+        <IconTile tone={iconTone} size="sm">
+          <Icon size={15} />
+        </IconTile>
         <span className="text-sm font-semibold">{title}</span>
       </div>
       <div className="space-y-3 px-4 py-3">
@@ -298,7 +302,9 @@ function GoogleAuthCard({
   return (
     <div className="my-3 overflow-hidden rounded-2xl border border-[#dfe6f4] bg-white/74 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl">
       <div className="flex items-center gap-2 border-b border-[#dfe6f4] bg-[#eef3ff]/60 px-4 py-3 text-[#2f6bff]">
-        <KeyRound size={16} />
+        <IconTile tone="accent" size="sm">
+          <KeyRound size={15} />
+        </IconTile>
         <span className="text-sm font-semibold">授权 Google Workspace</span>
       </div>
       <div className="space-y-3 px-4 py-3">
@@ -353,7 +359,9 @@ function BilibiliAuthCard({
   return (
     <div className="my-3 overflow-hidden rounded-2xl border border-[#dfe6f4] bg-white/74 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl">
       <div className="flex items-center gap-2 border-b border-[#dfe6f4] bg-[#fff4e5]/60 px-4 py-3 text-[#9a3412]">
-        <QrCode size={16} />
+        <IconTile tone="warning" size="sm">
+          <QrCode size={15} />
+        </IconTile>
         <span className="text-sm font-semibold">B 站扫码登录</span>
       </div>
       <div className="space-y-3 px-4 py-3">
@@ -420,7 +428,9 @@ function ThinkingBlock({
         onClick={() => setIsExpanded(!isExpanded)}
         className="flex w-full items-center gap-2 px-4 py-2.5 text-left transition-colors hover:bg-[#eef4ff]"
       >
-        <Brain size={14} className="shrink-0 text-[#2463eb]" />
+        <IconTile tone="accent" size="xs">
+          <Brain size={13} />
+        </IconTile>
         <span className="text-xs font-semibold text-[#374151]">Thought Process</span>
         <motion.div
           animate={{ rotate: isExpanded ? 90 : 0 }}

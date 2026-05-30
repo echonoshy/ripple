@@ -15,6 +15,7 @@ import {
   logoutUserSession,
   AuthError,
 } from "@/lib/api";
+import { IconTile } from "@/components/icons/IconTile";
 import RippleIcon from "@/components/icons/RippleIcon";
 import AutomationsPage from "@/components/workbench/AutomationsPage";
 import ConnectorsPage from "@/components/workbench/ConnectorsPage";
@@ -737,7 +738,9 @@ export default function Home() {
 
               {authErrorMsg && (
                 <div className="mb-4 flex items-center gap-2 rounded-md border border-[#cf222e]/25 bg-[#ffebe9] p-3 text-sm font-medium text-[#cf222e]">
-                  <AlertTriangle size={16} />
+                  <IconTile tone="danger" size="sm">
+                    <AlertTriangle size={14} />
+                  </IconTile>
                   <span>{authErrorMsg}</span>
                 </div>
               )}
@@ -745,10 +748,13 @@ export default function Home() {
               {authMode === "service" ? (
                 <form onSubmit={handleAuthSubmit}>
                   <div className="relative mb-4">
-                    <KeyRound
-                      size={18}
-                      className="absolute top-1/2 left-4 -translate-y-1/2 text-[#6e7781]"
-                    />
+                    <IconTile
+                      tone="neutral"
+                      size="xs"
+                      className="absolute top-1/2 left-3 -translate-y-1/2"
+                    >
+                      <KeyRound size={13} />
+                    </IconTile>
                     <input
                       type="password"
                       value={keyInput}
@@ -764,10 +770,13 @@ export default function Home() {
                     </span>
                   </div>
                   <div className="relative mb-2">
-                    <UserRound
-                      size={18}
-                      className="absolute top-1/2 left-4 -translate-y-1/2 text-[#6e7781]"
-                    />
+                    <IconTile
+                      tone="neutral"
+                      size="xs"
+                      className="absolute top-1/2 left-3 -translate-y-1/2"
+                    >
+                      <UserRound size={13} />
+                    </IconTile>
                     <input
                       type="text"
                       value={authUserIdInput}
@@ -798,10 +807,13 @@ export default function Home() {
                 <form onSubmit={authMode === "invite" ? handleInviteClaim : handlePasswordLogin}>
                   {authMode === "invite" && (
                     <div className="relative mb-3">
-                      <KeyRound
-                        size={18}
-                        className="absolute top-1/2 left-4 -translate-y-1/2 text-[#6e7781]"
-                      />
+                      <IconTile
+                        tone="neutral"
+                        size="xs"
+                        className="absolute top-1/2 left-3 -translate-y-1/2"
+                      >
+                        <KeyRound size={13} />
+                      </IconTile>
                       <input
                         type="text"
                         value={inviteCodeInput}
@@ -815,10 +827,13 @@ export default function Home() {
                     </div>
                   )}
                   <div className="relative mb-3">
-                    <UserRound
-                      size={18}
-                      className="absolute top-1/2 left-4 -translate-y-1/2 text-[#6e7781]"
-                    />
+                    <IconTile
+                      tone="neutral"
+                      size="xs"
+                      className="absolute top-1/2 left-3 -translate-y-1/2"
+                    >
+                      <UserRound size={13} />
+                    </IconTile>
                     <input
                       type="text"
                       value={loginInput}
@@ -832,10 +847,13 @@ export default function Home() {
                   </div>
                   {authMode === "invite" && (
                     <div className="relative mb-3">
-                      <UserRound
-                        size={18}
-                        className="absolute top-1/2 left-4 -translate-y-1/2 text-[#6e7781]"
-                      />
+                      <IconTile
+                        tone="neutral"
+                        size="xs"
+                        className="absolute top-1/2 left-3 -translate-y-1/2"
+                      >
+                        <UserRound size={13} />
+                      </IconTile>
                       <input
                         type="text"
                         value={inviteDisplayNameInput}
@@ -846,10 +864,13 @@ export default function Home() {
                     </div>
                   )}
                   <div className="relative mb-4">
-                    <KeyRound
-                      size={18}
-                      className="absolute top-1/2 left-4 -translate-y-1/2 text-[#6e7781]"
-                    />
+                    <IconTile
+                      tone="neutral"
+                      size="xs"
+                      className="absolute top-1/2 left-3 -translate-y-1/2"
+                    >
+                      <KeyRound size={13} />
+                    </IconTile>
                     <input
                       type="password"
                       value={passwordInput}

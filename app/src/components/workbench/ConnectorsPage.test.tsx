@@ -70,4 +70,14 @@ function testConnectorsPageKeepsBilibiliAuthQrOnly() {
 
 testConnectorsPageKeepsBilibiliAuthQrOnly();
 
+function testConnectorsPageUsesSystemSoftTilesNotProviderLogos() {
+  const source = readFileSync(new URL("./ConnectorsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /IconTile/);
+  assert.match(source, /connectorStatusIconTone/);
+  assert.doesNotMatch(source, /google-logo|notion-logo|feishu-logo|bilibili-logo/i);
+}
+
+testConnectorsPageUsesSystemSoftTilesNotProviderLogos();
+
 console.log("connectors page tests passed");

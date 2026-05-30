@@ -13,6 +13,7 @@ import {
   Trash2,
   Zap,
 } from "lucide-react";
+import { IconTile } from "@/components/icons/IconTile";
 import {
   AuthError,
   createSchedule,
@@ -332,7 +333,9 @@ export default function AutomationsPage({
 
         {error ? (
           <div className="flex items-start gap-2 rounded-xl border border-[#cf222e]/25 bg-[#ffebe9] px-3 py-3 text-sm font-medium text-[#cf222e]">
-            <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+            <IconTile tone="danger" size="sm" className="mt-0.5">
+              <AlertTriangle size={14} />
+            </IconTile>
             <span className="min-w-0 break-words">{error}</span>
           </div>
         ) : null}
@@ -491,6 +494,9 @@ export default function AutomationsPage({
                 >
                   <div className="min-w-0">
                     <div className="flex min-w-0 items-center gap-2">
+                      <IconTile tone={schedule.enabled ? "accent" : "neutral"} size="sm">
+                        <CalendarClock size={14} />
+                      </IconTile>
                       <span className="truncate text-[13px] font-semibold">{schedule.title}</span>
                       <span
                         className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold capitalize ${statusClass(

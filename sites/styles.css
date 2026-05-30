@@ -599,17 +599,26 @@ h3 {
   width: 44px;
   height: 44px;
   border-radius: 12px;
+  border: 1px solid transparent;
   transition: background 180ms ease, color 180ms ease;
 }
 
+.btn-icon[data-ripple-icon-tile="true"] {
+  border: 1px solid var(--line);
+  background: #f6f8ff;
+  color: var(--muted);
+}
+
 .email-btn .btn-icon {
+  border-color: rgba(209, 72, 54, 0.22);
   background: rgba(209, 72, 54, 0.1);
   color: #d14836;
 }
 
 .feishu-btn .btn-icon {
-  background: rgba(51, 112, 255, 0.1);
-  color: #3370ff;
+  border-color: rgba(51, 112, 255, 0.24);
+  background: #eef4ff;
+  color: var(--blue);
 }
 
 .contact-btn:hover.email-btn {

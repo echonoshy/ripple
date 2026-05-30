@@ -100,6 +100,21 @@ function testConnectorAuthLinksUseScopedButtonStyles() {
   );
 }
 
+function testConnectorAuthCardsUseSoftTileHeaders() {
+  const googleHtml = renderToStaticMarkup(
+    <MarkdownRenderer
+      content={"[GOOGLE_AUTH]\nhttps://accounts.google.com/o/oauth2/auth?state=abc"}
+    />
+  );
+  const feishuHtml = renderToStaticMarkup(
+    <MarkdownRenderer content={"[FEISHU_AUTH]\nhttps://accounts.feishu.cn/device"} />
+  );
+
+  assert.match(googleHtml, /data-ripple-icon-tile="true"/);
+  assert.match(googleHtml, /data-tone="accent"/);
+  assert.match(feishuHtml, /data-ripple-icon-tile="true"/);
+}
+
 function testBilibiliAuthCardShowsQrAndManualOpenLink() {
   const html = renderToStaticMarkup(
     <MarkdownRenderer
@@ -167,6 +182,7 @@ testFeishuAuthCardDoesNotCompleteAuthDirectly();
 testFeishuAuthCardShowsWaitingState();
 testGoogleAuthCardDoesNotAskForManualCallback();
 testConnectorAuthLinksUseScopedButtonStyles();
+testConnectorAuthCardsUseSoftTileHeaders();
 testBilibiliAuthCardShowsQrAndManualOpenLink();
 testMarkdownTablesUseReadableTableClasses();
 testCodeBlocksWrapLongLinesWithoutHorizontalScroll();

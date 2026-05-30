@@ -29,6 +29,7 @@ import {
   connectorReadinessSummary,
   connectorStatusTone,
 } from "@/lib/connectors";
+import { IconTile, type IconTileTone } from "@/components/icons/IconTile";
 import type { ConnectorInfo, ConnectorStatus, GogcliAccountInfo } from "@/types";
 
 const CONNECTOR_CACHE_TTL_MS = 30_000;
@@ -104,6 +105,13 @@ function statusLabel(status: ConnectorStatus | null | undefined): string {
 function mobileStatusLabel(status: ConnectorStatus | null | undefined): string {
   if (!status) return "Unknown";
   return status.connected ? "Ready" : "Setup";
+}
+
+function connectorStatusIconTone(status: ConnectorStatus | null | undefined): IconTileTone {
+  const tone = connectorStatusTone(status);
+  if (tone === "connected") return "success";
+  if (tone === "needs_setup") return "warning";
+  return "neutral";
 }
 
 function actionDetail(result: Record<string, unknown>, fallback: string): string {
@@ -461,14 +469,18 @@ export default function ConnectorsPage({
 
         {pageError && (
           <div className="flex items-start gap-2 rounded-xl border border-[#cf222e]/25 bg-[#ffebe9] p-3 text-sm font-medium text-[#cf222e]">
-            <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+            <IconTile tone="danger" size="sm" className="mt-0.5">
+              <AlertTriangle size={14} />
+            </IconTile>
             <span>{pageError}</span>
           </div>
         )}
 
         {actionMessage && (
           <div className="flex items-start gap-2 rounded-xl border border-[#1a7f37]/20 bg-[#dafbe1] p-3 text-sm font-medium text-[#1a7f37]">
-            <ShieldCheck size={15} className="mt-0.5 shrink-0" />
+            <IconTile tone="success" size="sm" className="mt-0.5">
+              <ShieldCheck size={14} />
+            </IconTile>
             <span>{actionMessage}</span>
           </div>
         )}
@@ -519,17 +531,9 @@ export default function ConnectorsPage({
                       className="min-w-0 rounded-2xl border border-[#dfe6f4] bg-white/74 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl"
                     >
                       <div className="flex items-start gap-3 border-b border-[#e8edf7] p-3.5">
-                        <span
-                          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${
-                            tone === "connected"
-                              ? "border-[#1a7f37]/25 bg-[#dafbe1] text-[#1a7f37]"
-                              : tone === "needs_setup"
-                                ? "border-[#bf8700]/25 bg-[#fff8c5] text-[#7d4e00]"
-                                : "border-[#dfe6f4] bg-[#f6f8ff] text-[#667085]"
-                          }`}
-                        >
+                        <IconTile tone={connectorStatusIconTone(status)} size="lg">
                           {tone === "connected" ? <ShieldCheck size={17} /> : <Plug size={17} />}
-                        </span>
+                        </IconTile>
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
                             <h3 className="truncate text-[13px] font-semibold">

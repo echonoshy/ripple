@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { IconTile } from "@/components/icons/IconTile";
 import { mainNavItems, type WorkspaceView } from "@/lib/workspaceViews";
 
 interface MobileTabBarProps {
@@ -36,15 +37,17 @@ export default function MobileTabBar({ activeView, onSelectView }: MobileTabBarP
                 selected ? "text-[#2463eb]" : "text-[#3f4655]"
               }`}
             >
-              <span
-                className={`flex h-7 w-7 items-center justify-center rounded-full border backdrop-blur-xl transition-all ${
+              <IconTile
+                tone={selected ? "accent" : "neutral"}
+                size="sm"
+                className={
                   selected
-                    ? "border-[#b8cdf8]/60 bg-[#eef4ff]/80 text-[#2463eb] shadow-[0_6px_16px_rgba(36,99,235,0.10)]"
-                    : "border-transparent text-[#1f2937] group-active:border-white/60 group-active:bg-white/68"
-                }`}
+                    ? "shadow-[0_6px_16px_rgba(36,99,235,0.10)]"
+                    : "group-active:border-[#d7e3f8] group-active:bg-[#eef4ff]"
+                }
               >
-                <Icon size={selected ? 16 : 18} strokeWidth={selected ? 2.5 : 2.25} />
-              </span>
+                <Icon size={selected ? 15 : 16} strokeWidth={selected ? 2.45 : 2.25} />
+              </IconTile>
               <span className="max-w-full truncate">{mobileNavLabels[item.id]}</span>
             </button>
           );

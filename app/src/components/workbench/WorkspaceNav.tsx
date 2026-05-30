@@ -19,6 +19,7 @@ import {
   User,
   X,
 } from "lucide-react";
+import { IconTile } from "@/components/icons/IconTile";
 import RippleIcon from "@/components/icons/RippleIcon";
 import { formatSessionActivityTime } from "@/lib/workbench";
 import { mainNavItems, type WorkspaceView } from "@/lib/workspaceViews";
@@ -223,7 +224,9 @@ export default function WorkspaceNav({
                     : "border-transparent text-[#374151] hover:bg-white/80 hover:text-[#0d0d0d] hover:shadow-[0_2px_6px_rgba(0,0,0,0.02)]"
                 }`}
               >
-                <Icon size={16} className={selected ? "text-[#2463eb]" : "text-[#6b7280]"} />
+                <IconTile tone={selected ? "accent" : "neutral"} size="sm">
+                  <Icon size={15} strokeWidth={2.25} />
+                </IconTile>
                 {item.label}
               </button>
             );
@@ -421,7 +424,9 @@ export default function WorkspaceNav({
                 <div>
                   <div className="mb-1 flex items-center justify-between text-[11px] font-medium text-[#6b7280]">
                     <span className="flex items-center gap-1">
-                      <HardDrive size={11} />
+                      <IconTile tone="neutral" size="xs">
+                        <HardDrive size={12} />
+                      </IconTile>
                       Disk Usage
                     </span>
                     <span>
@@ -457,7 +462,9 @@ export default function WorkspaceNav({
                 <div>
                   <div className="mb-1 flex items-center justify-between text-[11px] font-medium text-[#6b7280]">
                     <span className="flex items-center gap-1">
-                      <Layers size={11} />
+                      <IconTile tone="neutral" size="xs">
+                        <Layers size={12} />
+                      </IconTile>
                       Active Sessions
                     </span>
                     <span>
@@ -491,7 +498,9 @@ export default function WorkspaceNav({
 
             <div className="mt-2 rounded-lg border border-slate-100 bg-slate-50 p-2 text-[11px] text-slate-500">
               <div className="mb-1.5 flex items-center gap-1.5 border-b border-slate-200/50 pb-1 font-medium text-slate-600">
-                <Cpu size={12} className="text-[#6b7280]" />
+                <IconTile tone="neutral" size="xs">
+                  <Cpu size={12} />
+                </IconTile>
                 <span>Token Usage Stats</span>
               </div>
               <div className="mt-1 grid grid-cols-3 gap-1 divide-x divide-slate-200/60 text-center">
@@ -606,7 +615,11 @@ export default function WorkspaceNav({
             aria-label={`Settings for ${userId}`}
             className="group flex w-full items-center gap-3 rounded-xl border border-transparent bg-[#fbfbfc]/40 p-2 text-left transition-all duration-300 hover:border-[#0d0d0d]/10 hover:bg-white hover:shadow-[0_4px_12px_rgba(0,0,0,0.02)]"
           >
-            <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[#0d0d0d]/10 bg-white shadow-[0_2px_6px_rgba(0,0,0,0.04)] transition-all duration-300 group-hover:scale-[1.02] group-hover:border-[#0d0d0d]/20">
+            <IconTile
+              tone="neutral"
+              size="lg"
+              className="relative bg-white shadow-[0_2px_6px_rgba(0,0,0,0.04)] transition-all duration-300 group-hover:scale-[1.02] group-hover:border-[#d7e3f8]"
+            >
               <User
                 size={15}
                 className="text-[#374151] transition-colors group-hover:text-[#0d0d0d]"
@@ -615,7 +628,7 @@ export default function WorkspaceNav({
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
                 <span className="relative inline-flex h-2 w-2 rounded-full border border-white bg-emerald-500"></span>
               </span>
-            </div>
+            </IconTile>
             <div className="min-w-0 flex-1">
               <span className="block truncate text-[13px] font-semibold text-[#374151] transition-colors group-hover:text-[#0d0d0d]">
                 {userId}

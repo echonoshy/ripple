@@ -38,6 +38,7 @@ import {
 import { formatModelName } from "@/lib/models";
 import type { ConnectorInfo, ConnectorStatus, SandboxInfo, UserProfile } from "@/types";
 import type { WorkspaceView } from "@/lib/workspaceViews";
+import { IconTile, type IconTileTone } from "@/components/icons/IconTile";
 import RippleIcon from "@/components/icons/RippleIcon";
 
 interface SettingsPageProps {
@@ -328,7 +329,7 @@ export default function SettingsPage({
         </header>
 
         <section className="rounded-2xl border border-[#dfe6f4] bg-white/78 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl">
-          <SectionHeader icon={<UserRound size={15} />} title="Account" />
+          <SectionHeader icon={<UserRound size={15} />} title="Account" tone="accent" />
           <div className="space-y-3 p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="min-w-0">
@@ -425,7 +426,7 @@ export default function SettingsPage({
         </section>
 
         <section className="rounded-2xl border border-[#dfe6f4] bg-white/78 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl">
-          <SectionHeader icon={<Plug size={15} />} title="Connected Accounts" />
+          <SectionHeader icon={<Plug size={15} />} title="Connected Accounts" tone="accent" />
           <div className="flex flex-wrap items-center justify-between gap-3 p-4">
             <div className="min-w-0">
               <div className="text-[18px] font-semibold text-[#111827]">
@@ -447,10 +448,11 @@ export default function SettingsPage({
         </section>
 
         <section className="rounded-2xl border border-[#dfe6f4] bg-white/78 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl">
-          <SectionHeader icon={<HardDrive size={15} />} title="Usage & Limits" />
+          <SectionHeader icon={<HardDrive size={15} />} title="Usage & Limits" tone="neutral" />
           <div className="grid gap-4 p-4 md:grid-cols-2">
             <UsageMeter
               icon={<HardDrive size={13} />}
+              iconTone="neutral"
               title="Workspace storage"
               value={workspaceBytes}
               max={maxWorkspaceBytes}
@@ -458,6 +460,7 @@ export default function SettingsPage({
             />
             <UsageMeter
               icon={<Layers size={13} />}
+              iconTone="accent"
               title="Session count"
               value={sessionCount}
               max={maxSessions}
@@ -468,7 +471,9 @@ export default function SettingsPage({
           </div>
           <div className="border-t border-[#e8edf7] p-4">
             <div className="mb-3 flex items-center gap-2 text-[13px] font-semibold text-[#374151]">
-              <Cpu size={14} />
+              <IconTile tone="neutral" size="xs">
+                <Cpu size={13} />
+              </IconTile>
               Token usage
             </div>
             <div className="grid grid-cols-3 divide-x divide-[#e8edf7] rounded-xl border border-[#e8edf7] bg-[#f8faff] text-center">
@@ -488,7 +493,7 @@ export default function SettingsPage({
         </section>
 
         <section className="rounded-2xl border border-[#dfe6f4] bg-white/78 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl">
-          <SectionHeader icon={<SlidersHorizontal size={15} />} title="Defaults" />
+          <SectionHeader icon={<SlidersHorizontal size={15} />} title="Defaults" tone="neutral" />
           <div className="flex flex-wrap items-center justify-between gap-3 p-4">
             <div className="min-w-0">
               <div className="text-[13px] font-semibold text-[#111827]">Default model</div>
@@ -519,7 +524,9 @@ export default function SettingsPage({
             className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
           >
             <span className="flex items-center gap-2 text-[13px] font-semibold text-[#111827]">
-              <ShieldCheck size={15} />
+              <IconTile tone="success" size="sm">
+                <ShieldCheck size={14} />
+              </IconTile>
               About & Diagnostics
             </span>
             <ChevronDown
@@ -556,10 +563,20 @@ export default function SettingsPage({
   );
 }
 
-function SectionHeader({ icon, title }: { icon: React.ReactNode; title: string }) {
+function SectionHeader({
+  icon,
+  title,
+  tone = "neutral",
+}: {
+  icon: React.ReactNode;
+  title: string;
+  tone?: IconTileTone;
+}) {
   return (
     <div className="flex h-11 items-center gap-2 border-b border-[#e8edf7] px-4 text-[13px] font-semibold text-[#111827]">
-      <span className="text-[#667085]">{icon}</span>
+      <IconTile tone={tone} size="sm">
+        {icon}
+      </IconTile>
       {title}
     </div>
   );
@@ -567,12 +584,14 @@ function SectionHeader({ icon, title }: { icon: React.ReactNode; title: string }
 
 function UsageMeter({
   icon,
+  iconTone = "neutral",
   title,
   value,
   max,
   detail,
 }: {
   icon: React.ReactNode;
+  iconTone?: IconTileTone;
   title: string;
   value: number;
   max: number;
@@ -583,7 +602,9 @@ function UsageMeter({
     <div>
       <div className="mb-1.5 flex items-center justify-between text-[11px] font-semibold text-[#6b7280]">
         <span className="flex items-center gap-1.5">
-          {icon}
+          <IconTile tone={iconTone} size="xs">
+            {icon}
+          </IconTile>
           {title}
         </span>
         <span>{amount.toFixed(1)}%</span>
@@ -627,7 +648,9 @@ function DiagnosticRow({
 }) {
   return (
     <div className="flex min-h-10 items-center gap-3 rounded-xl border border-[#e8edf7] bg-[#f8faff] px-3 py-2">
-      <span className="text-[#667085]">{icon}</span>
+      <IconTile tone="neutral" size="sm">
+        {icon}
+      </IconTile>
       <span className="min-w-0 flex-1">
         <span className="block text-[11px] font-semibold text-[#6b7280]">{label}</span>
         <span className="block truncate font-mono text-[12px] text-[#253247]">{value}</span>

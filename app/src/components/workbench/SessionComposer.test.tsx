@@ -70,6 +70,16 @@ function testComposerToolbarNamesRealActions() {
   assert.doesNotMatch(html, /title="Mention workspace file"/);
 }
 
+function testComposerToolbarUsesRequestedLucideIconSet() {
+  const source = readFileSync(new URL("./SessionComposer.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /<FolderGit2 size=\{16\} strokeWidth=\{2\} \/>/);
+  assert.match(source, /<Paperclip size=\{16\} strokeWidth=\{2\} \/>/);
+  assert.match(source, /<BrainCircuit size=\{16\} strokeWidth=\{2\} \/>/);
+  assert.doesNotMatch(source, /<Folder size=\{16\}/);
+  assert.doesNotMatch(source, /<Cpu size=\{16\}/);
+}
+
 function testComposerShowsWorkspaceFolderPickerButton() {
   const html = renderComposer({
     workspaceScopeLabel: "Demo",
@@ -192,6 +202,7 @@ function testComposerHasPasteAndDropImageHandlers() {
 
 testShowsSelectedModelAndMenuOptions();
 testComposerToolbarNamesRealActions();
+testComposerToolbarUsesRequestedLucideIconSet();
 testComposerShowsWorkspaceFolderPickerButton();
 testComposerInputSuppressesGlobalBlueFocusOutline();
 testBlockedComposerStillAllowsDraftingAndShowsStop();

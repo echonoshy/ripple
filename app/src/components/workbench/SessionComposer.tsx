@@ -5,7 +5,7 @@ import {
   AlertTriangle,
   BrainCircuit,
   FileText,
-  FolderOpen,
+  FolderGit2,
   Image as ImageIcon,
   Loader2,
   Paperclip,
@@ -340,7 +340,7 @@ export default function SessionComposer({
             }}
             className="inline-flex h-10 w-10 items-center justify-center rounded-full text-[#4b5563] hover:bg-[#f3f4f6] hover:text-[#111827] active:bg-[#eef3ff] sm:h-8 sm:w-8"
           >
-            <FolderOpen size={16} strokeWidth={2} />
+            <FolderGit2 size={16} strokeWidth={2} />
           </button>
           {isFolderPickerOpen && (
             <WorkspaceFolderPicker

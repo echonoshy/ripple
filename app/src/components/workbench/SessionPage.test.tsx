@@ -203,10 +203,10 @@ function testDesktopHeaderShowsCurrentModelLikeMobile() {
   assert.match(html, /title="Current model: Plus"/);
 }
 
-function testSessionPageShowsCurrentProjectBadge() {
-  const projectSession: WorkbenchSessionSummary = {
+function testSessionPageShowsCurrentFolderBadge() {
+  const folderSession: WorkbenchSessionSummary = {
     sessionId: "srv-demo",
-    title: "Project session",
+    title: "Folder session",
     pinned: false,
     status: "idle",
     model: "codex-medium",
@@ -214,13 +214,14 @@ function testSessionPageShowsCurrentProjectBadge() {
     messageCount: 0,
     changedFileCount: 0,
     pendingApprovalCount: 0,
-    projectId: "prj-demo",
-    projectName: "Demo",
-    projectRoot: "/workspace/demo",
+    projectId: null,
+    projectName: null,
+    projectRoot: null,
+    contextFolderPath: "/workspace/demo",
   };
   const html = renderToStaticMarkup(
     <SessionPage
-      session={projectSession}
+      session={folderSession}
       messages={[]}
       timelineEvents={[]}
       planProgress={null}
@@ -254,7 +255,7 @@ function testSessionPageShowsCurrentProjectBadge() {
     />
   );
 
-  assert.match(html, /Project: Demo/);
+  assert.match(html, /Folder: demo/);
   assert.match(html, /title="\/workspace\/demo"/);
 }
 
@@ -381,7 +382,7 @@ testGivesSessionContentMoreHorizontalRoom();
 testSessionPageHandlesDropAcrossWholeChat();
 testMobileHeaderReservesTopSafeArea();
 testDesktopHeaderShowsCurrentModelLikeMobile();
-testSessionPageShowsCurrentProjectBadge();
+testSessionPageShowsCurrentFolderBadge();
 testTimelineTextUsesWiderContentWidth();
 testContextWarningUsesReportedModelWindow();
 testContextWarningWaitsForModelWindow();

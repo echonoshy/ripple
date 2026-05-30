@@ -14,6 +14,7 @@ import {
   Save,
   Search,
   SlidersHorizontal,
+  SquareCheck,
   Undo2,
   Upload,
   Copy,
@@ -50,17 +51,13 @@ import {
   type ViewportMenuAnchorRect,
 } from "@/lib/menuPosition";
 import { getWorkspaceImagePreviewUrl } from "@/lib/workspaceImageCache";
-import { ProjectInfo, WorkspaceEntry, WorkspaceFilePreview, WorkspaceListing } from "@/types";
+import { WorkspaceEntry, WorkspaceFilePreview, WorkspaceListing } from "@/types";
 
 interface WorkspaceExplorerProps {
   userId: string;
   refreshToken: number;
   presentation?: "compact" | "page";
   onBack?: () => void;
-  projects?: ProjectInfo[];
-  activeProjectId?: string | null;
-  onProjectSelect?: (project: ProjectInfo | null) => void;
-  onCreateProject?: (input: { name: string; rootPath: string }) => Promise<ProjectInfo | null>;
   testInitialPreview?: WorkspaceFilePreview;
   testInitialListing?: WorkspaceListing;
 }
@@ -196,15 +193,22 @@ export function displayError(error: string): string {
   return readableApiErrorMessage(error);
 }
 
+export function getWorkspaceParentPath(path: string): string {
+  const cleanPath = path.split(/[?#]/, 1)[0] || DEFAULT_WORKSPACE_PATH;
+  const normalizedPath = cleanPath.startsWith("/workspace")
+    ? cleanPath
+    : `${DEFAULT_WORKSPACE_PATH}/${cleanPath.replace(/^\/+/, "")}`;
+  const withoutTrailingSlash = normalizedPath.replace(/\/+$/, "") || DEFAULT_WORKSPACE_PATH;
+  const slashIndex = withoutTrailingSlash.lastIndexOf("/");
+  if (slashIndex <= DEFAULT_WORKSPACE_PATH.length - 1) return DEFAULT_WORKSPACE_PATH;
+  return withoutTrailingSlash.slice(0, slashIndex) || DEFAULT_WORKSPACE_PATH;
+}
+
 export default function WorkspaceExplorer({
   userId,
   refreshToken,
   presentation = "compact",
   onBack,
-  projects = [],
-  activeProjectId = null,
-  onProjectSelect,
-  onCreateProject,
   testInitialPreview,
   testInitialListing,
 }: WorkspaceExplorerProps) {
@@ -249,14 +253,12 @@ export default function WorkspaceExplorer({
   const [isDraggingUpload, setIsDraggingUpload] = useState(false);
   const [downloadingPath, setDownloadingPath] = useState<string | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
-  const [projectSaving, setProjectSaving] = useState(false);
-
   const [clipboard, setClipboard] = useState<{
-    path: string;
-    name: string;
-    kind: "file" | "directory";
+    items: WorkspaceEntry[];
     action: "copy" | "move";
   } | null>(null);
+  const [selectedEntryPaths, setSelectedEntryPaths] = useState<Set<string>>(() => new Set());
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
 
   const [contextMenu, setContextMenu] = useState<{
     visible: boolean;
@@ -296,12 +298,18 @@ export default function WorkspaceExplorer({
   const isDirty = useMemo(() => Boolean(preview && draft !== preview.content), [draft, preview]);
   const normalizedQuery = query.trim();
   const isSearchMode = normalizedQuery.length > 0;
-  const visibleEntries = isSearchMode ? searchResults : listing?.entries || [];
-  const activeProject = useMemo(
-    () => projects.find((project) => project.projectId === activeProjectId) || null,
-    [activeProjectId, projects]
+  const visibleEntries = useMemo(
+    () => (isSearchMode ? searchResults : listing?.entries || []),
+    [isSearchMode, listing?.entries, searchResults]
   );
-
+  const selectedEntries = useMemo(
+    () => visibleEntries.filter((entry) => selectedEntryPaths.has(entry.path)),
+    [selectedEntryPaths, visibleEntries]
+  );
+  const selectedEntryCount = selectedEntries.length;
+  const isSelectionActive = isSelectionMode || selectedEntryCount > 0;
+  const allVisibleEntriesSelected =
+    visibleEntries.length > 0 && visibleEntries.every((entry) => selectedEntryPaths.has(entry.path));
   useEffect(() => {
     window.localStorage.setItem(SPLIT_PERCENT_STORAGE_KEY, String(splitPercent));
   }, [splitPercent]);
@@ -343,6 +351,8 @@ export default function WorkspaceExplorer({
           setDraft("");
           setIsEditing(false);
           setSaveError(null);
+          setSelectedEntryPaths(new Set());
+          setIsSelectionMode(false);
           setRenamingPath(null);
           setRenameDraft("");
           setRenameSaving(false);
@@ -366,50 +376,39 @@ export default function WorkspaceExplorer({
     [userId]
   );
 
-  useEffect(() => {
-    if (!activeProject) return;
-    if (currentPathRef.current === activeProject.rootPath) return;
-    void loadDirectory(activeProject.rootPath);
-  }, [activeProject, loadDirectory]);
-
-  const handleProjectSelect = useCallback(
-    (projectId: string) => {
-      if (!projectId) {
-        onProjectSelect?.(null);
-        return;
-      }
-      const project = projects.find((item) => item.projectId === projectId) || null;
-      onProjectSelect?.(project);
-      if (project) {
-        void loadDirectory(project.rootPath);
+  const openWorkspaceFilePath = useCallback(
+    async (targetPath: string, lineNumber?: number) => {
+      await loadDirectory(getWorkspaceParentPath(targetPath));
+      setPreviewLoading(true);
+      setError(null);
+      try {
+        const filePreview = await fetchWorkspaceFilePreview(targetPath, 256 * 1024);
+        setPreview(filePreview);
+        setImagePreviewUrl(null);
+        setDraft(filePreview.content);
+        setIsEditing(false);
+        setSaveError(null);
+        setHighlightedLine(lineNumber ?? null);
+      } catch (err) {
+        setPreview(null);
+        setImagePreviewUrl(null);
+        setDraft("");
+        setIsEditing(false);
+        setError(err instanceof Error ? err.message : String(err));
+        setHighlightedLine(null);
+      } finally {
+        setPreviewLoading(false);
       }
     },
-    [loadDirectory, onProjectSelect, projects]
+    [loadDirectory]
   );
-
-  const handleCreateProject = useCallback(async () => {
-    if (!onCreateProject || projectSaving) return;
-    const rootPath = listing?.path || currentPath;
-    const trimmed = rootPath.replace(/\/+$/, "");
-    const fallbackName = trimmed.split("/").filter(Boolean).pop() || "Workspace";
-    setProjectSaving(true);
-    setError(null);
-    try {
-      const project = await onCreateProject({ name: fallbackName, rootPath });
-      if (project) {
-        onProjectSelect?.(project);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setProjectSaving(false);
-    }
-  }, [currentPath, listing?.path, onCreateProject, onProjectSelect, projectSaving]);
 
   useEffect(() => {
     const userChanged = lastLoadedUserIdRef.current !== userId;
     const path = userChanged ? DEFAULT_WORKSPACE_PATH : currentPathRef.current;
     lastLoadedUserIdRef.current = userId;
+
+    let shouldLoadCurrentDirectory = true;
 
     if (userChanged) {
       currentPathRef.current = path;
@@ -419,34 +418,8 @@ export default function WorkspaceExplorer({
       const pending = pendingFileOpenRef.current;
       if (pending && pending.userId === userId) {
         pendingFileOpenRef.current = null;
-
-        const loadPendingFile = async () => {
-          setPreviewLoading(true);
-          setError(null);
-          try {
-            const filePreview = await fetchWorkspaceFilePreview(pending.path, 256 * 1024);
-            setPreview(filePreview);
-            setImagePreviewUrl(null);
-            setDraft(filePreview.content);
-            setIsEditing(false);
-            setSaveError(null);
-            if (pending.lineNumber !== undefined) {
-              setHighlightedLine(pending.lineNumber);
-            } else {
-              setHighlightedLine(null);
-            }
-          } catch (err) {
-            setPreview(null);
-            setImagePreviewUrl(null);
-            setDraft("");
-            setIsEditing(false);
-            setError(err instanceof Error ? err.message : String(err));
-            setHighlightedLine(null);
-          } finally {
-            setPreviewLoading(false);
-          }
-        };
-        void loadPendingFile();
+        shouldLoadCurrentDirectory = false;
+        void openWorkspaceFilePath(pending.path, pending.lineNumber);
       } else {
         setPreview(null);
         setImagePreviewUrl(null);
@@ -459,8 +432,8 @@ export default function WorkspaceExplorer({
       setSearchResults([]);
     }
 
-    void loadDirectory(path);
-  }, [loadDirectory, refreshToken, userId]);
+    if (shouldLoadCurrentDirectory) void loadDirectory(path);
+  }, [loadDirectory, openWorkspaceFilePath, refreshToken, userId]);
 
   useEffect(() => {
     if (!normalizedQuery) return;
@@ -753,6 +726,102 @@ export default function WorkspaceExplorer({
     void openEntry(entry);
   };
 
+  const toggleEntrySelection = (entry: WorkspaceEntry, selected?: boolean) => {
+    setSelectedEntryPaths((current) => {
+      const next = new Set(current);
+      const shouldSelect = selected ?? !next.has(entry.path);
+      if (shouldSelect) {
+        next.add(entry.path);
+      } else {
+        next.delete(entry.path);
+      }
+      return next;
+    });
+  };
+
+  const clearSelection = () => {
+    setSelectedEntryPaths(new Set());
+  };
+
+  const toggleSelectionMode = () => {
+    setIsSelectionMode((active) => {
+      if (active) {
+        clearSelection();
+        return false;
+      }
+      return true;
+    });
+  };
+
+  const selectAllVisibleEntries = () => {
+    setSelectedEntryPaths(new Set(visibleEntries.map((entry) => entry.path)));
+  };
+
+  const handleEntryClick = (event: React.MouseEvent, entry: WorkspaceEntry) => {
+    if (event.metaKey || event.ctrlKey) {
+      event.preventDefault();
+      setIsSelectionMode(true);
+      toggleEntrySelection(entry);
+      return;
+    }
+    void openEntry(entry);
+  };
+
+  const clearClipboard = () => {
+    setClipboard(null);
+    setContextMenu((prev) => ({ ...prev, visible: false }));
+    setIsMobileActionsOpen(false);
+  };
+
+  const handleBatchClipboard = (action: "copy" | "move") => {
+    if (selectedEntries.length === 0) return;
+    setClipboard({ items: selectedEntries, action });
+    setContextMenu((prev) => ({ ...prev, visible: false }));
+  };
+
+  const handleBatchDelete = async () => {
+    if (selectedEntries.length === 0) return;
+    const confirmed = window.confirm(
+      `Are you sure you want to delete ${selectedEntries.length} selected item${
+        selectedEntries.length === 1 ? "" : "s"
+      }?`
+    );
+    if (!confirmed) return;
+
+    setError(null);
+    const failed: WorkspaceEntry[] = [];
+    for (const entry of selectedEntries) {
+      try {
+        await deleteWorkspaceEntry(entry.path);
+      } catch {
+        failed.push(entry);
+      }
+    }
+
+    const deletedPaths = new Set(
+      selectedEntries
+        .filter((entry) => !failed.some((failedEntry) => failedEntry.path === entry.path))
+        .map((entry) => entry.path)
+    );
+    if (preview && deletedPaths.has(preview.path)) {
+      setPreview(null);
+      setImagePreviewUrl(null);
+      setDraft("");
+    }
+    setListing((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        entries: current.entries.filter((entry) => !deletedPaths.has(entry.path)),
+      };
+    });
+    setSearchResults((current) => current.filter((entry) => !deletedPaths.has(entry.path)));
+    setSelectedEntryPaths(new Set(failed.map((entry) => entry.path)));
+    if (failed.length > 0) {
+      setError(`Could not delete ${failed.map((entry) => entry.name).join(", ")}`);
+    }
+  };
+
   const handleCreate = async (event?: React.FormEvent) => {
     if (event) event.preventDefault();
     if (!creationModal || creationSaving) return;
@@ -801,6 +870,11 @@ export default function WorkspaceExplorer({
           entries: current.entries.filter((item) => item.path !== entry.path),
         };
       });
+      setSelectedEntryPaths((current) => {
+        const next = new Set(current);
+        next.delete(entry.path);
+        return next;
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -808,9 +882,7 @@ export default function WorkspaceExplorer({
 
   const handleCut = (entry: WorkspaceEntry) => {
     setClipboard({
-      path: entry.path,
-      name: entry.name,
-      kind: entry.kind,
+      items: [entry],
       action: "move",
     });
     setContextMenu((prev) => ({ ...prev, visible: false }));
@@ -818,9 +890,7 @@ export default function WorkspaceExplorer({
 
   const handleCopy = (entry: WorkspaceEntry) => {
     setClipboard({
-      path: entry.path,
-      name: entry.name,
-      kind: entry.kind,
+      items: [entry],
       action: "copy",
     });
     setContextMenu((prev) => ({ ...prev, visible: false }));
@@ -831,9 +901,12 @@ export default function WorkspaceExplorer({
     setError(null);
     try {
       const destination = currentPath;
-      await pasteWorkspaceEntry(clipboard.path, destination, clipboard.action);
+      for (const item of clipboard.items) {
+        await pasteWorkspaceEntry(item.path, destination, clipboard.action);
+      }
       if (clipboard.action === "move") {
         setClipboard(null);
+        clearSelection();
       }
       await loadDirectory(destination);
     } catch (err) {
@@ -984,43 +1057,14 @@ export default function WorkspaceExplorer({
         return;
       }
 
-      // Load and preview the target file
-      const loadTargetFile = async () => {
-        setPreviewLoading(true);
-        setError(null);
-        try {
-          const filePreview = await fetchWorkspaceFilePreview(targetPath, 256 * 1024);
-          setPreview(filePreview);
-          setImagePreviewUrl(null);
-          setDraft(filePreview.content);
-          setIsEditing(false);
-          setSaveError(null);
-
-          if (lineNumber !== undefined) {
-            setHighlightedLine(lineNumber);
-          } else {
-            setHighlightedLine(null);
-          }
-        } catch (err) {
-          setPreview(null);
-          setImagePreviewUrl(null);
-          setDraft("");
-          setIsEditing(false);
-          setError(err instanceof Error ? err.message : String(err));
-          setHighlightedLine(null);
-        } finally {
-          setPreviewLoading(false);
-        }
-      };
-
-      void loadTargetFile();
+      void openWorkspaceFilePath(targetPath, lineNumber);
     };
 
     window.addEventListener("open-workspace-file", handleOpenWorkspaceFile);
     return () => {
       window.removeEventListener("open-workspace-file", handleOpenWorkspaceFile);
     };
-  }, [userId]);
+  }, [openWorkspaceFilePath, userId]);
 
   useEffect(() => {
     if (highlightedLine !== null && highlightedLineRef.current) {
@@ -1113,43 +1157,6 @@ export default function WorkspaceExplorer({
                   {listing?.path || currentPath}
                 </p>
               </div>
-              {(projects.length > 0 || onCreateProject) && (
-                <div
-                  data-ripple-files-project-switcher
-                  className="hidden min-w-0 items-center gap-2 lg:flex"
-                >
-                  <select
-                    aria-label="Select project"
-                    value={activeProjectId || ""}
-                    onChange={(event) => handleProjectSelect(event.target.value)}
-                    className="h-9 max-w-[180px] rounded-lg border border-[#dfe6f4] bg-white/84 px-2 text-xs font-semibold text-[#374151] shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] outline-none focus:border-[#2463eb]"
-                  >
-                    <option value="">Workspace</option>
-                    {projects.map((project) => (
-                      <option key={project.projectId} value={project.projectId}>
-                        {project.name}
-                      </option>
-                    ))}
-                  </select>
-                  {onCreateProject && (
-                    <button
-                      type="button"
-                      data-ripple-files-action="create-project"
-                      onClick={() => void handleCreateProject()}
-                      disabled={projectSaving}
-                      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#dfe6f4] bg-white/78 text-[#384152] shadow-[0_10px_24px_rgba(44,63,123,0.06)] transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
-                      title="Set current folder as project"
-                      aria-label="Set current folder as project"
-                    >
-                      {projectSaving ? (
-                        <Loader2 size={14} className="animate-spin" />
-                      ) : (
-                        <FolderPlus size={14} />
-                      )}
-                    </button>
-                  )}
-                </div>
-              )}
               <button
                 type="button"
                 data-ripple-files-mobile-search-trigger
@@ -1166,6 +1173,20 @@ export default function WorkspaceExplorer({
                 aria-label="Search workspace files"
               >
                 <Search size={14} />
+              </button>
+              <button
+                type="button"
+                data-ripple-files-action="toggle-selection"
+                onClick={toggleSelectionMode}
+                className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border shadow-[0_10px_24px_rgba(44,63,123,0.06)] transition-colors lg:hidden ${
+                  isSelectionActive
+                    ? "border-[#d7e3f8] bg-[#eef4ff] text-[#2463eb]"
+                    : "border-[#dfe6f4] bg-white/78 text-[#384152] hover:bg-white"
+                }`}
+                title={isSelectionActive ? "Done selecting" : "Select files"}
+                aria-label={isSelectionActive ? "Done selecting" : "Select files"}
+              >
+                {isSelectionActive ? <X size={14} /> : <SquareCheck size={14} />}
               </button>
               <button
                 type="button"
@@ -1241,6 +1262,28 @@ export default function WorkspaceExplorer({
               onClick={() => setIsFilterOpen((open) => !open)}
             >
               <SlidersHorizontal size={14} />
+            </button>
+            <button
+              type="button"
+              data-ripple-files-action="toggle-selection"
+              className={
+                isPagePresentation
+                  ? `inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border transition-colors ${
+                      isSelectionActive
+                        ? "border-[#d7e3f8] bg-[#eef4ff] text-[#2463eb]"
+                        : "border-[#dfe6f4] bg-white/78 text-[#384152] shadow-[0_10px_24px_rgba(44,63,123,0.06)] hover:bg-white"
+                    }`
+                  : `inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border ${
+                      isSelectionActive
+                        ? "border-[#2f6bff]/30 bg-[#eef4ff] text-[#2f6bff]"
+                        : "border-[#e5e7eb] bg-white text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
+                    }`
+              }
+              title={isSelectionActive ? "Done selecting" : "Select files"}
+              aria-label={isSelectionActive ? "Done selecting" : "Select files"}
+              onClick={toggleSelectionMode}
+            >
+              {isSelectionActive ? <X size={14} /> : <SquareCheck size={14} />}
             </button>
             <button
               type="button"
@@ -1347,8 +1390,22 @@ export default function WorkspaceExplorer({
               className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left font-semibold transition-colors hover:bg-[#f3f4f6] disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Clipboard size={13} className="shrink-0 text-[#6b7280]" />
-              Paste {clipboard ? `(${clipboard.name})` : ""}
+              {clipboard ? (
+                <>Paste {clipboard.items.length === 1 ? `(${clipboard.items[0]?.name})` : `(${clipboard.items.length} items)`}</>
+              ) : (
+                "Paste"
+              )}
             </button>
+            {clipboard ? (
+              <button
+                type="button"
+                onClick={clearClipboard}
+                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left font-semibold text-[#667085] transition-colors hover:bg-[#f3f4f6]"
+              >
+                <X size={13} className="shrink-0 text-[#6b7280]" />
+                Clear clipboard
+              </button>
+            ) : null}
             <div className="my-1 border-t border-[#dfe6f4]" />
             <button
               type="button"
@@ -1716,6 +1773,58 @@ export default function WorkspaceExplorer({
               <Loader2 size={13} className="animate-spin" />
             </div>
           )}
+          {isSelectionActive && (
+            <div
+              data-ripple-files-selection-bar
+              className="flex min-h-11 flex-wrap items-center gap-2 border-b border-[#dfe6f4]/70 bg-[#f8faff] px-3 py-2 text-xs text-[#384152]"
+            >
+              <span className="mr-auto font-semibold">
+                {selectedEntryCount} selected
+              </span>
+              <button
+                type="button"
+                onClick={selectAllVisibleEntries}
+                disabled={allVisibleEntriesSelected}
+                className="inline-flex h-7 items-center rounded-full border border-[#dfe6f4] bg-white px-2.5 text-[11px] font-semibold hover:bg-[#f7f8fa]"
+              >
+                Select all
+              </button>
+              <button
+                type="button"
+                onClick={clearSelection}
+                className="inline-flex h-7 items-center rounded-full border border-[#dfe6f4] bg-white px-2.5 text-[11px] font-semibold hover:bg-[#f7f8fa]"
+              >
+                Clear selection
+              </button>
+              <button
+                type="button"
+                onClick={() => handleBatchClipboard("copy")}
+                disabled={selectedEntryCount === 0}
+                className="inline-flex h-7 items-center gap-1 rounded-full border border-[#dfe6f4] bg-white px-2.5 text-[11px] font-semibold hover:bg-[#f7f8fa]"
+              >
+                <Copy size={12} />
+                Copy
+              </button>
+              <button
+                type="button"
+                onClick={() => handleBatchClipboard("move")}
+                disabled={selectedEntryCount === 0}
+                className="inline-flex h-7 items-center gap-1 rounded-full border border-[#dfe6f4] bg-white px-2.5 text-[11px] font-semibold hover:bg-[#f7f8fa]"
+              >
+                <Scissors size={12} />
+                Move
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleBatchDelete()}
+                disabled={selectedEntryCount === 0}
+                className="inline-flex h-7 items-center gap-1 rounded-full border border-[#cf222e]/25 bg-white px-2.5 text-[11px] font-semibold text-[#cf222e] hover:bg-[#ffebe9]"
+              >
+                <Trash2 size={12} />
+                Delete
+              </button>
+            </div>
+          )}
           <div
             onContextMenu={onContainerContextMenu}
             className={
@@ -1787,27 +1896,58 @@ export default function WorkspaceExplorer({
                       onContextMenu={(event) => onEntryContextMenu(event, entry)}
                       className={
                         isPagePresentation
-                          ? `group mb-1 grid min-h-10 w-full grid-cols-[minmax(0,1fr)_auto] items-center rounded-xl transition-colors hover:bg-[#f7f8fa] ${
-                              preview?.path === entry.path
-                                ? "bg-[#eef4ff] shadow-[inset_0_0_0_1px_rgba(47,107,255,0.08)]"
-                                : "bg-transparent"
+                          ? `group mb-1 grid min-h-10 w-full ${
+                              isSelectionActive
+                                ? "grid-cols-[28px_minmax(0,1fr)_auto]"
+                                : "grid-cols-[minmax(0,1fr)_auto]"
+                            } items-center rounded-xl transition-colors hover:bg-[#f7f8fa] ${
+                              selectedEntryPaths.has(entry.path)
+                                ? "bg-[#eaf2ff] shadow-[inset_0_0_0_1px_rgba(47,107,255,0.14)]"
+                                : preview?.path === entry.path
+                                  ? "bg-[#eef4ff] shadow-[inset_0_0_0_1px_rgba(47,107,255,0.08)]"
+                                  : "bg-transparent"
                             } ${
-                              clipboard?.action === "move" && clipboard?.path === entry.path
+                              clipboard?.action === "move" &&
+                              clipboard?.items.some((item) => item.path === entry.path)
                                 ? "opacity-35 select-none"
                                 : ""
                             }`
                           : `group flex w-full items-center transition-colors hover:bg-[#f7f8fa] ${
-                              preview?.path === entry.path ? "bg-[#eef4ff]" : "bg-white"
+                              selectedEntryPaths.has(entry.path)
+                                ? "bg-[#eaf2ff]"
+                                : preview?.path === entry.path
+                                  ? "bg-[#eef4ff]"
+                                  : "bg-white"
                             } ${
-                              clipboard?.action === "move" && clipboard?.path === entry.path
+                              clipboard?.action === "move" &&
+                              clipboard?.items.some((item) => item.path === entry.path)
                                 ? "opacity-35 select-none"
                                 : ""
                             }`
                       }
                     >
+                      {isSelectionActive ? (
+                        <label
+                          className={
+                            isPagePresentation
+                              ? "flex h-full items-center justify-center pl-2"
+                              : "flex h-full items-center justify-center pl-3"
+                          }
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          <input
+                            type="checkbox"
+                            data-ripple-files-select-entry
+                            checked={selectedEntryPaths.has(entry.path)}
+                            aria-label={`Select ${entry.name}`}
+                            onChange={(event) => toggleEntrySelection(entry, event.target.checked)}
+                            className="h-4 w-4 rounded border-[#c7d2e5] text-[#2463eb] accent-[#2463eb]"
+                          />
+                        </label>
+                      ) : null}
                       <button
                         type="button"
-                        onClick={() => void openEntry(entry)}
+                        onClick={(event) => handleEntryClick(event, entry)}
                         onDoubleClick={() => handleFileDoubleClick(entry)}
                         onKeyDown={(event) => {
                           if (event.key === "F2") {
@@ -2198,9 +2338,23 @@ export default function WorkspaceExplorer({
                 onClick={handlePaste}
                 className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff] disabled:cursor-not-allowed disabled:opacity-40"
               >
-                <Clipboard size={13} className="shrink-0 text-[#6b7280]" /> Paste{" "}
-                {clipboard ? `(${clipboard.name})` : ""}
+                <Clipboard size={13} className="shrink-0 text-[#6b7280]" />
+                {clipboard ? (
+                  <>Paste {clipboard.items.length === 1 ? `(${clipboard.items[0]?.name})` : `(${clipboard.items.length} items)`}</>
+                ) : (
+                  "Paste"
+                )}
               </button>
+              {clipboard ? (
+                <button
+                  type="button"
+                  onClick={clearClipboard}
+                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#667085] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
+                >
+                  <X size={13} className="shrink-0 text-[#6b7280]" />
+                  Clear clipboard
+                </button>
+              ) : null}
               <div className="my-1 border-t border-[#dfe6f4]" />
               <button
                 type="button"

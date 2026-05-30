@@ -36,9 +36,10 @@ function testMapsSessionSummariesToWorkbenchSummaries() {
     makeSession({
       sessionId: "srv-auth",
       title: "Refactor auth flow",
-      projectId: "prj-demo",
-      projectName: "Demo",
-      projectRoot: "/workspace/demo",
+      projectId: null,
+      projectName: null,
+      projectRoot: null,
+      contextFolderPath: "/workspace/demo",
       status: "waiting_for_approval",
       messageCount: 3,
       changedFileCount: 2,
@@ -59,9 +60,10 @@ function testMapsSessionSummariesToWorkbenchSummaries() {
   assert.equal(sessions[0].changedFileCount, 2);
   assert.equal(sessions[0].pendingApprovalCount, 1);
   assert.equal(sessions[0].attention, "needs_input");
-  assert.equal(sessions[0].projectId, "prj-demo");
-  assert.equal(sessions[0].projectName, "Demo");
-  assert.equal(sessions[0].projectRoot, "/workspace/demo");
+  assert.equal(sessions[0].projectId, null);
+  assert.equal(sessions[0].projectName, null);
+  assert.equal(sessions[0].projectRoot, null);
+  assert.equal(sessions[0].contextFolderPath, "/workspace/demo");
   assert.equal(sessions[1].title, "New Session");
   assert.equal(sessions[1].attention, undefined);
 }
@@ -419,12 +421,12 @@ function testMapsCodexRuntimeEventsIntoTimelineEvents() {
   assert.equal(imageEvent.size, 128);
   assert.match(imageEvent.body, /studio toy photo/);
 
-  const projectSearchEvent = codexRuntimeEventToTimelineEvent(
+  const folderSearchEvent = codexRuntimeEventToTimelineEvent(
     {
-      type: "project_file_search",
-      id: "project-search-1",
+      type: "folder_context_search",
+      id: "folder-search-1",
       status: "completed",
-      project_root: "/workspace/genius_club",
+      context_folder_path: "/workspace/genius_club",
       query: "天才俱乐部成员分别是谁？",
       match_count: 2,
       scanned_files: 12,
@@ -435,11 +437,11 @@ function testMapsCodexRuntimeEventsIntoTimelineEvents() {
     } as CodexRuntimeEvent,
     { id: "runtime-6" }
   );
-  assert.equal(projectSearchEvent.type, "tool_call");
-  assert.equal(projectSearchEvent.title, "Project file search");
-  assert.match(projectSearchEvent.body, /genius_club/);
-  assert.match(projectSearchEvent.body, /2 matches/);
-  assert.match(projectSearchEvent.body, /001\.txt:8/);
+  assert.equal(folderSearchEvent.type, "tool_call");
+  assert.equal(folderSearchEvent.title, "Folder context search");
+  assert.match(folderSearchEvent.body, /genius_club/);
+  assert.match(folderSearchEvent.body, /2 matches/);
+  assert.match(folderSearchEvent.body, /001\.txt:8/);
 }
 
 function testMapsMessageImageArtifactsIntoTimelineEvents() {

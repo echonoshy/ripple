@@ -16,6 +16,7 @@ use time::OffsetDateTime;
 use tokio::time::{sleep, Duration, Instant};
 use uuid::Uuid;
 
+use crate::api::run_public::{sanitize_user_visible_text, sanitize_user_visible_value};
 use crate::api::schedule_chat::{maybe_handle_schedule_chat, ScheduleChatDecision};
 use crate::api::users::{assert_can_create_run, assert_can_create_session};
 use crate::api::ApiError;
@@ -50,7 +51,7 @@ pub(crate) use media::{
 };
 #[cfg(test)]
 use media::{decode_base64_image_payload, workspace_path_or_none};
-use project_context::collect_project_file_context;
+use project_context::collect_folder_context;
 pub(crate) use prompt::build_codex_chat_prompt;
 use title::spawn_session_title_generation;
 use wire::{
@@ -95,8 +96,8 @@ struct CodexChatStart {
     attachment_items: Vec<Value>,
     caller_system_prompt: Option<String>,
     prefix_event: Option<Value>,
-    project_file_evidence: Option<String>,
-    project_context_event: Option<Value>,
+    folder_context_evidence: Option<String>,
+    folder_context_event: Option<Value>,
 }
 
 struct CodexChatStream {
@@ -110,7 +111,7 @@ struct CodexChatStream {
     user_input: String,
     user_content: Value,
     prefix_event: Option<Value>,
-    project_context_event: Option<Value>,
+    folder_context_event: Option<Value>,
 }
 
 struct ChatRunFinal {
@@ -215,9 +216,9 @@ pub async fn chat_completions(
             assert_can_create_run(&state, &user_id, state.config.codex.max_runtime_seconds).await?;
             session.set_status(SessionStatus::Running);
             state.sessions.save_record(session.clone()).await?;
-            let project_context = collect_project_file_context(
+            let folder_context = collect_folder_context(
                 &workspace_root,
-                session.project_root.as_deref(),
+                session.context_folder_path.as_deref(),
                 &resume_user_input,
             );
             let start = CodexChatStart {
@@ -234,10 +235,10 @@ pub async fn chat_completions(
                 attachment_items: Vec::new(),
                 caller_system_prompt: effective_caller_system_prompt.clone(),
                 prefix_event: Some(public_connector_auth_event(&decision.event)),
-                project_file_evidence: project_context
+                folder_context_evidence: folder_context
                     .as_ref()
                     .map(|context| context.prompt_section.clone()),
-                project_context_event: project_context.map(|context| context.runtime_event),
+                folder_context_event: folder_context.map(|context| context.runtime_event),
             };
             let info = create_codex_chat_run_marking_start_failure(&start).await?;
             drop(session_run_guard);
@@ -263,9 +264,9 @@ pub async fn chat_completions(
     session.set_status(SessionStatus::Running);
     state.sessions.save_record(session.clone()).await?;
 
-    let project_context = collect_project_file_context(
+    let folder_context = collect_folder_context(
         &workspace_root,
-        session.project_root.as_deref(),
+        session.context_folder_path.as_deref(),
         &user_input,
     );
     let start = CodexChatStart {
@@ -282,10 +283,10 @@ pub async fn chat_completions(
         attachment_items,
         caller_system_prompt: effective_caller_system_prompt,
         prefix_event: None,
-        project_file_evidence: project_context
+        folder_context_evidence: folder_context
             .as_ref()
             .map(|context| context.prompt_section.clone()),
-        project_context_event: project_context.map(|context| context.runtime_event),
+        folder_context_event: folder_context.map(|context| context.runtime_event),
     };
     let info = create_codex_chat_run_marking_start_failure(&start).await?;
     drop(session_run_guard);
@@ -298,9 +299,8 @@ async fn create_codex_chat_run(args: &CodexChatStart) -> Result<AgentRunInfo, Ap
         &args.user_id,
         &args.session.session_id,
         &args.workspace_root,
-        args.session.project_name.as_deref(),
-        args.session.project_root.as_deref(),
-        args.project_file_evidence.as_deref(),
+        args.session.context_folder_path.as_deref(),
+        args.folder_context_evidence.as_deref(),
         &args.user_input,
         &args.attachment_items,
         args.caller_system_prompt.as_deref(),
@@ -378,8 +378,8 @@ async fn finish_codex_chat_response(
         attachment_items: _,
         caller_system_prompt: _,
         prefix_event,
-        project_file_evidence: _,
-        project_context_event,
+        folder_context_evidence: _,
+        folder_context_event,
     } = args;
 
     if request.stream.unwrap_or(false) {
@@ -394,7 +394,7 @@ async fn finish_codex_chat_response(
             user_input,
             user_content,
             prefix_event,
-            project_context_event,
+            folder_context_event,
         }));
     }
 
@@ -409,14 +409,15 @@ async fn finish_codex_chat_response(
             SessionStatus::Failed.as_str().to_string()
         };
         let _ = state.sessions.save_record_if_exists(session).await?;
+        let error = final_info
+            .error
+            .unwrap_or_else(|| "Codex run failed".to_string());
         return Err(ApiError::new(
             StatusCode::INTERNAL_SERVER_ERROR,
-            final_info
-                .error
-                .unwrap_or_else(|| "Codex run failed".to_string()),
+            sanitize_user_visible_text(&state, &user_id, &error),
         ));
     }
-    let output_text = read_run_output(&final_info).await;
+    let output_text = read_run_output(&state, &user_id, &final_info).await;
     let image_events =
         collect_chat_image_events(&state, &user_id, &final_info, &workspace_root).await;
     record_codex_thread(&mut session, &final_info);
@@ -453,8 +454,8 @@ async fn finish_codex_chat_response(
     if let Some(event) = prefix_event {
         payload["connector_auth"] = event;
     }
-    if let Some(event) = project_context_event {
-        payload["project_file_search"] = event;
+    if let Some(event) = folder_context_event {
+        payload["folder_context_search"] = event;
     }
     let mut response = Json(payload).into_response();
     response.headers_mut().insert(
@@ -537,9 +538,9 @@ pub async fn poll_session_connector_auth(
             .unwrap_or("")
             .to_string();
         let caller_system_prompt = session.caller_system_prompt.clone();
-        let project_context = collect_project_file_context(
+        let folder_context = collect_folder_context(
             &workspace_root,
-            session.project_root.as_deref(),
+            session.context_folder_path.as_deref(),
             &user_input,
         );
         let start = CodexChatStart {
@@ -556,10 +557,10 @@ pub async fn poll_session_connector_auth(
             attachment_items: Vec::new(),
             caller_system_prompt,
             prefix_event: Some(public_connector_auth_event(&decision.event)),
-            project_file_evidence: project_context
+            folder_context_evidence: folder_context
                 .as_ref()
                 .map(|context| context.prompt_section.clone()),
-            project_context_event: project_context.map(|context| context.runtime_event),
+            folder_context_event: folder_context.map(|context| context.runtime_event),
         };
         let info = create_codex_chat_run_marking_start_failure(&start).await?;
         drop(session_run_guard);
@@ -602,6 +603,7 @@ async fn load_or_create_session(
                 model: request.model.clone(),
                 max_turns: request.max_turns,
                 system_prompt: None,
+                context_folder_path: None,
                 project_id: None,
             },
         )
@@ -610,7 +612,7 @@ async fn load_or_create_session(
 
 fn chat_cwd_for_session(session: &SessionRecord) -> String {
     session
-        .project_root
+        .context_folder_path
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -692,7 +694,7 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
         user_input,
         user_content,
         prefix_event,
-        project_context_event,
+        folder_context_event,
     } = args;
     let session_id = session.session_id.clone();
     let chunk_id = format!("chatcmpl-{}", &Uuid::new_v4().simple().to_string()[..24]);
@@ -711,7 +713,7 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
         } else {
             yield Ok::<Bytes, Infallible>(Bytes::from(chunk(&chunk_id, &model, created, json!({"role": "assistant"}), None)));
         }
-        if let Some(event) = project_context_event {
+        if let Some(event) = folder_context_event {
             yield Ok::<Bytes, Infallible>(sse_json(&event));
         }
         let mut offset = 0_usize;
@@ -736,29 +738,35 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                         continue;
                     }
                     if let Some(plan_event) = extract_plan_update_event(&event) {
-                        record_session_plan_update(&mut session, &plan_event);
+                        let public_plan_event =
+                            sanitize_user_visible_value(&state, &user_id, &plan_event);
+                        record_session_plan_update(&mut session, &public_plan_event);
                         let _ = state.sessions.save_record_if_exists(session.clone()).await;
-                        yield Ok::<Bytes, Infallible>(sse_json(&plan_event));
+                        yield Ok::<Bytes, Infallible>(sse_json(&public_plan_event));
                         last_emit = now_epoch_seconds();
                         continue;
                     }
                     if let Some(runtime_event) = extract_codex_runtime_event(&event) {
-                        yield Ok::<Bytes, Infallible>(sse_json(&runtime_event));
+                        let public_runtime_event = sanitize_user_visible_value(&state, &user_id, &runtime_event);
+                        yield Ok::<Bytes, Infallible>(sse_json(&public_runtime_event));
                         last_emit = now_epoch_seconds();
                         continue;
                     }
                     if let Some(tool_event) = extract_tool_event(&event) {
-                        yield Ok::<Bytes, Infallible>(sse_json(&tool_event));
+                        let public_tool_event = sanitize_user_visible_value(&state, &user_id, &tool_event);
+                        yield Ok::<Bytes, Infallible>(sse_json(&public_tool_event));
                         last_emit = now_epoch_seconds();
                         continue;
                     }
                     if let Some(delta) = agent_messages.handle_delta(&event) {
+                        let delta = sanitize_user_visible_text(&state, &user_id, &delta);
                         emitted.push_str(&delta);
                         yield Ok::<Bytes, Infallible>(Bytes::from(chunk(&chunk_id, &model, created, json!({"content": delta}), None)));
                         last_emit = now_epoch_seconds();
                         continue;
                     }
                     if let Some(text) = agent_messages.handle_item(&event) {
+                        let text = sanitize_user_visible_text(&state, &user_id, &text);
                         emitted.push_str(&text);
                         yield Ok::<Bytes, Infallible>(Bytes::from(chunk(&chunk_id, &model, created, json!({"content": text}), None)));
                         last_emit = now_epoch_seconds();
@@ -778,14 +786,15 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
             };
             if let Some(approval) = info.pending_approval.clone() {
                 session.set_status(SessionStatus::AwaitingPermission);
-                session.pending_permission_request = Some(approval.clone());
+                let public_approval = sanitize_user_visible_value(&state, &user_id, &approval);
+                session.pending_permission_request = Some(public_approval.clone());
                 let _ = state.sessions.save_record_if_exists(session.clone()).await;
-                yield Ok::<Bytes, Infallible>(sse_json(&json!({"type": "approval_required", "approval": approval})));
+                yield Ok::<Bytes, Infallible>(sse_json(&json!({"type": "approval_required", "approval": public_approval})));
                 break;
             }
             if TERMINAL_STATUSES.contains(&info.status.as_str()) {
                 if info.status == "completed" {
-                    let output_text = read_run_output(&info).await;
+                    let output_text = read_run_output(&state, &user_id, &info).await;
                     if emitted.is_empty() && !output_text.is_empty() {
                         emitted = output_text.clone();
                         yield Ok::<Bytes, Infallible>(Bytes::from(chunk(&chunk_id, &model, created, json!({"content": output_text}), None)));
@@ -937,7 +946,7 @@ async fn finalize_stale_completed_chat_run(
         .get("chat_user_content")
         .cloned()
         .unwrap_or(Value::Null);
-    let output_text = read_run_output(info).await;
+    let output_text = read_run_output(state, &session.user_id, info).await;
     let usage = read_run_usage(info).await;
     let image_events = match state.sandboxes.workspace_dir(&session.user_id) {
         Ok(workspace_root) => {
@@ -1127,13 +1136,15 @@ fn empty_usage() -> Value {
     })
 }
 
-async fn read_run_output(info: &AgentRunInfo) -> String {
-    if let Some(output_file) = info.output_file.as_deref() {
-        if let Ok(text) = tokio::fs::read_to_string(output_file).await {
-            return text;
-        }
-    }
-    info.stdout_tail.clone()
+async fn read_run_output(state: &AppState, user_id: &str, info: &AgentRunInfo) -> String {
+    let text = if let Some(output_file) = info.output_file.as_deref() {
+        tokio::fs::read_to_string(output_file)
+            .await
+            .unwrap_or_else(|_| info.stdout_tail.clone())
+    } else {
+        info.stdout_tail.clone()
+    };
+    sanitize_user_visible_text(state, user_id, &text)
 }
 
 async fn read_run_usage(info: &AgentRunInfo) -> Value {
@@ -1372,7 +1383,6 @@ mod tests {
             &workspace_root,
             None,
             None,
-            None,
             "hello",
             &[],
             None,
@@ -1388,7 +1398,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn codex_chat_prompt_prefers_project_files_with_web_as_supplement() {
+    async fn codex_chat_prompt_prefers_context_folder_files_with_web_as_supplement() {
         let root = std::env::temp_dir().join(format!("ripple-chat-test-{}", Uuid::new_v4()));
         let state = AppState::new(test_config(&root));
         let workspace_root = state
@@ -1401,7 +1411,6 @@ mod tests {
             "alice",
             "session-1",
             &workspace_root,
-            Some("genius_club"),
             Some("/workspace/genius_club"),
             Some("Matches:\n1. /workspace/genius_club/001.txt:1\n   天才俱乐部成员名单"),
             "天才俱乐部成员分别是谁？",
@@ -1409,10 +1418,14 @@ mod tests {
             None,
         );
 
-        assert!(prompt.contains("Use local project files first"));
+        assert!(prompt.contains("Context folder: /workspace/genius_club"));
+        assert!(prompt.contains("default reading and search scope"));
+        assert!(prompt.contains("write new files under this folder"));
         assert!(prompt.contains("Use web_search as a supplement"));
-        assert!(prompt.contains("Project File Evidence"));
+        assert!(prompt.contains("Folder Context Evidence"));
         assert!(prompt.contains("/workspace/genius_club/001.txt:1"));
+        assert!(!prompt.contains("Ripple Project"));
+        assert!(!prompt.contains("Project root"));
 
         let _ = std::fs::remove_dir_all(root);
     }
@@ -1437,6 +1450,7 @@ mod tests {
             project_id: None,
             project_name: None,
             project_root: None,
+            context_folder_path: None,
             model: "codex-medium".to_string(),
             max_turns: 200,
             caller_system_prompt: None,
@@ -1573,6 +1587,7 @@ mod tests {
             project_id: None,
             project_name: None,
             project_root: None,
+            context_folder_path: None,
             model: "codex-test".to_string(),
             max_turns: 200,
             caller_system_prompt: None,

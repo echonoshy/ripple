@@ -6,17 +6,18 @@ import {
   cancelSessionConnectorAuth,
   changePassword,
   compactSessionContext,
-  createProject,
   createSchedule,
   createSession,
   deleteUserAvatar,
-  deleteProject,
   deleteSchedule,
   deleteSession,
-  fetchProjects,
+  downloadRunOutput,
   fetchSchedules,
+  fetchScheduleRuns,
   fetchSessions,
   fetchSessionDetails,
+  fetchRun,
+  fetchRunOutputText,
   fetchUserAvatarImage,
   fetchModels,
   fetchWorkspaceFilePreview,
@@ -29,7 +30,6 @@ import {
   searchWorkspaceFiles,
   sendChatMessage,
   stopSession,
-  updateProject,
   updateSchedule,
   updateSession,
   uploadUserAvatar,
@@ -179,6 +179,93 @@ async function testScheduleIdIsEncodedInPath() {
     "http://140.143.229.103:8810/v1/schedules/schedule%2Fwith%20space",
     "http://140.143.229.103:8810/v1/schedules/schedule%2Fwith%20space",
     "http://140.143.229.103:8810/v1/schedules/schedule%2Fwith%20space/run-now",
+  ]);
+}
+
+async function testScheduleRunApisEncodeIdsAndDownloadOutput() {
+  const urls: string[] = [];
+  const scheduleId = "schedule/with space";
+  const jobId = "agent/with space";
+
+  await withFetch(
+    async (input) => {
+      const url = String(input);
+      urls.push(url);
+      if (url.endsWith("/output")) {
+        return new Response("finished output", {
+          status: 200,
+          headers: {
+            "Content-Type": "text/plain; charset=utf-8",
+            "Content-Disposition": 'attachment; filename="agent-output.txt"',
+          },
+        });
+      }
+      if (url.includes("/schedules/")) {
+        return new Response(
+          JSON.stringify({
+            runs: [
+              {
+                job_id: jobId,
+                provider: "codex",
+                status: "completed",
+                output_file: null,
+                events_file: null,
+                output_available: true,
+                events_available: false,
+                created_at: "2026-05-30T00:00:00Z",
+                updated_at: "2026-05-30T00:00:10Z",
+                exit_code: 0,
+                prompt_preview: "say hi",
+                sandbox_cwd: "/workspace",
+                stdout_tail: "",
+                stderr_tail: "",
+                error: null,
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          job_id: jobId,
+          provider: "codex",
+          status: "completed",
+          output_file: null,
+          events_file: null,
+          output_available: true,
+          events_available: false,
+          created_at: "2026-05-30T00:00:00Z",
+          updated_at: "2026-05-30T00:00:10Z",
+          exit_code: 0,
+          prompt_preview: "say hi",
+          sandbox_cwd: "/workspace",
+          stdout_tail: "",
+          stderr_tail: "",
+          error: null,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    },
+    async () => {
+      const scheduleRun = (await fetchScheduleRuns(scheduleId))[0];
+      assert.equal(scheduleRun?.job_id, jobId);
+      assert.equal(scheduleRun?.output_available, true);
+      const run = await fetchRun(jobId);
+      assert.equal(run.job_id, jobId);
+      assert.equal(run.output_available, true);
+      const downloaded = await downloadRunOutput(jobId);
+      assert.equal(downloaded.filename, "agent-output.txt");
+      assert.equal(await downloaded.blob.text(), "finished output");
+      assert.equal(await fetchRunOutputText(jobId), "finished output");
+    }
+  );
+
+  assert.deepEqual(urls, [
+    "http://140.143.229.103:8810/v1/schedules/schedule%2Fwith%20space/runs?limit=5",
+    "http://140.143.229.103:8810/v1/runs/agent%2Fwith%20space",
+    "http://140.143.229.103:8810/v1/runs/agent%2Fwith%20space/output",
+    "http://140.143.229.103:8810/v1/runs/agent%2Fwith%20space/output",
   ]);
 }
 
@@ -544,6 +631,7 @@ async function testFetchSessionsNormalizesBackendShape() {
           projectId: null,
           projectName: null,
           projectRoot: null,
+          contextFolderPath: null,
           model: "codex-medium",
           createdAt: "2026-05-18T00:00:00.000Z",
           lastActiveAt: "2026-05-19T00:00:00.000Z",
@@ -611,7 +699,7 @@ async function testCreateSessionPostsSelectedModel() {
   assert.deepEqual(requestBody, { model: "codex-high" });
 }
 
-async function testCreateSessionPostsSelectedProject() {
+async function testCreateSessionPostsContextFolderPath() {
   let requestBody: unknown = null;
 
   await withFetch(
@@ -629,22 +717,30 @@ async function testCreateSessionPostsSelectedProject() {
           status: "idle",
           changed_file_count: 0,
           pending_approval_count: 0,
-          project_id: "prj-demo",
-          project_name: "Demo",
-          project_root: "/workspace/demo",
+          project_id: null,
+          project_name: null,
+          project_root: null,
+          context_folder_path: "/workspace/demo",
         }),
         { status: 200, headers: { "Content-Type": "application/json" } }
       );
     },
     async () => {
-      const session = await createSession({ model: "codex-test", projectId: "prj-demo" });
-      assert.equal(session.projectId, "prj-demo");
-      assert.equal(session.projectName, "Demo");
-      assert.equal(session.projectRoot, "/workspace/demo");
+      const session = await createSession({
+        model: "codex-test",
+        contextFolderPath: "/workspace/demo",
+      });
+      assert.equal(session.projectId, null);
+      assert.equal(session.projectName, null);
+      assert.equal(session.projectRoot, null);
+      assert.equal(session.contextFolderPath, "/workspace/demo");
     }
   );
 
-  assert.deepEqual(requestBody, { model: "codex-test", project_id: "prj-demo" });
+  assert.deepEqual(requestBody, {
+    model: "codex-test",
+    context_folder_path: "/workspace/demo",
+  });
 }
 
 async function testFetchSessionDetailsNormalizesBackendShape() {
@@ -679,6 +775,7 @@ async function testFetchSessionDetailsNormalizesBackendShape() {
         projectId: null,
         projectName: null,
         projectRoot: null,
+        contextFolderPath: null,
         model: "codex-high",
         createdAt: "2026-05-18T00:00:00.000Z",
         lastActiveAt: "2026-05-19T00:00:00.000Z",
@@ -742,96 +839,6 @@ async function testWorkspaceSearchDefaultsToNameScope() {
   );
 
   assert.match(requestedUrl, /[?&]scope=name(?:&|$)/);
-}
-
-async function testProjectApisNormalizeBackendShapeAndConfirmDelete() {
-  const requests: Array<{ url: string; method: string; body: unknown }> = [];
-
-  await withFetch(
-    async (input, init) => {
-      requests.push({
-        url: String(input),
-        method: init?.method || "GET",
-        body: init?.body ? JSON.parse(String(init.body)) : null,
-      });
-      if (String(input).endsWith("/projects") && (!init || !init.method)) {
-        return new Response(
-          JSON.stringify({
-            projects: [
-              {
-                project_id: "prj-demo",
-                name: "Demo",
-                root_path: "/workspace/demo",
-                created_at: "2026-05-30T00:00:00Z",
-                updated_at: "2026-05-30T00:00:01Z",
-                last_active_at: "2026-05-30T00:00:02Z",
-                exists: true,
-              },
-            ],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        );
-      }
-      return new Response(
-        JSON.stringify({
-          project_id: "prj-created",
-          name: "Created",
-          root_path: "/workspace/created",
-          created_at: "2026-05-30T00:00:00Z",
-          updated_at: "2026-05-30T00:00:00Z",
-          last_active_at: "2026-05-30T00:00:00Z",
-          exists: true,
-          ok: true,
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      );
-    },
-    async () => {
-      assert.deepEqual(await fetchProjects(), [
-        {
-          projectId: "prj-demo",
-          name: "Demo",
-          rootPath: "/workspace/demo",
-          createdAt: "2026-05-30T00:00:00Z",
-          updatedAt: "2026-05-30T00:00:01Z",
-          lastActiveAt: "2026-05-30T00:00:02Z",
-          exists: true,
-        },
-      ]);
-      assert.equal(
-        (await createProject({ name: "Created", rootPath: "/workspace/created" })).projectId,
-        "prj-created"
-      );
-      assert.equal(
-        (
-          await updateProject("prj-created", {
-            name: "Renamed",
-            rootPath: "/workspace/renamed",
-          })
-        ).projectId,
-        "prj-created"
-      );
-      assert.equal(await deleteProject("prj-created"), true);
-    }
-  );
-
-  assert.deepEqual(
-    requests.map((request) => [request.method, request.url, request.body]),
-    [
-      ["GET", "http://140.143.229.103:8810/v1/projects", null],
-      [
-        "POST",
-        "http://140.143.229.103:8810/v1/projects",
-        { name: "Created", root_path: "/workspace/created" },
-      ],
-      [
-        "PATCH",
-        "http://140.143.229.103:8810/v1/projects/prj-created",
-        { name: "Renamed", root_path: "/workspace/renamed" },
-      ],
-      ["DELETE", "http://140.143.229.103:8810/v1/projects/prj-created", { confirm: true }],
-    ]
-  );
 }
 
 async function testChatStreamUsesServerConflictDetail() {
@@ -925,6 +932,7 @@ await testRenamePathNotFoundStaysFileSpecific();
 await testRenameConflictUsesFriendlyMessage();
 await testSessionIdIsEncodedInPath();
 await testScheduleIdIsEncodedInPath();
+await testScheduleRunApisEncodeIdsAndDownloadOutput();
 await testConnectorManagementApisEncodeNamesAndPayloads();
 await testChangePasswordPostsCurrentAndNewPassword();
 await testAvatarApisUseServerProfileStorage();
@@ -937,12 +945,11 @@ await testCreateScheduleAddsOffsetForNonUtcRunAt();
 await testFetchSessionsNormalizesBackendShape();
 await testCreateSessionNormalizesBackendShape();
 await testCreateSessionPostsSelectedModel();
-await testCreateSessionPostsSelectedProject();
+await testCreateSessionPostsContextFolderPath();
 await testFetchSessionDetailsNormalizesBackendShape();
 await testFetchSessionsRejectsServerFailures();
 await testFetchSessionsRejectsNetworkFailures();
 await testWorkspaceSearchDefaultsToNameScope();
-await testProjectApisNormalizeBackendShapeAndConfirmDelete();
 await testChatStreamUsesServerConflictDetail();
 
 console.log("api tests passed");

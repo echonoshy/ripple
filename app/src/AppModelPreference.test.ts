@@ -10,7 +10,7 @@ function testDefaultModelStateIsSeparateFromCurrentSessionModel() {
 }
 
 function testDefaultModelSeedsNewSessions() {
-  assert.match(appSource, /createNewSession\(defaultModel(?:,\s*activeProjectId)?\)/);
+  assert.match(appSource, /createNewSession\(defaultModel(?:,\s*activeContextFolderPath)?\)/);
   assert.match(appSource, /defaultModel=\{defaultModel\}/);
   assert.match(appSource, /onSelectDefaultModel=\{handleSelectDefaultModel\}/);
 }

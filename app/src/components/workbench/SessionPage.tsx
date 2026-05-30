@@ -23,7 +23,6 @@ import type {
   Message,
   PlanStep,
   PlanProgress,
-  ProjectInfo,
   UsageInfo,
   WorkbenchSessionSummary,
   WorkbenchTimelineEvent,
@@ -62,6 +61,11 @@ function formatTokenUnit(value: number, unit: number, suffix: string): string {
   return `${scaledValue.toFixed(precision).replace(/\.0$/, "")}${suffix}`;
 }
 
+function folderName(path: string | null | undefined): string {
+  if (!path || path === "/workspace") return "Workspace";
+  return path.split("/").filter(Boolean).pop() || "Folder";
+}
+
 interface SessionPageProps {
   userId?: string;
   session: WorkbenchSessionSummary | null;
@@ -85,8 +89,7 @@ interface SessionPageProps {
   sessionId: string | null;
   scrollToBottomRequest?: number;
   restoreScrollTop?: number | null;
-  projects?: ProjectInfo[];
-  activeProjectId?: string | null;
+  contextFolderPath?: string | null;
   onSelectWorkspaceFolder?: (path: string) => void | Promise<void>;
   onNewSession: () => void;
   onUpdateSessionSettings: (updates: { title?: string; pinned?: boolean }) => Promise<unknown>;
@@ -133,8 +136,7 @@ export default function SessionPage({
   sessionId,
   scrollToBottomRequest = 0,
   restoreScrollTop = null,
-  projects = [],
-  activeProjectId = null,
+  contextFolderPath = null,
   onSelectWorkspaceFolder,
   onNewSession,
   onUpdateSessionSettings,
@@ -203,11 +205,15 @@ export default function SessionPage({
   const modelDisplayName = formatModelName(selectedModel);
   const currentModelLabel = isGenerating ? "Working..." : modelDisplayName;
   const currentModelAccessibleLabel = `Current model: ${modelDisplayName}`;
-  const activeProject = projects.find((project) => project.projectId === activeProjectId) || null;
-  const workspaceScopeLabel = session?.projectName || activeProject?.name || "Workspace";
-  const workspaceScopePath = session?.projectRoot || activeProject?.rootPath || "/workspace";
-  const projectBadgeLabel = session?.projectName ? `Project: ${session.projectName}` : null;
-  const projectBadgeTitle = session?.projectRoot || session?.projectName || "";
+  const effectiveContextFolderPath = session?.contextFolderPath ?? contextFolderPath ?? null;
+  const workspaceScopePath = effectiveContextFolderPath || "/workspace";
+  const workspaceScopeLabel = folderName(effectiveContextFolderPath);
+  const folderBadgeLabel = effectiveContextFolderPath ? `Folder: ${workspaceScopeLabel}` : null;
+  const folderBadgeTitle = effectiveContextFolderPath || "Full workspace";
+  const requestFolderPicker = useCallback(() => {
+    if (!onSelectWorkspaceFolder) return;
+    document.querySelector<HTMLButtonElement>("[data-ripple-composer-folder-button]")?.click();
+  }, [onSelectWorkspaceFolder]);
 
   const scrollToBottom = useCallback(() => {
     const scrollContainer = scrollContainerRef.current;
@@ -405,10 +411,15 @@ export default function SessionPage({
               }`}
             />
             <span className="truncate">{currentModelLabel}</span>
-            {projectBadgeLabel && (
-              <span title={projectBadgeTitle} className="min-w-0 truncate">
-                {projectBadgeLabel}
-              </span>
+            {folderBadgeLabel && (
+              <button
+                type="button"
+                title={folderBadgeTitle}
+                onClick={requestFolderPicker}
+                className="min-w-0 truncate hover:text-[#2463eb]"
+              >
+                {folderBadgeLabel}
+              </button>
             )}
           </div>
         </div>
@@ -442,13 +453,15 @@ export default function SessionPage({
           </div>
         </div>
         <div className="flex min-w-0 shrink-0 items-center gap-2">
-          {projectBadgeLabel && (
-            <span
-              title={projectBadgeTitle}
+          {folderBadgeLabel && (
+            <button
+              type="button"
+              title={folderBadgeTitle}
+              onClick={requestFolderPicker}
               className="inline-flex max-w-[220px] shrink-0 items-center rounded-full border border-[#dfe6f4] bg-white/82 px-3 py-1.5 text-[12px] font-semibold text-[#374151] shadow-[0_8px_18px_rgba(44,63,123,0.06)]"
             >
-              <span className="truncate">{projectBadgeLabel}</span>
-            </span>
+              <span className="truncate">{folderBadgeLabel}</span>
+            </button>
           )}
           <span
             aria-label={currentModelAccessibleLabel}
@@ -689,9 +702,7 @@ export default function SessionPage({
         isModelDropdownOpen={isModelDropdownOpen}
         onToggleModelDropdown={onToggleModelDropdown}
         onSelectModel={onSelectModel}
-        projects={projects}
-        activeProjectId={activeProjectId}
-        currentSessionProjectId={session?.projectId ?? null}
+        contextFolderPath={effectiveContextFolderPath}
         workspaceScopeLabel={workspaceScopeLabel}
         workspaceScopePath={workspaceScopePath}
         onSelectWorkspaceFolder={onSelectWorkspaceFolder}

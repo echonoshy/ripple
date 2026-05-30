@@ -156,37 +156,33 @@ function testSessionSelectionRequestsScrollToBottom() {
 }
 
 function testDefaultModelSeedsNewSessionsAndChatRuns() {
-  assert.match(appSource, /createNewSession\(defaultModel(?:,\s*activeProjectId)?\)/);
+  assert.match(appSource, /createNewSession\(defaultModel(?:,\s*activeContextFolderPath)?\)/);
   assert.match(
     appSource,
-    /ensureSession:\s*\(model\) => ensureSession\(model(?:,\s*activeProjectId)?\)/
+    /ensureSession:\s*\(model\) => ensureSession\(model(?:,\s*activeContextFolderPath)?\)/
   );
   assert.match(chatRunSource, /getSessionActions\(\)\.ensureSession\(selectedModel\)/);
 }
 
-function testActiveProjectSeedsNewSessionsAndFilesView() {
-  assert.match(appSource, /activeProjectId/);
-  assert.match(appSource, /fetchProjects/);
-  assert.match(appSource, /createNewSession\(defaultModel,\s*activeProjectId\)/);
+function testContextFolderSeedsNewSessionsAndFilesViewStaysPlain() {
+  assert.match(appSource, /activeContextFolderPath/);
+  assert.doesNotMatch(appSource, /fetchProjects/);
+  assert.match(appSource, /createNewSession\(defaultModel,\s*activeContextFolderPath\)/);
   assert.match(
     appSource,
-    /ensureSession:\s*\(model\) => ensureSession\(model,\s*activeProjectId\)/
+    /ensureSession:\s*\(model\) => ensureSession\(model,\s*activeContextFolderPath\)/
   );
-  assert.match(appSource, /<FilesPage[\s\S]*projects=\{projects\}/);
-  assert.match(appSource, /activeProjectId=\{activeProjectId\}/);
+  assert.doesNotMatch(appSource, /<FilesPage[\s\S]*projects=/);
+  assert.doesNotMatch(appSource, /activeProjectId=/);
 }
 
-function testChatFolderPickerSelectsFoldersAsProjectContext() {
+function testChatFolderPickerUpdatesCurrentSessionContextFolder() {
   assert.match(appSource, /handleSelectChatFolder/);
-  assert.match(appSource, /projectNameFromWorkspacePath/);
-  assert.match(appSource, /projects\.find\(\(project\) => project\.rootPath === normalizedPath\)/);
-  assert.match(
-    appSource,
-    /createProject\(\{\s*name: projectNameFromWorkspacePath\(normalizedPath\),\s*rootPath: normalizedPath,\s*\}\)/
-  );
-  assert.match(appSource, /createNewSession\(defaultModel,\s*nextProjectId\)/);
-  assert.match(appSource, /window\.confirm/);
-  assert.match(appSource, /setInput\(""\)/);
+  assert.match(appSource, /nextContextFolderPath/);
+  assert.match(appSource, /updateSessionById\(sessionId,\s*\{\s*contextFolderPath: nextContextFolderPath,\s*\}\)/);
+  assert.doesNotMatch(appSource, /createProject/);
+  assert.doesNotMatch(appSource, /window\.confirm/);
+  assert.doesNotMatch(appSource, /setInput\(""\)/);
   assert.match(appSource, /onSelectWorkspaceFolder=\{handleSelectChatFolder\}/);
 }
 
@@ -208,7 +204,7 @@ testMobileSessionOptionsUseSessionSettings();
 testSessionScrollActivationStaysInsideSessionPage();
 testSessionSelectionRequestsScrollToBottom();
 testDefaultModelSeedsNewSessionsAndChatRuns();
-testActiveProjectSeedsNewSessionsAndFilesView();
-testChatFolderPickerSelectsFoldersAsProjectContext();
+testContextFolderSeedsNewSessionsAndFilesViewStaysPlain();
+testChatFolderPickerUpdatesCurrentSessionContextFolder();
 
 console.log("app plan tests passed");

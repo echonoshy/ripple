@@ -10,6 +10,7 @@ use time::format_description::well_known::Rfc3339;
 use time::{Duration as TimeDuration, OffsetDateTime, PrimitiveDateTime};
 use uuid::Uuid;
 
+use crate::api::run_public::{public_run_value, sanitize_user_visible_value};
 use crate::api::users::assert_can_create_run;
 use crate::api::{audit_event, paginate, require_confirm, ApiError, ListQuery};
 use crate::jobs::{AgentRunCreateRequest, AgentRunInfo};
@@ -22,7 +23,7 @@ struct ScheduleState {
     schedules: BTreeMap<String, ScheduleRecord>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 struct ScheduleRecord {
     schedule_id: String,
     user_id: String,
@@ -139,6 +140,9 @@ pub async fn list_schedules(
     state.sandboxes.ensure_sandbox(&user_id)?;
     let schedules = load_schedule_state(&state, &user_id).await?.schedules;
     let mut records = schedules.values().cloned().collect::<Vec<_>>();
+    for record in &mut records {
+        reconcile_schedule_record(&state, &user_id, record).await?;
+    }
     records.sort_by(|a, b| {
         a.next_run_at
             .clone()
@@ -147,6 +151,10 @@ pub async fn list_schedules(
     });
     let total = records.len();
     let (records, next_cursor) = paginate(records, &query);
+    let records = records
+        .iter()
+        .map(|record| public_schedule_value(&state, &user_id, record))
+        .collect::<Vec<_>>();
     Ok(Json(json!({
         "schedules": records,
         "count": records.len(),
@@ -212,7 +220,7 @@ pub(crate) async fn create_schedule_for_user(
         updated_at: iso(now),
     };
     persist_schedule_record(state, user_id, &record).await?;
-    Ok(serde_json::to_value(record).unwrap_or_else(|_| json!({})))
+    Ok(public_schedule_value(state, user_id, &record))
 }
 
 pub async fn get_schedule(
@@ -221,7 +229,7 @@ pub async fn get_schedule(
     Path(schedule_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    let Some(record) = load_schedule_state(&state, &user_id)
+    let Some(mut record) = load_schedule_state(&state, &user_id)
         .await?
         .schedules
         .get(&schedule_id)
@@ -229,9 +237,8 @@ pub async fn get_schedule(
     else {
         return Err(ApiError::not_found("Schedule not found"));
     };
-    Ok(Json(
-        serde_json::to_value(record).unwrap_or_else(|_| json!({})),
-    ))
+    reconcile_schedule_record(&state, &user_id, &mut record).await?;
+    Ok(Json(public_schedule_value(&state, &user_id, &record)))
 }
 
 pub async fn update_schedule(
@@ -326,9 +333,7 @@ pub async fn update_schedule(
     }
     record.updated_at = iso(now);
     persist_schedule_record(&state, &user_id, &record).await?;
-    Ok(Json(
-        serde_json::to_value(record).unwrap_or_else(|_| json!({})),
-    ))
+    Ok(Json(public_schedule_value(&state, &user_id, &record)))
 }
 
 pub async fn delete_schedule(
@@ -364,17 +369,31 @@ pub async fn schedule_runs(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(schedule_id): Path<String>,
+    Query(query): Query<ListQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    if !load_schedule_state(&state, &user_id)
+    let Some(mut record) = load_schedule_state(&state, &user_id)
         .await?
         .schedules
-        .contains_key(&schedule_id)
-    {
+        .get(&schedule_id)
+        .cloned()
+    else {
         return Err(ApiError::not_found("Schedule not found"));
-    }
+    };
+    reconcile_schedule_record(&state, &user_id, &mut record).await?;
     let records = list_schedule_job_records(&state, &user_id, &schedule_id).await?;
-    Ok(Json(json!({ "runs": records, "count": records.len() })))
+    let total = records.len();
+    let (records, next_cursor) = paginate(records, &query);
+    let records = records
+        .iter()
+        .map(|run| public_run_value(&state, &user_id, run))
+        .collect::<Vec<_>>();
+    Ok(Json(json!({
+        "runs": records,
+        "count": records.len(),
+        "total": total,
+        "next_cursor": next_cursor
+    })))
 }
 
 pub async fn run_schedule_now(
@@ -387,6 +406,7 @@ pub async fn run_schedule_now(
     let Some(mut record) = schedule_state.schedules.get(&schedule_id).cloned() else {
         return Err(ApiError::not_found("Schedule not found"));
     };
+    reconcile_schedule_record(&state, &user_id, &mut record).await?;
     let now = OffsetDateTime::now_utc();
     let info = match start_schedule_run(&state, &user_id, &record, "manual").await {
         Ok(info) => info,
@@ -400,19 +420,13 @@ pub async fn run_schedule_now(
             return Err(err);
         }
     };
-    record.last_run_at = Some(iso(now));
-    record.last_run_id = Some(info.job_id.clone());
-    record.last_error = None;
-    record.failure_reason = None;
-    record.last_run_status = Some(info.status.clone());
+    apply_latest_run_to_schedule(&mut record, Some(&info));
     if record.enabled && record.status != "completed" {
         record.status = "active".to_string();
     }
     record.updated_at = iso(now);
     persist_schedule_record(&state, &user_id, &record).await?;
-    Ok(Json(
-        serde_json::to_value(info).unwrap_or_else(|_| json!({})),
-    ))
+    Ok(Json(public_run_value(&state, &user_id, &info)))
 }
 
 pub async fn schedule_trigger_loop(state: AppState) {
@@ -437,6 +451,7 @@ pub async fn trigger_due_schedules(
             let Some(mut record) = schedule_state.schedules.get(&schedule_id).cloned() else {
                 continue;
             };
+            reconcile_schedule_record(state, &user_id, &mut record).await?;
             if !record.enabled || record.status != "active" {
                 continue;
             }
@@ -518,10 +533,7 @@ async fn start_schedule_run(
 ) -> Result<AgentRunInfo, ApiError> {
     let workspace_root = state.sandboxes.ensure_sandbox(user_id)?;
     let runtime_dir = state.sandboxes.sandbox_dir(user_id)?.join("agent-runs");
-    let (model, preset_effort) = match record.model.as_deref() {
-        Some(model) => state.config.resolve_model(Some(model)),
-        None => (state.config.default_model.clone(), None),
-    };
+    let (model, preset_effort) = resolve_schedule_run_model(&state.config, record);
     let create = AgentRunCreateRequest {
         prompt: record.prompt.clone(),
         provider: "codex".to_string(),
@@ -574,6 +586,24 @@ async fn persist_schedule_record(
 ) -> Result<(), ApiError> {
     let value = serde_json::to_value(record).map_err(anyhow::Error::from)?;
     state.storage.upsert_schedule(user_id, &value).await?;
+    Ok(())
+}
+
+fn public_schedule_value(state: &AppState, user_id: &str, record: &ScheduleRecord) -> Value {
+    let value = serde_json::to_value(record).unwrap_or_else(|_| json!({}));
+    sanitize_user_visible_value(state, user_id, &value)
+}
+
+async fn reconcile_schedule_record(
+    state: &AppState,
+    user_id: &str,
+    record: &mut ScheduleRecord,
+) -> Result<(), ApiError> {
+    let records = list_schedule_job_records(state, user_id, &record.schedule_id).await?;
+    if apply_latest_run_to_schedule(record, records.first()) {
+        record.updated_at = iso(OffsetDateTime::now_utc());
+        persist_schedule_record(state, user_id, record).await?;
+    }
     Ok(())
 }
 
@@ -637,6 +667,77 @@ fn record_string(record: &Value, key: &str) -> String {
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string()
+}
+
+fn apply_latest_run_to_schedule(
+    record: &mut ScheduleRecord,
+    latest: Option<&AgentRunInfo>,
+) -> bool {
+    let before = record.clone();
+    let Some(run) = latest else {
+        return false;
+    };
+
+    record.last_run_id = Some(run.job_id.clone());
+    record.last_run_at = Some(run_timestamp(run));
+    record.last_run_status = Some(run.status.clone());
+
+    match run.status.as_str() {
+        "completed" => {
+            record.last_error = None;
+            record.failure_reason = None;
+        }
+        "queued" | "running" => {
+            record.last_error = None;
+            record.failure_reason = None;
+        }
+        "failed" | "cancelled" => {
+            let summary = run_failure_summary(run);
+            record.last_error = Some(summary.clone());
+            record.failure_reason = Some(summary);
+            if run.metadata.get("schedule_trigger").and_then(Value::as_str) == Some("scheduled")
+                && record.failure_policy == "pause"
+            {
+                record.enabled = false;
+                record.status = "error".to_string();
+                record.next_run_at = None;
+            }
+        }
+        _ => {}
+    }
+
+    *record != before
+}
+
+fn run_timestamp(run: &AgentRunInfo) -> String {
+    if !run.updated_at.trim().is_empty() {
+        return run.updated_at.clone();
+    }
+    run.created_at.clone()
+}
+
+fn run_failure_summary(run: &AgentRunInfo) -> String {
+    run.error
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            let value = run.stderr_tail.trim();
+            (!value.is_empty()).then_some(value)
+        })
+        .or_else(|| {
+            let value = run.stdout_tail.trim();
+            (!value.is_empty()).then_some(value)
+        })
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("Run {}", run.status))
+}
+
+fn resolve_schedule_run_model(
+    config: &crate::config::AppConfig,
+    record: &ScheduleRecord,
+) -> (String, Option<String>) {
+    config.resolve_model(record.model.as_deref())
 }
 
 fn nullable_field<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
@@ -865,6 +966,215 @@ fn default_failure_policy() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{
+        AppConfig, CodexConfig, CorsConfig, FeishuConfig, GogcliOAuthConfig, LoggingConfig,
+        ModelPreset, SandboxConfig, SecurityConfig, SkillsConfig, UserAuthConfig,
+    };
+
+    fn schedule_record() -> ScheduleRecord {
+        ScheduleRecord {
+            schedule_id: "sch-test".to_string(),
+            user_id: "alice".to_string(),
+            title: "Daily report".to_string(),
+            prompt: "Write a report".to_string(),
+            kind: "interval".to_string(),
+            timezone: "UTC".to_string(),
+            run_at: None,
+            interval_seconds: Some(86_400),
+            enabled: true,
+            status: "active".to_string(),
+            next_run_at: Some("2026-06-01T00:00:00Z".to_string()),
+            last_run_at: Some("2026-05-30T00:00:00Z".to_string()),
+            last_run_id: Some("agent-old".to_string()),
+            last_error: Some("old error".to_string()),
+            failure_reason: Some("old failure".to_string()),
+            last_run_status: Some("failed".to_string()),
+            missed_run_policy: "run_once".to_string(),
+            overlap_policy: "skip".to_string(),
+            failure_policy: "pause".to_string(),
+            cwd: None,
+            model: None,
+            effort: None,
+            summary: None,
+            output_schema: None,
+            max_runtime_seconds: 1800,
+            max_runs: None,
+            run_count: 1,
+            created_at: "2026-05-30T00:00:00Z".to_string(),
+            updated_at: "2026-05-30T00:00:00Z".to_string(),
+        }
+    }
+
+    fn test_config_with_model_preset() -> AppConfig {
+        let root = std::env::temp_dir().join("ripple-schedule-model-test");
+        let mut model_presets = BTreeMap::new();
+        model_presets.insert(
+            "codex-medium".to_string(),
+            ModelPreset {
+                model: "gpt-5.5".to_string(),
+                reasoning_effort: Some("medium".to_string()),
+            },
+        );
+        AppConfig {
+            repo_root: root.clone(),
+            host: "127.0.0.1".to_string(),
+            port: 0,
+            api_keys: vec!["test-key".to_string()],
+            security: SecurityConfig::default(),
+            user_auth: UserAuthConfig::default(),
+            cors: CorsConfig::default(),
+            default_model: "codex-medium".to_string(),
+            model_presets,
+            logging: LoggingConfig {
+                level: "debug".to_string(),
+            },
+            sandbox: SandboxConfig {
+                sandboxes_root: root.join("sandboxes"),
+                caches_root: root.join("cache"),
+                idle_suspend_seconds: 1800,
+                retention_seconds: 604_800,
+                max_workspace_mb: 2048,
+                tmpfs_size_mb: 64,
+                nsjail_path: "nsjail".to_string(),
+                python_envs_root: root.join("cache/python-envs"),
+                python_env_uv_cache: root.join("cache/uv-cache"),
+                python_env_max_packages: 20,
+                uv_bin_dir: None,
+                node_dir: None,
+                lark_cli_install_root: None,
+                notion_cli_install_root: None,
+                gogcli_cli_install_root: None,
+                cli_tools: Vec::new(),
+                pypi_mirror_url: None,
+                npm_registry_url: None,
+            },
+            codex: CodexConfig {
+                enabled: true,
+                codex_executable: "codex".to_string(),
+                app_server_args: Vec::new(),
+                codex_home: None,
+                approval_policy: "never".to_string(),
+                sandbox_type: "workspace-write".to_string(),
+                network_access: true,
+                idle_timeout_seconds: 1800,
+                max_runtime_seconds: 3600,
+            },
+            schedule_extraction_max_runtime_seconds: 120,
+            schedule_poll_interval_seconds: 15,
+            skills: SkillsConfig {
+                shared_dirs: Vec::new(),
+            },
+            public_base_url: None,
+            feishu: FeishuConfig::default(),
+            gogcli_oauth: GogcliOAuthConfig {
+                auto_register_client: true,
+                auto_from_request: true,
+                callback_url: None,
+                client_secret_json: None,
+                client: None,
+            },
+        }
+    }
+
+    fn run_info(status: &str, trigger: &str) -> AgentRunInfo {
+        AgentRunInfo {
+            job_id: format!("agent-{status}-{trigger}"),
+            provider: "codex".to_string(),
+            status: status.to_string(),
+            output_file: Some("/tmp/output.txt".to_string()),
+            events_file: Some("/tmp/events.jsonl".to_string()),
+            created_at: "2026-05-30T01:00:00Z".to_string(),
+            updated_at: "2026-05-30T01:02:00Z".to_string(),
+            exit_code: if status == "completed" {
+                Some(0)
+            } else {
+                Some(1)
+            },
+            prompt_preview: Some("Write a report".to_string()),
+            sandbox_cwd: Some("/workspace".to_string()),
+            stdout_tail: "stdout summary".to_string(),
+            stderr_tail: "stderr failure".to_string(),
+            error: None,
+            pending_approval: None,
+            metadata: json!({
+                "schedule_id": "sch-test",
+                "schedule_trigger": trigger
+            }),
+        }
+    }
+
+    #[test]
+    fn schedule_without_explicit_model_uses_resolved_default_preset() {
+        let record = schedule_record();
+        let config = test_config_with_model_preset();
+
+        let (model, effort) = resolve_schedule_run_model(&config, &record);
+
+        assert_eq!(model, "gpt-5.5");
+        assert_eq!(effort.as_deref(), Some("medium"));
+    }
+
+    #[test]
+    fn apply_latest_completed_run_clears_schedule_error() {
+        let mut record = schedule_record();
+        let run = run_info("completed", "scheduled");
+
+        assert!(apply_latest_run_to_schedule(&mut record, Some(&run)));
+
+        assert_eq!(
+            record.last_run_id.as_deref(),
+            Some("agent-completed-scheduled")
+        );
+        assert_eq!(record.last_run_at.as_deref(), Some("2026-05-30T01:02:00Z"));
+        assert_eq!(record.last_run_status.as_deref(), Some("completed"));
+        assert_eq!(record.last_error, None);
+        assert_eq!(record.failure_reason, None);
+        assert_eq!(record.status, "active");
+        assert!(record.enabled);
+    }
+
+    #[test]
+    fn apply_latest_failed_scheduled_run_pauses_schedule() {
+        let mut record = schedule_record();
+        let run = run_info("failed", "scheduled");
+
+        assert!(apply_latest_run_to_schedule(&mut record, Some(&run)));
+
+        assert_eq!(record.last_run_status.as_deref(), Some("failed"));
+        assert_eq!(record.last_error.as_deref(), Some("stderr failure"));
+        assert_eq!(record.failure_reason.as_deref(), Some("stderr failure"));
+        assert_eq!(record.status, "error");
+        assert!(!record.enabled);
+        assert_eq!(record.next_run_at, None);
+    }
+
+    #[test]
+    fn apply_latest_failed_manual_run_does_not_pause_schedule() {
+        let mut record = schedule_record();
+        let run = run_info("failed", "manual");
+
+        assert!(apply_latest_run_to_schedule(&mut record, Some(&run)));
+
+        assert_eq!(record.last_run_status.as_deref(), Some("failed"));
+        assert_eq!(record.last_error.as_deref(), Some("stderr failure"));
+        assert_eq!(record.status, "active");
+        assert!(record.enabled);
+        assert_eq!(record.next_run_at.as_deref(), Some("2026-06-01T00:00:00Z"));
+    }
+
+    #[test]
+    fn apply_latest_running_run_updates_status_without_erroring_schedule() {
+        let mut record = schedule_record();
+        let run = run_info("running", "scheduled");
+
+        assert!(apply_latest_run_to_schedule(&mut record, Some(&run)));
+
+        assert_eq!(record.last_run_status.as_deref(), Some("running"));
+        assert_eq!(record.last_error, None);
+        assert_eq!(record.failure_reason, None);
+        assert_eq!(record.status, "active");
+        assert!(record.enabled);
+    }
 
     #[test]
     fn normalize_run_at_rejects_naive_datetime_for_non_utc_timezone() {

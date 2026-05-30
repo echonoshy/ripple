@@ -22,7 +22,6 @@ import {
   WorkspaceListing,
   WorkspaceSearchResponse,
   WorkspaceUploadResponse,
-  ProjectInfo,
   UserProfile,
 } from "@/types";
 import { buildChatMessageContent, type ChatFileRef } from "@/lib/chatInput";
@@ -183,13 +182,6 @@ export class WorkspaceUploadConflictError extends Error {
     this.conflicts = conflicts;
   }
 }
-
-export interface ProjectCreateInput {
-  name: string;
-  rootPath: string;
-}
-
-export type ProjectUpdateInput = Partial<ProjectCreateInput>;
 
 export interface ScheduleCreateInput {
   title: string;
@@ -441,7 +433,7 @@ const CODEX_RUNTIME_EVENT_TYPES = new Set<CodexRuntimeEvent["type"]>([
   "codex_turn_diff_updated",
   "tool_output_delta",
   "file_change_patch_updated",
-  "project_file_search",
+  "folder_context_search",
   "image_generation",
   "image_view",
   "codex_warning",
@@ -610,6 +602,7 @@ interface RawSessionSummary {
   project_id?: string | null;
   project_name?: string | null;
   project_root?: string | null;
+  context_folder_path?: string | null;
   model: string;
   created_at: string;
   last_active: string;
@@ -638,6 +631,7 @@ function normalizeSessionSummary(raw: RawSessionSummary): SessionSummary {
     projectId: raw.project_id ?? null,
     projectName: raw.project_name ?? null,
     projectRoot: raw.project_root ?? null,
+    contextFolderPath: raw.context_folder_path ?? null,
     model: raw.model,
     createdAt: raw.created_at,
     lastActiveAt: raw.last_active,
@@ -645,28 +639,6 @@ function normalizeSessionSummary(raw: RawSessionSummary): SessionSummary {
     status: raw.status,
     changedFileCount: raw.changed_file_count,
     pendingApprovalCount: raw.pending_approval_count,
-  };
-}
-
-interface RawProjectInfo {
-  project_id: string;
-  name: string;
-  root_path: string;
-  created_at: string;
-  updated_at: string;
-  last_active_at: string;
-  exists: boolean;
-}
-
-function normalizeProject(raw: RawProjectInfo): ProjectInfo {
-  return {
-    projectId: raw.project_id,
-    name: raw.name,
-    rootPath: raw.root_path,
-    createdAt: raw.created_at,
-    updatedAt: raw.updated_at,
-    lastActiveAt: raw.last_active_at,
-    exists: raw.exists === true,
   };
 }
 
@@ -688,65 +660,6 @@ export async function fetchModels(): Promise<{ id: string; owned_by: string }[]>
   if (!res.ok) throw new Error("Failed to fetch models");
   const data = await res.json();
   return data.data || [];
-}
-
-export async function fetchProjects(): Promise<ProjectInfo[]> {
-  const res = await fetch(`${API_URL}/projects`, { headers: { ...authHeaders() } });
-  if (res.status === 401) throw new AuthError();
-  if (!res.ok) {
-    const detail = await responseDetail(res);
-    throw new Error(detail || `Failed to fetch projects (${res.status})`);
-  }
-  const data = (await res.json()) as { projects?: RawProjectInfo[] };
-  return (data.projects || []).map(normalizeProject);
-}
-
-export async function createProject(input: ProjectCreateInput): Promise<ProjectInfo> {
-  const res = await fetch(`${API_URL}/projects`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify({ name: input.name, root_path: input.rootPath }),
-  });
-  if (res.status === 401) throw new AuthError();
-  if (!res.ok) {
-    const detail = await responseDetail(res);
-    throw new Error(detail || `Failed to create project (${res.status})`);
-  }
-  return normalizeProject((await res.json()) as RawProjectInfo);
-}
-
-export async function updateProject(
-  projectId: string,
-  input: ProjectUpdateInput
-): Promise<ProjectInfo> {
-  const res = await fetch(`${API_URL}/projects/${encodeURIComponent(projectId)}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify({
-      name: input.name,
-      root_path: input.rootPath,
-    }),
-  });
-  if (res.status === 401) throw new AuthError();
-  if (!res.ok) {
-    const detail = await responseDetail(res);
-    throw new Error(detail || `Failed to update project (${res.status})`);
-  }
-  return normalizeProject((await res.json()) as RawProjectInfo);
-}
-
-export async function deleteProject(projectId: string): Promise<boolean> {
-  const res = await fetch(`${API_URL}/projects/${encodeURIComponent(projectId)}`, {
-    method: "DELETE",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify({ confirm: true }),
-  });
-  if (res.status === 401) throw new AuthError();
-  if (!res.ok && res.status !== 404) {
-    const detail = await responseDetail(res);
-    throw new Error(detail || `Failed to delete project (${res.status})`);
-  }
-  return res.ok;
 }
 
 export async function fetchSchedules(): Promise<ScheduleInfo[]> {
@@ -814,9 +727,64 @@ export async function runScheduleNow(scheduleId: string): Promise<AgentRunInfo> 
   return (await res.json()) as AgentRunInfo;
 }
 
+export async function fetchScheduleRuns(
+  scheduleId: string,
+  limit: number = 5,
+  cursor?: string
+): Promise<AgentRunInfo[]> {
+  const qs = new URLSearchParams({ limit: String(limit) });
+  if (cursor) qs.set("cursor", cursor);
+  const res = await fetch(
+    `${API_URL}/schedules/${encodeURIComponent(scheduleId)}/runs?${qs.toString()}`,
+    { headers: { ...authHeaders() } }
+  );
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to fetch schedule runs (${res.status})`);
+  }
+  const data = (await res.json()) as { runs?: AgentRunInfo[] };
+  return data.runs || [];
+}
+
+export async function fetchRun(jobId: string): Promise<AgentRunInfo> {
+  const res = await fetch(`${API_URL}/runs/${encodeURIComponent(jobId)}`, {
+    headers: { ...authHeaders() },
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to fetch run (${res.status})`);
+  }
+  return (await res.json()) as AgentRunInfo;
+}
+
+export async function downloadRunOutput(jobId: string): Promise<{ blob: Blob; filename: string }> {
+  const res = await fetch(`${API_URL}/runs/${encodeURIComponent(jobId)}/output`, {
+    headers: { ...authHeaders() },
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to download run output (${res.status})`);
+  }
+  return {
+    blob: await res.blob(),
+    filename: filenameFromContentDisposition(
+      res.headers.get("content-disposition"),
+      `${jobId}-output.txt`
+    ),
+  };
+}
+
+export async function fetchRunOutputText(jobId: string): Promise<string> {
+  const { blob } = await downloadRunOutput(jobId);
+  return blob.text();
+}
+
 export interface SessionCreateInput {
   model?: string | null;
-  projectId?: string | null;
+  contextFolderPath?: string | null;
 }
 
 export async function createSession(input: SessionCreateInput = {}): Promise<SessionSummary> {
@@ -825,7 +793,7 @@ export async function createSession(input: SessionCreateInput = {}): Promise<Ses
     headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify({
       model: input.model,
-      project_id: input.projectId,
+      context_folder_path: input.contextFolderPath,
     }),
   });
   if (res.status === 401) throw new AuthError();
@@ -836,16 +804,21 @@ export async function createSession(input: SessionCreateInput = {}): Promise<Ses
 export interface SessionUpdateInput {
   title?: string;
   pinned?: boolean;
+  contextFolderPath?: string | null;
 }
 
 export async function updateSession(
   sessionId: string,
   input: SessionUpdateInput
 ): Promise<SessionSummary> {
+  const body: Record<string, unknown> = {};
+  if ("title" in input) body.title = input.title;
+  if ("pinned" in input) body.pinned = input.pinned;
+  if ("contextFolderPath" in input) body.context_folder_path = input.contextFolderPath ?? null;
   const res = await fetch(`${API_URL}/sessions/${encodeURIComponent(sessionId)}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify(input),
+    body: JSON.stringify(body),
   });
   if (res.status === 401) throw new AuthError();
   if (!res.ok) {

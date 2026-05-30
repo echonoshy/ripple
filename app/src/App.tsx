@@ -14,8 +14,6 @@ import {
   claimInvite,
   logoutUserSession,
   AuthError,
-  createProject,
-  fetchProjects,
 } from "@/lib/api";
 import { IconTile } from "@/components/icons/IconTile";
 import RippleIcon from "@/components/icons/RippleIcon";
@@ -44,7 +42,7 @@ import {
   mergeInferredWorkbenchSessions,
 } from "@/lib/workbench";
 import { shouldShowInspector, type WorkspaceView } from "@/lib/workspaceViews";
-import type { ProjectInfo, SessionAttention, SessionDetail } from "@/types";
+import type { SessionAttention, SessionDetail } from "@/types";
 import { sortModelOptions } from "@/lib/models";
 import {
   getStoredDefaultModel,
@@ -59,12 +57,6 @@ function normalizeWorkspaceFolderPath(path: string): string {
   if (!trimmed || trimmed === WORKSPACE_ROOT_PATH) return WORKSPACE_ROOT_PATH;
   if (trimmed.startsWith(`${WORKSPACE_ROOT_PATH}/`)) return trimmed;
   return WORKSPACE_ROOT_PATH;
-}
-
-function projectNameFromWorkspacePath(path: string): string {
-  const normalizedPath = normalizeWorkspaceFolderPath(path);
-  if (normalizedPath === WORKSPACE_ROOT_PATH) return "Workspace";
-  return normalizedPath.split("/").filter(Boolean).pop() || "Project";
 }
 
 export default function Home() {
@@ -110,8 +102,7 @@ export default function Home() {
   const [mobileSessionMode, setMobileSessionMode] = useState<"list" | "chat">("list");
   const [sessionScrollToBottomRequest, setSessionScrollToBottomRequest] = useState(0);
   const [workspaceRefreshToken, setWorkspaceRefreshToken] = useState(0);
-  const [projects, setProjects] = useState<ProjectInfo[]>([]);
-  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const [activeContextFolderPath, setActiveContextFolderPath] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<WorkspaceView>("sessions");
   const [mobileFilesReturnToChat, setMobileFilesReturnToChat] = useState(false);
   const [mobileSessionRestoreScrollTop, setMobileSessionRestoreScrollTop] = useState<
@@ -140,34 +131,13 @@ export default function Home() {
     setAuthErrorMsg(message);
     setAuthUserIdInput(initialLoginUserIdInput(getUserId()));
     setAuthUserIdError(null);
-    setProjects([]);
-    setActiveProjectId(null);
+    setActiveContextFolderPath(null);
     clearStoredCurrentSessionId();
   }, []);
 
   const handleWorkspaceRefresh = useCallback(() => {
     setWorkspaceRefreshToken((prev) => prev + 1);
   }, []);
-
-  const loadProjects = useCallback(async (): Promise<ProjectInfo[]> => {
-    if (authState !== "authenticated") return [];
-    try {
-      const loadedProjects = await fetchProjects();
-      setProjects(loadedProjects);
-      setActiveProjectId((currentProjectId) => {
-        if (!currentProjectId) return null;
-        return loadedProjects.some((project) => project.projectId === currentProjectId)
-          ? currentProjectId
-          : null;
-      });
-      return loadedProjects;
-    } catch (err) {
-      if (err instanceof AuthError) {
-        handleAuthExpired("登录已过期，请重新登录");
-      }
-      return [];
-    }
-  }, [authState, handleAuthExpired]);
 
   const persistDefaultModel = useCallback(
     (model: string) => {
@@ -201,8 +171,7 @@ export default function Home() {
     setAuthMode("login");
     setAuthUserIdInput(initialLoginUserIdInput(getUserId()));
     setAuthUserIdError(null);
-    setProjects([]);
-    setActiveProjectId(null);
+    setActiveContextFolderPath(null);
     setAuthState("needs_auth");
   }, []);
 
@@ -282,7 +251,7 @@ export default function Home() {
   const handleApplySessionDetails = useCallback(
     (details: SessionDetail) => {
       applySessionDetails(details);
-      setActiveProjectId(details.projectId ?? null);
+      setActiveContextFolderPath(details.contextFolderPath ?? null);
     },
     [applySessionDetails]
   );
@@ -351,7 +320,7 @@ export default function Home() {
   useEffect(() => {
     sessionActionsRef.current = {
       getSessionId: () => sessionId,
-      ensureSession: (model) => ensureSession(model, activeProjectId),
+      ensureSession: (model) => ensureSession(model, activeContextFolderPath),
       loadSessions,
       clearCurrentSessionContext,
       compactCurrentSessionContext,
@@ -359,7 +328,7 @@ export default function Home() {
       stopSession: stopSessionById,
     };
   }, [
-    activeProjectId,
+    activeContextFolderPath,
     clearCurrentSessionContext,
     compactCurrentSessionContext,
     ensureSession,
@@ -384,12 +353,10 @@ export default function Home() {
       setDefaultModel(preferredModel);
       setSelectedModel(preferredModel);
       setSessionAttentionById({});
-      setProjects([]);
-      setActiveProjectId(null);
+      setActiveContextFolderPath(null);
       abortRunAndResetSessionView();
       resetSessionsForUserChange();
       if (authState === "authenticated") {
-        await loadProjects();
         const loaded = await loadSessions();
         console.info(`[ripple] switched to user "${newUid}", loaded ${loaded.length} sessions`);
         if (loaded.length > 0) {
@@ -400,7 +367,6 @@ export default function Home() {
     [
       authState,
       abortRunAndResetSessionView,
-      loadProjects,
       loadSessions,
       models,
       resetSessionsForUserChange,
@@ -471,7 +437,6 @@ export default function Home() {
           setDefaultModel(preferredModel);
           setSelectedModel(preferredModel);
         }
-        await loadProjects();
         const loadedSessions = await loadSessions();
         if (loadedSessions.length > 0) {
           await restoreStoredSession(loadedSessions);
@@ -482,7 +447,7 @@ export default function Home() {
         }
       }
     })();
-  }, [authState, handleAuthExpired, loadProjects, loadSessions, restoreStoredSession]);
+  }, [authState, handleAuthExpired, loadSessions, restoreStoredSession]);
 
   // ── Auth submit ──
   const handleAuthSubmit = (e: React.FormEvent) => {
@@ -503,8 +468,7 @@ export default function Home() {
     if (nextUserId !== userId) {
       setUserIdState(nextUserId);
       setSessionAttentionById({});
-      setProjects([]);
-      setActiveProjectId(null);
+      setActiveContextFolderPath(null);
       abortRunAndResetSessionView();
       resetSessionsForUserChange();
       clearStoredCurrentSessionId();
@@ -521,8 +485,7 @@ export default function Home() {
       setUserSessionToken(token, nextUserId);
       setUserIdState(nextUserId);
       setSessionAttentionById({});
-      setProjects([]);
-      setActiveProjectId(null);
+      setActiveContextFolderPath(null);
       abortRunAndResetSessionView();
       resetSessionsForUserChange();
       clearStoredCurrentSessionId();
@@ -584,41 +547,12 @@ export default function Home() {
     [acknowledgeSessionCompletion, switchSession]
   );
 
-  const handleProjectSelect = useCallback((project: ProjectInfo | null) => {
-    setActiveProjectId(project?.projectId ?? null);
-  }, []);
-
-  const handleCreateProject = useCallback(
-    async (input: { name: string; rootPath: string }): Promise<ProjectInfo | null> => {
-      try {
-        const project = await createProject(input);
-        setProjects((currentProjects) => [
-          project,
-          ...currentProjects.filter((item) => item.projectId !== project.projectId),
-        ]);
-        setActiveProjectId(project.projectId);
-        return project;
-      } catch (err) {
-        if (err instanceof AuthError) {
-          handleAuthExpired("登录已过期，请重新登录");
-          return null;
-        }
-        throw err;
-      }
-    },
-    [handleAuthExpired]
-  );
-
-  const activeProject = useMemo(
-    () => projects.find((project) => project.projectId === activeProjectId) || null,
-    [activeProjectId, projects]
-  );
-
   // ── New session ──
   const handleNewSession = async () => {
-    const session = await createNewSession(defaultModel, activeProjectId);
+    const session = await createNewSession(defaultModel, activeContextFolderPath);
     if (session) {
       setSelectedModel(session.model || defaultModel);
+      setActiveContextFolderPath(session.contextFolderPath ?? activeContextFolderPath);
     }
     setActiveView("sessions");
     setMobileSessionMode("chat");
@@ -701,14 +635,15 @@ export default function Home() {
     : null;
   const inferredCurrentSession = useMemo(
     () =>
-      sessionId && !selectedExistingSession
+          sessionId && !selectedExistingSession
         ? {
             sessionId,
             title: "Current session",
             pinned: false,
-            projectId: activeProject?.projectId ?? null,
-            projectName: activeProject?.name ?? null,
-            projectRoot: activeProject?.rootPath ?? null,
+            projectId: null,
+            projectName: null,
+            projectRoot: null,
+            contextFolderPath: activeContextFolderPath,
             status: selectedSessionRuntimeStatus || ("idle" as const),
             model: selectedModel,
             lastActivityAt: new Date().toISOString(),
@@ -718,7 +653,7 @@ export default function Home() {
           }
         : null,
     [
-      activeProject,
+      activeContextFolderPath,
       messages.length,
       selectedExistingSession,
       selectedModel,
@@ -772,66 +707,33 @@ export default function Home() {
   const handleSelectChatFolder = useCallback(
     async (path: string) => {
       const normalizedPath = normalizeWorkspaceFolderPath(path);
-      const currentSessionRoot = normalizeWorkspaceFolderPath(
-        selectedWorkbenchSession?.projectRoot || WORKSPACE_ROOT_PATH
-      );
-      if (sessionId && currentSessionRoot === normalizedPath) {
-        setActiveProjectId(selectedWorkbenchSession?.projectId ?? null);
+      const nextContextFolderPath =
+        normalizedPath === WORKSPACE_ROOT_PATH ? null : normalizedPath;
+      const currentContextFolderPath =
+        selectedWorkbenchSession?.contextFolderPath ?? activeContextFolderPath;
+      if ((currentContextFolderPath ?? null) === nextContextFolderPath) {
         return;
-      }
-
-      const hasPendingDraft =
-        input.trim().length > 0 || pendingFiles.length > 0 || pendingLocalImages.length > 0;
-      if (
-        sessionId &&
-        hasPendingDraft &&
-        typeof window !== "undefined" &&
-        !window.confirm("Switch workspace folder and start a new empty chat? Drafts and pending attachments will be cleared.")
-      ) {
-        return;
-      }
-
-      let nextProjectId: string | null = null;
-      if (normalizedPath !== WORKSPACE_ROOT_PATH) {
-        let project = projects.find((project) => project.rootPath === normalizedPath) || null;
-        if (!project) {
-          const createdProject = await createProject({
-            name: projectNameFromWorkspacePath(normalizedPath),
-            rootPath: normalizedPath,
-          });
-          project = createdProject;
-          setProjects((currentProjects) => [
-            createdProject,
-            ...currentProjects.filter((item) => item.projectId !== createdProject.projectId),
-          ]);
-        }
-        nextProjectId = project.projectId;
       }
 
       if (!sessionId) {
-        setActiveProjectId(nextProjectId);
+        setActiveContextFolderPath(nextContextFolderPath);
         return;
       }
 
-      const session = await createNewSession(defaultModel, nextProjectId);
-      if (session) {
-        setInput("");
-        setSelectedModel(session.model || defaultModel);
-        setActiveProjectId(nextProjectId);
+      const updated = await updateSessionById(sessionId, {
+        contextFolderPath: nextContextFolderPath,
+      });
+      if (updated) {
+        setActiveContextFolderPath(updated.contextFolderPath ?? null);
         setActiveView("sessions");
         setMobileSessionMode("chat");
       }
     },
     [
-      createNewSession,
-      defaultModel,
-      input,
-      pendingFiles.length,
-      pendingLocalImages.length,
-      projects,
+      activeContextFolderPath,
       selectedWorkbenchSession,
       sessionId,
-      setInput,
+      updateSessionById,
     ]
   );
 
@@ -851,10 +753,6 @@ export default function Home() {
       <FilesPage
         userId={userId}
         refreshToken={workspaceRefreshToken}
-        projects={projects}
-        activeProjectId={activeProjectId}
-        onProjectSelect={handleProjectSelect}
-        onCreateProject={handleCreateProject}
         onBack={mobileFilesReturnToChat ? handleReturnFromMobileFiles : undefined}
       />
     ) : activeView === "automations" ? (
@@ -900,8 +798,7 @@ export default function Home() {
             isModelDropdownOpen={openModelDropdown === "composer"}
             sessionId={sessionId}
             scrollToBottomRequest={sessionScrollToBottomRequest}
-            projects={projects}
-            activeProjectId={activeProjectId}
+            contextFolderPath={activeContextFolderPath}
             onSelectWorkspaceFolder={handleSelectChatFolder}
             onNewSession={handleNewSession}
             onUpdateSessionSettings={handleUpdateSessionSettings}

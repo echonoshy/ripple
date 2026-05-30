@@ -13,6 +13,7 @@ use uuid::Uuid;
 use crate::config::AppConfig;
 use crate::sandbox::SandboxManager;
 use crate::storage::Storage;
+use crate::workspace as ws;
 
 #[derive(Clone)]
 pub struct SessionManager {
@@ -37,6 +38,8 @@ pub struct SessionRecord {
     pub project_name: Option<String>,
     #[serde(default)]
     pub project_root: Option<String>,
+    #[serde(default)]
+    pub context_folder_path: Option<String>,
     pub model: String,
     pub max_turns: u32,
     #[serde(default)]
@@ -148,6 +151,7 @@ pub struct SessionInfo {
     pub project_id: Option<String>,
     pub project_name: Option<String>,
     pub project_root: Option<String>,
+    pub context_folder_path: Option<String>,
     pub model: String,
     pub created_at: String,
     pub last_active: String,
@@ -178,6 +182,8 @@ pub struct CreateSessionInput {
     pub model: Option<String>,
     pub max_turns: Option<u32>,
     pub system_prompt: Option<String>,
+    pub context_folder_path: Option<String>,
+    #[serde(default)]
     pub project_id: Option<String>,
 }
 
@@ -217,25 +223,8 @@ impl SessionManager {
     ) -> anyhow::Result<SessionRecord> {
         self.sandboxes.ensure_sandbox(user_id)?;
         let session_id = format!("srv-{}", &Uuid::new_v4().simple().to_string()[..12]);
-        let project = match input
-            .project_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
-            Some(project_id) => self.storage.get_project(user_id, project_id).await?,
-            None => None,
-        };
-        if input
-            .project_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .is_some()
-            && project.is_none()
-        {
-            anyhow::bail!("Project not found");
-        }
+        let context_folder_path =
+            self.normalize_context_folder_path(user_id, input.context_folder_path.as_deref())?;
         self.deleted
             .write()
             .await
@@ -246,9 +235,10 @@ impl SessionManager {
             user_id: user_id.to_string(),
             title: String::new(),
             pinned: false,
-            project_id: project.as_ref().map(|project| project.project_id.clone()),
-            project_name: project.as_ref().map(|project| project.name.clone()),
-            project_root: project.as_ref().map(|project| project.root_path.clone()),
+            project_id: None,
+            project_name: None,
+            project_root: None,
+            context_folder_path,
             model: input
                 .model
                 .unwrap_or_else(|| self.config.default_model.clone()),
@@ -363,6 +353,7 @@ impl SessionManager {
         session_id: &str,
         title: Option<String>,
         pinned: Option<bool>,
+        context_folder_path: Option<Option<String>>,
     ) -> anyhow::Result<Option<SessionInfo>> {
         let key = (user_id.to_string(), session_id.to_string());
         if self.deleted.read().await.contains(&key) {
@@ -384,6 +375,13 @@ impl SessionManager {
         }
         if let Some(pinned) = pinned {
             record.pinned = pinned;
+        }
+        if let Some(context_folder_path) = context_folder_path {
+            record.context_folder_path =
+                self.normalize_context_folder_path(user_id, context_folder_path.as_deref())?;
+            record.project_id = None;
+            record.project_name = None;
+            record.project_root = None;
         }
 
         self.persist(&record).await?;
@@ -798,9 +796,10 @@ impl SessionManager {
                 record.title.clone()
             },
             pinned: record.pinned,
-            project_id: record.project_id.clone(),
-            project_name: record.project_name.clone(),
-            project_root: record.project_root.clone(),
+            project_id: None,
+            project_name: None,
+            project_root: None,
+            context_folder_path: record.context_folder_path.clone(),
             model: record.model.clone(),
             created_at: record.created_at.clone(),
             last_active: record.last_active.clone(),
@@ -825,6 +824,27 @@ impl SessionManager {
             task_steps: record.plan_steps.clone(),
             task_progress: record.plan_progress.clone(),
         })
+    }
+
+    fn normalize_context_folder_path(
+        &self,
+        user_id: &str,
+        raw_path: Option<&str>,
+    ) -> anyhow::Result<Option<String>> {
+        let Some(raw_path) = raw_path.map(str::trim).filter(|value| !value.is_empty()) else {
+            return Ok(None);
+        };
+        let workspace = self.sandboxes.ensure_sandbox(user_id)?;
+        let target = ws::validate_existing_path(raw_path, &workspace)?;
+        if !target.is_dir() {
+            anyhow::bail!("Context folder path must be an existing directory");
+        }
+        let workspace_path = ws::workspace_path(&workspace, &target)?;
+        if workspace_path == "/workspace" {
+            Ok(None)
+        } else {
+            Ok(Some(workspace_path))
+        }
     }
 }
 
@@ -1029,6 +1049,7 @@ mod tests {
                     model: None,
                     max_turns: None,
                     system_prompt: None,
+                    context_folder_path: None,
                     project_id: None,
                 },
             )
@@ -1048,6 +1069,7 @@ mod tests {
                     model: None,
                     max_turns: None,
                     system_prompt: None,
+                    context_folder_path: None,
                     project_id: None,
                 },
             )
@@ -1091,6 +1113,7 @@ mod tests {
                     model: None,
                     max_turns: None,
                     system_prompt: None,
+                    context_folder_path: None,
                     project_id: None,
                 },
             )
@@ -1146,6 +1169,7 @@ mod tests {
                     model: None,
                     max_turns: None,
                     system_prompt: None,
+                    context_folder_path: None,
                     project_id: None,
                 },
             )
@@ -1202,6 +1226,7 @@ mod tests {
                     model: None,
                     max_turns: None,
                     system_prompt: None,
+                    context_folder_path: None,
                     project_id: None,
                 },
             )
@@ -1250,6 +1275,7 @@ mod tests {
                     model: None,
                     max_turns: None,
                     system_prompt: None,
+                    context_folder_path: None,
                     project_id: None,
                 },
             )
@@ -1298,6 +1324,7 @@ mod tests {
                     model: None,
                     max_turns: None,
                     system_prompt: None,
+                    context_folder_path: None,
                     project_id: None,
                 },
             )
@@ -1335,6 +1362,7 @@ mod tests {
                     model: None,
                     max_turns: None,
                     system_prompt: None,
+                    context_folder_path: None,
                     project_id: None,
                 },
             )
@@ -1373,6 +1401,7 @@ mod tests {
                     model: None,
                     max_turns: None,
                     system_prompt: None,
+                    context_folder_path: None,
                     project_id: None,
                 },
             )
@@ -1415,6 +1444,7 @@ mod tests {
                     model: None,
                     max_turns: None,
                     system_prompt: None,
+                    context_folder_path: None,
                     project_id: None,
                 },
             )
@@ -1434,6 +1464,7 @@ mod tests {
                     model: None,
                     max_turns: None,
                     system_prompt: None,
+                    context_folder_path: None,
                     project_id: None,
                 },
             )

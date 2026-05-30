@@ -4,10 +4,11 @@ use std::path::{Path as FsPath, PathBuf};
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{json, Value};
 
 use crate::api::chat::{collect_chat_image_events, image_event_to_message_block};
+use crate::api::run_public::sanitize_user_visible_text;
 use crate::api::users::{assert_can_create_run, assert_can_create_session};
 use crate::api::{connectors, paginate, ApiError, ListQuery};
 use crate::jobs::AgentRunInfo;
@@ -21,6 +22,16 @@ const MAX_SESSION_TITLE_CHARS: usize = 120;
 pub struct UpdateSessionInput {
     pub title: Option<String>,
     pub pinned: Option<bool>,
+    #[serde(default, deserialize_with = "deserialize_nullable_field")]
+    pub context_folder_path: Option<Option<String>>,
+}
+
+fn deserialize_nullable_field<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
 }
 
 #[derive(Debug, Serialize)]
@@ -63,6 +74,7 @@ struct SessionOverviewRun {
     status: String,
     updated_at: String,
     output_file: Option<String>,
+    output_available: bool,
     error: Option<String>,
     prompt_preview: Option<String>,
 }
@@ -100,7 +112,7 @@ pub async fn session_overview(
         let pending_kind = pending_kind(&record);
         let last_run = runs_by_session
             .get(&info.session_id)
-            .map(session_overview_run);
+            .map(|run| session_overview_run(&state, &user_id, run));
         let status = overview_status(&info.status, pending_kind.as_deref(), last_run.as_ref());
         items.push(SessionOverviewItem {
             session_id: info.session_id,
@@ -159,14 +171,21 @@ fn latest_runs_by_session(jobs: Vec<AgentRunInfo>) -> HashMap<String, AgentRunIn
     out
 }
 
-fn session_overview_run(run: &AgentRunInfo) -> SessionOverviewRun {
+fn session_overview_run(state: &AppState, user_id: &str, run: &AgentRunInfo) -> SessionOverviewRun {
     SessionOverviewRun {
         job_id: run.job_id.clone(),
         status: run.status.clone(),
         updated_at: run.updated_at.clone(),
-        output_file: run.output_file.clone(),
-        error: run.error.clone(),
-        prompt_preview: run.prompt_preview.clone(),
+        output_file: None,
+        output_available: run.output_file.is_some(),
+        error: run
+            .error
+            .as_deref()
+            .map(|value| sanitize_user_visible_text(state, user_id, value)),
+        prompt_preview: run
+            .prompt_preview
+            .as_deref()
+            .map(|value| sanitize_user_visible_text(state, user_id, value)),
     }
 }
 
@@ -532,7 +551,13 @@ pub async fn update_session(
 
     let Some(info) = state
         .sessions
-        .update_session_metadata(&user_id, &session_id, title, input.pinned)
+        .update_session_metadata(
+            &user_id,
+            &session_id,
+            title,
+            input.pinned,
+            input.context_folder_path,
+        )
         .await?
     else {
         return Err(ApiError::not_found("Session not found"));
@@ -615,7 +640,7 @@ pub async fn compact_session_context(
 
     assert_can_create_run(&state, &user_id, state.config.codex.max_runtime_seconds).await?;
     let workspace_root = state.sandboxes.ensure_sandbox(&user_id)?;
-    let compact_cwd = session_cwd_for_project(&workspace_root, &session);
+    let compact_cwd = session_cwd_for_context_folder(&workspace_root, &session);
     let Some(codex_thread_id) = state
         .sessions
         .begin_context_compaction(&user_id, &session_id)
@@ -654,19 +679,19 @@ pub async fn compact_session_context(
     })))
 }
 
-fn session_cwd_for_project(workspace_root: &FsPath, session: &SessionRecord) -> PathBuf {
-    let Some(project_root) = session
-        .project_root
+fn session_cwd_for_context_folder(workspace_root: &FsPath, session: &SessionRecord) -> PathBuf {
+    let Some(context_folder_path) = session
+        .context_folder_path
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
     else {
         return workspace_root.to_path_buf();
     };
-    if project_root == "/workspace" {
+    if context_folder_path == "/workspace" {
         return workspace_root.to_path_buf();
     }
-    if let Some(relative) = project_root.strip_prefix("/workspace/") {
+    if let Some(relative) = context_folder_path.strip_prefix("/workspace/") {
         return workspace_root.join(relative);
     }
     workspace_root.to_path_buf()

@@ -28,7 +28,6 @@ import {
   type PendingImageSource,
   type PendingLocalImage,
 } from "@/lib/pendingImages";
-import type { ProjectInfo } from "@/types";
 import WorkspaceFolderPicker from "./WorkspaceFolderPicker";
 
 interface SessionComposerProps {
@@ -56,9 +55,7 @@ interface SessionComposerProps {
   isModelDropdownOpen: boolean;
   onToggleModelDropdown: () => void;
   onSelectModel: (model: string) => void;
-  projects?: ProjectInfo[];
-  activeProjectId?: string | null;
-  currentSessionProjectId?: string | null;
+  contextFolderPath?: string | null;
   workspaceScopeLabel?: string;
   workspaceScopePath?: string;
   onSelectWorkspaceFolder?: (path: string) => void | Promise<void>;
@@ -104,9 +101,7 @@ export default function SessionComposer({
   isModelDropdownOpen,
   onToggleModelDropdown,
   onSelectModel,
-  projects = [],
-  activeProjectId = null,
-  currentSessionProjectId = null,
+  contextFolderPath = null,
   workspaceScopeLabel = "Workspace",
   workspaceScopePath = "/workspace",
   onSelectWorkspaceFolder,
@@ -331,8 +326,8 @@ export default function SessionComposer({
           <button
             type="button"
             data-ripple-composer-folder-button
-            aria-label="Choose workspace folder"
-            title={`Workspace folder: ${workspaceScopeLabel}`}
+            aria-label="Choose context folder"
+            title={`Context folder: ${workspaceScopeLabel}`}
             onClick={() => {
               setQuickActionsState(null);
               if (isModelDropdownOpen) onToggleModelDropdown();
@@ -345,9 +340,7 @@ export default function SessionComposer({
           {isFolderPickerOpen && (
             <WorkspaceFolderPicker
               userId={userId}
-              projects={projects}
-              activeProjectId={activeProjectId}
-              currentSessionProjectId={currentSessionProjectId}
+              contextFolderPath={contextFolderPath}
               onSelectFolder={onSelectWorkspaceFolder}
               onClose={() => setIsFolderPickerOpen(false)}
             />

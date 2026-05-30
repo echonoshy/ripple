@@ -11,6 +11,9 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::time::{sleep, Duration};
 
+use crate::api::run_public::{
+    public_run_value, sanitize_user_visible_text, sanitize_user_visible_value,
+};
 use crate::api::users::assert_can_create_run;
 use crate::api::{paginate, ApiError, ListQuery};
 use crate::codex::events::{extract_codex_runtime_event, extract_plan_update_event};
@@ -29,6 +32,10 @@ pub async fn list_runs(
     let runs = state.jobs.list_user(&user_id).await?;
     let total = runs.len();
     let (runs, next_cursor) = paginate(runs, &query);
+    let runs = runs
+        .iter()
+        .map(|run| public_run_value(&state, &user_id, run))
+        .collect::<Vec<_>>();
     Ok(Json(json!({
         "runs": runs,
         "count": runs.len(),
@@ -49,12 +56,10 @@ pub async fn create_run(
     assert_can_create_run(&state, &user_id, input.max_runtime_seconds).await?;
     let info = state
         .jobs
-        .start(input, user_id, None, workspace_root, runtime_dir)
+        .start(input, user_id.clone(), None, workspace_root, runtime_dir)
         .await
         .map_err(|err| ApiError::bad_request(err.to_string()))?;
-    Ok(Json(
-        serde_json::to_value(info).unwrap_or_else(|_| json!({})),
-    ))
+    Ok(Json(public_run_value(&state, &user_id, &info)))
 }
 
 pub async fn get_run(
@@ -66,9 +71,7 @@ pub async fn get_run(
     let Some(info) = info_for_user(&state, &user_id, &job_id).await? else {
         return Err(ApiError::not_found("Agent run not found"));
     };
-    Ok(Json(
-        serde_json::to_value(info).unwrap_or_else(|_| json!({})),
-    ))
+    Ok(Json(public_run_value(&state, &user_id, &info)))
 }
 
 #[derive(Debug, Deserialize)]
@@ -95,6 +98,7 @@ pub async fn run_events(
     let jobs = state.jobs.clone();
     let stream_user_id = user_id.clone();
     let stream_job_id = job_id.clone();
+    let event_state = state.clone();
 
     let body_stream = stream! {
         let mut offset = initial_offset(&events_file, from_start).await;
@@ -102,12 +106,15 @@ pub async fn run_events(
         loop {
             let events = read_events_from_offset(&events_file, &mut offset).await;
             for event in events {
-                yield Ok::<Bytes, Infallible>(sse_json(&event));
+                let public_event = sanitize_user_visible_value(&event_state, &stream_user_id, &event);
+                yield Ok::<Bytes, Infallible>(sse_json(&public_event));
                 if let Some(plan_event) = extract_plan_update_event(&event) {
-                    yield Ok::<Bytes, Infallible>(sse_json(&plan_event));
+                    let public_plan_event = sanitize_user_visible_value(&event_state, &stream_user_id, &plan_event);
+                    yield Ok::<Bytes, Infallible>(sse_json(&public_plan_event));
                 }
                 if let Some(runtime_event) = extract_codex_runtime_event(&event) {
-                    yield Ok::<Bytes, Infallible>(sse_json(&runtime_event));
+                    let public_runtime_event = sanitize_user_visible_value(&event_state, &stream_user_id, &runtime_event);
+                    yield Ok::<Bytes, Infallible>(sse_json(&public_runtime_event));
                 }
                 last_emit = now_epoch_seconds();
             }
@@ -162,7 +169,9 @@ pub async fn run_output(
         return Err(ApiError::not_found("Agent run output not found"));
     }
     let bytes = tokio::fs::read(resolved).await?;
-    let mut response = Response::new(Body::from(bytes));
+    let text = String::from_utf8_lossy(&bytes);
+    let text = sanitize_user_visible_text(&state, &user_id, &text);
+    let mut response = Response::new(Body::from(text));
     response.headers_mut().insert(
         header::CONTENT_TYPE,
         HeaderValue::from_static("text/plain; charset=utf-8"),
@@ -208,9 +217,7 @@ pub async fn steer_run(
     if !state.jobs.steer(&job_id, prompt).await {
         return Err(ApiError::conflict("Agent run is not ready for steering"));
     }
-    Ok(Json(
-        serde_json::to_value(info).unwrap_or_else(|_| json!({})),
-    ))
+    Ok(Json(public_run_value(&state, &user_id, &info)))
 }
 
 pub async fn cancel_run(
@@ -228,9 +235,7 @@ pub async fn cancel_run(
     let Some(info) = state.jobs.cancel_for_user(&job_id, &user_id).await? else {
         return Err(ApiError::not_found("Agent run not found"));
     };
-    Ok(Json(
-        serde_json::to_value(info).unwrap_or_else(|_| json!({})),
-    ))
+    Ok(Json(public_run_value(&state, &user_id, &info)))
 }
 
 fn resolve_turn_config(

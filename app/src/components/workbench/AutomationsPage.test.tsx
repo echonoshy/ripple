@@ -38,8 +38,23 @@ function testTimezoneUsesSelectControl() {
   assert.match(source, /Asia\/Shanghai/);
 }
 
+function testAutomationRunResultsAreDiscoverable() {
+  const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /fetchScheduleRuns/);
+  assert.match(source, /fetchRunOutputText/);
+  assert.match(source, /downloadRunOutput/);
+  assert.match(source, /saveBlobAsDownload/);
+  assert.match(source, /hasRunOutput/);
+  assert.match(source, /output_available/);
+  assert.match(source, /查看结果/);
+  assert.match(source, /下载结果/);
+  assert.match(source, /运行记录/);
+}
+
 testAutomationsPageHasMobileBackNavigation();
 testAutomationActionsUseVisibleDistinctLabels();
 testTimezoneUsesSelectControl();
+testAutomationRunResultsAreDiscoverable();
 
 console.log("automations page tests passed");

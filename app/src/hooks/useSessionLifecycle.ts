@@ -112,10 +112,10 @@ export function useSessionLifecycle({
   }, []);
 
   const ensureSession = useCallback(
-    async (model?: string | null, projectId?: string | null): Promise<string | null> => {
+    async (model?: string | null, contextFolderPath?: string | null): Promise<string | null> => {
       if (sessionId) return sessionId;
       try {
-        const session = await createSession({ model, projectId });
+        const session = await createSession({ model, contextFolderPath });
         setSessionId(session.sessionId);
         setStoredCurrentSessionId(undefined, session.sessionId);
         return session.sessionId;
@@ -130,9 +130,12 @@ export function useSessionLifecycle({
   );
 
   const createNewSession = useCallback(
-    async (model?: string | null, projectId?: string | null): Promise<SessionSummary | null> => {
+    async (
+      model?: string | null,
+      contextFolderPath?: string | null
+    ): Promise<SessionSummary | null> => {
       try {
-        const session = await createSession({ model, projectId });
+        const session = await createSession({ model, contextFolderPath });
         setSessionId(session.sessionId);
         setStoredCurrentSessionId(undefined, session.sessionId);
         onNewSessionView();

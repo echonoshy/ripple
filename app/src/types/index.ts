@@ -214,16 +214,6 @@ export interface WorkspaceUploadResponse {
   entries: WorkspaceEntry[];
 }
 
-export interface ProjectInfo {
-  projectId: string;
-  name: string;
-  rootPath: string;
-  createdAt: string;
-  updatedAt: string;
-  lastActiveAt: string;
-  exists: boolean;
-}
-
 export type ScheduleKind = "once" | "interval";
 export type ScheduleStatus = "active" | "paused" | "completed" | "error" | string;
 
@@ -233,6 +223,8 @@ export interface AgentRunInfo {
   status: string;
   output_file: string | null;
   events_file: string | null;
+  output_available?: boolean;
+  events_available?: boolean;
   created_at: string | null;
   updated_at: string | null;
   exit_code: number | null;
@@ -283,6 +275,7 @@ export interface SessionSummary {
   projectId?: string | null;
   projectName?: string | null;
   projectRoot?: string | null;
+  contextFolderPath?: string | null;
   model: string;
   createdAt: string;
   lastActiveAt: string;
@@ -327,7 +320,7 @@ export type CodexRuntimeEventType =
   | "codex_turn_diff_updated"
   | "tool_output_delta"
   | "file_change_patch_updated"
-  | "project_file_search"
+  | "folder_context_search"
   | "image_generation"
   | "image_view"
   | "codex_warning"
@@ -348,7 +341,7 @@ export interface CodexRuntimeEvent {
   patch?: unknown;
   changes?: unknown;
   status?: string;
-  project_root?: string;
+  context_folder_path?: string;
   query?: string;
   match_count?: number;
   scanned_files?: number;
@@ -388,6 +381,7 @@ export interface WorkbenchSessionSummary {
   projectId?: string | null;
   projectName?: string | null;
   projectRoot?: string | null;
+  contextFolderPath?: string | null;
   status: WorkbenchSessionStatus;
   attention?: SessionAttention;
   model: string;

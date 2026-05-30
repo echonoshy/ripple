@@ -450,10 +450,10 @@ fn main() {
                     title_generation_text().to_string()
                 } else if line.contains("\"outputSchema\"") {
                     schedule_extraction_text().to_string()
-                } else if line.contains("## Ripple Project")
-                    && line.contains("Project root: /workspace/demo")
+                } else if line.contains("## Context Folder")
+                    && line.contains("Context folder: /workspace/demo")
                 {
-                    "project prompt present".to_string()
+                    "context folder prompt present".to_string()
                 } else if line.contains("[ids]") {
                     format!("fake codex completed {thread_id} {turn_id}")
                 } else {
@@ -851,6 +851,110 @@ async fn router_serves_core_control_plane_routes() {
         .await
         .unwrap();
     assert_eq!(tasks.status(), StatusCode::GONE);
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn sessions_accept_update_and_clear_context_folder_path() {
+    let root = std::env::temp_dir().join(format!("ripple-api-context-folder-{}", Uuid::new_v4()));
+    let (state, app) = test_state_and_app(&root);
+    let workspace = state.sandboxes.ensure_sandbox("smoke-user").unwrap();
+    fs::create_dir_all(workspace.join("demo")).unwrap();
+    fs::create_dir_all(workspace.join("other")).unwrap();
+    fs::write(workspace.join("notes.txt"), "not a folder").unwrap();
+
+    let (status, invalid_file) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/sessions",
+        json!({"model": "codex-test", "context_folder_path": "/workspace/notes.txt"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{invalid_file}");
+
+    let (status, invalid_outside) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/sessions",
+        json!({"model": "codex-test", "context_folder_path": "/tmp/outside"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{invalid_outside}");
+
+    let (status, session) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/sessions",
+        json!({"model": "codex-test", "context_folder_path": "/workspace/demo"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    assert_eq!(
+        session.get("context_folder_path").and_then(Value::as_str),
+        Some("/workspace/demo")
+    );
+    assert!(session.get("project_id").is_some_and(Value::is_null));
+    assert!(session.get("project_name").is_some_and(Value::is_null));
+    assert!(session.get("project_root").is_some_and(Value::is_null));
+    let session_id = session
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("session id")
+        .to_string();
+
+    let (status, updated) = call(
+        app.clone(),
+        Method::PATCH,
+        &format!("/v1/sessions/{session_id}"),
+        json!({"context_folder_path": "/workspace/other"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{updated}");
+    assert_eq!(
+        updated.get("context_folder_path").and_then(Value::as_str),
+        Some("/workspace/other")
+    );
+
+    let (status, title_only) = call(
+        app.clone(),
+        Method::PATCH,
+        &format!("/v1/sessions/{session_id}"),
+        json!({"title": "Renamed context session"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{title_only}");
+    assert_eq!(
+        title_only
+            .get("context_folder_path")
+            .and_then(Value::as_str),
+        Some("/workspace/other")
+    );
+
+    let (status, cleared) = call(
+        app.clone(),
+        Method::PATCH,
+        &format!("/v1/sessions/{session_id}"),
+        json!({"context_folder_path": null}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{cleared}");
+    assert!(cleared
+        .get("context_folder_path")
+        .is_some_and(Value::is_null));
+
+    let (status, detail) = call(
+        app,
+        Method::GET,
+        &format!("/v1/sessions/{session_id}"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{detail}");
+    assert!(detail
+        .get("context_folder_path")
+        .is_some_and(Value::is_null));
+    assert!(detail.get("project_root").is_some_and(Value::is_null));
 
     let _ = std::fs::remove_dir_all(root);
 }
@@ -1313,91 +1417,110 @@ async fn list_schedules_support_limit_cursor_pagination() {
 }
 
 #[tokio::test]
-async fn project_routes_create_list_update_and_delete_metadata_only() {
-    let root = std::env::temp_dir().join(format!("ripple-api-projects-{}", Uuid::new_v4()));
+async fn schedule_runs_support_limit_cursor_pagination() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let (state, app) = test_state_and_app(&root);
-    let workspace = state.sandboxes.ensure_sandbox("smoke-user").unwrap();
-    fs::create_dir_all(workspace.join("demo")).unwrap();
-    fs::create_dir_all(workspace.join("other")).unwrap();
-    fs::write(workspace.join("notes.txt"), "not a project directory").unwrap();
 
-    let (status, invalid_file) = call(
+    let (status, schedule) = call(
         app.clone(),
         Method::POST,
-        "/v1/projects",
-        json!({"name": "Notes", "root_path": "/workspace/notes.txt"}),
+        "/v1/schedules",
+        json!({
+            "title": "Paged runs",
+            "prompt": "say hi",
+            "kind": "interval",
+            "interval_seconds": 3600,
+            "enabled": true
+        }),
     )
     .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST, "{invalid_file}");
+    assert_eq!(status, StatusCode::OK);
+    let schedule_id = schedule
+        .get("schedule_id")
+        .and_then(Value::as_str)
+        .expect("schedule id")
+        .to_string();
 
-    let (status, invalid_outside) = call(
+    for index in 0..3 {
+        let job_id = format!("agent-page-{index}");
+        state
+            .storage
+            .upsert_job(&json!({
+                "version": 1,
+                "job_id": job_id,
+                "provider": "codex",
+                "user_id": "smoke-user",
+                "session_id": null,
+                "schedule_id": schedule_id,
+                "schedule_title": "Paged runs",
+                "schedule_trigger": "scheduled",
+                "prompt_preview": "say hi",
+                "cwd": "/workspace",
+                "sandbox_cwd": "/workspace",
+                "status": "completed",
+                "created_at": format!("2026-05-30T00:0{index}:00Z"),
+                "updated_at": format!("2026-05-30T00:0{index}:30Z"),
+                "events_file": null,
+                "output_file": null,
+                "exit_code": 0,
+                "stdout_tail": "",
+                "stderr_tail": "",
+                "error": null
+            }))
+            .await
+            .unwrap();
+    }
+
+    let (status, first_page) = call(
         app.clone(),
-        Method::POST,
-        "/v1/projects",
-        json!({"name": "Outside", "root_path": "/tmp/outside"}),
+        Method::GET,
+        &format!("/v1/schedules/{schedule_id}/runs?limit=1"),
+        Value::Null,
     )
     .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST, "{invalid_outside}");
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(first_page.get("count").and_then(Value::as_u64), Some(1));
+    assert_eq!(first_page.get("total").and_then(Value::as_u64), Some(3));
+    assert_eq!(
+        first_page.pointer("/runs/0/job_id").and_then(Value::as_str),
+        Some("agent-page-2")
+    );
+    let cursor = first_page
+        .get("next_cursor")
+        .and_then(Value::as_str)
+        .expect("next cursor");
+
+    let (status, second_page) = call(
+        app,
+        Method::GET,
+        &format!("/v1/schedules/{schedule_id}/runs?limit=2&cursor={cursor}"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(second_page.get("count").and_then(Value::as_u64), Some(2));
+    assert_eq!(second_page.get("total").and_then(Value::as_u64), Some(3));
+    assert_eq!(second_page.get("next_cursor").and_then(Value::as_str), None);
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn project_routes_are_removed_from_the_public_api() {
+    let root = std::env::temp_dir().join(format!("ripple-api-projects-{}", Uuid::new_v4()));
+    let (_state, app) = test_state_and_app(&root);
+
+    let (status, listed) = call(app.clone(), Method::GET, "/v1/projects", Value::Null).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{listed}");
 
     let (status, created) = call(
-        app.clone(),
+        app,
         Method::POST,
         "/v1/projects",
         json!({"name": "Demo", "root_path": "/workspace/demo"}),
     )
     .await;
-    assert_eq!(status, StatusCode::OK, "{created}");
-    let project_id = created
-        .get("project_id")
-        .and_then(Value::as_str)
-        .expect("project id")
-        .to_string();
-    assert!(project_id.starts_with("prj-"));
-    assert_eq!(created.get("name").and_then(Value::as_str), Some("Demo"));
-    assert_eq!(
-        created.get("root_path").and_then(Value::as_str),
-        Some("/workspace/demo")
-    );
-    assert_eq!(created.get("exists").and_then(Value::as_bool), Some(true));
-
-    let (status, listed) = call(app.clone(), Method::GET, "/v1/projects", Value::Null).await;
-    assert_eq!(status, StatusCode::OK, "{listed}");
-    assert_eq!(listed.get("count").and_then(Value::as_u64), Some(1));
-    assert_eq!(
-        listed
-            .pointer("/projects/0/project_id")
-            .and_then(Value::as_str),
-        Some(project_id.as_str())
-    );
-
-    let (status, updated) = call(
-        app.clone(),
-        Method::PATCH,
-        &format!("/v1/projects/{project_id}"),
-        json!({"name": "Renamed", "root_path": "/workspace/other"}),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{updated}");
-    assert_eq!(updated.get("name").and_then(Value::as_str), Some("Renamed"));
-    assert_eq!(
-        updated.get("root_path").and_then(Value::as_str),
-        Some("/workspace/other")
-    );
-
-    let (status, deleted) = call(
-        app.clone(),
-        Method::DELETE,
-        &format!("/v1/projects/{project_id}"),
-        json!({"confirm": true}),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{deleted}");
-    assert_eq!(deleted.get("ok").and_then(Value::as_bool), Some(true));
-    assert!(workspace.join("other").is_dir());
-
-    let (status, listed) = call(app, Method::GET, "/v1/projects", Value::Null).await;
-    assert_eq!(status, StatusCode::OK, "{listed}");
-    assert_eq!(listed.get("count").and_then(Value::as_u64), Some(0));
+    assert_eq!(status, StatusCode::NOT_FOUND, "{created}");
 
     let _ = fs::remove_dir_all(root);
 }
@@ -1768,6 +1891,7 @@ async fn compact_session_context_triggers_codex_thread_compaction() {
                 model: None,
                 max_turns: None,
                 system_prompt: None,
+                context_folder_path: None,
                 project_id: None,
             },
         )
@@ -1825,6 +1949,7 @@ async fn session_codex_thread_route_reads_thread_metadata_without_turns() {
                 model: None,
                 max_turns: None,
                 system_prompt: None,
+                context_folder_path: None,
                 project_id: None,
             },
         )
@@ -1867,6 +1992,7 @@ async fn stopping_stale_running_session_clears_running_status() {
                 model: Some("codex-test".to_string()),
                 max_turns: None,
                 system_prompt: None,
+                context_folder_path: None,
                 project_id: None,
             },
         )
@@ -2052,13 +2178,10 @@ async fn runs_route_completes_with_fake_codex_app_server() {
         final_run.get("stdout_tail").and_then(Value::as_str),
         Some("fake codex completed")
     );
-    let output_file = final_run
-        .get("output_file")
-        .and_then(Value::as_str)
-        .expect("output file");
+    assert_eq!(final_run.get("output_file"), Some(&Value::Null));
     assert_eq!(
-        fs::read_to_string(output_file).unwrap(),
-        "fake codex completed"
+        final_run.get("output_available").and_then(Value::as_bool),
+        Some(true)
     );
 
     let response = app
@@ -2090,6 +2213,171 @@ async fn runs_route_completes_with_fake_codex_app_server() {
     assert!(events.contains("\"type\":\"codex.notification\""));
     assert!(events.contains("\"type\":\"runner.completed\""));
     assert!(events.contains("data: [DONE]"));
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn run_public_apis_hide_host_paths_from_metadata_output_events_and_schedule_history() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let (state, app) = test_state_and_app(&root);
+    let user_id = "smoke-user";
+    let workspace = state.sandboxes.ensure_sandbox(user_id).unwrap();
+    let sandbox = state.sandboxes.sandbox_dir(user_id).unwrap();
+    let workspace_report = workspace.join("outputs/report.md");
+    fs::create_dir_all(workspace_report.parent().unwrap()).unwrap();
+    fs::write(&workspace_report, "report").unwrap();
+    let job_dir = sandbox.join("agent-runs/external-agents/agent-paths");
+    fs::create_dir_all(&job_dir).unwrap();
+    let output_file = job_dir.join("output.txt");
+    let events_file = job_dir.join("events.jsonl");
+    let workspace_report_text = workspace_report.to_string_lossy();
+    fs::write(
+        &output_file,
+        format!("Saved [report]({workspace_report_text})\n"),
+    )
+    .unwrap();
+    fs::write(
+        &events_file,
+        format!(
+            concat!(
+                "{{\"type\":\"runner.completed\",\"path\":\"{}\",\"cwd\":\"{}\"}}\n",
+                "{{\"type\":\"codex.notification\",\"data\":{{\"message\":{{\"method\":\"item/agentMessage/delta\",\"params\":{{\"delta\":\"]({}\"}}}}}}}}\n",
+                "{{\"type\":\"codex.notification\",\"data\":{{\"message\":{{\"method\":\"turn/diff/updated\",\"params\":{{\"diff\":\"diff --git a/.ripple/sandboxes/{}/workspace/outputs/report.md b/{}/.ripple/sandboxes/{}/workspace/outputs/report.md\"}}}}}}}}\n"
+            ),
+            workspace_report_text,
+            workspace.to_string_lossy(),
+            root.join("sandboxes").to_string_lossy(),
+            user_id,
+            root.file_name().and_then(|name| name.to_str()).unwrap_or("ripple"),
+            user_id
+        ),
+    )
+    .unwrap();
+
+    let (status, schedule) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/schedules",
+        json!({
+            "title": "Path report",
+            "prompt": "write report",
+            "kind": "interval",
+            "interval_seconds": 3600
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let schedule_id = schedule
+        .get("schedule_id")
+        .and_then(Value::as_str)
+        .expect("schedule id");
+
+    state
+        .storage
+        .upsert_job(&json!({
+            "version": 1,
+            "job_id": "agent-paths",
+            "provider": "codex",
+            "user_id": user_id,
+            "session_id": null,
+            "schedule_id": schedule_id,
+            "schedule_trigger": "manual",
+            "prompt_preview": "write report",
+            "cwd": workspace,
+            "sandbox_cwd": "/workspace",
+            "status": "completed",
+            "created_at": "2026-05-30T00:00:00Z",
+            "updated_at": "2026-05-30T00:00:10Z",
+            "events_file": events_file,
+            "output_file": output_file,
+            "exit_code": 0,
+            "stdout_tail": format!("Saved [report]({workspace_report_text})"),
+            "stderr_tail": "",
+            "error": null
+        }))
+        .await
+        .unwrap();
+
+    let (status, run) = call(
+        app.clone(),
+        Method::GET,
+        "/v1/runs/agent-paths",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(run.get("output_file"), Some(&Value::Null));
+    assert_eq!(run.get("events_file"), Some(&Value::Null));
+    assert_eq!(
+        run.get("output_available").and_then(Value::as_bool),
+        Some(true)
+    );
+    assert_eq!(
+        run.get("events_available").and_then(Value::as_bool),
+        Some(true)
+    );
+    let run_text = serde_json::to_string(&run).unwrap();
+    assert!(
+        !run_text.contains(root.to_string_lossy().as_ref()),
+        "run metadata leaked host path: {run_text}"
+    );
+    assert!(run_text.contains("outputs/report.md"));
+
+    let response = app
+        .clone()
+        .oneshot(request(
+            Method::GET,
+            "/v1/runs/agent-paths/output",
+            Value::Null,
+            true,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let output_text = response_text(response).await;
+    assert!(
+        !output_text.contains(root.to_string_lossy().as_ref()),
+        "run output leaked host path: {output_text}"
+    );
+    assert!(output_text.contains("[report](outputs/report.md)"));
+
+    let response = app
+        .clone()
+        .oneshot(request(
+            Method::GET,
+            "/v1/runs/agent-paths/events?from_start=true&follow=false",
+            Value::Null,
+            true,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let events_text = response_text(response).await;
+    assert!(
+        !events_text.contains(root.to_string_lossy().as_ref()),
+        "run events leaked host path: {events_text}"
+    );
+    assert!(
+        !events_text.contains(".ripple/sandboxes"),
+        "run events leaked runtime path: {events_text}"
+    );
+    assert!(events_text.contains("outputs/report.md"));
+
+    let (status, history) = call(
+        app.clone(),
+        Method::GET,
+        &format!("/v1/schedules/{schedule_id}/runs?limit=5"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let history_text = serde_json::to_string(&history).unwrap();
+    assert!(
+        !history_text.contains(root.to_string_lossy().as_ref()),
+        "schedule history leaked host path: {history_text}"
+    );
+    assert!(history_text.contains("outputs/report.md"));
 
     let _ = std::fs::remove_dir_all(root);
 }
@@ -2981,6 +3269,7 @@ async fn connector_auth_cancel_route_is_idempotent_and_clears_pending_sessions()
                 model: Some("codex-test".to_string()),
                 max_turns: None,
                 system_prompt: None,
+                context_folder_path: None,
                 project_id: None,
             },
         )
@@ -3070,6 +3359,7 @@ async fn connector_auth_route_clears_matching_pending_session_auth() {
                 model: Some("codex-test".to_string()),
                 max_turns: None,
                 system_prompt: None,
+                context_folder_path: None,
                 project_id: None,
             },
         )
@@ -3128,6 +3418,7 @@ async fn stop_session_clears_pending_connector_auth_without_running_job() {
                 model: Some("codex-test".to_string()),
                 max_turns: None,
                 system_prompt: None,
+                context_folder_path: None,
                 project_id: None,
             },
         )
@@ -3180,6 +3471,7 @@ async fn cancel_connector_auth_route_clears_only_target_session() {
                 model: Some("codex-test".to_string()),
                 max_turns: None,
                 system_prompt: None,
+                context_folder_path: None,
                 project_id: None,
             },
         )
@@ -3200,6 +3492,7 @@ async fn cancel_connector_auth_route_clears_only_target_session() {
                 model: Some("codex-test".to_string()),
                 max_turns: None,
                 system_prompt: None,
+                context_folder_path: None,
                 project_id: None,
             },
         )
@@ -3264,6 +3557,7 @@ async fn chat_route_confirms_pending_schedule_without_starting_codex() {
                 model: Some("codex-test".to_string()),
                 max_turns: None,
                 system_prompt: None,
+                context_folder_path: None,
                 project_id: None,
             },
         )
@@ -3896,8 +4190,8 @@ async fn codex_app_server_does_not_inherit_server_secret_env() {
 }
 
 #[tokio::test]
-async fn chat_session_bound_to_project_runs_from_project_root() {
-    let root = std::env::temp_dir().join(format!("ripple-api-project-chat-{}", Uuid::new_v4()));
+async fn chat_session_bound_to_context_folder_runs_from_that_folder() {
+    let root = std::env::temp_dir().join(format!("ripple-api-folder-chat-{}", Uuid::new_v4()));
     let fake_codex = write_fake_codex_app_server(&root);
     let (state, app) =
         test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
@@ -3905,25 +4199,11 @@ async fn chat_session_bound_to_project_runs_from_project_root() {
     let workspace = state.sandboxes.ensure_sandbox(user_id).unwrap();
     fs::create_dir_all(workspace.join("demo")).unwrap();
 
-    let (status, project) = call(
-        app.clone(),
-        Method::POST,
-        "/v1/projects",
-        json!({"name": "Demo", "root_path": "/workspace/demo"}),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{project}");
-    let project_id = project
-        .get("project_id")
-        .and_then(Value::as_str)
-        .expect("project id")
-        .to_string();
-
     let (status, session) = call(
         app.clone(),
         Method::POST,
         "/v1/sessions",
-        json!({"model": "codex-test", "project_id": project_id}),
+        json!({"model": "codex-test", "context_folder_path": "/workspace/demo"}),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{session}");
@@ -3932,16 +4212,11 @@ async fn chat_session_bound_to_project_runs_from_project_root() {
         .and_then(Value::as_str)
         .expect("session id")
         .to_string();
+    assert!(session.get("project_id").is_some_and(Value::is_null));
+    assert!(session.get("project_name").is_some_and(Value::is_null));
+    assert!(session.get("project_root").is_some_and(Value::is_null));
     assert_eq!(
-        session.get("project_id").and_then(Value::as_str),
-        Some(project_id.as_str())
-    );
-    assert_eq!(
-        session.get("project_name").and_then(Value::as_str),
-        Some("Demo")
-    );
-    assert_eq!(
-        session.get("project_root").and_then(Value::as_str),
+        session.get("context_folder_path").and_then(Value::as_str),
         Some("/workspace/demo")
     );
 
@@ -3961,7 +4236,7 @@ async fn chat_session_bound_to_project_runs_from_project_root() {
     assert_eq!(
         chat.pointer("/choices/0/message/content")
             .and_then(Value::as_str),
-        Some("project prompt present")
+        Some("context folder prompt present")
     );
 
     let jobs = state.jobs.list_user(user_id).await.unwrap();
@@ -3981,16 +4256,11 @@ async fn chat_session_bound_to_project_runs_from_project_root() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{detail}");
+    assert!(detail.get("project_id").is_some_and(Value::is_null));
+    assert!(detail.get("project_name").is_some_and(Value::is_null));
+    assert!(detail.get("project_root").is_some_and(Value::is_null));
     assert_eq!(
-        detail.get("project_id").and_then(Value::as_str),
-        Some(project_id.as_str())
-    );
-    assert_eq!(
-        detail.get("project_name").and_then(Value::as_str),
-        Some("Demo")
-    );
-    assert_eq!(
-        detail.get("project_root").and_then(Value::as_str),
+        detail.get("context_folder_path").and_then(Value::as_str),
         Some("/workspace/demo")
     );
 
@@ -4060,6 +4330,7 @@ async fn chat_recovers_restart_stale_running_job_before_starting_follow_up() {
                 model: Some("codex-test".to_string()),
                 max_turns: None,
                 system_prompt: None,
+                context_folder_path: None,
                 project_id: None,
             },
         )
@@ -4600,6 +4871,7 @@ async fn chat_stream_cancels_pending_schedule_without_codex() {
                 model: Some("codex-test".to_string()),
                 max_turns: None,
                 system_prompt: None,
+                context_folder_path: None,
                 project_id: None,
             },
         )

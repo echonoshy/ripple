@@ -551,6 +551,7 @@ mod tests {
             project_id: None,
             project_name: None,
             project_root: None,
+            context_folder_path: None,
             model: "codex-test".to_string(),
             max_turns: 200,
             caller_system_prompt: None,

@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import WorkspaceExplorer, {
   displayError,
   getBoundedSplitPercent,
+  getWorkspaceParentPath,
   getSplitPercentAfterFileDoubleClick,
 } from "./WorkspaceExplorer";
 
@@ -112,32 +113,16 @@ function testWorkspaceExplorerBackButtonNamesSessionReturn() {
 
 testWorkspaceExplorerBackButtonNamesSessionReturn();
 
-function testWorkspaceExplorerPageShowsProjectControls() {
-  const html = renderExplorer({
-    presentation: "page",
-    projects: [
-      {
-        projectId: "prj-demo",
-        name: "Demo",
-        rootPath: "/workspace/demo",
-        createdAt: "2026-05-30T00:00:00Z",
-        updatedAt: "2026-05-30T00:00:00Z",
-        lastActiveAt: "2026-05-30T00:00:00Z",
-        exists: true,
-      },
-    ],
-    activeProjectId: "prj-demo",
-    onCreateProject: async () => null,
-  });
+function testWorkspaceExplorerPageOmitsProjectControls() {
+  const html = renderExplorer({ presentation: "page" });
 
-  assert.match(html, /data-ripple-files-project-switcher/);
-  assert.match(html, /aria-label="Select project"/);
-  assert.match(html, /Demo/);
-  assert.match(html, /data-ripple-files-action="create-project"/);
-  assert.match(html, /aria-label="Set current folder as project"/);
+  assert.doesNotMatch(html, /data-ripple-files-project-switcher/);
+  assert.doesNotMatch(html, /aria-label="Select project"/);
+  assert.doesNotMatch(html, /data-ripple-files-action="create-project"/);
+  assert.doesNotMatch(html, /aria-label="Set current folder as project"/);
 }
 
-testWorkspaceExplorerPageShowsProjectControls();
+testWorkspaceExplorerPageOmitsProjectControls();
 
 function testWorkspaceExplorerPageShowsMobileParentFolderControl() {
   const html = renderExplorer({
@@ -342,6 +327,16 @@ function testWorkspaceExplorerCachesListingsAndAvoidsCurrentPathReloadEffect() {
 
 testWorkspaceExplorerCachesListingsAndAvoidsCurrentPathReloadEffect();
 
+function testWorkspaceLinkOpenLoadsParentDirectoryBeforePreview() {
+  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+
+  assert.equal(getWorkspaceParentPath("/workspace/meeting_record/通用会议16.json"), "/workspace/meeting_record");
+  assert.equal(getWorkspaceParentPath("/workspace/summary.md"), "/workspace");
+  assert.match(source, /await loadDirectory\(getWorkspaceParentPath\(targetPath\)\)/);
+}
+
+testWorkspaceLinkOpenLoadsParentDirectoryBeforePreview();
+
 function testWorkspaceFileActionsStayVisibleOnTouchScreens() {
   const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
 
@@ -351,6 +346,93 @@ function testWorkspaceFileActionsStayVisibleOnTouchScreens() {
 }
 
 testWorkspaceFileActionsStayVisibleOnTouchScreens();
+
+function testWorkspaceExplorerSupportsMultiSelectionBatchActions() {
+  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const html = renderExplorer({
+    presentation: "page",
+    testInitialListing: {
+      path: "/workspace",
+      parent_path: null,
+      entries: [
+        {
+          name: "alpha.txt",
+          path: "/workspace/alpha.txt",
+          kind: "file",
+          size_bytes: 10,
+          modified_at: "2026-05-17T00:00:00Z",
+          is_hidden: false,
+          mime_type: "text/plain",
+        },
+      ],
+    },
+  });
+
+  assert.doesNotMatch(html, /data-ripple-files-select-entry/);
+  assert.match(html, /data-ripple-files-action="toggle-selection"/);
+  assert.match(html, /aria-label="Select files"/);
+  assert.match(source, /selectedEntryPaths/);
+  assert.match(source, /isSelectionMode/);
+  assert.match(source, /selectedEntries/);
+  assert.match(source, /data-ripple-files-selection-bar/);
+  assert.match(source, /Select all/);
+  assert.match(source, /Clear selection/);
+  assert.match(source, /handleBatchDelete/);
+  assert.match(source, /handleBatchClipboard/);
+  assert.match(source, /items:\s*selectedEntries/);
+  assert.match(source, /Paste \{\s*clipboard\.items\.length/);
+  assert.match(source, /clearClipboard/);
+  assert.match(source, /Clear clipboard/);
+}
+
+testWorkspaceExplorerSupportsMultiSelectionBatchActions();
+
+function testWorkspaceExplorerSupportsDragMoveIntoDirectories() {
+  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const html = renderExplorer({
+    presentation: "page",
+    testInitialListing: {
+      path: "/workspace",
+      parent_path: null,
+      entries: [
+        {
+          name: "alpha.txt",
+          path: "/workspace/alpha.txt",
+          kind: "file",
+          size_bytes: 10,
+          modified_at: "2026-05-17T00:00:00Z",
+          is_hidden: false,
+          mime_type: "text/plain",
+        },
+        {
+          name: "archive",
+          path: "/workspace/archive",
+          kind: "directory",
+          size_bytes: 0,
+          modified_at: "2026-05-17T00:00:00Z",
+          is_hidden: false,
+          mime_type: null,
+        },
+      ],
+    },
+  });
+
+  assert.match(source, /WORKSPACE_DRAG_ENTRY_MIME/);
+  assert.match(source, /handleEntryDragStart/);
+  assert.match(source, /handleDirectoryDrop/);
+  assert.match(source, /canMoveEntriesToDirectory/);
+  assert.match(source, /hasDraggedWorkspaceEntries/);
+  assert.match(source, /setData\(WORKSPACE_DRAG_ENTRY_MIME/);
+  assert.match(source, /pasteWorkspaceEntry\(entry\.path,\s*target\.path,\s*"move"\)/);
+  assert.match(source, /target\.path\.startsWith\(`\$\{entry\.path\}\/`\)/);
+  assert.match(source, /getWorkspaceParentPath\(entry\.path\) !== target\.path/);
+  assert.match(source, /selectedEntryPaths\.has\(entry\.path\) \? selectedEntries : \[entry\]/);
+  assert.match(html, /draggable="true"/);
+  assert.match(html, /data-ripple-files-drop-target="directory"/);
+  assert.doesNotMatch(html, /data-ripple-files-drop-target="file"/);
+}
+
+testWorkspaceExplorerSupportsDragMoveIntoDirectories();
 
 function testWorkspaceContextMenuUsesViewportAwarePositioning() {
   const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");

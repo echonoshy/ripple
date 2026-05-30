@@ -19,13 +19,13 @@ const TEXT_EXTENSIONS: &[&str] = &[
 ];
 
 #[derive(Debug, Clone)]
-pub(crate) struct ProjectFileContext {
+pub(crate) struct FolderContext {
     pub prompt_section: String,
     pub runtime_event: Value,
 }
 
 #[derive(Debug, Clone)]
-struct ProjectFileMatch {
+struct FolderContextMatch {
     path: String,
     line: usize,
     snippet: String,
@@ -33,59 +33,66 @@ struct ProjectFileMatch {
 }
 
 #[derive(Debug, Clone)]
-struct ProjectSearchSummary {
-    project_root: String,
+struct FolderContextSearchSummary {
+    context_folder_path: String,
     query: String,
     scanned_files: usize,
     truncated: bool,
-    matches: Vec<ProjectFileMatch>,
+    matches: Vec<FolderContextMatch>,
 }
 
-pub(crate) fn collect_project_file_context(
+pub(crate) fn collect_folder_context(
     workspace_root: &Path,
-    project_root: Option<&str>,
+    context_folder_path: Option<&str>,
     query: &str,
-) -> Option<ProjectFileContext> {
-    let project_root = project_root?.trim();
-    if project_root.is_empty() {
+) -> Option<FolderContext> {
+    let context_folder_path = context_folder_path?.trim();
+    if context_folder_path.is_empty() {
         return None;
     }
-    let project_path = ws::validate_existing_path(project_root, workspace_root).ok()?;
-    if !project_path.is_dir() {
+    let context_folder = ws::validate_existing_path(context_folder_path, workspace_root).ok()?;
+    if !context_folder.is_dir() {
         return None;
     }
 
     let terms = query_terms(query);
-    let summary = search_project_files(workspace_root, &project_path, project_root, query, &terms);
+    let summary = search_context_folder_files(
+        workspace_root,
+        &context_folder,
+        context_folder_path,
+        query,
+        &terms,
+    );
     let prompt_section = render_prompt_section(&summary, &terms);
     let runtime_event = runtime_event(&summary);
-    Some(ProjectFileContext {
+    Some(FolderContext {
         prompt_section,
         runtime_event,
     })
 }
 
-fn search_project_files(
+fn search_context_folder_files(
     workspace_root: &Path,
-    project_path: &Path,
-    project_root: &str,
+    context_folder: &Path,
+    context_folder_path: &str,
     query: &str,
     terms: &[String],
-) -> ProjectSearchSummary {
+) -> FolderContextSearchSummary {
     let mut scanned_files = 0_usize;
     let mut truncated = false;
     let mut matches = Vec::new();
 
-    for entry in WalkDir::new(project_path)
+    for entry in WalkDir::new(context_folder)
         .follow_links(false)
         .into_iter()
         .filter_entry(|entry| {
-            entry.path() == project_path || !is_hidden_path(project_path, entry.path())
+            entry.path() == context_folder || !is_hidden_path(context_folder, entry.path())
         })
         .filter_map(Result::ok)
     {
         let path = entry.path();
-        if path == project_path || !entry.file_type().is_file() || entry.file_type().is_symlink() {
+        if path == context_folder || !entry.file_type().is_file() || entry.file_type().is_symlink()
+        {
             continue;
         }
         if !is_text_path(path) {
@@ -118,7 +125,7 @@ fn search_project_files(
         if score == 0 {
             continue;
         }
-        matches.push(ProjectFileMatch {
+        matches.push(FolderContextMatch {
             path: workspace_path,
             line,
             snippet,
@@ -129,8 +136,8 @@ fn search_project_files(
     matches.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.path.cmp(&b.path)));
     matches.truncate(MAX_MATCHES);
 
-    ProjectSearchSummary {
-        project_root: project_root.to_string(),
+    FolderContextSearchSummary {
+        context_folder_path: context_folder_path.to_string(),
         query: query.trim().to_string(),
         scanned_files,
         truncated,
@@ -249,10 +256,10 @@ fn score_text(text: &str, terms: &[String]) -> usize {
         .sum()
 }
 
-fn render_prompt_section(summary: &ProjectSearchSummary, terms: &[String]) -> String {
+fn render_prompt_section(summary: &FolderContextSearchSummary, terms: &[String]) -> String {
     let mut section = vec![
-        "Project-local search completed before this turn.".to_string(),
-        format!("- Scope: {}", summary.project_root),
+        "Folder context search completed before this turn.".to_string(),
+        format!("- Scope: {}", summary.context_folder_path),
         format!("- Query: {}", summary.query),
         format!("- Scanned text files: {}", summary.scanned_files),
         format!("- Matched files: {}", summary.matches.len()),
@@ -264,12 +271,12 @@ fn render_prompt_section(summary: &ProjectSearchSummary, terms: &[String]) -> St
                 terms.iter().take(16).cloned().collect::<Vec<_>>().join(", ")
             }
         ),
-        "- Guidance: Use these local matches as starting evidence. If they are incomplete, search or read more files under the project root before using web_search. Use web_search as a supplement only when the user asks for online/latest information or local evidence is insufficient.".to_string(),
+        "- Guidance: Use these local matches as starting evidence. If they are incomplete, search or read more files under the context folder before using web_search. Use web_search as a supplement only when the user asks for online/latest information or local evidence is insufficient.".to_string(),
     ];
 
     if summary.matches.is_empty() {
         section.push(
-            "- Matches: none from the lightweight search. Inspect the project folder directly before using web_search unless the user explicitly asked for online information."
+            "- Matches: none from the lightweight search. Inspect the context folder directly before using web_search unless the user explicitly asked for online information."
                 .to_string(),
         );
     } else {
@@ -288,12 +295,12 @@ fn render_prompt_section(summary: &ProjectSearchSummary, terms: &[String]) -> St
     truncate_chars(&section.join("\n"), MAX_PROMPT_CHARS)
 }
 
-fn runtime_event(summary: &ProjectSearchSummary) -> Value {
+fn runtime_event(summary: &FolderContextSearchSummary) -> Value {
     json!({
-        "type": "project_file_search",
-        "id": format!("project-file-search:{}", summary.project_root),
+        "type": "folder_context_search",
+        "id": format!("folder-context-search:{}", summary.context_folder_path),
         "status": "completed",
-        "project_root": summary.project_root,
+        "context_folder_path": summary.context_folder_path,
         "query": summary.query,
         "match_count": summary.matches.len(),
         "scanned_files": summary.scanned_files,
@@ -324,27 +331,39 @@ mod tests {
     use uuid::Uuid;
 
     #[test]
-    fn collects_project_file_context_only_from_selected_folder() -> anyhow::Result<()> {
-        let root = std::env::temp_dir().join(format!("ripple-project-context-{}", Uuid::new_v4()));
-        let project = root.join("genius_club");
-        std::fs::create_dir_all(&project)?;
+    fn collects_folder_context_only_from_selected_folder() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("ripple-folder-context-{}", Uuid::new_v4()));
+        let folder = root.join("genius_club");
+        std::fs::create_dir_all(&folder)?;
         std::fs::write(
-            project.join("001.txt"),
+            folder.join("001.txt"),
             "天才俱乐部成员名单\n林弦负责重新建立组织。",
         )?;
         std::fs::write(root.join("outside.txt"), "天才俱乐部外部资料不应命中")?;
 
-        let context = collect_project_file_context(
+        let context = collect_folder_context(
             &root,
             Some("/workspace/genius_club"),
             "天才俱乐部成员分别是谁？",
         )
-        .expect("project context");
+        .expect("folder context");
 
+        assert!(context.prompt_section.contains("Folder context search"));
         assert!(context
             .prompt_section
             .contains("/workspace/genius_club/001.txt"));
         assert!(!context.prompt_section.contains("outside.txt"));
+        assert_eq!(
+            context.runtime_event.get("type").and_then(Value::as_str),
+            Some("folder_context_search")
+        );
+        assert_eq!(
+            context
+                .runtime_event
+                .get("context_folder_path")
+                .and_then(Value::as_str),
+            Some("/workspace/genius_club")
+        );
         assert_eq!(
             context
                 .runtime_event
@@ -358,15 +377,15 @@ mod tests {
     }
 
     #[test]
-    fn project_file_context_reports_no_matches_without_using_siblings() -> anyhow::Result<()> {
-        let root = std::env::temp_dir().join(format!("ripple-project-context-{}", Uuid::new_v4()));
-        let project = root.join("notes");
-        std::fs::create_dir_all(&project)?;
-        std::fs::write(project.join("local.txt"), "unrelated local text")?;
+    fn folder_context_reports_no_matches_without_using_siblings() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("ripple-folder-context-{}", Uuid::new_v4()));
+        let folder = root.join("notes");
+        std::fs::create_dir_all(&folder)?;
+        std::fs::write(folder.join("local.txt"), "unrelated local text")?;
         std::fs::write(root.join("answer.txt"), "needle only outside")?;
 
-        let context = collect_project_file_context(&root, Some("/workspace/notes"), "needle")
-            .expect("context");
+        let context =
+            collect_folder_context(&root, Some("/workspace/notes"), "needle").expect("context");
 
         assert!(context.prompt_section.contains("Matches: none"));
         assert!(!context.prompt_section.contains("answer.txt"));
@@ -383,16 +402,16 @@ mod tests {
     }
 
     #[test]
-    fn project_file_context_allows_hidden_runtime_parent_paths() -> anyhow::Result<()> {
+    fn folder_context_allows_hidden_runtime_parent_paths() -> anyhow::Result<()> {
         let root = std::env::temp_dir()
-            .join(format!("ripple-project-context-{}", Uuid::new_v4()))
+            .join(format!("ripple-folder-context-{}", Uuid::new_v4()))
             .join(".ripple/sandboxes/lake/workspace");
-        let project = root.join("genius_club");
-        std::fs::create_dir_all(&project)?;
-        std::fs::write(project.join("chapter.txt"), "天才俱乐部成员 林弦")?;
+        let folder = root.join("genius_club");
+        std::fs::create_dir_all(&folder)?;
+        std::fs::write(folder.join("chapter.txt"), "天才俱乐部成员 林弦")?;
 
         let context =
-            collect_project_file_context(&root, Some("/workspace/genius_club"), "天才俱乐部成员")
+            collect_folder_context(&root, Some("/workspace/genius_club"), "天才俱乐部成员")
                 .expect("context");
 
         assert!(context

@@ -3,15 +3,13 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { ArrowBigLeft, Check, Folder, Loader2, X } from "lucide-react";
 import { fetchWorkspaceListing } from "@/lib/api";
-import type { ProjectInfo, WorkspaceEntry, WorkspaceListing } from "@/types";
+import type { WorkspaceEntry, WorkspaceListing } from "@/types";
 
 const WORKSPACE_ROOT = "/workspace";
 
 interface WorkspaceFolderPickerProps {
   userId?: string;
-  projects: ProjectInfo[];
-  activeProjectId?: string | null;
-  currentSessionProjectId?: string | null;
+  contextFolderPath?: string | null;
   onSelectFolder: (path: string) => void | Promise<void>;
   onClose: () => void;
 }
@@ -28,10 +26,6 @@ function folderName(path: string): string {
   return path.split("/").filter(Boolean).pop() || "Folder";
 }
 
-function projectForPath(projects: ProjectInfo[], path: string): ProjectInfo | null {
-  return projects.find((project) => project.rootPath === path) || null;
-}
-
 function sortDirectories(entries: WorkspaceEntry[]): WorkspaceEntry[] {
   return entries
     .filter((entry) => entry.kind === "directory")
@@ -40,9 +34,7 @@ function sortDirectories(entries: WorkspaceEntry[]): WorkspaceEntry[] {
 
 export default function WorkspaceFolderPicker({
   userId,
-  projects,
-  activeProjectId = null,
-  currentSessionProjectId = null,
+  contextFolderPath = null,
   onSelectFolder,
   onClose,
 }: WorkspaceFolderPickerProps) {
@@ -52,8 +44,8 @@ export default function WorkspaceFolderPicker({
   const [selectingPath, setSelectingPath] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const directories = useMemo(() => sortDirectories(listing?.entries || []), [listing?.entries]);
-  const currentProject = projectForPath(projects, path);
   const parent = parentPath(path);
+  const selectedPath = contextFolderPath || WORKSPACE_ROOT;
 
   useEffect(() => {
     setPath(WORKSPACE_ROOT);
@@ -108,7 +100,7 @@ export default function WorkspaceFolderPicker({
         </button>
         <div className="min-w-0 flex-1">
           <div className="truncate text-[12px] font-semibold text-[#111827]">
-            Choose workspace folder
+            Choose context folder
           </div>
           <div className="truncate font-[family-name:var(--font-mono)] text-[10px] text-[#667085]">
             {path}
@@ -140,15 +132,9 @@ export default function WorkspaceFolderPicker({
             <Check size={14} className="shrink-0 text-[#2463eb]" />
           )}
           <span className="min-w-0 flex-1 truncate">
-            Use {currentProject?.name || folderName(path)}
+            {path === WORKSPACE_ROOT ? "Use full workspace" : "Use this folder"}
           </span>
-          {path === WORKSPACE_ROOT ? (
-            <span className="shrink-0 text-[10px] text-[#667085]">No project</span>
-          ) : currentProject ? (
-            <span className="shrink-0 text-[10px] text-[#667085]">Project</span>
-          ) : (
-            <span className="shrink-0 text-[10px] text-[#667085]">Create</span>
-          )}
+          <span className="shrink-0 text-[10px] text-[#667085]">{folderName(path)}</span>
         </button>
 
         {loading && (
@@ -164,11 +150,7 @@ export default function WorkspaceFolderPicker({
         {!loading &&
           !error &&
           directories.map((entry) => {
-            const project = projectForPath(projects, entry.path);
-            const selected =
-              (entry.path === WORKSPACE_ROOT && !activeProjectId && !currentSessionProjectId) ||
-              project?.projectId === activeProjectId ||
-              project?.projectId === currentSessionProjectId;
+            const selected = entry.path === selectedPath;
             return (
               <div key={entry.path} className="flex min-w-0 items-center gap-1">
                 <button
@@ -178,11 +160,6 @@ export default function WorkspaceFolderPicker({
                 >
                   <Folder size={14} className="shrink-0 text-[#667085]" />
                   <span className="min-w-0 flex-1 truncate">{entry.name}</span>
-                  {project && (
-                    <span className="shrink-0 rounded border border-[#d7e3f8] bg-[#eef4ff] px-1.5 py-0.5 text-[10px] font-semibold text-[#2463eb]">
-                      Project
-                    </span>
-                  )}
                 </button>
                 <button
                   type="button"

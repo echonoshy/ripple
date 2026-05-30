@@ -15,7 +15,7 @@ function testFilesHeaderDoesNotRenderTaskScopedActions() {
 
   assert.match(html, /data-ripple-files-page="finder-stage"/);
   assert.match(html, /data-presentation="page"/);
-  assert.match(html, /aria-label="Back to settings"/);
+  assert.match(html, /aria-label="Back to session"/);
   assert.match(html, /lg:hidden/);
   assert.match(html, /#fbfdff/);
   assert.doesNotMatch(html, /#ece6dc/);

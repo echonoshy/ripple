@@ -3,7 +3,10 @@ import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import SessionComposer, { shouldExpandComposer } from "./SessionComposer";
+import SessionComposer, {
+  composerToolbarClassName,
+  shouldExpandComposer,
+} from "./SessionComposer";
 import type { PendingLocalImage } from "@/lib/pendingImages";
 
 function noop() {}
@@ -90,7 +93,6 @@ function testComposerShowsWorkspaceFolderPickerButton() {
   assert.match(html, /data-ripple-composer-folder-button/);
   assert.match(html, /aria-label="Choose workspace folder"/);
   assert.match(html, /title="Workspace folder: Demo"/);
-  assert.match(html, />Demo</);
 }
 
 function testComposerInputSuppressesGlobalBlueFocusOutline() {
@@ -127,6 +129,25 @@ function testComposerExpandsActionsBelowTextAfterInput() {
   assert.match(emptyHtml, /data-composer-layout="inline"/);
   assert.match(draftHtml, /data-composer-expanded="true"/);
   assert.match(draftHtml, /data-composer-layout="stacked"/);
+}
+
+function testExpandedComposerKeepsToolbarHorizontalOrigin() {
+  const expandedToolbarClass = composerToolbarClassName(true);
+
+  assert.match(expandedToolbarClass, /col-start-1 row-start-2/);
+  assert.doesNotMatch(expandedToolbarClass, /-ml-1/);
+}
+
+function testComposerOnlyTextInputFocusExpandsEmptyComposer() {
+  const source = readFileSync(new URL("./SessionComposer.tsx", import.meta.url), "utf8");
+  const textareaBlock = source.match(/<textarea[\s\S]*?\/>/)?.[0] || "";
+  const layoutContainer =
+    source.match(
+      /<div\s+data-composer-expanded=\{isExpandedComposer \? "true" : "false"\}[\s\S]*?\{toolbarControls\}/
+    )?.[0] || "";
+
+  assert.match(textareaBlock, /onFocus=\{\(\) => setIsComposerFocused\(true\)\}/);
+  assert.doesNotMatch(layoutContainer, /onFocus=/);
 }
 
 function testComposerExpandsWhenFocusedWithoutInput() {
@@ -176,6 +197,8 @@ testComposerInputSuppressesGlobalBlueFocusOutline();
 testBlockedComposerStillAllowsDraftingAndShowsStop();
 testComposerClearsIosHomeIndicatorAndUsesTouchSizedActions();
 testComposerExpandsActionsBelowTextAfterInput();
+testExpandedComposerKeepsToolbarHorizontalOrigin();
+testComposerOnlyTextInputFocusExpandsEmptyComposer();
 testComposerExpandsWhenFocusedWithoutInput();
 testComposerShowsAttachmentUploadStateAndErrors();
 testComposerShowsPendingLocalImagePreview();

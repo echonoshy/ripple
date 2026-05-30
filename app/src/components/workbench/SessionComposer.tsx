@@ -3,13 +3,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
+  BrainCircuit,
   FileText,
-  Folder,
+  FolderOpen,
   Image as ImageIcon,
   Loader2,
   Paperclip,
   Send,
-  Sparkles,
   Square,
   Trash2,
   X,
@@ -71,6 +71,12 @@ type QuickActionsState = {
 
 export function shouldExpandComposer(value: string, isComposerFocused: boolean): boolean {
   return isComposerFocused || value.trim().length > 0;
+}
+
+export function composerToolbarClassName(isExpandedComposer: boolean): string {
+  return `flex h-10 shrink-0 items-center sm:h-8 ${
+    isExpandedComposer ? "col-start-1 row-start-2" : "-mr-1 sm:mb-[2px]"
+  }`;
 }
 
 export default function SessionComposer({
@@ -319,11 +325,7 @@ export default function SessionComposer({
   };
 
   const toolbarControls = (
-    <div
-      className={`flex h-10 shrink-0 items-center sm:h-8 ${
-        isExpandedComposer ? "col-start-1 row-start-2 -ml-1" : "-mr-1 sm:mb-[2px]"
-      }`}
-    >
+    <div className={composerToolbarClassName(isExpandedComposer)}>
       {onSelectWorkspaceFolder && (
         <div ref={folderPickerRef} className="relative flex shrink-0 items-center">
           <button
@@ -336,10 +338,9 @@ export default function SessionComposer({
               if (isModelDropdownOpen) onToggleModelDropdown();
               setIsFolderPickerOpen((open) => !open);
             }}
-            className="inline-flex h-10 max-w-[136px] items-center gap-1.5 rounded-full px-2 text-[12px] font-semibold text-[#4b5563] hover:bg-[#f3f4f6] hover:text-[#111827] active:bg-[#eef3ff] sm:h-8 sm:max-w-[156px] sm:px-2.5"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full text-[#4b5563] hover:bg-[#f3f4f6] hover:text-[#111827] active:bg-[#eef3ff] sm:h-8 sm:w-8"
           >
-            <Folder size={15} className="shrink-0" />
-            <span className="truncate">{workspaceScopeLabel}</span>
+            <FolderOpen size={16} strokeWidth={2} />
           </button>
           {isFolderPickerOpen && (
             <WorkspaceFolderPicker
@@ -386,7 +387,7 @@ export default function SessionComposer({
           {isUploadingFiles ? (
             <Loader2 size={15} className="animate-spin" />
           ) : (
-            <Paperclip size={15} />
+            <Paperclip size={16} strokeWidth={2} />
           )}
         </button>
       </div>
@@ -401,7 +402,7 @@ export default function SessionComposer({
           }}
           className="inline-flex h-10 w-10 items-center justify-center rounded-full text-[#4b5563] hover:bg-[#f3f4f6] hover:text-[#111827] active:bg-[#eef3ff] sm:h-8 sm:w-8"
         >
-          <Sparkles size={15} />
+          <BrainCircuit size={16} strokeWidth={2} />
         </button>
         {isModelDropdownOpen && (
           <div className="absolute bottom-full left-0 z-30 mb-2 w-48 overflow-hidden rounded-xl border border-[#dfe6f4] bg-white shadow-[0_14px_34px_rgba(44,63,123,0.14)]">
@@ -433,6 +434,7 @@ export default function SessionComposer({
       onKeyDown={handleKeyDown}
       onKeyUp={handleComposerSelection}
       onSelect={handleComposerSelection}
+      onFocus={() => setIsComposerFocused(true)}
       onPaste={handlePaste}
       disabled={inputDisabled}
       rows={1}
@@ -493,7 +495,6 @@ export default function SessionComposer({
         <div
           data-composer-expanded={isExpandedComposer ? "true" : "false"}
           data-composer-layout={isExpandedComposer ? "stacked" : "inline"}
-          onFocus={() => setIsComposerFocused(true)}
           onBlur={handleComposerBlur}
           className={
             isExpandedComposer

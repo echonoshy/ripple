@@ -84,12 +84,18 @@ function testHeaderActionsUseSharedGlassTreatment() {
     /mobileHeaderActionClass =\s+"inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white\/70 bg-white\/68 text-\[#516070\]/
   );
   assert.match(mobileSessionsPageSource, /MessageSquarePlus/);
-  assert.match(mobileSessionsPageSource, /MessageCircleMore/);
+  assert.match(
+    mobileSessionsPageSource,
+    /aria-label="New session"[\s\S]*?<MessageCircleMore size=\{18\}/
+  );
   assert.doesNotMatch(mobileSessionsPageSource, /<Plus size=\{18\}/);
   assert.doesNotMatch(mobileSessionsPageSource, /<SquarePen size=\{18\}/);
   assert.doesNotMatch(mobileSessionsPageSource, /<MoreHorizontal size=\{18\}/);
   assert.doesNotMatch(mobileSessionsPageSource, /<Settings2 size=\{18\}/);
-  assert.doesNotMatch(mobileSessionsPageSource, /<Ellipsis size=\{18\}/);
+  assert.doesNotMatch(
+    mobileSessionsPageSource,
+    /aria-label="New session"[\s\S]*?<MessageSquarePlus size=\{18\}/
+  );
   assert.doesNotMatch(
     mobileSessionsPageSource,
     /aria-label="New session"[\s\S]*?border-\[#b8cdf8\]\/80 bg-\[#eef4ff\]\/78 text-\[#2463eb\]/

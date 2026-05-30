@@ -54,9 +54,30 @@ function testAutomationRunResultsAreDiscoverable() {
   assert.match(source, /运行记录/);
 }
 
+function testAutomationCardUsesSeparatedLayoutRegions() {
+  const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /data-ripple-automation-card-main/);
+  assert.match(source, /data-ripple-automation-summary/);
+  assert.match(source, /data-ripple-automation-meta-grid/);
+  assert.match(source, /data-ripple-automation-latest-run/);
+  assert.match(source, /data-ripple-automation-actions/);
+}
+
+function testAutomationRunHistoryUsesReadableRows() {
+  const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /data-ripple-automation-run-history/);
+  assert.match(source, /data-ripple-automation-run-row/);
+  assert.match(source, /divide-y divide-\[#eef2fb\]/);
+  assert.match(source, /sm:grid-cols-\[90px_minmax\(0,1fr\)_120px\]/);
+}
+
 testAutomationsPageHasMobileBackNavigation();
 testAutomationActionsUseVisibleDistinctLabels();
 testTimezoneUsesSelectControl();
 testAutomationRunResultsAreDiscoverable();
+testAutomationCardUsesSeparatedLayoutRegions();
+testAutomationRunHistoryUsesReadableRows();
 
 console.log("automations page tests passed");

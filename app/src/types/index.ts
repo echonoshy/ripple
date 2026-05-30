@@ -106,6 +106,13 @@ export interface UserProfile {
   limits?: UserLimits;
 }
 
+export interface WorkspaceFileOpenRequest {
+  id: number;
+  path: string;
+  lineNumber?: number;
+  userId?: string;
+}
+
 export interface GogcliAccountInfo {
   email: string;
   alias: string | null;

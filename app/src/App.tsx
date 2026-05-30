@@ -42,7 +42,7 @@ import {
   mergeInferredWorkbenchSessions,
 } from "@/lib/workbench";
 import { shouldShowInspector, type WorkspaceView } from "@/lib/workspaceViews";
-import type { SessionAttention, SessionDetail } from "@/types";
+import type { SessionAttention, SessionDetail, WorkspaceFileOpenRequest } from "@/types";
 import { sortModelOptions } from "@/lib/models";
 import {
   getStoredDefaultModel,
@@ -108,11 +108,14 @@ export default function Home() {
   const [mobileSessionRestoreScrollTop, setMobileSessionRestoreScrollTop] = useState<
     number | null
   >(null);
+  const [pendingWorkspaceFileOpen, setPendingWorkspaceFileOpen] =
+    useState<WorkspaceFileOpenRequest | null>(null);
   const [sessionAttentionById, setSessionAttentionById] = useState<
     Record<string, SessionAttention | undefined>
   >({});
   const selectedSessionIdRef = useRef<string | null>(null);
   const activeViewRef = useRef<WorkspaceView>("sessions");
+  const workspaceFileOpenRequestIdRef = useRef(0);
 
   const sessionActionsRef = useRef<ChatRunSessionActions>({
     getSessionId: () => null,
@@ -382,44 +385,48 @@ export default function Home() {
         userId?: string;
         routedFromApp?: boolean;
       }>;
-      const { userId: targetUserId } = customEvent.detail;
-      const shouldRouteMobileFileLink =
-        window.innerWidth < 1024 &&
-        !customEvent.detail.routedFromApp &&
-        activeViewRef.current !== "files";
+      const { path, lineNumber, userId: targetUserId } = customEvent.detail;
+      if (!path) return;
+      const linkUserId = productSessionActive ? undefined : targetUserId;
 
-      if (shouldRouteMobileFileLink) {
+      workspaceFileOpenRequestIdRef.current += 1;
+      setPendingWorkspaceFileOpen({
+        id: workspaceFileOpenRequestIdRef.current,
+        path,
+        lineNumber,
+        userId: linkUserId,
+      });
+
+      const canUseInspector = activeViewRef.current === "sessions" && window.innerWidth >= 1280;
+      if (canUseInspector) {
+        setIsInspectorCollapsed(false);
+      } else {
         const scrollContainer = document.querySelector<HTMLDivElement>(
           '[data-ripple-session-scroll="timeline"]'
         );
-        setMobileSessionRestoreScrollTop(scrollContainer?.scrollTop ?? 0);
-        setMobileFilesReturnToChat(true);
-        setActiveView("files");
+        const shouldReturnToSession = activeViewRef.current === "sessions";
+        setMobileSessionRestoreScrollTop(
+          shouldReturnToSession ? (scrollContainer?.scrollTop ?? 0) : null
+        );
+        setMobileFilesReturnToChat(shouldReturnToSession);
+        if (activeViewRef.current !== "files") setActiveView("files");
         setMobileSessionMode("list");
         setIsSidebarOpen(false);
-        window.requestAnimationFrame(() => {
-          window.dispatchEvent(
-            new CustomEvent("open-workspace-file", {
-              detail: {
-                ...customEvent.detail,
-                routedFromApp: true,
-              },
-            })
-          );
-        });
       }
 
-      setIsInspectorCollapsed(false);
-
-      if (targetUserId && targetUserId !== userId) {
-        void handleUserIdChange(targetUserId);
+      if (linkUserId && linkUserId !== userId) {
+        void handleUserIdChange(linkUserId);
       }
     };
     window.addEventListener("open-workspace-file", handleOpenWorkspaceFile);
     return () => {
       window.removeEventListener("open-workspace-file", handleOpenWorkspaceFile);
     };
-  }, [userId, handleUserIdChange]);
+  }, [productSessionActive, userId, handleUserIdChange]);
+
+  const handlePendingWorkspaceFileOpenConsumed = useCallback((requestId: number) => {
+    setPendingWorkspaceFileOpen((current) => (current?.id === requestId ? null : current));
+  }, []);
 
   // ── Init on auth ──
   useEffect(() => {
@@ -584,6 +591,7 @@ export default function Home() {
     (view: WorkspaceView) => {
       setMobileFilesReturnToChat(false);
       setMobileSessionRestoreScrollTop(null);
+      if (view !== "files") setPendingWorkspaceFileOpen(null);
       setActiveView(view);
       setIsSidebarOpen(false);
       if (view === "sessions") {
@@ -597,6 +605,7 @@ export default function Home() {
   );
   const handleReturnFromMobileFiles = useCallback(() => {
     setMobileFilesReturnToChat(false);
+    setPendingWorkspaceFileOpen(null);
     setActiveView("sessions");
     setMobileSessionMode("chat");
     setIsSidebarOpen(false);
@@ -754,6 +763,8 @@ export default function Home() {
         userId={userId}
         refreshToken={workspaceRefreshToken}
         onBack={mobileFilesReturnToChat ? handleReturnFromMobileFiles : undefined}
+        openFileRequest={pendingWorkspaceFileOpen}
+        onOpenFileRequestConsumed={handlePendingWorkspaceFileOpenConsumed}
       />
     ) : activeView === "automations" ? (
       <AutomationsPage selectedModel={defaultModel} onAuthExpired={handleAuthExpired} />
@@ -1086,6 +1097,8 @@ export default function Home() {
               userId={userId}
               refreshToken={workspaceRefreshToken}
               onCollapse={() => setIsInspectorCollapsed(true)}
+              openFileRequest={pendingWorkspaceFileOpen}
+              onOpenFileRequestConsumed={handlePendingWorkspaceFileOpenConsumed}
             />
           ) : null
         }

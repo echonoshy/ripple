@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -6,8 +7,10 @@ import FilesPage from "./FilesPage";
 
 const noop = () => {};
 
-function renderFilesPage() {
-  return renderToStaticMarkup(<FilesPage userId="default" refreshToken={0} onBack={noop} />);
+function renderFilesPage(overrides: Partial<React.ComponentProps<typeof FilesPage>> = {}) {
+  return renderToStaticMarkup(
+    <FilesPage userId="default" refreshToken={0} onBack={noop} {...overrides} />
+  );
 }
 
 function testFilesHeaderDoesNotRenderTaskScopedActions() {
@@ -28,5 +31,14 @@ function testFilesHeaderDoesNotRenderTaskScopedActions() {
 }
 
 testFilesHeaderDoesNotRenderTaskScopedActions();
+
+function testFilesPagePassesPendingOpenFileRequestToExplorer() {
+  const source = readFileSync(new URL("./FilesPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /openFileRequest\?: WorkspaceFileOpenRequest \| null/);
+  assert.match(source, /openFileRequest=\{openFileRequest\}/);
+}
+
+testFilesPagePassesPendingOpenFileRequestToExplorer();
 
 console.log("files page tests passed");

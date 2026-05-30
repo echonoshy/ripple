@@ -1,17 +1,22 @@
 "use client";
 
 import WorkspaceExplorer from "@/components/WorkspaceExplorer";
+import type { WorkspaceFileOpenRequest } from "@/types";
 
 interface FilesPageProps {
   userId: string;
   refreshToken: number;
   onBack?: () => void;
+  openFileRequest?: WorkspaceFileOpenRequest | null;
+  onOpenFileRequestConsumed?: (requestId: number) => void;
 }
 
 export default function FilesPage({
   userId,
   refreshToken,
   onBack,
+  openFileRequest,
+  onOpenFileRequestConsumed,
 }: FilesPageProps) {
   return (
     <div
@@ -23,6 +28,8 @@ export default function FilesPage({
         refreshToken={refreshToken}
         presentation="page"
         onBack={onBack}
+        openFileRequest={openFileRequest}
+        onOpenFileRequestConsumed={onOpenFileRequestConsumed}
       />
     </div>
   );

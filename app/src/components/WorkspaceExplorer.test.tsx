@@ -337,6 +337,41 @@ function testWorkspaceLinkOpenLoadsParentDirectoryBeforePreview() {
 
 testWorkspaceLinkOpenLoadsParentDirectoryBeforePreview();
 
+function testWorkspaceExplorerOpensPendingFileRequestAfterMount() {
+  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /openFileRequest\?: WorkspaceFileOpenRequest \| null/);
+  assert.match(source, /openFileRequest\.id/);
+  assert.match(source, /openWorkspaceFilePath\(openFileRequest\.path, openFileRequest\.lineNumber\)/);
+  assert.doesNotMatch(source, /window\.addEventListener\("open-workspace-file"/);
+}
+
+testWorkspaceExplorerOpensPendingFileRequestAfterMount();
+
+function testWorkspaceExplorerConsumesPendingFileRequestAfterPreviewOpenSettles() {
+  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+
+  assert.match(
+    source,
+    /await openWorkspaceFilePath\(openFileRequest\.path, openFileRequest\.lineNumber\)[\s\S]*onOpenFileRequestConsumed\?\.\(openFileRequest\.id\)/
+  );
+  assert.doesNotMatch(
+    source,
+    /openFileRequest\.userId[\s\S]*onOpenFileRequestConsumed\?\.\(openFileRequest\.id\)[\s\S]*return;/
+  );
+}
+
+testWorkspaceExplorerConsumesPendingFileRequestAfterPreviewOpenSettles();
+
+function testWorkspaceLinkOpenReopensCollapsedPreviewPanel() {
+  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /setSplitPercent\(\(current\) =>/);
+  assert.match(source, /current >= MAX_SPLIT_PERCENT \? DEFAULT_SPLIT_PERCENT : current/);
+}
+
+testWorkspaceLinkOpenReopensCollapsedPreviewPanel();
+
 function testWorkspaceFileActionsStayVisibleOnTouchScreens() {
   const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
 

@@ -686,9 +686,16 @@ export default function AutomationsPage({
                 const isExpanded = expandedScheduleId === schedule.schedule_id;
 
                 return (
-                  <div key={schedule.schedule_id} className="px-4 py-3">
-                    <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_minmax(170px,220px)_auto] md:items-center">
-                      <div className="min-w-0">
+                  <div
+                    key={schedule.schedule_id}
+                    data-ripple-automation-card-main
+                    className="px-4 py-3"
+                  >
+                    <div
+                      data-ripple-automation-meta-grid
+                      className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_minmax(170px,220px)_auto] md:items-center"
+                    >
+                      <div data-ripple-automation-summary className="min-w-0">
                         <div className="flex min-w-0 items-center gap-2">
                           <IconTile tone={schedule.enabled ? "accent" : "neutral"} size="sm">
                             <CalendarClock size={14} />
@@ -728,7 +735,7 @@ export default function AutomationsPage({
                         </div>
                       </div>
 
-                      <div className="min-w-0 text-[13px]">
+                      <div data-ripple-automation-latest-run className="min-w-0 text-[13px]">
                         <div className="flex min-w-0 items-center gap-1.5">
                           <span className="text-[10px] font-semibold uppercase tracking-normal text-[#8b8f94]">
                             Run
@@ -799,7 +806,10 @@ export default function AutomationsPage({
                         </div>
                       </div>
 
-                      <div className="flex flex-wrap items-center gap-1.5 justify-self-start md:justify-self-end">
+                      <div
+                        data-ripple-automation-actions
+                        className="flex flex-wrap items-center gap-1.5 justify-self-start md:justify-self-end"
+                      >
                         {confirmDeleteId === schedule.schedule_id ? (
                           <button
                             type="button"
@@ -888,7 +898,10 @@ export default function AutomationsPage({
                     </div>
 
                     {isExpanded ? (
-                      <div className="mt-3 space-y-2 border-t border-[#e8edf7] pt-3">
+                      <div
+                        data-ripple-automation-run-history
+                        className="mt-3 divide-y divide-[#eef2fb] border-t border-[#e8edf7] pt-3"
+                      >
                         {runs.length === 0 ? (
                           <div className="text-[12px] text-[#667085]">No runs yet</div>
                         ) : (
@@ -899,23 +912,24 @@ export default function AutomationsPage({
                             return (
                               <div
                                 key={run.job_id}
-                                className="grid gap-2 text-[12px] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                                data-ripple-automation-run-row
+                                className="grid gap-2 py-2 text-[12px] first:pt-0 last:pb-0 sm:grid-cols-[90px_minmax(0,1fr)_120px] sm:items-start"
                               >
                                 <div className="min-w-0">
-                                  <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                                    <span
-                                      className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${runStatusClass(
-                                        run.status
-                                      )}`}
-                                    >
-                                      {run.status}
-                                    </span>
-                                    <span className="truncate font-[family-name:var(--font-mono)] text-[11px] text-[#384152]">
-                                      {run.job_id}
-                                    </span>
-                                    <span className="text-[11px] text-[#667085]">
-                                      {formatDate(run.updated_at)}
-                                    </span>
+                                  <span
+                                    className={`inline-flex rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${runStatusClass(
+                                      run.status
+                                    )}`}
+                                  >
+                                    {run.status}
+                                  </span>
+                                  <div className="mt-1 text-[11px] text-[#667085]">
+                                    {formatDate(run.updated_at)}
+                                  </div>
+                                </div>
+                                <div className="min-w-0">
+                                  <div className="truncate font-[family-name:var(--font-mono)] text-[11px] text-[#384152]">
+                                    {run.job_id}
                                   </div>
                                   {errorText ? (
                                     <div className="mt-1 truncate text-[11px] font-medium text-[#cf222e]">

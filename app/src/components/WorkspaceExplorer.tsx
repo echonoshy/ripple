@@ -51,13 +51,20 @@ import {
   type ViewportMenuAnchorRect,
 } from "@/lib/menuPosition";
 import { getWorkspaceImagePreviewUrl } from "@/lib/workspaceImageCache";
-import { WorkspaceEntry, WorkspaceFilePreview, WorkspaceListing } from "@/types";
+import {
+  WorkspaceEntry,
+  WorkspaceFileOpenRequest,
+  WorkspaceFilePreview,
+  WorkspaceListing,
+} from "@/types";
 
 interface WorkspaceExplorerProps {
   userId: string;
   refreshToken: number;
   presentation?: "compact" | "page";
   onBack?: () => void;
+  openFileRequest?: WorkspaceFileOpenRequest | null;
+  onOpenFileRequestConsumed?: (requestId: number) => void;
   testInitialPreview?: WorkspaceFilePreview;
   testInitialListing?: WorkspaceListing;
 }
@@ -242,6 +249,8 @@ export default function WorkspaceExplorer({
   refreshToken,
   presentation = "compact",
   onBack,
+  openFileRequest,
+  onOpenFileRequestConsumed,
   testInitialPreview,
   testInitialListing,
 }: WorkspaceExplorerProps) {
@@ -319,9 +328,6 @@ export default function WorkspaceExplorer({
   } | null>(null);
   const [creationDraft, setCreationDraft] = useState("");
   const [creationSaving, setCreationSaving] = useState(false);
-  const pendingFileOpenRef = useRef<{ path: string; lineNumber?: number; userId?: string } | null>(
-    null
-  );
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
   const renameInputRef = useRef<HTMLInputElement | null>(null);
@@ -422,6 +428,9 @@ export default function WorkspaceExplorer({
   const openWorkspaceFilePath = useCallback(
     async (targetPath: string, lineNumber?: number) => {
       await loadDirectory(getWorkspaceParentPath(targetPath));
+      setSplitPercent((current) =>
+        current >= MAX_SPLIT_PERCENT ? DEFAULT_SPLIT_PERCENT : current
+      );
       setPreviewLoading(true);
       setError(null);
       try {
@@ -451,32 +460,22 @@ export default function WorkspaceExplorer({
     const path = userChanged ? DEFAULT_WORKSPACE_PATH : currentPathRef.current;
     lastLoadedUserIdRef.current = userId;
 
-    let shouldLoadCurrentDirectory = true;
-
     if (userChanged) {
       currentPathRef.current = path;
       setCurrentPath(path);
       setListing(workspaceListingCache.get(workspaceCacheKey(userId, path)) || null);
-
-      const pending = pendingFileOpenRef.current;
-      if (pending && pending.userId === userId) {
-        pendingFileOpenRef.current = null;
-        shouldLoadCurrentDirectory = false;
-        void openWorkspaceFilePath(pending.path, pending.lineNumber);
-      } else {
-        setPreview(null);
-        setImagePreviewUrl(null);
-        setDraft("");
-        setIsEditing(false);
-        setHighlightedLine(null);
-      }
+      setPreview(null);
+      setImagePreviewUrl(null);
+      setDraft("");
+      setIsEditing(false);
+      setHighlightedLine(null);
 
       setQuery("");
       setSearchResults([]);
     }
 
-    if (shouldLoadCurrentDirectory) void loadDirectory(path);
-  }, [loadDirectory, openWorkspaceFilePath, refreshToken, userId]);
+    void loadDirectory(path);
+  }, [loadDirectory, refreshToken, userId]);
 
   useEffect(() => {
     if (!normalizedQuery) return;
@@ -1187,27 +1186,24 @@ export default function WorkspaceExplorer({
   }, [contextMenu]);
 
   useEffect(() => {
-    const handleOpenWorkspaceFile = (event: Event) => {
-      const customEvent = event as CustomEvent<{
-        path: string;
-        lineNumber?: number;
-        userId?: string;
-      }>;
-      const { path: targetPath, lineNumber, userId: targetUserId } = customEvent.detail;
+    if (!openFileRequest) return;
 
-      if (targetUserId && targetUserId !== userId) {
-        pendingFileOpenRef.current = { path: targetPath, lineNumber, userId: targetUserId };
-        return;
+    if (openFileRequest.userId && openFileRequest.userId !== userId) {
+      return;
+    }
+
+    let isCurrentRequest = true;
+    void (async () => {
+      await openWorkspaceFilePath(openFileRequest.path, openFileRequest.lineNumber);
+      if (isCurrentRequest) {
+        onOpenFileRequestConsumed?.(openFileRequest.id);
       }
+    })();
 
-      void openWorkspaceFilePath(targetPath, lineNumber);
-    };
-
-    window.addEventListener("open-workspace-file", handleOpenWorkspaceFile);
     return () => {
-      window.removeEventListener("open-workspace-file", handleOpenWorkspaceFile);
+      isCurrentRequest = false;
     };
-  }, [openWorkspaceFilePath, userId]);
+  }, [openFileRequest, onOpenFileRequestConsumed, openWorkspaceFilePath, userId]);
 
   useEffect(() => {
     if (highlightedLine !== null && highlightedLineRef.current) {

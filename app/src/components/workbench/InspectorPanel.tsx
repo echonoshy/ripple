@@ -2,14 +2,23 @@
 
 import { ChevronRight } from "lucide-react";
 import WorkspaceExplorer from "@/components/WorkspaceExplorer";
+import type { WorkspaceFileOpenRequest } from "@/types";
 
 interface InspectorPanelProps {
   userId: string;
   refreshToken: number;
   onCollapse?: () => void;
+  openFileRequest?: WorkspaceFileOpenRequest | null;
+  onOpenFileRequestConsumed?: (requestId: number) => void;
 }
 
-export default function InspectorPanel({ userId, refreshToken, onCollapse }: InspectorPanelProps) {
+export default function InspectorPanel({
+  userId,
+  refreshToken,
+  onCollapse,
+  openFileRequest,
+  onOpenFileRequestConsumed,
+}: InspectorPanelProps) {
   return (
     <aside className="flex h-full min-h-0 flex-col border-l border-[#e5e7eb] bg-white">
       <div className="flex h-[52px] shrink-0 items-center justify-between border-b border-[#e5e7eb] bg-white pr-2 pl-4">
@@ -30,7 +39,12 @@ export default function InspectorPanel({ userId, refreshToken, onCollapse }: Ins
       </div>
 
       <div className="min-h-0 flex-1 overflow-hidden">
-        <WorkspaceExplorer userId={userId} refreshToken={refreshToken} />
+        <WorkspaceExplorer
+          userId={userId}
+          refreshToken={refreshToken}
+          openFileRequest={openFileRequest}
+          onOpenFileRequestConsumed={onOpenFileRequestConsumed}
+        />
       </div>
     </aside>
   );

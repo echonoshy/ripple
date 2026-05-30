@@ -19,7 +19,7 @@ use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{HeaderValue, Request, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{any, get, post};
+use axum::routing::{any, delete, get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -275,6 +275,10 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/schedules/:schedule_id/runs",
             get(schedules::schedule_runs),
+        )
+        .route(
+            "/schedules/:schedule_id/runs/:job_id",
+            delete(schedules::delete_schedule_run),
         )
         .route(
             "/schedules/:schedule_id/run-now",

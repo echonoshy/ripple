@@ -782,6 +782,23 @@ export async function fetchRunOutputText(jobId: string): Promise<string> {
   return blob.text();
 }
 
+export async function deleteScheduleRun(scheduleId: string, jobId: string): Promise<boolean> {
+  const res = await fetch(
+    `${API_URL}/schedules/${encodeURIComponent(scheduleId)}/runs/${encodeURIComponent(jobId)}`,
+    {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ confirm: true }),
+    }
+  );
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to delete run (${res.status})`);
+  }
+  return true;
+}
+
 export interface SessionCreateInput {
   model?: string | null;
   contextFolderPath?: string | null;

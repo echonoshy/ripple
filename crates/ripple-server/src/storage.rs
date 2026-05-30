@@ -618,6 +618,16 @@ impl Storage {
             .transpose()
     }
 
+    pub async fn delete_job_for_user(&self, user_id: &str, job_id: &str) -> anyhow::Result<bool> {
+        self.initialize().await?;
+        let result = sqlx::query("DELETE FROM jobs WHERE user_id = ? AND job_id = ?")
+            .bind(user_id)
+            .bind(job_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
     pub async fn list_jobs_for_schedule(
         &self,
         user_id: &str,

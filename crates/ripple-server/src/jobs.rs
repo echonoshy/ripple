@@ -539,6 +539,24 @@ impl JobManager {
         )))
     }
 
+    pub async fn delete_for_user(
+        &self,
+        job_id: &str,
+        user_id: &str,
+    ) -> anyhow::Result<Option<AgentRunInfo>> {
+        if self.is_live_for_user(job_id, user_id).await {
+            anyhow::bail!("active agent runs must be cancelled before deletion");
+        }
+        let Some(info) = self.info_for_user(job_id, user_id).await? else {
+            return Ok(None);
+        };
+        if !self.storage.delete_job_for_user(user_id, job_id).await? {
+            return Ok(None);
+        }
+        self.jobs.write().await.remove(job_id);
+        Ok(Some(info))
+    }
+
     pub async fn cancel_session_run(
         &self,
         user_id: &str,

@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::path::Path as FsPath;
 
 use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
@@ -396,6 +397,49 @@ pub async fn schedule_runs(
     })))
 }
 
+pub async fn delete_schedule_run(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((schedule_id, job_id)): Path<(String, String)>,
+    body: Option<Json<Value>>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    let payload = body.map(|Json(value)| value).unwrap_or_else(|| json!({}));
+    if state.config.security.require_confirm_for_risky_api {
+        require_confirm(Some(&payload), "schedule.run.delete")?;
+    }
+    let Some(mut record) = load_schedule_state(&state, &user_id)
+        .await?
+        .schedules
+        .get(&schedule_id)
+        .cloned()
+    else {
+        return Err(ApiError::not_found("Schedule not found"));
+    };
+    let Some(info) = state.jobs.info_for_user(&job_id, &user_id).await? else {
+        return Err(ApiError::not_found("Agent run not found"));
+    };
+    if info.metadata.get("schedule_id").and_then(Value::as_str) != Some(schedule_id.as_str()) {
+        return Err(ApiError::not_found("Agent run not found"));
+    }
+    if state.jobs.is_live_for_user(&job_id, &user_id).await {
+        return Err(ApiError::conflict(
+            "Active runs must be cancelled before deletion",
+        ));
+    }
+    let Some(info) = state.jobs.delete_for_user(&job_id, &user_id).await? else {
+        return Err(ApiError::not_found("Agent run not found"));
+    };
+    remove_run_files(&state, &user_id, &info).await?;
+    reconcile_schedule_record(&state, &user_id, &mut record).await?;
+    Ok(Json(json!({
+        "ok": true,
+        "deleted": true,
+        "schedule_id": schedule_id,
+        "job_id": job_id
+    })))
+}
+
 pub async fn run_schedule_now(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -675,7 +719,12 @@ fn apply_latest_run_to_schedule(
 ) -> bool {
     let before = record.clone();
     let Some(run) = latest else {
-        return false;
+        record.last_run_id = None;
+        record.last_run_at = None;
+        record.last_run_status = None;
+        record.last_error = None;
+        record.failure_reason = None;
+        return *record != before;
     };
 
     record.last_run_id = Some(run.job_id.clone());
@@ -707,6 +756,37 @@ fn apply_latest_run_to_schedule(
     }
 
     *record != before
+}
+
+async fn remove_run_files(
+    state: &AppState,
+    user_id: &str,
+    run: &AgentRunInfo,
+) -> Result<(), ApiError> {
+    let sandbox_dir = state.sandboxes.sandbox_dir(user_id)?;
+    let sandbox_dir = sandbox_dir.canonicalize().map_err(ApiError::from)?;
+    for path in [run.output_file.as_deref(), run.events_file.as_deref()]
+        .into_iter()
+        .flatten()
+    {
+        remove_sandbox_file(&sandbox_dir, path).await?;
+    }
+    Ok(())
+}
+
+async fn remove_sandbox_file(sandbox_dir: &FsPath, path: &str) -> Result<(), ApiError> {
+    let path = FsPath::new(path);
+    let Ok(resolved) = path.canonicalize() else {
+        return Ok(());
+    };
+    if !resolved.starts_with(sandbox_dir) || !resolved.is_file() {
+        return Ok(());
+    }
+    match tokio::fs::remove_file(&resolved).await {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(ApiError::from(err)),
+    }
 }
 
 fn run_timestamp(run: &AgentRunInfo) -> String {

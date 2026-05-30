@@ -10,6 +10,7 @@ import {
   createSession,
   deleteUserAvatar,
   deleteSchedule,
+  deleteScheduleRun,
   deleteSession,
   downloadRunOutput,
   fetchSchedules,
@@ -183,14 +184,24 @@ async function testScheduleIdIsEncodedInPath() {
 }
 
 async function testScheduleRunApisEncodeIdsAndDownloadOutput() {
-  const urls: string[] = [];
+  const requests: Array<{ url: string; method: string; body?: string }> = [];
   const scheduleId = "schedule/with space";
   const jobId = "agent/with space";
 
   await withFetch(
-    async (input) => {
+    async (input, init) => {
       const url = String(input);
-      urls.push(url);
+      requests.push({
+        url,
+        method: init?.method || "GET",
+        body: typeof init?.body === "string" ? init.body : undefined,
+      });
+      if (init?.method === "DELETE") {
+        return new Response(JSON.stringify({ ok: true, job_id: jobId, deleted: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
       if (url.endsWith("/output")) {
         return new Response("finished output", {
           status: 200,
@@ -258,15 +269,21 @@ async function testScheduleRunApisEncodeIdsAndDownloadOutput() {
       assert.equal(downloaded.filename, "agent-output.txt");
       assert.equal(await downloaded.blob.text(), "finished output");
       assert.equal(await fetchRunOutputText(jobId), "finished output");
+      assert.equal(await deleteScheduleRun(scheduleId, jobId), true);
     }
   );
 
-  assert.deepEqual(urls, [
-    "http://140.143.229.103:8810/v1/schedules/schedule%2Fwith%20space/runs?limit=5",
-    "http://140.143.229.103:8810/v1/runs/agent%2Fwith%20space",
-    "http://140.143.229.103:8810/v1/runs/agent%2Fwith%20space/output",
-    "http://140.143.229.103:8810/v1/runs/agent%2Fwith%20space/output",
-  ]);
+  assert.deepEqual(
+    requests.map((request) => `${request.method} ${request.url}`),
+    [
+      "GET http://140.143.229.103:8810/v1/schedules/schedule%2Fwith%20space/runs?limit=5",
+      "GET http://140.143.229.103:8810/v1/runs/agent%2Fwith%20space",
+      "GET http://140.143.229.103:8810/v1/runs/agent%2Fwith%20space/output",
+      "GET http://140.143.229.103:8810/v1/runs/agent%2Fwith%20space/output",
+      "DELETE http://140.143.229.103:8810/v1/schedules/schedule%2Fwith%20space/runs/agent%2Fwith%20space",
+    ]
+  );
+  assert.equal(requests.at(-1)?.body, JSON.stringify({ confirm: true }));
 }
 
 async function testConnectorManagementApisEncodeNamesAndPayloads() {

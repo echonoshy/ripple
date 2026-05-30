@@ -1506,6 +1506,126 @@ async fn schedule_runs_support_limit_cursor_pagination() {
 }
 
 #[tokio::test]
+async fn schedule_run_delete_removes_history_record_and_reconciles_latest_run() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let (state, app) = test_state_and_app(&root);
+    let user_id = "smoke-user";
+    let sandbox = state.sandboxes.sandbox_dir(user_id).unwrap();
+
+    let (status, schedule) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/schedules",
+        json!({
+            "title": "Delete run history",
+            "prompt": "say hi",
+            "kind": "interval",
+            "interval_seconds": 3600,
+            "enabled": true
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let schedule_id = schedule
+        .get("schedule_id")
+        .and_then(Value::as_str)
+        .expect("schedule id")
+        .to_string();
+
+    for (job_id, updated_at) in [
+        ("agent-delete-old", "2026-05-30T00:00:30Z"),
+        ("agent-delete-new", "2026-05-30T00:01:30Z"),
+    ] {
+        let job_dir = sandbox.join("agent-runs/external-agents").join(job_id);
+        fs::create_dir_all(&job_dir).unwrap();
+        let output_file = job_dir.join("output.txt");
+        let events_file = job_dir.join("events.jsonl");
+        fs::write(&output_file, format!("{job_id} output")).unwrap();
+        fs::write(&events_file, "{}\n").unwrap();
+        state
+            .storage
+            .upsert_job(&json!({
+                "version": 1,
+                "job_id": job_id,
+                "provider": "codex",
+                "user_id": user_id,
+                "session_id": null,
+                "schedule_id": schedule_id,
+                "schedule_title": "Delete run history",
+                "schedule_trigger": "scheduled",
+                "prompt_preview": "say hi",
+                "cwd": "/workspace",
+                "sandbox_cwd": "/workspace",
+                "status": "completed",
+                "created_at": updated_at,
+                "updated_at": updated_at,
+                "events_file": events_file,
+                "output_file": output_file,
+                "exit_code": 0,
+                "stdout_tail": "",
+                "stderr_tail": "",
+                "error": null
+            }))
+            .await
+            .unwrap();
+    }
+
+    let deleted_output = sandbox
+        .join("agent-runs/external-agents")
+        .join("agent-delete-new")
+        .join("output.txt");
+    assert!(deleted_output.is_file());
+
+    let (status, deleted) = call(
+        app.clone(),
+        Method::DELETE,
+        &format!("/v1/schedules/{schedule_id}/runs/agent-delete-new"),
+        json!({ "confirm": true }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(deleted.get("ok").and_then(Value::as_bool), Some(true));
+    assert_eq!(
+        deleted.get("job_id").and_then(Value::as_str),
+        Some("agent-delete-new")
+    );
+    assert!(!deleted_output.exists());
+
+    let (status, history) = call(
+        app.clone(),
+        Method::GET,
+        &format!("/v1/schedules/{schedule_id}/runs"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(history.get("total").and_then(Value::as_u64), Some(1));
+    assert_eq!(
+        history.pointer("/runs/0/job_id").and_then(Value::as_str),
+        Some("agent-delete-old")
+    );
+
+    let (status, schedule) = call(
+        app,
+        Method::GET,
+        &format!("/v1/schedules/{schedule_id}"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        schedule.get("last_run_id").and_then(Value::as_str),
+        Some("agent-delete-old")
+    );
+    assert_eq!(
+        schedule.get("last_run_status").and_then(Value::as_str),
+        Some("completed")
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
 async fn project_routes_are_removed_from_the_public_api() {
     let root = std::env::temp_dir().join(format!("ripple-api-projects-{}", Uuid::new_v4()));
     let (_state, app) = test_state_and_app(&root);

@@ -21,6 +21,7 @@ import {
   AuthError,
   createSchedule,
   deleteSchedule,
+  deleteScheduleRun,
   downloadRunOutput,
   fetchSchedules,
   fetchScheduleRuns,
@@ -212,6 +213,7 @@ export default function AutomationsPage({
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
   const [pendingRunActionId, setPendingRunActionId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [confirmRunDeleteId, setConfirmRunDeleteId] = useState<string | null>(null);
   const [runsBySchedule, setRunsBySchedule] = useState<Record<string, AgentRunInfo[]>>({});
   const [expandedScheduleId, setExpandedScheduleId] = useState<string | null>(null);
   const [outputPreview, setOutputPreview] = useState<OutputPreviewState>(null);
@@ -440,6 +442,37 @@ export default function AutomationsPage({
       }
     },
     [loadScheduleRuns, onAuthExpired]
+  );
+
+  const handleDeleteRun = useCallback(
+    async (scheduleId: string, run: AgentRunInfo) => {
+      const confirmKey = `${scheduleId}:${run.job_id}`;
+      if (confirmRunDeleteId !== confirmKey) {
+        setConfirmRunDeleteId(confirmKey);
+        return;
+      }
+      setPendingRunActionId(`${run.job_id}:delete`);
+      setError(null);
+      try {
+        await deleteScheduleRun(scheduleId, run.job_id);
+        setConfirmRunDeleteId(null);
+        setRunsBySchedule((current) => ({
+          ...current,
+          [scheduleId]: (current[scheduleId] || []).filter((item) => item.job_id !== run.job_id),
+        }));
+        setOutputPreview((current) => (current?.jobId === run.job_id ? null : current));
+        await loadSchedules();
+      } catch (err) {
+        if (err instanceof AuthError) {
+          onAuthExpired("API key 已失效");
+          return;
+        }
+        setError(err instanceof Error ? err.message : "删除执行记录失败");
+      } finally {
+        setPendingRunActionId(null);
+      }
+    },
+    [confirmRunDeleteId, loadSchedules, onAuthExpired]
   );
 
   return (
@@ -861,6 +894,8 @@ export default function AutomationsPage({
                         ) : (
                           runs.map((run) => {
                             const errorText = runErrorText(run);
+                            const runDeleteKey = `${schedule.schedule_id}:${run.job_id}`;
+                            const confirmingRunDelete = confirmRunDeleteId === runDeleteKey;
                             return (
                               <div
                                 key={run.job_id}
@@ -888,28 +923,75 @@ export default function AutomationsPage({
                                     </div>
                                   ) : null}
                                 </div>
-                                {hasRunOutput(run) ? (
-                                  <div className="flex flex-wrap gap-1.5 sm:justify-end">
+                                <div className="flex flex-wrap gap-1.5 sm:justify-end">
+                                  {hasRunOutput(run) ? (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleViewOutput(run, schedule.title)}
+                                        disabled={pendingRunActionId === `${run.job_id}:view`}
+                                        className={runActionButtonClass}
+                                      >
+                                        <Eye size={12} />
+                                        <span>查看结果</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleDownloadOutput(run)}
+                                        disabled={pendingRunActionId === `${run.job_id}:download`}
+                                        className={runActionButtonClass}
+                                      >
+                                        <Download size={12} />
+                                        <span>下载结果</span>
+                                      </button>
+                                    </>
+                                  ) : null}
+                                  {confirmingRunDelete ? (
                                     <button
                                       type="button"
-                                      onClick={() => void handleViewOutput(run, schedule.title)}
-                                      disabled={pendingRunActionId === `${run.job_id}:view`}
+                                      onClick={() => setConfirmRunDeleteId(null)}
                                       className={runActionButtonClass}
                                     >
-                                      <Eye size={12} />
-                                      <span>查看结果</span>
+                                      <span>取消</span>
                                     </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => void handleDownloadOutput(run)}
-                                      disabled={pendingRunActionId === `${run.job_id}:download`}
-                                      className={runActionButtonClass}
-                                    >
-                                      <Download size={12} />
-                                      <span>下载结果</span>
-                                    </button>
-                                  </div>
-                                ) : null}
+                                  ) : null}
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleDeleteRun(schedule.schedule_id, run)}
+                                    disabled={
+                                      pendingRunActionId === `${run.job_id}:delete` ||
+                                      isActiveRunStatus(run.status)
+                                    }
+                                    title={
+                                      isActiveRunStatus(run.status)
+                                        ? "运行中请先取消再删除"
+                                        : confirmingRunDelete
+                                          ? "确认删除执行记录"
+                                          : "删除执行记录"
+                                    }
+                                    aria-label={
+                                      confirmingRunDelete
+                                        ? "确认删除执行记录"
+                                        : "删除执行记录"
+                                    }
+                                    className={`${runActionButtonClass} ${
+                                      confirmingRunDelete
+                                        ? "border-[#cf222e]/25 bg-[#ffebe9] text-[#cf222e]"
+                                        : "text-[#8b8f94] hover:bg-[#ffebe9] hover:text-[#cf222e]"
+                                    }`}
+                                  >
+                                    {pendingRunActionId === `${run.job_id}:delete` ? (
+                                      <Loader2 size={12} className="animate-spin" />
+                                    ) : confirmingRunDelete ? (
+                                      <span>确认删除</span>
+                                    ) : (
+                                      <>
+                                        <Trash2 size={12} />
+                                        <span>删除记录</span>
+                                      </>
+                                    )}
+                                  </button>
+                                </div>
                               </div>
                             );
                           })

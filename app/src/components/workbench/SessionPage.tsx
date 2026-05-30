@@ -187,6 +187,9 @@ export default function SessionPage({
   const lastTimelineEvent = timelineEvents[timelineEvents.length - 1] || null;
   const lastTimelineEventId = lastTimelineEvent?.id || "";
   const lastTimelineEventBodyLength = lastTimelineEvent?.body.length || 0;
+  const modelDisplayName = formatModelName(selectedModel);
+  const currentModelLabel = isGenerating ? "Working..." : modelDisplayName;
+  const currentModelAccessibleLabel = `Current model: ${modelDisplayName}`;
 
   const scrollToBottom = useCallback(() => {
     const scrollContainer = scrollContainerRef.current;
@@ -373,9 +376,7 @@ export default function SessionPage({
                 isGenerating ? "animate-pulse bg-[#2f6bff]" : "bg-[#2fbf71]"
               }`}
             />
-            <span className="truncate">
-              {isGenerating ? "Working..." : formatModelName(selectedModel)}
-            </span>
+            <span className="truncate">{currentModelLabel}</span>
           </div>
         </div>
         <div className="flex items-center justify-end gap-1">
@@ -399,6 +400,26 @@ export default function SessionPage({
             <MoreHorizontal size={22} strokeWidth={2.4} />
           </button>
         </div>
+      </div>
+
+      <div className="hidden h-14 shrink-0 items-center justify-between gap-3 border-b border-[#e8edf7] bg-white/62 px-5 shadow-[0_8px_22px_rgba(44,63,123,0.04)] backdrop-blur-2xl lg:flex">
+        <div className="min-w-0">
+          <div className="truncate text-[14px] font-semibold text-[#111827]">
+            {session?.title || "Session"}
+          </div>
+        </div>
+        <span
+          aria-label={currentModelAccessibleLabel}
+          title={currentModelAccessibleLabel}
+          className="inline-flex max-w-[220px] shrink-0 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white/82 px-3 py-1.5 text-[12px] font-semibold text-[#374151] shadow-[0_8px_18px_rgba(44,63,123,0.06)]"
+        >
+          <span
+            className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+              isGenerating ? "animate-pulse bg-[#2f6bff]" : "bg-[#2fbf71]"
+            }`}
+          />
+          <span className="truncate">{currentModelLabel}</span>
+        </span>
       </div>
 
       {isSessionSettingsOpen && (

@@ -156,7 +156,7 @@ function testSessionSelectionRequestsScrollToBottom() {
 }
 
 function testDefaultModelSeedsNewSessionsAndChatRuns() {
-  assert.match(appSource, /createNewSession\(selectedModel\)/);
+  assert.match(appSource, /createNewSession\(defaultModel(?:,\s*activeProjectId)?\)/);
   assert.match(appSource, /ensureSession:\s*\(model\) => ensureSession\(model\)/);
   assert.match(chatRunSource, /getSessionActions\(\)\.ensureSession\(selectedModel\)/);
 }

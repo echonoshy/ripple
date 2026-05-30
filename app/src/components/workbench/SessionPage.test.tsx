@@ -159,6 +159,14 @@ function testMobileHeaderReservesTopSafeArea() {
   assert.match(html, /pt-\[max\(env\(safe-area-inset-top\),0px\)\]/);
 }
 
+function testDesktopHeaderShowsCurrentModelLikeMobile() {
+  const html = renderSessionPage();
+
+  assert.match(html, /lg:flex/);
+  assert.match(html, /aria-label="Current model: Balanced"/);
+  assert.match(html, /title="Current model: Balanced"/);
+}
+
 function testTimelineTextUsesWiderContentWidth() {
   const html = renderSessionPageWithTimelineContent();
 
@@ -271,6 +279,7 @@ testOmitsPlaceholderSessionHeaderControls();
 testGivesSessionContentMoreHorizontalRoom();
 testSessionPageHandlesDropAcrossWholeChat();
 testMobileHeaderReservesTopSafeArea();
+testDesktopHeaderShowsCurrentModelLikeMobile();
 testTimelineTextUsesWiderContentWidth();
 testContextWarningUsesReportedModelWindow();
 testContextWarningWaitsForModelWindow();

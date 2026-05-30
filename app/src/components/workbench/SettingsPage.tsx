@@ -46,8 +46,9 @@ interface SettingsPageProps {
   apiKey: string | null;
   authMode: "service" | "user";
   models: { id: string; owned_by: string }[];
+  defaultModel: string;
   selectedModel: string;
-  onSelectModel: (model: string) => void;
+  onSelectDefaultModel: (model: string) => void;
   onSelectView: (view: WorkspaceView) => void;
   onApiKeyChange: () => void;
 }
@@ -111,8 +112,9 @@ export default function SettingsPage({
   apiKey,
   authMode,
   models,
+  defaultModel,
   selectedModel,
-  onSelectModel,
+  onSelectDefaultModel,
   onSelectView,
   onApiKeyChange,
 }: SettingsPageProps) {
@@ -168,8 +170,9 @@ export default function SettingsPage({
   const workspaceBytes = usage?.workspace_size_bytes ?? sandbox?.workspace_size_bytes ?? 0;
   const sessionCount = usage?.session_count ?? sandbox?.session_count ?? 0;
   const availableModels = useMemo(
-    () => (models.length > 0 ? models : [{ id: selectedModel, owned_by: "ripple" }]),
-    [models, selectedModel]
+    () =>
+      models.length > 0 ? models : [{ id: defaultModel || selectedModel, owned_by: "ripple" }],
+    [defaultModel, models, selectedModel]
   );
 
   const handlePasswordSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -284,7 +287,7 @@ export default function SettingsPage({
               onClick={(event) => event.stopPropagation()}
             >
               {availableModels.map((model) => {
-                const selected = model.id === selectedModel;
+                const selected = model.id === defaultModel;
                 return (
                   <button
                     key={model.id}
@@ -292,7 +295,7 @@ export default function SettingsPage({
                     role="menuitemradio"
                     aria-checked={selected}
                     onClick={() => {
-                      onSelectModel(model.id);
+                      onSelectDefaultModel(model.id);
                       closeModelMenu();
                     }}
                     className={`flex h-9 w-full items-center justify-between rounded-lg px-3 text-left text-[13px] font-semibold ${
@@ -510,7 +513,7 @@ export default function SettingsPage({
                 aria-haspopup="menu"
                 aria-expanded={isModelMenuOpen}
               >
-                {formatModelName(selectedModel)}
+                {formatModelName(defaultModel)}
                 <ChevronDown size={14} className="text-[#6b7280]" />
               </button>
             </div>

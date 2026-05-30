@@ -73,6 +73,7 @@ export default function Home() {
   // ── Model state ──
   const [models, setModels] = useState<{ id: string; owned_by: string }[]>([]);
   const [selectedModel, setSelectedModel] = useState("codex-medium");
+  const [defaultModel, setDefaultModel] = useState("codex-medium");
   const [openModelDropdown, setOpenModelDropdown] = useState<"composer" | null>(null);
 
   // ── User identity ──
@@ -123,13 +124,21 @@ export default function Home() {
     setWorkspaceRefreshToken((prev) => prev + 1);
   }, []);
 
+  const persistDefaultModel = useCallback(
+    (model: string) => {
+      setDefaultModel(model);
+      setStoredDefaultModel(userId, model);
+    },
+    [userId]
+  );
+
   const handleSelectModel = useCallback(
     (model: string) => {
       setSelectedModel(model);
-      setStoredDefaultModel(userId, model);
+      persistDefaultModel(model);
       setOpenModelDropdown(null);
     },
-    [userId]
+    [persistDefaultModel]
   );
 
   const handleOpenSettingsPage = useCallback(() => {
@@ -255,6 +264,16 @@ export default function Home() {
     onSessionActivated: handleSessionActivated,
   });
 
+  const handleSelectDefaultModel = useCallback(
+    (model: string) => {
+      persistDefaultModel(model);
+      if (!sessionId) {
+        setSelectedModel(model);
+      }
+    },
+    [persistDefaultModel, sessionId]
+  );
+
   useEffect(() => {
     window.localStorage.setItem("ripple.workbench.navCollapsed", String(isNavCollapsed));
   }, [isNavCollapsed]);
@@ -305,7 +324,9 @@ export default function Home() {
         return;
       }
       setUserIdState(newUid);
-      setSelectedModel(selectPreferredModel(models, getStoredDefaultModel(newUid)));
+      const preferredModel = selectPreferredModel(models, getStoredDefaultModel(newUid));
+      setDefaultModel(preferredModel);
+      setSelectedModel(preferredModel);
       setSessionAttentionById({});
       abortRunAndResetSessionView();
       resetSessionsForUserChange();
@@ -357,7 +378,12 @@ export default function Home() {
         setModels(fetched);
         if (fetched.length > 0) {
           const currentUserId = getUserId();
-          setSelectedModel(selectPreferredModel(fetched, getStoredDefaultModel(currentUserId)));
+          const preferredModel = selectPreferredModel(
+            fetched,
+            getStoredDefaultModel(currentUserId)
+          );
+          setDefaultModel(preferredModel);
+          setSelectedModel(preferredModel);
         }
         const loadedSessions = await loadSessions();
         if (loadedSessions.length > 0) {
@@ -469,7 +495,10 @@ export default function Home() {
 
   // ── New session ──
   const handleNewSession = async () => {
-    await createNewSession(selectedModel);
+    const session = await createNewSession(defaultModel);
+    if (session) {
+      setSelectedModel(session.model || defaultModel);
+    }
     setActiveView("sessions");
     setMobileSessionMode("chat");
   };
@@ -613,15 +642,16 @@ export default function Home() {
         apiKey={getApiKey()}
         authMode={getAuthMode()}
         models={models}
+        defaultModel={defaultModel}
         selectedModel={selectedModel}
-        onSelectModel={handleSelectModel}
+        onSelectDefaultModel={handleSelectDefaultModel}
         onSelectView={handleSelectView}
         onApiKeyChange={handleAuthReset}
       />
     ) : activeView === "files" ? (
       <FilesPage userId={userId} refreshToken={workspaceRefreshToken} />
     ) : activeView === "automations" ? (
-      <AutomationsPage selectedModel={selectedModel} onAuthExpired={handleAuthExpired} />
+      <AutomationsPage selectedModel={defaultModel} onAuthExpired={handleAuthExpired} />
     ) : activeView === "connectors" ? (
       <ConnectorsPage userId={userId} onConnectorStateChange={loadSessions} />
     ) : (

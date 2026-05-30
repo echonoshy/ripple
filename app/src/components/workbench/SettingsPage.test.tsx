@@ -17,9 +17,29 @@ function renderSettingsPage() {
         { id: "codex-medium", owned_by: "ripple" },
         { id: "codex-high", owned_by: "ripple" },
       ]}
+      defaultModel="codex-medium"
       selectedModel="codex-medium"
       onApiKeyChange={noop}
-      onSelectModel={noop}
+      onSelectDefaultModel={noop}
+      onSelectView={noop}
+    />
+  );
+}
+
+function renderSettingsPageWithDifferentCurrentAndDefaultModel() {
+  return renderToStaticMarkup(
+    <SettingsPage
+      userId="default"
+      apiKey="rip_1234567890"
+      authMode="user"
+      models={[
+        { id: "codex-medium", owned_by: "ripple" },
+        { id: "codex-high", owned_by: "ripple" },
+      ]}
+      defaultModel="codex-high"
+      selectedModel="codex-medium"
+      onApiKeyChange={noop}
+      onSelectDefaultModel={noop}
       onSelectView={noop}
     />
   );
@@ -91,11 +111,20 @@ function testSettingsPageUsesSoftTilesForEntitySections() {
   assert.match(html, /data-tone="neutral"/);
 }
 
+function testDefaultModelControlUsesDefaultModelNotCurrentSessionModel() {
+  const html = renderSettingsPageWithDifferentCurrentAndDefaultModel();
+  const button = html.match(/<button[^>]*aria-label="Default model"[\s\S]*?<\/button>/)?.[0] || "";
+
+  assert.match(button, />Pro</);
+  assert.doesNotMatch(button, />Balanced</);
+}
+
 testSettingsPageHasExpectedUserSections();
 testSettingsPageDoesNotDuplicatePrimaryWorkspaceTabs();
 testSettingsPageHidesDiagnosticsByDefault();
 testSettingsPageReservesMobileTopSafeArea();
 testSettingsPageUsesInlineModelMenuAndTokenBreakdown();
 testSettingsPageUsesSoftTilesForEntitySections();
+testDefaultModelControlUsesDefaultModelNotCurrentSessionModel();
 
 console.log("settings page tests passed");

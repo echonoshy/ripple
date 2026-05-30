@@ -388,7 +388,7 @@ function testWorkspaceExplorerSupportsMultiSelectionBatchActions() {
 testWorkspaceExplorerSupportsMultiSelectionBatchActions();
 
 function testWorkspaceExplorerSupportsDragMoveIntoDirectories() {
-  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const source = readFileSync(`${process.cwd()}/src/components/WorkspaceExplorer.tsx`, "utf8");
   const html = renderExplorer({
     presentation: "page",
     testInitialListing: {

@@ -71,6 +71,11 @@ const WORKSPACE_CONTEXT_MENU_WIDTH = 220;
 const WORKSPACE_FILE_CONTEXT_MENU_HEIGHT = 244;
 const WORKSPACE_DIRECTORY_CONTEXT_MENU_HEIGHT = 208;
 const WORKSPACE_EMPTY_CONTEXT_MENU_HEIGHT = 132;
+const WORKSPACE_DRAG_ENTRY_MIME = "application/x-ripple-workspace-entry";
+
+interface WorkspaceDragPayload {
+  paths: string[];
+}
 
 const workspaceListingCache = new Map<string, WorkspaceListing>();
 const workspaceLastPathCache = new Map<string, string>();
@@ -204,6 +209,34 @@ export function getWorkspaceParentPath(path: string): string {
   return withoutTrailingSlash.slice(0, slashIndex) || DEFAULT_WORKSPACE_PATH;
 }
 
+function hasDraggedWorkspaceEntries(event: React.DragEvent<Element>): boolean {
+  return Array.from(event.dataTransfer.types).includes(WORKSPACE_DRAG_ENTRY_MIME);
+}
+
+function getWorkspaceDragPaths(dataTransfer: DataTransfer): string[] {
+  const rawPayload = dataTransfer.getData(WORKSPACE_DRAG_ENTRY_MIME);
+  if (!rawPayload) return [];
+
+  try {
+    const payload = JSON.parse(rawPayload) as WorkspaceDragPayload;
+    return Array.isArray(payload.paths)
+      ? payload.paths.filter((path): path is string => typeof path === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function canMoveEntriesToDirectory(entries: WorkspaceEntry[], target: WorkspaceEntry): boolean {
+  if (target.kind !== "directory" || entries.length === 0) return false;
+
+  return entries.every((entry) => {
+    if (entry.path === target.path) return false;
+    if (target.path.startsWith(`${entry.path}/`)) return false;
+    return getWorkspaceParentPath(entry.path) !== target.path;
+  });
+}
+
 export default function WorkspaceExplorer({
   userId,
   refreshToken,
@@ -259,6 +292,8 @@ export default function WorkspaceExplorer({
   } | null>(null);
   const [selectedEntryPaths, setSelectedEntryPaths] = useState<Set<string>>(() => new Set());
   const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [draggedEntries, setDraggedEntries] = useState<WorkspaceEntry[]>([]);
+  const [dragTargetPath, setDragTargetPath] = useState<string | null>(null);
 
   const [contextMenu, setContextMenu] = useState<{
     visible: boolean;
@@ -305,6 +340,14 @@ export default function WorkspaceExplorer({
   const selectedEntries = useMemo(
     () => visibleEntries.filter((entry) => selectedEntryPaths.has(entry.path)),
     [selectedEntryPaths, visibleEntries]
+  );
+  const visibleEntriesByPath = useMemo(
+    () => new Map(visibleEntries.map((entry) => [entry.path, entry])),
+    [visibleEntries]
+  );
+  const draggedEntryPaths = useMemo(
+    () => new Set(draggedEntries.map((entry) => entry.path)),
+    [draggedEntries]
   );
   const selectedEntryCount = selectedEntries.length;
   const isSelectionActive = isSelectionMode || selectedEntryCount > 0;
@@ -669,8 +712,20 @@ export default function WorkspaceExplorer({
     void uploadFilesToCurrentDirectory(files);
   };
 
+  const resolveDraggedEntries = useCallback(
+    (event: React.DragEvent<Element>) => {
+      const paths = getWorkspaceDragPaths(event.dataTransfer);
+      if (paths.length === 0) return draggedEntries;
+
+      return paths
+        .map((path) => visibleEntriesByPath.get(path))
+        .filter((entry): entry is WorkspaceEntry => Boolean(entry));
+    },
+    [draggedEntries, visibleEntriesByPath]
+  );
+
   const hasDraggedFiles = (event: React.DragEvent<HTMLDivElement>) =>
-    Array.from(event.dataTransfer.types).includes("Files");
+    !hasDraggedWorkspaceEntries(event) && Array.from(event.dataTransfer.types).includes("Files");
 
   const handleDragEnter = (event: React.DragEvent<HTMLDivElement>) => {
     if (!hasDraggedFiles(event)) return;
@@ -696,6 +751,94 @@ export default function WorkspaceExplorer({
     event.preventDefault();
     setIsDraggingUpload(false);
     void uploadFilesToCurrentDirectory(Array.from(event.dataTransfer.files || []));
+  };
+
+  const handleEntryDragStart = (event: React.DragEvent<HTMLDivElement>, entry: WorkspaceEntry) => {
+    const entries = selectedEntryPaths.has(entry.path) ? selectedEntries : [entry];
+    const dragEntries = entries.length > 0 ? entries : [entry];
+    const paths = dragEntries.map((dragEntry) => dragEntry.path);
+
+    setDraggedEntries(dragEntries);
+    setContextMenu((prev) => ({ ...prev, visible: false }));
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData(WORKSPACE_DRAG_ENTRY_MIME, JSON.stringify({ paths }));
+    event.dataTransfer.setData("text/plain", paths.join("\n"));
+  };
+
+  const handleEntryDragEnd = () => {
+    setDraggedEntries([]);
+    setDragTargetPath(null);
+  };
+
+  const handleDirectoryDragOver = (
+    event: React.DragEvent<HTMLDivElement>,
+    target: WorkspaceEntry
+  ) => {
+    if (!hasDraggedWorkspaceEntries(event)) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    const entries = resolveDraggedEntries(event);
+    if (!canMoveEntriesToDirectory(entries, target)) {
+      event.dataTransfer.dropEffect = "none";
+      setDragTargetPath((current) => (current === target.path ? null : current));
+      return;
+    }
+
+    event.dataTransfer.dropEffect = "move";
+    setDragTargetPath(target.path);
+  };
+
+  const handleDirectoryDragLeave = (
+    event: React.DragEvent<HTMLDivElement>,
+    target: WorkspaceEntry
+  ) => {
+    if (!hasDraggedWorkspaceEntries(event)) return;
+    const nextTarget = event.relatedTarget;
+    if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return;
+    setDragTargetPath((current) => (current === target.path ? null : current));
+  };
+
+  const handleDirectoryDrop = async (
+    event: React.DragEvent<HTMLDivElement>,
+    target: WorkspaceEntry
+  ) => {
+    if (!hasDraggedWorkspaceEntries(event)) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    setDragTargetPath(null);
+    setDraggedEntries([]);
+
+    const entries = resolveDraggedEntries(event);
+    if (!canMoveEntriesToDirectory(entries, target)) return;
+
+    setError(null);
+    const failed: WorkspaceEntry[] = [];
+    const moved: WorkspaceEntry[] = [];
+    for (const entry of entries) {
+      try {
+        await pasteWorkspaceEntry(entry.path, target.path, "move");
+        moved.push(entry);
+      } catch {
+        failed.push(entry);
+      }
+    }
+
+    const movedPaths = new Set(moved.map((entry) => entry.path));
+    if (preview && movedPaths.has(preview.path)) {
+      setPreview(null);
+      setImagePreviewUrl(null);
+      setDraft("");
+    }
+    setSearchResults((current) => current.filter((entry) => !movedPaths.has(entry.path)));
+    await loadDirectory(currentPath);
+
+    if (failed.length > 0) {
+      setSelectedEntryPaths(new Set(failed.map((entry) => entry.path)));
+      setIsSelectionMode(true);
+      setError(`Could not move ${failed.map((entry) => entry.name).join(", ")}`);
+    }
   };
 
   const handleDownloadFile = async (path: string) => {
@@ -1893,6 +2036,27 @@ export default function WorkspaceExplorer({
                   ) : (
                     <div
                       key={entry.path}
+                      draggable
+                      data-ripple-files-drop-target={
+                        entry.kind === "directory" ? "directory" : undefined
+                      }
+                      onDragStart={(event) => handleEntryDragStart(event, entry)}
+                      onDragEnd={handleEntryDragEnd}
+                      onDragOver={
+                        entry.kind === "directory"
+                          ? (event) => handleDirectoryDragOver(event, entry)
+                          : undefined
+                      }
+                      onDragLeave={
+                        entry.kind === "directory"
+                          ? (event) => handleDirectoryDragLeave(event, entry)
+                          : undefined
+                      }
+                      onDrop={
+                        entry.kind === "directory"
+                          ? (event) => void handleDirectoryDrop(event, entry)
+                          : undefined
+                      }
                       onContextMenu={(event) => onEntryContextMenu(event, entry)}
                       className={
                         isPagePresentation
@@ -1907,6 +2071,12 @@ export default function WorkspaceExplorer({
                                   ? "bg-[#eef4ff] shadow-[inset_0_0_0_1px_rgba(47,107,255,0.08)]"
                                   : "bg-transparent"
                             } ${
+                              dragTargetPath === entry.path
+                                ? "bg-[#eef4ff] shadow-[inset_0_0_0_2px_rgba(47,107,255,0.24)]"
+                                : ""
+                            } ${
+                              draggedEntryPaths.has(entry.path) ? "opacity-45" : ""
+                            } ${
                               clipboard?.action === "move" &&
                               clipboard?.items.some((item) => item.path === entry.path)
                                 ? "opacity-35 select-none"
@@ -1918,6 +2088,10 @@ export default function WorkspaceExplorer({
                                 : preview?.path === entry.path
                                   ? "bg-[#eef4ff]"
                                   : "bg-white"
+                            } ${
+                              dragTargetPath === entry.path ? "bg-[#eef4ff]" : ""
+                            } ${
+                              draggedEntryPaths.has(entry.path) ? "opacity-45" : ""
                             } ${
                               clipboard?.action === "move" &&
                               clipboard?.items.some((item) => item.path === entry.path)

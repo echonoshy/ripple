@@ -161,6 +161,19 @@ function testMobileHeaderButtonsUseToolbarStyling() {
   );
 }
 
+function testSessionSettingsUsesGroupedFormPanel() {
+  assert.match(sessionPageSource, /data-ripple-session-settings-body="grouped-form"/);
+  assert.match(sessionPageSource, /data-ripple-session-settings-group="name"/);
+  assert.match(sessionPageSource, /data-ripple-session-settings-group="pinned"/);
+  assert.match(sessionPageSource, /Keep this session near the top/);
+  assert.match(sessionPageSource, /aria-hidden="true"[\s\S]*settingsPinned/);
+  assert.match(sessionPageSource, /type="button"[\s\S]*>\s*Cancel\s*<\/button>/);
+  assert.match(sessionPageSource, /type="submit"[\s\S]*Save\s*<\/button>/);
+  assert.doesNotMatch(sessionPageSource, /space-y-5 overflow-y-auto px-4 py-4/);
+  assert.doesNotMatch(sessionPageSource, /rounded-full border px-4 text-left text-\[14px\] font-medium/);
+  assert.doesNotMatch(sessionPageSource, /linear-gradient\(135deg,#2f6bff,#7b5cff\)/);
+}
+
 function testGivesSessionContentMoreHorizontalRoom() {
   const html = renderSessionPage();
 
@@ -355,6 +368,7 @@ function testExplicitSessionSelectionTriggersStickyBottom() {
 
 testOmitsPlaceholderSessionHeaderControls();
 testMobileHeaderButtonsUseToolbarStyling();
+testSessionSettingsUsesGroupedFormPanel();
 testGivesSessionContentMoreHorizontalRoom();
 testSessionPageHandlesDropAcrossWholeChat();
 testMobileHeaderReservesTopSafeArea();

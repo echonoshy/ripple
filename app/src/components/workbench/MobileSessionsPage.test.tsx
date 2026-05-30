@@ -74,6 +74,17 @@ function testSessionRowsRemoveRepeatedChatIcon() {
   assert.doesNotMatch(html, /class="lucide lucide-message-circle"/);
 }
 
+function testSearchInputUsesCompactType() {
+  assert.match(
+    mobileSessionsPageSource,
+    /className="search-sessions-input[^"]*text-\[14px\]/
+  );
+  assert.doesNotMatch(
+    mobileSessionsPageSource,
+    /className="search-sessions-input[^"]*text-\[16px\]/
+  );
+}
+
 function testHeaderActionsUseSharedGlassTreatment() {
   const html = renderMobileSessionsPage();
 
@@ -82,6 +93,10 @@ function testHeaderActionsUseSharedGlassTreatment() {
   assert.match(
     mobileSessionsPageSource,
     /mobileHeaderActionClass =\s+"inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white\/70 bg-white\/68 text-\[#516070\]/
+  );
+  assert.match(
+    mobileSessionsPageSource,
+    /aria-label="Search sessions"[\s\S]{0,220}className=\{mobileHeaderActionClass\}/
   );
   assert.match(mobileSessionsPageSource, /MessageSquarePlus/);
   assert.match(
@@ -100,6 +115,10 @@ function testHeaderActionsUseSharedGlassTreatment() {
   assert.doesNotMatch(
     mobileSessionsPageSource,
     /aria-label="New session"[\s\S]*?border-\[#b8cdf8\]\/80 bg-\[#eef4ff\]\/78 text-\[#2463eb\]/
+  );
+  assert.doesNotMatch(
+    mobileSessionsPageSource,
+    /aria-label="Search sessions"[\s\S]{0,420}border-\[#b8cdf8\]\/80 bg-\[#eef4ff\]\/78 text-\[#2463eb\]/
   );
   assert.doesNotMatch(html, /border-\[#2463eb\] bg-\[#2463eb\] text-white/);
 }
@@ -136,6 +155,7 @@ function testRendersEmptyStateWithNewSessionAction() {
 testRendersChatAppStyleSessionList();
 testUsesQuietAgentControlPlaneStyling();
 testSessionRowsRemoveRepeatedChatIcon();
+testSearchInputUsesCompactType();
 testHeaderActionsUseSharedGlassTreatment();
 testSessionRowsDoNotClipOptionsMenu();
 testSessionOptionsMenuEscapesBlurredRowsWithPortal();

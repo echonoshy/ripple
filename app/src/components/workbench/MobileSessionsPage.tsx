@@ -223,11 +223,7 @@ export default function MobileSessionsPage({
               aria-label="Search sessions"
               title="Search sessions"
               onClick={() => setIsSearching((open) => !open)}
-              className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border shadow-[0_6px_18px_rgba(44,63,123,0.08)] backdrop-blur-xl transition-all active:scale-[0.98] ${
-                isSearching
-                  ? "border-[#b8cdf8]/80 bg-[#eef4ff]/78 text-[#2463eb] shadow-[0_8px_22px_rgba(36,99,235,0.12)]"
-                  : "border-white/70 bg-white/68 text-[#516070] hover:bg-white/86 active:bg-white/78"
-              }`}
+              className={mobileHeaderActionClass}
             >
               <Search size={18} strokeWidth={2.2} />
             </button>
@@ -249,7 +245,7 @@ export default function MobileSessionsPage({
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search sessions"
-              className="search-sessions-input min-w-0 flex-1 bg-transparent text-[16px] outline-none placeholder:text-[#9aa3af] focus:ring-0 focus:outline-none focus-visible:ring-0 focus-visible:outline-none"
+              className="search-sessions-input min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-[#9aa3af] focus:ring-0 focus:outline-none focus-visible:ring-0 focus-visible:outline-none"
               autoFocus
             />
           </div>

@@ -459,8 +459,8 @@ export default function SessionPage({
             className="absolute inset-0 hidden cursor-default sm:block"
             onClick={closeSessionSettings}
           />
-          <section className="relative flex h-full w-full flex-col border-l border-[#dfe6f4] bg-white shadow-[-18px_0_44px_rgba(44,63,123,0.12)] sm:max-w-[380px]">
-            <div className="grid h-14 shrink-0 grid-cols-[44px_minmax(0,1fr)_44px] items-center border-b border-[#e8edf7] px-2.5">
+          <section className="relative flex h-full w-full flex-col border-l border-[#dfe6f4] bg-[#fbfdff] shadow-[-18px_0_44px_rgba(44,63,123,0.12)] sm:max-w-[380px]">
+            <div className="grid h-14 shrink-0 grid-cols-[44px_minmax(0,1fr)_44px] items-center border-b border-[#e8edf7] bg-white/82 px-2.5 backdrop-blur-2xl">
               <button
                 type="button"
                 aria-label="Back to session"
@@ -476,41 +476,58 @@ export default function SessionPage({
             </div>
 
             <form onSubmit={handleSettingsSubmit} className="flex min-h-0 flex-1 flex-col">
-              <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-4">
-                <label className="block">
-                  <span className="mb-2 block text-[12px] font-medium text-[#667085]">
-                    Session name
-                  </span>
-                  <input
-                    value={settingsTitle}
-                    onChange={(event) => setSettingsTitle(event.target.value)}
-                    maxLength={120}
-                    className="h-10 w-full rounded-full border border-[#dfe6f4] bg-white px-4 text-[14px] text-[#111827] outline-none focus:border-[#8da0ff]"
-                    autoFocus
-                  />
-                </label>
+              <div
+                data-ripple-session-settings-body="grouped-form"
+                className="min-h-0 flex-1 overflow-y-auto bg-[#fbfdff] px-4 py-4"
+              >
+                <section
+                  data-ripple-session-settings-group="name"
+                  className="rounded-[14px] border border-[#dfe6f4] bg-white/88 p-3 shadow-[0_10px_28px_rgba(44,63,123,0.07)]"
+                >
+                  <label className="block">
+                    <span className="mb-2 block text-[12px] font-medium text-[#667085]">
+                      Session name
+                    </span>
+                    <input
+                      value={settingsTitle}
+                      onChange={(event) => setSettingsTitle(event.target.value)}
+                      maxLength={120}
+                      className="h-10 w-full rounded-xl border border-[#dfe6f4] bg-white px-3 text-[14px] text-[#111827] outline-none transition-colors focus:border-[#8da0ff]"
+                      autoFocus
+                    />
+                  </label>
+                </section>
 
                 <button
                   type="button"
                   aria-pressed={settingsPinned}
                   onClick={() => setSettingsPinned((pinned) => !pinned)}
-                  className={`flex h-11 w-full items-center justify-between rounded-full border px-4 text-left text-[14px] font-medium ${
+                  data-ripple-session-settings-group="pinned"
+                  className={`mt-3 flex w-full items-center gap-3 rounded-[14px] border p-3 text-left shadow-[0_10px_28px_rgba(44,63,123,0.07)] transition-colors ${
                     settingsPinned
-                      ? "border-[#9bb5ff] bg-[#eef4ff] text-[#0b57d0]"
-                      : "border-[#dfe6f4] bg-white text-[#111827] hover:bg-[#f7f8fa]"
+                      ? "border-[#b8cdf8]/80 bg-[#f1f6ff]/88 text-[#111827]"
+                      : "border-[#dfe6f4] bg-white/88 text-[#111827] hover:bg-white"
                   }`}
                 >
-                  <span className="inline-flex min-w-0 items-center gap-2">
-                    <Pin size={15} className="shrink-0" />
-                    <span className="truncate">Pinned</span>
+                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-[#dfe8fa] bg-[#f4f7fd] text-[#516070]">
+                    <Pin size={15} />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[14px] font-semibold text-[#111827]">
+                      Pinned
+                    </span>
+                    <span className="mt-0.5 block truncate text-[12px] leading-4 text-[#7a8496]">
+                      Keep this session near the top
+                    </span>
                   </span>
                   <span
-                    className={`h-5 w-9 rounded-full p-0.5 transition-colors ${
-                      settingsPinned ? "bg-[#2f6bff]" : "bg-[#d0d7e2]"
+                    aria-hidden="true"
+                    className={`h-6 w-10 shrink-0 rounded-full p-0.5 transition-colors ${
+                      settingsPinned ? "bg-[#8fb2ff]" : "bg-[#d0d7e2]"
                     }`}
                   >
                     <span
-                      className={`block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+                      className={`block h-5 w-5 rounded-full bg-white shadow-[0_2px_8px_rgba(44,63,123,0.18)] transition-transform ${
                         settingsPinned ? "translate-x-4" : "translate-x-0"
                       }`}
                     />
@@ -525,11 +542,18 @@ export default function SessionPage({
                 ) : null}
               </div>
 
-              <div className="shrink-0 border-t border-[#e8edf7] p-3 pb-[max(env(safe-area-inset-bottom),12px)]">
+              <div className="flex shrink-0 gap-2 border-t border-[#e8edf7] bg-white/86 p-3 pb-[max(env(safe-area-inset-bottom),12px)] backdrop-blur-2xl">
+                <button
+                  type="button"
+                  onClick={closeSessionSettings}
+                  className="inline-flex h-10 w-[40%] items-center justify-center rounded-xl border border-[#dfe6f4] bg-white px-4 text-sm font-semibold text-[#516070] shadow-[0_6px_18px_rgba(44,63,123,0.06)] transition-colors hover:bg-[#f7f8fa] active:bg-[#eef4ff]"
+                >
+                  Cancel
+                </button>
                 <button
                   type="submit"
                   disabled={!sessionId || !settingsTitle.trim() || isSavingSettings}
-                  className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-full bg-[linear-gradient(135deg,#2f6bff,#7b5cff)] px-4 text-sm font-semibold text-white shadow-[0_12px_26px_rgba(64,92,255,0.24)] transition-all duration-200 hover:brightness-110 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-[#eef2f7] disabled:bg-none disabled:text-[#9aa3af] disabled:shadow-none"
+                  className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-[#2f6bff] px-4 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(47,107,255,0.20)] transition-all duration-200 hover:bg-[#245de8] active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-[#eef2f7] disabled:text-[#9aa3af] disabled:shadow-none"
                 >
                   {isSavingSettings ? <Loader2 size={15} className="animate-spin" /> : null}
                   Save

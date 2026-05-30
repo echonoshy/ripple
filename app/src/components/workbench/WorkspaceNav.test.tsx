@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -188,6 +189,17 @@ function testRendersSettingsButtonWithCorrectUserLabel() {
   assert.match(html, /aria-label="Settings for user-alpha-99"/);
 }
 
+function testWorkspaceNavLoadsAndRendersUserAvatar() {
+  const source = readFileSync(new URL("./WorkspaceNav.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /fetchUserAvatarImage/);
+  assert.match(source, /USER_AVATAR_CHANGED_EVENT/);
+  assert.match(source, /<img/);
+  assert.match(source, /className="h-full w-full object-cover"/);
+  assert.match(source, /<span className="absolute inset-0 overflow-hidden rounded-xl">/);
+  assert.match(source, /absolute -right-0\.5 -bottom-0\.5 z-10 flex h-2 w-2/);
+}
+
 function testRendersWorkspaceUserLabel() {
   const html = renderWorkspaceNav({ userId: "workspace-user-id-xyz" });
   assert.match(html, /workspace-user-id-xyz/);
@@ -198,6 +210,7 @@ testRendersPinnedSessionWithIcon();
 testRendersUnpinnedSessionWithoutPinIcon();
 testRendersSessionOptionsButton();
 testRendersSettingsButtonWithCorrectUserLabel();
+testWorkspaceNavLoadsAndRendersUserAvatar();
 testRendersWorkspaceUserLabel();
 
 console.log("workspace nav tests passed");

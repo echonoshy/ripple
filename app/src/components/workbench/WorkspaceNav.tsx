@@ -25,7 +25,8 @@ import { formatSessionActivityTime } from "@/lib/workbench";
 import { mainNavItems, type WorkspaceView } from "@/lib/workspaceViews";
 import type { WorkbenchSessionSummary } from "@/types";
 import SessionAttentionDot from "./SessionAttentionDot";
-import { fetchUserProfile } from "@/lib/api";
+import { fetchUserAvatarImage, fetchUserProfile } from "@/lib/api";
+import { getUserProfileAvatarUri, USER_AVATAR_CHANGED_EVENT } from "@/lib/userAvatar";
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
@@ -99,11 +100,14 @@ export default function WorkspaceNav({
   const [userUsageData, setUserUsageData] = React.useState<Awaited<
     ReturnType<typeof fetchUserProfile>
   > | null>(null);
+  const [avatarImageUrl, setAvatarImageUrl] = React.useState<string | null>(null);
+  const [profileRefreshToken, setProfileRefreshToken] = React.useState(0);
   const [isLoadingUsage, setIsLoadingUsage] = React.useState(false);
   const isSwitchCancelRef = React.useRef(false);
 
   const userMenuRef = React.useRef<HTMLDivElement>(null);
   const activeMenuRef = React.useRef<HTMLDivElement>(null);
+  const profileAvatarUri = getUserProfileAvatarUri(userUsageData);
   const maxWorkspaceBytes = userUsageData?.limits?.max_workspace_bytes || 2 * 1024 * 1024 * 1024;
   const maxSessions = userUsageData?.limits?.max_sessions || 200;
 
@@ -160,7 +164,37 @@ export default function WorkspaceNav({
     return () => {
       isMounted = false;
     };
-  }, [isUserMenuOpen, userId]);
+  }, [isUserMenuOpen, profileRefreshToken, userId]);
+
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const handleAvatarChanged = () => setProfileRefreshToken((token) => token + 1);
+    window.addEventListener(USER_AVATAR_CHANGED_EVENT, handleAvatarChanged);
+    return () => window.removeEventListener(USER_AVATAR_CHANGED_EVENT, handleAvatarChanged);
+  }, []);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    setAvatarImageUrl(null);
+    if (!profileAvatarUri || typeof URL === "undefined") return;
+
+    void fetchUserAvatarImage(profileAvatarUri)
+      .then((blob) => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setAvatarImageUrl(objectUrl);
+      })
+      .catch((err) => {
+        if (!cancelled) console.error("Failed to fetch user avatar:", err);
+      });
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [profileAvatarUri]);
 
   const handleSave = () => {
     if (!isSwitchingUser) return;
@@ -620,11 +654,22 @@ export default function WorkspaceNav({
               size="lg"
               className="relative bg-white shadow-[0_2px_6px_rgba(0,0,0,0.04)] transition-all duration-300 group-hover:scale-[1.02] group-hover:border-[#d7e3f8]"
             >
-              <User
-                size={15}
-                className="text-[#374151] transition-colors group-hover:text-[#0d0d0d]"
-              />
-              <span className="absolute -right-0.5 -bottom-0.5 flex h-2 w-2">
+              {avatarImageUrl ? (
+                <span className="absolute inset-0 overflow-hidden rounded-xl">
+                  <img
+                    src={avatarImageUrl}
+                    alt=""
+                    aria-hidden="true"
+                    className="h-full w-full object-cover"
+                  />
+                </span>
+              ) : (
+                <User
+                  size={15}
+                  className="text-[#374151] transition-colors group-hover:text-[#0d0d0d]"
+                />
+              )}
+              <span className="absolute -right-0.5 -bottom-0.5 z-10 flex h-2 w-2">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
                 <span className="relative inline-flex h-2 w-2 rounded-full border border-white bg-emerald-500"></span>
               </span>

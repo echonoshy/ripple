@@ -35,6 +35,7 @@ import {
   type ViewportMenuAnchorRect,
 } from "@/lib/menuPosition";
 import { formatModelName } from "@/lib/models";
+import { dispatchUserAvatarChanged, getUserProfileAvatarUri } from "@/lib/userAvatar";
 import type { SandboxInfo, UserProfile } from "@/types";
 import { IconTile, type IconTileTone } from "@/components/icons/IconTile";
 import RippleIcon from "@/components/icons/RippleIcon";
@@ -163,7 +164,7 @@ export default function SettingsPage({
     });
   }, [loadSettingsData, userId]);
 
-  const profileAvatarUri = profile?.profile?.avatar_uri ?? profile?.avatar_uri ?? null;
+  const profileAvatarUri = getUserProfileAvatarUri(profile);
   const avatarName = profile?.profile?.user_name || userId;
   const avatarInitials = deriveAvatarInitials(avatarName);
   const limits = profile?.limits;
@@ -237,7 +238,9 @@ export default function SettingsPage({
     try {
       setIsAvatarUploading(true);
       setAvatarError(null);
-      setProfile(await uploadUserAvatar(file));
+      const nextProfile = await uploadUserAvatar(file);
+      setProfile(nextProfile);
+      dispatchUserAvatarChanged();
     } catch (error) {
       setAvatarError(error instanceof Error ? error.message : "Could not upload avatar.");
     } finally {
@@ -249,7 +252,9 @@ export default function SettingsPage({
     try {
       setIsAvatarUploading(true);
       setAvatarError(null);
-      setProfile(await deleteUserAvatar());
+      const nextProfile = await deleteUserAvatar();
+      setProfile(nextProfile);
+      dispatchUserAvatarChanged();
     } catch (error) {
       setAvatarError(error instanceof Error ? error.message : "Could not remove avatar.");
     } finally {

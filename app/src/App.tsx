@@ -113,6 +113,10 @@ export default function Home() {
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<WorkspaceView>("sessions");
+  const [mobileFilesReturnToChat, setMobileFilesReturnToChat] = useState(false);
+  const [mobileSessionRestoreScrollTop, setMobileSessionRestoreScrollTop] = useState<
+    number | null
+  >(null);
   const [sessionAttentionById, setSessionAttentionById] = useState<
     Record<string, SessionAttention | undefined>
   >({});
@@ -410,8 +414,34 @@ export default function Home() {
         path: string;
         lineNumber?: number;
         userId?: string;
+        routedFromApp?: boolean;
       }>;
       const { userId: targetUserId } = customEvent.detail;
+      const shouldRouteMobileFileLink =
+        window.innerWidth < 1024 &&
+        !customEvent.detail.routedFromApp &&
+        activeViewRef.current !== "files";
+
+      if (shouldRouteMobileFileLink) {
+        const scrollContainer = document.querySelector<HTMLDivElement>(
+          '[data-ripple-session-scroll="timeline"]'
+        );
+        setMobileSessionRestoreScrollTop(scrollContainer?.scrollTop ?? 0);
+        setMobileFilesReturnToChat(true);
+        setActiveView("files");
+        setMobileSessionMode("list");
+        setIsSidebarOpen(false);
+        window.requestAnimationFrame(() => {
+          window.dispatchEvent(
+            new CustomEvent("open-workspace-file", {
+              detail: {
+                ...customEvent.detail,
+                routedFromApp: true,
+              },
+            })
+          );
+        });
+      }
 
       setIsInspectorCollapsed(false);
 
@@ -618,6 +648,8 @@ export default function Home() {
 
   const handleSelectView = useCallback(
     (view: WorkspaceView) => {
+      setMobileFilesReturnToChat(false);
+      setMobileSessionRestoreScrollTop(null);
       setActiveView(view);
       setIsSidebarOpen(false);
       if (view === "sessions") {
@@ -629,6 +661,12 @@ export default function Home() {
     },
     [acknowledgeSessionCompletion, sessionId]
   );
+  const handleReturnFromMobileFiles = useCallback(() => {
+    setMobileFilesReturnToChat(false);
+    setActiveView("sessions");
+    setMobileSessionMode("chat");
+    setIsSidebarOpen(false);
+  }, []);
   const handleOpenMobileSessionList = useCallback(() => {
     handleSelectView("sessions");
   }, [handleSelectView]);
@@ -817,6 +855,7 @@ export default function Home() {
         activeProjectId={activeProjectId}
         onProjectSelect={handleProjectSelect}
         onCreateProject={handleCreateProject}
+        onBack={mobileFilesReturnToChat ? handleReturnFromMobileFiles : undefined}
       />
     ) : activeView === "automations" ? (
       <AutomationsPage selectedModel={defaultModel} onAuthExpired={handleAuthExpired} />
@@ -885,6 +924,8 @@ export default function Home() {
             feishuAuthWaiting={feishuAuthWaiting}
             onBackToMobileSessions={handleOpenMobileSessionList}
             isInspectorCollapsed={isInspectorCollapsed}
+            restoreScrollTop={mobileSessionRestoreScrollTop}
+            onRestoreScrollComplete={() => setMobileSessionRestoreScrollTop(null)}
           />
         </div>
       </div>

@@ -84,6 +84,7 @@ interface SessionPageProps {
   isModelDropdownOpen: boolean;
   sessionId: string | null;
   scrollToBottomRequest?: number;
+  restoreScrollTop?: number | null;
   projects?: ProjectInfo[];
   activeProjectId?: string | null;
   onSelectWorkspaceFolder?: (path: string) => void | Promise<void>;
@@ -105,6 +106,7 @@ interface SessionPageProps {
   onFeishuAuthOpen?: (payload: FeishuAuthOpenPayload) => void;
   feishuAuthWaiting?: FeishuAuthWaitingState | null;
   onBackToMobileSessions?: () => void;
+  onRestoreScrollComplete?: () => void;
   isInspectorCollapsed?: boolean;
 }
 
@@ -130,6 +132,7 @@ export default function SessionPage({
   isModelDropdownOpen,
   sessionId,
   scrollToBottomRequest = 0,
+  restoreScrollTop = null,
   projects = [],
   activeProjectId = null,
   onSelectWorkspaceFolder,
@@ -151,6 +154,7 @@ export default function SessionPage({
   onFeishuAuthOpen,
   feishuAuthWaiting,
   onBackToMobileSessions,
+  onRestoreScrollComplete,
 }: SessionPageProps) {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
@@ -243,8 +247,18 @@ export default function SessionPage({
 
     if (!sessionChanged) return;
 
+    if (typeof restoreScrollTop === "number") {
+      const scrollContainer = scrollContainerRef.current;
+      if (scrollContainer) {
+        scrollContainer.scrollTop = restoreScrollTop;
+      }
+      stickToBottomUntilRef.current = 0;
+      onRestoreScrollComplete?.();
+      return;
+    }
+
     startStickToBottom();
-  }, [sessionId, startStickToBottom]);
+  }, [onRestoreScrollComplete, restoreScrollTop, sessionId, startStickToBottom]);
 
   useLayoutEffect(() => {
     const previousScrollToBottomRequest = previousScrollToBottomRequestRef.current;
@@ -566,6 +580,7 @@ export default function SessionPage({
 
       <div
         ref={scrollContainerRef}
+        data-ripple-session-scroll="timeline"
         onScroll={handleScroll}
         className="min-h-0 flex-1 overflow-y-auto bg-transparent px-3 py-2 sm:px-4 sm:py-5 md:px-5"
       >

@@ -366,6 +366,14 @@ function testExplicitSessionSelectionTriggersStickyBottom() {
   assert.match(sessionPageSource, /startStickToBottom\(\)/);
 }
 
+function testSessionPageCanRestorePreviousScrollPosition() {
+  assert.match(sessionPageSource, /restoreScrollTop\?: number \| null/);
+  assert.match(sessionPageSource, /onRestoreScrollComplete\?: \(\) => void/);
+  assert.match(sessionPageSource, /data-ripple-session-scroll="timeline"/);
+  assert.match(sessionPageSource, /scrollContainer\.scrollTop = restoreScrollTop/);
+  assert.match(sessionPageSource, /onRestoreScrollComplete\?\.\(\)/);
+}
+
 testOmitsPlaceholderSessionHeaderControls();
 testMobileHeaderButtonsUseToolbarStyling();
 testSessionSettingsUsesGroupedFormPanel();
@@ -384,5 +392,6 @@ testResizeObserverKeepsSessionSwitchPinnedToBottom();
 testUserScrollCancelsSessionSwitchStickyBottom();
 testSessionPageOwnsScrollActivation();
 testExplicitSessionSelectionTriggersStickyBottom();
+testSessionPageCanRestorePreviousScrollPosition();
 
 console.log("session page tests passed");

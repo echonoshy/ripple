@@ -92,6 +92,14 @@ function testSessionRowsDoNotClipOptionsMenu() {
   assert.doesNotMatch(source, /absolute top-12 right-3/);
 }
 
+function testSessionOptionsMenuEscapesBlurredRowsWithPortal() {
+  const source = readFileSync(new URL("./MobileSessionsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /import \{ createPortal \} from "react-dom"/);
+  assert.match(source, /createPortal\(/);
+  assert.match(source, /document\.body/);
+}
+
 function testRendersEmptyStateWithNewSessionAction() {
   const html = renderMobileSessionsPage({ sessions: [], selectedSessionId: null });
 
@@ -104,6 +112,7 @@ testUsesQuietAgentControlPlaneStyling();
 testSessionRowsRemoveRepeatedChatIcon();
 testHeaderActionsUseSharedGlassTreatment();
 testSessionRowsDoNotClipOptionsMenu();
+testSessionOptionsMenuEscapesBlurredRowsWithPortal();
 testRendersEmptyStateWithNewSessionAction();
 
 console.log("mobile sessions page tests passed");

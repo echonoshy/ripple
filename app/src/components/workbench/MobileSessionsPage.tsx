@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   AlertTriangle,
   Loader2,
@@ -113,6 +114,10 @@ export default function MobileSessionsPage({
         : sessions,
     [normalizedQuery, sessions]
   );
+  const activeMenuSession = useMemo(() => {
+    if (!activeMenuSessionId) return null;
+    return visibleSessions.find((session) => session.sessionId === activeMenuSessionId) ?? null;
+  }, [activeMenuSessionId, visibleSessions]);
 
   useLayoutEffect(() => {
     if (!activeMenu) return;
@@ -142,14 +147,66 @@ export default function MobileSessionsPage({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[#f7f9fc] text-[#111827] lg:hidden">
-      {activeMenuSessionId && (
-        <div
-          className="fixed inset-0 z-40 bg-transparent"
-          onClick={() => {
-            setActiveMenu(null);
-          }}
-        />
-      )}
+      {activeMenu && activeMenuSession && typeof document !== "undefined"
+        ? createPortal(
+            <>
+              <div
+                className="fixed inset-0 z-40 bg-transparent"
+                onClick={() => {
+                  setActiveMenu(null);
+                }}
+              />
+              <div
+                ref={activeMenuRef}
+                style={{ top: activeMenu.top, left: activeMenu.left, position: "fixed" }}
+                className="animate-in fade-in-50 zoom-in-95 z-50 max-h-[calc(100dvh-104px)] w-36 overflow-y-auto rounded-lg border border-white/72 bg-white/84 p-1.5 shadow-[0_14px_34px_rgba(44,63,123,0.14)] backdrop-blur-2xl duration-100"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void onUpdateSession(activeMenuSession.sessionId, {
+                      pinned: !activeMenuSession.pinned,
+                    });
+                    setActiveMenu(null);
+                  }}
+                  className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-colors hover:bg-[#f3f4f6] active:bg-[#eef4ff]"
+                >
+                  <Pin size={13} className="shrink-0 text-[#6b7280]" />
+                  {activeMenuSession.pinned ? "Unpin" : "Pin"}
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setEditingSessionId(activeMenuSession.sessionId);
+                    setEditingTitle(activeMenuSession.title);
+                    setActiveMenu(null);
+                  }}
+                  className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-colors hover:bg-[#f3f4f6] active:bg-[#eef4ff]"
+                >
+                  <Edit3 size={13} className="shrink-0 text-[#6b7280]" />
+                  Rename
+                </button>
+                <div className="my-1 border-t border-[#dfe6f4]" />
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeleteSession(activeMenuSession.sessionId, e);
+                    setActiveMenu(null);
+                  }}
+                  className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-xs font-semibold text-[#cf222e] transition-colors hover:bg-[#ffebe9] active:bg-[#ffd5d6]"
+                >
+                  <Trash2 size={13} className="shrink-0 text-[#cf222e]" />
+                  Delete
+                </button>
+              </div>
+            </>,
+            document.body
+          )
+        : null}
       <header className="shrink-0 border-b border-white/70 bg-white/72 px-4 pt-[max(env(safe-area-inset-top),10px)] pb-2 shadow-[0_8px_24px_rgba(44,63,123,0.06)] backdrop-blur-2xl">
         <div className="flex h-10 items-center justify-between">
           <div className="flex items-center gap-2">
@@ -325,9 +382,9 @@ export default function MobileSessionsPage({
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
+                      const anchorRect = e.currentTarget.getBoundingClientRect();
                       setActiveMenu((current) => {
                         if (current?.sessionId === session.sessionId) return null;
-                        const anchorRect = e.currentTarget.getBoundingClientRect();
                         const position = getMobileSessionMenuPosition(anchorRect);
                         return {
                           sessionId: session.sessionId,
@@ -346,53 +403,6 @@ export default function MobileSessionsPage({
                   >
                     <MoreHorizontal size={18} strokeWidth={2.4} />
                   </button>
-
-                  {activeMenu?.sessionId === session.sessionId && (
-                    <div
-                      ref={activeMenuRef}
-                      style={{ top: activeMenu.top, left: activeMenu.left, position: "fixed" }}
-                      className="animate-in fade-in-50 zoom-in-95 z-50 max-h-[calc(100dvh-104px)] w-36 overflow-y-auto rounded-lg border border-white/72 bg-white/84 p-1.5 shadow-[0_14px_34px_rgba(44,63,123,0.14)] backdrop-blur-2xl duration-100"
-                    >
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void onUpdateSession(session.sessionId, { pinned: !session.pinned });
-                          setActiveMenu(null);
-                        }}
-                        className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-colors hover:bg-[#f3f4f6] active:bg-[#eef4ff]"
-                      >
-                        <Pin size={13} className="shrink-0 text-[#6b7280]" />
-                        {session.pinned ? "Unpin" : "Pin"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setEditingSessionId(session.sessionId);
-                          setEditingTitle(session.title);
-                          setActiveMenu(null);
-                        }}
-                        className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-colors hover:bg-[#f3f4f6] active:bg-[#eef4ff]"
-                      >
-                        <Edit3 size={13} className="shrink-0 text-[#6b7280]" />
-                        Rename
-                      </button>
-                      <div className="my-1 border-t border-[#dfe6f4]" />
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDeleteSession(session.sessionId, e);
-                          setActiveMenu(null);
-                        }}
-                        className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-xs font-semibold text-[#cf222e] transition-colors hover:bg-[#ffebe9] active:bg-[#ffd5d6]"
-                      >
-                        <Trash2 size={13} className="shrink-0 text-[#cf222e]" />
-                        Delete
-                      </button>
-                    </div>
-                  )}
                 </div>
               );
             })}

@@ -148,6 +148,11 @@ pub async fn chat_completions(
         .or_else(|| session.caller_system_prompt.clone());
     session.caller_system_prompt = effective_caller_system_prompt.clone();
     reconcile_stale_active_session(&state, &user_id, &mut session).await?;
+    apply_requested_chat_model(
+        &mut session,
+        request.model.as_deref(),
+        &state.config.default_model,
+    );
     if session_has_active_run(&session) {
         return Err(ApiError::conflict("Session already has work in progress"));
     }
@@ -464,6 +469,11 @@ pub async fn poll_session_connector_auth(
     let (model, preset_effort) = state.config.resolve_model(request.model.as_deref());
     let effort = request.effort.clone().or(preset_effort);
     let decision = continue_pending_connector_auth(&state, &user_id, &mut session, "").await?;
+    apply_requested_chat_model(
+        &mut session,
+        request.model.as_deref(),
+        &state.config.default_model,
+    );
     let Some(decision) = decision else {
         return Err(ApiError::conflict(
             "Pending connector auth cannot be polled",
@@ -919,6 +929,18 @@ fn clear_session_plan(session: &mut SessionRecord) {
     session.plan_progress = None;
 }
 
+fn apply_requested_chat_model(
+    session: &mut SessionRecord,
+    requested_model: Option<&str>,
+    default_model: &str,
+) {
+    let next_model = requested_model
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+        .unwrap_or(default_model);
+    session.model = next_model.to_string();
+}
+
 async fn persist_control_plane_chat_event(
     state: &AppState,
     session: &mut SessionRecord,
@@ -1313,6 +1335,40 @@ mod tests {
             Some("secret_abcdefghijklmnopqrstuvwxyz")
         );
         assert_eq!(extract_notion_token("secret_short"), None);
+    }
+
+    #[test]
+    fn requested_chat_model_updates_session_metadata() {
+        let now = now_iso();
+        let mut session = SessionRecord {
+            session_id: "srv-test".to_string(),
+            user_id: "alice".to_string(),
+            title: String::new(),
+            pinned: false,
+            model: "codex-medium".to_string(),
+            max_turns: 200,
+            caller_system_prompt: None,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            last_input_tokens: 0,
+            created_at: now.clone(),
+            last_active: now,
+            status: "idle".to_string(),
+            message_count: 0,
+            messages: Vec::new(),
+            pending_question: None,
+            pending_options: None,
+            pending_permission_request: None,
+            pending_connector_auth: None,
+            pending_schedule_request: None,
+            codex_thread_id: None,
+            plan_steps: Vec::new(),
+            plan_progress: None,
+        };
+
+        apply_requested_chat_model(&mut session, Some("codex-high"), "codex-medium");
+
+        assert_eq!(session.model, "codex-high");
     }
 
     #[test]

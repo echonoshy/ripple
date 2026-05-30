@@ -545,6 +545,22 @@ export async function logoutUserSession(): Promise<void> {
   }
 }
 
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  const res = await fetch(`${API_URL}/auth/password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({
+      current_password: currentPassword,
+      new_password: newPassword,
+    }),
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || "Could not change password.");
+  }
+}
+
 function parsePlanStepStatus(value: unknown): PlanStep["status"] {
   if (value === "completed" || value === "in_progress" || value === "pending") {
     return value;
@@ -702,11 +718,15 @@ export async function runScheduleNow(scheduleId: string): Promise<AgentRunInfo> 
   return (await res.json()) as AgentRunInfo;
 }
 
-export async function createSession(): Promise<SessionSummary> {
+export interface SessionCreateInput {
+  model?: string | null;
+}
+
+export async function createSession(input: SessionCreateInput = {}): Promise<SessionSummary> {
   const res = await fetch(`${API_URL}/sessions`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify({}),
+    body: JSON.stringify(input),
   });
   if (res.status === 401) throw new AuthError();
   if (!res.ok) throw new Error("Failed to create session");

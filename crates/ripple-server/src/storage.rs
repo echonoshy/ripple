@@ -27,6 +27,12 @@ pub struct RunUsageStats {
     pub active_runs: u64,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TokenUsageBreakdown {
+    pub total_input_tokens: u64,
+    pub total_output_tokens: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FileRefRecord {
     pub file_id: String,
@@ -336,6 +342,31 @@ impl Storage {
             .await?;
         let total = row.get::<Option<i64>, _>("total").unwrap_or(0);
         i64_to_u64(total)
+    }
+
+    pub async fn token_usage_breakdown(
+        &self,
+        user_id: &str,
+    ) -> anyhow::Result<TokenUsageBreakdown> {
+        self.initialize().await?;
+        let row = sqlx::query(
+            r#"
+            SELECT
+              SUM(total_input_tokens) AS input,
+              SUM(total_output_tokens) AS output
+            FROM sessions
+            WHERE user_id = ?
+            "#,
+        )
+        .bind(user_id)
+        .fetch_one(&self.pool)
+        .await?;
+        let input = row.get::<Option<i64>, _>("input").unwrap_or(0);
+        let output = row.get::<Option<i64>, _>("output").unwrap_or(0);
+        Ok(TokenUsageBreakdown {
+            total_input_tokens: i64_to_u64(input)?,
+            total_output_tokens: i64_to_u64(output)?,
+        })
     }
 
     pub async fn token_usage_by_period(&self, user_id: &str) -> anyhow::Result<(u64, u64)> {
@@ -848,6 +879,44 @@ impl Storage {
         .fetch_optional(&self.pool)
         .await?;
         row.map(auth_user_from_row).transpose()
+    }
+
+    pub async fn auth_user_by_id(&self, user_id: &str) -> anyhow::Result<Option<AuthUserRecord>> {
+        self.initialize().await?;
+        let row = sqlx::query(
+            r#"
+            SELECT user_id, login, login_normalized, password_hash, display_name,
+                   status, created_at, updated_at, disabled_at
+            FROM auth_users
+            WHERE user_id = ?
+            "#,
+        )
+        .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.map(auth_user_from_row).transpose()
+    }
+
+    pub async fn update_auth_user_password(
+        &self,
+        user_id: &str,
+        password_hash: &str,
+    ) -> anyhow::Result<bool> {
+        self.initialize().await?;
+        let now = crate::auth::now_iso();
+        let result = sqlx::query(
+            r#"
+            UPDATE auth_users
+            SET password_hash = ?, updated_at = ?
+            WHERE user_id = ? AND status = 'active'
+            "#,
+        )
+        .bind(password_hash)
+        .bind(&now)
+        .bind(user_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
     }
 
     pub async fn auth_user_by_identifier(
@@ -1422,6 +1491,51 @@ mod tests {
         assert_eq!(loaded.messages, record.messages);
         assert!(loaded.pinned);
         assert_eq!(loaded.total_output_tokens, 2);
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn token_usage_breakdown_sums_input_and_output_tokens() -> anyhow::Result<()> {
+        let root =
+            std::env::temp_dir().join(format!("ripple-storage-test-{}", uuid::Uuid::new_v4()));
+        let storage = Storage::open(root.join(".ripple/ripple.sqlite"))?;
+        let mut record = SessionRecord {
+            session_id: "srv-token-a".to_string(),
+            user_id: "alice".to_string(),
+            title: "tokens".to_string(),
+            pinned: false,
+            model: "codex-test".to_string(),
+            max_turns: 200,
+            caller_system_prompt: None,
+            total_input_tokens: 120,
+            total_output_tokens: 30,
+            last_input_tokens: 120,
+            created_at: "2026-05-22T00:00:00Z".to_string(),
+            last_active: "2026-05-22T00:00:01Z".to_string(),
+            status: "idle".to_string(),
+            message_count: 1,
+            messages: Vec::new(),
+            pending_question: None,
+            pending_options: None,
+            pending_permission_request: None,
+            pending_connector_auth: None,
+            pending_schedule_request: None,
+            codex_thread_id: None,
+            plan_steps: Vec::new(),
+            plan_progress: None,
+        };
+        storage.save_session(&record).await?;
+        record.session_id = "srv-token-b".to_string();
+        record.total_input_tokens = 80;
+        record.total_output_tokens = 20;
+        storage.save_session(&record).await?;
+
+        let breakdown = storage.token_usage_breakdown("alice").await?;
+
+        assert_eq!(breakdown.total_input_tokens, 200);
+        assert_eq!(breakdown.total_output_tokens, 50);
 
         let _ = std::fs::remove_dir_all(root);
         Ok(())

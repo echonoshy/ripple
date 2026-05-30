@@ -16,14 +16,13 @@ import {
   AuthError,
 } from "@/lib/api";
 import RippleIcon from "@/components/icons/RippleIcon";
-import SettingsModal from "@/components/SettingsModal";
 import AutomationsPage from "@/components/workbench/AutomationsPage";
 import ConnectorsPage from "@/components/workbench/ConnectorsPage";
 import FilesPage from "@/components/workbench/FilesPage";
-import HomePage from "@/components/workbench/HomePage";
 import InspectorPanel from "@/components/workbench/InspectorPanel";
 import MobileSessionsPage from "@/components/workbench/MobileSessionsPage";
 import MobileTabBar from "@/components/workbench/MobileTabBar";
+import SettingsPage from "@/components/workbench/SettingsPage";
 import SessionPage from "@/components/workbench/SessionPage";
 import WorkbenchShell from "@/components/workbench/WorkbenchShell";
 import WorkspaceNav from "@/components/workbench/WorkspaceNav";
@@ -44,6 +43,11 @@ import {
 import { shouldShowInspector, type WorkspaceView } from "@/lib/workspaceViews";
 import type { SessionAttention } from "@/types";
 import { sortModelOptions } from "@/lib/models";
+import {
+  getStoredDefaultModel,
+  selectPreferredModel,
+  setStoredDefaultModel,
+} from "@/lib/modelPreference";
 
 export default function Home() {
   // ── Auth state ──
@@ -75,7 +79,6 @@ export default function Home() {
   const productSessionActive = isUserSessionAuth();
 
   // ── UI state ──
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isNavCollapsed, setIsNavCollapsed] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -117,6 +120,33 @@ export default function Home() {
 
   const handleWorkspaceRefresh = useCallback(() => {
     setWorkspaceRefreshToken((prev) => prev + 1);
+  }, []);
+
+  const handleSelectModel = useCallback(
+    (model: string) => {
+      setSelectedModel(model);
+      setStoredDefaultModel(userId, model);
+      setOpenModelDropdown(null);
+    },
+    [userId]
+  );
+
+  const handleOpenSettingsPage = useCallback(() => {
+    setActiveView("home");
+    setMobileSessionMode("list");
+    setIsSidebarOpen(false);
+  }, []);
+
+  const handleAuthReset = useCallback(() => {
+    if (isUserSessionAuth()) {
+      void logoutUserSession().catch(() => undefined);
+    }
+    clearApiKey();
+    clearStoredCurrentSessionId();
+    setAuthMode("login");
+    setAuthUserIdInput(initialLoginUserIdInput(getUserId()));
+    setAuthUserIdError(null);
+    setAuthState("needs_auth");
   }, []);
 
   const getSessionActions = useCallback(() => sessionActionsRef.current, []);
@@ -246,7 +276,7 @@ export default function Home() {
   useEffect(() => {
     sessionActionsRef.current = {
       getSessionId: () => sessionId,
-      ensureSession,
+      ensureSession: (model) => ensureSession(model),
       loadSessions,
       clearCurrentSessionContext,
       compactCurrentSessionContext,
@@ -274,6 +304,7 @@ export default function Home() {
         return;
       }
       setUserIdState(newUid);
+      setSelectedModel(selectPreferredModel(models, getStoredDefaultModel(newUid)));
       setSessionAttentionById({});
       abortRunAndResetSessionView();
       resetSessionsForUserChange();
@@ -289,6 +320,7 @@ export default function Home() {
       authState,
       abortRunAndResetSessionView,
       loadSessions,
+      models,
       resetSessionsForUserChange,
       restoreStoredSession,
     ]
@@ -323,7 +355,8 @@ export default function Home() {
         const fetched = sortModelOptions(await fetchModels());
         setModels(fetched);
         if (fetched.length > 0) {
-          setSelectedModel(fetched.find((m) => m.id === "codex-medium")?.id || fetched[0].id);
+          const currentUserId = getUserId();
+          setSelectedModel(selectPreferredModel(fetched, getStoredDefaultModel(currentUserId)));
         }
         const loadedSessions = await loadSessions();
         if (loadedSessions.length > 0) {
@@ -435,7 +468,7 @@ export default function Home() {
 
   // ── New session ──
   const handleNewSession = async () => {
-    await createNewSession();
+    await createNewSession(selectedModel);
     setActiveView("sessions");
     setMobileSessionMode("chat");
   };
@@ -574,11 +607,15 @@ export default function Home() {
   const isComposerBlocked = selectedWorkbenchSession?.status === "compacting";
   const mainContent =
     activeView === "home" ? (
-      <HomePage
+      <SettingsPage
         userId={userId}
-        sessions={displayWorkbenchSessions}
+        apiKey={getApiKey()}
+        authMode={getAuthMode()}
+        models={models}
+        selectedModel={selectedModel}
+        onSelectModel={handleSelectModel}
         onSelectView={handleSelectView}
-        onOpenSettings={() => setIsSettingsOpen(true)}
+        onApiKeyChange={handleAuthReset}
       />
     ) : activeView === "files" ? (
       <FilesPage userId={userId} refreshToken={workspaceRefreshToken} />
@@ -637,10 +674,7 @@ export default function Home() {
             onToggleModelDropdown={() =>
               setOpenModelDropdown((open) => (open === "composer" ? null : "composer"))
             }
-            onSelectModel={(model) => {
-              setSelectedModel(model);
-              setOpenModelDropdown(null);
-            }}
+            onSelectModel={handleSelectModel}
             onSend={handleSendMessage}
             onStop={handleStop}
             onQuickReply={handleQuickReply}
@@ -881,7 +915,7 @@ export default function Home() {
             }}
             onDeleteSession={handleDeleteSession}
             onUpdateSession={updateSessionById}
-            onOpenSettings={() => setIsSettingsOpen(true)}
+            onOpenSettings={handleOpenSettingsPage}
             onCollapse={() => setIsNavCollapsed(true)}
           />
         }
@@ -896,28 +930,6 @@ export default function Home() {
           ) : null
         }
         mobileNav={mobileNav}
-      />
-
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-        apiKey={getApiKey()}
-        authMode={getAuthMode()}
-        userId={userId}
-        canChangeUserId={!productSessionActive}
-        onUserIdChange={handleUserIdChange}
-        onApiKeyChange={() => {
-          if (isUserSessionAuth()) {
-            void logoutUserSession().catch(() => undefined);
-          }
-          clearApiKey();
-          clearStoredCurrentSessionId();
-          setAuthMode("login");
-          setAuthUserIdInput(initialLoginUserIdInput(getUserId()));
-          setAuthUserIdError(null);
-          setIsSettingsOpen(false);
-          setAuthState("needs_auth");
-        }}
       />
     </>
   );

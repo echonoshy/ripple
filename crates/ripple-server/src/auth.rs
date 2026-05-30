@@ -203,3 +203,66 @@ pub async fn authenticate_session_token(
         .authenticate_auth_session(&hash_secret(token.trim()), &now_iso())
         .await
 }
+
+pub async fn change_password(
+    storage: &Storage,
+    user_id: &str,
+    current_password: &str,
+    new_password: &str,
+) -> anyhow::Result<()> {
+    validate_password(new_password).map_err(anyhow::Error::msg)?;
+    let Some(user) = storage.auth_user_by_id(user_id).await? else {
+        anyhow::bail!("user not found");
+    };
+    if user.status != "active" || !verify_password(current_password, &user.password_hash) {
+        anyhow::bail!("current password is incorrect");
+    }
+    let password_hash = hash_password(new_password)?;
+    if !storage
+        .update_auth_user_password(user_id, &password_hash)
+        .await?
+    {
+        anyhow::bail!("user not found");
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn change_password_requires_current_password_and_updates_login() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("ripple-auth-test-{}", uuid::Uuid::new_v4()));
+        let storage = Storage::open(root.join(".ripple/ripple.sqlite"))?;
+        let invite = storage
+            .create_user_auth_invite(1, None, Some("test"))
+            .await?;
+        let token = claim_invite(
+            &storage,
+            &invite.code,
+            "alice@example.com",
+            "old-password",
+            None,
+            3600,
+            None,
+        )
+        .await?;
+
+        change_password(&storage, &token.user_id, "old-password", "new-password").await?;
+
+        assert!(
+            login(&storage, "alice@example.com", "old-password", 3600, None)
+                .await?
+                .is_none()
+        );
+        assert!(
+            login(&storage, "alice@example.com", "new-password", 3600, None)
+                .await?
+                .is_some()
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+}

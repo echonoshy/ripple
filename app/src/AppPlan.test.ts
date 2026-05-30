@@ -126,6 +126,13 @@ function testMobileUsesBottomTabBarForTopLevelViews() {
   assert.match(appSource, /activeView === "sessions" && mobileSessionMode === "chat" \? null/);
 }
 
+function testSettingsIsSinglePageSurface() {
+  assert.match(appSource, /import SettingsPage/);
+  assert.doesNotMatch(appSource, /import SettingsModal/);
+  assert.doesNotMatch(appSource, /isSettingsOpen/);
+  assert.match(appSource, /onOpenSettings=\{handleOpenSettingsPage\}/);
+}
+
 function testMobileSessionOptionsUseSessionSettings() {
   assert.doesNotMatch(appSource, /handleOpenMobileSettings/);
   assert.match(appSource, /const handleOpenMobileSessionList = useCallback/);
@@ -148,6 +155,12 @@ function testSessionSelectionRequestsScrollToBottom() {
   assert.match(appSource, /scrollToBottomRequest=\{sessionScrollToBottomRequest\}/);
 }
 
+function testDefaultModelSeedsNewSessionsAndChatRuns() {
+  assert.match(appSource, /createNewSession\(selectedModel\)/);
+  assert.match(appSource, /ensureSession:\s*\(model\) => ensureSession\(model\)/);
+  assert.match(chatRunSource, /getSessionActions\(\)\.ensureSession\(selectedModel\)/);
+}
+
 testChatCompletionClearsResidualPlan();
 testSessionDetailsRestorePersistedPlan();
 testRestoringSessionRefreshesWorkspaceViews();
@@ -161,8 +174,10 @@ testStopTargetsOneRunningSession();
 testChatSendIsNotBlockedByAnotherRunningSession();
 testChatRunStoresActiveRunsBySession();
 testMobileUsesBottomTabBarForTopLevelViews();
+testSettingsIsSinglePageSurface();
 testMobileSessionOptionsUseSessionSettings();
 testSessionScrollActivationStaysInsideSessionPage();
 testSessionSelectionRequestsScrollToBottom();
+testDefaultModelSeedsNewSessionsAndChatRuns();
 
 console.log("app plan tests passed");

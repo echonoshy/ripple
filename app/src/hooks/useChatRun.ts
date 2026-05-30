@@ -47,7 +47,7 @@ import type { FeishuAuthOpenPayload, FeishuAuthWaitingState } from "@/components
 
 export interface ChatRunSessionActions {
   getSessionId: () => string | null;
-  ensureSession: () => Promise<string | null>;
+  ensureSession: (model?: string | null) => Promise<string | null>;
   loadSessions: () => Promise<unknown>;
   clearCurrentSessionContext: () => Promise<boolean>;
   compactCurrentSessionContext: () => Promise<boolean>;
@@ -560,7 +560,7 @@ export function useChatRun({
       }
       if (!text && filesForSend.length === 0 && localImagesForSend.length === 0) return;
 
-      const activeSessionId = await getSessionActions().ensureSession();
+      const activeSessionId = await getSessionActions().ensureSession(selectedModel);
       if (!activeSessionId) {
         return;
       }

@@ -111,37 +111,43 @@ export function useSessionLifecycle({
     clearStoredCurrentSessionId();
   }, []);
 
-  const ensureSession = useCallback(async (): Promise<string | null> => {
-    if (sessionId) return sessionId;
-    try {
-      const session = await createSession();
-      setSessionId(session.sessionId);
-      setStoredCurrentSessionId(undefined, session.sessionId);
-      return session.sessionId;
-    } catch (err) {
-      if (err instanceof AuthError) {
-        handleAuthExpired();
+  const ensureSession = useCallback(
+    async (model?: string | null): Promise<string | null> => {
+      if (sessionId) return sessionId;
+      try {
+        const session = await createSession({ model });
+        setSessionId(session.sessionId);
+        setStoredCurrentSessionId(undefined, session.sessionId);
+        return session.sessionId;
+      } catch (err) {
+        if (err instanceof AuthError) {
+          handleAuthExpired();
+        }
+        return null;
       }
-      return null;
-    }
-  }, [handleAuthExpired, sessionId]);
+    },
+    [handleAuthExpired, sessionId]
+  );
 
-  const createNewSession = useCallback(async (): Promise<SessionSummary | null> => {
-    try {
-      const session = await createSession();
-      setSessionId(session.sessionId);
-      setStoredCurrentSessionId(undefined, session.sessionId);
-      onNewSessionView();
-      onSessionActivated();
-      await loadSessions();
-      return session;
-    } catch (err) {
-      if (err instanceof AuthError) {
-        handleAuthExpired();
+  const createNewSession = useCallback(
+    async (model?: string | null): Promise<SessionSummary | null> => {
+      try {
+        const session = await createSession({ model });
+        setSessionId(session.sessionId);
+        setStoredCurrentSessionId(undefined, session.sessionId);
+        onNewSessionView();
+        onSessionActivated();
+        await loadSessions();
+        return session;
+      } catch (err) {
+        if (err instanceof AuthError) {
+          handleAuthExpired();
+        }
+        return null;
       }
-      return null;
-    }
-  }, [handleAuthExpired, loadSessions, onNewSessionView, onSessionActivated]);
+    },
+    [handleAuthExpired, loadSessions, onNewSessionView, onSessionActivated]
+  );
 
   const switchSession = useCallback(
     async (targetSessionId: string): Promise<boolean> => {

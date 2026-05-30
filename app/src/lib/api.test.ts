@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import {
   cancelConnectorAuth,
   cancelSessionConnectorAuth,
+  changePassword,
   compactSessionContext,
   createSchedule,
   createSession,
@@ -205,6 +206,38 @@ async function testConnectorManagementApisEncodeNamesAndPayloads() {
       url: "http://140.143.229.103:8810/v1/connectors/google%2Fworkspace/auth/cancel",
       method: "POST",
       body: null,
+    },
+  ]);
+}
+
+async function testChangePasswordPostsCurrentAndNewPassword() {
+  const requests: Array<{ url: string; method: string; body: unknown }> = [];
+
+  await withBrowserStorage(async () => {
+    setUserSessionToken("rip_usr_token", "usr_abc");
+    await withFetch(
+      async (input, init) => {
+        requests.push({
+          url: String(input),
+          method: init?.method || "GET",
+          body: init?.body ? JSON.parse(String(init.body)) : null,
+        });
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      },
+      async () => {
+        await changePassword("old-password", "new-password");
+      }
+    );
+  });
+
+  assert.deepEqual(requests, [
+    {
+      url: "http://140.143.229.103:8810/v1/auth/password",
+      method: "POST",
+      body: { current_password: "old-password", new_password: "new-password" },
     },
   ]);
 }
@@ -472,6 +505,36 @@ async function testCreateSessionNormalizesBackendShape() {
   );
 }
 
+async function testCreateSessionPostsSelectedModel() {
+  let requestBody: unknown = null;
+
+  await withFetch(
+    async (_input, init) => {
+      requestBody = JSON.parse(String(init?.body || "{}"));
+      return new Response(
+        JSON.stringify({
+          session_id: "srv-created",
+          title: "",
+          pinned: false,
+          model: "codex-high",
+          created_at: "2026-05-19T00:00:00.000Z",
+          last_active: "2026-05-19T00:00:00.000Z",
+          message_count: 0,
+          status: "idle",
+          changed_file_count: 0,
+          pending_approval_count: 0,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    },
+    async () => {
+      await createSession({ model: "codex-high" });
+    }
+  );
+
+  assert.deepEqual(requestBody, { model: "codex-high" });
+}
+
 async function testFetchSessionDetailsNormalizesBackendShape() {
   await withFetch(
     async () =>
@@ -658,6 +721,7 @@ await testRenameConflictUsesFriendlyMessage();
 await testSessionIdIsEncodedInPath();
 await testScheduleIdIsEncodedInPath();
 await testConnectorManagementApisEncodeNamesAndPayloads();
+await testChangePasswordPostsCurrentAndNewPassword();
 await testAuthHeadersUseUserSessionWithoutSpoofableUserId();
 await testAuthHeadersKeepServiceKeyUserIdCompatibility();
 testParseWorkspaceLinkDecodesEncodedSandboxPath();
@@ -666,6 +730,7 @@ await testScheduleApiUsesExpectedBackendShape();
 await testCreateScheduleAddsOffsetForNonUtcRunAt();
 await testFetchSessionsNormalizesBackendShape();
 await testCreateSessionNormalizesBackendShape();
+await testCreateSessionPostsSelectedModel();
 await testFetchSessionDetailsNormalizesBackendShape();
 await testFetchSessionsRejectsServerFailures();
 await testFetchSessionsRejectsNetworkFailures();

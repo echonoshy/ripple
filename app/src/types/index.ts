@@ -82,6 +82,8 @@ export interface UserProfile {
     runs_today: number;
     active_runs: number;
     total_tokens?: number;
+    total_input_tokens?: number;
+    total_output_tokens?: number;
     daily_tokens?: number;
     weekly_tokens?: number;
   };

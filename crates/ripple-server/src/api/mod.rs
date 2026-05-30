@@ -113,7 +113,8 @@ pub fn router(state: AppState) -> Router {
         .route("/auth/config", get(auth::auth_config))
         .route("/auth/invite/claim", post(auth::claim_invite))
         .route("/auth/login", post(auth::login))
-        .route("/auth/logout", post(auth::logout));
+        .route("/auth/logout", post(auth::logout))
+        .route("/auth/password", post(auth::change_password));
 
     let protected_v1 = Router::new()
         .route("/models", get(models::list_models))

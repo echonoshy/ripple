@@ -22,6 +22,12 @@ pub struct AuthLoginRequest {
     pub password: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct AuthPasswordChangeRequest {
+    pub current_password: String,
+    pub new_password: String,
+}
+
 pub async fn auth_config(State(state): State<AppState>) -> Json<Value> {
     Json(json!({
         "user_auth": {
@@ -100,6 +106,44 @@ pub async fn logout(
         .revoke_auth_session(&auth::hash_secret(token))
         .await?;
     Ok(Json(json!({"ok": true, "revoked": revoked})))
+}
+
+pub async fn change_password(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<AuthPasswordChangeRequest>,
+) -> Result<Json<Value>, ApiError> {
+    ensure_user_auth_enabled(&state)?;
+    let Some(token) = bearer_token(&headers) else {
+        return Err(ApiError::new(
+            StatusCode::UNAUTHORIZED,
+            json!({
+                "code": "unauthorized",
+                "message": "Missing user session token."
+            }),
+        ));
+    };
+    let Some(session) = auth::authenticate_session_token(&state.storage, token)
+        .await
+        .map_err(auth_bad_request)?
+    else {
+        return Err(ApiError::new(
+            StatusCode::UNAUTHORIZED,
+            json!({
+                "code": "unauthorized",
+                "message": "Invalid or expired session."
+            }),
+        ));
+    };
+    auth::change_password(
+        &state.storage,
+        &session.user_id,
+        &payload.current_password,
+        &payload.new_password,
+    )
+    .await
+    .map_err(auth_bad_request)?;
+    Ok(Json(json!({"ok": true})))
 }
 
 fn ensure_user_auth_enabled(state: &AppState) -> Result<(), ApiError> {

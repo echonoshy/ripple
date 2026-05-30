@@ -145,7 +145,7 @@ function testMobileHeaderButtonsUseToolbarStyling() {
   );
   assert.match(sessionPageSource, /ArrowBigLeft/);
   assert.match(sessionPageSource, /MessageSquarePlus/);
-  assert.match(sessionPageSource, /Settings2/);
+  assert.match(sessionPageSource, /Ellipsis/);
   assert.doesNotMatch(sessionPageSource, /mobileHeaderPrimaryButtonClass/);
   assert.doesNotMatch(sessionPageSource, /SquareChevronLeft/);
   assert.doesNotMatch(sessionPageSource, /ArrowBigLeftDash/);
@@ -153,6 +153,7 @@ function testMobileHeaderButtonsUseToolbarStyling() {
   assert.doesNotMatch(sessionPageSource, /<Plus size=\{21\}/);
   assert.doesNotMatch(sessionPageSource, /<SquarePen size=\{18\}/);
   assert.doesNotMatch(sessionPageSource, /<MoreHorizontal size=\{22\}/);
+  assert.doesNotMatch(sessionPageSource, /<Settings2 size=\{18\}/);
   assert.doesNotMatch(
     sessionPageSource,
     /className="inline-flex h-10 w-10 items-center justify-center rounded-full text-\[#172033\] active:bg-\[#eef3ff\]/

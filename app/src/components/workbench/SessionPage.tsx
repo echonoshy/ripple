@@ -14,10 +14,10 @@ import {
   ArrowBigLeft,
   CheckCircle2,
   Circle,
+  Ellipsis,
   Loader2,
   MessageSquarePlus,
   Pin,
-  Settings2,
 } from "lucide-react";
 import type {
   Message,
@@ -416,7 +416,7 @@ export default function SessionPage({
             disabled={!sessionId}
             className={`${mobileHeaderButtonClass} disabled:cursor-not-allowed disabled:opacity-40`}
           >
-            <Settings2 size={18} strokeWidth={2.2} />
+            <Ellipsis size={18} strokeWidth={2.2} />
           </button>
         </div>
       </div>

@@ -8,14 +8,33 @@ export interface ConnectorGroupSection {
   connectors: ConnectorInfo[];
 }
 
+export interface ConnectorReadinessSummary {
+  connected: number;
+  total: number;
+}
+
 export function connectorKindLabel(kind: ConnectorKind): string {
   return kind === "runtime_capability" ? "Runtime Capability" : "User Connector";
 }
 
+export function userConnectors(connectors: ConnectorInfo[]): ConnectorInfo[] {
+  return connectors.filter((connector) => connector.kind !== "runtime_capability");
+}
+
+export function connectorReadinessSummary(
+  connectors: ConnectorInfo[],
+  statuses: Record<string, ConnectorStatus>
+): ConnectorReadinessSummary {
+  const user = userConnectors(connectors);
+  return {
+    connected: user.filter((connector) => statuses[connector.name]?.connected).length,
+    total: user.length,
+  };
+}
+
 export function connectorGroupSections(connectors: ConnectorInfo[]): ConnectorGroupSection[] {
-  const user = connectors.filter((connector) => connector.kind !== "runtime_capability");
   const sections: ConnectorGroupSection[] = [
-    { kind: "user_connector", title: "User Connectors", connectors: user },
+    { kind: "user_connector", title: "User Connectors", connectors: userConnectors(connectors) },
   ];
   return sections.filter((section) => section.connectors.length > 0);
 }

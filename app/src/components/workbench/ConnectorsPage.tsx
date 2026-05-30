@@ -24,7 +24,11 @@ import {
   resolveBackendUrl,
   startConnectorAuth,
 } from "@/lib/api";
-import { connectorGroupSections, connectorStatusTone } from "@/lib/connectors";
+import {
+  connectorGroupSections,
+  connectorReadinessSummary,
+  connectorStatusTone,
+} from "@/lib/connectors";
 import type { ConnectorInfo, ConnectorStatus, GogcliAccountInfo } from "@/types";
 
 const CONNECTOR_CACHE_TTL_MS = 30_000;
@@ -213,8 +217,8 @@ export default function ConnectorsPage({
     return () => window.removeEventListener("focus", refreshOnFocus);
   }, [loadConnectors]);
 
-  const connected = useMemo(
-    () => connectors.filter((connector) => statuses[connector.name]?.connected).length,
+  const connectorReadiness = useMemo(
+    () => connectorReadinessSummary(connectors, statuses),
     [connectors, statuses]
   );
   const connectorSections = useMemo(() => connectorGroupSections(connectors), [connectors]);
@@ -436,10 +440,10 @@ export default function ConnectorsPage({
               </h1>
               <div className="mt-1.5 text-[12px] text-[#7a8496]">
                 <span className="sm:hidden">
-                  {connected}/{connectors.length || 0} ready
+                  {connectorReadiness.connected}/{connectorReadiness.total} ready
                 </span>
                 <span className="hidden sm:inline">
-                  {connected}/{connectors.length || 0} connected
+                  {connectorReadiness.connected}/{connectorReadiness.total} connected
                 </span>
               </div>
             </div>

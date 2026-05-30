@@ -24,6 +24,7 @@ import {
 } from "@/lib/api";
 import type { ConnectorInfo, ConnectorStatus, SandboxInfo, WorkbenchSessionSummary } from "@/types";
 import type { WorkspaceView } from "@/lib/workspaceViews";
+import { connectorReadinessSummary } from "@/lib/connectors";
 import RippleIcon from "@/components/icons/RippleIcon";
 
 interface HomePageProps {
@@ -51,13 +52,6 @@ function formatTokens(num: number): string {
     return (num / 1_000).toFixed(1) + "K";
   }
   return num.toString();
-}
-
-function connectedCount(
-  connectors: ConnectorInfo[],
-  statuses: Record<string, ConnectorStatus>
-): number {
-  return connectors.filter((connector) => statuses[connector.name]?.connected).length;
 }
 
 function countLabel(count: number, singular: string, plural = `${singular}s`): string {
@@ -110,7 +104,7 @@ export default function HomePage({
     });
   }, [loadSummary, userId]);
 
-  const connected = connectedCount(connectors, connectorStatuses);
+  const connectorReadiness = connectorReadinessSummary(connectors, connectorStatuses);
   const limits = userUsageData?.limits;
   const maxWorkspaceBytes = limits?.max_workspace_bytes || 2 * 1024 * 1024 * 1024;
   const maxSessions = limits?.max_sessions || 200;
@@ -149,7 +143,7 @@ export default function HomePage({
           <SettingsRow
             icon={<Plug size={16} />}
             title="Connectors"
-            detail={`${connected}/${connectors.length || 0} ready`}
+            detail={`${connectorReadiness.connected}/${connectorReadiness.total} ready`}
             onClick={() => onSelectView("connectors")}
             isLoading={isLoadingSummary}
           />

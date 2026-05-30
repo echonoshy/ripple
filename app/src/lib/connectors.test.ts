@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 
-import { connectorGroupSections, connectorKindLabel, connectorStatusTone } from "./connectors";
+import {
+  connectorGroupSections,
+  connectorKindLabel,
+  connectorReadinessSummary,
+  connectorStatusTone,
+} from "./connectors";
 import type { ConnectorInfo, ConnectorStatus } from "@/types";
 
 function connector(overrides: Partial<ConnectorInfo>): ConnectorInfo {
@@ -68,7 +73,61 @@ function testConnectorStatusToneUsesConnectionState() {
   assert.equal(connectorStatusTone(null), "unknown");
 }
 
+function testConnectorReadinessSummaryIgnoresRuntimeCapabilities() {
+  const connectors = [
+    connector({ name: "google_workspace", display_name: "Google Workspace" }),
+    connector({ name: "notion", display_name: "Notion" }),
+    connector({ name: "feishu", display_name: "Feishu" }),
+    connector({ name: "bilibili", display_name: "Bilibili" }),
+    connector({
+      name: "openai_codex",
+      display_name: "OpenAI Codex",
+      auth_type: "cli",
+      kind: "runtime_capability",
+      auth_flow: "none",
+    }),
+    connector({
+      name: "codex_image_generation",
+      display_name: "Image Generation",
+      auth_type: "runtime",
+      kind: "runtime_capability",
+      auth_flow: "none",
+    }),
+    connector({
+      name: "codex_image_input",
+      display_name: "Image Input",
+      auth_type: "runtime",
+      kind: "runtime_capability",
+      auth_flow: "none",
+    }),
+    connector({
+      name: "codex_web_search",
+      display_name: "Web Search",
+      auth_type: "runtime",
+      kind: "runtime_capability",
+      auth_flow: "none",
+    }),
+  ];
+  const summary = connectorReadinessSummary(connectors, {
+    google_workspace: status({ name: "google_workspace", connected: true }),
+    notion: status({ name: "notion", connected: true }),
+    feishu: status({ name: "feishu", connected: false }),
+    bilibili: status({ name: "bilibili", connected: false }),
+    openai_codex: status({ name: "openai_codex", connected: true, required: false }),
+    codex_image_generation: status({
+      name: "codex_image_generation",
+      connected: true,
+      required: false,
+    }),
+    codex_image_input: status({ name: "codex_image_input", connected: true, required: false }),
+    codex_web_search: status({ name: "codex_web_search", connected: true, required: false }),
+  });
+
+  assert.deepEqual(summary, { connected: 2, total: 4 });
+}
+
 testConnectorGroupsOnlyExposeUserConnectorsForManagementPage();
 testConnectorStatusToneUsesConnectionState();
+testConnectorReadinessSummaryIgnoresRuntimeCapabilities();
 
 console.log("connectors tests passed");

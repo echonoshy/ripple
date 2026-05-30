@@ -569,8 +569,10 @@ export default function SettingsPage({
               max={maxSessions}
               detail={`${sessionCount} of ${maxSessions}`}
             />
-            <Metric label="Runs today" value={`${usage?.runs_today ?? 0}`} />
-            <Metric label="Active runs" value={`${usage?.active_runs ?? 0}`} />
+            <RunActivityMetrics
+              runsToday={usage?.runs_today ?? 0}
+              activeRuns={usage?.active_runs ?? 0}
+            />
           </div>
           <div className="border-t border-[#e8edf7] p-2.5">
             <div className="mb-1.5 flex items-center gap-1.5 text-[12px] font-semibold text-[#374151]">
@@ -766,6 +768,35 @@ function Metric({
     >
       <div className="text-[11px] font-medium text-[#8b8f94]">{label}</div>
       <div className="mt-0.5 text-[14px] font-semibold text-[#253247]">{value}</div>
+    </div>
+  );
+}
+
+function RunActivityMetrics({
+  runsToday,
+  activeRuns,
+}: {
+  runsToday: number;
+  activeRuns: number;
+}) {
+  const items = [
+    { label: "Runs today", value: runsToday },
+    { label: "Running now", value: activeRuns },
+  ];
+
+  return (
+    <div
+      data-ripple-settings-run-metrics
+      className="md:col-span-2 overflow-hidden rounded-lg border border-[#e8edf7] bg-[#f8faff]"
+    >
+      <div className="grid grid-cols-2 divide-x divide-[#e8edf7]">
+        {items.map((item) => (
+          <div key={item.label} className="px-2 py-1.5">
+            <div className="text-[11px] font-medium text-[#8b8f94]">{item.label}</div>
+            <div className="mt-0.5 text-[14px] font-semibold text-[#253247]">{item.value}</div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

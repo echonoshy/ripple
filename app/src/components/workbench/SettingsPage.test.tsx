@@ -161,6 +161,21 @@ function testSettingsPageUsesInlineModelMenuAndTokenBreakdown() {
   assert.match(html, />Input and output are shown separately for each window/);
 }
 
+function testSettingsPageCombinesRunCountersInOneRow() {
+  const source = readFileSync(new URL("./SettingsPage.tsx", import.meta.url), "utf8");
+  const html = renderSettingsPage();
+
+  assert.match(source, /function RunActivityMetrics/);
+  assert.match(source, /data-ripple-settings-run-metrics/);
+  assert.match(source, /md:col-span-2/);
+  assert.doesNotMatch(source, /<Metric label="Runs today"/);
+  assert.doesNotMatch(source, /<Metric label="Active runs"/);
+  assert.match(html, /data-ripple-settings-run-metrics/);
+  assert.match(html, />Runs today/);
+  assert.match(html, />Running now/);
+  assert.doesNotMatch(html, />Active runs/);
+}
+
 function testSettingsPageDoesNotFetchConnectorData() {
   const source = readFileSync(new URL("./SettingsPage.tsx", import.meta.url), "utf8");
 
@@ -206,6 +221,7 @@ testSettingsPageDoesNotDuplicatePrimaryWorkspaceTabs();
 testSettingsPageHidesDiagnosticsByDefault();
 testSettingsPageReservesMobileTopSafeArea();
 testSettingsPageUsesInlineModelMenuAndTokenBreakdown();
+testSettingsPageCombinesRunCountersInOneRow();
 testSettingsPageDoesNotFetchConnectorData();
 testSettingsPageUsesSoftTilesForEntitySections();
 testDefaultModelControlUsesDefaultModelNotCurrentSessionModel();

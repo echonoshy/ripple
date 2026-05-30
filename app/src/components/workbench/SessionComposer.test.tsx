@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import SessionComposer from "./SessionComposer";
+import SessionComposer, { shouldExpandComposer } from "./SessionComposer";
 import type { PendingLocalImage } from "@/lib/pendingImages";
 
 function noop() {}
@@ -90,7 +90,24 @@ function testComposerClearsIosHomeIndicatorAndUsesTouchSizedActions() {
 
   assert.match(html, /pb-\[max\(env\(safe-area-inset-bottom\),8px\)\]/);
   assert.match(html, /h-10 w-10/);
-  assert.match(html, /text-\[16px\][^"]*sm:text-\[14px\]/);
+  assert.match(html, /text-\[15px\][^"]*sm:text-\[14px\]/);
+}
+
+function testComposerExpandsActionsBelowTextAfterInput() {
+  const emptyHtml = renderComposer();
+  const draftHtml = renderComposer({ value: "hello" });
+
+  assert.match(emptyHtml, /data-composer-expanded="false"/);
+  assert.match(emptyHtml, /data-composer-layout="inline"/);
+  assert.match(draftHtml, /data-composer-expanded="true"/);
+  assert.match(draftHtml, /data-composer-layout="stacked"/);
+}
+
+function testComposerExpandsWhenFocusedWithoutInput() {
+  assert.equal(shouldExpandComposer("", true), true);
+  assert.equal(shouldExpandComposer("   ", true), true);
+  assert.equal(shouldExpandComposer("hello", false), true);
+  assert.equal(shouldExpandComposer("", false), false);
 }
 
 function testComposerShowsAttachmentUploadStateAndErrors() {
@@ -131,6 +148,8 @@ testComposerToolbarNamesRealActions();
 testComposerInputSuppressesGlobalBlueFocusOutline();
 testBlockedComposerStillAllowsDraftingAndShowsStop();
 testComposerClearsIosHomeIndicatorAndUsesTouchSizedActions();
+testComposerExpandsActionsBelowTextAfterInput();
+testComposerExpandsWhenFocusedWithoutInput();
 testComposerShowsAttachmentUploadStateAndErrors();
 testComposerShowsPendingLocalImagePreview();
 testLocalImageOnlyMessageCanSend();

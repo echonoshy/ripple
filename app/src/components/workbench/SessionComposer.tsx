@@ -59,6 +59,10 @@ type QuickActionsState = {
   key: string;
 };
 
+export function shouldExpandComposer(value: string, isComposerFocused: boolean): boolean {
+  return isComposerFocused || value.trim().length > 0;
+}
+
 export default function SessionComposer({
   value,
   onChange,
@@ -91,6 +95,7 @@ export default function SessionComposer({
   const [quickActionsState, setQuickActionsState] = useState<QuickActionsState | null>(null);
   const [dismissedSlashKey, setDismissedSlashKey] = useState<string | null>(null);
   const [quickActionIndex, setQuickActionIndex] = useState(0);
+  const [isComposerFocused, setIsComposerFocused] = useState(false);
   const canSend = Boolean(value.trim() || pendingFiles.length > 0 || pendingLocalImages.length > 0);
   const inputDisabled = isGenerating;
   const attachDisabled = inputDisabled || isUploadingFiles;
@@ -104,6 +109,7 @@ export default function SessionComposer({
     () => getQuickActionMatches(quickActionsState?.query ?? ""),
     [quickActionsState?.query]
   );
+  const isExpandedComposer = shouldExpandComposer(value, isComposerFocused);
 
   const adjustHeight = useCallback(() => {
     const el = textareaRef.current;
@@ -271,6 +277,142 @@ export default function SessionComposer({
     if (attachmentFiles.length > 0) void onAttachFiles(attachmentFiles);
   };
 
+  const handleComposerBlur = (event: React.FocusEvent<HTMLDivElement>) => {
+    const nextFocusedElement = event.relatedTarget;
+    if (nextFocusedElement instanceof Node && event.currentTarget.contains(nextFocusedElement)) {
+      return;
+    }
+    setIsComposerFocused(false);
+  };
+
+  const toolbarControls = (
+    <div
+      className={`flex h-10 shrink-0 items-center sm:h-8 ${
+        isExpandedComposer ? "col-start-1 row-start-2 -ml-1" : "-mr-1 sm:mb-[2px]"
+      }`}
+    >
+      <div ref={quickActionsRef} className="relative flex items-center">
+        {isQuickActionsOpen && (
+          <div className="absolute bottom-full left-0 z-30 mb-2 w-52 overflow-hidden rounded-xl border border-[#dfe6f4] bg-white shadow-[0_14px_34px_rgba(44,63,123,0.14)]">
+            {quickActionMatches.map((action, index) => (
+              <button
+                key={action.id}
+                type="button"
+                onClick={() => runQuickAction(action)}
+                className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[#111827] hover:bg-[#f7f8fa] ${
+                  index === quickActionIndex ? "bg-[#eef3ff]" : ""
+                }`}
+              >
+                <Trash2 size={14} className="text-[#6b7280]" />
+                <span className="font-[family-name:var(--font-mono)] text-xs">
+                  /{action.command}
+                </span>
+                <span className="text-xs text-[#6b7280]">{action.label}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        <button
+          type="button"
+          aria-label="Attach files"
+          title="Attach files"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={attachDisabled}
+          className="inline-flex h-10 w-10 items-center justify-center rounded-full text-[#4b5563] hover:bg-[#f3f4f6] hover:text-[#111827] active:bg-[#eef3ff] disabled:cursor-not-allowed disabled:opacity-50 sm:h-8 sm:w-8"
+        >
+          {isUploadingFiles ? (
+            <Loader2 size={15} className="animate-spin" />
+          ) : (
+            <Paperclip size={15} />
+          )}
+        </button>
+      </div>
+      <div ref={modelDropdownRef} className="relative flex shrink-0 items-center">
+        <button
+          type="button"
+          aria-label="Select model"
+          title={`Model: ${formatModelName(selectedModel)}`}
+          onClick={onToggleModelDropdown}
+          className="inline-flex h-10 w-10 items-center justify-center rounded-full text-[#4b5563] hover:bg-[#f3f4f6] hover:text-[#111827] active:bg-[#eef3ff] sm:h-8 sm:w-8"
+        >
+          <Sparkles size={15} />
+        </button>
+        {isModelDropdownOpen && (
+          <div className="absolute bottom-full left-0 z-30 mb-2 w-48 overflow-hidden rounded-xl border border-[#dfe6f4] bg-white shadow-[0_14px_34px_rgba(44,63,123,0.14)]">
+            <div className="p-1">
+              {availableModels.map((model) => (
+                <button
+                  key={model.id}
+                  type="button"
+                  onClick={() => onSelectModel(model.id)}
+                  className={`flex w-full items-center rounded px-3 py-2 text-left font-[family-name:var(--font-mono)] text-xs hover:bg-[#f7f8fa] ${
+                    selectedModel === model.id ? "bg-[#eef3ff] text-[#2457e6]" : "text-[#111827]"
+                  }`}
+                >
+                  {formatModelName(model.id)}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  const composerInput = (
+    <textarea
+      ref={textareaRef}
+      value={value}
+      onChange={handleComposerChange}
+      onKeyDown={handleKeyDown}
+      onKeyUp={handleComposerSelection}
+      onSelect={handleComposerSelection}
+      onPaste={handlePaste}
+      disabled={inputDisabled}
+      rows={1}
+      placeholder={
+        isGenerating
+          ? "Working..."
+          : isBlocked
+            ? "Draft your next message..."
+            : hasSession
+              ? "Ask anything..."
+              : "Ask anything..."
+      }
+      className={`session-composer-input mb-[2px] max-h-[104px] min-h-9 min-w-0 resize-none bg-transparent px-1.5 py-2 text-[15px] leading-5 text-[#111827] outline-none placeholder:text-[13px] placeholder:text-[#9aa3af] disabled:opacity-60 sm:mb-0 sm:max-h-[180px] sm:min-h-[36px] sm:px-2 sm:py-1.5 sm:text-[14px] sm:leading-6 sm:placeholder:text-[#8b8f94] ${
+        isExpandedComposer ? "col-span-2 row-start-1 w-full" : "flex-1"
+      }`}
+    />
+  );
+
+  const sendControl =
+    isGenerating || isBlocked ? (
+      <button
+        type="button"
+        onClick={onStop}
+        aria-label="Stop generation"
+        title={isBlocked ? "Stop running session" : "Stop generation"}
+        className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#cf222e]/20 bg-[#ffebe9] text-[#cf222e] shadow-[0_8px_18px_rgba(207,34,46,0.10)] hover:bg-[#ffd7d5] sm:h-8 sm:w-8 ${
+          isExpandedComposer ? "col-start-2 row-start-2 justify-self-end" : "sm:mb-[2px]"
+        }`}
+      >
+        <Square size={13} fill="currentColor" />
+      </button>
+    ) : (
+      <button
+        type="button"
+        onClick={onSend}
+        disabled={!canSend || sendDisabled}
+        aria-label="Send message"
+        title="Send message"
+        className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#4067ff]/20 bg-[linear-gradient(135deg,#2f6bff,#7b5cff)] text-white shadow-[0_10px_22px_rgba(64,92,255,0.30)] disabled:cursor-not-allowed disabled:border-[#dfe6f4] disabled:bg-[#f3f6fb] disabled:bg-none disabled:text-[#9aa3af] disabled:shadow-none sm:h-8 sm:w-8 ${
+          isExpandedComposer ? "col-start-2 row-start-2 justify-self-end" : "sm:mb-[2px]"
+        }`}
+      >
+        <Send size={14} />
+      </button>
+    );
+
   return (
     <div className="shrink-0 border-t border-[#e8edf7] bg-white/76 px-3 pt-1 pb-[max(env(safe-area-inset-bottom),8px)] shadow-[0_-14px_32px_rgba(44,63,123,0.08)] backdrop-blur-2xl sm:px-4 sm:pt-2 md:px-6 lg:pb-[max(env(safe-area-inset-bottom),12px)]">
       <div className="mx-auto max-w-4xl rounded-[20px] border border-[#dfe6f4] bg-white/92 p-1.5 shadow-[0_12px_30px_rgba(44,63,123,0.12)] transition-colors focus-within:border-[#8da0ff] sm:rounded-2xl sm:p-1.5">
@@ -282,119 +424,20 @@ export default function SessionComposer({
           onChange={handleAttachChange}
           disabled={attachDisabled}
         />
-        <div className="flex items-end gap-1.5">
-          <div className="-mr-1 flex h-10 shrink-0 items-center sm:mb-[2px] sm:h-8">
-            <div ref={quickActionsRef} className="relative flex items-center">
-              {isQuickActionsOpen && (
-                <div className="absolute bottom-full left-0 z-30 mb-2 w-52 overflow-hidden rounded-xl border border-[#dfe6f4] bg-white shadow-[0_14px_34px_rgba(44,63,123,0.14)]">
-                  {quickActionMatches.map((action, index) => (
-                    <button
-                      key={action.id}
-                      type="button"
-                      onClick={() => runQuickAction(action)}
-                      className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[#111827] hover:bg-[#f7f8fa] ${
-                        index === quickActionIndex ? "bg-[#eef3ff]" : ""
-                      }`}
-                    >
-                      <Trash2 size={14} className="text-[#6b7280]" />
-                      <span className="font-[family-name:var(--font-mono)] text-xs">
-                        /{action.command}
-                      </span>
-                      <span className="text-xs text-[#6b7280]">{action.label}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-              <button
-                type="button"
-                aria-label="Attach files"
-                title="Attach files"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={attachDisabled}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-full text-[#4b5563] hover:bg-[#f3f4f6] hover:text-[#111827] active:bg-[#eef3ff] disabled:cursor-not-allowed disabled:opacity-50 sm:h-8 sm:w-8"
-              >
-                {isUploadingFiles ? (
-                  <Loader2 size={15} className="animate-spin" />
-                ) : (
-                  <Paperclip size={15} />
-                )}
-              </button>
-            </div>
-            <div ref={modelDropdownRef} className="relative flex shrink-0 items-center">
-              <button
-                type="button"
-                aria-label="Select model"
-                title={`Model: ${formatModelName(selectedModel)}`}
-                onClick={onToggleModelDropdown}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-full text-[#4b5563] hover:bg-[#f3f4f6] hover:text-[#111827] active:bg-[#eef3ff] sm:h-8 sm:w-8"
-              >
-                <Sparkles size={15} />
-              </button>
-              {isModelDropdownOpen && (
-                <div className="absolute bottom-full left-0 z-30 mb-2 w-48 overflow-hidden rounded-xl border border-[#dfe6f4] bg-white shadow-[0_14px_34px_rgba(44,63,123,0.14)]">
-                  <div className="p-1">
-                    {availableModels.map((model) => (
-                      <button
-                        key={model.id}
-                        type="button"
-                        onClick={() => onSelectModel(model.id)}
-                        className={`flex w-full items-center rounded px-3 py-2 text-left font-[family-name:var(--font-mono)] text-xs hover:bg-[#f7f8fa] ${
-                          selectedModel === model.id
-                            ? "bg-[#eef3ff] text-[#2457e6]"
-                            : "text-[#111827]"
-                        }`}
-                      >
-                        {formatModelName(model.id)}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-          <textarea
-            ref={textareaRef}
-            value={value}
-            onChange={handleComposerChange}
-            onKeyDown={handleKeyDown}
-            onKeyUp={handleComposerSelection}
-            onSelect={handleComposerSelection}
-            onPaste={handlePaste}
-            disabled={inputDisabled}
-            rows={1}
-            placeholder={
-              isGenerating
-                ? "Working..."
-                : isBlocked
-                  ? "Draft your next message..."
-                  : hasSession
-                    ? "Ask anything..."
-                    : "Ask anything..."
-            }
-            className="session-composer-input mb-[2px] max-h-[104px] min-h-9 min-w-0 flex-1 resize-none bg-transparent px-1.5 py-2 text-[16px] leading-5 text-[#111827] outline-none placeholder:text-[14px] placeholder:text-[#9aa3af] disabled:opacity-60 sm:mb-0 sm:max-h-[180px] sm:min-h-[36px] sm:w-full sm:px-2 sm:py-1.5 sm:text-[14px] sm:leading-6 sm:placeholder:text-[#8b8f94]"
-          />
-          {isGenerating || isBlocked ? (
-            <button
-              type="button"
-              onClick={onStop}
-              aria-label="Stop generation"
-              title={isBlocked ? "Stop running session" : "Stop generation"}
-              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#cf222e]/20 bg-[#ffebe9] text-[#cf222e] shadow-[0_8px_18px_rgba(207,34,46,0.10)] hover:bg-[#ffd7d5] sm:mb-[2px] sm:h-8 sm:w-8"
-            >
-              <Square size={13} fill="currentColor" />
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={onSend}
-              disabled={!canSend || sendDisabled}
-              aria-label="Send message"
-              title="Send message"
-              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#4067ff]/20 bg-[linear-gradient(135deg,#2f6bff,#7b5cff)] text-white shadow-[0_10px_22px_rgba(64,92,255,0.30)] disabled:cursor-not-allowed disabled:border-[#dfe6f4] disabled:bg-[#f3f6fb] disabled:bg-none disabled:text-[#9aa3af] disabled:shadow-none sm:mb-[2px] sm:h-8 sm:w-8"
-            >
-              <Send size={14} />
-            </button>
-          )}
+        <div
+          data-composer-expanded={isExpandedComposer ? "true" : "false"}
+          data-composer-layout={isExpandedComposer ? "stacked" : "inline"}
+          onFocus={() => setIsComposerFocused(true)}
+          onBlur={handleComposerBlur}
+          className={
+            isExpandedComposer
+              ? "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-1.5 gap-y-1"
+              : "flex items-end gap-1.5"
+          }
+        >
+          {toolbarControls}
+          {composerInput}
+          {sendControl}
         </div>
         {pendingLocalImages.length > 0 && (
           <div className="flex flex-wrap gap-2 px-1 pt-1 pb-2">

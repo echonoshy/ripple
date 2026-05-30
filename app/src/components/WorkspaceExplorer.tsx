@@ -3,7 +3,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
-  ArrowBigLeft,
   ArrowUp,
   ChevronDown,
   Download,
@@ -24,6 +23,7 @@ import {
   FilePlus,
   FolderPlus,
   MoreHorizontal,
+  MessageCircleReply,
   X,
 } from "lucide-react";
 import { IconTile } from "@/components/icons/IconTile";
@@ -1045,7 +1045,7 @@ export default function WorkspaceExplorer({
   const pageToolbarIconButtonClass =
     "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#dfe6f4] bg-white/78 text-[#384152] shadow-[0_10px_24px_rgba(44,63,123,0.06)] transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-50";
   const pageToolbarPrimaryButtonClass =
-    "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#2463eb] bg-[#2463eb] text-white shadow-[0_10px_24px_rgba(36,99,235,0.2)] transition-colors hover:bg-[#1d56d8] disabled:cursor-not-allowed disabled:opacity-60";
+    pageToolbarIconButtonClass;
   const pageParentButtonClass =
     "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-[#dfe6f4] bg-white/78 px-2.5 text-[12px] font-semibold text-[#384152] shadow-[0_10px_24px_rgba(44,63,123,0.06)] transition-colors hover:bg-white lg:hidden";
 
@@ -1095,11 +1095,11 @@ export default function WorkspaceExplorer({
                 <button
                   type="button"
                   onClick={onBack}
-                  aria-label="Back to settings"
-                  title="Back to settings"
-                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[#dfe6f4] bg-white/78 text-[#6b7280] shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] hover:bg-[#f7f8fa] lg:hidden"
+                  aria-label="Back to session"
+                  title="Back to session"
+                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[#2f6bff] bg-[#2f6bff] text-white shadow-[0_12px_26px_rgba(47,107,255,0.28)] transition-colors hover:bg-[#245de8] active:bg-[#1f4ed0] lg:hidden"
                 >
-                  <ArrowBigLeft size={17} />
+                  <MessageCircleReply size={17} />
                 </button>
               ) : null}
               <div className="min-w-0 flex-1">

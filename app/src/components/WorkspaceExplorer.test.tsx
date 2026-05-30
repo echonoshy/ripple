@@ -98,6 +98,20 @@ function testWorkspaceExplorerPageStacksHeaderControlsAwayFromTitle() {
 
 testWorkspaceExplorerPageStacksHeaderControlsAwayFromTitle();
 
+function testWorkspaceExplorerBackButtonNamesSessionReturn() {
+  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const html = renderExplorer({ presentation: "page", onBack: () => {} });
+
+  assert.match(source, /MessageCircleReply/);
+  assert.match(html, /aria-label="Back to session"/);
+  assert.match(html, /title="Back to session"/);
+  assert.match(html, /bg-\[#2f6bff\]/);
+  assert.match(html, /text-white/);
+  assert.doesNotMatch(html, /Back to settings/);
+}
+
+testWorkspaceExplorerBackButtonNamesSessionReturn();
+
 function testWorkspaceExplorerPageShowsProjectControls() {
   const html = renderExplorer({
     presentation: "page",
@@ -165,8 +179,9 @@ function testWorkspaceExplorerPageKeepsMobileUploadSeparateFromParentFolder() {
   assert.ok(uploadButton);
   assert.match(parentButton, /border-\[#dfe6f4\]/);
   assert.match(parentButton, /bg-white\/78/);
-  assert.match(uploadButton, /border-\[#2463eb\]/);
-  assert.match(uploadButton, /bg-\[#2463eb\]/);
+  assert.match(uploadButton, /border-\[#dfe6f4\]/);
+  assert.match(uploadButton, /bg-white\/78/);
+  assert.doesNotMatch(uploadButton, /bg-\[#2463eb\]/);
 }
 
 testWorkspaceExplorerPageKeepsMobileUploadSeparateFromParentFolder();

@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   Bot,
   CheckCircle2,
+  Copy,
   FileCode2,
   ImageIcon,
   ShieldAlert,
@@ -18,6 +19,7 @@ import MarkdownRenderer, {
 } from "@/components/MarkdownRenderer";
 import { IconTile, type IconTileTone } from "@/components/icons/IconTile";
 import { downloadWorkspaceFile } from "@/lib/api";
+import { copyTextToClipboard } from "@/lib/clipboard";
 import { getWorkspaceImagePreviewUrl } from "@/lib/workspaceImageCache";
 import type { Message, WorkbenchTimelineEvent } from "@/types";
 
@@ -177,6 +179,30 @@ export default function SessionTimeline({
   const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
   const pendingAskUser = !isGenerating ? lastAssistant?.askUser : undefined;
   const pendingPermission = !isGenerating ? lastAssistant?.permissionRequest : undefined;
+  const [copiedEventId, setCopiedEventId] = React.useState<string | null>(null);
+  const copyResetTimerRef = React.useRef<number | null>(null);
+
+  React.useEffect(() => {
+    return () => {
+      if (copyResetTimerRef.current !== null) {
+        window.clearTimeout(copyResetTimerRef.current);
+      }
+    };
+  }, []);
+
+  const handleCopyEvent = React.useCallback(async (event: WorkbenchTimelineEvent) => {
+    const didCopy = await copyTextToClipboard(event.body);
+    if (!didCopy) return;
+
+    setCopiedEventId(event.id);
+    if (copyResetTimerRef.current !== null) {
+      window.clearTimeout(copyResetTimerRef.current);
+    }
+    copyResetTimerRef.current = window.setTimeout(() => {
+      setCopiedEventId(null);
+      copyResetTimerRef.current = null;
+    }, 1400);
+  }, []);
 
   if (events.length === 0 && !isGenerating) {
     return (
@@ -214,11 +240,17 @@ export default function SessionTimeline({
           "runtime_update",
         ].includes(event.type);
         const eventTime = formatTime(event.createdAt);
+        const canCopyEvent =
+          !isToolEvent &&
+          event.type !== "image_generation" &&
+          event.type !== "image_view" &&
+          event.body.trim().length > 0;
+        const isCopied = copiedEventId === event.id;
 
         return (
           <article
             key={event.id}
-            className="relative border-b border-[#e9eef7]/80 py-2.5 last:border-b-0 sm:py-4"
+            className="group/timeline-event relative border-b border-[#e9eef7]/80 py-2.5 last:border-b-0 sm:py-4"
           >
             <IconTile
               tone={eventIconTone(event.type)}
@@ -240,6 +272,17 @@ export default function SessionTimeline({
                   </span>
                 )}
                 {eventTime && <span>{eventTime}</span>}
+                {canCopyEvent && (
+                  <button
+                    type="button"
+                    aria-label={`Copy ${event.title} content`}
+                    title="Copy content"
+                    onClick={() => void handleCopyEvent(event)}
+                    className="pointer-events-none opacity-0 inline-flex h-7 w-7 items-center justify-center rounded-lg border border-[#dfe6f4] bg-white/82 text-[#667085] shadow-[0_6px_14px_rgba(44,63,123,0.06)] transition-all hover:bg-[#f7f8fa] hover:text-[#2f6bff] focus:pointer-events-auto focus:opacity-100 group-hover/timeline-event:pointer-events-auto group-hover/timeline-event:opacity-100 group-focus-within/timeline-event:pointer-events-auto group-focus-within/timeline-event:opacity-100 active:bg-[#eef4ff]"
+                  >
+                    {isCopied ? <CheckCircle2 size={14} /> : <Copy size={14} />}
+                  </button>
+                )}
               </div>
             </div>
             {isToolEvent ? (

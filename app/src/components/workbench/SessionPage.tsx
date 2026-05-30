@@ -11,13 +11,13 @@ import {
 } from "react";
 import {
   AlertTriangle,
-  ArrowLeft,
+  ArrowBigLeft,
   CheckCircle2,
   Circle,
   Loader2,
-  MoreHorizontal,
+  MessageSquarePlus,
   Pin,
-  Plus,
+  Settings2,
 } from "lucide-react";
 import type {
   Message,
@@ -42,6 +42,8 @@ import SessionTimeline from "./SessionTimeline";
 
 const STICK_TO_BOTTOM_MS = 1200;
 const BOTTOM_LOCK_THRESHOLD_PX = 40;
+const mobileHeaderButtonClass =
+  "inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/70 bg-white/68 text-[#516070] shadow-[0_6px_18px_rgba(44,63,123,0.08)] backdrop-blur-xl transition-all hover:bg-white/86 active:scale-[0.98] active:bg-white/78";
 
 function currentTimeMs(): number {
   return typeof performance === "undefined" ? Date.now() : performance.now();
@@ -374,9 +376,9 @@ export default function SessionPage({
           aria-label="Back to sessions"
           title="Back to sessions"
           onClick={onBackToMobileSessions}
-          className="inline-flex h-10 w-10 items-center justify-center rounded-full text-[#172033] active:bg-[#eef3ff]"
+          className={mobileHeaderButtonClass}
         >
-          <ArrowLeft size={22} strokeWidth={2.4} />
+          <ArrowBigLeft size={18} strokeWidth={2.2} />
         </button>
         <div className="min-w-0 text-center">
           <div className="truncate text-[15px] leading-5 font-semibold text-[#111827]">
@@ -402,9 +404,9 @@ export default function SessionPage({
             aria-label="New session"
             title="New session"
             onClick={onNewSession}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full text-[#172033] active:bg-[#eef3ff]"
+            className={mobileHeaderButtonClass}
           >
-            <Plus size={21} strokeWidth={2.4} />
+            <MessageSquarePlus size={18} strokeWidth={2.2} />
           </button>
           <button
             type="button"
@@ -412,9 +414,9 @@ export default function SessionPage({
             title="Session options"
             onClick={openSessionSettings}
             disabled={!sessionId}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full text-[#172033] active:bg-[#eef3ff] disabled:opacity-40"
+            className={`${mobileHeaderButtonClass} disabled:cursor-not-allowed disabled:opacity-40`}
           >
-            <MoreHorizontal size={22} strokeWidth={2.4} />
+            <Settings2 size={18} strokeWidth={2.2} />
           </button>
         </div>
       </div>
@@ -464,9 +466,9 @@ export default function SessionPage({
                 aria-label="Back to session"
                 title="Back to session"
                 onClick={closeSessionSettings}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-full text-[#172033] hover:bg-[#f7f8fa]"
+                className={mobileHeaderButtonClass}
               >
-                <ArrowLeft size={21} strokeWidth={2.35} />
+                <ArrowBigLeft size={18} strokeWidth={2.2} />
               </button>
               <div className="truncate text-center text-[15px] font-semibold text-[#111827]">
                 Session settings

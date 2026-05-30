@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
-  ArrowLeft,
+  ArrowBigLeft,
   ArrowUp,
   ChevronDown,
   Download,
@@ -1099,7 +1099,7 @@ export default function WorkspaceExplorer({
                   title="Back to settings"
                   className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[#dfe6f4] bg-white/78 text-[#6b7280] shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] hover:bg-[#f7f8fa] lg:hidden"
                 >
-                  <ArrowLeft size={17} />
+                  <ArrowBigLeft size={17} />
                 </button>
               ) : null}
               <div className="min-w-0 flex-1">

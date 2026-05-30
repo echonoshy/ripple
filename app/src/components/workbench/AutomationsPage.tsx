@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
-  ArrowLeft,
+  ArrowBigLeft,
   CalendarClock,
   Loader2,
   Pause,
@@ -299,7 +299,7 @@ export default function AutomationsPage({
                 title="Back to settings"
                 className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#dfe6f4] bg-white text-[#384152] hover:bg-[#f7f8fa] lg:hidden"
               >
-                <ArrowLeft size={17} />
+                <ArrowBigLeft size={17} />
               </button>
             ) : null}
             <div className="min-w-0">

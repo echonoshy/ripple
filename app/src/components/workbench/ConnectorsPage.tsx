@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
-  ArrowLeft,
+  ArrowBigLeft,
   ExternalLink,
   KeyRound,
   Loader2,
@@ -438,7 +438,7 @@ export default function ConnectorsPage({
                 title="Back to settings"
                 className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#dfe6f4] bg-white text-[#384152] hover:bg-[#f7f8fa] lg:hidden"
               >
-                <ArrowLeft size={15} />
+                <ArrowBigLeft size={15} />
               </button>
             ) : null}
             <div className="min-w-0">

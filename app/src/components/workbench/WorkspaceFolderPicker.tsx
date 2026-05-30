@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Check, Folder, Loader2, X } from "lucide-react";
+import { ArrowBigLeft, Check, Folder, Loader2, X } from "lucide-react";
 import { fetchWorkspaceListing } from "@/lib/api";
 import type { ProjectInfo, WorkspaceEntry, WorkspaceListing } from "@/types";
 
@@ -122,7 +122,7 @@ export default function WorkspaceFolderPicker({
             onClick={() => setPath(parent)}
             className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[#667085] hover:bg-[#f3f4f6] hover:text-[#111827]"
           >
-            <ArrowLeft size={15} />
+            <ArrowBigLeft size={15} />
           </button>
         )}
       </div>

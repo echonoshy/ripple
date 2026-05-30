@@ -138,6 +138,27 @@ function testOmitsPlaceholderSessionHeaderControls() {
   assert.doesNotMatch(html, /Review recent tasks/);
 }
 
+function testMobileHeaderButtonsUseToolbarStyling() {
+  assert.match(
+    sessionPageSource,
+    /mobileHeaderButtonClass =\s+"inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white\/70 bg-white\/68 text-\[#516070\]/
+  );
+  assert.match(sessionPageSource, /ArrowBigLeft/);
+  assert.match(sessionPageSource, /MessageSquarePlus/);
+  assert.match(sessionPageSource, /Settings2/);
+  assert.doesNotMatch(sessionPageSource, /mobileHeaderPrimaryButtonClass/);
+  assert.doesNotMatch(sessionPageSource, /SquareChevronLeft/);
+  assert.doesNotMatch(sessionPageSource, /ArrowBigLeftDash/);
+  assert.doesNotMatch(sessionPageSource, /<ArrowLeft size=\{22\}/);
+  assert.doesNotMatch(sessionPageSource, /<Plus size=\{21\}/);
+  assert.doesNotMatch(sessionPageSource, /<SquarePen size=\{18\}/);
+  assert.doesNotMatch(sessionPageSource, /<MoreHorizontal size=\{22\}/);
+  assert.doesNotMatch(
+    sessionPageSource,
+    /className="inline-flex h-10 w-10 items-center justify-center rounded-full text-\[#172033\] active:bg-\[#eef3ff\]/
+  );
+}
+
 function testGivesSessionContentMoreHorizontalRoom() {
   const html = renderSessionPage();
 
@@ -331,6 +352,7 @@ function testExplicitSessionSelectionTriggersStickyBottom() {
 }
 
 testOmitsPlaceholderSessionHeaderControls();
+testMobileHeaderButtonsUseToolbarStyling();
 testGivesSessionContentMoreHorizontalRoom();
 testSessionPageHandlesDropAcrossWholeChat();
 testMobileHeaderReservesTopSafeArea();

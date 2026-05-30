@@ -6,10 +6,10 @@ import {
   AlertTriangle,
   Loader2,
   MessageCircle,
+  MessageCircleMore,
+  MessageSquarePlus,
   Pin,
-  Plus,
   Search,
-  MoreHorizontal,
   Edit3,
   Trash2,
 } from "lucide-react";
@@ -56,6 +56,8 @@ function sessionPreview(session: WorkbenchSessionSummary): string {
 
 const MOBILE_SESSION_MENU_WIDTH = 144;
 const MOBILE_SESSION_MENU_HEIGHT = 132;
+const mobileHeaderActionClass =
+  "inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/70 bg-white/68 text-[#516070] shadow-[0_6px_18px_rgba(44,63,123,0.08)] backdrop-blur-xl transition-all hover:bg-white/86 active:scale-[0.98] active:bg-white/78";
 
 interface ActiveSessionMenu {
   sessionId: string;
@@ -233,9 +235,9 @@ export default function MobileSessionsPage({
               aria-label="New session"
               title="New session"
               onClick={onNewSession}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#b8cdf8]/80 bg-[#eef4ff]/78 text-[#2463eb] shadow-[0_8px_22px_rgba(36,99,235,0.12)] backdrop-blur-xl transition-all hover:bg-[#e8f0ff]/86 active:scale-[0.98] active:bg-[#dfeaff]/82"
+              className={mobileHeaderActionClass}
             >
-              <Plus size={18} strokeWidth={2.2} />
+              <MessageSquarePlus size={18} strokeWidth={2.2} />
             </button>
           </div>
         </div>
@@ -290,7 +292,7 @@ export default function MobileSessionsPage({
                 onClick={onNewSession}
                 className="mt-5 inline-flex h-9 items-center gap-2 rounded-lg border border-[#b8cdf8]/80 bg-[#eef4ff]/78 px-4 text-[13px] font-semibold text-[#2463eb] shadow-[0_8px_22px_rgba(36,99,235,0.12)] backdrop-blur-xl hover:bg-[#e8f0ff]/86"
               >
-                <Plus size={16} />
+                <MessageSquarePlus size={16} strokeWidth={2.1} />
                 New session
               </button>
             ) : null}
@@ -408,7 +410,7 @@ export default function MobileSessionsPage({
                     }`}
                     title="Session options"
                   >
-                    <MoreHorizontal size={18} strokeWidth={2.4} />
+                    <MessageCircleMore size={18} strokeWidth={2.2} />
                   </button>
                 </div>
               );

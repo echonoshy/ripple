@@ -7,6 +7,10 @@ import type { WorkbenchSessionSummary } from "@/types";
 import MobileSessionsPage from "./MobileSessionsPage";
 
 const noop = () => {};
+const mobileSessionsPageSource = readFileSync(
+  new URL("./MobileSessionsPage.tsx", import.meta.url),
+  "utf8"
+);
 
 const sessions: WorkbenchSessionSummary[] = [
   {
@@ -67,7 +71,7 @@ function testUsesQuietAgentControlPlaneStyling() {
 function testSessionRowsRemoveRepeatedChatIcon() {
   const html = renderMobileSessionsPage();
 
-  assert.doesNotMatch(html, /lucide-message-circle/);
+  assert.doesNotMatch(html, /class="lucide lucide-message-circle"/);
 }
 
 function testHeaderActionsUseSharedGlassTreatment() {
@@ -75,6 +79,21 @@ function testHeaderActionsUseSharedGlassTreatment() {
 
   assert.match(html, /bg-white\/68/);
   assert.match(html, /backdrop-blur-xl/);
+  assert.match(
+    mobileSessionsPageSource,
+    /mobileHeaderActionClass =\s+"inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white\/70 bg-white\/68 text-\[#516070\]/
+  );
+  assert.match(mobileSessionsPageSource, /MessageSquarePlus/);
+  assert.match(mobileSessionsPageSource, /MessageCircleMore/);
+  assert.doesNotMatch(mobileSessionsPageSource, /<Plus size=\{18\}/);
+  assert.doesNotMatch(mobileSessionsPageSource, /<SquarePen size=\{18\}/);
+  assert.doesNotMatch(mobileSessionsPageSource, /<MoreHorizontal size=\{18\}/);
+  assert.doesNotMatch(mobileSessionsPageSource, /<Settings2 size=\{18\}/);
+  assert.doesNotMatch(mobileSessionsPageSource, /<Ellipsis size=\{18\}/);
+  assert.doesNotMatch(
+    mobileSessionsPageSource,
+    /aria-label="New session"[\s\S]*?border-\[#b8cdf8\]\/80 bg-\[#eef4ff\]\/78 text-\[#2463eb\]/
+  );
   assert.doesNotMatch(html, /border-\[#2463eb\] bg-\[#2463eb\] text-white/);
 }
 

@@ -144,12 +144,13 @@ function testMobileHeaderButtonsUseToolbarStyling() {
     /mobileHeaderButtonClass =\s+"inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white\/70 bg-white\/68 text-\[#516070\]/
   );
   assert.match(sessionPageSource, /ArrowBigLeft/);
-  assert.match(sessionPageSource, /MessageSquarePlus/);
+  assert.match(sessionPageSource, /MessageCircleMore/);
   assert.match(sessionPageSource, /Ellipsis/);
   assert.doesNotMatch(sessionPageSource, /mobileHeaderPrimaryButtonClass/);
   assert.doesNotMatch(sessionPageSource, /SquareChevronLeft/);
   assert.doesNotMatch(sessionPageSource, /ArrowBigLeftDash/);
   assert.doesNotMatch(sessionPageSource, /<ArrowLeft size=\{22\}/);
+  assert.doesNotMatch(sessionPageSource, /<MessageSquarePlus size=\{18\}/);
   assert.doesNotMatch(sessionPageSource, /<Plus size=\{21\}/);
   assert.doesNotMatch(sessionPageSource, /<SquarePen size=\{18\}/);
   assert.doesNotMatch(sessionPageSource, /<MoreHorizontal size=\{22\}/);

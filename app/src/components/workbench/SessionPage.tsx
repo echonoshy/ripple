@@ -16,7 +16,7 @@ import {
   Circle,
   Ellipsis,
   Loader2,
-  MessageSquarePlus,
+  MessageCircleMore,
   Pin,
 } from "lucide-react";
 import type {
@@ -406,7 +406,7 @@ export default function SessionPage({
             onClick={onNewSession}
             className={mobileHeaderButtonClass}
           >
-            <MessageSquarePlus size={18} strokeWidth={2.2} />
+            <MessageCircleMore size={18} strokeWidth={2.2} />
           </button>
           <button
             type="button"

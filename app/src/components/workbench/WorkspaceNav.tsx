@@ -3,7 +3,6 @@
 import React from "react";
 import {
   AlertTriangle,
-  Check,
   ChevronsUpDown,
   Cpu,
   Edit3,
@@ -14,10 +13,8 @@ import {
   MoreHorizontal,
   Pin,
   Plus,
-  Settings,
   Trash2,
   User,
-  X,
 } from "lucide-react";
 import { IconTile } from "@/components/icons/IconTile";
 import RippleIcon from "@/components/icons/RippleIcon";
@@ -57,8 +54,6 @@ interface WorkspaceNavProps {
   sessionLoadError?: string | null;
   isGenerating: boolean;
   userId: string;
-  canSwitchUser?: boolean;
-  onUserIdChange: (newUserId: string) => void;
   onNewSession: () => void;
   onSelectView: (view: WorkspaceView) => void;
   onSelectSession: (sessionId: string) => void;
@@ -67,7 +62,6 @@ interface WorkspaceNavProps {
     sessionId: string,
     updates: { title?: string; pinned?: boolean }
   ) => Promise<unknown>;
-  onOpenSettings: () => void;
   onCollapse?: () => void;
 }
 
@@ -79,14 +73,11 @@ export default function WorkspaceNav({
   sessionLoadError,
   isGenerating,
   userId,
-  canSwitchUser = true,
-  onUserIdChange,
   onNewSession,
   onSelectView,
   onSelectSession,
   onDeleteSession,
   onUpdateSession,
-  onOpenSettings,
   onCollapse,
 }: WorkspaceNavProps) {
   const [activeMenuSessionId, setActiveMenuSessionId] = React.useState<string | null>(null);
@@ -95,15 +86,12 @@ export default function WorkspaceNav({
   const isCancellingRef = React.useRef(false);
 
   const [isUserMenuOpen, setIsUserMenuOpen] = React.useState(false);
-  const [isSwitchingUser, setIsSwitchingUser] = React.useState(false);
-  const [newUserDraft, setNewUserDraft] = React.useState("");
   const [userUsageData, setUserUsageData] = React.useState<Awaited<
     ReturnType<typeof fetchUserProfile>
   > | null>(null);
   const [avatarImageUrl, setAvatarImageUrl] = React.useState<string | null>(null);
   const [profileRefreshToken, setProfileRefreshToken] = React.useState(0);
   const [isLoadingUsage, setIsLoadingUsage] = React.useState(false);
-  const isSwitchCancelRef = React.useRef(false);
 
   const userMenuRef = React.useRef<HTMLDivElement>(null);
   const activeMenuRef = React.useRef<HTMLDivElement>(null);
@@ -195,23 +183,6 @@ export default function WorkspaceNav({
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [profileAvatarUri]);
-
-  const handleSave = () => {
-    if (!isSwitchingUser) return;
-    if (isSwitchCancelRef.current) {
-      isSwitchCancelRef.current = false;
-      return;
-    }
-    const trimmed = newUserDraft.trim();
-    if (/^[a-zA-Z0-9_-]{1,64}$/.test(trimmed)) {
-      onUserIdChange(trimmed);
-      setIsSwitchingUser(false);
-    } else {
-      alert(
-        "User ID can only contain alphanumeric characters, dashes, and underscores (1-64 characters)."
-      );
-    }
-  };
 
   return (
     <div className="flex h-full min-h-0 flex-col text-[#0d0d0d]" aria-busy={isGenerating}>
@@ -564,130 +535,53 @@ export default function WorkspaceNav({
                 </div>
               </div>
             </div>
-
-            <div className="mt-2 flex gap-2 border-t border-[#dfe6f4] pt-2">
-              {canSwitchUser && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsSwitchingUser(true);
-                    setNewUserDraft(userId);
-                    setIsUserMenuOpen(false);
-                  }}
-                  className="flex flex-1 items-center justify-center gap-1 rounded-xl bg-[#f3f4f6] px-2 py-2 text-xs font-semibold text-[#374151] transition-all hover:bg-[#e5e7eb] active:bg-[#eef3ff]"
-                >
-                  Switch User
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => {
-                  onOpenSettings();
-                  setIsUserMenuOpen(false);
-                }}
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#f3f4f6] text-[#374151] transition-all hover:bg-[#e5e7eb] active:bg-[#eef3ff]"
-                title="Settings"
-                aria-label="Settings"
-              >
-                <Settings size={14} />
-              </button>
-            </div>
           </div>
         )}
 
-        {canSwitchUser && isSwitchingUser ? (
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              handleSave();
-            }}
-            className="flex w-full items-center gap-2 rounded-lg border border-[#2463eb] bg-white px-2 py-1.5 shadow-[0_2px_8px_rgba(36,99,235,0.06)]"
+        <button
+          type="button"
+          onClick={() => setIsUserMenuOpen(true)}
+          aria-label={`Settings for ${userId}`}
+          className="group flex w-full items-center gap-3 rounded-xl border border-transparent bg-[#fbfbfc]/40 p-2 text-left transition-all duration-300 hover:border-[#0d0d0d]/10 hover:bg-white hover:shadow-[0_4px_12px_rgba(0,0,0,0.02)]"
+        >
+          <IconTile
+            tone="neutral"
+            size="lg"
+            className="relative bg-white shadow-[0_2px_6px_rgba(0,0,0,0.04)] transition-all duration-300 group-hover:scale-[1.02] group-hover:border-[#d7e3f8]"
           >
-            <input
-              type="text"
-              value={newUserDraft}
-              onChange={(e) => setNewUserDraft(e.target.value)}
-              onBlur={handleSave}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") {
-                  isSwitchCancelRef.current = true;
-                  setIsSwitchingUser(false);
-                }
-              }}
-              className="min-w-0 flex-1 bg-transparent px-1 py-0.5 text-sm font-medium text-[#0d0d0d] outline-none"
-              autoFocus
-              maxLength={64}
-              placeholder="User ID"
-            />
-            <div className="flex shrink-0 items-center gap-1">
-              <button
-                type="submit"
-                title="Save User ID"
-                className="inline-flex h-6 w-6 items-center justify-center rounded text-[#2463eb] hover:bg-[#2463eb]/10"
-              >
-                <Check size={14} />
-              </button>
-              <button
-                type="button"
-                title="Cancel"
-                onMouseDown={() => {
-                  isSwitchCancelRef.current = true;
-                }}
-                onClick={() => {
-                  setIsSwitchingUser(false);
-                }}
-                className="inline-flex h-6 w-6 items-center justify-center rounded text-[#6b7280] hover:bg-[#e5e7eb]"
-              >
-                <X size={14} />
-              </button>
-            </div>
-          </form>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setIsUserMenuOpen(true)}
-            aria-label={`Settings for ${userId}`}
-            className="group flex w-full items-center gap-3 rounded-xl border border-transparent bg-[#fbfbfc]/40 p-2 text-left transition-all duration-300 hover:border-[#0d0d0d]/10 hover:bg-white hover:shadow-[0_4px_12px_rgba(0,0,0,0.02)]"
-          >
-            <IconTile
-              tone="neutral"
-              size="lg"
-              className="relative bg-white shadow-[0_2px_6px_rgba(0,0,0,0.04)] transition-all duration-300 group-hover:scale-[1.02] group-hover:border-[#d7e3f8]"
-            >
-              {avatarImageUrl ? (
-                <span className="absolute inset-0 overflow-hidden rounded-xl">
-                  <img
-                    src={avatarImageUrl}
-                    alt=""
-                    aria-hidden="true"
-                    className="h-full w-full object-cover"
-                  />
-                </span>
-              ) : (
-                <User
-                  size={15}
-                  className="text-[#374151] transition-colors group-hover:text-[#0d0d0d]"
+            {avatarImageUrl ? (
+              <span className="absolute inset-0 overflow-hidden rounded-xl">
+                <img
+                  src={avatarImageUrl}
+                  alt=""
+                  aria-hidden="true"
+                  className="h-full w-full object-cover"
                 />
-              )}
-              <span className="absolute -right-0.5 -bottom-0.5 z-10 flex h-2 w-2">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex h-2 w-2 rounded-full border border-white bg-emerald-500"></span>
               </span>
-            </IconTile>
-            <div className="min-w-0 flex-1">
-              <span className="block truncate text-[13px] font-semibold text-[#374151] transition-colors group-hover:text-[#0d0d0d]">
-                {userId}
-              </span>
-              <span className="mt-0.5 block truncate font-mono text-[9px] font-medium tracking-wider text-slate-400 uppercase">
-                Active Sandbox
-              </span>
-            </div>
-            <ChevronsUpDown
-              size={13}
-              className="ml-auto shrink-0 text-[#8b8f94] transition-colors group-hover:text-[#374151]"
-            />
-          </button>
-        )}
+            ) : (
+              <User
+                size={15}
+                className="text-[#374151] transition-colors group-hover:text-[#0d0d0d]"
+              />
+            )}
+            <span className="absolute -right-0.5 -bottom-0.5 z-10 flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex h-2 w-2 rounded-full border border-white bg-emerald-500"></span>
+            </span>
+          </IconTile>
+          <div className="min-w-0 flex-1">
+            <span className="block truncate text-[13px] font-semibold text-[#374151] transition-colors group-hover:text-[#0d0d0d]">
+              {userId}
+            </span>
+            <span className="mt-0.5 block truncate font-mono text-[9px] font-medium tracking-wider text-slate-400 uppercase">
+              Active Sandbox
+            </span>
+          </div>
+          <ChevronsUpDown
+            size={13}
+            className="ml-auto shrink-0 text-[#8b8f94] transition-colors group-hover:text-[#374151]"
+          />
+        </button>
       </div>
     </div>
   );

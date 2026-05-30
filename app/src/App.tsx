@@ -159,12 +159,6 @@ export default function Home() {
     [persistDefaultModel]
   );
 
-  const handleOpenSettingsPage = useCallback(() => {
-    setActiveView("home");
-    setMobileSessionMode("list");
-    setIsSidebarOpen(false);
-  }, []);
-
   const handleAuthReset = useCallback(() => {
     if (isUserSessionAuth()) {
       void logoutUserSession().catch(() => undefined);
@@ -1075,8 +1069,6 @@ export default function Home() {
             sessionLoadError={sessionLoadError}
             isGenerating={isGenerating}
             userId={userId}
-            onUserIdChange={handleUserIdChange}
-            canSwitchUser={!productSessionActive}
             onNewSession={handleNewSession}
             onSelectView={handleSelectView}
             onSelectSession={(selectedSessionId) => {
@@ -1086,7 +1078,6 @@ export default function Home() {
             }}
             onDeleteSession={handleDeleteSession}
             onUpdateSession={updateSessionById}
-            onOpenSettings={handleOpenSettingsPage}
             onCollapse={() => setIsNavCollapsed(true)}
           />
         }

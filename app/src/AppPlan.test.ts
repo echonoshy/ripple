@@ -130,7 +130,8 @@ function testSettingsIsSinglePageSurface() {
   assert.match(appSource, /import SettingsPage/);
   assert.doesNotMatch(appSource, /import SettingsModal/);
   assert.doesNotMatch(appSource, /isSettingsOpen/);
-  assert.match(appSource, /onOpenSettings=\{handleOpenSettingsPage\}/);
+  assert.match(appSource, /activeView === "home"/);
+  assert.match(appSource, /<SettingsPage/);
 }
 
 function testMobileSessionOptionsUseSessionSettings() {

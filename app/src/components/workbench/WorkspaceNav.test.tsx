@@ -28,13 +28,11 @@ function renderWorkspaceNav(overrides: Partial<React.ComponentProps<typeof Works
     isLoading: false,
     isGenerating: false,
     userId: "default",
-    onUserIdChange: noop,
     onNewSession: noop,
     onSelectView: noop,
     onSelectSession: noop,
     onDeleteSession: noop,
     onUpdateSession: async () => {},
-    onOpenSettings: noop,
     ...overrides,
   } as React.ComponentProps<typeof WorkspaceNav> & { sessionLoadError?: string | null };
 

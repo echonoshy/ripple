@@ -5,9 +5,9 @@ export interface ModelOption {
 
 export const MODEL_DISPLAY_MAPPING: Record<string, string> = {
   "codex-low": "Lite",
-  "codex-medium": "Standard",
+  "codex-medium": "Plus",
   "codex-high": "Pro",
-  "codex-xhigh": "Expert",
+  "codex-xhigh": "Ultra",
 };
 
 export function formatModelName(id: string): string {

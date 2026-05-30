@@ -185,7 +185,7 @@ function testDefaultModelControlUsesDefaultModelNotCurrentSessionModel() {
   const button = html.match(/<button[^>]*aria-label="Default model"[\s\S]*?<\/button>/)?.[0] || "";
 
   assert.match(button, />Pro</);
-  assert.doesNotMatch(button, />Standard</);
+  assert.doesNotMatch(button, />Plus</);
 }
 
 function testSettingsPageUsesCompactMobileDensity() {

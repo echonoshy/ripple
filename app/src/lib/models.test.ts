@@ -31,9 +31,9 @@ function testKeepsUnknownModelsInBackendOrder() {
 
 function testFormatModelNameKnown() {
   assert.equal(formatModelName("codex-low"), "Lite");
-  assert.equal(formatModelName("codex-medium"), "Standard");
+  assert.equal(formatModelName("codex-medium"), "Plus");
   assert.equal(formatModelName("codex-high"), "Pro");
-  assert.equal(formatModelName("codex-xhigh"), "Expert");
+  assert.equal(formatModelName("codex-xhigh"), "Ultra");
 }
 
 function testFormatModelNameFallback() {

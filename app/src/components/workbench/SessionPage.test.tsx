@@ -199,8 +199,8 @@ function testDesktopHeaderShowsCurrentModelLikeMobile() {
   const html = renderSessionPage();
 
   assert.match(html, /lg:flex/);
-  assert.match(html, /aria-label="Current model: Standard"/);
-  assert.match(html, /title="Current model: Standard"/);
+  assert.match(html, /aria-label="Current model: Plus"/);
+  assert.match(html, /title="Current model: Plus"/);
 }
 
 function testSessionPageShowsCurrentProjectBadge() {

@@ -56,7 +56,7 @@ function testShowsSelectedModelAndMenuOptions() {
   const html = renderComposer();
 
   assert.match(html, />Pro</);
-  assert.match(html, />Standard</);
+  assert.match(html, />Plus</);
   assert.doesNotMatch(html, />Codex</);
 }
 

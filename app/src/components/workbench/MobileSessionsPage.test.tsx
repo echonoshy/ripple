@@ -88,6 +88,7 @@ function testHeaderActionsUseSharedGlassTreatment() {
     mobileSessionsPageSource,
     /aria-label="New session"[\s\S]*?<MessageCircleMore size=\{18\}/
   );
+  assert.match(mobileSessionsPageSource, /Ellipsis/);
   assert.doesNotMatch(mobileSessionsPageSource, /<Plus size=\{18\}/);
   assert.doesNotMatch(mobileSessionsPageSource, /<SquarePen size=\{18\}/);
   assert.doesNotMatch(mobileSessionsPageSource, /<MoreHorizontal size=\{18\}/);

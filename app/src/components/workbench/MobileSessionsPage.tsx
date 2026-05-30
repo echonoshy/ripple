@@ -4,6 +4,7 @@ import React, { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   AlertTriangle,
+  Ellipsis,
   Loader2,
   MessageCircle,
   MessageCircleMore,
@@ -410,7 +411,7 @@ export default function MobileSessionsPage({
                     }`}
                     title="Session options"
                   >
-                    <MessageCircleMore size={18} strokeWidth={2.2} />
+                    <Ellipsis size={18} strokeWidth={2.2} />
                   </button>
                 </div>
               );

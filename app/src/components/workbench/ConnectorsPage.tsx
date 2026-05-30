@@ -426,27 +426,27 @@ export default function ConnectorsPage({
   }, [pendingAuth, statuses]);
 
   return (
-    <div className="h-full min-h-0 overflow-y-auto bg-[radial-gradient(circle_at_16%_0%,rgba(47,107,255,0.12),transparent_34%),radial-gradient(circle_at_88%_8%,rgba(139,92,246,0.11),transparent_32%),#fbfdff] px-4 pt-[max(env(safe-area-inset-top),16px)] pb-[calc(88px+env(safe-area-inset-bottom))] text-[#111827] md:px-8 lg:pb-5">
-      <div className="mx-auto max-w-5xl space-y-4">
-        <header className="flex flex-wrap items-start justify-between gap-3 pb-1">
-          <div className="flex min-w-0 items-start gap-3">
+    <div className="h-full min-h-0 overflow-y-auto bg-[radial-gradient(circle_at_16%_0%,rgba(47,107,255,0.12),transparent_34%),radial-gradient(circle_at_88%_8%,rgba(139,92,246,0.11),transparent_32%),#fbfdff] px-3 pt-[max(env(safe-area-inset-top),12px)] pb-[calc(76px+env(safe-area-inset-bottom))] text-[#111827] md:px-6 lg:pb-5">
+      <div className="mx-auto max-w-5xl space-y-3">
+        <header className="flex flex-wrap items-start justify-between gap-2">
+          <div className="flex min-w-0 items-start gap-2.5">
             {onBack ? (
               <button
                 type="button"
                 onClick={onBack}
                 aria-label="Back to settings"
                 title="Back to settings"
-                className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#dfe6f4] bg-white text-[#384152] hover:bg-[#f7f8fa] lg:hidden"
+                className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#dfe6f4] bg-white text-[#384152] hover:bg-[#f7f8fa] lg:hidden"
               >
-                <ArrowLeft size={17} />
+                <ArrowLeft size={15} />
               </button>
             ) : null}
             <div className="min-w-0">
-              <h1 className="text-[20px] leading-tight font-semibold tracking-normal">
+              <h1 className="text-[18px] leading-tight font-semibold tracking-normal">
                 <span className="sm:hidden">Connectors</span>
                 <span className="hidden sm:inline">Connectors</span>
               </h1>
-              <div className="mt-1.5 text-[12px] text-[#7a8496]">
+              <div className="mt-1 text-[11px] text-[#7a8496]">
                 <span className="sm:hidden">
                   {connectorReadiness.connected}/{connectorReadiness.total} ready
                 </span>
@@ -459,39 +459,39 @@ export default function ConnectorsPage({
           <button
             type="button"
             onClick={() => void loadConnectors({ force: true })}
-            className="inline-flex h-9 items-center gap-2 rounded-full border border-[#dfe6f4] bg-white/78 px-3 text-[13px] font-medium text-[#384152] shadow-[0_10px_24px_rgba(44,63,123,0.06)] hover:bg-white"
+            className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white/78 px-2.5 text-[12px] font-medium text-[#384152] shadow-[0_8px_18px_rgba(44,63,123,0.05)] hover:bg-white"
           >
-            {isLoading ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
+            {isLoading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
             <span className="sm:hidden">Refresh</span>
             <span className="hidden sm:inline">Refresh</span>
           </button>
         </header>
 
         {pageError && (
-          <div className="flex items-start gap-2 rounded-xl border border-[#cf222e]/25 bg-[#ffebe9] p-3 text-sm font-medium text-[#cf222e]">
+          <div className="flex items-start gap-2 rounded-xl border border-[#cf222e]/25 bg-[#ffebe9] p-2.5 text-[12px] font-medium text-[#cf222e]">
             <IconTile tone="danger" size="sm" className="mt-0.5">
-              <AlertTriangle size={14} />
+              <AlertTriangle size={13} />
             </IconTile>
             <span>{pageError}</span>
           </div>
         )}
 
         {actionMessage && (
-          <div className="flex items-start gap-2 rounded-xl border border-[#1a7f37]/20 bg-[#dafbe1] p-3 text-sm font-medium text-[#1a7f37]">
+          <div className="flex items-start gap-2 rounded-xl border border-[#1a7f37]/20 bg-[#dafbe1] p-2.5 text-[12px] font-medium text-[#1a7f37]">
             <IconTile tone="success" size="sm" className="mt-0.5">
-              <ShieldCheck size={14} />
+              <ShieldCheck size={13} />
             </IconTile>
             <span>{actionMessage}</span>
           </div>
         )}
 
-        <div className="space-y-5">
+        <div className="space-y-4">
           {connectorSections.map((section) => (
-            <section key={section.kind} className="space-y-3">
+            <section key={section.kind} className="space-y-2.5">
               <div className="flex items-end justify-between gap-3">
                 <div>
-                  <h2 className="text-[13px] font-semibold text-[#111827]">{section.title}</h2>
-                  <p className="mt-1 text-[11px] leading-4 text-[#667085]">
+                  <h2 className="text-[12px] font-semibold text-[#111827]">{section.title}</h2>
+                  <p className="mt-0.5 text-[11px] leading-4 text-[#667085]">
                     Per-user credentials stored inside the current sandbox boundary.
                   </p>
                 </div>
@@ -499,7 +499,7 @@ export default function ConnectorsPage({
                   {section.connectors.length}
                 </span>
               </div>
-              <div className="grid gap-4 lg:grid-cols-2">
+              <div className="grid gap-3 lg:grid-cols-2">
                 {section.connectors.map((connector) => {
                   const status = statuses[connector.name] || null;
                   const tone = connectorStatusTone(status);
@@ -528,42 +528,42 @@ export default function ConnectorsPage({
                   return (
                     <section
                       key={connector.name}
-                      className="min-w-0 rounded-2xl border border-[#dfe6f4] bg-white/74 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl"
+                      className="min-w-0 rounded-xl border border-[#dfe6f4] bg-white/74 shadow-[0_8px_22px_rgba(44,63,123,0.05)] backdrop-blur-xl"
                     >
-                      <div className="flex items-start gap-3 border-b border-[#e8edf7] p-3.5">
-                        <IconTile tone={connectorStatusIconTone(status)} size="lg">
-                          {tone === "connected" ? <ShieldCheck size={17} /> : <Plug size={17} />}
+                      <div className="flex items-start gap-2.5 border-b border-[#e8edf7] p-3">
+                        <IconTile tone={connectorStatusIconTone(status)} size="md">
+                          {tone === "connected" ? <ShieldCheck size={15} /> : <Plug size={15} />}
                         </IconTile>
                         <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <h3 className="truncate text-[13px] font-semibold">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <h3 className="truncate text-[12px] font-semibold">
                               {connector.display_name}
                             </h3>
-                            <span className="rounded-full border border-[#dfe6f4] bg-white/76 px-2 py-0.5 text-[10px] font-medium text-[#667085]">
+                            <span className="rounded-full border border-[#dfe6f4] bg-white/76 px-1.5 py-0.5 text-[10px] font-medium text-[#667085]">
                               <span className="sm:hidden">{mobileStatusLabel(status)}</span>
                               <span className="hidden sm:inline">{statusLabel(status)}</span>
                             </span>
                           </div>
-                          <p className="mt-1 text-[12px] leading-5 text-[#667085]">
+                          <p className="mt-1 text-[11px] leading-4 text-[#667085]">
                             {connector.description}
                           </p>
                           {status?.detail && (
-                            <div className="mt-2 text-[11px] leading-5 text-[#667085]">
+                            <div className="mt-1.5 text-[11px] leading-4 text-[#667085]">
                               {status.detail}
                             </div>
                           )}
-                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                          <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
                             {connector.auth_start_path && !status?.connected ? (
                               <button
                                 type="button"
                                 onClick={() => void handleStartAuth(connector)}
                                 disabled={pendingAction === `${connector.name}:connect`}
-                                className="inline-flex h-8 items-center gap-2 rounded-full border border-[#dfe6f4] bg-white px-3 text-[12px] font-semibold text-[#384152] hover:bg-[#f7f8fa] disabled:opacity-60"
+                                className="inline-flex h-7 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-2.5 text-[11px] font-semibold text-[#384152] hover:bg-[#f7f8fa] disabled:opacity-60"
                               >
                                 {pendingAction === `${connector.name}:connect` ? (
-                                  <Loader2 size={13} className="animate-spin" />
+                                  <Loader2 size={12} className="animate-spin" />
                                 ) : (
-                                  <Plug size={13} />
+                                  <Plug size={12} />
                                 )}
                                 Connect
                               </button>
@@ -573,12 +573,12 @@ export default function ConnectorsPage({
                                 type="button"
                                 onClick={() => void handleCancelPendingAuth(connector)}
                                 disabled={pendingAction === `${connector.name}:cancel-auth`}
-                                className="inline-flex h-8 items-center gap-2 rounded-full border border-[#cf222e]/25 bg-[#ffebe9] px-3 text-[12px] font-semibold text-[#cf222e] disabled:opacity-60"
+                                className="inline-flex h-7 items-center gap-1.5 rounded-full border border-[#cf222e]/25 bg-[#ffebe9] px-2.5 text-[11px] font-semibold text-[#cf222e] disabled:opacity-60"
                               >
                                 {pendingAction === `${connector.name}:cancel-auth` ? (
-                                  <Loader2 size={13} className="animate-spin" />
+                                  <Loader2 size={12} className="animate-spin" />
                                 ) : (
-                                  <X size={13} />
+                                  <X size={12} />
                                 )}
                                 Cancel auth
                               </button>
@@ -593,16 +593,16 @@ export default function ConnectorsPage({
                                   )
                                 }
                                 disabled={pendingAction === `${connector.name}:disconnect`}
-                                className={`inline-flex h-8 items-center gap-2 rounded-full border px-3 text-[12px] font-semibold disabled:opacity-60 ${
+                                className={`inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-semibold disabled:opacity-60 ${
                                   confirmAction === `${connector.name}:disconnect`
                                     ? "border-[#cf222e]/25 bg-[#ffebe9] text-[#cf222e]"
                                     : "border-[#dfe6f4] bg-white text-[#384152] hover:bg-[#f7f8fa]"
                                 }`}
                               >
                                 {pendingAction === `${connector.name}:disconnect` ? (
-                                  <Loader2 size={13} className="animate-spin" />
+                                  <Loader2 size={12} className="animate-spin" />
                                 ) : (
-                                  <Trash2 size={13} />
+                                  <Trash2 size={12} />
                                 )}
                                 {confirmAction === `${connector.name}:disconnect`
                                   ? "Confirm local disconnect"
@@ -614,26 +614,26 @@ export default function ConnectorsPage({
                       </div>
 
                       {connector.name === "notion" && confirmAction === "notion-token" ? (
-                        <div className="border-b border-[#e8edf7] p-4">
+                        <div className="border-b border-[#e8edf7] p-3">
                           <div className="flex flex-col gap-2 sm:flex-row">
                             <input
                               value={notionToken}
                               onChange={(event) => setNotionToken(event.target.value)}
                               type="password"
                               placeholder="Notion integration token"
-                              className="min-h-9 min-w-0 flex-1 rounded-lg border border-[#dfe6f4] bg-white px-3 text-[12px] text-[#111827] outline-none focus:border-[#2f6bff]"
+                              className="min-h-8 min-w-0 flex-1 rounded-lg border border-[#dfe6f4] bg-white px-2.5 text-[11px] text-[#111827] outline-none focus:border-[#2f6bff]"
                             />
                             <div className="flex shrink-0 gap-2">
                               <button
                                 type="button"
                                 onClick={() => void handleSubmitNotionToken()}
                                 disabled={pendingAction === "notion:connect"}
-                                className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#2f6bff]/30 bg-[#2f6bff] px-3 text-[12px] font-semibold text-white disabled:opacity-60"
+                                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#2f6bff]/30 bg-[#2f6bff] px-2.5 text-[11px] font-semibold text-white disabled:opacity-60"
                               >
                                 {pendingAction === "notion:connect" ? (
-                                  <Loader2 size={13} className="animate-spin" />
+                                  <Loader2 size={12} className="animate-spin" />
                                 ) : (
-                                  <KeyRound size={13} />
+                                  <KeyRound size={12} />
                                 )}
                                 Save
                               </button>
@@ -643,11 +643,11 @@ export default function ConnectorsPage({
                                   setConfirmAction(null);
                                   setNotionToken("");
                                 }}
-                                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#dfe6f4] bg-white text-[#384152] hover:bg-[#f7f8fa]"
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#dfe6f4] bg-white text-[#384152] hover:bg-[#f7f8fa]"
                                 aria-label="Cancel Notion token entry"
                                 title="Cancel Notion token entry"
                               >
-                                <X size={14} />
+                                <X size={13} />
                               </button>
                             </div>
                           </div>
@@ -655,24 +655,24 @@ export default function ConnectorsPage({
                       ) : null}
 
                       {pendingForConnector ? (
-                        <div className="border-b border-[#e8edf7] p-4 text-[12px] text-[#667085]">
+                        <div className="border-b border-[#e8edf7] p-3 text-[11px] text-[#667085]">
                           <div className="flex items-start gap-2">
                             <Loader2
-                              size={14}
+                              size={13}
                               className="mt-0.5 shrink-0 animate-spin text-[#2f6bff]"
                             />
                             <div className="min-w-0 flex-1">
                               <div className="font-semibold text-[#384152]">
                                 {pendingForConnector.stage}
                               </div>
-                              <div className="mt-1 leading-5">{pendingForConnector.detail}</div>
+                              <div className="mt-1 leading-4">{pendingForConnector.detail}</div>
                               {qrcodeImageUrl || pendingExternalUrl ? (
-                                <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center">
+                                <div className="mt-2.5 flex flex-col gap-2 sm:flex-row sm:items-center">
                                   {qrcodeImageUrl ? (
                                     <img
                                       src={qrcodeImageUrl}
                                       alt="Bilibili login QR code"
-                                      className="h-32 w-32 rounded-lg border border-[#dfe6f4] bg-white object-contain p-1"
+                                      className="h-28 w-28 rounded-lg border border-[#dfe6f4] bg-white object-contain p-1"
                                     />
                                   ) : null}
                                   {pendingExternalUrl ? (
@@ -680,9 +680,9 @@ export default function ConnectorsPage({
                                       href={pendingExternalUrl}
                                       target="_blank"
                                       rel="noreferrer"
-                                      className="inline-flex h-8 items-center gap-2 rounded-full border border-[#dfe6f4] bg-white px-3 text-[12px] font-semibold text-[#384152] hover:bg-[#f7f8fa]"
+                                      className="inline-flex h-7 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-2.5 text-[11px] font-semibold text-[#384152] hover:bg-[#f7f8fa]"
                                     >
-                                      <ExternalLink size={13} />
+                                      <ExternalLink size={12} />
                                       {qrcodeContent ? "Open link" : pendingExternalLabel}
                                     </a>
                                   ) : null}
@@ -694,18 +694,18 @@ export default function ConnectorsPage({
                       ) : null}
 
                       {connector.name === "google_workspace" && accounts.length > 0 && (
-                        <div className="p-4">
+                        <div className="p-3">
                           <div className="rounded-xl border border-[#dfe6f4] bg-white/82">
                             {accounts.map((account) => (
                               <div
                                 key={account.email}
-                                className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-xs"
+                                className="flex flex-wrap items-center justify-between gap-2 px-2.5 py-1.5 text-[11px]"
                               >
                                 <div className="min-w-0">
                                   <div className="truncate font-[family-name:var(--font-mono)]">
                                     {account.email}
                                   </div>
-                                  <div className="mt-0.5 text-[11px] text-[#6b7280]">
+                                  <div className="mt-0.5 text-[10px] text-[#6b7280]">
                                     {account.valid === false ? "Invalid" : "Ready"}
                                   </div>
                                 </div>
@@ -752,7 +752,7 @@ export default function ConnectorsPage({
         </div>
 
         {connectors.length === 0 && !isLoading && (
-          <div className="flex h-40 items-center justify-center rounded-2xl border border-dashed border-[#dfe6f4] bg-white/52 text-[13px] text-[#667085]">
+          <div className="flex h-32 items-center justify-center rounded-xl border border-dashed border-[#dfe6f4] bg-white/52 text-[12px] text-[#667085]">
             <span className="sm:hidden">No connectors</span>
             <span className="hidden sm:inline">No connectors</span>
           </div>

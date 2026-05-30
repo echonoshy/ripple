@@ -82,7 +82,7 @@ function testSettingsPageHidesDiagnosticsByDefault() {
 function testSettingsPageReservesMobileTopSafeArea() {
   const html = renderSettingsPage();
 
-  assert.match(html, /pt-\[max\(env\(safe-area-inset-top\),16px\)\]/);
+  assert.match(html, /pt-\[max\(env\(safe-area-inset-top\),12px\)\]/);
 }
 
 function testSettingsPageUsesInlineModelMenuAndTokenBreakdown() {
@@ -119,6 +119,17 @@ function testDefaultModelControlUsesDefaultModelNotCurrentSessionModel() {
   assert.doesNotMatch(button, />Balanced</);
 }
 
+function testSettingsPageUsesCompactMobileDensity() {
+  const source = readFileSync(new URL("./SettingsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /pb-\[calc\(76px\+env\(safe-area-inset-bottom\)\)\]/);
+  assert.match(source, /className="mx-auto max-w-5xl space-y-3"/);
+  assert.match(source, /RippleIcon\s*\n\s*size=\{28\}/);
+  assert.match(source, /className="flex h-9 items-center gap-2 border-b/);
+  assert.match(source, /inline-flex h-8 items-center gap-1\.5 rounded-full/);
+  assert.match(source, /className="grid gap-3 p-3 md:grid-cols-2"/);
+}
+
 testSettingsPageHasExpectedUserSections();
 testSettingsPageDoesNotDuplicatePrimaryWorkspaceTabs();
 testSettingsPageHidesDiagnosticsByDefault();
@@ -126,5 +137,6 @@ testSettingsPageReservesMobileTopSafeArea();
 testSettingsPageUsesInlineModelMenuAndTokenBreakdown();
 testSettingsPageUsesSoftTilesForEntitySections();
 testDefaultModelControlUsesDefaultModelNotCurrentSessionModel();
+testSettingsPageUsesCompactMobileDensity();
 
 console.log("settings page tests passed");

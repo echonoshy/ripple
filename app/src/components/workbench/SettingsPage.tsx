@@ -314,36 +314,36 @@ export default function SettingsPage({
       : null;
 
   return (
-    <div className="h-full min-h-0 overflow-y-auto bg-[radial-gradient(circle_at_16%_0%,rgba(47,107,255,0.10),transparent_34%),radial-gradient(circle_at_88%_8%,rgba(20,184,166,0.08),transparent_32%),#fbfdff] px-4 pt-[max(env(safe-area-inset-top),16px)] pb-[calc(88px+env(safe-area-inset-bottom))] text-[#111827] md:px-8 md:pt-[max(env(safe-area-inset-top),20px)] md:pb-5">
+    <div className="h-full min-h-0 overflow-y-auto bg-[radial-gradient(circle_at_16%_0%,rgba(47,107,255,0.10),transparent_34%),radial-gradient(circle_at_88%_8%,rgba(20,184,166,0.08),transparent_32%),#fbfdff] px-3 pt-[max(env(safe-area-inset-top),12px)] pb-[calc(76px+env(safe-area-inset-bottom))] text-[#111827] md:px-6 md:pt-[max(env(safe-area-inset-top),16px)] md:pb-5">
       {modelMenuPortal}
-      <div className="mx-auto max-w-5xl space-y-4">
-        <header className="flex items-start justify-between gap-3 pb-1">
+      <div className="mx-auto max-w-5xl space-y-3">
+        <header className="flex items-start justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2">
             <RippleIcon
-              size={32}
-              className="h-8 w-8 shrink-0 rounded-xl shadow-[0_10px_22px_rgba(64,92,255,0.20)]"
+              size={28}
+              className="h-7 w-7 shrink-0 rounded-lg shadow-[0_8px_18px_rgba(64,92,255,0.16)]"
             />
             <div className="min-w-0">
-              <h1 className="text-[20px] leading-tight font-semibold tracking-normal">Ripple</h1>
+              <h1 className="text-[18px] leading-tight font-semibold tracking-normal">Ripple</h1>
               <div className="text-[11px] text-[#7a8496]">Settings</div>
             </div>
           </div>
-          {isLoading ? <Loader2 size={16} className="mt-2 animate-spin text-[#6b7280]" /> : null}
+          {isLoading ? <Loader2 size={15} className="mt-1.5 animate-spin text-[#6b7280]" /> : null}
         </header>
 
-        <section className="rounded-2xl border border-[#dfe6f4] bg-white/78 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl">
-          <SectionHeader icon={<UserRound size={15} />} title="Account" tone="accent" />
-          <div className="space-y-3 p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
+        <section className="rounded-xl border border-[#dfe6f4] bg-white/78 shadow-[0_8px_22px_rgba(44,63,123,0.05)] backdrop-blur-xl">
+          <SectionHeader icon={<UserRound size={13} />} title="Account" tone="accent" />
+          <div className="space-y-2.5 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2.5">
               <div className="min-w-0">
-                <div className="text-[13px] font-semibold text-[#111827]">
+                <div className="text-[12px] font-semibold text-[#111827]">
                   {authMode === "user" ? "Signed in" : "Service access"}
                 </div>
-                <div className="mt-1 truncate text-[12px] text-[#667085]">
+                <div className="mt-0.5 truncate text-[11px] text-[#667085]">
                   Workspace <span className="font-mono text-[#374151]">{userId}</span>
                 </div>
               </div>
-              <div className="flex shrink-0 flex-wrap items-center gap-2">
+              <div className="flex shrink-0 flex-wrap items-center gap-1.5">
                 {authMode === "user" ? (
                   <button
                     type="button"
@@ -352,18 +352,18 @@ export default function SettingsPage({
                       setPasswordError(null);
                       setPasswordMessage(null);
                     }}
-                    className="inline-flex h-9 items-center gap-2 rounded-full border border-[#dfe6f4] bg-white px-4 text-[13px] font-semibold text-[#374151] transition-all hover:bg-[#f7f8fa] active:scale-[0.98]"
+                    className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-3 text-[12px] font-semibold text-[#374151] transition-all hover:bg-[#f7f8fa] active:scale-[0.98]"
                   >
-                    <LockKeyhole size={14} />
+                    <LockKeyhole size={13} />
                     Change password
                   </button>
                 ) : null}
                 <button
                   type="button"
                   onClick={onApiKeyChange}
-                  className="inline-flex h-9 items-center gap-2 rounded-full border border-[#dfe6f4] bg-white px-4 text-[13px] font-semibold text-[#374151] transition-all hover:bg-[#f7f8fa] active:scale-[0.98]"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-3 text-[12px] font-semibold text-[#374151] transition-all hover:bg-[#f7f8fa] active:scale-[0.98]"
                 >
-                  <LogOut size={14} />
+                  <LogOut size={13} />
                   {authMode === "user" ? "Sign out" : "Change access"}
                 </button>
               </div>
@@ -372,25 +372,25 @@ export default function SettingsPage({
             {authMode === "user" && isPasswordOpen ? (
               <form
                 onSubmit={handlePasswordSubmit}
-                className="space-y-3 rounded-xl border border-[#e8edf7] bg-[#f8faff] p-3"
+                className="space-y-2.5 rounded-xl border border-[#e8edf7] bg-[#f8faff] p-2.5"
               >
                 <div className="grid gap-2 sm:grid-cols-2">
-                  <label className="min-w-0 text-[12px] font-semibold text-[#667085]">
+                  <label className="min-w-0 text-[11px] font-semibold text-[#667085]">
                     Current password
                     <input
                       type="password"
                       value={currentPassword}
                       onChange={(event) => setCurrentPassword(event.target.value)}
-                      className="mt-1 h-10 w-full rounded-lg border border-[#dfe6f4] bg-white px-3 text-sm text-[#111827] outline-none focus:border-[#8da0ff]"
+                      className="mt-1 h-9 w-full rounded-lg border border-[#dfe6f4] bg-white px-2.5 text-[12px] text-[#111827] outline-none focus:border-[#8da0ff]"
                     />
                   </label>
-                  <label className="min-w-0 text-[12px] font-semibold text-[#667085]">
+                  <label className="min-w-0 text-[11px] font-semibold text-[#667085]">
                     New password
                     <input
                       type="password"
                       value={newPassword}
                       onChange={(event) => setNewPassword(event.target.value)}
-                      className="mt-1 h-10 w-full rounded-lg border border-[#dfe6f4] bg-white px-3 text-sm text-[#111827] outline-none focus:border-[#8da0ff]"
+                      className="mt-1 h-9 w-full rounded-lg border border-[#dfe6f4] bg-white px-2.5 text-[12px] text-[#111827] outline-none focus:border-[#8da0ff]"
                     />
                   </label>
                 </div>
@@ -404,55 +404,55 @@ export default function SettingsPage({
                       setIsPasswordOpen(false);
                       setPasswordError(null);
                     }}
-                    className="inline-flex h-9 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-3 text-xs font-semibold text-[#374151]"
+                    className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-2.5 text-[11px] font-semibold text-[#374151]"
                   >
-                    <X size={13} />
+                    <X size={12} />
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={isChangingPassword}
-                    className="inline-flex h-9 items-center gap-1.5 rounded-full bg-[#2463eb] px-3 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:bg-[#d0d7e2]"
+                    className="inline-flex h-8 items-center gap-1.5 rounded-full bg-[#2463eb] px-2.5 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-[#d0d7e2]"
                   >
-                    {isChangingPassword ? <Loader2 size={13} className="animate-spin" /> : null}
+                    {isChangingPassword ? <Loader2 size={12} className="animate-spin" /> : null}
                     Save password
                   </button>
                 </div>
               </form>
             ) : null}
             {passwordMessage ? (
-              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] font-semibold text-emerald-700">
                 {passwordMessage}
               </div>
             ) : null}
           </div>
         </section>
 
-        <section className="rounded-2xl border border-[#dfe6f4] bg-white/78 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl">
-          <SectionHeader icon={<Plug size={15} />} title="Connected Accounts" tone="accent" />
-          <div className="flex flex-wrap items-center justify-between gap-3 p-4">
+        <section className="rounded-xl border border-[#dfe6f4] bg-white/78 shadow-[0_8px_22px_rgba(44,63,123,0.05)] backdrop-blur-xl">
+          <SectionHeader icon={<Plug size={13} />} title="Connected Accounts" tone="accent" />
+          <div className="flex flex-wrap items-center justify-between gap-2.5 p-3">
             <div className="min-w-0">
-              <div className="text-[18px] font-semibold text-[#111827]">
+              <div className="text-[16px] font-semibold text-[#111827]">
                 {connectorReadiness.connected}/{connectorReadiness.total} ready
               </div>
-              <div className="mt-1 text-[12px] text-[#667085]">
+              <div className="mt-0.5 text-[11px] text-[#667085]">
                 Accounts Ripple can use when you ask.
               </div>
             </div>
             <button
               type="button"
               onClick={() => onSelectView("connectors")}
-              className="inline-flex h-9 items-center gap-2 rounded-full border border-[#dfe6f4] bg-white px-4 text-[13px] font-semibold text-[#374151] transition-all hover:bg-[#f7f8fa] active:scale-[0.98]"
+              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-3 text-[12px] font-semibold text-[#374151] transition-all hover:bg-[#f7f8fa] active:scale-[0.98]"
             >
               Manage
-              <ChevronRight size={14} />
+              <ChevronRight size={13} />
             </button>
           </div>
         </section>
 
-        <section className="rounded-2xl border border-[#dfe6f4] bg-white/78 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl">
-          <SectionHeader icon={<HardDrive size={15} />} title="Usage & Limits" tone="neutral" />
-          <div className="grid gap-4 p-4 md:grid-cols-2">
+        <section className="rounded-xl border border-[#dfe6f4] bg-white/78 shadow-[0_8px_22px_rgba(44,63,123,0.05)] backdrop-blur-xl">
+          <SectionHeader icon={<HardDrive size={13} />} title="Usage & Limits" tone="neutral" />
+          <div className="grid gap-3 p-3 md:grid-cols-2">
             <UsageMeter
               icon={<HardDrive size={13} />}
               iconTone="neutral"
@@ -472,10 +472,10 @@ export default function SettingsPage({
             <Metric label="Runs today" value={`${usage?.runs_today ?? 0}`} />
             <Metric label="Active runs" value={`${usage?.active_runs ?? 0}`} />
           </div>
-          <div className="border-t border-[#e8edf7] p-4">
-            <div className="mb-3 flex items-center gap-2 text-[13px] font-semibold text-[#374151]">
+          <div className="border-t border-[#e8edf7] p-3">
+            <div className="mb-2 flex items-center gap-1.5 text-[12px] font-semibold text-[#374151]">
               <IconTile tone="neutral" size="xs">
-                <Cpu size={13} />
+                <Cpu size={12} />
               </IconTile>
               Token usage
             </div>
@@ -488,19 +488,19 @@ export default function SettingsPage({
               />
               <Metric label="Total" value={formatTokens(usage?.total_tokens ?? 0)} compact />
             </div>
-            <div className="mt-3 grid grid-cols-2 divide-x divide-[#e8edf7] rounded-xl border border-[#e8edf7] bg-white/70 text-center">
+            <div className="mt-2 grid grid-cols-2 divide-x divide-[#e8edf7] rounded-xl border border-[#e8edf7] bg-white/70 text-center">
               <Metric label="Last 24h" value={formatTokens(usage?.daily_tokens ?? 0)} compact />
               <Metric label="Last 7d" value={formatTokens(usage?.weekly_tokens ?? 0)} compact />
             </div>
           </div>
         </section>
 
-        <section className="rounded-2xl border border-[#dfe6f4] bg-white/78 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl">
-          <SectionHeader icon={<SlidersHorizontal size={15} />} title="Defaults" tone="neutral" />
-          <div className="flex flex-wrap items-center justify-between gap-3 p-4">
+        <section className="rounded-xl border border-[#dfe6f4] bg-white/78 shadow-[0_8px_22px_rgba(44,63,123,0.05)] backdrop-blur-xl">
+          <SectionHeader icon={<SlidersHorizontal size={13} />} title="Defaults" tone="neutral" />
+          <div className="flex flex-wrap items-center justify-between gap-2.5 p-3">
             <div className="min-w-0">
-              <div className="text-[13px] font-semibold text-[#111827]">Default model</div>
-              <div className="mt-1 text-[12px] text-[#667085]">
+              <div className="text-[12px] font-semibold text-[#111827]">Default model</div>
+              <div className="mt-0.5 text-[11px] text-[#667085]">
                 Used for new prompts and scheduled runs.
               </div>
             </div>
@@ -508,53 +508,53 @@ export default function SettingsPage({
               <button
                 type="button"
                 onClick={handleModelMenuToggle}
-                className="inline-flex h-10 min-w-36 items-center justify-between gap-3 rounded-full border border-[#dfe6f4] bg-white px-4 text-[13px] font-semibold text-[#374151] transition-all outline-none hover:bg-[#f7f8fa] focus:border-[#8da0ff]"
+                className="inline-flex h-8 min-w-32 items-center justify-between gap-2.5 rounded-full border border-[#dfe6f4] bg-white px-3 text-[12px] font-semibold text-[#374151] transition-all outline-none hover:bg-[#f7f8fa] focus:border-[#8da0ff]"
                 aria-label="Default model"
                 aria-haspopup="menu"
                 aria-expanded={isModelMenuOpen}
               >
                 {formatModelName(defaultModel)}
-                <ChevronDown size={14} className="text-[#6b7280]" />
+                <ChevronDown size={13} className="text-[#6b7280]" />
               </button>
             </div>
           </div>
         </section>
 
-        <section className="rounded-2xl border border-[#dfe6f4] bg-white/78 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl">
+        <section className="rounded-xl border border-[#dfe6f4] bg-white/78 shadow-[0_8px_22px_rgba(44,63,123,0.05)] backdrop-blur-xl">
           <button
             type="button"
             onClick={() => setDiagnosticsOpen((open) => !open)}
-            className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+            className="flex w-full items-center justify-between gap-2.5 px-3 py-2.5 text-left"
           >
-            <span className="flex items-center gap-2 text-[13px] font-semibold text-[#111827]">
-              <IconTile tone="success" size="sm">
-                <ShieldCheck size={14} />
+            <span className="flex items-center gap-2 text-[12px] font-semibold text-[#111827]">
+              <IconTile tone="success" size="xs">
+                <ShieldCheck size={13} />
               </IconTile>
               About & Diagnostics
             </span>
             <ChevronDown
-              size={15}
+              size={14}
               className={`shrink-0 text-[#6b7280] transition-transform ${
                 diagnosticsOpen ? "rotate-180" : ""
               }`}
             />
           </button>
           {diagnosticsOpen ? (
-            <div className="space-y-3 border-t border-[#e8edf7] p-4">
+            <div className="space-y-2 border-t border-[#e8edf7] p-3">
               <DiagnosticRow
-                icon={<Server size={14} />}
+                icon={<Server size={13} />}
                 label="API endpoint"
                 value={getConfiguredApiUrl()}
               />
-              <DiagnosticRow icon={<UserRound size={14} />} label="User ID" value={userId} />
-              <DiagnosticRow icon={<KeyRound size={14} />} label="Auth mode" value={authMode} />
+              <DiagnosticRow icon={<UserRound size={13} />} label="User ID" value={userId} />
+              <DiagnosticRow icon={<KeyRound size={13} />} label="Auth mode" value={authMode} />
               <DiagnosticRow
-                icon={<HardDrive size={14} />}
+                icon={<HardDrive size={13} />}
                 label="Sandbox status"
                 value={sandbox ? "Ready" : "Not created"}
               />
               <DiagnosticRow
-                icon={<KeyRound size={14} />}
+                icon={<KeyRound size={13} />}
                 label="Credential"
                 value={apiKey ? `${apiKey.slice(0, 6)}${"*".repeat(8)}` : "Not set"}
               />
@@ -576,8 +576,8 @@ function SectionHeader({
   tone?: IconTileTone;
 }) {
   return (
-    <div className="flex h-11 items-center gap-2 border-b border-[#e8edf7] px-4 text-[13px] font-semibold text-[#111827]">
-      <IconTile tone={tone} size="sm">
+    <div className="flex h-9 items-center gap-2 border-b border-[#e8edf7] px-3 text-[12px] font-semibold text-[#111827]">
+      <IconTile tone={tone} size="xs">
         {icon}
       </IconTile>
       {title}
@@ -633,9 +633,13 @@ function Metric({
   compact?: boolean;
 }) {
   return (
-    <div className={compact ? "px-3 py-3" : "rounded-xl border border-[#e8edf7] bg-[#f8faff] p-3"}>
+    <div
+      className={
+        compact ? "px-2.5 py-2.5" : "rounded-xl border border-[#e8edf7] bg-[#f8faff] p-2.5"
+      }
+    >
       <div className="text-[11px] font-medium text-[#8b8f94]">{label}</div>
-      <div className="mt-1 text-[16px] font-semibold text-[#253247]">{value}</div>
+      <div className="mt-0.5 text-[15px] font-semibold text-[#253247]">{value}</div>
     </div>
   );
 }
@@ -650,13 +654,13 @@ function DiagnosticRow({
   value: string;
 }) {
   return (
-    <div className="flex min-h-10 items-center gap-3 rounded-xl border border-[#e8edf7] bg-[#f8faff] px-3 py-2">
-      <IconTile tone="neutral" size="sm">
+    <div className="flex min-h-9 items-center gap-2 rounded-lg border border-[#e8edf7] bg-[#f8faff] px-2.5 py-1.5">
+      <IconTile tone="neutral" size="xs">
         {icon}
       </IconTile>
       <span className="min-w-0 flex-1">
-        <span className="block text-[11px] font-semibold text-[#6b7280]">{label}</span>
-        <span className="block truncate font-mono text-[12px] text-[#253247]">{value}</span>
+        <span className="block text-[10px] font-semibold text-[#6b7280]">{label}</span>
+        <span className="block truncate font-mono text-[11px] text-[#253247]">{value}</span>
       </span>
     </div>
   );

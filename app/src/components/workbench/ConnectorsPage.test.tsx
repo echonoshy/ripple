@@ -80,4 +80,17 @@ function testConnectorsPageUsesSystemSoftTilesNotProviderLogos() {
 
 testConnectorsPageUsesSystemSoftTilesNotProviderLogos();
 
+function testConnectorsPageUsesCompactMobileDensity() {
+  const source = readFileSync(new URL("./ConnectorsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /pt-\[max\(env\(safe-area-inset-top\),12px\)\]/);
+  assert.match(source, /pb-\[calc\(76px\+env\(safe-area-inset-bottom\)\)\]/);
+  assert.match(source, /className="mx-auto max-w-5xl space-y-3"/);
+  assert.match(source, /rounded-xl border border-\[#dfe6f4\]/);
+  assert.match(source, /<IconTile tone=\{connectorStatusIconTone\(status\)\} size="md">/);
+  assert.match(source, /inline-flex h-7 items-center gap-1\.5 rounded-full/);
+}
+
+testConnectorsPageUsesCompactMobileDensity();
+
 console.log("connectors page tests passed");

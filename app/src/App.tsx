@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { AlertTriangle, KeyRound, UserRound } from "lucide-react";
+import AuthGateway, { type AuthGatewayMode } from "@/components/AuthGateway";
 import {
   fetchModels,
   getApiKey,
@@ -15,8 +15,6 @@ import {
   logoutUserSession,
   AuthError,
 } from "@/lib/api";
-import { IconTile } from "@/components/icons/IconTile";
-import RippleIcon from "@/components/icons/RippleIcon";
 import AutomationsPage from "@/components/workbench/AutomationsPage";
 import ConnectorsPage from "@/components/workbench/ConnectorsPage";
 import FilesPage from "@/components/workbench/FilesPage";
@@ -65,7 +63,7 @@ export default function Home() {
     getApiKey() ? "authenticated" : "needs_auth"
   );
   const [authErrorMsg, setAuthErrorMsg] = useState("");
-  const [authMode, setAuthMode] = useState<"login" | "invite" | "service">(() =>
+  const [authMode, setAuthMode] = useState<AuthGatewayMode>(() =>
     getAuthMode() === "service" && getApiKey() ? "service" : "login"
   );
   const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
@@ -842,209 +840,34 @@ export default function Home() {
   // ═══════════════════════════════════════════════════════
   if (authState !== "authenticated") {
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-white p-4 text-[#171a1f]">
-        {authState === "needs_auth" && (
-          <div className="mx-4 w-full max-w-[420px]">
-            <div className="rounded-2xl border border-[#e5e7eb] bg-white p-7 shadow-[0_24px_70px_rgba(13,13,13,0.08)]">
-              <div className="mb-6 flex flex-col items-center">
-                <RippleIcon
-                  size={64}
-                  className="mb-4 h-16 w-16 rounded-2xl shadow-[0_18px_45px_rgba(13,13,13,0.18)]"
-                />
-                <h1 className="text-[28px] leading-tight font-semibold tracking-normal">Ripple</h1>
-                <p className="mt-3 text-center text-sm text-[#687280]">Sign in to your workspace</p>
-              </div>
-
-              <div className="mb-5 grid grid-cols-3 rounded-lg border border-[#e5e7eb] bg-[#f7f8fa] p-1">
-                {[
-                  ["login", "Login"],
-                  ["invite", "Invite"],
-                  ["service", "API key"],
-                ].map(([mode, label]) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    onClick={() => {
-                      setAuthMode(mode as "login" | "invite" | "service");
-                      setAuthErrorMsg("");
-                      setAuthUserIdError(null);
-                    }}
-                    className={`h-8 rounded-md text-xs font-semibold transition ${
-                      authMode === mode
-                        ? "bg-white text-[#171a1f] shadow-sm"
-                        : "text-[#687280] hover:text-[#171a1f]"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-
-              {authErrorMsg && (
-                <div className="mb-4 flex items-center gap-2 rounded-md border border-[#cf222e]/25 bg-[#ffebe9] p-3 text-sm font-medium text-[#cf222e]">
-                  <IconTile tone="danger" size="sm">
-                    <AlertTriangle size={14} />
-                  </IconTile>
-                  <span>{authErrorMsg}</span>
-                </div>
-              )}
-
-              {authMode === "service" ? (
-                <form onSubmit={handleAuthSubmit}>
-                  <div className="relative mb-4">
-                    <IconTile
-                      tone="neutral"
-                      size="xs"
-                      className="absolute top-1/2 left-3 -translate-y-1/2"
-                    >
-                      <KeyRound size={13} />
-                    </IconTile>
-                    <input
-                      type="password"
-                      value={keyInput}
-                      onChange={(e) => setKeyInput(e.target.value)}
-                      placeholder="Service API key"
-                      className="w-full rounded-lg border border-[#e5e7eb] bg-white py-3 pr-4 pl-11 font-[family-name:var(--font-mono)] text-sm text-[#171a1f] outline-none focus:border-[#2463eb]"
-                    />
-                  </div>
-                  <div className="mb-1.5 flex items-center justify-between text-xs font-medium text-[#687280]">
-                    <span>User ID</span>
-                    <span className="font-[family-name:var(--font-cjk)] font-normal">
-                      留空使用 default
-                    </span>
-                  </div>
-                  <div className="relative mb-2">
-                    <IconTile
-                      tone="neutral"
-                      size="xs"
-                      className="absolute top-1/2 left-3 -translate-y-1/2"
-                    >
-                      <UserRound size={13} />
-                    </IconTile>
-                    <input
-                      type="text"
-                      value={authUserIdInput}
-                      onChange={(e) => {
-                        setAuthUserIdInput(e.target.value);
-                        if (authUserIdError) setAuthUserIdError(null);
-                      }}
-                      placeholder="default"
-                      aria-label="User ID"
-                      autoCapitalize="none"
-                      autoCorrect="off"
-                      spellCheck={false}
-                      className="w-full rounded-lg border border-[#e5e7eb] bg-white py-3 pr-4 pl-11 font-[family-name:var(--font-mono)] text-sm text-[#171a1f] outline-none focus:border-[#2463eb]"
-                    />
-                  </div>
-                  {authUserIdError && (
-                    <div className="mb-3 text-xs font-medium text-[#cf222e]">{authUserIdError}</div>
-                  )}
-                  <button
-                    type="submit"
-                    disabled={!keyInput.trim()}
-                    className="w-full rounded-lg border border-[#2463eb] bg-[#2463eb] py-3 text-sm font-semibold text-white shadow-[0_10px_28px_rgba(36,99,235,0.18)] hover:bg-[#1d56d8] disabled:cursor-not-allowed disabled:border-[#dde2ea] disabled:bg-[#f7f8fa] disabled:text-[#8b8f94] disabled:shadow-none"
-                  >
-                    Connect
-                  </button>
-                </form>
-              ) : (
-                <form onSubmit={authMode === "invite" ? handleInviteClaim : handlePasswordLogin}>
-                  {authMode === "invite" && (
-                    <div className="relative mb-3">
-                      <IconTile
-                        tone="neutral"
-                        size="xs"
-                        className="absolute top-1/2 left-3 -translate-y-1/2"
-                      >
-                        <KeyRound size={13} />
-                      </IconTile>
-                      <input
-                        type="text"
-                        value={inviteCodeInput}
-                        onChange={(e) => setInviteCodeInput(e.target.value)}
-                        placeholder="Invite code"
-                        autoCapitalize="none"
-                        autoCorrect="off"
-                        spellCheck={false}
-                        className="w-full rounded-lg border border-[#e5e7eb] bg-white py-3 pr-4 pl-11 font-[family-name:var(--font-mono)] text-sm text-[#171a1f] outline-none focus:border-[#2463eb]"
-                      />
-                    </div>
-                  )}
-                  <div className="relative mb-3">
-                    <IconTile
-                      tone="neutral"
-                      size="xs"
-                      className="absolute top-1/2 left-3 -translate-y-1/2"
-                    >
-                      <UserRound size={13} />
-                    </IconTile>
-                    <input
-                      type="text"
-                      value={loginInput}
-                      onChange={(e) => setLoginInput(e.target.value)}
-                      placeholder="Email or username"
-                      autoCapitalize="none"
-                      autoCorrect="off"
-                      spellCheck={false}
-                      className="w-full rounded-lg border border-[#e5e7eb] bg-white py-3 pr-4 pl-11 text-sm text-[#171a1f] outline-none focus:border-[#2463eb]"
-                    />
-                  </div>
-                  {authMode === "invite" && (
-                    <div className="relative mb-3">
-                      <IconTile
-                        tone="neutral"
-                        size="xs"
-                        className="absolute top-1/2 left-3 -translate-y-1/2"
-                      >
-                        <UserRound size={13} />
-                      </IconTile>
-                      <input
-                        type="text"
-                        value={inviteDisplayNameInput}
-                        onChange={(e) => setInviteDisplayNameInput(e.target.value)}
-                        placeholder="Display name"
-                        className="w-full rounded-lg border border-[#e5e7eb] bg-white py-3 pr-4 pl-11 text-sm text-[#171a1f] outline-none focus:border-[#2463eb]"
-                      />
-                    </div>
-                  )}
-                  <div className="relative mb-4">
-                    <IconTile
-                      tone="neutral"
-                      size="xs"
-                      className="absolute top-1/2 left-3 -translate-y-1/2"
-                    >
-                      <KeyRound size={13} />
-                    </IconTile>
-                    <input
-                      type="password"
-                      value={passwordInput}
-                      onChange={(e) => setPasswordInput(e.target.value)}
-                      placeholder={authMode === "invite" ? "Create password" : "Password"}
-                      className="w-full rounded-lg border border-[#e5e7eb] bg-white py-3 pr-4 pl-11 text-sm text-[#171a1f] outline-none focus:border-[#2463eb]"
-                    />
-                  </div>
-                  <button
-                    type="submit"
-                    disabled={
-                      isAuthSubmitting ||
-                      !loginInput.trim() ||
-                      !passwordInput ||
-                      (authMode === "invite" && !inviteCodeInput.trim())
-                    }
-                    className="w-full rounded-lg border border-[#2463eb] bg-[#2463eb] py-3 text-sm font-semibold text-white shadow-[0_10px_28px_rgba(36,99,235,0.18)] hover:bg-[#1d56d8] disabled:cursor-not-allowed disabled:border-[#dde2ea] disabled:bg-[#f7f8fa] disabled:text-[#8b8f94] disabled:shadow-none"
-                  >
-                    {isAuthSubmitting
-                      ? "Signing in..."
-                      : authMode === "invite"
-                        ? "Create account"
-                        : "Sign in"}
-                  </button>
-                </form>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
+      <AuthGateway
+        authMode={authMode}
+        authErrorMsg={authErrorMsg}
+        isAuthSubmitting={isAuthSubmitting}
+        loginInput={loginInput}
+        passwordInput={passwordInput}
+        inviteCodeInput={inviteCodeInput}
+        inviteDisplayNameInput={inviteDisplayNameInput}
+        keyInput={keyInput}
+        authUserIdInput={authUserIdInput}
+        authUserIdError={authUserIdError}
+        onModeChange={(mode) => {
+          setAuthMode(mode);
+          setAuthErrorMsg("");
+          setAuthUserIdError(null);
+        }}
+        onAuthErrorClear={() => setAuthErrorMsg("")}
+        onAuthUserIdErrorClear={() => setAuthUserIdError(null)}
+        onLoginInputChange={setLoginInput}
+        onPasswordInputChange={setPasswordInput}
+        onInviteCodeInputChange={setInviteCodeInput}
+        onInviteDisplayNameInputChange={setInviteDisplayNameInput}
+        onKeyInputChange={setKeyInput}
+        onAuthUserIdInputChange={setAuthUserIdInput}
+        onPasswordLogin={handlePasswordLogin}
+        onInviteClaim={handleInviteClaim}
+        onServiceAuth={handleAuthSubmit}
+      />
     );
   }
 

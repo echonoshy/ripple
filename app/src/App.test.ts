@@ -1,13 +1,20 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-function testLoginScreenIncludesOptionalUserIdInput() {
+function testAppUsesAuthGatewayForLoginScreen() {
   const source = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /User ID/);
-  assert.match(source, /placeholder="default"/);
+  assert.match(source, /import AuthGateway, \{ type AuthGatewayMode \}/);
+  assert.match(source, /<AuthGateway/);
+  assert.match(source, /authUserIdInput=\{authUserIdInput\}/);
+  assert.match(source, /onServiceAuth=\{handleAuthSubmit\}/);
+  assert.match(source, /onPasswordLogin=\{handlePasswordLogin\}/);
+  assert.match(source, /onInviteClaim=\{handleInviteClaim\}/);
+  assert.match(source, /onModeChange=\{\(mode\) => \{/);
   assert.match(source, /normalizeLoginUserId/);
   assert.match(source, /setUserId\(nextUserId\)/);
+  assert.doesNotMatch(source, /Sign in to your workspace/);
+  assert.doesNotMatch(source, /grid grid-cols-3 rounded-lg/);
 }
 
 function testWorkspaceLinksRouteToFilesPageOnMobile() {
@@ -57,7 +64,7 @@ function testMobileFileLinkReturnRestoresSessionScroll() {
   assert.match(source, /onRestoreScrollComplete=\{\(\) => setMobileSessionRestoreScrollTop\(null\)\}/);
 }
 
-testLoginScreenIncludesOptionalUserIdInput();
+testAppUsesAuthGatewayForLoginScreen();
 testWorkspaceLinksRouteToFilesPageOnMobile();
 testWorkspaceLinksUsePendingRequestForCollapsedInspector();
 testWorkspaceLinksIgnoreSandboxUserInProductSessionAuth();

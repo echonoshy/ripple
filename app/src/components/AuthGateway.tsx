@@ -162,7 +162,7 @@ export default function AuthGateway({
             />
             <div className="min-w-0">
               <div className="text-base leading-5 font-semibold">Ripple</div>
-              <div className="text-xs font-medium text-[#667085]">Agent control plane</div>
+              <div className="text-xs font-medium text-[#667085]">Your AI workspace</div>
             </div>
           </div>
           <button

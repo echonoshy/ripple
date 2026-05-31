@@ -41,6 +41,8 @@ function testGatewayShowsPrimaryLoginWithoutProductIntroModule() {
   const html = renderGateway();
 
   assert.match(html, /data-ripple-auth-gateway="true"/);
+  assert.match(html, />Your AI workspace</);
+  assert.doesNotMatch(html, />Agent control plane</);
   assert.match(html, />Sign in to Ripple</);
   assert.doesNotMatch(html, />Workspace gateway</);
   assert.doesNotMatch(html, />One entry for sessions, files, connectors, and scheduled work/);

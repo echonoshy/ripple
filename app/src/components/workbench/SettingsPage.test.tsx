@@ -69,11 +69,13 @@ function testSettingsPageHasExpectedUserSections() {
   assert.match(html, />Defaults/);
   assert.match(html, />About &amp; Diagnostics/);
   assert.match(html, />Default model/);
-  assert.match(html, />Sign out/);
+  assert.match(html, />Log out/);
   assert.match(html, />Change password/);
   assert.match(html, />Invite account/);
   assert.match(html, />DE</);
-  assert.match(html, />Upload avatar/);
+  assert.match(html, />Avatar/);
+  assert.doesNotMatch(html, />Upload avatar/);
+  assert.doesNotMatch(html, />Remove avatar/);
   assert.doesNotMatch(html, />Default avatars/);
   assert.doesNotMatch(html, /Switch workspace/);
 }
@@ -83,9 +85,12 @@ function testSettingsPageShowsDeveloperModeForServiceAccess() {
 
   assert.match(html, />Developer mode/);
   assert.match(html, />API key access/);
-  assert.match(html, />Change access/);
+  assert.match(html, />Log out/);
+  assert.doesNotMatch(html, />Change access/);
   assert.match(html, />LA</);
-  assert.match(html, />Upload avatar/);
+  assert.match(html, />Avatar/);
+  assert.doesNotMatch(html, />Upload avatar/);
+  assert.doesNotMatch(html, />Remove avatar/);
   assert.doesNotMatch(html, />Default avatars/);
   assert.doesNotMatch(html, />Change password/);
 }
@@ -99,6 +104,13 @@ function testSettingsPageSupportsLocalAvatarUpload() {
   assert.match(source, /uploadUserAvatar/);
   assert.match(source, /deleteUserAvatar/);
   assert.match(source, /fetchUserAvatarImage/);
+  assert.match(source, /isAvatarMenuOpen/);
+  assert.match(source, /aria-label="Avatar actions"/);
+  assert.match(source, /avatarMenuPortal/);
+  assert.match(source, /avatarMenuPosition/);
+  assert.match(source, /createPortal\(\s*<>[\s\S]*role="menu"[\s\S]*document\.body/);
+  assert.match(source, /position: "fixed"/);
+  assert.match(source, /Remove avatar/);
   assert.doesNotMatch(source, /FileReader/);
   assert.doesNotMatch(source, /readAsDataURL/);
   assert.doesNotMatch(source, /getClientStorage/);

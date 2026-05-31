@@ -73,6 +73,9 @@ function percent(value: number, max: number): number {
 const SETTINGS_MODEL_MENU_WIDTH = 176;
 const SETTINGS_MODEL_MENU_ITEM_HEIGHT = 32;
 const SETTINGS_MODEL_MENU_VERTICAL_PADDING = 8;
+const SETTINGS_AVATAR_MENU_WIDTH = 160;
+const SETTINGS_AVATAR_MENU_ITEM_HEIGHT = 32;
+const SETTINGS_AVATAR_MENU_VERTICAL_PADDING = 8;
 
 interface ModelMenuPosition {
   top: number;
@@ -85,6 +88,10 @@ function getSettingsModelMenuHeight(optionCount: number): number {
   return optionCount * SETTINGS_MODEL_MENU_ITEM_HEIGHT + SETTINGS_MODEL_MENU_VERTICAL_PADDING;
 }
 
+function getSettingsAvatarMenuHeight(optionCount: number): number {
+  return optionCount * SETTINGS_AVATAR_MENU_ITEM_HEIGHT + SETTINGS_AVATAR_MENU_VERTICAL_PADDING;
+}
+
 function getSettingsModelMenuPosition(
   anchorRect: ViewportMenuAnchorRect,
   optionCount: number,
@@ -95,6 +102,25 @@ function getSettingsModelMenuPosition(
     menuWidth: SETTINGS_MODEL_MENU_WIDTH,
     estimatedMenuHeight: getSettingsModelMenuHeight(optionCount),
     measuredMenuHeight,
+    viewportWidth: window.innerWidth,
+    viewportHeight: window.innerHeight,
+    bottomInset: getResponsiveMenuBottomInsetPx(),
+    margin: VIEWPORT_MENU_MARGIN_PX,
+    align: "right",
+  });
+
+  return { top: position.top, left: position.left };
+}
+
+function getSettingsAvatarMenuPosition(
+  anchorRect: ViewportMenuAnchorRect,
+  optionCount: number
+): { top: number; left: number } {
+  const position = getMeasuredViewportMenuPosition({
+    anchorRect,
+    menuWidth: SETTINGS_AVATAR_MENU_WIDTH,
+    estimatedMenuHeight: getSettingsAvatarMenuHeight(optionCount),
+    measuredMenuHeight: null,
     viewportWidth: window.innerWidth,
     viewportHeight: window.innerHeight,
     bottomInset: getResponsiveMenuBottomInsetPx(),
@@ -130,6 +156,7 @@ export default function SettingsPage({
   const [avatarImageUrl, setAvatarImageUrl] = useState<string | null>(null);
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const [isAvatarUploading, setIsAvatarUploading] = useState(false);
+  const [isAvatarMenuOpen, setIsAvatarMenuOpen] = useState(false);
   const [isPasswordOpen, setIsPasswordOpen] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -138,6 +165,10 @@ export default function SettingsPage({
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
   const [modelMenuPosition, setModelMenuPosition] = useState<ModelMenuPosition | null>(null);
+  const [avatarMenuPosition, setAvatarMenuPosition] = useState<{
+    top: number;
+    left: number;
+  } | null>(null);
   const modelMenuRef = useRef<HTMLDivElement | null>(null);
   const avatarFileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -233,6 +264,8 @@ export default function SettingsPage({
   const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] ?? null;
     event.target.value = "";
+    setIsAvatarMenuOpen(false);
+    setAvatarMenuPosition(null);
     if (!file || !file.type.startsWith("image/")) return;
 
     try {
@@ -249,6 +282,8 @@ export default function SettingsPage({
   };
 
   const handleAvatarRemove = async () => {
+    setIsAvatarMenuOpen(false);
+    setAvatarMenuPosition(null);
     try {
       setIsAvatarUploading(true);
       setAvatarError(null);
@@ -260,6 +295,28 @@ export default function SettingsPage({
     } finally {
       setIsAvatarUploading(false);
     }
+  };
+
+  const closeAvatarMenu = useCallback(() => {
+    setIsAvatarMenuOpen(false);
+    setAvatarMenuPosition(null);
+  }, []);
+
+  const handleAvatarMenuToggle = (event: React.MouseEvent<HTMLButtonElement>) => {
+    if (isAvatarMenuOpen) {
+      closeAvatarMenu();
+      return;
+    }
+
+    const rect = event.currentTarget.getBoundingClientRect();
+    const anchorRect = {
+      top: rect.top,
+      right: rect.right,
+      bottom: rect.bottom,
+      left: rect.left,
+    };
+    setAvatarMenuPosition(getSettingsAvatarMenuPosition(anchorRect, profileAvatarUri ? 2 : 1));
+    setIsAvatarMenuOpen(true);
   };
 
   const closeModelMenu = useCallback(() => {
@@ -330,6 +387,21 @@ export default function SettingsPage({
     };
   }, [closeModelMenu, isModelMenuOpen]);
 
+  useEffect(() => {
+    if (!isAvatarMenuOpen) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeAvatarMenu();
+    };
+
+    window.addEventListener("resize", closeAvatarMenu);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("resize", closeAvatarMenu);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [closeAvatarMenu, isAvatarMenuOpen]);
+
   const modelMenuPortal =
     isModelMenuOpen && modelMenuPosition && typeof document !== "undefined"
       ? createPortal(
@@ -372,10 +444,53 @@ export default function SettingsPage({
           document.body
         )
       : null;
+  const avatarMenuPortal =
+    isAvatarMenuOpen && avatarMenuPosition && typeof document !== "undefined"
+      ? createPortal(
+          <>
+            <div className="fixed inset-0 z-40 bg-transparent" onClick={closeAvatarMenu} />
+            <div
+              role="menu"
+              style={{
+                top: avatarMenuPosition.top,
+                left: avatarMenuPosition.left,
+                position: "fixed",
+              }}
+              className="z-50 w-40 rounded-xl border border-[#dfe6f4] bg-white p-1 shadow-[0_14px_34px_rgba(44,63,123,0.14)]"
+            >
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  closeAvatarMenu();
+                  avatarFileInputRef.current?.click();
+                }}
+                className="flex h-8 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[12px] font-semibold text-[#374151] hover:bg-[#f7f8fa]"
+              >
+                <Upload size={13} />
+                Upload avatar
+              </button>
+              {profileAvatarUri ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={handleAvatarRemove}
+                  className="flex h-8 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[12px] font-semibold text-[#b42318] hover:bg-[#fff1f0]"
+                >
+                  <X size={13} />
+                  Remove avatar
+                </button>
+              ) : null}
+            </div>
+          </>,
+          document.body
+        )
+      : null;
 
   return (
     <div className="h-full min-h-0 overflow-y-auto bg-[radial-gradient(circle_at_16%_0%,rgba(47,107,255,0.10),transparent_34%),radial-gradient(circle_at_88%_8%,rgba(20,184,166,0.08),transparent_32%),#fbfdff] px-2.5 pt-[max(env(safe-area-inset-top),8px)] pb-[calc(68px+env(safe-area-inset-bottom))] text-[#111827] md:px-4 md:pt-[max(env(safe-area-inset-top),12px)] md:pb-4">
       {modelMenuPortal}
+      {avatarMenuPortal}
       <div className="mx-auto max-w-5xl space-y-2">
         <header className="flex items-start justify-between gap-2">
           <div className="flex min-w-0 items-center gap-1.5">
@@ -457,32 +572,27 @@ export default function SettingsPage({
                   className="inline-flex h-7 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-2.5 text-[11px] font-semibold text-[#374151] transition-all hover:bg-[#f7f8fa] active:scale-[0.98]"
                 >
                   <LogOut size={13} />
-                  {authMode === "user" ? "Sign out" : "Change access"}
+                  Log out
                 </button>
-                <button
-                  type="button"
-                  onClick={() => avatarFileInputRef.current?.click()}
-                  disabled={isAvatarUploading}
-                  className="inline-flex h-7 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-2.5 text-[11px] font-semibold text-[#374151] transition-all hover:bg-[#f7f8fa] active:scale-[0.98]"
-                >
-                  {isAvatarUploading ? (
-                    <Loader2 size={13} className="animate-spin" />
-                  ) : (
-                    <Upload size={13} />
-                  )}
-                  {isAvatarUploading ? "Uploading" : "Upload avatar"}
-                </button>
-                {profileAvatarUri ? (
+                <div className="relative">
                   <button
                     type="button"
-                    onClick={handleAvatarRemove}
+                    onClick={handleAvatarMenuToggle}
                     disabled={isAvatarUploading}
+                    aria-label="Avatar actions"
+                    aria-haspopup="menu"
+                    aria-expanded={isAvatarMenuOpen}
                     className="inline-flex h-7 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-2.5 text-[11px] font-semibold text-[#374151] transition-all hover:bg-[#f7f8fa] active:scale-[0.98]"
                   >
-                    <X size={13} />
-                    Remove avatar
+                    {isAvatarUploading ? (
+                      <Loader2 size={13} className="animate-spin" />
+                    ) : (
+                      <UserRound size={13} />
+                    )}
+                    {isAvatarUploading ? "Uploading" : "Avatar"}
+                    <ChevronDown size={12} className="text-[#6b7280]" />
                   </button>
-                ) : null}
+                </div>
               </div>
             </div>
             {avatarError ? (

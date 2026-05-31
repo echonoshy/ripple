@@ -64,6 +64,18 @@ function testAutomationCardUsesSeparatedLayoutRegions() {
   assert.match(source, /data-ripple-automation-actions/);
 }
 
+function testAutomationCardUsesCompactResponsiveLayout() {
+  const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /className="px-3 py-3 sm:px-4 sm:py-3"/);
+  assert.match(source, /lg:grid-cols-\[minmax\(0,1fr\)_minmax\(220px,280px\)\]/);
+  assert.match(source, /grid-cols-2 gap-1\.5 pl-9 sm:grid-cols-4 lg:grid-cols-3/);
+  assert.match(source, /col-span-2 min-w-0 sm:col-span-2 lg:col-span-1/);
+  assert.match(source, /rounded-xl border border-\[#e8edf7\] bg-\[#f8fbff\]\/75 p-2\.5/);
+  assert.match(source, /overflow-x-auto/);
+  assert.match(source, /sm:flex-wrap sm:justify-end/);
+}
+
 function testAutomationRunHistoryUsesReadableRows() {
   const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
 
@@ -78,6 +90,7 @@ testAutomationActionsUseVisibleDistinctLabels();
 testTimezoneUsesSelectControl();
 testAutomationRunResultsAreDiscoverable();
 testAutomationCardUsesSeparatedLayoutRegions();
+testAutomationCardUsesCompactResponsiveLayout();
 testAutomationRunHistoryUsesReadableRows();
 
 console.log("automations page tests passed");

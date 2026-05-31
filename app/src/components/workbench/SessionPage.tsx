@@ -12,6 +12,7 @@ import {
 import {
   AlertTriangle,
   ArrowBigLeft,
+  ChevronLeft,
   CheckCircle2,
   Circle,
   Ellipsis,
@@ -398,7 +399,7 @@ export default function SessionPage({
           onClick={onBackToMobileSessions}
           className={mobileHeaderButtonClass}
         >
-          <ArrowBigLeft size={18} strokeWidth={2.2} />
+          <ChevronLeft size={22} strokeWidth={2.2} />
         </button>
         <div className="min-w-0 text-center">
           <div className="truncate text-[15px] leading-5 font-semibold text-[#111827]">

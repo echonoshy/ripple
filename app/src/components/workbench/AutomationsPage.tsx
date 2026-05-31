@@ -689,21 +689,21 @@ export default function AutomationsPage({
                   <div
                     key={schedule.schedule_id}
                     data-ripple-automation-card-main
-                    className="px-4 py-4 sm:px-5"
+                    className="px-3 py-3 sm:px-4 sm:py-3"
                   >
-                    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(250px,310px)] xl:items-start">
+                    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(220px,280px)] lg:items-start">
                       <div data-ripple-automation-summary className="min-w-0">
-                        <div className="flex min-w-0 items-start gap-3">
+                        <div className="flex min-w-0 items-start gap-2.5">
                           <IconTile
                             tone={schedule.enabled ? "accent" : "neutral"}
-                            size="sm"
+                            size="xs"
                             className="mt-0.5"
                           >
                             <CalendarClock size={14} />
                           </IconTile>
                           <div className="min-w-0 flex-1">
                             <div className="flex min-w-0 flex-wrap items-center gap-2">
-                              <span className="min-w-0 truncate text-[14px] font-semibold">
+                              <span className="min-w-0 truncate text-[13px] font-semibold sm:text-[14px]">
                                 {schedule.title}
                               </span>
                               <span
@@ -714,7 +714,7 @@ export default function AutomationsPage({
                                 {schedule.status}
                               </span>
                             </div>
-                            <div className="mt-1 line-clamp-2 text-[12px] leading-5 text-[#667085]">
+                            <div className="mt-0.5 line-clamp-1 text-[12px] leading-4 text-[#667085] sm:line-clamp-2">
                               {schedule.prompt}
                             </div>
                             {schedule.last_error ? (
@@ -727,17 +727,17 @@ export default function AutomationsPage({
 
                         <div
                           data-ripple-automation-meta-grid
-                          className="mt-3 grid gap-2 pl-11 sm:grid-cols-3"
+                          className="mt-2 grid grid-cols-2 gap-1.5 pl-9 sm:grid-cols-4 lg:grid-cols-3"
                         >
-                          <div className="min-w-0">
+                          <div className="min-w-0 rounded-lg border border-[#eef2fb] bg-[#f8fbff]/80 px-2 py-1.5">
                             <div className="text-[10px] font-semibold tracking-normal text-[#8b8f94] uppercase">
                               Next
                             </div>
-                            <div className="mt-0.5 truncate text-[13px] font-medium text-[#111827]">
+                            <div className="mt-0.5 truncate text-[12px] font-semibold text-[#111827]">
                               {formatDate(schedule.next_run_at)}
                             </div>
                           </div>
-                          <div className="min-w-0">
+                          <div className="min-w-0 rounded-lg border border-[#eef2fb] bg-[#f8fbff]/80 px-2 py-1.5">
                             <div className="text-[10px] font-semibold tracking-normal text-[#8b8f94] uppercase">
                               Repeat
                             </div>
@@ -747,7 +747,7 @@ export default function AutomationsPage({
                                 : "Once"}
                             </div>
                           </div>
-                          <div className="min-w-0">
+                          <div className="col-span-2 min-w-0 sm:col-span-2 lg:col-span-1 rounded-lg border border-[#eef2fb] bg-[#f8fbff]/80 px-2 py-1.5">
                             <div className="text-[10px] font-semibold tracking-normal text-[#8b8f94] uppercase">
                               Policy
                             </div>
@@ -762,9 +762,9 @@ export default function AutomationsPage({
 
                       <div
                         data-ripple-automation-latest-run
-                        className="min-w-0 border-l-2 border-[#e8edf7] pl-3 text-[13px]"
+                        className="min-w-0 rounded-xl border border-[#e8edf7] bg-[#f8fbff]/75 p-2.5 text-[12px] lg:border-y-0 lg:border-r-0 lg:border-l-2 lg:bg-transparent lg:py-0 lg:pr-0 lg:pl-3"
                       >
-                        <div className="flex min-w-0 items-center gap-1.5">
+                        <div className="flex min-w-0 items-center justify-between gap-2">
                           <span className="text-[10px] font-semibold tracking-normal text-[#8b8f94] uppercase">
                             Latest run
                           </span>
@@ -776,18 +776,20 @@ export default function AutomationsPage({
                             {latestRunStatus || "none"}
                           </span>
                         </div>
-                        <div className="mt-1 truncate font-[family-name:var(--font-mono)] text-[11px] text-[#384152]">
-                          {latestRunId || "No run"}
-                        </div>
-                        <div className="mt-1 text-[11px] text-[#667085]">
-                          {latestRunAt ? formatDate(latestRunAt) : "Never"}
+                        <div className="mt-1 grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-2">
+                          <div className="truncate font-[family-name:var(--font-mono)] text-[11px] text-[#384152]">
+                            {latestRunId || "No run"}
+                          </div>
+                          <div className="shrink-0 text-[11px] text-[#667085]">
+                            {latestRunAt ? formatDate(latestRunAt) : "Never"}
+                          </div>
                         </div>
                         {latestRunError ? (
                           <div className="mt-1 truncate text-[11px] font-medium text-[#cf222e]">
                             {latestRunError}
                           </div>
                         ) : null}
-                        <div className="mt-2 flex flex-wrap gap-1.5">
+                        <div className="mt-2 flex flex-nowrap gap-1.5 overflow-x-auto sm:flex-wrap">
                           <button
                             type="button"
                             onClick={() => void handleRefreshRuns(schedule.schedule_id)}
@@ -837,7 +839,7 @@ export default function AutomationsPage({
 
                     <div
                       data-ripple-automation-actions
-                      className="mt-4 flex flex-wrap items-center gap-1.5 border-t border-[#e8edf7] pt-3 sm:justify-end"
+                      className="-mx-3 mt-3 flex flex-nowrap items-center gap-1.5 overflow-x-auto border-t border-[#e8edf7] px-3 pt-2 pb-0.5 sm:mx-0 sm:flex-wrap sm:justify-end sm:px-0"
                     >
                       {confirmDeleteId === schedule.schedule_id ? (
                         <button

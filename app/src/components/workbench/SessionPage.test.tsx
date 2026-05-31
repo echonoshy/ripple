@@ -139,11 +139,20 @@ function testOmitsPlaceholderSessionHeaderControls() {
 }
 
 function testMobileHeaderButtonsUseToolbarStyling() {
+  const html = renderSessionPage();
+  const backButton = html.match(
+    /<button[^>]*aria-label="Back to sessions"[^>]*>[\s\S]*?<\/button>/
+  )?.[0];
+
+  assert.ok(backButton);
+  assert.match(backButton, /lucide-chevron-left/);
+  assert.match(backButton, /<path d="m15 18-6-6 6-6"><\/path>/);
+  assert.doesNotMatch(backButton, /lucide-arrow-big-left/);
   assert.match(
     sessionPageSource,
     /mobileHeaderButtonClass =\s+"inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white\/70 bg-white\/68 text-\[#516070\]/
   );
-  assert.match(sessionPageSource, /ArrowBigLeft/);
+  assert.match(sessionPageSource, /ChevronLeft/);
   assert.match(sessionPageSource, /MessageCircleMore/);
   assert.match(sessionPageSource, /Ellipsis/);
   assert.doesNotMatch(sessionPageSource, /mobileHeaderPrimaryButtonClass/);

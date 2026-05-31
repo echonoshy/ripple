@@ -145,6 +145,29 @@ function testWorkspaceExplorerPageShowsMobileParentFolderControl() {
 
 testWorkspaceExplorerPageShowsMobileParentFolderControl();
 
+function testWorkspaceExplorerMobileParentFolderButtonUsesIconOnly() {
+  const html = renderExplorer({
+    presentation: "page",
+    testInitialListing: {
+      path: "/workspace/novel",
+      parent_path: "/workspace",
+      entries: [],
+    },
+  });
+
+  const parentButton = html.match(
+    /<button[^>]*data-ripple-files-action="parent-folder"[^>]*>[\s\S]*?<\/button>/
+  )?.[0];
+
+  assert.ok(parentButton);
+  assert.match(parentButton, /aria-label="Go to parent folder"/);
+  assert.match(parentButton, /title="Go to parent folder"/);
+  assert.match(parentButton, /lucide-folder-up/);
+  assert.doesNotMatch(parentButton, />Up</);
+}
+
+testWorkspaceExplorerMobileParentFolderButtonUsesIconOnly();
+
 function testWorkspaceExplorerPageKeepsMobileUploadSeparateFromParentFolder() {
   const html = renderExplorer({
     presentation: "page",
@@ -162,8 +185,9 @@ function testWorkspaceExplorerPageKeepsMobileUploadSeparateFromParentFolder() {
 
   assert.ok(parentButton);
   assert.ok(uploadButton);
-  assert.match(parentButton, /border-\[#dfe6f4\]/);
-  assert.match(parentButton, /bg-white\/78/);
+  assert.match(parentButton, /border-\[#d7e3f8\]/);
+  assert.match(parentButton, /bg-\[#eef4ff\]/);
+  assert.match(parentButton, /text-\[#2463eb\]/);
   assert.match(uploadButton, /border-\[#dfe6f4\]/);
   assert.match(uploadButton, /bg-white\/78/);
   assert.doesNotMatch(uploadButton, /bg-\[#2463eb\]/);

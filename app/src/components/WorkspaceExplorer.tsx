@@ -9,6 +9,7 @@ import {
   Edit3,
   FileText,
   Folder,
+  FolderUp,
   Loader2,
   RefreshCw,
   Save,
@@ -1230,7 +1231,7 @@ export default function WorkspaceExplorer({
   const pageToolbarPrimaryButtonClass =
     pageToolbarIconButtonClass;
   const pageParentButtonClass =
-    "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-[#dfe6f4] bg-white/78 px-2.5 text-[12px] font-semibold text-[#384152] shadow-[0_10px_24px_rgba(44,63,123,0.06)] transition-colors hover:bg-white lg:hidden";
+    "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#d7e3f8] bg-[#eef4ff] text-[#2463eb] shadow-[0_10px_24px_rgba(44,63,123,0.06)] transition-colors hover:bg-[#e5efff] lg:hidden";
 
   return (
     <div
@@ -1468,8 +1469,7 @@ export default function WorkspaceExplorer({
                 aria-label="Go to parent folder"
                 onClick={() => void loadDirectory(listing.parent_path || DEFAULT_WORKSPACE_PATH)}
               >
-                <ArrowUp size={15} />
-                <span>Up</span>
+                <FolderUp size={18} />
               </button>
             ) : (
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#f6f8ff] text-[#2463eb]">

@@ -492,7 +492,7 @@ export default function ConnectorsPage({
                 <div>
                   <h2 className="text-[12px] font-semibold text-[#111827]">{section.title}</h2>
                   <p className="mt-0.5 text-[11px] leading-4 text-[#667085]">
-                    Per-user credentials stored inside the current sandbox boundary.
+                    Connect services you use with Ripple.
                   </p>
                 </div>
                 <span className="text-[11px] font-medium text-[#667085]">

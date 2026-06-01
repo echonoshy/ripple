@@ -9,7 +9,15 @@ const noop = () => {};
 
 function renderAutomationsPage() {
   return renderToStaticMarkup(
-    <AutomationsPage selectedModel="codex-medium" onAuthExpired={noop} onBack={noop} />
+    <AutomationsPage
+      selectedModel="codex-medium"
+      models={[
+        { id: "codex-medium", owned_by: "ripple" },
+        { id: "codex-high", owned_by: "ripple" },
+      ]}
+      onAuthExpired={noop}
+      onBack={noop}
+    />
   );
 }
 
@@ -36,6 +44,27 @@ function testTimezoneUsesSelectControl() {
   assert.match(source, /<select[\s\S]*value=\{timezone\}/);
   assert.doesNotMatch(source, /<input[\s\S]{0,200}value=\{timezone\}/);
   assert.match(source, /Asia\/Shanghai/);
+}
+
+function testAutomationFormCanSelectModel() {
+  const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /models:\s*\{\s*id:\s*string;\s*owned_by:\s*string\s*\}\[\]/);
+  assert.match(source, /const \[formModel, setFormModel\]/);
+  assert.match(source, /<select[\s\S]*value=\{formModel\}/);
+  assert.match(source, />Model</);
+  assert.match(source, /availableModels\.map/);
+  assert.match(source, /model:\s*formModel/);
+}
+
+function testExistingAutomationsCanBeEdited() {
+  const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /editingScheduleId/);
+  assert.match(source, /function beginEditSchedule/);
+  assert.match(source, /await updateSchedule\(editingScheduleId/);
+  assert.match(source, /"Save"/);
+  assert.match(source, />Edit</);
 }
 
 function testAutomationRunResultsAreDiscoverable() {
@@ -70,7 +99,7 @@ function testAutomationCardUsesCompactResponsiveLayout() {
   assert.match(source, /className="px-3 py-3 sm:px-4 sm:py-3"/);
   assert.match(source, /lg:grid-cols-\[minmax\(0,1fr\)_minmax\(220px,280px\)\]/);
   assert.match(source, /grid-cols-2 gap-1\.5 pl-9 sm:grid-cols-4 lg:grid-cols-3/);
-  assert.match(source, /col-span-2 min-w-0 sm:col-span-2 lg:col-span-1/);
+  assert.match(source, /col-span-2 min-w-0 rounded-lg[\s\S]*sm:col-span-2 lg:col-span-1/);
   assert.match(source, /rounded-xl border border-\[#e8edf7\] bg-\[#f8fbff\]\/75 p-2\.5/);
   assert.match(source, /overflow-x-auto/);
   assert.match(source, /sm:flex-wrap sm:justify-end/);
@@ -88,6 +117,8 @@ function testAutomationRunHistoryUsesReadableRows() {
 testAutomationsPageHasMobileBackNavigation();
 testAutomationActionsUseVisibleDistinctLabels();
 testTimezoneUsesSelectControl();
+testAutomationFormCanSelectModel();
+testExistingAutomationsCanBeEdited();
 testAutomationRunResultsAreDiscoverable();
 testAutomationCardUsesSeparatedLayoutRegions();
 testAutomationCardUsesCompactResponsiveLayout();

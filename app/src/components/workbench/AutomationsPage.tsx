@@ -7,6 +7,7 @@ import {
   CalendarClock,
   ChevronDown,
   Download,
+  Edit3,
   Eye,
   Loader2,
   Pause,
@@ -29,11 +30,13 @@ import {
   runScheduleNow,
   updateSchedule,
 } from "@/lib/api";
+import { formatModelName } from "@/lib/models";
 import { saveBlobAsDownload } from "@/lib/platform";
 import type { AgentRunInfo, ScheduleInfo, ScheduleKind } from "@/types";
 
 interface AutomationsPageProps {
   selectedModel: string;
+  models: { id: string; owned_by: string }[];
   onAuthExpired: (message: string) => void;
   onBack?: () => void;
 }
@@ -192,8 +195,24 @@ function defaultRunAt(): string {
   return localDatetimeValue(date);
 }
 
+function datetimeInputValue(value: string | null): string {
+  if (!value) return defaultRunAt();
+  const date = new Date(value);
+  if (!Number.isNaN(date.getTime())) return localDatetimeValue(date);
+  return value.slice(0, 16);
+}
+
+function intervalParts(seconds: number | null): { value: number; unit: IntervalUnit } {
+  const normalized = Math.max(1, seconds || 3600);
+  if (normalized % 86_400 === 0) return { value: normalized / 86_400, unit: "days" };
+  if (normalized % 3600 === 0) return { value: normalized / 3600, unit: "hours" };
+  if (normalized % 60 === 0) return { value: normalized / 60, unit: "minutes" };
+  return { value: Math.ceil(normalized / 60), unit: "minutes" };
+}
+
 export default function AutomationsPage({
   selectedModel,
+  models,
   onAuthExpired,
   onBack,
 }: AutomationsPageProps) {
@@ -202,8 +221,10 @@ export default function AutomationsPage({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [prompt, setPrompt] = useState("");
+  const [formModel, setFormModel] = useState(selectedModel);
   const [kind, setKind] = useState<ScheduleKind>("once");
   const [runAt, setRunAt] = useState(defaultRunAt);
   const [timezone, setTimezone] = useState(browserTimezone);
@@ -221,6 +242,10 @@ export default function AutomationsPage({
   const intervalSeconds = useMemo(
     () => Math.max(1, intervalValue) * intervalUnitSeconds[intervalUnit],
     [intervalUnit, intervalValue]
+  );
+  const availableModels = useMemo(
+    () => (models.length > 0 ? models : [{ id: selectedModel, owned_by: "ripple" }]),
+    [models, selectedModel]
   );
   const availableTimezones = useMemo(() => timezoneOptions(timezone), [timezone]);
 
@@ -268,15 +293,47 @@ export default function AutomationsPage({
   const resetForm = useCallback(() => {
     setTitle("");
     setPrompt("");
+    setFormModel(selectedModel);
     setKind("once");
     setRunAt(defaultRunAt());
     setTimezone(browserTimezone());
     setIntervalValue(1);
     setIntervalUnit("hours");
     setMaxRuns("");
-  }, []);
+  }, [selectedModel]);
 
-  const handleCreate = useCallback(
+  function beginEditSchedule(schedule: ScheduleInfo) {
+    const interval = intervalParts(schedule.interval_seconds);
+    setEditingScheduleId(schedule.schedule_id);
+    setTitle(schedule.title);
+    setPrompt(schedule.prompt);
+    setFormModel(schedule.model || selectedModel);
+    setKind(schedule.kind);
+    setRunAt(datetimeInputValue(schedule.run_at));
+    setTimezone(schedule.timezone || browserTimezone());
+    setIntervalValue(interval.value);
+    setIntervalUnit(interval.unit);
+    setMaxRuns(schedule.max_runs ? String(schedule.max_runs) : "");
+    setConfirmDeleteId(null);
+    setError(null);
+    setIsCreating(true);
+  }
+
+  const beginCreateSchedule = useCallback(() => {
+    resetForm();
+    setEditingScheduleId(null);
+    setConfirmDeleteId(null);
+    setError(null);
+    setIsCreating(true);
+  }, [resetForm]);
+
+  const closeForm = useCallback(() => {
+    resetForm();
+    setEditingScheduleId(null);
+    setIsCreating(false);
+  }, [resetForm]);
+
+  const handleSubmitSchedule = useCallback(
     async (event: React.FormEvent) => {
       event.preventDefault();
       if (!title.trim() || !prompt.trim()) return;
@@ -288,7 +345,7 @@ export default function AutomationsPage({
           kind === "interval" && maxRuns.trim() && Number.isFinite(parsedMaxRuns)
             ? Math.max(1, Math.floor(parsedMaxRuns))
             : null;
-        await createSchedule({
+        const payload = {
           title: title.trim(),
           prompt: prompt.trim(),
           kind,
@@ -299,9 +356,15 @@ export default function AutomationsPage({
           missed_run_policy: "run_once",
           overlap_policy: "skip",
           failure_policy: "pause",
-          model: selectedModel,
-        });
+          model: formModel,
+        };
+        if (editingScheduleId) {
+          await updateSchedule(editingScheduleId, payload);
+        } else {
+          await createSchedule(payload);
+        }
         resetForm();
+        setEditingScheduleId(null);
         setIsCreating(false);
         await loadSchedules();
       } catch (err) {
@@ -309,12 +372,14 @@ export default function AutomationsPage({
           onAuthExpired("API key 已失效");
           return;
         }
-        setError(err instanceof Error ? err.message : "Failed to create automation");
+        setError(err instanceof Error ? err.message : "Failed to save automation");
       } finally {
         setIsSubmitting(false);
       }
     },
     [
+      editingScheduleId,
+      formModel,
       intervalSeconds,
       kind,
       loadSchedules,
@@ -323,7 +388,6 @@ export default function AutomationsPage({
       prompt,
       resetForm,
       runAt,
-      selectedModel,
       timezone,
       title,
     ]
@@ -511,7 +575,13 @@ export default function AutomationsPage({
             </button>
             <button
               type="button"
-              onClick={() => setIsCreating((open) => !open)}
+              onClick={() => {
+                if (isCreating && !editingScheduleId) {
+                  closeForm();
+                } else {
+                  beginCreateSchedule();
+                }
+              }}
               className="inline-flex h-9 items-center gap-2 rounded-full bg-[linear-gradient(135deg,#2f6bff,#7b5cff)] px-3 text-[13px] font-semibold text-white shadow-[0_12px_26px_rgba(64,92,255,0.24)]"
             >
               <Plus size={15} />
@@ -531,10 +601,10 @@ export default function AutomationsPage({
 
         {isCreating ? (
           <form
-            onSubmit={handleCreate}
+            onSubmit={handleSubmitSchedule}
             className="grid gap-4 rounded-2xl border border-[#dfe6f4] bg-white/74 p-4 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl"
           >
-            <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px]">
+            <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_220px]">
               <label className="block min-w-0">
                 <span className="mb-1 block text-[11px] font-medium text-[#667085]">Title</span>
                 <input
@@ -542,6 +612,20 @@ export default function AutomationsPage({
                   onChange={(event) => setTitle(event.target.value)}
                   className="h-9 w-full rounded-xl border border-[#dfe6f4] bg-white px-3 text-[13px] outline-none focus:border-[#8da0ff]"
                 />
+              </label>
+              <label className="block min-w-0">
+                <span className="mb-1 block text-[11px] font-medium text-[#667085]">Model</span>
+                <select
+                  value={formModel}
+                  onChange={(event) => setFormModel(event.target.value)}
+                  className="h-9 w-full rounded-xl border border-[#dfe6f4] bg-white px-3 text-[13px] outline-none focus:border-[#8da0ff]"
+                >
+                  {availableModels.map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {formatModelName(model.id)}
+                    </option>
+                  ))}
+                </select>
               </label>
               <label className="block min-w-0">
                 <span className="mb-1 block text-[11px] font-medium text-[#667085]">Timezone</span>
@@ -643,10 +727,7 @@ export default function AutomationsPage({
               <div className="flex items-center justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => {
-                    resetForm();
-                    setIsCreating(false);
-                  }}
+                  onClick={closeForm}
                   className="inline-flex h-9 items-center justify-center rounded-full border border-[#dfe6f4] bg-white px-4 text-[13px] font-semibold text-[#384152] shadow-[0_10px_24px_rgba(44,63,123,0.04)] hover:bg-[#f7f8fa]"
                   disabled={isSubmitting}
                 >
@@ -662,7 +743,7 @@ export default function AutomationsPage({
                   ) : (
                     <CalendarClock size={14} />
                   )}
-                  Create
+                  {editingScheduleId ? "Save" : "Create"}
                 </button>
               </div>
             </div>
@@ -747,7 +828,7 @@ export default function AutomationsPage({
                                 : "Once"}
                             </div>
                           </div>
-                          <div className="col-span-2 min-w-0 sm:col-span-2 lg:col-span-1 rounded-lg border border-[#eef2fb] bg-[#f8fbff]/80 px-2 py-1.5">
+                          <div className="col-span-2 min-w-0 rounded-lg border border-[#eef2fb] bg-[#f8fbff]/80 px-2 py-1.5 sm:col-span-2 lg:col-span-1">
                             <div className="text-[10px] font-semibold tracking-normal text-[#8b8f94] uppercase">
                               Policy
                             </div>
@@ -850,6 +931,16 @@ export default function AutomationsPage({
                           Cancel
                         </button>
                       ) : null}
+                      <button
+                        type="button"
+                        onClick={() => beginEditSchedule(schedule)}
+                        aria-label="Edit automation"
+                        title="Edit automation"
+                        className={automationActionButtonClass}
+                      >
+                        <Edit3 size={14} />
+                        <span>Edit</span>
+                      </button>
                       <button
                         type="button"
                         onClick={() =>

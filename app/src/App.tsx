@@ -103,9 +103,9 @@ export default function Home() {
   const [activeContextFolderPath, setActiveContextFolderPath] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<WorkspaceView>("sessions");
   const [mobileFilesReturnToChat, setMobileFilesReturnToChat] = useState(false);
-  const [mobileSessionRestoreScrollTop, setMobileSessionRestoreScrollTop] = useState<
-    number | null
-  >(null);
+  const [mobileSessionRestoreScrollTop, setMobileSessionRestoreScrollTop] = useState<number | null>(
+    null
+  );
   const [pendingWorkspaceFileOpen, setPendingWorkspaceFileOpen] =
     useState<WorkspaceFileOpenRequest | null>(null);
   const [sessionAttentionById, setSessionAttentionById] = useState<
@@ -636,7 +636,7 @@ export default function Home() {
     : null;
   const inferredCurrentSession = useMemo(
     () =>
-          sessionId && !selectedExistingSession
+      sessionId && !selectedExistingSession
         ? {
             sessionId,
             title: "Current session",
@@ -708,8 +708,7 @@ export default function Home() {
   const handleSelectChatFolder = useCallback(
     async (path: string) => {
       const normalizedPath = normalizeWorkspaceFolderPath(path);
-      const nextContextFolderPath =
-        normalizedPath === WORKSPACE_ROOT_PATH ? null : normalizedPath;
+      const nextContextFolderPath = normalizedPath === WORKSPACE_ROOT_PATH ? null : normalizedPath;
       const currentContextFolderPath =
         selectedWorkbenchSession?.contextFolderPath ?? activeContextFolderPath;
       if ((currentContextFolderPath ?? null) === nextContextFolderPath) {
@@ -730,12 +729,7 @@ export default function Home() {
         setMobileSessionMode("chat");
       }
     },
-    [
-      activeContextFolderPath,
-      selectedWorkbenchSession,
-      sessionId,
-      updateSessionById,
-    ]
+    [activeContextFolderPath, selectedWorkbenchSession, sessionId, updateSessionById]
   );
 
   const mainContent =
@@ -759,7 +753,11 @@ export default function Home() {
         onOpenFileRequestConsumed={handlePendingWorkspaceFileOpenConsumed}
       />
     ) : activeView === "automations" ? (
-      <AutomationsPage selectedModel={defaultModel} onAuthExpired={handleAuthExpired} />
+      <AutomationsPage
+        selectedModel={defaultModel}
+        models={models}
+        onAuthExpired={handleAuthExpired}
+      />
     ) : activeView === "connectors" ? (
       <ConnectorsPage userId={userId} onConnectorStateChange={loadSessions} />
     ) : (

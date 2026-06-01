@@ -28,6 +28,16 @@ function testConnectorsPageHasMobileSpecificCopy() {
 
 testConnectorsPageHasMobileSpecificCopy();
 
+function testConnectorsPageDoesNotExposeCredentialStorageDetails() {
+  const source = readFileSync(new URL("./ConnectorsPage.tsx", import.meta.url), "utf8");
+
+  assert.doesNotMatch(source, /Per-user credentials stored inside the current sandbox boundary/);
+  assert.doesNotMatch(source, /sandbox boundary/i);
+  assert.match(source, /Connect services you use with Ripple/);
+}
+
+testConnectorsPageDoesNotExposeCredentialStorageDetails();
+
 function testConnectorsPageCachesAndThrottlesBackgroundRefresh() {
   const source = readFileSync(new URL("./ConnectorsPage.tsx", import.meta.url), "utf8");
 

@@ -315,6 +315,18 @@ function testWorkspaceExplorerRendersDocumentPreviewWithPdfEmbed() {
 
 testWorkspaceExplorerRendersDocumentPreviewWithPdfEmbed();
 
+function testWorkspaceExplorerHidesEmbeddedPdfToolbar() {
+  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /function getDocumentPreviewFrameUrl/);
+  assert.match(source, /toolbar=0/);
+  assert.match(source, /navpanes=0/);
+  assert.match(source, /scrollbar=0/);
+  assert.match(source, /src=\{getDocumentPreviewFrameUrl\(documentPreviewUrl\)\}/);
+}
+
+testWorkspaceExplorerHidesEmbeddedPdfToolbar();
+
 function testWorkspaceExplorerDocumentPreviewFillsAvailableHeight() {
   const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
 
@@ -328,6 +340,97 @@ function testWorkspaceExplorerDocumentPreviewFillsAvailableHeight() {
 }
 
 testWorkspaceExplorerDocumentPreviewFillsAvailableHeight();
+
+function testWorkspaceExplorerMobilePreviewChromeIsCompact() {
+  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const html = renderExplorer({
+    presentation: "page",
+    testInitialPreview: {
+      path: "/workspace/reports/quarterly.pdf",
+      name: "quarterly.pdf",
+      size_bytes: 123,
+      modified_at: "2026-05-17T00:00:00Z",
+      mime_type: "application/pdf",
+      encoding: "utf-8",
+      content: "",
+      truncated: false,
+    },
+  });
+
+  assert.match(source, /data-ripple-workspace-preview-title-path/);
+  assert.match(source, /data-ripple-workspace-preview-action="download"/);
+  assert.match(source, /data-ripple-workspace-preview-metadata/);
+  assert.match(
+    source,
+    /data-ripple-workspace-preview-title-path[\s\S]*className="[^"]*hidden[^"]*sm:block/
+  );
+  assert.match(
+    source,
+    /data-ripple-workspace-preview-action="download"[\s\S]*className=\{[\s\S]*"hidden h-7 items-center gap-1 [^"]* sm:inline-flex"/
+  );
+  assert.match(
+    source,
+    /data-ripple-workspace-preview-metadata[\s\S]*"hidden flex-wrap items-center gap-2 [^"]* sm:flex"/
+  );
+  assert.match(source, /min-h-\[40px\]/);
+  assert.match(source, /sm:min-h-\[68px\]/);
+  assert.match(source, /text-\[12px\][^"]*sm:text-\[14px\]/);
+  assert.match(source, /size=\{isPagePresentation \? "sm" : "md"\}/);
+  assert.match(html, /data-ripple-workspace-preview-title-path/);
+  assert.match(html, /data-ripple-workspace-preview-action="download"/);
+  assert.match(html, /data-ripple-workspace-preview-metadata/);
+}
+
+testWorkspaceExplorerMobilePreviewChromeIsCompact();
+
+function testWorkspaceExplorerPagePreviewSupportsMobileVerticalResize() {
+  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const html = renderExplorer({
+    presentation: "page",
+    testInitialPreview: {
+      path: "/workspace/reports/quarterly.pdf",
+      name: "quarterly.pdf",
+      size_bytes: 123,
+      modified_at: "2026-05-17T00:00:00Z",
+      mime_type: "application/pdf",
+      encoding: "utf-8",
+      content: "",
+      truncated: false,
+    },
+  });
+
+  assert.match(source, /--ripple-workspace-list-row/);
+  assert.match(source, /grid-rows-\[var\(--ripple-workspace-list-row\)\]/);
+  assert.match(source, /lg:grid-rows-none/);
+  assert.match(source, /isPagePresentation[\s\S]*\?[\s\S]*"[^"]*lg:hidden/);
+  assert.match(html, /data-ripple-workspace-preview-resize/);
+}
+
+testWorkspaceExplorerPagePreviewSupportsMobileVerticalResize();
+
+function testWorkspaceExplorerTouchPreviewClicksAvoidDragInterference() {
+  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /function initialIsCoarsePointer/);
+  assert.match(source, /matchMedia\("\(pointer: coarse\)"\)/);
+  assert.match(source, /const \[isCoarsePointer, setIsCoarsePointer\]/);
+  assert.match(source, /draggable=\{!isCoarsePointer\}/);
+  assert.match(source, /if \(isCoarsePointer\) \{/);
+  assert.match(source, /event\.preventDefault\(\)/);
+}
+
+testWorkspaceExplorerTouchPreviewClicksAvoidDragInterference();
+
+function testWorkspaceExplorerPreviewRequestsIgnoreStaleResults() {
+  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /previewRequestIdRef/);
+  assert.match(source, /const requestId = previewRequestIdRef\.current \+ 1/);
+  assert.match(source, /previewRequestIdRef\.current = requestId/);
+  assert.match(source, /if \(previewRequestIdRef\.current !== requestId\) return/);
+}
+
+testWorkspaceExplorerPreviewRequestsIgnoreStaleResults();
 
 function testWorkspaceExplorerSplitStaysInsidePanelBounds() {
   const html = renderExplorerWithStoredSplitPercent("120", {
@@ -513,6 +616,23 @@ function testWorkspaceLinkOpenReopensCollapsedPreviewPanel() {
 }
 
 testWorkspaceLinkOpenReopensCollapsedPreviewPanel();
+
+function testWorkspaceFileClickReopensCollapsedPreviewPanel() {
+  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const openEntryStart = source.indexOf("const openEntry = async");
+  const startRenameStart = source.indexOf("const startRename =", openEntryStart);
+
+  assert.ok(openEntryStart >= 0);
+  assert.ok(startRenameStart > openEntryStart);
+
+  const openEntrySource = source.slice(openEntryStart, startRenameStart);
+  assert.match(
+    openEntrySource,
+    /setSplitPercent\(\(current\) =>\s*getSplitPercentAfterFileDoubleClick\(current\)\s*\)/
+  );
+}
+
+testWorkspaceFileClickReopensCollapsedPreviewPanel();
 
 function testWorkspaceFileActionsStayVisibleOnTouchScreens() {
   const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");

@@ -114,6 +114,11 @@ export function getSplitPercentAfterFileDoubleClick(currentSplitPercent: number)
   return currentSplitPercent >= MAX_SPLIT_PERCENT ? DEFAULT_SPLIT_PERCENT : currentSplitPercent;
 }
 
+function getDocumentPreviewFrameUrl(url: string): string {
+  const separator = url.includes("#") ? "&" : "#";
+  return `${url}${separator}toolbar=0&navpanes=0&scrollbar=0`;
+}
+
 function workspaceContextMenuHeight(entry: WorkspaceEntry | null): number {
   if (!entry) return WORKSPACE_EMPTY_CONTEXT_MENU_HEIGHT;
   return entry.kind === "file"
@@ -153,6 +158,11 @@ function initialSplitPercent(): number {
   if (rawValue === null) return DEFAULT_SPLIT_PERCENT;
   const stored = Number(rawValue);
   return Number.isFinite(stored) ? getBoundedSplitPercent(stored) : DEFAULT_SPLIT_PERCENT;
+}
+
+function initialIsCoarsePointer(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+  return window.matchMedia("(pointer: coarse)").matches;
 }
 
 function sortWorkspaceEntries(entries: WorkspaceEntry[]): WorkspaceEntry[] {
@@ -353,6 +363,7 @@ export default function WorkspaceExplorer({
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [draggedEntries, setDraggedEntries] = useState<WorkspaceEntry[]>([]);
   const [dragTargetPath, setDragTargetPath] = useState<string | null>(null);
+  const [isCoarsePointer, setIsCoarsePointer] = useState(initialIsCoarsePointer);
 
   const [contextMenu, setContextMenu] = useState<{
     visible: boolean;
@@ -386,6 +397,7 @@ export default function WorkspaceExplorer({
   const lastLoadedUserIdRef = useRef(userId);
   const directoryRequestIdRef = useRef(0);
   const directoryLoadRef = useRef<{ key: string; promise: Promise<void> } | null>(null);
+  const previewRequestIdRef = useRef(0);
   const workspaceGridRef = useRef<HTMLDivElement | null>(null);
   const splitPercentRef = useRef(splitPercent);
   const isDirty = useMemo(() => Boolean(preview && draft !== preview.content), [draft, preview]);
@@ -416,6 +428,18 @@ export default function WorkspaceExplorer({
     splitPercentRef.current = splitPercent;
     window.localStorage.setItem(SPLIT_PERCENT_STORAGE_KEY, String(splitPercent));
   }, [splitPercent]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+
+    const mediaQuery = window.matchMedia("(pointer: coarse)");
+    const updatePointerMode = () => setIsCoarsePointer(mediaQuery.matches);
+    updatePointerMode();
+    mediaQuery.addEventListener("change", updatePointerMode);
+    return () => {
+      mediaQuery.removeEventListener("change", updatePointerMode);
+    };
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -544,7 +568,10 @@ export default function WorkspaceExplorer({
 
   const openWorkspaceFilePath = useCallback(
     async (targetPath: string, lineNumber?: number) => {
+      const requestId = previewRequestIdRef.current + 1;
+      previewRequestIdRef.current = requestId;
       await loadDirectory(getWorkspaceParentPath(targetPath));
+      if (previewRequestIdRef.current !== requestId) return;
       setSplitPercent((current) =>
         current >= MAX_SPLIT_PERCENT ? DEFAULT_SPLIT_PERCENT : current
       );
@@ -556,6 +583,10 @@ export default function WorkspaceExplorer({
         if (previewKind === "pdf" || previewKind === "document") {
           const documentPreview = await fetchWorkspaceDocumentPreview(targetPath);
           const documentUrl = URL.createObjectURL(documentPreview.blob);
+          if (previewRequestIdRef.current !== requestId) {
+            URL.revokeObjectURL(documentUrl);
+            return;
+          }
           setPreview({
             path: targetPath,
             name,
@@ -571,6 +602,7 @@ export default function WorkspaceExplorer({
           setDraft("");
         } else {
           const filePreview = await fetchWorkspaceFilePreview(targetPath, 256 * 1024);
+          if (previewRequestIdRef.current !== requestId) return;
           setPreview(filePreview);
           setImagePreviewUrl(null);
           setDocumentPreviewUrl(null);
@@ -580,6 +612,7 @@ export default function WorkspaceExplorer({
         setSaveError(null);
         setHighlightedLine(previewKind === "text" ? (lineNumber ?? null) : null);
       } catch (err) {
+        if (previewRequestIdRef.current !== requestId) return;
         setPreview(null);
         setImagePreviewUrl(null);
         setDocumentPreviewUrl(null);
@@ -588,7 +621,9 @@ export default function WorkspaceExplorer({
         setError(err instanceof Error ? err.message : String(err));
         setHighlightedLine(null);
       } finally {
-        setPreviewLoading(false);
+        if (previewRequestIdRef.current === requestId) {
+          setPreviewLoading(false);
+        }
       }
     },
     [loadDirectory]
@@ -652,9 +687,13 @@ export default function WorkspaceExplorer({
 
   const openEntry = async (entry: WorkspaceEntry) => {
     if (entry.kind === "directory") {
+      previewRequestIdRef.current += 1;
       await loadDirectory(entry.path);
       return;
     }
+    const requestId = previewRequestIdRef.current + 1;
+    previewRequestIdRef.current = requestId;
+    setSplitPercent((current) => getSplitPercentAfterFileDoubleClick(current));
     setPreviewLoading(true);
     setError(null);
     setHighlightedLine(null);
@@ -677,6 +716,7 @@ export default function WorkspaceExplorer({
             return downloaded.blob;
           }
         );
+        if (previewRequestIdRef.current !== requestId) return;
         setPreview({
           path: entry.path,
           name: entry.name,
@@ -695,6 +735,10 @@ export default function WorkspaceExplorer({
       } else if (previewKind === "pdf" || previewKind === "document") {
         const documentPreview = await fetchWorkspaceDocumentPreview(entry.path);
         const documentUrl = URL.createObjectURL(documentPreview.blob);
+        if (previewRequestIdRef.current !== requestId) {
+          URL.revokeObjectURL(documentUrl);
+          return;
+        }
         setPreview({
           path: entry.path,
           name: entry.name,
@@ -712,6 +756,7 @@ export default function WorkspaceExplorer({
         setSaveError(null);
       } else {
         const filePreview = await fetchWorkspaceFilePreview(entry.path, 256 * 1024);
+        if (previewRequestIdRef.current !== requestId) return;
         setPreview(filePreview);
         setImagePreviewUrl(null);
         setDocumentPreviewUrl(null);
@@ -720,6 +765,7 @@ export default function WorkspaceExplorer({
         setSaveError(null);
       }
     } catch (err) {
+      if (previewRequestIdRef.current !== requestId) return;
       setPreview(null);
       setImagePreviewUrl(null);
       setDocumentPreviewUrl(null);
@@ -727,7 +773,9 @@ export default function WorkspaceExplorer({
       setIsEditing(false);
       setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setPreviewLoading(false);
+      if (previewRequestIdRef.current === requestId) {
+        setPreviewLoading(false);
+      }
     }
   };
 
@@ -911,6 +959,11 @@ export default function WorkspaceExplorer({
   };
 
   const handleEntryDragStart = (event: React.DragEvent<HTMLDivElement>, entry: WorkspaceEntry) => {
+    if (isCoarsePointer) {
+      event.preventDefault();
+      return;
+    }
+
     const entries = selectedEntryPaths.has(entry.path) ? selectedEntries : [entry];
     const dragEntries = entries.length > 0 ? entries : [entry];
     const paths = dragEntries.map((dragEntry) => dragEntry.path);
@@ -1391,12 +1444,13 @@ export default function WorkspaceExplorer({
   const pageToolbarPrimaryButtonClass = pageToolbarIconButtonClass;
   const pageParentButtonClass =
     "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#d7e3f8] bg-[#eef4ff] text-[#2463eb] shadow-[0_10px_24px_rgba(44,63,123,0.06)] transition-colors hover:bg-[#e5efff] lg:hidden";
-  const workspaceGridStyle: React.CSSProperties | undefined =
-    !isPagePresentation && !isPreviewPanelHidden
-      ? {
-          gridTemplateRows: `minmax(96px, ${splitPercent}%) minmax(0, 1fr)`,
-        }
-      : undefined;
+  const workspaceGridStyle:
+    | (React.CSSProperties & { "--ripple-workspace-list-row"?: string })
+    | undefined = !isPreviewPanelHidden
+    ? {
+        "--ripple-workspace-list-row": `minmax(96px, ${splitPercent}%) minmax(0, 1fr)`,
+      }
+    : undefined;
 
   return (
     <div
@@ -2083,10 +2137,10 @@ export default function WorkspaceExplorer({
           isPagePresentation
             ? isPreviewPanelHidden
               ? "grid-rows-[minmax(0,1fr)] lg:grid-cols-[210px_minmax(0,1fr)] lg:grid-rows-none"
-              : "grid-rows-[minmax(220px,42%)_minmax(0,1fr)] lg:grid-cols-[210px_minmax(260px,330px)_minmax(0,1fr)] lg:grid-rows-none"
+              : "grid-rows-[var(--ripple-workspace-list-row)] lg:grid-cols-[210px_minmax(260px,330px)_minmax(0,1fr)] lg:grid-rows-none"
             : isPreviewPanelHidden
               ? "grid-rows-[minmax(0,1fr)]"
-              : "grid-rows-[minmax(0,48%)_minmax(0,1fr)]"
+              : "grid-rows-[var(--ripple-workspace-list-row)]"
         }`}
       >
         {isPagePresentation && (
@@ -2295,7 +2349,7 @@ export default function WorkspaceExplorer({
                   ) : (
                     <div
                       key={entry.path}
-                      draggable
+                      draggable={!isCoarsePointer}
                       data-ripple-files-drop-target={
                         entry.kind === "directory" ? "directory" : undefined
                       }
@@ -2451,38 +2505,43 @@ export default function WorkspaceExplorer({
                 : "relative flex min-h-0 flex-col overflow-hidden bg-white"
             }
           >
-            {!isPagePresentation && (
-              <div
-                role="separator"
-                aria-label="Resize preview panel"
-                aria-orientation="horizontal"
-                aria-valuemin={MIN_SPLIT_PERCENT}
-                aria-valuemax={MAX_SPLIT_PERCENT}
-                aria-valuenow={splitPercent}
-                data-ripple-workspace-preview-resize
-                tabIndex={0}
-                onPointerDown={handlePreviewResizeStart}
-                onKeyDown={handlePreviewResizeKeyDown}
-                className="group absolute top-0 right-0 left-0 z-20 flex h-3 -translate-y-1/2 cursor-row-resize items-center justify-center bg-transparent transition-colors outline-none hover:bg-[#dbe6ff]/70 focus:bg-[#dbe6ff]/70"
-              >
-                <span className="h-0.5 w-12 rounded-full bg-[#2463eb] opacity-0 transition-opacity group-hover:opacity-100 group-focus:opacity-100" />
-              </div>
-            )}
+            <div
+              role="separator"
+              aria-label="Resize preview panel"
+              aria-orientation="horizontal"
+              aria-valuemin={MIN_SPLIT_PERCENT}
+              aria-valuemax={MAX_SPLIT_PERCENT}
+              aria-valuenow={splitPercent}
+              data-ripple-workspace-preview-resize
+              tabIndex={0}
+              onPointerDown={handlePreviewResizeStart}
+              onKeyDown={handlePreviewResizeKeyDown}
+              className={
+                isPagePresentation
+                  ? "group absolute top-0 right-0 left-0 z-20 flex h-3 -translate-y-1/2 cursor-row-resize items-center justify-center bg-transparent transition-colors outline-none hover:bg-[#dbe6ff]/70 focus:bg-[#dbe6ff]/70 lg:hidden"
+                  : "group absolute top-0 right-0 left-0 z-20 flex h-3 -translate-y-1/2 cursor-row-resize items-center justify-center bg-transparent transition-colors outline-none hover:bg-[#dbe6ff]/70 focus:bg-[#dbe6ff]/70"
+              }
+            >
+              <span className="h-0.5 w-12 rounded-full bg-[#2463eb] opacity-0 transition-opacity group-hover:opacity-100 group-focus:opacity-100" />
+            </div>
             <div
               className={
                 isPagePresentation
-                  ? "flex min-h-[68px] shrink-0 items-center gap-3 border-b border-[#dfe6f4]/60 px-4 py-3 text-[#667085]"
+                  ? "flex min-h-[40px] shrink-0 items-center gap-2 border-b border-[#dfe6f4]/60 px-2 py-1 text-[#667085] sm:min-h-[68px] sm:gap-3 sm:px-4 sm:py-3"
                   : "flex shrink-0 items-center gap-2 border-b border-[#e5e7eb] bg-white px-3 py-2 text-[#6b7280]"
               }
             >
-              <IconTile tone={isPagePresentation ? "accent" : "neutral"} size="md">
-                <FileText size={15} />
+              <IconTile
+                tone={isPagePresentation ? "accent" : "neutral"}
+                size={isPagePresentation ? "sm" : "md"}
+              >
+                <FileText size={isPagePresentation ? 13 : 15} />
               </IconTile>
               <span className="min-w-0 flex-1">
                 <span
                   className={
                     isPagePresentation
-                      ? "block truncate text-[14px] font-semibold text-[#111827]"
+                      ? "block truncate text-[12px] leading-tight font-semibold text-[#111827] sm:text-[14px]"
                       : "block truncate text-[13px] font-semibold text-[#0d0d0d]"
                   }
                 >
@@ -2491,7 +2550,10 @@ export default function WorkspaceExplorer({
                     : preview?.path || "Select a file"}
                 </span>
                 {isPagePresentation && (
-                  <span className="mt-1 block truncate font-[family-name:var(--font-mono)] text-[11px] text-[#667085]">
+                  <span
+                    data-ripple-workspace-preview-title-path
+                    className="hidden truncate font-[family-name:var(--font-mono)] text-[11px] text-[#667085] sm:mt-1 sm:block"
+                  >
                     {preview?.path || "Select a file"}
                   </span>
                 )}
@@ -2501,11 +2563,12 @@ export default function WorkspaceExplorer({
                 <div className="flex shrink-0 items-center gap-1">
                   <button
                     type="button"
+                    data-ripple-workspace-preview-action="download"
                     onClick={() => void handleDownloadFile(preview.path)}
                     disabled={downloadingPath === preview.path}
                     className={
                       isPagePresentation
-                        ? "inline-flex h-7 items-center gap-1 rounded-full border border-[#dfe6f4] bg-white/76 px-2 text-xs font-medium text-[#667085] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:text-[#8b8f94]"
+                        ? "hidden h-7 items-center gap-1 rounded-full border border-[#dfe6f4] bg-white/76 px-2 text-xs font-medium text-[#667085] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:text-[#8b8f94] sm:inline-flex"
                         : "inline-flex h-7 items-center gap-1 rounded-md border border-[#dde2ea] bg-white px-2 text-xs font-medium text-[#68707d] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:text-[#8b8f94]"
                     }
                     title="Download"
@@ -2544,11 +2607,11 @@ export default function WorkspaceExplorer({
                 onClick={() => updateSplitPercent(MAX_SPLIT_PERCENT)}
                 className={
                   isPagePresentation
-                    ? "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[#dfe6f4] bg-white/76 text-[#667085] hover:bg-[#f7f8fa] hover:text-[#111827]"
+                    ? "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-[#dfe6f4] bg-white/76 text-[#667085] hover:bg-[#f7f8fa] hover:text-[#111827] sm:h-7 sm:w-7"
                     : "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[#dde2ea] bg-white text-[#68707d] hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
                 }
               >
-                <ChevronDown size={13} />
+                <ChevronDown size={isPagePresentation ? 12 : 13} />
               </button>
             </div>
             <div
@@ -2561,9 +2624,10 @@ export default function WorkspaceExplorer({
               {preview ? (
                 <div className="flex h-full min-h-0 flex-col">
                   <div
+                    data-ripple-workspace-preview-metadata
                     className={
                       isPagePresentation
-                        ? "flex flex-wrap items-center gap-2 border-b border-[#dfe6f4]/60 px-4 py-2 font-[family-name:var(--font-mono)] text-[11px] font-medium text-[#667085]"
+                        ? "hidden flex-wrap items-center gap-2 border-b border-[#dfe6f4]/60 px-4 py-2 font-[family-name:var(--font-mono)] text-[11px] font-medium text-[#667085] sm:flex"
                         : "flex flex-wrap items-center gap-2 border-b border-[#dde2ea] px-3 py-2 font-[family-name:var(--font-mono)] text-[11px] font-medium text-[#68707d]"
                     }
                   >
@@ -2631,7 +2695,7 @@ export default function WorkspaceExplorer({
                       }
                     >
                       <iframe
-                        src={documentPreviewUrl}
+                        src={getDocumentPreviewFrameUrl(documentPreviewUrl)}
                         title={`${preview.name} preview`}
                         className="h-full min-h-0 w-full border-0 bg-white"
                       />

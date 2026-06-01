@@ -24,6 +24,7 @@ import {
   Trash2,
   FilePlus,
   FolderPlus,
+  Maximize2,
   MoreHorizontal,
   MessageCircleReply,
   X,
@@ -355,6 +356,7 @@ export default function WorkspaceExplorer({
   const [downloadingPath, setDownloadingPath] = useState<string | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [documentPreviewUrl, setDocumentPreviewUrl] = useState<string | null>(null);
+  const [isPreviewFullscreenOpen, setIsPreviewFullscreenOpen] = useState(false);
   const [clipboard, setClipboard] = useState<{
     items: WorkspaceEntry[];
     action: "copy" | "move";
@@ -446,6 +448,27 @@ export default function WorkspaceExplorer({
       if (documentPreviewUrl) URL.revokeObjectURL(documentPreviewUrl);
     };
   }, [documentPreviewUrl]);
+
+  useEffect(() => {
+    if (!preview) setIsPreviewFullscreenOpen(false);
+  }, [preview]);
+
+  useEffect(() => {
+    if (!isPreviewFullscreenOpen) return;
+    if (typeof window === "undefined" || typeof document === "undefined") return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsPreviewFullscreenOpen(false);
+    };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isPreviewFullscreenOpen]);
 
   useEffect(() => {
     if (!renamingPath) return;
@@ -2598,6 +2621,19 @@ export default function WorkspaceExplorer({
                       Edit
                     </button>
                   )}
+                  <button
+                    type="button"
+                    aria-label="Open fullscreen preview"
+                    title="Fullscreen preview"
+                    onClick={() => setIsPreviewFullscreenOpen(true)}
+                    className={
+                      isPagePresentation
+                        ? "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-[#dfe6f4] bg-white/76 text-[#667085] hover:bg-[#f7f8fa] hover:text-[#111827] sm:h-7 sm:w-7"
+                        : "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[#dde2ea] bg-white text-[#68707d] hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
+                    }
+                  >
+                    <Maximize2 size={isPagePresentation ? 12 : 13} />
+                  </button>
                 </div>
               )}
               <button
@@ -2789,6 +2825,79 @@ export default function WorkspaceExplorer({
           </section>
         )}
       </div>
+
+      {isPreviewFullscreenOpen && preview && (
+        <div
+          data-ripple-workspace-preview-fullscreen
+          className="fixed inset-0 z-[70] flex min-h-0 flex-col bg-white text-[#111827]"
+        >
+          <div className="flex min-h-[48px] shrink-0 items-center gap-2 border-b border-[#dfe6f4] bg-white px-3 py-2 sm:min-h-[60px] sm:gap-3 sm:px-4">
+            <IconTile tone="accent" size="sm">
+              <FileText size={13} />
+            </IconTile>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[13px] leading-tight font-semibold text-[#111827] sm:text-[15px]">
+                {preview.name}
+              </span>
+              <span className="mt-0.5 hidden truncate font-[family-name:var(--font-mono)] text-[11px] text-[#667085] sm:block">
+                {preview.path}
+              </span>
+            </span>
+            <div className="hidden shrink-0 items-center gap-2 font-[family-name:var(--font-mono)] text-[11px] font-medium text-[#667085] md:flex">
+              <span>{formatBytes(preview.size_bytes)}</span>
+              <span>{preview.mime_type}</span>
+              <span>{formatModified(preview.modified_at)}</span>
+            </div>
+            <button
+              type="button"
+              aria-label="Close fullscreen preview"
+              title="Close fullscreen preview"
+              onClick={() => setIsPreviewFullscreenOpen(false)}
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#dfe6f4] bg-white text-[#667085] hover:bg-[#f7f8fa] hover:text-[#111827]"
+            >
+              <X size={15} />
+            </button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-hidden bg-[#f4f7fb]">
+            {documentPreviewUrl ? (
+              <iframe
+                src={getDocumentPreviewFrameUrl(documentPreviewUrl)}
+                title={`${preview.name} fullscreen preview`}
+                className="h-full min-h-0 w-full border-0 bg-white"
+              />
+            ) : imagePreviewUrl ? (
+              <div className="flex h-full min-h-0 items-center justify-center overflow-auto bg-[#f8fafc] p-4 sm:p-8">
+                <img
+                  src={imagePreviewUrl}
+                  alt={preview.name}
+                  className="max-h-full max-w-full rounded-lg border border-[#dfe6f4] bg-white object-contain p-1.5 shadow-[0_18px_42px_rgba(44,63,123,0.10)]"
+                />
+              </div>
+            ) : (
+              <div className="h-full min-h-0 overflow-auto bg-white p-4 sm:p-6">
+                <div className="mx-auto max-w-6xl rounded-lg border border-[#dfe6f4] bg-white py-3 shadow-[0_14px_34px_rgba(44,63,123,0.06)]">
+                  {(isEditing ? draft : preview.content).split("\n").map((line, idx) => {
+                    const lineNum = idx + 1;
+                    return (
+                      <div
+                        key={lineNum}
+                        className="flex min-w-0 items-start font-[family-name:var(--font-mono)] text-[12px] leading-relaxed hover:bg-[#f7f8fa]"
+                      >
+                        <span className="w-11 shrink-0 pr-3 text-right text-[#afb1b7] select-none">
+                          {lineNum}
+                        </span>
+                        <span className="flex-1 break-all whitespace-pre-wrap text-[#111827]">
+                          {line || " "}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* 右键菜单 */}
       {contextMenu.visible && (

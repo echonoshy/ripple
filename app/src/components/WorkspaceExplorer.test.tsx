@@ -341,6 +341,33 @@ function testWorkspaceExplorerDocumentPreviewFillsAvailableHeight() {
 
 testWorkspaceExplorerDocumentPreviewFillsAvailableHeight();
 
+function testWorkspaceExplorerPreviewSupportsFullscreenOpenAndClose() {
+  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const html = renderExplorer({
+    presentation: "page",
+    testInitialPreview: {
+      path: "/workspace/reports/quarterly.pdf",
+      name: "quarterly.pdf",
+      size_bytes: 123,
+      modified_at: "2026-05-17T00:00:00Z",
+      mime_type: "application/pdf",
+      encoding: "utf-8",
+      content: "",
+      truncated: false,
+    },
+  });
+
+  assert.match(source, /Maximize2/);
+  assert.match(source, /isPreviewFullscreenOpen/);
+  assert.match(source, /setIsPreviewFullscreenOpen\(true\)/);
+  assert.match(source, /setIsPreviewFullscreenOpen\(false\)/);
+  assert.match(source, /event\.key === "Escape"/);
+  assert.match(source, /data-ripple-workspace-preview-fullscreen/);
+  assert.match(html, /aria-label="Open fullscreen preview"/);
+}
+
+testWorkspaceExplorerPreviewSupportsFullscreenOpenAndClose();
+
 function testWorkspaceExplorerMobilePreviewChromeIsCompact() {
   const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
   const html = renderExplorer({

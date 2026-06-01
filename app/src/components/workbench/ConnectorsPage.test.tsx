@@ -49,6 +49,18 @@ function testConnectorsPageCachesAndThrottlesBackgroundRefresh() {
 
 testConnectorsPageCachesAndThrottlesBackgroundRefresh();
 
+function testConnectorsPageDismissesActionMessageAutomatically() {
+  const source = readFileSync(new URL("./ConnectorsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /ACTION_MESSAGE_DISMISS_MS/);
+  assert.match(source, /if \(!actionMessage\) return/);
+  assert.match(source, /window\.setTimeout\(\(\) => \{/);
+  assert.match(source, /setActionMessage\(null\)/);
+  assert.match(source, /window\.clearTimeout\(timer\)/);
+}
+
+testConnectorsPageDismissesActionMessageAutomatically();
+
 function testConnectorsPageHasManagementActions() {
   const source = readFileSync(new URL("./ConnectorsPage.tsx", import.meta.url), "utf8");
 

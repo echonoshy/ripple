@@ -39,6 +39,7 @@ import {
 
 const CONNECTOR_CACHE_TTL_MS = 30_000;
 const CONNECTOR_FOCUS_REFRESH_THROTTLE_MS = 10_000;
+const ACTION_MESSAGE_DISMISS_MS = 4_000;
 
 interface ConnectorSnapshot {
   connectors: ConnectorInfo[];
@@ -229,6 +230,14 @@ export default function ConnectorsPage({
     window.addEventListener("focus", refreshOnFocus);
     return () => window.removeEventListener("focus", refreshOnFocus);
   }, [loadConnectors]);
+
+  useEffect(() => {
+    if (!actionMessage) return;
+    const timer = window.setTimeout(() => {
+      setActionMessage(null);
+    }, ACTION_MESSAGE_DISMISS_MS);
+    return () => window.clearTimeout(timer);
+  }, [actionMessage]);
 
   const connectorReadiness = useMemo(
     () => connectorReadinessSummary(connectors, statuses),

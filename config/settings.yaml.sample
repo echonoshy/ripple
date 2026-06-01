@@ -107,6 +107,13 @@ server:
     # Ripple only checks due schedule metadata and starts Codex runs.
     # User work still executes through Codex app-server.
     poll_interval_seconds: 15
+  document_preview:
+    # PDF files render directly. Word/Excel/PowerPoint files are converted to PDF
+    # with LibreOffice and cached outside user workspaces.
+    cache_root: ".ripple/sandboxes-cache/previews"
+    libreoffice_path: "soffice"
+    max_source_bytes: 67108864
+    conversion_timeout_seconds: 120
   # 浏览器能访问到的后端根地址。配置后 gogcli Google OAuth 可以由后端自动接收
   # callback 并完成授权，用户不再需要复制 127.0.0.1 回调 URL。
   # 本机开发可用: "http://localhost:8810"

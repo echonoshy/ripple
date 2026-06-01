@@ -722,8 +722,6 @@ fn apply_latest_run_to_schedule(
         record.last_run_id = None;
         record.last_run_at = None;
         record.last_run_status = None;
-        record.last_error = None;
-        record.failure_reason = None;
         return *record != before;
     };
 
@@ -1141,6 +1139,12 @@ mod tests {
             },
             schedule_extraction_max_runtime_seconds: 120,
             schedule_poll_interval_seconds: 15,
+            document_preview: crate::config::DocumentPreviewConfig {
+                cache_root: root.join("cache/previews"),
+                libreoffice_path: "soffice".to_string(),
+                max_source_bytes: 64 * 1024 * 1024,
+                conversion_timeout_seconds: 120,
+            },
             skills: SkillsConfig {
                 shared_dirs: Vec::new(),
             },
@@ -1254,6 +1258,29 @@ mod tests {
         assert_eq!(record.failure_reason, None);
         assert_eq!(record.status, "active");
         assert!(record.enabled);
+    }
+
+    #[test]
+    fn apply_latest_without_run_preserves_schedule_level_error() {
+        let mut record = schedule_record();
+        record.status = "error".to_string();
+        record.last_run_id = None;
+        record.last_run_at = None;
+        record.last_run_status = None;
+        record.last_error = Some("cwd must stay inside the user workspace".to_string());
+        record.failure_reason = record.last_error.clone();
+
+        assert!(!apply_latest_run_to_schedule(&mut record, None));
+
+        assert_eq!(record.status, "error");
+        assert_eq!(
+            record.last_error.as_deref(),
+            Some("cwd must stay inside the user workspace")
+        );
+        assert_eq!(
+            record.failure_reason.as_deref(),
+            Some("cwd must stay inside the user workspace")
+        );
     }
 
     #[test]

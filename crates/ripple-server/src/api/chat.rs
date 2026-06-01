@@ -1352,6 +1352,12 @@ mod tests {
             },
             schedule_extraction_max_runtime_seconds: 120,
             schedule_poll_interval_seconds: 15,
+            document_preview: crate::config::DocumentPreviewConfig {
+                cache_root: root.join("cache/previews"),
+                libreoffice_path: "soffice".to_string(),
+                max_source_bytes: 64 * 1024 * 1024,
+                conversion_timeout_seconds: 120,
+            },
             skills: SkillsConfig {
                 shared_dirs: Vec::new(),
             },

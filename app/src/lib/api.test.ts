@@ -22,6 +22,7 @@ import {
   fetchRunOutputText,
   fetchUserAvatarImage,
   fetchModels,
+  fetchWorkspaceDocumentPreview,
   fetchWorkspaceFilePreview,
   getApiOrigin,
   parseWorkspaceLink,
@@ -34,6 +35,7 @@ import {
   stopSession,
   updateSchedule,
   updateSession,
+  updateUserProfile,
   uploadUserAvatar,
   disconnectConnector,
   clearApiKey,
@@ -420,6 +422,48 @@ async function testAvatarApisUseServerProfileStorage() {
   });
 }
 
+async function testUpdateUserProfilePatchesDisplayName() {
+  const requests: Array<{ url: string; method: string; body: unknown }> = [];
+
+  await withBrowserStorage(async () => {
+    setUserSessionToken("rip_usr_token", "usr_abc");
+    await withFetch(
+      async (input, init) => {
+        requests.push({
+          url: String(input),
+          method: init?.method || "GET",
+          body: init?.body ? JSON.parse(String(init.body)) : null,
+        });
+        return new Response(
+          JSON.stringify({
+            user_id: "usr_abc",
+            profile: {
+              user_id: "usr_abc",
+              user_name: "Alice",
+              display_name: "Alice",
+              login: "alice@example.com",
+              avatar_uri: null,
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      },
+      async () => {
+        const profile = await updateUserProfile({ display_name: "Alice" });
+        assert.equal(profile.profile?.display_name, "Alice");
+      }
+    );
+  });
+
+  assert.deepEqual(requests, [
+    {
+      url: "http://140.143.229.103:8810/v1/users/me/profile",
+      method: "PATCH",
+      body: { display_name: "Alice" },
+    },
+  ]);
+}
+
 async function testAuthHeadersUseUserSessionWithoutSpoofableUserId() {
   await withBrowserStorage(async () => {
     setUserSessionToken("rip_usr_token", "usr_abc");
@@ -494,6 +538,29 @@ async function testWorkspaceFilePreviewPathNotFoundStaysFileSpecific() {
           error instanceof Error &&
           error.message === "File or folder no longer exists. Refresh workspace."
       );
+    }
+  );
+}
+
+async function testWorkspaceDocumentPreviewUsesPreviewEndpoint() {
+  const urls: string[] = [];
+  await withFetch(
+    async (input) => {
+      urls.push(String(input));
+      return new Response("pdf-bytes", {
+        status: 200,
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": 'inline; filename="report.pdf"',
+        },
+      });
+    },
+    async () => {
+      const preview = await fetchWorkspaceDocumentPreview("/workspace/report.docx");
+
+      assert.equal(preview.filename, "report.pdf");
+      assert.equal(preview.blob.type, "application/pdf");
+      assert.match(urls[0] || "", /\/workspace\/preview\?path=%2Fworkspace%2Freport\.docx/);
     }
   );
 }
@@ -982,10 +1049,12 @@ await testScheduleRunApisEncodeIdsAndDownloadOutput();
 await testConnectorManagementApisEncodeNamesAndPayloads();
 await testChangePasswordPostsCurrentAndNewPassword();
 await testAvatarApisUseServerProfileStorage();
+await testUpdateUserProfilePatchesDisplayName();
 await testAuthHeadersUseUserSessionWithoutSpoofableUserId();
 await testAuthHeadersKeepServiceKeyUserIdCompatibility();
 testParseWorkspaceLinkDecodesEncodedSandboxPath();
 await testWorkspaceFilePreviewPathNotFoundStaysFileSpecific();
+await testWorkspaceDocumentPreviewUsesPreviewEndpoint();
 await testWorkspaceDownloadDecodesUtf8ContentDispositionFilename();
 await testScheduleApiUsesExpectedBackendShape();
 await testCreateScheduleAddsOffsetForNonUtcRunAt();

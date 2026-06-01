@@ -19,7 +19,7 @@ use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{HeaderValue, Request, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{any, delete, get, post};
+use axum::routing::{any, delete, get, patch, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -127,6 +127,10 @@ pub fn router(state: AppState) -> Router {
         .route("/diagnostics/doctor", get(health::doctor))
         .route("/users/me", get(users::current_user_profile))
         .route(
+            "/users/me/profile",
+            patch(users::update_current_user_profile),
+        )
+        .route(
             "/users/me/avatar",
             post(users::upload_user_avatar)
                 .delete(users::delete_user_avatar)
@@ -217,6 +221,7 @@ pub fn router(state: AppState) -> Router {
             "/workspace/download",
             get(workspace::download_workspace_file),
         )
+        .route("/workspace/preview", get(workspace::preview_workspace_file))
         .route("/connectors", get(connectors::list_connectors))
         .route(
             "/connectors/:connector_name/status",
@@ -544,6 +549,12 @@ mod tests {
             },
             schedule_extraction_max_runtime_seconds: 120,
             schedule_poll_interval_seconds: 15,
+            document_preview: crate::config::DocumentPreviewConfig {
+                cache_root: root.join("cache/previews"),
+                libreoffice_path: "soffice".to_string(),
+                max_source_bytes: 64 * 1024 * 1024,
+                conversion_timeout_seconds: 120,
+            },
             skills: SkillsConfig {
                 shared_dirs: Vec::new(),
             },

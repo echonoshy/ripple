@@ -187,6 +187,15 @@ function testRendersSettingsButtonWithCorrectUserLabel() {
   assert.match(html, /aria-label="Settings for user-alpha-99"/);
 }
 
+function testWorkspaceNavPrefersDisplayNameForUserLabel() {
+  const source = readFileSync(new URL("./WorkspaceNav.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /getUserProfileDisplayName/);
+  assert.match(source, /workspaceDisplayName/);
+  assert.match(source, /USER_PROFILE_CHANGED_EVENT/);
+  assert.match(source, /aria-label=\{`Settings for \$\{workspaceDisplayName\}`\}/);
+}
+
 function testWorkspaceNavLoadsAndRendersUserAvatar() {
   const source = readFileSync(new URL("./WorkspaceNav.tsx", import.meta.url), "utf8");
 
@@ -208,6 +217,7 @@ testRendersPinnedSessionWithIcon();
 testRendersUnpinnedSessionWithoutPinIcon();
 testRendersSessionOptionsButton();
 testRendersSettingsButtonWithCorrectUserLabel();
+testWorkspaceNavPrefersDisplayNameForUserLabel();
 testWorkspaceNavLoadsAndRendersUserAvatar();
 testRendersWorkspaceUserLabel();
 

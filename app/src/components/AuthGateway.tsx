@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { AlertTriangle, ArrowLeft, Code2, KeyRound, UserRound } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Code2, KeyRound, Mail, UserRound } from "lucide-react";
 import { IconTile } from "@/components/icons/IconTile";
 import RippleIcon from "@/components/icons/RippleIcon";
 
@@ -258,12 +258,13 @@ export default function AuthGateway({
                   />
                 )}
                 <TextInput
-                  ariaLabel="Email or username"
+                  ariaLabel="Email"
                   value={loginInput}
                   onChange={onLoginInputChange}
-                  placeholder="Email or username"
-                  icon={<UserRound size={13} />}
-                  autoComplete="username"
+                  placeholder="Email"
+                  icon={<Mail size={13} />}
+                  type="email"
+                  autoComplete="email"
                 />
                 {isInvite && (
                   <TextInput

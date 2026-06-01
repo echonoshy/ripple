@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import WorkspaceExplorer, {
   displayError,
   getBoundedSplitPercent,
+  getWorkspacePreviewKind,
   getWorkspaceParentPath,
   getSplitPercentAfterFileDoubleClick,
 } from "./WorkspaceExplorer";
@@ -267,6 +268,52 @@ function testWorkspaceExplorerSourceSupportsDropUploadAndFileDownload() {
 
 testWorkspaceExplorerSourceSupportsDropUploadAndFileDownload();
 
+function testWorkspaceExplorerClassifiesReadOnlyDocumentPreviewFormats() {
+  assert.equal(
+    getWorkspacePreviewKind({
+      name: "report.pdf",
+      mime_type: "application/pdf",
+    }),
+    "pdf"
+  );
+  assert.equal(
+    getWorkspacePreviewKind({
+      name: "slides.pptx",
+      mime_type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    }),
+    "document"
+  );
+  assert.equal(
+    getWorkspacePreviewKind({
+      name: "sheet.xlsx",
+      mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }),
+    "document"
+  );
+  assert.equal(
+    getWorkspacePreviewKind({
+      name: "notes.txt",
+      mime_type: "text/plain",
+    }),
+    "text"
+  );
+}
+
+testWorkspaceExplorerClassifiesReadOnlyDocumentPreviewFormats();
+
+function testWorkspaceExplorerRendersDocumentPreviewWithPdfEmbed() {
+  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /fetchWorkspaceDocumentPreview/);
+  assert.match(source, /documentPreviewUrl/);
+  assert.match(source, /data-ripple-workspace-document-preview/);
+  assert.match(source, /<iframe/);
+  assert.match(source, /title=\{`\$\{preview\.name\} preview`\}/);
+  assert.doesNotMatch(source, /setIsEditing\(.*documentPreviewUrl/);
+}
+
+testWorkspaceExplorerRendersDocumentPreviewWithPdfEmbed();
+
 function testWorkspaceExplorerSplitStaysInsidePanelBounds() {
   const html = renderExplorerWithStoredSplitPercent("120", {
     testInitialPreview: {
@@ -354,7 +401,10 @@ testWorkspaceExplorerCachesListingsAndAvoidsCurrentPathReloadEffect();
 function testWorkspaceLinkOpenLoadsParentDirectoryBeforePreview() {
   const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
 
-  assert.equal(getWorkspaceParentPath("/workspace/meeting_record/通用会议16.json"), "/workspace/meeting_record");
+  assert.equal(
+    getWorkspaceParentPath("/workspace/meeting_record/通用会议16.json"),
+    "/workspace/meeting_record"
+  );
   assert.equal(getWorkspaceParentPath("/workspace/summary.md"), "/workspace");
   assert.match(source, /await loadDirectory\(getWorkspaceParentPath\(targetPath\)\)/);
 }
@@ -366,7 +416,10 @@ function testWorkspaceExplorerOpensPendingFileRequestAfterMount() {
 
   assert.match(source, /openFileRequest\?: WorkspaceFileOpenRequest \| null/);
   assert.match(source, /openFileRequest\.id/);
-  assert.match(source, /openWorkspaceFilePath\(openFileRequest\.path, openFileRequest\.lineNumber\)/);
+  assert.match(
+    source,
+    /openWorkspaceFilePath\(openFileRequest\.path, openFileRequest\.lineNumber\)/
+  );
   assert.doesNotMatch(source, /window\.addEventListener\("open-workspace-file"/);
 }
 
@@ -439,7 +492,8 @@ function testWorkspaceExplorerSupportsMultiSelectionBatchActions() {
   assert.match(source, /handleBatchDelete/);
   assert.match(source, /handleBatchClipboard/);
   assert.match(source, /items:\s*selectedEntries/);
-  assert.match(source, /Paste \{\s*clipboard\.items\.length/);
+  assert.match(source, /Paste/);
+  assert.match(source, /clipboard\.items\.length/);
   assert.match(source, /clearClipboard/);
   assert.match(source, /Clear clipboard/);
 }
@@ -505,5 +559,18 @@ function testWorkspaceContextMenuUsesViewportAwarePositioning() {
 }
 
 testWorkspaceContextMenuUsesViewportAwarePositioning();
+
+function testWorkspaceExplorerCompactToolbarOffersCreationActionsFromMoreMenu() {
+  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const html = renderExplorer();
+
+  assert.match(html, /data-ripple-files-action="compact-more"/);
+  assert.match(html, /aria-label="More file actions"/);
+  assert.match(source, /data-ripple-files-compact-actions-menu/);
+  assert.match(source, /New File/);
+  assert.match(source, /New Folder/);
+}
+
+testWorkspaceExplorerCompactToolbarOffersCreationActionsFromMoreMenu();
 
 console.log("workspace explorer tests passed");

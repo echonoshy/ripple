@@ -71,7 +71,9 @@ function testSettingsPageHasExpectedUserSections() {
   assert.match(html, />Default model/);
   assert.match(html, />Log out/);
   assert.match(html, />Change password/);
-  assert.match(html, />Invite account/);
+  assert.match(html, /aria-label="Display name"/);
+  assert.match(html, />Edit/);
+  assert.doesNotMatch(html, />Invite account/);
   assert.match(html, />DE</);
   assert.match(html, />Avatar/);
   assert.doesNotMatch(html, />Upload avatar/);
@@ -93,6 +95,17 @@ function testSettingsPageShowsDeveloperModeForServiceAccess() {
   assert.doesNotMatch(html, />Remove avatar/);
   assert.doesNotMatch(html, />Default avatars/);
   assert.doesNotMatch(html, />Change password/);
+}
+
+function testSettingsPageCanEditDisplayName() {
+  const source = readFileSync(new URL("./SettingsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /updateUserProfile/);
+  assert.match(source, /displayNameInput/);
+  assert.match(source, /handleDisplayNameSubmit/);
+  assert.match(source, /dispatchUserProfileChanged/);
+  assert.match(source, /aria-label="Display name"/);
+  assert.match(source, /Save name/);
 }
 
 function testSettingsPageSupportsLocalAvatarUpload() {
@@ -228,6 +241,7 @@ function testSettingsPageUsesCompactMobileDensity() {
 
 testSettingsPageHasExpectedUserSections();
 testSettingsPageShowsDeveloperModeForServiceAccess();
+testSettingsPageCanEditDisplayName();
 testSettingsPageSupportsLocalAvatarUpload();
 testSettingsPageDoesNotDuplicatePrimaryWorkspaceTabs();
 testSettingsPageHidesDiagnosticsByDefault();

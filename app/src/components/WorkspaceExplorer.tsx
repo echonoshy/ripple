@@ -31,6 +31,7 @@ import {
 import { IconTile } from "@/components/icons/IconTile";
 import {
   downloadWorkspaceFile,
+  fetchWorkspaceDocumentPreview,
   fetchWorkspaceFilePreview,
   fetchWorkspaceListing,
   renameWorkspaceEntry,
@@ -193,6 +194,40 @@ function searchModeLabel(scope: WorkspaceSearchOptions["scope"]): string {
   return "Find names in /workspace";
 }
 
+type WorkspacePreviewKind = "image" | "pdf" | "document" | "text";
+
+const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "svg", "webp", "bmp", "ico"];
+const OFFICE_EXTENSIONS = ["doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp"];
+
+function extensionFromName(name: string): string {
+  return name.split(".").pop()?.toLowerCase() || "";
+}
+
+export function getWorkspacePreviewKind(
+  entry: Pick<WorkspaceEntry, "name" | "mime_type">
+): WorkspacePreviewKind {
+  const mimeType = entry.mime_type || "";
+  const ext = extensionFromName(entry.name);
+  if (mimeType.startsWith("image/") || IMAGE_EXTENSIONS.includes(ext)) return "image";
+  if (mimeType === "application/pdf" || ext === "pdf") return "pdf";
+  if (
+    OFFICE_EXTENSIONS.includes(ext) ||
+    mimeType.includes("wordprocessingml") ||
+    mimeType.includes("spreadsheetml") ||
+    mimeType.includes("presentationml") ||
+    mimeType === "application/msword" ||
+    mimeType === "application/vnd.ms-excel" ||
+    mimeType === "application/vnd.ms-powerpoint"
+  ) {
+    return "document";
+  }
+  return "text";
+}
+
+function workspaceEntryNameFromPath(path: string): string {
+  return path.split(/[?#]/, 1)[0].split("/").filter(Boolean).at(-1) || "file";
+}
+
 export function displayError(error: string): string {
   if (
     error.includes("Failed to rename entry (404)") ||
@@ -276,7 +311,7 @@ export default function WorkspaceExplorer({
   const [searchError, setSearchError] = useState<string | null>(null);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
-  const [isMobileActionsOpen, setIsMobileActionsOpen] = useState(false);
+  const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false);
   const [searchScope, setSearchScope] =
     useState<NonNullable<WorkspaceSearchOptions["scope"]>>("name");
   const [searchKind, setSearchKind] = useState<NonNullable<WorkspaceSearchOptions["kind"]>>("all");
@@ -296,6 +331,7 @@ export default function WorkspaceExplorer({
   const [isDraggingUpload, setIsDraggingUpload] = useState(false);
   const [downloadingPath, setDownloadingPath] = useState<string | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+  const [documentPreviewUrl, setDocumentPreviewUrl] = useState<string | null>(null);
   const [clipboard, setClipboard] = useState<{
     items: WorkspaceEntry[];
     action: "copy" | "move";
@@ -359,10 +395,17 @@ export default function WorkspaceExplorer({
   const selectedEntryCount = selectedEntries.length;
   const isSelectionActive = isSelectionMode || selectedEntryCount > 0;
   const allVisibleEntriesSelected =
-    visibleEntries.length > 0 && visibleEntries.every((entry) => selectedEntryPaths.has(entry.path));
+    visibleEntries.length > 0 &&
+    visibleEntries.every((entry) => selectedEntryPaths.has(entry.path));
   useEffect(() => {
     window.localStorage.setItem(SPLIT_PERCENT_STORAGE_KEY, String(splitPercent));
   }, [splitPercent]);
+
+  useEffect(() => {
+    return () => {
+      if (documentPreviewUrl) URL.revokeObjectURL(documentPreviewUrl);
+    };
+  }, [documentPreviewUrl]);
 
   useEffect(() => {
     if (!renamingPath) return;
@@ -398,6 +441,7 @@ export default function WorkspaceExplorer({
           setCurrentPath(data.path);
           setPreview(null);
           setImagePreviewUrl(null);
+          setDocumentPreviewUrl(null);
           setDraft("");
           setIsEditing(false);
           setSaveError(null);
@@ -435,16 +479,38 @@ export default function WorkspaceExplorer({
       setPreviewLoading(true);
       setError(null);
       try {
-        const filePreview = await fetchWorkspaceFilePreview(targetPath, 256 * 1024);
-        setPreview(filePreview);
-        setImagePreviewUrl(null);
-        setDraft(filePreview.content);
+        const name = workspaceEntryNameFromPath(targetPath);
+        const previewKind = getWorkspacePreviewKind({ name, mime_type: null });
+        if (previewKind === "pdf" || previewKind === "document") {
+          const documentPreview = await fetchWorkspaceDocumentPreview(targetPath);
+          const documentUrl = URL.createObjectURL(documentPreview.blob);
+          setPreview({
+            path: targetPath,
+            name,
+            size_bytes: documentPreview.blob.size,
+            modified_at: "",
+            mime_type: "application/pdf",
+            encoding: "binary",
+            content: "",
+            truncated: false,
+          });
+          setImagePreviewUrl(null);
+          setDocumentPreviewUrl(documentUrl);
+          setDraft("");
+        } else {
+          const filePreview = await fetchWorkspaceFilePreview(targetPath, 256 * 1024);
+          setPreview(filePreview);
+          setImagePreviewUrl(null);
+          setDocumentPreviewUrl(null);
+          setDraft(filePreview.content);
+        }
         setIsEditing(false);
         setSaveError(null);
-        setHighlightedLine(lineNumber ?? null);
+        setHighlightedLine(previewKind === "text" ? (lineNumber ?? null) : null);
       } catch (err) {
         setPreview(null);
         setImagePreviewUrl(null);
+        setDocumentPreviewUrl(null);
         setDraft("");
         setIsEditing(false);
         setError(err instanceof Error ? err.message : String(err));
@@ -467,6 +533,7 @@ export default function WorkspaceExplorer({
       setListing(workspaceListingCache.get(workspaceCacheKey(userId, path)) || null);
       setPreview(null);
       setImagePreviewUrl(null);
+      setDocumentPreviewUrl(null);
       setDraft("");
       setIsEditing(false);
       setHighlightedLine(null);
@@ -511,12 +578,6 @@ export default function WorkspaceExplorer({
     };
   }, [fileType, normalizedQuery, searchKind, searchLimit, searchScope]);
 
-  const isImageFile = (entry: WorkspaceEntry) => {
-    if (entry.mime_type?.startsWith("image/")) return true;
-    const ext = entry.name.split(".").pop()?.toLowerCase();
-    return ["png", "jpg", "jpeg", "gif", "svg", "webp", "bmp", "ico"].includes(ext || "");
-  };
-
   const openEntry = async (entry: WorkspaceEntry) => {
     if (entry.kind === "directory") {
       await loadDirectory(entry.path);
@@ -526,9 +587,11 @@ export default function WorkspaceExplorer({
     setError(null);
     setHighlightedLine(null);
     setImagePreviewUrl(null);
+    setDocumentPreviewUrl(null);
 
     try {
-      if (isImageFile(entry)) {
+      const previewKind = getWorkspacePreviewKind(entry);
+      if (previewKind === "image") {
         const imageUrl = await getWorkspaceImagePreviewUrl(
           {
             userId,
@@ -553,12 +616,33 @@ export default function WorkspaceExplorer({
           truncated: false,
         });
         setImagePreviewUrl(imageUrl);
+        setDocumentPreviewUrl(null);
+        setDraft("");
+        setIsEditing(false);
+        setSaveError(null);
+      } else if (previewKind === "pdf" || previewKind === "document") {
+        const documentPreview = await fetchWorkspaceDocumentPreview(entry.path);
+        const documentUrl = URL.createObjectURL(documentPreview.blob);
+        setPreview({
+          path: entry.path,
+          name: entry.name,
+          size_bytes: entry.size_bytes,
+          modified_at: entry.modified_at,
+          mime_type: "application/pdf",
+          encoding: "binary",
+          content: "",
+          truncated: false,
+        });
+        setImagePreviewUrl(null);
+        setDocumentPreviewUrl(documentUrl);
+        setDraft("");
         setIsEditing(false);
         setSaveError(null);
       } else {
         const filePreview = await fetchWorkspaceFilePreview(entry.path, 256 * 1024);
         setPreview(filePreview);
         setImagePreviewUrl(null);
+        setDocumentPreviewUrl(null);
         setDraft(filePreview.content);
         setIsEditing(false);
         setSaveError(null);
@@ -566,6 +650,7 @@ export default function WorkspaceExplorer({
     } catch (err) {
       setPreview(null);
       setImagePreviewUrl(null);
+      setDocumentPreviewUrl(null);
       setDraft("");
       setIsEditing(false);
       setError(err instanceof Error ? err.message : String(err));
@@ -829,6 +914,7 @@ export default function WorkspaceExplorer({
     if (preview && movedPaths.has(preview.path)) {
       setPreview(null);
       setImagePreviewUrl(null);
+      setDocumentPreviewUrl(null);
       setDraft("");
     }
     setSearchResults((current) => current.filter((entry) => !movedPaths.has(entry.path)));
@@ -913,7 +999,7 @@ export default function WorkspaceExplorer({
   const clearClipboard = () => {
     setClipboard(null);
     setContextMenu((prev) => ({ ...prev, visible: false }));
-    setIsMobileActionsOpen(false);
+    setIsActionsMenuOpen(false);
   };
 
   const handleBatchClipboard = (action: "copy" | "move") => {
@@ -949,6 +1035,7 @@ export default function WorkspaceExplorer({
     if (preview && deletedPaths.has(preview.path)) {
       setPreview(null);
       setImagePreviewUrl(null);
+      setDocumentPreviewUrl(null);
       setDraft("");
     }
     setListing((current) => {
@@ -1004,6 +1091,7 @@ export default function WorkspaceExplorer({
       if (preview?.path === entry.path) {
         setPreview(null);
         setImagePreviewUrl(null);
+        setDocumentPreviewUrl(null);
         setDraft("");
       }
       setListing((current) => {
@@ -1149,7 +1237,7 @@ export default function WorkspaceExplorer({
   useEffect(() => {
     const handleGlobalClick = () => {
       setContextMenu((prev) => (prev.visible ? { ...prev, visible: false } : prev));
-      setIsMobileActionsOpen(false);
+      setIsActionsMenuOpen(false);
     };
     window.addEventListener("click", handleGlobalClick);
     return () => {
@@ -1228,8 +1316,7 @@ export default function WorkspaceExplorer({
   const isPagePresentation = presentation === "page";
   const pageToolbarIconButtonClass =
     "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#dfe6f4] bg-white/78 text-[#384152] shadow-[0_10px_24px_rgba(44,63,123,0.06)] transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-50";
-  const pageToolbarPrimaryButtonClass =
-    pageToolbarIconButtonClass;
+  const pageToolbarPrimaryButtonClass = pageToolbarIconButtonClass;
   const pageParentButtonClass =
     "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#d7e3f8] bg-[#eef4ff] text-[#2463eb] shadow-[0_10px_24px_rgba(44,63,123,0.06)] transition-colors hover:bg-[#e5efff] lg:hidden";
 
@@ -1301,7 +1388,7 @@ export default function WorkspaceExplorer({
                 type="button"
                 data-ripple-files-mobile-search-trigger
                 onClick={() => {
-                  setIsMobileActionsOpen(false);
+                  setIsActionsMenuOpen(false);
                   setIsMobileSearchOpen(true);
                 }}
                 className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border shadow-[0_10px_24px_rgba(44,63,123,0.06)] transition-colors lg:hidden ${
@@ -1348,7 +1435,7 @@ export default function WorkspaceExplorer({
                 onClick={(event) => {
                   event.stopPropagation();
                   setIsMobileSearchOpen(false);
-                  setIsMobileActionsOpen((open) => !open);
+                  setIsActionsMenuOpen((open) => !open);
                 }}
               >
                 <MoreHorizontal size={15} />
@@ -1440,6 +1527,21 @@ export default function WorkspaceExplorer({
             >
               {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
             </button>
+            {!isPagePresentation && (
+              <button
+                type="button"
+                data-ripple-files-action="compact-more"
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#e5e7eb] bg-white text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
+                title="More file actions"
+                aria-label="More file actions"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setIsActionsMenuOpen((open) => !open);
+                }}
+              >
+                <MoreHorizontal size={14} />
+              </button>
+            )}
             {isPagePresentation && (
               <button
                 type="button"
@@ -1497,7 +1599,7 @@ export default function WorkspaceExplorer({
             )}
           </div>
         )}
-        {isPagePresentation && isMobileActionsOpen && (
+        {isPagePresentation && isActionsMenuOpen && (
           <div
             data-ripple-files-mobile-actions-menu
             className="absolute top-[76px] right-3 z-40 w-[220px] rounded-2xl border border-[#dfe6f4] bg-white p-1.5 text-xs text-[#374151] shadow-[0_18px_44px_rgba(44,63,123,0.16)] lg:hidden"
@@ -1506,7 +1608,7 @@ export default function WorkspaceExplorer({
             <button
               type="button"
               onClick={() => {
-                setIsMobileActionsOpen(false);
+                setIsActionsMenuOpen(false);
                 void loadDirectory(currentPath);
               }}
               disabled={loading}
@@ -1523,14 +1625,19 @@ export default function WorkspaceExplorer({
               type="button"
               disabled={!clipboard}
               onClick={() => {
-                setIsMobileActionsOpen(false);
+                setIsActionsMenuOpen(false);
                 void handlePaste();
               }}
               className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left font-semibold transition-colors hover:bg-[#f3f4f6] disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Clipboard size={13} className="shrink-0 text-[#6b7280]" />
               {clipboard ? (
-                <>Paste {clipboard.items.length === 1 ? `(${clipboard.items[0]?.name})` : `(${clipboard.items.length} items)`}</>
+                <>
+                  Paste{" "}
+                  {clipboard.items.length === 1
+                    ? `(${clipboard.items[0]?.name})`
+                    : `(${clipboard.items.length} items)`}
+                </>
               ) : (
                 "Paste"
               )}
@@ -1550,7 +1657,7 @@ export default function WorkspaceExplorer({
               type="button"
               onClick={() => {
                 setCreationModal({ visible: true, kind: "file" });
-                setIsMobileActionsOpen(false);
+                setIsActionsMenuOpen(false);
               }}
               className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left font-semibold transition-colors hover:bg-[#f3f4f6]"
             >
@@ -1561,7 +1668,85 @@ export default function WorkspaceExplorer({
               type="button"
               onClick={() => {
                 setCreationModal({ visible: true, kind: "directory" });
-                setIsMobileActionsOpen(false);
+                setIsActionsMenuOpen(false);
+              }}
+              className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left font-semibold transition-colors hover:bg-[#f3f4f6]"
+            >
+              <FolderPlus size={13} className="shrink-0 text-[#6b7280]" />
+              New Folder
+            </button>
+          </div>
+        )}
+        {!isPagePresentation && isActionsMenuOpen && (
+          <div
+            data-ripple-files-compact-actions-menu
+            className="absolute top-[54px] right-3 z-40 w-[220px] rounded-2xl border border-[#dfe6f4] bg-white p-1.5 text-xs text-[#374151] shadow-[0_18px_44px_rgba(44,63,123,0.16)]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => {
+                setIsActionsMenuOpen(false);
+                void loadDirectory(currentPath);
+              }}
+              disabled={loading}
+              className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left font-semibold transition-colors hover:bg-[#f3f4f6] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {loading ? (
+                <Loader2 size={13} className="shrink-0 animate-spin text-[#6b7280]" />
+              ) : (
+                <RefreshCw size={13} className="shrink-0 text-[#6b7280]" />
+              )}
+              Refresh workspace
+            </button>
+            <button
+              type="button"
+              disabled={!clipboard}
+              onClick={() => {
+                setIsActionsMenuOpen(false);
+                void handlePaste();
+              }}
+              className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left font-semibold transition-colors hover:bg-[#f3f4f6] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Clipboard size={13} className="shrink-0 text-[#6b7280]" />
+              {clipboard ? (
+                <>
+                  Paste{" "}
+                  {clipboard.items.length === 1
+                    ? `(${clipboard.items[0]?.name})`
+                    : `(${clipboard.items.length} items)`}
+                </>
+              ) : (
+                "Paste"
+              )}
+            </button>
+            {clipboard ? (
+              <button
+                type="button"
+                onClick={clearClipboard}
+                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left font-semibold text-[#667085] transition-colors hover:bg-[#f3f4f6]"
+              >
+                <X size={13} className="shrink-0 text-[#6b7280]" />
+                Clear clipboard
+              </button>
+            ) : null}
+            <div className="my-1 border-t border-[#dfe6f4]" />
+            <button
+              type="button"
+              onClick={() => {
+                setCreationModal({ visible: true, kind: "file" });
+                setIsActionsMenuOpen(false);
+              }}
+              className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left font-semibold transition-colors hover:bg-[#f3f4f6]"
+            >
+              <FilePlus size={13} className="shrink-0 text-[#6b7280]" />
+              New File
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setCreationModal({ visible: true, kind: "directory" });
+                setIsActionsMenuOpen(false);
               }}
               className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left font-semibold transition-colors hover:bg-[#f3f4f6]"
             >
@@ -1917,9 +2102,7 @@ export default function WorkspaceExplorer({
               data-ripple-files-selection-bar
               className="flex min-h-11 flex-wrap items-center gap-2 border-b border-[#dfe6f4]/70 bg-[#f8faff] px-3 py-2 text-xs text-[#384152]"
             >
-              <span className="mr-auto font-semibold">
-                {selectedEntryCount} selected
-              </span>
+              <span className="mr-auto font-semibold">{selectedEntryCount} selected</span>
               <button
                 type="button"
                 onClick={selectAllVisibleEntries}
@@ -2070,9 +2253,7 @@ export default function WorkspaceExplorer({
                               dragTargetPath === entry.path
                                 ? "bg-[#eef4ff] shadow-[inset_0_0_0_2px_rgba(47,107,255,0.24)]"
                                 : ""
-                            } ${
-                              draggedEntryPaths.has(entry.path) ? "opacity-45" : ""
-                            } ${
+                            } ${draggedEntryPaths.has(entry.path) ? "opacity-45" : ""} ${
                               clipboard?.action === "move" &&
                               clipboard?.items.some((item) => item.path === entry.path)
                                 ? "opacity-35 select-none"
@@ -2084,9 +2265,7 @@ export default function WorkspaceExplorer({
                                 : preview?.path === entry.path
                                   ? "bg-[#eef4ff]"
                                   : "bg-white"
-                            } ${
-                              dragTargetPath === entry.path ? "bg-[#eef4ff]" : ""
-                            } ${
+                            } ${dragTargetPath === entry.path ? "bg-[#eef4ff]" : ""} ${
                               draggedEntryPaths.has(entry.path) ? "opacity-45" : ""
                             } ${
                               clipboard?.action === "move" &&
@@ -2241,7 +2420,7 @@ export default function WorkspaceExplorer({
                     )}
                     Download
                   </button>
-                  {!imagePreviewUrl && (
+                  {!imagePreviewUrl && !documentPreviewUrl && (
                     <button
                       type="button"
                       disabled={preview.truncated}
@@ -2345,7 +2524,22 @@ export default function WorkspaceExplorer({
                       <span>{saveError}</span>
                     </div>
                   )}
-                  {imagePreviewUrl ? (
+                  {documentPreviewUrl ? (
+                    <div
+                      data-ripple-workspace-document-preview
+                      className={
+                        isPagePresentation
+                          ? "min-h-[420px] flex-1 overflow-hidden bg-[#f4f7fb]"
+                          : "min-h-[420px] flex-1 overflow-hidden bg-[#f8fafc]"
+                      }
+                    >
+                      <iframe
+                        src={documentPreviewUrl}
+                        title={`${preview.name} preview`}
+                        className="h-full min-h-[420px] w-full border-0 bg-white"
+                      />
+                    </div>
+                  ) : imagePreviewUrl ? (
                     <div
                       className={
                         isPagePresentation
@@ -2510,7 +2704,12 @@ export default function WorkspaceExplorer({
               >
                 <Clipboard size={13} className="shrink-0 text-[#6b7280]" />
                 {clipboard ? (
-                  <>Paste {clipboard.items.length === 1 ? `(${clipboard.items[0]?.name})` : `(${clipboard.items.length} items)`}</>
+                  <>
+                    Paste{" "}
+                    {clipboard.items.length === 1
+                      ? `(${clipboard.items[0]?.name})`
+                      : `(${clipboard.items.length} items)`}
+                  </>
                 ) : (
                   "Paste"
                 )}

@@ -9,8 +9,8 @@ use axum::body::{to_bytes, Body};
 use axum::http::{Method, Request, StatusCode};
 use ripple_server::api::{auth::AuthClaimRequest, router, schedules::trigger_due_schedules};
 use ripple_server::config::{
-    AppConfig, CodexConfig, CorsConfig, FeishuConfig, GogcliOAuthConfig, LoggingConfig,
-    SandboxConfig, SecurityConfig, SkillsConfig, UserAuthConfig,
+    AppConfig, CodexConfig, CorsConfig, DocumentPreviewConfig, FeishuConfig, GogcliOAuthConfig,
+    LoggingConfig, SandboxConfig, SecurityConfig, SkillsConfig, UserAuthConfig,
 };
 use ripple_server::jobs::AgentRunCreateRequest;
 use ripple_server::sessions::CreateSessionInput;
@@ -67,6 +67,12 @@ fn test_config(root: &Path) -> AppConfig {
         },
         schedule_extraction_max_runtime_seconds: 120,
         schedule_poll_interval_seconds: 15,
+        document_preview: DocumentPreviewConfig {
+            cache_root: root.join("cache/previews"),
+            libreoffice_path: "soffice".to_string(),
+            max_source_bytes: 64 * 1024 * 1024,
+            conversion_timeout_seconds: 120,
+        },
         skills: SkillsConfig {
             shared_dirs: Vec::new(),
         },
@@ -99,6 +105,45 @@ fn test_config_with_fake_connector_cli(root: &Path) -> AppConfig {
     config.sandbox.nsjail_path = write_fake_connector_cli(root);
     config.sandbox.gogcli_cli_install_root = Some(root.join("vendor/gogcli-cli"));
     config.sandbox.lark_cli_install_root = Some(root.join("vendor/lark-cli"));
+    config
+}
+
+fn test_config_with_fake_libreoffice(root: &Path) -> AppConfig {
+    let mut config = test_config(root);
+    let fake_soffice = root.join("fake-soffice");
+    let log_path = root.join("fake-soffice.log");
+    write_executable(
+        &fake_soffice,
+        &format!(
+            r#"#!/bin/sh
+set -eu
+outdir=""
+source=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --outdir)
+      outdir="$2"
+      shift 2
+      ;;
+    *)
+      source="$1"
+      shift
+      ;;
+  esac
+done
+if [ -z "$outdir" ] || [ -z "$source" ]; then
+  exit 2
+fi
+printf 'convert %s\n' "$source" >> "{}"
+mkdir -p "$outdir"
+name="$(basename "$source")"
+stem="${{name%.*}}"
+printf '%s' '%PDF fake office preview' > "$outdir/$stem.pdf"
+"#,
+            log_path.display()
+        ),
+    );
+    config.document_preview.libreoffice_path = fake_soffice.display().to_string();
     config
 }
 
@@ -1829,6 +1874,90 @@ Content-Type: image/png\r\n\r\n"
         .get("path")
         .and_then(Value::as_str)
         .is_some_and(|path| path.starts_with("/workspace/uploads/")));
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn workspace_preview_streams_pdf_inline_without_office_converter() {
+    let root = std::env::temp_dir().join(format!("ripple-api-preview-{}", Uuid::new_v4()));
+    let (state, app) = test_state_and_app(&root);
+    let workspace = state.sandboxes.ensure_sandbox("smoke-user").unwrap();
+    fs::write(workspace.join("report.pdf"), b"%PDF direct preview").unwrap();
+
+    let response = app
+        .oneshot(request(
+            Method::GET,
+            "/v1/workspace/preview?path=%2Fworkspace%2Freport.pdf",
+            Value::Null,
+            true,
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get("content-type")
+            .and_then(|value| value.to_str().ok()),
+        Some("application/pdf")
+    );
+    assert!(response
+        .headers()
+        .get("content-disposition")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.starts_with("inline;") && value.contains("report.pdf")));
+    assert_eq!(response_bytes(response).await, b"%PDF direct preview");
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn workspace_preview_converts_office_documents_to_cached_pdf() {
+    let root = std::env::temp_dir().join(format!("ripple-api-preview-{}", Uuid::new_v4()));
+    let (state, app) = test_state_and_app_with_config(test_config_with_fake_libreoffice(&root));
+    let workspace = state.sandboxes.ensure_sandbox("smoke-user").unwrap();
+    fs::write(workspace.join("report.docx"), b"fake docx bytes").unwrap();
+
+    for _ in 0..2 {
+        let response = app
+            .clone()
+            .oneshot(request(
+                Method::GET,
+                "/v1/workspace/preview?path=%2Fworkspace%2Freport.docx",
+                Value::Null,
+                true,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get("content-type")
+                .and_then(|value| value.to_str().ok()),
+            Some("application/pdf")
+        );
+        assert!(response
+            .headers()
+            .get("content-disposition")
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.starts_with("inline;") && value.contains("report.pdf")));
+        assert_eq!(response_bytes(response).await, b"%PDF fake office preview");
+    }
+
+    let log = fs::read_to_string(root.join("fake-soffice.log")).unwrap();
+    assert_eq!(
+        log.lines().count(),
+        1,
+        "second preview should reuse cached PDF"
+    );
+    assert!(root
+        .join("cache/previews/smoke-user")
+        .read_dir()
+        .unwrap()
+        .any(|entry| entry.unwrap().path().join("preview.pdf").is_file()));
 
     let _ = std::fs::remove_dir_all(root);
 }

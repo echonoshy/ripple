@@ -1513,6 +1513,33 @@ export async function downloadWorkspaceFile(
   };
 }
 
+export async function fetchWorkspaceDocumentPreview(
+  path: string
+): Promise<{ blob: Blob; filename: string }> {
+  const qs = new URLSearchParams({ path });
+  const res = await fetch(`${API_URL}/workspace/preview?${qs.toString()}`, {
+    headers: { ...authHeaders() },
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    if (res.status === 404) {
+      if (detail.includes("Sandbox for user")) {
+        throw new Error("Workspace is not ready for this user.");
+      }
+      if (detail.includes("Path not found")) {
+        throw new Error("File or folder no longer exists. Refresh workspace.");
+      }
+    }
+    throw new Error(detail || `Failed to preview document (${res.status})`);
+  }
+  const fallback = path.split("/").filter(Boolean).at(-1) || "preview.pdf";
+  return {
+    blob: await res.blob(),
+    filename: filenameFromContentDisposition(res.headers.get("content-disposition"), fallback),
+  };
+}
+
 export async function renameWorkspaceEntry(path: string, name: string): Promise<WorkspaceEntry> {
   const res = await fetch(`${API_URL}/workspace/rename`, {
     method: "POST",
@@ -1612,6 +1639,22 @@ export async function fetchUserProfile(): Promise<UserProfile> {
   if (!res.ok) throw new Error("Failed to fetch user profile");
   const data = (await res.json()) as unknown;
   return data as UserProfile;
+}
+
+export async function updateUserProfile(input: {
+  display_name: string | null;
+}): Promise<UserProfile> {
+  const res = await fetch(`${API_URL}/users/me/profile`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(input),
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to update profile (${res.status})`);
+  }
+  return (await res.json()) as UserProfile;
 }
 
 export async function uploadUserAvatar(file: File): Promise<UserProfile> {

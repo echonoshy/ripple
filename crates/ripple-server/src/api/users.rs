@@ -6,6 +6,7 @@ use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::Response;
 use axum::Extension;
 use axum::Json;
+use serde::Deserialize;
 use serde_json::{json, Value};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
@@ -14,13 +15,18 @@ use uuid::Uuid;
 use crate::api::ApiError;
 use crate::sandbox::workspace_size_bytes;
 use crate::state::AppState;
-use crate::user::{user_id_from_headers, AuthContext};
+use crate::user::{user_id_from_headers, AuthContext, AuthKind};
 
 pub(crate) const MAX_SESSIONS_PER_USER: u64 = 200;
 pub(crate) const MAX_RUNS_PER_DAY: u64 = 200;
 pub(crate) const USER_AVATAR_UPLOAD_BODY_LIMIT_BYTES: usize = 5 * 1024 * 1024;
 const USER_AVATAR_URI_PREFIX: &str = "/v1/users/me/avatar/";
 const USER_AVATAR_FIELD_NAME: &str = "avatar";
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct UserProfileUpdateRequest {
+    pub display_name: Option<String>,
+}
 
 pub async fn current_user_profile(
     State(state): State<AppState>,
@@ -29,6 +35,35 @@ pub async fn current_user_profile(
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     state.sandboxes.ensure_sandbox(&user_id)?;
+    Ok(Json(user_profile_json(&state, &user_id, &auth).await?))
+}
+
+pub async fn update_current_user_profile(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Extension(auth): Extension<AuthContext>,
+    Json(payload): Json<UserProfileUpdateRequest>,
+) -> Result<Json<Value>, ApiError> {
+    if auth.kind != AuthKind::User {
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            json!({
+                "code": "user_profile_read_only",
+                "message": "Display name can only be changed by a signed-in user account."
+            }),
+        ));
+    }
+
+    let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    let display_name = normalize_display_name(payload.display_name)?;
+    let updated = state
+        .storage
+        .update_auth_user_display_name(&user_id, display_name.as_deref())
+        .await?;
+    if !updated {
+        return Err(ApiError::not_found("User not found"));
+    }
+
     Ok(Json(user_profile_json(&state, &user_id, &auth).await?))
 }
 
@@ -223,6 +258,29 @@ fn unsupported_avatar_type() -> ApiError {
         "code": "unsupported_avatar_type",
         "message": "Avatar must be a PNG, JPEG, WebP, or GIF image."
     }))
+}
+
+fn normalize_display_name(input: Option<String>) -> Result<Option<String>, ApiError> {
+    let Some(value) = input else {
+        return Ok(None);
+    };
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    if trimmed.chars().count() > 80 {
+        return Err(ApiError::bad_request(json!({
+            "code": "display_name_too_long",
+            "message": "Display name must be 80 characters or fewer."
+        })));
+    }
+    if trimmed.chars().any(char::is_control) {
+        return Err(ApiError::bad_request(json!({
+            "code": "display_name_invalid",
+            "message": "Display name cannot contain control characters."
+        })));
+    }
+    Ok(Some(trimmed.to_string()))
 }
 
 fn avatar_content_type(extension: &str) -> &'static str {
@@ -488,6 +546,12 @@ mod tests {
             },
             schedule_extraction_max_runtime_seconds: 120,
             schedule_poll_interval_seconds: 15,
+            document_preview: crate::config::DocumentPreviewConfig {
+                cache_root: root.join("cache/previews"),
+                libreoffice_path: "soffice".to_string(),
+                max_source_bytes: 64 * 1024 * 1024,
+                conversion_timeout_seconds: 120,
+            },
             skills: SkillsConfig {
                 shared_dirs: Vec::new(),
             },
@@ -624,6 +688,54 @@ mod tests {
         assert_eq!(
             body.get("avatar_uri").and_then(Value::as_str),
             Some(avatar_uri)
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn update_current_user_profile_persists_display_name() -> anyhow::Result<()> {
+        let state = test_state();
+        let invite = state
+            .storage
+            .create_user_auth_invite(1, None, Some("test"))
+            .await?;
+        let token = crate::auth::claim_invite(
+            &state.storage,
+            &invite.code,
+            "alice@example.com",
+            "correct-password",
+            Some("Alice".to_string()),
+            3600,
+            None,
+        )
+        .await?;
+        let mut headers = HeaderMap::new();
+        headers.insert("x-ripple-user-id", token.user_id.parse()?);
+
+        let Json(body) = update_current_user_profile(
+            State(state.clone()),
+            headers,
+            Extension(AuthContext::user(token.user_id.clone())),
+            Json(UserProfileUpdateRequest {
+                display_name: Some("Alice Liu".to_string()),
+            }),
+        )
+        .await
+        .expect("updated profile");
+
+        assert_eq!(
+            body.pointer("/profile/display_name")
+                .and_then(Value::as_str),
+            Some("Alice Liu")
+        );
+        assert_eq!(
+            state
+                .storage
+                .auth_user_by_id(&token.user_id)
+                .await?
+                .and_then(|user| user.display_name),
+            Some("Alice Liu".to_string())
         );
 
         Ok(())

@@ -6,6 +6,7 @@ import {
   Check,
   ChevronDown,
   Cpu,
+  Edit3,
   HardDrive,
   KeyRound,
   Layers,
@@ -26,6 +27,7 @@ import {
   fetchUserAvatarImage,
   fetchUserProfile,
   getConfiguredApiUrl,
+  updateUserProfile,
   uploadUserAvatar,
 } from "@/lib/api";
 import {
@@ -35,7 +37,12 @@ import {
   type ViewportMenuAnchorRect,
 } from "@/lib/menuPosition";
 import { formatModelName } from "@/lib/models";
-import { dispatchUserAvatarChanged, getUserProfileAvatarUri } from "@/lib/userAvatar";
+import {
+  dispatchUserAvatarChanged,
+  dispatchUserProfileChanged,
+  getUserProfileAvatarUri,
+  getUserProfileDisplayName,
+} from "@/lib/userAvatar";
 import type { SandboxInfo, UserProfile } from "@/types";
 import { IconTile, type IconTileTone } from "@/components/icons/IconTile";
 import RippleIcon from "@/components/icons/RippleIcon";
@@ -157,6 +164,11 @@ export default function SettingsPage({
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const [isAvatarUploading, setIsAvatarUploading] = useState(false);
   const [isAvatarMenuOpen, setIsAvatarMenuOpen] = useState(false);
+  const [isDisplayNameEditing, setIsDisplayNameEditing] = useState(false);
+  const [displayNameInput, setDisplayNameInput] = useState("");
+  const [displayNameError, setDisplayNameError] = useState<string | null>(null);
+  const [displayNameMessage, setDisplayNameMessage] = useState<string | null>(null);
+  const [isSavingDisplayName, setIsSavingDisplayName] = useState(false);
   const [isPasswordOpen, setIsPasswordOpen] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -196,7 +208,9 @@ export default function SettingsPage({
   }, [loadSettingsData, userId]);
 
   const profileAvatarUri = getUserProfileAvatarUri(profile);
-  const avatarName = profile?.profile?.user_name || userId;
+  const profileDisplayName = getUserProfileDisplayName(profile, userId);
+  const profileEmail = profile?.profile?.login?.trim() || "";
+  const avatarName = profileDisplayName;
   const avatarInitials = deriveAvatarInitials(avatarName);
   const limits = profile?.limits;
   const usage = profile?.usage;
@@ -209,6 +223,11 @@ export default function SettingsPage({
       models.length > 0 ? models : [{ id: defaultModel || selectedModel, owned_by: "ripple" }],
     [defaultModel, models, selectedModel]
   );
+
+  useEffect(() => {
+    if (isDisplayNameEditing) return;
+    setDisplayNameInput(profile?.profile?.display_name ?? "");
+  }, [isDisplayNameEditing, profile?.profile?.display_name]);
 
   const handlePasswordSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -234,6 +253,29 @@ export default function SettingsPage({
       setPasswordError(error instanceof Error ? error.message : "Could not change password.");
     } finally {
       setIsChangingPassword(false);
+    }
+  };
+
+  const handleDisplayNameSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (isSavingDisplayName) return;
+    const displayName = displayNameInput.trim();
+    try {
+      setIsSavingDisplayName(true);
+      setDisplayNameError(null);
+      setDisplayNameMessage(null);
+      const nextProfile = await updateUserProfile({ display_name: displayName || null });
+      setProfile(nextProfile);
+      setDisplayNameInput(nextProfile.profile?.display_name ?? "");
+      setIsDisplayNameEditing(false);
+      setDisplayNameMessage("Display name updated.");
+      dispatchUserProfileChanged();
+    } catch (error) {
+      setDisplayNameError(
+        error instanceof Error ? error.message : "Could not update display name."
+      );
+    } finally {
+      setIsSavingDisplayName(false);
     }
   };
 
@@ -540,18 +582,32 @@ export default function SettingsPage({
                   onChange={handleAvatarUpload}
                 />
                 <div className="min-w-0">
-                  <div className="mb-0.5 inline-flex rounded-full border border-[#dfe6f4] bg-[#f8faff] px-1.5 py-0.5 text-[10px] font-semibold text-[#667085]">
-                    {authMode === "user" ? "Invite account" : "Developer mode"}
-                  </div>
-                  <div className="text-[12px] font-semibold text-[#111827]">
-                    {authMode === "user" ? "Signed in" : "API key access"}
+                  <div
+                    aria-label="Display name"
+                    className="truncate text-[13px] font-semibold text-[#111827]"
+                  >
+                    {authMode === "user" ? profileDisplayName : "API key access"}
                   </div>
                   <div className="mt-0.5 truncate text-[11px] text-[#667085]">
-                    Workspace <span className="font-mono text-[#374151]">{userId}</span>
+                    {authMode === "user" ? profileEmail || "Signed in" : "Developer mode"}
                   </div>
                 </div>
               </div>
               <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+                {authMode === "user" ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsDisplayNameEditing((editing) => !editing);
+                      setDisplayNameError(null);
+                      setDisplayNameMessage(null);
+                    }}
+                    className="inline-flex h-7 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-2.5 text-[11px] font-semibold text-[#374151] transition-all hover:bg-[#f7f8fa] active:scale-[0.98]"
+                  >
+                    <Edit3 size={13} />
+                    Edit
+                  </button>
+                ) : null}
                 {authMode === "user" ? (
                   <button
                     type="button"
@@ -598,6 +654,55 @@ export default function SettingsPage({
             {avatarError ? (
               <div className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] font-semibold text-red-700">
                 {avatarError}
+              </div>
+            ) : null}
+
+            {authMode === "user" && isDisplayNameEditing ? (
+              <form
+                onSubmit={handleDisplayNameSubmit}
+                className="space-y-2 rounded-lg border border-[#e8edf7] bg-[#f8faff] p-2"
+              >
+                <label className="min-w-0 text-[11px] font-semibold text-[#667085]">
+                  Display name
+                  <input
+                    aria-label="Display name"
+                    type="text"
+                    value={displayNameInput}
+                    onChange={(event) => setDisplayNameInput(event.target.value)}
+                    className="mt-1 h-8 w-full rounded-lg border border-[#dfe6f4] bg-white px-2.5 text-[12px] text-[#111827] outline-none focus:border-[#8da0ff]"
+                    maxLength={80}
+                  />
+                </label>
+                {displayNameError ? (
+                  <div className="text-xs font-medium text-[#cf222e]">{displayNameError}</div>
+                ) : null}
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsDisplayNameEditing(false);
+                      setDisplayNameInput(profile?.profile?.display_name ?? "");
+                      setDisplayNameError(null);
+                    }}
+                    className="inline-flex h-7 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-2 text-[11px] font-semibold text-[#374151]"
+                  >
+                    <X size={12} />
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSavingDisplayName}
+                    className="inline-flex h-7 items-center gap-1.5 rounded-full bg-[#2463eb] px-2 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-[#d0d7e2]"
+                  >
+                    {isSavingDisplayName ? <Loader2 size={12} className="animate-spin" /> : null}
+                    Save name
+                  </button>
+                </div>
+              </form>
+            ) : null}
+            {displayNameMessage ? (
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] font-semibold text-emerald-700">
+                {displayNameMessage}
               </div>
             ) : null}
 
@@ -882,13 +987,7 @@ function Metric({
   );
 }
 
-function RunActivityMetrics({
-  runsToday,
-  activeRuns,
-}: {
-  runsToday: number;
-  activeRuns: number;
-}) {
+function RunActivityMetrics({ runsToday, activeRuns }: { runsToday: number; activeRuns: number }) {
   const items = [
     { label: "Runs today", value: runsToday },
     { label: "Running now", value: activeRuns },
@@ -897,7 +996,7 @@ function RunActivityMetrics({
   return (
     <div
       data-ripple-settings-run-metrics
-      className="md:col-span-2 overflow-hidden rounded-lg border border-[#e8edf7] bg-[#f8faff]"
+      className="overflow-hidden rounded-lg border border-[#e8edf7] bg-[#f8faff] md:col-span-2"
     >
       <div className="grid grid-cols-2 divide-x divide-[#e8edf7]">
         {items.map((item) => (

@@ -19,6 +19,7 @@ pub struct AppConfig {
     pub codex: CodexConfig,
     pub schedule_extraction_max_runtime_seconds: u64,
     pub schedule_poll_interval_seconds: u64,
+    pub document_preview: DocumentPreviewConfig,
     pub skills: SkillsConfig,
     pub public_base_url: Option<String>,
     pub feishu: FeishuConfig,
@@ -66,6 +67,14 @@ impl Default for UserAuthConfig {
             session_ttl_seconds: 30 * 24 * 60 * 60,
         }
     }
+}
+
+#[derive(Clone, Debug)]
+pub struct DocumentPreviewConfig {
+    pub cache_root: PathBuf,
+    pub libreoffice_path: String,
+    pub max_source_bytes: u64,
+    pub conversion_timeout_seconds: u64,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -181,6 +190,7 @@ struct RawServer {
     codex_chat: Option<RawCodexChat>,
     schedule_extraction: Option<RawScheduleExtraction>,
     schedules: Option<RawSchedules>,
+    document_preview: Option<RawDocumentPreview>,
     public_base_url: Option<String>,
     feishu: Option<RawFeishu>,
     gogcli_oauth: Option<RawGogcliOAuth>,
@@ -218,6 +228,14 @@ struct RawScheduleExtraction {
 #[derive(Debug, Default, Deserialize)]
 struct RawSchedules {
     poll_interval_seconds: Option<u64>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RawDocumentPreview {
+    cache_root: Option<String>,
+    libreoffice_path: Option<String>,
+    max_source_bytes: Option<u64>,
+    conversion_timeout_seconds: Option<u64>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -352,6 +370,7 @@ impl AppConfig {
         let codex_chat = server.codex_chat.unwrap_or_default();
         let schedule_extraction = server.schedule_extraction.unwrap_or_default();
         let schedules = server.schedules.unwrap_or_default();
+        let document_preview = server.document_preview.unwrap_or_default();
         let skills_raw = raw.skills.unwrap_or_default();
 
         let model_presets = parse_model_presets(model.presets.unwrap_or_default());
@@ -486,6 +505,23 @@ impl AppConfig {
                 .unwrap_or(120)
                 .max(1),
             schedule_poll_interval_seconds: schedules.poll_interval_seconds.unwrap_or(15).max(1),
+            document_preview: DocumentPreviewConfig {
+                cache_root: document_preview
+                    .cache_root
+                    .as_deref()
+                    .map(|value| resolve_path(&repo_root, value))
+                    .unwrap_or_else(|| sandbox_caches_root.join("previews")),
+                libreoffice_path: clean_config_string(document_preview.libreoffice_path.as_deref())
+                    .unwrap_or_else(|| "soffice".to_string()),
+                max_source_bytes: document_preview
+                    .max_source_bytes
+                    .unwrap_or(64 * 1024 * 1024)
+                    .max(1),
+                conversion_timeout_seconds: document_preview
+                    .conversion_timeout_seconds
+                    .unwrap_or(120)
+                    .max(1),
+            },
             skills: SkillsConfig {
                 shared_dirs: skills_raw
                     .shared_dirs

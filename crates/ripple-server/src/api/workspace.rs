@@ -16,6 +16,7 @@ use uuid::Uuid;
 
 use crate::api::users::{assert_workspace_save_within_quota, assert_workspace_writes_within_quota};
 use crate::api::{audit_event, require_confirm, ApiError};
+use crate::document_preview;
 use crate::state::AppState;
 use crate::storage::{sha256_hex, FileRefRecord};
 use crate::user::user_id_from_headers;
@@ -308,6 +309,45 @@ pub async fn download_workspace_file(
     response.headers_mut().insert(
         header::CONTENT_DISPOSITION,
         content_disposition_header("attachment", filename),
+    );
+    Ok(response)
+}
+
+pub async fn preview_workspace_file(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<DownloadQuery>,
+) -> Result<Response<Body>, ApiError> {
+    let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    let workspace = state.sandboxes.workspace_dir(&user_id)?;
+    let preview =
+        document_preview::render_document_preview(&state.config, &workspace, &user_id, &query.path)
+            .await
+            .map_err(map_workspace_error)?;
+    let metadata = tokio::fs::metadata(&preview.pdf_path).await?;
+    let etag = workspace_download_etag(&metadata);
+    let mut response = if request_matches_etag(&headers, &etag) {
+        let mut response = Response::new(Body::empty());
+        *response.status_mut() = StatusCode::NOT_MODIFIED;
+        response
+    } else {
+        Response::new(streamed_file_body(preview.pdf_path.clone()))
+    };
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/pdf"),
+    );
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, no-cache"),
+    );
+    response.headers_mut().insert(
+        header::ETAG,
+        HeaderValue::from_str(&etag).unwrap_or_else(|_| HeaderValue::from_static("W/\"0-0\"")),
+    );
+    response.headers_mut().insert(
+        header::CONTENT_DISPOSITION,
+        content_disposition_header("inline", &preview.download_name),
     );
     Ok(response)
 }
@@ -811,6 +851,12 @@ mod tests {
             },
             schedule_extraction_max_runtime_seconds: 120,
             schedule_poll_interval_seconds: 15,
+            document_preview: crate::config::DocumentPreviewConfig {
+                cache_root: root.join("cache/previews"),
+                libreoffice_path: "soffice".to_string(),
+                max_source_bytes: 64 * 1024 * 1024,
+                conversion_timeout_seconds: 120,
+            },
             skills: SkillsConfig {
                 shared_dirs: Vec::new(),
             },

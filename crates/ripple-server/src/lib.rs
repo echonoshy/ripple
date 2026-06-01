@@ -4,6 +4,7 @@ pub mod codex;
 pub mod config;
 pub mod connector_runtime;
 pub mod diagnostics;
+pub mod document_preview;
 pub mod jobs;
 pub mod migration;
 pub mod python_env;

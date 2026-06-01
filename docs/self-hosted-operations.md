@@ -102,6 +102,46 @@ Ripple 是控制面，Codex app-server 是执行面。
 
 不要把服务端 `CODEX_HOME/auth.json` 复制或挂载进 `.ripple/sandboxes/<user_id>/workspace/`。
 
+## Document Preview Runtime
+
+Workspace 文件预览里，PDF 会直接以内联 PDF 返回；Word、Excel、PowerPoint 等 Office 文件会先通过 LibreOffice 转成 PDF，再返回给前端只读查看。`soffice` 就是 LibreOffice 提供的命令行入口，所以部署机器需要安装 LibreOffice，否则 `.doc/.docx/.xls/.xlsx/.ppt/.pptx` 这类文件无法生成预览。
+
+Ubuntu / Debian 安装：
+
+```bash
+sudo apt update
+sudo apt install -y libreoffice libreoffice-writer libreoffice-calc libreoffice-impress
+```
+
+建议同时安装常见字体，尤其是中文文档需要 CJK 字体，否则转换后的 PDF 可能出现方块字、字体回退或排版偏移：
+
+```bash
+sudo apt install -y fonts-noto-cjk fonts-wqy-zenhei fonts-wqy-microhei fonts-dejavu fonts-liberation
+```
+
+安装后检查：
+
+```bash
+which soffice
+soffice --version
+```
+
+常见路径是 `/usr/bin/soffice`。如果生产环境里 `soffice` 不在服务进程的 `PATH` 里，可以在 `config/settings.yaml` 显式指定：
+
+```yaml
+server:
+  document_preview:
+    libreoffice_path: "/usr/bin/soffice"
+```
+
+如果只是在机器上安装 LibreOffice，通常不需要重启 `ripple-server`。如果修改了 `config/settings.yaml`，需要重启服务让配置生效。
+
+Fedora / RHEL 系发行版可使用对应包管理器安装：
+
+```bash
+sudo dnf install -y libreoffice libreoffice-writer libreoffice-calc libreoffice-impress google-noto-cjk-fonts
+```
+
 ## Backup Contract
 
 建议停服务或冻结写入后备份：

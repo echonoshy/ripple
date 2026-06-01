@@ -23,7 +23,12 @@ import { mainNavItems, type WorkspaceView } from "@/lib/workspaceViews";
 import type { WorkbenchSessionSummary } from "@/types";
 import SessionAttentionDot from "./SessionAttentionDot";
 import { fetchUserAvatarImage, fetchUserProfile } from "@/lib/api";
-import { getUserProfileAvatarUri, USER_AVATAR_CHANGED_EVENT } from "@/lib/userAvatar";
+import {
+  getUserProfileAvatarUri,
+  getUserProfileDisplayName,
+  USER_AVATAR_CHANGED_EVENT,
+  USER_PROFILE_CHANGED_EVENT,
+} from "@/lib/userAvatar";
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
@@ -96,6 +101,7 @@ export default function WorkspaceNav({
   const userMenuRef = React.useRef<HTMLDivElement>(null);
   const activeMenuRef = React.useRef<HTMLDivElement>(null);
   const profileAvatarUri = getUserProfileAvatarUri(userUsageData);
+  const workspaceDisplayName = getUserProfileDisplayName(userUsageData, userId);
   const maxWorkspaceBytes = userUsageData?.limits?.max_workspace_bytes || 2 * 1024 * 1024 * 1024;
   const maxSessions = userUsageData?.limits?.max_sessions || 200;
 
@@ -157,9 +163,13 @@ export default function WorkspaceNav({
   React.useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const handleAvatarChanged = () => setProfileRefreshToken((token) => token + 1);
-    window.addEventListener(USER_AVATAR_CHANGED_EVENT, handleAvatarChanged);
-    return () => window.removeEventListener(USER_AVATAR_CHANGED_EVENT, handleAvatarChanged);
+    const handleProfileChanged = () => setProfileRefreshToken((token) => token + 1);
+    window.addEventListener(USER_AVATAR_CHANGED_EVENT, handleProfileChanged);
+    window.addEventListener(USER_PROFILE_CHANGED_EVENT, handleProfileChanged);
+    return () => {
+      window.removeEventListener(USER_AVATAR_CHANGED_EVENT, handleProfileChanged);
+      window.removeEventListener(USER_PROFILE_CHANGED_EVENT, handleProfileChanged);
+    };
   }, []);
 
   React.useEffect(() => {
@@ -541,7 +551,7 @@ export default function WorkspaceNav({
         <button
           type="button"
           onClick={() => setIsUserMenuOpen(true)}
-          aria-label={`Settings for ${userId}`}
+          aria-label={`Settings for ${workspaceDisplayName}`}
           className="group flex w-full items-center gap-3 rounded-xl border border-transparent bg-[#fbfbfc]/40 p-2 text-left transition-all duration-300 hover:border-[#0d0d0d]/10 hover:bg-white hover:shadow-[0_4px_12px_rgba(0,0,0,0.02)]"
         >
           <IconTile
@@ -571,7 +581,7 @@ export default function WorkspaceNav({
           </IconTile>
           <div className="min-w-0 flex-1">
             <span className="block truncate text-[13px] font-semibold text-[#374151] transition-colors group-hover:text-[#0d0d0d]">
-              {userId}
+              {workspaceDisplayName}
             </span>
             <span className="mt-0.5 block truncate font-mono text-[9px] font-medium tracking-wider text-slate-400 uppercase">
               Active Sandbox

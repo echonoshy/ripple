@@ -51,7 +51,10 @@ function testGatewayShowsPrimaryLoginWithoutProductIntroModule() {
   assert.doesNotMatch(html, />Connector authorization</);
   assert.doesNotMatch(html, />Automations and schedules</);
   assert.doesNotMatch(html, />Workspace isolation</);
-  assert.match(html, /aria-label="Email or username"/);
+  assert.match(html, /aria-label="Email"/);
+  assert.match(html, /placeholder="Email"/);
+  assert.match(html, /autoComplete="email"/);
+  assert.doesNotMatch(html, /Email or username/);
   assert.match(html, /aria-label="Password"/);
   assert.match(html, />Sign in</);
 }
@@ -71,7 +74,9 @@ function testGatewayShowsInviteFormWhenSelected() {
 
   assert.match(html, />Create your workspace access</);
   assert.match(html, /aria-label="Invite code"/);
+  assert.match(html, /aria-label="Email"/);
   assert.match(html, /aria-label="Display name"/);
+  assert.doesNotMatch(html, /Email or username/);
   assert.match(html, />Create account</);
   assert.match(html, />Back to sign in/);
 }

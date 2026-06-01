@@ -1030,6 +1030,28 @@ impl Storage {
         Ok(result.rows_affected() > 0)
     }
 
+    pub async fn update_auth_user_display_name(
+        &self,
+        user_id: &str,
+        display_name: Option<&str>,
+    ) -> anyhow::Result<bool> {
+        self.initialize().await?;
+        let now = crate::auth::now_iso();
+        let result = sqlx::query(
+            r#"
+            UPDATE auth_users
+            SET display_name = ?, updated_at = ?
+            WHERE user_id = ? AND status = 'active'
+            "#,
+        )
+        .bind(display_name)
+        .bind(&now)
+        .bind(user_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
     pub async fn auth_user_by_identifier(
         &self,
         identifier: &str,

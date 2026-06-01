@@ -2,7 +2,7 @@
 
 import React from "react";
 import { IconTile } from "@/components/icons/IconTile";
-import { mainNavItems, type WorkspaceView } from "@/lib/workspaceViews";
+import { mobileNavItems, type WorkspaceView } from "@/lib/workspaceViews";
 import { LUCIDE_NAV_STROKE_WIDTH } from "./stylePrimitives";
 
 interface MobileTabBarProps {
@@ -23,9 +23,9 @@ export default function MobileTabBar({ activeView, onSelectView }: MobileTabBarP
     <nav className="fixed right-0 bottom-0 left-0 z-30 min-h-[calc(64px+env(safe-area-inset-bottom))] border-t border-white/70 bg-white/72 px-2 pt-1 pb-[max(env(safe-area-inset-bottom),10px)] shadow-[0_-12px_30px_rgba(44,63,123,0.10)] backdrop-blur-2xl lg:hidden">
       <div
         className="mx-auto grid h-[60px] max-w-md"
-        style={{ gridTemplateColumns: `repeat(${mainNavItems.length}, minmax(0, 1fr))` }}
+        style={{ gridTemplateColumns: `repeat(${mobileNavItems.length}, minmax(0, 1fr))` }}
       >
-        {mainNavItems.map((item) => {
+        {mobileNavItems.map((item) => {
           const Icon = item.icon;
           const selected = item.id === activeView;
           return (

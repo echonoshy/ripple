@@ -68,6 +68,7 @@ testEveryMobileTabUsesSoftIconTile();
 
 function testUsesSharedNavigationIconStrokeWeight() {
   assert.match(mobileTabBarSource, /LUCIDE_NAV_STROKE_WIDTH/);
+  assert.match(mobileTabBarSource, /mobileNavItems/);
   assert.doesNotMatch(mobileTabBarSource, /2\.45/);
 }
 

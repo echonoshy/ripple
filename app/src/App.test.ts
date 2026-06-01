@@ -51,7 +51,10 @@ function testMobileFileLinkRouteCanReturnToChat() {
   assert.match(source, /setMobileFilesReturnToChat\(shouldReturnToSession\)/);
   assert.match(source, /handleReturnFromMobileFiles/);
   assert.match(source, /setMobileSessionMode\("chat"\)/);
-  assert.match(source, /onBack=\{mobileFilesReturnToChat \? handleReturnFromMobileFiles : undefined\}/);
+  assert.match(
+    source,
+    /onBack=\{mobileFilesReturnToChat \? handleReturnFromMobileFiles : undefined\}/
+  );
 }
 
 function testMobileFileLinkReturnRestoresSessionScroll() {
@@ -61,7 +64,17 @@ function testMobileFileLinkReturnRestoresSessionScroll() {
   assert.match(source, /data-ripple-session-scroll="timeline"/);
   assert.match(source, /shouldReturnToSession \? \(scrollContainer\?\.scrollTop \?\? 0\) : null/);
   assert.match(source, /restoreScrollTop=\{mobileSessionRestoreScrollTop\}/);
-  assert.match(source, /onRestoreScrollComplete=\{\(\) => setMobileSessionRestoreScrollTop\(null\)\}/);
+  assert.match(
+    source,
+    /onRestoreScrollComplete=\{\(\) => setMobileSessionRestoreScrollTop\(null\)\}/
+  );
+}
+
+function testMobileChatSessionLayoutKeepsComposerPinned() {
+  const source = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /\? "relative flex h-full min-h-0 lg:flex"/);
+  assert.match(source, /<div className="h-full min-w-0 flex-1">/);
 }
 
 function testCurrentSessionListVisibilityUsesRuntimeStatusPresence() {
@@ -71,12 +84,47 @@ function testCurrentSessionListVisibilityUsesRuntimeStatusPresence() {
   assert.doesNotMatch(source, /selectedSessionRuntimeStatus !== "idle"/);
 }
 
+function testDesktopUsesProductTopBarWithSettingsAvatarEntry() {
+  const source = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /import ProductTopBar/);
+  assert.match(source, /topBar=\{[\s\S]*<ProductTopBar/);
+  assert.match(source, /onOpenSettings=\{\(\) => handleSelectView\("home"\)\}/);
+  assert.doesNotMatch(source, /nav=\{[\s\S]*<WorkspaceNav/);
+}
+
+function testSessionRailOnlyLivesInsideSessionsView() {
+  const source = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /data-ripple-session-layout="desktop"/);
+  assert.match(source, /<WorkspaceNav[\s\S]*sessions=\{displayWorkbenchSessions\}/);
+  assert.doesNotMatch(source, /activeView === "files"[\s\S]{0,240}<WorkspaceNav/);
+}
+
+function testDesktopSessionRailCanResizeAndCollapse() {
+  const source = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /SESSION_RAIL_WIDTH_STORAGE_KEY/);
+  assert.match(source, /SESSION_RAIL_COLLAPSED_STORAGE_KEY/);
+  assert.match(source, /handleSessionRailResizeStart/);
+  assert.match(source, /aria-label="Resize session list"/);
+  assert.match(source, /aria-valuemin=\{SESSION_RAIL_MIN_WIDTH\}/);
+  assert.match(source, /aria-valuemax=\{SESSION_RAIL_MAX_WIDTH\}/);
+  assert.match(source, /aria-valuenow=\{sessionRailWidth\}/);
+  assert.match(source, /onCollapse=\{\(\) => setIsSessionRailCollapsed\(true\)\}/);
+  assert.match(source, /aria-label="Expand session list"/);
+}
+
 testAppUsesAuthGatewayForLoginScreen();
 testWorkspaceLinksRouteToFilesPageOnMobile();
 testWorkspaceLinksUsePendingRequestForCollapsedInspector();
 testWorkspaceLinksIgnoreSandboxUserInProductSessionAuth();
 testMobileFileLinkRouteCanReturnToChat();
 testMobileFileLinkReturnRestoresSessionScroll();
+testMobileChatSessionLayoutKeepsComposerPinned();
 testCurrentSessionListVisibilityUsesRuntimeStatusPresence();
+testDesktopUsesProductTopBarWithSettingsAvatarEntry();
+testSessionRailOnlyLivesInsideSessionsView();
+testDesktopSessionRailCanResizeAndCollapse();
 
 console.log("app tests passed");

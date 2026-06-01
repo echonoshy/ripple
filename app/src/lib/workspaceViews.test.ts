@@ -1,11 +1,18 @@
 import assert from "node:assert/strict";
 
-import { mainNavItems, shouldShowInspector, viewTitle } from "./workspaceViews";
+import { mainNavItems, mobileNavItems, shouldShowInspector, viewTitle } from "./workspaceViews";
 
-function testMainNavItemsExposeRealWorkspaceViews() {
+function testMainNavItemsExposeDesktopProductTabs() {
   assert.deepEqual(
     mainNavItems.map((item) => item.id),
-    ["sessions", "files", "connectors", "automations", "home"]
+    ["sessions", "files", "automations", "connectors"]
+  );
+}
+
+function testMobileNavKeepsSettingsEntry() {
+  assert.deepEqual(
+    mobileNavItems.map((item) => item.id),
+    ["sessions", "files", "automations", "connectors", "home"]
   );
 }
 
@@ -25,7 +32,8 @@ function testInspectorOnlyAppearsForSessionWorkbench() {
   assert.equal(shouldShowInspector("connectors"), false);
 }
 
-testMainNavItemsExposeRealWorkspaceViews();
+testMainNavItemsExposeDesktopProductTabs();
+testMobileNavKeepsSettingsEntry();
 testViewTitlesAreHumanReadable();
 testInspectorOnlyAppearsForSessionWorkbench();
 

@@ -148,10 +148,7 @@ function testMobileHeaderButtonsUseToolbarStyling() {
   assert.match(backButton, /lucide-chevron-left/);
   assert.match(backButton, /<path d="m15 18-6-6 6-6"><\/path>/);
   assert.doesNotMatch(backButton, /lucide-arrow-big-left/);
-  assert.match(
-    sessionPageSource,
-    /MOBILE_GLASS_ICON_BUTTON_CLASS/
-  );
+  assert.match(sessionPageSource, /MOBILE_GLASS_ICON_BUTTON_CLASS/);
   assert.match(sessionPageSource, /ChevronLeft/);
   assert.match(sessionPageSource, /MessageCircleMore/);
   assert.match(sessionPageSource, /Ellipsis/);
@@ -184,7 +181,10 @@ function testSessionSettingsUsesGroupedFormPanel() {
   assert.match(sessionPageSource, /type="button"[\s\S]*>\s*Cancel\s*<\/button>/);
   assert.match(sessionPageSource, /type="submit"[\s\S]*Save\s*<\/button>/);
   assert.doesNotMatch(sessionPageSource, /space-y-5 overflow-y-auto px-4 py-4/);
-  assert.doesNotMatch(sessionPageSource, /rounded-full border px-4 text-left text-\[14px\] font-medium/);
+  assert.doesNotMatch(
+    sessionPageSource,
+    /rounded-full border px-4 text-left text-\[14px\] font-medium/
+  );
   assert.doesNotMatch(sessionPageSource, /linear-gradient\(135deg,#2f6bff,#7b5cff\)/);
 }
 
@@ -269,7 +269,10 @@ function testSessionPageShowsCurrentFolderBadge() {
     />
   );
 
-  assert.match(html, /Folder: demo/);
+  assert.match(html, /aria-label="Current model: Plus"/);
+  assert.match(html, /aria-label="Focus folder: demo"/);
+  assert.match(html, /lucide-folder/);
+  assert.doesNotMatch(html, /Plus Focus: demo/);
   assert.match(html, /title="\/workspace\/demo"/);
 }
 

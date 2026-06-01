@@ -4,16 +4,12 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import WorkbenchShell from "./WorkbenchShell";
 
-function noop() {}
-
 function renderShell() {
   return renderToStaticMarkup(
     <WorkbenchShell
-      nav={<div>Navigation</div>}
+      topBar={<div>Product top bar</div>}
       content={<div>Content</div>}
       inspector={null}
-      isNavOpen={false}
-      onCloseNav={noop}
     />
   );
 }
@@ -21,12 +17,10 @@ function renderShell() {
 function renderShellWithMobileNav() {
   return renderToStaticMarkup(
     <WorkbenchShell
-      nav={<div>Navigation</div>}
+      topBar={<div>Product top bar</div>}
       content={<div>Content</div>}
       inspector={null}
       mobileNav={<div>Mobile nav</div>}
-      isNavOpen={false}
-      onCloseNav={noop}
     />
   );
 }
@@ -34,11 +28,9 @@ function renderShellWithMobileNav() {
 function renderShellWithInspector() {
   return renderToStaticMarkup(
     <WorkbenchShell
-      nav={<div>Navigation</div>}
+      topBar={<div>Product top bar</div>}
       content={<div>Content</div>}
       inspector={<div>Inspector</div>}
-      isNavOpen={false}
-      onCloseNav={noop}
     />
   );
 }
@@ -71,20 +63,17 @@ function renderShellWithStoredInspectorWidth(storedValue: string) {
   }
 }
 
-function testDesktopNavigationDefaultsWiderAndResizable() {
+function testDesktopShellUsesFixedProductTopBar() {
   const html = renderShell();
 
-  assert.doesNotMatch(html, />Top bar</);
-  assert.match(html, /style="width:300px"/);
-  assert.match(html, /role="separator"/);
-  assert.match(html, /aria-label="Resize navigation"/);
-  assert.match(html, /aria-valuemin="220"/);
-  assert.match(html, /aria-valuemax="420"/);
-  assert.match(html, /aria-valuenow="300"/);
-  assert.match(html, /cursor-col-resize/);
+  assert.match(html, />Product top bar</);
+  assert.match(html, /data-ripple-shell-top-bar="true"/);
+  assert.match(html, /lg:flex/);
+  assert.doesNotMatch(html, /aria-label="Resize navigation"/);
+  assert.doesNotMatch(html, /style="width:300px"/);
 }
 
-testDesktopNavigationDefaultsWiderAndResizable();
+testDesktopShellUsesFixedProductTopBar();
 
 function testShellUsesDynamicViewportForIosWebview() {
   const html = renderShell();

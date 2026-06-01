@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -24,12 +23,8 @@ function renderWorkspaceNav(overrides: Partial<React.ComponentProps<typeof Works
   const props = {
     sessions,
     selectedSessionId: "srv-9",
-    activeView: "sessions" as const,
     isLoading: false,
-    isGenerating: false,
-    userId: "default",
     onNewSession: noop,
-    onSelectView: noop,
     onSelectSession: noop,
     onDeleteSession: noop,
     onUpdateSession: async () => {},
@@ -46,7 +41,11 @@ function testRendersAllSessionsWithoutDeadViewAllButton() {
   assert.doesNotMatch(html, />Idle</);
   assert.doesNotMatch(html, /View all tasks/);
   assert.doesNotMatch(html, />Tasks</);
-  assert.match(html, />Automations</);
+  assert.doesNotMatch(html, />Automations</);
+  assert.doesNotMatch(html, />Connectors</);
+  assert.doesNotMatch(html, />Files</);
+  assert.doesNotMatch(html, />Settings</);
+  assert.match(html, /data-ripple-session-rail="true"/);
   assert.match(html, />Sessions</);
   assert.match(html, />New session</);
 }
@@ -64,8 +63,16 @@ function testSessionsHeaderDoesNotDuplicateNewSessionAction() {
   assert.equal((html.match(/lucide-plus/g) || []).length, 1);
 }
 
+function testSessionRailCanCollapseFromHeader() {
+  const html = renderWorkspaceNav({ onCollapse: noop });
+
+  assert.match(html, /aria-label="Collapse session list"/);
+  assert.match(html, /title="Collapse session list"/);
+  assert.match(html, /lucide-chevron-left/);
+}
+
 function testNewSessionStaysAvailableWhileAnotherSessionRuns() {
-  const html = renderWorkspaceNav({ isGenerating: true });
+  const html = renderWorkspaceNav();
 
   assert.match(html, />New session</);
   assert.doesNotMatch(html, /disabled=""/);
@@ -114,6 +121,7 @@ function testSessionLoadErrorDoesNotLookLikeEmptyState() {
 testRendersAllSessionsWithoutDeadViewAllButton();
 testUsesSessionIdSelectionNaming();
 testSessionsHeaderDoesNotDuplicateNewSessionAction();
+testSessionRailCanCollapseFromHeader();
 testNewSessionStaysAvailableWhileAnotherSessionRuns();
 testSessionAttentionUsesDotsInsteadOfStatusLabels();
 testRendersSessionActivityTime();
@@ -182,43 +190,17 @@ function testRendersSessionOptionsButton() {
   assert.match(html, /title="Session options"/);
 }
 
-function testRendersSettingsButtonWithCorrectUserLabel() {
-  const html = renderWorkspaceNav({ userId: "user-alpha-99" });
-  assert.match(html, /aria-label="Settings for user-alpha-99"/);
-}
+function testSessionRailDoesNotRenderAccountChrome() {
+  const html = renderWorkspaceNav();
 
-function testWorkspaceNavPrefersDisplayNameForUserLabel() {
-  const source = readFileSync(new URL("./WorkspaceNav.tsx", import.meta.url), "utf8");
-
-  assert.match(source, /getUserProfileDisplayName/);
-  assert.match(source, /workspaceDisplayName/);
-  assert.match(source, /USER_PROFILE_CHANGED_EVENT/);
-  assert.match(source, /aria-label=\{`Settings for \$\{workspaceDisplayName\}`\}/);
-}
-
-function testWorkspaceNavLoadsAndRendersUserAvatar() {
-  const source = readFileSync(new URL("./WorkspaceNav.tsx", import.meta.url), "utf8");
-
-  assert.match(source, /fetchUserAvatarImage/);
-  assert.match(source, /USER_AVATAR_CHANGED_EVENT/);
-  assert.match(source, /<img/);
-  assert.match(source, /className="h-full w-full object-cover"/);
-  assert.match(source, /<span className="absolute inset-0 overflow-hidden rounded-xl">/);
-  assert.match(source, /absolute -right-0\.5 -bottom-0\.5 z-10 flex h-2 w-2/);
-}
-
-function testRendersWorkspaceUserLabel() {
-  const html = renderWorkspaceNav({ userId: "workspace-user-id-xyz" });
-  assert.match(html, /workspace-user-id-xyz/);
-  assert.match(html, /Active Sandbox/);
+  assert.doesNotMatch(html, /Active Sandbox/);
+  assert.doesNotMatch(html, /Token Usage Stats/);
+  assert.doesNotMatch(html, /Settings for/);
 }
 
 testRendersPinnedSessionWithIcon();
 testRendersUnpinnedSessionWithoutPinIcon();
 testRendersSessionOptionsButton();
-testRendersSettingsButtonWithCorrectUserLabel();
-testWorkspaceNavPrefersDisplayNameForUserLabel();
-testWorkspaceNavLoadsAndRendersUserAvatar();
-testRendersWorkspaceUserLabel();
+testSessionRailDoesNotRenderAccountChrome();
 
 console.log("workspace nav tests passed");

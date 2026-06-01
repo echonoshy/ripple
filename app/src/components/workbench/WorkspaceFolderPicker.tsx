@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { ArrowBigLeft, Check, Folder, Loader2, X } from "lucide-react";
+import { ArrowBigLeft, Check, ChevronRight, Folder, Loader2, X } from "lucide-react";
 import { fetchWorkspaceListing } from "@/lib/api";
 import type { WorkspaceEntry, WorkspaceListing } from "@/types";
 
@@ -45,12 +45,13 @@ export default function WorkspaceFolderPicker({
   const [error, setError] = useState<string | null>(null);
   const directories = useMemo(() => sortDirectories(listing?.entries || []), [listing?.entries]);
   const parent = parentPath(path);
-  const selectedPath = contextFolderPath || WORKSPACE_ROOT;
+  const selectedPath = contextFolderPath || null;
+  const selectedLabel = contextFolderPath ? folderName(contextFolderPath) : null;
 
   useEffect(() => {
-    setPath(WORKSPACE_ROOT);
+    setPath(contextFolderPath || WORKSPACE_ROOT);
     setListing(null);
-  }, [userId]);
+  }, [contextFolderPath, userId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -100,7 +101,7 @@ export default function WorkspaceFolderPicker({
         </button>
         <div className="min-w-0 flex-1">
           <div className="truncate text-[12px] font-semibold text-[#111827]">
-            Choose context folder
+            Choose focus folder
           </div>
           <div className="truncate font-[family-name:var(--font-mono)] text-[10px] text-[#667085]">
             {path}
@@ -120,22 +121,28 @@ export default function WorkspaceFolderPicker({
       </div>
 
       <div className="max-h-[54vh] overflow-y-auto p-2 sm:max-h-80">
-        <button
-          type="button"
-          onClick={() => void selectFolder(path)}
-          disabled={Boolean(selectingPath)}
-          className="mb-2 flex w-full min-w-0 items-center gap-2 rounded-xl border border-[#dfe6f4] bg-[#f6f8ff] px-3 py-2 text-left text-[12px] font-semibold text-[#172033] hover:bg-[#eef4ff] disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {selectingPath === path ? (
-            <Loader2 size={14} className="shrink-0 animate-spin text-[#2463eb]" />
-          ) : (
-            <Check size={14} className="shrink-0 text-[#2463eb]" />
-          )}
-          <span className="min-w-0 flex-1 truncate">
-            {path === WORKSPACE_ROOT ? "Use full workspace" : "Use this folder"}
-          </span>
-          <span className="shrink-0 text-[10px] text-[#667085]">{folderName(path)}</span>
-        </button>
+        {selectedLabel && (
+          <div className="mb-2 rounded-xl border border-[#dfe6f4] bg-[#f6f8ff] px-3 py-2">
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="min-w-0 flex-1">
+                <div className="text-[10px] font-semibold tracking-[0.08em] text-[#7a8496] uppercase">
+                  Selected
+                </div>
+                <div className="mt-0.5 truncate text-[12px] font-semibold text-[#172033]">
+                  {selectedLabel}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => void selectFolder(WORKSPACE_ROOT)}
+                disabled={Boolean(selectingPath)}
+                className="shrink-0 rounded-lg px-2 py-1 text-[11px] font-semibold text-[#516070] hover:bg-[#f3f4f6] hover:text-[#111827] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {selectingPath === WORKSPACE_ROOT ? "Cancelling..." : "Cancel selection"}
+              </button>
+            </div>
+          </div>
+        )}
 
         {loading && (
           <div className="flex items-center gap-2 px-3 py-4 text-[12px] text-[#667085]">
@@ -155,23 +162,27 @@ export default function WorkspaceFolderPicker({
               <div key={entry.path} className="flex min-w-0 items-center gap-1">
                 <button
                   type="button"
+                  aria-label={`Open ${entry.name}`}
                   onClick={() => setPath(entry.path)}
-                  className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 text-left text-[12px] text-[#172033] hover:bg-[#f7f8fa]"
+                  className={`flex h-10 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 text-left text-[12px] text-[#172033] hover:bg-[#f7f8fa] ${
+                    selected ? "bg-[#f3f7ff]" : ""
+                  }`}
                 >
                   <Folder size={14} className="shrink-0 text-[#667085]" />
                   <span className="min-w-0 flex-1 truncate">{entry.name}</span>
+                  <ChevronRight size={14} className="shrink-0 text-[#98a2b3]" />
                 </button>
                 <button
                   type="button"
-                  aria-label={`Use ${entry.name}`}
-                  title={`Use ${entry.path}`}
+                  aria-label={`Select ${entry.name} as focus folder`}
+                  title={`Select ${entry.path}`}
                   onClick={() => void selectFolder(entry.path)}
-                  disabled={Boolean(selectingPath)}
+                  disabled={Boolean(selectingPath) || selected}
                   className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
                     selected
                       ? "bg-[#eef4ff] text-[#2463eb]"
                       : "text-[#667085] hover:bg-[#f3f4f6] hover:text-[#111827]"
-                  } disabled:cursor-not-allowed disabled:opacity-50`}
+                  } disabled:cursor-not-allowed disabled:opacity-60`}
                 >
                   {selectingPath === entry.path ? (
                     <Loader2 size={14} className="animate-spin" />

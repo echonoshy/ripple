@@ -121,6 +121,10 @@ export default function SessionComposer({
   const inputDisabled = isGenerating;
   const attachDisabled = inputDisabled || isUploadingFiles;
   const sendDisabled = isGenerating || isBlocked || isUploadingFiles;
+  const hasFocusFolder = Boolean(contextFolderPath);
+  const folderButtonTitle = hasFocusFolder
+    ? `Focus folder: ${workspaceScopeLabel}`
+    : "Set focus folder";
   const isQuickActionsOpen = quickActionsState !== null;
   const availableModels = useMemo(
     () => (models.length > 0 ? models : [{ id: selectedModel, owned_by: "ripple" }]),
@@ -327,14 +331,17 @@ export default function SessionComposer({
           <button
             type="button"
             data-ripple-composer-folder-button
-            aria-label="Choose context folder"
-            title={`Context folder: ${workspaceScopeLabel}`}
+            aria-label="Set focus folder"
+            aria-pressed={hasFocusFolder}
+            title={folderButtonTitle}
             onClick={() => {
               setQuickActionsState(null);
               if (isModelDropdownOpen) onToggleModelDropdown();
               setIsFolderPickerOpen((open) => !open);
             }}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full text-[#4b5563] hover:bg-[#f3f4f6] hover:text-[#111827] active:bg-[#eef3ff] sm:h-8 sm:w-8"
+            className={`inline-flex h-10 w-10 items-center justify-center rounded-full hover:bg-[#f3f4f6] hover:text-[#111827] active:bg-[#eef3ff] sm:h-8 sm:w-8 ${
+              hasFocusFolder ? "bg-[#eef4ff] text-[#2463eb]" : "text-[#4b5563]"
+            }`}
           >
             <FolderGit2 size={16} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
           </button>

@@ -16,6 +16,7 @@ import {
   CheckCircle2,
   Circle,
   Ellipsis,
+  Folder,
   Loader2,
   MessageCircleMore,
   Pin,
@@ -209,7 +210,8 @@ export default function SessionPage({
   const effectiveContextFolderPath = session?.contextFolderPath ?? contextFolderPath ?? null;
   const workspaceScopePath = effectiveContextFolderPath || "/workspace";
   const workspaceScopeLabel = folderName(effectiveContextFolderPath);
-  const folderBadgeLabel = effectiveContextFolderPath ? `Folder: ${workspaceScopeLabel}` : null;
+  const focusFolderLabel = effectiveContextFolderPath ? workspaceScopeLabel : null;
+  const focusFolderAccessibleLabel = focusFolderLabel ? `Focus folder: ${focusFolderLabel}` : null;
   const folderBadgeTitle = effectiveContextFolderPath || "Full workspace";
   const requestFolderPicker = useCallback(() => {
     if (!onSelectWorkspaceFolder) return;
@@ -405,21 +407,29 @@ export default function SessionPage({
           <div className="truncate text-[15px] leading-5 font-semibold text-[#111827]">
             {session?.title || "Session"}
           </div>
-          <div className="mt-0.5 flex min-w-0 items-center justify-center gap-1.5 text-[11px] leading-4 text-[#7a8496]">
+          <div className="mt-1 flex min-w-0 items-center justify-center gap-1.5 text-[11px] leading-4 text-[#7a8496]">
             <span
-              className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-                isGenerating ? "animate-pulse bg-[#2f6bff]" : "bg-[#2fbf71]"
-              }`}
-            />
-            <span className="truncate">{currentModelLabel}</span>
-            {folderBadgeLabel && (
+              aria-label={currentModelAccessibleLabel}
+              title={currentModelAccessibleLabel}
+              className="inline-flex max-w-[104px] min-w-0 items-center gap-1 rounded-full border border-[#dfe6f4] bg-white/72 px-1.5 py-0.5 text-[10px] font-semibold text-[#667085] shadow-[0_4px_12px_rgba(44,63,123,0.05)]"
+            >
+              <span
+                className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                  isGenerating ? "animate-pulse bg-[#2f6bff]" : "bg-[#2fbf71]"
+                }`}
+              />
+              <span className="truncate">{currentModelLabel}</span>
+            </span>
+            {focusFolderLabel && focusFolderAccessibleLabel && (
               <button
                 type="button"
+                aria-label={focusFolderAccessibleLabel}
                 title={folderBadgeTitle}
                 onClick={requestFolderPicker}
-                className="min-w-0 truncate hover:text-[#2463eb]"
+                className="inline-flex max-w-[132px] min-w-0 items-center gap-1 rounded-full border border-[#dfe6f4] bg-white/72 px-1.5 py-0.5 text-[10px] font-semibold text-[#667085] shadow-[0_4px_12px_rgba(44,63,123,0.05)] hover:text-[#2463eb]"
               >
-                {folderBadgeLabel}
+                <Folder size={10} className="shrink-0" strokeWidth={2.2} />
+                <span className="truncate">{focusFolderLabel}</span>
               </button>
             )}
           </div>
@@ -454,14 +464,16 @@ export default function SessionPage({
           </div>
         </div>
         <div className="flex min-w-0 shrink-0 items-center gap-2">
-          {folderBadgeLabel && (
+          {focusFolderLabel && focusFolderAccessibleLabel && (
             <button
               type="button"
+              aria-label={focusFolderAccessibleLabel}
               title={folderBadgeTitle}
               onClick={requestFolderPicker}
-              className="inline-flex max-w-[220px] shrink-0 items-center rounded-full border border-[#dfe6f4] bg-white/82 px-3 py-1.5 text-[12px] font-semibold text-[#374151] shadow-[0_8px_18px_rgba(44,63,123,0.06)]"
+              className="inline-flex max-w-[220px] shrink-0 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white/82 px-3 py-1.5 text-[12px] font-semibold text-[#374151] shadow-[0_8px_18px_rgba(44,63,123,0.06)]"
             >
-              <span className="truncate">{folderBadgeLabel}</span>
+              <Folder size={13} className="shrink-0 text-[#667085]" strokeWidth={2.2} />
+              <span className="truncate">{focusFolderLabel}</span>
             </button>
           )}
           <span
@@ -520,7 +532,7 @@ export default function SessionPage({
                       value={settingsTitle}
                       onChange={(event) => setSettingsTitle(event.target.value)}
                       maxLength={120}
-                      className="h-10 w-full rounded-xl border border-[#dfe6f4] bg-white px-3 text-[14px] text-[#111827] outline-none transition-colors focus:border-[#8da0ff]"
+                      className="h-10 w-full rounded-xl border border-[#dfe6f4] bg-white px-3 text-[14px] text-[#111827] transition-colors outline-none focus:border-[#8da0ff]"
                       autoFocus
                     />
                   </label>

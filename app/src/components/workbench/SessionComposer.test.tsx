@@ -3,10 +3,7 @@ import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import SessionComposer, {
-  composerToolbarClassName,
-  shouldExpandComposer,
-} from "./SessionComposer";
+import SessionComposer, { composerToolbarClassName, shouldExpandComposer } from "./SessionComposer";
 import type { PendingLocalImage } from "@/lib/pendingImages";
 
 function noop() {}
@@ -93,8 +90,9 @@ function testComposerShowsWorkspaceFolderPickerButton() {
   });
 
   assert.match(html, /data-ripple-composer-folder-button/);
-  assert.match(html, /aria-label="Choose context folder"/);
-  assert.match(html, /title="Context folder: Demo"/);
+  assert.match(html, /aria-label="Set focus folder"/);
+  assert.match(html, /title="Focus folder: Demo"/);
+  assert.match(html, /aria-pressed="true"/);
 }
 
 function testComposerInputSuppressesGlobalBlueFocusOutline() {

@@ -12,13 +12,17 @@ export interface WorkspaceNavItem {
 export const mainNavItems: WorkspaceNavItem[] = [
   { id: "sessions", label: "Sessions", icon: MessageCircle },
   { id: "files", label: "Files", icon: FileText },
-  { id: "connectors", label: "Connectors", icon: Plug },
   { id: "automations", label: "Automations", icon: CalendarClock },
+  { id: "connectors", label: "Connectors", icon: Plug },
+];
+
+export const mobileNavItems: WorkspaceNavItem[] = [
+  ...mainNavItems,
   { id: "home", label: "Settings", icon: Settings },
 ];
 
 export function viewTitle(view: WorkspaceView): string {
-  return mainNavItems.find((item) => item.id === view)?.label || "Ripple";
+  return mobileNavItems.find((item) => item.id === view)?.label || "Ripple";
 }
 
 export function shouldShowInspector(view: WorkspaceView): boolean {

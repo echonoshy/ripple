@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { ChevronRight } from "lucide-react";
 import AuthGateway, { type AuthGatewayMode } from "@/components/AuthGateway";
 import {
   fetchModels,
@@ -21,6 +22,7 @@ import FilesPage from "@/components/workbench/FilesPage";
 import InspectorPanel from "@/components/workbench/InspectorPanel";
 import MobileSessionsPage from "@/components/workbench/MobileSessionsPage";
 import MobileTabBar from "@/components/workbench/MobileTabBar";
+import ProductTopBar from "@/components/workbench/ProductTopBar";
 import SettingsPage from "@/components/workbench/SettingsPage";
 import SessionPage from "@/components/workbench/SessionPage";
 import WorkbenchShell from "@/components/workbench/WorkbenchShell";
@@ -49,12 +51,34 @@ import {
 } from "@/lib/modelPreference";
 
 const WORKSPACE_ROOT_PATH = "/workspace";
+const SESSION_RAIL_WIDTH_STORAGE_KEY = "ripple.workbench.sessionRailWidth";
+const SESSION_RAIL_COLLAPSED_STORAGE_KEY = "ripple.workbench.sessionRailCollapsed";
+const SESSION_RAIL_DEFAULT_WIDTH = 300;
+const SESSION_RAIL_MIN_WIDTH = 220;
+const SESSION_RAIL_MAX_WIDTH = 420;
 
 function normalizeWorkspaceFolderPath(path: string): string {
   const trimmed = path.trim().replace(/\/+$/, "");
   if (!trimmed || trimmed === WORKSPACE_ROOT_PATH) return WORKSPACE_ROOT_PATH;
   if (trimmed.startsWith(`${WORKSPACE_ROOT_PATH}/`)) return trimmed;
   return WORKSPACE_ROOT_PATH;
+}
+
+function clampSessionRailWidth(value: number): number {
+  return Math.min(SESSION_RAIL_MAX_WIDTH, Math.max(SESSION_RAIL_MIN_WIDTH, Math.round(value)));
+}
+
+function initialSessionRailWidth(): number {
+  if (typeof window === "undefined") return SESSION_RAIL_DEFAULT_WIDTH;
+  const rawValue = window.localStorage.getItem(SESSION_RAIL_WIDTH_STORAGE_KEY);
+  if (rawValue === null) return SESSION_RAIL_DEFAULT_WIDTH;
+  const stored = Number(rawValue);
+  return Number.isFinite(stored) ? clampSessionRailWidth(stored) : SESSION_RAIL_DEFAULT_WIDTH;
+}
+
+function initialSessionRailCollapsed(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.localStorage.getItem(SESSION_RAIL_COLLAPSED_STORAGE_KEY) === "true";
 }
 
 export default function Home() {
@@ -88,15 +112,13 @@ export default function Home() {
   const productSessionActive = isUserSessionAuth();
 
   // ── UI state ──
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [isNavCollapsed, setIsNavCollapsed] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return window.localStorage.getItem("ripple.workbench.navCollapsed") === "true";
-  });
   const [isInspectorCollapsed, setIsInspectorCollapsed] = useState(() => {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem("ripple.workbench.inspectorCollapsed") === "true";
   });
+  const [sessionRailWidth, setSessionRailWidth] = useState(initialSessionRailWidth);
+  const sessionRailWidthRef = useRef(sessionRailWidth);
+  const [isSessionRailCollapsed, setIsSessionRailCollapsed] = useState(initialSessionRailCollapsed);
   const [mobileSessionMode, setMobileSessionMode] = useState<"list" | "chat">("list");
   const [sessionScrollToBottomRequest, setSessionScrollToBottomRequest] = useState(0);
   const [workspaceRefreshToken, setWorkspaceRefreshToken] = useState(0);
@@ -253,7 +275,6 @@ export default function Home() {
 
   const handleSessionActivated = useCallback(() => {
     setActiveView("sessions");
-    setIsSidebarOpen(false);
   }, []);
 
   const {
@@ -294,15 +315,20 @@ export default function Home() {
   );
 
   useEffect(() => {
-    window.localStorage.setItem("ripple.workbench.navCollapsed", String(isNavCollapsed));
-  }, [isNavCollapsed]);
-
-  useEffect(() => {
     window.localStorage.setItem(
       "ripple.workbench.inspectorCollapsed",
       String(isInspectorCollapsed)
     );
   }, [isInspectorCollapsed]);
+
+  useEffect(() => {
+    sessionRailWidthRef.current = sessionRailWidth;
+    window.localStorage.setItem(SESSION_RAIL_WIDTH_STORAGE_KEY, String(sessionRailWidth));
+  }, [sessionRailWidth]);
+
+  useEffect(() => {
+    window.localStorage.setItem(SESSION_RAIL_COLLAPSED_STORAGE_KEY, String(isSessionRailCollapsed));
+  }, [isSessionRailCollapsed]);
 
   useEffect(() => {
     selectedSessionIdRef.current = sessionId;
@@ -403,7 +429,6 @@ export default function Home() {
         setMobileFilesReturnToChat(shouldReturnToSession);
         if (activeViewRef.current !== "files") setActiveView("files");
         setMobileSessionMode("list");
-        setIsSidebarOpen(false);
       }
 
       if (linkUserId && linkUserId !== userId) {
@@ -585,7 +610,6 @@ export default function Home() {
       setMobileSessionRestoreScrollTop(null);
       if (view !== "files") setPendingWorkspaceFileOpen(null);
       setActiveView(view);
-      setIsSidebarOpen(false);
       if (view === "sessions") {
         setMobileSessionMode("list");
       }
@@ -600,7 +624,6 @@ export default function Home() {
     setPendingWorkspaceFileOpen(null);
     setActiveView("sessions");
     setMobileSessionMode("chat");
-    setIsSidebarOpen(false);
   }, []);
   const handleOpenMobileSessionList = useCallback(() => {
     handleSelectView("sessions");
@@ -738,6 +761,48 @@ export default function Home() {
     [activeContextFolderPath, selectedWorkbenchSession, sessionId, updateSessionById]
   );
 
+  const updateSessionRailWidth = useCallback((value: number) => {
+    setSessionRailWidth(clampSessionRailWidth(value));
+  }, []);
+
+  const handleSessionRailResizeStart = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      const startX = event.clientX;
+      const startWidth = sessionRailWidthRef.current;
+
+      const handlePointerMove = (moveEvent: PointerEvent) => {
+        updateSessionRailWidth(startWidth + moveEvent.clientX - startX);
+      };
+      const handlePointerUp = () => {
+        window.removeEventListener("pointermove", handlePointerMove);
+        window.removeEventListener("pointerup", handlePointerUp);
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+      };
+
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+      window.addEventListener("pointermove", handlePointerMove);
+      window.addEventListener("pointerup", handlePointerUp);
+    },
+    [updateSessionRailWidth]
+  );
+
+  const handleSessionRailResizeKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        updateSessionRailWidth(sessionRailWidthRef.current - (event.shiftKey ? 40 : 16));
+      }
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        updateSessionRailWidth(sessionRailWidthRef.current + (event.shiftKey ? 40 : 16));
+      }
+    },
+    [updateSessionRailWidth]
+  );
+
   const mainContent =
     activeView === "home" ? (
       <SettingsPage
@@ -782,55 +847,109 @@ export default function Home() {
             onUpdateSession={updateSessionById}
           />
         </div>
-        <div className={mobileSessionMode === "chat" ? "h-full" : "hidden h-full lg:block"}>
-          <SessionPage
-            userId={userId}
-            session={selectedWorkbenchSession}
-            messages={messages}
-            timelineEvents={timelineEvents}
-            planProgress={planProgress}
-            planSteps={planSteps}
-            tokenUsage={tokenUsage}
-            lastContextTokens={lastContextTokens}
-            input={input}
-            pendingFiles={pendingFiles}
-            pendingLocalImages={pendingLocalImages}
-            isUploadingFiles={isUploadingFiles}
-            uploadError={attachmentUploadError}
-            isGenerating={selectedSessionIsGenerating}
-            isComposerBlocked={isComposerBlocked}
-            focusToken={inputFocusToken}
-            selectedModel={selectedModel}
-            models={models}
-            isModelDropdownOpen={openModelDropdown === "composer"}
-            sessionId={sessionId}
-            scrollToBottomRequest={sessionScrollToBottomRequest}
-            contextFolderPath={activeContextFolderPath}
-            onSelectWorkspaceFolder={handleSelectChatFolder}
-            onNewSession={handleNewSession}
-            onUpdateSessionSettings={handleUpdateSessionSettings}
-            onInputChange={setInput}
-            onClearContext={handleClearContext}
-            onCompactContext={handleCompactContext}
-            onAttachFiles={handleAttachFiles}
-            onRemovePendingFile={handleRemovePendingFile}
-            onAddPendingImages={handleAddPendingImages}
-            onRemovePendingLocalImage={handleRemovePendingLocalImage}
-            onToggleModelDropdown={() =>
-              setOpenModelDropdown((open) => (open === "composer" ? null : "composer"))
-            }
-            onSelectModel={handleSelectModel}
-            onSend={handleSendMessage}
-            onStop={handleStop}
-            onQuickReply={handleQuickReply}
-            onPermissionResolve={handlePermissionResolve}
-            onFeishuAuthOpen={handleFeishuAuthOpen}
-            feishuAuthWaiting={feishuAuthWaiting}
-            onBackToMobileSessions={handleOpenMobileSessionList}
-            isInspectorCollapsed={isInspectorCollapsed}
-            restoreScrollTop={mobileSessionRestoreScrollTop}
-            onRestoreScrollComplete={() => setMobileSessionRestoreScrollTop(null)}
-          />
+        <div
+          data-ripple-session-layout="desktop"
+          className={
+            mobileSessionMode === "chat"
+              ? "relative flex h-full min-h-0 lg:flex"
+              : "relative hidden h-full min-h-0 lg:flex"
+          }
+        >
+          {!isSessionRailCollapsed ? (
+            <div
+              className="relative hidden h-full min-h-0 shrink-0 lg:block"
+              style={{ width: sessionRailWidth }}
+            >
+              <WorkspaceNav
+                sessions={displayWorkbenchSessions}
+                selectedSessionId={sessionId}
+                isLoading={isLoadingSessions}
+                sessionLoadError={sessionLoadError}
+                onNewSession={handleNewSession}
+                onSelectSession={(selectedSessionId) => {
+                  void handleSwitchSession(selectedSessionId);
+                  setMobileSessionMode("chat");
+                }}
+                onDeleteSession={handleDeleteSession}
+                onUpdateSession={updateSessionById}
+                onCollapse={() => setIsSessionRailCollapsed(true)}
+              />
+              <div
+                role="separator"
+                aria-label="Resize session list"
+                aria-orientation="vertical"
+                aria-valuemin={SESSION_RAIL_MIN_WIDTH}
+                aria-valuemax={SESSION_RAIL_MAX_WIDTH}
+                aria-valuenow={sessionRailWidth}
+                tabIndex={0}
+                onPointerDown={handleSessionRailResizeStart}
+                onKeyDown={handleSessionRailResizeKeyDown}
+                className="group absolute top-0 right-0 bottom-0 z-20 flex w-2 translate-x-1/2 cursor-col-resize items-center justify-center bg-transparent transition-colors outline-none hover:bg-[#dbe6ff] focus:bg-[#dbe6ff]"
+              >
+                <span className="h-12 w-0.5 rounded-full bg-[#2463eb] opacity-0 transition-opacity group-hover:opacity-100 group-focus:opacity-100" />
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setIsSessionRailCollapsed(false)}
+              aria-label="Expand session list"
+              title="Expand session list"
+              className="absolute top-[14px] left-4 z-30 hidden h-8 w-8 items-center justify-center rounded-lg border border-[#dfe6f4] bg-white/88 text-[#667085] shadow-[0_6px_18px_rgba(44,63,123,0.08)] backdrop-blur-xl transition-colors hover:bg-white hover:text-[#111827] lg:inline-flex"
+            >
+              <ChevronRight size={16} />
+            </button>
+          )}
+          <div className="h-full min-w-0 flex-1">
+            <SessionPage
+              userId={userId}
+              session={selectedWorkbenchSession}
+              messages={messages}
+              timelineEvents={timelineEvents}
+              planProgress={planProgress}
+              planSteps={planSteps}
+              tokenUsage={tokenUsage}
+              lastContextTokens={lastContextTokens}
+              input={input}
+              pendingFiles={pendingFiles}
+              pendingLocalImages={pendingLocalImages}
+              isUploadingFiles={isUploadingFiles}
+              uploadError={attachmentUploadError}
+              isGenerating={selectedSessionIsGenerating}
+              isComposerBlocked={isComposerBlocked}
+              focusToken={inputFocusToken}
+              selectedModel={selectedModel}
+              models={models}
+              isModelDropdownOpen={openModelDropdown === "composer"}
+              sessionId={sessionId}
+              scrollToBottomRequest={sessionScrollToBottomRequest}
+              contextFolderPath={activeContextFolderPath}
+              onSelectWorkspaceFolder={handleSelectChatFolder}
+              onNewSession={handleNewSession}
+              onUpdateSessionSettings={handleUpdateSessionSettings}
+              onInputChange={setInput}
+              onClearContext={handleClearContext}
+              onCompactContext={handleCompactContext}
+              onAttachFiles={handleAttachFiles}
+              onRemovePendingFile={handleRemovePendingFile}
+              onAddPendingImages={handleAddPendingImages}
+              onRemovePendingLocalImage={handleRemovePendingLocalImage}
+              onToggleModelDropdown={() =>
+                setOpenModelDropdown((open) => (open === "composer" ? null : "composer"))
+              }
+              onSelectModel={handleSelectModel}
+              onSend={handleSendMessage}
+              onStop={handleStop}
+              onQuickReply={handleQuickReply}
+              onPermissionResolve={handlePermissionResolve}
+              onFeishuAuthOpen={handleFeishuAuthOpen}
+              feishuAuthWaiting={feishuAuthWaiting}
+              onBackToMobileSessions={handleOpenMobileSessionList}
+              isInspectorCollapsed={isInspectorCollapsed}
+              restoreScrollTop={mobileSessionRestoreScrollTop}
+              onRestoreScrollComplete={() => setMobileSessionRestoreScrollTop(null)}
+            />
+          </div>
         </div>
       </div>
     );
@@ -881,31 +1000,14 @@ export default function Home() {
   return (
     <>
       <WorkbenchShell
-        isNavOpen={isSidebarOpen}
-        onCloseNav={() => setIsSidebarOpen(false)}
-        isNavCollapsed={isNavCollapsed}
-        onExpandNav={() => setIsNavCollapsed(false)}
         isInspectorCollapsed={isInspectorCollapsed}
         onExpandInspector={() => setIsInspectorCollapsed(false)}
-        nav={
-          <WorkspaceNav
-            sessions={displayWorkbenchSessions}
-            selectedSessionId={sessionId}
+        topBar={
+          <ProductTopBar
             activeView={activeView}
-            isLoading={isLoadingSessions}
-            sessionLoadError={sessionLoadError}
-            isGenerating={isGenerating}
             userId={userId}
-            onNewSession={handleNewSession}
             onSelectView={handleSelectView}
-            onSelectSession={(selectedSessionId) => {
-              void handleSwitchSession(selectedSessionId);
-              setMobileSessionMode("chat");
-              setIsSidebarOpen(false);
-            }}
-            onDeleteSession={handleDeleteSession}
-            onUpdateSession={updateSessionById}
-            onCollapse={() => setIsNavCollapsed(true)}
+            onOpenSettings={() => handleSelectView("home")}
           />
         }
         content={mainContent}

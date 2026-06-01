@@ -186,13 +186,13 @@ function hasRunOutput(run: AgentRunInfo | null | undefined): boolean {
 }
 
 const automationActionButtonClass =
-  "inline-flex h-8 w-full min-w-0 items-center justify-center gap-1 rounded-full border border-[#dfe6f4] bg-white px-1.5 text-[10px] sm:text-[11px] font-semibold text-[#384152] hover:bg-[#f7f8fa] sm:w-auto sm:min-w-[68px] sm:gap-1.5 sm:px-2.5 [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0";
+  "inline-flex h-7 w-full min-w-0 items-center justify-center gap-1 rounded-full border border-[#dfe6f4] bg-white px-2 text-[10px] font-semibold text-[#384152] hover:bg-[#f7f8fa] [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0";
 
 const automationDeleteButtonClass =
-  "inline-flex h-8 w-full min-w-0 items-center justify-center gap-1 rounded-full border px-1.5 text-[10px] sm:text-[11px] font-semibold sm:w-auto sm:min-w-[68px] sm:gap-1.5 sm:px-2.5 [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0";
+  "inline-flex h-7 w-full min-w-0 items-center justify-center gap-1 rounded-full border px-2 text-[10px] font-semibold [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0";
 
 const runActionButtonClass =
-  "inline-flex h-7 shrink-0 items-center justify-center gap-1 rounded-full border border-[#dfe6f4] bg-white px-2 text-[10px] font-semibold text-[#384152] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:opacity-60";
+  "inline-flex h-6 shrink-0 items-center justify-center gap-1 rounded-full border border-[#dfe6f4] bg-white px-1.5 text-[10px] font-semibold text-[#384152] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:opacity-60";
 
 function defaultRunAt(): string {
   const date = new Date(Date.now() + 60 * 60 * 1000);
@@ -269,7 +269,7 @@ export default function AutomationsPage({
       await Promise.all(records.map((schedule) => loadScheduleRuns(schedule.schedule_id)));
     } catch (err) {
       if (err instanceof AuthError) {
-        onAuthExpired("API key 已失效");
+        onAuthExpired("API key expired");
         return;
       }
       setError(err instanceof Error ? err.message : "Failed to load automations");
@@ -358,9 +358,6 @@ export default function AutomationsPage({
           run_at: runAt,
           interval_seconds: kind === "interval" ? intervalSeconds : null,
           max_runs: maxRunsLimit,
-          missed_run_policy: "run_once",
-          overlap_policy: "skip",
-          failure_policy: "pause",
           model: formModel,
         };
         if (editingScheduleId) {
@@ -374,7 +371,7 @@ export default function AutomationsPage({
         await loadSchedules();
       } catch (err) {
         if (err instanceof AuthError) {
-          onAuthExpired("API key 已失效");
+          onAuthExpired("API key expired");
           return;
         }
         setError(err instanceof Error ? err.message : "Failed to save automation");
@@ -425,7 +422,7 @@ export default function AutomationsPage({
         await loadSchedules();
       } catch (err) {
         if (err instanceof AuthError) {
-          onAuthExpired("API key 已失效");
+          onAuthExpired("API key expired");
           return;
         }
         setError(err instanceof Error ? err.message : "Action failed");
@@ -457,7 +454,7 @@ export default function AutomationsPage({
         });
       } catch (err) {
         if (err instanceof AuthError) {
-          onAuthExpired("API key 已失效");
+          onAuthExpired("API key expired");
           return;
         }
         setOutputPreview({
@@ -483,7 +480,7 @@ export default function AutomationsPage({
         saveBlobAsDownload(downloaded.blob, downloaded.filename);
       } catch (err) {
         if (err instanceof AuthError) {
-          onAuthExpired("API key 已失效");
+          onAuthExpired("API key expired");
           return;
         }
         setError(err instanceof Error ? err.message : "Failed to download output");
@@ -502,7 +499,7 @@ export default function AutomationsPage({
         await loadScheduleRuns(scheduleId);
       } catch (err) {
         if (err instanceof AuthError) {
-          onAuthExpired("API key 已失效");
+          onAuthExpired("API key expired");
           return;
         }
         setError(err instanceof Error ? err.message : "Failed to refresh runs");
@@ -533,10 +530,10 @@ export default function AutomationsPage({
         await loadSchedules();
       } catch (err) {
         if (err instanceof AuthError) {
-          onAuthExpired("API key 已失效");
+          onAuthExpired("API key expired");
           return;
         }
-        setError(err instanceof Error ? err.message : "删除执行记录失败");
+        setError(err instanceof Error ? err.message : "Failed to delete run record");
       } finally {
         setPendingRunActionId(null);
       }
@@ -767,7 +764,6 @@ export default function AutomationsPage({
               {schedules.map((schedule) => {
                 const runs = runsBySchedule[schedule.schedule_id] || [];
                 const latestRun = runs[0] || null;
-                const latestRunId = latestRun?.job_id || schedule.last_run_id;
                 const latestRunStatus = latestRun?.status || schedule.last_run_status || null;
                 const latestRunAt = latestRun?.updated_at || schedule.last_run_at;
                 const latestRunError = runErrorText(latestRun) || schedule.last_error;
@@ -777,9 +773,9 @@ export default function AutomationsPage({
                   <div
                     key={schedule.schedule_id}
                     data-ripple-automation-card-main
-                    className="px-3 py-3 sm:px-4 sm:py-3"
+                    className="px-3 py-2 sm:px-4 sm:py-2.5 xl:px-5"
                   >
-                    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(220px,280px)] lg:items-start">
+                    <div className="grid gap-2 xl:grid-cols-[minmax(260px,0.82fr)_minmax(0,1.35fr)] xl:items-start">
                       <div data-ripple-automation-summary className="min-w-0">
                         <div className="flex min-w-0 items-start gap-2.5">
                           <IconTile
@@ -795,14 +791,14 @@ export default function AutomationsPage({
                                 {schedule.title}
                               </span>
                               <span
-                                className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold capitalize ${statusClass(
+                                className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold capitalize ${statusClass(
                                   schedule.status
                                 )}`}
                               >
                                 {schedule.status}
                               </span>
                             </div>
-                            <div className="mt-0.5 line-clamp-1 text-[12px] leading-4 text-[#667085] sm:line-clamp-2">
+                            <div className="mt-0.5 line-clamp-1 text-[12px] leading-4 text-[#667085]">
                               {schedule.prompt}
                             </div>
                             {schedule.last_error ? (
@@ -812,122 +808,117 @@ export default function AutomationsPage({
                             ) : null}
                           </div>
                         </div>
+                      </div>
 
-                        <div
-                          data-ripple-automation-meta-grid
-                          className="mt-2 grid grid-cols-2 gap-1.5 pl-9 sm:grid-cols-4 lg:grid-cols-3"
-                        >
-                          <div className="min-w-0 rounded-lg border border-[#eef2fb] bg-[#f8fbff]/80 px-2 py-1.5">
+                      <div
+                        data-ripple-automation-detail-grid
+                        className="grid gap-1.5 md:grid-cols-[minmax(0,1fr)_minmax(260px,320px)]"
+                      >
+                        <div data-ripple-automation-meta-grid className="grid grid-cols-2 gap-1.5">
+                          <div
+                            data-ripple-automation-meta-cell
+                            className="min-w-0 rounded-lg border border-[#eef2fb] bg-[#f8fbff]/80 px-2 py-1"
+                          >
                             <div className="text-[10px] font-semibold tracking-normal text-[#8b8f94] uppercase">
                               Next
                             </div>
-                            <div className="mt-0.5 truncate text-[12px] font-semibold text-[#111827]">
+                            <div className="mt-0.5 truncate text-[11px] font-semibold text-[#111827]">
                               {formatDate(schedule.next_run_at)}
                             </div>
                           </div>
-                          <div className="min-w-0 rounded-lg border border-[#eef2fb] bg-[#f8fbff]/80 px-2 py-1.5">
+                          <div
+                            data-ripple-automation-meta-cell
+                            className="min-w-0 rounded-lg border border-[#eef2fb] bg-[#f8fbff]/80 px-2 py-1"
+                          >
                             <div className="text-[10px] font-semibold tracking-normal text-[#8b8f94] uppercase">
                               Repeat
                             </div>
-                            <div className="mt-0.5 truncate font-[family-name:var(--font-mono)] text-[11px] text-[#384152]">
+                            <div className="mt-0.5 truncate font-[family-name:var(--font-mono)] text-[10px] text-[#384152]">
                               {schedule.kind === "interval"
                                 ? `${intervalLabel(schedule.interval_seconds)} · ${runCountLabel(schedule)}`
                                 : "Once"}
                             </div>
                           </div>
-                          <div className="col-span-2 min-w-0 rounded-lg border border-[#eef2fb] bg-[#f8fbff]/80 px-2 py-1.5 sm:col-span-2 lg:col-span-1">
-                            <div className="text-[10px] font-semibold tracking-normal text-[#8b8f94] uppercase">
-                              Policy
-                            </div>
-                            <div className="mt-0.5 truncate font-[family-name:var(--font-mono)] text-[10px] text-[#667085]">
-                              missed {schedule.missed_run_policy || "run_once"} · overlap{" "}
-                              {schedule.overlap_policy || "skip"} · failure{" "}
-                              {schedule.failure_policy || "pause"}
-                            </div>
-                          </div>
                         </div>
-                      </div>
 
-                      <div
-                        data-ripple-automation-latest-run
-                        className="min-w-0 rounded-xl border border-[#e8edf7] bg-[#f8fbff]/75 p-2.5 text-[12px] lg:border-y-0 lg:border-r-0 lg:border-l-2 lg:bg-transparent lg:py-0 lg:pr-0 lg:pl-3"
-                      >
-                        <div className="flex min-w-0 items-center justify-between gap-2">
-                          <span className="text-[10px] font-semibold tracking-normal text-[#8b8f94] uppercase">
-                            Latest run
-                          </span>
-                          <span
-                            className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${runStatusClass(
-                              latestRunStatus
-                            )}`}
-                          >
-                            {latestRunStatus || "none"}
-                          </span>
-                        </div>
-                        <div className="mt-1 grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-2">
-                          <div className="truncate font-[family-name:var(--font-mono)] text-[11px] text-[#384152]">
-                            {latestRunId || "No run"}
-                          </div>
-                          <div className="shrink-0 text-[11px] text-[#667085]">
-                            {latestRunAt ? formatDate(latestRunAt) : "Never"}
-                          </div>
-                        </div>
-                        {latestRunError ? (
-                          <div className="mt-1 truncate text-[11px] font-medium text-[#cf222e]">
-                            {latestRunError}
-                          </div>
-                        ) : null}
-                        <div className="mt-2 flex flex-nowrap gap-1.5 overflow-x-auto sm:flex-wrap">
-                          <button
-                            type="button"
-                            onClick={() => void handleRefreshRuns(schedule.schedule_id)}
-                            disabled={pendingRunActionId === `${schedule.schedule_id}:refresh`}
-                            className={runActionButtonClass}
-                          >
-                            {pendingRunActionId === `${schedule.schedule_id}:refresh` ? (
-                              <Loader2 size={12} className="animate-spin" />
-                            ) : (
-                              <RefreshCw size={12} />
-                            )}
-                            <span>Refresh</span>
-                          </button>
-                          {hasRunOutput(latestRun) ? (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => void handleViewOutput(latestRun, schedule.title)}
-                                disabled={pendingRunActionId === `${latestRun.job_id}:view`}
-                                className={runActionButtonClass}
+                        <div
+                          data-ripple-automation-latest-run
+                          className="grid min-w-0 gap-1.5 rounded-lg border border-[#e8edf7] bg-[#f8fbff]/70 px-2 py-1.5 text-[11px]"
+                        >
+                          <div className="flex min-w-0 items-start justify-between gap-2">
+                            <span className="text-[10px] font-semibold tracking-normal text-[#8b8f94] uppercase">
+                              Latest run
+                            </span>
+                            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+                              <span className="text-[10px] text-[#667085]">
+                                {latestRunAt ? formatDate(latestRunAt) : "Never"}
+                              </span>
+                              <span
+                                className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${runStatusClass(
+                                  latestRunStatus
+                                )}`}
                               >
-                                {pendingRunActionId === `${latestRun.job_id}:view` ? (
-                                  <Loader2 size={12} className="animate-spin" />
-                                ) : (
-                                  <Eye size={12} />
-                                )}
-                                <span>查看结果</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => void handleDownloadOutput(latestRun)}
-                                disabled={pendingRunActionId === `${latestRun.job_id}:download`}
-                                className={runActionButtonClass}
-                              >
-                                {pendingRunActionId === `${latestRun.job_id}:download` ? (
-                                  <Loader2 size={12} className="animate-spin" />
-                                ) : (
-                                  <Download size={12} />
-                                )}
-                                <span>下载结果</span>
-                              </button>
-                            </>
+                                {latestRunStatus || "none"}
+                              </span>
+                            </div>
+                          </div>
+                          {latestRunError ? (
+                            <div className="truncate text-[11px] font-medium text-[#cf222e]">
+                              {latestRunError}
+                            </div>
                           ) : null}
+                          <div className="flex flex-wrap gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => void handleRefreshRuns(schedule.schedule_id)}
+                              disabled={pendingRunActionId === `${schedule.schedule_id}:refresh`}
+                              className={runActionButtonClass}
+                            >
+                              {pendingRunActionId === `${schedule.schedule_id}:refresh` ? (
+                                <Loader2 size={11} className="animate-spin" />
+                              ) : (
+                                <RefreshCw size={11} />
+                              )}
+                              <span>Refresh</span>
+                            </button>
+                            {hasRunOutput(latestRun) ? (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleViewOutput(latestRun, schedule.title)}
+                                  disabled={pendingRunActionId === `${latestRun.job_id}:view`}
+                                  className={runActionButtonClass}
+                                >
+                                  {pendingRunActionId === `${latestRun.job_id}:view` ? (
+                                    <Loader2 size={11} className="animate-spin" />
+                                  ) : (
+                                    <Eye size={11} />
+                                  )}
+                                  <span>View output</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleDownloadOutput(latestRun)}
+                                  disabled={pendingRunActionId === `${latestRun.job_id}:download`}
+                                  className={runActionButtonClass}
+                                >
+                                  {pendingRunActionId === `${latestRun.job_id}:download` ? (
+                                    <Loader2 size={11} className="animate-spin" />
+                                  ) : (
+                                    <Download size={11} />
+                                  )}
+                                  <span>Download output</span>
+                                </button>
+                              </>
+                            ) : null}
+                          </div>
                         </div>
                       </div>
                     </div>
 
                     <div
                       data-ripple-automation-actions
-                      className="-mx-3 mt-3 grid grid-cols-3 gap-1.5 border-t border-[#e8edf7] px-3 pt-2 pb-0.5 sm:mx-0 sm:flex sm:flex-wrap sm:justify-end sm:px-0"
+                      className="mt-2 grid grid-cols-3 gap-1.5 md:grid-cols-5"
                     >
                       {confirmDeleteId === schedule.schedule_id ? (
                         <button
@@ -997,7 +988,7 @@ export default function AutomationsPage({
                             isExpanded ? "rotate-180 transition-transform" : "transition-transform"
                           }
                         />
-                        <span>运行记录</span>
+                        <span>Run history</span>
                       </button>
                       <button
                         type="button"
@@ -1034,7 +1025,7 @@ export default function AutomationsPage({
                       >
                         <div className="mb-2 flex items-center justify-between gap-3">
                           <div className="text-[11px] font-semibold tracking-normal text-[#667085] uppercase">
-                            运行记录
+                            Run history
                           </div>
                           <div className="font-[family-name:var(--font-mono)] text-[10px] text-[#8b8f94]">
                             {runs.length} run{runs.length === 1 ? "" : "s"}
@@ -1086,7 +1077,7 @@ export default function AutomationsPage({
                                           className={runActionButtonClass}
                                         >
                                           <Eye size={12} />
-                                          <span>查看结果</span>
+                                          <span>View output</span>
                                         </button>
                                         <button
                                           type="button"
@@ -1095,7 +1086,7 @@ export default function AutomationsPage({
                                           className={runActionButtonClass}
                                         >
                                           <Download size={12} />
-                                          <span>下载结果</span>
+                                          <span>Download output</span>
                                         </button>
                                       </>
                                     ) : null}
@@ -1105,7 +1096,7 @@ export default function AutomationsPage({
                                         onClick={() => setConfirmRunDeleteId(null)}
                                         className={runActionButtonClass}
                                       >
-                                        <span>取消</span>
+                                        <span>Cancel</span>
                                       </button>
                                     ) : null}
                                     <button
@@ -1119,13 +1110,15 @@ export default function AutomationsPage({
                                       }
                                       title={
                                         isActiveRunStatus(run.status)
-                                          ? "运行中请先取消再删除"
+                                          ? "Wait until the run finishes before deleting"
                                           : confirmingRunDelete
-                                            ? "确认删除执行记录"
-                                            : "删除执行记录"
+                                            ? "Confirm delete run record"
+                                            : "Delete run record"
                                       }
                                       aria-label={
-                                        confirmingRunDelete ? "确认删除执行记录" : "删除执行记录"
+                                        confirmingRunDelete
+                                          ? "Confirm delete run record"
+                                          : "Delete run record"
                                       }
                                       className={`${runActionButtonClass} ${
                                         confirmingRunDelete
@@ -1136,11 +1129,11 @@ export default function AutomationsPage({
                                       {pendingRunActionId === `${run.job_id}:delete` ? (
                                         <Loader2 size={12} className="animate-spin" />
                                       ) : confirmingRunDelete ? (
-                                        <span>确认删除</span>
+                                        <span>Confirm delete</span>
                                       ) : (
                                         <>
                                           <Trash2 size={12} />
-                                          <span>删除记录</span>
+                                          <span>Delete record</span>
                                         </>
                                       )}
                                     </button>

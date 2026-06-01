@@ -77,10 +77,19 @@ function testAutomationRunResultsAreDiscoverable() {
   assert.match(source, /saveBlobAsDownload/);
   assert.match(source, /hasRunOutput/);
   assert.match(source, /output_available/);
-  assert.match(source, /查看结果/);
-  assert.match(source, /下载结果/);
-  assert.match(source, /删除记录/);
-  assert.match(source, /运行记录/);
+  assert.match(source, /View output/);
+  assert.match(source, /Download output/);
+  assert.match(source, /Delete record/);
+  assert.match(source, /Run history/);
+}
+
+function testAutomationStaticCopyUsesEnglish() {
+  const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
+
+  assert.doesNotMatch(
+    source,
+    /查看结果|下载结果|运行记录|删除记录|确认删除|执行记录|运行中|取消|已失效|失败/
+  );
 }
 
 function testAutomationCardUsesSeparatedLayoutRegions() {
@@ -93,6 +102,15 @@ function testAutomationCardUsesSeparatedLayoutRegions() {
   assert.match(source, /data-ripple-automation-actions/);
 }
 
+function testAutomationCardDoesNotExposePolicyControls() {
+  const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
+
+  assert.doesNotMatch(source, />\s*Policy\s*</);
+  assert.doesNotMatch(source, /missed_run_policy/);
+  assert.doesNotMatch(source, /overlap_policy/);
+  assert.doesNotMatch(source, /failure_policy/);
+}
+
 function testAutomationCardUsesCompactResponsiveLayout() {
   const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
 
@@ -101,16 +119,50 @@ function testAutomationCardUsesCompactResponsiveLayout() {
   assert.match(source, /LUCIDE_NAV_STROKE_WIDTH/);
   assert.match(source, /pb-\[calc\(88px\+env\(safe-area-inset-bottom\)\)\]/);
   assert.doesNotMatch(source, /circle_at_16%_0%/);
-  assert.match(source, /className="px-3 py-3 sm:px-4 sm:py-3"/);
-  assert.match(source, /lg:grid-cols-\[minmax\(0,1fr\)_minmax\(220px,280px\)\]/);
-  assert.match(source, /grid-cols-2 gap-1\.5 pl-9 sm:grid-cols-4 lg:grid-cols-3/);
-  assert.match(source, /col-span-2 min-w-0 rounded-lg[\s\S]*sm:col-span-2 lg:col-span-1/);
-  assert.match(source, /rounded-xl border border-\[#e8edf7\] bg-\[#f8fbff\]\/75 p-2\.5/);
-  assert.match(source, /data-ripple-automation-actions[\s\S]*grid grid-cols-3/);
-  assert.match(source, /sm:flex sm:flex-wrap sm:justify-end/);
+  assert.match(source, /className="px-3 py-2 sm:px-4 sm:py-2\.5 xl:px-5"/);
+  assert.match(source, /xl:grid-cols-\[minmax\(260px,0\.82fr\)_minmax\(0,1\.35fr\)\]/);
+  assert.match(source, /data-ripple-automation-detail-grid/);
+  assert.match(source, /data-ripple-automation-detail-grid[\s\S]{0,130}className="grid gap-1\.5/);
+  assert.doesNotMatch(source, /data-ripple-automation-detail-grid[\s\S]{0,120}pl-8/);
+  assert.match(source, /data-ripple-automation-meta-grid[\s\S]*grid grid-cols-2 gap-1\.5/);
+  assert.match(source, /data-ripple-automation-meta-cell/);
+  assert.doesNotMatch(source, /data-ripple-automation-meta-chip/);
+  assert.doesNotMatch(source, /data-ripple-automation-meta-grid[\s\S]{0,120}flex flex-wrap/);
+  assert.match(
+    source,
+    /data-ripple-automation-latest-run[\s\S]*rounded-lg border border-\[#e8edf7\] bg-\[#f8fbff\]\/70 px-2 py-1\.5/
+  );
+  assert.match(source, /data-ripple-automation-latest-run[\s\S]*grid min-w-0 gap-1\.5/);
+  assert.doesNotMatch(source, /const latestRunId/);
+  assert.doesNotMatch(source, /\{latestRunId \|\| "No run"\}/);
+  assert.match(source, /latestRunAt \? formatDate\(latestRunAt\) : "Never"/);
+  assert.match(source, /data-ripple-automation-actions[\s\S]*mt-2 grid grid-cols-3 gap-1\.5/);
+  assert.doesNotMatch(source, /data-ripple-automation-actions[\s\S]{0,120}pl-8/);
+  assert.match(source, /md:grid-cols-5/);
   assert.doesNotMatch(source, /data-ripple-automation-actions[\s\S]{0,220}overflow-x-auto/);
-  assert.match(source, /const automationActionButtonClass =[\s\S]*min-w-0/);
-  assert.match(source, /const automationActionButtonClass =[\s\S]*text-\[10px\] sm:text-\[11px\]/);
+  assert.doesNotMatch(source, /data-ripple-automation-actions[\s\S]{0,180}border-t/);
+  assert.match(source, /const automationActionButtonClass =[\s\S]*w-full/);
+  assert.match(source, /const automationActionButtonClass =[\s\S]*text-\[10px\]/);
+  assert.match(source, /const runActionButtonClass =[\s\S]*h-6/);
+}
+
+function testAutomationCardUsesDesktopRowLayout() {
+  const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(
+    source,
+    /data-ripple-automation-card-main[\s\S]*className="px-3 py-2 sm:px-4 sm:py-2\.5 xl:px-5"/
+  );
+  assert.match(source, /xl:grid-cols-\[minmax\(260px,0\.82fr\)_minmax\(0,1\.35fr\)\]/);
+  assert.match(
+    source,
+    /data-ripple-automation-detail-grid[\s\S]*md:grid-cols-\[minmax\(0,1fr\)_minmax\(260px,320px\)\]/
+  );
+  assert.match(source, /data-ripple-automation-meta-grid[\s\S]*grid grid-cols-2 gap-1\.5/);
+  assert.doesNotMatch(source, /data-ripple-automation-meta-grid[\s\S]{0,120}sm:grid-cols-3/);
+  assert.doesNotMatch(source, /col-span-2 min-w-0[\s\S]*sm:col-span-1/);
+  assert.match(source, /data-ripple-automation-actions[\s\S]*md:grid-cols-5/);
+  assert.doesNotMatch(source, /data-ripple-automation-actions[\s\S]{0,160}sm:flex/);
 }
 
 function testAutomationRunHistoryUsesReadableRows() {
@@ -128,8 +180,11 @@ testTimezoneUsesSelectControl();
 testAutomationFormCanSelectModel();
 testExistingAutomationsCanBeEdited();
 testAutomationRunResultsAreDiscoverable();
+testAutomationStaticCopyUsesEnglish();
 testAutomationCardUsesSeparatedLayoutRegions();
+testAutomationCardDoesNotExposePolicyControls();
 testAutomationCardUsesCompactResponsiveLayout();
+testAutomationCardUsesDesktopRowLayout();
 testAutomationRunHistoryUsesReadableRows();
 
 console.log("automations page tests passed");

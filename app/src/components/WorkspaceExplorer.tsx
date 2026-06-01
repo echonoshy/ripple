@@ -30,6 +30,7 @@ import {
   X,
 } from "lucide-react";
 import { IconTile } from "@/components/icons/IconTile";
+import { PdfPreview } from "./PdfPreview";
 import { DENSE_GLASS_ICON_BUTTON_CLASS } from "@/components/workbench/stylePrimitives";
 import { useI18n } from "@/i18n";
 import {
@@ -117,11 +118,6 @@ export function getSplitPercentFromVerticalResize({
 
 export function getSplitPercentAfterFileDoubleClick(currentSplitPercent: number): number {
   return currentSplitPercent >= MAX_SPLIT_PERCENT ? DEFAULT_SPLIT_PERCENT : currentSplitPercent;
-}
-
-function getDocumentPreviewFrameUrl(url: string): string {
-  const separator = url.includes("#") ? "&" : "#";
-  return `${url}${separator}toolbar=0&navpanes=0&scrollbar=0`;
 }
 
 function workspaceContextMenuHeight(entry: WorkspaceEntry | null): number {
@@ -368,7 +364,10 @@ export default function WorkspaceExplorer({
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isDraggingUpload, setIsDraggingUpload] = useState(false);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
-  const [documentPreviewUrl, setDocumentPreviewUrl] = useState<string | null>(null);
+  const [documentPreview, setDocumentPreview] = useState<{
+    blob: Blob;
+    filename: string;
+  } | null>(null);
   const [isPreviewFullscreenOpen, setIsPreviewFullscreenOpen] = useState(false);
   const [clipboard, setClipboard] = useState<{
     items: WorkspaceEntry[];
@@ -455,12 +454,6 @@ export default function WorkspaceExplorer({
       mediaQuery.removeEventListener("change", updatePointerMode);
     };
   }, []);
-
-  useEffect(() => {
-    return () => {
-      if (documentPreviewUrl) URL.revokeObjectURL(documentPreviewUrl);
-    };
-  }, [documentPreviewUrl]);
 
   useEffect(() => {
     if (!preview) setIsPreviewFullscreenOpen(false);
@@ -573,7 +566,7 @@ export default function WorkspaceExplorer({
           setCurrentPath(data.path);
           setPreview(null);
           setImagePreviewUrl(null);
-          setDocumentPreviewUrl(null);
+          setDocumentPreview(null);
           setDraft("");
           setIsEditing(false);
           setSaveError(null);
@@ -618,11 +611,7 @@ export default function WorkspaceExplorer({
         const previewKind = getWorkspacePreviewKind({ name, mime_type: null });
         if (previewKind === "pdf" || previewKind === "document") {
           const documentPreview = await fetchWorkspaceDocumentPreview(targetPath);
-          const documentUrl = URL.createObjectURL(documentPreview.blob);
-          if (previewRequestIdRef.current !== requestId) {
-            URL.revokeObjectURL(documentUrl);
-            return;
-          }
+          if (previewRequestIdRef.current !== requestId) return;
           setPreview({
             path: targetPath,
             name,
@@ -634,14 +623,17 @@ export default function WorkspaceExplorer({
             truncated: false,
           });
           setImagePreviewUrl(null);
-          setDocumentPreviewUrl(documentUrl);
+          setDocumentPreview({
+            blob: documentPreview.blob,
+            filename: documentPreview.filename,
+          });
           setDraft("");
         } else {
           const filePreview = await fetchWorkspaceFilePreview(targetPath, 256 * 1024);
           if (previewRequestIdRef.current !== requestId) return;
           setPreview(filePreview);
           setImagePreviewUrl(null);
-          setDocumentPreviewUrl(null);
+          setDocumentPreview(null);
           setDraft(filePreview.content);
         }
         setIsEditing(false);
@@ -651,7 +643,7 @@ export default function WorkspaceExplorer({
         if (previewRequestIdRef.current !== requestId) return;
         setPreview(null);
         setImagePreviewUrl(null);
-        setDocumentPreviewUrl(null);
+        setDocumentPreview(null);
         setDraft("");
         setIsEditing(false);
         setError(err instanceof Error ? err.message : String(err));
@@ -676,7 +668,7 @@ export default function WorkspaceExplorer({
       setListing(workspaceListingCache.get(workspaceCacheKey(userId, path)) || null);
       setPreview(null);
       setImagePreviewUrl(null);
-      setDocumentPreviewUrl(null);
+      setDocumentPreview(null);
       setDraft("");
       setIsEditing(false);
       setHighlightedLine(null);
@@ -734,7 +726,7 @@ export default function WorkspaceExplorer({
     setError(null);
     setHighlightedLine(null);
     setImagePreviewUrl(null);
-    setDocumentPreviewUrl(null);
+    setDocumentPreview(null);
 
     try {
       const previewKind = getWorkspacePreviewKind(entry);
@@ -764,17 +756,13 @@ export default function WorkspaceExplorer({
           truncated: false,
         });
         setImagePreviewUrl(imageUrl);
-        setDocumentPreviewUrl(null);
+        setDocumentPreview(null);
         setDraft("");
         setIsEditing(false);
         setSaveError(null);
       } else if (previewKind === "pdf" || previewKind === "document") {
         const documentPreview = await fetchWorkspaceDocumentPreview(entry.path);
-        const documentUrl = URL.createObjectURL(documentPreview.blob);
-        if (previewRequestIdRef.current !== requestId) {
-          URL.revokeObjectURL(documentUrl);
-          return;
-        }
+        if (previewRequestIdRef.current !== requestId) return;
         setPreview({
           path: entry.path,
           name: entry.name,
@@ -786,7 +774,10 @@ export default function WorkspaceExplorer({
           truncated: false,
         });
         setImagePreviewUrl(null);
-        setDocumentPreviewUrl(documentUrl);
+        setDocumentPreview({
+          blob: documentPreview.blob,
+          filename: documentPreview.filename,
+        });
         setDraft("");
         setIsEditing(false);
         setSaveError(null);
@@ -795,7 +786,7 @@ export default function WorkspaceExplorer({
         if (previewRequestIdRef.current !== requestId) return;
         setPreview(filePreview);
         setImagePreviewUrl(null);
-        setDocumentPreviewUrl(null);
+        setDocumentPreview(null);
         setDraft(filePreview.content);
         setIsEditing(false);
         setSaveError(null);
@@ -804,7 +795,7 @@ export default function WorkspaceExplorer({
       if (previewRequestIdRef.current !== requestId) return;
       setPreview(null);
       setImagePreviewUrl(null);
-      setDocumentPreviewUrl(null);
+      setDocumentPreview(null);
       setDraft("");
       setIsEditing(false);
       setError(err instanceof Error ? err.message : String(err));
@@ -1078,7 +1069,7 @@ export default function WorkspaceExplorer({
     if (preview && movedPaths.has(preview.path)) {
       setPreview(null);
       setImagePreviewUrl(null);
-      setDocumentPreviewUrl(null);
+      setDocumentPreview(null);
       setDraft("");
     }
     setSearchResults((current) => current.filter((entry) => !movedPaths.has(entry.path)));
@@ -1196,7 +1187,7 @@ export default function WorkspaceExplorer({
     if (preview && deletedPaths.has(preview.path)) {
       setPreview(null);
       setImagePreviewUrl(null);
-      setDocumentPreviewUrl(null);
+      setDocumentPreview(null);
       setDraft("");
     }
     setListing((current) => {
@@ -1252,7 +1243,7 @@ export default function WorkspaceExplorer({
       if (preview?.path === entry.path) {
         setPreview(null);
         setImagePreviewUrl(null);
-        setDocumentPreviewUrl(null);
+        setDocumentPreview(null);
         setDraft("");
       }
       setListing((current) => {
@@ -2627,7 +2618,7 @@ export default function WorkspaceExplorer({
               {previewLoading && <Loader2 size={12} className="animate-spin" />}
               {preview && (
                 <div className="flex shrink-0 items-center gap-1">
-                  {!imagePreviewUrl && !documentPreviewUrl && (
+                  {!imagePreviewUrl && !documentPreview && (
                     <button
                       type="button"
                       disabled={preview.truncated}
@@ -2745,7 +2736,7 @@ export default function WorkspaceExplorer({
                       <span>{saveError}</span>
                     </div>
                   )}
-                  {documentPreviewUrl ? (
+                  {documentPreview ? (
                     <div
                       data-ripple-workspace-document-preview
                       className={
@@ -2754,10 +2745,10 @@ export default function WorkspaceExplorer({
                           : "min-h-0 flex-1 overflow-hidden bg-[#f8fafc]"
                       }
                     >
-                      <iframe
-                        src={getDocumentPreviewFrameUrl(documentPreviewUrl)}
-                        title={`${preview.name} preview`}
-                        className="h-full min-h-0 w-full border-0 bg-white"
+                      <PdfPreview
+                        blob={documentPreview.blob}
+                        filename={documentPreview.filename}
+                        className="h-full min-h-0"
                       />
                     </div>
                   ) : imagePreviewUrl ? (
@@ -2883,11 +2874,12 @@ export default function WorkspaceExplorer({
             </button>
           </div>
           <div className="min-h-0 flex-1 overflow-hidden bg-[#f4f7fb]">
-            {documentPreviewUrl ? (
-              <iframe
-                src={getDocumentPreviewFrameUrl(documentPreviewUrl)}
-                title={`${preview.name} fullscreen preview`}
-                className="h-full min-h-0 w-full border-0 bg-white"
+            {documentPreview ? (
+              <PdfPreview
+                blob={documentPreview.blob}
+                filename={documentPreview.filename}
+                fullscreen
+                className="h-full min-h-0"
               />
             ) : imagePreviewUrl ? (
               <div className="flex h-full min-h-0 items-center justify-center overflow-auto bg-[#f8fafc] p-4 sm:p-8">

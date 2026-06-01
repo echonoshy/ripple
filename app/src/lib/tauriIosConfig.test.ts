@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 
 const packageJson = JSON.parse(
   readFileSync(new URL("../../package.json", import.meta.url), "utf8")
-) as { scripts: Record<string, string> };
+) as { scripts: Record<string, string>; dependencies: Record<string, string> };
 const tauriConfig = JSON.parse(
   readFileSync(new URL("../../src-tauri/tauri.conf.json", import.meta.url), "utf8")
 ) as {
@@ -70,6 +70,8 @@ function testTauriConfigKeepsTemporaryHttpIpApiAndAssetCsp() {
   assert.match(csp, /img-src[^;]*asset:/);
   assert.match(csp, /img-src[^;]*blob:/);
   assert.match(csp, /img-src[^;]*http:\/\/140\.143\.229\.103:8810/);
+  assert.match(csp, /worker-src[^;]*'self'/);
+  assert.match(csp, /worker-src[^;]*blob:/);
   assert.deepEqual(tauriConfig.bundle.icon, [
     "icons/32x32.png",
     "icons/128x128.png",
@@ -82,6 +84,12 @@ function testTauriConfigKeepsTemporaryHttpIpApiAndAssetCsp() {
 }
 
 testTauriConfigKeepsTemporaryHttpIpApiAndAssetCsp();
+
+function testPackagePinsPdfJsForMobilePreview() {
+  assert.equal(packageJson.dependencies["pdfjs-dist"], "4.8.69");
+}
+
+testPackagePinsPdfJsForMobilePreview();
 
 function testTauriIosDevUsesPublicRippleServer() {
   assert.equal(tauriIosConfig.identifier, "com.lake.ripple.dev");

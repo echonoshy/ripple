@@ -350,30 +350,31 @@ function testWorkspaceExplorerClassifiesReadOnlyDocumentPreviewFormats() {
 
 testWorkspaceExplorerClassifiesReadOnlyDocumentPreviewFormats();
 
-function testWorkspaceExplorerRendersDocumentPreviewWithPdfEmbed() {
+function testWorkspaceExplorerRendersDocumentPreviewWithPdfJsRenderer() {
   const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
 
+  assert.match(source, /import \{ PdfPreview \} from "\.\/PdfPreview"/);
   assert.match(source, /fetchWorkspaceDocumentPreview/);
-  assert.match(source, /documentPreviewUrl/);
+  assert.match(source, /documentPreview/);
   assert.match(source, /data-ripple-workspace-document-preview/);
-  assert.match(source, /<iframe/);
-  assert.match(source, /title=\{`\$\{preview\.name\} preview`\}/);
-  assert.doesNotMatch(source, /setIsEditing\(.*documentPreviewUrl/);
+  assert.match(source, /<PdfPreview/);
+  assert.doesNotMatch(source, /<iframe/);
+  assert.doesNotMatch(source, /getDocumentPreviewFrameUrl/);
+  assert.doesNotMatch(source, /setIsEditing\(.*documentPreview/);
 }
 
-testWorkspaceExplorerRendersDocumentPreviewWithPdfEmbed();
+testWorkspaceExplorerRendersDocumentPreviewWithPdfJsRenderer();
 
-function testWorkspaceExplorerHidesEmbeddedPdfToolbar() {
+function testWorkspaceExplorerPassesDocumentBlobToPdfPreview() {
   const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /function getDocumentPreviewFrameUrl/);
-  assert.match(source, /toolbar=0/);
-  assert.match(source, /navpanes=0/);
-  assert.match(source, /scrollbar=0/);
-  assert.match(source, /src=\{getDocumentPreviewFrameUrl\(documentPreviewUrl\)\}/);
+  assert.match(source, /setDocumentPreview\(\{\s*blob:\s*documentPreview\.blob/);
+  assert.match(source, /filename:\s*documentPreview\.filename/);
+  assert.match(source, /blob=\{documentPreview\.blob\}/);
+  assert.match(source, /filename=\{documentPreview\.filename\}/);
 }
 
-testWorkspaceExplorerHidesEmbeddedPdfToolbar();
+testWorkspaceExplorerPassesDocumentBlobToPdfPreview();
 
 function testWorkspaceExplorerDocumentPreviewFillsAvailableHeight() {
   const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
@@ -384,7 +385,7 @@ function testWorkspaceExplorerDocumentPreviewFillsAvailableHeight() {
     source,
     /data-ripple-workspace-document-preview[\s\S]*"min-h-0 flex-1 overflow-hidden/
   );
-  assert.match(source, /<iframe[\s\S]*className="h-full min-h-0 w-full border-0 bg-white"/);
+  assert.match(source, /<PdfPreview[\s\S]*className="h-full min-h-0"/);
 }
 
 testWorkspaceExplorerDocumentPreviewFillsAvailableHeight();

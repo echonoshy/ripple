@@ -1462,6 +1462,10 @@ export default function WorkspaceExplorer({
   const pageToolbarPrimaryButtonClass = pageToolbarIconButtonClass;
   const pageParentButtonClass =
     "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#d7e3f8] bg-[#eef4ff] text-[#2463eb] shadow-[0_10px_24px_rgba(44,63,123,0.06)] transition-colors hover:bg-[#e5efff] lg:hidden";
+  const directoryNavigationButtonClass =
+    "group inline-flex h-8 items-center gap-1.5 rounded-full border border-[#cfdbf2] bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(240,245,255,0.78))] px-2.5 text-[11px] font-semibold text-[#46556f] shadow-[0_8px_20px_rgba(44,63,123,0.07),inset_0_1px_0_rgba(255,255,255,0.9)] backdrop-blur-xl transition-all hover:-translate-y-px hover:border-[#b9cbec] hover:bg-[#eef4ff] hover:text-[#1f4ed0] hover:shadow-[0_12px_26px_rgba(44,63,123,0.1)] active:translate-y-0";
+  const directoryNavigationIconClass =
+    "flex h-5 w-5 items-center justify-center rounded-full bg-[#edf4ff] text-[#2463eb] ring-1 ring-[#d7e3f8] transition-colors group-hover:bg-[#dceaff] group-hover:text-[#1f4ed0]";
   const workspaceGridStyle:
     | (React.CSSProperties & { "--ripple-workspace-list-row"?: string })
     | undefined = !isPreviewPanelHidden
@@ -2183,16 +2187,18 @@ export default function WorkspaceExplorer({
                 </div>
               </div>
               {(currentPath !== DEFAULT_WORKSPACE_PATH || listing?.parent_path) && (
-                <div className="mt-3 flex items-center gap-2">
+                <div className="mt-3 flex items-center gap-2.5">
                   {listing?.parent_path && (
                     <button
                       type="button"
                       onClick={() =>
                         void loadDirectory(listing.parent_path || DEFAULT_WORKSPACE_PATH)
                       }
-                      className="inline-flex h-7 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white/74 px-2.5 text-[11px] font-semibold text-[#667085] hover:bg-[#f7f8fa] hover:text-[#111827]"
+                      className={directoryNavigationButtonClass}
                     >
-                      <ArrowUp size={12} />
+                      <span className={directoryNavigationIconClass}>
+                        <ArrowUp size={12} />
+                      </span>
                       Up
                     </button>
                   )}
@@ -2200,9 +2206,11 @@ export default function WorkspaceExplorer({
                     <button
                       type="button"
                       onClick={() => void loadDirectory(DEFAULT_WORKSPACE_PATH)}
-                      className="inline-flex h-7 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white/74 px-2.5 text-[11px] font-semibold text-[#667085] hover:bg-[#f7f8fa] hover:text-[#111827]"
+                      className={directoryNavigationButtonClass}
                     >
-                      <Folder size={12} />
+                      <span className={directoryNavigationIconClass}>
+                        <Folder size={12} />
+                      </span>
                       Root
                     </button>
                   )}

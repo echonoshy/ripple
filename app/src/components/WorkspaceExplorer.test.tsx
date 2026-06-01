@@ -207,6 +207,17 @@ function testWorkspaceExplorerUsesSharedDenseToolbarButtons() {
 
 testWorkspaceExplorerUsesSharedDenseToolbarButtons();
 
+function testWorkspaceExplorerDesktopDirectoryNavigationUsesSharedGlassButtons() {
+  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /const directoryNavigationButtonClass =\s*\n\s*"group inline-flex h-8/);
+  assert.match(source, /const directoryNavigationIconClass =\s*\n\s*"flex h-5 w-5/);
+  assert.match(source, /className=\{directoryNavigationButtonClass\}[\s\S]*?<ArrowUp size=\{12\}/);
+  assert.match(source, /className=\{directoryNavigationButtonClass\}[\s\S]*?<Folder size=\{12\}/);
+}
+
+testWorkspaceExplorerDesktopDirectoryNavigationUsesSharedGlassButtons();
+
 function testWorkspaceExplorerMobileSearchSheetKeepsSearchAndFiltersTogether() {
   const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
   const sheetIndex = source.indexOf("data-ripple-files-mobile-search-sheet");

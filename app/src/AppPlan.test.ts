@@ -187,6 +187,14 @@ function testChatFolderPickerUpdatesCurrentSessionContextFolder() {
   assert.match(appSource, /onSelectWorkspaceFolder=\{handleSelectChatFolder\}/);
 }
 
+function testEmptyCurrentSessionIsNotInferredIntoSidebar() {
+  assert.match(appSource, /const currentSessionShouldAppearInList =/);
+  assert.match(
+    appSource,
+    /sessionId && !selectedExistingSession && currentSessionShouldAppearInList/
+  );
+}
+
 testChatCompletionClearsResidualPlan();
 testSessionDetailsRestorePersistedPlan();
 testRestoringSessionRefreshesWorkspaceViews();
@@ -207,5 +215,6 @@ testSessionSelectionRequestsScrollToBottom();
 testDefaultModelSeedsNewSessionsAndChatRuns();
 testContextFolderSeedsNewSessionsAndFilesViewStaysPlain();
 testChatFolderPickerUpdatesCurrentSessionContextFolder();
+testEmptyCurrentSessionIsNotInferredIntoSidebar();
 
 console.log("app plan tests passed");

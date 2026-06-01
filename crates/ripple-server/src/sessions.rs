@@ -275,6 +275,7 @@ impl SessionManager {
             .list_sessions(user_id)
             .await?
             .into_iter()
+            .filter(session_should_appear_in_list)
             .map(|record| self.info_from_record(&record))
             .collect::<anyhow::Result<Vec<_>>>()?;
         records.sort_by(|a, b| b.last_active.cmp(&a.last_active));
@@ -960,6 +961,51 @@ fn public_status(status: &str, pending_permission: Option<&Value>) -> String {
     .to_string()
 }
 
+fn session_should_appear_in_list(record: &SessionRecord) -> bool {
+    if record.message_count > 0 || !record.messages.is_empty() {
+        return true;
+    }
+    if record.pinned || !record.title.trim().is_empty() {
+        return true;
+    }
+    if record.total_input_tokens > 0
+        || record.total_output_tokens > 0
+        || record.last_input_tokens > 0
+        || record
+            .codex_thread_id
+            .as_deref()
+            .is_some_and(|thread_id| !thread_id.trim().is_empty())
+    {
+        return true;
+    }
+    if record.pending_question.is_some()
+        || record
+            .pending_options
+            .as_ref()
+            .is_some_and(|options| !options.is_empty())
+        || record.pending_permission_request.is_some()
+        || record.pending_connector_auth.is_some()
+        || record.pending_schedule_request.is_some()
+        || !record.plan_steps.is_empty()
+        || record.plan_progress.is_some()
+    {
+        return true;
+    }
+    matches!(
+        record.status_kind(),
+        SessionStatus::Queued
+            | SessionStatus::Running
+            | SessionStatus::Compacting
+            | SessionStatus::AwaitingUserInput
+            | SessionStatus::WaitingForUser
+            | SessionStatus::AwaitingPermission
+            | SessionStatus::WaitingForApproval
+            | SessionStatus::Cancelled
+            | SessionStatus::Failed
+            | SessionStatus::Other
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1037,6 +1083,101 @@ mod tests {
                 client: None,
             },
         })
+    }
+
+    #[tokio::test]
+    async fn list_sessions_omits_empty_drafts_until_user_activity() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("ripple-session-test-{}", Uuid::new_v4()));
+        let config = test_config(&root);
+        let manager = SessionManager::new(config.clone(), SandboxManager::new(config));
+        let user_id = "alice";
+
+        let draft = manager
+            .create_session(
+                user_id,
+                CreateSessionInput {
+                    model: None,
+                    max_turns: None,
+                    system_prompt: None,
+                    context_folder_path: None,
+                    project_id: None,
+                },
+            )
+            .await?;
+
+        let visible_ids = manager
+            .list_sessions(user_id)
+            .await?
+            .into_iter()
+            .map(|session| session.session_id)
+            .collect::<Vec<_>>();
+        assert!(!visible_ids.contains(&draft.session_id));
+
+        let mut active = manager
+            .create_session(
+                user_id,
+                CreateSessionInput {
+                    model: None,
+                    max_turns: None,
+                    system_prompt: None,
+                    context_folder_path: None,
+                    project_id: None,
+                },
+            )
+            .await?;
+        active.messages.push(serde_json::json!({
+            "role": "user",
+            "content": "hello"
+        }));
+        manager.save_record(active.clone()).await?;
+
+        let mut awaiting_auth = manager
+            .create_session(
+                user_id,
+                CreateSessionInput {
+                    model: None,
+                    max_turns: None,
+                    system_prompt: None,
+                    context_folder_path: None,
+                    project_id: None,
+                },
+            )
+            .await?;
+        awaiting_auth.set_status(SessionStatus::AwaitingUserInput);
+        awaiting_auth.pending_connector_auth = Some(serde_json::json!({
+            "connector": "notion",
+            "stage": "awaiting_user_auth"
+        }));
+        manager.save_record(awaiting_auth.clone()).await?;
+
+        let mut suspended_draft = manager
+            .create_session(
+                user_id,
+                CreateSessionInput {
+                    model: None,
+                    max_turns: None,
+                    system_prompt: None,
+                    context_folder_path: None,
+                    project_id: None,
+                },
+            )
+            .await?;
+        suspended_draft.set_status(SessionStatus::Suspended);
+        manager.save_record(suspended_draft.clone()).await?;
+
+        let visible_ids = manager
+            .list_sessions(user_id)
+            .await?
+            .into_iter()
+            .map(|session| session.session_id)
+            .collect::<Vec<_>>();
+        assert!(!visible_ids.contains(&draft.session_id));
+        assert!(visible_ids.contains(&active.session_id));
+        assert!(visible_ids.contains(&awaiting_auth.session_id));
+        assert!(!visible_ids.contains(&suspended_draft.session_id));
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
     }
 
     #[tokio::test]

@@ -1180,7 +1180,7 @@ async fn session_overview_groups_sessions_and_enriches_linked_runs() {
 #[tokio::test]
 async fn session_overview_respects_user_id_isolation() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
-    let (_state, app) = test_state_and_app(&root);
+    let (state, app) = test_state_and_app(&root);
 
     let first = app
         .clone()
@@ -1217,6 +1217,39 @@ async fn session_overview_respects_user_id_isolation() {
         .and_then(Value::as_str)
         .expect("bob session")
         .to_string();
+
+    let response = app
+        .clone()
+        .oneshot(request_as_user(
+            Method::GET,
+            "/v1/sessions/overview",
+            Value::Null,
+            "alice",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let overview = response_json(response).await;
+    let ids = overview
+        .get("sessions")
+        .and_then(Value::as_array)
+        .unwrap()
+        .iter()
+        .filter_map(|session| session.get("session_id").and_then(Value::as_str))
+        .collect::<Vec<_>>();
+    assert!(ids.is_empty());
+
+    let mut alice_session = state
+        .sessions
+        .load("alice", &alice_session_id)
+        .await
+        .unwrap()
+        .expect("alice session should exist");
+    alice_session.messages.push(json!({
+        "role": "user",
+        "content": "hello"
+    }));
+    state.sessions.save_record(alice_session).await.unwrap();
 
     let response = app
         .oneshot(request_as_user(

@@ -634,9 +634,14 @@ export default function Home() {
   const selectedExistingSession = sessionId
     ? baseWorkbenchSessions.find((session) => session.sessionId === sessionId) || null
     : null;
+  const currentSessionShouldAppearInList =
+    messages.length > 0 ||
+    planSteps.length > 0 ||
+    Boolean(planProgress) ||
+    Boolean(selectedSessionRuntimeStatus && selectedSessionRuntimeStatus !== "idle");
   const inferredCurrentSession = useMemo(
     () =>
-      sessionId && !selectedExistingSession
+      sessionId && !selectedExistingSession && currentSessionShouldAppearInList
         ? {
             sessionId,
             title: "Current session",
@@ -655,6 +660,7 @@ export default function Home() {
         : null,
     [
       activeContextFolderPath,
+      currentSessionShouldAppearInList,
       messages.length,
       selectedExistingSession,
       selectedModel,

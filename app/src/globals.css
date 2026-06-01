@@ -31,13 +31,53 @@
   --ripple-danger-bg: #fff1f0;
 }
 
+html {
+  -webkit-text-size-adjust: 100%;
+  max-width: 100%;
+  overscroll-behavior-x: none;
+  text-size-adjust: 100%;
+}
+
+html,
+body,
+#root {
+  max-width: 100%;
+  min-height: 100%;
+  overflow-x: hidden;
+  width: 100%;
+}
+
+@media (max-width: 767px) {
+  html {
+    font-size: 17px;
+  }
+
+  .text-\[9px\] {
+    font-size: 11px;
+  }
+
+  .text-\[10px\] {
+    font-size: 11px;
+  }
+
+  .text-\[11px\] {
+    font-size: 12px;
+  }
+
+  .text-\[12px\] {
+    font-size: 13px;
+  }
+}
+
 body {
   background-color: #ffffff;
   color: var(--ripple-text-primary);
   font-family: var(--font-sans);
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
+  overscroll-behavior-x: none;
   text-rendering: optimizeLegibility;
+  touch-action: pan-y;
 }
 
 .ripple-auth-header-motion {

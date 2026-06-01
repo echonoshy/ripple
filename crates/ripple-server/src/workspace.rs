@@ -18,6 +18,7 @@ const TEXT_EXTENSIONS: &[&str] = &[
 const MAX_PREVIEW_BYTES: usize = 1024 * 1024;
 const SENSITIVE_TOP_LEVEL_ENTRIES: &[&str] =
     &[".bilibili", ".codex", ".config", ".lark-cli", ".tmp"];
+const SUPPRESSED_DIRECTORY_NAMES: &[&str] = &["__pycache__"];
 
 #[derive(Debug, Serialize)]
 pub struct WorkspaceEntry {
@@ -66,10 +67,14 @@ pub fn list_directory(workspace_root: &Path, path: &str) -> anyhow::Result<Works
     let mut entries = Vec::new();
     for entry in std::fs::read_dir(&dir)? {
         let entry = entry?;
-        if is_hidden_path(workspace_root, &entry.path()) {
+        let path = entry.path();
+        let file_type = entry.file_type()?;
+        if is_hidden_path(workspace_root, &path)
+            || is_suppressed_directory(&path, file_type.is_dir())
+        {
             continue;
         }
-        entries.push(entry_for_path(workspace_root, &entry.path(), None)?);
+        entries.push(entry_for_path(workspace_root, &path, None)?);
     }
     entries.sort_by(|a, b| match (a.kind.as_str(), b.kind.as_str()) {
         ("directory", "file") => std::cmp::Ordering::Less,
@@ -349,9 +354,13 @@ pub fn search_files(
     for entry in WalkDir::new(workspace_root)
         .into_iter()
         .filter_entry(|entry| {
-            include_hidden
-                || entry.path() == workspace_root
-                || !is_hidden_path(workspace_root, entry.path())
+            if entry.path() == workspace_root {
+                return true;
+            }
+            if is_suppressed_directory(entry.path(), entry.file_type().is_dir()) {
+                return false;
+            }
+            include_hidden || !is_hidden_path(workspace_root, entry.path())
         })
         .filter_map(Result::ok)
     {
@@ -577,6 +586,18 @@ fn is_hidden_path(workspace_root: &Path, path: &Path) -> bool {
         })
 }
 
+fn is_suppressed_directory(path: &Path, is_dir: bool) -> bool {
+    if !is_dir {
+        return false;
+    }
+    let Some(name) = path.file_name() else {
+        return false;
+    };
+    SUPPRESSED_DIRECTORY_NAMES
+        .iter()
+        .any(|entry| name == std::ffi::OsStr::new(entry))
+}
+
 fn ensure_not_sensitive_path_for_root(workspace_root: &Path, path: &Path) -> anyhow::Result<()> {
     let workspace = workspace_root.canonicalize()?;
     let target = if path.exists() {
@@ -688,6 +709,36 @@ mod tests {
     }
 
     #[test]
+    fn list_directory_hides_pycache_without_hiding_ordinary_directories() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("ripple-workspace-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("scripts/__pycache__"))?;
+        std::fs::write(
+            root.join("scripts/__pycache__/daily.cpython-312.pyc"),
+            "cached",
+        )?;
+        std::fs::create_dir_all(root.join("scripts/node_modules/pkg"))?;
+        std::fs::write(root.join("scripts/node_modules/pkg/index.js"), "generated")?;
+        std::fs::create_dir_all(root.join("scripts/target/debug"))?;
+        std::fs::write(root.join("scripts/target/debug/app"), "generated")?;
+        std::fs::write(root.join("scripts/daily_finance_news.py"), "visible")?;
+
+        let listing = list_directory(&root, "/workspace/scripts")?;
+        let names = listing
+            .entries
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            names,
+            vec!["node_modules", "target", "daily_finance_news.py"]
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[test]
     fn search_files_skips_hidden_subtrees_by_default() -> anyhow::Result<()> {
         let root = std::env::temp_dir().join(format!("ripple-workspace-test-{}", Uuid::new_v4()));
         std::fs::create_dir_all(root.join(".config/gogcli"))?;
@@ -742,6 +793,48 @@ mod tests {
         )?;
         assert_eq!(hidden_explicit.count, 1);
         assert_eq!(hidden_explicit.entries[0].path, "/workspace/.env");
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[test]
+    fn search_files_skips_pycache_without_hiding_ordinary_directories() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("ripple-workspace-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("scripts/__pycache__"))?;
+        std::fs::write(root.join("scripts/__pycache__/cached.pyc"), "needle-cache")?;
+        std::fs::create_dir_all(root.join("scripts/dist"))?;
+        std::fs::write(root.join("scripts/dist/bundle.js"), "needle-dist")?;
+        std::fs::write(root.join("scripts/report.py"), "needle-visible")?;
+
+        let pycache_default =
+            search_files(&root, "needle-cache", 20, "all", "all", "all", false, 1024)?;
+        assert_eq!(pycache_default.count, 0);
+
+        let pycache_with_hidden =
+            search_files(&root, "needle-cache", 20, "all", "all", "all", true, 1024)?;
+        assert_eq!(pycache_with_hidden.count, 0);
+
+        let ordinary_dir =
+            search_files(&root, "needle-dist", 20, "all", "all", "all", false, 1024)?;
+        assert_eq!(ordinary_dir.count, 1);
+        assert_eq!(
+            ordinary_dir.entries[0].path,
+            "/workspace/scripts/dist/bundle.js"
+        );
+
+        let visible = search_files(
+            &root,
+            "needle-visible",
+            20,
+            "all",
+            "all",
+            "all",
+            false,
+            1024,
+        )?;
+        assert_eq!(visible.count, 1);
+        assert_eq!(visible.entries[0].path, "/workspace/scripts/report.py");
 
         let _ = std::fs::remove_dir_all(root);
         Ok(())

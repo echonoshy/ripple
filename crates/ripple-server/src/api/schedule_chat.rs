@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use time::format_description::well_known::Rfc3339;
-use time::{OffsetDateTime, UtcOffset};
+use time::{Duration as TimeDuration, OffsetDateTime, Time, UtcOffset};
 use tokio::time::{sleep, Duration, Instant};
 
 use crate::api::schedules::{create_schedule_for_user, ScheduleCreateInput};
@@ -343,6 +343,8 @@ Rules:\n\
 - For relative time such as '2 minutes later' or '2分钟以后', convert it to an absolute ISO 8601 run_at with timezone offset.\n\
 - Use kind='once' for one-time future tasks and kind='interval' for recurring tasks.\n\
 - For interval schedules, interval_seconds is required. For once schedules, run_at is required.\n\
+- For daily requests with a clock time, such as '每天 11:15', '每日11点15分', 'daily at 11:15', or 'every day at 11:15', use kind='interval', interval_seconds=86400, and set run_at to the next occurrence of that local clock time. Do not use the extraction time as run_at.\n\
+- If the user writes in Chinese and omits a timezone, prefer Asia/Shanghai for daily clock-time requests.\n\
 - If the user says to run a recurring task a fixed number of times, set schedule.max_runs to that count.\n\
 - If the user asks to run more than once but does not provide a recurrence interval, set schedule=null, include interval_seconds in missing_fields, and ask how often it should repeat.\n\
 - Always set schedule.summary=null. It is an internal Codex configuration field, not a free-form task description.\n\
@@ -430,14 +432,30 @@ fn normalize_schedule_payload(draft: &ScheduleDraft) -> Result<Value, String> {
         .ok_or_else(|| "title is required".to_string())?;
     let prompt = clean_optional_string(draft.prompt.as_deref())
         .ok_or_else(|| "prompt is required".to_string())?;
-    let kind = clean_optional_string(draft.kind.as_deref()).unwrap_or_else(|| "once".to_string());
+    let source_text = format!("{title}\n{prompt}");
+    let mut kind =
+        clean_optional_string(draft.kind.as_deref()).unwrap_or_else(|| "once".to_string());
     if kind != "once" && kind != "interval" {
         return Err("kind must be once or interval".to_string());
     }
-    let timezone =
-        clean_optional_string(draft.timezone.as_deref()).unwrap_or_else(|| "UTC".to_string());
-    let run_at = clean_optional_string(draft.run_at.as_deref());
-    let interval_seconds = draft.interval_seconds;
+    let draft_timezone = clean_optional_string(draft.timezone.as_deref());
+    let mut timezone = draft_timezone.clone().unwrap_or_else(|| "UTC".to_string());
+    let mut run_at = clean_optional_string(draft.run_at.as_deref());
+    let mut interval_seconds = draft.interval_seconds;
+
+    if let Some(daily_time) = daily_time_intent(&source_text) {
+        kind = "interval".to_string();
+        interval_seconds = Some(86_400);
+        if draft_timezone.is_none() && prefers_shanghai_timezone(&source_text) {
+            timezone = "Asia/Shanghai".to_string();
+        }
+        run_at = Some(next_daily_run_at(
+            daily_time,
+            &timezone,
+            OffsetDateTime::now_utc(),
+        )?);
+    }
+
     if kind == "once" && run_at.is_none() {
         return Err("run_at is required for once schedules".to_string());
     }
@@ -490,6 +508,162 @@ fn clean_optional_string(value: Option<&str>) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
+}
+
+#[derive(Clone, Copy)]
+struct DailyTimeIntent {
+    hour: u8,
+    minute: u8,
+}
+
+fn daily_time_intent(text: &str) -> Option<DailyTimeIntent> {
+    if !has_daily_recurrence_marker(text) {
+        return None;
+    }
+    extract_time_of_day(text)
+}
+
+fn has_daily_recurrence_marker(text: &str) -> bool {
+    let normalized = text.to_ascii_lowercase();
+    ["每天", "每日", "天天", "daily", "every day", "each day"]
+        .iter()
+        .any(|marker| normalized.contains(marker))
+}
+
+fn extract_time_of_day(text: &str) -> Option<DailyTimeIntent> {
+    let chars: Vec<char> = text.chars().collect();
+    let mut index = 0;
+    while index < chars.len() {
+        if !chars[index].is_ascii_digit() {
+            index += 1;
+            continue;
+        }
+
+        let start = index;
+        let Some((hour, after_hour)) = read_number(&chars, index) else {
+            index += 1;
+            continue;
+        };
+        let mut cursor = skip_spaces(&chars, after_hour);
+        let mut minute = None;
+
+        if matches!(chars.get(cursor), Some(':') | Some('：')) {
+            cursor += 1;
+            cursor = skip_spaces(&chars, cursor);
+            if let Some((value, after_minute)) = read_number(&chars, cursor) {
+                minute = Some(value);
+                cursor = after_minute;
+            }
+        } else if matches!(chars.get(cursor), Some('点') | Some('時') | Some('时')) {
+            cursor += 1;
+            cursor = skip_spaces(&chars, cursor);
+            if let Some((value, after_minute)) = read_number(&chars, cursor) {
+                minute = Some(value);
+                cursor = after_minute;
+                cursor = skip_spaces(&chars, cursor);
+                if matches!(chars.get(cursor), Some('分')) {
+                    cursor += 1;
+                }
+            } else {
+                minute = Some(0);
+            }
+        }
+
+        if let Some(minute) = minute {
+            if hour <= 23 && minute <= 59 {
+                let hour = adjust_hour_for_meridiem(&chars, start, hour as u8);
+                return Some(DailyTimeIntent {
+                    hour,
+                    minute: minute as u8,
+                });
+            }
+        }
+
+        index = start + 1;
+    }
+    None
+}
+
+fn read_number(chars: &[char], start: usize) -> Option<(u32, usize)> {
+    let mut cursor = start;
+    let mut value = 0_u32;
+    let mut digits = 0;
+    while let Some(ch) = chars.get(cursor).filter(|ch| ch.is_ascii_digit()) {
+        value = value * 10 + ch.to_digit(10)?;
+        cursor += 1;
+        digits += 1;
+    }
+    (digits > 0).then_some((value, cursor))
+}
+
+fn skip_spaces(chars: &[char], mut index: usize) -> usize {
+    while chars.get(index).is_some_and(|ch| ch.is_whitespace()) {
+        index += 1;
+    }
+    index
+}
+
+fn adjust_hour_for_meridiem(chars: &[char], start: usize, hour: u8) -> u8 {
+    let context_start = start.saturating_sub(4);
+    let context_end = (start + 8).min(chars.len());
+    let context: String = chars[context_start..context_end].iter().collect();
+    let context = context.to_ascii_lowercase();
+    if (context.contains("下午") || context.contains("晚上") || context.contains("pm")) && hour < 12
+    {
+        return hour + 12;
+    }
+    if (context.contains("上午") || context.contains("早上") || context.contains("am"))
+        && hour == 12
+    {
+        return 0;
+    }
+    hour
+}
+
+fn prefers_shanghai_timezone(text: &str) -> bool {
+    text.chars()
+        .any(|ch| ('\u{4e00}'..='\u{9fff}').contains(&ch))
+}
+
+fn next_daily_run_at(
+    intent: DailyTimeIntent,
+    timezone: &str,
+    now: OffsetDateTime,
+) -> Result<String, String> {
+    let offset = timezone_offset(timezone)
+        .ok_or_else(|| format!("unsupported timezone for daily clock time: {timezone}"))?;
+    let local_now = now.to_offset(offset);
+    let time = Time::from_hms(intent.hour, intent.minute, 0).map_err(|err| err.to_string())?;
+    let mut next = local_now.replace_time(time);
+    if next <= local_now {
+        next += TimeDuration::days(1);
+    }
+    Ok(format_time(next.to_offset(UtcOffset::UTC)))
+}
+
+fn timezone_offset(timezone: &str) -> Option<UtcOffset> {
+    let timezone = timezone.trim();
+    match timezone {
+        "UTC" | "Etc/UTC" | "Z" => Some(UtcOffset::UTC),
+        "Asia/Shanghai" | "Asia/Hong_Kong" | "Asia/Taipei" => UtcOffset::from_hms(8, 0, 0).ok(),
+        "Asia/Tokyo" | "Asia/Seoul" => UtcOffset::from_hms(9, 0, 0).ok(),
+        _ => parse_utc_offset(timezone),
+    }
+}
+
+fn parse_utc_offset(value: &str) -> Option<UtcOffset> {
+    let (sign, rest) = match value.as_bytes().first()? {
+        b'+' => (1, &value[1..]),
+        b'-' => (-1, &value[1..]),
+        _ => return None,
+    };
+    let mut parts = rest.split(':');
+    let hour = parts.next()?.parse::<i8>().ok()?;
+    let minute = parts.next().unwrap_or("0").parse::<i8>().ok()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    UtcOffset::from_hms(sign * hour, sign * minute, 0).ok()
 }
 
 fn option_string(value: Option<String>) -> Value {
@@ -803,5 +977,46 @@ mod tests {
             Some(86_400)
         );
         assert_eq!(payload.get("max_runs").and_then(Value::as_u64), Some(3));
+    }
+
+    #[test]
+    fn corrects_daily_time_requests_misread_as_once() {
+        let draft = ScheduleDraft {
+            title: Some("新闻的猪突猛进".to_string()),
+            prompt: Some(
+                "每天11:15 分， 搜一下最近的财经资讯， 把最重要的几条， 写到一个文件里面。"
+                    .to_string(),
+            ),
+            kind: Some("once".to_string()),
+            timezone: Some("Asia/Shanghai".to_string()),
+            run_at: Some("2026-06-01T04:02:00Z".to_string()),
+            interval_seconds: None,
+            enabled: Some(true),
+            cwd: None,
+            model: None,
+            effort: None,
+            summary: None,
+            output_schema: None,
+            max_runtime_seconds: None,
+            max_runs: None,
+        };
+
+        let payload = normalize_schedule_payload(&draft).expect("payload");
+
+        assert_eq!(
+            payload.get("kind").and_then(Value::as_str),
+            Some("interval")
+        );
+        assert_eq!(
+            payload.get("interval_seconds").and_then(Value::as_u64),
+            Some(86_400)
+        );
+        assert!(
+            payload
+                .get("run_at")
+                .and_then(Value::as_str)
+                .is_some_and(|run_at| run_at.contains("T03:15:00Z")),
+            "run_at should keep 11:15 Asia/Shanghai instead of the extraction time: {payload:?}"
+        );
     }
 }

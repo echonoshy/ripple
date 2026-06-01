@@ -84,6 +84,9 @@ const SETTINGS_AVATAR_MENU_WIDTH = 160;
 const SETTINGS_AVATAR_MENU_ITEM_HEIGHT = 32;
 const SETTINGS_AVATAR_MENU_VERTICAL_PADDING = 8;
 
+const settingsAccountActionButtonClass =
+  "inline-flex h-7 w-full min-w-0 items-center justify-center gap-1 rounded-full border border-[#dfe6f4] bg-white px-2 text-[10px] sm:text-[11px] font-semibold text-[#374151] transition-all hover:bg-[#f7f8fa] active:scale-[0.98] sm:w-auto sm:min-w-[68px] sm:gap-1.5 sm:px-2.5 [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0";
+
 interface ModelMenuPosition {
   top: number;
   left: number;
@@ -223,6 +226,14 @@ export default function SettingsPage({
       models.length > 0 ? models : [{ id: defaultModel || selectedModel, owned_by: "ripple" }],
     [defaultModel, models, selectedModel]
   );
+  const tokenUsageMetrics = [
+    { label: "24h input", value: formatTokens(usage?.daily_input_tokens ?? 0) },
+    { label: "7d input", value: formatTokens(usage?.weekly_input_tokens ?? 0) },
+    { label: "Total input", value: formatTokens(usage?.total_input_tokens ?? 0) },
+    { label: "24h output", value: formatTokens(usage?.daily_output_tokens ?? 0) },
+    { label: "7d output", value: formatTokens(usage?.weekly_output_tokens ?? 0) },
+    { label: "Total output", value: formatTokens(usage?.total_output_tokens ?? 0) },
+  ];
 
   useEffect(() => {
     if (isDisplayNameEditing) return;
@@ -593,7 +604,10 @@ export default function SettingsPage({
                   </div>
                 </div>
               </div>
-              <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+              <div
+                data-ripple-settings-account-actions
+                className="grid w-full grid-cols-2 gap-1.5 sm:flex sm:w-auto sm:flex-wrap sm:items-center sm:justify-end"
+              >
                 {authMode === "user" ? (
                   <button
                     type="button"
@@ -602,10 +616,10 @@ export default function SettingsPage({
                       setDisplayNameError(null);
                       setDisplayNameMessage(null);
                     }}
-                    className="inline-flex h-7 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-2.5 text-[11px] font-semibold text-[#374151] transition-all hover:bg-[#f7f8fa] active:scale-[0.98]"
+                    className={settingsAccountActionButtonClass}
                   >
                     <Edit3 size={13} />
-                    Edit
+                    <span>Edit</span>
                   </button>
                 ) : null}
                 {authMode === "user" ? (
@@ -616,19 +630,19 @@ export default function SettingsPage({
                       setPasswordError(null);
                       setPasswordMessage(null);
                     }}
-                    className="inline-flex h-7 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-2.5 text-[11px] font-semibold text-[#374151] transition-all hover:bg-[#f7f8fa] active:scale-[0.98]"
+                    className={settingsAccountActionButtonClass}
                   >
                     <LockKeyhole size={13} />
-                    Change password
+                    <span>Change password</span>
                   </button>
                 ) : null}
                 <button
                   type="button"
                   onClick={onApiKeyChange}
-                  className="inline-flex h-7 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-2.5 text-[11px] font-semibold text-[#374151] transition-all hover:bg-[#f7f8fa] active:scale-[0.98]"
+                  className={settingsAccountActionButtonClass}
                 >
                   <LogOut size={13} />
-                  Log out
+                  <span>Log out</span>
                 </button>
                 <div className="relative">
                   <button
@@ -638,14 +652,14 @@ export default function SettingsPage({
                     aria-label="Avatar actions"
                     aria-haspopup="menu"
                     aria-expanded={isAvatarMenuOpen}
-                    className="inline-flex h-7 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-2.5 text-[11px] font-semibold text-[#374151] transition-all hover:bg-[#f7f8fa] active:scale-[0.98]"
+                    className={settingsAccountActionButtonClass}
                   >
                     {isAvatarUploading ? (
                       <Loader2 size={13} className="animate-spin" />
                     ) : (
                       <UserRound size={13} />
                     )}
-                    {isAvatarUploading ? "Uploading" : "Avatar"}
+                    <span>{isAvatarUploading ? "Uploading" : "Avatar"}</span>
                     <ChevronDown size={12} className="text-[#6b7280]" />
                   </button>
                 </div>
@@ -789,53 +803,34 @@ export default function SettingsPage({
               activeRuns={usage?.active_runs ?? 0}
             />
           </div>
-          <div className="border-t border-[#e8edf7] p-2.5">
-            <div className="mb-1.5 flex items-center gap-1.5 text-[12px] font-semibold text-[#374151]">
+          <div className="border-t border-[#e8edf7] p-2">
+            <div className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold text-[#374151]">
               <IconTile tone="neutral" size="xs">
                 <Cpu size={12} />
               </IconTile>
               Token usage
             </div>
-            <div className="mb-1.5 text-[11px] leading-4 text-[#667085]">
-              Input and output are shown separately for each window.
-            </div>
-            <div className="overflow-hidden rounded-lg border border-[#e8edf7] bg-[#f8faff] text-center">
-              <div className="grid grid-cols-2 divide-x divide-[#e8edf7]">
-                <Metric
-                  label="24h input"
-                  value={formatTokens(usage?.daily_input_tokens ?? 0)}
-                  compact
-                />
-                <Metric
-                  label="24h output"
-                  value={formatTokens(usage?.daily_output_tokens ?? 0)}
-                  compact
-                />
-              </div>
-              <div className="grid grid-cols-2 divide-x divide-[#e8edf7] border-t border-[#e8edf7] bg-white/60">
-                <Metric
-                  label="7d input"
-                  value={formatTokens(usage?.weekly_input_tokens ?? 0)}
-                  compact
-                />
-                <Metric
-                  label="7d output"
-                  value={formatTokens(usage?.weekly_output_tokens ?? 0)}
-                  compact
-                />
-              </div>
-              <div className="grid grid-cols-2 divide-x divide-[#e8edf7] border-t border-[#e8edf7]">
-                <Metric
-                  label="Total input"
-                  value={formatTokens(usage?.total_input_tokens ?? 0)}
-                  compact
-                />
-                <Metric
-                  label="Total output"
-                  value={formatTokens(usage?.total_output_tokens ?? 0)}
-                  compact
-                />
-              </div>
+            <div
+              data-ripple-settings-token-grid
+              className="grid grid-cols-3 overflow-hidden rounded-lg border border-[#e8edf7] bg-[#f8faff] text-center"
+            >
+              {tokenUsageMetrics.map((metric, index) => {
+                const borderClassName = [
+                  index % 3 === 0 ? "" : "border-l border-[#e8edf7]",
+                  index >= 3 ? "border-t border-[#e8edf7]" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ");
+                return (
+                  <Metric
+                    key={metric.label}
+                    label={metric.label}
+                    value={metric.value}
+                    compact
+                    className={borderClassName}
+                  />
+                );
+              })}
             </div>
           </div>
         </section>
@@ -845,9 +840,6 @@ export default function SettingsPage({
           <div className="flex flex-wrap items-center justify-between gap-2 p-2.5">
             <div className="min-w-0">
               <div className="text-[12px] font-semibold text-[#111827]">Default model</div>
-              <div className="mt-0.5 text-[11px] text-[#667085]">
-                Used for new prompts and scheduled runs.
-              </div>
             </div>
             <div>
               <button
@@ -972,17 +964,37 @@ function Metric({
   label,
   value,
   compact = false,
+  className = "",
 }: {
   label: string;
   value: string;
   compact?: boolean;
+  className?: string;
 }) {
+  const baseClassName = compact
+    ? "px-1.5 py-1"
+    : "rounded-lg border border-[#e8edf7] bg-[#f8faff] p-2";
+
   return (
-    <div
-      className={compact ? "px-2 py-1.5" : "rounded-lg border border-[#e8edf7] bg-[#f8faff] p-2"}
-    >
-      <div className="text-[11px] font-medium text-[#8b8f94]">{label}</div>
-      <div className="mt-0.5 text-[14px] font-semibold text-[#253247]">{value}</div>
+    <div className={className ? `${baseClassName} ${className}` : baseClassName}>
+      <div
+        className={
+          compact
+            ? "text-[10px] font-medium text-[#8b8f94]"
+            : "text-[11px] font-medium text-[#8b8f94]"
+        }
+      >
+        {label}
+      </div>
+      <div
+        className={
+          compact
+            ? "mt-0.5 text-[13px] font-semibold text-[#253247]"
+            : "mt-0.5 text-[14px] font-semibold text-[#253247]"
+        }
+      >
+        {value}
+      </div>
     </div>
   );
 }

@@ -183,7 +183,14 @@ function testSettingsPageUsesInlineModelMenuAndTokenBreakdown() {
   assert.match(html, />Total output/);
   assert.doesNotMatch(html, />24h total/);
   assert.doesNotMatch(html, />7d total/);
-  assert.match(html, />Input and output are shown separately for each window/);
+  assert.doesNotMatch(html, />Input and output are shown separately for each window/);
+  assert.doesNotMatch(source, /Input and output are shown separately for each window/);
+  assert.match(source, /data-ripple-settings-token-grid/);
+  assert.match(source, /data-ripple-settings-token-grid[\s\S]*grid-cols-3/);
+  assert.match(
+    source,
+    /label: "24h input"[\s\S]*label: "7d input"[\s\S]*label: "Total input"[\s\S]*label: "24h output"[\s\S]*label: "7d output"[\s\S]*label: "Total output"/
+  );
 }
 
 function testSettingsPageCombinesRunCountersInOneRow() {
@@ -235,8 +242,23 @@ function testSettingsPageUsesCompactMobileDensity() {
   assert.match(source, /className="mx-auto max-w-5xl space-y-2"/);
   assert.match(source, /RippleIcon\s*\n\s*size=\{24\}/);
   assert.match(source, /className="flex h-8 items-center gap-1\.5 border-b/);
-  assert.match(source, /inline-flex h-7 items-center gap-1\.5 rounded-full/);
+  assert.match(source, /data-ripple-settings-account-actions/);
+  assert.match(source, /data-ripple-settings-account-actions[\s\S]*grid[\s\S]*grid-cols-2/);
+  assert.match(source, /data-ripple-settings-account-actions[\s\S]*sm:flex[\s\S]*sm:flex-wrap/);
+  assert.match(source, /const settingsAccountActionButtonClass =[\s\S]*w-full min-w-0/);
+  assert.match(
+    source,
+    /const settingsAccountActionButtonClass =[\s\S]*text-\[10px\] sm:text-\[11px\]/
+  );
   assert.match(source, /className="grid gap-2 p-2\.5 md:grid-cols-2"/);
+  assert.match(source, /data-ripple-settings-token-grid/);
+  assert.match(source, /data-ripple-settings-token-grid[\s\S]*grid-cols-3/);
+  assert.match(source, /const baseClassName = compact[\s\S]*\? "px-1\.5 py-1"/);
+  assert.match(source, /compact[\s\S]*\? "text-\[10px\] font-medium/);
+  assert.match(source, /compact[\s\S]*\? "mt-0\.5 text-\[13px\] font-semibold/);
+  assert.match(source, /className="border-t border-\[#e8edf7\] p-2"/);
+  assert.match(source, /mb-1 flex items-center gap-1\.5 text-\[11px\]/);
+  assert.doesNotMatch(source, /Used for new prompts and scheduled runs/);
 }
 
 testSettingsPageHasExpectedUserSections();

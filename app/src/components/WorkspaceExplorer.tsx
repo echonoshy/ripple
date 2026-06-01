@@ -2237,17 +2237,37 @@ export default function WorkspaceExplorer({
                 {searchLoading && (
                   <Loader2 size={13} className="shrink-0 animate-spin text-[#667085]" />
                 )}
-                {!isSearchMode && listing?.parent_path && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      void loadDirectory(listing.parent_path || DEFAULT_WORKSPACE_PATH)
-                    }
-                    className="flex items-center gap-1 rounded-md border border-[#e5e7eb] bg-white px-2 py-1 text-[11px] font-medium text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
-                  >
-                    <ArrowUp size={12} />
-                    Up
-                  </button>
+                {!isSearchMode && (listing?.parent_path || currentPath !== DEFAULT_WORKSPACE_PATH) && (
+                  <>
+                    {listing?.parent_path && (
+                      <button
+                        type="button"
+                        data-ripple-files-action="parent-folder"
+                        title="Go to parent folder"
+                        aria-label="Go to parent folder"
+                        onClick={() =>
+                          void loadDirectory(listing.parent_path || DEFAULT_WORKSPACE_PATH)
+                        }
+                        className="flex items-center gap-1 rounded-md border border-[#e5e7eb] bg-white px-2 py-1 text-[11px] font-medium text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
+                      >
+                        <ArrowUp size={12} />
+                        Up
+                      </button>
+                    )}
+                    {currentPath !== DEFAULT_WORKSPACE_PATH && (
+                      <button
+                        type="button"
+                        data-ripple-files-action="root-folder"
+                        title="Go to workspace root"
+                        aria-label="Go to workspace root"
+                        onClick={() => void loadDirectory(DEFAULT_WORKSPACE_PATH)}
+                        className="flex items-center gap-1 rounded-md border border-[#e5e7eb] bg-white px-2 py-1 text-[11px] font-medium text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
+                      >
+                        <Folder size={12} />
+                        Root
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
             </div>

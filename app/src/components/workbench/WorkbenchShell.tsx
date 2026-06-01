@@ -102,10 +102,11 @@ export default function WorkbenchShell({
           {inspector && isInspectorCollapsed && (
             <button
               type="button"
+              data-ripple-panel-edge-handle="workspace-panel"
               onClick={onExpandInspector}
               aria-label="Expand workspace panel"
               title="Expand workspace panel"
-              className="absolute top-[14px] right-4 z-30 inline-flex h-8 w-8 items-center justify-center rounded-full border border-[#e5e7eb]/80 bg-white/95 text-[#6b7280] shadow-[0_2px_8px_rgba(0,0,0,0.04)] backdrop-blur-sm transition-all duration-200 hover:scale-105 hover:border-[#dfe6f4] hover:bg-white hover:text-[#0d0d0d] active:scale-95"
+              className="absolute top-1/2 right-0 z-30 hidden h-14 w-7 -translate-y-1/2 items-center justify-center rounded-l-xl border border-r-0 border-[#bfdbfe] bg-[#eff6ff] text-[#2463eb] shadow-[0_8px_18px_rgba(36,99,235,0.12)] transition-colors hover:border-[#93c5fd] hover:bg-[#dbeafe] hover:text-[#1d4ed8] focus-visible:ring-2 focus-visible:ring-[#bfdbfe] focus-visible:outline-none active:scale-95 xl:inline-flex"
             >
               <ChevronLeft size={16} />
             </button>

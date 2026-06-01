@@ -892,10 +892,11 @@ export default function Home() {
           ) : (
             <button
               type="button"
+              data-ripple-panel-edge-handle="session-list"
               onClick={() => setIsSessionRailCollapsed(false)}
               aria-label="Expand session list"
               title="Expand session list"
-              className="absolute top-[14px] left-4 z-30 hidden h-8 w-8 items-center justify-center rounded-lg border border-[#dfe6f4] bg-white/88 text-[#667085] shadow-[0_6px_18px_rgba(44,63,123,0.08)] backdrop-blur-xl transition-colors hover:bg-white hover:text-[#111827] lg:inline-flex"
+              className="absolute top-1/2 left-0 z-30 hidden h-14 w-7 -translate-y-1/2 items-center justify-center rounded-r-xl border border-l-0 border-[#bfdbfe] bg-[#eff6ff] text-[#2463eb] shadow-[0_8px_18px_rgba(36,99,235,0.12)] transition-colors hover:border-[#93c5fd] hover:bg-[#dbeafe] hover:text-[#1d4ed8] focus-visible:ring-2 focus-visible:ring-[#bfdbfe] focus-visible:outline-none lg:inline-flex"
             >
               <ChevronRight size={16} />
             </button>

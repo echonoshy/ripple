@@ -115,6 +115,22 @@ function testDesktopSessionRailCanResizeAndCollapse() {
   assert.match(source, /aria-label="Expand session list"/);
 }
 
+function testCollapsedSessionRailUsesEdgeHandle() {
+  const source = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /data-ripple-panel-edge-handle="session-list"/);
+  assert.match(
+    source,
+    /className="absolute top-1\/2 left-0[\s\S]*bg-\[#eff6ff\][\s\S]*text-\[#2463eb\]/
+  );
+  assert.doesNotMatch(
+    source,
+    /className="absolute top-1\/2 left-0[\s\S]*bg-\[#2463eb\][\s\S]*text-white/
+  );
+  assert.doesNotMatch(source, /data-ripple-panel-edge-handle="session-list"[\s\S]*top-6/);
+  assert.doesNotMatch(source, /top-\[14px\] left-4 z-30 hidden h-8/);
+}
+
 testAppUsesAuthGatewayForLoginScreen();
 testWorkspaceLinksRouteToFilesPageOnMobile();
 testWorkspaceLinksUsePendingRequestForCollapsedInspector();
@@ -126,5 +142,6 @@ testCurrentSessionListVisibilityUsesRuntimeStatusPresence();
 testDesktopUsesProductTopBarWithSettingsAvatarEntry();
 testSessionRailOnlyLivesInsideSessionsView();
 testDesktopSessionRailCanResizeAndCollapse();
+testCollapsedSessionRailUsesEdgeHandle();
 
 console.log("app tests passed");

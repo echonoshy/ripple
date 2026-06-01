@@ -35,6 +35,18 @@ function renderShellWithInspector() {
   );
 }
 
+function renderShellWithCollapsedInspector() {
+  return renderToStaticMarkup(
+    <WorkbenchShell
+      topBar={<div>Product top bar</div>}
+      content={<div>Content</div>}
+      inspector={<div>Inspector</div>}
+      isInspectorCollapsed
+      onExpandInspector={() => {}}
+    />
+  );
+}
+
 function renderShellWithStoredInspectorWidth(storedValue: string) {
   const globalWithWindow = globalThis as typeof globalThis & { window?: unknown };
   const previousWindow = globalWithWindow.window;
@@ -111,5 +123,19 @@ function testInspectorMigratesPreviousDefaultWidth() {
 }
 
 testInspectorMigratesPreviousDefaultWidth();
+
+function testCollapsedInspectorUsesEdgeHandle() {
+  const html = renderShellWithCollapsedInspector();
+
+  assert.match(html, /data-ripple-panel-edge-handle="workspace-panel"/);
+  assert.match(html, /top-1\/2/);
+  assert.match(html, /bg-\[#eff6ff\]/);
+  assert.match(html, /text-\[#2463eb\]/);
+  assert.doesNotMatch(html, /top-6/);
+  assert.doesNotMatch(html, /bg-\[#2463eb\]/);
+  assert.doesNotMatch(html, /top-\[14px\] right-4 z-30/);
+}
+
+testCollapsedInspectorUsesEdgeHandle();
 
 console.log("workbench shell tests passed");

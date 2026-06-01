@@ -218,6 +218,25 @@ function testWorkspaceExplorerDesktopDirectoryNavigationUsesSharedGlassButtons()
 
 testWorkspaceExplorerDesktopDirectoryNavigationUsesSharedGlassButtons();
 
+function testWorkspaceExplorerCompactDirectoryNavigationOffersParentAndRootControls() {
+  const html = renderExplorer({
+    testInitialListing: {
+      path: "/workspace/scripts",
+      parent_path: "/workspace",
+      entries: [],
+    },
+  });
+
+  assert.match(html, /data-ripple-files-action="parent-folder"/);
+  assert.match(html, /aria-label="Go to parent folder"/);
+  assert.match(html, />Up</);
+  assert.match(html, /data-ripple-files-action="root-folder"/);
+  assert.match(html, /aria-label="Go to workspace root"/);
+  assert.match(html, />Root</);
+}
+
+testWorkspaceExplorerCompactDirectoryNavigationOffersParentAndRootControls();
+
 function testWorkspaceExplorerMobileSearchSheetKeepsSearchAndFiltersTogether() {
   const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
   const sheetIndex = source.indexOf("data-ripple-files-mobile-search-sheet");

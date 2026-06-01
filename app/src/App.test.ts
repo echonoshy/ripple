@@ -64,11 +64,19 @@ function testMobileFileLinkReturnRestoresSessionScroll() {
   assert.match(source, /onRestoreScrollComplete=\{\(\) => setMobileSessionRestoreScrollTop\(null\)\}/);
 }
 
+function testCurrentSessionListVisibilityUsesRuntimeStatusPresence() {
+  const source = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /Boolean\(selectedSessionRuntimeStatus\)/);
+  assert.doesNotMatch(source, /selectedSessionRuntimeStatus !== "idle"/);
+}
+
 testAppUsesAuthGatewayForLoginScreen();
 testWorkspaceLinksRouteToFilesPageOnMobile();
 testWorkspaceLinksUsePendingRequestForCollapsedInspector();
 testWorkspaceLinksIgnoreSandboxUserInProductSessionAuth();
 testMobileFileLinkRouteCanReturnToChat();
 testMobileFileLinkReturnRestoresSessionScroll();
+testCurrentSessionListVisibilityUsesRuntimeStatusPresence();
 
 console.log("app tests passed");

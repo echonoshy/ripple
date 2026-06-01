@@ -31,6 +31,11 @@ import {
 } from "@/lib/connectors";
 import { IconTile, type IconTileTone } from "@/components/icons/IconTile";
 import type { ConnectorInfo, ConnectorStatus, GogcliAccountInfo } from "@/types";
+import {
+  COMPACT_IOS_PAGE_BACKGROUND,
+  LUCIDE_NAV_STROKE_WIDTH,
+  MOBILE_GLASS_ICON_BUTTON_CLASS,
+} from "./stylePrimitives";
 
 const CONNECTOR_CACHE_TTL_MS = 30_000;
 const CONNECTOR_FOCUS_REFRESH_THROTTLE_MS = 10_000;
@@ -426,7 +431,9 @@ export default function ConnectorsPage({
   }, [pendingAuth, statuses]);
 
   return (
-    <div className="h-full min-h-0 overflow-y-auto bg-[radial-gradient(circle_at_16%_0%,rgba(47,107,255,0.12),transparent_34%),radial-gradient(circle_at_88%_8%,rgba(139,92,246,0.11),transparent_32%),#fbfdff] px-3 pt-[max(env(safe-area-inset-top),12px)] pb-[calc(76px+env(safe-area-inset-bottom))] text-[#111827] md:px-6 lg:pb-5">
+    <div
+      className={`h-full min-h-0 overflow-y-auto ${COMPACT_IOS_PAGE_BACKGROUND} px-3 pt-[max(env(safe-area-inset-top),12px)] pb-[calc(88px+env(safe-area-inset-bottom))] text-[#111827] md:px-6 lg:pb-5`}
+    >
       <div className="mx-auto max-w-5xl space-y-3">
         <header className="flex flex-wrap items-start justify-between gap-2">
           <div className="flex min-w-0 items-start gap-2.5">
@@ -436,9 +443,9 @@ export default function ConnectorsPage({
                 onClick={onBack}
                 aria-label="Back to settings"
                 title="Back to settings"
-                className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#dfe6f4] bg-white text-[#384152] hover:bg-[#f7f8fa] lg:hidden"
+                className={`${MOBILE_GLASS_ICON_BUTTON_CLASS} mt-0.5 lg:hidden`}
               >
-                <ArrowBigLeft size={15} />
+                <ArrowBigLeft size={15} strokeWidth={LUCIDE_NAV_STROKE_WIDTH} />
               </button>
             ) : null}
             <div className="min-w-0">

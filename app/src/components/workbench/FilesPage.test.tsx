@@ -41,4 +41,14 @@ function testFilesPagePassesPendingOpenFileRequestToExplorer() {
 
 testFilesPagePassesPendingOpenFileRequestToExplorer();
 
+function testFilesPageUsesSharedCompactGlassBackground() {
+  const source = readFileSync(new URL("./FilesPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /COMPACT_IOS_PAGE_BACKGROUND/);
+  assert.match(source, /pb-\[calc\(88px\+env\(safe-area-inset-bottom\)\)\]/);
+  assert.doesNotMatch(source, /circle_at_16%_0%/);
+}
+
+testFilesPageUsesSharedCompactGlassBackground();
+
 console.log("files page tests passed");

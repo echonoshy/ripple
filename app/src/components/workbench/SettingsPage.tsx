@@ -46,6 +46,7 @@ import {
 import type { SandboxInfo, UserProfile } from "@/types";
 import { IconTile, type IconTileTone } from "@/components/icons/IconTile";
 import RippleIcon from "@/components/icons/RippleIcon";
+import { COMPACT_IOS_PAGE_BACKGROUND } from "./stylePrimitives";
 
 interface SettingsPageProps {
   userId: string;
@@ -541,7 +542,9 @@ export default function SettingsPage({
       : null;
 
   return (
-    <div className="h-full min-h-0 overflow-y-auto bg-[radial-gradient(circle_at_16%_0%,rgba(47,107,255,0.10),transparent_34%),radial-gradient(circle_at_88%_8%,rgba(20,184,166,0.08),transparent_32%),#fbfdff] px-2.5 pt-[max(env(safe-area-inset-top),8px)] pb-[calc(68px+env(safe-area-inset-bottom))] text-[#111827] md:px-4 md:pt-[max(env(safe-area-inset-top),12px)] md:pb-4">
+    <div
+      className={`h-full min-h-0 overflow-y-auto ${COMPACT_IOS_PAGE_BACKGROUND} px-2.5 pt-[max(env(safe-area-inset-top),8px)] pb-[calc(88px+env(safe-area-inset-bottom))] text-[#111827] md:px-4 md:pt-[max(env(safe-area-inset-top),12px)] md:pb-4`}
+    >
       {modelMenuPortal}
       {avatarMenuPortal}
       <div className="mx-auto max-w-5xl space-y-2">

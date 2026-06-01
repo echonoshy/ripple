@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { X, ChevronLeft, ChevronRight } from "lucide-react";
 import RippleIcon from "@/components/icons/RippleIcon";
+import { COMPACT_IOS_PAGE_BACKGROUND } from "./stylePrimitives";
 
 const NAV_WIDTH_STORAGE_KEY = "ripple.workbench.navWidth";
 const DEFAULT_NAV_WIDTH = 300;
@@ -165,15 +166,17 @@ export default function WorkbenchShell({
   );
 
   return (
-    <div className="h-dvh h-screen min-h-dvh min-h-screen w-screen overflow-hidden bg-[radial-gradient(circle_at_5%_5%,rgba(36,99,235,0.035),transparent_40%),radial-gradient(circle_at_80%_10%,rgba(139,92,246,0.035),transparent_40%),#fbfdff] text-[#0d0d0d]">
+    <div
+      className={`h-dvh h-screen min-h-dvh min-h-screen w-screen overflow-hidden ${COMPACT_IOS_PAGE_BACKGROUND} text-[#0d0d0d]`}
+    >
       <div className="flex h-full min-h-0">
         {!isNavCollapsed && (
           <div
-            className="relative hidden shrink-0 bg-[#fbfbfc]/75 backdrop-blur-xl lg:block"
+            className="relative hidden shrink-0 bg-white/72 backdrop-blur-2xl lg:block"
             style={{ width: navWidth }}
           >
             <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(circle_at_15%_15%,rgba(36,99,235,0.03),transparent_50%)]" />
-            <div className="h-full border-r border-[#e5e7eb]/80">{nav}</div>
+            <div className="h-full border-r border-[#e8edf7]/80">{nav}</div>
             <div
               role="separator"
               aria-label="Resize navigation"
@@ -199,9 +202,9 @@ export default function WorkbenchShell({
               className="absolute inset-0 bg-[#171a1f]/28"
               onClick={onCloseNav}
             />
-            <div className="absolute top-0 bottom-0 left-0 w-[min(86vw,320px)] border-r border-[#e5e7eb]/80 bg-[#fbfbfc]/85 shadow-xl backdrop-blur-2xl">
+            <div className="absolute top-0 bottom-0 left-0 w-[min(86vw,320px)] border-r border-[#e8edf7]/80 bg-white/76 shadow-[0_18px_44px_rgba(44,63,123,0.14)] backdrop-blur-2xl">
               <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(circle_at_15%_15%,rgba(36,99,235,0.03),transparent_50%)]" />
-              <div className="flex h-12 items-center justify-between border-b border-[#e5e7eb] px-3">
+              <div className="flex h-12 items-center justify-between border-b border-[#e8edf7] px-3">
                 <span className="flex items-center gap-2 text-sm font-semibold">
                   <RippleIcon size={26} className="h-[26px] w-[26px] rounded-md" />
                   Ripple
@@ -211,7 +214,7 @@ export default function WorkbenchShell({
                   aria-label="Close navigation"
                   title="Close navigation"
                   onClick={onCloseNav}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#e5e7eb] bg-white text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#dfe6f4] bg-white/78 text-[#6b7280] shadow-[0_6px_18px_rgba(44,63,123,0.05)] backdrop-blur-xl hover:bg-white hover:text-[#0d0d0d]"
                 >
                   <X size={15} />
                 </button>
@@ -221,7 +224,7 @@ export default function WorkbenchShell({
           </div>
         )}
 
-        <main className="relative flex min-w-0 flex-1 flex-col bg-white">
+        <main className="relative flex min-w-0 flex-1 flex-col bg-transparent">
           {isNavCollapsed && (
             <button
               type="button"

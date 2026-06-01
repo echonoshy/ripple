@@ -33,6 +33,11 @@ import {
 import { formatModelName } from "@/lib/models";
 import { saveBlobAsDownload } from "@/lib/platform";
 import type { AgentRunInfo, ScheduleInfo, ScheduleKind } from "@/types";
+import {
+  COMPACT_IOS_PAGE_BACKGROUND,
+  LUCIDE_NAV_STROKE_WIDTH,
+  MOBILE_GLASS_ICON_BUTTON_CLASS,
+} from "./stylePrimitives";
 
 interface AutomationsPageProps {
   selectedModel: string;
@@ -540,7 +545,9 @@ export default function AutomationsPage({
   );
 
   return (
-    <div className="h-full min-h-0 overflow-y-auto bg-[radial-gradient(circle_at_16%_0%,rgba(47,107,255,0.12),transparent_34%),radial-gradient(circle_at_88%_8%,rgba(139,92,246,0.11),transparent_32%),#fbfdff] px-4 pt-[max(env(safe-area-inset-top),16px)] pb-[calc(88px+env(safe-area-inset-bottom))] text-[#111827] md:px-6 lg:pb-4">
+    <div
+      className={`h-full min-h-0 overflow-y-auto ${COMPACT_IOS_PAGE_BACKGROUND} px-4 pt-[max(env(safe-area-inset-top),16px)] pb-[calc(88px+env(safe-area-inset-bottom))] text-[#111827] md:px-6 lg:pb-4`}
+    >
       <div className="mx-auto max-w-6xl space-y-4">
         <header className="flex flex-wrap items-center justify-between gap-3 pb-1">
           <div className="flex min-w-0 items-center gap-3">
@@ -550,9 +557,9 @@ export default function AutomationsPage({
                 onClick={onBack}
                 aria-label="Back to settings"
                 title="Back to settings"
-                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#dfe6f4] bg-white text-[#384152] hover:bg-[#f7f8fa] lg:hidden"
+                className={`${MOBILE_GLASS_ICON_BUTTON_CLASS} lg:hidden`}
               >
-                <ArrowBigLeft size={17} />
+                <ArrowBigLeft size={16} strokeWidth={LUCIDE_NAV_STROKE_WIDTH} />
               </button>
             ) : null}
             <div className="min-w-0">

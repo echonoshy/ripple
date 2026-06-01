@@ -238,7 +238,9 @@ function testDefaultModelControlUsesDefaultModelNotCurrentSessionModel() {
 function testSettingsPageUsesCompactMobileDensity() {
   const source = readFileSync(new URL("./SettingsPage.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /pb-\[calc\(68px\+env\(safe-area-inset-bottom\)\)\]/);
+  assert.match(source, /COMPACT_IOS_PAGE_BACKGROUND/);
+  assert.match(source, /pb-\[calc\(88px\+env\(safe-area-inset-bottom\)\)\]/);
+  assert.doesNotMatch(source, /20,184,166/);
   assert.match(source, /className="mx-auto max-w-5xl space-y-2"/);
   assert.match(source, /RippleIcon\s*\n\s*size=\{24\}/);
   assert.match(source, /className="flex h-8 items-center gap-1\.5 border-b/);

@@ -39,11 +39,11 @@ import {
 } from "@/lib/pendingImages";
 import SessionComposer from "./SessionComposer";
 import SessionTimeline from "./SessionTimeline";
+import { COMPACT_IOS_PAGE_BACKGROUND, MOBILE_GLASS_ICON_BUTTON_CLASS } from "./stylePrimitives";
 
 const STICK_TO_BOTTOM_MS = 1200;
 const BOTTOM_LOCK_THRESHOLD_PX = 40;
-const mobileHeaderButtonClass =
-  "inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/70 bg-white/68 text-[#516070] shadow-[0_6px_18px_rgba(44,63,123,0.08)] backdrop-blur-xl transition-all hover:bg-white/86 active:scale-[0.98] active:bg-white/78";
+const mobileHeaderButtonClass = MOBILE_GLASS_ICON_BUTTON_CLASS;
 
 function currentTimeMs(): number {
   return typeof performance === "undefined" ? Date.now() : performance.now();
@@ -387,7 +387,7 @@ export default function SessionPage({
       onDragOver={handlePageDragOver}
       onDragLeave={handlePageDragLeave}
       onDrop={handlePageDrop}
-      className={`relative flex h-full min-h-0 flex-col bg-[radial-gradient(circle_at_18%_0%,rgba(47,107,255,0.10),transparent_32%),radial-gradient(circle_at_88%_5%,rgba(139,92,246,0.10),transparent_34%),#fbfdff] ${
+      className={`relative flex h-full min-h-0 flex-col ${COMPACT_IOS_PAGE_BACKGROUND} ${
         isDraggingFiles ? "ring-2 ring-[#8da0ff] ring-inset" : ""
       }`}
     >

@@ -73,9 +73,13 @@ function testComposerToolbarNamesRealActions() {
 function testComposerToolbarUsesRequestedLucideIconSet() {
   const source = readFileSync(new URL("./SessionComposer.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /<FolderGit2 size=\{16\} strokeWidth=\{2\} \/>/);
-  assert.match(source, /<Paperclip size=\{16\} strokeWidth=\{2\} \/>/);
-  assert.match(source, /<BrainCircuit size=\{16\} strokeWidth=\{2\} \/>/);
+  assert.match(source, /LUCIDE_STANDARD_STROKE_WIDTH/);
+  assert.match(source, /<FolderGit2 size=\{16\} strokeWidth=\{LUCIDE_STANDARD_STROKE_WIDTH\} \/>/);
+  assert.match(source, /<Paperclip size=\{16\} strokeWidth=\{LUCIDE_STANDARD_STROKE_WIDTH\} \/>/);
+  assert.match(
+    source,
+    /<BrainCircuit size=\{16\} strokeWidth=\{LUCIDE_STANDARD_STROKE_WIDTH\} \/>/
+  );
   assert.doesNotMatch(source, /<Folder size=\{16\}/);
   assert.doesNotMatch(source, /<Cpu size=\{16\}/);
 }
@@ -118,6 +122,13 @@ function testComposerClearsIosHomeIndicatorAndUsesTouchSizedActions() {
   assert.match(html, /h-10 w-10/);
   assert.match(html, /session-composer-input[^"]*text-\[14px\][^"]*sm:text-\[14px\]/);
   assert.doesNotMatch(html, /session-composer-input[^"]*text-\[15px\]/);
+}
+
+function testComposerUsesCompactGlassRadiusScale() {
+  const source = readFileSync(new URL("./SessionComposer.tsx", import.meta.url), "utf8");
+
+  assert.doesNotMatch(source, /rounded-\[20px\]/);
+  assert.match(source, /rounded-2xl border border-\[#dfe6f4\] bg-white\/92/);
 }
 
 function testComposerExpandsActionsBelowTextAfterInput() {
@@ -202,6 +213,7 @@ testComposerShowsWorkspaceFolderPickerButton();
 testComposerInputSuppressesGlobalBlueFocusOutline();
 testBlockedComposerStillAllowsDraftingAndShowsStop();
 testComposerClearsIosHomeIndicatorAndUsesTouchSizedActions();
+testComposerUsesCompactGlassRadiusScale();
 testComposerExpandsActionsBelowTextAfterInput();
 testExpandedComposerKeepsToolbarHorizontalOrigin();
 testComposerOnlyTextInputFocusExpandsEmptyComposer();

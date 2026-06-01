@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import MobileTabBar from "./MobileTabBar";
+
+const mobileTabBarSource = readFileSync(new URL("./MobileTabBar.tsx", import.meta.url), "utf8");
 
 function noop() {}
 
@@ -62,5 +65,12 @@ function testEveryMobileTabUsesSoftIconTile() {
 }
 
 testEveryMobileTabUsesSoftIconTile();
+
+function testUsesSharedNavigationIconStrokeWeight() {
+  assert.match(mobileTabBarSource, /LUCIDE_NAV_STROKE_WIDTH/);
+  assert.doesNotMatch(mobileTabBarSource, /2\.45/);
+}
+
+testUsesSharedNavigationIconStrokeWeight();
 
 console.log("mobile tab bar tests passed");

@@ -74,6 +74,7 @@ function testWorkspaceExplorerUsesFinderThreePaneLayout() {
   assert.match(html, /lg:grid-cols-\[210px_minmax\(260px,330px\)_minmax\(0,1fr\)\]/);
   assert.match(html, /aria-label="Search workspace files"/);
   assert.match(html, /aria-label="Collapse preview panel"/);
+  assert.doesNotMatch(html, /rounded-\[22px\]/);
   assert.doesNotMatch(html, /#ec6a5e/);
   assert.doesNotMatch(html, /#f5bf4f/);
   assert.doesNotMatch(html, /#61c554/);
@@ -196,6 +197,15 @@ function testWorkspaceExplorerPageKeepsMobileUploadSeparateFromParentFolder() {
 }
 
 testWorkspaceExplorerPageKeepsMobileUploadSeparateFromParentFolder();
+
+function testWorkspaceExplorerUsesSharedDenseToolbarButtons() {
+  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /DENSE_GLASS_ICON_BUTTON_CLASS/);
+  assert.doesNotMatch(source, /const pageToolbarIconButtonClass =\s*\n\s*"inline-flex h-9 w-9/);
+}
+
+testWorkspaceExplorerUsesSharedDenseToolbarButtons();
 
 function testWorkspaceExplorerMobileSearchSheetKeepsSearchAndFiltersTogether() {
   const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");

@@ -29,6 +29,7 @@ import {
   type PendingLocalImage,
 } from "@/lib/pendingImages";
 import WorkspaceFolderPicker from "./WorkspaceFolderPicker";
+import { LUCIDE_STANDARD_STROKE_WIDTH } from "./stylePrimitives";
 
 interface SessionComposerProps {
   userId?: string;
@@ -335,7 +336,7 @@ export default function SessionComposer({
             }}
             className="inline-flex h-10 w-10 items-center justify-center rounded-full text-[#4b5563] hover:bg-[#f3f4f6] hover:text-[#111827] active:bg-[#eef3ff] sm:h-8 sm:w-8"
           >
-            <FolderGit2 size={16} strokeWidth={2} />
+            <FolderGit2 size={16} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
           </button>
           {isFolderPickerOpen && (
             <WorkspaceFolderPicker
@@ -380,7 +381,7 @@ export default function SessionComposer({
           {isUploadingFiles ? (
             <Loader2 size={15} className="animate-spin" />
           ) : (
-            <Paperclip size={16} strokeWidth={2} />
+            <Paperclip size={16} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
           )}
         </button>
       </div>
@@ -395,7 +396,7 @@ export default function SessionComposer({
           }}
           className="inline-flex h-10 w-10 items-center justify-center rounded-full text-[#4b5563] hover:bg-[#f3f4f6] hover:text-[#111827] active:bg-[#eef3ff] sm:h-8 sm:w-8"
         >
-          <BrainCircuit size={16} strokeWidth={2} />
+          <BrainCircuit size={16} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
         </button>
         {isModelDropdownOpen && (
           <div className="absolute bottom-full left-0 z-30 mb-2 w-48 overflow-hidden rounded-xl border border-[#dfe6f4] bg-white shadow-[0_14px_34px_rgba(44,63,123,0.14)]">
@@ -476,7 +477,7 @@ export default function SessionComposer({
 
   return (
     <div className="shrink-0 border-t border-[#e8edf7] bg-white/76 px-3 pt-1 pb-[max(env(safe-area-inset-bottom),8px)] shadow-[0_-14px_32px_rgba(44,63,123,0.08)] backdrop-blur-2xl sm:px-4 sm:pt-2 md:px-6 lg:pb-[max(env(safe-area-inset-bottom),12px)]">
-      <div className="mx-auto max-w-4xl rounded-[20px] border border-[#dfe6f4] bg-white/92 p-1.5 shadow-[0_12px_30px_rgba(44,63,123,0.12)] transition-colors focus-within:border-[#8da0ff] sm:rounded-2xl sm:p-1.5">
+      <div className="mx-auto max-w-4xl rounded-2xl border border-[#dfe6f4] bg-white/92 p-1.5 shadow-[0_12px_30px_rgba(44,63,123,0.12)] transition-colors focus-within:border-[#8da0ff] sm:p-1.5">
         <input
           ref={fileInputRef}
           type="file"

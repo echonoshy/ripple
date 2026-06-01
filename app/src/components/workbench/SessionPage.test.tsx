@@ -150,7 +150,7 @@ function testMobileHeaderButtonsUseToolbarStyling() {
   assert.doesNotMatch(backButton, /lucide-arrow-big-left/);
   assert.match(
     sessionPageSource,
-    /mobileHeaderButtonClass =\s+"inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white\/70 bg-white\/68 text-\[#516070\]/
+    /MOBILE_GLASS_ICON_BUTTON_CLASS/
   );
   assert.match(sessionPageSource, /ChevronLeft/);
   assert.match(sessionPageSource, /MessageCircleMore/);
@@ -168,6 +168,11 @@ function testMobileHeaderButtonsUseToolbarStyling() {
     sessionPageSource,
     /className="inline-flex h-10 w-10 items-center justify-center rounded-full text-\[#172033\] active:bg-\[#eef3ff\]/
   );
+}
+
+function testSessionPageUsesSharedCompactGlassBackground() {
+  assert.match(sessionPageSource, /COMPACT_IOS_PAGE_BACKGROUND/);
+  assert.doesNotMatch(sessionPageSource, /circle_at_18%_0%/);
 }
 
 function testSessionSettingsUsesGroupedFormPanel() {
@@ -386,6 +391,7 @@ function testSessionPageCanRestorePreviousScrollPosition() {
 
 testOmitsPlaceholderSessionHeaderControls();
 testMobileHeaderButtonsUseToolbarStyling();
+testSessionPageUsesSharedCompactGlassBackground();
 testSessionSettingsUsesGroupedFormPanel();
 testGivesSessionContentMoreHorizontalRoom();
 testSessionPageHandlesDropAcrossWholeChat();

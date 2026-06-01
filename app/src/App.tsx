@@ -638,7 +638,7 @@ export default function Home() {
     messages.length > 0 ||
     planSteps.length > 0 ||
     Boolean(planProgress) ||
-    Boolean(selectedSessionRuntimeStatus && selectedSessionRuntimeStatus !== "idle");
+    Boolean(selectedSessionRuntimeStatus);
   const inferredCurrentSession = useMemo(
     () =>
       sessionId && !selectedExistingSession && currentSessionShouldAppearInList

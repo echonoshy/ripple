@@ -3,6 +3,7 @@
 import React from "react";
 import { IconTile } from "@/components/icons/IconTile";
 import { mainNavItems, type WorkspaceView } from "@/lib/workspaceViews";
+import { LUCIDE_NAV_STROKE_WIDTH } from "./stylePrimitives";
 
 interface MobileTabBarProps {
   activeView: WorkspaceView;
@@ -46,7 +47,7 @@ export default function MobileTabBar({ activeView, onSelectView }: MobileTabBarP
                     : "group-active:border-[#d7e3f8] group-active:bg-[#eef4ff]"
                 }
               >
-                <Icon size={selected ? 15 : 16} strokeWidth={selected ? 2.45 : 2.25} />
+                <Icon size={15} strokeWidth={LUCIDE_NAV_STROKE_WIDTH} />
               </IconTile>
               <span className="max-w-full truncate">{mobileNavLabels[item.id]}</span>
             </button>

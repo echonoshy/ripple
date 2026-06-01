@@ -96,6 +96,11 @@ function testAutomationCardUsesSeparatedLayoutRegions() {
 function testAutomationCardUsesCompactResponsiveLayout() {
   const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
 
+  assert.match(source, /COMPACT_IOS_PAGE_BACKGROUND/);
+  assert.match(source, /MOBILE_GLASS_ICON_BUTTON_CLASS/);
+  assert.match(source, /LUCIDE_NAV_STROKE_WIDTH/);
+  assert.match(source, /pb-\[calc\(88px\+env\(safe-area-inset-bottom\)\)\]/);
+  assert.doesNotMatch(source, /circle_at_16%_0%/);
   assert.match(source, /className="px-3 py-3 sm:px-4 sm:py-3"/);
   assert.match(source, /lg:grid-cols-\[minmax\(0,1fr\)_minmax\(220px,280px\)\]/);
   assert.match(source, /grid-cols-2 gap-1\.5 pl-9 sm:grid-cols-4 lg:grid-cols-3/);

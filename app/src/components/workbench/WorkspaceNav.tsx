@@ -196,7 +196,7 @@ export default function WorkspaceNav({
 
   return (
     <div className="flex h-full min-h-0 flex-col text-[#0d0d0d]" aria-busy={isGenerating}>
-      <div className="border-b border-[#e5e7eb] px-4 pt-4 pb-4">
+      <div className="border-b border-[#e8edf7] px-3.5 pt-3.5 pb-3">
         <div className="mb-5 flex h-8 items-center gap-3">
           <RippleIcon size={30} className="h-[30px] w-[30px] shrink-0 rounded-lg" />
           <div className="min-w-0 flex-1">
@@ -223,7 +223,7 @@ export default function WorkspaceNav({
         </button>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
         <nav className="space-y-1">
           {mainNavItems.map((item) => {
             const Icon = item.icon;
@@ -416,7 +416,7 @@ export default function WorkspaceNav({
         </div>
       </div>
 
-      <div ref={userMenuRef} className="relative border-t border-[#e5e7eb] px-4 py-3">
+      <div ref={userMenuRef} className="relative border-t border-[#e8edf7] px-3.5 py-2.5">
         {isUserMenuOpen && (
           <div
             className="animate-in fade-in-50 zoom-in-95 absolute bottom-14 left-3 z-50 w-64 rounded-2xl border border-[#dfe6f4] bg-white/95 p-3.5 shadow-[0_12px_36px_-4px_rgba(0,0,0,0.12),0_4px_16px_-2px_rgba(0,0,0,0.06)] backdrop-blur-md duration-100"

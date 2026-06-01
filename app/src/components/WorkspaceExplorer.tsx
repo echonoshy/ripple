@@ -30,6 +30,7 @@ import {
   X,
 } from "lucide-react";
 import { IconTile } from "@/components/icons/IconTile";
+import { DENSE_GLASS_ICON_BUTTON_CLASS } from "@/components/workbench/stylePrimitives";
 import {
   downloadWorkspaceFile,
   fetchWorkspaceDocumentPreview,
@@ -1457,8 +1458,7 @@ export default function WorkspaceExplorer({
     : listing?.path || currentPath;
   const mobilePathDetail = isSearchMode ? searchModeLabel(searchScope) : null;
   const isPagePresentation = presentation === "page";
-  const pageToolbarIconButtonClass =
-    "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#dfe6f4] bg-white/78 text-[#384152] shadow-[0_10px_24px_rgba(44,63,123,0.06)] transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-50";
+  const pageToolbarIconButtonClass = DENSE_GLASS_ICON_BUTTON_CLASS;
   const pageToolbarPrimaryButtonClass = pageToolbarIconButtonClass;
   const pageParentButtonClass =
     "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#d7e3f8] bg-[#eef4ff] text-[#2463eb] shadow-[0_10px_24px_rgba(44,63,123,0.06)] transition-colors hover:bg-[#e5efff] lg:hidden";
@@ -1477,7 +1477,7 @@ export default function WorkspaceExplorer({
       data-preview-state={previewState}
       className={
         isPagePresentation
-          ? "relative flex h-full min-h-0 flex-col overflow-hidden rounded-[22px] border border-[#dfe6f4] bg-[#ffffff] text-[#111827] shadow-[0_22px_70px_rgba(44,63,123,0.08),inset_0_1px_0_rgba(255,255,255,0.92)]"
+          ? "relative flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-[#dfe6f4] bg-white/86 text-[#111827] shadow-[0_12px_30px_rgba(44,63,123,0.06),inset_0_1px_0_rgba(255,255,255,0.92)] backdrop-blur-xl"
           : "relative flex h-full min-h-0 flex-col overflow-hidden bg-white text-[#0d0d0d]"
       }
       onDragEnter={handleDragEnter}
@@ -1996,7 +1996,7 @@ export default function WorkspaceExplorer({
           onClick={() => setIsMobileSearchOpen(false)}
         >
           <div
-            className="w-full rounded-[22px] border border-[#dfe6f4] bg-white text-[#111827] shadow-[0_-18px_48px_rgba(44,63,123,0.16)]"
+            className="w-full rounded-2xl border border-[#dfe6f4] bg-white/92 text-[#111827] shadow-[0_-14px_34px_rgba(44,63,123,0.14)] backdrop-blur-xl"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-center gap-2 border-b border-[#edf2fb] px-3 py-3">

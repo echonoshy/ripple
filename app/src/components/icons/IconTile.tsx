@@ -19,7 +19,7 @@ const tileSizeClass: Record<IconTileSize, string> = {
   sm: "h-7 w-7 rounded-lg",
   md: "h-8 w-8 rounded-xl",
   lg: "h-10 w-10 rounded-xl",
-  xl: "h-11 w-11 rounded-[14px]",
+  xl: "h-11 w-11 rounded-xl",
 };
 
 interface IconTileProps {

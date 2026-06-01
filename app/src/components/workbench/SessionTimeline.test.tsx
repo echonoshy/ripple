@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import SessionTimeline from "./SessionTimeline";
+import SessionTimeline, { WAITING_STATUS_MESSAGES } from "./SessionTimeline";
 
 function noop() {}
 
@@ -26,6 +26,18 @@ function renderTimelineWithEvents() {
         },
       ]}
       isGenerating={false}
+      onQuickReply={noop}
+      onPermissionResolve={noop}
+    />
+  );
+}
+
+function renderGeneratingTimeline() {
+  return renderToStaticMarkup(
+    <SessionTimeline
+      messages={[{ id: "assistant-waiting", role: "assistant", content: "" }]}
+      events={[]}
+      isGenerating
       onQuickReply={noop}
       onPermissionResolve={noop}
     />
@@ -71,10 +83,36 @@ function testToolEventsDoNotExposeCopyAction() {
   assert.equal((html.match(/aria-label="Copy Command content"/g) || []).length, 0);
 }
 
+function testGeneratingPlaceholderUsesRandomWaitingCopy() {
+  const originalRandom = Math.random;
+  Math.random = () => 0;
+
+  try {
+    const html = renderGeneratingTimeline();
+
+    assert.ok(WAITING_STATUS_MESSAGES.length >= 40);
+    assert.match(html, new RegExp(WAITING_STATUS_MESSAGES[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.doesNotMatch(html, /Starting work\.\.\./);
+  } finally {
+    Math.random = originalRandom;
+  }
+}
+
+function testWaitingCopyAvoidsConcreteOperationClaims() {
+  const concreteOperationPattern =
+    /\b(shortcut|workspace|files?|context|diff|wiring|toolbox|path|thread|signal|lever|clues|map|terrain|reading|checking|tracing|opening|running|testing|gathering|mapping)\b/i;
+
+  for (const message of WAITING_STATUS_MESSAGES) {
+    assert.doesNotMatch(message, concreteOperationPattern);
+  }
+}
+
 testTimelineImagePreviewsUseWorkspaceImageCache();
 testEmptyTimelineUsesShortReadyCopy();
 testAssistantMessagesExposeCopyAction();
 testCopyActionIsHiddenUntilMessageInteraction();
 testToolEventsDoNotExposeCopyAction();
+testGeneratingPlaceholderUsesRandomWaitingCopy();
+testWaitingCopyAvoidsConcreteOperationClaims();
 
 console.log("session timeline tests passed");

@@ -23,6 +23,79 @@ import { copyTextToClipboard } from "@/lib/clipboard";
 import { getWorkspaceImagePreviewUrl } from "@/lib/workspaceImageCache";
 import type { Message, WorkbenchTimelineEvent } from "@/types";
 
+export const WAITING_STATUS_MESSAGES = [
+  "On it...",
+  "Hmm, let me see...",
+  "Okay, one sec...",
+  "Alright, let me think...",
+  "Hmm, interesting...",
+  "Give me a moment...",
+  "Let me sit with that...",
+  "Okay, I'm thinking...",
+  "Let's see...",
+  "Hold on a sec...",
+  "Alright, one moment...",
+  "Mm, okay...",
+  "Ah, I see...",
+  "Let me mull it over...",
+  "Thinking out loud...",
+  "Okay, let's untangle this...",
+  "Hmm, let's make sense of it...",
+  "I have a thought...",
+  "One sec, thinking...",
+  "Let me chew on that...",
+  "Okay, I follow...",
+  "Hmm, almost there...",
+  "Give me a beat...",
+  "Alright, let's think...",
+  "Interesting, one moment...",
+  "Okay, let me work it out...",
+  "Hmm, this is a nice one...",
+  "Let me get my head around it...",
+  "Okay, I see the shape...",
+  "One moment, please...",
+  "Let me reason this out...",
+  "Hmm, I am with you...",
+  "Okay, taking a look...",
+  "Let me think for a sec...",
+  "Aha, one second...",
+  "Hmm, fair question...",
+  "Okay, let me sort this out...",
+  "Just a moment...",
+  "I am on it...",
+  "Let's think...",
+  "Hmm, okay...",
+  "Let me pause on that...",
+  "Okay, making sense of it...",
+  "Give me a second...",
+  "Alright, I am thinking...",
+  "Hmm, let me feel this out...",
+  "Okay, small pause...",
+  "Let me turn that over...",
+  "One tiny moment...",
+  "Okay, I am working on it...",
+  "Hmm, I see what you mean...",
+  "Let me hold that thought...",
+  "Alright, thinking cap on...",
+  "Okay, let's figure this out...",
+  "Hmm, let me try this angle...",
+  "Give me half a second...",
+  "Okay, I have got this...",
+  "Let me make this neat...",
+  "Hmm, curious...",
+  "Alright, here we go...",
+  "Thinking it through...",
+  "Working through this...",
+  "Putting it together...",
+  "One moment...",
+  "Let's untangle this...",
+] as const;
+
+function randomWaitingStatusMessage(): string {
+  const index = Math.floor(Math.random() * WAITING_STATUS_MESSAGES.length);
+  return WAITING_STATUS_MESSAGES[index] || WAITING_STATUS_MESSAGES[0];
+}
+
 function formatTime(value: string | undefined): string {
   if (!value) return "";
   const date = new Date(value);
@@ -181,6 +254,14 @@ export default function SessionTimeline({
   const pendingPermission = !isGenerating ? lastAssistant?.permissionRequest : undefined;
   const [copiedEventId, setCopiedEventId] = React.useState<string | null>(null);
   const copyResetTimerRef = React.useRef<number | null>(null);
+  const waitingStatusKey =
+    isGenerating && lastMessage?.role === "assistant" && !lastMessage.content
+      ? String(lastMessage.id)
+      : "";
+  const waitingStatusMessage = React.useMemo(
+    () => (waitingStatusKey ? randomWaitingStatusMessage() : WAITING_STATUS_MESSAGES[0]),
+    [waitingStatusKey]
+  );
 
   React.useEffect(() => {
     return () => {
@@ -321,7 +402,7 @@ export default function SessionTimeline({
             <Bot size={13} />
             {feishuAuthWaiting
               ? `正在等待浏览器中的${feishuAuthWaiting.label}完成... 已等待 ${feishuAuthWaiting.elapsedSeconds} 秒`
-              : "Starting work..."}
+              : waitingStatusMessage}
           </div>
         </article>
       )}

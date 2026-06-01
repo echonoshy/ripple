@@ -103,7 +103,7 @@ export default function ProductTopBar({
                 type="button"
                 data-ripple-top-tab={item.id}
                 onClick={() => onSelectView(item.id)}
-                className={`inline-flex h-8 items-center gap-1.5 rounded-xl px-3 text-[13px] font-semibold transition-all ${
+                className={`inline-flex h-8 w-[112px] shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-2 text-[13px] font-semibold transition-all ${
                   selected
                     ? "bg-[#eef4ff] text-[#0b57d0] shadow-[0_10px_24px_rgba(47,107,255,0.18)] ring-1 ring-[#2f6bff]/35"
                     : "text-[#475467] hover:bg-white/78 hover:text-[#111827]"

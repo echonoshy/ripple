@@ -59,9 +59,24 @@ function testSelectedTopTabHasStrongerTreatment() {
   assert.match(selectedTab, /shadow-\[0_10px_24px_rgba\(47,107,255,0\.18\)\]/);
 }
 
+function testDesktopProductTabsUseEqualWidths() {
+  const html = renderProductTopBar();
+  const tabButtons = [...html.matchAll(/<button[^>]*data-ripple-top-tab="[^"]+"[^>]*>/g)].map(
+    (match) => match[0]
+  );
+
+  assert.equal(tabButtons.length, 4);
+  for (const button of tabButtons) {
+    assert.match(button, /w-\[112px\]/);
+    assert.match(button, /justify-center/);
+    assert.match(button, /whitespace-nowrap/);
+  }
+}
+
 testDesktopProductTabsExcludeSettings();
 testSettingsLivesInRightAvatarEntry();
 testSettingsEntryKeepsLiveStatusDot();
 testSelectedTopTabHasStrongerTreatment();
+testDesktopProductTabsUseEqualWidths();
 
 console.log("product top bar tests passed");

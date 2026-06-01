@@ -385,15 +385,11 @@ function testWorkspaceExplorerMobilePreviewChromeIsCompact() {
   });
 
   assert.match(source, /data-ripple-workspace-preview-title-path/);
-  assert.match(source, /data-ripple-workspace-preview-action="download"/);
+  assert.doesNotMatch(source, /data-ripple-workspace-preview-action="download"/);
   assert.match(source, /data-ripple-workspace-preview-metadata/);
   assert.match(
     source,
     /data-ripple-workspace-preview-title-path[\s\S]*className="[^"]*hidden[^"]*sm:block/
-  );
-  assert.match(
-    source,
-    /data-ripple-workspace-preview-action="download"[\s\S]*className=\{[\s\S]*"hidden h-7 items-center gap-1 [^"]* sm:inline-flex"/
   );
   assert.match(
     source,
@@ -404,7 +400,7 @@ function testWorkspaceExplorerMobilePreviewChromeIsCompact() {
   assert.match(source, /text-\[12px\][^"]*sm:text-\[14px\]/);
   assert.match(source, /size=\{isPagePresentation \? "sm" : "md"\}/);
   assert.match(html, /data-ripple-workspace-preview-title-path/);
-  assert.match(html, /data-ripple-workspace-preview-action="download"/);
+  assert.doesNotMatch(html, /data-ripple-workspace-preview-action="download"/);
   assert.match(html, /data-ripple-workspace-preview-metadata/);
 }
 

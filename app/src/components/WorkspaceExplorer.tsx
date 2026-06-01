@@ -353,7 +353,6 @@ export default function WorkspaceExplorer({
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isDraggingUpload, setIsDraggingUpload] = useState(false);
-  const [downloadingPath, setDownloadingPath] = useState<string | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [documentPreviewUrl, setDocumentPreviewUrl] = useState<string | null>(null);
   const [isPreviewFullscreenOpen, setIsPreviewFullscreenOpen] = useState(false);
@@ -1076,16 +1075,12 @@ export default function WorkspaceExplorer({
   };
 
   const handleDownloadFile = async (path: string) => {
-    if (downloadingPath) return;
-    setDownloadingPath(path);
     setError(null);
     try {
       const downloaded = await downloadWorkspaceFile(path);
       saveBlobAsDownload(downloaded.blob, downloaded.filename);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setDownloadingPath(null);
     }
   };
 
@@ -2584,25 +2579,6 @@ export default function WorkspaceExplorer({
               {previewLoading && <Loader2 size={12} className="animate-spin" />}
               {preview && (
                 <div className="flex shrink-0 items-center gap-1">
-                  <button
-                    type="button"
-                    data-ripple-workspace-preview-action="download"
-                    onClick={() => void handleDownloadFile(preview.path)}
-                    disabled={downloadingPath === preview.path}
-                    className={
-                      isPagePresentation
-                        ? "hidden h-7 items-center gap-1 rounded-full border border-[#dfe6f4] bg-white/76 px-2 text-xs font-medium text-[#667085] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:text-[#8b8f94] sm:inline-flex"
-                        : "inline-flex h-7 items-center gap-1 rounded-md border border-[#dde2ea] bg-white px-2 text-xs font-medium text-[#68707d] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:text-[#8b8f94]"
-                    }
-                    title="Download"
-                  >
-                    {downloadingPath === preview.path ? (
-                      <Loader2 size={12} className="animate-spin" />
-                    ) : (
-                      <Download size={12} />
-                    )}
-                    Download
-                  </button>
                   {!imagePreviewUrl && !documentPreviewUrl && (
                     <button
                       type="button"

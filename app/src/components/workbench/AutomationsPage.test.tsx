@@ -101,8 +101,11 @@ function testAutomationCardUsesCompactResponsiveLayout() {
   assert.match(source, /grid-cols-2 gap-1\.5 pl-9 sm:grid-cols-4 lg:grid-cols-3/);
   assert.match(source, /col-span-2 min-w-0 rounded-lg[\s\S]*sm:col-span-2 lg:col-span-1/);
   assert.match(source, /rounded-xl border border-\[#e8edf7\] bg-\[#f8fbff\]\/75 p-2\.5/);
-  assert.match(source, /overflow-x-auto/);
-  assert.match(source, /sm:flex-wrap sm:justify-end/);
+  assert.match(source, /data-ripple-automation-actions[\s\S]*grid grid-cols-3/);
+  assert.match(source, /sm:flex sm:flex-wrap sm:justify-end/);
+  assert.doesNotMatch(source, /data-ripple-automation-actions[\s\S]{0,220}overflow-x-auto/);
+  assert.match(source, /const automationActionButtonClass =[\s\S]*min-w-0/);
+  assert.match(source, /const automationActionButtonClass =[\s\S]*text-\[10px\] sm:text-\[11px\]/);
 }
 
 function testAutomationRunHistoryUsesReadableRows() {

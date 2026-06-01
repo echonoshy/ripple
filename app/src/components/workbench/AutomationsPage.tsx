@@ -181,10 +181,10 @@ function hasRunOutput(run: AgentRunInfo | null | undefined): boolean {
 }
 
 const automationActionButtonClass =
-  "inline-flex h-8 min-w-[68px] shrink-0 items-center justify-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-2.5 text-[11px] font-semibold text-[#384152] hover:bg-[#f7f8fa]";
+  "inline-flex h-8 w-full min-w-0 items-center justify-center gap-1 rounded-full border border-[#dfe6f4] bg-white px-1.5 text-[10px] sm:text-[11px] font-semibold text-[#384152] hover:bg-[#f7f8fa] sm:w-auto sm:min-w-[68px] sm:gap-1.5 sm:px-2.5 [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0";
 
 const automationDeleteButtonClass =
-  "inline-flex h-8 min-w-[68px] shrink-0 items-center justify-center gap-1.5 rounded-full border px-2.5 text-[11px] font-semibold";
+  "inline-flex h-8 w-full min-w-0 items-center justify-center gap-1 rounded-full border px-1.5 text-[10px] sm:text-[11px] font-semibold sm:w-auto sm:min-w-[68px] sm:gap-1.5 sm:px-2.5 [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0";
 
 const runActionButtonClass =
   "inline-flex h-7 shrink-0 items-center justify-center gap-1 rounded-full border border-[#dfe6f4] bg-white px-2 text-[10px] font-semibold text-[#384152] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:opacity-60";
@@ -920,13 +920,13 @@ export default function AutomationsPage({
 
                     <div
                       data-ripple-automation-actions
-                      className="-mx-3 mt-3 flex flex-nowrap items-center gap-1.5 overflow-x-auto border-t border-[#e8edf7] px-3 pt-2 pb-0.5 sm:mx-0 sm:flex-wrap sm:justify-end sm:px-0"
+                      className="-mx-3 mt-3 grid grid-cols-3 gap-1.5 border-t border-[#e8edf7] px-3 pt-2 pb-0.5 sm:mx-0 sm:flex sm:flex-wrap sm:justify-end sm:px-0"
                     >
                       {confirmDeleteId === schedule.schedule_id ? (
                         <button
                           type="button"
                           onClick={() => setConfirmDeleteId(null)}
-                          className="inline-flex h-8 items-center justify-center rounded-full border border-[#dfe6f4] bg-white px-3 text-[11px] font-semibold text-[#384152] hover:bg-[#f7f8fa]"
+                          className={automationActionButtonClass}
                         >
                           Cancel
                         </button>

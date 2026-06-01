@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import WorkspaceExplorer, {
   displayError,
   getBoundedSplitPercent,
+  getSplitPercentFromVerticalResize,
   getWorkspacePreviewKind,
   getWorkspaceParentPath,
   getSplitPercentAfterFileDoubleClick,
@@ -314,6 +315,20 @@ function testWorkspaceExplorerRendersDocumentPreviewWithPdfEmbed() {
 
 testWorkspaceExplorerRendersDocumentPreviewWithPdfEmbed();
 
+function testWorkspaceExplorerDocumentPreviewFillsAvailableHeight() {
+  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+
+  assert.doesNotMatch(source, /className="flex min-h-full flex-col"/);
+  assert.match(source, /className="flex h-full min-h-0 flex-col"/);
+  assert.match(
+    source,
+    /data-ripple-workspace-document-preview[\s\S]*"min-h-0 flex-1 overflow-hidden/
+  );
+  assert.match(source, /<iframe[\s\S]*className="h-full min-h-0 w-full border-0 bg-white"/);
+}
+
+testWorkspaceExplorerDocumentPreviewFillsAvailableHeight();
+
 function testWorkspaceExplorerSplitStaysInsidePanelBounds() {
   const html = renderExplorerWithStoredSplitPercent("120", {
     testInitialPreview: {
@@ -343,6 +358,56 @@ function testWorkspaceExplorerSplitAllowsFullHideOnlyWithinBounds() {
 }
 
 testWorkspaceExplorerSplitAllowsFullHideOnlyWithinBounds();
+
+function testWorkspaceExplorerCalculatesVerticalPreviewResizeFromPointer() {
+  assert.equal(
+    getSplitPercentFromVerticalResize({
+      containerTop: 100,
+      containerHeight: 500,
+      pointerY: 250,
+    }),
+    30
+  );
+  assert.equal(
+    getSplitPercentFromVerticalResize({
+      containerTop: 100,
+      containerHeight: 500,
+      pointerY: 25,
+    }),
+    0
+  );
+  assert.equal(
+    getSplitPercentFromVerticalResize({
+      containerTop: 100,
+      containerHeight: 500,
+      pointerY: 700,
+    }),
+    100
+  );
+}
+
+testWorkspaceExplorerCalculatesVerticalPreviewResizeFromPointer();
+
+function testWorkspaceExplorerExposesPreviewResizeHandle() {
+  const html = renderExplorer({
+    testInitialPreview: {
+      path: "/workspace/notes.txt",
+      name: "notes.txt",
+      size_bytes: 123,
+      modified_at: "2026-05-17T00:00:00Z",
+      mime_type: "text/plain",
+      encoding: "utf-8",
+      content: "test content",
+      truncated: false,
+    },
+  });
+
+  assert.match(html, /aria-label="Resize preview panel"/);
+  assert.match(html, /aria-orientation="horizontal"/);
+  assert.match(html, /data-ripple-workspace-preview-resize/);
+}
+
+testWorkspaceExplorerExposesPreviewResizeHandle();
 
 function testDoubleClickingFileRestoresOnlyHiddenPreviewPanel() {
   assert.equal(getSplitPercentAfterFileDoubleClick(100), 48);

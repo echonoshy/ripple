@@ -97,6 +97,19 @@ export function getBoundedSplitPercent(value: number): number {
   return Math.min(MAX_SPLIT_PERCENT, Math.max(MIN_SPLIT_PERCENT, Math.round(value)));
 }
 
+export function getSplitPercentFromVerticalResize({
+  containerTop,
+  containerHeight,
+  pointerY,
+}: {
+  containerTop: number;
+  containerHeight: number;
+  pointerY: number;
+}): number {
+  if (!Number.isFinite(containerHeight) || containerHeight <= 0) return DEFAULT_SPLIT_PERCENT;
+  return getBoundedSplitPercent(((pointerY - containerTop) / containerHeight) * 100);
+}
+
 export function getSplitPercentAfterFileDoubleClick(currentSplitPercent: number): number {
   return currentSplitPercent >= MAX_SPLIT_PERCENT ? DEFAULT_SPLIT_PERCENT : currentSplitPercent;
 }
@@ -373,6 +386,8 @@ export default function WorkspaceExplorer({
   const lastLoadedUserIdRef = useRef(userId);
   const directoryRequestIdRef = useRef(0);
   const directoryLoadRef = useRef<{ key: string; promise: Promise<void> } | null>(null);
+  const workspaceGridRef = useRef<HTMLDivElement | null>(null);
+  const splitPercentRef = useRef(splitPercent);
   const isDirty = useMemo(() => Boolean(preview && draft !== preview.content), [draft, preview]);
   const normalizedQuery = query.trim();
   const isSearchMode = normalizedQuery.length > 0;
@@ -398,6 +413,7 @@ export default function WorkspaceExplorer({
     visibleEntries.length > 0 &&
     visibleEntries.every((entry) => selectedEntryPaths.has(entry.path));
   useEffect(() => {
+    splitPercentRef.current = splitPercent;
     window.localStorage.setItem(SPLIT_PERCENT_STORAGE_KEY, String(splitPercent));
   }, [splitPercent]);
 
@@ -418,6 +434,62 @@ export default function WorkspaceExplorer({
   const updateSplitPercent = useCallback((value: number) => {
     setSplitPercent(getBoundedSplitPercent(value));
   }, []);
+
+  const handlePreviewResizeStart = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      const gridNode = workspaceGridRef.current;
+      if (!gridNode) return;
+
+      const handlePointerMove = (moveEvent: PointerEvent) => {
+        const rect = gridNode.getBoundingClientRect();
+        updateSplitPercent(
+          getSplitPercentFromVerticalResize({
+            containerTop: rect.top,
+            containerHeight: rect.height,
+            pointerY: moveEvent.clientY,
+          })
+        );
+      };
+      const handlePointerUp = () => {
+        window.removeEventListener("pointermove", handlePointerMove);
+        window.removeEventListener("pointerup", handlePointerUp);
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+      };
+
+      document.body.style.cursor = "row-resize";
+      document.body.style.userSelect = "none";
+      window.addEventListener("pointermove", handlePointerMove);
+      window.addEventListener("pointerup", handlePointerUp);
+    },
+    [updateSplitPercent]
+  );
+
+  const handlePreviewResizeKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      const step = event.shiftKey ? 10 : 4;
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        updateSplitPercent(splitPercentRef.current - step);
+      }
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        updateSplitPercent(splitPercentRef.current + step);
+      }
+      if (event.key === "Home") {
+        event.preventDefault();
+        updateSplitPercent(MIN_SPLIT_PERCENT);
+      }
+      if (event.key === "End") {
+        event.preventDefault();
+        updateSplitPercent(MAX_SPLIT_PERCENT);
+      }
+    },
+    [updateSplitPercent]
+  );
 
   const loadDirectory = useCallback(
     async (path: string) => {
@@ -1319,6 +1391,12 @@ export default function WorkspaceExplorer({
   const pageToolbarPrimaryButtonClass = pageToolbarIconButtonClass;
   const pageParentButtonClass =
     "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#d7e3f8] bg-[#eef4ff] text-[#2463eb] shadow-[0_10px_24px_rgba(44,63,123,0.06)] transition-colors hover:bg-[#e5efff] lg:hidden";
+  const workspaceGridStyle: React.CSSProperties | undefined =
+    !isPagePresentation && !isPreviewPanelHidden
+      ? {
+          gridTemplateRows: `minmax(96px, ${splitPercent}%) minmax(0, 1fr)`,
+        }
+      : undefined;
 
   return (
     <div
@@ -1999,6 +2077,8 @@ export default function WorkspaceExplorer({
       )}
 
       <div
+        ref={workspaceGridRef}
+        style={workspaceGridStyle}
         className={`grid min-h-0 flex-1 overflow-hidden ${
           isPagePresentation
             ? isPreviewPanelHidden
@@ -2371,6 +2451,23 @@ export default function WorkspaceExplorer({
                 : "relative flex min-h-0 flex-col overflow-hidden bg-white"
             }
           >
+            {!isPagePresentation && (
+              <div
+                role="separator"
+                aria-label="Resize preview panel"
+                aria-orientation="horizontal"
+                aria-valuemin={MIN_SPLIT_PERCENT}
+                aria-valuemax={MAX_SPLIT_PERCENT}
+                aria-valuenow={splitPercent}
+                data-ripple-workspace-preview-resize
+                tabIndex={0}
+                onPointerDown={handlePreviewResizeStart}
+                onKeyDown={handlePreviewResizeKeyDown}
+                className="group absolute top-0 right-0 left-0 z-20 flex h-3 -translate-y-1/2 cursor-row-resize items-center justify-center bg-transparent transition-colors outline-none hover:bg-[#dbe6ff]/70 focus:bg-[#dbe6ff]/70"
+              >
+                <span className="h-0.5 w-12 rounded-full bg-[#2463eb] opacity-0 transition-opacity group-hover:opacity-100 group-focus:opacity-100" />
+              </div>
+            )}
             <div
               className={
                 isPagePresentation
@@ -2457,12 +2554,12 @@ export default function WorkspaceExplorer({
             <div
               className={
                 isPagePresentation
-                  ? "min-h-0 flex-1 overflow-auto"
-                  : "min-h-0 flex-1 overflow-auto bg-white"
+                  ? "min-h-0 flex-1 overflow-hidden"
+                  : "min-h-0 flex-1 overflow-hidden bg-white"
               }
             >
               {preview ? (
-                <div className="flex min-h-full flex-col">
+                <div className="flex h-full min-h-0 flex-col">
                   <div
                     className={
                       isPagePresentation
@@ -2529,14 +2626,14 @@ export default function WorkspaceExplorer({
                       data-ripple-workspace-document-preview
                       className={
                         isPagePresentation
-                          ? "min-h-[420px] flex-1 overflow-hidden bg-[#f4f7fb]"
-                          : "min-h-[420px] flex-1 overflow-hidden bg-[#f8fafc]"
+                          ? "min-h-0 flex-1 overflow-hidden bg-[#f4f7fb]"
+                          : "min-h-0 flex-1 overflow-hidden bg-[#f8fafc]"
                       }
                     >
                       <iframe
                         src={documentPreviewUrl}
                         title={`${preview.name} preview`}
-                        className="h-full min-h-[420px] w-full border-0 bg-white"
+                        className="h-full min-h-0 w-full border-0 bg-white"
                       />
                     </div>
                   ) : imagePreviewUrl ? (

@@ -223,6 +223,50 @@ fn streamed_file_body(path: std::path::PathBuf) -> Body {
     })
 }
 
+fn ascii_content_disposition_filename(filename: &str) -> String {
+    let (stem, extension) = filename
+        .rsplit_once('.')
+        .filter(|(_, extension)| {
+            !extension.is_empty()
+                && extension.len() <= 16
+                && extension.chars().all(|ch| ch.is_ascii_alphanumeric())
+        })
+        .map(|(stem, extension)| (stem, Some(extension)))
+        .unwrap_or((filename, None));
+    let mut fallback = String::new();
+    let mut last_was_separator = false;
+    for ch in stem.chars() {
+        if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_') {
+            fallback.push(ch);
+            last_was_separator = false;
+        } else if !last_was_separator {
+            fallback.push('_');
+            last_was_separator = true;
+        }
+    }
+    let fallback = fallback
+        .trim_matches(|ch| ch == '.' || ch == '-' || ch == '_')
+        .to_string();
+    let stem = if fallback.chars().any(|ch| ch.is_ascii_alphanumeric()) {
+        fallback
+    } else {
+        "download".to_string()
+    };
+    match extension {
+        Some(extension) => format!("{stem}.{extension}"),
+        None => stem,
+    }
+}
+
+fn content_disposition_header(disposition_type: &str, filename: &str) -> HeaderValue {
+    let fallback = ascii_content_disposition_filename(filename);
+    let encoded = url::form_urlencoded::byte_serialize(filename.as_bytes()).collect::<String>();
+    HeaderValue::from_str(&format!(
+        "{disposition_type}; filename=\"{fallback}\"; filename*=UTF-8''{encoded}"
+    ))
+    .unwrap_or_else(|_| HeaderValue::from_static("attachment"))
+}
+
 pub async fn download_workspace_file(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -263,11 +307,7 @@ pub async fn download_workspace_file(
     );
     response.headers_mut().insert(
         header::CONTENT_DISPOSITION,
-        HeaderValue::from_str(&format!(
-            "attachment; filename=\"{}\"",
-            filename.replace('"', "")
-        ))
-        .unwrap_or_else(|_| HeaderValue::from_static("attachment")),
+        content_disposition_header("attachment", filename),
     );
     Ok(response)
 }
@@ -811,6 +851,71 @@ mod tests {
         let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let value = serde_json::from_slice(&bytes).unwrap_or_else(|_| json!({}));
         (status, value)
+    }
+
+    async fn request_bytes(
+        state: AppState,
+        method: Method,
+        path: &str,
+        body: Option<Value>,
+    ) -> (StatusCode, axum::http::HeaderMap, Vec<u8>) {
+        let mut builder = Request::builder()
+            .method(method)
+            .uri(path)
+            .header(header::AUTHORIZATION, "Bearer service-key")
+            .header("X-Ripple-User-Id", "alice");
+        if body.is_some() {
+            builder = builder.header(header::CONTENT_TYPE, "application/json");
+        }
+        let body = body
+            .map(|value| Body::from(value.to_string()))
+            .unwrap_or_else(Body::empty);
+        let response = router(state)
+            .oneshot(builder.body(body).unwrap())
+            .await
+            .unwrap();
+        let (parts, body) = response.into_parts();
+        let bytes = to_bytes(body, usize::MAX).await.unwrap().to_vec();
+        (parts.status, parts.headers, bytes)
+    }
+
+    #[tokio::test]
+    async fn download_workspace_file_uses_utf8_content_disposition_for_non_ascii_filename(
+    ) -> anyhow::Result<()> {
+        let state = test_state(2048);
+        let workspace = state.sandboxes.ensure_sandbox("alice")?;
+        let filename = "上市公司联系人一页展示.pptx";
+        std::fs::write(workspace.join(filename), b"deck")?;
+
+        let encoded_path =
+            url::form_urlencoded::byte_serialize(format!("/workspace/{filename}").as_bytes())
+                .collect::<String>();
+        let (status, headers, body) = request_bytes(
+            state,
+            Method::GET,
+            &format!("/v1/workspace/download?path={encoded_path}"),
+            None,
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, b"deck");
+        let disposition = headers
+            .get(header::CONTENT_DISPOSITION)
+            .expect("content-disposition header")
+            .to_str()?;
+        assert!(
+            disposition.contains("filename=\"download.pptx\""),
+            "{disposition}"
+        );
+        assert!(
+            disposition.contains(
+                "filename*=UTF-8''%E4%B8%8A%E5%B8%82%E5%85%AC%E5%8F%B8%E8%81%94%E7%B3%BB%E4%BA%BA%E4%B8%80%E9%A1%B5%E5%B1%95%E7%A4%BA.pptx"
+            ),
+            "{disposition}"
+        );
+        assert!(!disposition.contains("上市公司"), "{disposition}");
+        Ok(())
     }
 
     #[tokio::test]

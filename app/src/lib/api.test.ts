@@ -13,6 +13,7 @@ import {
   deleteScheduleRun,
   deleteSession,
   downloadRunOutput,
+  downloadWorkspaceFile,
   fetchSchedules,
   fetchScheduleRuns,
   fetchSessions,
@@ -497,6 +498,34 @@ async function testWorkspaceFilePreviewPathNotFoundStaysFileSpecific() {
   );
 }
 
+async function testWorkspaceDownloadDecodesUtf8ContentDispositionFilename() {
+  const urls: string[] = [];
+  await withFetch(
+    async (input) => {
+      urls.push(String(input));
+      return new Response("deck", {
+        status: 200,
+        headers: {
+          "Content-Type":
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+          "Content-Disposition":
+            "attachment; filename=\"download.pptx\"; filename*=UTF-8''%E4%B8%8A%E5%B8%82%E5%85%AC%E5%8F%B8%E8%81%94%E7%B3%BB%E4%BA%BA%E4%B8%80%E9%A1%B5%E5%B1%95%E7%A4%BA.pptx",
+        },
+      });
+    },
+    async () => {
+      const downloaded = await downloadWorkspaceFile("/workspace/财报/上市公司联系人一页展示.pptx");
+
+      assert.equal(downloaded.filename, "上市公司联系人一页展示.pptx");
+      assert.equal(await downloaded.blob.text(), "deck");
+      assert.match(
+        urls[0] || "",
+        /\/workspace\/download\?path=%2Fworkspace%2F%E8%B4%A2%E6%8A%A5%2F%E4%B8%8A%E5%B8%82%E5%85%AC%E5%8F%B8%E8%81%94%E7%B3%BB%E4%BA%BA%E4%B8%80%E9%A1%B5%E5%B1%95%E7%A4%BA\.pptx/
+      );
+    }
+  );
+}
+
 async function testScheduleApiUsesExpectedBackendShape() {
   const urls: string[] = [];
   const methods: string[] = [];
@@ -957,6 +986,7 @@ await testAuthHeadersUseUserSessionWithoutSpoofableUserId();
 await testAuthHeadersKeepServiceKeyUserIdCompatibility();
 testParseWorkspaceLinkDecodesEncodedSandboxPath();
 await testWorkspaceFilePreviewPathNotFoundStaysFileSpecific();
+await testWorkspaceDownloadDecodesUtf8ContentDispositionFilename();
 await testScheduleApiUsesExpectedBackendShape();
 await testCreateScheduleAddsOffsetForNonUtcRunAt();
 await testFetchSessionsNormalizesBackendShape();

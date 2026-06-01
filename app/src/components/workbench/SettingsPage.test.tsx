@@ -4,57 +4,64 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import SettingsPage from "./SettingsPage";
+import { I18nProvider, type LocalePreference } from "@/i18n";
 
 function noop() {}
 
-function renderSettingsPage() {
+function renderSettingsPage(locale: LocalePreference = "en-US") {
   return renderToStaticMarkup(
-    <SettingsPage
-      userId="default"
-      apiKey="rip_1234567890"
-      authMode="user"
-      models={[
-        { id: "codex-medium", owned_by: "ripple" },
-        { id: "codex-high", owned_by: "ripple" },
-      ]}
-      defaultModel="codex-medium"
-      selectedModel="codex-medium"
-      onApiKeyChange={noop}
-      onSelectDefaultModel={noop}
-    />
+    <I18nProvider initialPreference={locale}>
+      <SettingsPage
+        userId="default"
+        apiKey="rip_1234567890"
+        authMode="user"
+        models={[
+          { id: "codex-medium", owned_by: "ripple" },
+          { id: "codex-high", owned_by: "ripple" },
+        ]}
+        defaultModel="codex-medium"
+        selectedModel="codex-medium"
+        onApiKeyChange={noop}
+        onSelectDefaultModel={noop}
+      />
+    </I18nProvider>
   );
 }
 
 function renderServiceSettingsPage() {
   return renderToStaticMarkup(
-    <SettingsPage
-      userId="lake"
-      apiKey="rip_1234567890"
-      authMode="service"
-      models={[{ id: "codex-medium", owned_by: "ripple" }]}
-      defaultModel="codex-medium"
-      selectedModel="codex-medium"
-      onApiKeyChange={noop}
-      onSelectDefaultModel={noop}
-    />
+    <I18nProvider initialPreference="en-US">
+      <SettingsPage
+        userId="lake"
+        apiKey="rip_1234567890"
+        authMode="service"
+        models={[{ id: "codex-medium", owned_by: "ripple" }]}
+        defaultModel="codex-medium"
+        selectedModel="codex-medium"
+        onApiKeyChange={noop}
+        onSelectDefaultModel={noop}
+      />
+    </I18nProvider>
   );
 }
 
 function renderSettingsPageWithDifferentCurrentAndDefaultModel() {
   return renderToStaticMarkup(
-    <SettingsPage
-      userId="default"
-      apiKey="rip_1234567890"
-      authMode="user"
-      models={[
-        { id: "codex-medium", owned_by: "ripple" },
-        { id: "codex-high", owned_by: "ripple" },
-      ]}
-      defaultModel="codex-high"
-      selectedModel="codex-medium"
-      onApiKeyChange={noop}
-      onSelectDefaultModel={noop}
-    />
+    <I18nProvider initialPreference="en-US">
+      <SettingsPage
+        userId="default"
+        apiKey="rip_1234567890"
+        authMode="user"
+        models={[
+          { id: "codex-medium", owned_by: "ripple" },
+          { id: "codex-high", owned_by: "ripple" },
+        ]}
+        defaultModel="codex-high"
+        selectedModel="codex-medium"
+        onApiKeyChange={noop}
+        onSelectDefaultModel={noop}
+      />
+    </I18nProvider>
   );
 }
 
@@ -67,6 +74,11 @@ function testSettingsPageHasExpectedUserSections() {
   assert.doesNotMatch(html, />Connected Accounts/);
   assert.match(html, />Usage &amp; Limits/);
   assert.match(html, />Defaults/);
+  assert.match(html, />Language/);
+  assert.match(html, />Choose the App interface language\./);
+  assert.match(html, />System/);
+  assert.match(html, />Simplified Chinese/);
+  assert.match(html, />English/);
   assert.match(html, />About &amp; Diagnostics/);
   assert.match(html, />Default model/);
   assert.match(html, />Log out/);
@@ -104,8 +116,8 @@ function testSettingsPageCanEditDisplayName() {
   assert.match(source, /displayNameInput/);
   assert.match(source, /handleDisplayNameSubmit/);
   assert.match(source, /dispatchUserProfileChanged/);
-  assert.match(source, /aria-label="Display name"/);
-  assert.match(source, /Save name/);
+  assert.match(source, /aria-label=\{t\("settings\.displayName"\)\}/);
+  assert.match(source, /t\("settings\.saveName"\)/);
 }
 
 function testSettingsPageSupportsLocalAvatarUpload() {
@@ -118,12 +130,12 @@ function testSettingsPageSupportsLocalAvatarUpload() {
   assert.match(source, /deleteUserAvatar/);
   assert.match(source, /fetchUserAvatarImage/);
   assert.match(source, /isAvatarMenuOpen/);
-  assert.match(source, /aria-label="Avatar actions"/);
+  assert.match(source, /aria-label=\{t\("settings\.avatarActions"\)\}/);
   assert.match(source, /avatarMenuPortal/);
   assert.match(source, /avatarMenuPosition/);
   assert.match(source, /createPortal\(\s*<>[\s\S]*role="menu"[\s\S]*document\.body/);
   assert.match(source, /position: "fixed"/);
-  assert.match(source, /Remove avatar/);
+  assert.match(source, /t\("settings\.removeAvatar"\)/);
   assert.doesNotMatch(source, /FileReader/);
   assert.doesNotMatch(source, /readAsDataURL/);
   assert.doesNotMatch(source, /getClientStorage/);
@@ -189,7 +201,7 @@ function testSettingsPageUsesInlineModelMenuAndTokenBreakdown() {
   assert.match(source, /data-ripple-settings-token-grid[\s\S]*grid-cols-3/);
   assert.match(
     source,
-    /label: "24h input"[\s\S]*label: "7d input"[\s\S]*label: "Total input"[\s\S]*label: "24h output"[\s\S]*label: "7d output"[\s\S]*label: "Total output"/
+    /t\("settings\.dailyInput"\)[\s\S]*t\("settings\.weeklyInput"\)[\s\S]*t\("settings\.totalInput"\)[\s\S]*t\("settings\.dailyOutput"\)[\s\S]*t\("settings\.weeklyOutput"\)[\s\S]*t\("settings\.totalOutput"\)/
   );
 }
 
@@ -263,6 +275,17 @@ function testSettingsPageUsesCompactMobileDensity() {
   assert.doesNotMatch(source, /Used for new prompts and scheduled runs/);
 }
 
+function testSettingsPageRendersChineseChrome() {
+  const html = renderSettingsPage("zh-CN");
+
+  assert.match(html, />设置</);
+  assert.match(html, />账号</);
+  assert.match(html, />用量与限制</);
+  assert.match(html, />默认设置</);
+  assert.match(html, />语言</);
+  assert.match(html, />退出登录</);
+}
+
 testSettingsPageHasExpectedUserSections();
 testSettingsPageShowsDeveloperModeForServiceAccess();
 testSettingsPageCanEditDisplayName();
@@ -276,5 +299,6 @@ testSettingsPageDoesNotFetchConnectorData();
 testSettingsPageUsesSoftTilesForEntitySections();
 testDefaultModelControlUsesDefaultModelNotCurrentSessionModel();
 testSettingsPageUsesCompactMobileDensity();
+testSettingsPageRendersChineseChrome();
 
 console.log("settings page tests passed");

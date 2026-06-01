@@ -10,6 +10,7 @@ import {
   HardDrive,
   KeyRound,
   Layers,
+  Languages,
   LockKeyhole,
   Loader2,
   LogOut,
@@ -20,6 +21,7 @@ import {
   UserRound,
   X,
 } from "lucide-react";
+import { type LocalePreference, useI18n } from "@/i18n";
 import {
   changePassword,
   deleteUserAvatar,
@@ -160,6 +162,7 @@ export default function SettingsPage({
   onSelectDefaultModel,
   onApiKeyChange,
 }: SettingsPageProps) {
+  const { preference: localePreference, setPreference: setLocalePreference, t } = useI18n();
   const [sandbox, setSandbox] = useState<SandboxInfo | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -228,12 +231,17 @@ export default function SettingsPage({
     [defaultModel, models, selectedModel]
   );
   const tokenUsageMetrics = [
-    { label: "24h input", value: formatTokens(usage?.daily_input_tokens ?? 0) },
-    { label: "7d input", value: formatTokens(usage?.weekly_input_tokens ?? 0) },
-    { label: "Total input", value: formatTokens(usage?.total_input_tokens ?? 0) },
-    { label: "24h output", value: formatTokens(usage?.daily_output_tokens ?? 0) },
-    { label: "7d output", value: formatTokens(usage?.weekly_output_tokens ?? 0) },
-    { label: "Total output", value: formatTokens(usage?.total_output_tokens ?? 0) },
+    { label: t("settings.dailyInput"), value: formatTokens(usage?.daily_input_tokens ?? 0) },
+    { label: t("settings.weeklyInput"), value: formatTokens(usage?.weekly_input_tokens ?? 0) },
+    { label: t("settings.totalInput"), value: formatTokens(usage?.total_input_tokens ?? 0) },
+    { label: t("settings.dailyOutput"), value: formatTokens(usage?.daily_output_tokens ?? 0) },
+    { label: t("settings.weeklyOutput"), value: formatTokens(usage?.weekly_output_tokens ?? 0) },
+    { label: t("settings.totalOutput"), value: formatTokens(usage?.total_output_tokens ?? 0) },
+  ];
+  const languageOptions: Array<{ value: LocalePreference; label: string }> = [
+    { value: "system", label: t("settings.language.system") },
+    { value: "zh-CN", label: t("settings.language.zhCN") },
+    { value: "en-US", label: t("settings.language.enUS") },
   ];
 
   useEffect(() => {
@@ -245,11 +253,11 @@ export default function SettingsPage({
     event.preventDefault();
     if (isChangingPassword) return;
     if (!currentPassword || !newPassword) {
-      setPasswordError("Enter your current and new password.");
+      setPasswordError(t("settings.passwordMissing"));
       return;
     }
     if (newPassword.length < 8) {
-      setPasswordError("New password must be at least 8 characters.");
+      setPasswordError(t("settings.passwordTooShort"));
       return;
     }
     try {
@@ -260,9 +268,9 @@ export default function SettingsPage({
       setCurrentPassword("");
       setNewPassword("");
       setIsPasswordOpen(false);
-      setPasswordMessage("Password updated.");
+      setPasswordMessage(t("settings.passwordUpdated"));
     } catch (error) {
-      setPasswordError(error instanceof Error ? error.message : "Could not change password.");
+      setPasswordError(error instanceof Error ? error.message : t("settings.passwordUpdateFailed"));
     } finally {
       setIsChangingPassword(false);
     }
@@ -280,11 +288,11 @@ export default function SettingsPage({
       setProfile(nextProfile);
       setDisplayNameInput(nextProfile.profile?.display_name ?? "");
       setIsDisplayNameEditing(false);
-      setDisplayNameMessage("Display name updated.");
+      setDisplayNameMessage(t("settings.displayNameUpdated"));
       dispatchUserProfileChanged();
     } catch (error) {
       setDisplayNameError(
-        error instanceof Error ? error.message : "Could not update display name."
+        error instanceof Error ? error.message : t("settings.displayNameUpdateFailed")
       );
     } finally {
       setIsSavingDisplayName(false);
@@ -306,14 +314,14 @@ export default function SettingsPage({
       })
       .catch((error) => {
         if (cancelled) return;
-        setAvatarError(error instanceof Error ? error.message : "Could not load avatar.");
+        setAvatarError(error instanceof Error ? error.message : t("settings.avatarLoadFailed"));
       });
 
     return () => {
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [profileAvatarUri]);
+  }, [profileAvatarUri, t]);
 
   const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] ?? null;
@@ -329,7 +337,7 @@ export default function SettingsPage({
       setProfile(nextProfile);
       dispatchUserAvatarChanged();
     } catch (error) {
-      setAvatarError(error instanceof Error ? error.message : "Could not upload avatar.");
+      setAvatarError(error instanceof Error ? error.message : t("settings.avatarUploadFailed"));
     } finally {
       setIsAvatarUploading(false);
     }
@@ -345,7 +353,7 @@ export default function SettingsPage({
       setProfile(nextProfile);
       dispatchUserAvatarChanged();
     } catch (error) {
-      setAvatarError(error instanceof Error ? error.message : "Could not remove avatar.");
+      setAvatarError(error instanceof Error ? error.message : t("settings.avatarRemoveFailed"));
     } finally {
       setIsAvatarUploading(false);
     }
@@ -522,7 +530,7 @@ export default function SettingsPage({
                 className="flex h-8 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[12px] font-semibold text-[#374151] hover:bg-[#f7f8fa]"
               >
                 <Upload size={13} />
-                Upload avatar
+                {t("settings.uploadAvatar")}
               </button>
               {profileAvatarUri ? (
                 <button
@@ -532,7 +540,7 @@ export default function SettingsPage({
                   className="flex h-8 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[12px] font-semibold text-[#b42318] hover:bg-[#fff1f0]"
                 >
                   <X size={13} />
-                  Remove avatar
+                  {t("settings.removeAvatar")}
                 </button>
               ) : null}
             </div>
@@ -556,14 +564,14 @@ export default function SettingsPage({
             />
             <div className="min-w-0">
               <h1 className="text-[16px] leading-tight font-semibold tracking-normal">Ripple</h1>
-              <div className="text-[10px] text-[#7a8496]">Settings</div>
+              <div className="text-[10px] text-[#7a8496]">{t("settings.title")}</div>
             </div>
           </div>
           {isLoading ? <Loader2 size={15} className="mt-1.5 animate-spin text-[#6b7280]" /> : null}
         </header>
 
         <section className="rounded-xl border border-[#dfe6f4] bg-white/78 shadow-[0_8px_22px_rgba(44,63,123,0.05)] backdrop-blur-xl">
-          <SectionHeader icon={<UserRound size={13} />} title="Account" tone="accent" />
+          <SectionHeader icon={<UserRound size={13} />} title={t("settings.account")} tone="accent" />
           <div className="space-y-2 p-2.5">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex min-w-0 items-center gap-2.5">
@@ -572,8 +580,8 @@ export default function SettingsPage({
                   onClick={() => avatarFileInputRef.current?.click()}
                   disabled={isAvatarUploading}
                   className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-[#b8cdf8] bg-[#eef4ff] text-[15px] font-semibold text-[#2463eb] shadow-[0_6px_14px_rgba(44,63,123,0.07)] transition-all hover:bg-[#e8f0ff] active:scale-[0.98]"
-                  aria-label={`Upload avatar for ${avatarName}`}
-                  title="Upload avatar"
+                  aria-label={t("settings.uploadAvatarFor", { name: avatarName })}
+                  title={t("settings.uploadAvatar")}
                 >
                   {avatarImageUrl ? (
                     <img
@@ -597,13 +605,15 @@ export default function SettingsPage({
                 />
                 <div className="min-w-0">
                   <div
-                    aria-label="Display name"
+                    aria-label={t("settings.displayName")}
                     className="truncate text-[13px] font-semibold text-[#111827]"
                   >
-                    {authMode === "user" ? profileDisplayName : "API key access"}
+                    {authMode === "user" ? profileDisplayName : t("settings.apiKeyAccess")}
                   </div>
                   <div className="mt-0.5 truncate text-[11px] text-[#667085]">
-                    {authMode === "user" ? profileEmail || "Signed in" : "Developer mode"}
+                    {authMode === "user"
+                      ? profileEmail || t("settings.signedIn")
+                      : t("settings.developerMode")}
                   </div>
                 </div>
               </div>
@@ -622,7 +632,7 @@ export default function SettingsPage({
                     className={settingsAccountActionButtonClass}
                   >
                     <Edit3 size={13} />
-                    <span>Edit</span>
+                    <span>{t("settings.edit")}</span>
                   </button>
                 ) : null}
                 {authMode === "user" ? (
@@ -636,7 +646,7 @@ export default function SettingsPage({
                     className={settingsAccountActionButtonClass}
                   >
                     <LockKeyhole size={13} />
-                    <span>Change password</span>
+                    <span>{t("settings.changePassword")}</span>
                   </button>
                 ) : null}
                 <button
@@ -645,14 +655,14 @@ export default function SettingsPage({
                   className={settingsAccountActionButtonClass}
                 >
                   <LogOut size={13} />
-                  <span>Log out</span>
+                  <span>{t("settings.logOut")}</span>
                 </button>
                 <div className="relative">
                   <button
                     type="button"
                     onClick={handleAvatarMenuToggle}
                     disabled={isAvatarUploading}
-                    aria-label="Avatar actions"
+                    aria-label={t("settings.avatarActions")}
                     aria-haspopup="menu"
                     aria-expanded={isAvatarMenuOpen}
                     className={settingsAccountActionButtonClass}
@@ -662,7 +672,7 @@ export default function SettingsPage({
                     ) : (
                       <UserRound size={13} />
                     )}
-                    <span>{isAvatarUploading ? "Uploading" : "Avatar"}</span>
+                    <span>{isAvatarUploading ? t("settings.uploading") : t("settings.avatar")}</span>
                     <ChevronDown size={12} className="text-[#6b7280]" />
                   </button>
                 </div>
@@ -680,9 +690,9 @@ export default function SettingsPage({
                 className="space-y-2 rounded-lg border border-[#e8edf7] bg-[#f8faff] p-2"
               >
                 <label className="min-w-0 text-[11px] font-semibold text-[#667085]">
-                  Display name
+                  {t("settings.displayName")}
                   <input
-                    aria-label="Display name"
+                    aria-label={t("settings.displayName")}
                     type="text"
                     value={displayNameInput}
                     onChange={(event) => setDisplayNameInput(event.target.value)}
@@ -704,7 +714,7 @@ export default function SettingsPage({
                     className="inline-flex h-7 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-2 text-[11px] font-semibold text-[#374151]"
                   >
                     <X size={12} />
-                    Cancel
+                    {t("settings.cancel")}
                   </button>
                   <button
                     type="submit"
@@ -712,7 +722,7 @@ export default function SettingsPage({
                     className="inline-flex h-7 items-center gap-1.5 rounded-full bg-[#2463eb] px-2 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-[#d0d7e2]"
                   >
                     {isSavingDisplayName ? <Loader2 size={12} className="animate-spin" /> : null}
-                    Save name
+                    {t("settings.saveName")}
                   </button>
                 </div>
               </form>
@@ -730,7 +740,7 @@ export default function SettingsPage({
               >
                 <div className="grid gap-2 sm:grid-cols-2">
                   <label className="min-w-0 text-[11px] font-semibold text-[#667085]">
-                    Current password
+                    {t("settings.currentPassword")}
                     <input
                       type="password"
                       value={currentPassword}
@@ -739,7 +749,7 @@ export default function SettingsPage({
                     />
                   </label>
                   <label className="min-w-0 text-[11px] font-semibold text-[#667085]">
-                    New password
+                    {t("settings.newPassword")}
                     <input
                       type="password"
                       value={newPassword}
@@ -761,7 +771,7 @@ export default function SettingsPage({
                     className="inline-flex h-7 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-2 text-[11px] font-semibold text-[#374151]"
                   >
                     <X size={12} />
-                    Cancel
+                    {t("settings.cancel")}
                   </button>
                   <button
                     type="submit"
@@ -769,7 +779,7 @@ export default function SettingsPage({
                     className="inline-flex h-7 items-center gap-1.5 rounded-full bg-[#2463eb] px-2 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-[#d0d7e2]"
                   >
                     {isChangingPassword ? <Loader2 size={12} className="animate-spin" /> : null}
-                    Save password
+                    {t("settings.savePassword")}
                   </button>
                 </div>
               </form>
@@ -783,23 +793,30 @@ export default function SettingsPage({
         </section>
 
         <section className="rounded-xl border border-[#dfe6f4] bg-white/78 shadow-[0_8px_22px_rgba(44,63,123,0.05)] backdrop-blur-xl">
-          <SectionHeader icon={<HardDrive size={13} />} title="Usage & Limits" tone="neutral" />
+          <SectionHeader
+            icon={<HardDrive size={13} />}
+            title={t("settings.usageLimits")}
+            tone="neutral"
+          />
           <div className="grid gap-2 p-2.5 md:grid-cols-2">
             <UsageMeter
               icon={<HardDrive size={13} />}
               iconTone="neutral"
-              title="Workspace storage"
+              title={t("settings.workspaceStorage")}
               value={workspaceBytes}
               max={maxWorkspaceBytes}
-              detail={`${formatBytes(workspaceBytes)} of ${formatBytes(maxWorkspaceBytes)}`}
+              detail={t("settings.usageOfLimit", {
+                value: formatBytes(workspaceBytes),
+                max: formatBytes(maxWorkspaceBytes),
+              })}
             />
             <UsageMeter
               icon={<Layers size={13} />}
               iconTone="accent"
-              title="Session count"
+              title={t("settings.sessionCount")}
               value={sessionCount}
               max={maxSessions}
-              detail={`${sessionCount} of ${maxSessions}`}
+              detail={t("settings.usageOfLimit", { value: sessionCount, max: maxSessions })}
             />
             <RunActivityMetrics
               runsToday={usage?.runs_today ?? 0}
@@ -811,7 +828,7 @@ export default function SettingsPage({
               <IconTile tone="neutral" size="xs">
                 <Cpu size={12} />
               </IconTile>
-              Token usage
+              {t("settings.tokenUsage")}
             </div>
             <div
               data-ripple-settings-token-grid
@@ -839,23 +856,64 @@ export default function SettingsPage({
         </section>
 
         <section className="rounded-xl border border-[#dfe6f4] bg-white/78 shadow-[0_8px_22px_rgba(44,63,123,0.05)] backdrop-blur-xl">
-          <SectionHeader icon={<SlidersHorizontal size={13} />} title="Defaults" tone="neutral" />
-          <div className="flex flex-wrap items-center justify-between gap-2 p-2.5">
+          <SectionHeader
+            icon={<SlidersHorizontal size={13} />}
+            title={t("settings.defaults")}
+            tone="neutral"
+          />
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#e8edf7] p-2.5">
             <div className="min-w-0">
-              <div className="text-[12px] font-semibold text-[#111827]">Default model</div>
+              <div className="text-[12px] font-semibold text-[#111827]">
+                {t("settings.defaultModel")}
+              </div>
             </div>
             <div>
               <button
                 type="button"
                 onClick={handleModelMenuToggle}
                 className="inline-flex h-7 min-w-28 items-center justify-between gap-2 rounded-full border border-[#dfe6f4] bg-white px-2.5 text-[11px] font-semibold text-[#374151] transition-all outline-none hover:bg-[#f7f8fa] focus:border-[#8da0ff]"
-                aria-label="Default model"
+                aria-label={t("settings.defaultModel")}
                 aria-haspopup="menu"
                 aria-expanded={isModelMenuOpen}
               >
                 {formatModelName(defaultModel)}
                 <ChevronDown size={13} className="text-[#6b7280]" />
               </button>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 p-2.5">
+            <div className="flex min-w-0 items-center gap-2">
+              <IconTile tone="neutral" size="xs">
+                <Languages size={13} />
+              </IconTile>
+              <div className="min-w-0">
+                <div className="text-[12px] font-semibold text-[#111827]">
+                  {t("settings.language.title")}
+                </div>
+                <div className="mt-0.5 text-[11px] text-[#667085]">
+                  {t("settings.language.description")}
+                </div>
+              </div>
+            </div>
+            <div className="inline-flex min-w-0 rounded-full border border-[#dfe6f4] bg-white p-0.5">
+              {languageOptions.map((option) => {
+                const selected = localePreference === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() => setLocalePreference(option.value)}
+                    className={`h-7 rounded-full px-2.5 text-[11px] font-semibold transition-all ${
+                      selected
+                        ? "bg-[#eef4ff] text-[#2457e6] shadow-[0_6px_14px_rgba(47,107,255,0.14)]"
+                        : "text-[#667085] hover:bg-[#f7f8fa] hover:text-[#374151]"
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </section>
@@ -870,7 +928,7 @@ export default function SettingsPage({
               <IconTile tone="success" size="xs">
                 <ShieldCheck size={13} />
               </IconTile>
-              About & Diagnostics
+              {t("settings.aboutDiagnostics")}
             </span>
             <ChevronDown
               size={14}
@@ -883,20 +941,20 @@ export default function SettingsPage({
             <div className="space-y-1.5 border-t border-[#e8edf7] p-2.5">
               <DiagnosticRow
                 icon={<Server size={13} />}
-                label="API endpoint"
+                label={t("settings.apiEndpoint")}
                 value={getConfiguredApiUrl()}
               />
-              <DiagnosticRow icon={<UserRound size={13} />} label="User ID" value={userId} />
-              <DiagnosticRow icon={<KeyRound size={13} />} label="Auth mode" value={authMode} />
+              <DiagnosticRow icon={<UserRound size={13} />} label={t("settings.userId")} value={userId} />
+              <DiagnosticRow icon={<KeyRound size={13} />} label={t("settings.authMode")} value={authMode} />
               <DiagnosticRow
                 icon={<HardDrive size={13} />}
-                label="Sandbox status"
-                value={sandbox ? "Ready" : "Not created"}
+                label={t("settings.sandboxStatus")}
+                value={sandbox ? t("settings.ready") : t("settings.notCreated")}
               />
               <DiagnosticRow
                 icon={<KeyRound size={13} />}
-                label="Credential"
-                value={apiKey ? `${apiKey.slice(0, 6)}${"*".repeat(8)}` : "Not set"}
+                label={t("settings.credential")}
+                value={apiKey ? `${apiKey.slice(0, 6)}${"*".repeat(8)}` : t("settings.notSet")}
               />
             </div>
           ) : null}
@@ -1003,9 +1061,10 @@ function Metric({
 }
 
 function RunActivityMetrics({ runsToday, activeRuns }: { runsToday: number; activeRuns: number }) {
+  const { t } = useI18n();
   const items = [
-    { label: "Runs today", value: runsToday },
-    { label: "Running now", value: activeRuns },
+    { label: t("settings.runsToday"), value: runsToday },
+    { label: t("settings.runningNow"), value: activeRuns },
   ];
 
   return (

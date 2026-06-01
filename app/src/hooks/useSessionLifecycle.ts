@@ -19,6 +19,7 @@ import {
   pickInitialSessionId,
   setStoredCurrentSessionId,
 } from "@/lib/sessionPersistence";
+import { useI18n } from "@/i18n";
 
 type AuthState = "checking" | "needs_auth" | "authenticated";
 
@@ -41,17 +42,18 @@ export function useSessionLifecycle({
   onDeleteCurrentSession,
   onSessionActivated,
 }: UseSessionLifecycleOptions) {
+  const { t } = useI18n();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionSummaries, setSessionSummaries] = useState<SessionSummary[]>([]);
   const [isLoadingSessions, setIsLoadingSessions] = useState(false);
   const [sessionLoadError, setSessionLoadError] = useState<string | null>(null);
 
   const handleAuthExpired = useCallback(
-    (message = "API key 已失效") => {
+    (message?: string) => {
       clearStoredCurrentSessionId();
-      onAuthExpired(message);
+      onAuthExpired(message ?? t("auth.apiKeyExpired"));
     },
-    [onAuthExpired]
+    [onAuthExpired, t]
   );
 
   const loadSessions = useCallback(async (): Promise<SessionSummary[]> => {

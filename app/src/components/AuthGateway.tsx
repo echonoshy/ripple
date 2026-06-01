@@ -4,6 +4,7 @@ import React from "react";
 import { AlertTriangle, ArrowLeft, Code2, KeyRound, Mail, UserRound } from "lucide-react";
 import { IconTile } from "@/components/icons/IconTile";
 import RippleIcon from "@/components/icons/RippleIcon";
+import { useI18n } from "@/i18n";
 
 export type AuthGatewayMode = "login" | "invite" | "service";
 
@@ -128,6 +129,7 @@ export default function AuthGateway({
   onInviteClaim,
   onServiceAuth,
 }: AuthGatewayProps) {
+  const { t } = useI18n();
   const isInvite = authMode === "invite";
   const isService = authMode === "service";
 
@@ -138,15 +140,15 @@ export default function AuthGateway({
   };
 
   const formTitle = isService
-    ? "Developer access"
+    ? t("auth.serviceTitle")
     : isInvite
-      ? "Create your workspace access"
-      : "Sign in to Ripple";
+      ? t("auth.inviteTitle")
+      : t("auth.loginTitle");
   const formDescription = isService
-    ? "Use a service API key for development or controlled deployments."
+    ? t("auth.serviceDescription")
     : isInvite
-      ? "Claim an invitation and choose credentials for this workspace."
-      : "Use your account credentials to continue.";
+      ? t("auth.inviteDescription")
+      : t("auth.loginDescription");
 
   return (
     <div
@@ -162,7 +164,7 @@ export default function AuthGateway({
             />
             <div className="min-w-0">
               <div className="text-base leading-5 font-semibold">Ripple</div>
-              <div className="text-xs font-medium text-[#667085]">Your AI workspace</div>
+              <div className="text-xs font-medium text-[#667085]">{t("auth.tagline")}</div>
             </div>
           </div>
           <button
@@ -171,7 +173,7 @@ export default function AuthGateway({
             className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#dfe6f4] bg-white px-3 text-sm font-semibold text-[#344054] shadow-[0_8px_22px_rgba(44,63,123,0.06)] transition hover:border-[#cbd7ea] hover:bg-[#f8fafc]"
           >
             <Code2 size={15} />
-            <span className="hidden sm:inline">Developer access</span>
+            <span className="hidden sm:inline">{t("auth.developerAccess")}</span>
           </button>
         </header>
 
@@ -204,10 +206,10 @@ export default function AuthGateway({
             {isService ? (
               <form onSubmit={onServiceAuth} className="space-y-3">
                 <TextInput
-                  ariaLabel="Service API key"
+                  ariaLabel={t("auth.serviceApiKey")}
                   value={keyInput}
                   onChange={onKeyInputChange}
-                  placeholder="Service API key"
+                  placeholder={t("auth.serviceApiKey")}
                   icon={<KeyRound size={13} />}
                   type="password"
                   autoComplete="off"
@@ -215,7 +217,7 @@ export default function AuthGateway({
                 />
                 <div>
                   <TextInput
-                    ariaLabel="Workspace user ID"
+                    ariaLabel={t("auth.workspaceUserId")}
                     value={authUserIdInput}
                     onChange={(value) => {
                       onAuthUserIdInputChange(value);
@@ -227,8 +229,8 @@ export default function AuthGateway({
                     mono
                   />
                   <div className="mt-1.5 flex items-center justify-between gap-3 text-xs text-[#667085]">
-                    <span>User ID determines the isolated workspace sandbox.</span>
-                    <span className="shrink-0">Blank uses default.</span>
+                    <span>{t("auth.userIdHelp")}</span>
+                    <span className="shrink-0">{t("auth.blankUsesDefault")}</span>
                   </div>
                   {authUserIdError && (
                     <div className="mt-2 text-xs font-semibold text-[#b42318]">
@@ -241,46 +243,46 @@ export default function AuthGateway({
                   disabled={isAuthSubmitting || !keyInput.trim()}
                   className="flex h-11 w-full items-center justify-center rounded-lg border border-[#2463eb] bg-[#2463eb] text-sm font-semibold text-white shadow-[0_12px_28px_rgba(36,99,235,0.18)] transition hover:bg-[#1d56d8] disabled:cursor-not-allowed disabled:border-[#dfe6f4] disabled:bg-[#f2f4f7] disabled:text-[#98a2b3] disabled:shadow-none"
                 >
-                  {isAuthSubmitting ? "Connecting..." : "Connect with API key"}
+                  {isAuthSubmitting ? t("auth.connecting") : t("auth.connectWithApiKey")}
                 </button>
               </form>
             ) : (
               <form onSubmit={isInvite ? onInviteClaim : onPasswordLogin} className="space-y-3">
                 {isInvite && (
                   <TextInput
-                    ariaLabel="Invite code"
+                    ariaLabel={t("auth.inviteCode")}
                     value={inviteCodeInput}
                     onChange={onInviteCodeInputChange}
-                    placeholder="Invite code"
+                    placeholder={t("auth.inviteCode")}
                     icon={<KeyRound size={13} />}
                     autoComplete="one-time-code"
                     mono
                   />
                 )}
                 <TextInput
-                  ariaLabel="Email"
+                  ariaLabel={t("auth.email")}
                   value={loginInput}
                   onChange={onLoginInputChange}
-                  placeholder="Email"
+                  placeholder={t("auth.email")}
                   icon={<Mail size={13} />}
                   type="email"
                   autoComplete="email"
                 />
                 {isInvite && (
                   <TextInput
-                    ariaLabel="Display name"
+                    ariaLabel={t("auth.displayName")}
                     value={inviteDisplayNameInput}
                     onChange={onInviteDisplayNameInputChange}
-                    placeholder="Display name"
+                    placeholder={t("auth.displayName")}
                     icon={<UserRound size={13} />}
                     autoComplete="name"
                   />
                 )}
                 <TextInput
-                  ariaLabel="Password"
+                  ariaLabel={t("auth.password")}
                   value={passwordInput}
                   onChange={onPasswordInputChange}
-                  placeholder={isInvite ? "Create password" : "Password"}
+                  placeholder={isInvite ? t("auth.createPassword") : t("auth.password")}
                   icon={<KeyRound size={13} />}
                   type="password"
                   autoComplete={isInvite ? "new-password" : "current-password"}
@@ -295,7 +297,11 @@ export default function AuthGateway({
                   }
                   className="flex h-11 w-full items-center justify-center rounded-lg border border-[#2463eb] bg-[#2463eb] text-sm font-semibold text-white shadow-[0_12px_28px_rgba(36,99,235,0.18)] transition hover:bg-[#1d56d8] disabled:cursor-not-allowed disabled:border-[#dfe6f4] disabled:bg-[#f2f4f7] disabled:text-[#98a2b3] disabled:shadow-none"
                 >
-                  {isAuthSubmitting ? "Working..." : isInvite ? "Create account" : "Sign in"}
+                  {isAuthSubmitting
+                    ? t("auth.working")
+                    : isInvite
+                      ? t("auth.createAccount")
+                      : t("auth.signIn")}
                 </button>
               </form>
             )}
@@ -304,17 +310,17 @@ export default function AuthGateway({
               {isInvite || isService ? (
                 <ModeButton onClick={() => changeMode("login")}>
                   <ArrowLeft size={14} />
-                  <span className="ml-1.5">Back to sign in</span>
+                  <span className="ml-1.5">{t("auth.backToSignIn")}</span>
                 </ModeButton>
               ) : (
                 <div className="flex items-center gap-2 text-sm text-[#667085]">
-                  <span>Have an invite code?</span>
+                  <span>{t("auth.haveInviteCode")}</span>
                   <button
                     type="button"
                     onClick={() => changeMode("invite")}
                     className="font-semibold text-[#2463eb] hover:text-[#1d56d8]"
                   >
-                    Create account
+                    {t("auth.createAccount")}
                   </button>
                 </div>
               )}
@@ -322,13 +328,13 @@ export default function AuthGateway({
               {!isService && (
                 <ModeButton onClick={() => changeMode("service")}>
                   <Code2 size={14} />
-                  <span className="ml-1.5">Developer access</span>
+                  <span className="ml-1.5">{t("auth.developerAccess")}</span>
                 </ModeButton>
               )}
               {isService && (
                 <ModeButton active onClick={() => changeMode("service")}>
                   <Code2 size={14} />
-                  <span className="ml-1.5">Developer access</span>
+                  <span className="ml-1.5">{t("auth.developerAccess")}</span>
                 </ModeButton>
               )}
             </div>

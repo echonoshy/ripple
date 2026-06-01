@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import { I18nProvider, type LocalePreference } from "@/i18n";
 import WorkspaceExplorer, {
   displayError,
   getBoundedSplitPercent,
@@ -12,13 +13,20 @@ import WorkspaceExplorer, {
   getSplitPercentAfterFileDoubleClick,
 } from "./WorkspaceExplorer";
 
-function renderExplorer(overrides: Partial<React.ComponentProps<typeof WorkspaceExplorer>> = {}) {
+function renderExplorer(
+  overrides: Partial<React.ComponentProps<typeof WorkspaceExplorer>> = {},
+  locale: LocalePreference = "en-US"
+) {
   const props = {
     userId: "test-user",
     refreshToken: 0,
     ...overrides,
   };
-  return renderToStaticMarkup(<WorkspaceExplorer {...props} />);
+  return renderToStaticMarkup(
+    <I18nProvider initialPreference={locale}>
+      <WorkspaceExplorer {...props} />
+    </I18nProvider>
+  );
 }
 
 function renderExplorerWithStoredSplitPercent(
@@ -249,7 +257,7 @@ function testWorkspaceExplorerMobileSearchSheetKeepsSearchAndFiltersTogether() {
   assert.ok(afterSheetIndex > sheetIndex);
 
   const sheetSource = source.slice(sheetIndex, afterSheetIndex);
-  assert.match(sheetSource, /aria-label="Search workspace files"/);
+  assert.match(sheetSource, /aria-label=\{t\("files\.searchWorkspaceFiles"\)\}/);
   assert.match(sheetSource, /value=\{searchScope\}/);
   assert.match(sheetSource, /value=\{searchKind\}/);
   assert.match(sheetSource, /value=\{fileType\}/);
@@ -304,7 +312,7 @@ function testWorkspaceExplorerSourceSupportsDropUploadAndFileDownload() {
   assert.match(source, /onDragOver/);
   assert.match(source, /downloadWorkspaceFile/);
   assert.match(source, /getWorkspaceImagePreviewUrl/);
-  assert.match(source, /aria-label=\{`More actions for \$\{entry\.name\}`\}/);
+  assert.match(source, /aria-label=\{t\("files\.moreActionsFor"/);
 }
 
 testWorkspaceExplorerSourceSupportsDropUploadAndFileDownload();
@@ -604,7 +612,7 @@ function testWorkspaceSearchDefaultsToNameAndShowsMatchSource() {
   const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
 
   assert.match(source, /useState<NonNullable<WorkspaceSearchOptions\["scope"\]>>\(\s*"name"\s*\)/);
-  assert.match(source, /placeholder="Find files by name\.\.\."/);
+  assert.match(source, /placeholder=\{t\("files\.findFilesByName"\)\}/);
   assert.match(source, /searchMatchLabel/);
 }
 
@@ -735,15 +743,15 @@ function testWorkspaceExplorerSupportsMultiSelectionBatchActions() {
   assert.match(source, /isSelectionMode/);
   assert.match(source, /selectedEntries/);
   assert.match(source, /data-ripple-files-selection-bar/);
-  assert.match(source, /Select all/);
-  assert.match(source, /Clear selection/);
+  assert.match(source, /t\("files\.selectAll"\)/);
+  assert.match(source, /t\("files\.clearSelection"\)/);
   assert.match(source, /handleBatchDelete/);
   assert.match(source, /handleBatchClipboard/);
   assert.match(source, /items:\s*selectedEntries/);
-  assert.match(source, /Paste/);
+  assert.match(source, /t\("files\.paste"\)/);
   assert.match(source, /clipboard\.items\.length/);
   assert.match(source, /clearClipboard/);
-  assert.match(source, /Clear clipboard/);
+  assert.match(source, /t\("files\.clearClipboard"\)/);
 }
 
 testWorkspaceExplorerSupportsMultiSelectionBatchActions();
@@ -815,10 +823,32 @@ function testWorkspaceExplorerCompactToolbarOffersCreationActionsFromMoreMenu() 
   assert.match(html, /data-ripple-files-action="compact-more"/);
   assert.match(html, /aria-label="More file actions"/);
   assert.match(source, /data-ripple-files-compact-actions-menu/);
-  assert.match(source, /New File/);
-  assert.match(source, /New Folder/);
+  assert.match(source, /t\("files\.newFile"\)/);
+  assert.match(source, /t\("files\.newFolder"\)/);
 }
 
 testWorkspaceExplorerCompactToolbarOffersCreationActionsFromMoreMenu();
+
+function testWorkspaceExplorerRendersChineseChrome() {
+  const html = renderExplorer(
+    {
+      presentation: "page",
+      onBack: () => {},
+      testInitialListing: {
+        path: "/workspace",
+        parent_path: null,
+        entries: [],
+      },
+    },
+    "zh-CN"
+  );
+
+  assert.match(html, />文件</);
+  assert.match(html, /aria-label="返回会话"/);
+  assert.match(html, /aria-label="搜索工作区文件"/);
+  assert.match(html, />工作区为空</);
+}
+
+testWorkspaceExplorerRendersChineseChrome();
 
 console.log("workspace explorer tests passed");

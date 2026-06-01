@@ -18,6 +18,7 @@ import {
   Zap,
 } from "lucide-react";
 import { IconTile } from "@/components/icons/IconTile";
+import { useI18n } from "@/i18n";
 import {
   AuthError,
   createSchedule,
@@ -55,6 +56,8 @@ type OutputPreviewState = {
   loading: boolean;
   error: string | null;
 } | null;
+
+type Translator = ReturnType<typeof useI18n>["t"];
 
 const intervalUnitSeconds: Record<IntervalUnit, number> = {
   minutes: 60,
@@ -122,11 +125,11 @@ function localDatetimeValue(date: Date): string {
   )}:${pad(date.getMinutes())}`;
 }
 
-function formatDate(value: string | null): string {
-  if (!value) return "Not scheduled";
+function formatDate(value: string | null, locale: string, t: Translator): string {
+  if (!value) return t("automations.notScheduled");
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(locale, {
     month: "short",
     day: "2-digit",
     hour: "2-digit",
@@ -134,18 +137,31 @@ function formatDate(value: string | null): string {
   }).format(date);
 }
 
-function intervalLabel(seconds: number | null): string {
+function intervalLabel(seconds: number | null, t: Translator): string {
   if (!seconds) return "";
-  if (seconds % 86_400 === 0) return `Every ${seconds / 86_400}d`;
-  if (seconds % 3600 === 0) return `Every ${seconds / 3600}h`;
-  if (seconds % 60 === 0) return `Every ${seconds / 60}m`;
-  return `Every ${seconds}s`;
+  if (seconds % 86_400 === 0) {
+    return t("automations.intervalEvery", { value: seconds / 86_400, unit: "d" });
+  }
+  if (seconds % 3600 === 0) {
+    return t("automations.intervalEvery", { value: seconds / 3600, unit: "h" });
+  }
+  if (seconds % 60 === 0) {
+    return t("automations.intervalEvery", { value: seconds / 60, unit: "m" });
+  }
+  return t("automations.intervalEvery", { value: seconds, unit: "s" });
 }
 
-function runCountLabel(schedule: ScheduleInfo): string {
+function runCountLabel(schedule: ScheduleInfo, t: Translator): string {
   const runCount = Math.max(0, schedule.run_count || 0);
-  if (schedule.kind !== "interval") return `${runCount} run${runCount === 1 ? "" : "s"}`;
-  return schedule.max_runs ? `Runs ${runCount}/${schedule.max_runs}` : `Runs ${runCount}/unlimited`;
+  if (schedule.kind !== "interval") {
+    return t("automations.runCount", {
+      count: runCount,
+      label: runCount === 1 ? "run" : "runs",
+    });
+  }
+  return schedule.max_runs
+    ? t("automations.runsProgress", { count: runCount, max: schedule.max_runs })
+    : t("automations.runsUnlimited", { count: runCount });
 }
 
 function statusClass(status: string): string {
@@ -221,6 +237,7 @@ export default function AutomationsPage({
   onAuthExpired,
   onBack,
 }: AutomationsPageProps) {
+  const { locale, t } = useI18n();
   const [schedules, setSchedules] = useState<ScheduleInfo[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -269,14 +286,14 @@ export default function AutomationsPage({
       await Promise.all(records.map((schedule) => loadScheduleRuns(schedule.schedule_id)));
     } catch (err) {
       if (err instanceof AuthError) {
-        onAuthExpired("API key expired");
+        onAuthExpired(t("automations.apiKeyExpired"));
         return;
       }
-      setError(err instanceof Error ? err.message : "Failed to load automations");
+      setError(err instanceof Error ? err.message : t("automations.failedToLoad"));
     } finally {
       setIsLoading(false);
     }
-  }, [loadScheduleRuns, onAuthExpired]);
+  }, [loadScheduleRuns, onAuthExpired, t]);
 
   useEffect(() => {
     void loadSchedules();
@@ -371,10 +388,10 @@ export default function AutomationsPage({
         await loadSchedules();
       } catch (err) {
         if (err instanceof AuthError) {
-          onAuthExpired("API key expired");
+          onAuthExpired(t("automations.apiKeyExpired"));
           return;
         }
-        setError(err instanceof Error ? err.message : "Failed to save automation");
+        setError(err instanceof Error ? err.message : t("automations.failedToSave"));
       } finally {
         setIsSubmitting(false);
       }
@@ -390,6 +407,7 @@ export default function AutomationsPage({
       prompt,
       resetForm,
       runAt,
+      t,
       timezone,
       title,
     ]
@@ -422,15 +440,15 @@ export default function AutomationsPage({
         await loadSchedules();
       } catch (err) {
         if (err instanceof AuthError) {
-          onAuthExpired("API key expired");
+          onAuthExpired(t("automations.apiKeyExpired"));
           return;
         }
-        setError(err instanceof Error ? err.message : "Action failed");
+        setError(err instanceof Error ? err.message : t("automations.actionFailed"));
       } finally {
         setPendingActionId(null);
       }
     },
-    [confirmDeleteId, loadSchedules, onAuthExpired]
+    [confirmDeleteId, loadSchedules, onAuthExpired, t]
   );
 
   const handleViewOutput = useCallback(
@@ -454,7 +472,7 @@ export default function AutomationsPage({
         });
       } catch (err) {
         if (err instanceof AuthError) {
-          onAuthExpired("API key expired");
+          onAuthExpired(t("automations.apiKeyExpired"));
           return;
         }
         setOutputPreview({
@@ -462,13 +480,13 @@ export default function AutomationsPage({
           title,
           text: "",
           loading: false,
-          error: err instanceof Error ? err.message : "Failed to load output",
+          error: err instanceof Error ? err.message : t("automations.failedToLoadOutput"),
         });
       } finally {
         setPendingRunActionId(null);
       }
     },
-    [onAuthExpired]
+    [onAuthExpired, t]
   );
 
   const handleDownloadOutput = useCallback(
@@ -480,15 +498,15 @@ export default function AutomationsPage({
         saveBlobAsDownload(downloaded.blob, downloaded.filename);
       } catch (err) {
         if (err instanceof AuthError) {
-          onAuthExpired("API key expired");
+          onAuthExpired(t("automations.apiKeyExpired"));
           return;
         }
-        setError(err instanceof Error ? err.message : "Failed to download output");
+        setError(err instanceof Error ? err.message : t("automations.failedToDownloadOutput"));
       } finally {
         setPendingRunActionId(null);
       }
     },
-    [onAuthExpired]
+    [onAuthExpired, t]
   );
 
   const handleRefreshRuns = useCallback(
@@ -499,15 +517,15 @@ export default function AutomationsPage({
         await loadScheduleRuns(scheduleId);
       } catch (err) {
         if (err instanceof AuthError) {
-          onAuthExpired("API key expired");
+          onAuthExpired(t("automations.apiKeyExpired"));
           return;
         }
-        setError(err instanceof Error ? err.message : "Failed to refresh runs");
+        setError(err instanceof Error ? err.message : t("automations.failedToRefreshRuns"));
       } finally {
         setPendingRunActionId(null);
       }
     },
-    [loadScheduleRuns, onAuthExpired]
+    [loadScheduleRuns, onAuthExpired, t]
   );
 
   const handleDeleteRun = useCallback(
@@ -530,15 +548,15 @@ export default function AutomationsPage({
         await loadSchedules();
       } catch (err) {
         if (err instanceof AuthError) {
-          onAuthExpired("API key expired");
+          onAuthExpired(t("automations.apiKeyExpired"));
           return;
         }
-        setError(err instanceof Error ? err.message : "Failed to delete run record");
+        setError(err instanceof Error ? err.message : t("automations.failedToDeleteRunRecord"));
       } finally {
         setPendingRunActionId(null);
       }
     },
-    [confirmRunDeleteId, loadSchedules, onAuthExpired]
+    [confirmRunDeleteId, loadSchedules, onAuthExpired, t]
   );
 
   return (
@@ -552,17 +570,19 @@ export default function AutomationsPage({
               <button
                 type="button"
                 onClick={onBack}
-                aria-label="Back to settings"
-                title="Back to settings"
+                aria-label={t("automations.backToSettings")}
+                title={t("automations.backToSettings")}
                 className={`${MOBILE_GLASS_ICON_BUTTON_CLASS} lg:hidden`}
               >
                 <ArrowBigLeft size={16} strokeWidth={LUCIDE_NAV_STROKE_WIDTH} />
               </button>
             ) : null}
             <div className="min-w-0">
-              <h1 className="text-[20px] leading-7 font-semibold tracking-normal">Automations</h1>
+              <h1 className="text-[20px] leading-7 font-semibold tracking-normal">
+                {t("automations.title")}
+              </h1>
               <div className="mt-1 font-[family-name:var(--font-mono)] text-[11px] text-[#7a8496]">
-                {schedules.length} total
+                {t("automations.total", { count: schedules.length })}
               </div>
             </div>
           </div>
@@ -571,8 +591,8 @@ export default function AutomationsPage({
               type="button"
               onClick={() => void loadSchedules()}
               disabled={isLoading}
-              aria-label="Refresh automations"
-              title="Refresh automations"
+              aria-label={t("automations.refreshAutomations")}
+              title={t("automations.refreshAutomations")}
               className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[#dfe6f4] bg-white/78 text-[#384152] shadow-[0_10px_24px_rgba(44,63,123,0.06)] hover:bg-white disabled:opacity-60"
             >
               {isLoading ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
@@ -589,7 +609,7 @@ export default function AutomationsPage({
               className="inline-flex h-9 items-center gap-2 rounded-full bg-[linear-gradient(135deg,#2f6bff,#7b5cff)] px-3 text-[13px] font-semibold text-white shadow-[0_12px_26px_rgba(64,92,255,0.24)]"
             >
               <Plus size={15} />
-              New
+              {t("automations.new")}
             </button>
           </div>
         </header>
@@ -610,7 +630,9 @@ export default function AutomationsPage({
           >
             <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_220px]">
               <label className="block min-w-0">
-                <span className="mb-1 block text-[11px] font-medium text-[#667085]">Title</span>
+                <span className="mb-1 block text-[11px] font-medium text-[#667085]">
+                  {t("automations.titleLabel")}
+                </span>
                 <input
                   value={title}
                   onChange={(event) => setTitle(event.target.value)}
@@ -618,7 +640,9 @@ export default function AutomationsPage({
                 />
               </label>
               <label className="block min-w-0">
-                <span className="mb-1 block text-[11px] font-medium text-[#667085]">Model</span>
+                <span className="mb-1 block text-[11px] font-medium text-[#667085]">
+                  {t("automations.model")}
+                </span>
                 <select
                   value={formModel}
                   onChange={(event) => setFormModel(event.target.value)}
@@ -632,7 +656,9 @@ export default function AutomationsPage({
                 </select>
               </label>
               <label className="block min-w-0">
-                <span className="mb-1 block text-[11px] font-medium text-[#667085]">Timezone</span>
+                <span className="mb-1 block text-[11px] font-medium text-[#667085]">
+                  {t("automations.timezone")}
+                </span>
                 <select
                   value={timezone}
                   onChange={(event) => setTimezone(event.target.value)}
@@ -648,7 +674,9 @@ export default function AutomationsPage({
             </div>
 
             <label className="block">
-              <span className="mb-1 block text-[11px] font-medium text-[#667085]">Prompt</span>
+              <span className="mb-1 block text-[11px] font-medium text-[#667085]">
+                {t("automations.prompt")}
+              </span>
               <textarea
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
@@ -659,20 +687,22 @@ export default function AutomationsPage({
 
             <div className="grid gap-3 md:grid-cols-[190px_minmax(0,1fr)_auto] md:items-end">
               <div>
-                <span className="mb-1 block text-[11px] font-medium text-[#667085]">Mode</span>
+                <span className="mb-1 block text-[11px] font-medium text-[#667085]">
+                  {t("automations.mode")}
+                </span>
                 <div className="grid grid-cols-2 rounded-xl border border-[#dfe6f4] bg-white p-0.5">
                   {(["once", "interval"] as ScheduleKind[]).map((option) => (
                     <button
                       key={option}
                       type="button"
                       onClick={() => setKind(option)}
-                      className={`h-8 rounded text-xs font-semibold capitalize ${
+                      className={`h-8 rounded text-xs font-semibold ${
                         kind === option
                           ? "bg-[linear-gradient(135deg,#2f6bff,#7b5cff)] text-white"
                           : "text-[#384152] hover:bg-[#f7f8fa]"
                       }`}
                     >
-                      {option}
+                      {option === "once" ? t("automations.once") : t("automations.interval")}
                     </button>
                   ))}
                 </div>
@@ -680,7 +710,9 @@ export default function AutomationsPage({
 
               {kind === "once" ? (
                 <label className="block min-w-0">
-                  <span className="mb-1 block text-[11px] font-medium text-[#667085]">Run at</span>
+                  <span className="mb-1 block text-[11px] font-medium text-[#667085]">
+                    {t("automations.runAt")}
+                  </span>
                   <input
                     type="datetime-local"
                     value={runAt}
@@ -691,7 +723,9 @@ export default function AutomationsPage({
               ) : (
                 <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_120px_130px]">
                   <label className="block min-w-0">
-                    <span className="mb-1 block text-[11px] font-medium text-[#667085]">Every</span>
+                    <span className="mb-1 block text-[11px] font-medium text-[#667085]">
+                      {t("automations.every")}
+                    </span>
                     <input
                       type="number"
                       min={1}
@@ -701,25 +735,27 @@ export default function AutomationsPage({
                     />
                   </label>
                   <label className="block min-w-0">
-                    <span className="mb-1 block text-[11px] font-medium text-[#667085]">Unit</span>
+                    <span className="mb-1 block text-[11px] font-medium text-[#667085]">
+                      {t("automations.unit")}
+                    </span>
                     <select
                       value={intervalUnit}
                       onChange={(event) => setIntervalUnit(event.target.value as IntervalUnit)}
                       className="h-9 w-full rounded-xl border border-[#dfe6f4] bg-white px-3 text-[13px] outline-none focus:border-[#8da0ff]"
                     >
-                      <option value="minutes">Minutes</option>
-                      <option value="hours">Hours</option>
-                      <option value="days">Days</option>
+                      <option value="minutes">{t("automations.minutes")}</option>
+                      <option value="hours">{t("automations.hours")}</option>
+                      <option value="days">{t("automations.days")}</option>
                     </select>
                   </label>
                   <label className="block min-w-0">
                     <span className="mb-1 block text-[11px] font-medium text-[#667085]">
-                      Max runs
+                      {t("automations.maxRuns")}
                     </span>
                     <input
                       type="number"
                       min={1}
-                      placeholder="No limit"
+                      placeholder={t("automations.noLimit")}
                       value={maxRuns}
                       onChange={(event) => setMaxRuns(event.target.value)}
                       className="h-9 w-full rounded-xl border border-[#dfe6f4] bg-white px-3 text-[13px] outline-none focus:border-[#8da0ff]"
@@ -735,7 +771,7 @@ export default function AutomationsPage({
                   className="inline-flex h-9 items-center justify-center rounded-full border border-[#dfe6f4] bg-white px-4 text-[13px] font-semibold text-[#384152] shadow-[0_10px_24px_rgba(44,63,123,0.04)] hover:bg-[#f7f8fa]"
                   disabled={isSubmitting}
                 >
-                  Cancel
+                  {t("automations.cancel")}
                 </button>
                 <button
                   type="submit"
@@ -747,7 +783,7 @@ export default function AutomationsPage({
                   ) : (
                     <CalendarClock size={14} />
                   )}
-                  {editingScheduleId ? "Save" : "Create"}
+                  {editingScheduleId ? t("automations.save") : t("automations.create")}
                 </button>
               </div>
             </div>
@@ -757,7 +793,7 @@ export default function AutomationsPage({
         <div className="overflow-hidden rounded-2xl border border-[#dfe6f4] bg-white/74 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl">
           {schedules.length === 0 && !isLoading ? (
             <div className="flex h-44 items-center justify-center text-[13px] text-[#667085]">
-              No automations
+              {t("automations.noAutomations")}
             </div>
           ) : (
             <div className="divide-y divide-[#e8edf7]">
@@ -820,10 +856,10 @@ export default function AutomationsPage({
                             className="min-w-0 rounded-lg border border-[#eef2fb] bg-[#f8fbff]/80 px-2 py-1"
                           >
                             <div className="text-[10px] font-semibold tracking-normal text-[#8b8f94] uppercase">
-                              Next
+                              {t("automations.next")}
                             </div>
                             <div className="mt-0.5 truncate text-[11px] font-semibold text-[#111827]">
-                              {formatDate(schedule.next_run_at)}
+                              {formatDate(schedule.next_run_at, locale, t)}
                             </div>
                           </div>
                           <div
@@ -831,12 +867,12 @@ export default function AutomationsPage({
                             className="min-w-0 rounded-lg border border-[#eef2fb] bg-[#f8fbff]/80 px-2 py-1"
                           >
                             <div className="text-[10px] font-semibold tracking-normal text-[#8b8f94] uppercase">
-                              Repeat
+                              {t("automations.repeat")}
                             </div>
                             <div className="mt-0.5 truncate font-[family-name:var(--font-mono)] text-[10px] text-[#384152]">
                               {schedule.kind === "interval"
-                                ? `${intervalLabel(schedule.interval_seconds)} · ${runCountLabel(schedule)}`
-                                : "Once"}
+                                ? `${intervalLabel(schedule.interval_seconds, t)} · ${runCountLabel(schedule, t)}`
+                                : t("automations.once")}
                             </div>
                           </div>
                         </div>
@@ -847,18 +883,20 @@ export default function AutomationsPage({
                         >
                           <div className="flex min-w-0 items-start justify-between gap-2">
                             <span className="text-[10px] font-semibold tracking-normal text-[#8b8f94] uppercase">
-                              Latest run
+                              {t("automations.latestRun")}
                             </span>
                             <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
                               <span className="text-[10px] text-[#667085]">
-                                {latestRunAt ? formatDate(latestRunAt) : "Never"}
+                                {latestRunAt
+                                  ? formatDate(latestRunAt, locale, t)
+                                  : t("automations.never")}
                               </span>
                               <span
                                 className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${runStatusClass(
                                   latestRunStatus
                                 )}`}
                               >
-                                {latestRunStatus || "none"}
+                                {latestRunStatus || t("automations.none")}
                               </span>
                             </div>
                           </div>
@@ -879,7 +917,7 @@ export default function AutomationsPage({
                               ) : (
                                 <RefreshCw size={11} />
                               )}
-                              <span>Refresh</span>
+                              <span>{t("automations.refresh")}</span>
                             </button>
                             {hasRunOutput(latestRun) ? (
                               <>
@@ -894,7 +932,7 @@ export default function AutomationsPage({
                                   ) : (
                                     <Eye size={11} />
                                   )}
-                                  <span>View output</span>
+                                  <span>{t("automations.viewOutput")}</span>
                                 </button>
                                 <button
                                   type="button"
@@ -907,7 +945,7 @@ export default function AutomationsPage({
                                   ) : (
                                     <Download size={11} />
                                   )}
-                                  <span>Download output</span>
+                                  <span>{t("automations.downloadOutput")}</span>
                                 </button>
                               </>
                             ) : null}
@@ -926,26 +964,34 @@ export default function AutomationsPage({
                           onClick={() => setConfirmDeleteId(null)}
                           className={automationActionButtonClass}
                         >
-                          Cancel
+                          {t("automations.cancel")}
                         </button>
                       ) : null}
                       <button
                         type="button"
                         onClick={() => beginEditSchedule(schedule)}
-                        aria-label="Edit automation"
-                        title="Edit automation"
+                        aria-label={t("automations.editAutomation")}
+                        title={t("automations.editAutomation")}
                         className={automationActionButtonClass}
                       >
                         <Edit3 size={14} />
-                        <span>Edit</span>
+                        <span>{t("automations.edit")}</span>
                       </button>
                       <button
                         type="button"
                         onClick={() =>
                           void handleAction(schedule.schedule_id, "toggle", schedule.enabled)
                         }
-                        aria-label={schedule.enabled ? "Pause automation" : "Resume automation"}
-                        title={schedule.enabled ? "Pause automation" : "Resume automation"}
+                        aria-label={
+                          schedule.enabled
+                            ? t("automations.pauseAutomation")
+                            : t("automations.resumeAutomation")
+                        }
+                        title={
+                          schedule.enabled
+                            ? t("automations.pauseAutomation")
+                            : t("automations.resumeAutomation")
+                        }
                         className={automationActionButtonClass}
                       >
                         {pendingActionId === `${schedule.schedule_id}:toggle` ? (
@@ -955,13 +1001,17 @@ export default function AutomationsPage({
                         ) : (
                           <Play size={14} />
                         )}
-                        {schedule.enabled ? <span>Pause</span> : <span>Resume</span>}
+                        {schedule.enabled ? (
+                          <span>{t("automations.pause")}</span>
+                        ) : (
+                          <span>{t("automations.resume")}</span>
+                        )}
                       </button>
                       <button
                         type="button"
                         onClick={() => void handleAction(schedule.schedule_id, "run")}
-                        aria-label="Run automation now"
-                        title="Run automation now"
+                        aria-label={t("automations.runAutomationNow")}
+                        title={t("automations.runAutomationNow")}
                         className={automationActionButtonClass}
                       >
                         {pendingActionId === `${schedule.schedule_id}:run` ? (
@@ -969,7 +1019,7 @@ export default function AutomationsPage({
                         ) : (
                           <Zap size={14} />
                         )}
-                        <span>Run now</span>
+                        <span>{t("automations.runNow")}</span>
                       </button>
                       <button
                         type="button"
@@ -978,8 +1028,8 @@ export default function AutomationsPage({
                             current === schedule.schedule_id ? null : schedule.schedule_id
                           )
                         }
-                        aria-label="Toggle run history"
-                        title="Toggle run history"
+                        aria-label={t("automations.toggleRunHistory")}
+                        title={t("automations.toggleRunHistory")}
                         className={automationActionButtonClass}
                       >
                         <ChevronDown
@@ -988,16 +1038,16 @@ export default function AutomationsPage({
                             isExpanded ? "rotate-180 transition-transform" : "transition-transform"
                           }
                         />
-                        <span>Run history</span>
+                        <span>{t("automations.runHistory")}</span>
                       </button>
                       <button
                         type="button"
                         onClick={() => void handleAction(schedule.schedule_id, "delete")}
-                        aria-label="Delete automation"
+                        aria-label={t("automations.deleteAutomation")}
                         title={
                           confirmDeleteId === schedule.schedule_id
-                            ? "Confirm delete automation"
-                            : "Delete automation"
+                            ? t("automations.confirmDeleteAutomation")
+                            : t("automations.deleteAutomation")
                         }
                         className={`${automationDeleteButtonClass} ${
                           confirmDeleteId === schedule.schedule_id
@@ -1008,11 +1058,13 @@ export default function AutomationsPage({
                         {pendingActionId === `${schedule.schedule_id}:delete` ? (
                           <Loader2 size={14} className="animate-spin" />
                         ) : confirmDeleteId === schedule.schedule_id ? (
-                          <span className="text-[11px] font-semibold">Confirm</span>
+                          <span className="text-[11px] font-semibold">
+                            {t("automations.confirm")}
+                          </span>
                         ) : (
                           <>
                             <Trash2 size={14} />
-                            <span>Delete</span>
+                            <span>{t("automations.delete")}</span>
                           </>
                         )}
                       </button>
@@ -1025,14 +1077,19 @@ export default function AutomationsPage({
                       >
                         <div className="mb-2 flex items-center justify-between gap-3">
                           <div className="text-[11px] font-semibold tracking-normal text-[#667085] uppercase">
-                            Run history
+                            {t("automations.runHistory")}
                           </div>
                           <div className="font-[family-name:var(--font-mono)] text-[10px] text-[#8b8f94]">
-                            {runs.length} run{runs.length === 1 ? "" : "s"}
+                            {t("automations.runCount", {
+                              count: runs.length,
+                              label: runs.length === 1 ? "run" : "runs",
+                            })}
                           </div>
                         </div>
                         {runs.length === 0 ? (
-                          <div className="text-[12px] text-[#667085]">No runs yet</div>
+                          <div className="text-[12px] text-[#667085]">
+                            {t("automations.noRunsYet")}
+                          </div>
                         ) : (
                           <div className="divide-y divide-[#eef2fb]">
                             {runs.map((run) => {
@@ -1058,7 +1115,7 @@ export default function AutomationsPage({
                                         {run.job_id}
                                       </span>
                                       <span className="text-[11px] text-[#667085]">
-                                        {formatDate(run.updated_at)}
+                                        {formatDate(run.updated_at, locale, t)}
                                       </span>
                                     </div>
                                     {errorText ? (
@@ -1077,7 +1134,7 @@ export default function AutomationsPage({
                                           className={runActionButtonClass}
                                         >
                                           <Eye size={12} />
-                                          <span>View output</span>
+                                          <span>{t("automations.viewOutput")}</span>
                                         </button>
                                         <button
                                           type="button"
@@ -1086,7 +1143,7 @@ export default function AutomationsPage({
                                           className={runActionButtonClass}
                                         >
                                           <Download size={12} />
-                                          <span>Download output</span>
+                                          <span>{t("automations.downloadOutput")}</span>
                                         </button>
                                       </>
                                     ) : null}
@@ -1096,7 +1153,7 @@ export default function AutomationsPage({
                                         onClick={() => setConfirmRunDeleteId(null)}
                                         className={runActionButtonClass}
                                       >
-                                        <span>Cancel</span>
+                                        <span>{t("automations.cancel")}</span>
                                       </button>
                                     ) : null}
                                     <button
@@ -1110,15 +1167,15 @@ export default function AutomationsPage({
                                       }
                                       title={
                                         isActiveRunStatus(run.status)
-                                          ? "Wait until the run finishes before deleting"
+                                          ? t("automations.waitUntilRunFinishes")
                                           : confirmingRunDelete
-                                            ? "Confirm delete run record"
-                                            : "Delete run record"
+                                            ? t("automations.confirmDeleteRunRecord")
+                                            : t("automations.deleteRunRecord")
                                       }
                                       aria-label={
                                         confirmingRunDelete
-                                          ? "Confirm delete run record"
-                                          : "Delete run record"
+                                          ? t("automations.confirmDeleteRunRecord")
+                                          : t("automations.deleteRunRecord")
                                       }
                                       className={`${runActionButtonClass} ${
                                         confirmingRunDelete
@@ -1129,11 +1186,11 @@ export default function AutomationsPage({
                                       {pendingRunActionId === `${run.job_id}:delete` ? (
                                         <Loader2 size={12} className="animate-spin" />
                                       ) : confirmingRunDelete ? (
-                                        <span>Confirm delete</span>
+                                        <span>{t("automations.confirmDelete")}</span>
                                       ) : (
                                         <>
                                           <Trash2 size={12} />
-                                          <span>Delete record</span>
+                                          <span>{t("automations.deleteRecord")}</span>
                                         </>
                                       )}
                                     </button>
@@ -1167,14 +1224,14 @@ export default function AutomationsPage({
                   onClick={() => setOutputPreview(null)}
                   className="inline-flex h-8 shrink-0 items-center justify-center rounded-full border border-[#dfe6f4] bg-white px-3 text-[11px] font-semibold text-[#384152] hover:bg-[#f7f8fa]"
                 >
-                  Close
+                  {t("automations.close")}
                 </button>
               </div>
               <div className="max-h-[calc(82vh-64px)] overflow-auto p-4">
                 {outputPreview.loading ? (
                   <div className="flex h-32 items-center justify-center text-[13px] text-[#667085]">
                     <Loader2 size={16} className="mr-2 animate-spin" />
-                    Loading output
+                    {t("automations.loadingOutput")}
                   </div>
                 ) : outputPreview.error ? (
                   <div className="rounded-xl border border-[#cf222e]/25 bg-[#ffebe9] px-3 py-2 text-[13px] font-medium text-[#cf222e]">
@@ -1182,7 +1239,7 @@ export default function AutomationsPage({
                   </div>
                 ) : (
                   <pre className="font-[family-name:var(--font-mono)] text-[12px] leading-5 break-words whitespace-pre-wrap text-[#1f2937]">
-                    {outputPreview.text || "(empty output)"}
+                    {outputPreview.text || t("automations.emptyOutput")}
                   </pre>
                 )}
               </div>

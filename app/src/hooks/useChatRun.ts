@@ -44,6 +44,7 @@ import {
 } from "@/lib/workbench";
 import { openExternalUrl } from "@/lib/platform";
 import type { FeishuAuthOpenPayload, FeishuAuthWaitingState } from "@/components/MarkdownRenderer";
+import { useI18n } from "@/i18n";
 
 export interface ChatRunSessionActions {
   getSessionId: () => string | null;
@@ -193,6 +194,7 @@ export function useChatRun({
   getSessionActions,
   onSessionAttention,
 }: UseChatRunOptions) {
+  const { t } = useI18n();
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [pendingFiles, setPendingFiles] = useState<ChatFileRef[]>([]);
@@ -292,7 +294,10 @@ export function useChatRun({
       clearFeishuAuthWaiting();
       const startedAt = Date.now();
       const knownConnector = connector === "google_workspace" ? "google_workspace" : "feishu";
-      const label = knownConnector === "google_workspace" ? "Google 授权" : "飞书操作";
+      const label =
+        knownConnector === "google_workspace"
+          ? t("connectors.googleAuthLabel")
+          : t("connectors.feishuOperationLabel");
       setFeishuAuthWaiting({ connector: knownConnector, url: nextUrl, elapsedSeconds: 0, label });
       feishuAuthWaitingTimerRef.current = window.setInterval(() => {
         setFeishuAuthWaiting((current) =>
@@ -302,7 +307,7 @@ export function useChatRun({
         );
       }, 1000);
     },
-    [clearFeishuAuthWaiting]
+    [clearFeishuAuthWaiting, t]
   );
 
   const clearConnectorAuthPoll = useCallback(() => {
@@ -326,8 +331,8 @@ export function useChatRun({
     runningViewStatesRef.current.clear();
     setRunningSessionIds([]);
     clearPendingLocalImages();
-    onAuthExpired("API key 已失效");
-  }, [clearConnectorAuthPoll, clearPendingLocalImages, onAuthExpired]);
+    onAuthExpired(t("auth.apiKeyExpired"));
+  }, [clearConnectorAuthPoll, clearPendingLocalImages, onAuthExpired, t]);
 
   const resetSessionView = useCallback(() => {
     setMessages([]);
@@ -1486,8 +1491,8 @@ export function useChatRun({
         if (waitingForAuth && elapsedMs >= CONNECTOR_AUTH_POLL_TIMEOUT_MS) {
           setLastAssistantMessage(
             targetConnector === "google_workspace"
-              ? "Google 授权等待超时，已停止本次授权轮询。请重新发起授权。"
-              : "飞书授权等待超时，已停止本次授权轮询。请重新发起授权。"
+              ? t("connectors.googleAuthTimeout")
+              : t("connectors.feishuAuthTimeout")
           );
           await cancelPendingConnectorAuth();
           if (isStalePoll()) return;
@@ -1528,6 +1533,7 @@ export function useChatRun({
       runtimeTimelineEvents,
       selectedModel,
       startFeishuAuthWaiting,
+      t,
       planProgress,
       planSteps,
       tokenUsage,

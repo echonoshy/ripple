@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import { I18nProvider, type LocalePreference } from "@/i18n";
 import type { WorkbenchSessionSummary } from "@/types";
 import WorkspaceNav from "./WorkspaceNav";
 
@@ -19,7 +20,10 @@ const sessions: WorkbenchSessionSummary[] = Array.from({ length: 9 }, (_, index)
   pendingApprovalCount: 0,
 }));
 
-function renderWorkspaceNav(overrides: Partial<React.ComponentProps<typeof WorkspaceNav>> = {}) {
+function renderWorkspaceNav(
+  overrides: Partial<React.ComponentProps<typeof WorkspaceNav>> = {},
+  locale: LocalePreference = "en-US"
+) {
   const props = {
     sessions,
     selectedSessionId: "srv-9",
@@ -31,7 +35,11 @@ function renderWorkspaceNav(overrides: Partial<React.ComponentProps<typeof Works
     ...overrides,
   } as React.ComponentProps<typeof WorkspaceNav> & { sessionLoadError?: string | null };
 
-  return renderToStaticMarkup(<WorkspaceNav {...props} />);
+  return renderToStaticMarkup(
+    <I18nProvider initialPreference={locale}>
+      <WorkspaceNav {...props} />
+    </I18nProvider>
+  );
 }
 
 function testRendersAllSessionsWithoutDeadViewAllButton() {
@@ -118,6 +126,15 @@ function testSessionLoadErrorDoesNotLookLikeEmptyState() {
   assert.doesNotMatch(html, /No sessions yet/);
 }
 
+function testRendersChineseSessionRailChrome() {
+  const html = renderWorkspaceNav({ sessions: [], selectedSessionId: null }, "zh-CN");
+
+  assert.match(html, />会话</);
+  assert.match(html, />最近的 Agent 工作</);
+  assert.match(html, />新会话</);
+  assert.match(html, />暂无会话</);
+}
+
 testRendersAllSessionsWithoutDeadViewAllButton();
 testUsesSessionIdSelectionNaming();
 testSessionsHeaderDoesNotDuplicateNewSessionAction();
@@ -126,6 +143,7 @@ testNewSessionStaysAvailableWhileAnotherSessionRuns();
 testSessionAttentionUsesDotsInsteadOfStatusLabels();
 testRendersSessionActivityTime();
 testSessionLoadErrorDoesNotLookLikeEmptyState();
+testRendersChineseSessionRailChrome();
 
 function testRendersPinnedSessionWithIcon() {
   const html = renderWorkspaceNav({

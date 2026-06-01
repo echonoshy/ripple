@@ -27,9 +27,9 @@ function testFeishuAuthCardDoesNotCompleteAuthDirectly() {
     />
   );
 
-  assert.match(html, /打开授权页面/);
-  assert.match(html, /自动继续当前任务/);
-  assert.doesNotMatch(html, /好了/);
+  assert.match(html, /Open authorization page/);
+  assert.match(html, /continue the current task/);
+  assert.doesNotMatch(html, /done/);
 }
 
 function testFeishuAuthCardShowsWaitingState() {
@@ -40,13 +40,13 @@ function testFeishuAuthCardShowsWaitingState() {
         connector: "feishu",
         url: "https://accounts.feishu.cn/device",
         elapsedSeconds: 12,
-        label: "飞书操作",
+        label: "Feishu operation",
       }}
     />
   );
 
-  assert.match(html, /正在等待你在浏览器完成飞书操作/);
-  assert.match(html, /已等待 12 秒/);
+  assert.match(html, /Waiting for Feishu in the browser/);
+  assert.match(html, /12 seconds elapsed/);
 }
 
 function testGoogleAuthCardDoesNotAskForManualCallback() {
@@ -56,8 +56,8 @@ function testGoogleAuthCardDoesNotAskForManualCallback() {
     />
   );
 
-  assert.match(html, /打开 Google 授权/);
-  assert.match(html, /自动继续刚才的请求/);
+  assert.match(html, /Open Google authorization/);
+  assert.match(html, /continue automatically/);
   assert.doesNotMatch(html, /callback URL/);
   assert.doesNotMatch(html, /好了/);
 }
@@ -127,11 +127,11 @@ function testBilibiliAuthCardShowsQrAndManualOpenLink() {
     />
   );
 
-  assert.match(html, /B 站扫码登录/);
+  assert.match(html, /Bilibili QR login/);
   assert.match(html, /src="[^"]*\/v1\/bilibili\/qrcode\.png\?content=encoded"/);
-  assert.match(html, /打开 B 站授权链接/);
-  assert.match(html, /扫码或点链接确认后/);
-  assert.match(html, /好了/);
+  assert.match(html, /Open Bilibili authorization/);
+  assert.match(html, /After confirming with the QR code or link/);
+  assert.match(html, /done/);
   assert.doesNotMatch(html, /自动继续/);
 }
 

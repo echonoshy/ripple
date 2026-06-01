@@ -14,6 +14,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { useI18n } from "@/i18n";
 import type { ChatFileRef } from "@/lib/chatInput";
 import {
   getQuickActionMatches,
@@ -103,10 +104,11 @@ export default function SessionComposer({
   onToggleModelDropdown,
   onSelectModel,
   contextFolderPath = null,
-  workspaceScopeLabel = "Workspace",
+  workspaceScopeLabel,
   workspaceScopePath = "/workspace",
   onSelectWorkspaceFolder,
 }: SessionComposerProps) {
+  const { t } = useI18n();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const quickActionsRef = useRef<HTMLDivElement>(null);
@@ -122,9 +124,10 @@ export default function SessionComposer({
   const attachDisabled = inputDisabled || isUploadingFiles;
   const sendDisabled = isGenerating || isBlocked || isUploadingFiles;
   const hasFocusFolder = Boolean(contextFolderPath);
+  const effectiveWorkspaceScopeLabel = workspaceScopeLabel || t("files.workspaceName");
   const folderButtonTitle = hasFocusFolder
-    ? `Focus folder: ${workspaceScopeLabel}`
-    : "Set focus folder";
+    ? t("composer.focusFolder", { label: effectiveWorkspaceScopeLabel })
+    : t("composer.setFocusFolder");
   const isQuickActionsOpen = quickActionsState !== null;
   const availableModels = useMemo(
     () => (models.length > 0 ? models : [{ id: selectedModel, owned_by: "ripple" }]),
@@ -331,7 +334,7 @@ export default function SessionComposer({
           <button
             type="button"
             data-ripple-composer-folder-button
-            aria-label="Set focus folder"
+            aria-label={t("composer.setFocusFolder")}
             aria-pressed={hasFocusFolder}
             title={folderButtonTitle}
             onClick={() => {
@@ -379,8 +382,8 @@ export default function SessionComposer({
         )}
         <button
           type="button"
-          aria-label="Attach files"
-          title="Attach files"
+          aria-label={t("composer.attachFiles")}
+          title={t("composer.attachFiles")}
           onClick={() => fileInputRef.current?.click()}
           disabled={attachDisabled}
           className="inline-flex h-10 w-10 items-center justify-center rounded-full text-[#4b5563] hover:bg-[#f3f4f6] hover:text-[#111827] active:bg-[#eef3ff] disabled:cursor-not-allowed disabled:opacity-50 sm:h-8 sm:w-8"
@@ -395,8 +398,8 @@ export default function SessionComposer({
       <div ref={modelDropdownRef} className="relative flex shrink-0 items-center">
         <button
           type="button"
-          aria-label="Select model"
-          title={`Model: ${formatModelName(selectedModel)}`}
+          aria-label={t("composer.selectModel")}
+          title={t("composer.modelTitle", { model: formatModelName(selectedModel) })}
           onClick={() => {
             setIsFolderPickerOpen(false);
             onToggleModelDropdown();
@@ -441,12 +444,12 @@ export default function SessionComposer({
       rows={1}
       placeholder={
         isGenerating
-          ? "Working..."
+          ? t("composer.working")
           : isBlocked
-            ? "Draft your next message..."
+            ? t("composer.draftNextMessage")
             : hasSession
-              ? "Ask anything..."
-              : "Ask anything..."
+              ? t("composer.askAnything")
+              : t("composer.askAnything")
       }
       className={`session-composer-input mb-[2px] max-h-[104px] min-h-9 min-w-0 resize-none bg-transparent px-1.5 py-2 text-[14px] leading-5 text-[#111827] outline-none placeholder:text-[13px] placeholder:text-[#9aa3af] disabled:opacity-60 sm:mb-0 sm:max-h-[180px] sm:min-h-[36px] sm:px-2 sm:py-1.5 sm:text-[14px] sm:leading-6 sm:placeholder:text-[#8b8f94] ${
         isExpandedComposer ? "col-span-2 row-start-1 w-full" : "flex-1"
@@ -459,8 +462,8 @@ export default function SessionComposer({
       <button
         type="button"
         onClick={onStop}
-        aria-label="Stop generation"
-        title={isBlocked ? "Stop running session" : "Stop generation"}
+        aria-label={t("composer.stopGeneration")}
+        title={isBlocked ? t("composer.stopRunningSession") : t("composer.stopGeneration")}
         className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#cf222e]/20 bg-[#ffebe9] text-[#cf222e] shadow-[0_8px_18px_rgba(207,34,46,0.10)] hover:bg-[#ffd7d5] sm:h-8 sm:w-8 ${
           isExpandedComposer ? "col-start-2 row-start-2 justify-self-end" : "sm:mb-[2px]"
         }`}
@@ -472,8 +475,8 @@ export default function SessionComposer({
         type="button"
         onClick={onSend}
         disabled={!canSend || sendDisabled}
-        aria-label="Send message"
-        title="Send message"
+        aria-label={t("composer.sendMessage")}
+        title={t("composer.sendMessage")}
         className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#4067ff]/20 bg-[linear-gradient(135deg,#2f6bff,#7b5cff)] text-white shadow-[0_10px_22px_rgba(64,92,255,0.30)] disabled:cursor-not-allowed disabled:border-[#dfe6f4] disabled:bg-[#f3f6fb] disabled:bg-none disabled:text-[#9aa3af] disabled:shadow-none sm:h-8 sm:w-8 ${
           isExpandedComposer ? "col-start-2 row-start-2 justify-self-end" : "sm:mb-[2px]"
         }`}
@@ -528,8 +531,8 @@ export default function SessionComposer({
                 )}
                 <button
                   type="button"
-                  aria-label={`Remove ${image.name}`}
-                  title={`Remove ${image.name}`}
+                  aria-label={t("composer.removeItem", { name: image.name })}
+                  title={t("composer.removeItem", { name: image.name })}
                   onClick={() => onRemovePendingLocalImage(image.id)}
                   className="absolute top-1 right-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-white/92 text-[#384152] shadow-[0_2px_8px_rgba(15,23,42,0.16)] hover:bg-[#ffebe9] hover:text-[#cf222e]"
                 >
@@ -551,8 +554,8 @@ export default function SessionComposer({
                 <span className="truncate">{file.name}</span>
                 <button
                   type="button"
-                  aria-label={`Remove ${file.name}`}
-                  title={`Remove ${file.name}`}
+                  aria-label={t("composer.removeItem", { name: file.name })}
+                  title={t("composer.removeItem", { name: file.name })}
                   onClick={() => onRemovePendingFile(file.path)}
                   className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[#667085] hover:bg-[#e5e7eb] hover:text-[#111827]"
                 >
@@ -574,7 +577,7 @@ export default function SessionComposer({
               <AlertTriangle size={13} className="mt-0.5 shrink-0" />
             )}
             <span className="min-w-0 break-words">
-              {isUploadingFiles ? "Uploading files" : uploadError}
+              {isUploadingFiles ? t("composer.uploadingFiles") : uploadError}
             </span>
           </div>
         )}

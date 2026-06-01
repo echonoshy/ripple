@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import { IconTile } from "@/components/icons/IconTile";
 import { DENSE_GLASS_ICON_BUTTON_CLASS } from "@/components/workbench/stylePrimitives";
+import { useI18n } from "@/i18n";
 import {
   downloadWorkspaceFile,
   fetchWorkspaceDocumentPreview,
@@ -47,7 +48,7 @@ import {
   type WorkspaceSearchOptions,
 } from "@/lib/api";
 import { saveBlobAsDownload } from "@/lib/platform";
-import { readableApiErrorMessage } from "@/lib/apiErrors";
+import { RIPPLE_API_CONNECTION_ERROR, readableApiErrorMessage } from "@/lib/apiErrors";
 import {
   getMeasuredViewportMenuPosition,
   getResponsiveMenuBottomInsetPx,
@@ -87,6 +88,8 @@ const WORKSPACE_DRAG_ENTRY_MIME = "application/x-ripple-workspace-entry";
 interface WorkspaceDragPayload {
   paths: string[];
 }
+
+type Translator = ReturnType<typeof useI18n>["t"];
 
 const workspaceListingCache = new Map<string, WorkspaceListing>();
 const workspaceLastPathCache = new Map<string, string>();
@@ -181,10 +184,10 @@ function formatBytes(n: number): string {
   return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
-function formatModified(value: string): string {
+function formatModified(value: string, locale: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleString([], {
+  return date.toLocaleString(locale, {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
@@ -192,15 +195,16 @@ function formatModified(value: string): string {
   });
 }
 
-function searchMatchLabel(match: WorkspaceEntry["match"]): string | null {
-  if (match === "name") return "Name";
-  if (match === "path") return "Path";
-  if (match === "content") return "Content";
+function searchMatchLabel(match: WorkspaceEntry["match"], t: Translator): string | null {
+  if (match === "name") return t("files.nameMatch");
+  if (match === "path") return t("files.pathMatch");
+  if (match === "content") return t("files.contentMatch");
   return null;
 }
 
 function SearchResultMeta({ entry }: { entry: WorkspaceEntry }) {
-  const label = searchMatchLabel(entry.match);
+  const { t } = useI18n();
+  const label = searchMatchLabel(entry.match, t);
   return (
     <span className="mt-0.5 flex min-w-0 items-center gap-1 font-[family-name:var(--font-mono)] text-[10px] text-[#6b7280]">
       <span className="truncate">{entry.path}</span>
@@ -213,10 +217,10 @@ function SearchResultMeta({ entry }: { entry: WorkspaceEntry }) {
   );
 }
 
-function searchModeLabel(scope: WorkspaceSearchOptions["scope"]): string {
-  if (scope === "content") return "Find content in /workspace";
-  if (scope === "all") return "Find names + content in /workspace";
-  return "Find names in /workspace";
+function searchModeLabel(scope: WorkspaceSearchOptions["scope"], t: Translator): string {
+  if (scope === "content") return t("files.searchModeContent");
+  if (scope === "all") return t("files.searchModeAll");
+  return t("files.searchModeName");
 }
 
 type WorkspacePreviewKind = "image" | "pdf" | "document" | "text";
@@ -253,17 +257,25 @@ function workspaceEntryNameFromPath(path: string): string {
   return path.split(/[?#]/, 1)[0].split("/").filter(Boolean).at(-1) || "file";
 }
 
-export function displayError(error: string): string {
+export function displayError(error: string, t?: Translator): string {
   if (
     error.includes("Failed to rename entry (404)") ||
     error.includes("File or folder no longer exists")
   ) {
-    return "File or folder no longer exists. Refresh workspace.";
+    return t
+      ? t("files.entryMissingRefresh")
+      : "File or folder no longer exists. Refresh workspace.";
   }
-  if (error.includes("(404)")) return "Workspace is not ready for this user.";
-  if (error.includes("(415)")) return "This file cannot be previewed as text.";
-  if (error.includes("(403)")) return "Access denied for this path.";
-  return readableApiErrorMessage(error);
+  if (error.includes("(404)"))
+    return t ? t("files.workspaceNotReady") : "Workspace is not ready for this user.";
+  if (error.includes("(415)"))
+    return t ? t("files.textPreviewUnsupported") : "This file cannot be previewed as text.";
+  if (error.includes("(403)"))
+    return t ? t("files.accessDeniedPath") : "Access denied for this path.";
+
+  const readable = readableApiErrorMessage(error);
+  if (t && readable === RIPPLE_API_CONNECTION_ERROR) return t("files.connectionError");
+  return readable;
 }
 
 export function getWorkspaceParentPath(path: string): string {
@@ -315,6 +327,7 @@ export default function WorkspaceExplorer({
   testInitialPreview,
   testInitialListing,
 }: WorkspaceExplorerProps) {
+  const { locale, t } = useI18n();
   const initialPath =
     testInitialListing?.path || workspaceLastPathCache.get(userId) || DEFAULT_WORKSPACE_PATH;
   const [currentPath, setCurrentPath] = useState(initialPath);
@@ -911,7 +924,10 @@ export default function WorkspaceExplorer({
         if (err instanceof WorkspaceUploadConflictError && !overwrite) {
           const conflictNames = err.conflicts.map((conflict) => conflict.name).join(", ");
           const confirmed = window.confirm(
-            `Overwrite existing file${err.conflicts.length === 1 ? "" : "s"}: ${conflictNames}?`
+            t("files.overwriteFiles", {
+              names: conflictNames,
+              plural: err.conflicts.length === 1 ? "" : "s",
+            })
           );
           if (confirmed) {
             try {
@@ -931,7 +947,7 @@ export default function WorkspaceExplorer({
         setUploading(false);
       }
     },
-    [currentPath, refreshAfterUpload, uploading]
+    [currentPath, refreshAfterUpload, t, uploading]
   );
 
   const handleUploadInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -1071,7 +1087,7 @@ export default function WorkspaceExplorer({
     if (failed.length > 0) {
       setSelectedEntryPaths(new Set(failed.map((entry) => entry.path)));
       setIsSelectionMode(true);
-      setError(`Could not move ${failed.map((entry) => entry.name).join(", ")}`);
+      setError(t("files.couldNotMove", { names: failed.map((entry) => entry.name).join(", ") }));
     }
   };
 
@@ -1155,9 +1171,10 @@ export default function WorkspaceExplorer({
   const handleBatchDelete = async () => {
     if (selectedEntries.length === 0) return;
     const confirmed = window.confirm(
-      `Are you sure you want to delete ${selectedEntries.length} selected item${
-        selectedEntries.length === 1 ? "" : "s"
-      }?`
+      t("files.confirmBatchDelete", {
+        count: selectedEntries.length,
+        plural: selectedEntries.length === 1 ? "" : "s",
+      })
     );
     if (!confirmed) return;
 
@@ -1192,7 +1209,7 @@ export default function WorkspaceExplorer({
     setSearchResults((current) => current.filter((entry) => !deletedPaths.has(entry.path)));
     setSelectedEntryPaths(new Set(failed.map((entry) => entry.path)));
     if (failed.length > 0) {
-      setError(`Could not delete ${failed.map((entry) => entry.name).join(", ")}`);
+      setError(t("files.couldNotDelete", { names: failed.map((entry) => entry.name).join(", ") }));
     }
   };
 
@@ -1227,7 +1244,7 @@ export default function WorkspaceExplorer({
   };
 
   const handleDelete = async (entry: WorkspaceEntry) => {
-    const confirmed = window.confirm(`Are you sure you want to delete ${entry.name}?`);
+    const confirmed = window.confirm(t("files.confirmDeleteEntry", { name: entry.name }));
     if (!confirmed) return;
     setError(null);
     try {
@@ -1451,12 +1468,12 @@ export default function WorkspaceExplorer({
   const isPreviewPanelHidden = isPreviewCollapsed || !preview;
   const previewState = isPreviewCollapsed ? "collapsed" : preview ? "open" : "empty";
   const currentDisplayPath = isSearchMode
-    ? searchModeLabel(searchScope)
+    ? searchModeLabel(searchScope, t)
     : listing?.path || currentPath;
   const mobilePathLabel = isSearchMode
-    ? `Search: ${normalizedQuery}`
+    ? t("files.searchQuery", { query: normalizedQuery })
     : listing?.path || currentPath;
-  const mobilePathDetail = isSearchMode ? searchModeLabel(searchScope) : null;
+  const mobilePathDetail = isSearchMode ? searchModeLabel(searchScope, t) : null;
   const isPagePresentation = presentation === "page";
   const pageToolbarIconButtonClass = DENSE_GLASS_ICON_BUTTON_CLASS;
   const pageToolbarPrimaryButtonClass = pageToolbarIconButtonClass;
@@ -1499,7 +1516,7 @@ export default function WorkspaceExplorer({
       {isDraggingUpload && (
         <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center bg-[#ffffff]/86 p-4 backdrop-blur-sm">
           <div className="rounded-2xl border border-dashed border-[#2463eb] bg-[#eef4ff] px-4 py-3 text-sm font-semibold text-[#2457e6] shadow-[0_18px_42px_rgba(44,63,123,0.12)]">
-            Drop files to upload
+            {t("files.dropFiles")}
           </div>
         </div>
       )}
@@ -1520,8 +1537,8 @@ export default function WorkspaceExplorer({
                 <button
                   type="button"
                   onClick={onBack}
-                  aria-label="Back to session"
-                  title="Back to session"
+                  aria-label={t("files.backToSession")}
+                  title={t("files.backToSession")}
                   className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[#2f6bff] bg-[#2f6bff] text-white shadow-[0_12px_26px_rgba(47,107,255,0.28)] transition-colors hover:bg-[#245de8] active:bg-[#1f4ed0] lg:hidden"
                 >
                   <MessageCircleReply size={17} />
@@ -1529,7 +1546,7 @@ export default function WorkspaceExplorer({
               ) : null}
               <div className="min-w-0 flex-1">
                 <h1 className="text-[15px] leading-tight font-semibold tracking-normal text-[#111827]">
-                  Files
+                  {t("files.title")}
                 </h1>
                 <p
                   data-ripple-workspace-current-path="toolbar"
@@ -1550,8 +1567,8 @@ export default function WorkspaceExplorer({
                     ? "border-[#d7e3f8] bg-[#eef4ff] text-[#2463eb]"
                     : "border-[#dfe6f4] bg-white/78 text-[#384152] hover:bg-white"
                 }`}
-                title="Search workspace files"
-                aria-label="Search workspace files"
+                title={t("files.searchWorkspaceFiles")}
+                aria-label={t("files.searchWorkspaceFiles")}
               >
                 <Search size={14} />
               </button>
@@ -1564,8 +1581,8 @@ export default function WorkspaceExplorer({
                     ? "border-[#d7e3f8] bg-[#eef4ff] text-[#2463eb]"
                     : "border-[#dfe6f4] bg-white/78 text-[#384152] hover:bg-white"
                 }`}
-                title={isSelectionActive ? "Done selecting" : "Select files"}
-                aria-label={isSelectionActive ? "Done selecting" : "Select files"}
+                title={isSelectionActive ? t("files.doneSelecting") : t("files.selectFiles")}
+                aria-label={isSelectionActive ? t("files.doneSelecting") : t("files.selectFiles")}
               >
                 {isSelectionActive ? <X size={14} /> : <SquareCheck size={14} />}
               </button>
@@ -1573,8 +1590,8 @@ export default function WorkspaceExplorer({
                 type="button"
                 data-ripple-files-action="upload"
                 className={`${pageToolbarPrimaryButtonClass} lg:hidden`}
-                title="Upload files"
-                aria-label="Upload files"
+                title={t("files.uploadFiles")}
+                aria-label={t("files.uploadFiles")}
                 disabled={uploading}
                 onClick={() => uploadInputRef.current?.click()}
               >
@@ -1584,8 +1601,8 @@ export default function WorkspaceExplorer({
                 type="button"
                 data-ripple-files-action="mobile-more"
                 className={`${pageToolbarIconButtonClass} lg:hidden`}
-                title="More file actions"
-                aria-label="More file actions"
+                title={t("files.moreFileActions")}
+                aria-label={t("files.moreFileActions")}
                 onClick={(event) => {
                   event.stopPropagation();
                   setIsMobileSearchOpen(false);
@@ -1613,8 +1630,8 @@ export default function WorkspaceExplorer({
               <input
                 value={query}
                 onChange={(event) => handleQueryChange(event.target.value)}
-                placeholder="Find files by name..."
-                aria-label="Search workspace files"
+                placeholder={t("files.findFilesByName")}
+                aria-label={t("files.searchWorkspaceFiles")}
                 className={
                   isPagePresentation
                     ? "h-9 w-full rounded-lg border border-[#dfe6f4] bg-white/84 pr-3 pl-9 text-sm text-[#111827] shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] outline-none placeholder:text-xs placeholder:text-[#8b8f94] focus:border-[#2463eb]"
@@ -1638,8 +1655,8 @@ export default function WorkspaceExplorer({
                         : "border-[#e5e7eb] bg-white text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
                     }`
               }
-              title="Search filters"
-              aria-label="Search filters"
+              title={t("files.searchFilters")}
+              aria-label={t("files.searchFilters")}
               onClick={() => setIsFilterOpen((open) => !open)}
             >
               <SlidersHorizontal size={14} />
@@ -1660,8 +1677,8 @@ export default function WorkspaceExplorer({
                         : "border-[#e5e7eb] bg-white text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
                     }`
               }
-              title={isSelectionActive ? "Done selecting" : "Select files"}
-              aria-label={isSelectionActive ? "Done selecting" : "Select files"}
+              title={isSelectionActive ? t("files.doneSelecting") : t("files.selectFiles")}
+              aria-label={isSelectionActive ? t("files.doneSelecting") : t("files.selectFiles")}
               onClick={toggleSelectionMode}
             >
               {isSelectionActive ? <X size={14} /> : <SquareCheck size={14} />}
@@ -1674,8 +1691,8 @@ export default function WorkspaceExplorer({
                   ? pageToolbarPrimaryButtonClass
                   : "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#e5e7eb] bg-white text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d] disabled:cursor-not-allowed disabled:opacity-50"
               }
-              title="Upload files"
-              aria-label="Upload files"
+              title={t("files.uploadFiles")}
+              aria-label={t("files.uploadFiles")}
               disabled={uploading}
               onClick={() => uploadInputRef.current?.click()}
             >
@@ -1686,8 +1703,8 @@ export default function WorkspaceExplorer({
                 type="button"
                 data-ripple-files-action="compact-more"
                 className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#e5e7eb] bg-white text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
-                title="More file actions"
-                aria-label="More file actions"
+                title={t("files.moreFileActions")}
+                aria-label={t("files.moreFileActions")}
                 onClick={(event) => {
                   event.stopPropagation();
                   setIsActionsMenuOpen((open) => !open);
@@ -1702,8 +1719,8 @@ export default function WorkspaceExplorer({
                 data-ripple-files-action="refresh"
                 onClick={() => void loadDirectory(currentPath)}
                 className={pageToolbarIconButtonClass}
-                title="Refresh workspace"
-                aria-label="Refresh workspace"
+                title={t("files.refreshWorkspace")}
+                aria-label={t("files.refreshWorkspace")}
                 disabled={loading}
               >
                 {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
@@ -1721,8 +1738,8 @@ export default function WorkspaceExplorer({
                 type="button"
                 data-ripple-files-action="parent-folder"
                 className={pageParentButtonClass}
-                title="Go to parent folder"
-                aria-label="Go to parent folder"
+                title={t("files.goToParentFolder")}
+                aria-label={t("files.goToParentFolder")}
                 onClick={() => void loadDirectory(listing.parent_path || DEFAULT_WORKSPACE_PATH)}
               >
                 <FolderUp size={18} />
@@ -1748,7 +1765,7 @@ export default function WorkspaceExplorer({
                 onClick={() => setIsMobileSearchOpen(true)}
                 className="inline-flex h-8 shrink-0 items-center rounded-lg border border-[#d7e3f8] bg-[#eef4ff] px-2 text-[11px] font-semibold text-[#2463eb]"
               >
-                Edit
+                {t("files.edit")}
               </button>
             )}
           </div>
@@ -1773,7 +1790,7 @@ export default function WorkspaceExplorer({
               ) : (
                 <RefreshCw size={13} className="shrink-0 text-[#6b7280]" />
               )}
-              Refresh workspace
+              {t("files.refreshWorkspace")}
             </button>
             <button
               type="button"
@@ -1787,13 +1804,12 @@ export default function WorkspaceExplorer({
               <Clipboard size={13} className="shrink-0 text-[#6b7280]" />
               {clipboard ? (
                 <>
-                  Paste{" "}
                   {clipboard.items.length === 1
-                    ? `(${clipboard.items[0]?.name})`
-                    : `(${clipboard.items.length} items)`}
+                    ? t("files.pasteNamed", { name: clipboard.items[0]?.name || "" })
+                    : t("files.pasteItems", { count: clipboard.items.length })}
                 </>
               ) : (
-                "Paste"
+                t("files.paste")
               )}
             </button>
             {clipboard ? (
@@ -1803,7 +1819,7 @@ export default function WorkspaceExplorer({
                 className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left font-semibold text-[#667085] transition-colors hover:bg-[#f3f4f6]"
               >
                 <X size={13} className="shrink-0 text-[#6b7280]" />
-                Clear clipboard
+                {t("files.clearClipboard")}
               </button>
             ) : null}
             <div className="my-1 border-t border-[#dfe6f4]" />
@@ -1816,7 +1832,7 @@ export default function WorkspaceExplorer({
               className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left font-semibold transition-colors hover:bg-[#f3f4f6]"
             >
               <FilePlus size={13} className="shrink-0 text-[#6b7280]" />
-              New File
+              {t("files.newFile")}
             </button>
             <button
               type="button"
@@ -1827,7 +1843,7 @@ export default function WorkspaceExplorer({
               className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left font-semibold transition-colors hover:bg-[#f3f4f6]"
             >
               <FolderPlus size={13} className="shrink-0 text-[#6b7280]" />
-              New Folder
+              {t("files.newFolder")}
             </button>
           </div>
         )}
@@ -1851,7 +1867,7 @@ export default function WorkspaceExplorer({
               ) : (
                 <RefreshCw size={13} className="shrink-0 text-[#6b7280]" />
               )}
-              Refresh workspace
+              {t("files.refreshWorkspace")}
             </button>
             <button
               type="button"
@@ -1865,13 +1881,12 @@ export default function WorkspaceExplorer({
               <Clipboard size={13} className="shrink-0 text-[#6b7280]" />
               {clipboard ? (
                 <>
-                  Paste{" "}
                   {clipboard.items.length === 1
-                    ? `(${clipboard.items[0]?.name})`
-                    : `(${clipboard.items.length} items)`}
+                    ? t("files.pasteNamed", { name: clipboard.items[0]?.name || "" })
+                    : t("files.pasteItems", { count: clipboard.items.length })}
                 </>
               ) : (
-                "Paste"
+                t("files.paste")
               )}
             </button>
             {clipboard ? (
@@ -1881,7 +1896,7 @@ export default function WorkspaceExplorer({
                 className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left font-semibold text-[#667085] transition-colors hover:bg-[#f3f4f6]"
               >
                 <X size={13} className="shrink-0 text-[#6b7280]" />
-                Clear clipboard
+                {t("files.clearClipboard")}
               </button>
             ) : null}
             <div className="my-1 border-t border-[#dfe6f4]" />
@@ -1894,7 +1909,7 @@ export default function WorkspaceExplorer({
               className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left font-semibold transition-colors hover:bg-[#f3f4f6]"
             >
               <FilePlus size={13} className="shrink-0 text-[#6b7280]" />
-              New File
+              {t("files.newFile")}
             </button>
             <button
               type="button"
@@ -1905,7 +1920,7 @@ export default function WorkspaceExplorer({
               className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left font-semibold transition-colors hover:bg-[#f3f4f6]"
             >
               <FolderPlus size={13} className="shrink-0 text-[#6b7280]" />
-              New Folder
+              {t("files.newFolder")}
             </button>
           </div>
         )}
@@ -1918,7 +1933,7 @@ export default function WorkspaceExplorer({
             }
           >
             <label className="flex items-center gap-2">
-              <span className="w-16 text-[#667085]">Scope</span>
+              <span className="w-16 text-[#667085]">{t("files.scope")}</span>
               <select
                 value={searchScope}
                 onChange={(event) =>
@@ -1926,13 +1941,13 @@ export default function WorkspaceExplorer({
                 }
                 className="h-7 min-w-0 flex-1 rounded-lg border border-[#dfe6f4] bg-white/84 px-2 text-xs"
               >
-                <option value="name">Name/path (default)</option>
-                <option value="all">Name and content</option>
-                <option value="content">Content</option>
+                <option value="name">{t("files.scopeName")}</option>
+                <option value="all">{t("files.scopeAll")}</option>
+                <option value="content">{t("files.scopeContent")}</option>
               </select>
             </label>
             <label className="flex items-center gap-2">
-              <span className="w-16 text-[#667085]">Kind</span>
+              <span className="w-16 text-[#667085]">{t("files.kind")}</span>
               <select
                 value={searchKind}
                 onChange={(event) =>
@@ -1940,13 +1955,13 @@ export default function WorkspaceExplorer({
                 }
                 className="h-7 min-w-0 flex-1 rounded-lg border border-[#dfe6f4] bg-white/84 px-2 text-xs"
               >
-                <option value="all">Files and folders</option>
-                <option value="file">Files</option>
-                <option value="directory">Folders</option>
+                <option value="all">{t("files.kindAll")}</option>
+                <option value="file">{t("files.kindFile")}</option>
+                <option value="directory">{t("files.kindDirectory")}</option>
               </select>
             </label>
             <label className="flex items-center gap-2">
-              <span className="w-16 text-[#667085]">Type</span>
+              <span className="w-16 text-[#667085]">{t("files.fileType")}</span>
               <select
                 value={fileType}
                 onChange={(event) =>
@@ -1954,15 +1969,15 @@ export default function WorkspaceExplorer({
                 }
                 className="h-7 min-w-0 flex-1 rounded-lg border border-[#dfe6f4] bg-white/84 px-2 text-xs"
               >
-                <option value="all">All types</option>
-                <option value="code">Code</option>
-                <option value="markdown">Markdown</option>
-                <option value="text">Text</option>
-                <option value="image">Images</option>
+                <option value="all">{t("files.allTypes")}</option>
+                <option value="code">{t("files.code")}</option>
+                <option value="markdown">{t("files.markdown")}</option>
+                <option value="text">{t("files.text")}</option>
+                <option value="image">{t("files.images")}</option>
               </select>
             </label>
             <label className="flex items-center gap-2">
-              <span className="w-16 text-[#667085]">Results</span>
+              <span className="w-16 text-[#667085]">{t("files.results")}</span>
               <select
                 value={searchLimit}
                 onChange={(event) => setSearchLimit(Number(event.target.value))}
@@ -1983,8 +1998,8 @@ export default function WorkspaceExplorer({
               type="button"
               onClick={() => void loadDirectory(currentPath)}
               className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#e5e7eb] bg-white text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d] disabled:cursor-not-allowed disabled:opacity-50"
-              title="Refresh workspace"
-              aria-label="Refresh workspace"
+              title={t("files.refreshWorkspace")}
+              aria-label={t("files.refreshWorkspace")}
               disabled={loading}
             >
               {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
@@ -2008,13 +2023,15 @@ export default function WorkspaceExplorer({
                 type="button"
                 onClick={() => setIsMobileSearchOpen(false)}
                 className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[#dfe6f4] bg-white text-[#667085] hover:bg-[#f7f8fa]"
-                aria-label="Close search"
-                title="Close search"
+                aria-label={t("files.closeSearch")}
+                title={t("files.closeSearch")}
               >
                 <X size={16} />
               </button>
               <div className="min-w-0 flex-1">
-                <div className="text-[14px] font-semibold text-[#111827]">Search workspace</div>
+                <div className="text-[14px] font-semibold text-[#111827]">
+                  {t("files.searchWorkspace")}
+                </div>
                 <div className="mt-0.5 truncate font-[family-name:var(--font-mono)] text-[10px] text-[#667085]">
                   {listing?.path || currentPath}
                 </div>
@@ -2025,7 +2042,7 @@ export default function WorkspaceExplorer({
                 disabled={!isSearchMode}
                 className="inline-flex h-9 items-center rounded-xl border border-[#dfe6f4] bg-white px-3 text-[12px] font-semibold text-[#667085] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:opacity-45"
               >
-                Clear
+                {t("files.clear")}
               </button>
             </div>
             <div className="grid gap-3 px-3 py-3">
@@ -2037,8 +2054,8 @@ export default function WorkspaceExplorer({
                 <input
                   value={query}
                   onChange={(event) => handleQueryChange(event.target.value)}
-                  placeholder="Find files by name..."
-                  aria-label="Search workspace files"
+                  placeholder={t("files.findFilesByName")}
+                  aria-label={t("files.searchWorkspaceFiles")}
                   autoFocus
                   className="h-11 w-full rounded-xl border border-[#dfe6f4] bg-[#fbfdff] pr-3 pl-9 text-sm text-[#111827] outline-none placeholder:text-xs placeholder:text-[#8b8f94] focus:border-[#2463eb]"
                 />
@@ -2046,28 +2063,28 @@ export default function WorkspaceExplorer({
               <div className="flex min-w-0 gap-1.5 overflow-x-auto pb-0.5">
                 <span className="shrink-0 rounded-full border border-[#b8cdf8] bg-[#eef4ff] px-2 py-1 text-[10px] font-semibold text-[#2457e6]">
                   {searchScope === "content"
-                    ? "Content"
+                    ? t("files.content")
                     : searchScope === "all"
-                      ? "Name + content"
-                      : "Name/path"}
+                      ? t("files.nameContent")
+                      : t("files.namePath")}
                 </span>
                 <span className="shrink-0 rounded-full border border-[#dfe6f4] bg-[#f8fbff] px-2 py-1 text-[10px] font-medium text-[#667085]">
                   {searchKind === "directory"
-                    ? "Folders"
+                    ? t("files.folders")
                     : searchKind === "file"
-                      ? "Files"
-                      : "Files + folders"}
+                      ? t("files.files")
+                      : t("files.filesFolders")}
                 </span>
                 <span className="shrink-0 rounded-full border border-[#dfe6f4] bg-[#f8fbff] px-2 py-1 text-[10px] font-medium text-[#667085]">
-                  {fileType === "all" ? "All types" : fileType}
+                  {fileType === "all" ? t("files.allTypes") : fileType}
                 </span>
                 <span className="shrink-0 rounded-full border border-[#dfe6f4] bg-[#f8fbff] px-2 py-1 text-[10px] font-medium text-[#667085]">
-                  {searchLimit} results
+                  {t("files.resultsCount", { count: searchLimit })}
                 </span>
               </div>
               <div className="grid gap-2 text-xs text-[#374151]">
                 <label className="flex items-center gap-2">
-                  <span className="w-16 text-[#667085]">Scope</span>
+                  <span className="w-16 text-[#667085]">{t("files.scope")}</span>
                   <select
                     value={searchScope}
                     onChange={(event) =>
@@ -2077,13 +2094,13 @@ export default function WorkspaceExplorer({
                     }
                     className="h-9 min-w-0 flex-1 rounded-xl border border-[#dfe6f4] bg-white px-2 text-xs"
                   >
-                    <option value="name">Name/path (default)</option>
-                    <option value="all">Name and content</option>
-                    <option value="content">Content</option>
+                    <option value="name">{t("files.scopeName")}</option>
+                    <option value="all">{t("files.scopeAll")}</option>
+                    <option value="content">{t("files.scopeContent")}</option>
                   </select>
                 </label>
                 <label className="flex items-center gap-2">
-                  <span className="w-16 text-[#667085]">Kind</span>
+                  <span className="w-16 text-[#667085]">{t("files.kind")}</span>
                   <select
                     value={searchKind}
                     onChange={(event) =>
@@ -2093,13 +2110,13 @@ export default function WorkspaceExplorer({
                     }
                     className="h-9 min-w-0 flex-1 rounded-xl border border-[#dfe6f4] bg-white px-2 text-xs"
                   >
-                    <option value="all">Files and folders</option>
-                    <option value="file">Files</option>
-                    <option value="directory">Folders</option>
+                    <option value="all">{t("files.kindAll")}</option>
+                    <option value="file">{t("files.kindFile")}</option>
+                    <option value="directory">{t("files.kindDirectory")}</option>
                   </select>
                 </label>
                 <label className="flex items-center gap-2">
-                  <span className="w-16 text-[#667085]">Type</span>
+                  <span className="w-16 text-[#667085]">{t("files.fileType")}</span>
                   <select
                     value={fileType}
                     onChange={(event) =>
@@ -2109,15 +2126,15 @@ export default function WorkspaceExplorer({
                     }
                     className="h-9 min-w-0 flex-1 rounded-xl border border-[#dfe6f4] bg-white px-2 text-xs"
                   >
-                    <option value="all">All types</option>
-                    <option value="code">Code</option>
-                    <option value="markdown">Markdown</option>
-                    <option value="text">Text</option>
-                    <option value="image">Images</option>
+                    <option value="all">{t("files.allTypes")}</option>
+                    <option value="code">{t("files.code")}</option>
+                    <option value="markdown">{t("files.markdown")}</option>
+                    <option value="text">{t("files.text")}</option>
+                    <option value="image">{t("files.images")}</option>
                   </select>
                 </label>
                 <label className="flex items-center gap-2">
-                  <span className="w-16 text-[#667085]">Results</span>
+                  <span className="w-16 text-[#667085]">{t("files.results")}</span>
                   <select
                     value={searchLimit}
                     onChange={(event) => setSearchLimit(Number(event.target.value))}
@@ -2136,19 +2153,19 @@ export default function WorkspaceExplorer({
       {error && (
         <div className="m-4 mb-0 flex items-start gap-2 rounded-md border border-[#cf222e]/25 bg-[#ffebe9] p-3 text-xs font-medium text-[#cf222e]">
           <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-          <span className="break-words">{displayError(error)}</span>
+          <span className="break-words">{displayError(error, t)}</span>
         </div>
       )}
       {searchError && (
         <div className="m-4 mb-0 flex items-start gap-2 rounded-md border border-[#cf222e]/25 bg-[#ffebe9] p-3 text-xs font-medium text-[#cf222e]">
           <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-          <span className="break-words">{displayError(searchError)}</span>
+          <span className="break-words">{displayError(searchError, t)}</span>
         </div>
       )}
       {uploadError && (
         <div className="m-4 mb-0 flex items-start gap-2 rounded-md border border-[#cf222e]/25 bg-[#ffebe9] p-3 text-xs font-medium text-[#cf222e]">
           <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-          <span className="break-words">{displayError(uploadError)}</span>
+          <span className="break-words">{displayError(uploadError, t)}</span>
         </div>
       )}
 
@@ -2181,7 +2198,7 @@ export default function WorkspaceExplorer({
                   </div>
                   {isSearchMode && (
                     <div className="mt-1 truncate text-[11px] text-[#6b7280]">
-                      {searchModeLabel(searchScope)}
+                      {searchModeLabel(searchScope, t)}
                     </div>
                   )}
                 </div>
@@ -2199,7 +2216,7 @@ export default function WorkspaceExplorer({
                       <span className={directoryNavigationIconClass}>
                         <ArrowUp size={12} />
                       </span>
-                      Up
+                      {t("files.up")}
                     </button>
                   )}
                   {currentPath !== DEFAULT_WORKSPACE_PATH && (
@@ -2211,7 +2228,7 @@ export default function WorkspaceExplorer({
                       <span className={directoryNavigationIconClass}>
                         <Folder size={12} />
                       </span>
-                      Root
+                      {t("files.root")}
                     </button>
                   )}
                 </div>
@@ -2231,44 +2248,45 @@ export default function WorkspaceExplorer({
           {!isPagePresentation && (
             <div className="flex items-center justify-between border-b border-[#e5e7eb] bg-white px-3 py-2">
               <span className="text-xs font-semibold tracking-wider text-[#6b7280] uppercase">
-                {isSearchMode ? "Search results" : "Workspace"}
+                {isSearchMode ? t("files.searchResults") : t("files.workspace")}
               </span>
               <div className="flex items-center gap-1">
                 {searchLoading && (
                   <Loader2 size={13} className="shrink-0 animate-spin text-[#667085]" />
                 )}
-                {!isSearchMode && (listing?.parent_path || currentPath !== DEFAULT_WORKSPACE_PATH) && (
-                  <>
-                    {listing?.parent_path && (
-                      <button
-                        type="button"
-                        data-ripple-files-action="parent-folder"
-                        title="Go to parent folder"
-                        aria-label="Go to parent folder"
-                        onClick={() =>
-                          void loadDirectory(listing.parent_path || DEFAULT_WORKSPACE_PATH)
-                        }
-                        className="flex items-center gap-1 rounded-md border border-[#e5e7eb] bg-white px-2 py-1 text-[11px] font-medium text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
-                      >
-                        <ArrowUp size={12} />
-                        Up
-                      </button>
-                    )}
-                    {currentPath !== DEFAULT_WORKSPACE_PATH && (
-                      <button
-                        type="button"
-                        data-ripple-files-action="root-folder"
-                        title="Go to workspace root"
-                        aria-label="Go to workspace root"
-                        onClick={() => void loadDirectory(DEFAULT_WORKSPACE_PATH)}
-                        className="flex items-center gap-1 rounded-md border border-[#e5e7eb] bg-white px-2 py-1 text-[11px] font-medium text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
-                      >
-                        <Folder size={12} />
-                        Root
-                      </button>
-                    )}
-                  </>
-                )}
+                {!isSearchMode &&
+                  (listing?.parent_path || currentPath !== DEFAULT_WORKSPACE_PATH) && (
+                    <>
+                      {listing?.parent_path && (
+                        <button
+                          type="button"
+                          data-ripple-files-action="parent-folder"
+                          title={t("files.goToParentFolder")}
+                          aria-label={t("files.goToParentFolder")}
+                          onClick={() =>
+                            void loadDirectory(listing.parent_path || DEFAULT_WORKSPACE_PATH)
+                          }
+                          className="flex items-center gap-1 rounded-md border border-[#e5e7eb] bg-white px-2 py-1 text-[11px] font-medium text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
+                        >
+                          <ArrowUp size={12} />
+                          {t("files.up")}
+                        </button>
+                      )}
+                      {currentPath !== DEFAULT_WORKSPACE_PATH && (
+                        <button
+                          type="button"
+                          data-ripple-files-action="root-folder"
+                          title={t("files.goToWorkspaceRoot")}
+                          aria-label={t("files.goToWorkspaceRoot")}
+                          onClick={() => void loadDirectory(DEFAULT_WORKSPACE_PATH)}
+                          className="flex items-center gap-1 rounded-md border border-[#e5e7eb] bg-white px-2 py-1 text-[11px] font-medium text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
+                        >
+                          <Folder size={12} />
+                          {t("files.root")}
+                        </button>
+                      )}
+                    </>
+                  )}
               </div>
             </div>
           )}
@@ -2282,21 +2300,23 @@ export default function WorkspaceExplorer({
               data-ripple-files-selection-bar
               className="flex min-h-11 flex-wrap items-center gap-2 border-b border-[#dfe6f4]/70 bg-[#f8faff] px-3 py-2 text-xs text-[#384152]"
             >
-              <span className="mr-auto font-semibold">{selectedEntryCount} selected</span>
+              <span className="mr-auto font-semibold">
+                {t("files.selectedCount", { count: selectedEntryCount })}
+              </span>
               <button
                 type="button"
                 onClick={selectAllVisibleEntries}
                 disabled={allVisibleEntriesSelected}
                 className="inline-flex h-7 items-center rounded-full border border-[#dfe6f4] bg-white px-2.5 text-[11px] font-semibold hover:bg-[#f7f8fa]"
               >
-                Select all
+                {t("files.selectAll")}
               </button>
               <button
                 type="button"
                 onClick={clearSelection}
                 className="inline-flex h-7 items-center rounded-full border border-[#dfe6f4] bg-white px-2.5 text-[11px] font-semibold hover:bg-[#f7f8fa]"
               >
-                Clear selection
+                {t("files.clearSelection")}
               </button>
               <button
                 type="button"
@@ -2305,7 +2325,7 @@ export default function WorkspaceExplorer({
                 className="inline-flex h-7 items-center gap-1 rounded-full border border-[#dfe6f4] bg-white px-2.5 text-[11px] font-semibold hover:bg-[#f7f8fa]"
               >
                 <Copy size={12} />
-                Copy
+                {t("files.copy")}
               </button>
               <button
                 type="button"
@@ -2314,7 +2334,7 @@ export default function WorkspaceExplorer({
                 className="inline-flex h-7 items-center gap-1 rounded-full border border-[#dfe6f4] bg-white px-2.5 text-[11px] font-semibold hover:bg-[#f7f8fa]"
               >
                 <Scissors size={12} />
-                Move
+                {t("files.move")}
               </button>
               <button
                 type="button"
@@ -2323,7 +2343,7 @@ export default function WorkspaceExplorer({
                 className="inline-flex h-7 items-center gap-1 rounded-full border border-[#cf222e]/25 bg-white px-2.5 text-[11px] font-semibold text-[#cf222e] hover:bg-[#ffebe9]"
               >
                 <Trash2 size={12} />
-                Delete
+                {t("files.delete")}
               </button>
             </div>
           )}
@@ -2338,11 +2358,11 @@ export default function WorkspaceExplorer({
             {(loading && !listing) || (searchLoading && visibleEntries.length === 0) ? (
               <div className="flex h-40 items-center justify-center gap-2 text-sm font-medium text-[#667085]">
                 <Loader2 size={16} className="animate-spin" />
-                Loading
+                {t("files.loading")}
               </div>
             ) : (listing || isSearchMode) && visibleEntries.length === 0 ? (
               <div className="flex h-40 items-center justify-center px-4 text-center text-sm font-medium text-[#667085]">
-                {isSearchMode ? "No matching files" : "Empty workspace"}
+                {isSearchMode ? t("files.noMatchingFiles") : t("files.emptyWorkspace")}
               </div>
             ) : (
               <div>
@@ -2382,9 +2402,9 @@ export default function WorkspaceExplorer({
                           <SearchResultMeta entry={entry} />
                         ) : (
                           <span className="mt-0.5 block truncate font-[family-name:var(--font-mono)] text-[10px] text-[#6b7280]">
-                            {`${entry.kind === "directory" ? "folder" : formatBytes(entry.size_bytes)}${
-                              formatModified(entry.modified_at)
-                                ? ` · ${formatModified(entry.modified_at)}`
+                            {`${entry.kind === "directory" ? t("files.folder") : formatBytes(entry.size_bytes)}${
+                              formatModified(entry.modified_at, locale)
+                                ? ` · ${formatModified(entry.modified_at, locale)}`
                                 : ""
                             }`}
                           </span>
@@ -2468,7 +2488,7 @@ export default function WorkspaceExplorer({
                             type="checkbox"
                             data-ripple-files-select-entry
                             checked={selectedEntryPaths.has(entry.path)}
-                            aria-label={`Select ${entry.name}`}
+                            aria-label={t("files.selectEntry", { name: entry.name })}
                             onChange={(event) => toggleEntrySelection(entry, event.target.checked)}
                             className="h-4 w-4 rounded border-[#c7d2e5] text-[#2463eb] accent-[#2463eb]"
                           />
@@ -2512,9 +2532,9 @@ export default function WorkspaceExplorer({
                             <SearchResultMeta entry={entry} />
                           ) : (
                             <span className="mt-0.5 block truncate font-[family-name:var(--font-mono)] text-[10px] text-[#6b7280]">
-                              {`${entry.kind === "directory" ? "folder" : formatBytes(entry.size_bytes)}${
-                                formatModified(entry.modified_at)
-                                  ? ` · ${formatModified(entry.modified_at)}`
+                              {`${entry.kind === "directory" ? t("files.folder") : formatBytes(entry.size_bytes)}${
+                                formatModified(entry.modified_at, locale)
+                                  ? ` · ${formatModified(entry.modified_at, locale)}`
                                   : ""
                               }`}
                             </span>
@@ -2523,8 +2543,8 @@ export default function WorkspaceExplorer({
                       </button>
                       <button
                         type="button"
-                        aria-label={`More actions for ${entry.name}`}
-                        title="More actions"
+                        aria-label={t("files.moreActionsFor", { name: entry.name })}
+                        title={t("files.moreActions")}
                         onClick={(event) => onMoreButtonClick(event, entry)}
                         className={
                           isPagePresentation
@@ -2553,7 +2573,7 @@ export default function WorkspaceExplorer({
           >
             <div
               role="separator"
-              aria-label="Resize preview panel"
+              aria-label={t("files.resizePreviewPanel")}
               aria-orientation="horizontal"
               aria-valuemin={MIN_SPLIT_PERCENT}
               aria-valuemax={MAX_SPLIT_PERCENT}
@@ -2592,15 +2612,15 @@ export default function WorkspaceExplorer({
                   }
                 >
                   {isPagePresentation
-                    ? preview?.name || "Select a file"
-                    : preview?.path || "Select a file"}
+                    ? preview?.name || t("files.selectFile")
+                    : preview?.path || t("files.selectFile")}
                 </span>
                 {isPagePresentation && (
                   <span
                     data-ripple-workspace-preview-title-path
                     className="hidden truncate font-[family-name:var(--font-mono)] text-[11px] text-[#667085] sm:mt-1 sm:block"
                   >
-                    {preview?.path || "Select a file"}
+                    {preview?.path || t("files.selectFile")}
                   </span>
                 )}
               </span>
@@ -2619,16 +2639,16 @@ export default function WorkspaceExplorer({
                             ? "border-[#dfe6f4] bg-white/76 text-[#667085] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:text-[#8b8f94]"
                             : "border-[#dde2ea] bg-white text-[#68707d] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:text-[#8b8f94]"
                       }`}
-                      title={preview.truncated ? "Truncated files cannot be edited safely" : "Edit"}
+                      title={preview.truncated ? t("files.truncatedCannotEdit") : t("files.edit")}
                     >
                       <Edit3 size={12} />
-                      Edit
+                      {t("files.edit")}
                     </button>
                   )}
                   <button
                     type="button"
-                    aria-label="Open fullscreen preview"
-                    title="Fullscreen preview"
+                    aria-label={t("files.openFullscreenPreview")}
+                    title={t("files.fullscreenPreview")}
                     onClick={() => setIsPreviewFullscreenOpen(true)}
                     className={
                       isPagePresentation
@@ -2642,8 +2662,8 @@ export default function WorkspaceExplorer({
               )}
               <button
                 type="button"
-                aria-label="Collapse preview panel"
-                title="Collapse panel"
+                aria-label={t("files.collapsePreviewPanel")}
+                title={t("files.collapsePanel")}
                 onClick={() => updateSplitPercent(MAX_SPLIT_PERCENT)}
                 className={
                   isPagePresentation
@@ -2673,15 +2693,15 @@ export default function WorkspaceExplorer({
                   >
                     <span>{formatBytes(preview.size_bytes)}</span>
                     <span>{preview.mime_type}</span>
-                    <span>{formatModified(preview.modified_at)}</span>
+                    <span>{formatModified(preview.modified_at, locale)}</span>
                     {isDirty && (
                       <span className="rounded-full border border-[#2463eb]/25 bg-[#eef4ff] px-1.5 py-0.5 text-[10px] text-[#2457e6] uppercase">
-                        unsaved
+                        {t("files.unsaved")}
                       </span>
                     )}
                     {preview.truncated && (
                       <span className="rounded-full border border-[#2463eb]/35 bg-[#eef4ff] px-1.5 py-0.5 text-[10px] text-[#1d56d8] uppercase">
-                        truncated
+                        {t("files.truncated")}
                       </span>
                     )}
                     {isEditing && (
@@ -2697,7 +2717,7 @@ export default function WorkspaceExplorer({
                           }
                         >
                           <Undo2 size={12} />
-                          Revert
+                          {t("files.revert")}
                         </button>
                         <button
                           type="button"
@@ -2714,7 +2734,7 @@ export default function WorkspaceExplorer({
                           ) : (
                             <Save size={12} />
                           )}
-                          Save
+                          {t("files.save")}
                         </button>
                       </div>
                     )}
@@ -2822,7 +2842,7 @@ export default function WorkspaceExplorer({
                 </div>
               ) : (
                 <div className="flex h-full items-center justify-center px-4 text-center text-sm font-medium text-[#667085]">
-                  Select a file
+                  {t("files.selectFile")}
                 </div>
               )}
             </div>
@@ -2850,12 +2870,12 @@ export default function WorkspaceExplorer({
             <div className="hidden shrink-0 items-center gap-2 font-[family-name:var(--font-mono)] text-[11px] font-medium text-[#667085] md:flex">
               <span>{formatBytes(preview.size_bytes)}</span>
               <span>{preview.mime_type}</span>
-              <span>{formatModified(preview.modified_at)}</span>
+              <span>{formatModified(preview.modified_at, locale)}</span>
             </div>
             <button
               type="button"
-              aria-label="Close fullscreen preview"
-              title="Close fullscreen preview"
+              aria-label={t("files.closeFullscreenPreview")}
+              title={t("files.closeFullscreenPreview")}
               onClick={() => setIsPreviewFullscreenOpen(false)}
               className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#dfe6f4] bg-white text-[#667085] hover:bg-[#f7f8fa] hover:text-[#111827]"
             >
@@ -2922,21 +2942,21 @@ export default function WorkspaceExplorer({
                 }}
                 className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
               >
-                <Edit3 size={13} className="shrink-0 text-[#6b7280]" /> Rename
+                <Edit3 size={13} className="shrink-0 text-[#6b7280]" /> {t("files.rename")}
               </button>
               <button
                 type="button"
                 onClick={() => contextMenu.entry && handleCut(contextMenu.entry)}
                 className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
               >
-                <Scissors size={13} className="shrink-0 text-[#6b7280]" /> Cut (Move)
+                <Scissors size={13} className="shrink-0 text-[#6b7280]" /> {t("files.cutMove")}
               </button>
               <button
                 type="button"
                 onClick={() => contextMenu.entry && handleCopy(contextMenu.entry)}
                 className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
               >
-                <Copy size={13} className="shrink-0 text-[#6b7280]" /> Copy
+                <Copy size={13} className="shrink-0 text-[#6b7280]" /> {t("files.copy")}
               </button>
               <button
                 type="button"
@@ -2945,7 +2965,8 @@ export default function WorkspaceExplorer({
                 }
                 className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left font-[family-name:var(--font-mono)] text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
               >
-                <FileText size={13} className="shrink-0 text-[#6b7280]" /> Copy Sandbox Path
+                <FileText size={13} className="shrink-0 text-[#6b7280]" />{" "}
+                {t("files.copySandboxPath")}
               </button>
               {contextMenu.entry.kind === "file" && (
                 <button
@@ -2956,7 +2977,7 @@ export default function WorkspaceExplorer({
                   }}
                   className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
                 >
-                  <Download size={13} className="shrink-0 text-[#6b7280]" /> Download
+                  <Download size={13} className="shrink-0 text-[#6b7280]" /> {t("files.download")}
                 </button>
               )}
               <div className="my-1 border-t border-[#dfe6f4]" />
@@ -2965,7 +2986,7 @@ export default function WorkspaceExplorer({
                 onClick={() => contextMenu.entry && void handleDelete(contextMenu.entry)}
                 className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#cf222e] transition-colors hover:bg-[#ffebe9] active:bg-[#ffd5d6]"
               >
-                <Trash2 size={13} className="shrink-0 text-[#cf222e]" /> Delete
+                <Trash2 size={13} className="shrink-0 text-[#cf222e]" /> {t("files.delete")}
               </button>
             </>
           ) : (
@@ -2979,13 +3000,12 @@ export default function WorkspaceExplorer({
                 <Clipboard size={13} className="shrink-0 text-[#6b7280]" />
                 {clipboard ? (
                   <>
-                    Paste{" "}
                     {clipboard.items.length === 1
-                      ? `(${clipboard.items[0]?.name})`
-                      : `(${clipboard.items.length} items)`}
+                      ? t("files.pasteNamed", { name: clipboard.items[0]?.name || "" })
+                      : t("files.pasteItems", { count: clipboard.items.length })}
                   </>
                 ) : (
-                  "Paste"
+                  t("files.paste")
                 )}
               </button>
               {clipboard ? (
@@ -2995,7 +3015,7 @@ export default function WorkspaceExplorer({
                   className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#667085] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
                 >
                   <X size={13} className="shrink-0 text-[#6b7280]" />
-                  Clear clipboard
+                  {t("files.clearClipboard")}
                 </button>
               ) : null}
               <div className="my-1 border-t border-[#dfe6f4]" />
@@ -3007,7 +3027,7 @@ export default function WorkspaceExplorer({
                 }}
                 className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
               >
-                <FilePlus size={13} className="shrink-0 text-[#6b7280]" /> New File
+                <FilePlus size={13} className="shrink-0 text-[#6b7280]" /> {t("files.newFile")}
               </button>
               <button
                 type="button"
@@ -3017,7 +3037,7 @@ export default function WorkspaceExplorer({
                 }}
                 className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
               >
-                <FolderPlus size={13} className="shrink-0 text-[#6b7280]" /> New Folder
+                <FolderPlus size={13} className="shrink-0 text-[#6b7280]" /> {t("files.newFolder")}
               </button>
             </>
           )}
@@ -3032,13 +3052,19 @@ export default function WorkspaceExplorer({
             className="w-80 rounded-2xl border border-[#dfe6f4] bg-white p-5 shadow-2xl"
           >
             <h3 className="mb-3 text-sm font-semibold text-[#111827]">
-              {creationModal.kind === "file" ? "Create New File" : "Create New Folder"}
+              {creationModal.kind === "file"
+                ? t("files.createNewFile")
+                : t("files.createNewFolder")}
             </h3>
             <input
               autoFocus
               value={creationDraft}
               onChange={(e) => setCreationDraft(e.target.value)}
-              placeholder={creationModal.kind === "file" ? "e.g. main.py" : "e.g. src_folder"}
+              placeholder={
+                creationModal.kind === "file"
+                  ? t("files.filePlaceholder")
+                  : t("files.folderPlaceholder")
+              }
               className="mb-4 h-9 w-full rounded-full border border-[#dfe6f4] bg-white px-4 text-sm outline-none focus:border-[#8da0ff]"
               disabled={creationSaving}
             />
@@ -3052,14 +3078,14 @@ export default function WorkspaceExplorer({
                 className="rounded-full border border-[#dfe6f4] bg-white px-4 py-1.5 text-[#374151] transition-all duration-200 hover:bg-[#f9fafb]"
                 disabled={creationSaving}
               >
-                Cancel
+                {t("files.cancel")}
               </button>
               <button
                 type="submit"
                 className="rounded-full bg-[linear-gradient(135deg,#2f6bff,#7b5cff)] px-4 py-1.5 text-white shadow-[0_8px_18px_rgba(64,92,255,0.18)] transition-all duration-200 hover:brightness-110 active:scale-[0.98]"
                 disabled={creationSaving}
               >
-                {creationSaving ? "Creating..." : "Create"}
+                {creationSaving ? t("files.creating") : t("files.create")}
               </button>
             </div>
           </form>

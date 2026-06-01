@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { IconTile } from "@/components/icons/IconTile";
+import { useI18n } from "@/i18n";
 import { resolveBackendUrl, parseWorkspaceLink } from "@/lib/api";
 import { openExternalUrl } from "@/lib/platform";
 
@@ -213,14 +214,15 @@ function FeishuCard({
   onOpen?: (payload: FeishuAuthOpenPayload) => void;
   waiting?: FeishuAuthWaitingState | null;
 }) {
+  const { t } = useI18n();
   const isSetup = tag === "setup";
-  const title = isSetup ? "第 1/2 步：准备飞书连接" : "第 2/2 步：授权你的飞书账号";
+  const title = isSetup ? t("connectors.feishuSetupTitle") : t("connectors.feishuAuthTitle");
   const subtitle = isSetup
-    ? "首次使用需要在飞书页面完成一次性准备，之后会自动进入账号授权。"
-    : "授权后 Ripple 会以你的飞书账号继续执行刚才的请求，发送消息会显示为你本人。";
+    ? t("connectors.feishuSetupSubtitle")
+    : t("connectors.feishuAuthSubtitle");
   const hint = isSetup
-    ? "完成后 Ripple 会自动打开第 2 步授权链接。"
-    : "授权完成后 Ripple 会自动继续当前任务。";
+    ? t("connectors.feishuSetupHint")
+    : t("connectors.feishuAuthHint");
   const Icon = isSetup ? Settings2 : KeyRound;
   const accentClass = isSetup ? "bg-[#eef3ff]/60 text-[#2f6bff]" : "bg-[#dafbe1]/60 text-[#1a7f37]";
   const iconTone = isSetup ? "accent" : "success";
@@ -255,7 +257,7 @@ function FeishuCard({
           onClick={handleOpen}
           className={connectorAuthLinkClass("info")}
         >
-          {isSetup ? "打开飞书页面" : "打开授权页面"}
+          {isSetup ? t("connectors.openFeishuSetup") : t("connectors.openAuthPage")}
           <ExternalLink size={13} />
         </a>
         <p className="text-xs font-medium text-[#6b7280]">{hint}</p>
@@ -263,8 +265,7 @@ function FeishuCard({
           <div className="flex items-start gap-2 rounded-xl border border-[#0969da]/20 bg-[#f6fbff] px-3 py-2 text-xs font-medium text-[#374151]">
             <Loader2 size={13} className="mt-0.5 shrink-0 animate-spin text-[#0969da]" />
             <span>
-              正在等待你在浏览器完成飞书操作，Ripple 会自动继续。已等待 {waiting.elapsedSeconds}{" "}
-              秒。
+              {t("connectors.feishuWaitingCard", { seconds: waiting.elapsedSeconds })}
             </span>
           </div>
         )}
@@ -285,6 +286,7 @@ function GoogleAuthCard({
   onOpen?: (payload: FeishuAuthOpenPayload) => void;
   waiting?: FeishuAuthWaitingState | null;
 }) {
+  const { t } = useI18n();
   const href = resolveBackendUrl(url) || url;
   const isWaiting =
     waiting?.connector === "google_workspace" && (waiting.url === href || waiting.url === url);
@@ -305,11 +307,11 @@ function GoogleAuthCard({
         <IconTile tone="accent" size="sm">
           <KeyRound size={15} />
         </IconTile>
-        <span className="text-sm font-semibold">授权 Google Workspace</span>
+        <span className="text-sm font-semibold">{t("connectors.googleAuthTitle")}</span>
       </div>
       <div className="space-y-3 px-4 py-3">
         <p className="text-sm font-medium text-[#374151]">
-          请在 Google 页面选择要绑定的账号并点击允许，授权后 Ripple 会自动继续刚才的请求。
+          {t("connectors.googleAuthSubtitle")}
         </p>
         <a
           href={href}
@@ -318,15 +320,14 @@ function GoogleAuthCard({
           onClick={handleOpen}
           className={connectorAuthLinkClass("primary")}
         >
-          打开 Google 授权
+          {t("connectors.openGoogleAuth")}
           <ExternalLink size={13} />
         </a>
         {isWaiting && (
           <div className="flex items-start gap-2 rounded-xl border border-[#2f6bff]/20 bg-[#f6fbff] px-3 py-2 text-xs font-medium text-[#374151]">
             <Loader2 size={13} className="mt-0.5 shrink-0 animate-spin text-[#2463eb]" />
             <span>
-              正在等待你在浏览器完成 Google 授权，Ripple 会自动继续。已等待 {waiting.elapsedSeconds}{" "}
-              秒。
+              {t("connectors.googleWaitingCard", { seconds: waiting.elapsedSeconds })}
             </span>
           </div>
         )}
@@ -347,6 +348,7 @@ function BilibiliAuthCard({
   scanUrl: string;
   appUrl?: string;
 }) {
+  const { t } = useI18n();
   const qrSrc = resolveBackendUrl(qrcodeImageUrl) || qrcodeImageUrl;
   const href = resolveBackendUrl(scanUrl) || scanUrl;
   const appHref = appUrl?.trim();
@@ -362,16 +364,16 @@ function BilibiliAuthCard({
         <IconTile tone="warning" size="sm">
           <QrCode size={15} />
         </IconTile>
-        <span className="text-sm font-semibold">B 站扫码登录</span>
+        <span className="text-sm font-semibold">{t("connectors.bilibiliAuthTitle")}</span>
       </div>
       <div className="space-y-3 px-4 py-3">
         <p className="text-sm font-medium text-[#374151]">
-          用 B 站 App 扫描二维码，或手动打开授权链接确认登录。
+          {t("connectors.bilibiliAuthSubtitle")}
         </p>
         <div className="flex flex-wrap items-start gap-4">
           <img
             src={qrSrc}
-            alt="Bilibili login QR code"
+            alt={t("connectors.bilibiliQrAlt")}
             loading="lazy"
             className="h-36 w-36 rounded-xl border border-[#dfe6f4] bg-white object-contain p-2 shadow-sm"
           />
@@ -383,7 +385,7 @@ function BilibiliAuthCard({
               onClick={handleOpen(href)}
               className={connectorAuthLinkClass("warning")}
             >
-              打开 B 站授权链接
+              {t("connectors.openBilibiliAuth")}
               <ExternalLink size={13} />
             </a>
             {appHref && (
@@ -394,12 +396,12 @@ function BilibiliAuthCard({
                 onClick={handleOpen(appHref)}
                 className={connectorAuthLinkClass("neutral", "ml-2")}
               >
-                打开 B 站 App
+                {t("connectors.openBilibiliApp")}
                 <ExternalLink size={13} />
               </a>
             )}
             <p className="text-xs font-medium text-[#6b7280]">
-              扫码或点链接确认后，回到这里发送「好了」。
+              {t("connectors.bilibiliAuthHint")}
             </p>
           </div>
         </div>
@@ -420,6 +422,7 @@ function ThinkingBlock({
   onFeishuAuthOpen?: (payload: FeishuAuthOpenPayload) => void;
   feishuAuthWaiting?: FeishuAuthWaitingState | null;
 }) {
+  const { t } = useI18n();
   const [isExpanded, setIsExpanded] = useState(false);
 
   return (
@@ -431,7 +434,9 @@ function ThinkingBlock({
         <IconTile tone="accent" size="xs">
           <Brain size={13} />
         </IconTile>
-        <span className="text-xs font-semibold text-[#374151]">Thought Process</span>
+        <span className="text-xs font-semibold text-[#374151]">
+          {t("common.thoughtProcess")}
+        </span>
         <motion.div
           animate={{ rotate: isExpanded ? 90 : 0 }}
           transition={{ duration: 0.1 }}

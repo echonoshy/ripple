@@ -2,18 +2,21 @@ import assert from "node:assert/strict";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import { I18nProvider, type LocalePreference } from "@/i18n";
 import ProductTopBar from "./ProductTopBar";
 
 function noop() {}
 
-function renderProductTopBar() {
+function renderProductTopBar(locale: LocalePreference = "en-US") {
   return renderToStaticMarkup(
-    <ProductTopBar
-      activeView="sessions"
-      userId="default"
-      onSelectView={noop}
-      onOpenSettings={noop}
-    />
+    <I18nProvider initialPreference={locale}>
+      <ProductTopBar
+        activeView="sessions"
+        userId="default"
+        onSelectView={noop}
+        onOpenSettings={noop}
+      />
+    </I18nProvider>
   );
 }
 
@@ -73,10 +76,21 @@ function testDesktopProductTabsUseEqualWidths() {
   }
 }
 
+function testDesktopProductTabsRenderChineseLabels() {
+  const html = renderProductTopBar("zh-CN");
+
+  assert.match(html, />会话</);
+  assert.match(html, />文件</);
+  assert.match(html, />自动化</);
+  assert.match(html, />连接器</);
+  assert.match(html, /aria-label="打开 default 的个人设置"/);
+}
+
 testDesktopProductTabsExcludeSettings();
 testSettingsLivesInRightAvatarEntry();
 testSettingsEntryKeepsLiveStatusDot();
 testSelectedTopTabHasStrongerTreatment();
 testDesktopProductTabsUseEqualWidths();
+testDesktopProductTabsRenderChineseLabels();
 
 console.log("product top bar tests passed");

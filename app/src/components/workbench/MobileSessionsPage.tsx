@@ -15,6 +15,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { IconTile } from "@/components/icons/IconTile";
+import { type MessageKey, useI18n } from "@/i18n";
 import { formatSessionActivityTime } from "@/lib/workbench";
 import {
   getMeasuredViewportMenuPosition,
@@ -40,16 +41,30 @@ interface MobileSessionsPageProps {
   ) => Promise<unknown>;
 }
 
-function sessionPreview(session: WorkbenchSessionSummary): string {
-  const parts = [`${session.messageCount} ${session.messageCount === 1 ? "message" : "messages"}`];
+function sessionPreview(
+  session: WorkbenchSessionSummary,
+  t: (key: MessageKey, values?: Record<string, string | number | boolean | null | undefined>) => string
+): string {
+  const parts = [
+    t("sessions.messageUnit", {
+      count: session.messageCount,
+      label: session.messageCount === 1 ? "message" : "messages",
+    }),
+  ];
   if (session.changedFileCount > 0) {
-    parts.push(`${session.changedFileCount} ${session.changedFileCount === 1 ? "file" : "files"}`);
+    parts.push(
+      t("sessions.fileUnit", {
+        count: session.changedFileCount,
+        label: session.changedFileCount === 1 ? "file" : "files",
+      })
+    );
   }
   if (session.pendingApprovalCount > 0) {
     parts.push(
-      `${session.pendingApprovalCount} ${
-        session.pendingApprovalCount === 1 ? "approval" : "approvals"
-      }`
+      t("sessions.approvalUnit", {
+        count: session.pendingApprovalCount,
+        label: session.pendingApprovalCount === 1 ? "approval" : "approvals",
+      })
     );
   }
   return parts.join(" · ");
@@ -100,6 +115,7 @@ export default function MobileSessionsPage({
   onDeleteSession,
   onUpdateSession,
 }: MobileSessionsPageProps) {
+  const { locale, t } = useI18n();
   const [isSearching, setIsSearching] = useState(false);
   const [query, setQuery] = useState("");
 
@@ -178,7 +194,7 @@ export default function MobileSessionsPage({
                   className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-colors hover:bg-[#f3f4f6] active:bg-[#eef4ff]"
                 >
                   <Pin size={13} className="shrink-0 text-[#6b7280]" />
-                  {activeMenuSession.pinned ? "Unpin" : "Pin"}
+                  {activeMenuSession.pinned ? t("sessions.unpin") : t("sessions.pin")}
                 </button>
                 <button
                   type="button"
@@ -191,7 +207,7 @@ export default function MobileSessionsPage({
                   className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-colors hover:bg-[#f3f4f6] active:bg-[#eef4ff]"
                 >
                   <Edit3 size={13} className="shrink-0 text-[#6b7280]" />
-                  Rename
+                  {t("sessions.rename")}
                 </button>
                 <div className="my-1 border-t border-[#dfe6f4]" />
                 <button
@@ -204,7 +220,7 @@ export default function MobileSessionsPage({
                   className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-xs font-semibold text-[#cf222e] transition-colors hover:bg-[#ffebe9] active:bg-[#ffd5d6]"
                 >
                   <Trash2 size={13} className="shrink-0 text-[#cf222e]" />
-                  Delete
+                  {t("sessions.delete")}
                 </button>
               </div>
             </>,
@@ -220,8 +236,8 @@ export default function MobileSessionsPage({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              aria-label="Search sessions"
-              title="Search sessions"
+              aria-label={t("sessions.search")}
+              title={t("sessions.search")}
               onClick={() => setIsSearching((open) => !open)}
               className={mobileHeaderActionClass}
             >
@@ -229,8 +245,8 @@ export default function MobileSessionsPage({
             </button>
             <button
               type="button"
-              aria-label="New session"
-              title="New session"
+              aria-label={t("sessions.newSession")}
+              title={t("sessions.newSession")}
               onClick={onNewSession}
               className={mobileHeaderActionClass}
             >
@@ -244,7 +260,7 @@ export default function MobileSessionsPage({
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search sessions"
+              placeholder={t("sessions.search")}
               className="search-sessions-input min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-[#9aa3af] focus:ring-0 focus:outline-none focus-visible:ring-0 focus-visible:outline-none"
               autoFocus
             />
@@ -276,12 +292,12 @@ export default function MobileSessionsPage({
               <MessageCircle size={28} />
             </IconTile>
             <div className="text-[17px] font-semibold">
-              {normalizedQuery ? "No matching sessions" : "No sessions yet"}
+              {normalizedQuery ? t("sessions.noMatching") : t("sessions.empty")}
             </div>
             <p className="mt-2 text-[13px] leading-5 text-[#687386]">
               {normalizedQuery
-                ? "Try another keyword."
-                : "Start a conversation and Ripple will keep the context here."}
+                ? t("sessions.tryAnotherKeyword")
+                : t("sessions.emptyDescription")}
             </p>
             {!normalizedQuery ? (
               <button
@@ -290,7 +306,7 @@ export default function MobileSessionsPage({
                 className="mt-5 inline-flex h-9 items-center gap-2 rounded-lg border border-[#b8cdf8]/80 bg-[#eef4ff]/78 px-4 text-[13px] font-semibold text-[#2463eb] shadow-[0_8px_22px_rgba(36,99,235,0.12)] backdrop-blur-xl hover:bg-[#e8f0ff]/86"
               >
                 <MessageSquarePlus size={16} strokeWidth={2.1} />
-                New session
+                {t("sessions.newSession")}
               </button>
             ) : null}
           </div>
@@ -298,7 +314,12 @@ export default function MobileSessionsPage({
           <div className="space-y-1.5">
             {visibleSessions.map((session) => {
               const selected = session.sessionId === selectedSessionId;
-              const activityTime = formatSessionActivityTime(session.lastActivityAt);
+              const activityTime = formatSessionActivityTime(
+                session.lastActivityAt,
+                new Date(),
+                locale,
+                t("common.yesterday")
+              );
               const isEditing = editingSessionId === session.sessionId;
               const isMenuActive = activeMenuSessionId === session.sessionId;
 
@@ -374,7 +395,7 @@ export default function MobileSessionsPage({
                         <SessionAttentionDot attention={session.attention} reserveSpace />
                       </span>
                       <span className="mt-0.5 block truncate text-[11px] leading-4 text-[#667085]">
-                        {sessionPreview(session)}
+                        {sessionPreview(session, t)}
                       </span>
                     </span>
                     {activityTime ? (
@@ -405,7 +426,7 @@ export default function MobileSessionsPage({
                         ? "bg-[#eef4ff]/78 text-[#0d0d0d]"
                         : ""
                     }`}
-                    title="Session options"
+                    title={t("sessions.options")}
                   >
                     <Ellipsis size={18} strokeWidth={2.2} />
                   </button>

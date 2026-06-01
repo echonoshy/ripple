@@ -3,21 +3,24 @@ import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import { I18nProvider, type LocalePreference } from "@/i18n";
 import AutomationsPage from "./AutomationsPage";
 
 const noop = () => {};
 
-function renderAutomationsPage() {
+function renderAutomationsPage(locale: LocalePreference = "en-US") {
   return renderToStaticMarkup(
-    <AutomationsPage
-      selectedModel="codex-medium"
-      models={[
-        { id: "codex-medium", owned_by: "ripple" },
-        { id: "codex-high", owned_by: "ripple" },
-      ]}
-      onAuthExpired={noop}
-      onBack={noop}
-    />
+    <I18nProvider initialPreference={locale}>
+      <AutomationsPage
+        selectedModel="codex-medium"
+        models={[
+          { id: "codex-medium", owned_by: "ripple" },
+          { id: "codex-high", owned_by: "ripple" },
+        ]}
+        onAuthExpired={noop}
+        onBack={noop}
+      />
+    </I18nProvider>
   );
 }
 
@@ -32,10 +35,10 @@ function testAutomationsPageHasMobileBackNavigation() {
 function testAutomationActionsUseVisibleDistinctLabels() {
   const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
 
-  assert.match(source, />Pause</);
-  assert.match(source, />Resume</);
-  assert.match(source, />Run now</);
-  assert.match(source, />Delete</);
+  assert.match(source, /t\("automations\.pause"\)/);
+  assert.match(source, /t\("automations\.resume"\)/);
+  assert.match(source, /t\("automations\.runNow"\)/);
+  assert.match(source, /t\("automations\.delete"\)/);
 }
 
 function testTimezoneUsesSelectControl() {
@@ -52,7 +55,7 @@ function testAutomationFormCanSelectModel() {
   assert.match(source, /models:\s*\{\s*id:\s*string;\s*owned_by:\s*string\s*\}\[\]/);
   assert.match(source, /const \[formModel, setFormModel\]/);
   assert.match(source, /<select[\s\S]*value=\{formModel\}/);
-  assert.match(source, />Model</);
+  assert.match(source, /t\("automations\.model"\)/);
   assert.match(source, /availableModels\.map/);
   assert.match(source, /model:\s*formModel/);
 }
@@ -63,8 +66,8 @@ function testExistingAutomationsCanBeEdited() {
   assert.match(source, /editingScheduleId/);
   assert.match(source, /function beginEditSchedule/);
   assert.match(source, /await updateSchedule\(editingScheduleId/);
-  assert.match(source, /"Save"/);
-  assert.match(source, />Edit</);
+  assert.match(source, /t\("automations\.save"\)/);
+  assert.match(source, /t\("automations\.edit"\)/);
 }
 
 function testAutomationRunResultsAreDiscoverable() {
@@ -77,10 +80,10 @@ function testAutomationRunResultsAreDiscoverable() {
   assert.match(source, /saveBlobAsDownload/);
   assert.match(source, /hasRunOutput/);
   assert.match(source, /output_available/);
-  assert.match(source, /View output/);
-  assert.match(source, /Download output/);
-  assert.match(source, /Delete record/);
-  assert.match(source, /Run history/);
+  assert.match(source, /t\("automations\.viewOutput"\)/);
+  assert.match(source, /t\("automations\.downloadOutput"\)/);
+  assert.match(source, /t\("automations\.deleteRecord"\)/);
+  assert.match(source, /t\("automations\.runHistory"\)/);
 }
 
 function testAutomationStaticCopyUsesEnglish() {
@@ -135,7 +138,7 @@ function testAutomationCardUsesCompactResponsiveLayout() {
   assert.match(source, /data-ripple-automation-latest-run[\s\S]*grid min-w-0 gap-1\.5/);
   assert.doesNotMatch(source, /const latestRunId/);
   assert.doesNotMatch(source, /\{latestRunId \|\| "No run"\}/);
-  assert.match(source, /latestRunAt \? formatDate\(latestRunAt\) : "Never"/);
+  assert.match(source, /latestRunAt[\s\S]*formatDate\(latestRunAt, locale, t\)/);
   assert.match(source, /data-ripple-automation-actions[\s\S]*mt-2 grid grid-cols-3 gap-1\.5/);
   assert.doesNotMatch(source, /data-ripple-automation-actions[\s\S]{0,120}pl-8/);
   assert.match(source, /md:grid-cols-5/);
@@ -174,6 +177,15 @@ function testAutomationRunHistoryUsesReadableRows() {
   assert.match(source, /sm:grid-cols-\[90px_minmax\(0,1fr\)_120px\]/);
 }
 
+function testAutomationsPageRendersChineseChrome() {
+  const html = renderAutomationsPage("zh-CN");
+
+  assert.match(html, />自动化</);
+  assert.match(html, /aria-label="返回设置"/);
+  assert.match(html, />新建</);
+  assert.match(html, />暂无自动化</);
+}
+
 testAutomationsPageHasMobileBackNavigation();
 testAutomationActionsUseVisibleDistinctLabels();
 testTimezoneUsesSelectControl();
@@ -186,5 +198,6 @@ testAutomationCardDoesNotExposePolicyControls();
 testAutomationCardUsesCompactResponsiveLayout();
 testAutomationCardUsesDesktopRowLayout();
 testAutomationRunHistoryUsesReadableRows();
+testAutomationsPageRendersChineseChrome();
 
 console.log("automations page tests passed");

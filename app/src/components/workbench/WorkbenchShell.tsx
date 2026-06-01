@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronLeft } from "lucide-react";
+import { useI18n } from "@/i18n";
 import { COMPACT_IOS_PAGE_BACKGROUND } from "./stylePrimitives";
 
 const INSPECTOR_WIDTH_STORAGE_KEY = "ripple.workbench.inspectorWidth";
@@ -40,6 +41,7 @@ export default function WorkbenchShell({
   isInspectorCollapsed = false,
   onExpandInspector,
 }: WorkbenchShellProps) {
+  const { t } = useI18n();
   const [inspectorWidth, setInspectorWidth] = useState(initialInspectorWidth);
   const inspectorWidthRef = useRef(inspectorWidth);
 
@@ -104,8 +106,8 @@ export default function WorkbenchShell({
               type="button"
               data-ripple-panel-edge-handle="workspace-panel"
               onClick={onExpandInspector}
-              aria-label="Expand workspace panel"
-              title="Expand workspace panel"
+              aria-label={t("common.expandWorkspacePanel")}
+              title={t("common.expandWorkspacePanel")}
               className="absolute top-1/2 right-0 z-30 hidden h-14 w-7 -translate-y-1/2 items-center justify-center rounded-l-xl border border-r-0 border-[#bfdbfe] bg-[#eff6ff] text-[#2463eb] shadow-[0_8px_18px_rgba(36,99,235,0.12)] transition-colors hover:border-[#93c5fd] hover:bg-[#dbeafe] hover:text-[#1d4ed8] focus-visible:ring-2 focus-visible:ring-[#bfdbfe] focus-visible:outline-none active:scale-95 xl:inline-flex"
             >
               <ChevronLeft size={16} />
@@ -117,7 +119,7 @@ export default function WorkbenchShell({
           <div className="relative hidden shrink-0 xl:block" style={{ width: inspectorWidth }}>
             <div
               role="separator"
-              aria-label="Resize workspace panel"
+              aria-label={t("common.resizeWorkspacePanel")}
               aria-orientation="vertical"
               aria-valuemin={MIN_INSPECTOR_WIDTH}
               aria-valuenow={inspectorWidth}

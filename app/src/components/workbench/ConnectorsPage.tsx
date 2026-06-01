@@ -30,6 +30,7 @@ import {
   connectorStatusTone,
 } from "@/lib/connectors";
 import { IconTile, type IconTileTone } from "@/components/icons/IconTile";
+import { useI18n } from "@/i18n";
 import type { ConnectorInfo, ConnectorStatus, GogcliAccountInfo } from "@/types";
 import {
   COMPACT_IOS_PAGE_BACKGROUND,
@@ -55,6 +56,8 @@ interface PendingConnectorAuth {
   data: Record<string, unknown>;
   startedAt: number;
 }
+
+type Translator = ReturnType<typeof useI18n>["t"];
 
 const connectorSnapshotCache = new Map<string, ConnectorSnapshot>();
 const connectorSnapshotInflight = new Map<string, Promise<ConnectorSnapshot>>();
@@ -103,14 +106,14 @@ async function fetchConnectorSnapshot(userId: string, force = false): Promise<Co
   }
 }
 
-function statusLabel(status: ConnectorStatus | null | undefined): string {
-  if (!status) return "Unknown";
-  return status.connected ? "Connected" : "Needs setup";
+function statusLabel(status: ConnectorStatus | null | undefined, t: Translator): string {
+  if (!status) return t("connectors.unknown");
+  return status.connected ? t("connectors.connected") : t("connectors.needsSetup");
 }
 
-function mobileStatusLabel(status: ConnectorStatus | null | undefined): string {
-  if (!status) return "Unknown";
-  return status.connected ? "Ready" : "Setup";
+function mobileStatusLabel(status: ConnectorStatus | null | undefined, t: Translator): string {
+  if (!status) return t("connectors.unknown");
+  return status.connected ? t("connectors.ready") : t("connectors.setup");
 }
 
 function connectorStatusIconTone(status: ConnectorStatus | null | undefined): IconTileTone {
@@ -152,6 +155,7 @@ export default function ConnectorsPage({
   onConnectorStateChange?: () => Promise<unknown> | unknown;
   onBack?: () => void;
 }) {
+  const { t } = useI18n();
   const [connectors, setConnectors] = useState<ConnectorInfo[]>(
     () => cachedConnectorSnapshot(userId)?.connectors || []
   );
@@ -256,12 +260,12 @@ export default function ConnectorsPage({
       setActionMessage(null);
       try {
         const result = await mutation();
-        setActionMessage(actionDetail(result, "Connector updated"));
+        setActionMessage(actionDetail(result, t("connectors.connectorUpdated")));
         if (options.refresh !== false) await loadConnectors({ force: true });
         return result;
       } catch (error) {
         if (error instanceof AuthError) {
-          setPageError("API key 已失效");
+          setPageError(t("connectors.apiKeyExpired"));
         } else {
           setPageError(error instanceof Error ? error.message : String(error));
         }
@@ -270,7 +274,7 @@ export default function ConnectorsPage({
         setPendingAction(null);
       }
     },
-    [loadConnectors]
+    [loadConnectors, t]
   );
 
   const handleStartAuth = useCallback(
@@ -298,19 +302,22 @@ export default function ConnectorsPage({
         setPendingAuth({
           connector: connector.name,
           stage,
-          detail: actionDetail(result, `${connector.display_name} authorization started`),
+          detail: actionDetail(
+            result,
+            t("connectors.authorizationStarted", { name: connector.display_name })
+          ),
           data,
           startedAt: Date.now(),
         });
       }
     },
-    [loadConnectors, runConnectorMutation]
+    [loadConnectors, runConnectorMutation, t]
   );
 
   const handleSubmitNotionToken = useCallback(async () => {
     const token = notionToken.trim();
     if (!token) {
-      setPageError("Notion token is required.");
+      setPageError(t("connectors.notionTokenRequired"));
       return;
     }
     const result = await runConnectorMutation("notion:connect", () =>
@@ -320,7 +327,7 @@ export default function ConnectorsPage({
     setNotionToken("");
     setConfirmAction(null);
     setPendingAuth(null);
-  }, [notionToken, runConnectorMutation]);
+  }, [notionToken, runConnectorMutation, t]);
 
   const handleCancelPendingAuth = useCallback(
     async (connector: ConnectorInfo) => {
@@ -436,8 +443,8 @@ export default function ConnectorsPage({
     if (!pendingAuth) return;
     if (!statuses[pendingAuth.connector]?.connected) return;
     setPendingAuth(null);
-    setActionMessage("Connector authorization completed.");
-  }, [pendingAuth, statuses]);
+    setActionMessage(t("connectors.authorizationCompleted"));
+  }, [pendingAuth, statuses, t]);
 
   return (
     <div
@@ -450,8 +457,8 @@ export default function ConnectorsPage({
               <button
                 type="button"
                 onClick={onBack}
-                aria-label="Back to settings"
-                title="Back to settings"
+                aria-label={t("connectors.backToSettings")}
+                title={t("connectors.backToSettings")}
                 className={`${MOBILE_GLASS_ICON_BUTTON_CLASS} mt-0.5 lg:hidden`}
               >
                 <ArrowBigLeft size={15} strokeWidth={LUCIDE_NAV_STROKE_WIDTH} />
@@ -459,15 +466,21 @@ export default function ConnectorsPage({
             ) : null}
             <div className="min-w-0">
               <h1 className="text-[18px] leading-tight font-semibold tracking-normal">
-                <span className="sm:hidden">Connectors</span>
-                <span className="hidden sm:inline">Connectors</span>
+                <span className="sm:hidden">{t("connectors.title")}</span>
+                <span className="hidden sm:inline">{t("connectors.title")}</span>
               </h1>
               <div className="mt-1 text-[11px] text-[#7a8496]">
                 <span className="sm:hidden">
-                  {connectorReadiness.connected}/{connectorReadiness.total} ready
+                  {t("connectors.readyCount", {
+                    connected: connectorReadiness.connected,
+                    total: connectorReadiness.total,
+                  })}
                 </span>
                 <span className="hidden sm:inline">
-                  {connectorReadiness.connected}/{connectorReadiness.total} connected
+                  {t("connectors.connectedCount", {
+                    connected: connectorReadiness.connected,
+                    total: connectorReadiness.total,
+                  })}
                 </span>
               </div>
             </div>
@@ -478,8 +491,8 @@ export default function ConnectorsPage({
             className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white/78 px-2.5 text-[12px] font-medium text-[#384152] shadow-[0_8px_18px_rgba(44,63,123,0.05)] hover:bg-white"
           >
             {isLoading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-            <span className="sm:hidden">Refresh</span>
-            <span className="hidden sm:inline">Refresh</span>
+            <span className="sm:hidden">{t("connectors.refresh")}</span>
+            <span className="hidden sm:inline">{t("connectors.refresh")}</span>
           </button>
         </header>
 
@@ -508,7 +521,7 @@ export default function ConnectorsPage({
                 <div>
                   <h2 className="text-[12px] font-semibold text-[#111827]">{section.title}</h2>
                   <p className="mt-0.5 text-[11px] leading-4 text-[#667085]">
-                    Connect services you use with Ripple.
+                    {t("connectors.sectionDescription")}
                   </p>
                 </div>
                 <span className="text-[11px] font-medium text-[#667085]">
@@ -538,8 +551,8 @@ export default function ConnectorsPage({
                     pendingForConnector?.data || {},
                     "setup_url"
                   )
-                    ? "Open setup"
-                    : "Open auth";
+                    ? t("connectors.openSetup")
+                    : t("connectors.openAuth");
 
                   return (
                     <section
@@ -556,8 +569,8 @@ export default function ConnectorsPage({
                               {connector.display_name}
                             </h3>
                             <span className="rounded-full border border-[#dfe6f4] bg-white/76 px-1.5 py-0.5 text-[10px] font-medium text-[#667085]">
-                              <span className="sm:hidden">{mobileStatusLabel(status)}</span>
-                              <span className="hidden sm:inline">{statusLabel(status)}</span>
+                              <span className="sm:hidden">{mobileStatusLabel(status, t)}</span>
+                              <span className="hidden sm:inline">{statusLabel(status, t)}</span>
                             </span>
                           </div>
                           <p className="mt-1 text-[11px] leading-4 text-[#667085]">
@@ -581,7 +594,7 @@ export default function ConnectorsPage({
                                 ) : (
                                   <Plug size={12} />
                                 )}
-                                Connect
+                                {t("connectors.connect")}
                               </button>
                             ) : null}
                             {pendingForConnector ? (
@@ -596,7 +609,7 @@ export default function ConnectorsPage({
                                 ) : (
                                   <X size={12} />
                                 )}
-                                Cancel auth
+                                {t("connectors.cancelAuth")}
                               </button>
                             ) : null}
                             {connector.disconnect_path && status?.connected ? (
@@ -621,8 +634,8 @@ export default function ConnectorsPage({
                                   <Trash2 size={12} />
                                 )}
                                 {confirmAction === `${connector.name}:disconnect`
-                                  ? "Confirm local disconnect"
-                                  : "Local disconnect"}
+                                  ? t("connectors.confirmLocalDisconnect")
+                                  : t("connectors.localDisconnect")}
                               </button>
                             ) : null}
                           </div>
@@ -636,7 +649,7 @@ export default function ConnectorsPage({
                               value={notionToken}
                               onChange={(event) => setNotionToken(event.target.value)}
                               type="password"
-                              placeholder="Notion integration token"
+                              placeholder={t("connectors.notionTokenPlaceholder")}
                               className="min-h-8 min-w-0 flex-1 rounded-lg border border-[#dfe6f4] bg-white px-2.5 text-[11px] text-[#111827] outline-none focus:border-[#2f6bff]"
                             />
                             <div className="flex shrink-0 gap-2">
@@ -651,7 +664,7 @@ export default function ConnectorsPage({
                                 ) : (
                                   <KeyRound size={12} />
                                 )}
-                                Save
+                                {t("connectors.save")}
                               </button>
                               <button
                                 type="button"
@@ -660,8 +673,8 @@ export default function ConnectorsPage({
                                   setNotionToken("");
                                 }}
                                 className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#dfe6f4] bg-white text-[#384152] hover:bg-[#f7f8fa]"
-                                aria-label="Cancel Notion token entry"
-                                title="Cancel Notion token entry"
+                                aria-label={t("connectors.cancelNotionToken")}
+                                title={t("connectors.cancelNotionToken")}
                               >
                                 <X size={13} />
                               </button>
@@ -687,7 +700,7 @@ export default function ConnectorsPage({
                                   {qrcodeImageUrl ? (
                                     <img
                                       src={qrcodeImageUrl}
-                                      alt="Bilibili login QR code"
+                                      alt={t("connectors.bilibiliQrAlt")}
                                       className="h-28 w-28 rounded-lg border border-[#dfe6f4] bg-white object-contain p-1"
                                     />
                                   ) : null}
@@ -699,7 +712,7 @@ export default function ConnectorsPage({
                                       className="inline-flex h-7 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-2.5 text-[11px] font-semibold text-[#384152] hover:bg-[#f7f8fa]"
                                     >
                                       <ExternalLink size={12} />
-                                      {qrcodeContent ? "Open link" : pendingExternalLabel}
+                                      {qrcodeContent ? t("connectors.openLink") : pendingExternalLabel}
                                     </a>
                                   ) : null}
                                 </div>
@@ -722,7 +735,9 @@ export default function ConnectorsPage({
                                     {account.email}
                                   </div>
                                   <div className="mt-0.5 text-[10px] text-[#6b7280]">
-                                    {account.valid === false ? "Invalid" : "Ready"}
+                                    {account.valid === false
+                                      ? t("connectors.invalid")
+                                      : t("connectors.ready")}
                                   </div>
                                 </div>
                                 <div className="flex shrink-0 flex-wrap gap-2">
@@ -750,8 +765,8 @@ export default function ConnectorsPage({
                                     )}
                                     {confirmAction ===
                                     `${connector.name}:disconnect:${account.email}`
-                                      ? "Confirm"
-                                      : "Remove local"}
+                                      ? t("connectors.confirm")
+                                      : t("connectors.removeLocal")}
                                   </button>
                                 </div>
                               </div>
@@ -769,8 +784,8 @@ export default function ConnectorsPage({
 
         {connectors.length === 0 && !isLoading && (
           <div className="flex h-32 items-center justify-center rounded-xl border border-dashed border-[#dfe6f4] bg-white/52 text-[12px] text-[#667085]">
-            <span className="sm:hidden">No connectors</span>
-            <span className="hidden sm:inline">No connectors</span>
+            <span className="sm:hidden">{t("connectors.empty")}</span>
+            <span className="hidden sm:inline">{t("connectors.empty")}</span>
           </div>
         )}
       </div>

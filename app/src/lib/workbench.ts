@@ -81,7 +81,12 @@ function startOfLocalDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
-export function formatSessionActivityTime(value: string, now = new Date()): string {
+export function formatSessionActivityTime(
+  value: string,
+  now = new Date(),
+  locale = "en-US",
+  yesterdayLabel = "Yesterday"
+): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
 
@@ -90,13 +95,13 @@ export function formatSessionActivityTime(value: string, now = new Date()): stri
   const dayDiff = Math.round((today.getTime() - activityDay.getTime()) / 86_400_000);
 
   if (dayDiff === 0) {
-    return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+    return date.toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" });
   }
-  if (dayDiff === 1) return "Yesterday";
+  if (dayDiff === 1) return yesterdayLabel;
   if (date.getFullYear() === now.getFullYear()) {
-    return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    return date.toLocaleDateString(locale, { month: "short", day: "numeric" });
   }
-  return date.toLocaleDateString("en-US", {
+  return date.toLocaleDateString(locale, {
     month: "short",
     day: "numeric",
     year: "numeric",

@@ -11,6 +11,7 @@ import {
   Plus,
   Trash2,
 } from "lucide-react";
+import { useI18n } from "@/i18n";
 import { formatSessionActivityTime } from "@/lib/workbench";
 import type { WorkbenchSessionSummary } from "@/types";
 import SessionAttentionDot from "./SessionAttentionDot";
@@ -41,6 +42,7 @@ export default function WorkspaceNav({
   onUpdateSession,
   onCollapse,
 }: WorkspaceNavProps) {
+  const { locale, t } = useI18n();
   const [activeMenuSessionId, setActiveMenuSessionId] = React.useState<string | null>(null);
   const [editingSessionId, setEditingSessionId] = React.useState<string | null>(null);
   const [editingTitle, setEditingTitle] = React.useState<string>("");
@@ -71,10 +73,10 @@ export default function WorkspaceNav({
         <div className="mb-3 flex items-center justify-between gap-2">
           <div className="min-w-0">
             <h2 className="truncate text-[15px] leading-tight font-semibold text-[#111827]">
-              Sessions
+              {t("sessions.railTitle")}
             </h2>
             <p className="mt-0.5 text-[10px] font-medium text-[#7a8496]">
-              Recent agent work
+              {t("sessions.railSubtitle")}
             </p>
           </div>
           {isLoading ? <Loader2 size={14} className="animate-spin text-[#6b7280]" /> : null}
@@ -82,8 +84,8 @@ export default function WorkspaceNav({
             <button
               type="button"
               onClick={onCollapse}
-              aria-label="Collapse session list"
-              title="Collapse session list"
+              aria-label={t("sessions.collapseList")}
+              title={t("sessions.collapseList")}
               className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#dfe6f4] bg-white/78 text-[#667085] shadow-[0_6px_18px_rgba(44,63,123,0.05)] backdrop-blur-xl transition-colors hover:bg-white hover:text-[#111827]"
             >
               <ChevronLeft size={15} />
@@ -97,7 +99,7 @@ export default function WorkspaceNav({
           className="flex h-8 w-full items-center justify-center gap-1.5 rounded-xl bg-[linear-gradient(135deg,#2f6bff,#7b5cff)] px-3 text-[12px] font-semibold text-white shadow-[0_10px_22px_rgba(64,92,255,0.22)] transition-all duration-200 hover:brightness-110 active:scale-[0.98]"
         >
           <Plus size={14} />
-          New session
+          {t("sessions.newSession")}
         </button>
       </div>
 
@@ -109,13 +111,18 @@ export default function WorkspaceNav({
           </div>
         ) : sessions.length === 0 && !isLoading ? (
           <div className="rounded-lg border border-dashed border-[#e5e7eb] bg-white px-3 py-5 text-center text-sm text-[#6b7280]">
-            No sessions yet
+            {t("sessions.empty")}
           </div>
         ) : (
           <div className="space-y-1">
             {sessions.map((session) => {
               const selected = session.sessionId === selectedSessionId;
-              const activityTime = formatSessionActivityTime(session.lastActivityAt);
+              const activityTime = formatSessionActivityTime(
+                session.lastActivityAt,
+                new Date(),
+                locale,
+                t("common.yesterday")
+              );
               const isEditing = editingSessionId === session.sessionId;
               const isMenuOpen = activeMenuSessionId === session.sessionId;
 
@@ -207,7 +214,7 @@ export default function WorkspaceNav({
                         ? "z-50 flex border-[#dfe6f4] bg-white text-[#0d0d0d] shadow-[0_2px_8px_rgba(0,0,0,0.04)]"
                         : "hidden border-transparent text-[#8b8f94] group-hover:flex hover:border-[#dfe6f4] hover:bg-white hover:text-[#0d0d0d] active:scale-[0.92]"
                     }`}
-                    title="Session options"
+                    title={t("sessions.options")}
                   >
                     <MoreHorizontal size={14} />
                   </button>
@@ -224,7 +231,7 @@ export default function WorkspaceNav({
                         className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
                       >
                         <Pin size={13} className="shrink-0 text-[#6b7280]" />
-                        {session.pinned ? "Unpin" : "Pin"}
+                        {session.pinned ? t("sessions.unpin") : t("sessions.pin")}
                       </button>
                       <button
                         type="button"
@@ -237,7 +244,7 @@ export default function WorkspaceNav({
                         className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
                       >
                         <Edit3 size={13} className="shrink-0 text-[#6b7280]" />
-                        Rename
+                        {t("sessions.rename")}
                       </button>
                       <div className="my-1 border-t border-[#dfe6f4]" />
                       <button
@@ -250,7 +257,7 @@ export default function WorkspaceNav({
                         className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#cf222e] transition-colors hover:bg-[#ffebe9] active:bg-[#ffd5d6]"
                       >
                         <Trash2 size={13} className="shrink-0 text-[#cf222e]" />
-                        Delete
+                        {t("sessions.delete")}
                       </button>
                     </div>
                   )}

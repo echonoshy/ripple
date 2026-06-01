@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import { I18nProvider, type LocalePreference } from "@/i18n";
 import SessionPage from "./SessionPage";
 import type { UsageInfo, WorkbenchSessionSummary } from "@/types";
 
@@ -23,44 +24,48 @@ function sessionAutoScrollEffectSource() {
 function renderSessionPage({
   tokenUsage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
   lastContextTokens = 0,
+  locale = "en-US",
 }: {
   tokenUsage?: UsageInfo;
   lastContextTokens?: number;
+  locale?: LocalePreference;
 } = {}) {
   return renderToStaticMarkup(
-    <SessionPage
-      session={null}
-      messages={[]}
-      timelineEvents={[]}
-      planProgress={null}
-      planSteps={[]}
-      tokenUsage={tokenUsage}
-      lastContextTokens={lastContextTokens}
-      input=""
-      pendingFiles={[]}
-      pendingLocalImages={[]}
-      isGenerating={false}
-      focusToken={0}
-      selectedModel="codex-medium"
-      models={[{ id: "codex-medium", owned_by: "ripple" }]}
-      isModelDropdownOpen={false}
-      sessionId="srv-test"
-      onNewSession={noop}
-      onUpdateSessionSettings={noopAsync}
-      onInputChange={noop}
-      onClearContext={noop}
-      onCompactContext={noop}
-      onAttachFiles={noop}
-      onRemovePendingFile={noop}
-      onAddPendingImages={noop}
-      onRemovePendingLocalImage={noop}
-      onToggleModelDropdown={noop}
-      onSelectModel={noop}
-      onSend={noop}
-      onStop={noop}
-      onQuickReply={noop}
-      onPermissionResolve={noop}
-    />
+    <I18nProvider initialPreference={locale}>
+      <SessionPage
+        session={null}
+        messages={[]}
+        timelineEvents={[]}
+        planProgress={null}
+        planSteps={[]}
+        tokenUsage={tokenUsage}
+        lastContextTokens={lastContextTokens}
+        input=""
+        pendingFiles={[]}
+        pendingLocalImages={[]}
+        isGenerating={false}
+        focusToken={0}
+        selectedModel="codex-medium"
+        models={[{ id: "codex-medium", owned_by: "ripple" }]}
+        isModelDropdownOpen={false}
+        sessionId="srv-test"
+        onNewSession={noop}
+        onUpdateSessionSettings={noopAsync}
+        onInputChange={noop}
+        onClearContext={noop}
+        onCompactContext={noop}
+        onAttachFiles={noop}
+        onRemovePendingFile={noop}
+        onAddPendingImages={noop}
+        onRemovePendingLocalImage={noop}
+        onToggleModelDropdown={noop}
+        onSelectModel={noop}
+        onSend={noop}
+        onStop={noop}
+        onQuickReply={noop}
+        onPermissionResolve={noop}
+      />
+    </I18nProvider>
   );
 }
 
@@ -176,10 +181,10 @@ function testSessionSettingsUsesGroupedFormPanel() {
   assert.match(sessionPageSource, /data-ripple-session-settings-body="grouped-form"/);
   assert.match(sessionPageSource, /data-ripple-session-settings-group="name"/);
   assert.match(sessionPageSource, /data-ripple-session-settings-group="pinned"/);
-  assert.match(sessionPageSource, /Keep this session near the top/);
+  assert.match(sessionPageSource, /t\("sessions\.pinnedDescription"\)/);
   assert.match(sessionPageSource, /aria-hidden="true"[\s\S]*settingsPinned/);
-  assert.match(sessionPageSource, /type="button"[\s\S]*>\s*Cancel\s*<\/button>/);
-  assert.match(sessionPageSource, /type="submit"[\s\S]*Save\s*<\/button>/);
+  assert.match(sessionPageSource, /t\("sessions\.cancel"\)/);
+  assert.match(sessionPageSource, /t\("sessions\.save"\)/);
   assert.doesNotMatch(sessionPageSource, /space-y-5 overflow-y-auto px-4 py-4/);
   assert.doesNotMatch(
     sessionPageSource,
@@ -215,6 +220,16 @@ function testDesktopHeaderShowsCurrentModelLikeMobile() {
   assert.match(html, /lg:flex/);
   assert.match(html, /aria-label="Current model: Plus"/);
   assert.match(html, /title="Current model: Plus"/);
+}
+
+function testSessionPageRendersChineseStaticChrome() {
+  const html = renderSessionPage({ locale: "zh-CN" });
+
+  assert.match(html, /aria-label="返回会话"/);
+  assert.match(html, /aria-label="新会话"/);
+  assert.match(html, /aria-label="会话选项"/);
+  assert.match(html, />会话</);
+  assert.match(html, /aria-label="当前模型：Plus"/);
 }
 
 function testSessionPageShowsCurrentFolderBadge() {
@@ -400,6 +415,7 @@ testGivesSessionContentMoreHorizontalRoom();
 testSessionPageHandlesDropAcrossWholeChat();
 testMobileHeaderReservesTopSafeArea();
 testDesktopHeaderShowsCurrentModelLikeMobile();
+testSessionPageRendersChineseStaticChrome();
 testSessionPageShowsCurrentFolderBadge();
 testTimelineTextUsesWiderContentWidth();
 testContextWarningUsesReportedModelWindow();

@@ -113,6 +113,23 @@ function testFormatsSessionActivityTimeLikeCodexSidebar() {
   assert.equal(formatSessionActivityTime("not-a-date", now), "");
 }
 
+function testFormatsSessionActivityTimeWithLocale() {
+  const now = new Date("2026-06-02T12:00:00.000Z");
+
+  assert.equal(
+    formatSessionActivityTime("2026-06-01T08:30:00.000Z", now, "zh-CN", "昨天"),
+    "昨天"
+  );
+  assert.equal(
+    formatSessionActivityTime("2026-05-30T08:30:00.000Z", now, "zh-CN", "昨天"),
+    "5月30日"
+  );
+  assert.equal(
+    formatSessionActivityTime("2025-05-30T08:30:00.000Z", now, "en-US", "Yesterday"),
+    "May 30, 2025"
+  );
+}
+
 function testAppliesCurrentRunningStatusToExistingSession() {
   const sessions = mapSessionSummariesToWorkbenchSessions([
     makeSession({
@@ -659,6 +676,7 @@ function testRuntimeEventsStayBeforeOptimisticAssistantResponse() {
 testMapsSessionSummariesToWorkbenchSummaries();
 testSortsSessionsByRecentActivity();
 testFormatsSessionActivityTimeLikeCodexSidebar();
+testFormatsSessionActivityTimeWithLocale();
 testAppliesCurrentRunningStatusToExistingSession();
 testAppliesCurrentApprovalStatusToExistingSession();
 testAppliesUnreadCompletionAttentionOnlyOffCurrentSession();

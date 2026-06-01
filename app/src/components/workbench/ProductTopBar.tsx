@@ -4,6 +4,7 @@ import React from "react";
 import { User } from "lucide-react";
 import { IconTile } from "@/components/icons/IconTile";
 import RippleIcon from "@/components/icons/RippleIcon";
+import { type MessageKey, useI18n } from "@/i18n";
 import { fetchUserAvatarImage, fetchUserProfile } from "@/lib/api";
 import {
   getUserProfileAvatarUri,
@@ -21,12 +22,21 @@ interface ProductTopBarProps {
   onOpenSettings: () => void;
 }
 
+const navLabelKeys: Record<WorkspaceView, MessageKey> = {
+  sessions: "nav.sessions",
+  files: "nav.files",
+  automations: "nav.automations",
+  connectors: "nav.connectors",
+  home: "nav.settings",
+};
+
 export default function ProductTopBar({
   activeView,
   userId,
   onSelectView,
   onOpenSettings,
 }: ProductTopBarProps) {
+  const { t } = useI18n();
   const [profile, setProfile] = React.useState<Awaited<ReturnType<typeof fetchUserProfile>> | null>(
     null
   );
@@ -92,7 +102,7 @@ export default function ProductTopBar({
         <span className="truncate text-[16px] font-semibold text-[#111827]">Ripple</span>
       </div>
 
-      <nav className="flex flex-1 justify-center" aria-label="Primary">
+      <nav className="flex flex-1 justify-center" aria-label={t("nav.primary")}>
         <div className="inline-flex items-center gap-1 rounded-2xl border border-[#dfe6f4] bg-white/64 p-1 shadow-[0_6px_18px_rgba(44,63,123,0.05)] backdrop-blur-xl">
           {mainNavItems.map((item) => {
             const Icon = item.icon;
@@ -110,7 +120,7 @@ export default function ProductTopBar({
                 }`}
               >
                 <Icon size={14} strokeWidth={LUCIDE_NAV_STROKE_WIDTH} />
-                {item.label}
+                {t(navLabelKeys[item.id])}
               </button>
             );
           })}
@@ -122,8 +132,8 @@ export default function ProductTopBar({
           type="button"
           data-ripple-top-settings-entry="true"
           onClick={onOpenSettings}
-          aria-label={`Open personal settings for ${displayName}`}
-          title="Personal settings"
+          aria-label={t("common.openPersonalSettingsFor", { name: displayName })}
+          title={t("common.personalSettings")}
           className="group inline-flex h-9 w-9 items-center justify-center rounded-2xl border border-[#dfe6f4] bg-white/80 text-[#384152] shadow-[0_8px_22px_rgba(44,63,123,0.07)] backdrop-blur-xl transition-all hover:bg-white hover:shadow-[0_10px_26px_rgba(44,63,123,0.10)] active:scale-[0.98]"
         >
           <IconTile tone="neutral" size="sm" className="relative border-transparent bg-transparent">

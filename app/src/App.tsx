@@ -49,6 +49,7 @@ import {
   selectPreferredModel,
   setStoredDefaultModel,
 } from "@/lib/modelPreference";
+import { useI18n } from "@/i18n";
 
 const WORKSPACE_ROOT_PATH = "/workspace";
 const SESSION_RAIL_WIDTH_STORAGE_KEY = "ripple.workbench.sessionRailWidth";
@@ -82,6 +83,7 @@ function initialSessionRailCollapsed(): boolean {
 }
 
 export default function Home() {
+  const { t } = useI18n();
   // ── Auth state ──
   const [authState, setAuthState] = useState<"checking" | "needs_auth" | "authenticated">(() =>
     getApiKey() ? "authenticated" : "needs_auth"
@@ -467,11 +469,11 @@ export default function Home() {
         }
       } catch (err) {
         if (err instanceof AuthError) {
-          handleAuthExpired("登录已过期，请重新登录");
+          handleAuthExpired(t("auth.sessionExpired"));
         }
       }
     })();
-  }, [authState, handleAuthExpired, loadSessions, restoreStoredSession]);
+  }, [authState, handleAuthExpired, loadSessions, restoreStoredSession, t]);
 
   // ── Auth submit ──
   const handleAuthSubmit = (e: React.FormEvent) => {
@@ -486,7 +488,7 @@ export default function Home() {
     try {
       setUserId(nextUserId);
     } catch {
-      setAuthUserIdError("Use letters, numbers, underscores, or hyphens.");
+      setAuthUserIdError(t("auth.userIdInvalid"));
       return;
     }
     if (nextUserId !== userId) {
@@ -530,7 +532,7 @@ export default function Home() {
       activateUserSession(auth.token, auth.user_id);
       setPasswordInput("");
     } catch (error) {
-      setAuthErrorMsg(error instanceof Error ? error.message : "登录失败，请重试");
+      setAuthErrorMsg(error instanceof Error ? error.message : t("auth.loginFailed"));
     } finally {
       setIsAuthSubmitting(false);
     }
@@ -553,7 +555,7 @@ export default function Home() {
       setInviteDisplayNameInput("");
       setPasswordInput("");
     } catch (error) {
-      setAuthErrorMsg(error instanceof Error ? error.message : "邀请码认领失败，请重试");
+      setAuthErrorMsg(error instanceof Error ? error.message : t("auth.inviteClaimFailed"));
     } finally {
       setIsAuthSubmitting(false);
     }
@@ -876,7 +878,7 @@ export default function Home() {
               />
               <div
                 role="separator"
-                aria-label="Resize session list"
+                aria-label={t("common.resizeSessionList")}
                 aria-orientation="vertical"
                 aria-valuemin={SESSION_RAIL_MIN_WIDTH}
                 aria-valuemax={SESSION_RAIL_MAX_WIDTH}
@@ -894,8 +896,8 @@ export default function Home() {
               type="button"
               data-ripple-panel-edge-handle="session-list"
               onClick={() => setIsSessionRailCollapsed(false)}
-              aria-label="Expand session list"
-              title="Expand session list"
+              aria-label={t("common.expandSessionList")}
+              title={t("common.expandSessionList")}
               className="absolute top-1/2 left-0 z-30 hidden h-14 w-7 -translate-y-1/2 items-center justify-center rounded-r-xl border border-l-0 border-[#bfdbfe] bg-[#eff6ff] text-[#2463eb] shadow-[0_8px_18px_rgba(36,99,235,0.12)] transition-colors hover:border-[#93c5fd] hover:bg-[#dbeafe] hover:text-[#1d4ed8] focus-visible:ring-2 focus-visible:ring-[#bfdbfe] focus-visible:outline-none lg:inline-flex"
             >
               <ChevronRight size={16} />

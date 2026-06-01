@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import { I18nProvider, type LocalePreference } from "@/i18n";
 import SessionComposer, { composerToolbarClassName, shouldExpandComposer } from "./SessionComposer";
 import type { PendingLocalImage } from "@/lib/pendingImages";
 
@@ -18,34 +19,39 @@ const pastedImage: PendingLocalImage = {
   source: "paste",
 };
 
-function renderComposer(overrides: Partial<React.ComponentProps<typeof SessionComposer>> = {}) {
+function renderComposer(
+  overrides: Partial<React.ComponentProps<typeof SessionComposer>> = {},
+  locale: LocalePreference = "en-US"
+) {
   return renderToStaticMarkup(
-    <SessionComposer
-      value=""
-      onChange={noop}
-      onSend={noop}
-      onStop={noop}
-      onClearContext={noop}
-      onCompactContext={noop}
-      onAttachFiles={noop}
-      onRemovePendingFile={noop}
-      onAddPendingImages={noop}
-      onRemovePendingLocalImage={noop}
-      pendingFiles={[]}
-      pendingLocalImages={[]}
-      isGenerating={false}
-      hasSession={false}
-      focusToken={0}
-      selectedModel="codex-high"
-      models={[
-        { id: "codex-medium", owned_by: "ripple" },
-        { id: "codex-high", owned_by: "ripple" },
-      ]}
-      isModelDropdownOpen={true}
-      onToggleModelDropdown={noop}
-      onSelectModel={noop}
-      {...overrides}
-    />
+    <I18nProvider initialPreference={locale}>
+      <SessionComposer
+        value=""
+        onChange={noop}
+        onSend={noop}
+        onStop={noop}
+        onClearContext={noop}
+        onCompactContext={noop}
+        onAttachFiles={noop}
+        onRemovePendingFile={noop}
+        onAddPendingImages={noop}
+        onRemovePendingLocalImage={noop}
+        pendingFiles={[]}
+        pendingLocalImages={[]}
+        isGenerating={false}
+        hasSession={false}
+        focusToken={0}
+        selectedModel="codex-high"
+        models={[
+          { id: "codex-medium", owned_by: "ripple" },
+          { id: "codex-high", owned_by: "ripple" },
+        ]}
+        isModelDropdownOpen={true}
+        onToggleModelDropdown={noop}
+        onSelectModel={noop}
+        {...overrides}
+      />
+    </I18nProvider>
   );
 }
 
@@ -65,6 +71,16 @@ function testComposerToolbarNamesRealActions() {
   assert.doesNotMatch(html, /aria-label="Mention workspace file"/);
   assert.doesNotMatch(html, /title="Quick actions"/);
   assert.doesNotMatch(html, /title="Mention workspace file"/);
+}
+
+function testComposerRendersChineseStaticCopy() {
+  const html = renderComposer({ isUploadingFiles: true }, "zh-CN");
+
+  assert.match(html, /aria-label="附加文件"/);
+  assert.match(html, /aria-label="选择模型"/);
+  assert.match(html, /aria-label="发送消息"/);
+  assert.match(html, /placeholder="问任何问题..."/);
+  assert.match(html, />正在上传文件</);
 }
 
 function testComposerToolbarUsesRequestedLucideIconSet() {
@@ -206,6 +222,7 @@ function testComposerHasPasteAndDropImageHandlers() {
 
 testShowsSelectedModelAndMenuOptions();
 testComposerToolbarNamesRealActions();
+testComposerRendersChineseStaticCopy();
 testComposerToolbarUsesRequestedLucideIconSet();
 testComposerShowsWorkspaceFolderPickerButton();
 testComposerInputSuppressesGlobalBlueFocusOutline();

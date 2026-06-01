@@ -3,12 +3,17 @@ import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import { I18nProvider, type LocalePreference } from "@/i18n";
 import ConnectorsPage from "./ConnectorsPage";
 
 const noop = () => {};
 
-function renderConnectorsPage() {
-  return renderToStaticMarkup(<ConnectorsPage userId="default" onBack={noop} />);
+function renderConnectorsPage(locale: LocalePreference = "en-US") {
+  return renderToStaticMarkup(
+    <I18nProvider initialPreference={locale}>
+      <ConnectorsPage userId="default" onBack={noop} />
+    </I18nProvider>
+  );
 }
 
 function testConnectorsPageHasMobileSpecificCopy() {
@@ -33,7 +38,7 @@ function testConnectorsPageDoesNotExposeCredentialStorageDetails() {
 
   assert.doesNotMatch(source, /Per-user credentials stored inside the current sandbox boundary/);
   assert.doesNotMatch(source, /sandbox boundary/i);
-  assert.match(source, /Connect services you use with Ripple/);
+  assert.match(source, /t\("connectors\.sectionDescription"\)/);
 }
 
 testConnectorsPageDoesNotExposeCredentialStorageDetails();
@@ -118,5 +123,17 @@ function testConnectorsPageUsesCompactMobileDensity() {
 }
 
 testConnectorsPageUsesCompactMobileDensity();
+
+function testConnectorsPageRendersChineseChrome() {
+  const html = renderConnectorsPage("zh-CN");
+
+  assert.match(html, /aria-label="返回设置"/);
+  assert.match(html, /sm:hidden[^>]*>连接器</);
+  assert.match(html, /0\/0 就绪/);
+  assert.match(html, />刷新</);
+  assert.match(html, />暂无连接器</);
+}
+
+testConnectorsPageRendersChineseChrome();
 
 console.log("connectors page tests passed");

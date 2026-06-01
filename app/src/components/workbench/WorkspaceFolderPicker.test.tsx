@@ -3,13 +3,19 @@ import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import { I18nProvider, type LocalePreference } from "@/i18n";
 import WorkspaceFolderPicker from "./WorkspaceFolderPicker";
 
 function noop() {}
 
-function renderPicker(overrides: Partial<React.ComponentProps<typeof WorkspaceFolderPicker>> = {}) {
+function renderPicker(
+  overrides: Partial<React.ComponentProps<typeof WorkspaceFolderPicker>> = {},
+  locale: LocalePreference = "en-US"
+) {
   return renderToStaticMarkup(
-    <WorkspaceFolderPicker onSelectFolder={noop} onClose={noop} {...overrides} />
+    <I18nProvider initialPreference={locale}>
+      <WorkspaceFolderPicker onSelectFolder={noop} onClose={noop} {...overrides} />
+    </I18nProvider>
   );
 }
 
@@ -35,8 +41,8 @@ function testPickerOnlyOffersCancelWhenFocusFolderExists() {
 function testPickerSeparatesEnteringFoldersFromSelectingFolders() {
   const source = readFileSync(new URL("./WorkspaceFolderPicker.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /aria-label=\{`Open \$\{entry\.name\}`\}/);
-  assert.match(source, /aria-label=\{`Select \$\{entry\.name\} as focus folder`\}/);
+  assert.match(source, /t\("files\.openFolder"/);
+  assert.match(source, /t\("files\.selectFocusFolder"/);
   assert.match(source, /<ChevronRight/);
   assert.match(source, /<Check/);
   assert.doesNotMatch(source, /Use this folder as focus/);
@@ -45,5 +51,15 @@ function testPickerSeparatesEnteringFoldersFromSelectingFolders() {
 testPickerAvoidsFeatureExplanationCopy();
 testPickerOnlyOffersCancelWhenFocusFolderExists();
 testPickerSeparatesEnteringFoldersFromSelectingFolders();
+
+function testPickerRendersChineseChrome() {
+  const html = renderPicker({}, "zh-CN");
+
+  assert.match(html, />选择焦点文件夹</);
+  assert.match(html, /aria-label="关闭文件夹选择器"/);
+  assert.match(html, />这里没有文件夹</);
+}
+
+testPickerRendersChineseChrome();
 
 console.log("workspace folder picker tests passed");

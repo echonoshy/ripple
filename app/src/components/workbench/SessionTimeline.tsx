@@ -18,6 +18,7 @@ import MarkdownRenderer, {
   type FeishuAuthWaitingState,
 } from "@/components/MarkdownRenderer";
 import { IconTile, type IconTileTone } from "@/components/icons/IconTile";
+import { useI18n } from "@/i18n";
 import { downloadWorkspaceFile } from "@/lib/api";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { getWorkspaceImagePreviewUrl } from "@/lib/workspaceImageCache";
@@ -151,6 +152,7 @@ function TimelineImagePreview({
   event: WorkbenchTimelineEvent;
   userId?: string;
 }) {
+  const { t } = useI18n();
   const [imageUrl, setImageUrl] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(Boolean(event.workspacePath));
@@ -164,7 +166,7 @@ function TimelineImagePreview({
 
     if (!event.workspacePath) {
       setLoading(false);
-      setError("Image path is unavailable.");
+      setError(t("timeline.imagePathUnavailable"));
       return () => undefined;
     }
 
@@ -188,14 +190,14 @@ function TimelineImagePreview({
       })
       .catch(() => {
         if (cancelled) return;
-        setError("Could not load image preview.");
+        setError(t("timeline.imagePreviewFailed"));
         setLoading(false);
       });
 
     return () => {
       cancelled = true;
     };
-  }, [event.mimeType, event.size, event.workspacePath, userId]);
+  }, [event.mimeType, event.size, event.workspacePath, t, userId]);
 
   const sizeLabel = formatBytes(event.size);
 
@@ -210,7 +212,7 @@ function TimelineImagePreview({
           />
         ) : (
           <div className="flex min-h-44 items-center justify-center bg-[#f7fafc] px-4 py-8 text-[12px] text-[#667085]">
-            {loading ? "Loading image..." : error}
+            {loading ? t("timeline.loadingImage") : error}
           </div>
         )}
       </div>
@@ -248,6 +250,7 @@ export default function SessionTimeline({
   onFeishuAuthOpen,
   feishuAuthWaiting,
 }: SessionTimelineProps) {
+  const { locale, t } = useI18n();
   const lastMessage = messages[messages.length - 1];
   const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
   const pendingAskUser = !isGenerating ? lastAssistant?.askUser : undefined;
@@ -259,8 +262,8 @@ export default function SessionTimeline({
       ? String(lastMessage.id)
       : "";
   const waitingStatusMessage = React.useMemo(
-    () => (waitingStatusKey ? randomWaitingStatusMessage() : WAITING_STATUS_MESSAGES[0]),
-    [waitingStatusKey]
+    () => (waitingStatusKey ? (locale === "zh-CN" ? t("timeline.waiting") : randomWaitingStatusMessage()) : locale === "zh-CN" ? t("timeline.waiting") : WAITING_STATUS_MESSAGES[0]),
+    [locale, t, waitingStatusKey]
   );
 
   React.useEffect(() => {
@@ -297,9 +300,9 @@ export default function SessionTimeline({
           >
             <span className="h-2 w-2 rounded-full bg-current" />
           </IconTile>
-          <div className="text-[12px] font-semibold text-[#111827]">Ready</div>
+          <div className="text-[12px] font-semibold text-[#111827]">{t("timeline.ready")}</div>
           <div className="mt-1 max-w-xl text-[12px] leading-5 text-[#667085]">
-            Activity will appear here.
+            {t("timeline.activityWillAppear")}
           </div>
         </div>
       </div>
@@ -356,8 +359,8 @@ export default function SessionTimeline({
                 {canCopyEvent && (
                   <button
                     type="button"
-                    aria-label={`Copy ${event.title} content`}
-                    title="Copy content"
+                    aria-label={t("timeline.copyEventContent", { title: event.title })}
+                    title={t("timeline.copyContent")}
                     onClick={() => void handleCopyEvent(event)}
                     className="pointer-events-none opacity-0 inline-flex h-7 w-7 items-center justify-center rounded-lg border border-[#dfe6f4] bg-white/82 text-[#667085] shadow-[0_6px_14px_rgba(44,63,123,0.06)] transition-all hover:bg-[#f7f8fa] hover:text-[#2f6bff] focus:pointer-events-auto focus:opacity-100 group-hover/timeline-event:pointer-events-auto group-hover/timeline-event:opacity-100 group-focus-within/timeline-event:pointer-events-auto group-focus-within/timeline-event:opacity-100 active:bg-[#eef4ff]"
                   >
@@ -401,7 +404,10 @@ export default function SessionTimeline({
           <div className="flex items-center gap-2 text-[12px] text-[#667085]">
             <Bot size={13} />
             {feishuAuthWaiting
-              ? `正在等待浏览器中的${feishuAuthWaiting.label}完成... 已等待 ${feishuAuthWaiting.elapsedSeconds} 秒`
+              ? t("timeline.feishuWaiting", {
+                  label: feishuAuthWaiting.label,
+                  seconds: feishuAuthWaiting.elapsedSeconds,
+                })
               : waitingStatusMessage}
           </div>
         </article>
@@ -431,7 +437,7 @@ export default function SessionTimeline({
         <div className="mt-3 rounded-xl border border-[#f2cc79]/55 bg-[#fff8df]/90 p-3 shadow-[0_10px_24px_rgba(196,122,0,0.08)]">
           <div className="mb-2 flex items-center gap-2 text-[13px] font-semibold text-[#7d4e00]">
             <ShieldAlert size={14} />
-            Permission required: {pendingPermission.tool}
+            {t("timeline.permissionRequired", { tool: pendingPermission.tool })}
           </div>
           <pre className="mb-3 max-h-48 overflow-auto rounded-xl border border-[#e2e8f0] bg-[linear-gradient(135deg,rgba(248,250,252,0.7),rgba(241,245,249,0.7))] p-3 font-[family-name:var(--font-mono)] text-[11px] whitespace-pre-wrap text-[#334155] backdrop-blur-md">
             {typeof pendingPermission.params === "string"
@@ -444,21 +450,21 @@ export default function SessionTimeline({
               onClick={() => onPermissionResolve("allow")}
               className="rounded-full border border-[#1a7f37]/25 bg-[#dafbe1] px-3 py-1.5 text-[13px] font-semibold text-[#1a7f37] hover:bg-[#c7f7d1]"
             >
-              Allow once
+              {t("timeline.allowOnce")}
             </button>
             <button
               type="button"
               onClick={() => onPermissionResolve("always")}
               className="rounded-full border border-[#4067ff]/20 bg-[linear-gradient(135deg,#2f6bff,#7b5cff)] px-3 py-1.5 text-[13px] font-semibold text-white shadow-[0_10px_22px_rgba(64,92,255,0.22)]"
             >
-              Allow for session
+              {t("timeline.allowForSession")}
             </button>
             <button
               type="button"
               onClick={() => onPermissionResolve("deny")}
               className="rounded-full border border-[#cf222e]/25 bg-[#ffebe9] px-3 py-1.5 text-[13px] font-semibold text-[#cf222e] hover:bg-[#ffd7d5]"
             >
-              Deny
+              {t("timeline.deny")}
             </button>
           </div>
         </div>

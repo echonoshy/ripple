@@ -3,14 +3,19 @@ import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import { I18nProvider, type LocalePreference } from "@/i18n";
 import MobileTabBar from "./MobileTabBar";
 
 const mobileTabBarSource = readFileSync(new URL("./MobileTabBar.tsx", import.meta.url), "utf8");
 
 function noop() {}
 
-function renderMobileTabBar() {
-  return renderToStaticMarkup(<MobileTabBar activeView="connectors" onSelectView={noop} />);
+function renderMobileTabBar(locale: LocalePreference = "en-US") {
+  return renderToStaticMarkup(
+    <I18nProvider initialPreference={locale}>
+      <MobileTabBar activeView="connectors" onSelectView={noop} />
+    </I18nProvider>
+  );
 }
 
 function testUsesShortMobileNavigationLabels() {
@@ -31,6 +36,19 @@ function testUsesShortMobileNavigationLabels() {
 }
 
 testUsesShortMobileNavigationLabels();
+
+function testUsesChineseMobileNavigationLabels() {
+  const html = renderMobileTabBar("zh-CN");
+
+  assert.match(html, />会话</);
+  assert.match(html, /aria-label="打开会话"/);
+  assert.match(html, />文件</);
+  assert.match(html, />连接器</);
+  assert.match(html, />自动化</);
+  assert.match(html, />设置</);
+}
+
+testUsesChineseMobileNavigationLabels();
 
 function testReservesIosSafeAreaAndStableTouchHeight() {
   const html = renderMobileTabBar();

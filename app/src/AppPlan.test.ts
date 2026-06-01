@@ -139,8 +139,8 @@ function testMobileSessionOptionsUseSessionSettings() {
   assert.match(appSource, /const handleOpenMobileSessionList = useCallback/);
   assert.match(appSource, /onBackToMobileSessions=\{handleOpenMobileSessionList\}/);
   assert.match(appSource, /onUpdateSessionSettings=\{handleUpdateSessionSettings\}/);
-  assert.match(sessionPageSource, /aria-label="Back to session"/);
-  assert.match(sessionPageSource, /Session settings/);
+  assert.match(sessionPageSource, /aria-label=\{t\("sessions\.backToSession"\)\}/);
+  assert.match(sessionPageSource, /t\("sessions\.settingsTitle"\)/);
 }
 
 function testSessionScrollActivationStaysInsideSessionPage() {
@@ -180,7 +180,10 @@ function testContextFolderSeedsNewSessionsAndFilesViewStaysPlain() {
 function testChatFolderPickerUpdatesCurrentSessionContextFolder() {
   assert.match(appSource, /handleSelectChatFolder/);
   assert.match(appSource, /nextContextFolderPath/);
-  assert.match(appSource, /updateSessionById\(sessionId,\s*\{\s*contextFolderPath: nextContextFolderPath,\s*\}\)/);
+  assert.match(
+    appSource,
+    /updateSessionById\(sessionId,\s*\{\s*contextFolderPath: nextContextFolderPath,\s*\}\)/
+  );
   assert.doesNotMatch(appSource, /createProject/);
   assert.doesNotMatch(appSource, /window\.confirm/);
   assert.doesNotMatch(appSource, /setInput\(""\)/);

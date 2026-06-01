@@ -30,6 +30,7 @@ import type {
   WorkbenchTimelineEvent,
 } from "@/types";
 import type { FeishuAuthOpenPayload, FeishuAuthWaitingState } from "@/components/MarkdownRenderer";
+import { useI18n } from "@/i18n";
 import type { ChatFileRef } from "@/lib/chatInput";
 import { formatModelName } from "@/lib/models";
 import {
@@ -63,9 +64,13 @@ function formatTokenUnit(value: number, unit: number, suffix: string): string {
   return `${scaledValue.toFixed(precision).replace(/\.0$/, "")}${suffix}`;
 }
 
-function folderName(path: string | null | undefined): string {
-  if (!path || path === "/workspace") return "Workspace";
-  return path.split("/").filter(Boolean).pop() || "Folder";
+function folderName(
+  path: string | null | undefined,
+  workspaceLabel: string,
+  folderFallback: string
+): string {
+  if (!path || path === "/workspace") return workspaceLabel;
+  return path.split("/").filter(Boolean).pop() || folderFallback;
 }
 
 interface SessionPageProps {
@@ -160,6 +165,7 @@ export default function SessionPage({
   onBackToMobileSessions,
   onRestoreScrollComplete,
 }: SessionPageProps) {
+  const { t } = useI18n();
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const previousAutoScrollSessionIdRef = useRef<string | null | undefined>(undefined);
@@ -193,26 +199,38 @@ export default function SessionPage({
         )} (${contextPercent}%)`
       : formatCompactTokenCount(lastContextTokens)
     : null;
-  const tokenBadgeText = `Tokens ${formatCompactTokenCount(
-    tokenUsage.prompt_tokens
-  )} in / ${formatCompactTokenCount(tokenUsage.completion_tokens)} out${
-    tokenBadgeContextLabel ? ` \u00b7 Ctx ${tokenBadgeContextLabel}` : ""
-  }`;
-  const tokenBadgeAccessibleLabel = `Tokens in ${tokenUsage.prompt_tokens.toLocaleString()}, out ${tokenUsage.completion_tokens.toLocaleString()}.${
-    contextUsageLabel ? ` Context ${contextUsageLabel}.` : ""
-  }`;
+  const tokenBadgeText = t("sessions.tokenBadge", {
+    input: formatCompactTokenCount(tokenUsage.prompt_tokens),
+    output: formatCompactTokenCount(tokenUsage.completion_tokens),
+    context: tokenBadgeContextLabel
+      ? t("sessions.tokenBadgeContext", { context: tokenBadgeContextLabel })
+      : "",
+  });
+  const tokenBadgeAccessibleLabel = t("sessions.tokenAccessible", {
+    input: tokenUsage.prompt_tokens.toLocaleString(),
+    output: tokenUsage.completion_tokens.toLocaleString(),
+    context: contextUsageLabel
+      ? t("sessions.tokenAccessibleContext", { context: contextUsageLabel })
+      : "",
+  });
   const lastTimelineEvent = timelineEvents[timelineEvents.length - 1] || null;
   const lastTimelineEventId = lastTimelineEvent?.id || "";
   const lastTimelineEventBodyLength = lastTimelineEvent?.body.length || 0;
   const modelDisplayName = formatModelName(selectedModel);
-  const currentModelLabel = isGenerating ? "Working..." : modelDisplayName;
-  const currentModelAccessibleLabel = `Current model: ${modelDisplayName}`;
+  const currentModelLabel = isGenerating ? t("composer.working") : modelDisplayName;
+  const currentModelAccessibleLabel = t("sessions.currentModel", { model: modelDisplayName });
   const effectiveContextFolderPath = session?.contextFolderPath ?? contextFolderPath ?? null;
   const workspaceScopePath = effectiveContextFolderPath || "/workspace";
-  const workspaceScopeLabel = folderName(effectiveContextFolderPath);
+  const workspaceScopeLabel = folderName(
+    effectiveContextFolderPath,
+    t("files.workspaceName"),
+    t("files.folderName")
+  );
   const focusFolderLabel = effectiveContextFolderPath ? workspaceScopeLabel : null;
-  const focusFolderAccessibleLabel = focusFolderLabel ? `Focus folder: ${focusFolderLabel}` : null;
-  const folderBadgeTitle = effectiveContextFolderPath || "Full workspace";
+  const focusFolderAccessibleLabel = focusFolderLabel
+    ? t("sessions.focusFolder", { label: focusFolderLabel })
+    : null;
+  const folderBadgeTitle = effectiveContextFolderPath || t("sessions.fullWorkspace");
   const requestFolderPicker = useCallback(() => {
     if (!onSelectWorkspaceFolder) return;
     document.querySelector<HTMLButtonElement>("[data-ripple-composer-folder-button]")?.click();
@@ -329,7 +347,7 @@ export default function SessionPage({
     if (!sessionId || isSavingSettings) return;
     const title = settingsTitle.trim();
     if (!title) {
-      setSettingsError("Session name cannot be empty.");
+      setSettingsError(t("sessions.cannotBeEmpty"));
       return;
     }
     try {
@@ -337,12 +355,12 @@ export default function SessionPage({
       setSettingsError(null);
       const saved = await onUpdateSessionSettings({ title, pinned: settingsPinned });
       if (!saved) {
-        setSettingsError("Could not save session settings.");
+        setSettingsError(t("sessions.saveFailed"));
         return;
       }
       closeSessionSettings();
     } catch (err) {
-      setSettingsError(err instanceof Error ? err.message : "Could not save session settings.");
+      setSettingsError(err instanceof Error ? err.message : t("sessions.saveFailed"));
     } finally {
       setIsSavingSettings(false);
     }
@@ -396,8 +414,8 @@ export default function SessionPage({
       <div className="grid min-h-[calc(56px+env(safe-area-inset-top))] shrink-0 grid-cols-[44px_minmax(0,1fr)_88px] items-center border-b border-[#e8edf7] bg-white/72 px-2.5 pt-[max(env(safe-area-inset-top),0px)] shadow-[0_8px_22px_rgba(44,63,123,0.04)] backdrop-blur-2xl lg:hidden">
         <button
           type="button"
-          aria-label="Back to sessions"
-          title="Back to sessions"
+          aria-label={t("sessions.backToSessions")}
+          title={t("sessions.backToSessions")}
           onClick={onBackToMobileSessions}
           className={mobileHeaderButtonClass}
         >
@@ -405,7 +423,7 @@ export default function SessionPage({
         </button>
         <div className="min-w-0 text-center">
           <div className="truncate text-[15px] leading-5 font-semibold text-[#111827]">
-            {session?.title || "Session"}
+            {session?.title || t("sessions.fallbackTitle")}
           </div>
           <div className="mt-1 flex min-w-0 items-center justify-center gap-1.5 text-[11px] leading-4 text-[#7a8496]">
             <span
@@ -437,8 +455,8 @@ export default function SessionPage({
         <div className="flex items-center justify-end gap-1">
           <button
             type="button"
-            aria-label="New session"
-            title="New session"
+            aria-label={t("sessions.newSession")}
+            title={t("sessions.newSession")}
             onClick={onNewSession}
             className={mobileHeaderButtonClass}
           >
@@ -446,8 +464,8 @@ export default function SessionPage({
           </button>
           <button
             type="button"
-            aria-label="Session options"
-            title="Session options"
+            aria-label={t("sessions.options")}
+            title={t("sessions.options")}
             onClick={openSessionSettings}
             disabled={!sessionId}
             className={`${mobileHeaderButtonClass} disabled:cursor-not-allowed disabled:opacity-40`}
@@ -460,7 +478,7 @@ export default function SessionPage({
       <div className="hidden h-14 shrink-0 items-center justify-between gap-3 border-b border-[#e8edf7] bg-white/62 px-5 shadow-[0_8px_22px_rgba(44,63,123,0.04)] backdrop-blur-2xl lg:flex">
         <div className="min-w-0">
           <div className="truncate text-[14px] font-semibold text-[#111827]">
-            {session?.title || "Session"}
+            {session?.title || t("sessions.fallbackTitle")}
           </div>
         </div>
         <div className="flex min-w-0 shrink-0 items-center gap-2">
@@ -495,7 +513,7 @@ export default function SessionPage({
         <div className="absolute inset-0 z-40 flex justify-end bg-[#172033]/14 backdrop-blur-[1px]">
           <button
             type="button"
-            aria-label="Close session settings"
+            aria-label={t("sessions.settingsTitle")}
             className="absolute inset-0 hidden cursor-default sm:block"
             onClick={closeSessionSettings}
           />
@@ -503,15 +521,15 @@ export default function SessionPage({
             <div className="grid h-14 shrink-0 grid-cols-[44px_minmax(0,1fr)_44px] items-center border-b border-[#e8edf7] bg-white/82 px-2.5 backdrop-blur-2xl">
               <button
                 type="button"
-                aria-label="Back to session"
-                title="Back to session"
+                aria-label={t("sessions.backToSession")}
+                title={t("sessions.backToSession")}
                 onClick={closeSessionSettings}
                 className={mobileHeaderButtonClass}
               >
                 <ArrowBigLeft size={18} strokeWidth={2.2} />
               </button>
               <div className="truncate text-center text-[15px] font-semibold text-[#111827]">
-                Session settings
+                {t("sessions.settingsTitle")}
               </div>
             </div>
 
@@ -526,7 +544,7 @@ export default function SessionPage({
                 >
                   <label className="block">
                     <span className="mb-2 block text-[12px] font-medium text-[#667085]">
-                      Session name
+                      {t("sessions.name")}
                     </span>
                     <input
                       value={settingsTitle}
@@ -554,10 +572,10 @@ export default function SessionPage({
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[14px] font-semibold text-[#111827]">
-                      Pinned
+                      {t("sessions.pinnedLabel")}
                     </span>
                     <span className="mt-0.5 block truncate text-[12px] leading-4 text-[#7a8496]">
-                      Keep this session near the top
+                      {t("sessions.pinnedDescription")}
                     </span>
                   </span>
                   <span
@@ -588,7 +606,7 @@ export default function SessionPage({
                   onClick={closeSessionSettings}
                   className="inline-flex h-10 w-[40%] items-center justify-center rounded-xl border border-[#dfe6f4] bg-white px-4 text-sm font-semibold text-[#516070] shadow-[0_6px_18px_rgba(44,63,123,0.06)] transition-colors hover:bg-[#f7f8fa] active:bg-[#eef4ff]"
                 >
-                  Cancel
+                  {t("sessions.cancel")}
                 </button>
                 <button
                   type="submit"
@@ -596,7 +614,7 @@ export default function SessionPage({
                   className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-[#2f6bff] px-4 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(47,107,255,0.20)] transition-all duration-200 hover:bg-[#245de8] active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-[#eef2f7] disabled:text-[#9aa3af] disabled:shadow-none"
                 >
                   {isSavingSettings ? <Loader2 size={15} className="animate-spin" /> : null}
-                  Save
+                  {t("sessions.save")}
                 </button>
               </div>
             </form>
@@ -614,7 +632,9 @@ export default function SessionPage({
           {planSteps.length > 0 && (
             <section className="rounded-2xl border border-[#dfe6f4] bg-white/78 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl">
               <div className="flex items-center justify-between border-b border-[#e8edf7] px-3 py-1.5">
-                <div className="text-[12px] font-semibold text-[#111827]">Current plan</div>
+                <div className="text-[12px] font-semibold text-[#111827]">
+                  {t("sessions.currentPlan")}
+                </div>
                 {planProgress && (
                   <div className="font-[family-name:var(--font-mono)] text-[10px] text-[#7a8496]">
                     {planProgress.completed}/{planProgress.total}
@@ -660,8 +680,9 @@ export default function SessionPage({
           {contextPercent > 75 && (
             <div className="flex items-start gap-2 rounded-2xl border border-[#f2cc79]/55 bg-[#fff8df]/90 p-3 text-[13px] text-[#7d4e00] shadow-[0_10px_24px_rgba(196,122,0,0.08)]">
               <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-              Context usage is around {contextPercent}% ({contextUsageLabel} tokens). Consider
-              starting a new session soon.
+              {t("sessions.contextWarning", { percent: `${contextPercent}%` })} (
+              {t("sessions.contextDetail", { usage: contextUsageLabel || "" })}).{" "}
+              {t("sessions.contextSuggestion")}
             </div>
           )}
 

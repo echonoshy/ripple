@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import { I18nProvider, type LocalePreference } from "@/i18n";
 import type { WorkbenchSessionSummary } from "@/types";
 import MobileSessionsPage from "./MobileSessionsPage";
 
@@ -27,19 +28,22 @@ const sessions: WorkbenchSessionSummary[] = [
 ];
 
 function renderMobileSessionsPage(
-  overrides: Partial<React.ComponentProps<typeof MobileSessionsPage>> = {}
+  overrides: Partial<React.ComponentProps<typeof MobileSessionsPage>> = {},
+  locale: LocalePreference = "en-US"
 ) {
   return renderToStaticMarkup(
-    <MobileSessionsPage
-      sessions={sessions}
-      isLoading={false}
-      selectedSessionId="srv-1"
-      onNewSession={noop}
-      onSelectSession={noop}
-      onDeleteSession={noop}
-      onUpdateSession={async () => {}}
-      {...overrides}
-    />
+    <I18nProvider initialPreference={locale}>
+      <MobileSessionsPage
+        sessions={sessions}
+        isLoading={false}
+        selectedSessionId="srv-1"
+        onNewSession={noop}
+        onSelectSession={noop}
+        onDeleteSession={noop}
+        onUpdateSession={async () => {}}
+        {...overrides}
+      />
+    </I18nProvider>
   );
 }
 
@@ -96,12 +100,12 @@ function testHeaderActionsUseSharedGlassTreatment() {
   );
   assert.match(
     mobileSessionsPageSource,
-    /aria-label="Search sessions"[\s\S]{0,220}className=\{mobileHeaderActionClass\}/
+    /aria-label=\{t\("sessions.search"\)\}[\s\S]{0,220}className=\{mobileHeaderActionClass\}/
   );
   assert.match(mobileSessionsPageSource, /MessageSquarePlus/);
   assert.match(
     mobileSessionsPageSource,
-    /aria-label="New session"[\s\S]*?<MessageCircleMore size=\{18\}/
+    /aria-label=\{t\("sessions.newSession"\)\}[\s\S]*?<MessageCircleMore size=\{18\}/
   );
   assert.match(mobileSessionsPageSource, /Ellipsis/);
   assert.doesNotMatch(mobileSessionsPageSource, /<Plus size=\{18\}/);
@@ -110,7 +114,7 @@ function testHeaderActionsUseSharedGlassTreatment() {
   assert.doesNotMatch(mobileSessionsPageSource, /<Settings2 size=\{18\}/);
   assert.doesNotMatch(
     mobileSessionsPageSource,
-    /aria-label="New session"[\s\S]*?<MessageSquarePlus size=\{18\}/
+    /aria-label=\{t\("sessions.newSession"\)\}[\s\S]*?<MessageSquarePlus size=\{18\}/
   );
   assert.doesNotMatch(
     mobileSessionsPageSource,
@@ -152,6 +156,14 @@ function testRendersEmptyStateWithNewSessionAction() {
   assert.match(html, />New session</);
 }
 
+function testRendersChineseMobileSessionChrome() {
+  const html = renderMobileSessionsPage({}, "zh-CN");
+
+  assert.match(html, /aria-label="搜索会话"/);
+  assert.match(html, /aria-label="新会话"/);
+  assert.match(html, /4 条消息 · 2 个文件/);
+}
+
 testRendersChatAppStyleSessionList();
 testUsesQuietAgentControlPlaneStyling();
 testSessionRowsRemoveRepeatedChatIcon();
@@ -160,5 +172,6 @@ testHeaderActionsUseSharedGlassTreatment();
 testSessionRowsDoNotClipOptionsMenu();
 testSessionOptionsMenuEscapesBlurredRowsWithPortal();
 testRendersEmptyStateWithNewSessionAction();
+testRendersChineseMobileSessionChrome();
 
 console.log("mobile sessions page tests passed");

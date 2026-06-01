@@ -3,44 +3,49 @@ import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import { I18nProvider, type LocalePreference } from "@/i18n";
 import SessionTimeline, { WAITING_STATUS_MESSAGES } from "./SessionTimeline";
 
 function noop() {}
 
-function renderTimelineWithEvents() {
+function renderTimelineWithEvents(locale: LocalePreference = "en-US") {
   return renderToStaticMarkup(
-    <SessionTimeline
-      messages={[]}
-      events={[
-        {
-          id: "assistant-1",
-          type: "assistant_message",
-          title: "Update",
-          body: "Agent generated content",
-        },
-        {
-          id: "command-1",
-          type: "command",
-          title: "Command",
-          body: "bun run build",
-        },
-      ]}
-      isGenerating={false}
-      onQuickReply={noop}
-      onPermissionResolve={noop}
-    />
+    <I18nProvider initialPreference={locale}>
+      <SessionTimeline
+        messages={[]}
+        events={[
+          {
+            id: "assistant-1",
+            type: "assistant_message",
+            title: "Update",
+            body: "Agent generated content",
+          },
+          {
+            id: "command-1",
+            type: "command",
+            title: "Command",
+            body: "bun run build",
+          },
+        ]}
+        isGenerating={false}
+        onQuickReply={noop}
+        onPermissionResolve={noop}
+      />
+    </I18nProvider>
   );
 }
 
-function renderGeneratingTimeline() {
+function renderGeneratingTimeline(locale: LocalePreference = "en-US") {
   return renderToStaticMarkup(
-    <SessionTimeline
-      messages={[{ id: "assistant-waiting", role: "assistant", content: "" }]}
-      events={[]}
-      isGenerating
-      onQuickReply={noop}
-      onPermissionResolve={noop}
-    />
+    <I18nProvider initialPreference={locale}>
+      <SessionTimeline
+        messages={[{ id: "assistant-waiting", role: "assistant", content: "" }]}
+        events={[]}
+        isGenerating
+        onQuickReply={noop}
+        onPermissionResolve={noop}
+      />
+    </I18nProvider>
   );
 }
 
@@ -55,11 +60,20 @@ function testTimelineImagePreviewsUseWorkspaceImageCache() {
 function testEmptyTimelineUsesShortReadyCopy() {
   const source = readFileSync(new URL("./SessionTimeline.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /Activity will appear here\./);
+  assert.match(source, /t\("timeline\.activityWillAppear"\)/);
   assert.doesNotMatch(
     source,
     /Start a session and your workspace activity will appear here as a timeline\./
   );
+}
+
+function testTimelineRendersChineseStaticCopy() {
+  const html = renderTimelineWithEvents("zh-CN");
+  const generatingHtml = renderGeneratingTimeline("zh-CN");
+
+  assert.match(html, /aria-label="复制 Update 内容"/);
+  assert.match(html, /title="复制内容"/);
+  assert.match(generatingHtml, />正在思考/);
 }
 
 function testAssistantMessagesExposeCopyAction() {
@@ -109,6 +123,7 @@ function testWaitingCopyAvoidsConcreteOperationClaims() {
 
 testTimelineImagePreviewsUseWorkspaceImageCache();
 testEmptyTimelineUsesShortReadyCopy();
+testTimelineRendersChineseStaticCopy();
 testAssistantMessagesExposeCopyAction();
 testCopyActionIsHiddenUntilMessageInteraction();
 testToolEventsDoNotExposeCopyAction();

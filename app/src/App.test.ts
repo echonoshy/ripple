@@ -107,12 +107,12 @@ function testDesktopSessionRailCanResizeAndCollapse() {
   assert.match(source, /SESSION_RAIL_WIDTH_STORAGE_KEY/);
   assert.match(source, /SESSION_RAIL_COLLAPSED_STORAGE_KEY/);
   assert.match(source, /handleSessionRailResizeStart/);
-  assert.match(source, /aria-label="Resize session list"/);
+  assert.match(source, /aria-label=\{t\("common\.resizeSessionList"\)\}/);
   assert.match(source, /aria-valuemin=\{SESSION_RAIL_MIN_WIDTH\}/);
   assert.match(source, /aria-valuemax=\{SESSION_RAIL_MAX_WIDTH\}/);
   assert.match(source, /aria-valuenow=\{sessionRailWidth\}/);
   assert.match(source, /onCollapse=\{\(\) => setIsSessionRailCollapsed\(true\)\}/);
-  assert.match(source, /aria-label="Expand session list"/);
+  assert.match(source, /aria-label=\{t\("common\.expandSessionList"\)\}/);
 }
 
 function testCollapsedSessionRailUsesEdgeHandle() {

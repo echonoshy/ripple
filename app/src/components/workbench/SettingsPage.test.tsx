@@ -220,6 +220,15 @@ function testSettingsPageCombinesRunCountersInOneRow() {
   assert.doesNotMatch(html, />Active runs/);
 }
 
+function testSettingsPageSessionCountMeterUsesNeutralIcon() {
+  const source = readFileSync(new URL("./SettingsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(
+    source,
+    /icon=\{<Layers size=\{13\} \/>\}\s+iconTone="neutral"\s+title=\{t\("settings\.sessionCount"\)\}/
+  );
+}
+
 function testSettingsPageDoesNotFetchConnectorData() {
   const source = readFileSync(new URL("./SettingsPage.tsx", import.meta.url), "utf8");
 
@@ -313,6 +322,7 @@ testSettingsPageHidesDiagnosticsByDefault();
 testSettingsPageReservesMobileTopSafeArea();
 testSettingsPageUsesInlineModelMenuAndTokenBreakdown();
 testSettingsPageCombinesRunCountersInOneRow();
+testSettingsPageSessionCountMeterUsesNeutralIcon();
 testSettingsPageDoesNotFetchConnectorData();
 testSettingsPageUsesSoftTilesForEntitySections();
 testDefaultModelControlUsesDefaultModelNotCurrentSessionModel();

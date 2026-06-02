@@ -830,7 +830,7 @@ export default function SettingsPage({
             />
             <UsageMeter
               icon={<Layers size={13} />}
-              iconTone="accent"
+              iconTone="neutral"
               title={t("settings.sessionCount")}
               value={sessionCount}
               max={maxSessions}

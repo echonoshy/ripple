@@ -87,6 +87,15 @@ function testNewSessionStaysAvailableWhileAnotherSessionRuns() {
   assert.doesNotMatch(html, /disabled=""/);
 }
 
+function testNewSessionButtonCentersLabelGroup() {
+  const html = renderWorkspaceNav();
+
+  assert.match(html, /grid h-8 w-full place-items-center/);
+  assert.match(html, /data-ripple-session-new-button-label="true"/);
+  assert.match(html, /inline-flex min-w-0 items-center justify-center gap-1\.5 leading-none/);
+  assert.match(html, /<span class="leading-none">New session<\/span>/);
+}
+
 function testSessionAttentionUsesDotsInsteadOfStatusLabels() {
   const html = renderWorkspaceNav({
     sessions: [
@@ -141,6 +150,7 @@ testUsesSessionIdSelectionNaming();
 testSessionsHeaderDoesNotDuplicateNewSessionAction();
 testSessionRailCanCollapseFromHeader();
 testNewSessionStaysAvailableWhileAnotherSessionRuns();
+testNewSessionButtonCentersLabelGroup();
 testSessionAttentionUsesDotsInsteadOfStatusLabels();
 testRendersSessionActivityTime();
 testSessionLoadErrorDoesNotLookLikeEmptyState();

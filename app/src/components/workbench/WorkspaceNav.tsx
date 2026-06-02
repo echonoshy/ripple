@@ -96,10 +96,15 @@ export default function WorkspaceNav({
         <button
           type="button"
           onClick={onNewSession}
-          className="flex h-8 w-full items-center justify-center gap-1.5 rounded-full bg-[#007aff] px-3 text-[12px] font-semibold text-white shadow-[0_10px_22px_rgba(0,122,255,0.22)] transition-all duration-200 hover:bg-[#006ee6] active:scale-[0.98]"
+          className="grid h-8 w-full place-items-center rounded-full bg-[#007aff] px-3 text-center text-[12px] leading-none font-semibold text-white shadow-[0_10px_22px_rgba(0,122,255,0.22)] transition-all duration-200 hover:bg-[#006ee6] active:scale-[0.98]"
         >
-          <Plus size={14} />
-          {t("sessions.newSession")}
+          <span
+            data-ripple-session-new-button-label="true"
+            className="inline-flex min-w-0 items-center justify-center gap-1.5 leading-none"
+          >
+            <Plus size={14} className="shrink-0" />
+            <span className="leading-none">{t("sessions.newSession")}</span>
+          </span>
         </button>
       </div>
 

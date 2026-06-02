@@ -692,6 +692,8 @@ mod tests {
         let root = std::env::temp_dir().join(format!("ripple-workspace-test-{}", Uuid::new_v4()));
         std::fs::create_dir_all(root.join(".config/gogcli"))?;
         std::fs::write(root.join(".config/gogcli/credentials.json"), "secret")?;
+        std::fs::create_dir_all(root.join(".tmp"))?;
+        std::fs::write(root.join(".tmp/rendered-page.png"), "scratch")?;
         std::fs::create_dir_all(root.join("outputs"))?;
         std::fs::write(root.join("outputs/readme.md"), "visible")?;
 

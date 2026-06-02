@@ -105,7 +105,10 @@ function testGeneratingPlaceholderUsesRandomWaitingCopy() {
     const html = renderGeneratingTimeline();
 
     assert.ok(WAITING_STATUS_MESSAGES.length >= 40);
-    assert.match(html, new RegExp(WAITING_STATUS_MESSAGES[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.match(
+      html,
+      new RegExp(WAITING_STATUS_MESSAGES[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    );
     assert.doesNotMatch(html, /Starting work\.\.\./);
   } finally {
     Math.random = originalRandom;

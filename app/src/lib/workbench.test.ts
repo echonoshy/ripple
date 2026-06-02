@@ -116,10 +116,7 @@ function testFormatsSessionActivityTimeLikeCodexSidebar() {
 function testFormatsSessionActivityTimeWithLocale() {
   const now = new Date("2026-06-02T12:00:00.000Z");
 
-  assert.equal(
-    formatSessionActivityTime("2026-06-01T08:30:00.000Z", now, "zh-CN", "昨天"),
-    "昨天"
-  );
+  assert.equal(formatSessionActivityTime("2026-06-01T08:30:00.000Z", now, "zh-CN", "昨天"), "昨天");
   assert.equal(
     formatSessionActivityTime("2026-05-30T08:30:00.000Z", now, "zh-CN", "昨天"),
     "5月30日"

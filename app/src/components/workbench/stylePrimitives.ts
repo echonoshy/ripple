@@ -19,8 +19,7 @@ export const MOBILE_META_TEXT_CLASS = "text-[12px] leading-4";
 export const MOBILE_STATUS_TEXT_CLASS = "text-[11px] leading-4";
 
 export const MOBILE_PAGE_TOP_SAFE_AREA_CLASS = "pt-[max(env(safe-area-inset-top),12px)]";
-export const MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS =
-  "pb-[calc(96px+env(safe-area-inset-bottom))]";
+export const MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS = "pb-[calc(96px+env(safe-area-inset-bottom))]";
 export const MOBILE_TAB_BAR_MASK_HEIGHT_CLASS = "h-[calc(96px+env(safe-area-inset-bottom))]";
 
 export const LUCIDE_STANDARD_STROKE_WIDTH = 2.2;

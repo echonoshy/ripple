@@ -83,6 +83,7 @@ export function getMeasuredViewportMenuPosition({
 }): ViewportMenuPosition {
   return getViewportMenuPosition({
     ...input,
-    menuHeight: measuredMenuHeight && measuredMenuHeight > 0 ? measuredMenuHeight : estimatedMenuHeight,
+    menuHeight:
+      measuredMenuHeight && measuredMenuHeight > 0 ? measuredMenuHeight : estimatedMenuHeight,
   });
 }

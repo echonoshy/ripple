@@ -14,7 +14,10 @@ function testPrefersNestedProfileAvatarUri() {
 }
 
 function testFallsBackToTopLevelAvatarUri() {
-  assert.equal(getUserProfileAvatarUri({ user_id: "lake", avatar_uri: "/outer.png" }), "/outer.png");
+  assert.equal(
+    getUserProfileAvatarUri({ user_id: "lake", avatar_uri: "/outer.png" }),
+    "/outer.png"
+  );
 }
 
 function testReturnsNullWithoutAvatar() {

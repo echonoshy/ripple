@@ -32,9 +32,7 @@ function loadPdfJs(): Promise<PdfJsModule> {
 
 async function configurePdfWorker(pdfjsLib: PdfJsModule): Promise<void> {
   if (pdfWorkerConfigured) return;
-  const { default: pdfWorkerUrl } = await import(
-    "pdfjs-dist/legacy/build/pdf.worker.mjs?url"
-  );
+  const { default: pdfWorkerUrl } = await import("pdfjs-dist/legacy/build/pdf.worker.mjs?url");
   pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
   pdfWorkerConfigured = true;
 }
@@ -176,7 +174,12 @@ function PdfPage({ pdfDocument, pageNumber, filename, fullscreen = false }: PdfP
   );
 }
 
-export function PdfPreview({ blob, filename, fullscreen = false, className = "" }: PdfPreviewProps) {
+export function PdfPreview({
+  blob,
+  filename,
+  fullscreen = false,
+  className = "",
+}: PdfPreviewProps) {
   const { t } = useI18n();
   const loadedDocumentRef = useRef<PDFDocumentProxy | null>(null);
   const [loadedPreview, setLoadedPreview] = useState<{
@@ -231,9 +234,7 @@ export function PdfPreview({ blob, filename, fullscreen = false, className = "" 
 
   const pageNumbers = useMemo(
     () =>
-      pdfDocument
-        ? Array.from({ length: pdfDocument.numPages }, (_, index) => index + 1)
-        : [],
+      pdfDocument ? Array.from({ length: pdfDocument.numPages }, (_, index) => index + 1) : [],
     [pdfDocument]
   );
 

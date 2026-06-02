@@ -147,8 +147,7 @@ export function applySessionAttentionMarkers(
     const sessionIsOpen = session.sessionId === openSessionId;
     const acknowledgedAttention = acknowledgedAttentionBySessionId[session.sessionId];
     const visibleStatusAttention =
-      statusAttention === "error" &&
-      (sessionIsOpen || acknowledgedAttention === statusAttention)
+      statusAttention === "error" && (sessionIsOpen || acknowledgedAttention === statusAttention)
         ? null
         : statusAttention;
     const storedAttention = attentionBySessionId[session.sessionId];
@@ -156,9 +155,7 @@ export function applySessionAttentionMarkers(
       storedAttention === "error" && sessionIsOpen ? null : storedAttention;
     const attention =
       visibleStatusAttention ||
-      (visibleStoredAttention === "completed" && sessionIsOpen
-        ? null
-        : visibleStoredAttention) ||
+      (visibleStoredAttention === "completed" && sessionIsOpen ? null : visibleStoredAttention) ||
       null;
 
     if ((session.attention || null) === attention) return session;

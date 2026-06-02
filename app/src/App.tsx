@@ -222,8 +222,7 @@ export default function Home() {
         const sessionIsOpen =
           selectedSessionIdRef.current === targetSessionId && activeViewRef.current === "sessions";
         const shouldClear =
-          !attention ||
-          ((attention === "completed" || attention === "error") && sessionIsOpen);
+          !attention || ((attention === "completed" || attention === "error") && sessionIsOpen);
 
         if (shouldClear) {
           if (!prev[targetSessionId]) return prev;

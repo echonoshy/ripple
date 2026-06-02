@@ -32,7 +32,7 @@ export default function SessionAttentionDot({
       title={attention ? attentionLabel(attention) : undefined}
       className={`h-2 w-2 shrink-0 rounded-full ${
         attention
-          ? `${ATTENTION_CLASSES[attention]} ring-4 shadow-[0_0_0_1px_rgba(255,255,255,0.95)]`
+          ? `${ATTENTION_CLASSES[attention]} shadow-[0_0_0_1px_rgba(255,255,255,0.95)] ring-4`
           : "bg-transparent"
       }`}
     />

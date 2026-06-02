@@ -61,11 +61,17 @@ function renderExplorerWithStoredSplitPercent(
   }
 }
 
-function testWorkspaceExplorerUsesFinderThreePaneLayout() {
+function testWorkspaceExplorerUsesFinderTwoPaneLayoutWithTopPathBar() {
+  const longPath = "/workspace/outputs/reports/2026/june/customer-facing/presentation-assets";
   const html = renderExplorer({
     presentation: "page",
+    testInitialListing: {
+      path: longPath,
+      parent_path: "/workspace/outputs/reports/2026/june/customer-facing",
+      entries: [],
+    },
     testInitialPreview: {
-      path: "/workspace/notes.txt",
+      path: `${longPath}/notes.txt`,
       name: "notes.txt",
       size_bytes: 123,
       modified_at: "2026-05-17T00:00:00Z",
@@ -78,9 +84,15 @@ function testWorkspaceExplorerUsesFinderThreePaneLayout() {
 
   assert.match(html, /data-ripple-workspace-explorer="finder-window"/);
   assert.match(html, /data-ripple-workspace-location="current-path"/);
+  assert.match(html, /data-ripple-files-path-row="page"/);
+  assert.match(html, /data-ripple-files-path-row="page"[\s\S]*overflow-x-auto/);
+  assert.match(html, /data-ripple-files-path-row="page"[\s\S]*whitespace-nowrap/);
+  assert.match(html, new RegExp(longPath.replace(/\//g, "\\/")));
+  assert.match(html, /data-ripple-files-action="parent-folder"/);
+  assert.match(html, /data-ripple-files-action="root-folder"/);
   assert.match(html, /data-ripple-workspace-file-list="browser"/);
   assert.match(html, /data-ripple-workspace-preview="preview"/);
-  assert.match(html, /lg:grid-cols-\[210px_minmax\(260px,330px\)_minmax\(0,1fr\)\]/);
+  assert.doesNotMatch(html, /lg:grid-cols-\[210px_/);
   assert.match(html, /aria-label="Search workspace files"/);
   assert.match(html, /aria-label="Collapse preview panel"/);
   assert.doesNotMatch(html, /rounded-\[22px\]/);
@@ -92,7 +104,7 @@ function testWorkspaceExplorerUsesFinderThreePaneLayout() {
   assert.doesNotMatch(html, /title="Hide preview"/);
 }
 
-testWorkspaceExplorerUsesFinderThreePaneLayout();
+testWorkspaceExplorerUsesFinderTwoPaneLayoutWithTopPathBar();
 
 function testWorkspaceExplorerPageStacksHeaderControlsAwayFromTitle() {
   const html = renderExplorer({ presentation: "page" });
@@ -799,7 +811,7 @@ function testWorkspaceExplorerPageRowsOmitMobileSwipeActions() {
 testWorkspaceExplorerPageRowsOmitMobileSwipeActions();
 
 function testWorkspaceExplorerSupportsDragMoveIntoDirectories() {
-  const source = readFileSync(`${process.cwd()}/src/components/WorkspaceExplorer.tsx`, "utf8");
+  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
   const html = renderExplorer({
     presentation: "page",
     testInitialListing: {

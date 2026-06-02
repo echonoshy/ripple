@@ -1478,12 +1478,17 @@ export default function WorkspaceExplorer({
   const isPreviewCollapsed = splitPercent >= MAX_SPLIT_PERCENT;
   const isPreviewPanelHidden = isPreviewCollapsed || !preview;
   const previewState = isPreviewCollapsed ? "collapsed" : preview ? "open" : "empty";
+  const currentLocationPath = listing?.path || currentPath;
   const currentDisplayPath = isSearchMode
     ? searchModeLabel(searchScope, t)
-    : listing?.path || currentPath;
+    : currentLocationPath;
+  const desktopPathLabel = isSearchMode
+    ? t("files.searchQuery", { query: normalizedQuery })
+    : currentLocationPath;
+  const desktopPathDetail = isSearchMode ? searchModeLabel(searchScope, t) : null;
   const mobilePathLabel = isSearchMode
     ? t("files.searchQuery", { query: normalizedQuery })
-    : listing?.path || currentPath;
+    : currentLocationPath;
   const mobilePathDetail = isSearchMode ? searchModeLabel(searchScope, t) : null;
   const isPagePresentation = presentation === "page";
   const pageToolbarIconButtonClass = `${MOBILE_GLASS_ICON_BUTTON_CLASS} lg:h-8 lg:w-8 lg:border-[#d7d7dd] lg:bg-white/82`;
@@ -1491,7 +1496,7 @@ export default function WorkspaceExplorer({
   const pageParentButtonClass =
     "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-[#d7e3f8] bg-[#eef4ff] text-[#007aff] shadow-[0_10px_24px_rgba(44,63,123,0.06)] transition-colors hover:bg-[#e5efff] lg:hidden";
   const directoryNavigationButtonClass =
-    "group inline-flex h-8 items-center gap-1.5 rounded-full border border-[#cfdbf2] bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(240,245,255,0.78))] px-2.5 text-[11px] font-semibold text-[#46556f] shadow-[0_8px_20px_rgba(44,63,123,0.07),inset_0_1px_0_rgba(255,255,255,0.9)] backdrop-blur-xl transition-all hover:-translate-y-px hover:border-[#b9cbec] hover:bg-[#eef4ff] hover:text-[#1f4ed0] hover:shadow-[0_12px_26px_rgba(44,63,123,0.1)] active:translate-y-0";
+    "group inline-flex h-8 shrink-0 whitespace-nowrap items-center gap-1.5 rounded-full border border-[#cfdbf2] bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(240,245,255,0.78))] px-2.5 text-[11px] font-semibold text-[#46556f] shadow-[0_8px_20px_rgba(44,63,123,0.07),inset_0_1px_0_rgba(255,255,255,0.9)] backdrop-blur-xl transition-all hover:-translate-y-px hover:border-[#b9cbec] hover:bg-[#eef4ff] hover:text-[#1f4ed0] hover:shadow-[0_12px_26px_rgba(44,63,123,0.1)] active:translate-y-0";
   const directoryNavigationIconClass =
     "flex h-5 w-5 items-center justify-center rounded-full bg-[#edf4ff] text-[#007aff] ring-1 ring-[#d7e3f8] transition-colors group-hover:bg-[#dceaff] group-hover:text-[#1f4ed0]";
   const workspaceGridStyle:
@@ -1899,6 +1904,62 @@ export default function WorkspaceExplorer({
             )}
           </div>
         )}
+        {isPagePresentation && (
+          <div
+            data-ripple-files-path-row="page"
+            data-ripple-workspace-location="current-path"
+            className="mt-3 hidden min-w-0 items-center gap-2 rounded-xl border border-[#dfe6f4]/80 bg-white/62 px-2.5 py-2 text-[#667085] lg:flex"
+          >
+            <div className="flex shrink-0 items-center gap-1">
+              {listing?.parent_path ? (
+                <button
+                  type="button"
+                  data-ripple-files-action="parent-folder"
+                  className={directoryNavigationButtonClass}
+                  title={t("files.goToParentFolder")}
+                  aria-label={t("files.goToParentFolder")}
+                  onClick={() => void loadDirectory(listing.parent_path || DEFAULT_WORKSPACE_PATH)}
+                >
+                  <span className={directoryNavigationIconClass}>
+                    <ArrowUp size={12} />
+                  </span>
+                </button>
+              ) : null}
+              {currentPath !== DEFAULT_WORKSPACE_PATH ? (
+                <button
+                  type="button"
+                  data-ripple-files-action="root-folder"
+                  className={directoryNavigationButtonClass}
+                  title={t("files.goToWorkspaceRoot")}
+                  aria-label={t("files.goToWorkspaceRoot")}
+                  onClick={() => void loadDirectory(DEFAULT_WORKSPACE_PATH)}
+                >
+                  <span className={directoryNavigationIconClass}>
+                    <Folder size={12} />
+                  </span>
+                </button>
+              ) : null}
+              {!listing?.parent_path && currentPath === DEFAULT_WORKSPACE_PATH ? (
+                <IconTile tone="accent" size="sm">
+                  <Folder size={14} />
+                </IconTile>
+              ) : null}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="max-w-full overflow-x-auto overscroll-x-contain font-[family-name:var(--font-mono)] text-[12px] font-semibold text-[#374151] [scrollbar-width:thin]">
+                <span className="whitespace-nowrap">{desktopPathLabel}</span>
+              </div>
+              {desktopPathDetail && (
+                <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[12px] font-medium text-[#667085]">
+                  <span className="shrink-0">{desktopPathDetail}</span>
+                  <span className="min-w-0 overflow-x-auto overscroll-x-contain whitespace-nowrap font-[family-name:var(--font-mono)] [scrollbar-width:thin]">
+                    {currentLocationPath}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
         {isPagePresentation && isActionsMenuOpen && (
           <div
             data-ripple-files-mobile-actions-menu
@@ -2304,73 +2365,20 @@ export default function WorkspaceExplorer({
         className={`grid min-h-0 flex-1 overflow-hidden ${
           isPagePresentation
             ? isPreviewPanelHidden
-              ? "grid-rows-[minmax(0,1fr)] lg:grid-cols-[210px_minmax(0,1fr)] lg:grid-rows-none"
-              : "grid-rows-[var(--ripple-workspace-list-row)] lg:grid-cols-[210px_minmax(260px,330px)_minmax(0,1fr)] lg:grid-rows-none"
+              ? "grid-rows-[minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)] lg:grid-rows-none"
+              : "grid-rows-[var(--ripple-workspace-list-row)] lg:grid-cols-[minmax(320px,440px)_minmax(0,1fr)] lg:grid-rows-none"
             : isPreviewPanelHidden
               ? "grid-rows-[minmax(0,1fr)]"
               : "grid-rows-[var(--ripple-workspace-list-row)]"
         }`}
       >
-        {isPagePresentation && (
-          <aside
-            data-ripple-workspace-location="current-path"
-            className="hidden min-h-0 border-b border-[#dfe6f4]/70 bg-[linear-gradient(180deg,rgba(246,248,255,0.86),rgba(255,255,255,0.74))] p-3 lg:block lg:border-r lg:border-b-0"
-          >
-            <div className="rounded-2xl border border-[#dfe6f4]/80 bg-[#ffffff]/66 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)]">
-              <div className="flex items-start gap-2">
-                <IconTile tone="accent" size="sm" className="mt-0.5">
-                  <Folder size={14} />
-                </IconTile>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-[family-name:var(--font-mono)] text-[12px] font-semibold text-[#374151]">
-                    {listing?.path || currentPath}
-                  </div>
-                  {isSearchMode && (
-                    <div className="mt-1 truncate text-[12px] text-[#6b7280]">
-                      {searchModeLabel(searchScope, t)}
-                    </div>
-                  )}
-                </div>
-              </div>
-              {(currentPath !== DEFAULT_WORKSPACE_PATH || listing?.parent_path) && (
-                <div className="mt-3 flex items-center gap-2.5">
-                  {listing?.parent_path && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        void loadDirectory(listing.parent_path || DEFAULT_WORKSPACE_PATH)
-                      }
-                      className={directoryNavigationButtonClass}
-                    >
-                      <span className={directoryNavigationIconClass}>
-                        <ArrowUp size={12} />
-                      </span>
-                      {t("files.up")}
-                    </button>
-                  )}
-                  {currentPath !== DEFAULT_WORKSPACE_PATH && (
-                    <button
-                      type="button"
-                      onClick={() => void loadDirectory(DEFAULT_WORKSPACE_PATH)}
-                      className={directoryNavigationButtonClass}
-                    >
-                      <span className={directoryNavigationIconClass}>
-                        <Folder size={12} />
-                      </span>
-                      {t("files.root")}
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          </aside>
-        )}
-
         <section
           data-ripple-workspace-file-list="browser"
           className={
             isPagePresentation
-              ? "flex min-h-0 flex-col overflow-hidden border-b border-[#dfe6f4]/70 bg-[#ffffff] lg:border-r lg:border-b-0"
+              ? `flex min-h-0 flex-col overflow-hidden border-b border-[#dfe6f4]/70 bg-[#ffffff] lg:border-b-0 ${
+                  isPreviewPanelHidden ? "" : "lg:border-r"
+                }`
               : "flex min-h-0 flex-col overflow-hidden border-b border-[#e5e7eb] bg-white"
           }
         >

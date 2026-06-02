@@ -9,6 +9,7 @@ pub mod jobs;
 pub mod migration;
 pub mod python_env;
 pub mod redaction;
+pub mod runtime_checks;
 pub mod sandbox;
 pub mod sessions;
 pub mod skills;

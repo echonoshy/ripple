@@ -47,9 +47,10 @@ agent:
 # Codex 由管理员在服务端安装一次。当前实现按 job 启动独立 app-server
 # 进程，job 完成后关闭；chat 连续上下文通过持久 Codex thread id 延续。
 #
-# Codex 是当前 user sandbox 内的受信执行器：可访问该 user 的 workspace、
-# Ripple skill manifest 指向的 shared/user skills，以及 per-user connector credentials，
-# 但不应看到其他 user 的 sandbox 或服务端 CODEX_HOME。
+# Codex app-server 是服务端受信宿主进程；Codex shell 命令由 Codex Linux
+# sandbox/bubblewrap 和 Ripple managed permissions profile 约束，只应访问当前
+# user workspace、允许的 runtime/tool 只读路径和必要 cache。服务端 CODEX_HOME
+# 和整个 sandboxes root 必须 deny-read，启动前 runtime probe 失败时拒绝执行。
 external_agents:
   default_provider: "codex"
   codex:
@@ -97,7 +98,8 @@ server:
     # 默认不开放浏览器跨域。若必须让独立 Web 前端直连 API，只填明确 origin。
     allowed_origins: []
     allow_any_origin: false
-  # /v1/chat/completions 启动当前 job 的 Codex app-server，并以当前 user workspace 为 cwd。
+  # /v1/chat/completions 启动当前 job 的宿主 Codex app-server，并以当前 user
+  # workspace 为 cwd；具体 shell 命令仍由 Codex Linux sandbox 约束。
   codex_chat:
     max_runtime_seconds: 3600
   # chat 侧定时任务创建意图的结构化提取超时。

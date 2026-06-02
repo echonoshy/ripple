@@ -201,6 +201,8 @@ impl SandboxManager {
         args: &[&str],
     ) -> anyhow::Result<Vec<String>> {
         let cfg = self.write_nsjail_config(user_id)?;
+        let cfg_text = std::fs::read_to_string(&cfg)?;
+        crate::runtime_checks::ensure_nsjail_config_hardened(&cfg_text)?;
         let mut argv = vec![
             self.config.sandbox.nsjail_path.clone(),
             "--config".to_string(),
@@ -686,6 +688,27 @@ mod tests {
         assert!(cfg.contains("GOG_KEYRING_PASSWORD=pw"));
         assert!(cfg.contains("/opt/gogcli-cli/current/bin"));
         assert!(cfg.contains("/opt/bilibili-cli/current/bin"));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn nsjail_config_declares_process_isolation_proc_and_shared_network() {
+        let root =
+            std::env::temp_dir().join(format!("ripple-sandbox-test-{}", uuid::Uuid::new_v4()));
+        let manager = SandboxManager::new(test_config(&root));
+
+        let cfg = manager.generate_nsjail_config("sandboxuser").unwrap();
+
+        assert!(cfg.contains("clone_newuser: true"));
+        assert!(cfg.contains("clone_newns: true"));
+        assert!(cfg.contains("clone_newpid: true"));
+        assert!(cfg.contains("clone_newipc: true"));
+        assert!(cfg.contains("clone_newuts: true"));
+        assert!(cfg.contains("clone_newnet: false"));
+        assert!(cfg.contains("disable_no_new_privs: false"));
+        assert!(cfg.contains("fstype: \"proc\""));
+        assert!(cfg.contains("dst: \"/proc\""));
 
         let _ = std::fs::remove_dir_all(root);
     }

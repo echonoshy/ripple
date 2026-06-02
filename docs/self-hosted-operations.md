@@ -94,11 +94,13 @@ curl http://127.0.0.1:8810/health
 
 ## Runtime Boundaries
 
-Ripple 是控制面，Codex app-server 是执行面。
+Ripple 是控制面，Codex app-server 是服务端受信执行面宿主进程。
 
-- Codex job 使用 Ripple managed permissions profile：根目录只读、project roots 可写、服务端 Codex auth deny-read。
-- Connector CLI auth/status flow 通过 nsjail 运行时和 per-user credentials。
+- Codex app-server 不运行在 user nsjail 内；Codex shell 命令由 Codex Linux sandbox/bubblewrap 和 Ripple managed permissions profile 约束。
+- Codex job 权限 profile：根目录只读、当前 workspace 可写、整个 sandboxes root 和服务端 Codex auth deny-read、shell env 排除 `CODEX_HOME`。
+- Connector CLI auth/status flow 通过 nsjail 运行时和 per-user credentials，要求 new pid/ipc/uts/user namespace、fresh `/proc`，并共享网络 namespace。
 - User workspace 隔离单位是 `user_id`，同一 user 的 session 共享长期 workspace。
+- Codex sandbox prerequisites 或 connector nsjail runtime probe 失败时按 fail-closed 处理，不静默降级执行。
 
 不要把服务端 `CODEX_HOME/auth.json` 复制或挂载进 `.ripple/sandboxes/<user_id>/workspace/`。
 
@@ -194,4 +196,4 @@ CLI：
 cargo run -p ripple-server -- doctor --config config/settings.yaml
 ```
 
-Doctor 会检查 SQLite、目录权限、Codex executable、nsjail、connector CLI、CORS 和 trusted-proxy 姿态。
+Doctor 会检查 SQLite、目录权限、Codex executable、bwrap/Codex Linux sandbox probe、nsjail config/runtime probe、connector CLI、CORS 和 trusted-proxy 姿态。

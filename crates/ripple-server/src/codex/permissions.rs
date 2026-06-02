@@ -147,6 +147,49 @@ mod tests {
         let _ = std::fs::remove_dir_all(workspace);
     }
 
+    #[test]
+    fn profile_denies_other_sandboxes_and_codex_home_while_workspace_is_writable() {
+        let workspace =
+            std::env::temp_dir().join(format!("ripple-permissions-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&workspace).expect("create workspace");
+        let mut config = test_config();
+        config.codex.codex_home = Some(config.repo_root.join(".ripple/codex-service-home"));
+
+        let permissions = thread_permission_config(&workspace, &config);
+        let filesystem = permissions
+            .pointer("/permissions/ripple_workspace/filesystem")
+            .and_then(|filesystem| filesystem.as_object())
+            .expect("filesystem rules");
+        let workspace_rules = filesystem
+            .get(workspace.to_string_lossy().as_ref())
+            .and_then(|rules| rules.as_object())
+            .expect("workspace rules");
+
+        assert_eq!(
+            filesystem.get(config.sandbox.sandboxes_root.to_string_lossy().as_ref()),
+            Some(&json!("none"))
+        );
+        assert_eq!(
+            filesystem.get(
+                config
+                    .codex
+                    .codex_home
+                    .as_ref()
+                    .unwrap()
+                    .to_string_lossy()
+                    .as_ref()
+            ),
+            Some(&json!("none"))
+        );
+        assert_eq!(workspace_rules.get("."), Some(&json!("write")));
+        assert_eq!(
+            permissions.pointer("/shell_environment_policy/exclude"),
+            Some(&json!(["CODEX_HOME"]))
+        );
+
+        let _ = std::fs::remove_dir_all(workspace);
+    }
+
     fn test_config() -> AppConfig {
         let root = std::env::temp_dir().join(format!(
             "ripple-permissions-config-{}",

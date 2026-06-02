@@ -162,6 +162,7 @@ impl CodexAppServerSession {
 
         tokio::fs::create_dir_all(&self.cwd).await?;
         ensure_ripple_py_wrapper(&self.config)?;
+        crate::runtime_checks::ensure_codex_linux_sandbox_prerequisites(&self.config).await?;
         if let Some(codex_home) = &self.config.codex.codex_home {
             tokio::fs::create_dir_all(codex_home).await?;
         }
@@ -1293,6 +1294,24 @@ mod tests {
         assert!(args.contains(&"features.apps=false".to_string()));
         assert!(args.contains(&"features.plugins=false".to_string()));
         assert!(args.contains(&"skills.include_instructions=false".to_string()));
+    }
+
+    #[test]
+    fn unsandboxed_process_server_requests_are_rejected() {
+        assert!(is_unsupported_server_request(&json!({
+            "id": 7,
+            "method": "process/spawn",
+            "params": {
+                "command": ["bash", "-lc", "ps -ef"],
+                "processHandle": "host-process",
+                "cwd": "/"
+            }
+        })));
+        assert!(is_unsupported_server_request(&json!({
+            "id": 8,
+            "method": "process/kill",
+            "params": {"processHandle": "host-process"}
+        })));
     }
 }
 

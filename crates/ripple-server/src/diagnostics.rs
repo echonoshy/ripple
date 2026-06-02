@@ -7,6 +7,11 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::config::{AppConfig, CliToolConfig};
+use crate::runtime_checks::{
+    ensure_nsjail_config_hardened, nsjail_config_hardening_details, probe_codex_linux_sandbox,
+    probe_nsjail_runtime, resolve_executable,
+};
+use crate::sandbox::SandboxManager;
 use crate::storage::{database_path, Storage};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -121,6 +126,9 @@ pub async fn doctor_report(config: &AppConfig) -> Value {
             &config.sandbox.nsjail_path,
             true,
         ),
+        codex_linux_sandbox_check(config).await,
+        connector_nsjail_config_check(config).await,
+        connector_nsjail_runtime_check(config).await,
     ];
     checks.extend(connector_cli_checks(config));
     let (pass_count, warn_count, fail_count) = count_statuses(&checks);
@@ -215,6 +223,78 @@ async fn writable_dir_check(name: &str, path: &Path) -> DoctorCheck {
             "filesystem",
             format!("Directory is not writable: {err}"),
             json!({"path": path}),
+        ),
+    }
+}
+
+async fn codex_linux_sandbox_check(config: &AppConfig) -> DoctorCheck {
+    match probe_codex_linux_sandbox(config).await {
+        Ok(details) => DoctorCheck::pass(
+            "codex_linux_sandbox",
+            "runtime",
+            "Codex Linux sandbox prerequisites are available.",
+            details,
+        ),
+        Err(err) => DoctorCheck::fail(
+            "codex_linux_sandbox",
+            "runtime",
+            format!("Codex Linux sandbox prerequisites failed: {err}"),
+            json!({
+                "codex_executable": config.codex.codex_executable,
+                "required": config.codex.enabled,
+                "fail_closed": true
+            }),
+        ),
+    }
+}
+
+async fn connector_nsjail_config_check(config: &AppConfig) -> DoctorCheck {
+    let manager = SandboxManager::new(Arc::new(config.clone()));
+    let user_id = format!("doctorcfg_{}", Uuid::new_v4().simple());
+    let result = (|| -> anyhow::Result<Value> {
+        manager.ensure_sandbox(&user_id)?;
+        let cfg = manager.write_nsjail_config(&user_id)?;
+        let cfg_text = std::fs::read_to_string(&cfg)?;
+        ensure_nsjail_config_hardened(&cfg_text)?;
+        Ok(json!({
+            "probe_config_path": cfg,
+            "probe_cleanup": true,
+            "hardening": nsjail_config_hardening_details(&cfg_text)
+        }))
+    })();
+    let _ = manager.teardown_sandbox(&user_id, true);
+    match result {
+        Ok(details) => DoctorCheck::pass(
+            "connector_nsjail_config",
+            "connectors",
+            "Generated nsjail config declares required process isolation and fresh /proc.",
+            details,
+        ),
+        Err(err) => DoctorCheck::fail(
+            "connector_nsjail_config",
+            "connectors",
+            format!("Generated nsjail config failed hardening validation: {err}"),
+            json!({"fail_closed": true}),
+        ),
+    }
+}
+
+async fn connector_nsjail_runtime_check(config: &AppConfig) -> DoctorCheck {
+    match probe_nsjail_runtime(Arc::new(config.clone())).await {
+        Ok(details) => DoctorCheck::pass(
+            "connector_nsjail_runtime",
+            "connectors",
+            "nsjail runtime probe succeeded with fresh /proc.",
+            details,
+        ),
+        Err(err) => DoctorCheck::fail(
+            "connector_nsjail_runtime",
+            "connectors",
+            format!("nsjail runtime probe failed: {err}"),
+            json!({
+                "configured_nsjail": config.sandbox.nsjail_path,
+                "fail_closed": true
+            }),
         ),
     }
 }
@@ -388,17 +468,6 @@ fn cli_tool_check(tool: &CliToolConfig) -> DoctorCheck {
     }
 }
 
-fn resolve_executable(value: &str) -> Option<PathBuf> {
-    let path = PathBuf::from(value);
-    if path.components().count() > 1 || path.is_absolute() {
-        return path.is_file().then_some(path);
-    }
-    let search_path = std::env::var_os("PATH")?;
-    std::env::split_paths(&search_path)
-        .map(|dir| dir.join(value))
-        .find(|candidate| candidate.is_file())
-}
-
 fn aggregate_status(checks: &[DoctorCheck]) -> &'static str {
     if checks.iter().any(|check| check.status == CheckStatus::Fail) {
         "not_ready"
@@ -432,4 +501,106 @@ fn now_iso() -> String {
 pub async fn doctor_report_for_config(config: AppConfig) -> Value {
     let config = Arc::new(config);
     doctor_report(&config).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{
+        AppConfig, CodexConfig, CorsConfig, DocumentPreviewConfig, GogcliOAuthConfig,
+        LoggingConfig, SandboxConfig, SecurityConfig, SkillsConfig, UserAuthConfig,
+    };
+
+    #[tokio::test]
+    async fn doctor_report_includes_sandbox_runtime_checks() {
+        let root =
+            std::env::temp_dir().join(format!("ripple-doctor-test-{}", uuid::Uuid::new_v4()));
+        let report = doctor_report_for_config(test_config(&root)).await;
+        let checks = report
+            .get("checks")
+            .and_then(Value::as_array)
+            .expect("doctor checks");
+        let names = checks
+            .iter()
+            .filter_map(|check| check.get("name").and_then(Value::as_str))
+            .collect::<Vec<_>>();
+
+        assert!(names.contains(&"codex_linux_sandbox"));
+        assert!(names.contains(&"connector_nsjail_runtime"));
+        assert!(names.contains(&"connector_nsjail_config"));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    fn test_config(root: &Path) -> AppConfig {
+        AppConfig {
+            repo_root: root.to_path_buf(),
+            host: "127.0.0.1".to_string(),
+            port: 8810,
+            api_keys: vec!["test-key".to_string()],
+            security: SecurityConfig::default(),
+            user_auth: UserAuthConfig::default(),
+            cors: CorsConfig::default(),
+            default_model: "codex-medium".to_string(),
+            model_presets: Default::default(),
+            logging: LoggingConfig {
+                level: "debug".to_string(),
+            },
+            sandbox: SandboxConfig {
+                sandboxes_root: root.join("sandboxes"),
+                caches_root: root.join("cache"),
+                idle_suspend_seconds: 1800,
+                retention_seconds: 604_800,
+                max_workspace_mb: 2048,
+                tmpfs_size_mb: 64,
+                nsjail_path: "nsjail".to_string(),
+                python_envs_root: root.join("cache/python-envs"),
+                python_env_uv_cache: root.join("cache/uv-cache"),
+                python_env_max_packages: 20,
+                uv_bin_dir: None,
+                node_dir: None,
+                lark_cli_install_root: None,
+                notion_cli_install_root: None,
+                gogcli_cli_install_root: None,
+                cli_tools: Vec::new(),
+                pypi_mirror_url: None,
+                npm_registry_url: None,
+            },
+            codex: CodexConfig {
+                enabled: true,
+                codex_executable: "codex".to_string(),
+                app_server_args: vec![
+                    "app-server".to_string(),
+                    "--listen".to_string(),
+                    "stdio://".to_string(),
+                ],
+                codex_home: Some(root.join(".ripple/codex-service-home")),
+                approval_policy: "never".to_string(),
+                sandbox_type: "workspace-write".to_string(),
+                network_access: true,
+                idle_timeout_seconds: 1800,
+                max_runtime_seconds: 3600,
+            },
+            schedule_extraction_max_runtime_seconds: 120,
+            schedule_poll_interval_seconds: 15,
+            document_preview: DocumentPreviewConfig {
+                cache_root: root.join("cache/previews"),
+                libreoffice_path: "soffice".to_string(),
+                max_source_bytes: 64 * 1024 * 1024,
+                conversion_timeout_seconds: 120,
+            },
+            skills: SkillsConfig {
+                shared_dirs: vec!["skills/*".to_string()],
+            },
+            public_base_url: None,
+            feishu: Default::default(),
+            gogcli_oauth: GogcliOAuthConfig {
+                auto_register_client: true,
+                auto_from_request: true,
+                callback_url: None,
+                client_secret_json: None,
+                client: None,
+            },
+        }
+    }
 }

@@ -88,20 +88,37 @@ pub async fn sandbox_info(State(state): State<AppState>) -> Json<Value> {
             },
             "notes": [
                 "Ripple is a single-node trusted-team control plane.",
-                "Codex execution uses managed permissions profiles, not a general-purpose physical sandbox promise.",
-                "Connector CLI auth/status commands use nsjail when configured."
+                "Codex app-server is a trusted host process; Codex shell commands are constrained by Codex Linux sandbox plus Ripple managed permissions.",
+                "Connector CLI auth/status commands are constrained by nsjail when configured."
             ]
         },
         "execution": {
             "codex": {
                 "enabled": state.config.codex.enabled,
                 "runtime_boundary": "managed_permissions",
+                "process_boundary": "host_app_server_process",
+                "shell_boundary": "codex_linux_sandbox",
                 "executable": state.config.codex.codex_executable,
-                "permission_profile": "ripple-managed"
+                "permission_profile": "ripple-managed",
+                "linux_sandbox": {
+                    "uses_bubblewrap": true,
+                    "requires_pid_namespace": true,
+                    "fresh_proc": true,
+                    "fail_closed": true
+                }
             },
             "connectors": {
                 "runtime_boundary": "nsjail",
-                "nsjail_path": state.config.sandbox.nsjail_path
+                "nsjail_path": state.config.sandbox.nsjail_path,
+                "process_isolation": {
+                    "clone_newuser": true,
+                    "clone_newpid": true,
+                    "clone_newipc": true,
+                    "clone_newuts": true,
+                    "fresh_proc": true,
+                    "clone_newnet": false,
+                    "fail_closed": true
+                }
             },
             "workspace": {
                 "isolation_unit": "user_id",

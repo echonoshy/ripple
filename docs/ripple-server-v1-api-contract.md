@@ -75,7 +75,7 @@
 
 - `GET /health`：公开活性检查。
 - `GET /v1/health/ready`：就绪检查，覆盖 SQLite、sandbox 目录、Codex executable。
-- `GET /v1/diagnostics/doctor`：管理员诊断，覆盖安全姿态、CORS、SQLite、目录、Codex、nsjail、connector CLI 和 backup contract。
+- `GET /v1/diagnostics/doctor`：管理员诊断，覆盖安全姿态、CORS、SQLite、目录、Codex executable、bwrap/Codex Linux sandbox probe、nsjail config/runtime probe、connector CLI 和 backup contract。
 
 CLI 同步提供：
 
@@ -87,8 +87,9 @@ cargo run -p ripple-server -- doctor --config config/settings.yaml
 
 `GET /v1/sandbox/info` 明确区分：
 
-- Codex execution：managed permissions profile。
-- Connector CLI：nsjail runtime。
+- Codex app-server：服务端受信宿主进程。
+- Codex shell commands：Codex Linux sandbox/bubblewrap + Ripple managed permissions profile，启动前 probe 失败则 fail closed。
+- Connector CLI：nsjail runtime，要求 new pid/ipc/uts/user namespace、fresh `/proc`、共享 network namespace。
 - Workspace isolation：`user_id` 级长期 workspace。
 
 该接口不再使用笼统的 `mode: nsjail` 表述。

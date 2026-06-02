@@ -134,9 +134,9 @@ function testComposerClearsIosHomeIndicatorAndUsesTouchSizedActions() {
   const html = renderComposer();
 
   assert.match(html, /pb-\[max\(env\(safe-area-inset-bottom\),8px\)\]/);
-  assert.match(html, /h-10 w-10/);
-  assert.match(html, /session-composer-input[^"]*text-\[14px\][^"]*sm:text-\[14px\]/);
-  assert.doesNotMatch(html, /session-composer-input[^"]*text-\[15px\]/);
+  assert.match(html, /h-11 w-11/);
+  assert.match(html, /session-composer-input[^"]*text-\[16px\][^"]*lg:text-\[14px\]/);
+  assert.doesNotMatch(html, /session-composer-input[^"]*text-\[14px\][^"]*sm:text-\[14px\]/);
 }
 
 function testComposerUsesCompactGlassRadiusScale() {

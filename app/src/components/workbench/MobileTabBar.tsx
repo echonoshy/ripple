@@ -57,7 +57,7 @@ export default function MobileTabBar({ activeView, onSelectView }: MobileTabBarP
                 onClick={() => onSelectView(item.id)}
                 whileTap={reduceMotion ? undefined : pressableTap}
                 transition={transition}
-                className={`group flex min-w-0 flex-col items-center justify-center gap-0.5 text-[9px] leading-none font-semibold transition-colors ${
+                className={`group flex min-w-0 flex-col items-center justify-center gap-0.5 text-[11px] leading-none font-semibold transition-colors ${
                   selected ? "text-[#007aff]" : "text-[#3c3c43]"
                 }`}
               >

@@ -448,7 +448,7 @@ function testWorkspaceExplorerMobilePreviewChromeIsCompact() {
   );
   assert.match(source, /min-h-\[40px\]/);
   assert.match(source, /sm:min-h-\[68px\]/);
-  assert.match(source, /text-\[12px\][^"]*sm:text-\[14px\]/);
+  assert.match(source, /text-\[14px\][^"]*sm:text-\[14px\]/);
   assert.match(source, /size=\{isPagePresentation \? "sm" : "md"\}/);
   assert.match(html, /data-ripple-workspace-preview-title-path/);
   assert.doesNotMatch(html, /data-ripple-workspace-preview-action="download"/);

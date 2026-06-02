@@ -456,7 +456,7 @@ const enMessages = {
   nav: {
     sessions: "Sessions",
     files: "Files",
-    automations: "Automations",
+    automations: "Autos",
     connectors: "Connectors",
     settings: "Settings",
     primary: "Primary",
@@ -643,7 +643,7 @@ const enMessages = {
     bilibiliAuthHint: 'After confirming with the QR code or link, come back here and send "done".',
   },
   automations: {
-    title: "Automations",
+    title: "Autos",
     total: "{count} total",
     backToSettings: "Back to settings",
     refresh: "Refresh",

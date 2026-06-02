@@ -93,10 +93,10 @@ export default function WorkspaceFolderPicker({
     >
       <div className="flex items-center gap-2 border-b border-[#e8edf7] px-4 py-3">
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[12px] font-semibold text-[#111827]">
+          <div className="truncate text-[13px] font-semibold text-[#111827]">
             {t("files.chooseFocusFolder")}
           </div>
-          <div className="truncate font-[family-name:var(--font-mono)] text-[10px] text-[#667085]">
+          <div className="truncate font-[family-name:var(--font-mono)] text-[12px] text-[#667085]">
             {path}
           </div>
         </div>
@@ -118,7 +118,7 @@ export default function WorkspaceFolderPicker({
           <div className="mb-2 rounded-xl border border-[#dfe6f4] bg-[#f6f8ff] px-3 py-2">
             <div className="flex min-w-0 items-center gap-2">
               <div className="min-w-0 flex-1">
-                <div className="text-[10px] font-semibold tracking-[0.08em] text-[#7a8496] uppercase">
+                <div className="text-[12px] font-semibold tracking-[0.08em] text-[#7a8496] uppercase">
                   {t("files.selected")}
                 </div>
                 <div className="mt-0.5 truncate text-[12px] font-semibold text-[#172033]">
@@ -129,7 +129,7 @@ export default function WorkspaceFolderPicker({
                 type="button"
                 onClick={() => void selectFolder(WORKSPACE_ROOT)}
                 disabled={Boolean(selectingPath)}
-                className="shrink-0 rounded-lg px-2 py-1 text-[11px] font-semibold text-[#3c3c43] hover:bg-[#f3f4f6] hover:text-[#111827] disabled:cursor-not-allowed disabled:opacity-50"
+                className="shrink-0 rounded-lg px-2 py-1 text-[12px] font-semibold text-[#3c3c43] hover:bg-[#f3f4f6] hover:text-[#111827] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {selectingPath === WORKSPACE_ROOT
                   ? t("files.cancelling")

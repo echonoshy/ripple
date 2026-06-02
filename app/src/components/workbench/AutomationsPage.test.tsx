@@ -27,7 +27,7 @@ function renderAutomationsPage(locale: LocalePreference = "en-US") {
 function testAutomationsPageHasMobileBackNavigation() {
   const html = renderAutomationsPage();
 
-  assert.match(html, />Automations</);
+  assert.match(html, />Autos</);
   assert.match(html, /aria-label="Back to settings"/);
   assert.match(html, /lg:hidden/);
 }
@@ -146,10 +146,12 @@ function testAutomationCardUsesCompactResponsiveLayout() {
   assert.match(source, /data-ripple-automation-detail-grid/);
   assert.match(source, /data-ripple-automation-detail-grid[\s\S]{0,130}className="grid gap-1\.5/);
   assert.doesNotMatch(source, /data-ripple-automation-detail-grid[\s\S]{0,120}pl-8/);
-  assert.match(source, /data-ripple-automation-meta-grid[\s\S]*grid grid-cols-2 gap-1\.5/);
+  assert.match(source, /data-ripple-automation-meta-grid[\s\S]*className="grid gap-1\.5"/);
   assert.match(source, /data-ripple-automation-meta-cell/);
   assert.doesNotMatch(source, /data-ripple-automation-meta-chip/);
+  assert.doesNotMatch(source, /data-ripple-automation-meta-grid[\s\S]{0,120}grid-cols-2/);
   assert.doesNotMatch(source, /data-ripple-automation-meta-grid[\s\S]{0,120}flex flex-wrap/);
+  assert.match(source, /className="mt-0\.5 truncate text-\[12px\] text-\[#384152\]"/);
   assert.match(
     source,
     /data-ripple-automation-latest-run[\s\S]*rounded-lg border border-\[#e8edf7\] bg-\[#f8fbff\]\/70 px-2 py-1\.5/
@@ -164,8 +166,8 @@ function testAutomationCardUsesCompactResponsiveLayout() {
   assert.doesNotMatch(source, /data-ripple-automation-actions[\s\S]{0,220}overflow-x-auto/);
   assert.doesNotMatch(source, /data-ripple-automation-actions[\s\S]{0,180}border-t/);
   assert.match(source, /const automationActionButtonClass =[\s\S]*w-full/);
-  assert.match(source, /const automationActionButtonClass =[\s\S]*text-\[10px\]/);
-  assert.match(source, /const runActionButtonClass =[\s\S]*h-6/);
+  assert.match(source, /const automationActionButtonClass =[\s\S]*text-\[12px\]/);
+  assert.match(source, /const runActionButtonClass =[\s\S]*h-8/);
 }
 
 function testAutomationCardUsesDesktopRowLayout() {
@@ -178,10 +180,11 @@ function testAutomationCardUsesDesktopRowLayout() {
   assert.match(source, /xl:grid-cols-\[minmax\(260px,0\.82fr\)_minmax\(0,1\.35fr\)\]/);
   assert.match(
     source,
-    /data-ripple-automation-detail-grid[\s\S]*md:grid-cols-\[minmax\(0,1fr\)_minmax\(260px,320px\)\]/
+    /data-ripple-automation-detail-grid[\s\S]*md:grid-cols-\[minmax\(150px,220px\)_minmax\(0,1fr\)\]/
   );
-  assert.match(source, /data-ripple-automation-meta-grid[\s\S]*grid grid-cols-2 gap-1\.5/);
+  assert.match(source, /data-ripple-automation-meta-grid[\s\S]*className="grid gap-1\.5"/);
   assert.doesNotMatch(source, /data-ripple-automation-meta-grid[\s\S]{0,120}sm:grid-cols-3/);
+  assert.doesNotMatch(source, /data-ripple-automation-meta-grid[\s\S]{0,120}grid-cols-2/);
   assert.doesNotMatch(source, /col-span-2 min-w-0[\s\S]*sm:col-span-1/);
   assert.match(source, /data-ripple-automation-actions[\s\S]*md:grid-cols-5/);
   assert.doesNotMatch(source, /data-ripple-automation-actions[\s\S]{0,160}sm:flex/);

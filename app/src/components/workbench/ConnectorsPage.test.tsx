@@ -144,10 +144,17 @@ function testConnectorsPageUsesCompactMobileDensity() {
   assert.match(source, /LUCIDE_NAV_STROKE_WIDTH/);
   assert.doesNotMatch(source, /pb-\[calc\(88px\+env\(safe-area-inset-bottom\)\)\]/);
   assert.doesNotMatch(source, /circle_at_16%_0%/);
-  assert.match(source, /className="mx-auto max-w-5xl space-y-3"/);
+  assert.match(source, /className="mx-auto max-w-5xl space-y-2"/);
   assert.match(source, /data-ripple-connector-logo-shell="true"/);
   assert.match(source, /<ConnectorOfficialLogo connector=\{connector\} status=\{status\} \/>/);
-  assert.match(source, /inline-flex h-7 items-center gap-1\.5 rounded-full/);
+  assert.match(source, /inline-flex h-9 w-9 shrink-0/);
+  assert.match(source, /<div className="space-y-2">/);
+  assert.match(source, /<section key=\{section\.kind\} className="space-y-1\.5">/);
+  assert.match(source, /<div className="grid gap-2 lg:grid-cols-2">/);
+  assert.match(source, /<div className="flex items-start gap-2 p-2">/);
+  assert.match(source, /border-t border-\[#e8edf7\] bg-\[#fbfcff\]\/62 px-2 py-1\.5/);
+  assert.match(source, /inline-flex h-8 items-center gap-1\.5 rounded-full/);
+  assert.doesNotMatch(source, /data-ripple-connector-status-pill[\s\S]{0,180}text-\[10px\]/);
 }
 
 testConnectorsPageUsesCompactMobileDensity();

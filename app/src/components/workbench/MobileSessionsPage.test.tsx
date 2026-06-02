@@ -98,11 +98,11 @@ function testSessionRowsRemoveRepeatedChatIcon() {
   assert.doesNotMatch(html, /class="lucide lucide-message-circle"/);
 }
 
-function testSearchInputUsesCompactType() {
-  assert.match(mobileSessionsPageSource, /className="search-sessions-input[^"]*text-\[14px\]/);
+function testSearchInputUsesReadableMobileType() {
+  assert.match(mobileSessionsPageSource, /className="search-sessions-input[^"]*text-\[16px\]/);
   assert.doesNotMatch(
     mobileSessionsPageSource,
-    /className="search-sessions-input[^"]*text-\[16px\]/
+    /className="search-sessions-input[^"]*text-\[14px\]/
   );
 }
 
@@ -117,7 +117,7 @@ function testHeaderActionsUseSharedGlassTreatment() {
     mobileSessionsPageSource,
     /mobileHeaderActionClass = MOBILE_GLASS_ICON_BUTTON_CLASS/
   );
-  assert.match(html, /inline-flex h-10 w-10 items-center justify-center rounded-full/);
+  assert.match(html, /inline-flex h-11 w-11 items-center justify-center rounded-full/);
   assert.match(
     mobileSessionsPageSource,
     /aria-label=\{t\("sessions.search"\)\}[\s\S]{0,220}className=\{mobileHeaderActionClass\}/
@@ -198,6 +198,13 @@ function testMobileSessionChromeUsesMotionPresence() {
   assert.match(mobileSessionsPageSource, /data-ripple-mobile-search-motion/);
 }
 
+function testMobileSessionRowsUseReadableTypeScale() {
+  assert.match(mobileSessionsPageSource, /truncate text-\[15px\] leading-5 font-medium/);
+  assert.match(mobileSessionsPageSource, /block truncate text-\[12px\] leading-4/);
+  assert.match(mobileSessionsPageSource, /text-\[11px\] text-\[#8b95a5\]/);
+  assert.doesNotMatch(mobileSessionsPageSource, /text-\[9px\]/);
+}
+
 function testRendersEmptyStateWithNewSessionAction() {
   const html = renderMobileSessionsPage({ sessions: [], selectedSessionId: null });
 
@@ -217,12 +224,13 @@ testRendersChatAppStyleSessionList();
 testMobileBrandWordmarkHasQuietPersonality();
 testUsesQuietAgentControlPlaneStyling();
 testSessionRowsRemoveRepeatedChatIcon();
-testSearchInputUsesCompactType();
+testSearchInputUsesReadableMobileType();
 testHeaderActionsUseSharedGlassTreatment();
 testSessionRowsDoNotClipOptionsMenu();
 testSessionOptionsMenuEscapesBlurredRowsWithPortal();
 testSessionRowsExposeIosStyleSwipeActions();
 testMobileSessionChromeUsesMotionPresence();
+testMobileSessionRowsUseReadableTypeScale();
 testRendersEmptyStateWithNewSessionAction();
 testRendersChineseMobileSessionChrome();
 

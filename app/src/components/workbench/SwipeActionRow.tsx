@@ -273,7 +273,7 @@ export default function SwipeActionRow({
                 action.onClick(event);
                 close();
               }}
-              className={`flex w-16 flex-col items-center justify-center gap-1 text-[10px] leading-none font-semibold ${actionToneClass(
+              className={`flex w-16 flex-col items-center justify-center gap-1 text-[11px] leading-none font-semibold ${actionToneClass(
                 action.tone
               )}`}
             >
@@ -319,7 +319,7 @@ export default function SwipeActionRow({
                 action.onClick(event);
                 close();
               }}
-              className={`flex w-16 flex-col items-center justify-center gap-1 text-[10px] leading-none font-semibold ${actionToneClass(
+              className={`flex w-16 flex-col items-center justify-center gap-1 text-[11px] leading-none font-semibold ${actionToneClass(
                 action.tone
               )}`}
             >

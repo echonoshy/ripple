@@ -216,7 +216,7 @@ function TimelineImagePreview({
           </div>
         )}
       </div>
-      <div className="mt-2 space-y-1 text-[11px] leading-5 text-[#5f6b7c] sm:text-xs">
+      <div className="mt-2 space-y-1 text-[12px] leading-5 text-[#5f6b7c] sm:text-xs">
         {event.revisedPrompt && <div>{event.revisedPrompt}</div>}
         {event.workspacePath && (
           <div className="font-[family-name:var(--font-mono)] break-all text-[#6b7280]">
@@ -307,8 +307,8 @@ export default function SessionTimeline({
           >
             <span className="h-2 w-2 rounded-full bg-current" />
           </IconTile>
-          <div className="text-[12px] font-semibold text-[#111827]">{t("timeline.ready")}</div>
-          <div className="mt-1 max-w-xl text-[12px] leading-5 text-[#667085]">
+          <div className="text-[13px] font-semibold text-[#111827]">{t("timeline.ready")}</div>
+          <div className="mt-1 max-w-xl text-[13px] leading-5 text-[#667085]">
             {t("timeline.activityWillAppear")}
           </div>
         </div>
@@ -352,11 +352,11 @@ export default function SessionTimeline({
             </IconTile>
             <div className="mb-1.5 flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <div className="truncate text-[12px] leading-5 font-semibold text-[#111827] sm:text-sm">
+                <div className="truncate text-[13px] leading-5 font-semibold text-[#111827] sm:text-sm">
                   {event.title}
                 </div>
               </div>
-              <div className="flex shrink-0 items-center gap-1.5 text-[10px] text-[#7a8496]">
+              <div className="flex shrink-0 items-center gap-1.5 text-[11px] text-[#7a8496]">
                 {event.status && (
                   <span className="rounded-full border border-[#dfe6f4] bg-white/80 px-1.5 py-0.5 font-[family-name:var(--font-mono)]">
                     {event.status}
@@ -377,7 +377,7 @@ export default function SessionTimeline({
               </div>
             </div>
             {isToolEvent ? (
-              <div className="mt-2 rounded-xl border border-[#e2e8f0] bg-[linear-gradient(135deg,rgba(248,250,252,0.7),rgba(241,245,249,0.7))] px-3 py-2.5 font-[family-name:var(--font-mono)] text-[10px] leading-[18px] text-[#334155] shadow-[0_10px_24px_rgba(44,63,123,0.04)] backdrop-blur-md sm:text-xs">
+              <div className="mt-2 rounded-xl border border-[#e2e8f0] bg-[linear-gradient(135deg,rgba(248,250,252,0.7),rgba(241,245,249,0.7))] px-3 py-2.5 font-[family-name:var(--font-mono)] text-[12px] leading-5 text-[#334155] shadow-[0_10px_24px_rgba(44,63,123,0.04)] backdrop-blur-md sm:text-xs">
                 {event.body.split("\n").map((line, index) => (
                   <div key={`${event.id}-${index}`} className="truncate" title={line}>
                     {line}
@@ -387,7 +387,7 @@ export default function SessionTimeline({
             ) : event.type === "image_generation" || event.type === "image_view" ? (
               <TimelineImagePreview event={event} userId={userId} />
             ) : (
-              <div className="markdown-body workbench-markdown max-w-4xl text-[12px] leading-5 text-[#384152] sm:text-sm sm:leading-6">
+              <div className="markdown-body workbench-markdown max-w-4xl text-[15px] leading-6 text-[#384152] lg:text-sm lg:leading-6">
                 <MarkdownRenderer
                   content={event.body}
                   onFeishuAuthOpen={onFeishuAuthOpen}
@@ -408,7 +408,7 @@ export default function SessionTimeline({
           >
             <span className="h-2 w-2 animate-pulse rounded-full bg-current" />
           </IconTile>
-          <div className="flex items-center gap-2 text-[12px] text-[#667085]">
+          <div className="flex items-center gap-2 text-[13px] text-[#667085]">
             <Bot size={13} />
             {feishuAuthWaiting
               ? t("timeline.feishuWaiting", {
@@ -446,7 +446,7 @@ export default function SessionTimeline({
             <ShieldAlert size={14} />
             {t("timeline.permissionRequired", { tool: pendingPermission.tool })}
           </div>
-          <pre className="mb-3 max-h-48 overflow-auto rounded-xl border border-[#e2e8f0] bg-[linear-gradient(135deg,rgba(248,250,252,0.7),rgba(241,245,249,0.7))] p-3 font-[family-name:var(--font-mono)] text-[11px] whitespace-pre-wrap text-[#334155] backdrop-blur-md">
+          <pre className="mb-3 max-h-48 overflow-auto rounded-xl border border-[#e2e8f0] bg-[linear-gradient(135deg,rgba(248,250,252,0.7),rgba(241,245,249,0.7))] p-3 font-[family-name:var(--font-mono)] text-[12px] whitespace-pre-wrap text-[#334155] backdrop-blur-md">
             {typeof pendingPermission.params === "string"
               ? pendingPermission.params
               : JSON.stringify(pendingPermission.params, null, 2)}

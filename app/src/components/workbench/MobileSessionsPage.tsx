@@ -312,7 +312,7 @@ export default function MobileSessionsPage({
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder={t("sessions.search")}
-                  className="search-sessions-input min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-[#9aa3af] focus:ring-0 focus:outline-none focus-visible:ring-0 focus-visible:outline-none"
+                  className="search-sessions-input min-w-0 flex-1 bg-transparent text-[16px] outline-none placeholder:text-[15px] placeholder:text-[#9aa3af] focus:ring-0 focus:outline-none focus-visible:ring-0 focus-visible:outline-none"
                   autoFocus
                 />
               </div>
@@ -492,7 +492,7 @@ export default function MobileSessionsPage({
                         >
                           <span className="min-w-0 flex-1">
                             <span className="flex min-w-0 items-center gap-2">
-                              <span className="truncate text-[14px] leading-5 font-medium text-[#111827]">
+                              <span className="truncate text-[15px] leading-5 font-medium text-[#111827]">
                                 {session.title}
                               </span>
                               {session.pinned ? (
@@ -500,12 +500,12 @@ export default function MobileSessionsPage({
                               ) : null}
                               <SessionAttentionDot attention={session.attention} reserveSpace />
                             </span>
-                            <span className="mt-0.5 block truncate text-[11px] leading-4 text-[#667085]">
+                            <span className="mt-0.5 block truncate text-[12px] leading-4 text-[#667085]">
                               {sessionPreview(session, t)}
                             </span>
                           </span>
                           {activityTime ? (
-                            <span className="shrink-0 self-start pt-0.5 font-[family-name:var(--font-mono)] text-[9px] text-[#8b95a5]">
+                            <span className="shrink-0 self-start pt-0.5 font-[family-name:var(--font-mono)] text-[11px] text-[#8b95a5]">
                               {activityTime}
                             </span>
                           ) : null}

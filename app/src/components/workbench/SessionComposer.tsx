@@ -73,8 +73,8 @@ export function shouldExpandComposer(value: string, isComposerFocused: boolean):
 }
 
 export function composerToolbarClassName(isExpandedComposer: boolean): string {
-  return `flex h-10 shrink-0 items-center sm:h-8 ${
-    isExpandedComposer ? "col-start-1 row-start-2" : "-mr-1 sm:mb-[2px]"
+  return `flex h-11 shrink-0 items-center lg:h-8 ${
+    isExpandedComposer ? "col-start-1 row-start-2" : "-mr-1 lg:mb-[2px]"
   }`;
 }
 
@@ -344,7 +344,7 @@ export default function SessionComposer({
               if (isModelDropdownOpen) onToggleModelDropdown();
               setIsFolderPickerOpen((open) => !open);
             }}
-            className={`inline-flex h-10 w-10 items-center justify-center rounded-full hover:bg-[#f3f4f6] hover:text-[#111827] active:bg-[#eef3ff] sm:h-8 sm:w-8 ${
+            className={`inline-flex h-11 w-11 items-center justify-center rounded-full hover:bg-[#f3f4f6] hover:text-[#111827] active:bg-[#eef3ff] lg:h-8 lg:w-8 ${
               hasFocusFolder ? "bg-[#eaf4ff] text-[#007aff]" : "text-[#3c3c43]"
             }`}
           >
@@ -388,7 +388,7 @@ export default function SessionComposer({
           title={t("composer.attachFiles")}
           onClick={() => fileInputRef.current?.click()}
           disabled={attachDisabled}
-          className="inline-flex h-10 w-10 items-center justify-center rounded-full text-[#3c3c43] hover:bg-[#f2f2f7] hover:text-[#111827] active:bg-[#eaf4ff] disabled:cursor-not-allowed disabled:opacity-50 sm:h-8 sm:w-8"
+          className="inline-flex h-11 w-11 items-center justify-center rounded-full text-[#3c3c43] hover:bg-[#f2f2f7] hover:text-[#111827] active:bg-[#eaf4ff] disabled:cursor-not-allowed disabled:opacity-50 lg:h-8 lg:w-8"
         >
           {isUploadingFiles ? (
             <Loader2 size={15} className="animate-spin" />
@@ -406,7 +406,7 @@ export default function SessionComposer({
             setIsFolderPickerOpen(false);
             onToggleModelDropdown();
           }}
-          className="inline-flex h-10 w-10 items-center justify-center rounded-full text-[#3c3c43] hover:bg-[#f2f2f7] hover:text-[#111827] active:bg-[#eaf4ff] sm:h-8 sm:w-8"
+          className="inline-flex h-11 w-11 items-center justify-center rounded-full text-[#3c3c43] hover:bg-[#f2f2f7] hover:text-[#111827] active:bg-[#eaf4ff] lg:h-8 lg:w-8"
         >
           <BrainCircuit size={16} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
         </button>
@@ -453,7 +453,7 @@ export default function SessionComposer({
               ? t("composer.askAnything")
               : t("composer.askAnything")
       }
-      className={`session-composer-input mb-[2px] max-h-[104px] min-h-9 min-w-0 resize-none bg-transparent px-1.5 py-2 text-[14px] leading-5 text-[#111827] outline-none placeholder:text-[13px] placeholder:text-[#8e8e93] disabled:opacity-60 sm:mb-0 sm:max-h-[180px] sm:min-h-[36px] sm:px-2 sm:py-1.5 sm:text-[14px] sm:leading-6 sm:placeholder:text-[#8e8e93] ${
+      className={`session-composer-input mb-[2px] max-h-[104px] min-h-10 min-w-0 resize-none bg-transparent px-1.5 py-2 text-[16px] leading-6 text-[#111827] outline-none placeholder:text-[15px] placeholder:text-[#8e8e93] disabled:opacity-60 lg:mb-0 lg:max-h-[180px] lg:min-h-[36px] lg:px-2 lg:py-1.5 lg:text-[14px] lg:leading-6 lg:placeholder:text-[#8e8e93] ${
         isExpandedComposer ? "col-span-2 row-start-1 w-full" : "flex-1"
       }`}
     />
@@ -466,8 +466,8 @@ export default function SessionComposer({
         onClick={onStop}
         aria-label={t("composer.stopGeneration")}
         title={isBlocked ? t("composer.stopRunningSession") : t("composer.stopGeneration")}
-        className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#cf222e]/20 bg-[#ffebe9] text-[#cf222e] shadow-[0_8px_18px_rgba(207,34,46,0.10)] hover:bg-[#ffd7d5] sm:h-8 sm:w-8 ${
-          isExpandedComposer ? "col-start-2 row-start-2 justify-self-end" : "sm:mb-[2px]"
+        className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#cf222e]/20 bg-[#ffebe9] text-[#cf222e] shadow-[0_8px_18px_rgba(207,34,46,0.10)] hover:bg-[#ffd7d5] lg:h-8 lg:w-8 ${
+          isExpandedComposer ? "col-start-2 row-start-2 justify-self-end" : "lg:mb-[2px]"
         }`}
       >
         <Square size={13} fill="currentColor" />
@@ -479,8 +479,8 @@ export default function SessionComposer({
         disabled={!canSend || sendDisabled}
         aria-label={t("composer.sendMessage")}
         title={t("composer.sendMessage")}
-        className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#007aff]/20 bg-[#007aff] text-white shadow-[0_10px_22px_rgba(0,122,255,0.26)] hover:bg-[#006ee6] disabled:cursor-not-allowed disabled:border-[#d7d7dd] disabled:bg-[#f2f2f7] disabled:bg-none disabled:text-[#8e8e93] disabled:shadow-none sm:h-8 sm:w-8 ${
-          isExpandedComposer ? "col-start-2 row-start-2 justify-self-end" : "sm:mb-[2px]"
+        className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#007aff]/20 bg-[#007aff] text-white shadow-[0_10px_22px_rgba(0,122,255,0.26)] hover:bg-[#006ee6] disabled:cursor-not-allowed disabled:border-[#d7d7dd] disabled:bg-[#f2f2f7] disabled:bg-none disabled:text-[#8e8e93] disabled:shadow-none lg:h-8 lg:w-8 ${
+          isExpandedComposer ? "col-start-2 row-start-2 justify-self-end" : "lg:mb-[2px]"
         }`}
       >
         <Send size={14} />

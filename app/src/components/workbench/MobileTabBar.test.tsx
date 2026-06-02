@@ -27,8 +27,8 @@ function testUsesShortMobileNavigationLabels() {
   assert.match(html, /aria-label="Open Files"/);
   assert.match(html, />Connectors</);
   assert.match(html, /aria-label="Open Connectors"/);
-  assert.match(html, />Automations</);
-  assert.match(html, /aria-label="Open Automations"/);
+  assert.match(html, />Autos</);
+  assert.match(html, /aria-label="Open Autos"/);
   assert.match(html, />Settings</);
   assert.match(html, /aria-label="Open Settings"/);
   assert.doesNotMatch(html, />New</);
@@ -108,5 +108,12 @@ function testUsesSharedNavigationIconStrokeWeight() {
 }
 
 testUsesSharedNavigationIconStrokeWeight();
+
+function testMobileNavigationLabelsUseReadableType() {
+  assert.match(mobileTabBarSource, /text-\[11px\]/);
+  assert.doesNotMatch(mobileTabBarSource, /text-\[9px\]/);
+}
+
+testMobileNavigationLabelsUseReadableType();
 
 console.log("mobile tab bar tests passed");

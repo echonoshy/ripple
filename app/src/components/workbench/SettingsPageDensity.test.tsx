@@ -5,8 +5,8 @@ const source = readFileSync(new URL("./SettingsPage.tsx", import.meta.url), "utf
 
 assert.match(source, /className="mx-auto max-w-5xl space-y-2\.5"/);
 assert.match(source, /RippleIcon\s*\n\s*size=\{24\}/);
-assert.match(source, /className="flex min-h-9 items-center gap-1\.5 border-b/);
-assert.match(source, /className="space-y-2 p-2\.5"/);
+assert.match(source, /className="flex min-h-10 items-center gap-1\.5 border-b/);
+assert.match(source, /className="space-y-1\.5 p-2"/);
 assert.match(source, /className="flex h-12 w-12/);
 assert.match(source, /settingsAccountActionButtonClass =[\s\S]*h-10 w-full/);
 assert.match(source, /MOBILE_PAGE_TOP_SAFE_AREA_CLASS/);

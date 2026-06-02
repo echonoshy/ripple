@@ -75,7 +75,7 @@ export default function WorkspaceNav({
             <h2 className="truncate text-[15px] leading-tight font-semibold text-[#111827]">
               {t("sessions.railTitle")}
             </h2>
-            <p className="mt-0.5 text-[10px] font-medium text-[#6e6e73]">
+            <p className="mt-0.5 text-[12px] font-medium text-[#6e6e73]">
               {t("sessions.railSubtitle")}
             </p>
           </div>

@@ -370,12 +370,12 @@ export default function SessionPage({
           <div className="truncate text-[15px] leading-5 font-semibold text-[#111827]">
             {session?.title || t("sessions.fallbackTitle")}
           </div>
-          <div className="mt-1 flex min-w-0 items-center justify-center gap-1.5 text-[11px] leading-4 text-[#7a8496]">
+          <div className="mt-1 flex min-w-0 items-center justify-center gap-1.5 text-[12px] leading-4 text-[#7a8496]">
             <span
               data-ripple-current-model-badge="mobile"
               aria-label={currentModelAccessibleLabel}
               title={currentModelAccessibleLabel}
-              className="inline-flex max-w-[104px] min-w-0 items-center gap-1 rounded-full border border-[#d7d7dd] bg-white/74 px-1.5 py-0.5 text-[10px] font-semibold text-[#6e6e73] shadow-[0_4px_12px_rgba(60,60,67,0.05)]"
+              className="inline-flex max-w-[116px] min-w-0 items-center gap-1 rounded-full border border-[#d7d7dd] bg-white/74 px-1.5 py-0.5 text-[11px] font-semibold text-[#6e6e73] shadow-[0_4px_12px_rgba(60,60,67,0.05)]"
             >
               <BrainCircuit size={11} className={modelBadgeIconClass} strokeWidth={2.2} />
               <span
@@ -391,7 +391,7 @@ export default function SessionPage({
                 aria-label={focusFolderAccessibleLabel}
                 title={folderBadgeTitle}
                 onClick={requestFolderPicker}
-                className="inline-flex max-w-[132px] min-w-0 items-center gap-1 rounded-full border border-[#d7d7dd] bg-white/74 px-1.5 py-0.5 text-[10px] font-semibold text-[#6e6e73] shadow-[0_4px_12px_rgba(60,60,67,0.05)] hover:text-[#007aff]"
+                className="inline-flex max-w-[144px] min-w-0 items-center gap-1 rounded-full border border-[#d7d7dd] bg-white/74 px-1.5 py-0.5 text-[11px] font-semibold text-[#6e6e73] shadow-[0_4px_12px_rgba(60,60,67,0.05)] hover:text-[#007aff]"
               >
                 <Folder size={10} className="shrink-0" strokeWidth={2.2} />
                 <span className="truncate">{focusFolderLabel}</span>
@@ -462,7 +462,7 @@ export default function SessionPage({
                   {t("sessions.currentPlan")}
                 </div>
                 {planProgress && (
-                  <div className="font-[family-name:var(--font-mono)] text-[10px] text-[#7a8496]">
+                  <div className="font-[family-name:var(--font-mono)] text-[11px] text-[#7a8496]">
                     {planProgress.completed}/{planProgress.total}
                   </div>
                 )}
@@ -476,7 +476,7 @@ export default function SessionPage({
                         ? Loader2
                         : Circle;
                   return (
-                    <div key={step.id} className="flex items-start gap-2 px-3 py-1.5 text-[12px]">
+                    <div key={step.id} className="flex items-start gap-2 px-3 py-1.5 text-[13px]">
                       <Icon
                         size={15}
                         className={`mt-0.5 shrink-0 ${
@@ -529,7 +529,7 @@ export default function SessionPage({
             <span
               aria-label={tokenBadgeAccessibleLabel}
               title={tokenBadgeAccessibleLabel}
-              className="inline-flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded-full border border-[#edf2fb]/70 bg-white/60 px-2.5 py-1 font-[family-name:var(--font-mono)] text-[11px] leading-4 text-[#8a94a6] italic shadow-[0_6px_18px_rgba(44,63,123,0.04)] backdrop-blur-xl"
+              className="inline-flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded-full border border-[#edf2fb]/70 bg-white/60 px-2.5 py-1 font-[family-name:var(--font-mono)] text-[12px] leading-4 text-[#8a94a6] italic shadow-[0_6px_18px_rgba(44,63,123,0.04)] backdrop-blur-xl"
             >
               {tokenBadgeText}
             </span>

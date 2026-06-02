@@ -109,15 +109,30 @@ function testConnectorsPageUsesTauriAwareExternalOpener() {
 
 testConnectorsPageUsesTauriAwareExternalOpener();
 
-function testConnectorsPageUsesSystemSoftTilesNotProviderLogos() {
+function testConnectorsPageUsesOfficialLogoComponentsWithoutExternalAssets() {
   const source = readFileSync(new URL("./ConnectorsPage.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /IconTile/);
-  assert.match(source, /connectorStatusIconTone/);
-  assert.doesNotMatch(source, /google-logo|notion-logo|feishu-logo|bilibili-logo/i);
+  assert.match(source, /ConnectorOfficialLogo/);
+  assert.match(source, /GoogleWorkspaceLogo/);
+  assert.match(source, /NotionLogo/);
+  assert.match(source, /FeishuLogo/);
+  assert.match(source, /BilibiliLogo/);
+  assert.match(source, /FEISHU_FAVICON_DATA_URI/);
+  assert.match(source, /data:image\/png;base64/);
+  assert.match(source, /src=\{FEISHU_FAVICON_DATA_URI\}/);
+  assert.match(source, /data-ripple-connector-official-logo="true"/);
+  assert.match(source, /data-ripple-connector-card="true"/);
+  assert.match(source, /data-ripple-connector-status-pill="true"/);
+  assert.doesNotMatch(source, /src=\{.*logo/i);
+  assert.doesNotMatch(source, /bg-\[linear-gradient/);
+  assert.doesNotMatch(source, /accentClass/);
+  assert.doesNotMatch(
+    source,
+    /<IconTile tone=\{connectorStatusIconTone\(status\)\} size="md">[\s\S]{0,120}<Plug size=\{15\}/
+  );
 }
 
-testConnectorsPageUsesSystemSoftTilesNotProviderLogos();
+testConnectorsPageUsesOfficialLogoComponentsWithoutExternalAssets();
 
 function testConnectorsPageUsesCompactMobileDensity() {
   const source = readFileSync(new URL("./ConnectorsPage.tsx", import.meta.url), "utf8");
@@ -129,8 +144,8 @@ function testConnectorsPageUsesCompactMobileDensity() {
   assert.match(source, /pb-\[calc\(88px\+env\(safe-area-inset-bottom\)\)\]/);
   assert.doesNotMatch(source, /circle_at_16%_0%/);
   assert.match(source, /className="mx-auto max-w-5xl space-y-3"/);
-  assert.match(source, /rounded-xl border border-\[#dfe6f4\]/);
-  assert.match(source, /<IconTile tone=\{connectorStatusIconTone\(status\)\} size="md">/);
+  assert.match(source, /data-ripple-connector-logo-shell="true"/);
+  assert.match(source, /<ConnectorOfficialLogo connector=\{connector\} status=\{status\} \/>/);
   assert.match(source, /inline-flex h-7 items-center gap-1\.5 rounded-full/);
 }
 

@@ -32,6 +32,9 @@ const zhMessages = {
   },
   auth: {
     tagline: "你的 AI 工作空间",
+    brandPhrase: "Flow with Ripple",
+    sloganPrimary: "每一次迭代的涟漪，都是向解的收敛。",
+    sloganSecondary: "Each ripple of iteration converges toward the solution.",
     developerAccess: "开发者访问",
     loginTitle: "登录 Ripple",
     loginDescription: "使用你的账号凭据继续。",
@@ -473,6 +476,9 @@ const enMessages = {
   },
   auth: {
     tagline: "Your AI workspace",
+    brandPhrase: "Flow with Ripple",
+    sloganPrimary: "Each ripple of iteration converges toward the solution.",
+    sloganSecondary: "每一次迭代的涟漪，都是向解的收敛。",
     developerAccess: "Developer access",
     loginTitle: "Sign in to Ripple",
     loginDescription: "Use your account credentials to continue.",

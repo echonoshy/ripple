@@ -45,11 +45,20 @@ function renderGateway(
 
 function testGatewayShowsPrimaryLoginWithoutProductIntroModule() {
   const html = renderGateway();
+  const developerAccessMatches = html.match(/>Developer access</g) || [];
 
   assert.match(html, /data-ripple-auth-gateway="true"/);
+  assert.match(html, /data-ripple-brand-wordmark="true"/);
+  assert.match(
+    html,
+    /<span[^>]*>Flow<\/span>[\s\S]*<span[^>]*>with<\/span>[\s\S]*<span[^>]*>Ripple<\/span>/
+  );
+  assert.match(html, />Each ripple of iteration converges toward the solution\./);
+  assert.match(html, />每一次迭代的涟漪，都是向解的收敛。</);
   assert.match(html, />Your AI workspace</);
   assert.doesNotMatch(html, />Agent control plane</);
   assert.match(html, />Sign in to Ripple</);
+  assert.doesNotMatch(html, />Use your account credentials to continue\.</);
   assert.doesNotMatch(html, />Workspace gateway</);
   assert.doesNotMatch(html, />One entry for sessions, files, connectors, and scheduled work/);
   assert.doesNotMatch(html, />Workspace-scoped files</);
@@ -63,6 +72,7 @@ function testGatewayShowsPrimaryLoginWithoutProductIntroModule() {
   assert.doesNotMatch(html, /Email or username/);
   assert.match(html, /aria-label="Password"/);
   assert.match(html, />Sign in</);
+  assert.equal(developerAccessMatches.length, 1);
 }
 
 function testGatewayDoesNotUseOldEqualWeightModeTabs() {
@@ -108,8 +118,13 @@ function testGatewayShowsErrorsWithActionableTone() {
 function testGatewayRendersChineseLoginCopy() {
   const html = renderGateway({}, "zh-CN");
 
+  assert.match(html, /data-ripple-brand-wordmark="true"/);
+  assert.match(html, /aria-label="Flow with Ripple"/);
+  assert.match(html, />每一次迭代的涟漪，都是向解的收敛。</);
+  assert.match(html, />Each ripple of iteration converges toward the solution\./);
   assert.match(html, />你的 AI 工作空间</);
   assert.match(html, />登录 Ripple</);
+  assert.doesNotMatch(html, />使用你的账号凭据继续。</);
   assert.match(html, /aria-label="邮箱"/);
   assert.match(html, /aria-label="密码"/);
   assert.match(html, />登录</);

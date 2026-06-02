@@ -149,36 +149,59 @@ export default function AuthGateway({
     : isInvite
       ? t("auth.inviteDescription")
       : t("auth.loginDescription");
+  const showFormDescription = isInvite || isService;
 
   return (
     <div
       data-ripple-auth-gateway="true"
-      className="min-h-screen w-screen overflow-y-auto bg-[#f6f8fb] text-[#101828]"
+      className="min-h-screen w-screen overflow-y-auto bg-[#f2f2f7] text-[#101828]"
     >
-      <div className="mx-auto flex min-h-screen w-full max-w-[520px] flex-col px-4 py-5 sm:px-6">
-        <header className="flex h-12 shrink-0 items-center justify-between">
+      <div className="mx-auto flex min-h-screen w-full max-w-[760px] flex-col px-4 py-5 sm:px-6 lg:max-w-[880px] lg:py-7">
+        <header className="flex h-12 shrink-0 items-center">
           <div className="flex items-center gap-3">
             <RippleIcon
               size={38}
-              className="h-9 w-9 rounded-xl shadow-[0_12px_28px_rgba(13,13,13,0.14)]"
+              className="h-9 w-9 rounded-xl shadow-[0_12px_28px_rgba(60,60,67,0.10)]"
             />
             <div className="min-w-0">
               <div className="text-base leading-5 font-semibold">Ripple</div>
               <div className="text-xs font-medium text-[#667085]">{t("auth.tagline")}</div>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => changeMode("service")}
-            className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#dfe6f4] bg-white px-3 text-sm font-semibold text-[#344054] shadow-[0_8px_22px_rgba(44,63,123,0.06)] transition hover:border-[#cbd7ea] hover:bg-[#f8fafc]"
-          >
-            <Code2 size={15} />
-            <span className="hidden sm:inline">{t("auth.developerAccess")}</span>
-          </button>
         </header>
 
-        <main className="flex flex-1 items-center justify-center py-5">
-          <section className="w-full rounded-xl border border-[#dfe6f4] bg-white p-5 shadow-[0_24px_70px_rgba(44,63,123,0.12)] sm:p-6">
+        <main className="flex flex-1 flex-col items-center justify-center gap-6 py-6 sm:gap-7 lg:py-10">
+          <section className="w-full max-w-[680px] text-center" aria-label="Ripple">
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl border border-white/80 bg-white/76 shadow-[0_16px_34px_rgba(60,60,67,0.08)] backdrop-blur-xl">
+              <RippleIcon size={32} className="h-8 w-8 rounded-lg" />
+            </div>
+            <p className="text-[12px] leading-5 font-semibold text-[#007aff] uppercase">Ripple</p>
+            <h1
+              data-ripple-brand-wordmark="true"
+              className="relative mx-auto mt-2 flex max-w-[680px] flex-wrap items-baseline justify-center gap-x-2 text-[36px] leading-[40px] font-semibold tracking-normal text-[#111827] sm:gap-x-3 sm:text-[52px] sm:leading-[56px]"
+              aria-label={t("auth.brandPhrase")}
+            >
+              <span className="inline-block">Flow</span>
+              <span className="inline-block text-[0.68em] font-medium text-[#007aff] italic">
+                with
+              </span>
+              <span className="inline-block">Ripple</span>
+              <span
+                aria-hidden="true"
+                className="absolute right-[12%] -bottom-2 left-[12%] h-2 rounded-full bg-[#007aff]/10 blur-[1px]"
+              />
+            </h1>
+            <div className="mt-3 space-y-1">
+              <p className="text-[16px] leading-7 font-medium text-[#384152] sm:text-[17px]">
+                {t("auth.sloganPrimary")}
+              </p>
+              <p className="text-[13px] leading-6 text-[#667085] sm:text-sm">
+                {t("auth.sloganSecondary")}
+              </p>
+            </div>
+          </section>
+
+          <section className="w-full max-w-[520px] rounded-2xl border border-[#d7d7dd] bg-white/84 p-5 shadow-[0_24px_70px_rgba(60,60,67,0.10)] backdrop-blur-xl sm:p-6">
             <div className="mb-5 flex items-start gap-3">
               <IconTile tone={isService ? "warning" : "accent"} size="lg">
                 {isService ? <Code2 size={18} /> : <UserRound size={18} />}
@@ -187,7 +210,9 @@ export default function AuthGateway({
                 <h1 className="text-[25px] leading-8 font-semibold tracking-normal text-[#101828]">
                   {formTitle}
                 </h1>
-                <p className="mt-1 text-sm leading-6 text-[#667085]">{formDescription}</p>
+                {showFormDescription ? (
+                  <p className="mt-1 text-sm leading-6 text-[#667085]">{formDescription}</p>
+                ) : null}
               </div>
             </div>
 

@@ -1,11 +1,12 @@
 <div align="center">
 <img src="assets/ripple-icon.svg" alt="Ripple Logo" width="100" />
 
-# 涟漪 (Ripple)
+# Flow with Ripple
 
-> **每一次迭代，都是向解的蔓延**
+> **每一次迭代的涟漪，都是向解的收敛。**
+> **Each ripple of iteration converges toward the solution.**
 
-**基于 Codex 执行面构建的多用户沙箱数据与 Skill 控制系统**
+**面向真实终端用户的 AI 工作空间，也是运行在 Codex app-server 之上的 Agent 控制面。**
 
 [![Language](https://img.shields.io/badge/Backend-Rust-orange?style=flat-square&logo=rust)](crates/ripple-server)
 [![Frontend](https://img.shields.io/badge/Frontend-React-blue?style=flat-square&logo=react)](app)
@@ -34,11 +35,11 @@
 
 ## 项目定位
 
+**Ripple** 是一个面向 Web / Tauri / Mobile 多端客户端的 AI 工作空间与 Agent 控制面。它为用户提供会话、文件、连接器、Skill、自动化调度与审批协同的统一入口，并把实际执行委托给服务端 Codex app-server。
+
 随着大语言模型（LLM）生态的快速演进，Agent 的**纯执行层能力**（如 Claude Code / Codex 等）正逐渐收敛为底层的标准化基础设施（Infrastructure）。
 
-相反，**用户专属数据、开箱即用的交互体验、持久化记忆与个性化 Skill**，才是真正需要百花齐放、构建差异化竞争力的关键赛道。
-
-在这一背景下，**Ripple** 致力于成为高效的 **Agent 控制面**（Control Plane）。
+在这一背景下，**用户专属数据、开箱即用的交互体验、持久化记忆与个性化 Skill**，才是真正需要构建差异化体验的关键赛道。Ripple 的定位是在保持控制面 / 执行面分离的同时，让每一次迭代都能更稳定地向解收敛。
 
 ### 核心职责
 
@@ -55,7 +56,7 @@
 Ripple 采用 **控制面（Control Plane）与 执行面（Execution Plane）** 分离的高效设计：
 
 *   **Ripple Control Plane (控制面)**：由 Rust (`crates/ripple-server`) 编写的高性能控制服务。负责外部 Web/Tauri/Mobile API 路由、状态持久化、连接器 OAuth 与安全拦截。
-*   **Codex Execution Plane (执行面)**：基于服务端预装的 `codex app-server`，由控制面根据 user 级执行锁按需启动并托管。通过受限的 permissions profile 策略实现沙箱内高安全性指令执行。
+*   **Codex Execution Plane (执行面)**：基于服务端预装的 `codex app-server`，由控制面按 job 启动并托管。通过受限的 permissions profile 策略实现沙箱内高安全性指令执行。
 
 ---
 

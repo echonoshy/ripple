@@ -251,7 +251,9 @@ function testSettingsPageUsesCompactMobileDensity() {
   const source = readFileSync(new URL("./SettingsPage.tsx", import.meta.url), "utf8");
 
   assert.match(source, /COMPACT_IOS_PAGE_BACKGROUND/);
-  assert.match(source, /pb-\[calc\(88px\+env\(safe-area-inset-bottom\)\)\]/);
+  assert.match(source, /pb-\[calc\(128px\+env\(safe-area-inset-bottom\)\)\]/);
+  assert.match(source, /lg:pb-4/);
+  assert.doesNotMatch(source, /md:pb-4/);
   assert.doesNotMatch(source, /20,184,166/);
   assert.match(source, /className="mx-auto max-w-5xl space-y-2"/);
   assert.match(source, /RippleIcon\s*\n\s*size=\{24\}/);
@@ -273,6 +275,22 @@ function testSettingsPageUsesCompactMobileDensity() {
   assert.match(source, /className="border-t border-\[#e8edf7\] p-2"/);
   assert.match(source, /mb-1 flex items-center gap-1\.5 text-\[11px\]/);
   assert.doesNotMatch(source, /Used for new prompts and scheduled runs/);
+}
+
+function testSettingsDiagnosticsExpansionScrollsAboveMobileTabBar() {
+  const source = readFileSync(new URL("./SettingsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /diagnosticsSectionRef/);
+  assert.match(source, /diagnosticsSectionRef\.current\?\.scrollIntoView/);
+  assert.match(source, /block: "end"/);
+  assert.match(
+    source,
+    /ref=\{diagnosticsSectionRef\}[\s\S]*data-ripple-settings-diagnostics-section/
+  );
+  assert.match(
+    source,
+    /data-ripple-settings-diagnostics-section[\s\S]*scroll-mb-\[calc\(128px\+env\(safe-area-inset-bottom\)\)\]/
+  );
 }
 
 function testSettingsPageRendersChineseChrome() {
@@ -299,6 +317,7 @@ testSettingsPageDoesNotFetchConnectorData();
 testSettingsPageUsesSoftTilesForEntitySections();
 testDefaultModelControlUsesDefaultModelNotCurrentSessionModel();
 testSettingsPageUsesCompactMobileDensity();
+testSettingsDiagnosticsExpansionScrollsAboveMobileTabBar();
 testSettingsPageRendersChineseChrome();
 
 console.log("settings page tests passed");

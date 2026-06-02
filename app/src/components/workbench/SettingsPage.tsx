@@ -190,6 +190,7 @@ export default function SettingsPage({
   } | null>(null);
   const modelMenuRef = useRef<HTMLDivElement | null>(null);
   const avatarFileInputRef = useRef<HTMLInputElement | null>(null);
+  const diagnosticsSectionRef = useRef<HTMLElement | null>(null);
 
   const loadSettingsData = useCallback(async () => {
     setIsLoading(true);
@@ -248,6 +249,17 @@ export default function SettingsPage({
     if (isDisplayNameEditing) return;
     setDisplayNameInput(profile?.profile?.display_name ?? "");
   }, [isDisplayNameEditing, profile?.profile?.display_name]);
+
+  useEffect(() => {
+    if (!diagnosticsOpen || typeof window === "undefined") return;
+    const frame = window.requestAnimationFrame(() => {
+      diagnosticsSectionRef.current?.scrollIntoView({
+        block: "end",
+        behavior: "smooth",
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [diagnosticsOpen]);
 
   const handlePasswordSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -551,7 +563,7 @@ export default function SettingsPage({
 
   return (
     <div
-      className={`h-full min-h-0 overflow-y-auto ${COMPACT_IOS_PAGE_BACKGROUND} px-2.5 pt-[max(env(safe-area-inset-top),8px)] pb-[calc(88px+env(safe-area-inset-bottom))] text-[#111827] md:px-4 md:pt-[max(env(safe-area-inset-top),12px)] md:pb-4`}
+      className={`h-full min-h-0 overflow-y-auto ${COMPACT_IOS_PAGE_BACKGROUND} px-2.5 pt-[max(env(safe-area-inset-top),8px)] pb-[calc(128px+env(safe-area-inset-bottom))] text-[#111827] md:px-4 md:pt-[max(env(safe-area-inset-top),12px)] lg:pb-4`}
     >
       {modelMenuPortal}
       {avatarMenuPortal}
@@ -924,7 +936,11 @@ export default function SettingsPage({
           </div>
         </section>
 
-        <section className="rounded-xl border border-[#dfe6f4] bg-white/78 shadow-[0_8px_22px_rgba(44,63,123,0.05)] backdrop-blur-xl">
+        <section
+          ref={diagnosticsSectionRef}
+          data-ripple-settings-diagnostics-section
+          className="scroll-mb-[calc(128px+env(safe-area-inset-bottom))] rounded-xl border border-[#dfe6f4] bg-white/78 shadow-[0_8px_22px_rgba(44,63,123,0.05)] backdrop-blur-xl lg:scroll-mb-4"
+        >
           <button
             type="button"
             onClick={() => setDiagnosticsOpen((open) => !open)}

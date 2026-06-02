@@ -110,6 +110,7 @@ export default function SessionComposer({
 }: SessionComposerProps) {
   const { t } = useI18n();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const lastAppliedFocusTokenRef = useRef(focusToken);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const quickActionsRef = useRef<HTMLDivElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
@@ -151,9 +152,10 @@ export default function SessionComposer({
   }, [value, isExpandedComposer, adjustHeight]);
 
   useEffect(() => {
-    if (shouldApplyInputFocus(focusToken, inputDisabled)) {
-      textareaRef.current?.focus();
-    }
+    if (focusToken <= lastAppliedFocusTokenRef.current) return;
+    if (!shouldApplyInputFocus(focusToken, inputDisabled)) return;
+    textareaRef.current?.focus();
+    lastAppliedFocusTokenRef.current = focusToken;
   }, [focusToken, inputDisabled]);
 
   const getTextareaCursor = useCallback(

@@ -174,6 +174,14 @@ function testComposerOnlyTextInputFocusExpandsEmptyComposer() {
   assert.doesNotMatch(layoutContainer, /onFocus=/);
 }
 
+function testComposerIgnoresHistoricalFocusTokenOnMount() {
+  const source = readFileSync(new URL("./SessionComposer.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /lastAppliedFocusTokenRef = useRef\(focusToken\)/);
+  assert.match(source, /focusToken <= lastAppliedFocusTokenRef\.current/);
+  assert.match(source, /lastAppliedFocusTokenRef\.current = focusToken/);
+}
+
 function testComposerExpandsWhenFocusedWithoutInput() {
   assert.equal(shouldExpandComposer("", true), true);
   assert.equal(shouldExpandComposer("   ", true), true);
@@ -232,6 +240,7 @@ testComposerUsesCompactGlassRadiusScale();
 testComposerExpandsActionsBelowTextAfterInput();
 testExpandedComposerKeepsToolbarHorizontalOrigin();
 testComposerOnlyTextInputFocusExpandsEmptyComposer();
+testComposerIgnoresHistoricalFocusTokenOnMount();
 testComposerExpandsWhenFocusedWithoutInput();
 testComposerRecalculatesTextareaHeightAfterExpansion();
 testComposerShowsAttachmentUploadStateAndErrors();

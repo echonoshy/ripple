@@ -146,10 +146,12 @@ function testAutomationCardUsesCompactResponsiveLayout() {
   assert.match(source, /data-ripple-automation-detail-grid/);
   assert.match(source, /data-ripple-automation-detail-grid[\s\S]{0,130}className="grid gap-1\.5/);
   assert.doesNotMatch(source, /data-ripple-automation-detail-grid[\s\S]{0,120}pl-8/);
-  assert.match(source, /data-ripple-automation-meta-grid[\s\S]*className="grid gap-1\.5"/);
+  assert.match(
+    source,
+    /data-ripple-automation-meta-grid[\s\S]*className="grid grid-cols-2 gap-1\.5 md:grid-cols-1"/
+  );
   assert.match(source, /data-ripple-automation-meta-cell/);
   assert.doesNotMatch(source, /data-ripple-automation-meta-chip/);
-  assert.doesNotMatch(source, /data-ripple-automation-meta-grid[\s\S]{0,120}grid-cols-2/);
   assert.doesNotMatch(source, /data-ripple-automation-meta-grid[\s\S]{0,120}flex flex-wrap/);
   assert.match(source, /className="mt-0\.5 truncate text-\[12px\] text-\[#384152\]"/);
   assert.match(
@@ -182,9 +184,11 @@ function testAutomationCardUsesDesktopRowLayout() {
     source,
     /data-ripple-automation-detail-grid[\s\S]*md:grid-cols-\[minmax\(150px,220px\)_minmax\(0,1fr\)\]/
   );
-  assert.match(source, /data-ripple-automation-meta-grid[\s\S]*className="grid gap-1\.5"/);
+  assert.match(
+    source,
+    /data-ripple-automation-meta-grid[\s\S]*className="grid grid-cols-2 gap-1\.5 md:grid-cols-1"/
+  );
   assert.doesNotMatch(source, /data-ripple-automation-meta-grid[\s\S]{0,120}sm:grid-cols-3/);
-  assert.doesNotMatch(source, /data-ripple-automation-meta-grid[\s\S]{0,120}grid-cols-2/);
   assert.doesNotMatch(source, /col-span-2 min-w-0[\s\S]*sm:col-span-1/);
   assert.match(source, /data-ripple-automation-actions[\s\S]*md:grid-cols-5/);
   assert.doesNotMatch(source, /data-ripple-automation-actions[\s\S]{0,160}sm:flex/);

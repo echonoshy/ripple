@@ -869,7 +869,10 @@ export default function AutomationsPage({
                         data-ripple-automation-detail-grid
                         className="grid gap-1.5 md:grid-cols-[minmax(150px,220px)_minmax(0,1fr)]"
                       >
-                        <div data-ripple-automation-meta-grid className="grid gap-1.5">
+                        <div
+                          data-ripple-automation-meta-grid
+                          className="grid grid-cols-2 gap-1.5 md:grid-cols-1"
+                        >
                           <div
                             data-ripple-automation-meta-cell
                             className="min-w-0 rounded-lg border border-[#eef2fb] bg-[#f8fbff]/80 px-2 py-1"

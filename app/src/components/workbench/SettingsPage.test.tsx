@@ -246,10 +246,7 @@ function testSettingsPageUsesSoftTilesForEntitySections() {
   assert.match(html, /data-ripple-icon-tile="true"/);
   assert.match(html, /data-tone="neutral"/);
   assert.doesNotMatch(html, /data-tone="success"/);
-  assert.match(
-    source,
-    /title=\{t\("settings\.account"\)\}\s+tone="neutral"/
-  );
+  assert.match(source, /title=\{t\("settings\.account"\)\}\s+tone="neutral"/);
 }
 
 function testSettingsPageUsesAppStoreGroupedHierarchy() {
@@ -283,22 +280,19 @@ function testSettingsPageUsesCompactMobileDensity() {
   assert.match(source, /MOBILE_PAGE_TOP_SAFE_AREA_CLASS/);
   assert.match(source, /MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS/);
   assert.doesNotMatch(source, /pb-\[calc\(128px\+env\(safe-area-inset-bottom\)\)\]/);
-  assert.match(source, /lg:pb-4/);
+  assert.match(source, /lg:pb-5/);
   assert.doesNotMatch(source, /md:pb-4/);
   assert.doesNotMatch(source, /20,184,166/);
   assert.match(source, /className="mx-auto max-w-5xl space-y-2\.5"/);
-  assert.match(source, /RippleIcon\s*\n\s*size=\{24\}/);
+  assert.match(source, /RippleIcon\s*\n\s*size=\{28\}/);
   assert.match(source, /className="flex min-h-10 items-center gap-1\.5 border-b/);
   assert.match(source, /<div className="space-y-1\.5 p-2">/);
   assert.match(source, /data-ripple-settings-account-actions/);
   assert.match(source, /data-ripple-settings-account-actions[\s\S]*grid[\s\S]*grid-cols-2/);
   assert.match(source, /data-ripple-settings-account-actions[\s\S]*sm:flex[\s\S]*sm:flex-wrap/);
   assert.match(source, /const settingsAccountActionButtonClass =[\s\S]*w-full min-w-0/);
-  assert.match(source, /const settingsAccountActionButtonClass =[\s\S]*h-10 w-full/);
-  assert.match(
-    source,
-    /const settingsAccountActionButtonClass =[\s\S]*text-\[12px\]/
-  );
+  assert.match(source, /const settingsAccountActionButtonClass =[\s\S]*h-9 w-full/);
+  assert.match(source, /const settingsAccountActionButtonClass =[\s\S]*text-\[11px\]/);
   assert.match(source, /className="grid gap-1\.5 p-2\.5 md:grid-cols-2"/);
   assert.match(source, /data-ripple-settings-token-grid/);
   assert.match(source, /data-ripple-settings-token-grid[\s\S]*grid-cols-3/);

@@ -226,7 +226,7 @@ const automationDeleteButtonClass =
   "inline-flex h-8 w-full min-w-0 items-center justify-center gap-1 rounded-full border px-2 text-[12px] font-semibold [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0";
 
 const runActionButtonClass =
-  "inline-flex h-8 shrink-0 items-center justify-center gap-1 rounded-full border border-[#dfe6f4] bg-white px-2 text-[12px] font-semibold text-[#384152] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:opacity-60";
+  "inline-flex h-8 shrink-0 items-center justify-center gap-1 rounded-full border border-[#dfe6f4] bg-white px-2 text-[12px] font-medium text-[#384152] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:opacity-60";
 
 function defaultRunAt(): string {
   const date = new Date(Date.now() + 60 * 60 * 1000);
@@ -579,9 +579,9 @@ export default function AutomationsPage({
 
   return (
     <div
-      className={`h-full min-h-0 overflow-y-auto ${COMPACT_IOS_PAGE_BACKGROUND} px-4 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} text-[#111827] md:px-6 lg:pb-4`}
+      className={`h-full min-h-0 overflow-y-auto ${COMPACT_IOS_PAGE_BACKGROUND} px-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} text-[#111827] md:px-6 lg:pb-5`}
     >
-      <div className="mx-auto max-w-6xl space-y-4">
+      <div className="mx-auto max-w-5xl space-y-4">
         <header className="flex flex-wrap items-center justify-between gap-3 pb-1">
           <div className="flex min-w-0 items-center gap-3">
             {onBack ? (

@@ -92,7 +92,7 @@ const SETTINGS_AVATAR_MENU_ITEM_HEIGHT = 32;
 const SETTINGS_AVATAR_MENU_VERTICAL_PADDING = 8;
 
 const settingsAccountActionButtonClass =
-  "inline-flex h-10 w-full min-w-0 items-center justify-center gap-1 rounded-2xl border border-[#dfe6f4] bg-white px-2 text-[12px] font-semibold text-[#374151] transition-all hover:bg-[#f7f8fa] active:scale-[0.98] sm:w-auto sm:min-w-[68px] sm:gap-1.5 sm:px-2.5 lg:h-9 lg:text-[11px] [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0";
+  "inline-flex h-9 w-full min-w-0 items-center justify-center gap-1 rounded-xl border border-[#dfe6f4] bg-white px-1.5 text-[11px] font-semibold text-[#374151] transition-all hover:bg-[#f7f8fa] active:scale-[0.98] sm:w-auto sm:min-w-[60px] sm:gap-1 sm:px-2 lg:h-8 [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0";
 
 const settingsSectionClass =
   "overflow-hidden rounded-xl border border-[#d7d7dd]/80 bg-white/82 shadow-[0_10px_26px_rgba(60,60,67,0.06)] backdrop-blur-xl";
@@ -573,7 +573,7 @@ export default function SettingsPage({
 
   return (
     <div
-      className={`h-full min-h-0 overflow-y-auto ${COMPACT_IOS_PAGE_BACKGROUND} px-2.5 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} text-[#111827] md:px-4 lg:pb-4`}
+      className={`h-full min-h-0 overflow-y-auto ${COMPACT_IOS_PAGE_BACKGROUND} px-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} text-[#111827] md:px-6 lg:pb-5`}
     >
       {modelMenuPortal}
       {avatarMenuPortal}
@@ -581,11 +581,11 @@ export default function SettingsPage({
         <header className="flex items-start justify-between gap-2">
           <div className="flex min-w-0 items-center gap-1.5">
             <RippleIcon
-              size={24}
-              className="h-6 w-6 shrink-0 rounded-md shadow-[0_6px_14px_rgba(64,92,255,0.14)]"
+              size={28}
+              className="h-7 w-7 shrink-0 rounded-md shadow-[0_6px_14px_rgba(64,92,255,0.14)]"
             />
             <div className="min-w-0">
-              <h1 className="text-[16px] leading-tight font-semibold tracking-normal">Ripple</h1>
+              <h1 className="text-[20px] leading-7 font-semibold tracking-normal">Ripple</h1>
               <div className="text-[12px] text-[#7a8496]">{t("settings.title")}</div>
             </div>
           </div>
@@ -635,11 +635,11 @@ export default function SettingsPage({
                 <div className="min-w-0">
                   <div
                     aria-label={t("settings.displayName")}
-	                    className="truncate text-[15px] font-semibold text-[#111827]"
+                    className="truncate text-[15px] font-semibold text-[#111827]"
                   >
                     {authMode === "user" ? profileDisplayName : t("settings.apiKeyAccess")}
                   </div>
-	                  <div className="mt-0.5 truncate text-[12px] text-[#667085]">
+                  <div className="mt-0.5 truncate text-[12px] text-[#667085]">
                     {authMode === "user"
                       ? profileEmail || t("settings.signedIn")
                       : t("settings.developerMode")}
@@ -710,7 +710,7 @@ export default function SettingsPage({
               </div>
             </div>
             {avatarError ? (
-	              <div className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-[12px] font-semibold text-red-700">
+              <div className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-[12px] font-semibold text-red-700">
                 {avatarError}
               </div>
             ) : null}
@@ -720,14 +720,14 @@ export default function SettingsPage({
                 onSubmit={handleDisplayNameSubmit}
                 className="space-y-2 rounded-lg border border-[#e8edf7] bg-[#f8faff] p-2"
               >
-	                <label className="min-w-0 text-[13px] font-semibold text-[#667085]">
+                <label className="min-w-0 text-[13px] font-semibold text-[#667085]">
                   {t("settings.displayName")}
                   <input
                     aria-label={t("settings.displayName")}
                     type="text"
                     value={displayNameInput}
                     onChange={(event) => setDisplayNameInput(event.target.value)}
-	                    className="mt-1 h-11 w-full rounded-lg border border-[#dfe6f4] bg-white px-2.5 text-[16px] text-[#111827] outline-none focus:border-[#8da0ff] lg:h-10 lg:text-[12px]"
+                    className="mt-1 h-11 w-full rounded-lg border border-[#dfe6f4] bg-white px-2.5 text-[16px] text-[#111827] outline-none focus:border-[#8da0ff] lg:h-10 lg:text-[12px]"
                     maxLength={80}
                   />
                 </label>
@@ -742,7 +742,7 @@ export default function SettingsPage({
                       setDisplayNameInput(profile?.profile?.display_name ?? "");
                       setDisplayNameError(null);
                     }}
-	                    className="inline-flex h-11 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-3 text-[12px] font-semibold text-[#374151] lg:h-10 lg:text-[11px]"
+                    className="inline-flex h-11 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-3 text-[12px] font-semibold text-[#374151] lg:h-10 lg:text-[11px]"
                   >
                     <X size={12} />
                     {t("settings.cancel")}
@@ -750,7 +750,7 @@ export default function SettingsPage({
                   <button
                     type="submit"
                     disabled={isSavingDisplayName}
-	                    className="inline-flex h-11 items-center gap-1.5 rounded-full bg-[#007aff] px-3 text-[12px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-[#d0d7e2] lg:h-10 lg:text-[11px]"
+                    className="inline-flex h-11 items-center gap-1.5 rounded-full bg-[#007aff] px-3 text-[12px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-[#d0d7e2] lg:h-10 lg:text-[11px]"
                   >
                     {isSavingDisplayName ? <Loader2 size={12} className="animate-spin" /> : null}
                     {t("settings.saveName")}
@@ -759,7 +759,7 @@ export default function SettingsPage({
               </form>
             ) : null}
             {displayNameMessage ? (
-	              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[12px] font-semibold text-emerald-700">
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[12px] font-semibold text-emerald-700">
                 {displayNameMessage}
               </div>
             ) : null}
@@ -770,22 +770,22 @@ export default function SettingsPage({
                 className="space-y-2 rounded-lg border border-[#e8edf7] bg-[#f8faff] p-2"
               >
                 <div className="grid gap-2 sm:grid-cols-2">
-	                  <label className="min-w-0 text-[13px] font-semibold text-[#667085]">
+                  <label className="min-w-0 text-[13px] font-semibold text-[#667085]">
                     {t("settings.currentPassword")}
                     <input
                       type="password"
                       value={currentPassword}
                       onChange={(event) => setCurrentPassword(event.target.value)}
-	                      className="mt-1 h-11 w-full rounded-lg border border-[#dfe6f4] bg-white px-2.5 text-[16px] text-[#111827] outline-none focus:border-[#8da0ff] lg:h-10 lg:text-[12px]"
+                      className="mt-1 h-11 w-full rounded-lg border border-[#dfe6f4] bg-white px-2.5 text-[16px] text-[#111827] outline-none focus:border-[#8da0ff] lg:h-10 lg:text-[12px]"
                     />
                   </label>
-	                  <label className="min-w-0 text-[13px] font-semibold text-[#667085]">
+                  <label className="min-w-0 text-[13px] font-semibold text-[#667085]">
                     {t("settings.newPassword")}
                     <input
                       type="password"
                       value={newPassword}
                       onChange={(event) => setNewPassword(event.target.value)}
-	                      className="mt-1 h-11 w-full rounded-lg border border-[#dfe6f4] bg-white px-2.5 text-[16px] text-[#111827] outline-none focus:border-[#8da0ff] lg:h-10 lg:text-[12px]"
+                      className="mt-1 h-11 w-full rounded-lg border border-[#dfe6f4] bg-white px-2.5 text-[16px] text-[#111827] outline-none focus:border-[#8da0ff] lg:h-10 lg:text-[12px]"
                     />
                   </label>
                 </div>
@@ -799,7 +799,7 @@ export default function SettingsPage({
                       setIsPasswordOpen(false);
                       setPasswordError(null);
                     }}
-	                    className="inline-flex h-11 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-3 text-[12px] font-semibold text-[#374151] lg:h-10 lg:text-[11px]"
+                    className="inline-flex h-11 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-3 text-[12px] font-semibold text-[#374151] lg:h-10 lg:text-[11px]"
                   >
                     <X size={12} />
                     {t("settings.cancel")}
@@ -807,7 +807,7 @@ export default function SettingsPage({
                   <button
                     type="submit"
                     disabled={isChangingPassword}
-	                    className="inline-flex h-11 items-center gap-1.5 rounded-full bg-[#007aff] px-3 text-[12px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-[#d0d7e2] lg:h-10 lg:text-[11px]"
+                    className="inline-flex h-11 items-center gap-1.5 rounded-full bg-[#007aff] px-3 text-[12px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-[#d0d7e2] lg:h-10 lg:text-[11px]"
                   >
                     {isChangingPassword ? <Loader2 size={12} className="animate-spin" /> : null}
                     {t("settings.savePassword")}
@@ -816,7 +816,7 @@ export default function SettingsPage({
               </form>
             ) : null}
             {passwordMessage ? (
-	              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[12px] font-semibold text-emerald-700">
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[12px] font-semibold text-emerald-700">
                 {passwordMessage}
               </div>
             ) : null}
@@ -903,7 +903,7 @@ export default function SettingsPage({
                 <button
                   type="button"
                   onClick={handleModelMenuToggle}
-	                  className="inline-flex h-11 min-w-28 items-center justify-between gap-2 rounded-full border border-[#dfe6f4] bg-white px-3 text-[12px] font-semibold text-[#374151] transition-all outline-none hover:bg-[#f7f8fa] focus:border-[#8da0ff] lg:h-10 lg:text-[11px]"
+                  className="inline-flex h-11 min-w-28 items-center justify-between gap-2 rounded-full border border-[#dfe6f4] bg-white px-3 text-[12px] font-semibold text-[#374151] transition-all outline-none hover:bg-[#f7f8fa] focus:border-[#8da0ff] lg:h-10 lg:text-[11px]"
                   aria-label={t("settings.defaultModel")}
                   aria-haspopup="menu"
                   aria-expanded={isModelMenuOpen}
@@ -968,7 +968,7 @@ export default function SettingsPage({
             onClick={() => setDiagnosticsOpen((open) => !open)}
             className="flex w-full items-center justify-between gap-2 px-2.5 py-2 text-left"
           >
-	            <span className="flex items-center gap-1.5 text-[13px] font-semibold text-[#111827]">
+            <span className="flex items-center gap-1.5 text-[13px] font-semibold text-[#111827]">
               <IconTile tone="neutral" size="xs">
                 <ShieldCheck size={13} />
               </IconTile>
@@ -1046,7 +1046,7 @@ function SectionHeader({
   tone?: IconTileTone;
 }) {
   return (
-	    <div className="flex min-h-10 items-center gap-1.5 border-b border-[#e5e5ea]/80 bg-white/54 px-2.5 text-[13px] font-semibold text-[#111827]">
+    <div className="flex min-h-10 items-center gap-1.5 border-b border-[#e5e5ea]/80 bg-white/54 px-2.5 text-[13px] font-semibold text-[#111827]">
       <IconTile tone={tone} size="xs">
         {icon}
       </IconTile>
@@ -1072,11 +1072,8 @@ function UsageMeter({
 }) {
   const amount = percent(value, max);
   return (
-    <div
-      data-ripple-settings-usage-meter
-      className="rounded-lg bg-[#f8faff]/70 px-2 py-1.5"
-    >
-	      <div className="mb-1 flex items-center justify-between text-[12px] font-semibold text-[#6b7280]">
+    <div data-ripple-settings-usage-meter className="rounded-lg bg-[#f8faff]/70 px-2 py-1.5">
+      <div className="mb-1 flex items-center justify-between text-[12px] font-semibold text-[#6b7280]">
         <span className="flex items-center gap-1.5">
           <IconTile tone={iconTone} size="xs">
             {icon}
@@ -1091,7 +1088,7 @@ function UsageMeter({
           style={{ width: `${amount}%` }}
         />
       </div>
-	      <div className="mt-1 text-[12px] text-[#8b8f94]">{detail}</div>
+      <div className="mt-1 text-[12px] text-[#8b8f94]">{detail}</div>
     </div>
   );
 }
@@ -1116,8 +1113,8 @@ function Metric({
       <div
         className={
           compact
-	            ? "text-[12px] font-medium text-[#8b8f94]"
-	            : "text-[12px] font-medium text-[#8b8f94]"
+            ? "text-[12px] font-medium text-[#8b8f94]"
+            : "text-[12px] font-medium text-[#8b8f94]"
         }
       >
         {label}
@@ -1150,7 +1147,7 @@ function RunActivityMetrics({ runsToday, activeRuns }: { runsToday: number; acti
       <div className="grid grid-cols-2 divide-x divide-[#e8edf7]">
         {items.map((item) => (
           <div key={item.label} className="px-2 py-1.5">
-	            <div className="text-[12px] font-medium text-[#8b8f94]">{item.label}</div>
+            <div className="text-[12px] font-medium text-[#8b8f94]">{item.label}</div>
             <div className="mt-0.5 text-[14px] font-semibold text-[#253247]">{item.value}</div>
           </div>
         ))}
@@ -1174,8 +1171,8 @@ function DiagnosticRow({
         {icon}
       </IconTile>
       <span className="min-w-0 flex-1">
-	        <span className="block text-[12px] font-semibold text-[#6b7280]">{label}</span>
-	        <span className="block truncate font-mono text-[12px] text-[#253247]">{value}</span>
+        <span className="block text-[12px] font-semibold text-[#6b7280]">{label}</span>
+        <span className="block truncate font-mono text-[12px] text-[#253247]">{value}</span>
       </span>
     </div>
   );

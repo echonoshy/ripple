@@ -70,10 +70,17 @@ function testDesktopProductTabsUseEqualWidths() {
 
   assert.equal(tabButtons.length, 4);
   for (const button of tabButtons) {
-    assert.match(button, /w-\[108px\]/);
+    assert.match(button, /w-\[132px\]/);
     assert.match(button, /justify-center/);
     assert.match(button, /whitespace-nowrap/);
   }
+}
+
+function testDesktopProductTabIconsDoNotShrink() {
+  const html = renderProductTopBar();
+  const icons = [...html.matchAll(/<svg[^>]*class="[^"]*h-4 w-4 shrink-0[^"]*"[^>]*>/g)];
+
+  assert.equal(icons.length, 4);
 }
 
 function testDesktopProductTabsRenderChineseLabels() {
@@ -91,6 +98,7 @@ testSettingsLivesInRightAvatarEntry();
 testSettingsEntryKeepsLiveStatusDot();
 testSelectedTopTabHasStrongerTreatment();
 testDesktopProductTabsUseEqualWidths();
+testDesktopProductTabIconsDoNotShrink();
 testDesktopProductTabsRenderChineseLabels();
 
 console.log("product top bar tests passed");

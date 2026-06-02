@@ -113,13 +113,17 @@ export default function ProductTopBar({
                 type="button"
                 data-ripple-top-tab={item.id}
                 onClick={() => onSelectView(item.id)}
-                className={`inline-flex h-8 w-[108px] shrink-0 items-center justify-center gap-1.5 rounded-full px-2 text-[13px] font-semibold whitespace-nowrap transition-all ${
+                className={`inline-flex h-8 w-[132px] shrink-0 items-center justify-center gap-1.5 rounded-full px-3 text-[13px] font-semibold whitespace-nowrap transition-all ${
                   selected
                     ? "bg-[#007aff] text-white shadow-[0_8px_18px_rgba(0,122,255,0.22)]"
                     : "text-[#3c3c43] hover:bg-white/82 hover:text-[#111827]"
                 }`}
               >
-                <Icon size={14} strokeWidth={LUCIDE_NAV_STROKE_WIDTH} />
+                <Icon
+                  size={16}
+                  className="h-4 w-4 shrink-0"
+                  strokeWidth={LUCIDE_NAV_STROKE_WIDTH}
+                />
                 {t(navLabelKeys[item.id])}
               </button>
             );

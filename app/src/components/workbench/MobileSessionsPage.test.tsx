@@ -59,6 +59,25 @@ function testRendersChatAppStyleSessionList() {
   assert.match(html, /pb-\[calc\(88px\+env\(safe-area-inset-bottom\)\)\]/);
 }
 
+function testMobileBrandWordmarkHasQuietPersonality() {
+  const html = renderMobileSessionsPage();
+  const wordmarkClass =
+    mobileSessionsPageSource.match(
+      /data-ripple-mobile-brand-wordmark="true"[\s\S]{0,180}className="([^"]+)"/
+    )?.[1] || "";
+
+  assert.match(html, /data-ripple-mobile-brand-wordmark="true"/);
+  assert.match(wordmarkClass, /text-\[19px\]/);
+  assert.match(wordmarkClass, /font-\[650\]/);
+  assert.match(wordmarkClass, /tracking-normal/);
+  assert.doesNotMatch(wordmarkClass, /font-\[800\]/);
+  assert.doesNotMatch(
+    mobileSessionsPageSource,
+    /data-ripple-mobile-brand-wordmark="true"[\s\S]{0,520}bg-\[#007aff\]/
+  );
+  assert.doesNotMatch(wordmarkClass, /tracking-\[-/);
+}
+
 function testUsesQuietAgentControlPlaneStyling() {
   const html = renderMobileSessionsPage();
 
@@ -157,6 +176,7 @@ function testRendersChineseMobileSessionChrome() {
 }
 
 testRendersChatAppStyleSessionList();
+testMobileBrandWordmarkHasQuietPersonality();
 testUsesQuietAgentControlPlaneStyling();
 testSessionRowsRemoveRepeatedChatIcon();
 testSearchInputUsesCompactType();

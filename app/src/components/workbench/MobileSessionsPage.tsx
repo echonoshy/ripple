@@ -232,9 +232,14 @@ export default function MobileSessionsPage({
         : null}
       <header className="shrink-0 border-b border-white/74 bg-white/76 px-4 pt-[max(env(safe-area-inset-top),10px)] pb-2 shadow-[0_8px_24px_rgba(60,60,67,0.06)] backdrop-blur-2xl">
         <div className="flex h-10 items-center justify-between">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
             <RippleIcon size={24} className="h-6 w-6" />
-            <span className="text-[18px] font-semibold tracking-normal text-[#111827]">Ripple</span>
+            <span
+              data-ripple-mobile-brand-wordmark="true"
+              className="inline-flex text-[19px] leading-none font-[650] tracking-normal text-[#111827] drop-shadow-[0_1px_0_rgba(255,255,255,0.78)]"
+            >
+              Ripple
+            </span>
           </div>
           <div className="flex items-center gap-2">
             <button

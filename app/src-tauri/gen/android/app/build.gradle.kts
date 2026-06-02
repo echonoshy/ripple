@@ -15,11 +15,11 @@ val tauriProperties = Properties().apply {
 
 android {
     compileSdk = 36
-    namespace = "ai.weilai.ripple"
+    namespace = "ai.viaim.ripple"
     defaultConfig {
         // TEMP_HTTP_IP_API: allow release builds to call http://140.143.229.103:8810/v1.
         manifestPlaceholders["usesCleartextTraffic"] = "true"
-        applicationId = "ai.weilai.ripple"
+        applicationId = "ai.viaim.ripple"
         minSdk = 24
         targetSdk = 36
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()

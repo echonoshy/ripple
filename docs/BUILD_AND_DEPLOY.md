@@ -183,7 +183,7 @@ adb install -r \
 - Xcode。
 - Apple Developer 账号。
 - 已配置 signing certificate、provisioning profile、App Store Connect app。
-- Bundle ID 与 Tauri identifier 保持一致：`ai.weilai.ripple`。
+- Bundle ID 与 Tauri identifier 保持一致：`ai.viaim.ripple`。
 
 首次初始化：
 

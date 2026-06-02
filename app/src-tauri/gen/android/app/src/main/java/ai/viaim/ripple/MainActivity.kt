@@ -1,4 +1,4 @@
-package ai.weilai.ripple
+package ai.viaim.ripple
 
 import android.os.Bundle
 import androidx.activity.enableEdgeToEdge

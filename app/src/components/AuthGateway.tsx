@@ -156,7 +156,7 @@ export default function AuthGateway({
       data-ripple-auth-gateway="true"
       className="min-h-screen w-screen overflow-y-auto bg-[#f2f2f7] text-[#101828]"
     >
-      <div className="mx-auto flex min-h-screen w-full max-w-[760px] flex-col px-4 py-5 sm:px-6 lg:max-w-[880px] lg:py-7">
+      <div className="mx-auto flex min-h-screen w-full max-w-[760px] flex-col px-4 pt-[calc(max(env(safe-area-inset-top),12px)+20px)] pb-[max(env(safe-area-inset-bottom),20px)] sm:px-6 lg:max-w-[880px] lg:pt-[calc(max(env(safe-area-inset-top),16px)+28px)]">
         <header className="flex h-12 shrink-0 items-center">
           <div className="flex items-center gap-3">
             <RippleIcon

@@ -48,6 +48,8 @@ function testGatewayShowsPrimaryLoginWithoutProductIntroModule() {
   const developerAccessMatches = html.match(/>Developer access</g) || [];
 
   assert.match(html, /data-ripple-auth-gateway="true"/);
+  assert.match(html, /pt-\[calc\(max\(env\(safe-area-inset-top\),12px\)\+20px\)\]/);
+  assert.match(html, /pb-\[max\(env\(safe-area-inset-bottom\),20px\)\]/);
   assert.match(html, /data-ripple-brand-wordmark="true"/);
   assert.match(
     html,

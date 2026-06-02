@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "identifier": "com.lake.ripple.dev",
+  "identifier": "ai.viaim.ripple",
   "build": {
     "beforeDevCommand": "VITE_RIPPLE_API_URL=http://140.143.229.103:8810 bun run dev",
     "beforeBuildCommand": "VITE_RIPPLE_API_URL=http://140.143.229.103:8810 bun run build"

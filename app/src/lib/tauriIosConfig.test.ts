@@ -64,7 +64,7 @@ testPackageExposesAndroidTauriScripts();
 function testTauriConfigKeepsTemporaryHttpIpApiAndAssetCsp() {
   const csp = tauriConfig.app.security.csp;
 
-  assert.equal(tauriConfig.identifier, "ai.weilai.ripple");
+  assert.equal(tauriConfig.identifier, "ai.viaim.ripple");
   assert.match(csp, /connect-src[^;]*http:\/\/140\.143\.229\.103:8810/);
   assert.match(csp, /connect-src[^;]*https:\/\/test-oauth\.weilai\.ai/);
   assert.match(csp, /img-src[^;]*asset:/);
@@ -92,9 +92,9 @@ function testPackagePinsPdfJsForMobilePreview() {
 testPackagePinsPdfJsForMobilePreview();
 
 function testTauriIosDevUsesPublicRippleServer() {
-  assert.equal(tauriIosConfig.identifier, "com.lake.ripple.dev");
+  assert.equal(tauriIosConfig.identifier, "ai.viaim.ripple");
   assert.match(appleProjectConfig, /PRODUCT_NAME: Ripple/);
-  assert.match(appleProjectConfig, /PRODUCT_BUNDLE_IDENTIFIER: com\.lake\.ripple\.dev/);
+  assert.match(appleProjectConfig, /PRODUCT_BUNDLE_IDENTIFIER: ai\.viaim\.ripple/);
   assert.match(
     tauriIosConfig.build.beforeDevCommand,
     /VITE_RIPPLE_API_URL=http:\/\/140\.143\.229\.103:8810/

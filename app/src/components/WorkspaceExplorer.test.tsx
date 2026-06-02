@@ -853,10 +853,34 @@ function testWorkspaceContextMenuUsesViewportAwarePositioning() {
   assert.match(source, /contextMenuRef/);
   assert.match(source, /getBoundingClientRect\(\)\.height/);
   assert.match(source, /useLayoutEffect/);
+  assert.match(source, /createPortal/);
+  assert.match(source, /contextMenuPortal/);
+  assert.match(source, /document\.body/);
   assert.doesNotMatch(source, /rect\.bottom \+ 4/);
 }
 
 testWorkspaceContextMenuUsesViewportAwarePositioning();
+
+function testWorkspaceContextMenuExposesExpectedRightClickActions() {
+  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /onContextMenu=\{onContainerContextMenu\}/);
+  assert.match(source, /onContextMenu=\{\(event\) => onEntryContextMenu\(event, entry\)\}/);
+  assert.match(source, /onMoreButtonClick\(event, entry\)/);
+  assert.match(source, /startRename\(contextMenu\.entry\)/);
+  assert.match(source, /handleCut\(contextMenu\.entry\)/);
+  assert.match(source, /handleCopy\(contextMenu\.entry\)/);
+  assert.match(source, /handleCopyAbsoluteSandboxPath\(contextMenu\.entry\)/);
+  assert.match(source, /contextMenu\.entry\.kind === "file"/);
+  assert.match(source, /handleDownloadFile\(contextMenu\.entry\.path\)/);
+  assert.match(source, /handleDelete\(contextMenu\.entry\)/);
+  assert.match(source, /onClick=\{handlePaste\}/);
+  assert.match(source, /clearClipboard/);
+  assert.match(source, /setCreationModal\(\{ visible: true, kind: "file" \}\)/);
+  assert.match(source, /setCreationModal\(\{ visible: true, kind: "directory" \}\)/);
+}
+
+testWorkspaceContextMenuExposesExpectedRightClickActions();
 
 function testWorkspaceEntryClickDismissesOpenContextMenuBeforeOpeningEntry() {
   const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");

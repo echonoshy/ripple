@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   AlertTriangle,
   ArrowUp,
@@ -1500,6 +1501,130 @@ export default function WorkspaceExplorer({
         "--ripple-workspace-list-row": `minmax(96px, ${splitPercent}%) minmax(0, 1fr)`,
       }
     : undefined;
+  const contextMenuPortal =
+    contextMenu.visible && typeof document !== "undefined"
+      ? createPortal(
+          <div
+            ref={contextMenuRef}
+            style={{ top: contextMenu.y, left: contextMenu.x }}
+            className="animate-in fade-in-50 zoom-in-95 fixed z-50 max-h-[calc(100dvh-104px)] w-[220px] overflow-y-auto rounded-2xl border border-[#dfe6f4] bg-white p-1.5 text-xs text-[#374151] shadow-[0_12px_36px_-4px_rgba(0,0,0,0.12),0_4px_16px_-2px_rgba(0,0,0,0.06)] duration-100"
+            onClick={(e) => e.stopPropagation()}
+            onContextMenu={(e) => e.preventDefault()}
+          >
+            {contextMenu.entry ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (contextMenu.entry) startRename(contextMenu.entry);
+                    setContextMenu((prev) => ({ ...prev, visible: false }));
+                  }}
+                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
+                >
+                  <Edit3 size={13} className="shrink-0 text-[#6b7280]" /> {t("files.rename")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => contextMenu.entry && handleCut(contextMenu.entry)}
+                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
+                >
+                  <Scissors size={13} className="shrink-0 text-[#6b7280]" /> {t("files.cutMove")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => contextMenu.entry && handleCopy(contextMenu.entry)}
+                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
+                >
+                  <Copy size={13} className="shrink-0 text-[#6b7280]" /> {t("files.copy")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    contextMenu.entry && handleCopyAbsoluteSandboxPath(contextMenu.entry)
+                  }
+                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left font-[family-name:var(--font-mono)] text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
+                >
+                  <FileText size={13} className="shrink-0 text-[#6b7280]" />{" "}
+                  {t("files.copySandboxPath")}
+                </button>
+                {contextMenu.entry.kind === "file" && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (contextMenu.entry) void handleDownloadFile(contextMenu.entry.path);
+                      setContextMenu((prev) => ({ ...prev, visible: false }));
+                    }}
+                    className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
+                  >
+                    <Download size={13} className="shrink-0 text-[#6b7280]" /> {t("files.download")}
+                  </button>
+                )}
+                <div className="my-1 border-t border-[#dfe6f4]" />
+                <button
+                  type="button"
+                  onClick={() => contextMenu.entry && void handleDelete(contextMenu.entry)}
+                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#cf222e] transition-colors hover:bg-[#ffebe9] active:bg-[#ffd5d6]"
+                >
+                  <Trash2 size={13} className="shrink-0 text-[#cf222e]" /> {t("files.delete")}
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  disabled={!clipboard}
+                  onClick={handlePaste}
+                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <Clipboard size={13} className="shrink-0 text-[#6b7280]" />
+                  {clipboard ? (
+                    <>
+                      {clipboard.items.length === 1
+                        ? t("files.pasteNamed", { name: clipboard.items[0]?.name || "" })
+                        : t("files.pasteItems", { count: clipboard.items.length })}
+                    </>
+                  ) : (
+                    t("files.paste")
+                  )}
+                </button>
+                {clipboard ? (
+                  <button
+                    type="button"
+                    onClick={clearClipboard}
+                    className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#667085] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
+                  >
+                    <X size={13} className="shrink-0 text-[#6b7280]" />
+                    {t("files.clearClipboard")}
+                  </button>
+                ) : null}
+                <div className="my-1 border-t border-[#dfe6f4]" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCreationModal({ visible: true, kind: "file" });
+                    setContextMenu((prev) => ({ ...prev, visible: false }));
+                  }}
+                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
+                >
+                  <FilePlus size={13} className="shrink-0 text-[#6b7280]" /> {t("files.newFile")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCreationModal({ visible: true, kind: "directory" });
+                    setContextMenu((prev) => ({ ...prev, visible: false }));
+                  }}
+                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
+                >
+                  <FolderPlus size={13} className="shrink-0 text-[#6b7280]" />{" "}
+                  {t("files.newFolder")}
+                </button>
+              </>
+            )}
+          </div>,
+          document.body
+        )
+      : null;
 
   return (
     <div
@@ -2934,126 +3059,7 @@ export default function WorkspaceExplorer({
         </div>
       )}
 
-      {/* 右键菜单 */}
-      {contextMenu.visible && (
-        <div
-          ref={contextMenuRef}
-          style={{ top: contextMenu.y, left: contextMenu.x }}
-          className="animate-in fade-in-50 zoom-in-95 fixed z-50 max-h-[calc(100dvh-104px)] w-[220px] overflow-y-auto rounded-2xl border border-[#dfe6f4] bg-white p-1.5 text-xs text-[#374151] shadow-[0_12px_36px_-4px_rgba(0,0,0,0.12),0_4px_16px_-2px_rgba(0,0,0,0.06)] duration-100"
-          onClick={(e) => e.stopPropagation()}
-          onContextMenu={(e) => e.preventDefault()}
-        >
-          {contextMenu.entry ? (
-            <>
-              <button
-                type="button"
-                onClick={() => {
-                  if (contextMenu.entry) startRename(contextMenu.entry);
-                  setContextMenu((prev) => ({ ...prev, visible: false }));
-                }}
-                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
-              >
-                <Edit3 size={13} className="shrink-0 text-[#6b7280]" /> {t("files.rename")}
-              </button>
-              <button
-                type="button"
-                onClick={() => contextMenu.entry && handleCut(contextMenu.entry)}
-                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
-              >
-                <Scissors size={13} className="shrink-0 text-[#6b7280]" /> {t("files.cutMove")}
-              </button>
-              <button
-                type="button"
-                onClick={() => contextMenu.entry && handleCopy(contextMenu.entry)}
-                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
-              >
-                <Copy size={13} className="shrink-0 text-[#6b7280]" /> {t("files.copy")}
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  contextMenu.entry && handleCopyAbsoluteSandboxPath(contextMenu.entry)
-                }
-                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left font-[family-name:var(--font-mono)] text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
-              >
-                <FileText size={13} className="shrink-0 text-[#6b7280]" />{" "}
-                {t("files.copySandboxPath")}
-              </button>
-              {contextMenu.entry.kind === "file" && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (contextMenu.entry) void handleDownloadFile(contextMenu.entry.path);
-                    setContextMenu((prev) => ({ ...prev, visible: false }));
-                  }}
-                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
-                >
-                  <Download size={13} className="shrink-0 text-[#6b7280]" /> {t("files.download")}
-                </button>
-              )}
-              <div className="my-1 border-t border-[#dfe6f4]" />
-              <button
-                type="button"
-                onClick={() => contextMenu.entry && void handleDelete(contextMenu.entry)}
-                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#cf222e] transition-colors hover:bg-[#ffebe9] active:bg-[#ffd5d6]"
-              >
-                <Trash2 size={13} className="shrink-0 text-[#cf222e]" /> {t("files.delete")}
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                type="button"
-                disabled={!clipboard}
-                onClick={handlePaste}
-                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff] disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <Clipboard size={13} className="shrink-0 text-[#6b7280]" />
-                {clipboard ? (
-                  <>
-                    {clipboard.items.length === 1
-                      ? t("files.pasteNamed", { name: clipboard.items[0]?.name || "" })
-                      : t("files.pasteItems", { count: clipboard.items.length })}
-                  </>
-                ) : (
-                  t("files.paste")
-                )}
-              </button>
-              {clipboard ? (
-                <button
-                  type="button"
-                  onClick={clearClipboard}
-                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#667085] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
-                >
-                  <X size={13} className="shrink-0 text-[#6b7280]" />
-                  {t("files.clearClipboard")}
-                </button>
-              ) : null}
-              <div className="my-1 border-t border-[#dfe6f4]" />
-              <button
-                type="button"
-                onClick={() => {
-                  setCreationModal({ visible: true, kind: "file" });
-                  setContextMenu((prev) => ({ ...prev, visible: false }));
-                }}
-                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
-              >
-                <FilePlus size={13} className="shrink-0 text-[#6b7280]" /> {t("files.newFile")}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setCreationModal({ visible: true, kind: "directory" });
-                  setContextMenu((prev) => ({ ...prev, visible: false }));
-                }}
-                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
-              >
-                <FolderPlus size={13} className="shrink-0 text-[#6b7280]" /> {t("files.newFolder")}
-              </button>
-            </>
-          )}
-        </div>
-      )}
+      {contextMenuPortal}
 
       {/* 新建模态对话框 */}
       {creationModal?.visible && (

@@ -97,6 +97,18 @@ function testConnectorsPageKeepsBilibiliAuthQrOnly() {
 
 testConnectorsPageKeepsBilibiliAuthQrOnly();
 
+function testConnectorsPageUsesTauriAwareExternalOpener() {
+  const source = readFileSync(new URL("./ConnectorsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /import \{ openExternalUrl \} from "@\/lib\/platform";/);
+  assert.match(source, /openExternalUrl\(maybeUrl, "ripple-connector-auth"\)/);
+  assert.match(source, /openExternalUrl\(nextUrl, "ripple-connector-auth"\)/);
+  assert.match(source, /handleOpenPendingExternalUrl/);
+  assert.doesNotMatch(source, /window\.open\(/);
+}
+
+testConnectorsPageUsesTauriAwareExternalOpener();
+
 function testConnectorsPageUsesSystemSoftTilesNotProviderLogos() {
   const source = readFileSync(new URL("./ConnectorsPage.tsx", import.meta.url), "utf8");
 

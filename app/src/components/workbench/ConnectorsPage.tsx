@@ -29,6 +29,7 @@ import {
   connectorReadinessSummary,
   connectorStatusTone,
 } from "@/lib/connectors";
+import { openExternalUrl } from "@/lib/platform";
 import { IconTile, type IconTileTone } from "@/components/icons/IconTile";
 import { useI18n } from "@/i18n";
 import type { ConnectorInfo, ConnectorStatus, GogcliAccountInfo } from "@/types";
@@ -277,6 +278,16 @@ export default function ConnectorsPage({
     [loadConnectors, t]
   );
 
+  const handleOpenPendingExternalUrl = useCallback(
+    (event: React.MouseEvent<HTMLAnchorElement>) => {
+      event.preventDefault();
+      const href = event.currentTarget.href.trim();
+      if (!href) return;
+      void openExternalUrl(href, "ripple-connector-auth");
+    },
+    []
+  );
+
   const handleStartAuth = useCallback(
     async (connector: ConnectorInfo) => {
       if (connector.name === "notion") {
@@ -292,7 +303,7 @@ export default function ConnectorsPage({
       const data = actionData(result);
       const maybeUrl = authUrlFromData(data);
       if (maybeUrl && connector.name !== "bilibili") {
-        window.open(maybeUrl, "_blank", "noopener,noreferrer");
+        void openExternalUrl(maybeUrl, "ripple-connector-auth");
       }
       const stage = typeof result.stage === "string" ? result.stage : "pending";
       if (stage === "authorized") {
@@ -356,7 +367,7 @@ export default function ConnectorsPage({
         const nextUrl = authUrlFromData(data);
         const currentUrl = authUrlFromData(pendingAuth.data);
         if (nextUrl && nextUrl !== currentUrl) {
-          window.open(nextUrl, "_blank", "noopener,noreferrer");
+          void openExternalUrl(nextUrl, "ripple-connector-auth");
         }
         const stage = typeof result.stage === "string" ? result.stage : "pending";
         if (stage === "authorized") {
@@ -709,6 +720,7 @@ export default function ConnectorsPage({
                                       href={pendingExternalUrl}
                                       target="_blank"
                                       rel="noreferrer"
+                                      onClick={handleOpenPendingExternalUrl}
                                       className="inline-flex h-7 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-2.5 text-[11px] font-semibold text-[#384152] hover:bg-[#f7f8fa]"
                                     >
                                       <ExternalLink size={12} />

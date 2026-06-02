@@ -26,16 +26,18 @@ export default function FilesPage({
   return (
     <div
       data-ripple-files-page="finder-stage"
-      className={`flex h-full min-h-0 flex-col overflow-hidden ${COMPACT_IOS_PAGE_BACKGROUND} p-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} text-[#111827] md:p-5 md:pt-[max(env(safe-area-inset-top),20px)] lg:pb-5`}
+      className={`flex h-full min-h-0 flex-col overflow-hidden ${COMPACT_IOS_PAGE_BACKGROUND} px-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} text-[#111827] md:px-6 lg:pb-5`}
     >
-      <WorkspaceExplorer
-        userId={userId}
-        refreshToken={refreshToken}
-        presentation="page"
-        onBack={onBack}
-        openFileRequest={openFileRequest}
-        onOpenFileRequestConsumed={onOpenFileRequestConsumed}
-      />
+      <div className="mx-auto w-full max-w-5xl flex-1 flex flex-col min-h-0">
+        <WorkspaceExplorer
+          userId={userId}
+          refreshToken={refreshToken}
+          presentation="page"
+          onBack={onBack}
+          openFileRequest={openFileRequest}
+          onOpenFileRequestConsumed={onOpenFileRequestConsumed}
+        />
+      </div>
     </div>
   );
 }

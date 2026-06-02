@@ -101,7 +101,7 @@ function testWorkspaceExplorerPageStacksHeaderControlsAwayFromTitle() {
   assert.match(html, /data-ripple-files-title-row="page"/);
   assert.match(html, /data-ripple-files-search-row="page"/);
   assert.match(html, /data-ripple-files-mobile-search-trigger/);
-  assert.match(html, /data-ripple-workspace-current-path="toolbar"[^>]*lg:hidden/);
+  assert.match(html, /text-\[20px\] leading-7/);
 
   const pageSearchRow = html.match(/<div[^>]*data-ripple-files-search-row="page"[^>]*>/)?.[0];
   assert.ok(pageSearchRow);

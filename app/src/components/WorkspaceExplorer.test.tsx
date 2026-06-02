@@ -11,6 +11,7 @@ import WorkspaceExplorer, {
   getWorkspacePreviewKind,
   getWorkspaceParentPath,
   getSplitPercentAfterFileDoubleClick,
+  shouldDismissWorkspaceContextMenuOnEntryClick,
 } from "./WorkspaceExplorer";
 
 function renderExplorer(
@@ -757,7 +758,7 @@ function testWorkspaceExplorerSupportsMultiSelectionBatchActions() {
 
 testWorkspaceExplorerSupportsMultiSelectionBatchActions();
 
-function testWorkspaceExplorerPageRowsExposeMobileSwipeActions() {
+function testWorkspaceExplorerPageRowsOmitMobileSwipeActions() {
   const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
   const html = renderExplorer({
     presentation: "page",
@@ -778,22 +779,23 @@ function testWorkspaceExplorerPageRowsExposeMobileSwipeActions() {
     },
   });
 
-  assert.match(source, /import SwipeActionRow/);
-  assert.match(source, /data-ripple-files-swipe-row/);
-  assert.match(source, /trailingActions=\{/);
-  assert.match(source, /onSwipeRightCommit=\{/);
+  assert.doesNotMatch(source, /import SwipeActionRow/);
+  assert.doesNotMatch(source, /data-ripple-files-swipe-row/);
+  assert.doesNotMatch(source, /trailingActions=\{/);
+  assert.doesNotMatch(source, /onSwipeRightCommit=\{/);
   assert.match(source, /toggleEntrySelection\(entry\)/);
   assert.match(source, /startRename\(entry\)/);
-  assert.match(source, /handleDelete\(entry\)/);
+  assert.match(source, /startRename\(contextMenu\.entry\)/);
+  assert.match(source, /handleDelete\(contextMenu\.entry\)/);
   assert.match(source, /openWorkspaceContextMenuForEntry/);
-  assert.match(html, /data-ripple-swipe-row/);
-  assert.match(html, /data-ripple-files-swipe-row/);
-  assert.match(html, /aria-disabled="true"/);
+  assert.doesNotMatch(html, /data-ripple-swipe-row/);
+  assert.doesNotMatch(html, /data-ripple-files-swipe-row/);
+  assert.doesNotMatch(html, /aria-disabled="true"/);
   assert.doesNotMatch(html, /data-ripple-swipe-actions/);
   assert.doesNotMatch(html, /aria-label="Delete"/);
 }
 
-testWorkspaceExplorerPageRowsExposeMobileSwipeActions();
+testWorkspaceExplorerPageRowsOmitMobileSwipeActions();
 
 function testWorkspaceExplorerSupportsDragMoveIntoDirectories() {
   const source = readFileSync(`${process.cwd()}/src/components/WorkspaceExplorer.tsx`, "utf8");
@@ -854,6 +856,19 @@ function testWorkspaceContextMenuUsesViewportAwarePositioning() {
 }
 
 testWorkspaceContextMenuUsesViewportAwarePositioning();
+
+function testWorkspaceEntryClickDismissesOpenContextMenuBeforeOpeningEntry() {
+  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+
+  assert.equal(shouldDismissWorkspaceContextMenuOnEntryClick(true), true);
+  assert.equal(shouldDismissWorkspaceContextMenuOnEntryClick(false), false);
+  assert.match(
+    source,
+    /shouldDismissWorkspaceContextMenuOnEntryClick\(contextMenu\.visible\)[\s\S]*?event\.preventDefault\(\);[\s\S]*?event\.stopPropagation\(\);[\s\S]*?setContextMenu\(\(prev\) => \(\{ \.\.\.prev, visible: false \}\)\);[\s\S]*?return;/
+  );
+}
+
+testWorkspaceEntryClickDismissesOpenContextMenuBeforeOpeningEntry();
 
 function testWorkspaceExplorerCompactToolbarOffersCreationActionsFromMoreMenu() {
   const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");

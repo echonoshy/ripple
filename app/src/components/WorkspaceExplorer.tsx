@@ -31,7 +31,6 @@ import {
 } from "lucide-react";
 import { IconTile } from "@/components/icons/IconTile";
 import { PdfPreview } from "./PdfPreview";
-import SwipeActionRow from "@/components/workbench/SwipeActionRow";
 import { DENSE_GLASS_ICON_BUTTON_CLASS } from "@/components/workbench/stylePrimitives";
 import { useI18n } from "@/i18n";
 import {
@@ -119,6 +118,12 @@ export function getSplitPercentFromVerticalResize({
 
 export function getSplitPercentAfterFileDoubleClick(currentSplitPercent: number): number {
   return currentSplitPercent >= MAX_SPLIT_PERCENT ? DEFAULT_SPLIT_PERCENT : currentSplitPercent;
+}
+
+export function shouldDismissWorkspaceContextMenuOnEntryClick(
+  contextMenuVisible: boolean
+): boolean {
+  return contextMenuVisible;
 }
 
 function workspaceContextMenuHeight(entry: WorkspaceEntry | null): number {
@@ -1120,16 +1125,6 @@ export default function WorkspaceExplorer({
     });
   };
 
-  const handleSwipeToggleEntrySelection = (entry: WorkspaceEntry) => {
-    const willSelect = !selectedEntryPaths.has(entry.path);
-    toggleEntrySelection(entry);
-    if (willSelect) {
-      setIsSelectionMode(true);
-      return;
-    }
-    if (selectedEntryCount <= 1) setIsSelectionMode(false);
-  };
-
   const clearSelection = () => {
     setSelectedEntryPaths(new Set());
   };
@@ -1149,6 +1144,13 @@ export default function WorkspaceExplorer({
   };
 
   const handleEntryClick = (event: React.MouseEvent, entry: WorkspaceEntry) => {
+    if (shouldDismissWorkspaceContextMenuOnEntryClick(contextMenu.visible)) {
+      event.preventDefault();
+      event.stopPropagation();
+      setContextMenu((prev) => ({ ...prev, visible: false }));
+      return;
+    }
+
     if (event.metaKey || event.ctrlKey) {
       event.preventDefault();
       setIsSelectionMode(true);
@@ -2421,188 +2423,148 @@ export default function WorkspaceExplorer({
                       {renameSaving && <Loader2 size={13} className="shrink-0 animate-spin" />}
                     </form>
                   ) : (
-                    <SwipeActionRow
+                    <div
                       key={entry.path}
-                      data-ripple-files-swipe-row
-                      disabled={!isPagePresentation || !isCoarsePointer}
-                      trailingActions={[
-                        {
-                          key: "rename",
-                          label: t("files.rename"),
-                          icon: <Edit3 size={14} />,
-                          onClick: () => startRename(entry),
-                        },
-                        {
-                          key: "delete",
-                          label: t("files.delete"),
-                          icon: <Trash2 size={14} />,
-                          tone: "danger",
-                          onClick: () => void handleDelete(entry),
-                        },
-                        {
-                          key: "more",
-                          label: t("files.moreActions"),
-                          icon: <MoreHorizontal size={14} />,
-                          onClick: (event) =>
-                            openWorkspaceContextMenuForEntry(
-                              event.currentTarget.getBoundingClientRect(),
-                              entry
-                            ),
-                        },
-                      ]}
-                      onSwipeRightCommit={() => handleSwipeToggleEntrySelection(entry)}
-                      rightCommitLabel={
-                        selectedEntryPaths.has(entry.path)
-                          ? t("files.selected")
-                          : t("files.selectEntry", { name: entry.name })
+                      draggable={!isCoarsePointer}
+                      data-ripple-files-drop-target={
+                        entry.kind === "directory" ? "directory" : undefined
                       }
-                      rightCommitIcon={<SquareCheck size={14} />}
-                      className={isPagePresentation ? "rounded-xl" : ""}
+                      onDragStart={(event) => handleEntryDragStart(event, entry)}
+                      onDragEnd={handleEntryDragEnd}
+                      onDragOver={
+                        entry.kind === "directory"
+                          ? (event) => handleDirectoryDragOver(event, entry)
+                          : undefined
+                      }
+                      onDragLeave={
+                        entry.kind === "directory"
+                          ? (event) => handleDirectoryDragLeave(event, entry)
+                          : undefined
+                      }
+                      onDrop={
+                        entry.kind === "directory"
+                          ? (event) => void handleDirectoryDrop(event, entry)
+                          : undefined
+                      }
+                      onContextMenu={(event) => onEntryContextMenu(event, entry)}
+                      className={
+                        isPagePresentation
+                          ? `group mb-1 grid min-h-10 w-full ${
+                              isSelectionActive
+                                ? "grid-cols-[28px_minmax(0,1fr)_auto]"
+                                : "grid-cols-[minmax(0,1fr)_auto]"
+                            } items-center rounded-xl transition-colors hover:bg-[#f7f8fa] ${
+                              selectedEntryPaths.has(entry.path)
+                                ? "bg-[#eaf2ff] shadow-[inset_0_0_0_1px_rgba(47,107,255,0.14)]"
+                                : preview?.path === entry.path
+                                  ? "bg-[#eef4ff] shadow-[inset_0_0_0_1px_rgba(47,107,255,0.08)]"
+                                  : "bg-transparent"
+                            } ${
+                              dragTargetPath === entry.path
+                                ? "bg-[#eef4ff] shadow-[inset_0_0_0_2px_rgba(47,107,255,0.24)]"
+                                : ""
+                            } ${draggedEntryPaths.has(entry.path) ? "opacity-45" : ""} ${
+                              clipboard?.action === "move" &&
+                              clipboard?.items.some((item) => item.path === entry.path)
+                                ? "opacity-35 select-none"
+                                : ""
+                            }`
+                          : `group flex w-full items-center transition-colors hover:bg-[#f7f8fa] ${
+                              selectedEntryPaths.has(entry.path)
+                                ? "bg-[#eaf2ff]"
+                                : preview?.path === entry.path
+                                  ? "bg-[#eef4ff]"
+                                  : "bg-white"
+                            } ${dragTargetPath === entry.path ? "bg-[#eef4ff]" : ""} ${
+                              draggedEntryPaths.has(entry.path) ? "opacity-45" : ""
+                            } ${
+                              clipboard?.action === "move" &&
+                              clipboard?.items.some((item) => item.path === entry.path)
+                                ? "opacity-35 select-none"
+                                : ""
+                            }`
+                      }
                     >
-                      <div
-                        draggable={!isCoarsePointer}
-                        data-ripple-files-drop-target={
-                          entry.kind === "directory" ? "directory" : undefined
-                        }
-                        onDragStart={(event) => handleEntryDragStart(event, entry)}
-                        onDragEnd={handleEntryDragEnd}
-                        onDragOver={
-                          entry.kind === "directory"
-                            ? (event) => handleDirectoryDragOver(event, entry)
-                            : undefined
-                        }
-                        onDragLeave={
-                          entry.kind === "directory"
-                            ? (event) => handleDirectoryDragLeave(event, entry)
-                            : undefined
-                        }
-                        onDrop={
-                          entry.kind === "directory"
-                            ? (event) => void handleDirectoryDrop(event, entry)
-                            : undefined
-                        }
-                        onContextMenu={(event) => onEntryContextMenu(event, entry)}
+                      {isSelectionActive ? (
+                        <label
+                          className={
+                            isPagePresentation
+                              ? "flex h-full items-center justify-center pl-2"
+                              : "flex h-full items-center justify-center pl-3"
+                          }
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          <input
+                            type="checkbox"
+                            data-ripple-files-select-entry
+                            checked={selectedEntryPaths.has(entry.path)}
+                            aria-label={t("files.selectEntry", { name: entry.name })}
+                            onChange={(event) => toggleEntrySelection(entry, event.target.checked)}
+                            className="h-4 w-4 rounded border-[#c7d2e5] text-[#007aff] accent-[#007aff]"
+                          />
+                        </label>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={(event) => handleEntryClick(event, entry)}
+                        onDoubleClick={() => handleFileDoubleClick(entry)}
+                        onKeyDown={(event) => {
+                          if (event.key === "F2") {
+                            event.preventDefault();
+                            startRename(entry);
+                          }
+                        }}
                         className={
                           isPagePresentation
-                            ? `group mb-1 grid min-h-10 w-full ${
-                                isSelectionActive
-                                  ? "grid-cols-[28px_minmax(0,1fr)_auto]"
-                                  : "grid-cols-[minmax(0,1fr)_auto]"
-                              } items-center rounded-xl transition-colors hover:bg-[#f7f8fa] ${
-                                selectedEntryPaths.has(entry.path)
-                                  ? "bg-[#eaf2ff] shadow-[inset_0_0_0_1px_rgba(47,107,255,0.14)]"
-                                  : preview?.path === entry.path
-                                    ? "bg-[#eef4ff] shadow-[inset_0_0_0_1px_rgba(47,107,255,0.08)]"
-                                    : "bg-transparent"
-                              } ${
-                                dragTargetPath === entry.path
-                                  ? "bg-[#eef4ff] shadow-[inset_0_0_0_2px_rgba(47,107,255,0.24)]"
-                                  : ""
-                              } ${draggedEntryPaths.has(entry.path) ? "opacity-45" : ""} ${
-                                clipboard?.action === "move" &&
-                                clipboard?.items.some((item) => item.path === entry.path)
-                                  ? "opacity-35 select-none"
-                                  : ""
-                              }`
-                            : `group flex w-full items-center transition-colors hover:bg-[#f7f8fa] ${
-                                selectedEntryPaths.has(entry.path)
-                                  ? "bg-[#eaf2ff]"
-                                  : preview?.path === entry.path
-                                    ? "bg-[#eef4ff]"
-                                    : "bg-white"
-                              } ${dragTargetPath === entry.path ? "bg-[#eef4ff]" : ""} ${
-                                draggedEntryPaths.has(entry.path) ? "opacity-45" : ""
-                              } ${
-                                clipboard?.action === "move" &&
-                                clipboard?.items.some((item) => item.path === entry.path)
-                                  ? "opacity-35 select-none"
-                                  : ""
-                              }`
+                            ? "flex min-w-0 items-center gap-2.5 px-2 py-2 text-left"
+                            : "flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2 text-left"
                         }
                       >
-                        {isSelectionActive ? (
-                          <label
-                            className={
-                              isPagePresentation
-                                ? "flex h-full items-center justify-center pl-2"
-                                : "flex h-full items-center justify-center pl-3"
-                            }
-                            onClick={(event) => event.stopPropagation()}
-                          >
-                            <input
-                              type="checkbox"
-                              data-ripple-files-select-entry
-                              checked={selectedEntryPaths.has(entry.path)}
-                              aria-label={t("files.selectEntry", { name: entry.name })}
-                              onChange={(event) =>
-                                toggleEntrySelection(entry, event.target.checked)
-                              }
-                              className="h-4 w-4 rounded border-[#c7d2e5] text-[#007aff] accent-[#007aff]"
-                            />
-                          </label>
-                        ) : null}
-                        <button
-                          type="button"
-                          onClick={(event) => handleEntryClick(event, entry)}
-                          onDoubleClick={() => handleFileDoubleClick(entry)}
-                          onKeyDown={(event) => {
-                            if (event.key === "F2") {
-                              event.preventDefault();
-                              startRename(entry);
-                            }
-                          }}
-                          className={
-                            isPagePresentation
-                              ? "flex min-w-0 items-center gap-2.5 px-2 py-2 text-left"
-                              : "flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2 text-left"
-                          }
+                        <IconTile
+                          tone={entry.kind === "directory" ? "accent" : "neutral"}
+                          size="xs"
                         >
-                          <IconTile
-                            tone={entry.kind === "directory" ? "accent" : "neutral"}
-                            size="xs"
+                          {entry.kind === "directory" ? (
+                            <Folder size={14} />
+                          ) : (
+                            <FileText size={14} />
+                          )}
+                        </IconTile>
+                        <span className="min-w-0 flex-1">
+                          <span
+                            className={`block truncate font-[family-name:var(--font-mono)] text-[13px] font-medium text-[#0d0d0d] ${
+                              entry.is_hidden ? "opacity-55" : ""
+                            }`}
                           >
-                            {entry.kind === "directory" ? (
-                              <Folder size={14} />
-                            ) : (
-                              <FileText size={14} />
-                            )}
-                          </IconTile>
-                          <span className="min-w-0 flex-1">
-                            <span
-                              className={`block truncate font-[family-name:var(--font-mono)] text-[13px] font-medium text-[#0d0d0d] ${
-                                entry.is_hidden ? "opacity-55" : ""
-                              }`}
-                            >
-                              {entry.name}
-                            </span>
-                            {isSearchMode ? (
-                              <SearchResultMeta entry={entry} />
-                            ) : (
-                              <span className="mt-0.5 block truncate font-[family-name:var(--font-mono)] text-[10px] text-[#6b7280]">
-                                {`${entry.kind === "directory" ? t("files.folder") : formatBytes(entry.size_bytes)}${
-                                  formatModified(entry.modified_at, locale)
-                                    ? ` · ${formatModified(entry.modified_at, locale)}`
-                                    : ""
-                                }`}
-                              </span>
-                            )}
+                            {entry.name}
                           </span>
-                        </button>
-                        <button
-                          type="button"
-                          aria-label={t("files.moreActionsFor", { name: entry.name })}
-                          title={t("files.moreActions")}
-                          onClick={(event) => onMoreButtonClick(event, entry)}
-                          className={
-                            isPagePresentation
-                              ? "mr-2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-transparent text-[#667085] opacity-100 transition-opacity hover:border-[#dfe6f4] hover:bg-white/78 hover:text-[#111827] focus:opacity-100 sm:h-7 sm:w-7 sm:opacity-0 sm:group-hover:opacity-100"
-                              : "mr-2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-transparent text-[#6b7280] opacity-100 transition-opacity hover:border-[#dde2ea] hover:bg-white hover:text-[#0d0d0d] focus:opacity-100 sm:h-7 sm:w-7 sm:opacity-0 sm:group-hover:opacity-100"
-                          }
-                        >
-                          <MoreHorizontal size={14} />
-                        </button>
-                      </div>
-                    </SwipeActionRow>
+                          {isSearchMode ? (
+                            <SearchResultMeta entry={entry} />
+                          ) : (
+                            <span className="mt-0.5 block truncate font-[family-name:var(--font-mono)] text-[10px] text-[#6b7280]">
+                              {`${entry.kind === "directory" ? t("files.folder") : formatBytes(entry.size_bytes)}${
+                                formatModified(entry.modified_at, locale)
+                                  ? ` · ${formatModified(entry.modified_at, locale)}`
+                                  : ""
+                              }`}
+                            </span>
+                          )}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={t("files.moreActionsFor", { name: entry.name })}
+                        title={t("files.moreActions")}
+                        onClick={(event) => onMoreButtonClick(event, entry)}
+                        className={
+                          isPagePresentation
+                            ? "mr-2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-transparent text-[#667085] opacity-100 transition-opacity hover:border-[#dfe6f4] hover:bg-white/78 hover:text-[#111827] focus:opacity-100 sm:h-7 sm:w-7 sm:opacity-0 sm:group-hover:opacity-100"
+                            : "mr-2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-transparent text-[#6b7280] opacity-100 transition-opacity hover:border-[#dde2ea] hover:bg-white hover:text-[#0d0d0d] focus:opacity-100 sm:h-7 sm:w-7 sm:opacity-0 sm:group-hover:opacity-100"
+                        }
+                      >
+                        <MoreHorizontal size={14} />
+                      </button>
+                    </div>
                   )
                 )}
               </div>

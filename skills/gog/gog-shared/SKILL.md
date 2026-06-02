@@ -1,7 +1,7 @@
 ---
 name: gog-shared
 version: 1.2.0
-description: "gogcli（gog 二进制）在 ripple 沙箱中的本地约定：部署级 Google OAuth Client 自动注册、用户级 refresh_token 隔离、仅授权基础 Workspace 服务（Gmail/Drive/Calendar/Docs/Sheets/Slides）、assisted/manual 远程授权、破坏性操作走自然语言二次确认、self-document 原则、安全规则。**首次使用 gog 必读**。当用户第一次调用 gog、遇到 [GOGCLI_SERVER_OAUTH_CLIENT_REQUIRED] / [GOGCLI_LOGIN_REQUIRED]、需要绑定/重新授权、或问到 gog 鉴权问题时触发。"
+description: "gogcli（gog 二进制）在 ripple 沙箱中的本地约定：部署级 Google OAuth Client 自动注册、用户级 refresh_token 隔离、仅授权基础 Workspace 服务（Gmail/Drive/Calendar/Docs/Sheets/Slides）、assisted/manual 远程授权、破坏性操作走自然语言二次确认、self-document 原则、安全规则。**首次使用 gog 必读**。适用于第一次调用 gog、遇到 [GOGCLI_SERVER_OAUTH_CLIENT_REQUIRED] / [GOGCLI_LOGIN_REQUIRED]、需要绑定/重新授权、或用户询问 gog 鉴权问题的场景。"
 metadata:
   requires:
     bins: ["gog"]

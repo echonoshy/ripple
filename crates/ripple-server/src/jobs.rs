@@ -128,6 +128,9 @@ impl JobManager {
         if prompt.is_empty() {
             anyhow::bail!("prompt is required");
         }
+        let image_generation_enabled = user_requested_image_generation(
+            create.chat_user_input.as_deref().unwrap_or(prompt.as_str()),
+        );
         let cwd = resolve_workspace_cwd(create.cwd.as_deref(), &workspace_root)?;
         let job_id = format!("agent-{}", &Uuid::new_v4().simple().to_string()[..8]);
         let job_dir = runtime_dir.join("external-agents").join(&job_id);
@@ -139,7 +142,8 @@ impl JobManager {
             "route": "agent_runner",
             "signals": [],
             "sandbox_cwd": sandbox_cwd_for_host_path(&cwd, &workspace_root),
-            "workspace_root": workspace_root
+            "workspace_root": workspace_root,
+            "image_generation_enabled": image_generation_enabled
         });
         if let Some(object) = metadata.as_object_mut() {
             if let Some(session_id) = &session_id {
@@ -277,6 +281,9 @@ impl JobManager {
         if prompt.is_empty() {
             anyhow::bail!("prompt is required");
         }
+        let image_generation_enabled = user_requested_image_generation(
+            create.chat_user_input.as_deref().unwrap_or(prompt.as_str()),
+        );
         let cwd = resolve_workspace_cwd(create.cwd.as_deref(), &workspace_root)?;
         let job_id = format!("internal-{}", &Uuid::new_v4().simple().to_string()[..8]);
         let job_dir = runtime_dir.join("internal-agents").join(&job_id);
@@ -286,7 +293,8 @@ impl JobManager {
             "internal": true,
             "signals": [],
             "sandbox_cwd": sandbox_cwd_for_host_path(&cwd, &workspace_root),
-            "workspace_root": workspace_root
+            "workspace_root": workspace_root,
+            "image_generation_enabled": image_generation_enabled
         });
         if let Some(object) = metadata.as_object_mut() {
             if let Some(session_id) = &session_id {
@@ -872,6 +880,60 @@ fn sandbox_cwd_for_host_path(cwd: &Path, workspace_root: &Path) -> String {
     }
 }
 
+fn user_requested_image_generation(text: &str) -> bool {
+    let normalized = text.to_ascii_lowercase();
+    if [
+        "image generation",
+        "text-to-image",
+        "generate image",
+        "generate an image",
+        "generate a picture",
+        "generate a photo",
+        "create an image",
+        "create a picture",
+        "create a photo",
+        "draw an image",
+        "draw a picture",
+        "render an image",
+        "paint an image",
+        "make an image",
+        "make a picture",
+        "design a poster",
+        "generate a poster",
+        "create a poster",
+        "generate a logo",
+        "create a logo",
+    ]
+    .into_iter()
+    .any(|marker| normalized.contains(marker))
+    {
+        return true;
+    }
+    let chinese_verbs = ["生成", "创建", "画", "绘制", "出图", "设计"];
+    let chinese_nouns = ["图片", "图像", "一张图", "海报", "头像", "图标"];
+    if chinese_verbs.into_iter().any(|verb| text.contains(verb))
+        && chinese_nouns.into_iter().any(|noun| text.contains(noun))
+    {
+        return true;
+    }
+    [
+        "生成图片",
+        "生成一张图",
+        "生成一张图片",
+        "创建图片",
+        "画一张",
+        "画个",
+        "画图",
+        "出图",
+        "做张图",
+        "做一张图",
+        "设计海报",
+        "生成海报",
+    ]
+    .into_iter()
+    .any(|marker| text.contains(marker))
+}
+
 fn default_provider() -> String {
     "codex".to_string()
 }
@@ -884,4 +946,23 @@ fn now_iso() -> String {
     OffsetDateTime::now_utc()
         .format(&Rfc3339)
         .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::user_requested_image_generation;
+
+    #[test]
+    fn image_generation_intent_requires_explicit_creation_request() {
+        assert!(!user_requested_image_generation(
+            "/workspace/动效plan.pdf\n\n这个讲了什么内容"
+        ));
+        assert!(!user_requested_image_generation(
+            "read this image and tell me what it says"
+        ));
+        assert!(user_requested_image_generation("帮我生成一张猫的图片"));
+        assert!(user_requested_image_generation(
+            "create an image of a neon robot"
+        ));
+    }
 }

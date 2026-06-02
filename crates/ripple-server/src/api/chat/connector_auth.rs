@@ -1,3 +1,4 @@
+use serde::Deserialize;
 use serde_json::{json, Value};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
@@ -19,6 +20,23 @@ const DONE_SIGNALS: &[&str] = &[
     "ok",
     "confirmed",
 ];
+const MODEL_CONNECTOR_AUTH_REQUEST_OPEN: &str = "<ripple_connector_auth_request>";
+const MODEL_CONNECTOR_AUTH_REQUEST_CLOSE: &str = "</ripple_connector_auth_request>";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ModelConnectorAuthRequest {
+    pub(crate) connector: String,
+    pub(crate) force_reauth: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawModelConnectorAuthRequest {
+    connector: String,
+    #[serde(default)]
+    force_reauth: bool,
+    reason: Option<String>,
+}
 
 pub(crate) struct ConnectorAuthDecision {
     pub(crate) event: Value,
@@ -30,33 +48,57 @@ pub(crate) async fn maybe_handle_connector_auth(
     user_id: &str,
     session: &mut SessionRecord,
     user_input: &str,
-    request_base_url: Option<&str>,
+    _request_base_url: Option<&str>,
 ) -> Result<Option<ConnectorAuthDecision>, ApiError> {
     if session.pending_connector_auth.is_some() {
         return continue_pending_connector_auth(state, user_id, session, user_input).await;
     }
-
-    for connector in ["notion", "google_workspace", "feishu"] {
-        if !mentions_connector(connector, user_input) {
-            continue;
-        }
-        let force_reauth = connector == "feishu" && is_reauth_intent(user_input);
-        if connector_is_connected(state, user_id, connector).await? && !force_reauth {
-            continue;
-        }
-        return start_connector_auth_for_chat(
-            state,
-            user_id,
-            session,
-            connector,
-            user_input,
-            request_base_url,
-            force_reauth,
-        )
-        .await
-        .map(Some);
-    }
     Ok(None)
+}
+
+pub(crate) fn model_connector_auth_request_might_be_start(text: &str) -> bool {
+    let trimmed = text.trim_start();
+    trimmed.is_empty()
+        || MODEL_CONNECTOR_AUTH_REQUEST_OPEN.starts_with(trimmed)
+        || trimmed.starts_with(MODEL_CONNECTOR_AUTH_REQUEST_OPEN)
+}
+
+pub(crate) fn parse_model_connector_auth_request(text: &str) -> Option<ModelConnectorAuthRequest> {
+    let trimmed = text.trim();
+    let json_text = trimmed
+        .strip_prefix(MODEL_CONNECTOR_AUTH_REQUEST_OPEN)?
+        .strip_suffix(MODEL_CONNECTOR_AUTH_REQUEST_CLOSE)?
+        .trim();
+    let request: RawModelConnectorAuthRequest = serde_json::from_str(json_text).ok()?;
+    let connector = request.connector.trim();
+    if !matches!(connector, "google_workspace" | "notion" | "feishu") {
+        return None;
+    }
+    let _reason = request.reason.as_deref().unwrap_or("").trim();
+    Some(ModelConnectorAuthRequest {
+        connector: connector.to_string(),
+        force_reauth: request.force_reauth,
+    })
+}
+
+pub(crate) async fn start_model_connector_auth_for_chat(
+    state: &AppState,
+    user_id: &str,
+    session: &mut SessionRecord,
+    request: &ModelConnectorAuthRequest,
+    user_input: &str,
+    request_base_url: Option<&str>,
+) -> Result<ConnectorAuthDecision, ApiError> {
+    start_connector_auth_for_chat(
+        state,
+        user_id,
+        session,
+        &request.connector,
+        user_input,
+        request_base_url,
+        request.force_reauth,
+    )
+    .await
 }
 
 pub(crate) async fn continue_pending_connector_auth(
@@ -680,47 +722,6 @@ fn pending_stage<'a>(pending: &'a Value, fallback: &'a str) -> &'a str {
         .unwrap_or(fallback)
 }
 
-fn mentions_connector(connector: &str, text: &str) -> bool {
-    let normalized = text.to_ascii_lowercase();
-    match connector {
-        "google_workspace" => [
-            "google",
-            "gmail",
-            "gog",
-            "drive",
-            "calendar",
-            "docs",
-            "sheets",
-            "slides",
-            "workspace",
-            "谷歌",
-            "日历",
-            "邮箱",
-        ]
-        .into_iter()
-        .any(|marker| normalized.contains(marker) || text.contains(marker)),
-        "notion" => {
-            normalized.contains("notion")
-                || normalized.contains("ntn_")
-                || normalized.contains("secret_")
-        }
-        "feishu" => {
-            normalized.contains("feishu")
-                || normalized.contains("lark")
-                || text.contains("飞书")
-                || text.contains("飛書")
-        }
-        "bilibili" => {
-            normalized.contains("bilibili")
-                || normalized.contains("b站")
-                || normalized.contains("bv")
-                || text.contains("哔哩")
-                || text.contains("B站")
-        }
-        _ => false,
-    }
-}
-
 fn is_done_signal(text: &str) -> bool {
     let normalized = text.trim().to_ascii_lowercase();
     DONE_SIGNALS
@@ -753,4 +754,34 @@ fn now_iso() -> String {
     OffsetDateTime::now_utc()
         .format(&Rfc3339)
         .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{model_connector_auth_request_might_be_start, parse_model_connector_auth_request};
+
+    #[test]
+    fn parses_model_connector_auth_request_protocol() {
+        let request = parse_model_connector_auth_request(
+            "<ripple_connector_auth_request>{\"connector\":\"google_workspace\",\"force_reauth\":false,\"reason\":\"needs Gmail access\"}</ripple_connector_auth_request>",
+        )
+        .expect("request");
+
+        assert_eq!(request.connector, "google_workspace");
+        assert!(!request.force_reauth);
+        assert!(parse_model_connector_auth_request("hello").is_none());
+        assert!(parse_model_connector_auth_request(
+            "<ripple_connector_auth_request>{\"connector\":\"bilibili\"}</ripple_connector_auth_request>"
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn detects_possible_streaming_connector_auth_prefix() {
+        assert!(model_connector_auth_request_might_be_start("<ripple"));
+        assert!(model_connector_auth_request_might_be_start(
+            "  <ripple_connector_auth_request>{}"
+        ));
+        assert!(!model_connector_auth_request_might_be_start("hello"));
+    }
 }

@@ -73,9 +73,13 @@ Ripple is the control plane: it owns user identity, sandbox isolation, connector
 {}\n\n\
 ## Execution Environment Guardrails\n\
 - Connector authorization, token capture, account disconnect, and QR login are Ripple control-plane flows. Do not invent ad-hoc auth tool calls.\n\
-- Google Workspace, Notion, and Feishu authorization is handled by Ripple before the Codex turn starts. For Bilibili tasks, follow the `bilibili` CLI workflow documented by the Bilibili skills.\n\
-- Do not collect connector credentials inside Codex; if Google Workspace, Notion, or Feishu is required and not connected, ask the user to authorize it through Ripple.\n\
+- Use Available Skills and Connector Status to decide whether a connector-backed skill is needed. Do not infer connector use from keywords alone.\n\
+- Do not collect connector credentials inside Codex. If Google Workspace, Notion, or Feishu is required and the connector status is not_connected, your final answer must contain only this internal control-plane request, with the connector set to one of google_workspace, notion, or feishu:\n\
+  <ripple_connector_auth_request>{{\"connector\":\"google_workspace\",\"force_reauth\":false,\"reason\":\"needs Gmail access\"}}</ripple_connector_auth_request>\n\
+- For Bilibili tasks, follow the `bilibili` CLI workflow documented by the Bilibili skills.\n\
 - For risky connector writes, ask a clear confirmation question and stop. Continue only after the user's next message explicitly approves the specific action.\n\n\
+- Do not generate images unless the current user explicitly asks to create, generate, draw, or render an image. Reading PDFs, documents, or image inputs must not use image generation.\n\n\
+- Always write temporary analysis, render, OCR, conversion, and inspection artifacts to $TMPDIR or /workspace/.tmp. Do not write derived inspection files into /workspace root unless the user explicitly asks for those files as deliverables; keep final or user-requested outputs under the selected context folder or another appropriate workspace path.\n\n\
 - For temporary Python dependencies, use `ripple-py python --with <package> -- ...` so Ripple can reuse shared read-only package environments. Do not install temporary Python packages with pip install --target or workspace-local tool directories.\n\n\
 ## Available Skills\n\
 {}\n\n\
@@ -116,27 +120,25 @@ fn connector_manifest(state: &AppState, user_id: &str) -> String {
     let bilibili_connected = bilibili
         .as_deref()
         .is_some_and(|path| read_valid_bilibili_credential_file(path).is_some());
+    let connected = |value| {
+        if value {
+            "connected"
+        } else {
+            "not_connected"
+        }
+    };
     [
-        ("google_workspace", has(google.as_deref())),
-        ("notion", has(notion.as_deref())),
-        ("feishu", has(feishu.as_deref())),
-        ("bilibili", bilibili_connected),
-        ("openai_codex", true),
-        ("codex_image_generation", true),
-        ("codex_image_input", true),
-        ("codex_web_search", true),
+        ("google_workspace", connected(has(google.as_deref()))),
+        ("notion", connected(has(notion.as_deref()))),
+        ("feishu", connected(has(feishu.as_deref()))),
+        ("bilibili", connected(bilibili_connected)),
+        ("openai_codex", "connected"),
+        ("codex_image_generation", "disabled_by_default"),
+        ("codex_image_input", "connected"),
+        ("codex_web_search", "connected"),
     ]
     .into_iter()
-    .map(|(name, connected)| {
-        format!(
-            "- {name}: {}",
-            if connected {
-                "connected"
-            } else {
-                "not_connected"
-            }
-        )
-    })
+    .map(|(name, status)| format!("- {name}: {status}"))
     .collect::<Vec<_>>()
     .join("\n")
 }

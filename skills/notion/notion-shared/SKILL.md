@@ -1,7 +1,7 @@
 ---
 name: notion-shared
 version: 1.0.0
-description: "Notion CLI (ntn) 共享基础：鉴权状态检查、NOTION_API_TOKEN 来源说明、权限错误处理（Integration 未 share 到目标 page/database）、self-documenting 原则、安全规则。当用户第一次调用 ntn、遇到 401/403/object_not_found、需要新建 Notion Integration、首次使用 Notion skill 时触发。"
+description: "Notion CLI (ntn) 共享基础：鉴权状态检查、NOTION_API_TOKEN 来源说明、权限错误处理（Integration 未 share 到目标 page/database）、self-documenting 原则、安全规则。适用于第一次调用 ntn、遇到 401/403/object_not_found、需要新建 Notion Integration、或首次使用 Notion skill 的场景。"
 metadata:
   requires:
     bins: ["ntn"]

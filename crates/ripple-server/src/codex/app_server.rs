@@ -662,7 +662,7 @@ impl CodexAppServerProvider {
             .and_then(Value::as_str)
             .map(PathBuf::from)
             .unwrap_or_else(|| request.cwd.clone());
-        let permission_config = thread_permission_config(&workspace_root, &self.config);
+        let permission_config = thread_config_for_request(&workspace_root, &self.config, request);
         let (thread_id, thread_resumed) = self
             .ensure_thread(request, session, &permission_config)
             .await?;
@@ -1181,6 +1181,28 @@ fn persistent_thread(request: &AgentRunnerRequest) -> bool {
         .unwrap_or(false)
 }
 
+fn thread_config_for_request(
+    workspace_root: &Path,
+    config: &AppConfig,
+    request: &AgentRunnerRequest,
+) -> Value {
+    let mut thread_config = thread_permission_config(workspace_root, config);
+    if image_generation_enabled_for_request(request) {
+        if let Some(object) = thread_config.as_object_mut() {
+            object.insert("features.image_generation".to_string(), json!(true));
+        }
+    }
+    thread_config
+}
+
+fn image_generation_enabled_for_request(request: &AgentRunnerRequest) -> bool {
+    request
+        .metadata
+        .get("image_generation_enabled")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
 fn inherit_env_allowlist(command: &mut Command, keys: &[&str]) {
     for key in keys {
         if let Some(value) = std::env::var_os(key) {
@@ -1294,6 +1316,30 @@ mod tests {
         assert!(args.contains(&"features.apps=false".to_string()));
         assert!(args.contains(&"features.plugins=false".to_string()));
         assert!(args.contains(&"skills.include_instructions=false".to_string()));
+    }
+
+    #[test]
+    fn image_generation_feature_follows_request_metadata() {
+        let mut request = AgentRunnerRequest {
+            provider: "codex".to_string(),
+            prompt: "fallback prompt".to_string(),
+            cwd: PathBuf::from("/tmp/ripple-test"),
+            input_items: Vec::new(),
+            model: None,
+            effort: None,
+            summary: None,
+            output_schema: None,
+            max_runtime_seconds: 60,
+            user_id: Some("alice".to_string()),
+            session_id: Some("session-1".to_string()),
+            metadata: json!({}),
+        };
+
+        assert!(!image_generation_enabled_for_request(&request));
+
+        request.metadata = json!({"image_generation_enabled": true});
+
+        assert!(image_generation_enabled_for_request(&request));
     }
 
     #[test]

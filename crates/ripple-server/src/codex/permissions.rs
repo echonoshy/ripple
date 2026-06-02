@@ -72,6 +72,7 @@ pub fn thread_permission_config(workspace: &Path, config: &AppConfig) -> Value {
         );
     }
     json!({
+        "features.image_generation": false,
         "default_permissions": RIPPLE_CODEX_PERMISSION_PROFILE,
         "permissions": {
             RIPPLE_CODEX_PERMISSION_PROFILE: {
@@ -142,6 +143,23 @@ mod tests {
         assert_ne!(
             filesystem.get(uv_cache.to_string_lossy().as_ref()),
             Some(&json!("write"))
+        );
+
+        let _ = std::fs::remove_dir_all(workspace);
+    }
+
+    #[test]
+    fn image_generation_is_disabled_by_default_for_threads() {
+        let workspace =
+            std::env::temp_dir().join(format!("ripple-permissions-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&workspace).expect("create workspace");
+        let config = test_config();
+
+        let permissions = thread_permission_config(&workspace, &config);
+
+        assert_eq!(
+            permissions.get("features.image_generation"),
+            Some(&json!(false))
         );
 
         let _ = std::fs::remove_dir_all(workspace);

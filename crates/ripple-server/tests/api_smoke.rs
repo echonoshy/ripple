@@ -495,6 +495,8 @@ fn main() {
                     title_generation_text().to_string()
                 } else if line.contains("\"outputSchema\"") {
                     schedule_extraction_text().to_string()
+                } else if line.contains("[model-auth-alpha]") {
+                    "<ripple_connector_auth_request>{\"connector\":\"google_workspace\",\"force_reauth\":false,\"reason\":\"needs Gmail access\"}</ripple_connector_auth_request>".to_string()
                 } else if line.contains("## Context Folder")
                     && line.contains("Context folder: /workspace/demo")
                 {
@@ -4085,6 +4087,129 @@ async fn chat_route_completes_non_streaming_with_fake_codex_app_server() {
 }
 
 #[tokio::test]
+async fn chat_route_converts_model_connector_auth_request_to_event() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    let (status, chat) = call(
+        app,
+        Method::POST,
+        "/v1/chat/completions",
+        json!({
+            "model": "codex-test",
+            "messages": [{"role": "user", "content": "[model-auth-alpha] summarize my inbox"}],
+            "stream": false
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        chat.pointer("/connector_auth/type").and_then(Value::as_str),
+        Some("connector_auth_required")
+    );
+    assert_eq!(
+        chat.pointer("/connector_auth/connector")
+            .and_then(Value::as_str),
+        Some("google_workspace")
+    );
+    let assistant_text = chat
+        .pointer("/choices/0/message/content")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    assert!(!assistant_text.contains("<ripple_connector_auth_request>"));
+
+    let session_id = chat
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("session id");
+    let reloaded = state
+        .sessions
+        .load("smoke-user", session_id)
+        .await
+        .unwrap()
+        .expect("session");
+    assert_eq!(reloaded.status, "awaiting_user_input");
+    assert!(reloaded.pending_connector_auth.is_some());
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn chat_route_does_not_start_connector_auth_from_user_keywords_before_codex() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    let (status, chat) = call(
+        app,
+        Method::POST,
+        "/v1/chat/completions",
+        json!({
+            "model": "codex-test",
+            "messages": [{"role": "user", "content": "请读取 Google Drive 里的会议纪要"}],
+            "stream": false
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(chat.get("connector_auth").is_none());
+    assert_eq!(
+        chat.pointer("/choices/0/message/content")
+            .and_then(Value::as_str),
+        Some("fake codex completed")
+    );
+
+    let session_id = chat
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("session id");
+    let reloaded = state
+        .sessions
+        .load("smoke-user", session_id)
+        .await
+        .unwrap()
+        .expect("session");
+    assert_eq!(reloaded.status, "idle");
+    assert!(reloaded.pending_connector_auth.is_none());
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn chat_route_reads_local_workspace_pdf_without_connector_auth() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+    let workspace = state.sandboxes.ensure_sandbox("smoke-user").unwrap();
+    fs::write(workspace.join("动效plan.pdf"), b"%PDF fake").unwrap();
+
+    let (status, chat) = call(
+        app,
+        Method::POST,
+        "/v1/chat/completions",
+        json!({
+            "model": "codex-test",
+            "messages": [{"role": "user", "content": "/workspace/动效plan.pdf\n\n这个讲了什么内容"}],
+            "stream": false
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(chat.get("connector_auth").is_none());
+    assert_eq!(
+        chat.pointer("/choices/0/message/content")
+            .and_then(Value::as_str),
+        Some("fake codex completed")
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
 async fn chat_generates_async_summary_title_without_public_run() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let fake_codex = write_fake_codex_app_server(&root);
@@ -4825,6 +4950,51 @@ async fn chat_stream_completes_with_fake_codex_app_server() {
 }
 
 #[tokio::test]
+async fn chat_stream_converts_model_connector_auth_request_to_event_without_leaking_protocol() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    let response = app
+        .oneshot(request(
+            Method::POST,
+            "/v1/chat/completions",
+            json!({
+                "model": "codex-test",
+                "messages": [{"role": "user", "content": "[model-auth-alpha] summarize my inbox"}],
+                "stream": true
+            }),
+            true,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let session_id = response
+        .headers()
+        .get("x-ripple-session-id")
+        .and_then(|value| value.to_str().ok())
+        .expect("session header")
+        .to_string();
+    let body = response_text(response).await;
+    assert!(body.contains("\"type\":\"connector_auth_required\""));
+    assert!(body.contains("\"connector\":\"google_workspace\""));
+    assert!(!body.contains("<ripple_connector_auth_request>"));
+    assert!(body.contains("data: [DONE]"));
+
+    let reloaded = state
+        .sessions
+        .load("smoke-user", &session_id)
+        .await
+        .unwrap()
+        .expect("session");
+    assert_eq!(reloaded.status, "awaiting_user_input");
+    assert!(reloaded.pending_connector_auth.is_some());
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
 async fn chat_stream_forwards_codex_runtime_tool_plan_and_image_events() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let fake_codex = write_fake_codex_app_server(&root);
@@ -5102,9 +5272,11 @@ async fn chat_approval_bridge_resolves_fake_codex_request() {
 }
 
 #[tokio::test]
-async fn chat_stream_returns_connector_auth_required_event_without_codex() {
+async fn chat_stream_does_not_start_connector_auth_from_user_keywords_before_codex() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
-    let (_state, app) = test_state_and_app(&root);
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (_state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
 
     let response = app
         .oneshot(request(
@@ -5128,13 +5300,9 @@ async fn chat_stream_returns_connector_auth_required_event_without_codex() {
         Some("text/event-stream")
     );
     let body = response_text(response).await;
-    assert!(body.contains("\"type\":\"connector_auth_required\""));
-    assert!(body.contains("\"connector\":\"notion\""));
-    assert!(body.contains("https://www.notion.so/profile/integrations"));
-    assert!(body.contains("Internal Integration"));
-    assert!(body.contains("Share"));
-    assert!(body.contains("ntn_"));
-    assert!(body.contains("secret_"));
+    assert!(!body.contains("\"type\":\"connector_auth_required\""));
+    assert!(!body.contains("\"connector\":\"notion\""));
+    assert!(body.contains("\"content\":\"fake codex completed\""));
     assert!(body.contains("data: [DONE]"));
 
     let _ = std::fs::remove_dir_all(root);

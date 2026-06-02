@@ -43,7 +43,8 @@ use connector_auth::{connector_auth_message, decision_from_action, extract_notio
 use connector_auth::{
     connector_auth_poll_should_emit_message, connector_auth_poll_should_persist_message,
     connector_auth_status, continue_pending_connector_auth, maybe_handle_connector_auth,
-    persist_connector_auth_event, public_connector_auth_event,
+    model_connector_auth_request_might_be_start, parse_model_connector_auth_request,
+    persist_connector_auth_event, public_connector_auth_event, start_model_connector_auth_for_chat,
 };
 pub(crate) use input::{extract_caller_system_prompt, extract_user_input_and_items};
 pub(crate) use media::{
@@ -98,6 +99,7 @@ struct CodexChatStart {
     prefix_event: Option<Value>,
     folder_context_evidence: Option<String>,
     folder_context_event: Option<Value>,
+    request_base_url: Option<String>,
 }
 
 struct CodexChatStream {
@@ -112,6 +114,7 @@ struct CodexChatStream {
     user_content: Value,
     prefix_event: Option<Value>,
     folder_context_event: Option<Value>,
+    request_base_url: Option<String>,
 }
 
 struct ChatRunFinal {
@@ -193,13 +196,14 @@ pub async fn chat_completions(
     session.pending_options = None;
     session.pending_schedule_request = None;
     clear_session_plan(&mut session);
+    let request_base_url = request_base_url_from_headers(&headers);
 
     if let Some(decision) = maybe_handle_connector_auth(
         &state,
         &user_id,
         &mut session,
         &user_input,
-        request_base_url_from_headers(&headers).as_deref(),
+        request_base_url.as_deref(),
     )
     .await?
     {
@@ -239,6 +243,7 @@ pub async fn chat_completions(
                     .as_ref()
                     .map(|context| context.prompt_section.clone()),
                 folder_context_event: folder_context.map(|context| context.runtime_event),
+                request_base_url: request_base_url.clone(),
             };
             let info = create_codex_chat_run_marking_start_failure(&start).await?;
             drop(session_run_guard);
@@ -287,6 +292,7 @@ pub async fn chat_completions(
             .as_ref()
             .map(|context| context.prompt_section.clone()),
         folder_context_event: folder_context.map(|context| context.runtime_event),
+        request_base_url,
     };
     let info = create_codex_chat_run_marking_start_failure(&start).await?;
     drop(session_run_guard);
@@ -380,6 +386,7 @@ async fn finish_codex_chat_response(
         prefix_event,
         folder_context_evidence: _,
         folder_context_event,
+        request_base_url,
     } = args;
 
     if request.stream.unwrap_or(false) {
@@ -395,6 +402,7 @@ async fn finish_codex_chat_response(
             user_content,
             prefix_event,
             folder_context_event,
+            request_base_url,
         }));
     }
 
@@ -418,9 +426,29 @@ async fn finish_codex_chat_response(
         ));
     }
     let output_text = read_run_output(&state, &user_id, &final_info).await;
+    record_codex_thread(&mut session, &final_info);
+    record_usage(&mut session, &usage);
+    clear_session_plan(&mut session);
+    if let Some(event) = maybe_persist_model_connector_auth_request(
+        &state,
+        &user_id,
+        &mut session,
+        &user_content,
+        &user_input,
+        &output_text,
+        request_base_url.as_deref(),
+    )
+    .await?
+    {
+        return Ok(connector_auth_event_response(
+            &model,
+            &session.session_id,
+            event,
+            false,
+        ));
+    }
     let image_events =
         collect_chat_image_events(&state, &user_id, &final_info, &workspace_root).await;
-    record_codex_thread(&mut session, &final_info);
     let title_fallback = append_chat_messages_with_images(
         &mut session,
         user_content,
@@ -428,7 +456,6 @@ async fn finish_codex_chat_response(
         &output_text,
         &image_events,
     );
-    record_usage(&mut session, &usage);
     session.set_status(SessionStatus::Idle);
     session.pending_permission_request = None;
     let _ = state
@@ -463,6 +490,32 @@ async fn finish_codex_chat_response(
         HeaderValue::from_str(&session.session_id).unwrap_or_else(|_| HeaderValue::from_static("")),
     );
     Ok(response)
+}
+
+async fn maybe_persist_model_connector_auth_request(
+    state: &AppState,
+    user_id: &str,
+    session: &mut SessionRecord,
+    user_content: &Value,
+    user_input: &str,
+    output_text: &str,
+    request_base_url: Option<&str>,
+) -> Result<Option<Value>, ApiError> {
+    let Some(request) = parse_model_connector_auth_request(output_text) else {
+        return Ok(None);
+    };
+    let decision = start_model_connector_auth_for_chat(
+        state,
+        user_id,
+        session,
+        &request,
+        user_input,
+        request_base_url,
+    )
+    .await?;
+    let event = decision.event;
+    persist_connector_auth_event(state, session, user_content, user_input, &event).await?;
+    Ok(Some(event))
 }
 
 pub async fn poll_session_connector_auth(
@@ -561,6 +614,7 @@ pub async fn poll_session_connector_auth(
                 .as_ref()
                 .map(|context| context.prompt_section.clone()),
             folder_context_event: folder_context.map(|context| context.runtime_event),
+            request_base_url: None,
         };
         let info = create_codex_chat_run_marking_start_failure(&start).await?;
         drop(session_run_guard);
@@ -695,6 +749,7 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
         user_content,
         prefix_event,
         folder_context_event,
+        request_base_url,
     } = args;
     let session_id = session.session_id.clone();
     let chunk_id = format!("chatcmpl-{}", &Uuid::new_v4().simple().to_string()[..24]);
@@ -721,6 +776,7 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
         let mut image_events = Vec::<Value>::new();
         let mut latest_usage = empty_usage();
         let mut agent_messages = AgentMessageTracker::default();
+        let mut model_connector_auth_buffer: Option<String> = None;
         let mut last_emit = now_epoch_seconds();
         loop {
             if let Some(events_file) = events_file.as_deref() {
@@ -760,16 +816,28 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                     }
                     if let Some(delta) = agent_messages.handle_delta(&event) {
                         let delta = sanitize_user_visible_text(&state, &user_id, &delta);
-                        emitted.push_str(&delta);
-                        yield Ok::<Bytes, Infallible>(Bytes::from(chunk(&chunk_id, &model, created, json!({"content": delta}), None)));
-                        last_emit = now_epoch_seconds();
+                        if let Some(delta) = gate_model_connector_auth_stream_text(
+                            &mut model_connector_auth_buffer,
+                            &emitted,
+                            delta,
+                        ) {
+                            emitted.push_str(&delta);
+                            yield Ok::<Bytes, Infallible>(Bytes::from(chunk(&chunk_id, &model, created, json!({"content": delta}), None)));
+                            last_emit = now_epoch_seconds();
+                        }
                         continue;
                     }
                     if let Some(text) = agent_messages.handle_item(&event) {
                         let text = sanitize_user_visible_text(&state, &user_id, &text);
-                        emitted.push_str(&text);
-                        yield Ok::<Bytes, Infallible>(Bytes::from(chunk(&chunk_id, &model, created, json!({"content": text}), None)));
-                        last_emit = now_epoch_seconds();
+                        if let Some(text) = gate_model_connector_auth_stream_text(
+                            &mut model_connector_auth_buffer,
+                            &emitted,
+                            text,
+                        ) {
+                            emitted.push_str(&text);
+                            yield Ok::<Bytes, Infallible>(Bytes::from(chunk(&chunk_id, &model, created, json!({"content": text}), None)));
+                            last_emit = now_epoch_seconds();
+                        }
                         continue;
                     }
                 }
@@ -795,11 +863,46 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
             if TERMINAL_STATUSES.contains(&info.status.as_str()) {
                 if info.status == "completed" {
                     let output_text = read_run_output(&state, &user_id, &info).await;
+                    record_codex_thread(&mut session, &info);
+                    record_usage(&mut session, &latest_usage);
+                    clear_session_plan(&mut session);
+                    let auth_output_text = if output_text.trim().is_empty() {
+                        model_connector_auth_buffer.as_deref().unwrap_or("")
+                    } else {
+                        output_text.as_str()
+                    };
+                    match maybe_persist_model_connector_auth_request(
+                        &state,
+                        &user_id,
+                        &mut session,
+                        &user_content,
+                        &user_input,
+                        auth_output_text,
+                        request_base_url.as_deref(),
+                    )
+                    .await
+                    {
+                        Ok(Some(event)) => {
+                            let public_event = public_connector_auth_event(&event);
+                            yield Ok::<Bytes, Infallible>(sse_json(&public_event));
+                            let message = event_message(&event);
+                            if !message.is_empty() {
+                                yield Ok::<Bytes, Infallible>(Bytes::from(chunk(&chunk_id, &model, created, json!({"content": message}), None)));
+                            }
+                            yield Ok::<Bytes, Infallible>(Bytes::from(chunk(&chunk_id, &model, created, json!({}), Some("stop"))));
+                            yield Ok::<Bytes, Infallible>(Bytes::from_static(b"data: [DONE]\n\n"));
+                            break;
+                        }
+                        Ok(None) => {}
+                        Err(err) => {
+                            yield Ok::<Bytes, Infallible>(sse_json(&stream_error(&format!("{err:?}"), "server_error")));
+                            break;
+                        }
+                    }
                     if emitted.is_empty() && !output_text.is_empty() {
                         emitted = output_text.clone();
                         yield Ok::<Bytes, Infallible>(Bytes::from(chunk(&chunk_id, &model, created, json!({"content": output_text}), None)));
                     }
-                    record_codex_thread(&mut session, &info);
                     let title_fallback = append_chat_messages_with_images(
                         &mut session,
                         user_content.clone(),
@@ -807,10 +910,8 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                         &emitted,
                         &image_events,
                     );
-                    record_usage(&mut session, &latest_usage);
                     session.set_status(SessionStatus::Idle);
                     session.pending_permission_request = None;
-                    clear_session_plan(&mut session);
                     let _ = state.sessions.save_record_if_exists(session.clone()).await;
                     if let Some(fallback_title) = title_fallback {
                         spawn_session_title_generation(
@@ -1188,6 +1289,29 @@ struct AgentMessageTracker {
     update_delta_item_ids: HashSet<String>,
 }
 
+fn gate_model_connector_auth_stream_text(
+    buffer: &mut Option<String>,
+    emitted: &str,
+    text: String,
+) -> Option<String> {
+    if !emitted.is_empty() {
+        return Some(text);
+    }
+    if let Some(buffered) = buffer.as_mut() {
+        buffered.push_str(&text);
+        if model_connector_auth_request_might_be_start(buffered) {
+            return None;
+        }
+        return buffer.take();
+    }
+    if model_connector_auth_request_might_be_start(&text) {
+        *buffer = Some(text);
+        None
+    } else {
+        Some(text)
+    }
+}
+
 impl AgentMessageTracker {
     fn handle_delta(&mut self, event: &Value) -> Option<String> {
         let (item_id, delta) = agent_message_delta(event)?;
@@ -1399,6 +1523,18 @@ mod tests {
         assert!(
             prompt.contains("Do not install temporary Python packages with pip install --target")
         );
+        assert!(prompt.contains(
+            "write temporary analysis, render, OCR, conversion, and inspection artifacts to $TMPDIR or /workspace/.tmp"
+        ));
+        assert!(prompt.contains(
+            "Do not write derived inspection files into /workspace root unless the user explicitly asks for those files as deliverables"
+        ));
+        assert!(prompt.contains("- codex_image_generation: disabled_by_default"));
+        assert!(prompt.contains("Do not generate images unless the current user explicitly asks"));
+        assert!(prompt.contains("<ripple_connector_auth_request>"));
+        assert!(!prompt.contains(
+            "Google Workspace, Notion, and Feishu authorization is handled by Ripple before the Codex turn starts"
+        ));
 
         let _ = std::fs::remove_dir_all(root);
     }

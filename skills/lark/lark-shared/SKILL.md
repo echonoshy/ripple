@@ -1,7 +1,7 @@
 ---
 name: lark-shared
 version: 1.3.0
-description: "飞书/Lark CLI 共享基础：Ripple 对话授权、身份切换（--as user/bot）、权限与 scope 管理、Permission denied 错误处理、更新提示、高风险操作确认和安全规则。当用户需要第一次配置、使用登录授权、遇到权限不足、切换 user/bot 身份、看到 _notice.update、遇到 confirmation_required，或首次使用 lark-cli 时触发。"
+description: "飞书/Lark CLI 共享基础：Ripple 对话授权、身份切换（--as user/bot）、权限与 scope 管理、Permission denied 错误处理、更新提示、高风险操作确认和安全规则。适用于第一次配置、使用登录授权、遇到权限不足、切换 user/bot 身份、看到 _notice.update、遇到 confirmation_required，或首次使用 lark-cli 的场景。"
 ---
 
 # lark-cli 共享规则

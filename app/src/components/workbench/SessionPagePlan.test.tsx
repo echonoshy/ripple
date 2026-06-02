@@ -5,9 +5,6 @@ import { renderToStaticMarkup } from "react-dom/server";
 import SessionPage from "./SessionPage";
 
 function noop() {}
-async function noopAsync() {
-  return {};
-}
 
 function renderSessionPageWithPlan() {
   return renderToStaticMarkup(
@@ -32,7 +29,6 @@ function renderSessionPageWithPlan() {
       isModelDropdownOpen={false}
       sessionId="srv-plan"
       onNewSession={noop}
-      onUpdateSessionSettings={noopAsync}
       onInputChange={noop}
       onClearContext={noop}
       onCompactContext={noop}

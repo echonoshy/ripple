@@ -134,13 +134,14 @@ function testSettingsIsSinglePageSurface() {
   assert.match(appSource, /<SettingsPage/);
 }
 
-function testMobileSessionOptionsUseSessionSettings() {
+function testMobileChatHeaderOmitsSecondarySessionSettings() {
   assert.doesNotMatch(appSource, /handleOpenMobileSettings/);
+  assert.doesNotMatch(appSource, /handleUpdateSessionSettings/);
   assert.match(appSource, /const handleOpenMobileSessionList = useCallback/);
   assert.match(appSource, /onBackToMobileSessions=\{handleOpenMobileSessionList\}/);
-  assert.match(appSource, /onUpdateSessionSettings=\{handleUpdateSessionSettings\}/);
-  assert.match(sessionPageSource, /aria-label=\{t\("sessions\.backToSession"\)\}/);
-  assert.match(sessionPageSource, /t\("sessions\.settingsTitle"\)/);
+  assert.doesNotMatch(appSource, /onUpdateSessionSettings=/);
+  assert.doesNotMatch(sessionPageSource, /aria-label=\{t\("sessions\.backToSession"\)\}/);
+  assert.doesNotMatch(sessionPageSource, /t\("sessions\.settingsTitle"\)/);
 }
 
 function testSessionScrollActivationStaysInsideSessionPage() {
@@ -212,7 +213,7 @@ testChatSendIsNotBlockedByAnotherRunningSession();
 testChatRunStoresActiveRunsBySession();
 testMobileUsesBottomTabBarForTopLevelViews();
 testSettingsIsSinglePageSurface();
-testMobileSessionOptionsUseSessionSettings();
+testMobileChatHeaderOmitsSecondarySessionSettings();
 testSessionScrollActivationStaysInsideSessionPage();
 testSessionSelectionRequestsScrollToBottom();
 testDefaultModelSeedsNewSessionsAndChatRuns();

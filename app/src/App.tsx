@@ -595,14 +595,6 @@ export default function Home() {
     setMobileSessionMode("chat");
   };
 
-  const handleUpdateSessionSettings = useCallback(
-    async (updates: { title?: string; pinned?: boolean }) => {
-      if (!sessionId) return null;
-      return updateSessionById(sessionId, updates);
-    },
-    [sessionId, updateSessionById]
-  );
-
   // ── Delete session ──
   const handleDeleteSession = async (targetSessionId: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -950,7 +942,6 @@ export default function Home() {
               contextFolderPath={activeContextFolderPath}
               onSelectWorkspaceFolder={handleSelectChatFolder}
               onNewSession={handleNewSession}
-              onUpdateSessionSettings={handleUpdateSessionSettings}
               onInputChange={setInput}
               onClearContext={handleClearContext}
               onCompactContext={handleCompactContext}

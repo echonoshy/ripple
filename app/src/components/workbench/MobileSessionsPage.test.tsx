@@ -162,16 +162,27 @@ function testSessionOptionsMenuEscapesBlurredRowsWithPortal() {
 
 function testSessionRowsExposeIosStyleSwipeActions() {
   const html = renderMobileSessionsPage();
+  const leadingActionsSource =
+    mobileSessionsPageSource.match(/leadingActions=\{\[([\s\S]*?)\]\}\s*trailingActions=/)?.[1] ||
+    "";
+  const trailingActionsSource =
+    mobileSessionsPageSource.match(/trailingActions=\{\[([\s\S]*?)\]\}\s*className=/)?.[1] || "";
 
   assert.match(mobileSessionsPageSource, /import SwipeActionRow/);
   assert.match(mobileSessionsPageSource, /data-ripple-mobile-session-swipe/);
   assert.match(mobileSessionsPageSource, /trailingActions=\{/);
-  assert.match(mobileSessionsPageSource, /onSwipeRightCommit=\{/);
-  assert.match(mobileSessionsPageSource, /t\("sessions\.pin"\)/);
-  assert.match(mobileSessionsPageSource, /t\("sessions\.rename"\)/);
-  assert.match(mobileSessionsPageSource, /t\("sessions\.delete"\)/);
+  assert.match(mobileSessionsPageSource, /leadingActions=\{/);
+  assert.match(leadingActionsSource, /key: "pin"/);
+  assert.doesNotMatch(leadingActionsSource, /key: "rename"/);
+  assert.doesNotMatch(leadingActionsSource, /key: "delete"/);
+  assert.match(trailingActionsSource, /key: "rename"/);
+  assert.match(trailingActionsSource, /key: "delete"/);
+  assert.doesNotMatch(trailingActionsSource, /key: "pin"/);
+  assert.doesNotMatch(mobileSessionsPageSource, /onSwipeRightCommit=\{\(\) => \{/);
   assert.match(html, /data-ripple-swipe-row/);
   assert.match(html, /data-ripple-mobile-session-swipe/);
+  assert.match(html, /data-ripple-swipe-actions="trailing"[^>]*opacity-0/);
+  assert.match(html, /data-ripple-swipe-actions="leading"[^>]*opacity-0/);
 }
 
 function testMobileSessionChromeUsesMotionPresence() {

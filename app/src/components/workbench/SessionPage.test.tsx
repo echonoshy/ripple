@@ -10,9 +10,6 @@ import type { UsageInfo, WorkbenchSessionSummary } from "@/types";
 const sessionPageSource = readFileSync(new URL("./SessionPage.tsx", import.meta.url), "utf8");
 
 function noop() {}
-async function noopAsync() {
-  return {};
-}
 
 function sessionAutoScrollEffectSource() {
   const match = sessionPageSource.match(
@@ -50,7 +47,6 @@ function renderSessionPage({
         isModelDropdownOpen={false}
         sessionId="srv-test"
         onNewSession={noop}
-        onUpdateSessionSettings={noopAsync}
         onInputChange={noop}
         onClearContext={noop}
         onCompactContext={noop}
@@ -96,7 +92,6 @@ function renderSessionPageWithTimelineContent() {
       isModelDropdownOpen={false}
       sessionId="srv-test"
       onNewSession={noop}
-      onUpdateSessionSettings={noopAsync}
       onInputChange={noop}
       onClearContext={noop}
       onCompactContext={noop}
@@ -119,7 +114,7 @@ function testOmitsPlaceholderSessionHeaderControls() {
 
   assert.match(html, /aria-label="Back to sessions"/);
   assert.match(html, /aria-label="New session"/);
-  assert.match(html, /aria-label="Session options"/);
+  assert.doesNotMatch(html, /aria-label="Session options"/);
   assert.doesNotMatch(html, />New Codex task</);
   assert.doesNotMatch(html, /border-b border-\[#e5e7eb\] bg-white px-4 py-3 md:px-5/);
   assert.doesNotMatch(html, />Idle</);
@@ -156,7 +151,8 @@ function testMobileHeaderButtonsUseToolbarStyling() {
   assert.match(sessionPageSource, /MOBILE_GLASS_ICON_BUTTON_CLASS/);
   assert.match(sessionPageSource, /ChevronLeft/);
   assert.match(sessionPageSource, /MessageCircleMore/);
-  assert.match(sessionPageSource, /Ellipsis/);
+  assert.match(sessionPageSource, /grid-cols-\[44px_minmax\(0,1fr\)_44px\]/);
+  assert.doesNotMatch(sessionPageSource, /Ellipsis/);
   assert.doesNotMatch(sessionPageSource, /mobileHeaderPrimaryButtonClass/);
   assert.doesNotMatch(sessionPageSource, /SquareChevronLeft/);
   assert.doesNotMatch(sessionPageSource, /ArrowBigLeftDash/);
@@ -177,14 +173,13 @@ function testSessionPageUsesSharedCompactGlassBackground() {
   assert.doesNotMatch(sessionPageSource, /circle_at_18%_0%/);
 }
 
-function testSessionSettingsUsesGroupedFormPanel() {
-  assert.match(sessionPageSource, /data-ripple-session-settings-body="grouped-form"/);
-  assert.match(sessionPageSource, /data-ripple-session-settings-group="name"/);
-  assert.match(sessionPageSource, /data-ripple-session-settings-group="pinned"/);
-  assert.match(sessionPageSource, /t\("sessions\.pinnedDescription"\)/);
-  assert.match(sessionPageSource, /aria-hidden="true"[\s\S]*settingsPinned/);
-  assert.match(sessionPageSource, /t\("sessions\.cancel"\)/);
-  assert.match(sessionPageSource, /t\("sessions\.save"\)/);
+function testSessionPageOmitsSecondarySettingsSheet() {
+  assert.doesNotMatch(sessionPageSource, /onUpdateSessionSettings/);
+  assert.doesNotMatch(sessionPageSource, /isSessionSettingsOpen/);
+  assert.doesNotMatch(sessionPageSource, /openSessionSettings/);
+  assert.doesNotMatch(sessionPageSource, /data-ripple-session-settings-body/);
+  assert.doesNotMatch(sessionPageSource, /data-ripple-session-settings-group/);
+  assert.doesNotMatch(sessionPageSource, /settingsPinned/);
   assert.doesNotMatch(sessionPageSource, /space-y-5 overflow-y-auto px-4 py-4/);
   assert.doesNotMatch(
     sessionPageSource,
@@ -236,7 +231,7 @@ function testSessionPageRendersChineseStaticChrome() {
 
   assert.match(html, /aria-label="返回会话"/);
   assert.match(html, /aria-label="新会话"/);
-  assert.match(html, /aria-label="会话选项"/);
+  assert.doesNotMatch(html, /aria-label="会话选项"/);
   assert.match(html, />会话</);
   assert.match(html, /aria-label="当前模型：Plus"/);
 }
@@ -276,7 +271,6 @@ function testSessionPageShowsCurrentFolderBadge() {
       isModelDropdownOpen={false}
       sessionId="srv-demo"
       onNewSession={noop}
-      onUpdateSessionSettings={noopAsync}
       onInputChange={noop}
       onClearContext={noop}
       onCompactContext={noop}
@@ -419,7 +413,7 @@ function testSessionPageCanRestorePreviousScrollPosition() {
 testOmitsPlaceholderSessionHeaderControls();
 testMobileHeaderButtonsUseToolbarStyling();
 testSessionPageUsesSharedCompactGlassBackground();
-testSessionSettingsUsesGroupedFormPanel();
+testSessionPageOmitsSecondarySettingsSheet();
 testGivesSessionContentMoreHorizontalRoom();
 testSessionPageHandlesDropAcrossWholeChat();
 testMobileHeaderReservesTopSafeArea();

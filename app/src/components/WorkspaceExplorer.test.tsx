@@ -788,6 +788,9 @@ function testWorkspaceExplorerPageRowsExposeMobileSwipeActions() {
   assert.match(source, /openWorkspaceContextMenuForEntry/);
   assert.match(html, /data-ripple-swipe-row/);
   assert.match(html, /data-ripple-files-swipe-row/);
+  assert.match(html, /aria-disabled="true"/);
+  assert.doesNotMatch(html, /data-ripple-swipe-actions/);
+  assert.doesNotMatch(html, /aria-label="Delete"/);
 }
 
 testWorkspaceExplorerPageRowsExposeMobileSwipeActions();

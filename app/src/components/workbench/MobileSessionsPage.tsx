@@ -428,7 +428,7 @@ export default function MobileSessionsPage({
                   >
                     <SwipeActionRow
                       data-ripple-mobile-session-swipe
-                      trailingActions={[
+                      leadingActions={[
                         {
                           key: "pin",
                           label: session.pinned ? t("sessions.unpin") : t("sessions.pin"),
@@ -440,6 +440,8 @@ export default function MobileSessionsPage({
                             });
                           },
                         },
+                      ]}
+                      trailingActions={[
                         {
                           key: "rename",
                           label: t("sessions.rename"),
@@ -460,13 +462,6 @@ export default function MobileSessionsPage({
                           },
                         },
                       ]}
-                      onSwipeRightCommit={() => {
-                        void onUpdateSession(session.sessionId, {
-                          pinned: !session.pinned,
-                        });
-                      }}
-                      rightCommitLabel={session.pinned ? t("sessions.unpin") : t("sessions.pin")}
-                      rightCommitIcon={<Pin size={14} />}
                       className={isMenuActive ? "z-50 rounded-2xl" : "z-10 rounded-2xl"}
                     >
                       <div

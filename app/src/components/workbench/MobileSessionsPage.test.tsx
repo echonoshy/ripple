@@ -160,6 +160,31 @@ function testSessionOptionsMenuEscapesBlurredRowsWithPortal() {
   assert.match(source, /document\.body/);
 }
 
+function testSessionRowsExposeIosStyleSwipeActions() {
+  const html = renderMobileSessionsPage();
+
+  assert.match(mobileSessionsPageSource, /import SwipeActionRow/);
+  assert.match(mobileSessionsPageSource, /data-ripple-mobile-session-swipe/);
+  assert.match(mobileSessionsPageSource, /trailingActions=\{/);
+  assert.match(mobileSessionsPageSource, /onSwipeRightCommit=\{/);
+  assert.match(mobileSessionsPageSource, /t\("sessions\.pin"\)/);
+  assert.match(mobileSessionsPageSource, /t\("sessions\.rename"\)/);
+  assert.match(mobileSessionsPageSource, /t\("sessions\.delete"\)/);
+  assert.match(html, /data-ripple-swipe-row/);
+  assert.match(html, /data-ripple-mobile-session-swipe/);
+}
+
+function testMobileSessionChromeUsesMotionPresence() {
+  assert.match(
+    mobileSessionsPageSource,
+    /import \{ AnimatePresence, motion \} from "framer-motion"/
+  );
+  assert.match(mobileSessionsPageSource, /menuTransition/);
+  assert.match(mobileSessionsPageSource, /searchExpandVariants/);
+  assert.match(mobileSessionsPageSource, /listItemVariants/);
+  assert.match(mobileSessionsPageSource, /data-ripple-mobile-search-motion/);
+}
+
 function testRendersEmptyStateWithNewSessionAction() {
   const html = renderMobileSessionsPage({ sessions: [], selectedSessionId: null });
 
@@ -183,6 +208,8 @@ testSearchInputUsesCompactType();
 testHeaderActionsUseSharedGlassTreatment();
 testSessionRowsDoNotClipOptionsMenu();
 testSessionOptionsMenuEscapesBlurredRowsWithPortal();
+testSessionRowsExposeIosStyleSwipeActions();
+testMobileSessionChromeUsesMotionPresence();
 testRendersEmptyStateWithNewSessionAction();
 testRendersChineseMobileSessionChrome();
 

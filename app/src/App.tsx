@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { useReducedMotion } from "framer-motion";
 import { ChevronRight } from "lucide-react";
 import AuthGateway, { type AuthGatewayMode } from "@/components/AuthGateway";
 import {
@@ -27,6 +29,12 @@ import SettingsPage from "@/components/workbench/SettingsPage";
 import SessionPage from "@/components/workbench/SessionPage";
 import WorkbenchShell from "@/components/workbench/WorkbenchShell";
 import WorkspaceNav from "@/components/workbench/WorkspaceNav";
+import {
+  mobilePageTransition,
+  mobilePageVariants,
+  reducedMobilePageVariants,
+  reducedMotionTransition,
+} from "@/components/workbench/motionPrimitives";
 import { type ChatRunSessionActions, useChatRun } from "@/hooks/useChatRun";
 import { useSessionLifecycle } from "@/hooks/useSessionLifecycle";
 import { clearStoredCurrentSessionId } from "@/lib/sessionPersistence";
@@ -84,6 +92,7 @@ function initialSessionRailCollapsed(): boolean {
 
 export default function Home() {
   const { t } = useI18n();
+  const reduceMotion = useReducedMotion();
   // ── Auth state ──
   const [authState, setAuthState] = useState<"checking" | "needs_auth" | "authenticated">(() =>
     getApiKey() ? "authenticated" : "needs_auth"
@@ -126,6 +135,7 @@ export default function Home() {
   const [workspaceRefreshToken, setWorkspaceRefreshToken] = useState(0);
   const [activeContextFolderPath, setActiveContextFolderPath] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<WorkspaceView>("sessions");
+  const [mobileMotionDirection, setMobileMotionDirection] = useState(0);
   const [mobileFilesReturnToChat, setMobileFilesReturnToChat] = useState(false);
   const [mobileSessionRestoreScrollTop, setMobileSessionRestoreScrollTop] = useState<number | null>(
     null
@@ -581,6 +591,7 @@ export default function Home() {
       setActiveContextFolderPath(session.contextFolderPath ?? activeContextFolderPath);
     }
     setActiveView("sessions");
+    setMobileMotionDirection(1);
     setMobileSessionMode("chat");
   };
 
@@ -611,6 +622,7 @@ export default function Home() {
       setMobileFilesReturnToChat(false);
       setMobileSessionRestoreScrollTop(null);
       if (view !== "files") setPendingWorkspaceFileOpen(null);
+      setMobileMotionDirection(0);
       setActiveView(view);
       if (view === "sessions") {
         setMobileSessionMode("list");
@@ -625,14 +637,22 @@ export default function Home() {
     setMobileFilesReturnToChat(false);
     setPendingWorkspaceFileOpen(null);
     setActiveView("sessions");
+    setMobileMotionDirection(1);
     setMobileSessionMode("chat");
   }, []);
   const handleOpenMobileSessionList = useCallback(() => {
-    handleSelectView("sessions");
-  }, [handleSelectView]);
+    setMobileFilesReturnToChat(false);
+    setPendingWorkspaceFileOpen(null);
+    setMobileSessionRestoreScrollTop(null);
+    setActiveView("sessions");
+    setMobileMotionDirection(-1);
+    setMobileSessionMode("list");
+    if (sessionId) acknowledgeSessionCompletion(sessionId);
+  }, [acknowledgeSessionCompletion, sessionId]);
   const handleSelectMobileSession = useCallback(
     async (targetSessionId: string) => {
       await handleSwitchSession(targetSessionId);
+      setMobileMotionDirection(1);
       setMobileSessionMode("chat");
     },
     [handleSwitchSession]
@@ -757,6 +777,7 @@ export default function Home() {
       if (updated) {
         setActiveContextFolderPath(updated.contextFolderPath ?? null);
         setActiveView("sessions");
+        setMobileMotionDirection(1);
         setMobileSessionMode("chat");
       }
     },
@@ -960,6 +981,25 @@ export default function Home() {
     activeView === "sessions" && mobileSessionMode === "chat" ? null : (
       <MobileTabBar activeView={activeView} onSelectView={handleSelectView} />
     );
+  const mobileMotionStage =
+    activeView === "sessions" ? `${activeView}:${mobileSessionMode}` : `${activeView}:page`;
+  const animatedMainContent = (
+    <AnimatePresence mode="wait" initial={false} custom={mobileMotionDirection}>
+      <motion.div
+        key={mobileMotionStage}
+        data-ripple-mobile-motion-stage={mobileMotionStage}
+        custom={mobileMotionDirection}
+        variants={reduceMotion ? reducedMobilePageVariants : mobilePageVariants}
+        initial="enter"
+        animate="center"
+        exit="exit"
+        transition={reduceMotion ? reducedMotionTransition : mobilePageTransition}
+        className="h-full min-h-0"
+      >
+        {mainContent}
+      </motion.div>
+    </AnimatePresence>
+  );
 
   // ═══════════════════════════════════════════════════════
   // AUTH SCREEN
@@ -1013,7 +1053,7 @@ export default function Home() {
             onOpenSettings={() => handleSelectView("home")}
           />
         }
-        content={mainContent}
+        content={animatedMainContent}
         inspector={
           shouldShowInspector(activeView) ? (
             <InspectorPanel

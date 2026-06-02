@@ -9,6 +9,7 @@ import {
   type DragEvent,
   type FormEvent,
 } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   AlertTriangle,
   ArrowBigLeft,
@@ -42,6 +43,12 @@ import {
 } from "@/lib/pendingImages";
 import SessionComposer from "./SessionComposer";
 import SessionTimeline from "./SessionTimeline";
+import {
+  reducedMotionTransition,
+  sheetBackdropVariants,
+  sheetPanelVariants,
+  sheetTransition,
+} from "./motionPrimitives";
 import { COMPACT_IOS_PAGE_BACKGROUND, MOBILE_GLASS_ICON_BUTTON_CLASS } from "./stylePrimitives";
 
 const STICK_TO_BOTTOM_MS = 1200;
@@ -167,6 +174,8 @@ export default function SessionPage({
   onRestoreScrollComplete,
 }: SessionPageProps) {
   const { t } = useI18n();
+  const reduceMotion = useReducedMotion();
+  const sheetMotionTransition = reduceMotion ? reducedMotionTransition : sheetTransition;
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const previousAutoScrollSessionIdRef = useRef<string | null | undefined>(undefined);
@@ -436,11 +445,7 @@ export default function SessionPage({
               title={currentModelAccessibleLabel}
               className="inline-flex max-w-[104px] min-w-0 items-center gap-1 rounded-full border border-[#d7d7dd] bg-white/74 px-1.5 py-0.5 text-[10px] font-semibold text-[#6e6e73] shadow-[0_4px_12px_rgba(60,60,67,0.05)]"
             >
-              <BrainCircuit
-                size={11}
-                className={modelBadgeIconClass}
-                strokeWidth={2.2}
-              />
+              <BrainCircuit size={11} className={modelBadgeIconClass} strokeWidth={2.2} />
               <span
                 className={`h-1.5 w-1.5 shrink-0 rounded-full ${
                   isGenerating ? "animate-pulse bg-[#007aff]" : "bg-[#34c759]"
@@ -510,11 +515,7 @@ export default function SessionPage({
             title={currentModelAccessibleLabel}
             className="inline-flex max-w-[220px] shrink-0 items-center gap-1.5 rounded-full border border-[#d7d7dd] bg-white/82 px-3 py-1.5 text-[12px] font-semibold text-[#3c3c43] shadow-[0_8px_18px_rgba(60,60,67,0.05)]"
           >
-            <BrainCircuit
-              size={13}
-              className={modelBadgeIconClass}
-              strokeWidth={2.2}
-            />
+            <BrainCircuit size={13} className={modelBadgeIconClass} strokeWidth={2.2} />
             <span
               className={`h-1.5 w-1.5 shrink-0 rounded-full ${
                 isGenerating ? "animate-pulse bg-[#007aff]" : "bg-[#34c759]"
@@ -525,118 +526,134 @@ export default function SessionPage({
         </div>
       </div>
 
-      {isSessionSettingsOpen && (
-        <div className="absolute inset-0 z-40 flex justify-end bg-[#1d1d1f]/14 backdrop-blur-[1px]">
-          <button
-            type="button"
-            aria-label={t("sessions.settingsTitle")}
-            className="absolute inset-0 hidden cursor-default sm:block"
-            onClick={closeSessionSettings}
-          />
-          <section className="relative flex h-full w-full flex-col border-l border-[#d7d7dd] bg-[#f2f2f7] shadow-[-18px_0_44px_rgba(60,60,67,0.14)] sm:max-w-[380px]">
-            <div className="grid h-14 shrink-0 grid-cols-[44px_minmax(0,1fr)_44px] items-center border-b border-[#d7d7dd]/70 bg-white/82 px-2.5 backdrop-blur-2xl">
-              <button
-                type="button"
-                aria-label={t("sessions.backToSession")}
-                title={t("sessions.backToSession")}
-                onClick={closeSessionSettings}
-                className={mobileHeaderButtonClass}
-              >
-                <ArrowBigLeft size={18} strokeWidth={2.2} />
-              </button>
-              <div className="truncate text-center text-[15px] font-semibold text-[#111827]">
-                {t("sessions.settingsTitle")}
-              </div>
-            </div>
-
-            <form onSubmit={handleSettingsSubmit} className="flex min-h-0 flex-1 flex-col">
-              <div
-                data-ripple-session-settings-body="grouped-form"
-                className="min-h-0 flex-1 overflow-y-auto bg-[#f2f2f7] px-4 py-4"
-              >
-                <section
-                  data-ripple-session-settings-group="name"
-                  className="rounded-2xl border border-[#d7d7dd] bg-white/88 p-3 shadow-[0_10px_28px_rgba(60,60,67,0.06)]"
-                >
-                  <label className="block">
-                    <span className="mb-2 block text-[12px] font-medium text-[#667085]">
-                      {t("sessions.name")}
-                    </span>
-                    <input
-                      value={settingsTitle}
-                      onChange={(event) => setSettingsTitle(event.target.value)}
-                      maxLength={120}
-                      className="h-10 w-full rounded-xl border border-[#d7d7dd] bg-white px-3 text-[14px] text-[#111827] transition-colors outline-none focus:border-[#007aff]"
-                      autoFocus
-                    />
-                  </label>
-                </section>
-
+      <AnimatePresence initial={false}>
+        {isSessionSettingsOpen ? (
+          <motion.div
+            variants={sheetBackdropVariants}
+            initial="hidden"
+            animate="visible"
+            exit="hidden"
+            transition={sheetMotionTransition}
+            className="absolute inset-0 z-40 flex justify-end bg-[#1d1d1f]/14 backdrop-blur-[1px]"
+          >
+            <button
+              type="button"
+              aria-label={t("sessions.settingsTitle")}
+              className="absolute inset-0 hidden cursor-default sm:block"
+              onClick={closeSessionSettings}
+            />
+            <motion.section
+              variants={sheetPanelVariants}
+              initial="hidden"
+              animate="visible"
+              exit="hidden"
+              transition={sheetMotionTransition}
+              className="relative flex h-full w-full flex-col border-l border-[#d7d7dd] bg-[#f2f2f7] shadow-[-18px_0_44px_rgba(60,60,67,0.14)] sm:max-w-[380px]"
+            >
+              <div className="grid h-14 shrink-0 grid-cols-[44px_minmax(0,1fr)_44px] items-center border-b border-[#d7d7dd]/70 bg-white/82 px-2.5 backdrop-blur-2xl">
                 <button
                   type="button"
-                  aria-pressed={settingsPinned}
-                  onClick={() => setSettingsPinned((pinned) => !pinned)}
-                  data-ripple-session-settings-group="pinned"
-                  className={`mt-3 flex w-full items-center gap-3 rounded-2xl border p-3 text-left shadow-[0_10px_28px_rgba(60,60,67,0.06)] transition-colors ${
-                    settingsPinned
-                      ? "border-[#cfe4ff] bg-[#eaf4ff]/88 text-[#111827]"
-                      : "border-[#dfe6f4] bg-white/88 text-[#111827] hover:bg-white"
-                  }`}
+                  aria-label={t("sessions.backToSession")}
+                  title={t("sessions.backToSession")}
+                  onClick={closeSessionSettings}
+                  className={mobileHeaderButtonClass}
                 >
-                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl border border-[#e5e5ea] bg-[#f2f2f7] text-[#6e6e73]">
-                    <Pin size={15} />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[14px] font-semibold text-[#111827]">
-                      {t("sessions.pinnedLabel")}
-                    </span>
-                    <span className="mt-0.5 block truncate text-[12px] leading-4 text-[#7a8496]">
-                      {t("sessions.pinnedDescription")}
-                    </span>
-                  </span>
-                  <span
-                    aria-hidden="true"
-                    className={`h-6 w-10 shrink-0 rounded-full p-0.5 transition-colors ${
-                      settingsPinned ? "bg-[#34c759]" : "bg-[#d1d1d6]"
+                  <ArrowBigLeft size={18} strokeWidth={2.2} />
+                </button>
+                <div className="truncate text-center text-[15px] font-semibold text-[#111827]">
+                  {t("sessions.settingsTitle")}
+                </div>
+              </div>
+
+              <form onSubmit={handleSettingsSubmit} className="flex min-h-0 flex-1 flex-col">
+                <div
+                  data-ripple-session-settings-body="grouped-form"
+                  className="min-h-0 flex-1 overflow-y-auto bg-[#f2f2f7] px-4 py-4"
+                >
+                  <section
+                    data-ripple-session-settings-group="name"
+                    className="rounded-2xl border border-[#d7d7dd] bg-white/88 p-3 shadow-[0_10px_28px_rgba(60,60,67,0.06)]"
+                  >
+                    <label className="block">
+                      <span className="mb-2 block text-[12px] font-medium text-[#667085]">
+                        {t("sessions.name")}
+                      </span>
+                      <input
+                        value={settingsTitle}
+                        onChange={(event) => setSettingsTitle(event.target.value)}
+                        maxLength={120}
+                        className="h-10 w-full rounded-xl border border-[#d7d7dd] bg-white px-3 text-[14px] text-[#111827] transition-colors outline-none focus:border-[#007aff]"
+                        autoFocus
+                      />
+                    </label>
+                  </section>
+
+                  <button
+                    type="button"
+                    aria-pressed={settingsPinned}
+                    onClick={() => setSettingsPinned((pinned) => !pinned)}
+                    data-ripple-session-settings-group="pinned"
+                    className={`mt-3 flex w-full items-center gap-3 rounded-2xl border p-3 text-left shadow-[0_10px_28px_rgba(60,60,67,0.06)] transition-colors ${
+                      settingsPinned
+                        ? "border-[#cfe4ff] bg-[#eaf4ff]/88 text-[#111827]"
+                        : "border-[#dfe6f4] bg-white/88 text-[#111827] hover:bg-white"
                     }`}
                   >
+                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl border border-[#e5e5ea] bg-[#f2f2f7] text-[#6e6e73]">
+                      <Pin size={15} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[14px] font-semibold text-[#111827]">
+                        {t("sessions.pinnedLabel")}
+                      </span>
+                      <span className="mt-0.5 block truncate text-[12px] leading-4 text-[#7a8496]">
+                        {t("sessions.pinnedDescription")}
+                      </span>
+                    </span>
                     <span
-                      className={`block h-5 w-5 rounded-full bg-white shadow-[0_2px_8px_rgba(44,63,123,0.18)] transition-transform ${
-                        settingsPinned ? "translate-x-4" : "translate-x-0"
+                      aria-hidden="true"
+                      className={`h-6 w-10 shrink-0 rounded-full p-0.5 transition-colors ${
+                        settingsPinned ? "bg-[#34c759]" : "bg-[#d1d1d6]"
                       }`}
-                    />
-                  </span>
-                </button>
+                    >
+                      <span
+                        className={`block h-5 w-5 rounded-full bg-white shadow-[0_2px_8px_rgba(44,63,123,0.18)] transition-transform ${
+                          settingsPinned ? "translate-x-4" : "translate-x-0"
+                        }`}
+                      />
+                    </span>
+                  </button>
 
-                {settingsError ? (
-                  <div className="flex items-start gap-2 rounded-xl border border-[#cf222e]/25 bg-[#ffebe9] px-3 py-2 text-[13px] font-medium text-[#cf222e]">
-                    <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-                    <span className="min-w-0 break-words">{settingsError}</span>
-                  </div>
-                ) : null}
-              </div>
+                  {settingsError ? (
+                    <div className="flex items-start gap-2 rounded-xl border border-[#cf222e]/25 bg-[#ffebe9] px-3 py-2 text-[13px] font-medium text-[#cf222e]">
+                      <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                      <span className="min-w-0 break-words">{settingsError}</span>
+                    </div>
+                  ) : null}
+                </div>
 
-              <div className="flex shrink-0 gap-2 border-t border-[#d7d7dd]/70 bg-white/86 p-3 pb-[max(env(safe-area-inset-bottom),12px)] backdrop-blur-2xl">
-                <button
-                  type="button"
-                  onClick={closeSessionSettings}
-                  className="inline-flex h-10 w-[40%] items-center justify-center rounded-xl border border-[#d7d7dd] bg-white px-4 text-sm font-semibold text-[#3c3c43] shadow-[0_6px_18px_rgba(60,60,67,0.05)] transition-colors hover:bg-[#f2f2f7] active:bg-[#eaf4ff]"
-                >
-                  {t("sessions.cancel")}
-                </button>
-                <button
-                  type="submit"
-                  disabled={!sessionId || !settingsTitle.trim() || isSavingSettings}
-                  className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-[#007aff] px-4 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(0,122,255,0.22)] transition-all duration-200 hover:bg-[#006ee6] active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-[#eef2f7] disabled:text-[#9aa3af] disabled:shadow-none"
-                >
-                  {isSavingSettings ? <Loader2 size={15} className="animate-spin" /> : null}
-                  {t("sessions.save")}
-                </button>
-              </div>
-            </form>
-          </section>
-        </div>
-      )}
+                <div className="flex shrink-0 gap-2 border-t border-[#d7d7dd]/70 bg-white/86 p-3 pb-[max(env(safe-area-inset-bottom),12px)] backdrop-blur-2xl">
+                  <button
+                    type="button"
+                    onClick={closeSessionSettings}
+                    className="inline-flex h-10 w-[40%] items-center justify-center rounded-xl border border-[#d7d7dd] bg-white px-4 text-sm font-semibold text-[#3c3c43] shadow-[0_6px_18px_rgba(60,60,67,0.05)] transition-colors hover:bg-[#f2f2f7] active:bg-[#eaf4ff]"
+                  >
+                    {t("sessions.cancel")}
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!sessionId || !settingsTitle.trim() || isSavingSettings}
+                    className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-[#007aff] px-4 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(0,122,255,0.22)] transition-all duration-200 hover:bg-[#006ee6] active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-[#eef2f7] disabled:text-[#9aa3af] disabled:shadow-none"
+                  >
+                    {isSavingSettings ? <Loader2 size={15} className="animate-spin" /> : null}
+                    {t("sessions.save")}
+                  </button>
+                </div>
+              </form>
+            </motion.section>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
 
       <div
         ref={scrollContainerRef}

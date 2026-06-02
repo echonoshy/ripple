@@ -2,6 +2,8 @@
 
 import React, { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { AnimatePresence, motion } from "framer-motion";
+import { useReducedMotion } from "framer-motion";
 import {
   AlertTriangle,
   Ellipsis,
@@ -26,6 +28,14 @@ import {
 import type { WorkbenchSessionSummary } from "@/types";
 import SessionAttentionDot from "./SessionAttentionDot";
 import RippleIcon from "@/components/icons/RippleIcon";
+import SwipeActionRow from "./SwipeActionRow";
+import {
+  listItemVariants,
+  menuTransition,
+  menuVariants,
+  reducedMotionTransition,
+  searchExpandVariants,
+} from "./motionPrimitives";
 
 interface MobileSessionsPageProps {
   sessions: WorkbenchSessionSummary[];
@@ -119,6 +129,8 @@ export default function MobileSessionsPage({
   onUpdateSession,
 }: MobileSessionsPageProps) {
   const { locale, t } = useI18n();
+  const reduceMotion = useReducedMotion();
+  const shortTransition = reduceMotion ? reducedMotionTransition : menuTransition;
   const [isSearching, setIsSearching] = useState(false);
   const [query, setQuery] = useState("");
 
@@ -170,63 +182,78 @@ export default function MobileSessionsPage({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[#f2f2f7] text-[#111827] lg:hidden">
-      {activeMenu && activeMenuSession && typeof document !== "undefined"
+      {typeof document !== "undefined"
         ? createPortal(
-            <>
-              <div
-                className="fixed inset-0 z-40 bg-transparent"
-                onClick={() => {
-                  setActiveMenu(null);
-                }}
-              />
-              <div
-                ref={activeMenuRef}
-                style={{ top: activeMenu.top, left: activeMenu.left, position: "fixed" }}
-                className="animate-in fade-in-50 zoom-in-95 z-50 max-h-[calc(100dvh-104px)] w-36 overflow-y-auto rounded-2xl border border-white/78 bg-white/90 p-1.5 shadow-[0_14px_34px_rgba(60,60,67,0.16)] backdrop-blur-2xl duration-100"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void onUpdateSession(activeMenuSession.sessionId, {
-                      pinned: !activeMenuSession.pinned,
-                    });
-                    setActiveMenu(null);
-                  }}
-                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#3c3c43] transition-colors hover:bg-[#f2f2f7] active:bg-[#eaf4ff]"
-                >
-                  <Pin size={13} className="shrink-0 text-[#6b7280]" />
-                  {activeMenuSession.pinned ? t("sessions.unpin") : t("sessions.pin")}
-                </button>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setEditingSessionId(activeMenuSession.sessionId);
-                    setEditingTitle(activeMenuSession.title);
-                    setActiveMenu(null);
-                  }}
-                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#3c3c43] transition-colors hover:bg-[#f2f2f7] active:bg-[#eaf4ff]"
-                >
-                  <Edit3 size={13} className="shrink-0 text-[#6b7280]" />
-                  {t("sessions.rename")}
-                </button>
-                <div className="my-1 border-t border-[#e5e5ea]" />
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDeleteSession(activeMenuSession.sessionId, e);
-                    setActiveMenu(null);
-                  }}
-                  className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-xs font-semibold text-[#cf222e] transition-colors hover:bg-[#ffebe9] active:bg-[#ffd5d6]"
-                >
-                  <Trash2 size={13} className="shrink-0 text-[#cf222e]" />
-                  {t("sessions.delete")}
-                </button>
-              </div>
-            </>,
+            <AnimatePresence>
+              {activeMenu && activeMenuSession ? (
+                <>
+                  <motion.div
+                    key="mobile-session-menu-backdrop"
+                    className="fixed inset-0 z-40 bg-transparent"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={shortTransition}
+                    onClick={() => {
+                      setActiveMenu(null);
+                    }}
+                  />
+                  <motion.div
+                    key="mobile-session-menu"
+                    ref={activeMenuRef}
+                    style={{ top: activeMenu.top, left: activeMenu.left, position: "fixed" }}
+                    variants={menuVariants}
+                    initial="hidden"
+                    animate="visible"
+                    exit="hidden"
+                    transition={shortTransition}
+                    className="z-50 max-h-[calc(100dvh-104px)] w-36 origin-top-right overflow-y-auto rounded-2xl border border-white/78 bg-white/90 p-1.5 shadow-[0_14px_34px_rgba(60,60,67,0.16)] backdrop-blur-2xl"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void onUpdateSession(activeMenuSession.sessionId, {
+                          pinned: !activeMenuSession.pinned,
+                        });
+                        setActiveMenu(null);
+                      }}
+                      className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#3c3c43] transition-colors hover:bg-[#f2f2f7] active:bg-[#eaf4ff]"
+                    >
+                      <Pin size={13} className="shrink-0 text-[#6b7280]" />
+                      {activeMenuSession.pinned ? t("sessions.unpin") : t("sessions.pin")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingSessionId(activeMenuSession.sessionId);
+                        setEditingTitle(activeMenuSession.title);
+                        setActiveMenu(null);
+                      }}
+                      className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#3c3c43] transition-colors hover:bg-[#f2f2f7] active:bg-[#eaf4ff]"
+                    >
+                      <Edit3 size={13} className="shrink-0 text-[#6b7280]" />
+                      {t("sessions.rename")}
+                    </button>
+                    <div className="my-1 border-t border-[#e5e5ea]" />
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDeleteSession(activeMenuSession.sessionId, e);
+                        setActiveMenu(null);
+                      }}
+                      className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-xs font-semibold text-[#cf222e] transition-colors hover:bg-[#ffebe9] active:bg-[#ffd5d6]"
+                    >
+                      <Trash2 size={13} className="shrink-0 text-[#cf222e]" />
+                      {t("sessions.delete")}
+                    </button>
+                  </motion.div>
+                </>
+              ) : null}
+            </AnimatePresence>,
             document.body
           )
         : null}
@@ -262,18 +289,30 @@ export default function MobileSessionsPage({
             </button>
           </div>
         </div>
-        {isSearching ? (
-          <div className="mt-2 flex h-9 items-center gap-2 rounded-full border border-white/76 bg-white/72 px-3 shadow-[0_8px_24px_rgba(60,60,67,0.06)] backdrop-blur-xl">
-            <Search size={15} className="shrink-0 text-[#7a8496]" />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={t("sessions.search")}
-              className="search-sessions-input min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-[#9aa3af] focus:ring-0 focus:outline-none focus-visible:ring-0 focus-visible:outline-none"
-              autoFocus
-            />
-          </div>
-        ) : null}
+        <AnimatePresence initial={false}>
+          {isSearching ? (
+            <motion.div
+              data-ripple-mobile-search-motion
+              variants={searchExpandVariants}
+              initial="collapsed"
+              animate="expanded"
+              exit="collapsed"
+              transition={shortTransition}
+              className="overflow-hidden"
+            >
+              <div className="flex h-9 items-center gap-2 rounded-full border border-white/76 bg-white/72 px-3 shadow-[0_8px_24px_rgba(60,60,67,0.06)] backdrop-blur-xl">
+                <Search size={15} className="shrink-0 text-[#7a8496]" />
+                <input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder={t("sessions.search")}
+                  className="search-sessions-input min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-[#9aa3af] focus:ring-0 focus:outline-none focus-visible:ring-0 focus-visible:outline-none"
+                  autoFocus
+                />
+              </div>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
       </header>
 
       <main className="min-h-0 flex-1 overflow-y-auto px-3 pt-2.5 pb-[calc(88px+env(safe-area-inset-bottom))]">
@@ -318,125 +357,188 @@ export default function MobileSessionsPage({
           </div>
         ) : (
           <div className="space-y-1.5">
-            {visibleSessions.map((session) => {
-              const selected = session.sessionId === selectedSessionId;
-              const activityTime = formatSessionActivityTime(
-                session.lastActivityAt,
-                new Date(),
-                locale,
-                t("common.yesterday")
-              );
-              const isEditing = editingSessionId === session.sessionId;
-              const isMenuActive = activeMenuSessionId === session.sessionId;
+            <AnimatePresence initial={false}>
+              {visibleSessions.map((session, sessionIndex) => {
+                const selected = session.sessionId === selectedSessionId;
+                const activityTime = formatSessionActivityTime(
+                  session.lastActivityAt,
+                  new Date(),
+                  locale,
+                  t("common.yesterday")
+                );
+                const isEditing = editingSessionId === session.sessionId;
+                const isMenuActive = activeMenuSessionId === session.sessionId;
 
-              if (isEditing) {
-                const handleSave = () => {
-                  if (isCancellingRef.current) {
-                    isCancellingRef.current = false;
-                    return;
-                  }
-                  const trimmed = editingTitle.trim();
-                  if (trimmed && trimmed !== session.title) {
-                    void onUpdateSession(session.sessionId, { title: trimmed });
-                  }
-                  setEditingSessionId(null);
-                };
+                if (isEditing) {
+                  const handleSave = () => {
+                    if (isCancellingRef.current) {
+                      isCancellingRef.current = false;
+                      return;
+                    }
+                    const trimmed = editingTitle.trim();
+                    if (trimmed && trimmed !== session.title) {
+                      void onUpdateSession(session.sessionId, { title: trimmed });
+                    }
+                    setEditingSessionId(null);
+                  };
+
+                  return (
+                    <motion.div
+                      key={session.sessionId}
+                      custom={sessionIndex}
+                      variants={listItemVariants}
+                      initial="hidden"
+                      animate="visible"
+                      exit="hidden"
+                      transition={shortTransition}
+                      className="flex w-full items-center rounded-2xl border border-[#cfe4ff] bg-white/84 px-3 py-2.5 text-[#111827] shadow-[0_8px_24px_rgba(60,60,67,0.06)] backdrop-blur-xl"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <input
+                        type="text"
+                        value={editingTitle}
+                        onChange={(e) => setEditingTitle(e.target.value)}
+                        onBlur={handleSave}
+                        onFocus={(e) => e.target.select()}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            handleSave();
+                          } else if (e.key === "Escape") {
+                            isCancellingRef.current = true;
+                            setEditingSessionId(null);
+                          }
+                        }}
+                        className="min-w-0 flex-1 bg-transparent py-0.5 text-[14px] font-medium text-[#0d0d0d] outline-none"
+                        autoFocus
+                        maxLength={120}
+                      />
+                    </motion.div>
+                  );
+                }
 
                 return (
-                  <div
+                  <motion.div
                     key={session.sessionId}
-                    className="flex w-full items-center rounded-2xl border border-[#cfe4ff] bg-white/84 px-3 py-2.5 text-[#111827] shadow-[0_8px_24px_rgba(60,60,67,0.06)] backdrop-blur-xl"
-                    onClick={(e) => e.stopPropagation()}
+                    custom={sessionIndex}
+                    variants={listItemVariants}
+                    initial="hidden"
+                    animate="visible"
+                    exit="hidden"
+                    transition={shortTransition}
                   >
-                    <input
-                      type="text"
-                      value={editingTitle}
-                      onChange={(e) => setEditingTitle(e.target.value)}
-                      onBlur={handleSave}
-                      onFocus={(e) => e.target.select()}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          handleSave();
-                        } else if (e.key === "Escape") {
-                          isCancellingRef.current = true;
-                          setEditingSessionId(null);
-                        }
+                    <SwipeActionRow
+                      data-ripple-mobile-session-swipe
+                      trailingActions={[
+                        {
+                          key: "pin",
+                          label: session.pinned ? t("sessions.unpin") : t("sessions.pin"),
+                          icon: <Pin size={14} />,
+                          tone: "accent",
+                          onClick: () => {
+                            void onUpdateSession(session.sessionId, {
+                              pinned: !session.pinned,
+                            });
+                          },
+                        },
+                        {
+                          key: "rename",
+                          label: t("sessions.rename"),
+                          icon: <Edit3 size={14} />,
+                          tone: "neutral",
+                          onClick: () => {
+                            setEditingSessionId(session.sessionId);
+                            setEditingTitle(session.title);
+                          },
+                        },
+                        {
+                          key: "delete",
+                          label: t("sessions.delete"),
+                          icon: <Trash2 size={14} />,
+                          tone: "danger",
+                          onClick: (event) => {
+                            onDeleteSession(session.sessionId, event);
+                          },
+                        },
+                      ]}
+                      onSwipeRightCommit={() => {
+                        void onUpdateSession(session.sessionId, {
+                          pinned: !session.pinned,
+                        });
                       }}
-                      className="min-w-0 flex-1 bg-transparent py-0.5 text-[14px] font-medium text-[#0d0d0d] outline-none"
-                      autoFocus
-                      maxLength={120}
-                    />
-                  </div>
-                );
-              }
-
-              return (
-                <div
-                  key={session.sessionId}
-                  className={`relative flex w-full items-center gap-2 rounded-2xl border bg-white/78 px-3 py-2.5 text-left shadow-[0_8px_24px_rgba(60,60,67,0.05)] backdrop-blur-xl transition-all ${
-                    selected ? "border-[#cfe4ff] bg-white/90" : "border-white/78 active:bg-white/88"
-                  } ${isMenuActive ? "z-50" : "z-10"}`}
-                >
-                  {selected ? (
-                    <span
-                      aria-hidden="true"
-                      className="absolute top-2 bottom-2 left-0 w-[3px] rounded-r-full bg-[#007aff]"
-                    />
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={() => onSelectSession(session.sessionId)}
-                    className="flex min-w-0 flex-1 items-center gap-2 py-0.5 pr-1 text-left outline-none"
-                  >
-                    <span className="min-w-0 flex-1">
-                      <span className="flex min-w-0 items-center gap-2">
-                        <span className="truncate text-[14px] leading-5 font-medium text-[#111827]">
-                          {session.title}
-                        </span>
-                        {session.pinned ? (
-                          <Pin size={12} className="shrink-0 text-[#6b7280]" />
+                      rightCommitLabel={session.pinned ? t("sessions.unpin") : t("sessions.pin")}
+                      rightCommitIcon={<Pin size={14} />}
+                      className={isMenuActive ? "z-50 rounded-2xl" : "z-10 rounded-2xl"}
+                    >
+                      <div
+                        className={`relative flex w-full items-center gap-2 rounded-2xl border bg-white/78 px-3 py-2.5 text-left shadow-[0_8px_24px_rgba(60,60,67,0.05)] backdrop-blur-xl transition-all ${
+                          selected
+                            ? "border-[#cfe4ff] bg-white/90"
+                            : "border-white/78 active:bg-white/88"
+                        }`}
+                      >
+                        {selected ? (
+                          <span
+                            aria-hidden="true"
+                            className="absolute top-2 bottom-2 left-0 w-[3px] rounded-r-full bg-[#007aff]"
+                          />
                         ) : null}
-                        <SessionAttentionDot attention={session.attention} reserveSpace />
-                      </span>
-                      <span className="mt-0.5 block truncate text-[11px] leading-4 text-[#667085]">
-                        {sessionPreview(session, t)}
-                      </span>
-                    </span>
-                    {activityTime ? (
-                      <span className="shrink-0 self-start pt-0.5 font-[family-name:var(--font-mono)] text-[9px] text-[#8b95a5]">
-                        {activityTime}
-                      </span>
-                    ) : null}
-                  </button>
+                        <button
+                          type="button"
+                          onClick={() => onSelectSession(session.sessionId)}
+                          className="flex min-w-0 flex-1 items-center gap-2 py-0.5 pr-1 text-left outline-none"
+                        >
+                          <span className="min-w-0 flex-1">
+                            <span className="flex min-w-0 items-center gap-2">
+                              <span className="truncate text-[14px] leading-5 font-medium text-[#111827]">
+                                {session.title}
+                              </span>
+                              {session.pinned ? (
+                                <Pin size={12} className="shrink-0 text-[#6b7280]" />
+                              ) : null}
+                              <SessionAttentionDot attention={session.attention} reserveSpace />
+                            </span>
+                            <span className="mt-0.5 block truncate text-[11px] leading-4 text-[#667085]">
+                              {sessionPreview(session, t)}
+                            </span>
+                          </span>
+                          {activityTime ? (
+                            <span className="shrink-0 self-start pt-0.5 font-[family-name:var(--font-mono)] text-[9px] text-[#8b95a5]">
+                              {activityTime}
+                            </span>
+                          ) : null}
+                        </button>
 
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      const anchorRect = e.currentTarget.getBoundingClientRect();
-                      setActiveMenu((current) => {
-                        if (current?.sessionId === session.sessionId) return null;
-                        const position = getMobileSessionMenuPosition(anchorRect);
-                        return {
-                          sessionId: session.sessionId,
-                          ...position,
-                          anchorRect,
-                          measuredHeight: null,
-                        };
-                      });
-                    }}
-                    className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/62 bg-white/42 text-[#6e6e73] shadow-[0_4px_12px_rgba(60,60,67,0.05)] backdrop-blur-xl active:bg-[#eaf4ff]/78 ${
-                      activeMenuSessionId === session.sessionId
-                        ? "bg-[#eaf4ff]/78 text-[#111827]"
-                        : ""
-                    }`}
-                    title={t("sessions.options")}
-                  >
-                    <Ellipsis size={18} strokeWidth={2.2} />
-                  </button>
-                </div>
-              );
-            })}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const anchorRect = e.currentTarget.getBoundingClientRect();
+                            setActiveMenu((current) => {
+                              if (current?.sessionId === session.sessionId) return null;
+                              const position = getMobileSessionMenuPosition(anchorRect);
+                              return {
+                                sessionId: session.sessionId,
+                                ...position,
+                                anchorRect,
+                                measuredHeight: null,
+                              };
+                            });
+                          }}
+                          className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/62 bg-white/42 text-[#6e6e73] shadow-[0_4px_12px_rgba(60,60,67,0.05)] backdrop-blur-xl active:bg-[#eaf4ff]/78 ${
+                            activeMenuSessionId === session.sessionId
+                              ? "bg-[#eaf4ff]/78 text-[#111827]"
+                              : ""
+                          }`}
+                          title={t("sessions.options")}
+                        >
+                          <Ellipsis size={18} strokeWidth={2.2} />
+                        </button>
+                      </div>
+                    </SwipeActionRow>
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
           </div>
         )}
       </main>

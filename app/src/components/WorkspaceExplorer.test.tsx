@@ -757,6 +757,41 @@ function testWorkspaceExplorerSupportsMultiSelectionBatchActions() {
 
 testWorkspaceExplorerSupportsMultiSelectionBatchActions();
 
+function testWorkspaceExplorerPageRowsExposeMobileSwipeActions() {
+  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const html = renderExplorer({
+    presentation: "page",
+    testInitialListing: {
+      path: "/workspace",
+      parent_path: null,
+      entries: [
+        {
+          name: "alpha.txt",
+          path: "/workspace/alpha.txt",
+          kind: "file",
+          size_bytes: 10,
+          modified_at: "2026-05-17T00:00:00Z",
+          is_hidden: false,
+          mime_type: "text/plain",
+        },
+      ],
+    },
+  });
+
+  assert.match(source, /import SwipeActionRow/);
+  assert.match(source, /data-ripple-files-swipe-row/);
+  assert.match(source, /trailingActions=\{/);
+  assert.match(source, /onSwipeRightCommit=\{/);
+  assert.match(source, /toggleEntrySelection\(entry\)/);
+  assert.match(source, /startRename\(entry\)/);
+  assert.match(source, /handleDelete\(entry\)/);
+  assert.match(source, /openWorkspaceContextMenuForEntry/);
+  assert.match(html, /data-ripple-swipe-row/);
+  assert.match(html, /data-ripple-files-swipe-row/);
+}
+
+testWorkspaceExplorerPageRowsExposeMobileSwipeActions();
+
 function testWorkspaceExplorerSupportsDragMoveIntoDirectories() {
   const source = readFileSync(`${process.cwd()}/src/components/WorkspaceExplorer.tsx`, "utf8");
   const html = renderExplorer({

@@ -225,6 +225,19 @@ function testSendFlowKeepsLocalImagesWhenSendTimeUploadFails() {
   assert.match(source, /clearPendingLocalImages\(\);/);
 }
 
+function testSendErrorsReleaseSessionForRetry() {
+  const source = readFileSync(new URL("./useChatRun.ts", import.meta.url), "utf8");
+
+  assert.match(source, /let streamHadError = false;/);
+  assert.match(source, /streamHadError = true;/);
+  assert.match(source, /if \(streamHadError\) return;/);
+
+  const onErrorBlock = source.match(/onError: \(err\) => \{([\s\S]*?)\n {10}\},\n {8}\},/);
+  assert.ok(onErrorBlock, "send onError block should exist");
+  assert.match(onErrorBlock[1], /runningViewStatesRef\.current\.delete\(activeSessionId\)/);
+  assert.match(onErrorBlock[1], /clearSessionRunning\(activeSessionId\)/);
+}
+
 testFeishuSetupAuthStartsAutomaticPoll();
 testFeishuUserAuthStartsAutomaticPoll();
 testGoogleAuthStillStartsAutomaticPoll();
@@ -237,5 +250,6 @@ testSessionTitleRefreshUsesShortDelayedPolls();
 await testPendingLocalImagesUploadToWorkspaceRefsBeforeSend();
 await testPendingLocalImageUploadFailuresStopSendFlow();
 testSendFlowKeepsLocalImagesWhenSendTimeUploadFails();
+testSendErrorsReleaseSessionForRetry();
 
 console.log("useChatRun tests passed");

@@ -136,19 +136,29 @@ export function applyCurrentSessionRuntimeStatus(
 export function applySessionAttentionMarkers(
   sessions: WorkbenchSessionSummary[],
   attentionBySessionId: Record<string, SessionAttention | undefined>,
-  openSessionId: string | null
+  openSessionId: string | null,
+  acknowledgedAttentionBySessionId: Record<string, SessionAttention | undefined> = {}
 ): WorkbenchSessionSummary[] {
   const marked = sessions.map((session) => {
     const statusAttention = sessionAttentionFromStatus(
       session.status,
       session.pendingApprovalCount
     );
-    const storedAttention = attentionBySessionId[session.sessionId];
-    const attention =
-      statusAttention ||
-      (storedAttention === "completed" && session.sessionId === openSessionId
+    const sessionIsOpen = session.sessionId === openSessionId;
+    const acknowledgedAttention = acknowledgedAttentionBySessionId[session.sessionId];
+    const visibleStatusAttention =
+      statusAttention === "error" &&
+      (sessionIsOpen || acknowledgedAttention === statusAttention)
         ? null
-        : storedAttention) ||
+        : statusAttention;
+    const storedAttention = attentionBySessionId[session.sessionId];
+    const visibleStoredAttention =
+      storedAttention === "error" && sessionIsOpen ? null : storedAttention;
+    const attention =
+      visibleStatusAttention ||
+      (visibleStoredAttention === "completed" && sessionIsOpen
+        ? null
+        : visibleStoredAttention) ||
       null;
 
     if ((session.attention || null) === attention) return session;

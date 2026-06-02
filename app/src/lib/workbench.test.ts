@@ -203,6 +203,64 @@ function testAppliesUnreadCompletionAttentionOnlyOffCurrentSession() {
   assert.equal(marked[1].attention, "completed");
 }
 
+function testHidesFailedAttentionForOpenSession() {
+  const sessions = mapSessionSummariesToWorkbenchSessions([
+    makeSession({
+      sessionId: "srv-current",
+      title: "Current session",
+      status: "failed",
+      lastActiveAt: "2026-05-15T02:00:00.000Z",
+    }),
+    makeSession({
+      sessionId: "srv-background",
+      title: "Background session",
+      status: "failed",
+      lastActiveAt: "2026-05-15T01:00:00.000Z",
+    }),
+  ]);
+
+  const marked = applySessionAttentionMarkers(sessions, {}, "srv-current");
+
+  assert.equal(marked[0].sessionId, "srv-current");
+  assert.equal(marked[0].attention, undefined);
+  assert.equal(marked[1].sessionId, "srv-background");
+  assert.equal(marked[1].attention, "error");
+}
+
+function testAcknowledgedFailedAttentionStaysHiddenOffCurrentSession() {
+  const sessions = mapSessionSummariesToWorkbenchSessions([
+    makeSession({
+      sessionId: "srv-failed",
+      title: "Failed session",
+      status: "failed",
+      lastActiveAt: "2026-05-15T02:00:00.000Z",
+    }),
+  ]);
+
+  const marked = applySessionAttentionMarkers(sessions, {}, null, { "srv-failed": "error" });
+
+  assert.equal(marked[0].sessionId, "srv-failed");
+  assert.equal(marked[0].attention, undefined);
+}
+
+function testKeepsNeedsInputAttentionForOpenWaitingSession() {
+  const sessions = mapSessionSummariesToWorkbenchSessions([
+    makeSession({
+      sessionId: "srv-waiting",
+      title: "Waiting session",
+      status: "waiting_for_user",
+      lastActiveAt: "2026-05-15T02:00:00.000Z",
+    }),
+  ]);
+
+  const marked = applySessionAttentionMarkers(sessions, {}, "srv-waiting", {
+    "srv-waiting": "needs_input",
+  });
+
+  assert.equal(marked[0].sessionId, "srv-waiting");
+  assert.equal(marked[0].attention, "needs_input");
+}
+
 function testMergesMissingRunningSessionIntoSidebarSessions() {
   const sessions = mapSessionSummariesToWorkbenchSessions([
     makeSession({
@@ -680,6 +738,9 @@ testFormatsSessionActivityTimeWithLocale();
 testAppliesCurrentRunningStatusToExistingSession();
 testAppliesCurrentApprovalStatusToExistingSession();
 testAppliesUnreadCompletionAttentionOnlyOffCurrentSession();
+testHidesFailedAttentionForOpenSession();
+testAcknowledgedFailedAttentionStaysHiddenOffCurrentSession();
+testKeepsNeedsInputAttentionForOpenWaitingSession();
 testMergesMissingRunningSessionIntoSidebarSessions();
 testMapsToolCallsIntoTimelineEvents();
 testLimitsToolActivityToRecentSummaries();

@@ -709,6 +709,7 @@ export function useChatRun({
       let currentContent = "";
       let pendingConnectorAuthPayload: FeishuAuthOpenPayload | null = null;
       let blockedForInteraction = false;
+      let streamHadError = false;
       const assistantUpdates = new Map<string, string>();
       const upsertAssistantUpdate = (id: string, content: string) => {
         updateRunningMessages((prev) => {
@@ -937,6 +938,7 @@ export function useChatRun({
           },
           onComplete: () => {
             if (isStaleRequest()) return;
+            if (streamHadError) return;
             abortControllersRef.current.delete(activeSessionId);
             if (pendingConnectorAuthPayload && beginConnectorAuthPollRef.current) {
               const baseMessages =
@@ -966,6 +968,7 @@ export function useChatRun({
           },
           onError: (err) => {
             if (isStaleRequest()) return;
+            streamHadError = true;
             abortControllersRef.current.delete(activeSessionId);
             if (err instanceof AuthError) {
               handleAuthExpired();
@@ -985,6 +988,11 @@ export function useChatRun({
               }
               return msgs;
             });
+            const nextPlan = clearPlanState();
+            replaceRunningPlan(nextPlan);
+            runningViewStatesRef.current.delete(activeSessionId);
+            void getSessionActions().loadSessions();
+            onWorkspaceRefresh();
           },
         },
         { signal: abortController.signal, files: filesForSend }

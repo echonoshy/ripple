@@ -152,9 +152,17 @@ function testSessionSelectionRequestsScrollToBottom() {
   assert.match(appSource, /sessionScrollToBottomRequest/);
   assert.match(
     appSource,
-    /if \(switched\) \{\s*acknowledgeSessionCompletion\(targetSessionId\);\s*setSessionScrollToBottomRequest\(\(request\) => request \+ 1\);/
+    /if \(switched\) \{\s*acknowledgeSessionAttention\(targetSessionId\);\s*setSessionScrollToBottomRequest\(\(request\) => request \+ 1\);/
   );
   assert.match(appSource, /scrollToBottomRequest=\{sessionScrollToBottomRequest\}/);
+}
+
+function testSessionSelectionAcknowledgesErrorAttention() {
+  assert.match(appSource, /acknowledgeSessionAttention/);
+  assert.match(appSource, /setAcknowledgedSessionAttentionById/);
+  assert.match(appSource, /storedAttention === "error"/);
+  assert.match(appSource, /sessionStatusToWorkbenchStatus\(summary\.status\) === "failed"/);
+  assert.doesNotMatch(appSource, /acknowledgeSessionCompletion/);
 }
 
 function testDefaultModelSeedsNewSessionsAndChatRuns() {
@@ -216,6 +224,7 @@ testSettingsIsSinglePageSurface();
 testMobileChatHeaderOmitsSecondarySessionSettings();
 testSessionScrollActivationStaysInsideSessionPage();
 testSessionSelectionRequestsScrollToBottom();
+testSessionSelectionAcknowledgesErrorAttention();
 testDefaultModelSeedsNewSessionsAndChatRuns();
 testContextFolderSeedsNewSessionsAndFilesViewStaysPlain();
 testChatFolderPickerUpdatesCurrentSessionContextFolder();

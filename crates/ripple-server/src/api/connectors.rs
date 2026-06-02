@@ -468,7 +468,7 @@ fn connector_definitions() -> &'static [ConnectorDefinition] {
         ConnectorDefinition {
             name: "google_workspace",
             display_name: "Google Workspace",
-            description: "Gmail, Drive, Docs, Sheets, Slides, and Calendar through gogcli.",
+            description: "Gmail, Drive, Docs, Sheets, Slides, and Calendar.",
             auth_type: "oauth",
             kind: "user_connector",
             auth_flow: "oauth_assisted",

@@ -288,9 +288,10 @@ function testSessionPageShowsCurrentFolderBadge() {
   );
 
   assert.match(html, /aria-label="Current model: Plus"/);
-  assert.match(html, /aria-label="Focus folder: demo"/);
+  assert.match(html, /aria-label="Work folder: demo"/);
   assert.match(html, /lucide-folder/);
   assert.doesNotMatch(html, /Plus Focus: demo/);
+  assert.doesNotMatch(html, /Focus folder/);
   assert.match(html, /title="\/workspace\/demo"/);
 }
 

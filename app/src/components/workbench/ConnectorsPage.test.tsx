@@ -139,9 +139,10 @@ function testConnectorsPageUsesCompactMobileDensity() {
 
   assert.match(source, /COMPACT_IOS_PAGE_BACKGROUND/);
   assert.match(source, /MOBILE_GLASS_ICON_BUTTON_CLASS/);
+  assert.match(source, /MOBILE_PAGE_TOP_SAFE_AREA_CLASS/);
+  assert.match(source, /MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS/);
   assert.match(source, /LUCIDE_NAV_STROKE_WIDTH/);
-  assert.match(source, /pt-\[max\(env\(safe-area-inset-top\),12px\)\]/);
-  assert.match(source, /pb-\[calc\(88px\+env\(safe-area-inset-bottom\)\)\]/);
+  assert.doesNotMatch(source, /pb-\[calc\(88px\+env\(safe-area-inset-bottom\)\)\]/);
   assert.doesNotMatch(source, /circle_at_16%_0%/);
   assert.match(source, /className="mx-auto max-w-5xl space-y-3"/);
   assert.match(source, /data-ripple-connector-logo-shell="true"/);

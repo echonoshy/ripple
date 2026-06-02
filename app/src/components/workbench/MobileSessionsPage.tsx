@@ -36,6 +36,11 @@ import {
   reducedMotionTransition,
   searchExpandVariants,
 } from "./motionPrimitives";
+import {
+  MOBILE_GLASS_ICON_BUTTON_CLASS,
+  MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS,
+  MOBILE_PAGE_TOP_SAFE_AREA_CLASS,
+} from "./stylePrimitives";
 
 interface MobileSessionsPageProps {
   sessions: WorkbenchSessionSummary[];
@@ -85,8 +90,7 @@ function sessionPreview(
 
 const MOBILE_SESSION_MENU_WIDTH = 144;
 const MOBILE_SESSION_MENU_HEIGHT = 132;
-const mobileHeaderActionClass =
-  "inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/76 bg-white/72 text-[#3c3c43] shadow-[0_6px_18px_rgba(60,60,67,0.08)] backdrop-blur-xl transition-all hover:bg-white/88 active:scale-[0.98] active:bg-white/82";
+const mobileHeaderActionClass = MOBILE_GLASS_ICON_BUTTON_CLASS;
 
 interface ActiveSessionMenu {
   sessionId: string;
@@ -257,7 +261,9 @@ export default function MobileSessionsPage({
             document.body
           )
         : null}
-      <header className="shrink-0 border-b border-white/74 bg-white/76 px-4 pt-[max(env(safe-area-inset-top),10px)] pb-2 shadow-[0_8px_24px_rgba(60,60,67,0.06)] backdrop-blur-2xl">
+      <header
+        className={`shrink-0 border-b border-white/74 bg-white/76 px-4 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} pb-2 shadow-[0_8px_24px_rgba(60,60,67,0.06)] backdrop-blur-2xl`}
+      >
         <div className="flex h-10 items-center justify-between">
           <div className="flex items-center gap-2.5">
             <RippleIcon size={24} className="h-6 w-6" />
@@ -300,7 +306,7 @@ export default function MobileSessionsPage({
               transition={shortTransition}
               className="overflow-hidden"
             >
-              <div className="flex h-9 items-center gap-2 rounded-full border border-white/76 bg-white/72 px-3 shadow-[0_8px_24px_rgba(60,60,67,0.06)] backdrop-blur-xl">
+              <div className="flex h-10 items-center gap-2 rounded-full border border-white/76 bg-white/72 px-3 shadow-[0_8px_24px_rgba(60,60,67,0.06)] backdrop-blur-xl">
                 <Search size={15} className="shrink-0 text-[#7a8496]" />
                 <input
                   value={query}
@@ -315,7 +321,9 @@ export default function MobileSessionsPage({
         </AnimatePresence>
       </header>
 
-      <main className="min-h-0 flex-1 overflow-y-auto px-3 pt-2.5 pb-[calc(88px+env(safe-area-inset-bottom))]">
+      <main
+        className={`min-h-0 flex-1 overflow-y-auto px-3 pt-2.5 ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS}`}
+      >
         {sessionLoadError && !isLoading ? (
           <div className="mt-2 flex items-start gap-2 rounded-xl border border-[#cf222e]/25 bg-[#ffebe9] p-3 text-sm font-medium text-[#cf222e]">
             <IconTile tone="danger" size="sm" className="mt-0.5">
@@ -348,7 +356,7 @@ export default function MobileSessionsPage({
               <button
                 type="button"
                 onClick={onNewSession}
-                className="mt-5 inline-flex h-9 items-center gap-2 rounded-full border border-[#cfe4ff] bg-[#eaf4ff]/86 px-4 text-[13px] font-semibold text-[#007aff] shadow-[0_8px_22px_rgba(0,122,255,0.12)] backdrop-blur-xl hover:bg-[#dff0ff]"
+                className="mt-5 inline-flex h-10 items-center gap-2 rounded-full border border-[#cfe4ff] bg-[#eaf4ff]/86 px-4 text-[13px] font-semibold text-[#007aff] shadow-[0_8px_22px_rgba(0,122,255,0.12)] backdrop-blur-xl hover:bg-[#dff0ff]"
               >
                 <MessageSquarePlus size={16} strokeWidth={2.1} />
                 {t("sessions.newSession")}

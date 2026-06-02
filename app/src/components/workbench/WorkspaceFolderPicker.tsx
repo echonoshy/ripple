@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { ArrowBigLeft, Check, ChevronRight, Folder, Loader2, X } from "lucide-react";
+import { ArrowBigLeft, Check, ChevronRight, Folder, Loader2 } from "lucide-react";
 import { useI18n } from "@/i18n";
 import { fetchWorkspaceListing } from "@/lib/api";
 import type { WorkspaceEntry, WorkspaceListing } from "@/types";
@@ -91,16 +91,7 @@ export default function WorkspaceFolderPicker({
       data-ripple-chat-folder-picker
       className="fixed inset-x-3 bottom-[calc(82px+env(safe-area-inset-bottom))] z-50 overflow-hidden rounded-2xl border border-[#dfe6f4] bg-white shadow-[0_24px_64px_rgba(15,23,42,0.18)] sm:absolute sm:bottom-full sm:left-0 sm:mb-2 sm:w-80"
     >
-      <div className="flex items-center gap-2 border-b border-[#e8edf7] px-3 py-2">
-        <button
-          type="button"
-          aria-label={t("files.closeFolderPicker")}
-          title={t("automations.close")}
-          onClick={onClose}
-          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[#667085] hover:bg-[#f3f4f6] hover:text-[#111827]"
-        >
-          <X size={15} />
-        </button>
+      <div className="flex items-center gap-2 border-b border-[#e8edf7] px-4 py-3">
         <div className="min-w-0 flex-1">
           <div className="truncate text-[12px] font-semibold text-[#111827]">
             {t("files.chooseFocusFolder")}
@@ -172,8 +163,8 @@ export default function WorkspaceFolderPicker({
                     selected ? "bg-[#f3f7ff]" : ""
                   }`}
                 >
-                  <Folder size={14} className="shrink-0 text-[#667085]" />
-                  <span className="min-w-0 flex-1 truncate">{entry.name}</span>
+                  <Folder size={14} className="shrink-0 text-[#5aaeff]" />
+                  <span className="min-w-0 flex-1 truncate font-semibold">{entry.name}</span>
                   <ChevronRight size={14} className="shrink-0 text-[#98a2b3]" />
                 </button>
                 <button

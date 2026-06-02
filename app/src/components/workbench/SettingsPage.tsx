@@ -48,7 +48,11 @@ import {
 import type { SandboxInfo, UserProfile } from "@/types";
 import { IconTile, type IconTileTone } from "@/components/icons/IconTile";
 import RippleIcon from "@/components/icons/RippleIcon";
-import { COMPACT_IOS_PAGE_BACKGROUND } from "./stylePrimitives";
+import {
+  COMPACT_IOS_PAGE_BACKGROUND,
+  MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS,
+  MOBILE_PAGE_TOP_SAFE_AREA_CLASS,
+} from "./stylePrimitives";
 
 interface SettingsPageProps {
   userId: string;
@@ -88,7 +92,7 @@ const SETTINGS_AVATAR_MENU_ITEM_HEIGHT = 32;
 const SETTINGS_AVATAR_MENU_VERTICAL_PADDING = 8;
 
 const settingsAccountActionButtonClass =
-  "inline-flex h-7 w-full min-w-0 items-center justify-center gap-1 rounded-full border border-[#dfe6f4] bg-white px-2 text-[10px] sm:text-[11px] font-semibold text-[#374151] transition-all hover:bg-[#f7f8fa] active:scale-[0.98] sm:w-auto sm:min-w-[68px] sm:gap-1.5 sm:px-2.5 [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0";
+  "inline-flex h-10 w-full min-w-0 items-center justify-center gap-1 rounded-full border border-[#dfe6f4] bg-white px-2 text-[10px] sm:text-[11px] font-semibold text-[#374151] transition-all hover:bg-[#f7f8fa] active:scale-[0.98] sm:w-auto sm:min-w-[68px] sm:gap-1.5 sm:px-2.5 [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0";
 
 const settingsSectionClass =
   "overflow-hidden rounded-xl border border-[#d7d7dd]/80 bg-white/82 shadow-[0_10px_26px_rgba(60,60,67,0.06)] backdrop-blur-xl";
@@ -569,7 +573,7 @@ export default function SettingsPage({
 
   return (
     <div
-      className={`h-full min-h-0 overflow-y-auto ${COMPACT_IOS_PAGE_BACKGROUND} px-2.5 pt-[max(env(safe-area-inset-top),8px)] pb-[calc(128px+env(safe-area-inset-bottom))] text-[#111827] md:px-4 md:pt-[max(env(safe-area-inset-top),12px)] lg:pb-4`}
+      className={`h-full min-h-0 overflow-y-auto ${COMPACT_IOS_PAGE_BACKGROUND} px-2.5 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} text-[#111827] md:px-4 lg:pb-4`}
     >
       {modelMenuPortal}
       {avatarMenuPortal}
@@ -723,7 +727,7 @@ export default function SettingsPage({
                     type="text"
                     value={displayNameInput}
                     onChange={(event) => setDisplayNameInput(event.target.value)}
-                    className="mt-1 h-8 w-full rounded-lg border border-[#dfe6f4] bg-white px-2.5 text-[12px] text-[#111827] outline-none focus:border-[#8da0ff]"
+                    className="mt-1 h-10 w-full rounded-lg border border-[#dfe6f4] bg-white px-2.5 text-[12px] text-[#111827] outline-none focus:border-[#8da0ff]"
                     maxLength={80}
                   />
                 </label>
@@ -738,7 +742,7 @@ export default function SettingsPage({
                       setDisplayNameInput(profile?.profile?.display_name ?? "");
                       setDisplayNameError(null);
                     }}
-                    className="inline-flex h-7 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-2 text-[11px] font-semibold text-[#374151]"
+                    className="inline-flex h-10 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-3 text-[11px] font-semibold text-[#374151]"
                   >
                     <X size={12} />
                     {t("settings.cancel")}
@@ -746,7 +750,7 @@ export default function SettingsPage({
                   <button
                     type="submit"
                     disabled={isSavingDisplayName}
-                    className="inline-flex h-7 items-center gap-1.5 rounded-full bg-[#007aff] px-2 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-[#d0d7e2]"
+                    className="inline-flex h-10 items-center gap-1.5 rounded-full bg-[#007aff] px-3 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-[#d0d7e2]"
                   >
                     {isSavingDisplayName ? <Loader2 size={12} className="animate-spin" /> : null}
                     {t("settings.saveName")}
@@ -772,7 +776,7 @@ export default function SettingsPage({
                       type="password"
                       value={currentPassword}
                       onChange={(event) => setCurrentPassword(event.target.value)}
-                      className="mt-1 h-8 w-full rounded-lg border border-[#dfe6f4] bg-white px-2.5 text-[12px] text-[#111827] outline-none focus:border-[#8da0ff]"
+                      className="mt-1 h-10 w-full rounded-lg border border-[#dfe6f4] bg-white px-2.5 text-[12px] text-[#111827] outline-none focus:border-[#8da0ff]"
                     />
                   </label>
                   <label className="min-w-0 text-[11px] font-semibold text-[#667085]">
@@ -781,7 +785,7 @@ export default function SettingsPage({
                       type="password"
                       value={newPassword}
                       onChange={(event) => setNewPassword(event.target.value)}
-                      className="mt-1 h-8 w-full rounded-lg border border-[#dfe6f4] bg-white px-2.5 text-[12px] text-[#111827] outline-none focus:border-[#8da0ff]"
+                      className="mt-1 h-10 w-full rounded-lg border border-[#dfe6f4] bg-white px-2.5 text-[12px] text-[#111827] outline-none focus:border-[#8da0ff]"
                     />
                   </label>
                 </div>
@@ -795,7 +799,7 @@ export default function SettingsPage({
                       setIsPasswordOpen(false);
                       setPasswordError(null);
                     }}
-                    className="inline-flex h-7 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-2 text-[11px] font-semibold text-[#374151]"
+                    className="inline-flex h-10 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-3 text-[11px] font-semibold text-[#374151]"
                   >
                     <X size={12} />
                     {t("settings.cancel")}
@@ -803,7 +807,7 @@ export default function SettingsPage({
                   <button
                     type="submit"
                     disabled={isChangingPassword}
-                    className="inline-flex h-7 items-center gap-1.5 rounded-full bg-[#007aff] px-2 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-[#d0d7e2]"
+                    className="inline-flex h-10 items-center gap-1.5 rounded-full bg-[#007aff] px-3 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-[#d0d7e2]"
                   >
                     {isChangingPassword ? <Loader2 size={12} className="animate-spin" /> : null}
                     {t("settings.savePassword")}
@@ -899,7 +903,7 @@ export default function SettingsPage({
                 <button
                   type="button"
                   onClick={handleModelMenuToggle}
-                  className="inline-flex h-7 min-w-28 items-center justify-between gap-2 rounded-full border border-[#dfe6f4] bg-white px-2.5 text-[11px] font-semibold text-[#374151] transition-all outline-none hover:bg-[#f7f8fa] focus:border-[#8da0ff]"
+                  className="inline-flex h-10 min-w-28 items-center justify-between gap-2 rounded-full border border-[#dfe6f4] bg-white px-3 text-[11px] font-semibold text-[#374151] transition-all outline-none hover:bg-[#f7f8fa] focus:border-[#8da0ff]"
                   aria-label={t("settings.defaultModel")}
                   aria-haspopup="menu"
                   aria-expanded={isModelMenuOpen}
@@ -932,7 +936,7 @@ export default function SettingsPage({
                       type="button"
                       aria-pressed={selected}
                       onClick={() => setLocalePreference(option.value)}
-                      className={`h-7 rounded-full px-2.5 text-[11px] font-semibold transition-all ${
+                      className={`h-10 rounded-full px-2.5 text-[11px] font-semibold transition-all ${
                         selected
                           ? "bg-[#eef4ff] text-[#006ee6] shadow-[0_6px_14px_rgba(47,107,255,0.14)]"
                           : "text-[#667085] hover:bg-[#f7f8fa] hover:text-[#374151]"
@@ -951,7 +955,7 @@ export default function SettingsPage({
           ref={diagnosticsSectionRef}
           sectionKind="diagnostics"
           data-ripple-settings-diagnostics-section
-          className="scroll-mb-[calc(128px+env(safe-area-inset-bottom))] lg:scroll-mb-4"
+          className="scroll-mb-[calc(96px+env(safe-area-inset-bottom))] lg:scroll-mb-4"
         >
           <button
             type="button"

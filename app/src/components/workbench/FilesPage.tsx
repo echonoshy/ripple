@@ -2,7 +2,11 @@
 
 import WorkspaceExplorer from "@/components/WorkspaceExplorer";
 import type { WorkspaceFileOpenRequest } from "@/types";
-import { COMPACT_IOS_PAGE_BACKGROUND } from "./stylePrimitives";
+import {
+  COMPACT_IOS_PAGE_BACKGROUND,
+  MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS,
+  MOBILE_PAGE_TOP_SAFE_AREA_CLASS,
+} from "./stylePrimitives";
 
 interface FilesPageProps {
   userId: string;
@@ -22,7 +26,7 @@ export default function FilesPage({
   return (
     <div
       data-ripple-files-page="finder-stage"
-      className={`flex h-full min-h-0 flex-col overflow-hidden ${COMPACT_IOS_PAGE_BACKGROUND} p-3 pt-[max(env(safe-area-inset-top),12px)] pb-[calc(88px+env(safe-area-inset-bottom))] text-[#111827] md:p-5 md:pt-[max(env(safe-area-inset-top),20px)] lg:pb-5`}
+      className={`flex h-full min-h-0 flex-col overflow-hidden ${COMPACT_IOS_PAGE_BACKGROUND} p-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} text-[#111827] md:p-5 md:pt-[max(env(safe-area-inset-top),20px)] lg:pb-5`}
     >
       <WorkspaceExplorer
         userId={userId}

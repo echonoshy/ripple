@@ -287,7 +287,7 @@ function ConnectorOfficialLogo({
     <span
       data-ripple-connector-logo-shell="true"
       title={connector.display_name}
-      className={`relative inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border shadow-[0_6px_14px_rgba(44,63,123,0.05)] backdrop-blur-xl ${logo.shellClass}`}
+      className={`relative inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border shadow-[0_4px_10px_rgba(44,63,123,0.03)] backdrop-blur-xl transition-all duration-300 ${logo.shellClass}`}
     >
       <span
         data-ripple-connector-official-logo="true"
@@ -297,7 +297,7 @@ function ConnectorOfficialLogo({
       </span>
       <span
         aria-hidden="true"
-        className={`absolute -right-0.5 -bottom-0.5 h-2.5 w-2.5 rounded-full border-2 border-white ${connectorStatusDotClass(
+        className={`absolute -right-0.5 -bottom-0.5 z-10 h-2.5 w-2.5 rounded-full border-2 border-white ${connectorStatusDotClass(
           status,
           logo
         )}`}
@@ -632,7 +632,7 @@ export default function ConnectorsPage({
               </button>
             ) : null}
             <div className="min-w-0">
-              <h1 className="text-[18px] leading-tight font-semibold tracking-normal">
+              <h1 className="text-[20px] leading-7 font-semibold tracking-normal">
                 <span className="sm:hidden">{t("connectors.title")}</span>
                 <span className="hidden sm:inline">{t("connectors.title")}</span>
               </h1>
@@ -725,23 +725,18 @@ export default function ConnectorsPage({
                     <section
                       key={connector.name}
                       data-ripple-connector-card="true"
-                      className={`group min-w-0 overflow-hidden rounded-lg border border-[#dfe6f4] bg-white/78 shadow-[0_8px_18px_rgba(44,63,123,0.045)] backdrop-blur-xl transition-all hover:bg-white/86 hover:shadow-[0_12px_24px_rgba(44,63,123,0.065)] ${logo.cardClass}`}
+                      className={`group min-w-0 overflow-hidden rounded-xl border border-[#dfe6f4] bg-white/78 shadow-[0_8px_18px_rgba(44,63,123,0.045)] backdrop-blur-xl transition-all duration-300 ease-out hover:bg-white/88 hover:shadow-[0_12px_24px_rgba(44,63,123,0.065)] ${logo.cardClass}`}
                     >
-                      <div className="flex items-start gap-2 p-2">
+                      <div className="flex items-start gap-2.5 p-2.5">
                         <ConnectorOfficialLogo connector={connector} status={status} />
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <h3 className="truncate text-[14px] leading-5 font-semibold">
-                                {connector.display_name}
-                              </h3>
-                              <p className="mt-0.5 text-[12px] leading-4 text-[#667085]">
-                                {connector.description}
-                              </p>
-                            </div>
+                          <div className="flex items-center justify-between gap-2">
+                            <h3 className="truncate text-[14px] leading-5 font-semibold flex-1 min-w-0">
+                              {connector.display_name}
+                            </h3>
                             <span
                               data-ripple-connector-status-pill="true"
-                              className={`inline-flex h-6 shrink-0 items-center gap-1 rounded-full border px-2 text-[11px] font-semibold ${connectorStatusPillClass(
+                              className={`inline-flex h-6 shrink-0 items-center gap-1 rounded-full border px-2 text-[11px] font-semibold transition-all duration-300 ${connectorStatusPillClass(
                                 status
                               )}`}
                             >
@@ -756,6 +751,9 @@ export default function ConnectorsPage({
                               <span className="hidden sm:inline">{statusLabel(status, t)}</span>
                             </span>
                           </div>
+                          <p className="mt-1 text-[12px] leading-4 text-[#667085]">
+                            {connector.description}
+                          </p>
                           {status?.detail && (
                             <div className="mt-1.5 rounded-lg border border-[#e8edf7] bg-white/64 px-2 py-1 text-[12px] leading-4 text-[#667085]">
                               {status.detail}
@@ -764,14 +762,14 @@ export default function ConnectorsPage({
                         </div>
                       </div>
 
-                      <div className="border-t border-[#e8edf7] bg-[#fbfcff]/62 px-2 py-1.5">
+                      <div className="border-t border-[#e8edf7] bg-[#fbfcff]/62 px-2.5 py-1.5 transition-all duration-300 group-hover:bg-white/70">
                         <div className="flex flex-wrap items-center gap-1.5">
                           {connector.auth_start_path && !status?.connected ? (
                             <button
                               type="button"
                               onClick={() => void handleStartAuth(connector)}
                               disabled={pendingAction === `${connector.name}:connect`}
-                              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-2.5 text-[12px] font-semibold text-[#384152] hover:bg-[#f7f8fa] disabled:opacity-60"
+                              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-2.5 text-[12px] font-semibold text-[#384152] transition-colors duration-200 hover:bg-[#f7f8fa] hover:text-[#111827] disabled:opacity-60"
                             >
                               {pendingAction === `${connector.name}:connect` ? (
                                 <Loader2 size={12} className="animate-spin" />
@@ -786,7 +784,7 @@ export default function ConnectorsPage({
                               type="button"
                               onClick={() => void handleCancelPendingAuth(connector)}
                               disabled={pendingAction === `${connector.name}:cancel-auth`}
-                              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[#cf222e]/25 bg-[#ffebe9] px-2.5 text-[12px] font-semibold text-[#cf222e] disabled:opacity-60"
+                              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[#cf222e]/25 bg-[#ffebe9] px-2.5 text-[12px] font-semibold text-[#cf222e] transition-colors duration-200 hover:bg-[#ffdcd9] disabled:opacity-60"
                             >
                               {pendingAction === `${connector.name}:cancel-auth` ? (
                                 <Loader2 size={12} className="animate-spin" />
@@ -806,9 +804,9 @@ export default function ConnectorsPage({
                                 )
                               }
                               disabled={pendingAction === `${connector.name}:disconnect`}
-                              className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-2.5 text-[12px] font-semibold disabled:opacity-60 ${
+                              className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-2.5 text-[12px] font-semibold transition-colors duration-200 disabled:opacity-60 ${
                                 confirmAction === `${connector.name}:disconnect`
-                                  ? "border-[#cf222e]/25 bg-[#ffebe9] text-[#cf222e]"
+                                  ? "border-[#cf222e]/25 bg-[#ffebe9] text-[#cf222e] hover:bg-[#ffdcd9]"
                                   : "border-[#dfe6f4] bg-white text-[#384152] hover:bg-[#f7f8fa]"
                               }`}
                             >

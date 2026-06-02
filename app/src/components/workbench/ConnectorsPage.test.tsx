@@ -151,8 +151,8 @@ function testConnectorsPageUsesCompactMobileDensity() {
   assert.match(source, /<div className="space-y-2">/);
   assert.match(source, /<section key=\{section\.kind\} className="space-y-1\.5">/);
   assert.match(source, /<div className="grid gap-2 lg:grid-cols-2">/);
-  assert.match(source, /<div className="flex items-start gap-2 p-2">/);
-  assert.match(source, /border-t border-\[#e8edf7\] bg-\[#fbfcff\]\/62 px-2 py-1\.5/);
+  assert.match(source, /<div className="flex items-start gap-2\.5 p-2\.5">/);
+  assert.match(source, /border-t border-\[#e8edf7\] bg-\[#fbfcff\]\/62 px-2\.5 py-1\.5/);
   assert.match(source, /inline-flex h-8 items-center gap-1\.5 rounded-full/);
   assert.doesNotMatch(source, /data-ripple-connector-status-pill[\s\S]{0,180}text-\[10px\]/);
 }

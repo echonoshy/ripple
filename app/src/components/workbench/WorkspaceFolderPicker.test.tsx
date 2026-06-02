@@ -22,10 +22,12 @@ function renderPicker(
 function testPickerAvoidsFeatureExplanationCopy() {
   const html = renderPicker();
 
-  assert.match(html, />Choose focus folder</);
+  assert.match(html, />Choose work folder</);
+  assert.doesNotMatch(html, />Choose focus folder</);
   assert.doesNotMatch(html, /Agent looks here first/);
   assert.doesNotMatch(html, /Open a folder, then choose it/);
   assert.doesNotMatch(html, /Use full workspace/);
+  assert.doesNotMatch(html, /aria-label="Close folder picker"/);
 }
 
 function testPickerOnlyOffersCancelWhenFocusFolderExists() {
@@ -45,6 +47,7 @@ function testPickerSeparatesEnteringFoldersFromSelectingFolders() {
   assert.match(source, /t\("files\.selectFocusFolder"/);
   assert.match(source, /<ChevronRight/);
   assert.match(source, /<Check/);
+  assert.doesNotMatch(source, /<X size=\{15\}/);
   assert.doesNotMatch(source, /Use this folder as focus/);
 }
 
@@ -52,11 +55,21 @@ testPickerAvoidsFeatureExplanationCopy();
 testPickerOnlyOffersCancelWhenFocusFolderExists();
 testPickerSeparatesEnteringFoldersFromSelectingFolders();
 
+function testPickerUsesSofterFolderRows() {
+  const source = readFileSync(new URL("./WorkspaceFolderPicker.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /<Folder size=\{14\} className="shrink-0 text-\[#5aaeff\]"/);
+  assert.match(source, /<span className="min-w-0 flex-1 truncate font-semibold"/);
+}
+
+testPickerUsesSofterFolderRows();
+
 function testPickerRendersChineseChrome() {
   const html = renderPicker({}, "zh-CN");
 
-  assert.match(html, />选择焦点文件夹</);
-  assert.match(html, /aria-label="关闭文件夹选择器"/);
+  assert.match(html, />选择工作文件夹</);
+  assert.doesNotMatch(html, />选择焦点文件夹</);
+  assert.doesNotMatch(html, /aria-label="关闭文件夹选择器"/);
   assert.match(html, />这里没有文件夹</);
 }
 

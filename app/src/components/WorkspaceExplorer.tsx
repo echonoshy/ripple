@@ -31,7 +31,7 @@ import {
 } from "lucide-react";
 import { IconTile } from "@/components/icons/IconTile";
 import { PdfPreview } from "./PdfPreview";
-import { DENSE_GLASS_ICON_BUTTON_CLASS } from "@/components/workbench/stylePrimitives";
+import { MOBILE_GLASS_ICON_BUTTON_CLASS } from "@/components/workbench/stylePrimitives";
 import { useI18n } from "@/i18n";
 import {
   downloadWorkspaceFile,
@@ -1485,10 +1485,10 @@ export default function WorkspaceExplorer({
     : listing?.path || currentPath;
   const mobilePathDetail = isSearchMode ? searchModeLabel(searchScope, t) : null;
   const isPagePresentation = presentation === "page";
-  const pageToolbarIconButtonClass = DENSE_GLASS_ICON_BUTTON_CLASS;
+  const pageToolbarIconButtonClass = `${MOBILE_GLASS_ICON_BUTTON_CLASS} lg:h-8 lg:w-8 lg:border-[#d7d7dd] lg:bg-white/82`;
   const pageToolbarPrimaryButtonClass = pageToolbarIconButtonClass;
   const pageParentButtonClass =
-    "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#d7e3f8] bg-[#eef4ff] text-[#007aff] shadow-[0_10px_24px_rgba(44,63,123,0.06)] transition-colors hover:bg-[#e5efff] lg:hidden";
+    "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[#d7e3f8] bg-[#eef4ff] text-[#007aff] shadow-[0_10px_24px_rgba(44,63,123,0.06)] transition-colors hover:bg-[#e5efff] lg:hidden";
   const directoryNavigationButtonClass =
     "group inline-flex h-8 items-center gap-1.5 rounded-full border border-[#cfdbf2] bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(240,245,255,0.78))] px-2.5 text-[11px] font-semibold text-[#46556f] shadow-[0_8px_20px_rgba(44,63,123,0.07),inset_0_1px_0_rgba(255,255,255,0.9)] backdrop-blur-xl transition-all hover:-translate-y-px hover:border-[#b9cbec] hover:bg-[#eef4ff] hover:text-[#1f4ed0] hover:shadow-[0_12px_26px_rgba(44,63,123,0.1)] active:translate-y-0";
   const directoryNavigationIconClass =
@@ -1549,7 +1549,7 @@ export default function WorkspaceExplorer({
                   onClick={onBack}
                   aria-label={t("files.backToSession")}
                   title={t("files.backToSession")}
-                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#007aff] bg-[#007aff] text-white shadow-[0_12px_26px_rgba(0,122,255,0.26)] transition-colors hover:bg-[#006ee6] active:bg-[#0057b8] lg:hidden"
+                  className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#007aff] bg-[#007aff] text-white shadow-[0_12px_26px_rgba(0,122,255,0.26)] transition-colors hover:bg-[#006ee6] active:bg-[#0057b8] lg:hidden"
                 >
                   <MessageCircleReply size={17} />
                 </button>
@@ -1572,7 +1572,7 @@ export default function WorkspaceExplorer({
                   setIsActionsMenuOpen(false);
                   setIsMobileSearchOpen(true);
                 }}
-                className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border shadow-[0_10px_24px_rgba(44,63,123,0.06)] transition-colors lg:hidden ${
+                className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border shadow-[0_10px_24px_rgba(44,63,123,0.06)] transition-colors lg:hidden ${
                   isSearchMode
                     ? "border-[#d7e3f8] bg-[#eef4ff] text-[#007aff]"
                     : "border-[#dfe6f4] bg-white/78 text-[#384152] hover:bg-white"
@@ -1586,7 +1586,7 @@ export default function WorkspaceExplorer({
                 type="button"
                 data-ripple-files-action="toggle-selection"
                 onClick={toggleSelectionMode}
-                className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border shadow-[0_10px_24px_rgba(44,63,123,0.06)] transition-colors lg:hidden ${
+                className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border shadow-[0_10px_24px_rgba(44,63,123,0.06)] transition-colors lg:hidden ${
                   isSelectionActive
                     ? "border-[#d7e3f8] bg-[#eef4ff] text-[#007aff]"
                     : "border-[#dfe6f4] bg-white/78 text-[#384152] hover:bg-white"

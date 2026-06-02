@@ -38,6 +38,8 @@ import {
   COMPACT_IOS_PAGE_BACKGROUND,
   LUCIDE_NAV_STROKE_WIDTH,
   MOBILE_GLASS_ICON_BUTTON_CLASS,
+  MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS,
+  MOBILE_PAGE_TOP_SAFE_AREA_CLASS,
 } from "./stylePrimitives";
 
 interface AutomationsPageProps {
@@ -577,7 +579,7 @@ export default function AutomationsPage({
 
   return (
     <div
-      className={`h-full min-h-0 overflow-y-auto ${COMPACT_IOS_PAGE_BACKGROUND} px-4 pt-[max(env(safe-area-inset-top),16px)] pb-[calc(88px+env(safe-area-inset-bottom))] text-[#111827] md:px-6 lg:pb-4`}
+      className={`h-full min-h-0 overflow-y-auto ${COMPACT_IOS_PAGE_BACKGROUND} px-4 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} text-[#111827] md:px-6 lg:pb-4`}
     >
       <div className="mx-auto max-w-6xl space-y-4">
         <header className="flex flex-wrap items-center justify-between gap-3 pb-1">
@@ -609,7 +611,7 @@ export default function AutomationsPage({
               disabled={isLoading}
               aria-label={t("automations.refreshAutomations")}
               title={t("automations.refreshAutomations")}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[#dfe6f4] bg-white/78 text-[#384152] shadow-[0_10px_24px_rgba(44,63,123,0.06)] hover:bg-white disabled:opacity-60"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[#dfe6f4] bg-white/78 text-[#384152] shadow-[0_10px_24px_rgba(44,63,123,0.06)] hover:bg-white disabled:opacity-60"
             >
               {isLoading ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
             </button>
@@ -622,7 +624,7 @@ export default function AutomationsPage({
                   beginCreateSchedule();
                 }
               }}
-              className="inline-flex h-9 items-center gap-2 rounded-full bg-[#007aff] px-3 text-[13px] font-semibold text-white shadow-[0_12px_26px_rgba(0,122,255,0.22)] hover:bg-[#006ee6]"
+              className="inline-flex h-10 items-center gap-2 rounded-full bg-[#007aff] px-3 text-[13px] font-semibold text-white shadow-[0_12px_26px_rgba(0,122,255,0.22)] hover:bg-[#006ee6]"
             >
               <Plus size={15} />
               {t("automations.new")}
@@ -784,7 +786,7 @@ export default function AutomationsPage({
                 <button
                   type="button"
                   onClick={closeForm}
-                  className="inline-flex h-9 items-center justify-center rounded-full border border-[#dfe6f4] bg-white px-4 text-[13px] font-semibold text-[#384152] shadow-[0_10px_24px_rgba(44,63,123,0.04)] hover:bg-[#f7f8fa]"
+                  className="inline-flex h-10 items-center justify-center rounded-full border border-[#dfe6f4] bg-white px-4 text-[13px] font-semibold text-[#384152] shadow-[0_10px_24px_rgba(44,63,123,0.04)] hover:bg-[#f7f8fa]"
                   disabled={isSubmitting}
                 >
                   {t("automations.cancel")}
@@ -792,7 +794,7 @@ export default function AutomationsPage({
                 <button
                   type="submit"
                   disabled={isSubmitting || !title.trim() || !prompt.trim()}
-                  className="inline-flex h-9 items-center justify-center gap-2 rounded-full bg-[#007aff] px-4 text-[13px] font-semibold text-white shadow-[0_12px_26px_rgba(0,122,255,0.22)] hover:bg-[#006ee6] disabled:cursor-not-allowed disabled:bg-[#e5e7eb] disabled:bg-none disabled:text-[#8b8f94] disabled:shadow-none"
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-full bg-[#007aff] px-4 text-[13px] font-semibold text-white shadow-[0_12px_26px_rgba(0,122,255,0.22)] hover:bg-[#006ee6] disabled:cursor-not-allowed disabled:bg-[#e5e7eb] disabled:bg-none disabled:text-[#8b8f94] disabled:shadow-none"
                 >
                   {isSubmitting ? (
                     <Loader2 size={14} className="animate-spin" />

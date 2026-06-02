@@ -280,7 +280,9 @@ function testSettingsPageUsesCompactMobileDensity() {
   const source = readFileSync(new URL("./SettingsPage.tsx", import.meta.url), "utf8");
 
   assert.match(source, /COMPACT_IOS_PAGE_BACKGROUND/);
-  assert.match(source, /pb-\[calc\(128px\+env\(safe-area-inset-bottom\)\)\]/);
+  assert.match(source, /MOBILE_PAGE_TOP_SAFE_AREA_CLASS/);
+  assert.match(source, /MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS/);
+  assert.doesNotMatch(source, /pb-\[calc\(128px\+env\(safe-area-inset-bottom\)\)\]/);
   assert.match(source, /lg:pb-4/);
   assert.doesNotMatch(source, /md:pb-4/);
   assert.doesNotMatch(source, /20,184,166/);
@@ -318,7 +320,7 @@ function testSettingsDiagnosticsExpansionScrollsAboveMobileTabBar() {
   );
   assert.match(
     source,
-    /data-ripple-settings-diagnostics-section[\s\S]*scroll-mb-\[calc\(128px\+env\(safe-area-inset-bottom\)\)\]/
+    /data-ripple-settings-diagnostics-section[\s\S]*scroll-mb-\[calc\(96px\+env\(safe-area-inset-bottom\)\)\]/
   );
 }
 

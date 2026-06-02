@@ -106,9 +106,10 @@ function testComposerShowsWorkspaceFolderPickerButton() {
   });
 
   assert.match(html, /data-ripple-composer-folder-button/);
-  assert.match(html, /aria-label="Set focus folder"/);
-  assert.match(html, /title="Focus folder: Demo"/);
+  assert.match(html, /aria-label="Choose work folder"/);
+  assert.match(html, /title="Work folder: Demo"/);
   assert.match(html, /aria-pressed="true"/);
+  assert.doesNotMatch(html, /focus folder/i);
 }
 
 function testComposerInputSuppressesGlobalBlueFocusOutline() {

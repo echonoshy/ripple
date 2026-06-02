@@ -37,6 +37,8 @@ import {
   COMPACT_IOS_PAGE_BACKGROUND,
   LUCIDE_NAV_STROKE_WIDTH,
   MOBILE_GLASS_ICON_BUTTON_CLASS,
+  MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS,
+  MOBILE_PAGE_TOP_SAFE_AREA_CLASS,
 } from "./stylePrimitives";
 
 const CONNECTOR_CACHE_TTL_MS = 30_000;
@@ -613,7 +615,7 @@ export default function ConnectorsPage({
 
   return (
     <div
-      className={`h-full min-h-0 overflow-y-auto ${COMPACT_IOS_PAGE_BACKGROUND} px-3 pt-[max(env(safe-area-inset-top),12px)] pb-[calc(88px+env(safe-area-inset-bottom))] text-[#111827] md:px-6 lg:pb-5`}
+      className={`h-full min-h-0 overflow-y-auto ${COMPACT_IOS_PAGE_BACKGROUND} px-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} text-[#111827] md:px-6 lg:pb-5`}
     >
       <div className="mx-auto max-w-5xl space-y-3">
         <header className="flex flex-wrap items-start justify-between gap-2">
@@ -653,7 +655,7 @@ export default function ConnectorsPage({
           <button
             type="button"
             onClick={() => void loadConnectors({ force: true })}
-            className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white/78 px-2.5 text-[12px] font-medium text-[#384152] shadow-[0_8px_18px_rgba(44,63,123,0.05)] hover:bg-white"
+            className="inline-flex h-10 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white/78 px-3 text-[12px] font-medium text-[#384152] shadow-[0_8px_18px_rgba(44,63,123,0.05)] hover:bg-white"
           >
             {isLoading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
             <span className="sm:hidden">{t("connectors.refresh")}</span>

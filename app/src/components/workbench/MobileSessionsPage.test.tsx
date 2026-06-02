@@ -56,7 +56,8 @@ function testRendersChatAppStyleSessionList() {
   assert.match(html, />Mobile redesign</);
   assert.match(html, /4 messages · 2 files/);
   assert.doesNotMatch(html, /idle/);
-  assert.match(html, /pb-\[calc\(88px\+env\(safe-area-inset-bottom\)\)\]/);
+  assert.match(html, /pb-\[calc\(96px\+env\(safe-area-inset-bottom\)\)\]/);
+  assert.match(html, /pt-\[max\(env\(safe-area-inset-top\),12px\)\]/);
 }
 
 function testMobileBrandWordmarkHasQuietPersonality() {
@@ -114,8 +115,9 @@ function testHeaderActionsUseSharedGlassTreatment() {
   assert.match(html, /backdrop-blur-xl/);
   assert.match(
     mobileSessionsPageSource,
-    /mobileHeaderActionClass =\s+"inline-flex h-9 w-9 items-center justify-center rounded-full border border-white\/76 bg-white\/72 text-\[#3c3c43\]/
+    /mobileHeaderActionClass = MOBILE_GLASS_ICON_BUTTON_CLASS/
   );
+  assert.match(html, /inline-flex h-10 w-10 items-center justify-center rounded-full/);
   assert.match(
     mobileSessionsPageSource,
     /aria-label=\{t\("sessions.search"\)\}[\s\S]{0,220}className=\{mobileHeaderActionClass\}/

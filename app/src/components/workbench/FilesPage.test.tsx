@@ -45,7 +45,9 @@ function testFilesPageUsesSharedCompactGlassBackground() {
   const source = readFileSync(new URL("./FilesPage.tsx", import.meta.url), "utf8");
 
   assert.match(source, /COMPACT_IOS_PAGE_BACKGROUND/);
-  assert.match(source, /pb-\[calc\(88px\+env\(safe-area-inset-bottom\)\)\]/);
+  assert.match(source, /MOBILE_PAGE_TOP_SAFE_AREA_CLASS/);
+  assert.match(source, /MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS/);
+  assert.doesNotMatch(source, /pb-\[calc\(88px\+env\(safe-area-inset-bottom\)\)\]/);
   assert.doesNotMatch(source, /circle_at_16%_0%/);
 }
 

@@ -210,7 +210,8 @@ testWorkspaceExplorerPageKeepsMobileUploadSeparateFromParentFolder();
 function testWorkspaceExplorerUsesSharedDenseToolbarButtons() {
   const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /DENSE_GLASS_ICON_BUTTON_CLASS/);
+  assert.match(source, /MOBILE_GLASS_ICON_BUTTON_CLASS/);
+  assert.match(source, /lg:h-8 lg:w-8/);
   assert.doesNotMatch(source, /const pageToolbarIconButtonClass =\s*\n\s*"inline-flex h-9 w-9/);
 }
 

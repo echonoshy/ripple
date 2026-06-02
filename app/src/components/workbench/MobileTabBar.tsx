@@ -6,7 +6,11 @@ import { IconTile } from "@/components/icons/IconTile";
 import { type MessageKey, useI18n } from "@/i18n";
 import { mobileNavItems, type WorkspaceView } from "@/lib/workspaceViews";
 import { mobilePageTransition, pressableTap, reducedMotionTransition } from "./motionPrimitives";
-import { COMPACT_IOS_PAGE_BACKGROUND, LUCIDE_NAV_STROKE_WIDTH } from "./stylePrimitives";
+import {
+  COMPACT_IOS_PAGE_BACKGROUND,
+  LUCIDE_NAV_STROKE_WIDTH,
+  MOBILE_TAB_BAR_MASK_HEIGHT_CLASS,
+} from "./stylePrimitives";
 
 interface MobileTabBarProps {
   activeView: WorkspaceView;
@@ -31,7 +35,7 @@ export default function MobileTabBar({ activeView, onSelectView }: MobileTabBarP
       <div
         data-ripple-mobile-tabbar-mask="true"
         aria-hidden="true"
-        className={`absolute inset-x-0 bottom-0 h-[calc(86px+env(safe-area-inset-bottom))] ${COMPACT_IOS_PAGE_BACKGROUND}`}
+        className={`absolute inset-x-0 bottom-0 ${MOBILE_TAB_BAR_MASK_HEIGHT_CLASS} ${COMPACT_IOS_PAGE_BACKGROUND}`}
       />
       <nav
         data-ripple-mobile-tabbar-nav="true"

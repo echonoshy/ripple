@@ -66,9 +66,10 @@ function testMasksScrolledContentBehindRoundedBar() {
   assert.match(html, /data-ripple-mobile-tabbar-mask="true"/);
   assert.match(html, /data-ripple-mobile-tabbar-nav="true"/);
   assert.match(html, /fixed inset-x-0 bottom-0/);
-  assert.match(html, /h-\[calc\(86px\+env\(safe-area-inset-bottom\)\)\]/);
+  assert.match(html, /h-\[calc\(96px\+env\(safe-area-inset-bottom\)\)\]/);
   assert.match(html, /bg-\[#f2f2f7\]/);
   assert.match(mobileTabBarSource, /COMPACT_IOS_PAGE_BACKGROUND/);
+  assert.match(mobileTabBarSource, /MOBILE_TAB_BAR_MASK_HEIGHT_CLASS/);
   assert.match(html, /pointer-events-none/);
   assert.match(html, /pointer-events-auto/);
 }

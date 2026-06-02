@@ -226,7 +226,7 @@ const automationDeleteButtonClass =
   "inline-flex h-8 w-full min-w-0 items-center justify-center gap-1 rounded-full border px-2 text-[12px] font-semibold [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0";
 
 const runActionButtonClass =
-  "inline-flex h-8 shrink-0 items-center justify-center gap-1 rounded-full border border-[#dfe6f4] bg-white px-2 text-[12px] font-medium text-[#384152] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:opacity-60";
+  "inline-flex h-8 shrink-0 items-center justify-center gap-1 rounded-full border border-[#dfe6f4] bg-white px-2 text-[12px] font-semibold text-[#384152] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:opacity-60 [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0";
 
 function defaultRunAt(): string {
   const date = new Date(Date.now() + 60 * 60 * 1000);
@@ -853,7 +853,7 @@ export default function AutomationsPage({
                                 {schedule.status}
                               </span>
                             </div>
-                            <div className="mt-0.5 line-clamp-1 text-[13px] leading-5 text-[#667085]">
+                            <div className="mt-0.5 line-clamp-3 text-[13px] leading-5 text-[#667085]">
                               {schedule.prompt}
                             </div>
                             {schedule.status === "error" && schedule.last_error ? (
@@ -935,9 +935,9 @@ export default function AutomationsPage({
                               className={runActionButtonClass}
                             >
                               {pendingRunActionId === `${schedule.schedule_id}:refresh` ? (
-                                <Loader2 size={11} className="animate-spin" />
+                                <Loader2 size={14} className="animate-spin" />
                               ) : (
-                                <RefreshCw size={11} />
+                                <RefreshCw size={14} />
                               )}
                               <span>{t("automations.refresh")}</span>
                             </button>
@@ -950,9 +950,9 @@ export default function AutomationsPage({
                                   className={runActionButtonClass}
                                 >
                                   {pendingRunActionId === `${latestRun.job_id}:view` ? (
-                                    <Loader2 size={11} className="animate-spin" />
+                                    <Loader2 size={14} className="animate-spin" />
                                   ) : (
-                                    <Eye size={11} />
+                                    <Eye size={14} />
                                   )}
                                   <span>{t("automations.viewOutput")}</span>
                                 </button>
@@ -963,9 +963,9 @@ export default function AutomationsPage({
                                   className={runActionButtonClass}
                                 >
                                   {pendingRunActionId === `${latestRun.job_id}:download` ? (
-                                    <Loader2 size={11} className="animate-spin" />
+                                    <Loader2 size={14} className="animate-spin" />
                                   ) : (
-                                    <Download size={11} />
+                                    <Download size={14} />
                                   )}
                                   <span>{t("automations.downloadOutput")}</span>
                                 </button>
@@ -1155,7 +1155,7 @@ export default function AutomationsPage({
                                           disabled={pendingRunActionId === `${run.job_id}:view`}
                                           className={runActionButtonClass}
                                         >
-                                          <Eye size={12} />
+                                          <Eye size={14} />
                                           <span>{t("automations.viewOutput")}</span>
                                         </button>
                                         <button
@@ -1164,7 +1164,7 @@ export default function AutomationsPage({
                                           disabled={pendingRunActionId === `${run.job_id}:download`}
                                           className={runActionButtonClass}
                                         >
-                                          <Download size={12} />
+                                          <Download size={14} />
                                           <span>{t("automations.downloadOutput")}</span>
                                         </button>
                                       </>
@@ -1206,12 +1206,12 @@ export default function AutomationsPage({
                                       }`}
                                     >
                                       {pendingRunActionId === `${run.job_id}:delete` ? (
-                                        <Loader2 size={12} className="animate-spin" />
+                                        <Loader2 size={14} className="animate-spin" />
                                       ) : confirmingRunDelete ? (
                                         <span>{t("automations.confirmDelete")}</span>
                                       ) : (
                                         <>
-                                          <Trash2 size={12} />
+                                          <Trash2 size={14} />
                                           <span>{t("automations.deleteRecord")}</span>
                                         </>
                                       )}

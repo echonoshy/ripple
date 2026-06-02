@@ -86,6 +86,23 @@ function testAutomationRunResultsAreDiscoverable() {
   assert.match(source, /t\("automations\.runHistory"\)/);
 }
 
+function testCompletedScheduleRunsDoNotSurfaceToolStderrAsErrors() {
+  const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /function runErrorText/);
+  assert.match(source, /stripAnsi/);
+  assert.match(
+    source,
+    /if \(!\(run\.status === "failed" \|\| run\.status === "cancelled"\)\) return null;/
+  );
+  assert.match(
+    source,
+    /const scheduleError = schedule\.status === "error" \? schedule\.last_error : null;/
+  );
+  assert.match(source, /schedule\.status === "error" && schedule\.last_error/);
+  assert.doesNotMatch(source, /run\.stderr_tail\?\.trim\(\)\s*\|\|/);
+}
+
 function testAutomationStaticCopyUsesEnglish() {
   const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
 
@@ -192,6 +209,7 @@ testTimezoneUsesSelectControl();
 testAutomationFormCanSelectModel();
 testExistingAutomationsCanBeEdited();
 testAutomationRunResultsAreDiscoverable();
+testCompletedScheduleRunsDoNotSurfaceToolStderrAsErrors();
 testAutomationStaticCopyUsesEnglish();
 testAutomationCardUsesSeparatedLayoutRegions();
 testAutomationCardDoesNotExposePolicyControls();

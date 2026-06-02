@@ -187,12 +187,28 @@ function isActiveRunStatus(status: string | null | undefined): boolean {
   return status === "queued" || status === "running";
 }
 
+const ansiPattern = new RegExp(String.raw`\u001b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])`, "g");
+
+function stripAnsi(value: string): string {
+  return value.replace(ansiPattern, "");
+}
+
+function cleanRunIssueText(value: string | null | undefined): string {
+  return stripAnsi(value || "")
+    .replace(/\r/g, "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join(" ");
+}
+
 function runErrorText(run: AgentRunInfo | null | undefined): string | null {
   if (!run) return null;
+  if (!(run.status === "failed" || run.status === "cancelled")) return null;
   return (
-    run.error?.trim() ||
-    run.stderr_tail?.trim() ||
-    (run.status === "failed" || run.status === "cancelled" ? run.stdout_tail?.trim() : "") ||
+    cleanRunIssueText(run.error) ||
+    cleanRunIssueText(run.stderr_tail) ||
+    cleanRunIssueText(run.stdout_tail) ||
     null
   );
 }
@@ -802,7 +818,8 @@ export default function AutomationsPage({
                 const latestRun = runs[0] || null;
                 const latestRunStatus = latestRun?.status || schedule.last_run_status || null;
                 const latestRunAt = latestRun?.updated_at || schedule.last_run_at;
-                const latestRunError = runErrorText(latestRun) || schedule.last_error;
+                const scheduleError = schedule.status === "error" ? schedule.last_error : null;
+                const latestRunError = runErrorText(latestRun) || scheduleError;
                 const isExpanded = expandedScheduleId === schedule.schedule_id;
 
                 return (
@@ -837,7 +854,7 @@ export default function AutomationsPage({
                             <div className="mt-0.5 line-clamp-1 text-[12px] leading-4 text-[#667085]">
                               {schedule.prompt}
                             </div>
-                            {schedule.last_error ? (
+                            {schedule.status === "error" && schedule.last_error ? (
                               <div className="mt-1 truncate text-xs font-medium text-[#cf222e]">
                                 {schedule.last_error}
                               </div>

@@ -7,8 +7,8 @@ export const ACTION_ICON_SIZE = 14;
 export const ACTION_ICON_STROKE_WIDTH = 2.2;
 
 const tileToneClass: Record<IconTileTone, string> = {
-  neutral: "border-[#dfe6f4] bg-[#f6f8ff] text-[#667085]",
-  accent: "border-[#d7e3f8] bg-[#eef4ff] text-[#2463eb]",
+  neutral: "border-[#e5e5ea] bg-[#f2f2f7] text-[#6e6e73]",
+  accent: "border-[#cfe4ff] bg-[#eaf4ff] text-[#007aff]",
   success: "border-[#1a7f37]/25 bg-[#dafbe1] text-[#1a7f37]",
   warning: "border-[#bf8700]/25 bg-[#fff8c5] text-[#7d4e00]",
   danger: "border-[#cf222e]/25 bg-[#ffebe9] text-[#cf222e]",

@@ -12,6 +12,7 @@ import {
 import {
   AlertTriangle,
   ArrowBigLeft,
+  BrainCircuit,
   ChevronLeft,
   CheckCircle2,
   Circle,
@@ -219,6 +220,9 @@ export default function SessionPage({
   const modelDisplayName = formatModelName(selectedModel);
   const currentModelLabel = isGenerating ? t("composer.working") : modelDisplayName;
   const currentModelAccessibleLabel = t("sessions.currentModel", { model: modelDisplayName });
+  const modelBadgeIconClass = isGenerating
+    ? "shrink-0 animate-pulse text-[#007aff]"
+    : "shrink-0 text-[#6e6e73]";
   const effectiveContextFolderPath = session?.contextFolderPath ?? contextFolderPath ?? null;
   const workspaceScopePath = effectiveContextFolderPath || "/workspace";
   const workspaceScopeLabel = folderName(
@@ -408,10 +412,10 @@ export default function SessionPage({
       onDragLeave={handlePageDragLeave}
       onDrop={handlePageDrop}
       className={`relative flex h-full min-h-0 flex-col ${COMPACT_IOS_PAGE_BACKGROUND} ${
-        isDraggingFiles ? "ring-2 ring-[#8da0ff] ring-inset" : ""
+        isDraggingFiles ? "ring-2 ring-[#007aff] ring-inset" : ""
       }`}
     >
-      <div className="grid min-h-[calc(56px+env(safe-area-inset-top))] shrink-0 grid-cols-[44px_minmax(0,1fr)_88px] items-center border-b border-[#e8edf7] bg-white/72 px-2.5 pt-[max(env(safe-area-inset-top),0px)] shadow-[0_8px_22px_rgba(44,63,123,0.04)] backdrop-blur-2xl lg:hidden">
+      <div className="grid min-h-[calc(56px+env(safe-area-inset-top))] shrink-0 grid-cols-[44px_minmax(0,1fr)_88px] items-center border-b border-[#d7d7dd]/70 bg-white/76 px-2.5 pt-[max(env(safe-area-inset-top),0px)] shadow-[0_8px_22px_rgba(60,60,67,0.05)] backdrop-blur-2xl lg:hidden">
         <button
           type="button"
           aria-label={t("sessions.backToSessions")}
@@ -427,13 +431,19 @@ export default function SessionPage({
           </div>
           <div className="mt-1 flex min-w-0 items-center justify-center gap-1.5 text-[11px] leading-4 text-[#7a8496]">
             <span
+              data-ripple-current-model-badge="mobile"
               aria-label={currentModelAccessibleLabel}
               title={currentModelAccessibleLabel}
-              className="inline-flex max-w-[104px] min-w-0 items-center gap-1 rounded-full border border-[#dfe6f4] bg-white/72 px-1.5 py-0.5 text-[10px] font-semibold text-[#667085] shadow-[0_4px_12px_rgba(44,63,123,0.05)]"
+              className="inline-flex max-w-[104px] min-w-0 items-center gap-1 rounded-full border border-[#d7d7dd] bg-white/74 px-1.5 py-0.5 text-[10px] font-semibold text-[#6e6e73] shadow-[0_4px_12px_rgba(60,60,67,0.05)]"
             >
+              <BrainCircuit
+                size={11}
+                className={modelBadgeIconClass}
+                strokeWidth={2.2}
+              />
               <span
                 className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-                  isGenerating ? "animate-pulse bg-[#2f6bff]" : "bg-[#2fbf71]"
+                  isGenerating ? "animate-pulse bg-[#007aff]" : "bg-[#34c759]"
                 }`}
               />
               <span className="truncate">{currentModelLabel}</span>
@@ -444,7 +454,7 @@ export default function SessionPage({
                 aria-label={focusFolderAccessibleLabel}
                 title={folderBadgeTitle}
                 onClick={requestFolderPicker}
-                className="inline-flex max-w-[132px] min-w-0 items-center gap-1 rounded-full border border-[#dfe6f4] bg-white/72 px-1.5 py-0.5 text-[10px] font-semibold text-[#667085] shadow-[0_4px_12px_rgba(44,63,123,0.05)] hover:text-[#2463eb]"
+                className="inline-flex max-w-[132px] min-w-0 items-center gap-1 rounded-full border border-[#d7d7dd] bg-white/74 px-1.5 py-0.5 text-[10px] font-semibold text-[#6e6e73] shadow-[0_4px_12px_rgba(60,60,67,0.05)] hover:text-[#007aff]"
               >
                 <Folder size={10} className="shrink-0" strokeWidth={2.2} />
                 <span className="truncate">{focusFolderLabel}</span>
@@ -475,7 +485,7 @@ export default function SessionPage({
         </div>
       </div>
 
-      <div className="hidden h-14 shrink-0 items-center justify-between gap-3 border-b border-[#e8edf7] bg-white/62 px-5 shadow-[0_8px_22px_rgba(44,63,123,0.04)] backdrop-blur-2xl lg:flex">
+      <div className="hidden h-14 shrink-0 items-center justify-between gap-3 border-b border-[#d7d7dd]/70 bg-white/70 px-5 shadow-[0_8px_22px_rgba(60,60,67,0.04)] backdrop-blur-2xl lg:flex">
         <div className="min-w-0">
           <div className="truncate text-[14px] font-semibold text-[#111827]">
             {session?.title || t("sessions.fallbackTitle")}
@@ -488,20 +498,26 @@ export default function SessionPage({
               aria-label={focusFolderAccessibleLabel}
               title={folderBadgeTitle}
               onClick={requestFolderPicker}
-              className="inline-flex max-w-[220px] shrink-0 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white/82 px-3 py-1.5 text-[12px] font-semibold text-[#374151] shadow-[0_8px_18px_rgba(44,63,123,0.06)]"
+              className="inline-flex max-w-[220px] shrink-0 items-center gap-1.5 rounded-full border border-[#d7d7dd] bg-white/82 px-3 py-1.5 text-[12px] font-semibold text-[#3c3c43] shadow-[0_8px_18px_rgba(60,60,67,0.05)]"
             >
-              <Folder size={13} className="shrink-0 text-[#667085]" strokeWidth={2.2} />
+              <Folder size={13} className="shrink-0 text-[#6e6e73]" strokeWidth={2.2} />
               <span className="truncate">{focusFolderLabel}</span>
             </button>
           )}
           <span
+            data-ripple-current-model-badge="desktop"
             aria-label={currentModelAccessibleLabel}
             title={currentModelAccessibleLabel}
-            className="inline-flex max-w-[220px] shrink-0 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white/82 px-3 py-1.5 text-[12px] font-semibold text-[#374151] shadow-[0_8px_18px_rgba(44,63,123,0.06)]"
+            className="inline-flex max-w-[220px] shrink-0 items-center gap-1.5 rounded-full border border-[#d7d7dd] bg-white/82 px-3 py-1.5 text-[12px] font-semibold text-[#3c3c43] shadow-[0_8px_18px_rgba(60,60,67,0.05)]"
           >
+            <BrainCircuit
+              size={13}
+              className={modelBadgeIconClass}
+              strokeWidth={2.2}
+            />
             <span
               className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-                isGenerating ? "animate-pulse bg-[#2f6bff]" : "bg-[#2fbf71]"
+                isGenerating ? "animate-pulse bg-[#007aff]" : "bg-[#34c759]"
               }`}
             />
             <span className="truncate">{currentModelLabel}</span>
@@ -510,15 +526,15 @@ export default function SessionPage({
       </div>
 
       {isSessionSettingsOpen && (
-        <div className="absolute inset-0 z-40 flex justify-end bg-[#172033]/14 backdrop-blur-[1px]">
+        <div className="absolute inset-0 z-40 flex justify-end bg-[#1d1d1f]/14 backdrop-blur-[1px]">
           <button
             type="button"
             aria-label={t("sessions.settingsTitle")}
             className="absolute inset-0 hidden cursor-default sm:block"
             onClick={closeSessionSettings}
           />
-          <section className="relative flex h-full w-full flex-col border-l border-[#dfe6f4] bg-[#fbfdff] shadow-[-18px_0_44px_rgba(44,63,123,0.12)] sm:max-w-[380px]">
-            <div className="grid h-14 shrink-0 grid-cols-[44px_minmax(0,1fr)_44px] items-center border-b border-[#e8edf7] bg-white/82 px-2.5 backdrop-blur-2xl">
+          <section className="relative flex h-full w-full flex-col border-l border-[#d7d7dd] bg-[#f2f2f7] shadow-[-18px_0_44px_rgba(60,60,67,0.14)] sm:max-w-[380px]">
+            <div className="grid h-14 shrink-0 grid-cols-[44px_minmax(0,1fr)_44px] items-center border-b border-[#d7d7dd]/70 bg-white/82 px-2.5 backdrop-blur-2xl">
               <button
                 type="button"
                 aria-label={t("sessions.backToSession")}
@@ -536,11 +552,11 @@ export default function SessionPage({
             <form onSubmit={handleSettingsSubmit} className="flex min-h-0 flex-1 flex-col">
               <div
                 data-ripple-session-settings-body="grouped-form"
-                className="min-h-0 flex-1 overflow-y-auto bg-[#fbfdff] px-4 py-4"
+                className="min-h-0 flex-1 overflow-y-auto bg-[#f2f2f7] px-4 py-4"
               >
                 <section
                   data-ripple-session-settings-group="name"
-                  className="rounded-[14px] border border-[#dfe6f4] bg-white/88 p-3 shadow-[0_10px_28px_rgba(44,63,123,0.07)]"
+                  className="rounded-2xl border border-[#d7d7dd] bg-white/88 p-3 shadow-[0_10px_28px_rgba(60,60,67,0.06)]"
                 >
                   <label className="block">
                     <span className="mb-2 block text-[12px] font-medium text-[#667085]">
@@ -550,7 +566,7 @@ export default function SessionPage({
                       value={settingsTitle}
                       onChange={(event) => setSettingsTitle(event.target.value)}
                       maxLength={120}
-                      className="h-10 w-full rounded-xl border border-[#dfe6f4] bg-white px-3 text-[14px] text-[#111827] transition-colors outline-none focus:border-[#8da0ff]"
+                      className="h-10 w-full rounded-xl border border-[#d7d7dd] bg-white px-3 text-[14px] text-[#111827] transition-colors outline-none focus:border-[#007aff]"
                       autoFocus
                     />
                   </label>
@@ -561,13 +577,13 @@ export default function SessionPage({
                   aria-pressed={settingsPinned}
                   onClick={() => setSettingsPinned((pinned) => !pinned)}
                   data-ripple-session-settings-group="pinned"
-                  className={`mt-3 flex w-full items-center gap-3 rounded-[14px] border p-3 text-left shadow-[0_10px_28px_rgba(44,63,123,0.07)] transition-colors ${
+                  className={`mt-3 flex w-full items-center gap-3 rounded-2xl border p-3 text-left shadow-[0_10px_28px_rgba(60,60,67,0.06)] transition-colors ${
                     settingsPinned
-                      ? "border-[#b8cdf8]/80 bg-[#f1f6ff]/88 text-[#111827]"
+                      ? "border-[#cfe4ff] bg-[#eaf4ff]/88 text-[#111827]"
                       : "border-[#dfe6f4] bg-white/88 text-[#111827] hover:bg-white"
                   }`}
                 >
-                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-[#dfe8fa] bg-[#f4f7fd] text-[#516070]">
+                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl border border-[#e5e5ea] bg-[#f2f2f7] text-[#6e6e73]">
                     <Pin size={15} />
                   </span>
                   <span className="min-w-0 flex-1">
@@ -581,7 +597,7 @@ export default function SessionPage({
                   <span
                     aria-hidden="true"
                     className={`h-6 w-10 shrink-0 rounded-full p-0.5 transition-colors ${
-                      settingsPinned ? "bg-[#8fb2ff]" : "bg-[#d0d7e2]"
+                      settingsPinned ? "bg-[#34c759]" : "bg-[#d1d1d6]"
                     }`}
                   >
                     <span
@@ -600,18 +616,18 @@ export default function SessionPage({
                 ) : null}
               </div>
 
-              <div className="flex shrink-0 gap-2 border-t border-[#e8edf7] bg-white/86 p-3 pb-[max(env(safe-area-inset-bottom),12px)] backdrop-blur-2xl">
+              <div className="flex shrink-0 gap-2 border-t border-[#d7d7dd]/70 bg-white/86 p-3 pb-[max(env(safe-area-inset-bottom),12px)] backdrop-blur-2xl">
                 <button
                   type="button"
                   onClick={closeSessionSettings}
-                  className="inline-flex h-10 w-[40%] items-center justify-center rounded-xl border border-[#dfe6f4] bg-white px-4 text-sm font-semibold text-[#516070] shadow-[0_6px_18px_rgba(44,63,123,0.06)] transition-colors hover:bg-[#f7f8fa] active:bg-[#eef4ff]"
+                  className="inline-flex h-10 w-[40%] items-center justify-center rounded-xl border border-[#d7d7dd] bg-white px-4 text-sm font-semibold text-[#3c3c43] shadow-[0_6px_18px_rgba(60,60,67,0.05)] transition-colors hover:bg-[#f2f2f7] active:bg-[#eaf4ff]"
                 >
                   {t("sessions.cancel")}
                 </button>
                 <button
                   type="submit"
                   disabled={!sessionId || !settingsTitle.trim() || isSavingSettings}
-                  className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-[#2f6bff] px-4 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(47,107,255,0.20)] transition-all duration-200 hover:bg-[#245de8] active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-[#eef2f7] disabled:text-[#9aa3af] disabled:shadow-none"
+                  className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-[#007aff] px-4 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(0,122,255,0.22)] transition-all duration-200 hover:bg-[#006ee6] active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-[#eef2f7] disabled:text-[#9aa3af] disabled:shadow-none"
                 >
                   {isSavingSettings ? <Loader2 size={15} className="animate-spin" /> : null}
                   {t("sessions.save")}
@@ -626,12 +642,12 @@ export default function SessionPage({
         ref={scrollContainerRef}
         data-ripple-session-scroll="timeline"
         onScroll={handleScroll}
-        className="min-h-0 flex-1 overflow-y-auto bg-transparent px-3 py-2 sm:px-4 sm:py-5 md:px-5"
+        className="min-h-0 flex-1 overflow-y-auto bg-white/92 px-3 py-2 sm:px-4 sm:py-5 md:px-5"
       >
         <div ref={contentRef} className="mx-auto max-w-5xl space-y-2 sm:space-y-5">
           {planSteps.length > 0 && (
-            <section className="rounded-2xl border border-[#dfe6f4] bg-white/78 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl">
-              <div className="flex items-center justify-between border-b border-[#e8edf7] px-3 py-1.5">
+            <section className="rounded-2xl border border-[#d7d7dd] bg-white/82 shadow-[0_12px_30px_rgba(60,60,67,0.06)] backdrop-blur-xl">
+              <div className="flex items-center justify-between border-b border-[#e5e5ea] px-3 py-1.5">
                 <div className="text-[12px] font-semibold text-[#111827]">
                   {t("sessions.currentPlan")}
                 </div>
@@ -641,7 +657,7 @@ export default function SessionPage({
                   </div>
                 )}
               </div>
-              <div className="divide-y divide-[#e8edf7]">
+              <div className="divide-y divide-[#e5e5ea]">
                 {planSteps.map((step) => {
                   const Icon =
                     step.status === "completed"
@@ -657,7 +673,7 @@ export default function SessionPage({
                           step.status === "completed"
                             ? "text-[#1a7f37]"
                             : step.status === "in_progress"
-                              ? "animate-spin text-[#2f6bff]"
+                              ? "animate-spin text-[#007aff]"
                               : "text-[#8b8f94]"
                         }`}
                       />

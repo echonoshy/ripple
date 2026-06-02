@@ -493,7 +493,7 @@ export default function SettingsPage({
                       closeModelMenu();
                     }}
                     className={`flex h-8 w-full items-center justify-between rounded-lg px-2.5 text-left text-[12px] font-semibold ${
-                      selected ? "bg-[#eef3ff] text-[#2457e6]" : "text-[#374151] hover:bg-[#f7f8fa]"
+                      selected ? "bg-[#eef3ff] text-[#006ee6]" : "text-[#374151] hover:bg-[#f7f8fa]"
                     }`}
                   >
                     {formatModelName(model.id)}
@@ -571,7 +571,11 @@ export default function SettingsPage({
         </header>
 
         <section className="rounded-xl border border-[#dfe6f4] bg-white/78 shadow-[0_8px_22px_rgba(44,63,123,0.05)] backdrop-blur-xl">
-          <SectionHeader icon={<UserRound size={13} />} title={t("settings.account")} tone="accent" />
+          <SectionHeader
+            icon={<UserRound size={13} />}
+            title={t("settings.account")}
+            tone="accent"
+          />
           <div className="space-y-2 p-2.5">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex min-w-0 items-center gap-2.5">
@@ -579,7 +583,7 @@ export default function SettingsPage({
                   type="button"
                   onClick={() => avatarFileInputRef.current?.click()}
                   disabled={isAvatarUploading}
-                  className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-[#b8cdf8] bg-[#eef4ff] text-[15px] font-semibold text-[#2463eb] shadow-[0_6px_14px_rgba(44,63,123,0.07)] transition-all hover:bg-[#e8f0ff] active:scale-[0.98]"
+                  className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-[#cfe4ff] bg-[#eef4ff] text-[15px] font-semibold text-[#007aff] shadow-[0_6px_14px_rgba(44,63,123,0.07)] transition-all hover:bg-[#e8f0ff] active:scale-[0.98]"
                   aria-label={t("settings.uploadAvatarFor", { name: avatarName })}
                   title={t("settings.uploadAvatar")}
                 >
@@ -672,7 +676,9 @@ export default function SettingsPage({
                     ) : (
                       <UserRound size={13} />
                     )}
-                    <span>{isAvatarUploading ? t("settings.uploading") : t("settings.avatar")}</span>
+                    <span>
+                      {isAvatarUploading ? t("settings.uploading") : t("settings.avatar")}
+                    </span>
                     <ChevronDown size={12} className="text-[#6b7280]" />
                   </button>
                 </div>
@@ -719,7 +725,7 @@ export default function SettingsPage({
                   <button
                     type="submit"
                     disabled={isSavingDisplayName}
-                    className="inline-flex h-7 items-center gap-1.5 rounded-full bg-[#2463eb] px-2 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-[#d0d7e2]"
+                    className="inline-flex h-7 items-center gap-1.5 rounded-full bg-[#007aff] px-2 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-[#d0d7e2]"
                   >
                     {isSavingDisplayName ? <Loader2 size={12} className="animate-spin" /> : null}
                     {t("settings.saveName")}
@@ -776,7 +782,7 @@ export default function SettingsPage({
                   <button
                     type="submit"
                     disabled={isChangingPassword}
-                    className="inline-flex h-7 items-center gap-1.5 rounded-full bg-[#2463eb] px-2 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-[#d0d7e2]"
+                    className="inline-flex h-7 items-center gap-1.5 rounded-full bg-[#007aff] px-2 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-[#d0d7e2]"
                   >
                     {isChangingPassword ? <Loader2 size={12} className="animate-spin" /> : null}
                     {t("settings.savePassword")}
@@ -906,7 +912,7 @@ export default function SettingsPage({
                     onClick={() => setLocalePreference(option.value)}
                     className={`h-7 rounded-full px-2.5 text-[11px] font-semibold transition-all ${
                       selected
-                        ? "bg-[#eef4ff] text-[#2457e6] shadow-[0_6px_14px_rgba(47,107,255,0.14)]"
+                        ? "bg-[#eef4ff] text-[#006ee6] shadow-[0_6px_14px_rgba(47,107,255,0.14)]"
                         : "text-[#667085] hover:bg-[#f7f8fa] hover:text-[#374151]"
                     }`}
                   >
@@ -944,8 +950,16 @@ export default function SettingsPage({
                 label={t("settings.apiEndpoint")}
                 value={getConfiguredApiUrl()}
               />
-              <DiagnosticRow icon={<UserRound size={13} />} label={t("settings.userId")} value={userId} />
-              <DiagnosticRow icon={<KeyRound size={13} />} label={t("settings.authMode")} value={authMode} />
+              <DiagnosticRow
+                icon={<UserRound size={13} />}
+                label={t("settings.userId")}
+                value={userId}
+              />
+              <DiagnosticRow
+                icon={<KeyRound size={13} />}
+                label={t("settings.authMode")}
+                value={authMode}
+              />
               <DiagnosticRow
                 icon={<HardDrive size={13} />}
                 label={t("settings.sandboxStatus")}
@@ -1012,7 +1026,7 @@ function UsageMeter({
       </div>
       <div className="h-1 w-full overflow-hidden rounded-full bg-[#e5e7eb]">
         <div
-          className="h-full bg-[#2463eb] transition-all duration-300"
+          className="h-full bg-[#007aff] transition-all duration-300"
           style={{ width: `${amount}%` }}
         />
       </div>

@@ -43,7 +43,10 @@ interface MobileSessionsPageProps {
 
 function sessionPreview(
   session: WorkbenchSessionSummary,
-  t: (key: MessageKey, values?: Record<string, string | number | boolean | null | undefined>) => string
+  t: (
+    key: MessageKey,
+    values?: Record<string, string | number | boolean | null | undefined>
+  ) => string
 ): string {
   const parts = [
     t("sessions.messageUnit", {
@@ -73,7 +76,7 @@ function sessionPreview(
 const MOBILE_SESSION_MENU_WIDTH = 144;
 const MOBILE_SESSION_MENU_HEIGHT = 132;
 const mobileHeaderActionClass =
-  "inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/70 bg-white/68 text-[#516070] shadow-[0_6px_18px_rgba(44,63,123,0.08)] backdrop-blur-xl transition-all hover:bg-white/86 active:scale-[0.98] active:bg-white/78";
+  "inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/76 bg-white/72 text-[#3c3c43] shadow-[0_6px_18px_rgba(60,60,67,0.08)] backdrop-blur-xl transition-all hover:bg-white/88 active:scale-[0.98] active:bg-white/82";
 
 interface ActiveSessionMenu {
   sessionId: string;
@@ -166,7 +169,7 @@ export default function MobileSessionsPage({
   }, [activeMenu]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[#f7f9fc] text-[#111827] lg:hidden">
+    <div className="flex h-full min-h-0 flex-col bg-[#f2f2f7] text-[#111827] lg:hidden">
       {activeMenu && activeMenuSession && typeof document !== "undefined"
         ? createPortal(
             <>
@@ -179,7 +182,7 @@ export default function MobileSessionsPage({
               <div
                 ref={activeMenuRef}
                 style={{ top: activeMenu.top, left: activeMenu.left, position: "fixed" }}
-                className="animate-in fade-in-50 zoom-in-95 z-50 max-h-[calc(100dvh-104px)] w-36 overflow-y-auto rounded-lg border border-white/72 bg-white/84 p-1.5 shadow-[0_14px_34px_rgba(44,63,123,0.14)] backdrop-blur-2xl duration-100"
+                className="animate-in fade-in-50 zoom-in-95 z-50 max-h-[calc(100dvh-104px)] w-36 overflow-y-auto rounded-2xl border border-white/78 bg-white/90 p-1.5 shadow-[0_14px_34px_rgba(60,60,67,0.16)] backdrop-blur-2xl duration-100"
                 onClick={(e) => e.stopPropagation()}
               >
                 <button
@@ -191,7 +194,7 @@ export default function MobileSessionsPage({
                     });
                     setActiveMenu(null);
                   }}
-                  className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-colors hover:bg-[#f3f4f6] active:bg-[#eef4ff]"
+                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#3c3c43] transition-colors hover:bg-[#f2f2f7] active:bg-[#eaf4ff]"
                 >
                   <Pin size={13} className="shrink-0 text-[#6b7280]" />
                   {activeMenuSession.pinned ? t("sessions.unpin") : t("sessions.pin")}
@@ -204,12 +207,12 @@ export default function MobileSessionsPage({
                     setEditingTitle(activeMenuSession.title);
                     setActiveMenu(null);
                   }}
-                  className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-colors hover:bg-[#f3f4f6] active:bg-[#eef4ff]"
+                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#3c3c43] transition-colors hover:bg-[#f2f2f7] active:bg-[#eaf4ff]"
                 >
                   <Edit3 size={13} className="shrink-0 text-[#6b7280]" />
                   {t("sessions.rename")}
                 </button>
-                <div className="my-1 border-t border-[#dfe6f4]" />
+                <div className="my-1 border-t border-[#e5e5ea]" />
                 <button
                   type="button"
                   onClick={(e) => {
@@ -227,7 +230,7 @@ export default function MobileSessionsPage({
             document.body
           )
         : null}
-      <header className="shrink-0 border-b border-white/70 bg-white/72 px-4 pt-[max(env(safe-area-inset-top),10px)] pb-2 shadow-[0_8px_24px_rgba(44,63,123,0.06)] backdrop-blur-2xl">
+      <header className="shrink-0 border-b border-white/74 bg-white/76 px-4 pt-[max(env(safe-area-inset-top),10px)] pb-2 shadow-[0_8px_24px_rgba(60,60,67,0.06)] backdrop-blur-2xl">
         <div className="flex h-10 items-center justify-between">
           <div className="flex items-center gap-2">
             <RippleIcon size={24} className="h-6 w-6" />
@@ -255,7 +258,7 @@ export default function MobileSessionsPage({
           </div>
         </div>
         {isSearching ? (
-          <div className="mt-2 flex h-9 items-center gap-2 rounded-lg border border-white/70 bg-white/70 px-3 shadow-[0_8px_24px_rgba(44,63,123,0.06)] backdrop-blur-xl">
+          <div className="mt-2 flex h-9 items-center gap-2 rounded-full border border-white/76 bg-white/72 px-3 shadow-[0_8px_24px_rgba(60,60,67,0.06)] backdrop-blur-xl">
             <Search size={15} className="shrink-0 text-[#7a8496]" />
             <input
               value={query}
@@ -295,15 +298,13 @@ export default function MobileSessionsPage({
               {normalizedQuery ? t("sessions.noMatching") : t("sessions.empty")}
             </div>
             <p className="mt-2 text-[13px] leading-5 text-[#687386]">
-              {normalizedQuery
-                ? t("sessions.tryAnotherKeyword")
-                : t("sessions.emptyDescription")}
+              {normalizedQuery ? t("sessions.tryAnotherKeyword") : t("sessions.emptyDescription")}
             </p>
             {!normalizedQuery ? (
               <button
                 type="button"
                 onClick={onNewSession}
-                className="mt-5 inline-flex h-9 items-center gap-2 rounded-lg border border-[#b8cdf8]/80 bg-[#eef4ff]/78 px-4 text-[13px] font-semibold text-[#2463eb] shadow-[0_8px_22px_rgba(36,99,235,0.12)] backdrop-blur-xl hover:bg-[#e8f0ff]/86"
+                className="mt-5 inline-flex h-9 items-center gap-2 rounded-full border border-[#cfe4ff] bg-[#eaf4ff]/86 px-4 text-[13px] font-semibold text-[#007aff] shadow-[0_8px_22px_rgba(0,122,255,0.12)] backdrop-blur-xl hover:bg-[#dff0ff]"
               >
                 <MessageSquarePlus size={16} strokeWidth={2.1} />
                 {t("sessions.newSession")}
@@ -339,7 +340,7 @@ export default function MobileSessionsPage({
                 return (
                   <div
                     key={session.sessionId}
-                    className="flex w-full items-center rounded-lg border border-[#b8cdf8]/80 bg-white/76 px-3 py-2.5 text-[#0d0d0d] shadow-[0_8px_24px_rgba(44,63,123,0.06)] backdrop-blur-xl"
+                    className="flex w-full items-center rounded-2xl border border-[#cfe4ff] bg-white/84 px-3 py-2.5 text-[#111827] shadow-[0_8px_24px_rgba(60,60,67,0.06)] backdrop-blur-xl"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <input
@@ -367,16 +368,14 @@ export default function MobileSessionsPage({
               return (
                 <div
                   key={session.sessionId}
-                  className={`relative flex w-full items-center gap-2 rounded-lg border bg-white/70 px-3 py-2.5 text-left shadow-[0_8px_24px_rgba(44,63,123,0.06)] backdrop-blur-xl transition-all ${
-                    selected
-                      ? "border-[#b8cdf8]/80 bg-[#f1f6ff]/82"
-                      : "border-white/72 active:bg-white/82"
+                  className={`relative flex w-full items-center gap-2 rounded-2xl border bg-white/78 px-3 py-2.5 text-left shadow-[0_8px_24px_rgba(60,60,67,0.05)] backdrop-blur-xl transition-all ${
+                    selected ? "border-[#cfe4ff] bg-white/90" : "border-white/78 active:bg-white/88"
                   } ${isMenuActive ? "z-50" : "z-10"}`}
                 >
                   {selected ? (
                     <span
                       aria-hidden="true"
-                      className="absolute top-2 bottom-2 left-0 w-[3px] rounded-r-full bg-[#2463eb]"
+                      className="absolute top-2 bottom-2 left-0 w-[3px] rounded-r-full bg-[#007aff]"
                     />
                   ) : null}
                   <button
@@ -421,9 +420,9 @@ export default function MobileSessionsPage({
                         };
                       });
                     }}
-                    className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/50 bg-white/32 text-[#6b7280] shadow-[0_4px_12px_rgba(44,63,123,0.05)] backdrop-blur-xl active:bg-[#eef4ff]/78 ${
+                    className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/62 bg-white/42 text-[#6e6e73] shadow-[0_4px_12px_rgba(60,60,67,0.05)] backdrop-blur-xl active:bg-[#eaf4ff]/78 ${
                       activeMenuSessionId === session.sessionId
-                        ? "bg-[#eef4ff]/78 text-[#0d0d0d]"
+                        ? "bg-[#eaf4ff]/78 text-[#111827]"
                         : ""
                     }`}
                     title={t("sessions.options")}

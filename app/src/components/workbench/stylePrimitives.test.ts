@@ -10,16 +10,18 @@ import {
   LUCIDE_NAV_STROKE_WIDTH,
 } from "./stylePrimitives";
 
-assert.match(COMPACT_IOS_PAGE_BACKGROUND, /rgba\(47,107,255,0\.11\)/);
-assert.match(COMPACT_IOS_PAGE_BACKGROUND, /rgba\(139,92,246,0\.09\)/);
+assert.match(COMPACT_IOS_PAGE_BACKGROUND, /#f2f2f7/);
+assert.doesNotMatch(COMPACT_IOS_PAGE_BACKGROUND, /radial-gradient/);
+assert.doesNotMatch(COMPACT_IOS_PAGE_BACKGROUND, /139,92,246/);
 assert.doesNotMatch(COMPACT_IOS_PAGE_BACKGROUND, /20,184,166/);
-assert.match(GLASS_PANEL_CLASS, /bg-white\/78/);
-assert.match(GLASS_PANEL_CLASS, /border-\[#dfe6f4\]/);
+assert.match(GLASS_PANEL_CLASS, /bg-white\/82/);
+assert.match(GLASS_PANEL_CLASS, /border-\[#d7d7dd\]/);
 assert.match(GLASS_PANEL_CLASS, /backdrop-blur-xl/);
-assert.match(GLASS_TOP_BAR_CLASS, /bg-white\/72/);
+assert.match(GLASS_TOP_BAR_CLASS, /bg-white\/76/);
 assert.match(GLASS_TOP_BAR_CLASS, /backdrop-blur-2xl/);
 assert.match(DENSE_GLASS_ICON_BUTTON_CLASS, /h-8 w-8/);
 assert.match(MOBILE_GLASS_ICON_BUTTON_CLASS, /h-9 w-9/);
+assert.match(MOBILE_GLASS_ICON_BUTTON_CLASS, /rounded-full/);
 assert.equal(LUCIDE_STANDARD_STROKE_WIDTH, 2.2);
 assert.equal(LUCIDE_NAV_STROKE_WIDTH, 2.25);
 

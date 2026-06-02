@@ -650,14 +650,14 @@ export default function ConnectorsPage({
                               onChange={(event) => setNotionToken(event.target.value)}
                               type="password"
                               placeholder={t("connectors.notionTokenPlaceholder")}
-                              className="min-h-8 min-w-0 flex-1 rounded-lg border border-[#dfe6f4] bg-white px-2.5 text-[11px] text-[#111827] outline-none focus:border-[#2f6bff]"
+                              className="min-h-8 min-w-0 flex-1 rounded-lg border border-[#dfe6f4] bg-white px-2.5 text-[11px] text-[#111827] outline-none focus:border-[#007aff]"
                             />
                             <div className="flex shrink-0 gap-2">
                               <button
                                 type="button"
                                 onClick={() => void handleSubmitNotionToken()}
                                 disabled={pendingAction === "notion:connect"}
-                                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#2f6bff]/30 bg-[#2f6bff] px-2.5 text-[11px] font-semibold text-white disabled:opacity-60"
+                                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#007aff]/30 bg-[#007aff] px-2.5 text-[11px] font-semibold text-white disabled:opacity-60"
                               >
                                 {pendingAction === "notion:connect" ? (
                                   <Loader2 size={12} className="animate-spin" />
@@ -688,7 +688,7 @@ export default function ConnectorsPage({
                           <div className="flex items-start gap-2">
                             <Loader2
                               size={13}
-                              className="mt-0.5 shrink-0 animate-spin text-[#2f6bff]"
+                              className="mt-0.5 shrink-0 animate-spin text-[#007aff]"
                             />
                             <div className="min-w-0 flex-1">
                               <div className="font-semibold text-[#384152]">
@@ -712,7 +712,9 @@ export default function ConnectorsPage({
                                       className="inline-flex h-7 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-2.5 text-[11px] font-semibold text-[#384152] hover:bg-[#f7f8fa]"
                                     >
                                       <ExternalLink size={12} />
-                                      {qrcodeContent ? t("connectors.openLink") : pendingExternalLabel}
+                                      {qrcodeContent
+                                        ? t("connectors.openLink")
+                                        : pendingExternalLabel}
                                     </a>
                                   ) : null}
                                 </div>

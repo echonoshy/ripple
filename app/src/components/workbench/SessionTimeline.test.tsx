@@ -88,7 +88,7 @@ function testCopyActionIsHiddenUntilMessageInteraction() {
 
   assert.match(source, /group-hover\/timeline-event:opacity-100/);
   assert.match(source, /group-focus-within\/timeline-event:opacity-100/);
-  assert.match(source, /pointer-events-none opacity-0/);
+  assert.match(source, /pointer-events-none[\s\S]*opacity-0/);
 }
 
 function testToolEventsDoNotExposeCopyAction() {

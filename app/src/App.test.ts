@@ -121,11 +121,11 @@ function testCollapsedSessionRailUsesEdgeHandle() {
   assert.match(source, /data-ripple-panel-edge-handle="session-list"/);
   assert.match(
     source,
-    /className="absolute top-1\/2 left-0[\s\S]*bg-\[#eff6ff\][\s\S]*text-\[#2463eb\]/
+    /className="absolute top-1\/2 left-0[\s\S]*bg-white\/82[\s\S]*text-\[#007aff\]/
   );
   assert.doesNotMatch(
     source,
-    /className="absolute top-1\/2 left-0[\s\S]*bg-\[#2463eb\][\s\S]*text-white/
+    /className="absolute top-1\/2 left-0[\s\S]*bg-\[#007aff\][\s\S]*text-white/
   );
   assert.doesNotMatch(source, /data-ripple-panel-edge-handle="session-list"[\s\S]*top-6/);
   assert.doesNotMatch(source, /top-\[14px\] left-4 z-30 hidden h-8/);

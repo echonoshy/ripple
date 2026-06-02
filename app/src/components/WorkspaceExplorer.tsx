@@ -1469,11 +1469,11 @@ export default function WorkspaceExplorer({
   const pageToolbarIconButtonClass = DENSE_GLASS_ICON_BUTTON_CLASS;
   const pageToolbarPrimaryButtonClass = pageToolbarIconButtonClass;
   const pageParentButtonClass =
-    "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#d7e3f8] bg-[#eef4ff] text-[#2463eb] shadow-[0_10px_24px_rgba(44,63,123,0.06)] transition-colors hover:bg-[#e5efff] lg:hidden";
+    "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#d7e3f8] bg-[#eef4ff] text-[#007aff] shadow-[0_10px_24px_rgba(44,63,123,0.06)] transition-colors hover:bg-[#e5efff] lg:hidden";
   const directoryNavigationButtonClass =
     "group inline-flex h-8 items-center gap-1.5 rounded-full border border-[#cfdbf2] bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(240,245,255,0.78))] px-2.5 text-[11px] font-semibold text-[#46556f] shadow-[0_8px_20px_rgba(44,63,123,0.07),inset_0_1px_0_rgba(255,255,255,0.9)] backdrop-blur-xl transition-all hover:-translate-y-px hover:border-[#b9cbec] hover:bg-[#eef4ff] hover:text-[#1f4ed0] hover:shadow-[0_12px_26px_rgba(44,63,123,0.1)] active:translate-y-0";
   const directoryNavigationIconClass =
-    "flex h-5 w-5 items-center justify-center rounded-full bg-[#edf4ff] text-[#2463eb] ring-1 ring-[#d7e3f8] transition-colors group-hover:bg-[#dceaff] group-hover:text-[#1f4ed0]";
+    "flex h-5 w-5 items-center justify-center rounded-full bg-[#edf4ff] text-[#007aff] ring-1 ring-[#d7e3f8] transition-colors group-hover:bg-[#dceaff] group-hover:text-[#1f4ed0]";
   const workspaceGridStyle:
     | (React.CSSProperties & { "--ripple-workspace-list-row"?: string })
     | undefined = !isPreviewPanelHidden
@@ -1506,7 +1506,7 @@ export default function WorkspaceExplorer({
       />
       {isDraggingUpload && (
         <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center bg-[#ffffff]/86 p-4 backdrop-blur-sm">
-          <div className="rounded-2xl border border-dashed border-[#2463eb] bg-[#eef4ff] px-4 py-3 text-sm font-semibold text-[#2457e6] shadow-[0_18px_42px_rgba(44,63,123,0.12)]">
+          <div className="rounded-2xl border border-dashed border-[#007aff] bg-[#eef4ff] px-4 py-3 text-sm font-semibold text-[#006ee6] shadow-[0_18px_42px_rgba(44,63,123,0.12)]">
             {t("files.dropFiles")}
           </div>
         </div>
@@ -1530,7 +1530,7 @@ export default function WorkspaceExplorer({
                   onClick={onBack}
                   aria-label={t("files.backToSession")}
                   title={t("files.backToSession")}
-                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[#2f6bff] bg-[#2f6bff] text-white shadow-[0_12px_26px_rgba(47,107,255,0.28)] transition-colors hover:bg-[#245de8] active:bg-[#1f4ed0] lg:hidden"
+                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#007aff] bg-[#007aff] text-white shadow-[0_12px_26px_rgba(0,122,255,0.26)] transition-colors hover:bg-[#006ee6] active:bg-[#0057b8] lg:hidden"
                 >
                   <MessageCircleReply size={17} />
                 </button>
@@ -1555,7 +1555,7 @@ export default function WorkspaceExplorer({
                 }}
                 className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border shadow-[0_10px_24px_rgba(44,63,123,0.06)] transition-colors lg:hidden ${
                   isSearchMode
-                    ? "border-[#d7e3f8] bg-[#eef4ff] text-[#2463eb]"
+                    ? "border-[#d7e3f8] bg-[#eef4ff] text-[#007aff]"
                     : "border-[#dfe6f4] bg-white/78 text-[#384152] hover:bg-white"
                 }`}
                 title={t("files.searchWorkspaceFiles")}
@@ -1569,7 +1569,7 @@ export default function WorkspaceExplorer({
                 onClick={toggleSelectionMode}
                 className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border shadow-[0_10px_24px_rgba(44,63,123,0.06)] transition-colors lg:hidden ${
                   isSelectionActive
-                    ? "border-[#d7e3f8] bg-[#eef4ff] text-[#2463eb]"
+                    ? "border-[#d7e3f8] bg-[#eef4ff] text-[#007aff]"
                     : "border-[#dfe6f4] bg-white/78 text-[#384152] hover:bg-white"
                 }`}
                 title={isSelectionActive ? t("files.doneSelecting") : t("files.selectFiles")}
@@ -1625,7 +1625,7 @@ export default function WorkspaceExplorer({
                 aria-label={t("files.searchWorkspaceFiles")}
                 className={
                   isPagePresentation
-                    ? "h-9 w-full rounded-lg border border-[#dfe6f4] bg-white/84 pr-3 pl-9 text-sm text-[#111827] shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] outline-none placeholder:text-xs placeholder:text-[#8b8f94] focus:border-[#2463eb]"
+                    ? "h-9 w-full rounded-lg border border-[#dfe6f4] bg-white/84 pr-3 pl-9 text-sm text-[#111827] shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] outline-none placeholder:text-xs placeholder:text-[#8b8f94] focus:border-[#007aff]"
                     : "h-8 w-full rounded-full border border-[#e5e7eb] bg-white pr-2 pl-9 text-sm text-[#0d0d0d] outline-none placeholder:text-xs placeholder:text-[#8b8f94] focus:border-[#8da0ff]"
                 }
               />
@@ -1637,12 +1637,12 @@ export default function WorkspaceExplorer({
                 isPagePresentation
                   ? `inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border transition-colors ${
                       isFilterOpen
-                        ? "border-[#d7e3f8] bg-[#eef4ff] text-[#2463eb]"
+                        ? "border-[#d7e3f8] bg-[#eef4ff] text-[#007aff]"
                         : "border-[#dfe6f4] bg-white/78 text-[#384152] shadow-[0_10px_24px_rgba(44,63,123,0.06)] hover:bg-white"
                     }`
                   : `inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border ${
                       isFilterOpen
-                        ? "border-[#2f6bff]/30 bg-[#eef4ff] text-[#2f6bff]"
+                        ? "border-[#007aff]/30 bg-[#eef4ff] text-[#007aff]"
                         : "border-[#e5e7eb] bg-white text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
                     }`
               }
@@ -1659,12 +1659,12 @@ export default function WorkspaceExplorer({
                 isPagePresentation
                   ? `inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border transition-colors ${
                       isSelectionActive
-                        ? "border-[#d7e3f8] bg-[#eef4ff] text-[#2463eb]"
+                        ? "border-[#d7e3f8] bg-[#eef4ff] text-[#007aff]"
                         : "border-[#dfe6f4] bg-white/78 text-[#384152] shadow-[0_10px_24px_rgba(44,63,123,0.06)] hover:bg-white"
                     }`
                   : `inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border ${
                       isSelectionActive
-                        ? "border-[#2f6bff]/30 bg-[#eef4ff] text-[#2f6bff]"
+                        ? "border-[#007aff]/30 bg-[#eef4ff] text-[#007aff]"
                         : "border-[#e5e7eb] bg-white text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
                     }`
               }
@@ -1736,7 +1736,7 @@ export default function WorkspaceExplorer({
                 <FolderUp size={18} />
               </button>
             ) : (
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#f6f8ff] text-[#2463eb]">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#f6f8ff] text-[#007aff]">
                 <Folder size={14} />
               </span>
             )}
@@ -1754,7 +1754,7 @@ export default function WorkspaceExplorer({
               <button
                 type="button"
                 onClick={() => setIsMobileSearchOpen(true)}
-                className="inline-flex h-8 shrink-0 items-center rounded-lg border border-[#d7e3f8] bg-[#eef4ff] px-2 text-[11px] font-semibold text-[#2463eb]"
+                className="inline-flex h-8 shrink-0 items-center rounded-lg border border-[#d7e3f8] bg-[#eef4ff] px-2 text-[11px] font-semibold text-[#007aff]"
               >
                 {t("files.edit")}
               </button>
@@ -2048,11 +2048,11 @@ export default function WorkspaceExplorer({
                   placeholder={t("files.findFilesByName")}
                   aria-label={t("files.searchWorkspaceFiles")}
                   autoFocus
-                  className="h-11 w-full rounded-xl border border-[#dfe6f4] bg-[#fbfdff] pr-3 pl-9 text-sm text-[#111827] outline-none placeholder:text-xs placeholder:text-[#8b8f94] focus:border-[#2463eb]"
+                  className="h-11 w-full rounded-xl border border-[#dfe6f4] bg-[#fbfdff] pr-3 pl-9 text-sm text-[#111827] outline-none placeholder:text-xs placeholder:text-[#8b8f94] focus:border-[#007aff]"
                 />
               </div>
               <div className="flex min-w-0 gap-1.5 overflow-x-auto pb-0.5">
-                <span className="shrink-0 rounded-full border border-[#b8cdf8] bg-[#eef4ff] px-2 py-1 text-[10px] font-semibold text-[#2457e6]">
+                <span className="shrink-0 rounded-full border border-[#cfe4ff] bg-[#eef4ff] px-2 py-1 text-[10px] font-semibold text-[#006ee6]">
                   {searchScope === "content"
                     ? t("files.content")
                     : searchScope === "all"
@@ -2387,7 +2387,7 @@ export default function WorkspaceExplorer({
                           onKeyDown={handleRenameKeyDown}
                           disabled={renameSaving}
                           spellCheck={false}
-                          className="h-7 w-full rounded-lg border border-[#2463eb] bg-white px-2 font-[family-name:var(--font-mono)] text-[13px] font-medium text-[#111827] outline-none"
+                          className="h-7 w-full rounded-lg border border-[#007aff] bg-white px-2 font-[family-name:var(--font-mono)] text-[13px] font-medium text-[#111827] outline-none"
                         />
                         {isSearchMode ? (
                           <SearchResultMeta entry={entry} />
@@ -2481,7 +2481,7 @@ export default function WorkspaceExplorer({
                             checked={selectedEntryPaths.has(entry.path)}
                             aria-label={t("files.selectEntry", { name: entry.name })}
                             onChange={(event) => toggleEntrySelection(entry, event.target.checked)}
-                            className="h-4 w-4 rounded border-[#c7d2e5] text-[#2463eb] accent-[#2463eb]"
+                            className="h-4 w-4 rounded border-[#c7d2e5] text-[#007aff] accent-[#007aff]"
                           />
                         </label>
                       ) : null}
@@ -2579,7 +2579,7 @@ export default function WorkspaceExplorer({
                   : "group absolute top-0 right-0 left-0 z-20 flex h-3 -translate-y-1/2 cursor-row-resize items-center justify-center bg-transparent transition-colors outline-none hover:bg-[#dbe6ff]/70 focus:bg-[#dbe6ff]/70"
               }
             >
-              <span className="h-0.5 w-12 rounded-full bg-[#2463eb] opacity-0 transition-opacity group-hover:opacity-100 group-focus:opacity-100" />
+              <span className="h-0.5 w-12 rounded-full bg-[#007aff] opacity-0 transition-opacity group-hover:opacity-100 group-focus:opacity-100" />
             </div>
             <div
               className={
@@ -2625,7 +2625,7 @@ export default function WorkspaceExplorer({
                       onClick={() => setIsEditing((current) => !current)}
                       className={`inline-flex h-7 items-center gap-1 rounded-full border px-2 text-xs font-medium ${
                         isEditing
-                          ? "border-[#2463eb] bg-[#eef4ff] text-[#384152]"
+                          ? "border-[#007aff] bg-[#eef4ff] text-[#384152]"
                           : isPagePresentation
                             ? "border-[#dfe6f4] bg-white/76 text-[#667085] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:text-[#8b8f94]"
                             : "border-[#dde2ea] bg-white text-[#68707d] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:text-[#8b8f94]"
@@ -2686,12 +2686,12 @@ export default function WorkspaceExplorer({
                     <span>{preview.mime_type}</span>
                     <span>{formatModified(preview.modified_at, locale)}</span>
                     {isDirty && (
-                      <span className="rounded-full border border-[#2463eb]/25 bg-[#eef4ff] px-1.5 py-0.5 text-[10px] text-[#2457e6] uppercase">
+                      <span className="rounded-full border border-[#007aff]/25 bg-[#eef4ff] px-1.5 py-0.5 text-[10px] text-[#006ee6] uppercase">
                         {t("files.unsaved")}
                       </span>
                     )}
                     {preview.truncated && (
-                      <span className="rounded-full border border-[#2463eb]/35 bg-[#eef4ff] px-1.5 py-0.5 text-[10px] text-[#1d56d8] uppercase">
+                      <span className="rounded-full border border-[#007aff]/35 bg-[#eef4ff] px-1.5 py-0.5 text-[10px] text-[#1d56d8] uppercase">
                         {t("files.truncated")}
                       </span>
                     )}
@@ -2809,8 +2809,8 @@ export default function WorkspaceExplorer({
                                   className={`flex min-w-0 items-start font-[family-name:var(--font-mono)] text-[12px] leading-relaxed transition-colors ${
                                     isLineHighlighted
                                       ? isPagePresentation
-                                        ? "border-l-4 border-[#2463eb] bg-[#eef4ff] pl-2"
-                                        : "border-l-2 border-[#2463eb] bg-[#eef4ff] pl-[10px]"
+                                        ? "border-l-4 border-[#007aff] bg-[#eef4ff] pl-2"
+                                        : "border-l-2 border-[#007aff] bg-[#eef4ff] pl-[10px]"
                                       : isPagePresentation
                                         ? "pl-3 hover:bg-[#f7f8fa]"
                                         : "pl-3 hover:bg-[#f8fafc]"
@@ -3074,7 +3074,7 @@ export default function WorkspaceExplorer({
               </button>
               <button
                 type="submit"
-                className="rounded-full bg-[linear-gradient(135deg,#2f6bff,#7b5cff)] px-4 py-1.5 text-white shadow-[0_8px_18px_rgba(64,92,255,0.18)] transition-all duration-200 hover:brightness-110 active:scale-[0.98]"
+                className="rounded-full bg-[#007aff] px-4 py-1.5 text-white shadow-[0_8px_18px_rgba(0,122,255,0.20)] transition-all duration-200 hover:bg-[#006ee6] active:scale-[0.98]"
                 disabled={creationSaving}
               >
                 {creationSaving ? t("files.creating") : t("files.create")}

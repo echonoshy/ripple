@@ -117,7 +117,7 @@ function testWorkspaceExplorerBackButtonNamesSessionReturn() {
   assert.match(source, /MessageCircleReply/);
   assert.match(html, /aria-label="Back to session"/);
   assert.match(html, /title="Back to session"/);
-  assert.match(html, /bg-\[#2f6bff\]/);
+  assert.match(html, /bg-\[#007aff\]/);
   assert.match(html, /text-white/);
   assert.doesNotMatch(html, /Back to settings/);
 }
@@ -198,10 +198,10 @@ function testWorkspaceExplorerPageKeepsMobileUploadSeparateFromParentFolder() {
   assert.ok(uploadButton);
   assert.match(parentButton, /border-\[#d7e3f8\]/);
   assert.match(parentButton, /bg-\[#eef4ff\]/);
-  assert.match(parentButton, /text-\[#2463eb\]/);
-  assert.match(uploadButton, /border-\[#dfe6f4\]/);
-  assert.match(uploadButton, /bg-white\/78/);
-  assert.doesNotMatch(uploadButton, /bg-\[#2463eb\]/);
+  assert.match(parentButton, /text-\[#007aff\]/);
+  assert.match(uploadButton, /border-\[#d7d7dd\]/);
+  assert.match(uploadButton, /bg-white\/82/);
+  assert.doesNotMatch(uploadButton, /bg-\[#007aff\]/);
 }
 
 testWorkspaceExplorerPageKeepsMobileUploadSeparateFromParentFolder();

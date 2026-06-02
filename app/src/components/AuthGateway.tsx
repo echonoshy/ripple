@@ -75,7 +75,7 @@ function TextInput({
         autoCapitalize="none"
         autoCorrect="off"
         spellCheck={false}
-        className={`h-11 w-full rounded-lg border border-[#dfe6f4] bg-white px-3 pr-4 pl-11 text-sm text-[#101828] transition outline-none focus:border-[#2463eb] focus:ring-2 focus:ring-[#2463eb]/12 ${mono ? "font-[family-name:var(--font-mono)]" : ""}`}
+        className={`h-11 w-full rounded-lg border border-[#dfe6f4] bg-white px-3 pr-4 pl-11 text-sm text-[#101828] transition outline-none focus:border-[#007aff] focus:ring-2 focus:ring-[#007aff]/12 ${mono ? "font-[family-name:var(--font-mono)]" : ""}`}
       />
     </div>
   );
@@ -96,7 +96,7 @@ function ModeButton({
       onClick={onClick}
       className={`inline-flex h-9 items-center justify-center rounded-lg border px-3 text-sm font-semibold transition ${
         active
-          ? "border-[#2463eb]/20 bg-[#eef4ff] text-[#1f5bd8]"
+          ? "border-[#007aff]/20 bg-[#eef4ff] text-[#1f5bd8]"
           : "border-[#dfe6f4] bg-white text-[#344054] hover:border-[#cbd7ea] hover:bg-[#f8fafc]"
       }`}
     >
@@ -241,7 +241,7 @@ export default function AuthGateway({
                 <button
                   type="submit"
                   disabled={isAuthSubmitting || !keyInput.trim()}
-                  className="flex h-11 w-full items-center justify-center rounded-lg border border-[#2463eb] bg-[#2463eb] text-sm font-semibold text-white shadow-[0_12px_28px_rgba(36,99,235,0.18)] transition hover:bg-[#1d56d8] disabled:cursor-not-allowed disabled:border-[#dfe6f4] disabled:bg-[#f2f4f7] disabled:text-[#98a2b3] disabled:shadow-none"
+                  className="flex h-11 w-full items-center justify-center rounded-lg border border-[#007aff] bg-[#007aff] text-sm font-semibold text-white shadow-[0_12px_28px_rgba(36,99,235,0.18)] transition hover:bg-[#1d56d8] disabled:cursor-not-allowed disabled:border-[#dfe6f4] disabled:bg-[#f2f4f7] disabled:text-[#98a2b3] disabled:shadow-none"
                 >
                   {isAuthSubmitting ? t("auth.connecting") : t("auth.connectWithApiKey")}
                 </button>
@@ -295,7 +295,7 @@ export default function AuthGateway({
                     !passwordInput ||
                     (isInvite && !inviteCodeInput.trim())
                   }
-                  className="flex h-11 w-full items-center justify-center rounded-lg border border-[#2463eb] bg-[#2463eb] text-sm font-semibold text-white shadow-[0_12px_28px_rgba(36,99,235,0.18)] transition hover:bg-[#1d56d8] disabled:cursor-not-allowed disabled:border-[#dfe6f4] disabled:bg-[#f2f4f7] disabled:text-[#98a2b3] disabled:shadow-none"
+                  className="flex h-11 w-full items-center justify-center rounded-lg border border-[#007aff] bg-[#007aff] text-sm font-semibold text-white shadow-[0_12px_28px_rgba(36,99,235,0.18)] transition hover:bg-[#1d56d8] disabled:cursor-not-allowed disabled:border-[#dfe6f4] disabled:bg-[#f2f4f7] disabled:text-[#98a2b3] disabled:shadow-none"
                 >
                   {isAuthSubmitting
                     ? t("auth.working")
@@ -318,7 +318,7 @@ export default function AuthGateway({
                   <button
                     type="button"
                     onClick={() => changeMode("invite")}
-                    className="font-semibold text-[#2463eb] hover:text-[#1d56d8]"
+                    className="font-semibold text-[#007aff] hover:text-[#1d56d8]"
                   >
                     {t("auth.createAccount")}
                   </button>

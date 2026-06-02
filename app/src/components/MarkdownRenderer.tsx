@@ -220,11 +220,9 @@ function FeishuCard({
   const subtitle = isSetup
     ? t("connectors.feishuSetupSubtitle")
     : t("connectors.feishuAuthSubtitle");
-  const hint = isSetup
-    ? t("connectors.feishuSetupHint")
-    : t("connectors.feishuAuthHint");
+  const hint = isSetup ? t("connectors.feishuSetupHint") : t("connectors.feishuAuthHint");
   const Icon = isSetup ? Settings2 : KeyRound;
-  const accentClass = isSetup ? "bg-[#eef3ff]/60 text-[#2f6bff]" : "bg-[#dafbe1]/60 text-[#1a7f37]";
+  const accentClass = isSetup ? "bg-[#eef3ff]/60 text-[#007aff]" : "bg-[#dafbe1]/60 text-[#1a7f37]";
   const iconTone = isSetup ? "accent" : "success";
   const href = resolveBackendUrl(url) || url;
   const isWaiting =
@@ -264,9 +262,7 @@ function FeishuCard({
         {isWaiting && (
           <div className="flex items-start gap-2 rounded-xl border border-[#0969da]/20 bg-[#f6fbff] px-3 py-2 text-xs font-medium text-[#374151]">
             <Loader2 size={13} className="mt-0.5 shrink-0 animate-spin text-[#0969da]" />
-            <span>
-              {t("connectors.feishuWaitingCard", { seconds: waiting.elapsedSeconds })}
-            </span>
+            <span>{t("connectors.feishuWaitingCard", { seconds: waiting.elapsedSeconds })}</span>
           </div>
         )}
         <div className="font-[family-name:var(--font-mono)] text-[11px] break-all text-[#6b7280]">
@@ -303,16 +299,14 @@ function GoogleAuthCard({
 
   return (
     <div className="my-3 overflow-hidden rounded-2xl border border-[#dfe6f4] bg-white/74 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl">
-      <div className="flex items-center gap-2 border-b border-[#dfe6f4] bg-[#eef3ff]/60 px-4 py-3 text-[#2f6bff]">
+      <div className="flex items-center gap-2 border-b border-[#dfe6f4] bg-[#eef3ff]/60 px-4 py-3 text-[#007aff]">
         <IconTile tone="accent" size="sm">
           <KeyRound size={15} />
         </IconTile>
         <span className="text-sm font-semibold">{t("connectors.googleAuthTitle")}</span>
       </div>
       <div className="space-y-3 px-4 py-3">
-        <p className="text-sm font-medium text-[#374151]">
-          {t("connectors.googleAuthSubtitle")}
-        </p>
+        <p className="text-sm font-medium text-[#374151]">{t("connectors.googleAuthSubtitle")}</p>
         <a
           href={href}
           target="_blank"
@@ -324,11 +318,9 @@ function GoogleAuthCard({
           <ExternalLink size={13} />
         </a>
         {isWaiting && (
-          <div className="flex items-start gap-2 rounded-xl border border-[#2f6bff]/20 bg-[#f6fbff] px-3 py-2 text-xs font-medium text-[#374151]">
-            <Loader2 size={13} className="mt-0.5 shrink-0 animate-spin text-[#2463eb]" />
-            <span>
-              {t("connectors.googleWaitingCard", { seconds: waiting.elapsedSeconds })}
-            </span>
+          <div className="flex items-start gap-2 rounded-xl border border-[#007aff]/20 bg-[#f6fbff] px-3 py-2 text-xs font-medium text-[#374151]">
+            <Loader2 size={13} className="mt-0.5 shrink-0 animate-spin text-[#007aff]" />
+            <span>{t("connectors.googleWaitingCard", { seconds: waiting.elapsedSeconds })}</span>
           </div>
         )}
         <div className="font-[family-name:var(--font-mono)] text-[11px] break-all text-[#6b7280]">
@@ -367,9 +359,7 @@ function BilibiliAuthCard({
         <span className="text-sm font-semibold">{t("connectors.bilibiliAuthTitle")}</span>
       </div>
       <div className="space-y-3 px-4 py-3">
-        <p className="text-sm font-medium text-[#374151]">
-          {t("connectors.bilibiliAuthSubtitle")}
-        </p>
+        <p className="text-sm font-medium text-[#374151]">{t("connectors.bilibiliAuthSubtitle")}</p>
         <div className="flex flex-wrap items-start gap-4">
           <img
             src={qrSrc}
@@ -400,9 +390,7 @@ function BilibiliAuthCard({
                 <ExternalLink size={13} />
               </a>
             )}
-            <p className="text-xs font-medium text-[#6b7280]">
-              {t("connectors.bilibiliAuthHint")}
-            </p>
+            <p className="text-xs font-medium text-[#6b7280]">{t("connectors.bilibiliAuthHint")}</p>
           </div>
         </div>
         <div className="font-[family-name:var(--font-mono)] text-[11px] break-all text-[#6b7280]">
@@ -434,9 +422,7 @@ function ThinkingBlock({
         <IconTile tone="accent" size="xs">
           <Brain size={13} />
         </IconTile>
-        <span className="text-xs font-semibold text-[#374151]">
-          {t("common.thoughtProcess")}
-        </span>
+        <span className="text-xs font-semibold text-[#374151]">{t("common.thoughtProcess")}</span>
         <motion.div
           animate={{ rotate: isExpanded ? 90 : 0 }}
           transition={{ duration: 0.1 }}
@@ -591,7 +577,7 @@ function MarkdownContent({
               target={wsLink ? undefined : "_blank"}
               rel="noopener noreferrer"
               onClick={handleClick}
-              className="cursor-pointer font-semibold break-words text-[#2463eb] underline underline-offset-4 hover:text-[#174ea6]"
+              className="cursor-pointer font-semibold break-words text-[#007aff] underline underline-offset-4 hover:text-[#174ea6]"
             >
               {children}
             </a>

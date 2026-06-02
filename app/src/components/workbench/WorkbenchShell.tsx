@@ -108,7 +108,7 @@ export default function WorkbenchShell({
               onClick={onExpandInspector}
               aria-label={t("common.expandWorkspacePanel")}
               title={t("common.expandWorkspacePanel")}
-              className="absolute top-1/2 right-0 z-30 hidden h-14 w-7 -translate-y-1/2 items-center justify-center rounded-l-xl border border-r-0 border-[#bfdbfe] bg-[#eff6ff] text-[#2463eb] shadow-[0_8px_18px_rgba(36,99,235,0.12)] transition-colors hover:border-[#93c5fd] hover:bg-[#dbeafe] hover:text-[#1d4ed8] focus-visible:ring-2 focus-visible:ring-[#bfdbfe] focus-visible:outline-none active:scale-95 xl:inline-flex"
+              className="absolute top-1/2 right-0 z-30 hidden h-14 w-7 -translate-y-1/2 items-center justify-center rounded-l-2xl border border-r-0 border-[#cfe4ff] bg-white/82 text-[#007aff] shadow-[0_8px_18px_rgba(60,60,67,0.10)] backdrop-blur-xl transition-colors hover:border-[#8ec8ff] hover:bg-[#eaf4ff] focus-visible:ring-2 focus-visible:ring-[#cfe4ff] focus-visible:outline-none active:scale-95 xl:inline-flex"
             >
               <ChevronLeft size={16} />
             </button>
@@ -126,9 +126,9 @@ export default function WorkbenchShell({
               tabIndex={0}
               onPointerDown={handleInspectorResizeStart}
               onKeyDown={handleInspectorResizeKeyDown}
-              className="group absolute top-0 bottom-0 left-0 z-20 flex w-2 -translate-x-1/2 cursor-col-resize items-center justify-center bg-transparent transition-colors outline-none hover:bg-[#dbe6ff] focus:bg-[#dbe6ff]"
+              className="group absolute top-0 bottom-0 left-0 z-20 flex w-2 -translate-x-1/2 cursor-col-resize items-center justify-center bg-transparent transition-colors outline-none hover:bg-[#eaf4ff] focus:bg-[#eaf4ff]"
             >
-              <span className="h-12 w-0.5 rounded-full bg-[#2463eb] opacity-0 transition-opacity group-hover:opacity-100 group-focus:opacity-100" />
+              <span className="h-12 w-0.5 rounded-full bg-[#007aff] opacity-0 transition-opacity group-hover:opacity-100 group-focus:opacity-100" />
             </div>
             {inspector}
           </div>

@@ -57,9 +57,9 @@ function testSelectedTopTabHasStrongerTreatment() {
 
   const selectedTab = html.match(/<button[^>]*data-ripple-top-tab="sessions"[^>]*>/)?.[0] || "";
 
-  assert.match(selectedTab, /bg-\[#eef4ff\]/);
-  assert.match(selectedTab, /ring-1/);
-  assert.match(selectedTab, /shadow-\[0_10px_24px_rgba\(47,107,255,0\.18\)\]/);
+  assert.match(selectedTab, /bg-\[#007aff\]/);
+  assert.match(selectedTab, /text-white/);
+  assert.match(selectedTab, /shadow-\[0_8px_18px_rgba\(0,122,255,0\.22\)\]/);
 }
 
 function testDesktopProductTabsUseEqualWidths() {
@@ -70,7 +70,7 @@ function testDesktopProductTabsUseEqualWidths() {
 
   assert.equal(tabButtons.length, 4);
   for (const button of tabButtons) {
-    assert.match(button, /w-\[112px\]/);
+    assert.match(button, /w-\[108px\]/);
     assert.match(button, /justify-center/);
     assert.match(button, /whitespace-nowrap/);
   }

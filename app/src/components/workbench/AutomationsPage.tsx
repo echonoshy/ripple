@@ -606,7 +606,7 @@ export default function AutomationsPage({
                   beginCreateSchedule();
                 }
               }}
-              className="inline-flex h-9 items-center gap-2 rounded-full bg-[linear-gradient(135deg,#2f6bff,#7b5cff)] px-3 text-[13px] font-semibold text-white shadow-[0_12px_26px_rgba(64,92,255,0.24)]"
+              className="inline-flex h-9 items-center gap-2 rounded-full bg-[#007aff] px-3 text-[13px] font-semibold text-white shadow-[0_12px_26px_rgba(0,122,255,0.22)] hover:bg-[#006ee6]"
             >
               <Plus size={15} />
               {t("automations.new")}
@@ -698,7 +698,7 @@ export default function AutomationsPage({
                       onClick={() => setKind(option)}
                       className={`h-8 rounded text-xs font-semibold ${
                         kind === option
-                          ? "bg-[linear-gradient(135deg,#2f6bff,#7b5cff)] text-white"
+                          ? "bg-[#007aff] text-white"
                           : "text-[#384152] hover:bg-[#f7f8fa]"
                       }`}
                     >
@@ -776,7 +776,7 @@ export default function AutomationsPage({
                 <button
                   type="submit"
                   disabled={isSubmitting || !title.trim() || !prompt.trim()}
-                  className="inline-flex h-9 items-center justify-center gap-2 rounded-full bg-[linear-gradient(135deg,#2f6bff,#7b5cff)] px-4 text-[13px] font-semibold text-white shadow-[0_12px_26px_rgba(64,92,255,0.22)] disabled:cursor-not-allowed disabled:bg-[#e5e7eb] disabled:bg-none disabled:text-[#8b8f94] disabled:shadow-none"
+                  className="inline-flex h-9 items-center justify-center gap-2 rounded-full bg-[#007aff] px-4 text-[13px] font-semibold text-white shadow-[0_12px_26px_rgba(0,122,255,0.22)] hover:bg-[#006ee6] disabled:cursor-not-allowed disabled:bg-[#e5e7eb] disabled:bg-none disabled:text-[#8b8f94] disabled:shadow-none"
                 >
                   {isSubmitting ? (
                     <Loader2 size={14} className="animate-spin" />

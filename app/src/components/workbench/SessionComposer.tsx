@@ -343,7 +343,7 @@ export default function SessionComposer({
               setIsFolderPickerOpen((open) => !open);
             }}
             className={`inline-flex h-10 w-10 items-center justify-center rounded-full hover:bg-[#f3f4f6] hover:text-[#111827] active:bg-[#eef3ff] sm:h-8 sm:w-8 ${
-              hasFocusFolder ? "bg-[#eef4ff] text-[#2463eb]" : "text-[#4b5563]"
+              hasFocusFolder ? "bg-[#eaf4ff] text-[#007aff]" : "text-[#3c3c43]"
             }`}
           >
             <FolderGit2 size={16} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
@@ -361,14 +361,14 @@ export default function SessionComposer({
       )}
       <div ref={quickActionsRef} className="relative flex items-center">
         {isQuickActionsOpen && (
-          <div className="absolute bottom-full left-0 z-30 mb-2 w-52 overflow-hidden rounded-xl border border-[#dfe6f4] bg-white shadow-[0_14px_34px_rgba(44,63,123,0.14)]">
+          <div className="absolute bottom-full left-0 z-30 mb-2 w-52 overflow-hidden rounded-2xl border border-[#d7d7dd] bg-white/94 shadow-[0_14px_34px_rgba(60,60,67,0.16)] backdrop-blur-2xl">
             {quickActionMatches.map((action, index) => (
               <button
                 key={action.id}
                 type="button"
                 onClick={() => runQuickAction(action)}
-                className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[#111827] hover:bg-[#f7f8fa] ${
-                  index === quickActionIndex ? "bg-[#eef3ff]" : ""
+                className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[#111827] hover:bg-[#f2f2f7] ${
+                  index === quickActionIndex ? "bg-[#eaf4ff]" : ""
                 }`}
               >
                 <Trash2 size={14} className="text-[#6b7280]" />
@@ -386,7 +386,7 @@ export default function SessionComposer({
           title={t("composer.attachFiles")}
           onClick={() => fileInputRef.current?.click()}
           disabled={attachDisabled}
-          className="inline-flex h-10 w-10 items-center justify-center rounded-full text-[#4b5563] hover:bg-[#f3f4f6] hover:text-[#111827] active:bg-[#eef3ff] disabled:cursor-not-allowed disabled:opacity-50 sm:h-8 sm:w-8"
+          className="inline-flex h-10 w-10 items-center justify-center rounded-full text-[#3c3c43] hover:bg-[#f2f2f7] hover:text-[#111827] active:bg-[#eaf4ff] disabled:cursor-not-allowed disabled:opacity-50 sm:h-8 sm:w-8"
         >
           {isUploadingFiles ? (
             <Loader2 size={15} className="animate-spin" />
@@ -404,20 +404,20 @@ export default function SessionComposer({
             setIsFolderPickerOpen(false);
             onToggleModelDropdown();
           }}
-          className="inline-flex h-10 w-10 items-center justify-center rounded-full text-[#4b5563] hover:bg-[#f3f4f6] hover:text-[#111827] active:bg-[#eef3ff] sm:h-8 sm:w-8"
+          className="inline-flex h-10 w-10 items-center justify-center rounded-full text-[#3c3c43] hover:bg-[#f2f2f7] hover:text-[#111827] active:bg-[#eaf4ff] sm:h-8 sm:w-8"
         >
           <BrainCircuit size={16} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
         </button>
         {isModelDropdownOpen && (
-          <div className="absolute bottom-full left-0 z-30 mb-2 w-48 overflow-hidden rounded-xl border border-[#dfe6f4] bg-white shadow-[0_14px_34px_rgba(44,63,123,0.14)]">
+          <div className="absolute bottom-full left-0 z-30 mb-2 w-48 overflow-hidden rounded-2xl border border-[#d7d7dd] bg-white/94 shadow-[0_14px_34px_rgba(60,60,67,0.16)] backdrop-blur-2xl">
             <div className="p-1">
               {availableModels.map((model) => (
                 <button
                   key={model.id}
                   type="button"
                   onClick={() => onSelectModel(model.id)}
-                  className={`flex w-full items-center rounded px-3 py-2 text-left font-[family-name:var(--font-mono)] text-xs hover:bg-[#f7f8fa] ${
-                    selectedModel === model.id ? "bg-[#eef3ff] text-[#2457e6]" : "text-[#111827]"
+                  className={`flex w-full items-center rounded-xl px-3 py-2 text-left font-[family-name:var(--font-mono)] text-xs hover:bg-[#f2f2f7] ${
+                    selectedModel === model.id ? "bg-[#eaf4ff] text-[#007aff]" : "text-[#111827]"
                   }`}
                 >
                   {formatModelName(model.id)}
@@ -451,7 +451,7 @@ export default function SessionComposer({
               ? t("composer.askAnything")
               : t("composer.askAnything")
       }
-      className={`session-composer-input mb-[2px] max-h-[104px] min-h-9 min-w-0 resize-none bg-transparent px-1.5 py-2 text-[14px] leading-5 text-[#111827] outline-none placeholder:text-[13px] placeholder:text-[#9aa3af] disabled:opacity-60 sm:mb-0 sm:max-h-[180px] sm:min-h-[36px] sm:px-2 sm:py-1.5 sm:text-[14px] sm:leading-6 sm:placeholder:text-[#8b8f94] ${
+      className={`session-composer-input mb-[2px] max-h-[104px] min-h-9 min-w-0 resize-none bg-transparent px-1.5 py-2 text-[14px] leading-5 text-[#111827] outline-none placeholder:text-[13px] placeholder:text-[#8e8e93] disabled:opacity-60 sm:mb-0 sm:max-h-[180px] sm:min-h-[36px] sm:px-2 sm:py-1.5 sm:text-[14px] sm:leading-6 sm:placeholder:text-[#8e8e93] ${
         isExpandedComposer ? "col-span-2 row-start-1 w-full" : "flex-1"
       }`}
     />
@@ -477,7 +477,7 @@ export default function SessionComposer({
         disabled={!canSend || sendDisabled}
         aria-label={t("composer.sendMessage")}
         title={t("composer.sendMessage")}
-        className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#4067ff]/20 bg-[linear-gradient(135deg,#2f6bff,#7b5cff)] text-white shadow-[0_10px_22px_rgba(64,92,255,0.30)] disabled:cursor-not-allowed disabled:border-[#dfe6f4] disabled:bg-[#f3f6fb] disabled:bg-none disabled:text-[#9aa3af] disabled:shadow-none sm:h-8 sm:w-8 ${
+        className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#007aff]/20 bg-[#007aff] text-white shadow-[0_10px_22px_rgba(0,122,255,0.26)] hover:bg-[#006ee6] disabled:cursor-not-allowed disabled:border-[#d7d7dd] disabled:bg-[#f2f2f7] disabled:bg-none disabled:text-[#8e8e93] disabled:shadow-none sm:h-8 sm:w-8 ${
           isExpandedComposer ? "col-start-2 row-start-2 justify-self-end" : "sm:mb-[2px]"
         }`}
       >
@@ -486,8 +486,8 @@ export default function SessionComposer({
     );
 
   return (
-    <div className="shrink-0 border-t border-[#e8edf7] bg-white/76 px-3 pt-1 pb-[max(env(safe-area-inset-bottom),8px)] shadow-[0_-14px_32px_rgba(44,63,123,0.08)] backdrop-blur-2xl sm:px-4 sm:pt-2 md:px-6 lg:pb-[max(env(safe-area-inset-bottom),12px)]">
-      <div className="mx-auto max-w-4xl rounded-2xl border border-[#dfe6f4] bg-white/92 p-1.5 shadow-[0_12px_30px_rgba(44,63,123,0.12)] transition-colors focus-within:border-[#8da0ff] sm:p-1.5">
+    <div className="shrink-0 border-t border-[#d7d7dd]/70 bg-white/76 px-3 pt-1 pb-[max(env(safe-area-inset-bottom),8px)] shadow-[0_-14px_32px_rgba(60,60,67,0.08)] backdrop-blur-2xl sm:px-4 sm:pt-2 md:px-6 lg:pb-[max(env(safe-area-inset-bottom),12px)]">
+      <div className="mx-auto max-w-4xl rounded-[22px] border border-[#d7d7dd] bg-white/92 p-1.5 shadow-[0_12px_30px_rgba(60,60,67,0.10)] transition-colors focus-within:border-[#007aff] sm:p-1.5">
         <input
           ref={fileInputRef}
           type="file"
@@ -515,7 +515,7 @@ export default function SessionComposer({
             {pendingLocalImages.map((image) => (
               <span
                 key={image.id}
-                className="group relative inline-flex h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-[#dfe6f4] bg-[#f6f8ff]"
+                className="group relative inline-flex h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-[#d7d7dd] bg-[#f2f2f7]"
                 title={image.name}
               >
                 {image.previewUrl ? (
@@ -547,7 +547,7 @@ export default function SessionComposer({
             {pendingFiles.map((file) => (
               <span
                 key={file.path}
-                className="inline-flex max-w-[240px] items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-[#f6f8ff] px-2 py-1 text-[11px] text-[#384152]"
+                className="inline-flex max-w-[240px] items-center gap-1.5 rounded-full border border-[#d7d7dd] bg-[#f2f2f7] px-2 py-1 text-[11px] text-[#3c3c43]"
                 title={file.path}
               >
                 <FileText size={13} className="shrink-0 text-[#6b7280]" />

@@ -190,13 +190,13 @@ function testSessionSettingsUsesGroupedFormPanel() {
     sessionPageSource,
     /rounded-full border px-4 text-left text-\[14px\] font-medium/
   );
-  assert.doesNotMatch(sessionPageSource, /linear-gradient\(135deg,#2f6bff,#7b5cff\)/);
+  assert.doesNotMatch(sessionPageSource, /bg-\[linear-gradient\(135deg/);
 }
 
 function testGivesSessionContentMoreHorizontalRoom() {
   const html = renderSessionPage();
 
-  assert.match(html, /overflow-y-auto bg-transparent px-3 py-2 sm:px-4 sm:py-5 md:px-5/);
+  assert.match(html, /overflow-y-auto bg-white\/92 px-3 py-2 sm:px-4 sm:py-5 md:px-5/);
   assert.match(html, /mx-auto max-w-5xl space-y-2 sm:space-y-5/);
 }
 
@@ -220,6 +220,15 @@ function testDesktopHeaderShowsCurrentModelLikeMobile() {
   assert.match(html, /lg:flex/);
   assert.match(html, /aria-label="Current model: Plus"/);
   assert.match(html, /title="Current model: Plus"/);
+}
+
+function testCurrentModelBadgeUsesModelSwitchIcon() {
+  const html = renderSessionPage();
+
+  assert.match(html, /data-ripple-current-model-badge="desktop"[\s\S]{0,1000}lucide-brain-circuit/);
+  assert.match(html, /data-ripple-current-model-badge="desktop"[\s\S]{0,1200}bg-\[#34c759\]/);
+  assert.match(html, /data-ripple-current-model-badge="mobile"[\s\S]{0,1000}lucide-brain-circuit/);
+  assert.match(html, /data-ripple-current-model-badge="mobile"[\s\S]{0,1200}bg-\[#34c759\]/);
 }
 
 function testSessionPageRendersChineseStaticChrome() {
@@ -415,6 +424,7 @@ testGivesSessionContentMoreHorizontalRoom();
 testSessionPageHandlesDropAcrossWholeChat();
 testMobileHeaderReservesTopSafeArea();
 testDesktopHeaderShowsCurrentModelLikeMobile();
+testCurrentModelBadgeUsesModelSwitchIcon();
 testSessionPageRendersChineseStaticChrome();
 testSessionPageShowsCurrentFolderBadge();
 testTimelineTextUsesWiderContentWidth();

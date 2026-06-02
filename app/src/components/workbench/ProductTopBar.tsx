@@ -95,7 +95,7 @@ export default function ProductTopBar({
   return (
     <header
       data-ripple-product-top-bar="true"
-      className="flex h-[52px] w-full items-center border-b border-[#e8edf7] bg-white/72 px-4 shadow-[0_8px_22px_rgba(44,63,123,0.04)] backdrop-blur-2xl"
+      className="flex h-[52px] w-full items-center border-b border-[#d7d7dd]/70 bg-white/76 px-4 shadow-[0_8px_22px_rgba(60,60,67,0.05)] backdrop-blur-2xl"
     >
       <div className="flex min-w-0 flex-1 items-center gap-2.5">
         <RippleIcon size={28} className="h-7 w-7 shrink-0 rounded-lg" />
@@ -103,7 +103,7 @@ export default function ProductTopBar({
       </div>
 
       <nav className="flex flex-1 justify-center" aria-label={t("nav.primary")}>
-        <div className="inline-flex items-center gap-1 rounded-2xl border border-[#dfe6f4] bg-white/64 p-1 shadow-[0_6px_18px_rgba(44,63,123,0.05)] backdrop-blur-xl">
+        <div className="inline-flex items-center gap-0.5 rounded-full border border-[#d7d7dd]/80 bg-white/68 p-0.5 shadow-[0_6px_18px_rgba(60,60,67,0.06)] backdrop-blur-xl">
           {mainNavItems.map((item) => {
             const Icon = item.icon;
             const selected = item.id === activeView;
@@ -113,10 +113,10 @@ export default function ProductTopBar({
                 type="button"
                 data-ripple-top-tab={item.id}
                 onClick={() => onSelectView(item.id)}
-                className={`inline-flex h-8 w-[112px] shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-2 text-[13px] font-semibold transition-all ${
+                className={`inline-flex h-8 w-[108px] shrink-0 items-center justify-center gap-1.5 rounded-full px-2 text-[13px] font-semibold whitespace-nowrap transition-all ${
                   selected
-                    ? "bg-[#eef4ff] text-[#0b57d0] shadow-[0_10px_24px_rgba(47,107,255,0.18)] ring-1 ring-[#2f6bff]/35"
-                    : "text-[#475467] hover:bg-white/78 hover:text-[#111827]"
+                    ? "bg-[#007aff] text-white shadow-[0_8px_18px_rgba(0,122,255,0.22)]"
+                    : "text-[#3c3c43] hover:bg-white/82 hover:text-[#111827]"
                 }`}
               >
                 <Icon size={14} strokeWidth={LUCIDE_NAV_STROKE_WIDTH} />
@@ -134,7 +134,7 @@ export default function ProductTopBar({
           onClick={onOpenSettings}
           aria-label={t("common.openPersonalSettingsFor", { name: displayName })}
           title={t("common.personalSettings")}
-          className="group inline-flex h-9 w-9 items-center justify-center rounded-2xl border border-[#dfe6f4] bg-white/80 text-[#384152] shadow-[0_8px_22px_rgba(44,63,123,0.07)] backdrop-blur-xl transition-all hover:bg-white hover:shadow-[0_10px_26px_rgba(44,63,123,0.10)] active:scale-[0.98]"
+          className="group inline-flex h-9 w-9 items-center justify-center rounded-full border border-[#d7d7dd] bg-white/82 text-[#3c3c43] shadow-[0_8px_22px_rgba(60,60,67,0.07)] backdrop-blur-xl transition-all hover:bg-white hover:shadow-[0_10px_26px_rgba(60,60,67,0.10)] active:scale-[0.98]"
         >
           <IconTile tone="neutral" size="sm" className="relative border-transparent bg-transparent">
             {avatarImageUrl ? (

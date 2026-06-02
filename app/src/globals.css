@@ -13,7 +13,7 @@ body {
 }
 
 :focus-visible {
-  outline: 2px solid #2463eb;
+  outline: 2px solid #007aff;
   outline-offset: 2px;
 }
 
@@ -151,7 +151,7 @@ body {
 }
 
 .markdown-body input[type="checkbox"] {
-  accent-color: #2463eb;
+  accent-color: #007aff;
   height: 1rem;
   margin-top: 0.3rem;
   width: 1rem;
@@ -262,7 +262,7 @@ body {
 }
 
 .markdown-body a {
-  color: #2463eb;
+  color: #007aff;
   font-weight: 600;
   text-decoration: underline;
   text-decoration-thickness: 1px;
@@ -346,7 +346,7 @@ body {
 }
 
 .workbench-markdown a {
-  color: #2463eb;
+  color: #007aff;
   font-weight: 600;
   text-decoration-thickness: 1px;
 }
@@ -406,7 +406,7 @@ body {
 }
 
 .connector-auth-link--primary {
-  --connector-auth-bg: linear-gradient(135deg, #2f6bff, #7b5cff);
+  --connector-auth-bg: #007aff;
   --connector-auth-border: rgba(47, 107, 255, 0.25);
   --connector-auth-fg: #ffffff;
   --connector-auth-hover-bg: linear-gradient(135deg, #3b76ff, #8768ff);
@@ -418,7 +418,7 @@ body {
 .connector-auth-link--info {
   --connector-auth-bg: #eef3ff;
   --connector-auth-border: rgba(47, 107, 255, 0.25);
-  --connector-auth-fg: #2f6bff;
+  --connector-auth-fg: #007aff;
   --connector-auth-hover-bg: #dbeafe;
   --connector-auth-hover-fg: #174ea6;
 }

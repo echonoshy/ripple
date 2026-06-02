@@ -142,7 +142,7 @@ function testComposerUsesCompactGlassRadiusScale() {
   const source = readFileSync(new URL("./SessionComposer.tsx", import.meta.url), "utf8");
 
   assert.doesNotMatch(source, /rounded-\[20px\]/);
-  assert.match(source, /rounded-2xl border border-\[#dfe6f4\] bg-white\/92/);
+  assert.match(source, /rounded-\[22px\] border border-\[#d7d7dd\] bg-white\/92/);
 }
 
 function testComposerExpandsActionsBelowTextAfterInput() {

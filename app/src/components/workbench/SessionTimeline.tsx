@@ -262,7 +262,14 @@ export default function SessionTimeline({
       ? String(lastMessage.id)
       : "";
   const waitingStatusMessage = React.useMemo(
-    () => (waitingStatusKey ? (locale === "zh-CN" ? t("timeline.waiting") : randomWaitingStatusMessage()) : locale === "zh-CN" ? t("timeline.waiting") : WAITING_STATUS_MESSAGES[0]),
+    () =>
+      waitingStatusKey
+        ? locale === "zh-CN"
+          ? t("timeline.waiting")
+          : randomWaitingStatusMessage()
+        : locale === "zh-CN"
+          ? t("timeline.waiting")
+          : WAITING_STATUS_MESSAGES[0],
     [locale, t, waitingStatusKey]
   );
 
@@ -362,7 +369,7 @@ export default function SessionTimeline({
                     aria-label={t("timeline.copyEventContent", { title: event.title })}
                     title={t("timeline.copyContent")}
                     onClick={() => void handleCopyEvent(event)}
-                    className="pointer-events-none opacity-0 inline-flex h-7 w-7 items-center justify-center rounded-lg border border-[#dfe6f4] bg-white/82 text-[#667085] shadow-[0_6px_14px_rgba(44,63,123,0.06)] transition-all hover:bg-[#f7f8fa] hover:text-[#2f6bff] focus:pointer-events-auto focus:opacity-100 group-hover/timeline-event:pointer-events-auto group-hover/timeline-event:opacity-100 group-focus-within/timeline-event:pointer-events-auto group-focus-within/timeline-event:opacity-100 active:bg-[#eef4ff]"
+                    className="pointer-events-none inline-flex h-7 w-7 items-center justify-center rounded-full border border-[#d7d7dd] bg-white/82 text-[#6e6e73] opacity-0 shadow-[0_6px_14px_rgba(60,60,67,0.06)] transition-all group-focus-within/timeline-event:pointer-events-auto group-focus-within/timeline-event:opacity-100 group-hover/timeline-event:pointer-events-auto group-hover/timeline-event:opacity-100 hover:bg-[#f2f2f7] hover:text-[#007aff] focus:pointer-events-auto focus:opacity-100 active:bg-[#eaf4ff]"
                   >
                     {isCopied ? <CheckCircle2 size={14} /> : <Copy size={14} />}
                   </button>
@@ -455,7 +462,7 @@ export default function SessionTimeline({
             <button
               type="button"
               onClick={() => onPermissionResolve("always")}
-              className="rounded-full border border-[#4067ff]/20 bg-[linear-gradient(135deg,#2f6bff,#7b5cff)] px-3 py-1.5 text-[13px] font-semibold text-white shadow-[0_10px_22px_rgba(64,92,255,0.22)]"
+              className="rounded-full border border-[#007aff]/20 bg-[#007aff] px-3 py-1.5 text-[13px] font-semibold text-white shadow-[0_10px_22px_rgba(0,122,255,0.22)] hover:bg-[#006ee6]"
             >
               {t("timeline.allowForSession")}
             </button>

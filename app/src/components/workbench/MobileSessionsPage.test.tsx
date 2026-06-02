@@ -62,10 +62,10 @@ function testRendersChatAppStyleSessionList() {
 function testUsesQuietAgentControlPlaneStyling() {
   const html = renderMobileSessionsPage();
 
-  assert.match(html, /bg-white\/70/);
+  assert.match(html, /bg-white\/78/);
   assert.match(html, /backdrop-blur-xl/);
-  assert.match(html, /shadow-\[0_8px_24px_rgba\(44,63,123,0\.06\)\]/);
-  assert.match(html, /rounded-lg/);
+  assert.match(html, /shadow-\[0_8px_24px_rgba\(60,60,67,0\.05\)\]/);
+  assert.match(html, /rounded-2xl/);
   assert.doesNotMatch(html, /bg-gradient/);
   assert.doesNotMatch(html, /linear-gradient/);
   assert.doesNotMatch(html, /radial-gradient/);
@@ -79,10 +79,7 @@ function testSessionRowsRemoveRepeatedChatIcon() {
 }
 
 function testSearchInputUsesCompactType() {
-  assert.match(
-    mobileSessionsPageSource,
-    /className="search-sessions-input[^"]*text-\[14px\]/
-  );
+  assert.match(mobileSessionsPageSource, /className="search-sessions-input[^"]*text-\[14px\]/);
   assert.doesNotMatch(
     mobileSessionsPageSource,
     /className="search-sessions-input[^"]*text-\[16px\]/
@@ -91,12 +88,14 @@ function testSearchInputUsesCompactType() {
 
 function testHeaderActionsUseSharedGlassTreatment() {
   const html = renderMobileSessionsPage();
+  const headerActionClass =
+    mobileSessionsPageSource.match(/const mobileHeaderActionClass =\s+"([^"]+)"/)?.[1] || "";
 
-  assert.match(html, /bg-white\/68/);
+  assert.match(html, /bg-white\/72/);
   assert.match(html, /backdrop-blur-xl/);
   assert.match(
     mobileSessionsPageSource,
-    /mobileHeaderActionClass =\s+"inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white\/70 bg-white\/68 text-\[#516070\]/
+    /mobileHeaderActionClass =\s+"inline-flex h-9 w-9 items-center justify-center rounded-full border border-white\/76 bg-white\/72 text-\[#3c3c43\]/
   );
   assert.match(
     mobileSessionsPageSource,
@@ -116,15 +115,8 @@ function testHeaderActionsUseSharedGlassTreatment() {
     mobileSessionsPageSource,
     /aria-label=\{t\("sessions.newSession"\)\}[\s\S]*?<MessageSquarePlus size=\{18\}/
   );
-  assert.doesNotMatch(
-    mobileSessionsPageSource,
-    /aria-label="New session"[\s\S]*?border-\[#b8cdf8\]\/80 bg-\[#eef4ff\]\/78 text-\[#2463eb\]/
-  );
-  assert.doesNotMatch(
-    mobileSessionsPageSource,
-    /aria-label="Search sessions"[\s\S]{0,420}border-\[#b8cdf8\]\/80 bg-\[#eef4ff\]\/78 text-\[#2463eb\]/
-  );
-  assert.doesNotMatch(html, /border-\[#2463eb\] bg-\[#2463eb\] text-white/);
+  assert.doesNotMatch(headerActionClass, /bg-\[#007aff\]/);
+  assert.doesNotMatch(html, /border-\[#007aff\] bg-\[#007aff\] text-white/);
 }
 
 function testSessionRowsDoNotClipOptionsMenu() {

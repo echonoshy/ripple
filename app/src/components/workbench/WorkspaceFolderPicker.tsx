@@ -138,9 +138,11 @@ export default function WorkspaceFolderPicker({
                 type="button"
                 onClick={() => void selectFolder(WORKSPACE_ROOT)}
                 disabled={Boolean(selectingPath)}
-                className="shrink-0 rounded-lg px-2 py-1 text-[11px] font-semibold text-[#516070] hover:bg-[#f3f4f6] hover:text-[#111827] disabled:cursor-not-allowed disabled:opacity-50"
+                className="shrink-0 rounded-lg px-2 py-1 text-[11px] font-semibold text-[#3c3c43] hover:bg-[#f3f4f6] hover:text-[#111827] disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {selectingPath === WORKSPACE_ROOT ? t("files.cancelling") : t("files.cancelSelection")}
+                {selectingPath === WORKSPACE_ROOT
+                  ? t("files.cancelling")
+                  : t("files.cancelSelection")}
               </button>
             </div>
           </div>
@@ -154,9 +156,7 @@ export default function WorkspaceFolderPicker({
         )}
         {error && <div className="px-3 py-3 text-[12px] text-[#cf222e]">{error}</div>}
         {!loading && !error && directories.length === 0 && (
-          <div className="px-3 py-4 text-[12px] text-[#667085]">
-            {t("files.noFoldersHere")}
-          </div>
+          <div className="px-3 py-4 text-[12px] text-[#667085]">{t("files.noFoldersHere")}</div>
         )}
         {!loading &&
           !error &&
@@ -184,7 +184,7 @@ export default function WorkspaceFolderPicker({
                   disabled={Boolean(selectingPath) || selected}
                   className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
                     selected
-                      ? "bg-[#eef4ff] text-[#2463eb]"
+                      ? "bg-[#eef4ff] text-[#007aff]"
                       : "text-[#667085] hover:bg-[#f3f4f6] hover:text-[#111827]"
                   } disabled:cursor-not-allowed disabled:opacity-60`}
                 >

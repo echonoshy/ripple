@@ -90,6 +90,12 @@ const SETTINGS_AVATAR_MENU_VERTICAL_PADDING = 8;
 const settingsAccountActionButtonClass =
   "inline-flex h-7 w-full min-w-0 items-center justify-center gap-1 rounded-full border border-[#dfe6f4] bg-white px-2 text-[10px] sm:text-[11px] font-semibold text-[#374151] transition-all hover:bg-[#f7f8fa] active:scale-[0.98] sm:w-auto sm:min-w-[68px] sm:gap-1.5 sm:px-2.5 [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0";
 
+const settingsSectionClass =
+  "overflow-hidden rounded-xl border border-[#d7d7dd]/80 bg-white/82 shadow-[0_10px_26px_rgba(60,60,67,0.06)] backdrop-blur-xl";
+
+const settingsGroupedRowClass =
+  "flex min-h-11 flex-wrap items-center justify-between gap-2 px-2.5 py-2";
+
 interface ModelMenuPosition {
   top: number;
   left: number;
@@ -567,7 +573,7 @@ export default function SettingsPage({
     >
       {modelMenuPortal}
       {avatarMenuPortal}
-      <div className="mx-auto max-w-5xl space-y-2">
+      <div className="mx-auto max-w-5xl space-y-2.5">
         <header className="flex items-start justify-between gap-2">
           <div className="flex min-w-0 items-center gap-1.5">
             <RippleIcon
@@ -582,20 +588,23 @@ export default function SettingsPage({
           {isLoading ? <Loader2 size={15} className="mt-1.5 animate-spin text-[#6b7280]" /> : null}
         </header>
 
-        <section className="rounded-xl border border-[#dfe6f4] bg-white/78 shadow-[0_8px_22px_rgba(44,63,123,0.05)] backdrop-blur-xl">
+        <SettingsSection sectionKind="account">
           <SectionHeader
             icon={<UserRound size={13} />}
             title={t("settings.account")}
-            tone="accent"
+            tone="neutral"
           />
           <div className="space-y-2 p-2.5">
-            <div className="flex flex-wrap items-center justify-between gap-2">
+            <div
+              data-ripple-settings-account-summary
+              className="flex flex-wrap items-center justify-between gap-2 pb-0.5"
+            >
               <div className="flex min-w-0 items-center gap-2.5">
                 <button
                   type="button"
                   onClick={() => avatarFileInputRef.current?.click()}
                   disabled={isAvatarUploading}
-                  className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-[#cfe4ff] bg-[#eef4ff] text-[15px] font-semibold text-[#007aff] shadow-[0_6px_14px_rgba(44,63,123,0.07)] transition-all hover:bg-[#e8f0ff] active:scale-[0.98]"
+                  className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[#d7d7dd] bg-white/86 text-[15px] font-semibold text-[#3c3c43] shadow-[0_8px_18px_rgba(60,60,67,0.08)] transition-all hover:bg-white active:scale-[0.98]"
                   aria-label={t("settings.uploadAvatarFor", { name: avatarName })}
                   title={t("settings.uploadAvatar")}
                 >
@@ -622,7 +631,7 @@ export default function SettingsPage({
                 <div className="min-w-0">
                   <div
                     aria-label={t("settings.displayName")}
-                    className="truncate text-[13px] font-semibold text-[#111827]"
+                    className="truncate text-[14px] font-semibold text-[#111827]"
                   >
                     {authMode === "user" ? profileDisplayName : t("settings.apiKeyAccess")}
                   </div>
@@ -808,15 +817,15 @@ export default function SettingsPage({
               </div>
             ) : null}
           </div>
-        </section>
+        </SettingsSection>
 
-        <section className="rounded-xl border border-[#dfe6f4] bg-white/78 shadow-[0_8px_22px_rgba(44,63,123,0.05)] backdrop-blur-xl">
+        <SettingsSection sectionKind="usage">
           <SectionHeader
             icon={<HardDrive size={13} />}
             title={t("settings.usageLimits")}
             tone="neutral"
           />
-          <div className="grid gap-2 p-2.5 md:grid-cols-2">
+          <div className="grid gap-1.5 p-2.5 md:grid-cols-2">
             <UsageMeter
               icon={<HardDrive size={13} />}
               iconTone="neutral"
@@ -842,7 +851,7 @@ export default function SettingsPage({
             />
           </div>
           <div className="border-t border-[#e8edf7] p-2">
-            <div className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold text-[#374151]">
+            <div className="mb-1 flex items-center gap-1.5 text-[12px] font-semibold text-[#374151]">
               <IconTile tone="neutral" size="xs">
                 <Cpu size={12} />
               </IconTile>
@@ -871,75 +880,78 @@ export default function SettingsPage({
               })}
             </div>
           </div>
-        </section>
+        </SettingsSection>
 
-        <section className="rounded-xl border border-[#dfe6f4] bg-white/78 shadow-[0_8px_22px_rgba(44,63,123,0.05)] backdrop-blur-xl">
+        <SettingsSection sectionKind="defaults">
           <SectionHeader
             icon={<SlidersHorizontal size={13} />}
             title={t("settings.defaults")}
             tone="neutral"
           />
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#e8edf7] p-2.5">
-            <div className="min-w-0">
-              <div className="text-[12px] font-semibold text-[#111827]">
-                {t("settings.defaultModel")}
-              </div>
-            </div>
-            <div>
-              <button
-                type="button"
-                onClick={handleModelMenuToggle}
-                className="inline-flex h-7 min-w-28 items-center justify-between gap-2 rounded-full border border-[#dfe6f4] bg-white px-2.5 text-[11px] font-semibold text-[#374151] transition-all outline-none hover:bg-[#f7f8fa] focus:border-[#8da0ff]"
-                aria-label={t("settings.defaultModel")}
-                aria-haspopup="menu"
-                aria-expanded={isModelMenuOpen}
-              >
-                {formatModelName(defaultModel)}
-                <ChevronDown size={13} className="text-[#6b7280]" />
-              </button>
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center justify-between gap-2 p-2.5">
-            <div className="flex min-w-0 items-center gap-2">
-              <IconTile tone="neutral" size="xs">
-                <Languages size={13} />
-              </IconTile>
+          <div data-ripple-settings-defaults-list className="divide-y divide-[#e8edf7]">
+            <div className={settingsGroupedRowClass}>
               <div className="min-w-0">
                 <div className="text-[12px] font-semibold text-[#111827]">
-                  {t("settings.language.title")}
-                </div>
-                <div className="mt-0.5 text-[11px] text-[#667085]">
-                  {t("settings.language.description")}
+                  {t("settings.defaultModel")}
                 </div>
               </div>
+              <div>
+                <button
+                  type="button"
+                  onClick={handleModelMenuToggle}
+                  className="inline-flex h-7 min-w-28 items-center justify-between gap-2 rounded-full border border-[#dfe6f4] bg-white px-2.5 text-[11px] font-semibold text-[#374151] transition-all outline-none hover:bg-[#f7f8fa] focus:border-[#8da0ff]"
+                  aria-label={t("settings.defaultModel")}
+                  aria-haspopup="menu"
+                  aria-expanded={isModelMenuOpen}
+                >
+                  {formatModelName(defaultModel)}
+                  <ChevronDown size={13} className="text-[#6b7280]" />
+                </button>
+              </div>
             </div>
-            <div className="inline-flex min-w-0 rounded-full border border-[#dfe6f4] bg-white p-0.5">
-              {languageOptions.map((option) => {
-                const selected = localePreference === option.value;
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    aria-pressed={selected}
-                    onClick={() => setLocalePreference(option.value)}
-                    className={`h-7 rounded-full px-2.5 text-[11px] font-semibold transition-all ${
-                      selected
-                        ? "bg-[#eef4ff] text-[#006ee6] shadow-[0_6px_14px_rgba(47,107,255,0.14)]"
-                        : "text-[#667085] hover:bg-[#f7f8fa] hover:text-[#374151]"
-                    }`}
-                  >
-                    {option.label}
-                  </button>
-                );
-              })}
+            <div className={settingsGroupedRowClass}>
+              <div className="flex min-w-0 items-center gap-2">
+                <IconTile tone="neutral" size="xs">
+                  <Languages size={13} />
+                </IconTile>
+                <div className="min-w-0">
+                  <div className="text-[12px] font-semibold text-[#111827]">
+                    {t("settings.language.title")}
+                  </div>
+                  <div className="mt-0.5 text-[11px] text-[#667085]">
+                    {t("settings.language.description")}
+                  </div>
+                </div>
+              </div>
+              <div className="inline-flex min-w-0 rounded-full border border-[#dfe6f4] bg-white p-0.5">
+                {languageOptions.map((option) => {
+                  const selected = localePreference === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      aria-pressed={selected}
+                      onClick={() => setLocalePreference(option.value)}
+                      className={`h-7 rounded-full px-2.5 text-[11px] font-semibold transition-all ${
+                        selected
+                          ? "bg-[#eef4ff] text-[#006ee6] shadow-[0_6px_14px_rgba(47,107,255,0.14)]"
+                          : "text-[#667085] hover:bg-[#f7f8fa] hover:text-[#374151]"
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
-        </section>
+        </SettingsSection>
 
-        <section
+        <SettingsSection
           ref={diagnosticsSectionRef}
+          sectionKind="diagnostics"
           data-ripple-settings-diagnostics-section
-          className="scroll-mb-[calc(128px+env(safe-area-inset-bottom))] rounded-xl border border-[#dfe6f4] bg-white/78 shadow-[0_8px_22px_rgba(44,63,123,0.05)] backdrop-blur-xl lg:scroll-mb-4"
+          className="scroll-mb-[calc(128px+env(safe-area-inset-bottom))] lg:scroll-mb-4"
         >
           <button
             type="button"
@@ -947,7 +959,7 @@ export default function SettingsPage({
             className="flex w-full items-center justify-between gap-2 px-2.5 py-2 text-left"
           >
             <span className="flex items-center gap-1.5 text-[12px] font-semibold text-[#111827]">
-              <IconTile tone="success" size="xs">
+              <IconTile tone="neutral" size="xs">
                 <ShieldCheck size={13} />
               </IconTile>
               {t("settings.aboutDiagnostics")}
@@ -988,11 +1000,31 @@ export default function SettingsPage({
               />
             </div>
           ) : null}
-        </section>
+        </SettingsSection>
       </div>
     </div>
   );
 }
+
+type SettingsSectionKind = "account" | "usage" | "defaults" | "diagnostics";
+
+interface SettingsSectionProps extends React.HTMLAttributes<HTMLElement> {
+  sectionKind: SettingsSectionKind;
+}
+
+const SettingsSection = React.forwardRef<HTMLElement, SettingsSectionProps>(
+  ({ sectionKind, className = "", children, ...sectionProps }, ref) => (
+    <section
+      {...sectionProps}
+      ref={ref}
+      data-ripple-settings-section={sectionKind}
+      className={className ? `${settingsSectionClass} ${className}` : settingsSectionClass}
+    >
+      {children}
+    </section>
+  )
+);
+SettingsSection.displayName = "SettingsSection";
 
 function SectionHeader({
   icon,
@@ -1004,7 +1036,7 @@ function SectionHeader({
   tone?: IconTileTone;
 }) {
   return (
-    <div className="flex h-8 items-center gap-1.5 border-b border-[#e8edf7] px-2.5 text-[11px] font-semibold text-[#111827]">
+    <div className="flex min-h-9 items-center gap-1.5 border-b border-[#e5e5ea]/80 bg-white/54 px-2.5 text-[12px] font-semibold text-[#111827]">
       <IconTile tone={tone} size="xs">
         {icon}
       </IconTile>
@@ -1030,7 +1062,10 @@ function UsageMeter({
 }) {
   const amount = percent(value, max);
   return (
-    <div>
+    <div
+      data-ripple-settings-usage-meter
+      className="rounded-lg bg-[#f8faff]/70 px-2 py-1.5"
+    >
       <div className="mb-1 flex items-center justify-between text-[11px] font-semibold text-[#6b7280]">
         <span className="flex items-center gap-1.5">
           <IconTile tone={iconTone} size="xs">

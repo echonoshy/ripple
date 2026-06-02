@@ -244,8 +244,28 @@ function testSettingsPageUsesSoftTilesForEntitySections() {
 
   assert.match(source, /IconTile/);
   assert.match(html, /data-ripple-icon-tile="true"/);
-  assert.match(html, /data-tone="accent"/);
   assert.match(html, /data-tone="neutral"/);
+  assert.doesNotMatch(html, /data-tone="success"/);
+  assert.match(
+    source,
+    /title=\{t\("settings\.account"\)\}\s+tone="neutral"/
+  );
+}
+
+function testSettingsPageUsesAppStoreGroupedHierarchy() {
+  const html = renderSettingsPage();
+  const source = readFileSync(new URL("./SettingsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /const settingsSectionClass =/);
+  assert.match(source, /border-\[#d7d7dd\]\/80 bg-white\/82/);
+  assert.match(source, /data-ripple-settings-section=\{sectionKind\}/);
+  assert.match(source, /data-ripple-settings-account-summary/);
+  assert.match(source, /data-ripple-settings-defaults-list/);
+  assert.match(source, /const settingsGroupedRowClass =/);
+  assert.match(html, /data-ripple-settings-section="account"/);
+  assert.match(html, /data-ripple-settings-section="usage"/);
+  assert.match(html, /data-ripple-settings-section="defaults"/);
+  assert.match(html, /data-ripple-settings-section="diagnostics"/);
 }
 
 function testDefaultModelControlUsesDefaultModelNotCurrentSessionModel() {
@@ -264,9 +284,9 @@ function testSettingsPageUsesCompactMobileDensity() {
   assert.match(source, /lg:pb-4/);
   assert.doesNotMatch(source, /md:pb-4/);
   assert.doesNotMatch(source, /20,184,166/);
-  assert.match(source, /className="mx-auto max-w-5xl space-y-2"/);
+  assert.match(source, /className="mx-auto max-w-5xl space-y-2\.5"/);
   assert.match(source, /RippleIcon\s*\n\s*size=\{24\}/);
-  assert.match(source, /className="flex h-8 items-center gap-1\.5 border-b/);
+  assert.match(source, /className="flex min-h-9 items-center gap-1\.5 border-b/);
   assert.match(source, /data-ripple-settings-account-actions/);
   assert.match(source, /data-ripple-settings-account-actions[\s\S]*grid[\s\S]*grid-cols-2/);
   assert.match(source, /data-ripple-settings-account-actions[\s\S]*sm:flex[\s\S]*sm:flex-wrap/);
@@ -275,14 +295,14 @@ function testSettingsPageUsesCompactMobileDensity() {
     source,
     /const settingsAccountActionButtonClass =[\s\S]*text-\[10px\] sm:text-\[11px\]/
   );
-  assert.match(source, /className="grid gap-2 p-2\.5 md:grid-cols-2"/);
+  assert.match(source, /className="grid gap-1\.5 p-2\.5 md:grid-cols-2"/);
   assert.match(source, /data-ripple-settings-token-grid/);
   assert.match(source, /data-ripple-settings-token-grid[\s\S]*grid-cols-3/);
   assert.match(source, /const baseClassName = compact[\s\S]*\? "px-1\.5 py-1"/);
   assert.match(source, /compact[\s\S]*\? "text-\[10px\] font-medium/);
   assert.match(source, /compact[\s\S]*\? "mt-0\.5 text-\[13px\] font-semibold/);
   assert.match(source, /className="border-t border-\[#e8edf7\] p-2"/);
-  assert.match(source, /mb-1 flex items-center gap-1\.5 text-\[11px\]/);
+  assert.match(source, /mb-1 flex items-center gap-1\.5 text-\[12px\]/);
   assert.doesNotMatch(source, /Used for new prompts and scheduled runs/);
 }
 
@@ -325,6 +345,7 @@ testSettingsPageCombinesRunCountersInOneRow();
 testSettingsPageSessionCountMeterUsesNeutralIcon();
 testSettingsPageDoesNotFetchConnectorData();
 testSettingsPageUsesSoftTilesForEntitySections();
+testSettingsPageUsesAppStoreGroupedHierarchy();
 testDefaultModelControlUsesDefaultModelNotCurrentSessionModel();
 testSettingsPageUsesCompactMobileDensity();
 testSettingsDiagnosticsExpansionScrollsAboveMobileTabBar();

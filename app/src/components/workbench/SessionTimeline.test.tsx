@@ -78,14 +78,16 @@ function testTimelineRendersChineseStaticCopy() {
   const html = renderTimelineWithEvents("zh-CN");
   const generatingHtml = renderGeneratingTimeline("zh-CN");
 
-  assert.match(html, />你说</);
-  assert.match(html, />Ripple 回复</);
+  assert.match(html, />提问</);
+  assert.match(html, />回复</);
   assert.match(html, />命令输出</);
   assert.match(html, />运行中</);
+  assert.doesNotMatch(html, />你说</);
+  assert.doesNotMatch(html, />Ripple 回复</);
   assert.doesNotMatch(html, />User request</);
   assert.doesNotMatch(html, />Update</);
   assert.doesNotMatch(html, />running</);
-  assert.match(html, /aria-label="复制Ripple 回复内容"/);
+  assert.match(html, /aria-label="复制回复内容"/);
   assert.match(html, /title="复制内容"/);
   assert.doesNotMatch(generatingHtml, />正在思考/);
 }
@@ -93,12 +95,21 @@ function testTimelineRendersChineseStaticCopy() {
 function testAssistantMessagesExposeCopyAction() {
   const html = renderTimelineWithEvents();
 
-  assert.match(html, />You</);
-  assert.match(html, />Ripple</);
+  assert.match(html, />Request</);
+  assert.match(html, />Reply</);
+  assert.doesNotMatch(html, />You</);
+  assert.doesNotMatch(html, />Ripple</);
   assert.doesNotMatch(html, />User request</);
   assert.doesNotMatch(html, />Update</);
-  assert.match(html, /aria-label="Copy Ripple content"/);
+  assert.match(html, /aria-label="Copy Reply content"/);
   assert.match(html, /title="Copy content"/);
+}
+
+function testUserAndAssistantIconsUseDifferentTones() {
+  const html = renderTimelineWithEvents("zh-CN");
+
+  assert.match(html, /data-tone="neutral"[\s\S]*>\s*提问/);
+  assert.match(html, /data-tone="accent"[\s\S]*>\s*回复/);
 }
 
 function testCopyActionIsHiddenUntilMessageInteraction() {
@@ -170,6 +181,7 @@ testTimelineImagePreviewsUseWorkspaceImageCache();
 testEmptyTimelineUsesShortReadyCopy();
 testTimelineRendersChineseStaticCopy();
 testAssistantMessagesExposeCopyAction();
+testUserAndAssistantIconsUseDifferentTones();
 testCopyActionIsHiddenUntilMessageInteraction();
 testToolEventsDoNotExposeCopyAction();
 testGeneratingPlaceholderUsesRandomWaitingCopy();

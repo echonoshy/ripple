@@ -135,9 +135,9 @@ const zhMessages = {
     allowForSession: "本会话允许",
     deny: "拒绝",
     eventTitles: {
-      userRequest: "你说",
-      assistantUpdate: "Ripple 回复",
-      response: "Ripple 完成",
+      userRequest: "提问",
+      assistantUpdate: "回复",
+      response: "结果",
       permissionRequired: "需要确认",
       workingWithTools: "工具操作中",
       toolActivityFailed: "工具操作失败",
@@ -611,8 +611,8 @@ const enMessages = {
     allowForSession: "Allow for session",
     deny: "Deny",
     eventTitles: {
-      userRequest: "You",
-      assistantUpdate: "Ripple",
+      userRequest: "Request",
+      assistantUpdate: "Reply",
       response: "Result",
       permissionRequired: "Needs confirmation",
       workingWithTools: "Working with tools",

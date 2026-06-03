@@ -211,7 +211,10 @@ function EventIcon({ type }: { type: WorkbenchTimelineEvent["type"] }) {
 }
 
 function eventIconTone(type: WorkbenchTimelineEvent["type"]): IconTileTone {
-  if (type === "user_message" || type === "assistant_message" || type === "runtime_update") {
+  if (type === "user_message") {
+    return "neutral";
+  }
+  if (type === "assistant_message" || type === "runtime_update") {
     return "accent";
   }
   if (type === "command" || type === "tool_call") {

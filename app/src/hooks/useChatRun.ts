@@ -314,6 +314,7 @@ export function useChatRun({
     connectorAuthPollIdRef.current += 1;
     connectorAuthPollAbortRef.current?.abort();
     connectorAuthPollAbortRef.current = null;
+    feishuAuthPopupUrlRef.current = null;
     if (connectorAuthPollTimerRef.current) {
       window.clearTimeout(connectorAuthPollTimerRef.current);
       connectorAuthPollTimerRef.current = null;
@@ -946,7 +947,7 @@ export function useChatRun({
               beginConnectorAuthPollRef.current?.(pendingConnectorAuthPayload, {
                 baseMessages,
                 allowWhileGenerating: true,
-                openAuthWindow: false,
+                openAuthWindow: true,
               });
               return;
             }

@@ -135,6 +135,17 @@ function testBilibiliAuthCardShowsQrAndManualOpenLink() {
   assert.doesNotMatch(html, /自动继续/);
 }
 
+function testRegularMarkdownLinksUseTauriAwareExternalOpener() {
+  const html = renderToStaticMarkup(
+    <MarkdownRenderer content={"Open [docs](https://example.com/docs)."} />
+  );
+  const source = readFileSync(new URL("./MarkdownRenderer.tsx", import.meta.url), "utf8");
+
+  assert.match(html, /href="https:\/\/example\.com\/docs"/);
+  assert.match(html, /data-ripple-external-link="true"/);
+  assert.match(source, /openExternalUrl\(resolvedHref, "ripple-markdown-link"\)/);
+}
+
 function testMarkdownTablesUseReadableTableClasses() {
   const html = renderToStaticMarkup(
     <MarkdownRenderer
@@ -184,6 +195,7 @@ testGoogleAuthCardDoesNotAskForManualCallback();
 testConnectorAuthLinksUseScopedButtonStyles();
 testConnectorAuthCardsUseSoftTileHeaders();
 testBilibiliAuthCardShowsQrAndManualOpenLink();
+testRegularMarkdownLinksUseTauriAwareExternalOpener();
 testMarkdownTablesUseReadableTableClasses();
 testCodeBlocksWrapLongLinesWithoutHorizontalScroll();
 testGlobalCodeBlockCssKeepsWrappingEnabled();

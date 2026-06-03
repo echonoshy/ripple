@@ -160,6 +160,28 @@ function testConnectorAuthPollStopsOnTerminalStages() {
   assert.equal(shouldContinueConnectorAuthPoll(null, "feishu", 0), false);
 }
 
+function testConnectorAuthRequiredAutoOpensBrowserWhenRunCompletes() {
+  const source = readFileSync(new URL("./useChatRun.ts", import.meta.url), "utf8");
+
+  assert.match(
+    source,
+    /pendingConnectorAuthPayload[\s\S]{0,500}beginConnectorAuthPollRef\.current\?\.\([\s\S]{0,260}openAuthWindow:\s*true/
+  );
+  assert.doesNotMatch(
+    source,
+    /pendingConnectorAuthPayload[\s\S]{0,500}beginConnectorAuthPollRef\.current\?\.\([\s\S]{0,260}openAuthWindow:\s*false/
+  );
+}
+
+function testConnectorAuthPopupUrlResetAllowsManualRetry() {
+  const source = readFileSync(new URL("./useChatRun.ts", import.meta.url), "utf8");
+
+  assert.match(
+    source,
+    /const clearConnectorAuthPoll = useCallback\(\(\) => \{[\s\S]{0,500}feishuAuthPopupUrlRef\.current = null;/
+  );
+}
+
 function testAttachmentUploadsKeepSuccessfulFilesWhenOneUploadFails() {
   const source = readFileSync(new URL("./useChatRun.ts", import.meta.url), "utf8");
 
@@ -245,6 +267,8 @@ testBilibiliAuthDoesNotStartAutomaticPollOrOpen();
 testAuthorizedConnectorEventDoesNotStartPoll();
 testConnectorAuthPollContinuesOnlyBeforeTimeout();
 testConnectorAuthPollStopsOnTerminalStages();
+testConnectorAuthRequiredAutoOpensBrowserWhenRunCompletes();
+testConnectorAuthPopupUrlResetAllowsManualRetry();
 testAttachmentUploadsKeepSuccessfulFilesWhenOneUploadFails();
 testSessionTitleRefreshUsesShortDelayedPolls();
 await testPendingLocalImagesUploadToWorkspaceRefsBeforeSend();

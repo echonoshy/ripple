@@ -107,6 +107,12 @@ function connectorAuthLinkClass(variant: ConnectorAuthLinkVariant, extra = ""): 
     .join(" ");
 }
 
+function isExternalHref(href: string | undefined): href is string {
+  if (!href) return false;
+  const trimmed = href.trim();
+  return /^(https?:|mailto:|tel:|sms:|bilibili:)/i.test(trimmed);
+}
+
 function parseThinkingBlocks(content: string): ContentSegment[] {
   const segments: ContentSegment[] = [];
   const regex = /<think>([\s\S]*?)<\/think>/g;
@@ -555,6 +561,8 @@ function MarkdownContent({
         },
         a({ href, children }) {
           const wsLink = parseWorkspaceLink(href);
+          const resolvedHref = resolveBackendUrl(href);
+          const opensExternally = !wsLink && isExternalHref(resolvedHref);
 
           const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
             if (wsLink) {
@@ -568,14 +576,20 @@ function MarkdownContent({
                   },
                 })
               );
+              return;
+            }
+            if (opensExternally) {
+              e.preventDefault();
+              void openExternalUrl(resolvedHref, "ripple-markdown-link");
             }
           };
 
           return (
             <a
-              href={wsLink ? undefined : resolveBackendUrl(href)}
+              href={wsLink ? undefined : resolvedHref}
               target={wsLink ? undefined : "_blank"}
               rel="noopener noreferrer"
+              data-ripple-external-link={opensExternally ? "true" : undefined}
               onClick={handleClick}
               className="cursor-pointer font-semibold break-words text-[#007aff] underline underline-offset-4 hover:text-[#174ea6]"
             >

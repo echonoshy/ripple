@@ -41,6 +41,9 @@ const androidGradle = readFileSync(
   new URL("../../src-tauri/gen/android/app/build.gradle.kts", import.meta.url),
   "utf8"
 );
+const mainCapability = JSON.parse(
+  readFileSync(new URL("../../src-tauri/capabilities/main.json", import.meta.url), "utf8")
+) as { permissions: string[] };
 
 function testPackageExposesIosTauriScripts() {
   assert.equal(packageJson.scripts["tauri:ios:init"], "tauri ios init");
@@ -84,6 +87,13 @@ function testTauriConfigKeepsTemporaryHttpIpApiAndAssetCsp() {
 }
 
 testTauriConfigKeepsTemporaryHttpIpApiAndAssetCsp();
+
+function testTauriOpenerCanOpenExternalAuthorizationUrls() {
+  assert.match(mainCapability.permissions.join(" "), /opener:allow-open-url/);
+  assert.match(mainCapability.permissions.join(" "), /opener:allow-default-urls/);
+}
+
+testTauriOpenerCanOpenExternalAuthorizationUrls();
 
 function testPackagePinsPdfJsForMobilePreview() {
   assert.equal(packageJson.dependencies["pdfjs-dist"], "4.8.69");

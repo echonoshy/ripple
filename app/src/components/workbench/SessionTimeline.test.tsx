@@ -15,6 +15,12 @@ function renderTimelineWithEvents(locale: LocalePreference = "en-US") {
         messages={[]}
         events={[
           {
+            id: "user-1",
+            type: "user_message",
+            title: "User request",
+            body: "Tell me a joke",
+          },
+          {
             id: "assistant-1",
             type: "assistant_message",
             title: "Update",
@@ -23,8 +29,9 @@ function renderTimelineWithEvents(locale: LocalePreference = "en-US") {
           {
             id: "command-1",
             type: "command",
-            title: "Command",
+            title: "Command output",
             body: "bun run build",
+            status: "running",
           },
         ]}
         isGenerating={false}
@@ -71,15 +78,26 @@ function testTimelineRendersChineseStaticCopy() {
   const html = renderTimelineWithEvents("zh-CN");
   const generatingHtml = renderGeneratingTimeline("zh-CN");
 
-  assert.match(html, /aria-label="复制 Update 内容"/);
+  assert.match(html, />你说</);
+  assert.match(html, />Ripple 回复</);
+  assert.match(html, />命令输出</);
+  assert.match(html, />运行中</);
+  assert.doesNotMatch(html, />User request</);
+  assert.doesNotMatch(html, />Update</);
+  assert.doesNotMatch(html, />running</);
+  assert.match(html, /aria-label="复制Ripple 回复内容"/);
   assert.match(html, /title="复制内容"/);
-  assert.match(generatingHtml, />正在思考/);
+  assert.doesNotMatch(generatingHtml, />正在思考/);
 }
 
 function testAssistantMessagesExposeCopyAction() {
   const html = renderTimelineWithEvents();
 
-  assert.match(html, /aria-label="Copy Update content"/);
+  assert.match(html, />You</);
+  assert.match(html, />Ripple</);
+  assert.doesNotMatch(html, />User request</);
+  assert.doesNotMatch(html, />Update</);
+  assert.match(html, /aria-label="Copy Ripple content"/);
   assert.match(html, /title="Copy content"/);
 }
 
@@ -94,7 +112,7 @@ function testCopyActionIsHiddenUntilMessageInteraction() {
 function testToolEventsDoNotExposeCopyAction() {
   const html = renderTimelineWithEvents();
 
-  assert.equal((html.match(/aria-label="Copy Command content"/g) || []).length, 0);
+  assert.equal((html.match(/aria-label="Copy Command output content"/g) || []).length, 0);
 }
 
 function testGeneratingPlaceholderUsesRandomWaitingCopy() {
@@ -110,6 +128,20 @@ function testGeneratingPlaceholderUsesRandomWaitingCopy() {
       new RegExp(WAITING_STATUS_MESSAGES[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
     );
     assert.doesNotMatch(html, /Starting work\.\.\./);
+  } finally {
+    Math.random = originalRandom;
+  }
+}
+
+function testChineseGeneratingPlaceholderUsesRandomWaitingCopy() {
+  const originalRandom = Math.random;
+  Math.random = () => 0;
+
+  try {
+    const html = renderGeneratingTimeline("zh-CN");
+
+    assert.match(html, />我看一下。/);
+    assert.doesNotMatch(html, /正在思考/);
   } finally {
     Math.random = originalRandom;
   }
@@ -141,6 +173,7 @@ testAssistantMessagesExposeCopyAction();
 testCopyActionIsHiddenUntilMessageInteraction();
 testToolEventsDoNotExposeCopyAction();
 testGeneratingPlaceholderUsesRandomWaitingCopy();
+testChineseGeneratingPlaceholderUsesRandomWaitingCopy();
 testWaitingCopyAvoidsConcreteOperationClaims();
 testTimelineUsesReadableMobileTypeScale();
 

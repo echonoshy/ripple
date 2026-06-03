@@ -18,7 +18,7 @@ import MarkdownRenderer, {
   type FeishuAuthWaitingState,
 } from "@/components/MarkdownRenderer";
 import { IconTile, type IconTileTone } from "@/components/icons/IconTile";
-import { useI18n } from "@/i18n";
+import { useI18n, type MessageKey } from "@/i18n";
 import { downloadWorkspaceFile } from "@/lib/api";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { getWorkspaceImagePreviewUrl } from "@/lib/workspaceImageCache";
@@ -98,9 +98,97 @@ export const WAITING_STATUS_MESSAGES = [
   "Let's untangle this...",
 ] as const;
 
-function randomWaitingStatusMessage(): string {
-  const index = Math.floor(Math.random() * WAITING_STATUS_MESSAGES.length);
-  return WAITING_STATUS_MESSAGES[index] || WAITING_STATUS_MESSAGES[0];
+export const ZH_WAITING_STATUS_MESSAGES = [
+  "我看一下。",
+  "等我理一理。",
+  "这个有点意思。",
+  "我先把思路捋顺。",
+  "稍等，我在处理。",
+  "我想一下。",
+  "让我琢磨一下。",
+  "好，我来看看。",
+  "等我把这事想清楚。",
+  "我先顺一下逻辑。",
+  "稍等片刻。",
+  "我来处理。",
+  "让我想想怎么做更合适。",
+  "好，我跟上了。",
+  "我先看一眼。",
+  "给我一点时间。",
+  "我在整理答案。",
+  "让我换个角度想想。",
+  "好，马上。",
+  "我来把它拆开看。",
+] as const;
+
+function randomWaitingStatusMessage(messages: readonly string[]): string {
+  const index = Math.floor(Math.random() * messages.length);
+  return messages[index] || messages[0] || "";
+}
+
+type Translator = ReturnType<typeof useI18n>["t"];
+
+const EVENT_TITLE_KEYS_BY_TITLE = {
+  "User request": "timeline.eventTitles.userRequest",
+  Update: "timeline.eventTitles.assistantUpdate",
+  Response: "timeline.eventTitles.response",
+  "Permission required": "timeline.eventTitles.permissionRequired",
+  "Working with tools": "timeline.eventTitles.workingWithTools",
+  "Tool activity failed": "timeline.eventTitles.toolActivityFailed",
+  "Tool activity": "timeline.eventTitles.toolActivity",
+  "Command output": "timeline.eventTitles.commandOutput",
+  "File output": "timeline.eventTitles.fileOutput",
+  "Folder context search": "timeline.eventTitles.folderContextSearch",
+  "File patch updated": "timeline.eventTitles.filePatchUpdated",
+  "System warning": "timeline.eventTitles.systemWarning",
+  "System error": "timeline.eventTitles.systemError",
+  "Context compacted": "timeline.eventTitles.contextCompacted",
+  "Workspace diff": "timeline.eventTitles.workspaceDiff",
+  "Generated image": "timeline.eventTitles.generatedImage",
+  Image: "timeline.eventTitles.image",
+  "Runtime update": "timeline.eventTitles.runtimeUpdate",
+} as const satisfies Record<string, MessageKey>;
+
+const EVENT_TITLE_KEYS_BY_TYPE = {
+  user_message: "timeline.eventTitles.userRequest",
+  assistant_message: "timeline.eventTitles.assistantUpdate",
+  final_summary: "timeline.eventTitles.response",
+  approval_request: "timeline.eventTitles.permissionRequired",
+  command: "timeline.eventTitles.commandOutput",
+  file_change: "timeline.eventTitles.workspaceDiff",
+  tool_call: "timeline.eventTitles.toolActivity",
+  warning: "timeline.eventTitles.systemWarning",
+  error: "timeline.eventTitles.systemError",
+  context_compaction: "timeline.eventTitles.contextCompacted",
+  runtime_update: "timeline.eventTitles.runtimeUpdate",
+  image_generation: "timeline.eventTitles.generatedImage",
+  image_view: "timeline.eventTitles.image",
+} as const satisfies Partial<Record<WorkbenchTimelineEvent["type"], MessageKey>>;
+
+const STATUS_KEYS_BY_VALUE = {
+  running: "timeline.status.running",
+  completed: "timeline.status.completed",
+  success: "timeline.status.success",
+  error: "timeline.status.error",
+  dangerous: "timeline.status.dangerous",
+  stdout: "timeline.status.stdout",
+  stderr: "timeline.status.stderr",
+  pending: "timeline.status.pending",
+  failed: "timeline.status.failed",
+  cancelled: "timeline.status.cancelled",
+  canceled: "timeline.status.cancelled",
+} as const satisfies Record<string, MessageKey>;
+
+function timelineEventTitle(event: WorkbenchTimelineEvent, t: Translator): string {
+  const titleKey =
+    EVENT_TITLE_KEYS_BY_TITLE[event.title as keyof typeof EVENT_TITLE_KEYS_BY_TITLE] ||
+    EVENT_TITLE_KEYS_BY_TYPE[event.type];
+  return titleKey ? t(titleKey) : event.title;
+}
+
+function timelineStatusLabel(status: string, t: Translator): string {
+  const statusKey = STATUS_KEYS_BY_VALUE[status.toLowerCase() as keyof typeof STATUS_KEYS_BY_VALUE];
+  return statusKey ? t(statusKey) : status;
 }
 
 function formatTime(value: string | undefined): string {
@@ -268,15 +356,11 @@ export default function SessionTimeline({
       ? String(lastMessage.id)
       : "";
   const waitingStatusMessage = React.useMemo(
-    () =>
-      waitingStatusKey
-        ? locale === "zh-CN"
-          ? t("timeline.waiting")
-          : randomWaitingStatusMessage()
-        : locale === "zh-CN"
-          ? t("timeline.waiting")
-          : WAITING_STATUS_MESSAGES[0],
-    [locale, t, waitingStatusKey]
+    () => {
+      const messages = locale === "zh-CN" ? ZH_WAITING_STATUS_MESSAGES : WAITING_STATUS_MESSAGES;
+      return waitingStatusKey ? randomWaitingStatusMessage(messages) : messages[0];
+    },
+    [locale, waitingStatusKey]
   );
 
   React.useEffect(() => {
@@ -337,6 +421,8 @@ export default function SessionTimeline({
           "runtime_update",
         ].includes(event.type);
         const eventTime = formatTime(event.createdAt);
+        const displayTitle = timelineEventTitle(event, t);
+        const displayStatus = event.status ? timelineStatusLabel(event.status, t) : "";
         const canCopyEvent =
           !isToolEvent &&
           event.type !== "image_generation" &&
@@ -359,20 +445,20 @@ export default function SessionTimeline({
             <div className="mb-1.5 flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className={`truncate ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#111827]`}>
-                  {event.title}
+                  {displayTitle}
                 </div>
               </div>
               <div className={`flex shrink-0 items-center gap-1.5 ${TYPOGRAPHY_MICRO_CLASS} text-[#7a8496]`}>
                 {event.status && (
                   <span className="rounded-full border border-[#dfe6f4] bg-white/80 px-1.5 py-0.5 font-[family-name:var(--font-mono)]">
-                    {event.status}
+                    {displayStatus}
                   </span>
                 )}
                 {eventTime && <span>{eventTime}</span>}
                 {canCopyEvent && (
                   <button
                     type="button"
-                    aria-label={t("timeline.copyEventContent", { title: event.title })}
+                    aria-label={t("timeline.copyEventContent", { title: displayTitle })}
                     title={t("timeline.copyContent")}
                     onClick={() => void handleCopyEvent(event)}
                     className="pointer-events-none inline-flex h-7 w-7 items-center justify-center rounded-full border border-[#d7d7dd] bg-white/82 text-[#6e6e73] opacity-0 shadow-[0_6px_14px_rgba(60,60,67,0.06)] transition-all group-focus-within/timeline-event:pointer-events-auto group-focus-within/timeline-event:opacity-100 group-hover/timeline-event:pointer-events-auto group-hover/timeline-event:opacity-100 hover:bg-[#f2f2f7] hover:text-[#007aff] focus:pointer-events-auto focus:opacity-100 active:bg-[#eaf4ff]"

@@ -10,6 +10,7 @@ import {
   COMPACT_IOS_PAGE_BACKGROUND,
   LUCIDE_NAV_STROKE_WIDTH,
   MOBILE_TAB_BAR_MASK_HEIGHT_CLASS,
+  TYPOGRAPHY_MICRO_MEDIUM_CLASS,
 } from "./stylePrimitives";
 
 interface MobileTabBarProps {
@@ -57,7 +58,7 @@ export default function MobileTabBar({ activeView, onSelectView }: MobileTabBarP
                 onClick={() => onSelectView(item.id)}
                 whileTap={reduceMotion ? undefined : pressableTap}
                 transition={transition}
-                className={`group flex min-w-0 flex-col items-center justify-center gap-0.5 text-[11px] leading-none font-semibold transition-colors ${
+                className={`group flex min-w-0 flex-col items-center justify-center gap-0.5 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} transition-colors ${
                   selected ? "text-[#007aff]" : "text-[#3c3c43]"
                 }`}
               >

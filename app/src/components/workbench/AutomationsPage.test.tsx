@@ -153,7 +153,8 @@ function testAutomationCardUsesCompactResponsiveLayout() {
   assert.match(source, /data-ripple-automation-meta-cell/);
   assert.doesNotMatch(source, /data-ripple-automation-meta-chip/);
   assert.doesNotMatch(source, /data-ripple-automation-meta-grid[\s\S]{0,120}flex flex-wrap/);
-  assert.match(source, /className="mt-0\.5 truncate text-\[12px\] text-\[#384152\]"/);
+  assert.match(source, /TYPOGRAPHY_META_CLASS/);
+  assert.match(source, /mt-0\.5 truncate text-\[#384152\]/);
   assert.match(
     source,
     /data-ripple-automation-latest-run[\s\S]*rounded-lg border border-\[#e8edf7\] bg-\[#f8fbff\]\/70 px-2 py-1\.5/
@@ -168,7 +169,7 @@ function testAutomationCardUsesCompactResponsiveLayout() {
   assert.doesNotMatch(source, /data-ripple-automation-actions[\s\S]{0,220}overflow-x-auto/);
   assert.doesNotMatch(source, /data-ripple-automation-actions[\s\S]{0,180}border-t/);
   assert.match(source, /const automationActionButtonClass =[\s\S]*w-full/);
-  assert.match(source, /const automationActionButtonClass =[\s\S]*text-\[12px\]/);
+  assert.match(source, /const automationActionButtonClass =[\s\S]*TYPOGRAPHY_META_MEDIUM_CLASS/);
   assert.match(source, /const runActionButtonClass =[\s\S]*h-8/);
 }
 

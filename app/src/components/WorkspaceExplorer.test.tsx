@@ -14,6 +14,8 @@ import WorkspaceExplorer, {
   shouldDismissWorkspaceContextMenuOnEntryClick,
 } from "./WorkspaceExplorer";
 
+const workspaceExplorerSource = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+
 function renderExplorer(
   overrides: Partial<React.ComponentProps<typeof WorkspaceExplorer>> = {},
   locale: LocalePreference = "en-US"
@@ -113,7 +115,8 @@ function testWorkspaceExplorerPageStacksHeaderControlsAwayFromTitle() {
   assert.match(html, /data-ripple-files-title-row="page"/);
   assert.match(html, /data-ripple-files-search-row="page"/);
   assert.match(html, /data-ripple-files-mobile-search-trigger/);
-  assert.match(html, /text-\[20px\] leading-7/);
+  assert.match(workspaceExplorerSource, /TYPOGRAPHY_PAGE_TITLE_CLASS/);
+  assert.match(html, /text-\[20px\] leading-\[30px\]/);
 
   const pageSearchRow = html.match(/<div[^>]*data-ripple-files-search-row="page"[^>]*>/)?.[0];
   assert.ok(pageSearchRow);
@@ -209,36 +212,147 @@ function testWorkspaceExplorerPageKeepsMobileUploadSeparateFromParentFolder() {
 
   assert.ok(parentButton);
   assert.ok(uploadButton);
+  assert.match(parentButton, /h-8/);
+  assert.match(parentButton, /w-8/);
+  assert.doesNotMatch(parentButton, /h-11/);
+  assert.doesNotMatch(parentButton, /w-11/);
   assert.match(parentButton, /border-\[#d7e3f8\]/);
   assert.match(parentButton, /bg-\[#eef4ff\]/);
   assert.match(parentButton, /text-\[#007aff\]/);
-  assert.match(uploadButton, /border-\[#d7d7dd\]/);
-  assert.match(uploadButton, /bg-white\/82/);
+  assert.match(workspaceExplorerSource, /<FolderUp size=\{14\}/);
+  assert.match(uploadButton, /h-11/);
+  assert.match(uploadButton, /w-11/);
+  assert.match(uploadButton, /border-white\/76/);
+  assert.match(uploadButton, /bg-white\/72/);
   assert.doesNotMatch(uploadButton, /bg-\[#007aff\]/);
 }
 
 testWorkspaceExplorerPageKeepsMobileUploadSeparateFromParentFolder();
 
+function testWorkspaceExplorerMobileToolbarMatchesHomeHeaderButtons() {
+  assert.match(workspaceExplorerSource, /const filesMobileToolbarButtonClass = `\$\{MOBILE_GLASS_ICON_BUTTON_CLASS\} shrink-0`/);
+  assert.match(workspaceExplorerSource, /LUCIDE_STANDARD_STROKE_WIDTH/);
+  assert.match(workspaceExplorerSource, /data-ripple-files-mobile-search-trigger[\s\S]*className=\{`\$\{filesMobileToolbarButtonClass\}/);
+  assert.match(workspaceExplorerSource, /data-ripple-files-action="toggle-selection"[\s\S]*className=\{`\$\{filesMobileToolbarButtonClass\}/);
+  assert.match(workspaceExplorerSource, /data-ripple-files-action="upload"[\s\S]*className=\{`\$\{filesMobileToolbarButtonClass\} lg:hidden`\}/);
+  assert.match(workspaceExplorerSource, /data-ripple-files-action="mobile-more"[\s\S]*className=\{`\$\{filesMobileToolbarButtonClass\} lg:hidden`\}/);
+  assert.match(workspaceExplorerSource, /<Search size=\{18\} strokeWidth=\{LUCIDE_STANDARD_STROKE_WIDTH\}/);
+  assert.match(workspaceExplorerSource, /<SquareCheck size=\{18\} strokeWidth=\{LUCIDE_STANDARD_STROKE_WIDTH\}/);
+  assert.match(workspaceExplorerSource, /<Upload size=\{18\} strokeWidth=\{LUCIDE_STANDARD_STROKE_WIDTH\}/);
+  assert.match(workspaceExplorerSource, /<MoreHorizontal size=\{18\} strokeWidth=\{LUCIDE_STANDARD_STROKE_WIDTH\}/);
+}
+
+testWorkspaceExplorerMobileToolbarMatchesHomeHeaderButtons();
+
 function testWorkspaceExplorerUsesSharedDenseToolbarButtons() {
   const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /MOBILE_GLASS_ICON_BUTTON_CLASS/);
-  assert.match(source, /lg:h-8 lg:w-8/);
-  assert.doesNotMatch(source, /const pageToolbarIconButtonClass =\s*\n\s*"inline-flex h-9 w-9/);
+  assert.match(source, /const filesToolbarIconButtonBaseClass =\s*\n\s*"inline-flex h-8 w-8/);
+  assert.match(source, /const filesToolbarIconButtonClass =\s*\n\s*`\$\{filesToolbarIconButtonBaseClass\}/);
+  assert.match(source, /const filesToolbarIconButtonActiveClass =\s*\n\s*`\$\{filesToolbarIconButtonBaseClass\}/);
+  assert.match(source, /rounded-full/);
+  assert.doesNotMatch(source, /const pageToolbarIconButtonClass/);
 }
 
 testWorkspaceExplorerUsesSharedDenseToolbarButtons();
 
+function testWorkspaceExplorerToolbarActionsShareCompactMotion() {
+  const searchFiltersIndex = workspaceExplorerSource.indexOf(
+    'data-ripple-files-action="search-filters"'
+  );
+  const toggleSelectionIndex = workspaceExplorerSource.indexOf(
+    'data-ripple-files-action="toggle-selection"',
+    searchFiltersIndex
+  );
+  const uploadIndex = workspaceExplorerSource.indexOf(
+    'data-ripple-files-action="upload"',
+    toggleSelectionIndex
+  );
+
+  assert.ok(searchFiltersIndex >= 0);
+  assert.ok(toggleSelectionIndex > searchFiltersIndex);
+  assert.ok(uploadIndex > toggleSelectionIndex);
+
+  const searchFiltersBlock = workspaceExplorerSource.slice(searchFiltersIndex, toggleSelectionIndex);
+  const toggleSelectionBlock = workspaceExplorerSource.slice(toggleSelectionIndex, uploadIndex);
+
+  assert.match(searchFiltersBlock, /className=\{isFilterOpen \? filesToolbarIconButtonActiveClass : filesToolbarIconButtonClass\}/);
+  assert.match(toggleSelectionBlock, /className=\{isSelectionActive \? filesToolbarIconButtonActiveClass : filesToolbarIconButtonClass\}/);
+  assert.doesNotMatch(searchFiltersBlock, /rounded-lg/);
+  assert.doesNotMatch(toggleSelectionBlock, /rounded-lg/);
+  assert.doesNotMatch(searchFiltersBlock, /MOBILE_GLASS_ICON_BUTTON_CLASS/);
+  assert.doesNotMatch(toggleSelectionBlock, /MOBILE_GLASS_ICON_BUTTON_CLASS/);
+  assert.match(workspaceExplorerSource, /data-ripple-files-action="upload"[\s\S]*className=\{filesToolbarIconButtonClass\}/);
+  assert.match(workspaceExplorerSource, /data-ripple-files-action="compact-more"[\s\S]*className=\{filesToolbarIconButtonClass\}/);
+  assert.match(workspaceExplorerSource, /data-ripple-files-action="refresh"[\s\S]*className=\{filesToolbarIconButtonClass\}/);
+  assert.match(workspaceExplorerSource, /aria-label=\{t\("files\.refreshWorkspace"\)\}[\s\S]*className=\{filesToolbarIconButtonClass\}/);
+  assert.doesNotMatch(workspaceExplorerSource, /pageToolbarPrimaryButtonClass/);
+  assert.doesNotMatch(workspaceExplorerSource, /data-ripple-files-action="refresh"[\s\S]{0,220}pageToolbarIconButtonClass/);
+}
+
+testWorkspaceExplorerToolbarActionsShareCompactMotion();
+
 function testWorkspaceExplorerDesktopDirectoryNavigationUsesSharedGlassButtons() {
   const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /const directoryNavigationButtonClass =\s*\n\s*"group inline-flex h-8/);
+  assert.match(source, /const directoryNavigationButtonClass =\s*\n\s*`group inline-flex h-8/);
+  assert.match(source, /const directoryNavigationButtonClass =[\s\S]*TYPOGRAPHY_MICRO_MEDIUM_CLASS/);
   assert.match(source, /const directoryNavigationIconClass =\s*\n\s*"flex h-5 w-5/);
   assert.match(source, /className=\{directoryNavigationButtonClass\}[\s\S]*?<ArrowUp size=\{12\}/);
-  assert.match(source, /className=\{directoryNavigationButtonClass\}[\s\S]*?<Folder size=\{12\}/);
+  assert.match(source, /className=\{directoryNavigationButtonClass\}[\s\S]*?<FolderRoot size=\{16\}/);
 }
 
 testWorkspaceExplorerDesktopDirectoryNavigationUsesSharedGlassButtons();
+
+function testWorkspaceExplorerRootFolderControlsUseFolderRootIcon() {
+  const pageHtml = renderExplorer({
+    presentation: "page",
+    testInitialListing: {
+      path: "/workspace/scripts",
+      parent_path: "/workspace",
+      entries: [],
+    },
+  });
+  const compactHtml = renderExplorer({
+    testInitialListing: {
+      path: "/workspace/scripts",
+      parent_path: "/workspace",
+      entries: [],
+    },
+  });
+  const rootPageHtml = renderExplorer({
+    presentation: "page",
+    testInitialListing: {
+      path: "/workspace",
+      parent_path: null,
+      entries: [],
+    },
+  });
+
+  const pageRootButton = pageHtml.match(
+    /<button[^>]*data-ripple-files-action="root-folder"[\s\S]*?<\/button>/
+  )?.[0];
+  const compactRootButton = compactHtml.match(
+    /<button[^>]*data-ripple-files-action="root-folder"[\s\S]*?<\/button>/
+  )?.[0];
+  const mobileRootPathRow = rootPageHtml.match(
+    /<div[^>]*data-ripple-files-mobile-path-row[\s\S]*?<\/div>/
+  )?.[0];
+  const desktopRootPathRow = rootPageHtml.match(
+    /<div[^>]*data-ripple-files-path-row="page"[\s\S]*?<\/div>/
+  )?.[0];
+
+  assert.ok(pageRootButton);
+  assert.ok(compactRootButton);
+  assert.ok(mobileRootPathRow);
+  assert.ok(desktopRootPathRow);
+  assert.match(pageRootButton, /lucide-folder-root/);
+  assert.match(compactRootButton, /lucide-folder-root/);
+  assert.match(mobileRootPathRow, /lucide-folder-root/);
+  assert.match(desktopRootPathRow, /lucide-folder-root/);
+}
+
+testWorkspaceExplorerRootFolderControlsUseFolderRootIcon();
 
 function testWorkspaceExplorerCompactDirectoryNavigationOffersParentAndRootControls() {
   const html = renderExplorer({
@@ -452,15 +566,12 @@ function testWorkspaceExplorerMobilePreviewChromeIsCompact() {
   assert.match(source, /data-ripple-workspace-preview-metadata/);
   assert.match(
     source,
-    /data-ripple-workspace-preview-title-path[\s\S]*className="[^"]*hidden[^"]*sm:block/
+    /data-ripple-workspace-preview-title-path[\s\S]*className=\{`hidden truncate[\s\S]*TYPOGRAPHY_META_CLASS/
   );
-  assert.match(
-    source,
-    /data-ripple-workspace-preview-metadata[\s\S]*"hidden flex-wrap items-center gap-2 [^"]* sm:flex"/
-  );
+  assert.match(source, /data-ripple-workspace-preview-metadata[\s\S]*TYPOGRAPHY_META_MEDIUM_CLASS/);
   assert.match(source, /min-h-\[40px\]/);
   assert.match(source, /sm:min-h-\[68px\]/);
-  assert.match(source, /text-\[14px\][^"]*sm:text-\[14px\]/);
+  assert.match(source, /TYPOGRAPHY_BODY_MEDIUM_CLASS/);
   assert.match(source, /size=\{isPagePresentation \? "sm" : "md"\}/);
   assert.match(html, /data-ripple-workspace-preview-title-path/);
   assert.doesNotMatch(html, /data-ripple-workspace-preview-action="download"/);

@@ -4,6 +4,7 @@ import React from "react";
 import { AlertTriangle, ArrowLeft, Code2, KeyRound, Mail, UserRound } from "lucide-react";
 import { IconTile } from "@/components/icons/IconTile";
 import RippleIcon from "@/components/icons/RippleIcon";
+import { TYPOGRAPHY_MICRO_MEDIUM_CLASS } from "@/components/workbench/stylePrimitives";
 import { useI18n } from "@/i18n";
 
 export type AuthGatewayMode = "login" | "invite" | "service";
@@ -182,7 +183,7 @@ export default function AuthGateway({
               aria-label={t("auth.brandPhrase")}
             >
               <span className="inline-block">Flow</span>
-              <span className="inline-block text-[0.68em] font-medium text-[#007aff] italic">
+              <span className={`inline-block text-[#007aff] italic ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}>
                 with
               </span>
               <span className="inline-block">Ripple</span>

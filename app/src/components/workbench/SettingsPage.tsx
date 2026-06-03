@@ -52,6 +52,12 @@ import {
   COMPACT_IOS_PAGE_BACKGROUND,
   MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS,
   MOBILE_PAGE_TOP_SAFE_AREA_CLASS,
+  TYPOGRAPHY_BODY_MEDIUM_CLASS,
+  TYPOGRAPHY_META_CLASS,
+  TYPOGRAPHY_META_MEDIUM_CLASS,
+  TYPOGRAPHY_MICRO_MEDIUM_CLASS,
+  TYPOGRAPHY_MOBILE_BODY_CLASS,
+  TYPOGRAPHY_PAGE_TITLE_CLASS,
 } from "./stylePrimitives";
 
 interface SettingsPageProps {
@@ -92,13 +98,21 @@ const SETTINGS_AVATAR_MENU_ITEM_HEIGHT = 32;
 const SETTINGS_AVATAR_MENU_VERTICAL_PADDING = 8;
 
 const settingsAccountActionButtonClass =
-  "inline-flex h-9 w-full min-w-0 items-center justify-center gap-1 rounded-xl border border-[#dfe6f4] bg-white px-1.5 text-[11px] font-semibold text-[#374151] transition-all hover:bg-[#f7f8fa] active:scale-[0.98] sm:w-auto sm:min-w-[60px] sm:gap-1 sm:px-2 lg:h-8 [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0";
+  `inline-flex h-9 w-full min-w-0 items-center justify-center gap-1 rounded-xl border border-[#dfe6f4] bg-white px-1.5 text-[#374151] transition-all hover:bg-[#f7f8fa] active:scale-[0.98] sm:w-auto sm:min-w-[60px] sm:gap-1 sm:px-2 lg:h-8 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0`;
 
 const settingsSectionClass =
   "overflow-hidden rounded-xl border border-[#d7d7dd]/80 bg-white/82 shadow-[0_10px_26px_rgba(60,60,67,0.06)] backdrop-blur-xl";
 
 const settingsGroupedRowClass =
   "flex min-h-10 flex-wrap items-center justify-between gap-2 px-2.5 py-1.5";
+
+const settingsFieldLabelClass = `min-w-0 text-[#667085] ${TYPOGRAPHY_META_MEDIUM_CLASS}`;
+
+const settingsFieldInputClass =
+  `mt-1 h-11 w-full rounded-lg border border-[#dfe6f4] bg-white px-2.5 text-[#111827] outline-none focus:border-[#8da0ff] ${TYPOGRAPHY_MOBILE_BODY_CLASS} lg:h-10 lg:text-[14px] lg:leading-[22px]`;
+
+const settingsFormButtonClass =
+  `inline-flex h-11 items-center gap-1.5 rounded-full px-3 lg:h-10 ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`;
 
 interface ModelMenuPosition {
   top: number;
@@ -514,7 +528,7 @@ export default function SettingsPage({
                       onSelectDefaultModel(model.id);
                       closeModelMenu();
                     }}
-                    className={`flex h-8 w-full items-center justify-between rounded-lg px-2.5 text-left text-[12px] font-semibold ${
+                    className={`flex h-8 w-full items-center justify-between rounded-lg px-2.5 text-left ${TYPOGRAPHY_META_MEDIUM_CLASS} ${
                       selected ? "bg-[#eef3ff] text-[#006ee6]" : "text-[#374151] hover:bg-[#f7f8fa]"
                     }`}
                   >
@@ -549,7 +563,7 @@ export default function SettingsPage({
                   closeAvatarMenu();
                   avatarFileInputRef.current?.click();
                 }}
-                className="flex h-8 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[12px] font-semibold text-[#374151] hover:bg-[#f7f8fa]"
+                className={`flex h-8 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[#374151] hover:bg-[#f7f8fa] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
               >
                 <Upload size={13} />
                 {t("settings.uploadAvatar")}
@@ -559,7 +573,7 @@ export default function SettingsPage({
                   type="button"
                   role="menuitem"
                   onClick={handleAvatarRemove}
-                  className="flex h-8 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[12px] font-semibold text-[#b42318] hover:bg-[#fff1f0]"
+                  className={`flex h-8 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[#b42318] hover:bg-[#fff1f0] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
                 >
                   <X size={13} />
                   {t("settings.removeAvatar")}
@@ -585,8 +599,10 @@ export default function SettingsPage({
               className="h-7 w-7 shrink-0 rounded-md shadow-[0_6px_14px_rgba(64,92,255,0.14)]"
             />
             <div className="min-w-0">
-              <h1 className="text-[20px] leading-7 font-semibold tracking-normal">Ripple</h1>
-              <div className="text-[12px] text-[#7a8496]">{t("settings.title")}</div>
+              <h1 className={TYPOGRAPHY_PAGE_TITLE_CLASS}>Ripple</h1>
+              <div className={`text-[#7a8496] ${TYPOGRAPHY_META_CLASS}`}>
+                {t("settings.title")}
+              </div>
             </div>
           </div>
           {isLoading ? <Loader2 size={15} className="mt-1.5 animate-spin text-[#6b7280]" /> : null}
@@ -608,7 +624,7 @@ export default function SettingsPage({
                   type="button"
                   onClick={() => avatarFileInputRef.current?.click()}
                   disabled={isAvatarUploading}
-                  className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[#d7d7dd] bg-white/86 text-[15px] font-semibold text-[#3c3c43] shadow-[0_8px_18px_rgba(60,60,67,0.08)] transition-all hover:bg-white active:scale-[0.98]"
+                  className={`flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[#d7d7dd] bg-white/86 text-[#3c3c43] shadow-[0_8px_18px_rgba(60,60,67,0.08)] transition-all hover:bg-white active:scale-[0.98] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
                   aria-label={t("settings.uploadAvatarFor", { name: avatarName })}
                   title={t("settings.uploadAvatar")}
                 >
@@ -635,11 +651,11 @@ export default function SettingsPage({
                 <div className="min-w-0">
                   <div
                     aria-label={t("settings.displayName")}
-                    className="truncate text-[15px] font-semibold text-[#111827]"
+                    className={`truncate text-[#111827] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
                   >
                     {authMode === "user" ? profileDisplayName : t("settings.apiKeyAccess")}
                   </div>
-                  <div className="mt-0.5 truncate text-[12px] text-[#667085]">
+                  <div className={`mt-0.5 truncate text-[#667085] ${TYPOGRAPHY_META_CLASS}`}>
                     {authMode === "user"
                       ? profileEmail || t("settings.signedIn")
                       : t("settings.developerMode")}
@@ -710,7 +726,7 @@ export default function SettingsPage({
               </div>
             </div>
             {avatarError ? (
-              <div className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-[12px] font-semibold text-red-700">
+              <div className={`rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-red-700 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
                 {avatarError}
               </div>
             ) : null}
@@ -720,19 +736,19 @@ export default function SettingsPage({
                 onSubmit={handleDisplayNameSubmit}
                 className="space-y-2 rounded-lg border border-[#e8edf7] bg-[#f8faff] p-2"
               >
-                <label className="min-w-0 text-[13px] font-semibold text-[#667085]">
+                <label className={settingsFieldLabelClass}>
                   {t("settings.displayName")}
                   <input
                     aria-label={t("settings.displayName")}
                     type="text"
                     value={displayNameInput}
                     onChange={(event) => setDisplayNameInput(event.target.value)}
-                    className="mt-1 h-11 w-full rounded-lg border border-[#dfe6f4] bg-white px-2.5 text-[16px] text-[#111827] outline-none focus:border-[#8da0ff] lg:h-10 lg:text-[12px]"
+                    className={settingsFieldInputClass}
                     maxLength={80}
                   />
                 </label>
                 {displayNameError ? (
-                  <div className="text-xs font-medium text-[#cf222e]">{displayNameError}</div>
+                  <div className={`text-[#cf222e] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>{displayNameError}</div>
                 ) : null}
                 <div className="flex flex-wrap items-center justify-end gap-2">
                   <button
@@ -742,7 +758,7 @@ export default function SettingsPage({
                       setDisplayNameInput(profile?.profile?.display_name ?? "");
                       setDisplayNameError(null);
                     }}
-                    className="inline-flex h-11 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-3 text-[12px] font-semibold text-[#374151] lg:h-10 lg:text-[11px]"
+                    className={`${settingsFormButtonClass} border border-[#dfe6f4] bg-white text-[#374151]`}
                   >
                     <X size={12} />
                     {t("settings.cancel")}
@@ -750,7 +766,7 @@ export default function SettingsPage({
                   <button
                     type="submit"
                     disabled={isSavingDisplayName}
-                    className="inline-flex h-11 items-center gap-1.5 rounded-full bg-[#007aff] px-3 text-[12px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-[#d0d7e2] lg:h-10 lg:text-[11px]"
+                    className={`${settingsFormButtonClass} bg-[#007aff] text-white disabled:cursor-not-allowed disabled:bg-[#d0d7e2]`}
                   >
                     {isSavingDisplayName ? <Loader2 size={12} className="animate-spin" /> : null}
                     {t("settings.saveName")}
@@ -759,7 +775,7 @@ export default function SettingsPage({
               </form>
             ) : null}
             {displayNameMessage ? (
-              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[12px] font-semibold text-emerald-700">
+              <div className={`rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-emerald-700 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
                 {displayNameMessage}
               </div>
             ) : null}
@@ -770,27 +786,27 @@ export default function SettingsPage({
                 className="space-y-2 rounded-lg border border-[#e8edf7] bg-[#f8faff] p-2"
               >
                 <div className="grid gap-2 sm:grid-cols-2">
-                  <label className="min-w-0 text-[13px] font-semibold text-[#667085]">
+                  <label className={settingsFieldLabelClass}>
                     {t("settings.currentPassword")}
                     <input
                       type="password"
                       value={currentPassword}
                       onChange={(event) => setCurrentPassword(event.target.value)}
-                      className="mt-1 h-11 w-full rounded-lg border border-[#dfe6f4] bg-white px-2.5 text-[16px] text-[#111827] outline-none focus:border-[#8da0ff] lg:h-10 lg:text-[12px]"
+                      className={settingsFieldInputClass}
                     />
                   </label>
-                  <label className="min-w-0 text-[13px] font-semibold text-[#667085]">
+                  <label className={settingsFieldLabelClass}>
                     {t("settings.newPassword")}
                     <input
                       type="password"
                       value={newPassword}
                       onChange={(event) => setNewPassword(event.target.value)}
-                      className="mt-1 h-11 w-full rounded-lg border border-[#dfe6f4] bg-white px-2.5 text-[16px] text-[#111827] outline-none focus:border-[#8da0ff] lg:h-10 lg:text-[12px]"
+                      className={settingsFieldInputClass}
                     />
                   </label>
                 </div>
                 {passwordError ? (
-                  <div className="text-xs font-medium text-[#cf222e]">{passwordError}</div>
+                  <div className={`text-[#cf222e] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>{passwordError}</div>
                 ) : null}
                 <div className="flex flex-wrap items-center justify-end gap-2">
                   <button
@@ -799,7 +815,7 @@ export default function SettingsPage({
                       setIsPasswordOpen(false);
                       setPasswordError(null);
                     }}
-                    className="inline-flex h-11 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-3 text-[12px] font-semibold text-[#374151] lg:h-10 lg:text-[11px]"
+                    className={`${settingsFormButtonClass} border border-[#dfe6f4] bg-white text-[#374151]`}
                   >
                     <X size={12} />
                     {t("settings.cancel")}
@@ -807,7 +823,7 @@ export default function SettingsPage({
                   <button
                     type="submit"
                     disabled={isChangingPassword}
-                    className="inline-flex h-11 items-center gap-1.5 rounded-full bg-[#007aff] px-3 text-[12px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-[#d0d7e2] lg:h-10 lg:text-[11px]"
+                    className={`${settingsFormButtonClass} bg-[#007aff] text-white disabled:cursor-not-allowed disabled:bg-[#d0d7e2]`}
                   >
                     {isChangingPassword ? <Loader2 size={12} className="animate-spin" /> : null}
                     {t("settings.savePassword")}
@@ -816,7 +832,7 @@ export default function SettingsPage({
               </form>
             ) : null}
             {passwordMessage ? (
-              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[12px] font-semibold text-emerald-700">
+              <div className={`rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-emerald-700 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
                 {passwordMessage}
               </div>
             ) : null}
@@ -855,7 +871,7 @@ export default function SettingsPage({
             />
           </div>
           <div className="border-t border-[#e8edf7] p-2">
-            <div className="mb-1 flex items-center gap-1.5 text-[13px] font-semibold text-[#374151]">
+            <div className={`mb-1 flex items-center gap-1.5 text-[#374151] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
               <IconTile tone="neutral" size="xs">
                 <Cpu size={12} />
               </IconTile>
@@ -895,7 +911,7 @@ export default function SettingsPage({
           <div data-ripple-settings-defaults-list className="divide-y divide-[#e8edf7]">
             <div className={settingsGroupedRowClass}>
               <div className="min-w-0">
-                <div className="text-[13px] font-semibold text-[#111827]">
+                <div className={`text-[#111827] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
                   {t("settings.defaultModel")}
                 </div>
               </div>
@@ -903,7 +919,7 @@ export default function SettingsPage({
                 <button
                   type="button"
                   onClick={handleModelMenuToggle}
-                  className="inline-flex h-11 min-w-28 items-center justify-between gap-2 rounded-full border border-[#dfe6f4] bg-white px-3 text-[12px] font-semibold text-[#374151] transition-all outline-none hover:bg-[#f7f8fa] focus:border-[#8da0ff] lg:h-10 lg:text-[11px]"
+                  className={`inline-flex h-11 min-w-28 items-center justify-between gap-2 rounded-full border border-[#dfe6f4] bg-white px-3 text-[#374151] transition-all outline-none hover:bg-[#f7f8fa] focus:border-[#8da0ff] lg:h-10 ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
                   aria-label={t("settings.defaultModel")}
                   aria-haspopup="menu"
                   aria-expanded={isModelMenuOpen}
@@ -922,10 +938,10 @@ export default function SettingsPage({
                   <Languages size={13} />
                 </IconTile>
                 <div className="min-w-0">
-                  <div className="text-[13px] font-semibold text-[#111827]">
+                  <div className={`text-[#111827] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
                     {t("settings.language.title")}
                   </div>
-                  <div className="mt-0.5 hidden text-[12px] text-[#667085] sm:block">
+                  <div className={`mt-0.5 hidden text-[#667085] sm:block ${TYPOGRAPHY_META_CLASS}`}>
                     {t("settings.language.description")}
                   </div>
                 </div>
@@ -942,7 +958,7 @@ export default function SettingsPage({
                       type="button"
                       aria-pressed={selected}
                       onClick={() => setLocalePreference(option.value)}
-                      className={`h-9 min-w-[76px] rounded-full px-2 text-[12px] font-semibold transition-all lg:h-8 lg:text-[11px] ${
+                      className={`h-9 min-w-[76px] rounded-full px-2 transition-all lg:h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS} ${
                         selected
                           ? "bg-[#eef4ff] text-[#006ee6] shadow-[0_6px_14px_rgba(47,107,255,0.14)]"
                           : "text-[#667085] hover:bg-[#f7f8fa] hover:text-[#374151]"
@@ -968,7 +984,7 @@ export default function SettingsPage({
             onClick={() => setDiagnosticsOpen((open) => !open)}
             className="flex w-full items-center justify-between gap-2 px-2.5 py-2 text-left"
           >
-            <span className="flex items-center gap-1.5 text-[13px] font-semibold text-[#111827]">
+            <span className={`flex items-center gap-1.5 text-[#111827] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
               <IconTile tone="neutral" size="xs">
                 <ShieldCheck size={13} />
               </IconTile>
@@ -1046,7 +1062,7 @@ function SectionHeader({
   tone?: IconTileTone;
 }) {
   return (
-    <div className="flex min-h-10 items-center gap-1.5 border-b border-[#e5e5ea]/80 bg-white/54 px-2.5 text-[13px] font-semibold text-[#111827]">
+    <div className={`flex min-h-10 items-center gap-1.5 border-b border-[#e5e5ea]/80 bg-white/54 px-2.5 text-[#111827] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
       <IconTile tone={tone} size="xs">
         {icon}
       </IconTile>
@@ -1073,7 +1089,7 @@ function UsageMeter({
   const amount = percent(value, max);
   return (
     <div data-ripple-settings-usage-meter className="rounded-lg bg-[#f8faff]/70 px-2 py-1.5">
-      <div className="mb-1 flex items-center justify-between text-[12px] font-semibold text-[#6b7280]">
+      <div className={`mb-1 flex items-center justify-between text-[#6b7280] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
         <span className="flex items-center gap-1.5">
           <IconTile tone={iconTone} size="xs">
             {icon}
@@ -1088,7 +1104,7 @@ function UsageMeter({
           style={{ width: `${amount}%` }}
         />
       </div>
-      <div className="mt-1 text-[12px] text-[#8b8f94]">{detail}</div>
+      <div className={`mt-1 text-[#8b8f94] ${TYPOGRAPHY_META_CLASS}`}>{detail}</div>
     </div>
   );
 }
@@ -1113,8 +1129,8 @@ function Metric({
       <div
         className={
           compact
-            ? "text-[12px] font-medium text-[#8b8f94]"
-            : "text-[12px] font-medium text-[#8b8f94]"
+            ? `text-[#8b8f94] ${TYPOGRAPHY_META_MEDIUM_CLASS}`
+            : `text-[#8b8f94] ${TYPOGRAPHY_META_MEDIUM_CLASS}`
         }
       >
         {label}
@@ -1122,8 +1138,8 @@ function Metric({
       <div
         className={
           compact
-            ? "mt-0.5 text-[13px] font-semibold text-[#253247]"
-            : "mt-0.5 text-[14px] font-semibold text-[#253247]"
+            ? `mt-0.5 text-[#253247] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`
+            : `mt-0.5 text-[#253247] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`
         }
       >
         {value}
@@ -1147,8 +1163,10 @@ function RunActivityMetrics({ runsToday, activeRuns }: { runsToday: number; acti
       <div className="grid grid-cols-2 divide-x divide-[#e8edf7]">
         {items.map((item) => (
           <div key={item.label} className="px-2 py-1.5">
-            <div className="text-[12px] font-medium text-[#8b8f94]">{item.label}</div>
-            <div className="mt-0.5 text-[14px] font-semibold text-[#253247]">{item.value}</div>
+            <div className={`text-[#8b8f94] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>{item.label}</div>
+            <div className={`mt-0.5 text-[#253247] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
+              {item.value}
+            </div>
           </div>
         ))}
       </div>
@@ -1171,8 +1189,10 @@ function DiagnosticRow({
         {icon}
       </IconTile>
       <span className="min-w-0 flex-1">
-        <span className="block text-[12px] font-semibold text-[#6b7280]">{label}</span>
-        <span className="block truncate font-mono text-[12px] text-[#253247]">{value}</span>
+        <span className={`block text-[#6b7280] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>{label}</span>
+        <span className={`block truncate font-mono text-[#253247] ${TYPOGRAPHY_META_CLASS}`}>
+          {value}
+        </span>
       </span>
     </div>
   );

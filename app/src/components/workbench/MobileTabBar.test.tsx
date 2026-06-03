@@ -110,7 +110,7 @@ function testUsesSharedNavigationIconStrokeWeight() {
 testUsesSharedNavigationIconStrokeWeight();
 
 function testMobileNavigationLabelsUseReadableType() {
-  assert.match(mobileTabBarSource, /text-\[11px\]/);
+  assert.match(mobileTabBarSource, /TYPOGRAPHY_MICRO_MEDIUM_CLASS/);
   assert.doesNotMatch(mobileTabBarSource, /text-\[9px\]/);
 }
 

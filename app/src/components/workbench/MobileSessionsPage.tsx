@@ -40,6 +40,12 @@ import {
   MOBILE_GLASS_ICON_BUTTON_CLASS,
   MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS,
   MOBILE_PAGE_TOP_SAFE_AREA_CLASS,
+  TYPOGRAPHY_BODY_MEDIUM_CLASS,
+  TYPOGRAPHY_META_CLASS,
+  TYPOGRAPHY_META_MEDIUM_CLASS,
+  TYPOGRAPHY_MICRO_CLASS,
+  TYPOGRAPHY_MOBILE_BODY_CLASS,
+  TYPOGRAPHY_PAGE_TITLE_CLASS,
 } from "./stylePrimitives";
 
 interface MobileSessionsPageProps {
@@ -223,7 +229,7 @@ export default function MobileSessionsPage({
                         });
                         setActiveMenu(null);
                       }}
-                      className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#3c3c43] transition-colors hover:bg-[#f2f2f7] active:bg-[#eaf4ff]"
+                      className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#3c3c43] transition-colors hover:bg-[#f2f2f7] active:bg-[#eaf4ff]`}
                     >
                       <Pin size={13} className="shrink-0 text-[#6b7280]" />
                       {activeMenuSession.pinned ? t("sessions.unpin") : t("sessions.pin")}
@@ -236,7 +242,7 @@ export default function MobileSessionsPage({
                         setEditingTitle(activeMenuSession.title);
                         setActiveMenu(null);
                       }}
-                      className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#3c3c43] transition-colors hover:bg-[#f2f2f7] active:bg-[#eaf4ff]"
+                      className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#3c3c43] transition-colors hover:bg-[#f2f2f7] active:bg-[#eaf4ff]`}
                     >
                       <Edit3 size={13} className="shrink-0 text-[#6b7280]" />
                       {t("sessions.rename")}
@@ -249,7 +255,7 @@ export default function MobileSessionsPage({
                         onDeleteSession(activeMenuSession.sessionId, e);
                         setActiveMenu(null);
                       }}
-                      className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-xs font-semibold text-[#cf222e] transition-colors hover:bg-[#ffebe9] active:bg-[#ffd5d6]"
+                      className={`flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#cf222e] transition-colors hover:bg-[#ffebe9] active:bg-[#ffd5d6]`}
                     >
                       <Trash2 size={13} className="shrink-0 text-[#cf222e]" />
                       {t("sessions.delete")}
@@ -269,7 +275,7 @@ export default function MobileSessionsPage({
             <RippleIcon size={28} className="h-7 w-7" />
             <span
               data-ripple-mobile-brand-wordmark="true"
-              className="inline-flex text-[19px] leading-none font-[650] tracking-normal text-[#111827] drop-shadow-[0_1px_0_rgba(255,255,255,0.78)]"
+              className={`inline-flex ${TYPOGRAPHY_PAGE_TITLE_CLASS} text-[#111827] drop-shadow-[0_1px_0_rgba(255,255,255,0.78)]`}
             >
               Ripple
             </span>
@@ -325,7 +331,7 @@ export default function MobileSessionsPage({
         className={`min-h-0 flex-1 overflow-y-auto px-3 pt-2.5 ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS}`}
       >
         {sessionLoadError && !isLoading ? (
-          <div className="mt-2 flex items-start gap-2 rounded-xl border border-[#cf222e]/25 bg-[#ffebe9] p-3 text-sm font-medium text-[#cf222e]">
+          <div className={`mt-2 flex items-start gap-2 rounded-xl border border-[#cf222e]/25 bg-[#ffebe9] p-3 ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#cf222e]`}>
             <IconTile tone="danger" size="sm" className="mt-0.5">
               <AlertTriangle size={14} />
             </IconTile>
@@ -346,17 +352,17 @@ export default function MobileSessionsPage({
             >
               <MessageCircle size={28} />
             </IconTile>
-            <div className="text-[17px] font-semibold">
+            <div className={`${TYPOGRAPHY_MOBILE_BODY_CLASS} font-medium`}>
               {normalizedQuery ? t("sessions.noMatching") : t("sessions.empty")}
             </div>
-            <p className="mt-2 text-[13px] leading-5 text-[#687386]">
+            <p className={`mt-2 ${TYPOGRAPHY_META_CLASS} text-[#687386]`}>
               {normalizedQuery ? t("sessions.tryAnotherKeyword") : t("sessions.emptyDescription")}
             </p>
             {!normalizedQuery ? (
               <button
                 type="button"
                 onClick={onNewSession}
-                className="mt-5 inline-flex h-10 items-center gap-2 rounded-full border border-[#cfe4ff] bg-[#eaf4ff]/86 px-4 text-[13px] font-semibold text-[#007aff] shadow-[0_8px_22px_rgba(0,122,255,0.12)] backdrop-blur-xl hover:bg-[#dff0ff]"
+                className={`mt-5 inline-flex h-10 items-center gap-2 rounded-full border border-[#cfe4ff] bg-[#eaf4ff]/86 px-4 ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#007aff] shadow-[0_8px_22px_rgba(0,122,255,0.12)] backdrop-blur-xl hover:bg-[#dff0ff]`}
               >
                 <MessageSquarePlus size={16} strokeWidth={2.1} />
                 {t("sessions.newSession")}
@@ -416,7 +422,7 @@ export default function MobileSessionsPage({
                             setEditingSessionId(null);
                           }
                         }}
-                        className="min-w-0 flex-1 bg-transparent py-0.5 text-[14px] font-medium text-[#0d0d0d] outline-none"
+                        className={`min-w-0 flex-1 bg-transparent py-0.5 ${TYPOGRAPHY_MOBILE_BODY_CLASS} font-medium text-[#0d0d0d] outline-none`}
                         autoFocus
                         maxLength={120}
                       />
@@ -492,7 +498,7 @@ export default function MobileSessionsPage({
                         >
                           <span className="min-w-0 flex-1">
                             <span className="flex min-w-0 items-center gap-2">
-                              <span className="truncate text-[15px] leading-5 font-medium text-[#111827]">
+                              <span className={`truncate ${TYPOGRAPHY_MOBILE_BODY_CLASS} font-medium text-[#111827]`}>
                                 {session.title}
                               </span>
                               {session.pinned ? (
@@ -500,12 +506,12 @@ export default function MobileSessionsPage({
                               ) : null}
                               <SessionAttentionDot attention={session.attention} reserveSpace />
                             </span>
-                            <span className="mt-0.5 block truncate text-[12px] leading-4 text-[#667085]">
+                            <span className={`mt-0.5 block truncate ${TYPOGRAPHY_META_CLASS} text-[#667085]`}>
                               {sessionPreview(session, t)}
                             </span>
                           </span>
                           {activityTime ? (
-                            <span className="shrink-0 self-start pt-0.5 font-[family-name:var(--font-mono)] text-[11px] text-[#8b95a5]">
+                            <span className={`shrink-0 self-start pt-0.5 font-[family-name:var(--font-mono)] ${TYPOGRAPHY_MICRO_CLASS} text-[#8b95a5]`}>
                               {activityTime}
                             </span>
                           ) : null}

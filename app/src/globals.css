@@ -1,15 +1,21 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: var(--font-display), var(--font-cjk), system-ui, sans-serif;
-  --font-mono: var(--font-mono-display), "Noto Sans SC", monospace;
-  --font-cjk: "Noto Sans SC", sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+    "PingFang SC", "Microsoft YaHei UI", "Noto Sans SC", "Segoe UI", "Helvetica Neue", Arial,
+    sans-serif;
+  --font-mono: "SF Mono", "Cascadia Mono", Menlo, Consolas, "Liberation Mono", "Noto Sans Mono",
+    monospace;
+  --font-cjk: "PingFang SC", "Microsoft YaHei UI", "Noto Sans SC", sans-serif;
 }
 
 body {
   background-color: #ffffff;
   color: #171a1f;
+  font-family: var(--font-sans);
   overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 :focus-visible {

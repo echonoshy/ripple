@@ -15,6 +15,12 @@ import { useI18n } from "@/i18n";
 import { formatSessionActivityTime } from "@/lib/workbench";
 import type { WorkbenchSessionSummary } from "@/types";
 import SessionAttentionDot from "./SessionAttentionDot";
+import {
+  TYPOGRAPHY_BODY_CLASS,
+  TYPOGRAPHY_BODY_MEDIUM_CLASS,
+  TYPOGRAPHY_META_MEDIUM_CLASS,
+  TYPOGRAPHY_MICRO_CLASS,
+} from "./stylePrimitives";
 
 interface WorkspaceNavProps {
   sessions: WorkbenchSessionSummary[];
@@ -72,10 +78,10 @@ export default function WorkspaceNav({
       <div className="border-b border-[#d7d7dd]/70 px-3.5 py-3">
         <div className="mb-3 flex items-center justify-between gap-2">
           <div className="min-w-0">
-            <h2 className="truncate text-[15px] leading-tight font-semibold text-[#111827]">
+            <h2 className={`truncate ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#111827]`}>
               {t("sessions.railTitle")}
             </h2>
-            <p className="mt-0.5 text-[12px] font-medium text-[#6e6e73]">
+            <p className={`mt-0.5 ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#6e6e73]`}>
               {t("sessions.railSubtitle")}
             </p>
           </div>
@@ -96,7 +102,7 @@ export default function WorkspaceNav({
         <button
           type="button"
           onClick={onNewSession}
-          className="grid h-8 w-full place-items-center rounded-full bg-[#007aff] px-3 text-center text-[12px] leading-none font-semibold text-white shadow-[0_10px_22px_rgba(0,122,255,0.22)] transition-all duration-200 hover:bg-[#006ee6] active:scale-[0.98]"
+          className={`grid h-8 w-full place-items-center rounded-full bg-[#007aff] px-3 text-center ${TYPOGRAPHY_META_MEDIUM_CLASS} text-white shadow-[0_10px_22px_rgba(0,122,255,0.22)] transition-all duration-200 hover:bg-[#006ee6] active:scale-[0.98]`}
         >
           <span
             data-ripple-session-new-button-label="true"
@@ -110,12 +116,12 @@ export default function WorkspaceNav({
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2.5 py-3">
         {sessionLoadError && !isLoading ? (
-          <div className="flex items-start gap-2 rounded-lg border border-[#cf222e]/25 bg-[#ffebe9] px-3 py-3 text-sm font-medium text-[#cf222e]">
+          <div className={`flex items-start gap-2 rounded-lg border border-[#cf222e]/25 bg-[#ffebe9] px-3 py-3 ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#cf222e]`}>
             <AlertTriangle size={14} className="mt-0.5 shrink-0" />
             <span className="min-w-0 break-words">{sessionLoadError}</span>
           </div>
         ) : sessions.length === 0 && !isLoading ? (
-          <div className="rounded-lg border border-dashed border-[#e5e7eb] bg-white px-3 py-5 text-center text-sm text-[#6b7280]">
+          <div className={`rounded-lg border border-dashed border-[#e5e7eb] bg-white px-3 py-5 text-center ${TYPOGRAPHY_BODY_CLASS} text-[#6b7280]`}>
             {t("sessions.empty")}
           </div>
         ) : (
@@ -165,7 +171,7 @@ export default function WorkspaceNav({
                           setEditingSessionId(null);
                         }
                       }}
-                      className="min-w-0 flex-1 bg-transparent py-0.5 text-[13px] font-medium text-[#111827] outline-none"
+                      className={`min-w-0 flex-1 bg-transparent py-0.5 ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#111827] outline-none`}
                       autoFocus
                       maxLength={120}
                     />
@@ -187,7 +193,7 @@ export default function WorkspaceNav({
                   <button
                     type="button"
                     onClick={() => onSelectSession(session.sessionId)}
-                    className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 py-0.5 text-left text-[13px] font-medium"
+                    className={`grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 py-0.5 text-left ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
                   >
                     <span className="inline-flex min-w-0 items-center gap-1.5">
                       {session.pinned ? (
@@ -197,7 +203,7 @@ export default function WorkspaceNav({
                     </span>
                     {activityTime && (
                       <span
-                        className={`font-[family-name:var(--font-mono)] text-[11px] font-normal ${
+                        className={`font-[family-name:var(--font-mono)] ${TYPOGRAPHY_MICRO_CLASS} ${
                           selected ? "text-[#007aff]/75" : "text-[#8e8e93]"
                         }`}
                       >
@@ -233,7 +239,7 @@ export default function WorkspaceNav({
                           void onUpdateSession(session.sessionId, { pinned: !session.pinned });
                           setActiveMenuSessionId(null);
                         }}
-                        className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#3c3c43] transition-all hover:bg-[#f2f2f7] active:bg-[#eaf4ff]"
+                        className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#3c3c43] transition-all hover:bg-[#f2f2f7] active:bg-[#eaf4ff]`}
                       >
                         <Pin size={13} className="shrink-0 text-[#6b7280]" />
                         {session.pinned ? t("sessions.unpin") : t("sessions.pin")}
@@ -246,7 +252,7 @@ export default function WorkspaceNav({
                           setEditingTitle(session.title);
                           setActiveMenuSessionId(null);
                         }}
-                        className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#3c3c43] transition-all hover:bg-[#f2f2f7] active:bg-[#eaf4ff]"
+                        className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#3c3c43] transition-all hover:bg-[#f2f2f7] active:bg-[#eaf4ff]`}
                       >
                         <Edit3 size={13} className="shrink-0 text-[#6b7280]" />
                         {t("sessions.rename")}
@@ -259,7 +265,7 @@ export default function WorkspaceNav({
                           onDeleteSession(session.sessionId, event);
                           setActiveMenuSessionId(null);
                         }}
-                        className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#cf222e] transition-colors hover:bg-[#ffebe9] active:bg-[#ffd5d6]"
+                        className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#cf222e] transition-colors hover:bg-[#ffebe9] active:bg-[#ffd5d6]`}
                       >
                         <Trash2 size={13} className="shrink-0 text-[#cf222e]" />
                         {t("sessions.delete")}

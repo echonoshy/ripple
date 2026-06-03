@@ -23,6 +23,12 @@ import { downloadWorkspaceFile } from "@/lib/api";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { getWorkspaceImagePreviewUrl } from "@/lib/workspaceImageCache";
 import type { Message, WorkbenchTimelineEvent } from "@/types";
+import {
+  TYPOGRAPHY_BODY_CLASS,
+  TYPOGRAPHY_BODY_MEDIUM_CLASS,
+  TYPOGRAPHY_META_CLASS,
+  TYPOGRAPHY_MICRO_CLASS,
+} from "./stylePrimitives";
 
 export const WAITING_STATUS_MESSAGES = [
   "On it...",
@@ -211,12 +217,12 @@ function TimelineImagePreview({
             className="block max-h-[460px] w-full object-contain"
           />
         ) : (
-          <div className="flex min-h-44 items-center justify-center bg-[#f7fafc] px-4 py-8 text-[12px] text-[#667085]">
+          <div className={`flex min-h-44 items-center justify-center bg-[#f7fafc] px-4 py-8 ${TYPOGRAPHY_META_CLASS} text-[#667085]`}>
             {loading ? t("timeline.loadingImage") : error}
           </div>
         )}
       </div>
-      <div className="mt-2 space-y-1 text-[12px] leading-5 text-[#5f6b7c] sm:text-xs">
+      <div className={`mt-2 space-y-1 ${TYPOGRAPHY_META_CLASS} text-[#5f6b7c]`}>
         {event.revisedPrompt && <div>{event.revisedPrompt}</div>}
         {event.workspacePath && (
           <div className="font-[family-name:var(--font-mono)] break-all text-[#6b7280]">
@@ -307,8 +313,8 @@ export default function SessionTimeline({
           >
             <span className="h-2 w-2 rounded-full bg-current" />
           </IconTile>
-          <div className="text-[13px] font-semibold text-[#111827]">{t("timeline.ready")}</div>
-          <div className="mt-1 max-w-xl text-[13px] leading-5 text-[#667085]">
+          <div className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#111827]`}>{t("timeline.ready")}</div>
+          <div className={`mt-1 max-w-xl ${TYPOGRAPHY_BODY_CLASS} text-[#667085]`}>
             {t("timeline.activityWillAppear")}
           </div>
         </div>
@@ -352,11 +358,11 @@ export default function SessionTimeline({
             </IconTile>
             <div className="mb-1.5 flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <div className="truncate text-[13px] leading-5 font-semibold text-[#111827] sm:text-sm">
+                <div className={`truncate ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#111827]`}>
                   {event.title}
                 </div>
               </div>
-              <div className="flex shrink-0 items-center gap-1.5 text-[11px] text-[#7a8496]">
+              <div className={`flex shrink-0 items-center gap-1.5 ${TYPOGRAPHY_MICRO_CLASS} text-[#7a8496]`}>
                 {event.status && (
                   <span className="rounded-full border border-[#dfe6f4] bg-white/80 px-1.5 py-0.5 font-[family-name:var(--font-mono)]">
                     {event.status}
@@ -377,7 +383,7 @@ export default function SessionTimeline({
               </div>
             </div>
             {isToolEvent ? (
-              <div className="mt-2 rounded-xl border border-[#e2e8f0] bg-[linear-gradient(135deg,rgba(248,250,252,0.7),rgba(241,245,249,0.7))] px-3 py-2.5 font-[family-name:var(--font-mono)] text-[12px] leading-5 text-[#334155] shadow-[0_10px_24px_rgba(44,63,123,0.04)] backdrop-blur-md sm:text-xs">
+              <div className={`mt-2 rounded-xl border border-[#e2e8f0] bg-[linear-gradient(135deg,rgba(248,250,252,0.7),rgba(241,245,249,0.7))] px-3 py-2.5 font-[family-name:var(--font-mono)] ${TYPOGRAPHY_META_CLASS} text-[#334155] shadow-[0_10px_24px_rgba(44,63,123,0.04)] backdrop-blur-md`}>
                 {event.body.split("\n").map((line, index) => (
                   <div key={`${event.id}-${index}`} className="truncate" title={line}>
                     {line}
@@ -387,7 +393,7 @@ export default function SessionTimeline({
             ) : event.type === "image_generation" || event.type === "image_view" ? (
               <TimelineImagePreview event={event} userId={userId} />
             ) : (
-              <div className="markdown-body workbench-markdown max-w-4xl text-[15px] leading-6 text-[#384152] lg:text-sm lg:leading-6">
+              <div className={`markdown-body workbench-markdown max-w-4xl ${TYPOGRAPHY_BODY_CLASS} text-[#384152]`}>
                 <MarkdownRenderer
                   content={event.body}
                   onFeishuAuthOpen={onFeishuAuthOpen}
@@ -408,7 +414,7 @@ export default function SessionTimeline({
           >
             <span className="h-2 w-2 animate-pulse rounded-full bg-current" />
           </IconTile>
-          <div className="flex items-center gap-2 text-[13px] text-[#667085]">
+          <div className={`flex items-center gap-2 ${TYPOGRAPHY_BODY_CLASS} text-[#667085]`}>
             <Bot size={13} />
             {feishuAuthWaiting
               ? t("timeline.feishuWaiting", {
@@ -422,7 +428,7 @@ export default function SessionTimeline({
 
       {pendingAskUser && (
         <div className="mt-3 rounded-xl border border-[#f2cc79]/55 bg-[#fff8df]/90 p-3 shadow-[0_10px_24px_rgba(196,122,0,0.08)]">
-          <div className="mb-2 text-[13px] font-semibold text-[#7d4e00]">
+          <div className={`mb-2 ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#7d4e00]`}>
             {pendingAskUser.question}
           </div>
           <div className="flex flex-wrap gap-2">
@@ -431,7 +437,7 @@ export default function SessionTimeline({
                 key={option}
                 type="button"
                 onClick={() => onQuickReply(option)}
-                className="rounded-full border border-[#e0e6f2] bg-white px-3 py-1.5 text-[13px] font-medium text-[#111827] hover:bg-[#f7f8fa]"
+                className={`rounded-full border border-[#e0e6f2] bg-white px-3 py-1.5 ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#111827] hover:bg-[#f7f8fa]`}
               >
                 {option}
               </button>
@@ -442,11 +448,11 @@ export default function SessionTimeline({
 
       {pendingPermission && (
         <div className="mt-3 rounded-xl border border-[#f2cc79]/55 bg-[#fff8df]/90 p-3 shadow-[0_10px_24px_rgba(196,122,0,0.08)]">
-          <div className="mb-2 flex items-center gap-2 text-[13px] font-semibold text-[#7d4e00]">
+          <div className={`mb-2 flex items-center gap-2 ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#7d4e00]`}>
             <ShieldAlert size={14} />
             {t("timeline.permissionRequired", { tool: pendingPermission.tool })}
           </div>
-          <pre className="mb-3 max-h-48 overflow-auto rounded-xl border border-[#e2e8f0] bg-[linear-gradient(135deg,rgba(248,250,252,0.7),rgba(241,245,249,0.7))] p-3 font-[family-name:var(--font-mono)] text-[12px] whitespace-pre-wrap text-[#334155] backdrop-blur-md">
+          <pre className={`mb-3 max-h-48 overflow-auto rounded-xl border border-[#e2e8f0] bg-[linear-gradient(135deg,rgba(248,250,252,0.7),rgba(241,245,249,0.7))] p-3 font-[family-name:var(--font-mono)] ${TYPOGRAPHY_META_CLASS} whitespace-pre-wrap text-[#334155] backdrop-blur-md`}>
             {typeof pendingPermission.params === "string"
               ? pendingPermission.params
               : JSON.stringify(pendingPermission.params, null, 2)}
@@ -455,21 +461,21 @@ export default function SessionTimeline({
             <button
               type="button"
               onClick={() => onPermissionResolve("allow")}
-              className="rounded-full border border-[#1a7f37]/25 bg-[#dafbe1] px-3 py-1.5 text-[13px] font-semibold text-[#1a7f37] hover:bg-[#c7f7d1]"
+              className={`rounded-full border border-[#1a7f37]/25 bg-[#dafbe1] px-3 py-1.5 ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#1a7f37] hover:bg-[#c7f7d1]`}
             >
               {t("timeline.allowOnce")}
             </button>
             <button
               type="button"
               onClick={() => onPermissionResolve("always")}
-              className="rounded-full border border-[#007aff]/20 bg-[#007aff] px-3 py-1.5 text-[13px] font-semibold text-white shadow-[0_10px_22px_rgba(0,122,255,0.22)] hover:bg-[#006ee6]"
+              className={`rounded-full border border-[#007aff]/20 bg-[#007aff] px-3 py-1.5 ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-white shadow-[0_10px_22px_rgba(0,122,255,0.22)] hover:bg-[#006ee6]`}
             >
               {t("timeline.allowForSession")}
             </button>
             <button
               type="button"
               onClick={() => onPermissionResolve("deny")}
-              className="rounded-full border border-[#cf222e]/25 bg-[#ffebe9] px-3 py-1.5 text-[13px] font-semibold text-[#cf222e] hover:bg-[#ffd7d5]"
+              className={`rounded-full border border-[#cf222e]/25 bg-[#ffebe9] px-3 py-1.5 ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#cf222e] hover:bg-[#ffd7d5]`}
             >
               {t("timeline.deny")}
             </button>

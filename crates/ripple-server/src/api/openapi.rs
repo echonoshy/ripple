@@ -1,5 +1,4 @@
-use axum::routing::get;
-use axum::{Json, Router};
+use axum::Router;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::openapi::security::{ApiKey, ApiKeyValue, HttpAuthScheme, HttpBuilder, SecurityScheme};
@@ -43,19 +42,14 @@ pub fn docs_router<S>(openapi: OpenApi, try_it_out_enabled: bool) -> Router<S>
 where
     S: Clone + Send + Sync + 'static,
 {
-    let openapi_json = openapi.clone();
-    let docs_ui = Router::<S>::from(
-        SwaggerUi::new("/").config(
-            Config::new([Url::new("Ripple Server API", "/openapi.json")])
-                .try_it_out_enabled(try_it_out_enabled),
-        ),
-    );
-    Router::new()
-        .route(
-            "/openapi.json",
-            get(move || async move { Json(openapi_json.clone()) }),
-        )
-        .nest("/docs", docs_ui)
+    Router::from(
+        SwaggerUi::new("/docs")
+            .url(Url::new("Ripple Server API", "/openapi.json"), openapi)
+            .config(
+                Config::new([Url::new("Ripple Server API", "/openapi.json")])
+                    .try_it_out_enabled(try_it_out_enabled),
+            ),
+    )
 }
 
 struct SecurityAddon;

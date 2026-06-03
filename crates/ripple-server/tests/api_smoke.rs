@@ -6,7 +6,7 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 use axum::body::{to_bytes, Body};
-use axum::http::{Method, Request, StatusCode};
+use axum::http::{header, Method, Request, StatusCode};
 use ripple_server::api::{auth::AuthClaimRequest, router, schedules::trigger_due_schedules};
 use ripple_server::config::{
     ApiDocsConfig, AppConfig, CodexConfig, CorsConfig, DocumentPreviewConfig, FeishuConfig,
@@ -944,9 +944,34 @@ async fn openapi_docs_are_public_and_keep_v1_auth_unchanged() {
         .oneshot(request(Method::GET, "/docs", Value::Null, false))
         .await
         .unwrap();
+    assert_eq!(docs.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        docs.headers()
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some("/docs/")
+    );
+
+    let docs = app
+        .clone()
+        .oneshot(request(Method::GET, "/docs/", Value::Null, false))
+        .await
+        .unwrap();
     assert_eq!(docs.status(), StatusCode::OK);
     let docs_html = response_text(docs).await;
     assert!(docs_html.contains("Swagger UI"));
+
+    let bundle = app
+        .clone()
+        .oneshot(request(
+            Method::GET,
+            "/docs/swagger-ui-bundle.js",
+            Value::Null,
+            false,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(bundle.status(), StatusCode::OK);
 
     let initializer = app
         .clone()

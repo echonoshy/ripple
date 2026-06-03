@@ -441,11 +441,11 @@ export default function SessionTimeline({
             <IconTile
               tone={eventIconTone(event.type)}
               size="xs"
-              className="absolute top-2.5 -left-8 rounded-full shadow-[0_8px_18px_rgba(44,63,123,0.10)]"
+              className="absolute top-2.5 sm:top-4 -left-8 rounded-full shadow-[0_8px_18px_rgba(44,63,123,0.10)]"
             >
               <EventIcon type={event.type} />
             </IconTile>
-            <div className="mb-1.5 flex items-start justify-between gap-3">
+            <div className="mb-1.5 flex min-h-6 items-center justify-between gap-3">
               <div className="min-w-0">
                 <div className={`truncate ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#111827]`}>
                   {displayTitle}

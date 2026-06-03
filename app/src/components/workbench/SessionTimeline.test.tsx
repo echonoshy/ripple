@@ -112,6 +112,14 @@ function testUserAndAssistantIconsUseDifferentTones() {
   assert.match(html, /data-tone="accent"[\s\S]*>\s*回复/);
 }
 
+function testTimelineEventHeadersAlignIconAndTextRows() {
+  const source = readFileSync(new URL("./SessionTimeline.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /className="group\/timeline-event[\s\S]*sm:py-4"/);
+  assert.match(source, /className="absolute top-2\.5 sm:top-4 -left-8/);
+  assert.match(source, /className="mb-1\.5 flex min-h-6 items-center justify-between gap-3"/);
+}
+
 function testCopyActionIsHiddenUntilMessageInteraction() {
   const source = readFileSync(new URL("./SessionTimeline.tsx", import.meta.url), "utf8");
 
@@ -182,6 +190,7 @@ testEmptyTimelineUsesShortReadyCopy();
 testTimelineRendersChineseStaticCopy();
 testAssistantMessagesExposeCopyAction();
 testUserAndAssistantIconsUseDifferentTones();
+testTimelineEventHeadersAlignIconAndTextRows();
 testCopyActionIsHiddenUntilMessageInteraction();
 testToolEventsDoNotExposeCopyAction();
 testGeneratingPlaceholderUsesRandomWaitingCopy();

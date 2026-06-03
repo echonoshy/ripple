@@ -7,7 +7,7 @@ import rippleIconAsset from "./src/components/icons/rippleIconAsset.json";
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 const tauriDevHost = process.env.TAURI_DEV_HOST;
-const rippleIconPath = path.resolve(dirname, "../assets/ripple-icon.svg");
+const rippleIconPath = path.resolve(dirname, "../assets/ripple-launcher-icon.svg");
 const rippleIconOutputPath = rippleIconAsset.path.replace(/^\//, "");
 const rippleIconSrc = `${rippleIconAsset.path}?v=${rippleIconAsset.version}`;
 

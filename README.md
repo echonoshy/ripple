@@ -1,5 +1,5 @@
 <div align="center">
-<img src="assets/ripple-icon.svg" alt="Ripple Logo" width="100" />
+<img src="assets/ripple-launcher-icon.svg" alt="Ripple Logo" width="100" />
 
 # Flow with Ripple
 

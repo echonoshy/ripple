@@ -23,7 +23,7 @@ pub struct JobManager {
     jobs: Arc<RwLock<HashMap<String, Arc<RwLock<ExternalAgentJob>>>>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AgentRunCreateRequest {
     pub prompt: String,
     #[serde(default = "default_provider")]
@@ -58,7 +58,7 @@ pub struct AgentRunCreateRequest {
     pub chat_user_content: Option<Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AgentRunInfo {
     pub job_id: String,
     pub provider: String,

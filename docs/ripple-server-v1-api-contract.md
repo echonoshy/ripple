@@ -18,6 +18,14 @@
 
 管理员通过 CLI 管理邀请码和用户：`ripple-server auth create-invite`、`list-users`、`disable-user`、`revoke-sessions`。
 
+## Generated API Docs
+
+- `GET /openapi.json` 返回由 Rust handler annotation 和 schema derive 生成的 OpenAPI spec。
+- `GET /docs` 提供 Swagger UI，默认读取 `/openapi.json`。
+- `server.api_docs.enabled` 可关闭文档入口；`server.api_docs.try_it_out_enabled` 控制 Swagger UI 是否默认展开 Try it out。
+- 文档入口不包含 API key，受保护 `/v1` API 的鉴权行为不变。
+- 当前优先自动覆盖 health、models/info、chat、runs 和 connector 管理接口。仍返回 `Json<Value>` 的响应会先以宽松 JSON schema 表达，后续类型化 response struct 后 schema 会进一步自动同步。
+
 ## Errors
 
 新错误响应保留旧 `detail` 字段，并新增结构化 `error`：

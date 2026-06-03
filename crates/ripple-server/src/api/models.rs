@@ -5,6 +5,19 @@ use serde_json::{json, Value};
 use crate::skills::build_skill_manifest;
 use crate::state::AppState;
 
+#[utoipa::path(
+    get,
+    path = "/models",
+    tag = "models",
+    responses(
+        (status = 200, description = "Available model presets", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn list_models(State(state): State<AppState>) -> Json<Value> {
     let data = state
         .config
@@ -22,6 +35,19 @@ pub async fn list_models(State(state): State<AppState>) -> Json<Value> {
     Json(json!({ "object": "list", "data": data }))
 }
 
+#[utoipa::path(
+    get,
+    path = "/info",
+    tag = "models",
+    responses(
+        (status = 200, description = "System metadata and skill manifest", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn system_info(State(state): State<AppState>) -> Json<Value> {
     let presets = state
         .config

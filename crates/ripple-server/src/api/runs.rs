@@ -23,6 +23,20 @@ use crate::user::user_id_from_headers;
 
 const TERMINAL_STATUSES: &[&str] = &["completed", "failed", "cancelled"];
 
+#[utoipa::path(
+    get,
+    path = "/runs",
+    tag = "runs",
+    params(crate::api::ListQuery),
+    responses(
+        (status = 200, description = "Paginated run list", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn list_runs(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -44,6 +58,21 @@ pub async fn list_runs(
     })))
 }
 
+#[utoipa::path(
+    post,
+    path = "/runs",
+    tag = "runs",
+    request_body = AgentRunCreateRequest,
+    responses(
+        (status = 200, description = "Created run", body = serde_json::Value),
+        (status = 400, description = "Invalid run request", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn create_run(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -62,6 +91,21 @@ pub async fn create_run(
     Ok(Json(public_run_value(&state, &user_id, &info)))
 }
 
+#[utoipa::path(
+    get,
+    path = "/runs/{job_id}",
+    tag = "runs",
+    params(("job_id" = String, Path, description = "Run id")),
+    responses(
+        (status = 200, description = "Run detail", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Run not found", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn get_run(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -74,13 +118,32 @@ pub async fn get_run(
     Ok(Json(public_run_value(&state, &user_id, &info)))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct RunEventsQuery {
     from_start: Option<bool>,
     follow: Option<bool>,
     heartbeat_seconds: Option<u64>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/runs/{job_id}/events",
+    tag = "runs",
+    params(
+        ("job_id" = String, Path, description = "Run id"),
+        RunEventsQuery
+    ),
+    responses(
+        (status = 200, description = "Server-sent run event stream", content_type = "text/event-stream", body = crate::api::openapi::SseEvent),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Run events not found", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn run_events(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -149,6 +212,21 @@ pub async fn run_events(
     Ok(response)
 }
 
+#[utoipa::path(
+    get,
+    path = "/runs/{job_id}/output",
+    tag = "runs",
+    params(("job_id" = String, Path, description = "Run id")),
+    responses(
+        (status = 200, description = "Run output text download", content_type = "text/plain", body = String),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Run output not found", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn run_output(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -184,13 +262,31 @@ pub async fn run_output(
     Ok(response)
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct SteerInput {
     prompt: Option<String>,
     message: Option<String>,
     text: Option<String>,
 }
 
+#[utoipa::path(
+    post,
+    path = "/runs/{job_id}/steer",
+    tag = "runs",
+    params(("job_id" = String, Path, description = "Run id")),
+    request_body = SteerInput,
+    responses(
+        (status = 200, description = "Updated run after steering", body = serde_json::Value),
+        (status = 400, description = "Invalid steering request", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Run not found", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 409, description = "Run is not active or ready", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn steer_run(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -220,6 +316,22 @@ pub async fn steer_run(
     Ok(Json(public_run_value(&state, &user_id, &info)))
 }
 
+#[utoipa::path(
+    post,
+    path = "/runs/{job_id}/cancel",
+    tag = "runs",
+    params(("job_id" = String, Path, description = "Run id")),
+    responses(
+        (status = 200, description = "Cancelled run", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Run not found", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 409, description = "Run is not active", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn cancel_run(
     State(state): State<AppState>,
     headers: HeaderMap,

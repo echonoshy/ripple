@@ -113,12 +113,40 @@ struct BilibiliLiveCredential {
     raw_log: Option<String>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/connectors",
+    tag = "connectors",
+    responses(
+        (status = 200, description = "Available connector definitions", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn list_connectors() -> Json<Value> {
     Json(json!({
         "connectors": connector_definitions().iter().map(connector_info).collect::<Vec<_>>()
     }))
 }
 
+#[utoipa::path(
+    get,
+    path = "/connectors/{connector_name}/status",
+    tag = "connectors",
+    params(("connector_name" = String, Path, description = "Connector name")),
+    responses(
+        (status = 200, description = "Connector status", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Connector not found", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn connector_status(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -221,6 +249,23 @@ async fn clear_pending_auth_if_action_authorized(
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/connectors/{connector_name}/auth/start",
+    tag = "connectors",
+    params(("connector_name" = String, Path, description = "Connector name")),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, description = "Connector auth start result", body = serde_json::Value),
+        (status = 400, description = "Invalid auth request", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Connector not found", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn connector_auth_start(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -261,6 +306,24 @@ pub(crate) async fn connector_auth_start_action(
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/connectors/{connector_name}/auth/complete",
+    tag = "connectors",
+    params(("connector_name" = String, Path, description = "Connector name")),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, description = "Connector auth completion result", body = serde_json::Value),
+        (status = 400, description = "Invalid auth completion request", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Connector not found", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 405, description = "Connector does not support completion", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn connector_auth_complete(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -297,6 +360,22 @@ pub(crate) async fn connector_auth_complete_action(
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/connectors/{connector_name}/auth/cancel",
+    tag = "connectors",
+    params(("connector_name" = String, Path, description = "Connector name")),
+    responses(
+        (status = 200, description = "Connector auth cancellation result", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Connector not found", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 405, description = "Connector does not support cancellation", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn connector_auth_cancel(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -323,6 +402,23 @@ pub async fn connector_auth_cancel(
     })))
 }
 
+#[utoipa::path(
+    post,
+    path = "/connectors/{connector_name}/disconnect",
+    tag = "connectors",
+    params(("connector_name" = String, Path, description = "Connector name")),
+    request_body = crate::api::openapi::ConfirmationRequest,
+    responses(
+        (status = 200, description = "Connector disconnect result", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Connector not found", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 428, description = "Confirmation required", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn connector_disconnect(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -354,7 +450,8 @@ pub async fn connector_disconnect(
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct AccountsQuery {
     check: Option<bool>,
 }
@@ -367,6 +464,25 @@ pub struct GogcliCallbackQuery {
     error_description: Option<String>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/connectors/{connector_name}/accounts",
+    tag = "connectors",
+    params(
+        ("connector_name" = String, Path, description = "Connector name"),
+        AccountsQuery
+    ),
+    responses(
+        (status = 200, description = "Connector account list", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Connector not found", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 405, description = "Connector does not support accounts", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn connector_accounts(
     State(state): State<AppState>,
     headers: HeaderMap,

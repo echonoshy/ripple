@@ -63,7 +63,7 @@ use wire::{
 
 const TERMINAL_STATUSES: &[&str] = &["completed", "failed", "cancelled"];
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct ChatCompletionRequest {
     pub model: Option<String>,
     pub messages: Vec<Value>,
@@ -76,7 +76,7 @@ pub struct ChatCompletionRequest {
     pub output_schema: Option<Value>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct ConnectorAuthPollRequest {
     pub model: Option<String>,
     pub stream: Option<bool>,
@@ -122,6 +122,22 @@ struct ChatRunFinal {
     usage: Value,
 }
 
+#[utoipa::path(
+    post,
+    path = "/chat/completions",
+    tag = "chat",
+    request_body = ChatCompletionRequest,
+    responses(
+        (status = 200, description = "Chat completion response or SSE stream", body = serde_json::Value),
+        (status = 400, description = "Invalid chat request", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 409, description = "Session already has work in progress", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn chat_completions(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1437,6 +1453,7 @@ mod tests {
             api_keys: vec!["test-key".to_string()],
             security: SecurityConfig::default(),
             user_auth: UserAuthConfig::default(),
+            api_docs: crate::config::ApiDocsConfig::default(),
             cors: CorsConfig::default(),
             default_model: "codex-test".to_string(),
             model_presets: BTreeMap::new(),

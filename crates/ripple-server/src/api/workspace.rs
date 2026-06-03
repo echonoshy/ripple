@@ -812,6 +812,7 @@ mod tests {
             api_keys: vec!["service-key".to_string()],
             security: SecurityConfig::default(),
             user_auth: UserAuthConfig::default(),
+            api_docs: crate::config::ApiDocsConfig::default(),
             cors: CorsConfig::default(),
             default_model: "codex-test".to_string(),
             model_presets: BTreeMap::new(),

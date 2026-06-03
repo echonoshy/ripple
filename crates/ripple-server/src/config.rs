@@ -11,6 +11,7 @@ pub struct AppConfig {
     pub api_keys: Vec<String>,
     pub security: SecurityConfig,
     pub user_auth: UserAuthConfig,
+    pub api_docs: ApiDocsConfig,
     pub cors: CorsConfig,
     pub default_model: String,
     pub model_presets: BTreeMap<String, ModelPreset>,
@@ -65,6 +66,21 @@ impl Default for UserAuthConfig {
         Self {
             enabled: false,
             session_ttl_seconds: 30 * 24 * 60 * 60,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ApiDocsConfig {
+    pub enabled: bool,
+    pub try_it_out_enabled: bool,
+}
+
+impl Default for ApiDocsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            try_it_out_enabled: true,
         }
     }
 }
@@ -185,6 +201,7 @@ struct RawServer {
     api_keys: Option<Vec<String>>,
     security: Option<RawSecurity>,
     user_auth: Option<RawUserAuth>,
+    api_docs: Option<RawApiDocs>,
     cors: Option<RawCors>,
     sandbox: Option<RawSandbox>,
     codex_chat: Option<RawCodexChat>,
@@ -207,6 +224,12 @@ struct RawSecurity {
 struct RawUserAuth {
     enabled: Option<bool>,
     session_ttl_seconds: Option<u64>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RawApiDocs {
+    enabled: Option<bool>,
+    try_it_out_enabled: Option<bool>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -355,6 +378,7 @@ impl AppConfig {
         let server = raw.server.unwrap_or_default();
         let security = server.security.unwrap_or_default();
         let user_auth = server.user_auth.unwrap_or_default();
+        let api_docs = server.api_docs.unwrap_or_default();
         let cors = server.cors.unwrap_or_default();
         let sandbox = server.sandbox.unwrap_or_default();
         let model = raw.model.unwrap_or_default();
@@ -412,6 +436,14 @@ impl AppConfig {
                     .session_ttl_seconds
                     .unwrap_or_else(|| UserAuthConfig::default().session_ttl_seconds)
                     .max(60),
+            },
+            api_docs: ApiDocsConfig {
+                enabled: api_docs
+                    .enabled
+                    .unwrap_or_else(|| ApiDocsConfig::default().enabled),
+                try_it_out_enabled: api_docs
+                    .try_it_out_enabled
+                    .unwrap_or_else(|| ApiDocsConfig::default().try_it_out_enabled),
             },
             cors: CorsConfig {
                 allowed_origins: cors
@@ -970,6 +1002,25 @@ server:
 
         assert!(config.user_auth.enabled);
         assert_eq!(config.user_auth.session_ttl_seconds, 3600);
+    }
+
+    #[test]
+    fn parses_openapi_docs_config() {
+        let config = with_temp_config(
+            "openapi-docs",
+            r#"
+server:
+  api_keys: ["test-key"]
+  api_docs:
+    enabled: false
+    try_it_out_enabled: false
+"#,
+            AppConfig::load,
+        )
+        .expect("load config");
+
+        assert!(!config.api_docs.enabled);
+        assert!(!config.api_docs.try_it_out_enabled);
     }
 
     #[test]

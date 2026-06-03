@@ -9,8 +9,8 @@ use axum::body::{to_bytes, Body};
 use axum::http::{Method, Request, StatusCode};
 use ripple_server::api::{auth::AuthClaimRequest, router, schedules::trigger_due_schedules};
 use ripple_server::config::{
-    AppConfig, CodexConfig, CorsConfig, DocumentPreviewConfig, FeishuConfig, GogcliOAuthConfig,
-    LoggingConfig, SandboxConfig, SecurityConfig, SkillsConfig, UserAuthConfig,
+    ApiDocsConfig, AppConfig, CodexConfig, CorsConfig, DocumentPreviewConfig, FeishuConfig,
+    GogcliOAuthConfig, LoggingConfig, SandboxConfig, SecurityConfig, SkillsConfig, UserAuthConfig,
 };
 use ripple_server::jobs::AgentRunCreateRequest;
 use ripple_server::sessions::CreateSessionInput;
@@ -28,6 +28,7 @@ fn test_config(root: &Path) -> AppConfig {
         api_keys: vec!["test-key".to_string()],
         security: SecurityConfig::default(),
         user_auth: UserAuthConfig::default(),
+        api_docs: ApiDocsConfig::default(),
         cors: CorsConfig::default(),
         default_model: "codex-test".to_string(),
         model_presets: BTreeMap::new(),
@@ -898,6 +899,98 @@ async fn router_serves_core_control_plane_routes() {
         .await
         .unwrap();
     assert_eq!(tasks.status(), StatusCode::GONE);
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn openapi_docs_are_public_and_keep_v1_auth_unchanged() {
+    let root = std::env::temp_dir().join(format!("ripple-openapi-docs-{}", Uuid::new_v4()));
+    let (_state, app) = test_state_and_app(&root);
+
+    let openapi = app
+        .clone()
+        .oneshot(request(Method::GET, "/openapi.json", Value::Null, false))
+        .await
+        .unwrap();
+    assert_eq!(openapi.status(), StatusCode::OK);
+    let spec = response_json(openapi).await;
+    assert_eq!(spec.get("openapi").and_then(Value::as_str), Some("3.1.0"));
+    assert_eq!(
+        spec.pointer("/info/title").and_then(Value::as_str),
+        Some("Ripple Server API")
+    );
+    assert!(spec.pointer("/paths/~1health/get").is_some());
+    assert!(spec
+        .pointer("/paths/~1v1~1chat~1completions/post")
+        .is_some());
+    assert!(spec.pointer("/paths/~1v1~1runs/get").is_some());
+    assert!(spec.pointer("/paths/~1v1~1runs/post").is_some());
+    assert!(spec
+        .pointer("/paths/~1v1~1runs~1{job_id}~1events/get")
+        .is_some());
+    assert!(spec
+        .pointer("/components/securitySchemes/bearerAuth")
+        .is_some());
+    assert!(spec
+        .pointer("/components/securitySchemes/apiKeyAuth")
+        .is_some());
+    assert!(spec
+        .pointer("/components/schemas/ChatCompletionRequest/properties/outputSchema")
+        .is_some());
+
+    let docs = app
+        .clone()
+        .oneshot(request(Method::GET, "/docs", Value::Null, false))
+        .await
+        .unwrap();
+    assert_eq!(docs.status(), StatusCode::OK);
+    let docs_html = response_text(docs).await;
+    assert!(docs_html.contains("Swagger UI"));
+
+    let initializer = app
+        .clone()
+        .oneshot(request(
+            Method::GET,
+            "/docs/swagger-initializer.js",
+            Value::Null,
+            false,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(initializer.status(), StatusCode::OK);
+    let initializer_js = response_text(initializer).await;
+    assert!(initializer_js.contains("/openapi.json"));
+
+    let unauthorized_v1 = app
+        .clone()
+        .oneshot(request(Method::GET, "/v1/models", Value::Null, false))
+        .await
+        .unwrap();
+    assert_eq!(unauthorized_v1.status(), StatusCode::UNAUTHORIZED);
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn openapi_docs_can_be_disabled() {
+    let root = std::env::temp_dir().join(format!("ripple-openapi-disabled-{}", Uuid::new_v4()));
+    let mut config = test_config(&root);
+    config.api_docs.enabled = false;
+    let (_state, app) = test_state_and_app_with_config(config);
+
+    let openapi = app
+        .clone()
+        .oneshot(request(Method::GET, "/openapi.json", Value::Null, false))
+        .await
+        .unwrap();
+    assert_eq!(openapi.status(), StatusCode::NOT_FOUND);
+
+    let docs = app
+        .oneshot(request(Method::GET, "/docs", Value::Null, false))
+        .await
+        .unwrap();
+    assert_eq!(docs.status(), StatusCode::NOT_FOUND);
 
     let _ = std::fs::remove_dir_all(root);
 }

@@ -229,6 +229,7 @@ fn test_config(root: &Path) -> AppConfig {
         api_keys: Vec::new(),
         security: SecurityConfig::default(),
         user_auth: UserAuthConfig::default(),
+        api_docs: ripple_server::config::ApiDocsConfig::default(),
         cors: CorsConfig::default(),
         default_model: "codex-test".to_string(),
         model_presets: BTreeMap::new(),

@@ -595,6 +595,7 @@ mod tests {
             api_keys: Vec::new(),
             security: crate::config::SecurityConfig::default(),
             user_auth: crate::config::UserAuthConfig::default(),
+            api_docs: crate::config::ApiDocsConfig::default(),
             cors: crate::config::CorsConfig::default(),
             default_model: "codex-test".to_string(),
             model_presets: Default::default(),

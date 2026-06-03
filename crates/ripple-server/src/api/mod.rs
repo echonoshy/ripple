@@ -5,6 +5,7 @@ pub mod connectors;
 pub mod documents;
 pub mod health;
 pub mod models;
+pub mod openapi;
 pub(crate) mod run_public;
 pub mod runs;
 pub mod sandboxes;
@@ -23,12 +24,14 @@ use axum::routing::{any, delete, get, patch, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use utoipa_axum::router::OpenApiRouter;
 use uuid::Uuid;
 
 use crate::state::AppState;
 use crate::user::{user_id_from_headers, AuthContext};
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize, Default, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct ListQuery {
     pub limit: Option<usize>,
     pub cursor: Option<String>,
@@ -117,14 +120,14 @@ pub fn router(state: AppState) -> Router {
         .route("/auth/logout", post(auth::logout))
         .route("/auth/password", post(auth::change_password));
 
-    let protected_v1 = Router::new()
-        .route("/models", get(models::list_models))
-        .route("/info", get(models::system_info))
+    let protected_v1: OpenApiRouter<AppState> = OpenApiRouter::new()
+        .routes(utoipa_axum::routes!(models::list_models))
+        .routes(utoipa_axum::routes!(models::system_info))
         .route("/tasks", any(sessions::deprecated_tasks_api))
         .route("/tasks/*task_path", any(sessions::deprecated_tasks_api))
-        .route("/chat/completions", post(chat::chat_completions))
-        .route("/health/ready", get(health::ready))
-        .route("/diagnostics/doctor", get(health::doctor))
+        .routes(utoipa_axum::routes!(chat::chat_completions))
+        .routes(utoipa_axum::routes!(health::ready))
+        .routes(utoipa_axum::routes!(health::doctor))
         .route("/users/me", get(users::current_user_profile))
         .route(
             "/users/me/profile",
@@ -222,41 +225,23 @@ pub fn router(state: AppState) -> Router {
             get(workspace::download_workspace_file),
         )
         .route("/workspace/preview", get(workspace::preview_workspace_file))
-        .route("/connectors", get(connectors::list_connectors))
-        .route(
-            "/connectors/:connector_name/status",
-            get(connectors::connector_status),
-        )
-        .route(
-            "/connectors/:connector_name/auth/start",
-            post(connectors::connector_auth_start),
-        )
-        .route(
-            "/connectors/:connector_name/auth/complete",
-            post(connectors::connector_auth_complete),
-        )
-        .route(
-            "/connectors/:connector_name/auth/cancel",
-            post(connectors::connector_auth_cancel),
-        )
-        .route(
-            "/connectors/:connector_name/disconnect",
-            post(connectors::connector_disconnect),
-        )
-        .route(
-            "/connectors/:connector_name/accounts",
-            get(connectors::connector_accounts),
-        )
+        .routes(utoipa_axum::routes!(connectors::list_connectors))
+        .routes(utoipa_axum::routes!(connectors::connector_status))
+        .routes(utoipa_axum::routes!(connectors::connector_auth_start))
+        .routes(utoipa_axum::routes!(connectors::connector_auth_complete))
+        .routes(utoipa_axum::routes!(connectors::connector_auth_cancel))
+        .routes(utoipa_axum::routes!(connectors::connector_disconnect))
+        .routes(utoipa_axum::routes!(connectors::connector_accounts))
         .route(
             "/sandboxes/gogcli-accounts",
             get(connectors::gogcli_accounts_alias),
         )
-        .route("/runs", get(runs::list_runs).post(runs::create_run))
-        .route("/runs/:job_id", get(runs::get_run))
-        .route("/runs/:job_id/events", get(runs::run_events))
-        .route("/runs/:job_id/output", get(runs::run_output))
-        .route("/runs/:job_id/steer", post(runs::steer_run))
-        .route("/runs/:job_id/cancel", post(runs::cancel_run))
+        .routes(utoipa_axum::routes!(runs::list_runs, runs::create_run))
+        .routes(utoipa_axum::routes!(runs::get_run))
+        .routes(utoipa_axum::routes!(runs::run_events))
+        .routes(utoipa_axum::routes!(runs::run_output))
+        .routes(utoipa_axum::routes!(runs::steer_run))
+        .routes(utoipa_axum::routes!(runs::cancel_run))
         .route(
             "/documents",
             get(documents::list_documents).post(documents::create_document),
@@ -294,17 +279,23 @@ pub fn router(state: AppState) -> Router {
             require_api_key,
         ));
 
-    let v1 = public_v1.merge(protected_v1).with_state(state.clone());
-
-    Router::new()
-        .route("/health", get(health::health))
+    let v1: OpenApiRouter<AppState> = OpenApiRouter::from(public_v1).merge(protected_v1);
+    let root: OpenApiRouter<AppState> = OpenApiRouter::with_openapi(openapi::base_openapi())
+        .routes(utoipa_axum::routes!(health::health))
         .route("/v1/bilibili/qrcode.png", get(bilibili::qrcode_png))
         .route(
             "/v1/sandboxes/gogcli/oauth/callback",
             get(connectors::gogcli_oauth_callback),
         )
-        .nest("/v1", v1)
-        .with_state(state)
+        .nest("/v1", v1);
+    let (mut router, openapi) = root.split_for_parts();
+    if state.config.api_docs.enabled {
+        router = router.merge(openapi::docs_router(
+            openapi,
+            state.config.api_docs.try_it_out_enabled,
+        ));
+    }
+    router.with_state(state)
 }
 
 async fn require_api_key(
@@ -510,6 +501,7 @@ mod tests {
             api_keys,
             security: SecurityConfig::default(),
             user_auth: UserAuthConfig::default(),
+            api_docs: crate::config::ApiDocsConfig::default(),
             cors: CorsConfig::default(),
             default_model: "codex-test".to_string(),
             model_presets: BTreeMap::new(),

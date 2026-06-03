@@ -94,6 +94,13 @@ server:
     # 关闭时保持原 service API key + trusted header 模式。
     enabled: false
     session_ttl_seconds: 2592000
+  api_docs:
+    # 生成式 OpenAPI/Swagger 文档入口：
+    #   GET /openapi.json
+    #   GET /docs
+    # 文档只暴露接口元数据，不包含 API key；真正调用 /v1 仍需鉴权。
+    enabled: true
+    try_it_out_enabled: true
   cors:
     # 默认不开放浏览器跨域。若必须让独立 Web 前端直连 API，只填明确 origin。
     allowed_origins: []

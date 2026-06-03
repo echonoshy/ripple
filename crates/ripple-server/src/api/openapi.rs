@@ -1,0 +1,126 @@
+use axum::routing::get;
+use axum::{Json, Router};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use utoipa::openapi::security::{ApiKey, ApiKeyValue, HttpAuthScheme, HttpBuilder, SecurityScheme};
+use utoipa::openapi::OpenApi;
+use utoipa::{Modify, OpenApi as DeriveOpenApi, ToSchema};
+use utoipa_swagger_ui::{Config, SwaggerUi, Url};
+
+#[derive(DeriveOpenApi)]
+#[openapi(
+    info(
+        title = "Ripple Server API",
+        version = "0.1.0",
+        description = "OpenAPI contract for Ripple Server control-plane endpoints."
+    ),
+    components(
+        schemas(
+            ApiErrorEnvelope,
+            ApiErrorFields,
+            ConfirmationRequest,
+            GenericJsonObject,
+            PaginatedJsonResponse,
+            SseEvent
+        )
+    ),
+    tags(
+        (name = "health", description = "Server health and readiness endpoints"),
+        (name = "models", description = "Model and runtime metadata"),
+        (name = "chat", description = "OpenAI-compatible chat bridge"),
+        (name = "runs", description = "Codex run lifecycle endpoints"),
+        (name = "connectors", description = "User connector management endpoints")
+    ),
+    modifiers(&SecurityAddon)
+)]
+struct BaseOpenApi;
+
+pub fn base_openapi() -> OpenApi {
+    BaseOpenApi::openapi()
+}
+
+pub fn docs_router<S>(openapi: OpenApi, try_it_out_enabled: bool) -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    let openapi_json = openapi.clone();
+    let docs_ui = Router::<S>::from(
+        SwaggerUi::new("/").config(
+            Config::new([Url::new("Ripple Server API", "/openapi.json")])
+                .try_it_out_enabled(try_it_out_enabled),
+        ),
+    );
+    Router::new()
+        .route(
+            "/openapi.json",
+            get(move || async move { Json(openapi_json.clone()) }),
+        )
+        .nest("/docs", docs_ui)
+}
+
+struct SecurityAddon;
+
+impl Modify for SecurityAddon {
+    fn modify(&self, openapi: &mut OpenApi) {
+        if let Some(components) = openapi.components.as_mut() {
+            components.add_security_scheme(
+                "bearerAuth",
+                SecurityScheme::Http(
+                    HttpBuilder::new()
+                        .scheme(HttpAuthScheme::Bearer)
+                        .bearer_format("API key or user session token")
+                        .build(),
+                ),
+            );
+            components.add_security_scheme(
+                "apiKeyAuth",
+                SecurityScheme::ApiKey(ApiKey::Header(ApiKeyValue::with_description(
+                    "X-API-Key",
+                    "Service API key for trusted upstream callers.",
+                ))),
+            );
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ApiErrorEnvelope {
+    pub detail: Value,
+    pub error: ApiErrorFields,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ApiErrorFields {
+    pub code: String,
+    pub message: String,
+    pub request_id: String,
+    pub details: Value,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ConfirmationRequest {
+    pub confirm: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct GenericJsonObject {
+    #[schema(value_type = Object)]
+    pub value: Value,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct PaginatedJsonResponse {
+    #[schema(value_type = Vec<Object>)]
+    pub items: Vec<Value>,
+    pub count: usize,
+    pub total: usize,
+    pub next_cursor: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct SseEvent {
+    pub event_version: Option<u32>,
+    pub r#type: Option<String>,
+    #[schema(value_type = Object)]
+    pub data: Option<Value>,
+}

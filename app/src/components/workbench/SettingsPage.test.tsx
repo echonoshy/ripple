@@ -302,9 +302,13 @@ function testSettingsPageUsesCompactMobileDensity() {
   assert.match(source, /className="border-t border-\[#e8edf7\] p-2"/);
   assert.match(source, /mb-1 flex items-center gap-1\.5 text-\[#374151\]/);
   assert.match(source, /data-ripple-settings-language-row/);
-  assert.match(source, /data-ripple-settings-language-row[\s\S]*min-h-10 flex-nowrap/);
+  assert.match(source, /data-ripple-settings-language-row[\s\S]*flex-col/);
+  assert.match(source, /data-ripple-settings-language-row[\s\S]*sm:flex-row/);
   assert.match(source, /data-ripple-settings-language-control/);
-  assert.match(source, /h-9 min-w-\[76px\]/);
+  assert.match(source, /data-ripple-settings-language-control[\s\S]*grid w-full grid-cols-3/);
+  assert.match(source, /data-ripple-settings-language-control[\s\S]*sm:w-auto/);
+  assert.match(source, /h-9 min-w-0/);
+  assert.match(source, /h-9 min-w-0[\s\S]*sm:min-w-\[76px\]/);
   assert.doesNotMatch(source, /Used for new prompts and scheduled runs/);
 }
 

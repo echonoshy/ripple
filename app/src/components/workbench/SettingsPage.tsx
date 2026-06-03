@@ -931,7 +931,7 @@ export default function SettingsPage({
             </div>
             <div
               data-ripple-settings-language-row
-              className="flex min-h-10 flex-nowrap items-center justify-between gap-2 px-2.5 py-1.5"
+              className="flex min-h-10 flex-col items-stretch justify-between gap-2 px-2.5 py-2 sm:flex-row sm:items-center sm:py-1.5"
             >
               <div className="flex min-w-0 items-center gap-2">
                 <IconTile tone="neutral" size="xs">
@@ -948,7 +948,7 @@ export default function SettingsPage({
               </div>
               <div
                 data-ripple-settings-language-control
-                className="inline-flex shrink-0 rounded-full border border-[#dfe6f4] bg-white p-0.5"
+                className="grid w-full grid-cols-3 rounded-full border border-[#dfe6f4] bg-white p-0.5 sm:inline-flex sm:w-auto sm:shrink-0"
               >
                 {languageOptions.map((option) => {
                   const selected = localePreference === option.value;
@@ -958,7 +958,7 @@ export default function SettingsPage({
                       type="button"
                       aria-pressed={selected}
                       onClick={() => setLocalePreference(option.value)}
-                      className={`h-9 min-w-[76px] rounded-full px-2 transition-all lg:h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS} ${
+                      className={`h-9 min-w-0 rounded-full px-1 transition-all sm:min-w-[76px] sm:px-2 lg:h-8 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} sm:text-[12px] sm:leading-5 ${
                         selected
                           ? "bg-[#eef4ff] text-[#006ee6] shadow-[0_6px_14px_rgba(47,107,255,0.14)]"
                           : "text-[#667085] hover:bg-[#f7f8fa] hover:text-[#374151]"

@@ -4,7 +4,6 @@ import React from "react";
 import { AlertTriangle, ArrowLeft, Code2, KeyRound, Mail, UserRound } from "lucide-react";
 import { IconTile } from "@/components/icons/IconTile";
 import RippleIcon from "@/components/icons/RippleIcon";
-import { TYPOGRAPHY_MICRO_MEDIUM_CLASS } from "@/components/workbench/stylePrimitives";
 import { useI18n } from "@/i18n";
 
 export type AuthGatewayMode = "login" | "invite" | "service";
@@ -36,7 +35,7 @@ interface AuthGatewayProps {
 
 function FieldIcon({ children }: { children: React.ReactNode }) {
   return (
-    <IconTile tone="neutral" size="xs" className="absolute top-1/2 left-3 -translate-y-1/2">
+    <IconTile tone="neutral" size="sm" className="absolute top-1/2 left-3.5 -translate-y-1/2">
       {children}
     </IconTile>
   );
@@ -76,7 +75,7 @@ function TextInput({
         autoCapitalize="none"
         autoCorrect="off"
         spellCheck={false}
-        className={`h-11 w-full rounded-lg border border-[#dfe6f4] bg-white px-3 pr-4 pl-11 text-sm text-[#101828] transition outline-none focus:border-[#007aff] focus:ring-2 focus:ring-[#007aff]/12 ${mono ? "font-[family-name:var(--font-mono)]" : ""}`}
+        className={`h-12 w-full rounded-lg border border-[#dfe6f4] bg-white px-3 pr-4 pl-12 text-[16px] leading-6 text-[#101828] transition outline-none focus:border-[#007aff] focus:ring-2 focus:ring-[#007aff]/12 ${mono ? "font-[family-name:var(--font-mono)]" : ""}`}
       />
     </div>
   );
@@ -171,19 +170,33 @@ export default function AuthGateway({
           </div>
         </header>
 
-        <main className="flex flex-1 flex-col items-center justify-center gap-6 py-6 sm:gap-7 lg:py-10">
+        <main
+          data-ripple-auth-main="true"
+          className="flex flex-1 -translate-y-6 flex-col items-center justify-center gap-6 py-6 sm:-translate-y-8 sm:gap-7 lg:-translate-y-10 lg:py-10"
+        >
           <section className="w-full max-w-[680px] text-center" aria-label="Ripple">
-            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl border border-white/80 bg-white/76 shadow-[0_16px_34px_rgba(60,60,67,0.08)] backdrop-blur-xl">
-              <RippleIcon size={32} className="h-8 w-8 rounded-lg" />
+            <div
+              data-ripple-auth-hero-mark="true"
+              className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-white/80 bg-white/76 shadow-[0_18px_38px_rgba(60,60,67,0.10)] backdrop-blur-xl"
+            >
+              <RippleIcon size={56} className="h-14 w-14 rounded-[14px]" />
             </div>
-            <p className="text-[12px] leading-5 font-semibold text-[#007aff] uppercase">Ripple</p>
+            <p
+              data-ripple-auth-hero-label="true"
+              className="text-[15px] leading-6 font-semibold tracking-[0.14em] text-[#007aff] uppercase"
+            >
+              Ripple
+            </p>
             <h1
               data-ripple-brand-wordmark="true"
               className="relative mx-auto mt-2 flex max-w-[680px] flex-wrap items-baseline justify-center gap-x-2 text-[36px] leading-[40px] font-semibold tracking-normal text-[#111827] sm:gap-x-3 sm:text-[52px] sm:leading-[56px]"
               aria-label={t("auth.brandPhrase")}
             >
               <span className="inline-block">Flow</span>
-              <span className={`inline-block text-[#007aff] italic ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}>
+              <span
+                data-ripple-auth-brand-with="true"
+                className="inline-block text-[20px] leading-none font-medium text-[#007aff] italic sm:text-[22px]"
+              >
                 with
               </span>
               <span className="inline-block">Ripple</span>
@@ -236,7 +249,7 @@ export default function AuthGateway({
                   value={keyInput}
                   onChange={onKeyInputChange}
                   placeholder={t("auth.serviceApiKey")}
-                  icon={<KeyRound size={13} />}
+                  icon={<KeyRound size={16} />}
                   type="password"
                   autoComplete="off"
                   mono
@@ -250,7 +263,7 @@ export default function AuthGateway({
                       if (authUserIdError) onAuthUserIdErrorClear();
                     }}
                     placeholder="default"
-                    icon={<UserRound size={13} />}
+                    icon={<UserRound size={16} />}
                     autoComplete="username"
                     mono
                   />
@@ -280,7 +293,7 @@ export default function AuthGateway({
                     value={inviteCodeInput}
                     onChange={onInviteCodeInputChange}
                     placeholder={t("auth.inviteCode")}
-                    icon={<KeyRound size={13} />}
+                    icon={<KeyRound size={16} />}
                     autoComplete="one-time-code"
                     mono
                   />
@@ -290,7 +303,7 @@ export default function AuthGateway({
                   value={loginInput}
                   onChange={onLoginInputChange}
                   placeholder={t("auth.email")}
-                  icon={<Mail size={13} />}
+                  icon={<Mail size={16} />}
                   type="email"
                   autoComplete="email"
                 />
@@ -300,7 +313,7 @@ export default function AuthGateway({
                     value={inviteDisplayNameInput}
                     onChange={onInviteDisplayNameInputChange}
                     placeholder={t("auth.displayName")}
-                    icon={<UserRound size={13} />}
+                    icon={<UserRound size={16} />}
                     autoComplete="name"
                   />
                 )}
@@ -309,7 +322,7 @@ export default function AuthGateway({
                   value={passwordInput}
                   onChange={onPasswordInputChange}
                   placeholder={isInvite ? t("auth.createPassword") : t("auth.password")}
-                  icon={<KeyRound size={13} />}
+                  icon={<KeyRound size={16} />}
                   type="password"
                   autoComplete={isInvite ? "new-password" : "current-password"}
                 />

@@ -77,6 +77,44 @@ function testGatewayShowsPrimaryLoginWithoutProductIntroModule() {
   assert.equal(developerAccessMatches.length, 1);
 }
 
+function testGatewayHeroBrandMarkAndInputsAreReadable() {
+  const html = renderGateway();
+  const source = readFileSync(new URL("./AuthGateway.tsx", import.meta.url), "utf8");
+  const heroMark = html.match(/<div[^>]*data-ripple-auth-hero-mark="true"[^>]*>/)?.[0];
+  const heroLabel = html.match(/<p[^>]*data-ripple-auth-hero-label="true"[^>]*>/)?.[0];
+  const brandWith = html.match(/<span[^>]*data-ripple-auth-brand-with="true"[^>]*>/)?.[0];
+
+  assert.ok(heroMark);
+  assert.ok(heroLabel);
+  assert.ok(brandWith);
+  assert.match(heroMark, /h-16/);
+  assert.match(heroMark, /w-16/);
+  assert.match(source, /<RippleIcon size=\{56\} className="h-14 w-14 rounded-\[14px\]"/);
+  assert.doesNotMatch(source, /<RippleIcon size=\{44\} className="h-11 w-11/);
+  assert.match(heroLabel, /text-\[15px\]/);
+  assert.match(heroLabel, /tracking-\[0\.14em\]/);
+  assert.match(brandWith, /text-\[20px\]/);
+  assert.match(brandWith, /sm:text-\[22px\]/);
+  assert.doesNotMatch(brandWith, /TYPOGRAPHY_MICRO/);
+  assert.match(source, /function FieldIcon/);
+  assert.match(source, /<IconTile tone="neutral" size="sm"/);
+  assert.match(source, /className="absolute top-1\/2 left-3\.5/);
+  assert.match(source, /className=\{`h-12[\s\S]*pl-12[\s\S]*text-\[16px\]/);
+  assert.match(source, /<Mail size=\{16\}/);
+  assert.match(source, /<KeyRound size=\{16\}/);
+}
+
+function testGatewayMainContentSitsSlightlyHigher() {
+  const html = renderGateway();
+  const main = html.match(/<main[^>]*data-ripple-auth-main="true"[^>]*>/)?.[0];
+
+  assert.ok(main);
+  assert.match(main, /justify-center/);
+  assert.match(main, /-translate-y-6/);
+  assert.match(main, /sm:-translate-y-8/);
+  assert.match(main, /lg:-translate-y-10/);
+}
+
 function testGatewayDoesNotUseOldEqualWeightModeTabs() {
   const html = renderGateway();
   const source = readFileSync(new URL("./AuthGateway.tsx", import.meta.url), "utf8");
@@ -135,6 +173,8 @@ function testGatewayRendersChineseLoginCopy() {
 }
 
 testGatewayShowsPrimaryLoginWithoutProductIntroModule();
+testGatewayHeroBrandMarkAndInputsAreReadable();
+testGatewayMainContentSitsSlightlyHigher();
 testGatewayDoesNotUseOldEqualWeightModeTabs();
 testGatewayShowsInviteFormWhenSelected();
 testGatewayShowsDeveloperAccessAsSecondaryMode();

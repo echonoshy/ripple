@@ -5,6 +5,7 @@ description: "飞书知识库：管理知识空间、空间成员和文档节点
 metadata:
   requires:
     bins: ["lark-cli"]
+    connectors: ["feishu"]
   cliHelp: "lark-cli wiki --help"
 ---
 

@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod bilibili;
+pub mod capabilities;
 pub mod chat;
 pub mod connectors;
 pub mod documents;
@@ -12,6 +13,8 @@ pub mod sandboxes;
 pub mod schedule_chat;
 pub mod schedules;
 pub mod sessions;
+pub mod skill_chat;
+pub mod skills;
 pub mod users;
 pub mod workspace;
 
@@ -225,6 +228,13 @@ pub fn router(state: AppState) -> Router {
             get(workspace::download_workspace_file),
         )
         .route("/workspace/preview", get(workspace::preview_workspace_file))
+        .routes(utoipa_axum::routes!(capabilities::list_capabilities))
+        .routes(utoipa_axum::routes!(skills::list_skills))
+        .routes(utoipa_axum::routes!(skills::get_skill))
+        .routes(utoipa_axum::routes!(skills::create_skill))
+        .routes(utoipa_axum::routes!(skills::update_skill))
+        .routes(utoipa_axum::routes!(skills::delete_skill))
+        .routes(utoipa_axum::routes!(skills::validate_skill))
         .routes(utoipa_axum::routes!(connectors::list_connectors))
         .routes(utoipa_axum::routes!(connectors::connector_status))
         .routes(utoipa_axum::routes!(connectors::connector_auth_start))
@@ -492,6 +502,10 @@ mod tests {
         SandboxConfig, SecurityConfig, SkillsConfig, UserAuthConfig,
     };
     fn test_state(api_keys: Vec<String>) -> AppState {
+        test_state_with_shared_dirs(api_keys, Vec::new())
+    }
+
+    fn test_state_with_shared_dirs(api_keys: Vec<String>, shared_dirs: Vec<String>) -> AppState {
         let root =
             std::env::temp_dir().join(format!("ripple-api-auth-test-{}", uuid::Uuid::new_v4()));
         AppState::new(AppConfig {
@@ -547,9 +561,7 @@ mod tests {
                 max_source_bytes: 64 * 1024 * 1024,
                 conversion_timeout_seconds: 120,
             },
-            skills: SkillsConfig {
-                shared_dirs: Vec::new(),
-            },
+            skills: SkillsConfig { shared_dirs },
             public_base_url: None,
             feishu: FeishuConfig::default(),
             gogcli_oauth: GogcliOAuthConfig {
@@ -792,6 +804,397 @@ mod tests {
             body.get("detail").and_then(Value::as_str),
             Some("user_id must match ^[a-zA-Z0-9_-]{1,64}$")
         );
+    }
+
+    #[tokio::test]
+    async fn capabilities_route_lists_connectors_runtime_and_skills() {
+        let shared_root = std::env::temp_dir().join(format!(
+            "ripple-api-shared-skills-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let shared_skill = shared_root.join("demo/SKILL.md");
+        std::fs::create_dir_all(shared_skill.parent().unwrap()).unwrap();
+        std::fs::write(
+            &shared_skill,
+            "---\nname: shared-demo\ndescription: Shared demo\n---\n# Shared demo\n",
+        )
+        .unwrap();
+        let state = test_state_with_shared_dirs(
+            vec!["service-key".to_string()],
+            vec![shared_root.to_string_lossy().to_string()],
+        );
+        let workspace = state.sandboxes.ensure_sandbox("skill-user").unwrap();
+        let user_skill = workspace.join("skills/user-demo/SKILL.md");
+        std::fs::create_dir_all(user_skill.parent().unwrap()).unwrap();
+        std::fs::write(
+            &user_skill,
+            "---\nname: user-demo\ndescription: User demo\n---\n# User demo\n",
+        )
+        .unwrap();
+
+        let (status, body) = request_json(
+            state,
+            Method::GET,
+            "/v1/capabilities",
+            "service-key",
+            Some("skill-user"),
+            None,
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        let capabilities = body
+            .get("capabilities")
+            .and_then(Value::as_array)
+            .expect("capabilities array");
+        assert!(capabilities.iter().any(|entry| {
+            entry.get("id").and_then(Value::as_str) == Some("connector:google_workspace")
+                && entry.get("type").and_then(Value::as_str) == Some("connector")
+        }));
+        assert!(capabilities.iter().any(|entry| {
+            entry.get("id").and_then(Value::as_str) == Some("runtime:codex_web_search")
+                && entry.get("type").and_then(Value::as_str) == Some("runtime_capability")
+        }));
+        assert!(capabilities.iter().any(|entry| {
+            entry.get("id").and_then(Value::as_str) == Some("ripple:shared-demo")
+                && entry.get("type").and_then(Value::as_str) == Some("skill")
+                && entry.get("enabled").and_then(Value::as_bool) == Some(true)
+        }));
+        assert!(capabilities.iter().any(|entry| {
+            entry.get("id").and_then(Value::as_str) == Some("user:user-demo")
+                && entry.get("type").and_then(Value::as_str) == Some("skill")
+                && entry.get("enabled").and_then(Value::as_bool) == Some(false)
+                && entry.get("status").and_then(Value::as_str) == Some("pending_enable")
+        }));
+
+        let _ = std::fs::remove_dir_all(shared_root);
+    }
+
+    #[tokio::test]
+    async fn skill_patch_requires_validation_before_enable() {
+        let state = test_state(vec!["service-key".to_string()]);
+        let workspace = state.sandboxes.ensure_sandbox("skill-user").unwrap();
+        let user_skill = workspace.join("skills/user-demo/SKILL.md");
+        std::fs::create_dir_all(user_skill.parent().unwrap()).unwrap();
+        std::fs::write(
+            &user_skill,
+            "---\nname: user-demo\ndescription: User demo\n---\n# User demo\n",
+        )
+        .unwrap();
+
+        let (status, body) = request_json(
+            state.clone(),
+            Method::PATCH,
+            "/v1/skills/user:user-demo",
+            "service-key",
+            Some("skill-user"),
+            Some(json!({"enabled": true})),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(
+            body.pointer("/error/code").and_then(Value::as_str),
+            Some("validation_required")
+        );
+    }
+
+    #[tokio::test]
+    async fn skills_route_returns_user_facing_skills_without_runtime_capabilities() {
+        let shared_root = std::env::temp_dir().join(format!(
+            "ripple-api-skills-v2-shared-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let shared_skill = shared_root.join("shared-demo/SKILL.md");
+        std::fs::create_dir_all(shared_skill.parent().unwrap()).unwrap();
+        std::fs::write(
+            &shared_skill,
+            "---\nname: shared-demo\ndescription: Shared demo\n---\n# Shared demo\n",
+        )
+        .unwrap();
+        let state = test_state_with_shared_dirs(
+            vec!["service-key".to_string()],
+            vec![shared_root.to_string_lossy().to_string()],
+        );
+        let workspace = state.sandboxes.ensure_sandbox("skill-user").unwrap();
+        let user_skill = workspace.join("skills/user-demo/SKILL.md");
+        std::fs::create_dir_all(user_skill.parent().unwrap()).unwrap();
+        std::fs::write(
+            &user_skill,
+            "---\nname: user-demo\ndescription: User demo\n---\n# User demo\n",
+        )
+        .unwrap();
+
+        let (status, body) = request_json(
+            state,
+            Method::GET,
+            "/v1/skills",
+            "service-key",
+            Some("skill-user"),
+            None,
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        let skills = body
+            .get("skills")
+            .and_then(Value::as_array)
+            .expect("skills array");
+        assert!(skills.iter().any(|entry| {
+            entry.get("id").and_then(Value::as_str) == Some("ripple:shared-demo")
+                && entry.get("read_only").and_then(Value::as_bool) == Some(true)
+                && entry.get("user_status").and_then(Value::as_str) == Some("available")
+        }));
+        assert!(skills.iter().any(|entry| {
+            entry.get("id").and_then(Value::as_str) == Some("user:user-demo")
+                && entry.get("read_only").and_then(Value::as_bool) == Some(false)
+                && entry.get("desired_state").and_then(Value::as_str) == Some("pending_enable")
+                && entry.get("user_status").and_then(Value::as_str) == Some("not_enabled")
+        }));
+        assert!(!skills.iter().any(|entry| {
+            entry.get("type").and_then(Value::as_str) == Some("runtime_capability")
+                || entry
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .starts_with("runtime:")
+        }));
+
+        let _ = std::fs::remove_dir_all(shared_root);
+    }
+
+    #[tokio::test]
+    async fn user_skill_crud_validation_and_archive_flow() {
+        let state = test_state(vec!["service-key".to_string()]);
+        let workspace = state.sandboxes.ensure_sandbox("skill-crud-user").unwrap();
+
+        let (status, created) = request_json(
+            state.clone(),
+            Method::POST,
+            "/v1/skills",
+            "service-key",
+            Some("skill-crud-user"),
+            Some(json!({
+                "display_name": "Project Weekly Review",
+                "description": "Summarize project updates into my weekly review format.",
+                "when_to_use": "When I ask for a project weekly review.",
+                "steps": ["Collect updates", "Group risks and next actions"],
+                "output_format": "A short weekly review with sections for progress, risks, and next actions.",
+                "requires_connectors": [],
+                "requires_user_confirmation": false,
+                "test_example": "Create a weekly review from two sample updates."
+            })),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::CREATED);
+        let skill_id = created
+            .get("id")
+            .and_then(Value::as_str)
+            .expect("created skill id")
+            .to_string();
+        assert!(skill_id.starts_with("user:"));
+        assert_eq!(
+            created.get("desired_state").and_then(Value::as_str),
+            Some("draft")
+        );
+        assert_eq!(
+            created.get("user_status").and_then(Value::as_str),
+            Some("not_enabled")
+        );
+        assert!(workspace
+            .join("skills/project-weekly-review/SKILL.md")
+            .is_file());
+
+        let (status, body) = request_json(
+            state.clone(),
+            Method::PATCH,
+            &format!("/v1/skills/{skill_id}"),
+            "service-key",
+            Some("skill-crud-user"),
+            Some(json!({"enabled": true})),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(
+            body.pointer("/error/code").and_then(Value::as_str),
+            Some("validation_required")
+        );
+
+        let (status, validation) = request_json(
+            state.clone(),
+            Method::POST,
+            &format!("/v1/skills/{skill_id}/validate"),
+            "service-key",
+            Some("skill-crud-user"),
+            None,
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            validation.get("passed").and_then(Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            validation
+                .get("checks")
+                .and_then(Value::as_array)
+                .unwrap()
+                .iter()
+                .filter(|check| check.get("status").and_then(Value::as_str) == Some("passed"))
+                .count(),
+            4
+        );
+
+        let (status, enabled) = request_json(
+            state.clone(),
+            Method::PATCH,
+            &format!("/v1/skills/{skill_id}"),
+            "service-key",
+            Some("skill-crud-user"),
+            Some(json!({"enabled": true})),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            enabled.get("desired_state").and_then(Value::as_str),
+            Some("enabled")
+        );
+        assert_eq!(
+            enabled.get("user_status").and_then(Value::as_str),
+            Some("available")
+        );
+
+        let rendered = crate::skills::render_skill_manifest_with_options(
+            &state.config,
+            Some(&workspace),
+            &crate::api::skills::skill_manifest_options_for_user(&state, "skill-crud-user")
+                .unwrap(),
+        );
+        assert!(rendered.contains(&skill_id));
+
+        let (status, archived) = request_json(
+            state.clone(),
+            Method::DELETE,
+            &format!("/v1/skills/{skill_id}"),
+            "service-key",
+            Some("skill-crud-user"),
+            Some(json!({"confirm": true})),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            archived.get("desired_state").and_then(Value::as_str),
+            Some("archived")
+        );
+        assert!(!workspace
+            .join("skills/project-weekly-review/SKILL.md")
+            .exists());
+
+        let rendered = crate::skills::render_skill_manifest_with_options(
+            &state.config,
+            Some(&workspace),
+            &crate::api::skills::skill_manifest_options_for_user(&state, "skill-crud-user")
+                .unwrap(),
+        );
+        assert!(!rendered.contains(&skill_id));
+    }
+
+    #[tokio::test]
+    async fn shared_skills_are_read_only_for_user_skill_routes() {
+        let shared_root = std::env::temp_dir().join(format!(
+            "ripple-api-skills-v2-readonly-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let shared_skill = shared_root.join("shared-demo/SKILL.md");
+        std::fs::create_dir_all(shared_skill.parent().unwrap()).unwrap();
+        std::fs::write(
+            &shared_skill,
+            "---\nname: shared-demo\ndescription: Shared demo\n---\n# Shared demo\n",
+        )
+        .unwrap();
+        let state = test_state_with_shared_dirs(
+            vec!["service-key".to_string()],
+            vec![shared_root.to_string_lossy().to_string()],
+        );
+
+        let (status, patch_body) = request_json(
+            state.clone(),
+            Method::PATCH,
+            "/v1/skills/ripple:shared-demo",
+            "service-key",
+            Some("skill-user"),
+            Some(json!({"enabled": false})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(
+            patch_body.pointer("/error/code").and_then(Value::as_str),
+            Some("read_only")
+        );
+
+        let (status, delete_body) = request_json(
+            state,
+            Method::DELETE,
+            "/v1/skills/ripple:shared-demo",
+            "service-key",
+            Some("skill-user"),
+            Some(json!({"confirm": true})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(
+            delete_body.pointer("/error/code").and_then(Value::as_str),
+            Some("read_only")
+        );
+
+        let _ = std::fs::remove_dir_all(shared_root);
+    }
+
+    #[tokio::test]
+    async fn chat_can_create_skill_draft_without_enabling_or_starting_codex() {
+        let state = test_state(vec!["service-key".to_string()]);
+        let workspace = state.sandboxes.ensure_sandbox("skill-chat-user").unwrap();
+
+        let (status, body) = request_json(
+            state,
+            Method::POST,
+            "/v1/chat/completions",
+            "service-key",
+            Some("skill-chat-user"),
+            Some(json!({
+                "model": "codex-test",
+                "messages": [{
+                    "role": "user",
+                    "content": "把这个流程保存成一个能力：每周整理项目进展，先列进展，再列风险，最后列下周行动。"
+                }],
+                "stream": false
+            })),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            body.pointer("/event/type").and_then(Value::as_str),
+            Some("skill_draft_created")
+        );
+        assert_eq!(
+            body.pointer("/event/skill/desired_state")
+                .and_then(Value::as_str),
+            Some("draft")
+        );
+        assert_eq!(
+            body.pointer("/event/skill/user_status")
+                .and_then(Value::as_str),
+            Some("not_enabled")
+        );
+        assert!(workspace
+            .join("skills/saved-conversation-skill/SKILL.md")
+            .is_file());
     }
 
     #[tokio::test]

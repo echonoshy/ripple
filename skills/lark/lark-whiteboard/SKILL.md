@@ -8,6 +8,7 @@ description: >
 metadata:
   requires:
     bins: ["lark-cli"]
+    connectors: ["feishu"]
   cliHelp: "lark-cli whiteboard --help"
 ---
 

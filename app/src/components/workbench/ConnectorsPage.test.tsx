@@ -34,6 +34,21 @@ function testConnectorsPageHasMobileSpecificCopy() {
 
 testConnectorsPageHasMobileSpecificCopy();
 
+function testConnectorsPageUsesCatalogWithoutSkillManagement() {
+  const source = readFileSync(new URL("./ConnectorsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /fetchCapabilities/);
+  assert.doesNotMatch(source, /updateSkillCapability/);
+  assert.doesNotMatch(source, /capabilitySections/);
+  assert.doesNotMatch(source, /Ripple Skills/);
+  assert.doesNotMatch(source, /User Skills/);
+  assert.doesNotMatch(source, /Runtime Capabilities/);
+  assert.doesNotMatch(source, /data-ripple-capability-card="true"/);
+  assert.doesNotMatch(source, /handleToggleSkill/);
+}
+
+testConnectorsPageUsesCatalogWithoutSkillManagement();
+
 function testConnectorsPageDoesNotExposeCredentialStorageDetails() {
   const source = readFileSync(new URL("./ConnectorsPage.tsx", import.meta.url), "utf8");
 
@@ -167,7 +182,7 @@ function testConnectorsPageRendersChineseChrome() {
   const html = renderConnectorsPage("zh-CN");
 
   assert.match(html, /aria-label="返回设置"/);
-  assert.match(html, /sm:hidden[^>]*>连接器</);
+  assert.match(html, /sm:hidden[^>]*>连接服务</);
   assert.match(html, /0\/0 就绪/);
   assert.doesNotMatch(html, /sm:hidden[^>]*>刷新</);
   assert.match(html, /hidden lg:inline[^>]*>刷新</);

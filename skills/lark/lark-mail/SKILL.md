@@ -5,6 +5,7 @@ description: "飞书邮箱 — draft, compose, send, reply, forward, read, and s
 metadata:
   requires:
     bins: ["lark-cli"]
+    connectors: ["feishu"]
   cliHelp: "lark-cli mail --help"
 ---
 

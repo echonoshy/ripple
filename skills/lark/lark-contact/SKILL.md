@@ -5,6 +5,7 @@ description: "飞书 / Lark 通讯录,用于按姓名 / 邮箱把员工解析成
 metadata:
   requires:
     bins: ["lark-cli"]
+    connectors: ["feishu"]
   cliHelp: "lark-cli contact --help"
 ---
 

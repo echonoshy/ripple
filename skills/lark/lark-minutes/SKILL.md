@@ -5,6 +5,7 @@ description: "飞书妙记：妙记相关基本功能。1.查询妙记列表（�
 metadata:
   requires:
     bins: ["lark-cli"]
+    connectors: ["feishu"]
   cliHelp: "lark-cli minutes --help"
 ---
 

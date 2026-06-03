@@ -65,6 +65,7 @@ const mobileReadableSources = [
   "./SwipeActionRow.tsx",
   "./WorkspaceFolderPicker.tsx",
   "./WorkspaceNav.tsx",
+  "./SkillsPage.tsx",
   "./ConnectorsPage.tsx",
   "./AutomationsPage.tsx",
   "./SettingsPage.tsx",

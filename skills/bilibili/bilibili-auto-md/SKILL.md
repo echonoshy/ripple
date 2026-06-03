@@ -6,6 +6,7 @@ allowed-tools: [Skill, Bash, Write, Read]
 metadata:
   requires:
     bins: ["bilibili"]
+    connectors: ["bilibili"]
 ---
 
 # bilibili-auto-md

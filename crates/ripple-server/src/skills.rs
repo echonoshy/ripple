@@ -1,21 +1,26 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::config::{resolve_path, AppConfig};
 
 const SOURCE_RIPPLE: &str = "ripple";
 const SOURCE_USER: &str = "user";
 const STATUS_AVAILABLE: &str = "available";
+const STATUS_DRAFT: &str = "draft";
+const STATUS_INVALID: &str = "invalid";
+const STATUS_PENDING_ENABLE: &str = "pending_enable";
 const STATUS_CONFLICT_DISABLED: &str = "conflict_disabled";
 const STATUS_MISSING_REQUIREMENTS: &str = "missing_requirements";
+const STATUS_BLOCKED_BY_CONNECTOR_AUTH: &str = "blocked_by_connector_auth";
 const KNOWN_CONNECTORS: &[&str] = &["bilibili", "feishu", "google_workspace", "lark", "notion"];
 
 #[derive(Debug, Clone, Serialize)]
 pub struct SkillManifestEntry {
     pub id: String,
     pub name: String,
+    pub display_name: String,
     pub namespace: String,
     pub description: String,
     pub source: String,
@@ -30,16 +35,125 @@ pub struct SkillManifestEntry {
     pub risk_flags: Vec<String>,
     pub missing_bins: Vec<String>,
     pub missing_connectors: Vec<String>,
+    pub blocked_connectors: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SkillManifestOptions {
+    pub enabled_user_skill_ids: BTreeSet<String>,
+    pub validated_user_skill_ids: BTreeSet<String>,
+    pub archived_user_skill_ids: BTreeSet<String>,
+    pub connector_statuses: BTreeMap<String, bool>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct UserSkillSettings {
+    #[serde(default)]
+    pub enabled_skill_ids: BTreeSet<String>,
+    #[serde(default)]
+    pub records: BTreeMap<String, UserSkillRecord>,
+}
+
+impl UserSkillSettings {
+    pub fn enabled_manifest_skill_ids(&self) -> BTreeSet<String> {
+        let mut ids = self.enabled_skill_ids.clone();
+        for (id, record) in &self.records {
+            if record.desired_state == "enabled" {
+                ids.insert(id.clone());
+            } else {
+                ids.remove(id);
+            }
+        }
+        ids
+    }
+
+    pub fn validated_manifest_skill_ids(&self) -> BTreeSet<String> {
+        let mut ids = self.enabled_skill_ids.clone();
+        for (id, record) in &self.records {
+            if record
+                .validation
+                .as_ref()
+                .map(|validation| validation.passed)
+                .unwrap_or(false)
+            {
+                ids.insert(id.clone());
+            } else {
+                ids.remove(id);
+            }
+        }
+        ids
+    }
+
+    pub fn archived_skill_ids(&self) -> BTreeSet<String> {
+        self.records
+            .iter()
+            .filter(|(_, record)| record.desired_state == "archived")
+            .map(|(id, _)| id.clone())
+            .collect()
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct UserSkillRecord {
+    pub desired_state: String,
+    #[serde(default)]
+    pub validation: Option<UserSkillValidationResult>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+    #[serde(default)]
+    pub last_tested_at: Option<String>,
+}
+
+impl Default for UserSkillRecord {
+    fn default() -> Self {
+        Self {
+            desired_state: STATUS_DRAFT.to_string(),
+            validation: None,
+            created_at: None,
+            updated_at: None,
+            last_tested_at: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct UserSkillValidationResult {
+    pub passed: bool,
+    #[serde(default)]
+    pub checks: Vec<UserSkillValidationCheck>,
+    #[serde(default)]
+    pub issues: Vec<String>,
+    #[serde(default)]
+    pub preview: Option<String>,
+    #[serde(default)]
+    pub validated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct UserSkillValidationCheck {
+    pub name: String,
+    pub status: String,
+    pub message: String,
 }
 
 pub fn build_skill_manifest(
     config: &AppConfig,
     workspace_root: Option<&Path>,
 ) -> Vec<SkillManifestEntry> {
+    build_skill_manifest_with_options(config, workspace_root, &SkillManifestOptions::default())
+}
+
+pub fn build_skill_manifest_with_options(
+    config: &AppConfig,
+    workspace_root: Option<&Path>,
+    options: &SkillManifestOptions,
+) -> Vec<SkillManifestEntry> {
     let mut entries = Vec::new();
     let mut shared_by_name = BTreeMap::new();
     for shared in shared_skill_dirs(config) {
-        for skill in load_skills_from_dir(config, &shared, SOURCE_RIPPLE) {
+        for skill in load_skills_from_dir(config, &shared, SOURCE_RIPPLE, options) {
             shared_by_name.entry(skill.name.clone()).or_insert(skill);
         }
     }
@@ -48,11 +162,22 @@ pub fn build_skill_manifest(
 
     let mut user_by_name = BTreeMap::new();
     if let Some(workspace_root) = workspace_root {
-        for mut skill in load_skills_from_dir(config, &workspace_root.join("skills"), SOURCE_USER) {
+        for mut skill in
+            load_skills_from_dir(config, &workspace_root.join("skills"), SOURCE_USER, options)
+        {
+            if options.archived_user_skill_ids.contains(&skill.id) {
+                continue;
+            }
             if shared_names.contains(&skill.name) {
                 skill.enabled = false;
                 skill.status = STATUS_CONFLICT_DISABLED.to_string();
                 skill.conflict_with = Some(format!("{SOURCE_RIPPLE}:{}", skill.name));
+            } else if !options.enabled_user_skill_ids.contains(&skill.id) {
+                skill.enabled = false;
+                skill.status = STATUS_PENDING_ENABLE.to_string();
+            } else if !options.validated_user_skill_ids.contains(&skill.id) {
+                skill.enabled = false;
+                skill.status = STATUS_INVALID.to_string();
             }
             user_by_name.entry(skill.name.clone()).or_insert(skill);
         }
@@ -67,7 +192,34 @@ pub fn build_skill_manifest(
 }
 
 pub fn render_skill_manifest(config: &AppConfig, workspace_root: Option<&Path>) -> String {
-    let entries = build_skill_manifest(config, workspace_root);
+    render_skill_manifest_with_options(config, workspace_root, &SkillManifestOptions::default())
+}
+
+pub fn render_skill_manifest_with_options(
+    config: &AppConfig,
+    workspace_root: Option<&Path>,
+    options: &SkillManifestOptions,
+) -> String {
+    let entries = build_skill_manifest_with_options(config, workspace_root, options)
+        .into_iter()
+        .filter(|entry| entry.enabled && entry.status == STATUS_AVAILABLE)
+        .collect::<Vec<_>>();
+    render_skill_entries(entries)
+}
+
+pub fn render_all_skill_manifest_with_options(
+    config: &AppConfig,
+    workspace_root: Option<&Path>,
+    options: &SkillManifestOptions,
+) -> String {
+    render_skill_entries(build_skill_manifest_with_options(
+        config,
+        workspace_root,
+        options,
+    ))
+}
+
+fn render_skill_entries(entries: Vec<SkillManifestEntry>) -> String {
     if entries.is_empty() {
         return "- no skills available".to_string();
     }
@@ -109,7 +261,11 @@ pub fn render_skill_manifest(config: &AppConfig, workspace_root: Option<&Path>) 
             if !entry.requires_connectors.is_empty() {
                 line.push_str(&format!(
                     "\n  requires_connectors: {}",
-                    render_requirement_list(&entry.requires_connectors, &entry.missing_connectors)
+                    render_requirement_list_with_blocked(
+                        &entry.requires_connectors,
+                        &entry.missing_connectors,
+                        &entry.blocked_connectors
+                    )
                 ));
             }
             if !entry.risk_flags.is_empty() {
@@ -119,6 +275,21 @@ pub fn render_skill_manifest(config: &AppConfig, workspace_root: Option<&Path>) 
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+pub fn read_user_skill_settings(path: &Path) -> UserSkillSettings {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return UserSkillSettings::default();
+    };
+    serde_json::from_str(&text).unwrap_or_default()
+}
+
+pub fn write_user_skill_settings(path: &Path, settings: &UserSkillSettings) -> anyhow::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, serde_json::to_string_pretty(settings)?)?;
+    Ok(())
 }
 
 fn shared_skill_dirs(config: &AppConfig) -> Vec<PathBuf> {
@@ -148,7 +319,12 @@ fn shared_skill_dirs(config: &AppConfig) -> Vec<PathBuf> {
     dirs
 }
 
-fn load_skills_from_dir(config: &AppConfig, dir: &Path, source: &str) -> Vec<SkillManifestEntry> {
+fn load_skills_from_dir(
+    config: &AppConfig,
+    dir: &Path,
+    source: &str,
+    options: &SkillManifestOptions,
+) -> Vec<SkillManifestEntry> {
     let mut out = Vec::new();
     if !dir.is_dir() {
         return out;
@@ -163,20 +339,25 @@ fn load_skills_from_dir(config: &AppConfig, dir: &Path, source: &str) -> Vec<Ski
     paths.sort();
     for path in paths {
         if path.is_dir() {
-            out.extend(load_skills_from_dir(config, &path, source));
+            out.extend(load_skills_from_dir(config, &path, source, options));
             continue;
         }
         if path.extension().and_then(|ext| ext.to_str()) != Some("md") {
             continue;
         }
-        if let Some(skill) = load_skill_file(config, &path, source) {
+        if let Some(skill) = load_skill_file(config, &path, source, options) {
             out.push(skill);
         }
     }
     out
 }
 
-fn load_skill_file(config: &AppConfig, path: &Path, source: &str) -> Option<SkillManifestEntry> {
+fn load_skill_file(
+    config: &AppConfig,
+    path: &Path,
+    source: &str,
+    options: &SkillManifestOptions,
+) -> Option<SkillManifestEntry> {
     let text = std::fs::read_to_string(path).ok()?;
     let metadata = parse_frontmatter(&text).unwrap_or_default();
     let is_entry = path.file_name().and_then(|name| name.to_str()) == Some("SKILL.md");
@@ -192,6 +373,24 @@ fn load_skill_file(config: &AppConfig, path: &Path, source: &str) -> Option<Skil
                 .and_then(|stem| stem.to_str())
                 .map(str::to_string)
         })?;
+    let display_name = metadata
+        .get("display_name")
+        .or_else(|| metadata.get("display-name"))
+        .or_else(|| {
+            metadata
+                .get("metadata")
+                .and_then(serde_yaml::Value::as_mapping)
+                .and_then(|metadata| {
+                    metadata
+                        .get(serde_yaml::Value::String("display_name".to_string()))
+                        .or_else(|| {
+                            metadata.get(serde_yaml::Value::String("display-name".to_string()))
+                        })
+                })
+        })
+        .and_then(serde_yaml::Value::as_str)
+        .unwrap_or(&name)
+        .to_string();
     let requires = nested_mapping(&metadata, "requires");
     let requires_bins = string_list_field(requires, "bins");
     let requires_connectors = string_list_field(requires, "connectors");
@@ -214,15 +413,27 @@ fn load_skill_file(config: &AppConfig, path: &Path, source: &str) -> Option<Skil
         .filter(|connector| !connector_available(connector))
         .cloned()
         .collect::<Vec<_>>();
-    let enabled = missing_bins.is_empty() && missing_connectors.is_empty();
-    let status = if enabled {
-        STATUS_AVAILABLE
-    } else {
+    let blocked_connectors = requires_connectors
+        .iter()
+        .filter(|connector| {
+            connector_available(connector)
+                && options.connector_statuses.get(connector.as_str()).copied() == Some(false)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let enabled =
+        missing_bins.is_empty() && missing_connectors.is_empty() && blocked_connectors.is_empty();
+    let status = if !missing_bins.is_empty() || !missing_connectors.is_empty() {
         STATUS_MISSING_REQUIREMENTS
+    } else if !blocked_connectors.is_empty() {
+        STATUS_BLOCKED_BY_CONNECTOR_AUTH
+    } else {
+        STATUS_AVAILABLE
     };
     Some(SkillManifestEntry {
         id: format!("{source}:{name}"),
         name,
+        display_name,
         namespace: source.to_string(),
         description: metadata
             .get("description")
@@ -248,6 +459,7 @@ fn load_skill_file(config: &AppConfig, path: &Path, source: &str) -> Option<Skil
         risk_flags,
         missing_bins,
         missing_connectors,
+        blocked_connectors,
     })
 }
 
@@ -317,11 +529,21 @@ fn push_clean(out: &mut Vec<String>, value: &str) {
 }
 
 fn render_requirement_list(values: &[String], missing: &[String]) -> String {
+    render_requirement_list_with_blocked(values, missing, &[])
+}
+
+fn render_requirement_list_with_blocked(
+    values: &[String],
+    missing: &[String],
+    blocked: &[String],
+) -> String {
     values
         .iter()
         .map(|value| {
             if missing.iter().any(|missing| missing == value) {
                 format!("{value} (missing)")
+            } else if blocked.iter().any(|blocked| blocked == value) {
+                format!("{value} (not_connected)")
             } else {
                 value.clone()
             }
@@ -487,6 +709,35 @@ version: "9.9.9""#,
     }
 
     #[test]
+    fn user_skills_default_to_pending_enable() {
+        let root = std::env::temp_dir().join(format!("ripple-skills-test-{}", Uuid::new_v4()));
+        let workspace = root.join("workspace");
+        let user = workspace.join("skills/user-demo/SKILL.md");
+        write_skill(
+            &user,
+            r#"name: user-demo
+description: user demo
+version: "1.0.0""#,
+        );
+        let config = test_config(&root, Vec::new());
+
+        let entries = build_skill_manifest(&config, Some(&workspace));
+        let entry = entries
+            .iter()
+            .find(|entry| entry.id == "user:user-demo")
+            .unwrap();
+
+        assert_eq!(entry.source, "user");
+        assert!(!entry.enabled);
+        assert_eq!(entry.status, "pending_enable");
+
+        let rendered = render_skill_manifest(&config, Some(&workspace));
+        assert!(!rendered.contains("user:user-demo"));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn manifest_records_requirements_and_missing_status() {
         let root = std::env::temp_dir().join(format!("ripple-skills-test-{}", Uuid::new_v4()));
         let shared = root.join("shared/gmail/SKILL.md");
@@ -522,10 +773,47 @@ risk:
         assert!(!entry.enabled);
         assert_eq!(entry.status, "missing_requirements");
 
-        let rendered = render_skill_manifest(&config, None);
+        let rendered =
+            render_all_skill_manifest_with_options(&config, None, &SkillManifestOptions::default());
         assert!(rendered.contains("ripple:gmail"));
         assert!(rendered.contains("status: missing_requirements"));
 
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn connector_backed_shared_skills_block_when_connector_is_not_connected() {
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .unwrap()
+            .to_path_buf();
+        let fake_gog_root =
+            std::env::temp_dir().join(format!("ripple-gog-test-{}", Uuid::new_v4()));
+        let fake_gog = fake_gog_root.join("current/bin/gog");
+        std::fs::create_dir_all(fake_gog.parent().unwrap()).unwrap();
+        std::fs::write(&fake_gog, "").unwrap();
+        let mut config = test_config(&repo_root, vec!["skills/gog".to_string()]);
+        config.sandbox.gogcli_cli_install_root = Some(fake_gog_root.clone());
+        let mut options = SkillManifestOptions::default();
+        options
+            .connector_statuses
+            .insert("google_workspace".to_string(), false);
+
+        let entries = build_skill_manifest_with_options(&config, None, &options);
+        let entry = entries
+            .iter()
+            .find(|entry| entry.id == "ripple:gog-gmail")
+            .expect("gog-gmail skill should exist");
+
+        assert_eq!(entry.requires_connectors, vec!["google_workspace"]);
+        assert_eq!(entry.blocked_connectors, vec!["google_workspace"]);
+        assert_eq!(entry.status, "blocked_by_connector_auth");
+        assert!(!entry.enabled);
+
+        let rendered = render_skill_manifest_with_options(&config, None, &options);
+        assert!(!rendered.contains("ripple:gog-gmail"));
+
+        let _ = std::fs::remove_dir_all(fake_gog_root);
     }
 }

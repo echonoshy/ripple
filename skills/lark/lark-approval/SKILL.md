@@ -5,6 +5,7 @@ description: "飞书审批 API：审批实例、审批任务管理。"
 metadata:
   requires:
     bins: ["lark-cli"]
+    connectors: ["feishu"]
   cliHelp: "lark-cli approval --help"
 ---
 

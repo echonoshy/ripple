@@ -5,6 +5,7 @@ description: "飞书任务：管理任务、清单和任务智能体。创建待
 metadata:
   requires:
     bins: ["lark-cli"]
+    connectors: ["feishu"]
   cliHelp: "lark-cli task --help"
 ---
 

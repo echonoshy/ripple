@@ -5,6 +5,7 @@ description: "飞书电子表格：创建和操作电子表格。支持创建表
 metadata:
   requires:
     bins: ["lark-cli"]
+    connectors: ["feishu"]
   cliHelp: "lark-cli sheets --help"
 ---
 

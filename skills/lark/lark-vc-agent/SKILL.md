@@ -5,6 +5,7 @@ description: "飞书视频会议：让机器人代当前用户加入/离开正�
 metadata:
   requires:
     bins: ["lark-cli"]
+    connectors: ["feishu"]
   cliHelp: "lark-cli vc --help"
 ---
 

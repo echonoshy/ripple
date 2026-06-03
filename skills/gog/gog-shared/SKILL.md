@@ -5,6 +5,7 @@ description: "gogcli（gog 二进制）在 ripple 沙箱中的本地约定：部
 metadata:
   requires:
     bins: ["gog"]
+    connectors: ["google_workspace"]
   cliHelp: "gog --help"
 ---
 

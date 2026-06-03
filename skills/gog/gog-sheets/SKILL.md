@@ -5,6 +5,7 @@ description: "用 gog 读/写 Google Sheets。**先读 gog-shared**。对 update
 metadata:
   requires:
     bins: ["gog"]
+    connectors: ["google_workspace"]
 ---
 
 # gog-sheets

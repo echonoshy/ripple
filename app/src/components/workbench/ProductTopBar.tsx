@@ -29,6 +29,7 @@ interface ProductTopBarProps {
 const navLabelKeys: Record<WorkspaceView, MessageKey> = {
   sessions: "nav.sessions",
   files: "nav.files",
+  skills: "nav.skills",
   automations: "nav.automations",
   connectors: "nav.connectors",
   home: "nav.settings",

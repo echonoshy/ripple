@@ -5,6 +5,7 @@ description: "飞书即时通讯：收发消息和管理群聊。发送和回复
 metadata:
   requires:
     bins: ["lark-cli"]
+    connectors: ["feishu"]
   cliHelp: "lark-cli im --help"
 ---
 

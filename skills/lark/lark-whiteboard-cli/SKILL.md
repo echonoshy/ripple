@@ -6,6 +6,7 @@ compatibility: Requires Node.js 18+
 metadata:
   requires:
     bins: ["lark-cli"]
+    connectors: ["feishu"]
 ---
 
 > [!NOTE]

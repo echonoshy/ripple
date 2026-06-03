@@ -5,6 +5,7 @@ description: "飞书日历（calendar）：提供日历与日程（会议）的�
 metadata:
   requires:
     bins: ["lark-cli"]
+    connectors: ["feishu"]
   cliHelp: "lark-cli calendar --help"
 ---
 

@@ -5,6 +5,7 @@ description: "飞书考勤打卡：查询自己的考勤打卡记录"
 metadata:
   requires:
     bins: ["lark-cli"]
+    connectors: ["feishu"]
   cliHelp: "lark-cli attendance --help"
 ---
 

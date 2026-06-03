@@ -3,7 +3,8 @@ use std::path::Path as FsPath;
 use serde_json::Value;
 
 use crate::api::connectors::read_valid_bilibili_credential_file;
-use crate::skills::render_skill_manifest;
+use crate::api::skills::skill_manifest_options_for_user;
+use crate::skills::{render_skill_manifest_with_options, SkillManifestOptions};
 use crate::state::AppState;
 
 pub(crate) fn build_codex_chat_prompt(
@@ -58,6 +59,8 @@ pub(crate) fn build_codex_chat_prompt(
         _ if context_folder_path.is_some() => "No automatic folder context evidence was collected. Search or read files under the context folder before using web_search unless the user explicitly asked for online/latest information.".to_string(),
         _ => "(none)".to_string(),
     };
+    let skill_options = skill_manifest_options_for_user(state, user_id)
+        .unwrap_or_else(|_| SkillManifestOptions::default());
     format!(
         "You are Codex, running as Ripple's trusted execution plane.\n\
 Ripple is the control plane: it owns user identity, sandbox isolation, connector state, permissions, and API/session lifecycle. Do the real work inside the current user's workspace.\n\n\
@@ -94,7 +97,7 @@ Ripple is the control plane: it owns user identity, sandbox isolation, connector
         context_section,
         folder_context_evidence_section,
         connector_manifest(state, user_id),
-        render_skill_manifest(&state.config, Some(workspace_root)),
+        render_skill_manifest_with_options(&state.config, Some(workspace_root), &skill_options),
         system_prompt.unwrap_or("(none)"),
         attachment_section,
         if user_input.trim().is_empty() {

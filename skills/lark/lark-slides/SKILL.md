@@ -5,6 +5,7 @@ description: "飞书幻灯片：创建和编辑幻灯片，接口通过 XML 协�
 metadata:
   requires:
     bins: ["lark-cli"]
+    connectors: ["feishu"]
   cliHelp: "lark-cli slides --help"
 ---
 

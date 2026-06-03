@@ -5,6 +5,7 @@ description: "Notion 数据库（database）操作：查询数据库（filter + 
 metadata:
   requires:
     bins: ["ntn"]
+    connectors: ["notion"]
   cliHelp: "ntn datasources --help"
 ---
 

@@ -18,6 +18,7 @@
     "tauri:android:init": "tauri android init",
     "tauri:android:dev": "tauri android dev",
     "tauri:android:build": "tauri android build",
+    "check:android-icon": "node scripts/check-android-launcher-icon.mjs",
     "lint": "eslint",
     "lint:fix": "eslint --fix",
     "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json,css}\"",

@@ -8,6 +8,9 @@ import { useI18n } from "@/i18n";
 
 export type AuthGatewayMode = "login" | "invite" | "service";
 
+const PRIMARY_ACTION_BUTTON_CLASS =
+  "flex h-11 w-full items-center justify-center rounded-lg border border-[#007aff] bg-[#007aff] text-sm font-semibold text-white shadow-[0_12px_28px_rgba(0,122,255,0.18)] transition-[background-color,border-color,box-shadow] duration-200 ease-out hover:bg-[#1d56d8] hover:shadow-[0_16px_34px_rgba(0,122,255,0.22)] disabled:cursor-not-allowed disabled:border-[#dfe6f4] disabled:bg-[#f2f4f7] disabled:text-[#98a2b3] disabled:shadow-none motion-reduce:transition-none";
+
 interface AuthGatewayProps {
   authMode: AuthGatewayMode;
   authErrorMsg: string;
@@ -75,7 +78,7 @@ function TextInput({
         autoCapitalize="none"
         autoCorrect="off"
         spellCheck={false}
-        className={`h-12 w-full rounded-lg border border-[#dfe6f4] bg-white px-3 pr-4 pl-12 text-[16px] leading-6 text-[#101828] transition outline-none focus:border-[#007aff] focus:ring-2 focus:ring-[#007aff]/12 ${mono ? "font-[family-name:var(--font-mono)]" : ""}`}
+        className={`h-12 w-full rounded-lg border border-[#dfe6f4] bg-white px-3 pr-4 pl-12 text-[16px] leading-6 text-[#101828] shadow-[0_1px_0_rgba(255,255,255,0.75)_inset] transition-[border-color,box-shadow,transform] duration-200 ease-out outline-none hover:border-[#cbd7ea] hover:shadow-[0_8px_22px_rgba(15,23,42,0.06)] focus:border-[#007aff] focus:shadow-[0_0_0_4px_rgba(0,122,255,0.08),0_10px_24px_rgba(15,23,42,0.08)] focus:ring-2 focus:ring-[#007aff]/12 motion-reduce:transition-none ${mono ? "font-[family-name:var(--font-mono)]" : ""}`}
       />
     </div>
   );
@@ -94,10 +97,10 @@ function ModeButton({
     <button
       type="button"
       onClick={onClick}
-      className={`inline-flex h-9 items-center justify-center rounded-lg border px-3 text-sm font-semibold transition ${
+      className={`inline-flex h-9 items-center justify-center rounded-lg border px-3 text-sm font-semibold transition-[background-color,border-color,box-shadow] duration-200 ease-out motion-reduce:transition-none ${
         active
-          ? "border-[#007aff]/20 bg-[#eef4ff] text-[#1f5bd8]"
-          : "border-[#dfe6f4] bg-white text-[#344054] hover:border-[#cbd7ea] hover:bg-[#f8fafc]"
+          ? "border-[#007aff]/20 bg-[#eef4ff] text-[#1f5bd8] shadow-[0_8px_20px_rgba(0,122,255,0.10)]"
+          : "border-[#dfe6f4] bg-white text-[#344054] shadow-[0_1px_0_rgba(255,255,255,0.8)_inset] hover:border-[#cbd7ea] hover:bg-[#f8fafc] hover:shadow-[0_10px_24px_rgba(15,23,42,0.07)]"
       }`}
     >
       {children}
@@ -154,17 +157,27 @@ export default function AuthGateway({
   return (
     <div
       data-ripple-auth-gateway="true"
-      className="min-h-screen w-screen overflow-y-auto bg-[#f2f2f7] text-[#101828]"
+      className="relative isolate min-h-screen w-screen overflow-y-auto bg-[#f2f2f7] text-[#101828]"
     >
-      <div className="mx-auto flex min-h-screen w-full max-w-[760px] flex-col px-4 pt-[calc(max(env(safe-area-inset-top),12px)+20px)] pb-[max(env(safe-area-inset-bottom),20px)] sm:px-6 lg:max-w-[880px] lg:pt-[calc(max(env(safe-area-inset-top),16px)+28px)]">
-        <header className="flex h-12 shrink-0 items-center">
-          <div className="flex items-center gap-3">
+      <div
+        data-ripple-auth-ambient="true"
+        aria-hidden="true"
+        className="ripple-auth-ambient-motion pointer-events-none absolute inset-x-0 top-0 z-0 h-[58vh] bg-[linear-gradient(180deg,rgba(0,122,255,0.07)_0%,rgba(255,255,255,0.46)_48%,rgba(242,242,247,0)_100%)] motion-reduce:animate-none"
+      />
+      <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-[760px] flex-col px-4 pt-[calc(max(env(safe-area-inset-top),12px)+20px)] pb-[max(env(safe-area-inset-bottom),20px)] sm:px-6 lg:max-w-[880px] lg:pt-[calc(max(env(safe-area-inset-top),16px)+28px)]">
+        <header className="ripple-auth-header-motion flex h-14 shrink-0 items-center motion-reduce:animate-none">
+          <div className="flex items-center gap-3.5">
             <RippleIcon
-              size={38}
-              className="h-9 w-9 rounded-xl shadow-[0_12px_28px_rgba(60,60,67,0.10)]"
+              size={48}
+              className="h-12 w-12 rounded-[14px] shadow-[0_18px_38px_rgba(15,23,42,0.16)]"
             />
             <div className="min-w-0">
-              <div className="text-base leading-5 font-semibold">Ripple</div>
+              <div
+                data-ripple-auth-header-wordmark="true"
+                className="text-[15px] leading-5 font-semibold tracking-[0.14em] text-[#007aff]"
+              >
+                RIPPLE
+              </div>
               <div className="text-xs font-medium text-[#667085]">{t("auth.tagline")}</div>
             </div>
           </div>
@@ -174,22 +187,13 @@ export default function AuthGateway({
           data-ripple-auth-main="true"
           className="flex flex-1 -translate-y-6 flex-col items-center justify-center gap-6 py-6 sm:-translate-y-8 sm:gap-7 lg:-translate-y-10 lg:py-10"
         >
-          <section className="w-full max-w-[680px] text-center" aria-label="Ripple">
-            <div
-              data-ripple-auth-hero-mark="true"
-              className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-white/80 bg-white/76 shadow-[0_18px_38px_rgba(60,60,67,0.10)] backdrop-blur-xl"
-            >
-              <RippleIcon size={56} className="h-14 w-14 rounded-[14px]" />
-            </div>
-            <p
-              data-ripple-auth-hero-label="true"
-              className="text-[15px] leading-6 font-semibold tracking-[0.14em] text-[#007aff] uppercase"
-            >
-              Ripple
-            </p>
+          <section
+            className="ripple-auth-brand-motion w-full max-w-[680px] text-center motion-reduce:animate-none"
+            aria-label="Ripple"
+          >
             <h1
               data-ripple-brand-wordmark="true"
-              className="relative mx-auto mt-2 flex max-w-[680px] flex-wrap items-baseline justify-center gap-x-2 text-[36px] leading-[40px] font-semibold tracking-normal text-[#111827] sm:gap-x-3 sm:text-[52px] sm:leading-[56px]"
+              className="relative mx-auto flex max-w-[680px] flex-wrap items-baseline justify-center gap-x-2 text-[36px] leading-[40px] font-semibold tracking-normal text-[#111827] sm:gap-x-3 sm:text-[52px] sm:leading-[56px]"
               aria-label={t("auth.brandPhrase")}
             >
               <span className="inline-block">Flow</span>
@@ -215,7 +219,10 @@ export default function AuthGateway({
             </div>
           </section>
 
-          <section className="w-full max-w-[520px] rounded-2xl border border-[#d7d7dd] bg-white/84 p-5 shadow-[0_24px_70px_rgba(60,60,67,0.10)] backdrop-blur-xl sm:p-6">
+          <section
+            data-ripple-auth-card="true"
+            className="ripple-auth-card-motion w-full max-w-[520px] rounded-2xl border border-[#d7d7dd] bg-white/88 p-5 shadow-[0_30px_90px_rgba(15,23,42,0.12),0_1px_0_rgba(255,255,255,0.82)_inset] backdrop-blur-xl transition-[border-color,box-shadow] duration-300 ease-out hover:border-[#cbd7ea] hover:shadow-[0_34px_110px_rgba(15,23,42,0.14),0_1px_0_rgba(255,255,255,0.88)_inset] motion-reduce:transform-none motion-reduce:animate-none motion-reduce:transition-none sm:p-6"
+          >
             <div className="mb-5 flex items-start gap-3">
               <IconTile tone={isService ? "warning" : "accent"} size="lg">
                 {isService ? <Code2 size={18} /> : <UserRound size={18} />}
@@ -280,7 +287,7 @@ export default function AuthGateway({
                 <button
                   type="submit"
                   disabled={isAuthSubmitting || !keyInput.trim()}
-                  className="flex h-11 w-full items-center justify-center rounded-lg border border-[#007aff] bg-[#007aff] text-sm font-semibold text-white shadow-[0_12px_28px_rgba(36,99,235,0.18)] transition hover:bg-[#1d56d8] disabled:cursor-not-allowed disabled:border-[#dfe6f4] disabled:bg-[#f2f4f7] disabled:text-[#98a2b3] disabled:shadow-none"
+                  className={PRIMARY_ACTION_BUTTON_CLASS}
                 >
                   {isAuthSubmitting ? t("auth.connecting") : t("auth.connectWithApiKey")}
                 </button>
@@ -334,7 +341,7 @@ export default function AuthGateway({
                     !passwordInput ||
                     (isInvite && !inviteCodeInput.trim())
                   }
-                  className="flex h-11 w-full items-center justify-center rounded-lg border border-[#007aff] bg-[#007aff] text-sm font-semibold text-white shadow-[0_12px_28px_rgba(36,99,235,0.18)] transition hover:bg-[#1d56d8] disabled:cursor-not-allowed disabled:border-[#dfe6f4] disabled:bg-[#f2f4f7] disabled:text-[#98a2b3] disabled:shadow-none"
+                  className={PRIMARY_ACTION_BUTTON_CLASS}
                 >
                   {isAuthSubmitting
                     ? t("auth.working")

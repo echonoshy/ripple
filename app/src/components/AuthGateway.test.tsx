@@ -77,22 +77,22 @@ function testGatewayShowsPrimaryLoginWithoutProductIntroModule() {
   assert.equal(developerAccessMatches.length, 1);
 }
 
-function testGatewayHeroBrandMarkAndInputsAreReadable() {
+function testGatewayHeaderBrandAndInputsAreReadable() {
   const html = renderGateway();
   const source = readFileSync(new URL("./AuthGateway.tsx", import.meta.url), "utf8");
-  const heroMark = html.match(/<div[^>]*data-ripple-auth-hero-mark="true"[^>]*>/)?.[0];
-  const heroLabel = html.match(/<p[^>]*data-ripple-auth-hero-label="true"[^>]*>/)?.[0];
+  const headerWordmark = html.match(
+    /<div[^>]*data-ripple-auth-header-wordmark="true"[^>]*>RIPPLE<\/div>/
+  )?.[0];
   const brandWith = html.match(/<span[^>]*data-ripple-auth-brand-with="true"[^>]*>/)?.[0];
 
-  assert.ok(heroMark);
-  assert.ok(heroLabel);
+  assert.ok(headerWordmark);
+  assert.doesNotMatch(html, /data-ripple-auth-hero-mark="true"/);
+  assert.doesNotMatch(html, /data-ripple-auth-hero-label="true"/);
   assert.ok(brandWith);
-  assert.match(heroMark, /h-16/);
-  assert.match(heroMark, /w-16/);
-  assert.match(source, /<RippleIcon size=\{56\} className="h-14 w-14 rounded-\[14px\]"/);
-  assert.doesNotMatch(source, /<RippleIcon size=\{44\} className="h-11 w-11/);
-  assert.match(heroLabel, /text-\[15px\]/);
-  assert.match(heroLabel, /tracking-\[0\.14em\]/);
+  assert.match(source, /<RippleIcon\s+size=\{48\}\s+className="h-12 w-12 rounded-\[14px\][^"]*"/);
+  assert.doesNotMatch(source, /<RippleIcon size=\{56\} className="h-14 w-14/);
+  assert.match(headerWordmark, /text-\[#007aff\]/);
+  assert.match(headerWordmark, /tracking-\[0\.14em\]/);
   assert.match(brandWith, /text-\[20px\]/);
   assert.match(brandWith, /sm:text-\[22px\]/);
   assert.doesNotMatch(brandWith, /TYPOGRAPHY_MICRO/);
@@ -102,6 +102,29 @@ function testGatewayHeroBrandMarkAndInputsAreReadable() {
   assert.match(source, /className=\{`h-12[\s\S]*pl-12[\s\S]*text-\[16px\]/);
   assert.match(source, /<Mail size=\{16\}/);
   assert.match(source, /<KeyRound size=\{16\}/);
+}
+
+function testGatewayUsesRestrainedMotionAndElevation() {
+  const html = renderGateway();
+  const source = readFileSync(new URL("./AuthGateway.tsx", import.meta.url), "utf8");
+  const globalCss = readFileSync(new URL("../globals.css", import.meta.url), "utf8");
+  const card = html.match(/<section[^>]*data-ripple-auth-card="true"[^>]*>/)?.[0];
+
+  assert.match(html, /data-ripple-auth-ambient="true"/);
+  assert.match(source, /ripple-auth-ambient-motion/);
+  assert.match(source, /ripple-auth-header-motion/);
+  assert.match(source, /ripple-auth-brand-motion/);
+  assert.ok(card);
+  assert.match(card, /ripple-auth-card-motion/);
+  assert.doesNotMatch(source, /hover:-translate-y-/);
+  assert.doesNotMatch(source, /hover:translate-y-/);
+  assert.match(card, /motion-reduce:transform-none/);
+  assert.match(source, /focus:shadow-\[0_0_0_4px_rgba\(0,122,255,0\.08\)/);
+  assert.match(source, /hover:shadow-\[0_16px_34px_rgba\(0,122,255,0\.22\)\]/);
+  assert.match(source, /motion-reduce:transition-none/);
+  assert.match(globalCss, /@keyframes ripple-auth-rise/);
+  assert.match(globalCss, /@keyframes ripple-auth-ambient/);
+  assert.match(globalCss, /prefers-reduced-motion:\s*reduce/);
 }
 
 function testGatewayMainContentSitsSlightlyHigher() {
@@ -163,7 +186,8 @@ function testGatewayRendersChineseLoginCopy() {
   assert.match(html, />每一次迭代的涟漪，都是向解的收敛。</);
   assert.match(html, />Each ripple of iteration converges toward the solution\./);
   assert.match(html, />你的 AI 工作空间</);
-  assert.match(html, />登录 Ripple</);
+  assert.match(html, /<h1 class="text-\[25px\][^"]*">登录<\/h1>/);
+  assert.doesNotMatch(html, />登录 Ripple</);
   assert.doesNotMatch(html, />使用你的账号凭据继续。</);
   assert.match(html, /aria-label="邮箱"/);
   assert.match(html, /aria-label="密码"/);
@@ -173,7 +197,8 @@ function testGatewayRendersChineseLoginCopy() {
 }
 
 testGatewayShowsPrimaryLoginWithoutProductIntroModule();
-testGatewayHeroBrandMarkAndInputsAreReadable();
+testGatewayHeaderBrandAndInputsAreReadable();
+testGatewayUsesRestrainedMotionAndElevation();
 testGatewayMainContentSitsSlightlyHigher();
 testGatewayDoesNotUseOldEqualWeightModeTabs();
 testGatewayShowsInviteFormWhenSelected();

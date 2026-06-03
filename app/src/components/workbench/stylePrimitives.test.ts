@@ -17,6 +17,13 @@ import {
   MOBILE_TAB_BAR_MASK_HEIGHT_CLASS,
   LUCIDE_STANDARD_STROKE_WIDTH,
   LUCIDE_NAV_STROKE_WIDTH,
+  TYPOGRAPHY_BODY_CLASS,
+  TYPOGRAPHY_BODY_MEDIUM_CLASS,
+  TYPOGRAPHY_META_CLASS,
+  TYPOGRAPHY_MICRO_CLASS,
+  TYPOGRAPHY_MOBILE_BODY_CLASS,
+  TYPOGRAPHY_PAGE_TITLE_CLASS,
+  TYPOGRAPHY_SECTION_TITLE_CLASS,
 } from "./stylePrimitives";
 
 assert.match(COMPACT_IOS_PAGE_BACKGROUND, /#f2f2f7/);
@@ -31,12 +38,18 @@ assert.match(GLASS_TOP_BAR_CLASS, /backdrop-blur-2xl/);
 assert.match(DENSE_GLASS_ICON_BUTTON_CLASS, /h-8 w-8/);
 assert.match(MOBILE_GLASS_ICON_BUTTON_CLASS, /h-11 w-11/);
 assert.match(MOBILE_GLASS_ICON_BUTTON_CLASS, /rounded-full/);
-assert.match(MOBILE_READABLE_TEXT_CLASS, /text-\[15px\]/);
-assert.match(MOBILE_READABLE_TEXT_CLASS, /leading-6/);
-assert.match(MOBILE_MAIN_TEXT_CLASS, /text-\[15px\]/);
-assert.match(MOBILE_LABEL_TEXT_CLASS, /text-\[13px\]/);
-assert.match(MOBILE_META_TEXT_CLASS, /text-\[12px\]/);
-assert.match(MOBILE_STATUS_TEXT_CLASS, /text-\[11px\]/);
+assert.equal(TYPOGRAPHY_PAGE_TITLE_CLASS, "text-[20px] leading-[30px] font-medium tracking-normal");
+assert.equal(TYPOGRAPHY_SECTION_TITLE_CLASS, "text-[16px] leading-6 font-medium tracking-normal");
+assert.equal(TYPOGRAPHY_BODY_CLASS, "text-[14px] leading-[22px]");
+assert.equal(TYPOGRAPHY_BODY_MEDIUM_CLASS, "text-[14px] leading-[22px] font-medium");
+assert.equal(TYPOGRAPHY_MOBILE_BODY_CLASS, "text-[16px] leading-6");
+assert.equal(TYPOGRAPHY_META_CLASS, "text-[12px] leading-5");
+assert.equal(TYPOGRAPHY_MICRO_CLASS, "text-[11px] leading-4");
+assert.equal(MOBILE_READABLE_TEXT_CLASS, TYPOGRAPHY_MOBILE_BODY_CLASS);
+assert.equal(MOBILE_MAIN_TEXT_CLASS, TYPOGRAPHY_MOBILE_BODY_CLASS);
+assert.equal(MOBILE_LABEL_TEXT_CLASS, TYPOGRAPHY_BODY_CLASS);
+assert.equal(MOBILE_META_TEXT_CLASS, TYPOGRAPHY_META_CLASS);
+assert.equal(MOBILE_STATUS_TEXT_CLASS, TYPOGRAPHY_MICRO_CLASS);
 assert.equal(MOBILE_PAGE_TOP_SAFE_AREA_CLASS, "pt-[max(env(safe-area-inset-top),12px)]");
 assert.equal(MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS, "pb-[calc(96px+env(safe-area-inset-bottom))]");
 assert.equal(MOBILE_TAB_BAR_MASK_HEIGHT_CLASS, "h-[calc(96px+env(safe-area-inset-bottom))]");
@@ -62,5 +75,14 @@ for (const sourcePath of mobileReadableSources) {
   const source = readFileSync(new URL(sourcePath, import.meta.url), "utf8");
   assert.doesNotMatch(source, /text-\[(?:9|10)px\]/, `${sourcePath} uses sub-11px text`);
 }
+
+const globalsCss = readFileSync(new URL("../../globals.css", import.meta.url), "utf8");
+assert.match(globalsCss, /-apple-system/);
+assert.match(globalsCss, /BlinkMacSystemFont/);
+assert.match(globalsCss, /"PingFang SC"/);
+assert.match(globalsCss, /"Microsoft YaHei UI"/);
+assert.match(globalsCss, /"Noto Sans SC"/);
+assert.match(globalsCss, /"Segoe UI"/);
+assert.match(globalsCss, /"Helvetica Neue"/);
 
 console.log("style primitives tests passed");

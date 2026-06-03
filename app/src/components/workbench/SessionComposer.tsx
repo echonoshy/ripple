@@ -30,7 +30,13 @@ import {
   type PendingLocalImage,
 } from "@/lib/pendingImages";
 import WorkspaceFolderPicker from "./WorkspaceFolderPicker";
-import { LUCIDE_STANDARD_STROKE_WIDTH } from "./stylePrimitives";
+import {
+  LUCIDE_STANDARD_STROKE_WIDTH,
+  TYPOGRAPHY_BODY_CLASS,
+  TYPOGRAPHY_META_CLASS,
+  TYPOGRAPHY_MICRO_CLASS,
+  TYPOGRAPHY_MOBILE_BODY_CLASS,
+} from "./stylePrimitives";
 
 interface SessionComposerProps {
   userId?: string;
@@ -369,15 +375,15 @@ export default function SessionComposer({
                 key={action.id}
                 type="button"
                 onClick={() => runQuickAction(action)}
-                className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[#111827] hover:bg-[#f2f2f7] ${
+                className={`flex w-full items-center gap-2 px-3 py-2 text-left ${TYPOGRAPHY_BODY_CLASS} text-[#111827] hover:bg-[#f2f2f7] ${
                   index === quickActionIndex ? "bg-[#eaf4ff]" : ""
                 }`}
               >
                 <Trash2 size={14} className="text-[#6b7280]" />
-                <span className="font-[family-name:var(--font-mono)] text-xs">
+                <span className={`font-[family-name:var(--font-mono)] ${TYPOGRAPHY_META_CLASS}`}>
                   /{action.command}
                 </span>
-                <span className="text-xs text-[#6b7280]">{action.label}</span>
+                <span className={`${TYPOGRAPHY_META_CLASS} text-[#6b7280]`}>{action.label}</span>
               </button>
             ))}
           </div>
@@ -418,7 +424,7 @@ export default function SessionComposer({
                   key={model.id}
                   type="button"
                   onClick={() => onSelectModel(model.id)}
-                  className={`flex w-full items-center rounded-xl px-3 py-2 text-left font-[family-name:var(--font-mono)] text-xs hover:bg-[#f2f2f7] ${
+                  className={`flex w-full items-center rounded-xl px-3 py-2 text-left font-[family-name:var(--font-mono)] ${TYPOGRAPHY_META_CLASS} hover:bg-[#f2f2f7] ${
                     selectedModel === model.id ? "bg-[#eaf4ff] text-[#007aff]" : "text-[#111827]"
                   }`}
                 >
@@ -453,7 +459,7 @@ export default function SessionComposer({
               ? t("composer.askAnything")
               : t("composer.askAnything")
       }
-      className={`session-composer-input mb-[2px] max-h-[104px] min-h-10 min-w-0 resize-none bg-transparent px-1.5 py-2 text-[16px] leading-6 text-[#111827] outline-none placeholder:text-[15px] placeholder:text-[#8e8e93] disabled:opacity-60 lg:mb-0 lg:max-h-[180px] lg:min-h-[36px] lg:px-2 lg:py-1.5 lg:text-[14px] lg:leading-6 lg:placeholder:text-[#8e8e93] ${
+      className={`session-composer-input mb-[2px] max-h-[104px] min-h-10 min-w-0 resize-none bg-transparent px-1.5 py-2 ${TYPOGRAPHY_MOBILE_BODY_CLASS} text-[#111827] outline-none placeholder:text-[15px] placeholder:text-[#8e8e93] disabled:opacity-60 lg:mb-0 lg:max-h-[180px] lg:min-h-[36px] lg:px-2 lg:py-1.5 lg:text-[14px] lg:leading-[22px] lg:placeholder:text-[#8e8e93] ${
         isExpandedComposer ? "col-span-2 row-start-1 w-full" : "flex-1"
       }`}
     />
@@ -549,7 +555,7 @@ export default function SessionComposer({
             {pendingFiles.map((file) => (
               <span
                 key={file.path}
-                className="inline-flex max-w-[240px] items-center gap-1.5 rounded-full border border-[#d7d7dd] bg-[#f2f2f7] px-2 py-1 text-[11px] text-[#3c3c43]"
+                className={`inline-flex max-w-[240px] items-center gap-1.5 rounded-full border border-[#d7d7dd] bg-[#f2f2f7] px-2 py-1 ${TYPOGRAPHY_MICRO_CLASS} text-[#3c3c43]`}
                 title={file.path}
               >
                 <FileText size={13} className="shrink-0 text-[#6b7280]" />
@@ -569,7 +575,7 @@ export default function SessionComposer({
         )}
         {(isUploadingFiles || uploadError) && (
           <div
-            className={`flex min-w-0 items-start gap-1.5 px-2 pt-1 pb-2 text-[11px] ${
+            className={`flex min-w-0 items-start gap-1.5 px-2 pt-1 pb-2 ${TYPOGRAPHY_MICRO_CLASS} ${
               uploadError ? "text-[#cf222e]" : "text-[#57606a]"
             }`}
           >

@@ -40,6 +40,13 @@ import {
   MOBILE_GLASS_ICON_BUTTON_CLASS,
   MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS,
   MOBILE_PAGE_TOP_SAFE_AREA_CLASS,
+  TYPOGRAPHY_BODY_CLASS,
+  TYPOGRAPHY_BODY_MEDIUM_CLASS,
+  TYPOGRAPHY_META_CLASS,
+  TYPOGRAPHY_META_MEDIUM_CLASS,
+  TYPOGRAPHY_MICRO_MEDIUM_CLASS,
+  TYPOGRAPHY_MOBILE_BODY_CLASS,
+  TYPOGRAPHY_PAGE_TITLE_CLASS,
 } from "./stylePrimitives";
 
 interface AutomationsPageProps {
@@ -220,13 +227,24 @@ function hasRunOutput(run: AgentRunInfo | null | undefined): boolean {
 }
 
 const automationActionButtonClass =
-  "inline-flex h-8 w-full min-w-0 items-center justify-center gap-1 rounded-full border border-[#dfe6f4] bg-white px-2 text-[12px] font-semibold text-[#384152] hover:bg-[#f7f8fa] [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0";
+  `inline-flex h-8 w-full min-w-0 items-center justify-center gap-1 rounded-full border border-[#dfe6f4] bg-white px-2 text-[#384152] hover:bg-[#f7f8fa] ${TYPOGRAPHY_META_MEDIUM_CLASS} [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0`;
 
 const automationDeleteButtonClass =
-  "inline-flex h-8 w-full min-w-0 items-center justify-center gap-1 rounded-full border px-2 text-[12px] font-semibold [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0";
+  `inline-flex h-8 w-full min-w-0 items-center justify-center gap-1 rounded-full border px-2 ${TYPOGRAPHY_META_MEDIUM_CLASS} [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0`;
 
 const runActionButtonClass =
-  "inline-flex h-8 shrink-0 items-center justify-center gap-1 rounded-full border border-[#dfe6f4] bg-white px-2 text-[12px] font-semibold text-[#384152] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:opacity-60 [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0";
+  `inline-flex h-8 shrink-0 items-center justify-center gap-1 rounded-full border border-[#dfe6f4] bg-white px-2 text-[#384152] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:opacity-60 ${TYPOGRAPHY_META_MEDIUM_CLASS} [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0`;
+
+const automationFieldLabelClass = `mb-1 block text-[#667085] ${TYPOGRAPHY_META_MEDIUM_CLASS}`;
+
+const automationFieldControlClass =
+  `h-10 w-full rounded-xl border border-[#dfe6f4] bg-white px-3 text-[#111827] outline-none focus:border-[#8da0ff] ${TYPOGRAPHY_MOBILE_BODY_CLASS} lg:h-9 lg:text-[14px] lg:leading-[22px]`;
+
+const automationMonoFieldControlClass =
+  `h-10 w-full rounded-xl border border-[#dfe6f4] bg-white px-3 font-[family-name:var(--font-mono)] text-[#111827] outline-none focus:border-[#8da0ff] ${TYPOGRAPHY_MOBILE_BODY_CLASS} lg:h-9 lg:text-[14px] lg:leading-[22px]`;
+
+const automationTextareaClass =
+  `w-full resize-none rounded-xl border border-[#dfe6f4] bg-white px-3 py-2 text-[#111827] outline-none focus:border-[#8da0ff] ${TYPOGRAPHY_MOBILE_BODY_CLASS} lg:text-[14px] lg:leading-[22px]`;
 
 function defaultRunAt(): string {
   const date = new Date(Date.now() + 60 * 60 * 1000);
@@ -596,10 +614,10 @@ export default function AutomationsPage({
               </button>
             ) : null}
             <div className="min-w-0">
-              <h1 className="text-[20px] leading-7 font-semibold tracking-normal">
-                {t("automations.title")}
-              </h1>
-              <div className="mt-1 font-[family-name:var(--font-mono)] text-[12px] text-[#7a8496]">
+              <h1 className={TYPOGRAPHY_PAGE_TITLE_CLASS}>{t("automations.title")}</h1>
+              <div
+                className={`mt-1 font-[family-name:var(--font-mono)] text-[#7a8496] ${TYPOGRAPHY_META_CLASS}`}
+              >
                 {t("automations.total", { count: schedules.length })}
               </div>
             </div>
@@ -624,7 +642,7 @@ export default function AutomationsPage({
                   beginCreateSchedule();
                 }
               }}
-              className="inline-flex h-11 items-center gap-2 rounded-full bg-[#007aff] px-3 text-[13px] font-semibold text-white shadow-[0_12px_26px_rgba(0,122,255,0.22)] hover:bg-[#006ee6] lg:h-10"
+              className={`inline-flex h-11 items-center gap-2 rounded-full bg-[#007aff] px-3 text-white shadow-[0_12px_26px_rgba(0,122,255,0.22)] hover:bg-[#006ee6] lg:h-10 ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
             >
               <Plus size={15} />
               {t("automations.new")}
@@ -633,7 +651,7 @@ export default function AutomationsPage({
         </header>
 
         {error ? (
-          <div className="flex items-start gap-2 rounded-xl border border-[#cf222e]/25 bg-[#ffebe9] px-3 py-3 text-sm font-medium text-[#cf222e]">
+          <div className={`flex items-start gap-2 rounded-xl border border-[#cf222e]/25 bg-[#ffebe9] px-3 py-3 text-[#cf222e] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
             <IconTile tone="danger" size="sm" className="mt-0.5">
               <AlertTriangle size={14} />
             </IconTile>
@@ -648,23 +666,21 @@ export default function AutomationsPage({
           >
             <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_220px]">
               <label className="block min-w-0">
-                <span className="mb-1 block text-[13px] font-medium text-[#667085]">
+                <span className={automationFieldLabelClass}>
                   {t("automations.titleLabel")}
                 </span>
                 <input
                   value={title}
                   onChange={(event) => setTitle(event.target.value)}
-                  className="h-10 w-full rounded-xl border border-[#dfe6f4] bg-white px-3 text-[16px] outline-none focus:border-[#8da0ff] lg:h-9 lg:text-[13px]"
+                  className={automationFieldControlClass}
                 />
               </label>
               <label className="block min-w-0">
-                <span className="mb-1 block text-[13px] font-medium text-[#667085]">
-                  {t("automations.model")}
-                </span>
+                <span className={automationFieldLabelClass}>{t("automations.model")}</span>
                 <select
                   value={formModel}
                   onChange={(event) => setFormModel(event.target.value)}
-                  className="h-10 w-full rounded-xl border border-[#dfe6f4] bg-white px-3 text-[16px] outline-none focus:border-[#8da0ff] lg:h-9 lg:text-[13px]"
+                  className={automationFieldControlClass}
                 >
                   {availableModels.map((model) => (
                     <option key={model.id} value={model.id}>
@@ -674,13 +690,11 @@ export default function AutomationsPage({
                 </select>
               </label>
               <label className="block min-w-0">
-                <span className="mb-1 block text-[13px] font-medium text-[#667085]">
-                  {t("automations.timezone")}
-                </span>
+                <span className={automationFieldLabelClass}>{t("automations.timezone")}</span>
                 <select
                   value={timezone}
                   onChange={(event) => setTimezone(event.target.value)}
-                  className="h-10 w-full rounded-xl border border-[#dfe6f4] bg-white px-3 font-[family-name:var(--font-mono)] text-[16px] outline-none focus:border-[#8da0ff] lg:h-9 lg:text-xs"
+                  className={automationMonoFieldControlClass}
                 >
                   {availableTimezones.map((option) => (
                     <option key={option} value={option}>
@@ -692,29 +706,25 @@ export default function AutomationsPage({
             </div>
 
             <label className="block">
-              <span className="mb-1 block text-[13px] font-medium text-[#667085]">
-                {t("automations.prompt")}
-              </span>
+              <span className={automationFieldLabelClass}>{t("automations.prompt")}</span>
               <textarea
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
                 rows={4}
-                className="w-full resize-none rounded-xl border border-[#dfe6f4] bg-white px-3 py-2 text-[16px] leading-6 outline-none focus:border-[#8da0ff] lg:text-[13px] lg:leading-5"
+                className={automationTextareaClass}
               />
             </label>
 
             <div className="grid gap-3 md:grid-cols-[190px_minmax(0,1fr)_auto] md:items-end">
               <div>
-                <span className="mb-1 block text-[13px] font-medium text-[#667085]">
-                  {t("automations.mode")}
-                </span>
+                <span className={automationFieldLabelClass}>{t("automations.mode")}</span>
                 <div className="grid grid-cols-2 rounded-xl border border-[#dfe6f4] bg-white p-0.5">
                   {(["once", "interval"] as ScheduleKind[]).map((option) => (
                     <button
                       key={option}
                       type="button"
                       onClick={() => setKind(option)}
-                      className={`h-9 rounded text-[13px] font-semibold ${
+                      className={`h-9 rounded ${TYPOGRAPHY_BODY_MEDIUM_CLASS} ${
                         kind === option
                           ? "bg-[#007aff] text-white"
                           : "text-[#384152] hover:bg-[#f7f8fa]"
@@ -728,38 +738,32 @@ export default function AutomationsPage({
 
               {kind === "once" ? (
                 <label className="block min-w-0">
-                  <span className="mb-1 block text-[13px] font-medium text-[#667085]">
-                    {t("automations.runAt")}
-                  </span>
+                  <span className={automationFieldLabelClass}>{t("automations.runAt")}</span>
                   <input
                     type="datetime-local"
                     value={runAt}
                     onChange={(event) => setRunAt(event.target.value)}
-                    className="h-10 w-full rounded-xl border border-[#dfe6f4] bg-white px-3 text-[16px] outline-none focus:border-[#8da0ff] lg:h-9 lg:text-[13px]"
+                    className={automationFieldControlClass}
                   />
                 </label>
               ) : (
                 <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_120px_130px]">
                   <label className="block min-w-0">
-                    <span className="mb-1 block text-[13px] font-medium text-[#667085]">
-                      {t("automations.every")}
-                    </span>
+                    <span className={automationFieldLabelClass}>{t("automations.every")}</span>
                     <input
                       type="number"
                       min={1}
                       value={intervalValue}
                       onChange={(event) => setIntervalValue(Number(event.target.value) || 1)}
-                      className="h-10 w-full rounded-xl border border-[#dfe6f4] bg-white px-3 text-[16px] outline-none focus:border-[#8da0ff] lg:h-9 lg:text-[13px]"
+                      className={automationFieldControlClass}
                     />
                   </label>
                   <label className="block min-w-0">
-                    <span className="mb-1 block text-[13px] font-medium text-[#667085]">
-                      {t("automations.unit")}
-                    </span>
+                    <span className={automationFieldLabelClass}>{t("automations.unit")}</span>
                     <select
                       value={intervalUnit}
                       onChange={(event) => setIntervalUnit(event.target.value as IntervalUnit)}
-                      className="h-10 w-full rounded-xl border border-[#dfe6f4] bg-white px-3 text-[16px] outline-none focus:border-[#8da0ff] lg:h-9 lg:text-[13px]"
+                      className={automationFieldControlClass}
                     >
                       <option value="minutes">{t("automations.minutes")}</option>
                       <option value="hours">{t("automations.hours")}</option>
@@ -767,16 +771,14 @@ export default function AutomationsPage({
                     </select>
                   </label>
                   <label className="block min-w-0">
-                    <span className="mb-1 block text-[13px] font-medium text-[#667085]">
-                      {t("automations.maxRuns")}
-                    </span>
+                    <span className={automationFieldLabelClass}>{t("automations.maxRuns")}</span>
                     <input
                       type="number"
                       min={1}
                       placeholder={t("automations.noLimit")}
                       value={maxRuns}
                       onChange={(event) => setMaxRuns(event.target.value)}
-                      className="h-10 w-full rounded-xl border border-[#dfe6f4] bg-white px-3 text-[16px] outline-none focus:border-[#8da0ff] lg:h-9 lg:text-[13px]"
+                      className={automationFieldControlClass}
                     />
                   </label>
                 </div>
@@ -786,7 +788,7 @@ export default function AutomationsPage({
                 <button
                   type="button"
                   onClick={closeForm}
-                  className="inline-flex h-10 items-center justify-center rounded-full border border-[#dfe6f4] bg-white px-4 text-[13px] font-semibold text-[#384152] shadow-[0_10px_24px_rgba(44,63,123,0.04)] hover:bg-[#f7f8fa]"
+                  className={`inline-flex h-10 items-center justify-center rounded-full border border-[#dfe6f4] bg-white px-4 text-[#384152] shadow-[0_10px_24px_rgba(44,63,123,0.04)] hover:bg-[#f7f8fa] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
                   disabled={isSubmitting}
                 >
                   {t("automations.cancel")}
@@ -794,7 +796,7 @@ export default function AutomationsPage({
                 <button
                   type="submit"
                   disabled={isSubmitting || !title.trim() || !prompt.trim()}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-full bg-[#007aff] px-4 text-[13px] font-semibold text-white shadow-[0_12px_26px_rgba(0,122,255,0.22)] hover:bg-[#006ee6] disabled:cursor-not-allowed disabled:bg-[#e5e7eb] disabled:bg-none disabled:text-[#8b8f94] disabled:shadow-none"
+                  className={`inline-flex h-10 items-center justify-center gap-2 rounded-full bg-[#007aff] px-4 text-white shadow-[0_12px_26px_rgba(0,122,255,0.22)] hover:bg-[#006ee6] disabled:cursor-not-allowed disabled:bg-[#e5e7eb] disabled:bg-none disabled:text-[#8b8f94] disabled:shadow-none ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
                 >
                   {isSubmitting ? (
                     <Loader2 size={14} className="animate-spin" />
@@ -810,7 +812,7 @@ export default function AutomationsPage({
 
         <div className="overflow-hidden rounded-2xl border border-[#dfe6f4] bg-white/74 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl">
           {schedules.length === 0 && !isLoading ? (
-            <div className="flex h-44 items-center justify-center text-[13px] text-[#667085]">
+            <div className={`flex h-44 items-center justify-center text-[#667085] ${TYPOGRAPHY_BODY_CLASS}`}>
               {t("automations.noAutomations")}
             </div>
           ) : (
@@ -842,22 +844,22 @@ export default function AutomationsPage({
                           </IconTile>
                           <div className="min-w-0 flex-1">
                             <div className="flex min-w-0 flex-wrap items-center gap-2">
-                              <span className="min-w-0 truncate text-[15px] font-semibold lg:text-[14px]">
+                              <span className={`min-w-0 truncate ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
                                 {schedule.title}
                               </span>
                               <span
-                                className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[11px] font-semibold capitalize ${statusClass(
+                                className={`shrink-0 rounded-full border px-1.5 py-0.5 capitalize ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} ${statusClass(
                                   schedule.status
                                 )}`}
                               >
                                 {schedule.status}
                               </span>
                             </div>
-                            <div className="mt-0.5 line-clamp-3 text-[13px] leading-5 text-[#667085]">
+                            <div className={`mt-0.5 line-clamp-3 text-[#667085] ${TYPOGRAPHY_BODY_CLASS}`}>
                               {schedule.prompt}
                             </div>
                             {schedule.status === "error" && schedule.last_error ? (
-                              <div className="mt-1 truncate text-xs font-medium text-[#cf222e]">
+                              <div className={`mt-1 truncate text-[#cf222e] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
                                 {schedule.last_error}
                               </div>
                             ) : null}
@@ -877,10 +879,10 @@ export default function AutomationsPage({
                             data-ripple-automation-meta-cell
                             className="min-w-0 rounded-lg border border-[#eef2fb] bg-[#f8fbff]/80 px-2 py-1"
                           >
-                            <div className="text-[12px] font-semibold tracking-normal text-[#8b8f94] uppercase">
+                            <div className={`tracking-normal text-[#8b8f94] uppercase ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
                               {t("automations.next")}
                             </div>
-                            <div className="mt-0.5 truncate text-[12px] text-[#384152]">
+                            <div className={`mt-0.5 truncate text-[#384152] ${TYPOGRAPHY_META_CLASS}`}>
                               {formatDate(schedule.next_run_at, locale, t)}
                             </div>
                           </div>
@@ -888,10 +890,10 @@ export default function AutomationsPage({
                             data-ripple-automation-meta-cell
                             className="min-w-0 rounded-lg border border-[#eef2fb] bg-[#f8fbff]/80 px-2 py-1"
                           >
-                            <div className="text-[12px] font-semibold tracking-normal text-[#8b8f94] uppercase">
+                            <div className={`tracking-normal text-[#8b8f94] uppercase ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
                               {t("automations.repeat")}
                             </div>
-                            <div className="mt-0.5 truncate font-[family-name:var(--font-mono)] text-[12px] text-[#384152]">
+                            <div className={`mt-0.5 truncate font-[family-name:var(--font-mono)] text-[#384152] ${TYPOGRAPHY_META_CLASS}`}>
                               {schedule.kind === "interval"
                                 ? `${intervalLabel(schedule.interval_seconds, t)} · ${runCountLabel(schedule, t)}`
                                 : t("automations.once")}
@@ -901,20 +903,20 @@ export default function AutomationsPage({
 
                         <div
                           data-ripple-automation-latest-run
-                          className="grid min-w-0 gap-1.5 rounded-lg border border-[#e8edf7] bg-[#f8fbff]/70 px-2 py-1.5 text-[12px]"
+                          className={`grid min-w-0 gap-1.5 rounded-lg border border-[#e8edf7] bg-[#f8fbff]/70 px-2 py-1.5 ${TYPOGRAPHY_META_CLASS}`}
                         >
                           <div className="flex min-w-0 items-start justify-between gap-2">
-                            <span className="text-[12px] font-semibold tracking-normal text-[#8b8f94] uppercase">
+                            <span className={`tracking-normal text-[#8b8f94] uppercase ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
                               {t("automations.latestRun")}
                             </span>
                             <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-                              <span className="text-[12px] text-[#667085]">
+                              <span className={`text-[#667085] ${TYPOGRAPHY_META_CLASS}`}>
                                 {latestRunAt
                                   ? formatDate(latestRunAt, locale, t)
                                   : t("automations.never")}
                               </span>
                               <span
-                                className={`rounded-full border px-1.5 py-0.5 text-[11px] font-semibold ${runStatusClass(
+                                className={`rounded-full border px-1.5 py-0.5 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} ${runStatusClass(
                                   latestRunStatus
                                 )}`}
                               >
@@ -923,7 +925,7 @@ export default function AutomationsPage({
                             </div>
                           </div>
                           {latestRunError ? (
-                            <div className="truncate text-[12px] font-medium text-[#cf222e]">
+                            <div className={`truncate text-[#cf222e] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
                               {latestRunError}
                             </div>
                           ) : null}
@@ -1080,7 +1082,7 @@ export default function AutomationsPage({
                         {pendingActionId === `${schedule.schedule_id}:delete` ? (
                           <Loader2 size={14} className="animate-spin" />
                         ) : confirmDeleteId === schedule.schedule_id ? (
-                          <span className="text-[12px] font-semibold">
+                          <span className={TYPOGRAPHY_META_MEDIUM_CLASS}>
                             {t("automations.confirm")}
                           </span>
                         ) : (
@@ -1098,10 +1100,10 @@ export default function AutomationsPage({
                         className="mt-4 border-t border-[#e8edf7] pt-3"
                       >
                         <div className="mb-2 flex items-center justify-between gap-3">
-                          <div className="text-[12px] font-semibold tracking-normal text-[#667085] uppercase">
+                          <div className={`tracking-normal text-[#667085] uppercase ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
                             {t("automations.runHistory")}
                           </div>
-                          <div className="font-[family-name:var(--font-mono)] text-[12px] text-[#8b8f94]">
+                          <div className={`font-[family-name:var(--font-mono)] text-[#8b8f94] ${TYPOGRAPHY_META_CLASS}`}>
                             {t("automations.runCount", {
                               count: runs.length,
                               label: runs.length === 1 ? "run" : "runs",
@@ -1109,7 +1111,7 @@ export default function AutomationsPage({
                           </div>
                         </div>
                         {runs.length === 0 ? (
-                          <div className="text-[12px] text-[#667085]">
+                          <div className={`text-[#667085] ${TYPOGRAPHY_META_CLASS}`}>
                             {t("automations.noRunsYet")}
                           </div>
                         ) : (
@@ -1122,26 +1124,26 @@ export default function AutomationsPage({
                                 <div
                                   key={run.job_id}
                                   data-ripple-automation-run-row
-                                  className="grid gap-2 py-2.5 text-[12px] md:grid-cols-[minmax(0,1fr)_auto] md:items-center"
+                                  className={`grid gap-2 py-2.5 md:grid-cols-[minmax(0,1fr)_auto] md:items-center ${TYPOGRAPHY_META_CLASS}`}
                                 >
                                   <div className="min-w-0">
                                     <div className="grid min-w-0 gap-1.5 sm:grid-cols-[90px_minmax(0,1fr)_120px] sm:items-center">
                                       <span
-                                        className={`w-fit rounded-full border px-1.5 py-0.5 text-[11px] font-semibold ${runStatusClass(
+                                        className={`w-fit rounded-full border px-1.5 py-0.5 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} ${runStatusClass(
                                           run.status
                                         )}`}
                                       >
                                         {run.status}
                                       </span>
-                                      <span className="truncate font-[family-name:var(--font-mono)] text-[12px] text-[#384152]">
+                                      <span className={`truncate font-[family-name:var(--font-mono)] text-[#384152] ${TYPOGRAPHY_META_CLASS}`}>
                                         {run.job_id}
                                       </span>
-                                      <span className="text-[12px] text-[#667085]">
+                                      <span className={`text-[#667085] ${TYPOGRAPHY_META_CLASS}`}>
                                         {formatDate(run.updated_at, locale, t)}
                                       </span>
                                     </div>
                                     {errorText ? (
-                                      <div className="mt-1 truncate text-[12px] font-medium text-[#cf222e]">
+                                      <div className={`mt-1 truncate text-[#cf222e] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
                                         {errorText}
                                       </div>
                                     ) : null}
@@ -1236,31 +1238,33 @@ export default function AutomationsPage({
             <div className="max-h-[82vh] w-full overflow-hidden rounded-2xl border border-[#dfe6f4] bg-white shadow-[0_24px_80px_rgba(15,23,42,0.22)] sm:max-w-3xl">
               <div className="flex items-start justify-between gap-3 border-b border-[#e8edf7] px-4 py-3">
                 <div className="min-w-0">
-                  <div className="truncate text-[14px] font-semibold">{outputPreview.title}</div>
-                  <div className="mt-1 truncate font-[family-name:var(--font-mono)] text-[12px] text-[#667085]">
+                  <div className={`truncate ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
+                    {outputPreview.title}
+                  </div>
+                  <div className={`mt-1 truncate font-[family-name:var(--font-mono)] text-[#667085] ${TYPOGRAPHY_META_CLASS}`}>
                     {outputPreview.jobId}
                   </div>
                 </div>
                 <button
                   type="button"
                   onClick={() => setOutputPreview(null)}
-                  className="inline-flex h-9 shrink-0 items-center justify-center rounded-full border border-[#dfe6f4] bg-white px-3 text-[12px] font-semibold text-[#384152] hover:bg-[#f7f8fa]"
+                  className={`inline-flex h-9 shrink-0 items-center justify-center rounded-full border border-[#dfe6f4] bg-white px-3 text-[#384152] hover:bg-[#f7f8fa] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
                 >
                   {t("automations.close")}
                 </button>
               </div>
               <div className="max-h-[calc(82vh-64px)] overflow-auto p-4">
                 {outputPreview.loading ? (
-                  <div className="flex h-32 items-center justify-center text-[13px] text-[#667085]">
+                  <div className={`flex h-32 items-center justify-center text-[#667085] ${TYPOGRAPHY_BODY_CLASS}`}>
                     <Loader2 size={16} className="mr-2 animate-spin" />
                     {t("automations.loadingOutput")}
                   </div>
                 ) : outputPreview.error ? (
-                  <div className="rounded-xl border border-[#cf222e]/25 bg-[#ffebe9] px-3 py-2 text-[13px] font-medium text-[#cf222e]">
+                  <div className={`rounded-xl border border-[#cf222e]/25 bg-[#ffebe9] px-3 py-2 text-[#cf222e] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
                     {outputPreview.error}
                   </div>
                 ) : (
-                  <pre className="font-[family-name:var(--font-mono)] text-[13px] leading-5 break-words whitespace-pre-wrap text-[#1f2937]">
+                  <pre className={`font-[family-name:var(--font-mono)] break-words whitespace-pre-wrap text-[#1f2937] ${TYPOGRAPHY_BODY_CLASS}`}>
                     {outputPreview.text || t("automations.emptyOutput")}
                   </pre>
                 )}

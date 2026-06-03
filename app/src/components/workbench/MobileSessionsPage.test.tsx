@@ -62,21 +62,14 @@ function testRendersChatAppStyleSessionList() {
 
 function testMobileBrandWordmarkHasQuietPersonality() {
   const html = renderMobileSessionsPage();
-  const wordmarkClass =
-    mobileSessionsPageSource.match(
-      /data-ripple-mobile-brand-wordmark="true"[\s\S]{0,180}className="([^"]+)"/
-    )?.[1] || "";
-
   assert.match(html, /data-ripple-mobile-brand-wordmark="true"/);
-  assert.match(wordmarkClass, /text-\[19px\]/);
-  assert.match(wordmarkClass, /font-\[650\]/);
-  assert.match(wordmarkClass, /tracking-normal/);
-  assert.doesNotMatch(wordmarkClass, /font-\[800\]/);
+  assert.match(mobileSessionsPageSource, /TYPOGRAPHY_PAGE_TITLE_CLASS/);
+  assert.doesNotMatch(mobileSessionsPageSource, /font-\[800\]/);
   assert.doesNotMatch(
     mobileSessionsPageSource,
     /data-ripple-mobile-brand-wordmark="true"[\s\S]{0,520}bg-\[#007aff\]/
   );
-  assert.doesNotMatch(wordmarkClass, /tracking-\[-/);
+  assert.doesNotMatch(mobileSessionsPageSource, /tracking-\[-/);
 }
 
 function testUsesQuietAgentControlPlaneStyling() {
@@ -199,9 +192,9 @@ function testMobileSessionChromeUsesMotionPresence() {
 }
 
 function testMobileSessionRowsUseReadableTypeScale() {
-  assert.match(mobileSessionsPageSource, /truncate text-\[15px\] leading-5 font-medium/);
-  assert.match(mobileSessionsPageSource, /block truncate text-\[12px\] leading-4/);
-  assert.match(mobileSessionsPageSource, /text-\[11px\] text-\[#8b95a5\]/);
+  assert.match(mobileSessionsPageSource, /TYPOGRAPHY_MOBILE_BODY_CLASS/);
+  assert.match(mobileSessionsPageSource, /TYPOGRAPHY_META_CLASS/);
+  assert.match(mobileSessionsPageSource, /TYPOGRAPHY_MICRO_CLASS/);
   assert.doesNotMatch(mobileSessionsPageSource, /text-\[9px\]/);
 }
 

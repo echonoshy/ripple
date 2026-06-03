@@ -10,6 +10,7 @@ import {
   Edit3,
   FileText,
   Folder,
+  FolderRoot,
   FolderUp,
   Loader2,
   RefreshCw,
@@ -32,7 +33,17 @@ import {
 } from "lucide-react";
 import { IconTile } from "@/components/icons/IconTile";
 import { PdfPreview } from "./PdfPreview";
-import { MOBILE_GLASS_ICON_BUTTON_CLASS } from "@/components/workbench/stylePrimitives";
+import {
+  LUCIDE_STANDARD_STROKE_WIDTH,
+  MOBILE_GLASS_ICON_BUTTON_CLASS,
+  TYPOGRAPHY_BODY_CLASS,
+  TYPOGRAPHY_BODY_MEDIUM_CLASS,
+  TYPOGRAPHY_META_CLASS,
+  TYPOGRAPHY_META_MEDIUM_CLASS,
+  TYPOGRAPHY_MICRO_MEDIUM_CLASS,
+  TYPOGRAPHY_MOBILE_BODY_CLASS,
+  TYPOGRAPHY_PAGE_TITLE_CLASS,
+} from "@/components/workbench/stylePrimitives";
 import { useI18n } from "@/i18n";
 import {
   downloadWorkspaceFile,
@@ -209,10 +220,10 @@ function SearchResultMeta({ entry }: { entry: WorkspaceEntry }) {
   const { t } = useI18n();
   const label = searchMatchLabel(entry.match, t);
   return (
-    <span className="mt-0.5 flex min-w-0 items-center gap-1 font-[family-name:var(--font-mono)] text-[12px] text-[#6b7280]">
+    <span className={`mt-0.5 flex min-w-0 items-center gap-1 font-[family-name:var(--font-mono)] text-[#6b7280] ${TYPOGRAPHY_META_CLASS}`}>
       <span className="truncate">{entry.path}</span>
       {label && (
-        <span className="shrink-0 rounded border border-[#d0d7de] bg-[#f6f8fa] px-1 py-0.5 text-[11px] font-semibold text-[#57606a] uppercase">
+        <span className={`shrink-0 rounded border border-[#d0d7de] bg-[#f6f8fa] px-1 py-0.5 text-[#57606a] uppercase ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}>
           {label}
         </span>
       )}
@@ -1491,12 +1502,17 @@ export default function WorkspaceExplorer({
     : currentLocationPath;
   const mobilePathDetail = isSearchMode ? searchModeLabel(searchScope, t) : null;
   const isPagePresentation = presentation === "page";
-  const pageToolbarIconButtonClass = `${MOBILE_GLASS_ICON_BUTTON_CLASS} lg:h-8 lg:w-8 lg:border-[#d7d7dd] lg:bg-white/82`;
-  const pageToolbarPrimaryButtonClass = pageToolbarIconButtonClass;
+  const filesToolbarIconButtonBaseClass =
+    "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-50";
+  const filesToolbarIconButtonClass =
+    `${filesToolbarIconButtonBaseClass} border-[#e5e7eb] bg-white text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d]`;
+  const filesToolbarIconButtonActiveClass =
+    `${filesToolbarIconButtonBaseClass} border-[#007aff]/30 bg-[#eef4ff] text-[#007aff] hover:bg-[#eef4ff]`;
+  const filesMobileToolbarButtonClass = `${MOBILE_GLASS_ICON_BUTTON_CLASS} shrink-0`;
   const pageParentButtonClass =
-    "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-[#d7e3f8] bg-[#eef4ff] text-[#007aff] shadow-[0_10px_24px_rgba(44,63,123,0.06)] transition-colors hover:bg-[#e5efff] lg:hidden";
+    "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#d7e3f8] bg-[#eef4ff] text-[#007aff] shadow-[0_10px_24px_rgba(44,63,123,0.06)] transition-colors hover:bg-[#e5efff] lg:hidden";
   const directoryNavigationButtonClass =
-    "group inline-flex h-8 shrink-0 whitespace-nowrap items-center gap-1.5 rounded-full border border-[#cfdbf2] bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(240,245,255,0.78))] px-2.5 text-[11px] font-semibold text-[#46556f] shadow-[0_8px_20px_rgba(44,63,123,0.07),inset_0_1px_0_rgba(255,255,255,0.9)] backdrop-blur-xl transition-all hover:-translate-y-px hover:border-[#b9cbec] hover:bg-[#eef4ff] hover:text-[#1f4ed0] hover:shadow-[0_12px_26px_rgba(44,63,123,0.1)] active:translate-y-0";
+    `group inline-flex h-8 shrink-0 whitespace-nowrap items-center gap-1.5 rounded-full border border-[#cfdbf2] bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(240,245,255,0.78))] px-2.5 text-[#46556f] shadow-[0_8px_20px_rgba(44,63,123,0.07),inset_0_1px_0_rgba(255,255,255,0.9)] backdrop-blur-xl transition-all hover:-translate-y-px hover:border-[#b9cbec] hover:bg-[#eef4ff] hover:text-[#1f4ed0] hover:shadow-[0_12px_26px_rgba(44,63,123,0.1)] active:translate-y-0 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`;
   const directoryNavigationIconClass =
     "flex h-5 w-5 items-center justify-center rounded-full bg-[#edf4ff] text-[#007aff] ring-1 ring-[#d7e3f8] transition-colors group-hover:bg-[#dceaff] group-hover:text-[#1f4ed0]";
   const workspaceGridStyle:
@@ -1512,7 +1528,7 @@ export default function WorkspaceExplorer({
           <div
             ref={contextMenuRef}
             style={{ top: contextMenu.y, left: contextMenu.x }}
-            className="animate-in fade-in-50 zoom-in-95 fixed z-50 max-h-[calc(100dvh-104px)] w-[220px] overflow-y-auto rounded-2xl border border-[#dfe6f4] bg-white p-1.5 text-xs text-[#374151] shadow-[0_12px_36px_-4px_rgba(0,0,0,0.12),0_4px_16px_-2px_rgba(0,0,0,0.06)] duration-100"
+            className={`animate-in fade-in-50 zoom-in-95 fixed z-50 max-h-[calc(100dvh-104px)] w-[220px] overflow-y-auto rounded-2xl border border-[#dfe6f4] bg-white p-1.5 text-[#374151] shadow-[0_12px_36px_-4px_rgba(0,0,0,0.12),0_4px_16px_-2px_rgba(0,0,0,0.06)] duration-100 ${TYPOGRAPHY_META_CLASS}`}
             onClick={(e) => e.stopPropagation()}
             onContextMenu={(e) => e.preventDefault()}
           >
@@ -1524,21 +1540,21 @@ export default function WorkspaceExplorer({
                     if (contextMenu.entry) startRename(contextMenu.entry);
                     setContextMenu((prev) => ({ ...prev, visible: false }));
                   }}
-                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
+                  className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
                 >
                   <Edit3 size={13} className="shrink-0 text-[#6b7280]" /> {t("files.rename")}
                 </button>
                 <button
                   type="button"
                   onClick={() => contextMenu.entry && handleCut(contextMenu.entry)}
-                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
+                  className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
                 >
                   <Scissors size={13} className="shrink-0 text-[#6b7280]" /> {t("files.cutMove")}
                 </button>
                 <button
                   type="button"
                   onClick={() => contextMenu.entry && handleCopy(contextMenu.entry)}
-                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
+                  className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
                 >
                   <Copy size={13} className="shrink-0 text-[#6b7280]" /> {t("files.copy")}
                 </button>
@@ -1547,7 +1563,7 @@ export default function WorkspaceExplorer({
                   onClick={() =>
                     contextMenu.entry && handleCopyAbsoluteSandboxPath(contextMenu.entry)
                   }
-                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left font-[family-name:var(--font-mono)] text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
+                  className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left font-[family-name:var(--font-mono)] text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
                 >
                   <FileText size={13} className="shrink-0 text-[#6b7280]" />{" "}
                   {t("files.copySandboxPath")}
@@ -1559,7 +1575,7 @@ export default function WorkspaceExplorer({
                       if (contextMenu.entry) void handleDownloadFile(contextMenu.entry.path);
                       setContextMenu((prev) => ({ ...prev, visible: false }));
                     }}
-                    className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
+                    className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
                   >
                     <Download size={13} className="shrink-0 text-[#6b7280]" /> {t("files.download")}
                   </button>
@@ -1568,7 +1584,7 @@ export default function WorkspaceExplorer({
                 <button
                   type="button"
                   onClick={() => contextMenu.entry && void handleDelete(contextMenu.entry)}
-                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#cf222e] transition-colors hover:bg-[#ffebe9] active:bg-[#ffd5d6]"
+                  className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[#cf222e] transition-colors hover:bg-[#ffebe9] active:bg-[#ffd5d6] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
                 >
                   <Trash2 size={13} className="shrink-0 text-[#cf222e]" /> {t("files.delete")}
                 </button>
@@ -1579,7 +1595,7 @@ export default function WorkspaceExplorer({
                   type="button"
                   disabled={!clipboard}
                   onClick={handlePaste}
-                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff] disabled:cursor-not-allowed disabled:opacity-40"
+                  className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff] disabled:cursor-not-allowed disabled:opacity-40 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
                 >
                   <Clipboard size={13} className="shrink-0 text-[#6b7280]" />
                   {clipboard ? (
@@ -1596,7 +1612,7 @@ export default function WorkspaceExplorer({
                   <button
                     type="button"
                     onClick={clearClipboard}
-                    className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#667085] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
+                    className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[#667085] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
                   >
                     <X size={13} className="shrink-0 text-[#6b7280]" />
                     {t("files.clearClipboard")}
@@ -1609,7 +1625,7 @@ export default function WorkspaceExplorer({
                     setCreationModal({ visible: true, kind: "file" });
                     setContextMenu((prev) => ({ ...prev, visible: false }));
                   }}
-                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
+                  className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
                 >
                   <FilePlus size={13} className="shrink-0 text-[#6b7280]" /> {t("files.newFile")}
                 </button>
@@ -1619,7 +1635,7 @@ export default function WorkspaceExplorer({
                     setCreationModal({ visible: true, kind: "directory" });
                     setContextMenu((prev) => ({ ...prev, visible: false }));
                   }}
-                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff]"
+                  className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[#374151] transition-all hover:bg-[#f3f4f6] active:bg-[#eef3ff] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
                 >
                   <FolderPlus size={13} className="shrink-0 text-[#6b7280]" />{" "}
                   {t("files.newFolder")}
@@ -1655,7 +1671,7 @@ export default function WorkspaceExplorer({
       />
       {isDraggingUpload && (
         <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center bg-[#ffffff]/86 p-4 backdrop-blur-sm">
-          <div className="rounded-2xl border border-dashed border-[#007aff] bg-[#eef4ff] px-4 py-3 text-sm font-semibold text-[#006ee6] shadow-[0_18px_42px_rgba(44,63,123,0.12)]">
+          <div className={`rounded-2xl border border-dashed border-[#007aff] bg-[#eef4ff] px-4 py-3 text-[#006ee6] shadow-[0_18px_42px_rgba(44,63,123,0.12)] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
             {t("files.dropFiles")}
           </div>
         </div>
@@ -1685,7 +1701,7 @@ export default function WorkspaceExplorer({
                 </button>
               ) : null}
               <div className="min-w-0 flex-1">
-                <h1 className="text-[20px] leading-7 font-semibold tracking-normal text-[#111827]">
+                <h1 className={`text-[#111827] ${TYPOGRAPHY_PAGE_TITLE_CLASS}`}>
                   {t("files.title")}
                 </h1>
               </div>
@@ -1696,45 +1712,53 @@ export default function WorkspaceExplorer({
                   setIsActionsMenuOpen(false);
                   setIsMobileSearchOpen(true);
                 }}
-                className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border shadow-[0_6px_18px_rgba(60,60,67,0.08)] backdrop-blur-xl transition-all hover:bg-white/88 active:scale-[0.98] active:bg-white/82 lg:hidden ${
-                  isSearchMode
-                    ? "border-[#d7e3f8] bg-[#eef4ff] text-[#007aff]"
-                    : "border-[#d7d7dd] bg-white/82 text-[#3c3c43]"
+                className={`${filesMobileToolbarButtonClass} lg:hidden ${
+                  isSearchMode ? "border-[#d7e3f8] bg-[#eef4ff] text-[#007aff]" : ""
                 }`}
                 title={t("files.searchWorkspaceFiles")}
                 aria-label={t("files.searchWorkspaceFiles")}
               >
-                <Search size={14} />
+                <Search size={18} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
               </button>
               <button
                 type="button"
                 data-ripple-files-action="toggle-selection"
                 onClick={toggleSelectionMode}
-                className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border shadow-[0_6px_18px_rgba(60,60,67,0.08)] backdrop-blur-xl transition-all hover:bg-white/88 active:scale-[0.98] active:bg-white/82 lg:hidden ${
-                  isSelectionActive
-                    ? "border-[#d7e3f8] bg-[#eef4ff] text-[#007aff]"
-                    : "border-[#d7d7dd] bg-white/82 text-[#3c3c43]"
+                className={`${filesMobileToolbarButtonClass} lg:hidden ${
+                  isSelectionActive ? "border-[#d7e3f8] bg-[#eef4ff] text-[#007aff]" : ""
                 }`}
                 title={isSelectionActive ? t("files.doneSelecting") : t("files.selectFiles")}
                 aria-label={isSelectionActive ? t("files.doneSelecting") : t("files.selectFiles")}
               >
-                {isSelectionActive ? <X size={14} /> : <SquareCheck size={14} />}
+                {isSelectionActive ? (
+                  <X size={18} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
+                ) : (
+                  <SquareCheck size={18} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
+                )}
               </button>
               <button
                 type="button"
                 data-ripple-files-action="upload"
-                className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#d7d7dd] bg-white/82 text-[#3c3c43] shadow-[0_6px_18px_rgba(60,60,67,0.08)] backdrop-blur-xl transition-all hover:bg-white/88 active:scale-[0.98] active:bg-white/82 lg:hidden"
+                className={`${filesMobileToolbarButtonClass} lg:hidden`}
                 title={t("files.uploadFiles")}
                 aria-label={t("files.uploadFiles")}
                 disabled={uploading}
                 onClick={() => uploadInputRef.current?.click()}
               >
-                {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                {uploading ? (
+                  <Loader2
+                    size={18}
+                    strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH}
+                    className="animate-spin"
+                  />
+                ) : (
+                  <Upload size={18} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
+                )}
               </button>
               <button
                 type="button"
                 data-ripple-files-action="mobile-more"
-                className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#d7d7dd] bg-white/82 text-[#3c3c43] shadow-[0_6px_18px_rgba(60,60,67,0.08)] backdrop-blur-xl transition-all hover:bg-white/88 active:scale-[0.98] active:bg-white/82 lg:hidden"
+                className={`${filesMobileToolbarButtonClass} lg:hidden`}
                 title={t("files.moreFileActions")}
                 aria-label={t("files.moreFileActions")}
                 onClick={(event) => {
@@ -1743,7 +1767,7 @@ export default function WorkspaceExplorer({
                   setIsActionsMenuOpen((open) => !open);
                 }}
               >
-                <MoreHorizontal size={15} />
+                <MoreHorizontal size={18} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
               </button>
             </div>
           )}
@@ -1768,27 +1792,15 @@ export default function WorkspaceExplorer({
                 aria-label={t("files.searchWorkspaceFiles")}
                 className={
                   isPagePresentation
-                    ? "h-9 w-full rounded-lg border border-[#dfe6f4] bg-white/84 pr-3 pl-9 text-sm text-[#111827] shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] outline-none placeholder:text-xs placeholder:text-[#8b8f94] focus:border-[#007aff]"
-                    : "h-8 w-full rounded-full border border-[#e5e7eb] bg-white pr-2 pl-9 text-sm text-[#0d0d0d] outline-none placeholder:text-xs placeholder:text-[#8b8f94] focus:border-[#8da0ff]"
+                    ? `h-9 w-full rounded-lg border border-[#dfe6f4] bg-white/84 pr-3 pl-9 text-[#111827] shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] outline-none placeholder:text-[12px] placeholder:text-[#8b8f94] focus:border-[#007aff] ${TYPOGRAPHY_BODY_CLASS}`
+                    : `h-8 w-full rounded-full border border-[#e5e7eb] bg-white pr-2 pl-9 text-[#0d0d0d] outline-none placeholder:text-[12px] placeholder:text-[#8b8f94] focus:border-[#8da0ff] ${TYPOGRAPHY_BODY_CLASS}`
                 }
               />
             </div>
             <button
               type="button"
               data-ripple-files-action="search-filters"
-              className={
-                isPagePresentation
-                  ? `inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border transition-colors ${
-                      isFilterOpen
-                        ? "border-[#d7e3f8] bg-[#eef4ff] text-[#007aff]"
-                        : "border-[#dfe6f4] bg-white/78 text-[#384152] shadow-[0_10px_24px_rgba(44,63,123,0.06)] hover:bg-white"
-                    }`
-                  : `inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border ${
-                      isFilterOpen
-                        ? "border-[#007aff]/30 bg-[#eef4ff] text-[#007aff]"
-                        : "border-[#e5e7eb] bg-white text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
-                    }`
-              }
+              className={isFilterOpen ? filesToolbarIconButtonActiveClass : filesToolbarIconButtonClass}
               title={t("files.searchFilters")}
               aria-label={t("files.searchFilters")}
               onClick={() => setIsFilterOpen((open) => !open)}
@@ -1798,19 +1810,7 @@ export default function WorkspaceExplorer({
             <button
               type="button"
               data-ripple-files-action="toggle-selection"
-              className={
-                isPagePresentation
-                  ? `inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border transition-colors ${
-                      isSelectionActive
-                        ? "border-[#d7e3f8] bg-[#eef4ff] text-[#007aff]"
-                        : "border-[#dfe6f4] bg-white/78 text-[#384152] shadow-[0_10px_24px_rgba(44,63,123,0.06)] hover:bg-white"
-                    }`
-                  : `inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border ${
-                      isSelectionActive
-                        ? "border-[#007aff]/30 bg-[#eef4ff] text-[#007aff]"
-                        : "border-[#e5e7eb] bg-white text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
-                    }`
-              }
+              className={isSelectionActive ? filesToolbarIconButtonActiveClass : filesToolbarIconButtonClass}
               title={isSelectionActive ? t("files.doneSelecting") : t("files.selectFiles")}
               aria-label={isSelectionActive ? t("files.doneSelecting") : t("files.selectFiles")}
               onClick={toggleSelectionMode}
@@ -1820,11 +1820,7 @@ export default function WorkspaceExplorer({
             <button
               type="button"
               data-ripple-files-action="upload"
-              className={
-                isPagePresentation
-                  ? pageToolbarPrimaryButtonClass
-                  : "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#e5e7eb] bg-white text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d] disabled:cursor-not-allowed disabled:opacity-50"
-              }
+              className={filesToolbarIconButtonClass}
               title={t("files.uploadFiles")}
               aria-label={t("files.uploadFiles")}
               disabled={uploading}
@@ -1836,7 +1832,7 @@ export default function WorkspaceExplorer({
               <button
                 type="button"
                 data-ripple-files-action="compact-more"
-                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#e5e7eb] bg-white text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
+                className={filesToolbarIconButtonClass}
                 title={t("files.moreFileActions")}
                 aria-label={t("files.moreFileActions")}
                 onClick={(event) => {
@@ -1852,7 +1848,7 @@ export default function WorkspaceExplorer({
                 type="button"
                 data-ripple-files-action="refresh"
                 onClick={() => void loadDirectory(currentPath)}
-                className={pageToolbarIconButtonClass}
+                className={filesToolbarIconButtonClass}
                 title={t("files.refreshWorkspace")}
                 aria-label={t("files.refreshWorkspace")}
                 disabled={loading}
@@ -1876,19 +1872,19 @@ export default function WorkspaceExplorer({
                 aria-label={t("files.goToParentFolder")}
                 onClick={() => void loadDirectory(listing.parent_path || DEFAULT_WORKSPACE_PATH)}
               >
-                <FolderUp size={18} />
+                <FolderUp size={14} />
               </button>
             ) : (
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#f6f8ff] text-[#007aff]">
-                <Folder size={14} />
+                <FolderRoot size={16} />
               </span>
             )}
             <div className="min-w-0 flex-1">
-              <div className="truncate font-[family-name:var(--font-mono)] text-[12px] font-semibold text-[#374151]">
+              <div className={`truncate font-[family-name:var(--font-mono)] text-[#374151] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
                 {mobilePathLabel}
               </div>
               {mobilePathDetail && (
-                <div className="mt-0.5 truncate text-[12px] font-medium text-[#667085]">
+                <div className={`mt-0.5 truncate text-[#667085] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
                   {mobilePathDetail}
                 </div>
               )}
@@ -1897,7 +1893,7 @@ export default function WorkspaceExplorer({
               <button
                 type="button"
                 onClick={() => setIsMobileSearchOpen(true)}
-                className="inline-flex h-8 shrink-0 items-center rounded-lg border border-[#d7e3f8] bg-[#eef4ff] px-2 text-[12px] font-semibold text-[#007aff]"
+                className={`inline-flex h-8 shrink-0 items-center rounded-lg border border-[#d7e3f8] bg-[#eef4ff] px-2 text-[#007aff] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
               >
                 {t("files.edit")}
               </button>
@@ -1935,22 +1931,22 @@ export default function WorkspaceExplorer({
                   onClick={() => void loadDirectory(DEFAULT_WORKSPACE_PATH)}
                 >
                   <span className={directoryNavigationIconClass}>
-                    <Folder size={12} />
+                    <FolderRoot size={16} />
                   </span>
                 </button>
               ) : null}
               {!listing?.parent_path && currentPath === DEFAULT_WORKSPACE_PATH ? (
                 <IconTile tone="accent" size="sm">
-                  <Folder size={14} />
+                  <FolderRoot size={16} />
                 </IconTile>
               ) : null}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="max-w-full overflow-x-auto overscroll-x-contain font-[family-name:var(--font-mono)] text-[12px] font-semibold text-[#374151] [scrollbar-width:thin]">
+              <div className={`max-w-full overflow-x-auto overscroll-x-contain font-[family-name:var(--font-mono)] text-[#374151] [scrollbar-width:thin] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
                 <span className="whitespace-nowrap">{desktopPathLabel}</span>
               </div>
               {desktopPathDetail && (
-                <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[12px] font-medium text-[#667085]">
+                <div className={`mt-0.5 flex min-w-0 items-center gap-1.5 text-[#667085] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
                   <span className="shrink-0">{desktopPathDetail}</span>
                   <span className="min-w-0 overflow-x-auto overscroll-x-contain whitespace-nowrap font-[family-name:var(--font-mono)] [scrollbar-width:thin]">
                     {currentLocationPath}
@@ -1963,7 +1959,7 @@ export default function WorkspaceExplorer({
         {isPagePresentation && isActionsMenuOpen && (
           <div
             data-ripple-files-mobile-actions-menu
-            className="absolute top-[76px] right-3 z-40 w-[220px] rounded-2xl border border-[#dfe6f4] bg-white p-1.5 text-xs text-[#374151] shadow-[0_18px_44px_rgba(44,63,123,0.16)] lg:hidden"
+            className={`absolute top-[76px] right-3 z-40 w-[220px] rounded-2xl border border-[#dfe6f4] bg-white p-1.5 text-[#374151] shadow-[0_18px_44px_rgba(44,63,123,0.16)] lg:hidden ${TYPOGRAPHY_META_CLASS}`}
             onClick={(event) => event.stopPropagation()}
           >
             <button
@@ -1973,7 +1969,7 @@ export default function WorkspaceExplorer({
                 void loadDirectory(currentPath);
               }}
               disabled={loading}
-              className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left font-semibold transition-colors hover:bg-[#f3f4f6] disabled:cursor-not-allowed disabled:opacity-50"
+              className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left transition-colors hover:bg-[#f3f4f6] disabled:cursor-not-allowed disabled:opacity-50 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
             >
               {loading ? (
                 <Loader2 size={13} className="shrink-0 animate-spin text-[#6b7280]" />
@@ -1989,7 +1985,7 @@ export default function WorkspaceExplorer({
                 setIsActionsMenuOpen(false);
                 void handlePaste();
               }}
-              className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left font-semibold transition-colors hover:bg-[#f3f4f6] disabled:cursor-not-allowed disabled:opacity-40"
+              className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left transition-colors hover:bg-[#f3f4f6] disabled:cursor-not-allowed disabled:opacity-40 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
             >
               <Clipboard size={13} className="shrink-0 text-[#6b7280]" />
               {clipboard ? (
@@ -2006,7 +2002,7 @@ export default function WorkspaceExplorer({
               <button
                 type="button"
                 onClick={clearClipboard}
-                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left font-semibold text-[#667085] transition-colors hover:bg-[#f3f4f6]"
+                className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[#667085] transition-colors hover:bg-[#f3f4f6] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
               >
                 <X size={13} className="shrink-0 text-[#6b7280]" />
                 {t("files.clearClipboard")}
@@ -2019,7 +2015,7 @@ export default function WorkspaceExplorer({
                 setCreationModal({ visible: true, kind: "file" });
                 setIsActionsMenuOpen(false);
               }}
-              className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left font-semibold transition-colors hover:bg-[#f3f4f6]"
+              className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left transition-colors hover:bg-[#f3f4f6] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
             >
               <FilePlus size={13} className="shrink-0 text-[#6b7280]" />
               {t("files.newFile")}
@@ -2030,7 +2026,7 @@ export default function WorkspaceExplorer({
                 setCreationModal({ visible: true, kind: "directory" });
                 setIsActionsMenuOpen(false);
               }}
-              className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left font-semibold transition-colors hover:bg-[#f3f4f6]"
+              className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left transition-colors hover:bg-[#f3f4f6] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
             >
               <FolderPlus size={13} className="shrink-0 text-[#6b7280]" />
               {t("files.newFolder")}
@@ -2040,7 +2036,7 @@ export default function WorkspaceExplorer({
         {!isPagePresentation && isActionsMenuOpen && (
           <div
             data-ripple-files-compact-actions-menu
-            className="absolute top-[54px] right-3 z-40 w-[220px] rounded-2xl border border-[#dfe6f4] bg-white p-1.5 text-xs text-[#374151] shadow-[0_18px_44px_rgba(44,63,123,0.16)]"
+            className={`absolute top-[54px] right-3 z-40 w-[220px] rounded-2xl border border-[#dfe6f4] bg-white p-1.5 text-[#374151] shadow-[0_18px_44px_rgba(44,63,123,0.16)] ${TYPOGRAPHY_META_CLASS}`}
             onClick={(event) => event.stopPropagation()}
           >
             <button
@@ -2050,7 +2046,7 @@ export default function WorkspaceExplorer({
                 void loadDirectory(currentPath);
               }}
               disabled={loading}
-              className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left font-semibold transition-colors hover:bg-[#f3f4f6] disabled:cursor-not-allowed disabled:opacity-50"
+              className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left transition-colors hover:bg-[#f3f4f6] disabled:cursor-not-allowed disabled:opacity-50 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
             >
               {loading ? (
                 <Loader2 size={13} className="shrink-0 animate-spin text-[#6b7280]" />
@@ -2066,7 +2062,7 @@ export default function WorkspaceExplorer({
                 setIsActionsMenuOpen(false);
                 void handlePaste();
               }}
-              className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left font-semibold transition-colors hover:bg-[#f3f4f6] disabled:cursor-not-allowed disabled:opacity-40"
+              className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left transition-colors hover:bg-[#f3f4f6] disabled:cursor-not-allowed disabled:opacity-40 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
             >
               <Clipboard size={13} className="shrink-0 text-[#6b7280]" />
               {clipboard ? (
@@ -2083,7 +2079,7 @@ export default function WorkspaceExplorer({
               <button
                 type="button"
                 onClick={clearClipboard}
-                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left font-semibold text-[#667085] transition-colors hover:bg-[#f3f4f6]"
+                className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[#667085] transition-colors hover:bg-[#f3f4f6] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
               >
                 <X size={13} className="shrink-0 text-[#6b7280]" />
                 {t("files.clearClipboard")}
@@ -2096,7 +2092,7 @@ export default function WorkspaceExplorer({
                 setCreationModal({ visible: true, kind: "file" });
                 setIsActionsMenuOpen(false);
               }}
-              className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left font-semibold transition-colors hover:bg-[#f3f4f6]"
+              className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left transition-colors hover:bg-[#f3f4f6] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
             >
               <FilePlus size={13} className="shrink-0 text-[#6b7280]" />
               {t("files.newFile")}
@@ -2107,7 +2103,7 @@ export default function WorkspaceExplorer({
                 setCreationModal({ visible: true, kind: "directory" });
                 setIsActionsMenuOpen(false);
               }}
-              className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left font-semibold transition-colors hover:bg-[#f3f4f6]"
+              className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left transition-colors hover:bg-[#f3f4f6] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
             >
               <FolderPlus size={13} className="shrink-0 text-[#6b7280]" />
               {t("files.newFolder")}
@@ -2118,8 +2114,8 @@ export default function WorkspaceExplorer({
           <div
             className={
               isPagePresentation
-                ? "mt-3 hidden gap-2 rounded-2xl border border-[#dfe6f4] bg-[#ffffff]/76 p-3 text-xs text-[#374151] shadow-[0_14px_36px_rgba(44,63,123,0.06)] lg:grid lg:grid-cols-2"
-                : "mb-2 grid gap-2 rounded-2xl border border-[#e5e7eb] bg-[#fbfbfc] p-3 text-xs text-[#374151] shadow-sm sm:grid-cols-2"
+                ? `mt-3 hidden gap-2 rounded-2xl border border-[#dfe6f4] bg-[#ffffff]/76 p-3 text-[#374151] shadow-[0_14px_36px_rgba(44,63,123,0.06)] lg:grid lg:grid-cols-2 ${TYPOGRAPHY_META_CLASS}`
+                : `mb-2 grid gap-2 rounded-2xl border border-[#e5e7eb] bg-[#fbfbfc] p-3 text-[#374151] shadow-sm sm:grid-cols-2 ${TYPOGRAPHY_META_CLASS}`
             }
           >
             <label className="flex items-center gap-2">
@@ -2129,7 +2125,7 @@ export default function WorkspaceExplorer({
                 onChange={(event) =>
                   setSearchScope(event.target.value as NonNullable<WorkspaceSearchOptions["scope"]>)
                 }
-                className="h-7 min-w-0 flex-1 rounded-lg border border-[#dfe6f4] bg-white/84 px-2 text-xs"
+                className={`h-8 min-w-0 flex-1 rounded-lg border border-[#dfe6f4] bg-white/84 px-2 ${TYPOGRAPHY_META_CLASS}`}
               >
                 <option value="name">{t("files.scopeName")}</option>
                 <option value="all">{t("files.scopeAll")}</option>
@@ -2143,7 +2139,7 @@ export default function WorkspaceExplorer({
                 onChange={(event) =>
                   setSearchKind(event.target.value as NonNullable<WorkspaceSearchOptions["kind"]>)
                 }
-                className="h-7 min-w-0 flex-1 rounded-lg border border-[#dfe6f4] bg-white/84 px-2 text-xs"
+                className={`h-8 min-w-0 flex-1 rounded-lg border border-[#dfe6f4] bg-white/84 px-2 ${TYPOGRAPHY_META_CLASS}`}
               >
                 <option value="all">{t("files.kindAll")}</option>
                 <option value="file">{t("files.kindFile")}</option>
@@ -2157,7 +2153,7 @@ export default function WorkspaceExplorer({
                 onChange={(event) =>
                   setFileType(event.target.value as NonNullable<WorkspaceSearchOptions["fileType"]>)
                 }
-                className="h-7 min-w-0 flex-1 rounded-lg border border-[#dfe6f4] bg-white/84 px-2 text-xs"
+                className={`h-8 min-w-0 flex-1 rounded-lg border border-[#dfe6f4] bg-white/84 px-2 ${TYPOGRAPHY_META_CLASS}`}
               >
                 <option value="all">{t("files.allTypes")}</option>
                 <option value="code">{t("files.code")}</option>
@@ -2171,7 +2167,7 @@ export default function WorkspaceExplorer({
               <select
                 value={searchLimit}
                 onChange={(event) => setSearchLimit(Number(event.target.value))}
-                className="h-7 min-w-0 flex-1 rounded-lg border border-[#dfe6f4] bg-white/84 px-2 text-xs"
+                className={`h-8 min-w-0 flex-1 rounded-lg border border-[#dfe6f4] bg-white/84 px-2 ${TYPOGRAPHY_META_CLASS}`}
               >
                 <option value={20}>20</option>
                 <option value={50}>50</option>
@@ -2181,13 +2177,13 @@ export default function WorkspaceExplorer({
         )}
         {!isPagePresentation && (
           <div className="flex items-center justify-between gap-2">
-            <p className="min-w-0 truncate font-[family-name:var(--font-mono)] text-xs text-[#6b7280]">
+            <p className={`min-w-0 truncate font-[family-name:var(--font-mono)] text-[#6b7280] ${TYPOGRAPHY_META_CLASS}`}>
               {currentDisplayPath}
             </p>
             <button
               type="button"
               onClick={() => void loadDirectory(currentPath)}
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#e5e7eb] bg-white text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d] disabled:cursor-not-allowed disabled:opacity-50"
+              className={filesToolbarIconButtonClass}
               title={t("files.refreshWorkspace")}
               aria-label={t("files.refreshWorkspace")}
               disabled={loading}
@@ -2219,10 +2215,10 @@ export default function WorkspaceExplorer({
                 <X size={16} />
               </button>
               <div className="min-w-0 flex-1">
-                <div className="text-[14px] font-semibold text-[#111827]">
+                <div className={`text-[#111827] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
                   {t("files.searchWorkspace")}
                 </div>
-                <div className="mt-0.5 truncate font-[family-name:var(--font-mono)] text-[12px] text-[#667085]">
+                <div className={`mt-0.5 truncate font-[family-name:var(--font-mono)] text-[#667085] ${TYPOGRAPHY_META_CLASS}`}>
                   {listing?.path || currentPath}
                 </div>
               </div>
@@ -2230,7 +2226,7 @@ export default function WorkspaceExplorer({
                 type="button"
                 onClick={() => handleQueryChange("")}
                 disabled={!isSearchMode}
-                className="inline-flex h-9 items-center rounded-xl border border-[#dfe6f4] bg-white px-3 text-[12px] font-semibold text-[#667085] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:opacity-45"
+                className={`inline-flex h-9 items-center rounded-xl border border-[#dfe6f4] bg-white px-3 text-[#667085] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:opacity-45 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
               >
                 {t("files.clear")}
               </button>
@@ -2247,32 +2243,32 @@ export default function WorkspaceExplorer({
                   placeholder={t("files.findFilesByName")}
                   aria-label={t("files.searchWorkspaceFiles")}
                   autoFocus
-                  className="h-11 w-full rounded-xl border border-[#dfe6f4] bg-[#fbfdff] pr-3 pl-9 text-[16px] text-[#111827] outline-none placeholder:text-[15px] placeholder:text-[#8b8f94] focus:border-[#007aff]"
+                  className={`h-11 w-full rounded-xl border border-[#dfe6f4] bg-[#fbfdff] pr-3 pl-9 text-[#111827] outline-none placeholder:text-[15px] placeholder:text-[#8b8f94] focus:border-[#007aff] ${TYPOGRAPHY_MOBILE_BODY_CLASS}`}
                 />
               </div>
               <div className="flex min-w-0 gap-1.5 overflow-x-auto pb-0.5">
-                <span className="shrink-0 rounded-full border border-[#cfe4ff] bg-[#eef4ff] px-2 py-1 text-[11px] font-semibold text-[#006ee6]">
+                <span className={`shrink-0 rounded-full border border-[#cfe4ff] bg-[#eef4ff] px-2 py-1 text-[#006ee6] ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}>
                   {searchScope === "content"
                     ? t("files.content")
                     : searchScope === "all"
                       ? t("files.nameContent")
                       : t("files.namePath")}
                 </span>
-                <span className="shrink-0 rounded-full border border-[#dfe6f4] bg-[#f8fbff] px-2 py-1 text-[11px] font-medium text-[#667085]">
+                <span className={`shrink-0 rounded-full border border-[#dfe6f4] bg-[#f8fbff] px-2 py-1 text-[#667085] ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}>
                   {searchKind === "directory"
                     ? t("files.folders")
                     : searchKind === "file"
                       ? t("files.files")
                       : t("files.filesFolders")}
                 </span>
-                <span className="shrink-0 rounded-full border border-[#dfe6f4] bg-[#f8fbff] px-2 py-1 text-[11px] font-medium text-[#667085]">
+                <span className={`shrink-0 rounded-full border border-[#dfe6f4] bg-[#f8fbff] px-2 py-1 text-[#667085] ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}>
                   {fileType === "all" ? t("files.allTypes") : fileType}
                 </span>
-                <span className="shrink-0 rounded-full border border-[#dfe6f4] bg-[#f8fbff] px-2 py-1 text-[11px] font-medium text-[#667085]">
+                <span className={`shrink-0 rounded-full border border-[#dfe6f4] bg-[#f8fbff] px-2 py-1 text-[#667085] ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}>
                   {t("files.resultsCount", { count: searchLimit })}
                 </span>
               </div>
-              <div className="grid gap-2 text-[13px] text-[#374151]">
+              <div className={`grid gap-2 text-[#374151] ${TYPOGRAPHY_BODY_CLASS}`}>
                 <label className="flex items-center gap-2">
                   <span className="w-16 text-[#667085]">{t("files.scope")}</span>
                   <select
@@ -2282,7 +2278,7 @@ export default function WorkspaceExplorer({
                         event.target.value as NonNullable<WorkspaceSearchOptions["scope"]>
                       )
                     }
-                    className="h-10 min-w-0 flex-1 rounded-xl border border-[#dfe6f4] bg-white px-2 text-[16px]"
+                    className={`h-10 min-w-0 flex-1 rounded-xl border border-[#dfe6f4] bg-white px-2 ${TYPOGRAPHY_MOBILE_BODY_CLASS}`}
                   >
                     <option value="name">{t("files.scopeName")}</option>
                     <option value="all">{t("files.scopeAll")}</option>
@@ -2298,7 +2294,7 @@ export default function WorkspaceExplorer({
                         event.target.value as NonNullable<WorkspaceSearchOptions["kind"]>
                       )
                     }
-                    className="h-10 min-w-0 flex-1 rounded-xl border border-[#dfe6f4] bg-white px-2 text-[16px]"
+                    className={`h-10 min-w-0 flex-1 rounded-xl border border-[#dfe6f4] bg-white px-2 ${TYPOGRAPHY_MOBILE_BODY_CLASS}`}
                   >
                     <option value="all">{t("files.kindAll")}</option>
                     <option value="file">{t("files.kindFile")}</option>
@@ -2314,7 +2310,7 @@ export default function WorkspaceExplorer({
                         event.target.value as NonNullable<WorkspaceSearchOptions["fileType"]>
                       )
                     }
-                    className="h-10 min-w-0 flex-1 rounded-xl border border-[#dfe6f4] bg-white px-2 text-[16px]"
+                    className={`h-10 min-w-0 flex-1 rounded-xl border border-[#dfe6f4] bg-white px-2 ${TYPOGRAPHY_MOBILE_BODY_CLASS}`}
                   >
                     <option value="all">{t("files.allTypes")}</option>
                     <option value="code">{t("files.code")}</option>
@@ -2328,7 +2324,7 @@ export default function WorkspaceExplorer({
                   <select
                     value={searchLimit}
                     onChange={(event) => setSearchLimit(Number(event.target.value))}
-                    className="h-10 min-w-0 flex-1 rounded-xl border border-[#dfe6f4] bg-white px-2 text-[16px]"
+                    className={`h-10 min-w-0 flex-1 rounded-xl border border-[#dfe6f4] bg-white px-2 ${TYPOGRAPHY_MOBILE_BODY_CLASS}`}
                   >
                     <option value={20}>20</option>
                     <option value={50}>50</option>
@@ -2341,19 +2337,19 @@ export default function WorkspaceExplorer({
       )}
 
       {error && (
-        <div className="m-4 mb-0 flex items-start gap-2 rounded-md border border-[#cf222e]/25 bg-[#ffebe9] p-3 text-xs font-medium text-[#cf222e]">
+        <div className={`m-4 mb-0 flex items-start gap-2 rounded-md border border-[#cf222e]/25 bg-[#ffebe9] p-3 text-[#cf222e] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
           <AlertTriangle size={14} className="mt-0.5 shrink-0" />
           <span className="break-words">{displayError(error, t)}</span>
         </div>
       )}
       {searchError && (
-        <div className="m-4 mb-0 flex items-start gap-2 rounded-md border border-[#cf222e]/25 bg-[#ffebe9] p-3 text-xs font-medium text-[#cf222e]">
+        <div className={`m-4 mb-0 flex items-start gap-2 rounded-md border border-[#cf222e]/25 bg-[#ffebe9] p-3 text-[#cf222e] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
           <AlertTriangle size={14} className="mt-0.5 shrink-0" />
           <span className="break-words">{displayError(searchError, t)}</span>
         </div>
       )}
       {uploadError && (
-        <div className="m-4 mb-0 flex items-start gap-2 rounded-md border border-[#cf222e]/25 bg-[#ffebe9] p-3 text-xs font-medium text-[#cf222e]">
+        <div className={`m-4 mb-0 flex items-start gap-2 rounded-md border border-[#cf222e]/25 bg-[#ffebe9] p-3 text-[#cf222e] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
           <AlertTriangle size={14} className="mt-0.5 shrink-0" />
           <span className="break-words">{displayError(uploadError, t)}</span>
         </div>
@@ -2384,7 +2380,7 @@ export default function WorkspaceExplorer({
         >
           {!isPagePresentation && (
             <div className="flex items-center justify-between border-b border-[#e5e7eb] bg-white px-3 py-2">
-              <span className="text-xs font-semibold tracking-wider text-[#6b7280] uppercase">
+              <span className={`tracking-wider text-[#6b7280] uppercase ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
                 {isSearchMode ? t("files.searchResults") : t("files.workspace")}
               </span>
               <div className="flex items-center gap-1">
@@ -2403,7 +2399,7 @@ export default function WorkspaceExplorer({
                           onClick={() =>
                             void loadDirectory(listing.parent_path || DEFAULT_WORKSPACE_PATH)
                           }
-                          className="flex items-center gap-1 rounded-md border border-[#e5e7eb] bg-white px-2 py-1 text-[11px] font-medium text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
+                          className={`flex items-center gap-1 rounded-md border border-[#e5e7eb] bg-white px-2 py-1 text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d] ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
                         >
                           <ArrowUp size={12} />
                           {t("files.up")}
@@ -2416,9 +2412,9 @@ export default function WorkspaceExplorer({
                           title={t("files.goToWorkspaceRoot")}
                           aria-label={t("files.goToWorkspaceRoot")}
                           onClick={() => void loadDirectory(DEFAULT_WORKSPACE_PATH)}
-                          className="flex items-center gap-1 rounded-md border border-[#e5e7eb] bg-white px-2 py-1 text-[11px] font-medium text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d]"
+                          className={`flex items-center gap-1 rounded-md border border-[#e5e7eb] bg-white px-2 py-1 text-[#6b7280] hover:bg-[#f7f8fa] hover:text-[#0d0d0d] ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
                         >
-                          <Folder size={12} />
+                          <FolderRoot size={16} />
                           {t("files.root")}
                         </button>
                       )}
@@ -2435,7 +2431,7 @@ export default function WorkspaceExplorer({
           {isSelectionActive && (
             <div
               data-ripple-files-selection-bar
-              className="flex min-h-11 flex-wrap items-center gap-2 border-b border-[#dfe6f4]/70 bg-[#f8faff] px-3 py-2 text-[13px] text-[#384152]"
+              className={`flex min-h-11 flex-wrap items-center gap-2 border-b border-[#dfe6f4]/70 bg-[#f8faff] px-3 py-2 text-[#384152] ${TYPOGRAPHY_BODY_CLASS}`}
             >
               <span className="mr-auto font-semibold">
                 {t("files.selectedCount", { count: selectedEntryCount })}
@@ -2444,14 +2440,14 @@ export default function WorkspaceExplorer({
                 type="button"
                 onClick={selectAllVisibleEntries}
                 disabled={allVisibleEntriesSelected}
-                className="inline-flex h-8 items-center rounded-full border border-[#dfe6f4] bg-white px-2.5 text-[12px] font-semibold hover:bg-[#f7f8fa]"
+                className={`inline-flex h-8 items-center rounded-full border border-[#dfe6f4] bg-white px-2.5 hover:bg-[#f7f8fa] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
               >
                 {t("files.selectAll")}
               </button>
               <button
                 type="button"
                 onClick={clearSelection}
-                className="inline-flex h-8 items-center rounded-full border border-[#dfe6f4] bg-white px-2.5 text-[12px] font-semibold hover:bg-[#f7f8fa]"
+                className={`inline-flex h-8 items-center rounded-full border border-[#dfe6f4] bg-white px-2.5 hover:bg-[#f7f8fa] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
               >
                 {t("files.clearSelection")}
               </button>
@@ -2459,7 +2455,7 @@ export default function WorkspaceExplorer({
                 type="button"
                 onClick={() => handleBatchClipboard("copy")}
                 disabled={selectedEntryCount === 0}
-                className="inline-flex h-8 items-center gap-1 rounded-full border border-[#dfe6f4] bg-white px-2.5 text-[12px] font-semibold hover:bg-[#f7f8fa]"
+                className={`inline-flex h-8 items-center gap-1 rounded-full border border-[#dfe6f4] bg-white px-2.5 hover:bg-[#f7f8fa] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
               >
                 <Copy size={12} />
                 {t("files.copy")}
@@ -2468,7 +2464,7 @@ export default function WorkspaceExplorer({
                 type="button"
                 onClick={() => handleBatchClipboard("move")}
                 disabled={selectedEntryCount === 0}
-                className="inline-flex h-8 items-center gap-1 rounded-full border border-[#dfe6f4] bg-white px-2.5 text-[12px] font-semibold hover:bg-[#f7f8fa]"
+                className={`inline-flex h-8 items-center gap-1 rounded-full border border-[#dfe6f4] bg-white px-2.5 hover:bg-[#f7f8fa] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
               >
                 <Scissors size={12} />
                 {t("files.move")}
@@ -2477,7 +2473,7 @@ export default function WorkspaceExplorer({
                 type="button"
                 onClick={() => void handleBatchDelete()}
                 disabled={selectedEntryCount === 0}
-                className="inline-flex h-8 items-center gap-1 rounded-full border border-[#cf222e]/25 bg-white px-2.5 text-[12px] font-semibold text-[#cf222e] hover:bg-[#ffebe9]"
+                className={`inline-flex h-8 items-center gap-1 rounded-full border border-[#cf222e]/25 bg-white px-2.5 text-[#cf222e] hover:bg-[#ffebe9] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
               >
                 <Trash2 size={12} />
                 {t("files.delete")}
@@ -2493,12 +2489,12 @@ export default function WorkspaceExplorer({
             }
           >
             {(loading && !listing) || (searchLoading && visibleEntries.length === 0) ? (
-              <div className="flex h-40 items-center justify-center gap-2 text-sm font-medium text-[#667085]">
+              <div className={`flex h-40 items-center justify-center gap-2 text-[#667085] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
                 <Loader2 size={16} className="animate-spin" />
                 {t("files.loading")}
               </div>
             ) : (listing || isSearchMode) && visibleEntries.length === 0 ? (
-              <div className="flex h-40 items-center justify-center px-4 text-center text-sm font-medium text-[#667085]">
+              <div className={`flex h-40 items-center justify-center px-4 text-center text-[#667085] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
                 {isSearchMode ? t("files.noMatchingFiles") : t("files.emptyWorkspace")}
               </div>
             ) : (
@@ -2533,12 +2529,12 @@ export default function WorkspaceExplorer({
                           onKeyDown={handleRenameKeyDown}
                           disabled={renameSaving}
                           spellCheck={false}
-                          className="h-10 w-full rounded-lg border border-[#007aff] bg-white px-2 font-[family-name:var(--font-mono)] text-[16px] font-medium text-[#111827] outline-none lg:h-7 lg:text-[13px]"
+                          className={`h-10 w-full rounded-lg border border-[#007aff] bg-white px-2 font-[family-name:var(--font-mono)] text-[#111827] outline-none lg:h-8 lg:text-[14px] lg:leading-[22px] ${TYPOGRAPHY_MOBILE_BODY_CLASS}`}
                         />
                         {isSearchMode ? (
                           <SearchResultMeta entry={entry} />
                         ) : (
-                          <span className="mt-0.5 block truncate font-[family-name:var(--font-mono)] text-[12px] text-[#6b7280]">
+                          <span className={`mt-0.5 block truncate font-[family-name:var(--font-mono)] text-[#6b7280] ${TYPOGRAPHY_META_CLASS}`}>
                             {`${entry.kind === "directory" ? t("files.folder") : formatBytes(entry.size_bytes)}${
                               formatModified(entry.modified_at, locale)
                                 ? ` · ${formatModified(entry.modified_at, locale)}`
@@ -2659,7 +2655,7 @@ export default function WorkspaceExplorer({
                         </IconTile>
                         <span className="min-w-0 flex-1">
                           <span
-                            className={`block truncate font-[family-name:var(--font-mono)] text-[14px] font-medium text-[#0d0d0d] ${
+                            className={`block truncate font-[family-name:var(--font-mono)] text-[#0d0d0d] ${TYPOGRAPHY_BODY_MEDIUM_CLASS} ${
                               entry.is_hidden ? "opacity-55" : ""
                             }`}
                           >
@@ -2668,7 +2664,7 @@ export default function WorkspaceExplorer({
                           {isSearchMode ? (
                             <SearchResultMeta entry={entry} />
                           ) : (
-                            <span className="mt-0.5 block truncate font-[family-name:var(--font-mono)] text-[12px] text-[#6b7280]">
+                            <span className={`mt-0.5 block truncate font-[family-name:var(--font-mono)] text-[#6b7280] ${TYPOGRAPHY_META_CLASS}`}>
                               {`${entry.kind === "directory" ? t("files.folder") : formatBytes(entry.size_bytes)}${
                                 formatModified(entry.modified_at, locale)
                                   ? ` · ${formatModified(entry.modified_at, locale)}`
@@ -2744,8 +2740,8 @@ export default function WorkspaceExplorer({
                 <span
                   className={
                     isPagePresentation
-                      ? "block truncate text-[14px] leading-tight font-semibold text-[#111827] sm:text-[14px]"
-                      : "block truncate text-[13px] font-semibold text-[#0d0d0d]"
+                      ? `block truncate text-[#111827] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`
+                      : `block truncate text-[#0d0d0d] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`
                   }
                 >
                   {isPagePresentation
@@ -2755,7 +2751,7 @@ export default function WorkspaceExplorer({
                 {isPagePresentation && (
                   <span
                     data-ripple-workspace-preview-title-path
-                    className="hidden truncate font-[family-name:var(--font-mono)] text-[12px] text-[#667085] sm:mt-1 sm:block"
+                    className={`hidden truncate font-[family-name:var(--font-mono)] text-[#667085] sm:mt-1 sm:block ${TYPOGRAPHY_META_CLASS}`}
                   >
                     {preview?.path || t("files.selectFile")}
                   </span>
@@ -2769,7 +2765,7 @@ export default function WorkspaceExplorer({
                       type="button"
                       disabled={preview.truncated}
                       onClick={() => setIsEditing((current) => !current)}
-                      className={`inline-flex h-8 items-center gap-1 rounded-full border px-2 text-[12px] font-medium ${
+                      className={`inline-flex h-8 items-center gap-1 rounded-full border px-2 ${TYPOGRAPHY_META_MEDIUM_CLASS} ${
                         isEditing
                           ? "border-[#007aff] bg-[#eef4ff] text-[#384152]"
                           : isPagePresentation
@@ -2824,20 +2820,20 @@ export default function WorkspaceExplorer({
                     data-ripple-workspace-preview-metadata
                     className={
                       isPagePresentation
-                        ? "hidden flex-wrap items-center gap-2 border-b border-[#dfe6f4]/60 px-4 py-2 font-[family-name:var(--font-mono)] text-[12px] font-medium text-[#667085] sm:flex"
-                        : "flex flex-wrap items-center gap-2 border-b border-[#dde2ea] px-3 py-2 font-[family-name:var(--font-mono)] text-[11px] font-medium text-[#68707d]"
+                        ? `hidden flex-wrap items-center gap-2 border-b border-[#dfe6f4]/60 px-4 py-2 font-[family-name:var(--font-mono)] text-[#667085] sm:flex ${TYPOGRAPHY_META_MEDIUM_CLASS}`
+                        : `flex flex-wrap items-center gap-2 border-b border-[#dde2ea] px-3 py-2 font-[family-name:var(--font-mono)] text-[#68707d] ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`
                     }
                   >
                     <span>{formatBytes(preview.size_bytes)}</span>
                     <span>{preview.mime_type}</span>
                     <span>{formatModified(preview.modified_at, locale)}</span>
                     {isDirty && (
-                      <span className="rounded-full border border-[#007aff]/25 bg-[#eef4ff] px-1.5 py-0.5 text-[11px] text-[#006ee6] uppercase">
+                      <span className={`rounded-full border border-[#007aff]/25 bg-[#eef4ff] px-1.5 py-0.5 text-[#006ee6] uppercase ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}>
                         {t("files.unsaved")}
                       </span>
                     )}
                     {preview.truncated && (
-                      <span className="rounded-full border border-[#007aff]/35 bg-[#eef4ff] px-1.5 py-0.5 text-[11px] text-[#1d56d8] uppercase">
+                      <span className={`rounded-full border border-[#007aff]/35 bg-[#eef4ff] px-1.5 py-0.5 text-[#1d56d8] uppercase ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}>
                         {t("files.truncated")}
                       </span>
                     )}
@@ -2849,8 +2845,8 @@ export default function WorkspaceExplorer({
                           disabled={!isDirty || saving}
                           className={
                             isPagePresentation
-                              ? "inline-flex h-8 items-center gap-1 rounded-full border border-[#dfe6f4] bg-white/76 px-2 text-[12px] font-medium text-[#667085] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:text-[#8b8f94]"
-                              : "inline-flex h-7 items-center gap-1 rounded-md border border-[#dde2ea] bg-white px-2 text-xs font-medium text-[#68707d] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:text-[#8b8f94]"
+                              ? `inline-flex h-8 items-center gap-1 rounded-full border border-[#dfe6f4] bg-white/76 px-2 text-[#667085] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:text-[#8b8f94] ${TYPOGRAPHY_META_MEDIUM_CLASS}`
+                              : `inline-flex h-7 items-center gap-1 rounded-md border border-[#dde2ea] bg-white px-2 text-[#68707d] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:text-[#8b8f94] ${TYPOGRAPHY_META_MEDIUM_CLASS}`
                           }
                         >
                           <Undo2 size={12} />
@@ -2862,8 +2858,8 @@ export default function WorkspaceExplorer({
                           disabled={!isDirty || saving || preview.truncated}
                           className={
                             isPagePresentation
-                              ? "inline-flex h-8 items-center gap-1 rounded-full border border-[#384152] bg-[#384152] px-2 text-[12px] font-semibold text-white hover:bg-[#111827] disabled:cursor-not-allowed disabled:border-[#dfe6f4] disabled:bg-[#f7f8fa] disabled:text-[#8b8f94]"
-                              : "inline-flex h-7 items-center gap-1 rounded-md border border-[#171a1f] bg-[#171a1f] px-2 text-xs font-semibold text-white hover:bg-[#2a2f37] disabled:cursor-not-allowed disabled:border-[#dde2ea] disabled:bg-[#f7f8fa] disabled:text-[#8b8f94]"
+                              ? `inline-flex h-8 items-center gap-1 rounded-full border border-[#384152] bg-[#384152] px-2 text-white hover:bg-[#111827] disabled:cursor-not-allowed disabled:border-[#dfe6f4] disabled:bg-[#f7f8fa] disabled:text-[#8b8f94] ${TYPOGRAPHY_META_MEDIUM_CLASS}`
+                              : `inline-flex h-7 items-center gap-1 rounded-md border border-[#171a1f] bg-[#171a1f] px-2 text-white hover:bg-[#2a2f37] disabled:cursor-not-allowed disabled:border-[#dde2ea] disabled:bg-[#f7f8fa] disabled:text-[#8b8f94] ${TYPOGRAPHY_META_MEDIUM_CLASS}`
                           }
                         >
                           {saving ? (
@@ -2877,7 +2873,7 @@ export default function WorkspaceExplorer({
                     )}
                   </div>
                   {saveError && (
-                    <div className="m-3 mb-0 flex items-start gap-2 rounded-xl border border-[#cf222e]/25 bg-[#ffebe9] p-3 text-xs font-medium text-[#cf222e]">
+                    <div className={`m-3 mb-0 flex items-start gap-2 rounded-xl border border-[#cf222e]/25 bg-[#ffebe9] p-3 text-[#cf222e] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
                       <AlertTriangle size={14} className="mt-0.5 shrink-0" />
                       <span>{saveError}</span>
                     </div>
@@ -2978,7 +2974,7 @@ export default function WorkspaceExplorer({
                   )}
                 </div>
               ) : (
-                <div className="flex h-full items-center justify-center px-4 text-center text-sm font-medium text-[#667085]">
+                <div className={`flex h-full items-center justify-center px-4 text-center text-[#667085] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
                   {t("files.selectFile")}
                 </div>
               )}
@@ -2997,14 +2993,14 @@ export default function WorkspaceExplorer({
               <FileText size={13} />
             </IconTile>
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-[13px] leading-tight font-semibold text-[#111827] sm:text-[15px]">
+              <span className={`block truncate text-[#111827] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
                 {preview.name}
               </span>
-              <span className="mt-0.5 hidden truncate font-[family-name:var(--font-mono)] text-[12px] text-[#667085] sm:block">
+              <span className={`mt-0.5 hidden truncate font-[family-name:var(--font-mono)] text-[#667085] sm:block ${TYPOGRAPHY_META_CLASS}`}>
                 {preview.path}
               </span>
             </span>
-            <div className="hidden shrink-0 items-center gap-2 font-[family-name:var(--font-mono)] text-[12px] font-medium text-[#667085] md:flex">
+            <div className={`hidden shrink-0 items-center gap-2 font-[family-name:var(--font-mono)] text-[#667085] md:flex ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
               <span>{formatBytes(preview.size_bytes)}</span>
               <span>{preview.mime_type}</span>
               <span>{formatModified(preview.modified_at, locale)}</span>
@@ -3070,7 +3066,7 @@ export default function WorkspaceExplorer({
             onSubmit={handleCreate}
             className="w-80 rounded-2xl border border-[#dfe6f4] bg-white p-5 shadow-2xl"
           >
-            <h3 className="mb-3 text-sm font-semibold text-[#111827]">
+            <h3 className={`mb-3 text-[#111827] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
               {creationModal.kind === "file"
                 ? t("files.createNewFile")
                 : t("files.createNewFolder")}
@@ -3084,10 +3080,10 @@ export default function WorkspaceExplorer({
                   ? t("files.filePlaceholder")
                   : t("files.folderPlaceholder")
               }
-              className="mb-4 h-10 w-full rounded-full border border-[#dfe6f4] bg-white px-4 text-[16px] outline-none focus:border-[#8da0ff]"
+              className={`mb-4 h-10 w-full rounded-full border border-[#dfe6f4] bg-white px-4 outline-none focus:border-[#8da0ff] ${TYPOGRAPHY_MOBILE_BODY_CLASS}`}
               disabled={creationSaving}
             />
-            <div className="flex justify-end gap-2 text-[12px] font-semibold">
+            <div className={`flex justify-end gap-2 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
               <button
                 type="button"
                 onClick={() => {

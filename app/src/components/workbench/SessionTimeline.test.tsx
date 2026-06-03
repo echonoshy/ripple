@@ -127,9 +127,10 @@ function testWaitingCopyAvoidsConcreteOperationClaims() {
 function testTimelineUsesReadableMobileTypeScale() {
   const source = readFileSync(new URL("./SessionTimeline.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /workbench-markdown max-w-4xl text-\[15px\] leading-6/);
-  assert.match(source, /font-\[family-name:var\(--font-mono\)\] text-\[12px\] leading-5/);
-  assert.match(source, /flex items-center gap-2 text-\[13px\]/);
+  assert.match(source, /TYPOGRAPHY_BODY_CLASS/);
+  assert.match(source, /TYPOGRAPHY_BODY_MEDIUM_CLASS/);
+  assert.match(source, /TYPOGRAPHY_META_CLASS/);
+  assert.match(source, /TYPOGRAPHY_MICRO_CLASS/);
   assert.doesNotMatch(source, /text-\[10px\]/);
 }
 

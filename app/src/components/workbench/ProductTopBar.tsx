@@ -13,7 +13,11 @@ import {
   USER_PROFILE_CHANGED_EVENT,
 } from "@/lib/userAvatar";
 import { mainNavItems, type WorkspaceView } from "@/lib/workspaceViews";
-import { LUCIDE_NAV_STROKE_WIDTH } from "./stylePrimitives";
+import {
+  LUCIDE_NAV_STROKE_WIDTH,
+  TYPOGRAPHY_BODY_MEDIUM_CLASS,
+  TYPOGRAPHY_SECTION_TITLE_CLASS,
+} from "./stylePrimitives";
 
 interface ProductTopBarProps {
   activeView: WorkspaceView;
@@ -99,7 +103,7 @@ export default function ProductTopBar({
     >
       <div className="flex min-w-0 flex-1 items-center gap-2.5">
         <RippleIcon size={28} className="h-7 w-7 shrink-0 rounded-lg" />
-        <span className="truncate text-[16px] font-semibold text-[#111827]">Ripple</span>
+        <span className={`truncate ${TYPOGRAPHY_SECTION_TITLE_CLASS} text-[#111827]`}>Ripple</span>
       </div>
 
       <nav className="flex flex-1 justify-center" aria-label={t("nav.primary")}>
@@ -113,7 +117,7 @@ export default function ProductTopBar({
                 type="button"
                 data-ripple-top-tab={item.id}
                 onClick={() => onSelectView(item.id)}
-                className={`inline-flex h-8 w-[132px] shrink-0 items-center justify-center gap-1.5 rounded-full px-3 text-[13px] font-semibold whitespace-nowrap transition-all ${
+                className={`inline-flex h-8 w-[132px] shrink-0 items-center justify-center gap-1.5 rounded-full px-3 ${TYPOGRAPHY_BODY_MEDIUM_CLASS} whitespace-nowrap transition-all ${
                   selected
                     ? "bg-[#007aff] text-white shadow-[0_8px_18px_rgba(0,122,255,0.22)]"
                     : "text-[#3c3c43] hover:bg-white/82 hover:text-[#111827]"
@@ -138,11 +142,11 @@ export default function ProductTopBar({
           onClick={onOpenSettings}
           aria-label={t("common.openPersonalSettingsFor", { name: displayName })}
           title={t("common.personalSettings")}
-          className="group inline-flex h-9 w-9 items-center justify-center rounded-full border border-[#d7d7dd] bg-white/82 text-[#3c3c43] shadow-[0_8px_22px_rgba(60,60,67,0.07)] backdrop-blur-xl transition-all hover:bg-white hover:shadow-[0_10px_26px_rgba(60,60,67,0.10)] active:scale-[0.98]"
+          className="group inline-flex h-10 w-10 items-center justify-center rounded-xl bg-transparent text-[#3c3c43] transition-colors hover:bg-[#f2f2f7]/70 active:bg-[#e5e5ea]/70"
         >
-          <IconTile tone="neutral" size="sm" className="relative border-transparent bg-transparent">
+          <IconTile tone="neutral" size="lg" className="relative border-transparent bg-transparent">
             {avatarImageUrl ? (
-              <span className="absolute inset-0 overflow-hidden rounded-lg">
+              <span className="absolute inset-0 overflow-hidden rounded-xl">
                 <img
                   src={avatarImageUrl}
                   alt=""
@@ -155,11 +159,11 @@ export default function ProductTopBar({
             )}
             <span
               data-ripple-settings-status-dot="true"
-              className="absolute -right-0.5 -bottom-0.5 z-10 flex h-2 w-2"
+              className="absolute -right-0.5 -bottom-0.5 z-10 flex h-2.5 w-2.5"
               aria-hidden="true"
             >
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative inline-flex h-2 w-2 rounded-full border border-white bg-emerald-500" />
+              <span className="relative inline-flex h-2.5 w-2.5 rounded-full border border-white bg-emerald-500" />
             </span>
           </IconTile>
         </button>

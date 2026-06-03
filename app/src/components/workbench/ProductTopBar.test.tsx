@@ -44,6 +44,30 @@ function testSettingsLivesInRightAvatarEntry() {
   assert.doesNotMatch(html, />Settings<\/span>/);
 }
 
+function testSettingsEntryUsesLargerBorderlessAvatarButton() {
+  const html = renderProductTopBar();
+  const entryButton = html.match(
+    /<button[^>]*data-ripple-top-settings-entry="true"[^>]*>/
+  )?.[0];
+  const avatarTile = html.match(
+    /<span[^>]*data-ripple-icon-tile="true"[^>]*data-tone="neutral"[^>]*>/
+  )?.[0];
+
+  assert.ok(entryButton);
+  assert.ok(avatarTile);
+  assert.match(entryButton, /h-10/);
+  assert.match(entryButton, /w-10/);
+  assert.doesNotMatch(entryButton, /h-11/);
+  assert.doesNotMatch(entryButton, /w-11/);
+  assert.match(entryButton, /rounded-xl/);
+  assert.doesNotMatch(entryButton, /rounded-full/);
+  assert.doesNotMatch(entryButton, /border-\[#d7d7dd\]/);
+  assert.doesNotMatch(entryButton, /bg-white\/82/);
+  assert.doesNotMatch(entryButton, /shadow-\[/);
+  assert.match(avatarTile, /h-10/);
+  assert.match(avatarTile, /w-10/);
+}
+
 function testSettingsEntryKeepsLiveStatusDot() {
   const html = renderProductTopBar();
 
@@ -95,6 +119,7 @@ function testDesktopProductTabsRenderChineseLabels() {
 
 testDesktopProductTabsExcludeSettings();
 testSettingsLivesInRightAvatarEntry();
+testSettingsEntryUsesLargerBorderlessAvatarButton();
 testSettingsEntryKeepsLiveStatusDot();
 testSelectedTopTabHasStrongerTreatment();
 testDesktopProductTabsUseEqualWidths();

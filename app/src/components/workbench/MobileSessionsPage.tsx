@@ -272,7 +272,7 @@ export default function MobileSessionsPage({
       >
         <div className="flex h-10 items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <RippleIcon size={28} className="h-7 w-7" />
+            <RippleIcon size={28} className="h-7 w-7 shrink-0 rounded-lg" />
             <span
               data-ripple-mobile-brand-wordmark="true"
               className={`inline-flex ${TYPOGRAPHY_PAGE_TITLE_CLASS} text-[#111827] drop-shadow-[0_1px_0_rgba(255,255,255,0.78)]`}

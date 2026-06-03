@@ -89,10 +89,7 @@ function testGatewayHeaderBrandAndInputsAreReadable() {
   assert.doesNotMatch(html, /data-ripple-auth-hero-mark="true"/);
   assert.doesNotMatch(html, /data-ripple-auth-hero-label="true"/);
   assert.ok(brandWith);
-  assert.match(
-    source,
-    /<RippleIcon\s+size=\{48\}\s+className="h-12 w-12 rounded-\[14px\][^"]*"/
-  );
+  assert.match(source, /<RippleIcon\s+size=\{48\}\s+className="h-12 w-12 rounded-\[14px\][^"]*"/);
   assert.doesNotMatch(source, /<RippleIcon size=\{56\} className="h-14 w-14/);
   assert.match(headerWordmark, /text-\[#007aff\]/);
   assert.match(headerWordmark, /tracking-\[0\.14em\]/);
@@ -105,6 +102,29 @@ function testGatewayHeaderBrandAndInputsAreReadable() {
   assert.match(source, /className=\{`h-12[\s\S]*pl-12[\s\S]*text-\[16px\]/);
   assert.match(source, /<Mail size=\{16\}/);
   assert.match(source, /<KeyRound size=\{16\}/);
+}
+
+function testGatewayUsesRestrainedMotionAndElevation() {
+  const html = renderGateway();
+  const source = readFileSync(new URL("./AuthGateway.tsx", import.meta.url), "utf8");
+  const globalCss = readFileSync(new URL("../globals.css", import.meta.url), "utf8");
+  const card = html.match(/<section[^>]*data-ripple-auth-card="true"[^>]*>/)?.[0];
+
+  assert.match(html, /data-ripple-auth-ambient="true"/);
+  assert.match(source, /ripple-auth-ambient-motion/);
+  assert.match(source, /ripple-auth-header-motion/);
+  assert.match(source, /ripple-auth-brand-motion/);
+  assert.ok(card);
+  assert.match(card, /ripple-auth-card-motion/);
+  assert.doesNotMatch(source, /hover:-translate-y-/);
+  assert.doesNotMatch(source, /hover:translate-y-/);
+  assert.match(card, /motion-reduce:transform-none/);
+  assert.match(source, /focus:shadow-\[0_0_0_4px_rgba\(0,122,255,0\.08\)/);
+  assert.match(source, /hover:shadow-\[0_16px_34px_rgba\(0,122,255,0\.22\)\]/);
+  assert.match(source, /motion-reduce:transition-none/);
+  assert.match(globalCss, /@keyframes ripple-auth-rise/);
+  assert.match(globalCss, /@keyframes ripple-auth-ambient/);
+  assert.match(globalCss, /prefers-reduced-motion:\s*reduce/);
 }
 
 function testGatewayMainContentSitsSlightlyHigher() {
@@ -178,6 +198,7 @@ function testGatewayRendersChineseLoginCopy() {
 
 testGatewayShowsPrimaryLoginWithoutProductIntroModule();
 testGatewayHeaderBrandAndInputsAreReadable();
+testGatewayUsesRestrainedMotionAndElevation();
 testGatewayMainContentSitsSlightlyHigher();
 testGatewayDoesNotUseOldEqualWeightModeTabs();
 testGatewayShowsInviteFormWhenSelected();

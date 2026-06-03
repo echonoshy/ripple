@@ -5,6 +5,7 @@ description: "创建 lark-cli 的自定义 Skill。当用户需要把飞书 API 
 metadata:
   requires:
     bins: ["lark-cli"]
+    connectors: ["feishu"]
 ---
 
 # Skill Maker
@@ -52,6 +53,7 @@ description: "<功能描述>。当用户需要<触发场景>时使用。"
 metadata:
   requires:
     bins: ["lark-cli"]
+    connectors: ["feishu"]
 ---
 
 

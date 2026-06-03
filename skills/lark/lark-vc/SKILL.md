@@ -5,6 +5,7 @@ description: "飞书视频会议：搜索历史会议、查询会议纪要产物
 metadata:
   requires:
     bins: ["lark-cli"]
+    connectors: ["feishu"]
   cliHelp: "lark-cli vc --help"
 ---
 

@@ -5,6 +5,7 @@ description: "Lark/Feishu real-time event listening / subscribing / consuming: s
 metadata:
   requires:
     bins: ["lark-cli"]
+    connectors: ["feishu"]
   cliHelp: "lark-cli event --help"
 ---
 

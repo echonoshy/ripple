@@ -16,6 +16,7 @@ use url::{form_urlencoded, Url};
 use uuid::Uuid;
 
 use crate::api::{audit_event, require_confirm, ApiError};
+use crate::capabilities::{connector_definition, connector_definitions, connector_info};
 use crate::config::{FeishuAppConfig, GogcliOAuthClient};
 use crate::connector_runtime::{PendingBilibiliQr, PendingFeishuSetup, PendingGogcliOAuth};
 use crate::redaction::{redact_text, redact_value};
@@ -55,23 +56,6 @@ const BILIBILI_QR_STATE_NOT_CONFIRMED: i64 = 86090;
 const BILIBILI_QR_STATE_NOT_SCANNED: i64 = 86101;
 const BILIBILI_QRCODE_TTL_SECONDS: u64 = 180;
 const BILIBILI_PENDING_TTL_SECONDS: u64 = 600;
-#[derive(Clone, Copy)]
-struct ConnectorDefinition {
-    name: &'static str,
-    display_name: &'static str,
-    description: &'static str,
-    auth_type: &'static str,
-    kind: &'static str,
-    auth_flow: &'static str,
-    web_auth: bool,
-    chat_auth: bool,
-    auth_start: bool,
-    auth_complete: bool,
-    auth_cancel: bool,
-    disconnect: bool,
-    accounts: bool,
-    account_disconnect: bool,
-}
 
 #[derive(Clone, Debug)]
 struct GogcliClientConfig {
@@ -577,168 +561,6 @@ pub async fn gogcli_oauth_callback(
             &format!("{err:?} 请回到 Ripple 重新发起授权。"),
         ),
     }
-}
-
-fn connector_definitions() -> &'static [ConnectorDefinition] {
-    &[
-        ConnectorDefinition {
-            name: "google_workspace",
-            display_name: "Google Workspace",
-            description: "Gmail, Drive, Docs, Sheets, Slides, and Calendar.",
-            auth_type: "oauth",
-            kind: "user_connector",
-            auth_flow: "oauth_assisted",
-            web_auth: true,
-            chat_auth: true,
-            auth_start: true,
-            auth_complete: true,
-            auth_cancel: true,
-            disconnect: true,
-            accounts: true,
-            account_disconnect: true,
-        },
-        ConnectorDefinition {
-            name: "notion",
-            display_name: "Notion",
-            description: "Notion API access through a per-user integration token.",
-            auth_type: "token",
-            kind: "user_connector",
-            auth_flow: "token",
-            web_auth: true,
-            chat_auth: true,
-            auth_start: true,
-            auth_complete: false,
-            auth_cancel: true,
-            disconnect: true,
-            accounts: false,
-            account_disconnect: false,
-        },
-        ConnectorDefinition {
-            name: "feishu",
-            display_name: "Feishu",
-            description: "Feishu/Lark access through browser authorization.",
-            auth_type: "oauth",
-            kind: "user_connector",
-            auth_flow: "oauth_device",
-            web_auth: true,
-            chat_auth: true,
-            auth_start: true,
-            auth_complete: true,
-            auth_cancel: true,
-            disconnect: true,
-            accounts: false,
-            account_disconnect: false,
-        },
-        ConnectorDefinition {
-            name: "bilibili",
-            display_name: "Bilibili",
-            description: "Bilibili session access through QR login credentials.",
-            auth_type: "qr",
-            kind: "user_connector",
-            auth_flow: "qr",
-            web_auth: true,
-            chat_auth: true,
-            auth_start: true,
-            auth_complete: true,
-            auth_cancel: true,
-            disconnect: true,
-            accounts: false,
-            account_disconnect: false,
-        },
-        ConnectorDefinition {
-            name: "openai_codex",
-            display_name: "OpenAI Codex",
-            description: "Server-side Codex CLI login used by the app-server executor.",
-            auth_type: "cli",
-            kind: "runtime_capability",
-            auth_flow: "none",
-            web_auth: false,
-            chat_auth: false,
-            auth_start: false,
-            auth_complete: false,
-            auth_cancel: false,
-            disconnect: false,
-            accounts: false,
-            account_disconnect: false,
-        },
-        ConnectorDefinition {
-            name: "codex_image_generation",
-            display_name: "Image Generation",
-            description: "Generate images through the server-side Codex runtime.",
-            auth_type: "runtime",
-            kind: "runtime_capability",
-            auth_flow: "none",
-            web_auth: false,
-            chat_auth: false,
-            auth_start: false,
-            auth_complete: false,
-            auth_cancel: false,
-            disconnect: false,
-            accounts: false,
-            account_disconnect: false,
-        },
-        ConnectorDefinition {
-            name: "codex_image_input",
-            display_name: "Image Input",
-            description: "Accept uploaded or remote images through Codex native input items.",
-            auth_type: "runtime",
-            kind: "runtime_capability",
-            auth_flow: "none",
-            web_auth: false,
-            chat_auth: false,
-            auth_start: false,
-            auth_complete: false,
-            auth_cancel: false,
-            disconnect: false,
-            accounts: false,
-            account_disconnect: false,
-        },
-        ConnectorDefinition {
-            name: "codex_web_search",
-            display_name: "Web Search",
-            description: "Use Codex runtime web/search capabilities.",
-            auth_type: "runtime",
-            kind: "runtime_capability",
-            auth_flow: "none",
-            web_auth: false,
-            chat_auth: false,
-            auth_start: false,
-            auth_complete: false,
-            auth_cancel: false,
-            disconnect: false,
-            accounts: false,
-            account_disconnect: false,
-        },
-    ]
-}
-
-fn connector_definition(name: &str) -> Option<&'static ConnectorDefinition> {
-    connector_definitions()
-        .iter()
-        .find(|connector| connector.name == name)
-}
-
-fn connector_path(name: &str, suffix: &str) -> Value {
-    json!(format!("/v1/connectors/{name}/{suffix}"))
-}
-
-fn connector_info(connector: &ConnectorDefinition) -> Value {
-    let name = connector.name;
-    json!({
-        "name": name,
-        "display_name": connector.display_name,
-        "description": connector.description,
-        "auth_type": connector.auth_type,
-        "kind": connector.kind,
-        "auth_flow": connector.auth_flow,
-        "auth_surfaces": {"web": connector.web_auth, "chat": connector.chat_auth},
-        "auth_start_path": if connector.auth_start { connector_path(name, "auth/start") } else { Value::Null },
-        "auth_complete_path": if connector.auth_complete { connector_path(name, "auth/complete") } else { Value::Null },
-        "auth_cancel_path": if connector.auth_cancel { connector_path(name, "auth/cancel") } else { Value::Null },
-        "disconnect_path": if connector.disconnect { connector_path(name, "disconnect") } else { Value::Null },
-        "accounts_path": if connector.accounts { connector_path(name, "accounts") } else { Value::Null },
-        "supports_account_disconnect": connector.account_disconnect
-    })
 }
 
 fn ensure_sandbox_exists(state: &AppState, user_id: &str) -> Result<(), ApiError> {

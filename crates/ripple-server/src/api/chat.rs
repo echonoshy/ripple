@@ -18,6 +18,7 @@ use uuid::Uuid;
 
 use crate::api::run_public::{sanitize_user_visible_text, sanitize_user_visible_value};
 use crate::api::schedule_chat::{maybe_handle_schedule_chat, ScheduleChatDecision};
+use crate::api::skill_chat::maybe_handle_skill_chat;
 use crate::api::users::{assert_can_create_run, assert_can_create_session};
 use crate::api::ApiError;
 use crate::codex::events::{
@@ -180,6 +181,22 @@ pub async fn chat_completions(
     );
     if session_has_active_run(&session) {
         return Err(ApiError::conflict("Session already has work in progress"));
+    }
+    if let Some(decision) = maybe_handle_skill_chat(&state, &user_id, &user_input)? {
+        let public_event = persist_control_plane_chat_event(
+            &state,
+            &mut session,
+            &user_content,
+            &user_input,
+            &decision,
+        )
+        .await?;
+        return Ok(control_plane_event_response(
+            &model,
+            &session.session_id,
+            public_event,
+            request.stream.unwrap_or(false),
+        ));
     }
     if let Some(decision) = maybe_handle_schedule_chat(
         &state,

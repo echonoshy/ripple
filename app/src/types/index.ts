@@ -157,6 +157,118 @@ export interface ConnectorStatus {
   };
 }
 
+export type CapabilityStatus =
+  | "available"
+  | "pending_enable"
+  | "missing_requirements"
+  | "blocked_by_connector_auth"
+  | "conflict_disabled"
+  | "draft"
+  | "invalid";
+
+export type SkillUserStatus =
+  | "available"
+  | "needs_connection"
+  | "needs_fix"
+  | "not_enabled"
+  | "disabled"
+  | "unavailable";
+
+export interface CapabilityRequirement {
+  kind: string;
+  name: string;
+  status: "satisfied" | "missing" | "not_connected" | string;
+  detail?: string;
+}
+
+export interface SkillInfo {
+  id: string;
+  type?: "skill";
+  name: string;
+  display_name?: string;
+  namespace?: string;
+  description: string;
+  source: string;
+  path: string;
+  read_only?: boolean;
+  can_edit?: boolean;
+  can_delete?: boolean;
+  desired_state?: string;
+  computed_status?: string;
+  user_status?: SkillUserStatus | string;
+  status_label?: string;
+  related_connector?: string | null;
+  validation?: SkillValidationResult | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  last_tested_at?: string | null;
+  when_to_use?: string;
+  version?: string;
+  enabled: boolean;
+  status: CapabilityStatus | string;
+  conflict_with?: string | null;
+  requires_bins?: string[];
+  requires_connectors?: string[];
+  risk_flags?: string[];
+  missing_bins?: string[];
+  missing_connectors?: string[];
+  blocked_connectors?: string[];
+}
+
+export interface SkillValidationCheck {
+  name: string;
+  status: "passed" | "failed" | string;
+  message: string;
+}
+
+export interface SkillValidationResult {
+  passed: boolean;
+  checks: SkillValidationCheck[];
+  issues?: string[];
+  preview?: string | null;
+  validated_at?: string | null;
+}
+
+export interface SkillDraftInput {
+  name?: string;
+  display_name?: string;
+  description: string;
+  when_to_use?: string;
+  steps: string[];
+  output_format?: string;
+  requires_connectors?: string[];
+  requires_user_confirmation?: boolean;
+  test_example?: string;
+}
+
+export interface SkillUpdateInput {
+  enabled?: boolean;
+  display_name?: string;
+  description?: string;
+  when_to_use?: string;
+  steps?: string[];
+  output_format?: string;
+  requires_connectors?: string[];
+  requires_user_confirmation?: boolean;
+  test_example?: string;
+}
+
+export interface CapabilityInfo {
+  id: string;
+  type: "connector" | "skill" | "runtime_capability";
+  name: string;
+  display_name: string;
+  description: string;
+  source: string;
+  status: CapabilityStatus | string;
+  enabled: boolean;
+  requirements: CapabilityRequirement[];
+  related_skills: string[];
+  related_connector?: string | null;
+  connector?: ConnectorInfo;
+  skill?: SkillInfo;
+}
+
 export interface ConnectorActionResponse {
   name: string;
   ok: boolean;

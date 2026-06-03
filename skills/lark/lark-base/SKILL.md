@@ -5,6 +5,7 @@ description: "当需要用 lark-cli 操作飞书多维表格（Base）时调用�
 metadata:
   requires:
     bins: ["lark-cli"]
+    connectors: ["feishu"]
   cliHelp: "lark-cli base --help"
 ---
 

@@ -5,6 +5,7 @@ description: "用 gog 读/创建/改 Google Slides。**先读 gog-shared**。cre
 metadata:
   requires:
     bins: ["gog"]
+    connectors: ["google_workspace"]
 ---
 
 # gog-slides

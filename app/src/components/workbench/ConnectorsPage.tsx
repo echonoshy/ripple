@@ -18,8 +18,7 @@ import {
   cancelConnectorAuth,
   completeConnectorAuth,
   disconnectConnector,
-  fetchConnectorStatuses,
-  fetchConnectors,
+  fetchCapabilities,
   fetchGogcliAccounts,
   resolveBackendUrl,
   startConnectorAuth,
@@ -32,7 +31,7 @@ import {
 import { openExternalUrl } from "@/lib/platform";
 import { IconTile } from "@/components/icons/IconTile";
 import { useI18n } from "@/i18n";
-import type { ConnectorInfo, ConnectorStatus, GogcliAccountInfo } from "@/types";
+import type { CapabilityInfo, ConnectorInfo, ConnectorStatus, GogcliAccountInfo } from "@/types";
 import {
   COMPACT_IOS_PAGE_BACKGROUND,
   LUCIDE_NAV_STROKE_WIDTH,
@@ -54,6 +53,7 @@ const CONNECTOR_FOCUS_REFRESH_THROTTLE_MS = 10_000;
 const ACTION_MESSAGE_DISMISS_MS = 4_000;
 
 interface ConnectorSnapshot {
+  capabilities: CapabilityInfo[];
   connectors: ConnectorInfo[];
   statuses: Record<string, ConnectorStatus>;
   accounts: GogcliAccountInfo[];
@@ -125,6 +125,38 @@ function hasConnectorSnapshot(userId: string): boolean {
   return connectorSnapshotCache.has(userId);
 }
 
+function connectorFromCapability(capability: CapabilityInfo): ConnectorInfo | null {
+  if (capability.type !== "connector") return null;
+  if (capability.connector) return capability.connector;
+  return {
+    name: capability.name,
+    display_name: capability.display_name,
+    description: capability.description,
+    auth_type: "runtime",
+    kind: "user_connector",
+    auth_flow: "none",
+    auth_surfaces: { web: false, chat: false },
+    auth_start_path: null,
+    auth_complete_path: null,
+    auth_cancel_path: null,
+    disconnect_path: null,
+    accounts_path: null,
+    supports_account_disconnect: false,
+  };
+}
+
+function connectorStatusFromCapability(capability: CapabilityInfo): ConnectorStatus {
+  return {
+    name: capability.name,
+    connected: capability.enabled,
+    required: !capability.enabled,
+    detail: capability.description,
+    metadata: {
+      capability_status: capability.status,
+    },
+  };
+}
+
 async function fetchConnectorSnapshot(userId: string, force = false): Promise<ConnectorSnapshot> {
   const freshSnapshot = force ? null : freshConnectorSnapshot(userId);
   if (freshSnapshot) return freshSnapshot;
@@ -132,15 +164,28 @@ async function fetchConnectorSnapshot(userId: string, force = false): Promise<Co
   if (!force && inflightSnapshot) return inflightSnapshot;
 
   const nextInflight = (async () => {
-    const connectorList = await fetchConnectors();
-    const statuses = await fetchConnectorStatuses(connectorList);
+    const capabilities = await fetchCapabilities();
+    const connectorList = capabilities
+      .map(connectorFromCapability)
+      .filter((connector): connector is ConnectorInfo => connector !== null);
+    const statuses = Object.fromEntries(
+      capabilities
+        .filter((capability) => capability.type === "connector")
+        .map((capability) => [capability.name, connectorStatusFromCapability(capability)])
+    );
     const google = connectorList.find((connector) => connector.name === "google_workspace");
     let accounts: GogcliAccountInfo[] = [];
     if (google?.accounts_path) {
       const data = await fetchGogcliAccounts(false);
       accounts = data?.accounts || [];
     }
-    const snapshot = { connectors: connectorList, statuses, accounts, loadedAt: Date.now() };
+    const snapshot = {
+      capabilities,
+      connectors: connectorList,
+      statuses,
+      accounts,
+      loadedAt: Date.now(),
+    };
     connectorSnapshotCache.set(userId, snapshot);
     return snapshot;
   })();
@@ -416,7 +461,6 @@ export default function ConnectorsPage({
     [connectors, statuses]
   );
   const connectorSections = useMemo(() => connectorGroupSections(connectors), [connectors]);
-
   const runConnectorMutation = useCallback(
     async (
       actionKey: string,
@@ -981,6 +1025,7 @@ export default function ConnectorsPage({
               </div>
             </section>
           ))}
+
         </div>
 
         {connectors.length === 0 && !isLoading && (

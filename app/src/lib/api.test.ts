@@ -324,6 +324,140 @@ async function testConnectorManagementApisEncodeNamesAndPayloads() {
   ]);
 }
 
+async function testCapabilityApisUseUnifiedCatalogAndSkillPatch() {
+  const requests: Array<{ url: string; method: string; body: unknown }> = [];
+
+  await withFetch(
+    async (input, init) => {
+      requests.push({
+        url: String(input),
+        method: init?.method || "GET",
+        body: init?.body ? JSON.parse(String(init.body)) : null,
+      });
+      return new Response(
+        JSON.stringify(
+          String(input).includes("/capabilities")
+            ? { capabilities: [] }
+            : { id: "user:demo", type: "skill", enabled: true }
+        ),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+    },
+    async () => {
+      const { fetchCapabilities, updateSkillCapability } = await import("./api");
+      await fetchCapabilities();
+      await updateSkillCapability("user:demo/with space", true);
+    }
+  );
+
+  assert.deepEqual(requests, [
+    {
+      url: "http://140.143.229.103:8810/v1/capabilities",
+      method: "GET",
+      body: null,
+    },
+    {
+      url: "http://140.143.229.103:8810/v1/skills/user%3Ademo%2Fwith%20space",
+      method: "PATCH",
+      body: { enabled: true },
+    },
+  ]);
+}
+
+async function testSkillApisUseUserFacingSkillEndpoints() {
+  const requests: Array<{ url: string; method: string; body: unknown }> = [];
+
+  await withFetch(
+    async (input, init) => {
+      requests.push({
+        url: String(input),
+        method: init?.method || "GET",
+        body: init?.body ? JSON.parse(String(init.body)) : null,
+      });
+      const url = String(input);
+      const responseBody = url.endsWith("/skills")
+        ? { skills: [] }
+        : url.endsWith("/validate")
+          ? { passed: true, checks: [] }
+          : { id: "user:demo", user_status: "not_enabled", desired_state: "draft" };
+      return new Response(JSON.stringify(responseBody), {
+        status: init?.method === "POST" && url.endsWith("/skills") ? 201 : 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    },
+    async () => {
+      const {
+        createSkill,
+        deleteSkill,
+        fetchSkill,
+        fetchSkills,
+        updateSkill,
+        validateSkill,
+      } = await import("./api");
+      await fetchSkills();
+      await fetchSkill("user:demo/with space");
+      await createSkill({
+        display_name: "Weekly Review",
+        description: "Summarize weekly updates.",
+        when_to_use: "When I ask for a weekly review.",
+        steps: ["Collect updates"],
+        output_format: "Progress, risks, next actions.",
+        requires_connectors: [],
+        requires_user_confirmation: false,
+        test_example: "Use two sample updates.",
+      });
+      await updateSkill("user:demo/with space", { enabled: true });
+      await validateSkill("user:demo/with space");
+      await deleteSkill("user:demo/with space");
+    }
+  );
+
+  assert.deepEqual(requests, [
+    {
+      url: "http://140.143.229.103:8810/v1/skills",
+      method: "GET",
+      body: null,
+    },
+    {
+      url: "http://140.143.229.103:8810/v1/skills/user%3Ademo%2Fwith%20space",
+      method: "GET",
+      body: null,
+    },
+    {
+      url: "http://140.143.229.103:8810/v1/skills",
+      method: "POST",
+      body: {
+        display_name: "Weekly Review",
+        description: "Summarize weekly updates.",
+        when_to_use: "When I ask for a weekly review.",
+        steps: ["Collect updates"],
+        output_format: "Progress, risks, next actions.",
+        requires_connectors: [],
+        requires_user_confirmation: false,
+        test_example: "Use two sample updates.",
+      },
+    },
+    {
+      url: "http://140.143.229.103:8810/v1/skills/user%3Ademo%2Fwith%20space",
+      method: "PATCH",
+      body: { enabled: true },
+    },
+    {
+      url: "http://140.143.229.103:8810/v1/skills/user%3Ademo%2Fwith%20space/validate",
+      method: "POST",
+      body: null,
+    },
+    {
+      url: "http://140.143.229.103:8810/v1/skills/user%3Ademo%2Fwith%20space",
+      method: "DELETE",
+      body: { confirm: true },
+    },
+  ]);
+}
+
 async function testChangePasswordPostsCurrentAndNewPassword() {
   const requests: Array<{ url: string; method: string; body: unknown }> = [];
 
@@ -1047,6 +1181,8 @@ await testSessionIdIsEncodedInPath();
 await testScheduleIdIsEncodedInPath();
 await testScheduleRunApisEncodeIdsAndDownloadOutput();
 await testConnectorManagementApisEncodeNamesAndPayloads();
+await testCapabilityApisUseUnifiedCatalogAndSkillPatch();
+await testSkillApisUseUserFacingSkillEndpoints();
 await testChangePasswordPostsCurrentAndNewPassword();
 await testAvatarApisUseServerProfileStorage();
 await testUpdateUserProfilePatchesDisplayName();

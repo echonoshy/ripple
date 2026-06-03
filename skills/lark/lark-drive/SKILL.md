@@ -5,6 +5,7 @@ description: "飞书云空间：管理云空间中的文件和文件夹。上传
 metadata:
   requires:
     bins: ["lark-cli"]
+    connectors: ["feishu"]
   cliHelp: "lark-cli drive --help"
 ---
 

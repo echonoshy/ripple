@@ -5,6 +5,7 @@ description: "用 gog 读/搜/上传/下载 Drive 文件。**先读 gog-shared**
 metadata:
   requires:
     bins: ["gog"]
+    connectors: ["google_workspace"]
 ---
 
 # gog-drive

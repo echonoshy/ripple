@@ -5,6 +5,7 @@ description: "Notion 文件上传：通过 `ntn files` 把本地文件（图片�
 metadata:
   requires:
     bins: ["ntn"]
+    connectors: ["notion"]
   cliHelp: "ntn files --help"
 ---
 

@@ -21,6 +21,7 @@ interface MobileTabBarProps {
 const mobileNavLabelKeys: Record<WorkspaceView, MessageKey> = {
   sessions: "nav.sessions",
   files: "nav.files",
+  skills: "nav.skills",
   connectors: "nav.connectors",
   automations: "nav.automations",
   home: "nav.settings",

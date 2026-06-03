@@ -5,6 +5,7 @@ description: "飞书 OKR：管理目标与关键结果。查看和编辑 OKR 周
 metadata:
   requires:
     bins: [ "lark-cli" ]
+    connectors: ["feishu"]
   cliHelp: "lark-cli okr --help"
 ---
 

@@ -5,6 +5,7 @@ description: "用 gog 读/搜/发 Gmail。**先读 gog-shared**（鉴权 + 写�
 metadata:
   requires:
     bins: ["gog"]
+    connectors: ["google_workspace"]
 ---
 
 # gog-gmail

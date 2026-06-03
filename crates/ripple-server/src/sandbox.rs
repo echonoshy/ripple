@@ -78,6 +78,14 @@ impl SandboxManager {
         Ok(self.sandbox_dir(user_id)?.join("sessions"))
     }
 
+    pub fn skill_settings_file(&self, user_id: &str) -> anyhow::Result<PathBuf> {
+        Ok(self.sandbox_dir(user_id)?.join("skill-settings.json"))
+    }
+
+    pub fn skill_archive_dir(&self, user_id: &str) -> anyhow::Result<PathBuf> {
+        Ok(self.sandbox_dir(user_id)?.join("archived-skills"))
+    }
+
     pub fn session_dir(&self, user_id: &str, session_id: &str) -> anyhow::Result<PathBuf> {
         Ok(self.sessions_dir(user_id)?.join(session_id))
     }

@@ -5,6 +5,7 @@ description: "Notion 页面（page）CRUD：创建 page（从 Markdown 或结构
 metadata:
   requires:
     bins: ["ntn"]
+    connectors: ["notion"]
   cliHelp: "ntn pages --help"
 ---
 

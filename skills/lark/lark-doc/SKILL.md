@@ -4,6 +4,7 @@ description: "飞书云文档 / Docx / 知识库 Wiki 文档（v2）：创建、
 metadata:
   requires:
     bins: ["lark-cli"]
+    connectors: ["feishu"]
   cliHelp: "lark-cli docs --api-version v2 --help; lark-cli docs +create --api-version v2 --help; lark-cli docs +fetch --api-version v2 --help; lark-cli docs +update --api-version v2 --help"
 ---
 

@@ -5,6 +5,7 @@ description: "飞书 Markdown：查看、创建、上传和编辑 Markdown 文�
 metadata:
   requires:
     bins: ["lark-cli"]
+    connectors: ["feishu"]
   cliHelp: "lark-cli markdown --help"
 ---
 

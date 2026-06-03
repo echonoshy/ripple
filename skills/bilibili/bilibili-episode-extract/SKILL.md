@@ -6,6 +6,7 @@ allowed-tools: [Bash, Read]
 metadata:
   requires:
     bins: ["bilibili"]
+    connectors: ["bilibili"]
 ---
 
 # bilibili-episode-extract

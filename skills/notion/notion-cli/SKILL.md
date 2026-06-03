@@ -5,6 +5,7 @@ description: "通用 `ntn api` 调用指南：如何通过 Notion CLI 直接请�
 metadata:
   requires:
     bins: ["ntn"]
+    connectors: ["notion"]
   cliHelp: "ntn api --help"
 ---
 

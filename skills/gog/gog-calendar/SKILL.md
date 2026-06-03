@@ -5,6 +5,7 @@ description: "用 gog 读/搜/创建/改 Calendar 事件。**先读 gog-shared**
 metadata:
   requires:
     bins: ["gog"]
+    connectors: ["google_workspace"]
 ---
 
 # gog-calendar

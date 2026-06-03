@@ -5,6 +5,7 @@ description: "会议纪要整理工作流：汇总指定时间范围内的会议
 metadata:
   requires:
     bins: ["lark-cli"]
+    connectors: ["feishu"]
 ---
 
 # 会议纪要汇总工作流

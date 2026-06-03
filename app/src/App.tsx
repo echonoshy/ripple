@@ -20,6 +20,7 @@ import {
 } from "@/lib/api";
 import AutomationsPage from "@/components/workbench/AutomationsPage";
 import ConnectorsPage from "@/components/workbench/ConnectorsPage";
+import SkillsPage from "@/components/workbench/SkillsPage";
 import FilesPage from "@/components/workbench/FilesPage";
 import InspectorPanel from "@/components/workbench/InspectorPanel";
 import MobileSessionsPage from "@/components/workbench/MobileSessionsPage";
@@ -885,6 +886,11 @@ export default function Home() {
         selectedModel={defaultModel}
         models={models}
         onAuthExpired={handleAuthExpired}
+      />
+    ) : activeView === "skills" ? (
+      <SkillsPage
+        userId={userId}
+        onOpenConnectors={() => setActiveView("connectors")}
       />
     ) : activeView === "connectors" ? (
       <ConnectorsPage userId={userId} onConnectorStateChange={loadSessions} />

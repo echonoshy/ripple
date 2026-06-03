@@ -1,6 +1,7 @@
 import { fetchEventSource } from "@microsoft/fetch-event-source";
 import {
   CodexRuntimeEvent,
+  CapabilityInfo,
   ConnectorAuthChatEvent,
   ToolCall,
   UsageInfo,
@@ -12,6 +13,10 @@ import {
   ScheduleInfo,
   SessionDetail,
   SessionSummary,
+  SkillDraftInput,
+  SkillInfo,
+  SkillUpdateInput,
+  SkillValidationResult,
   PlanStep,
   PlanUpdate,
   PlanProgress,
@@ -1299,6 +1304,109 @@ export async function fetchConnectors(): Promise<ConnectorInfo[]> {
   if (!res.ok) throw new Error(`Failed to fetch connectors (${res.status})`);
   const body = (await res.json()) as { connectors: ConnectorInfo[] };
   return body.connectors || [];
+}
+
+export async function fetchCapabilities(): Promise<CapabilityInfo[]> {
+  const res = await fetch(`${API_URL}/capabilities`, { headers: { ...authHeaders() } });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) throw new Error(`Failed to fetch capabilities (${res.status})`);
+  const body = (await res.json()) as { capabilities: CapabilityInfo[] };
+  return body.capabilities || [];
+}
+
+export async function updateSkillCapability(
+  skillId: string,
+  enabled: boolean
+): Promise<CapabilityInfo> {
+  const res = await fetch(`${API_URL}/skills/${encodeURIComponent(skillId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ enabled }),
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to update skill (${res.status})`);
+  }
+  return (await res.json()) as CapabilityInfo;
+}
+
+export async function fetchSkills(): Promise<SkillInfo[]> {
+  const res = await fetch(`${API_URL}/skills`, { headers: { ...authHeaders() } });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) throw new Error(`Failed to fetch skills (${res.status})`);
+  const body = (await res.json()) as { skills: SkillInfo[] };
+  return body.skills || [];
+}
+
+export async function fetchSkill(skillId: string): Promise<SkillInfo> {
+  const res = await fetch(`${API_URL}/skills/${encodeURIComponent(skillId)}`, {
+    headers: { ...authHeaders() },
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to fetch skill (${res.status})`);
+  }
+  return (await res.json()) as SkillInfo;
+}
+
+export async function createSkill(input: SkillDraftInput): Promise<SkillInfo> {
+  const res = await fetch(`${API_URL}/skills`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(input),
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to create skill (${res.status})`);
+  }
+  return (await res.json()) as SkillInfo;
+}
+
+export async function updateSkill(
+  skillId: string,
+  input: SkillUpdateInput
+): Promise<SkillInfo> {
+  const res = await fetch(`${API_URL}/skills/${encodeURIComponent(skillId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(input),
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to update skill (${res.status})`);
+  }
+  return (await res.json()) as SkillInfo;
+}
+
+export async function validateSkill(skillId: string): Promise<SkillValidationResult> {
+  const res = await fetch(`${API_URL}/skills/${encodeURIComponent(skillId)}/validate`, {
+    method: "POST",
+    headers: { ...authHeaders() },
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to validate skill (${res.status})`);
+  }
+  return (await res.json()) as SkillValidationResult;
+}
+
+export async function deleteSkill(skillId: string): Promise<SkillInfo> {
+  const res = await fetch(`${API_URL}/skills/${encodeURIComponent(skillId)}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ confirm: true }),
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to delete skill (${res.status})`);
+  }
+  return (await res.json()) as SkillInfo;
 }
 
 export async function fetchConnectorStatus(name: string): Promise<ConnectorStatus | null> {

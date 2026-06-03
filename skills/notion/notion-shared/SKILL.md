@@ -5,6 +5,7 @@ description: "Notion CLI (ntn) 共享基础：鉴权状态检查、NOTION_API_TO
 metadata:
   requires:
     bins: ["ntn"]
+    connectors: ["notion"]
   cliHelp: "ntn --help"
 ---
 

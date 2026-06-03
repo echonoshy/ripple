@@ -5,6 +5,7 @@ when-to-use: 调用任何 bilibili-* skill（extract / auto-md / 后续子 skill
 metadata:
   requires:
     bins: ["bilibili"]
+    connectors: ["bilibili"]
   cliHelp: "bilibili --help"
 ---
 

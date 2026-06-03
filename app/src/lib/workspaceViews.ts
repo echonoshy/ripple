@@ -1,7 +1,7 @@
 import type { ComponentType } from "react";
-import { CalendarClock, FileText, MessageCircle, Plug, Settings } from "lucide-react";
+import { CalendarClock, FileText, MessageCircle, Plug, Settings, Sparkles } from "lucide-react";
 
-export type WorkspaceView = "home" | "sessions" | "automations" | "files" | "connectors";
+export type WorkspaceView = "home" | "sessions" | "automations" | "files" | "skills" | "connectors";
 
 export interface WorkspaceNavItem {
   id: WorkspaceView;
@@ -12,8 +12,9 @@ export interface WorkspaceNavItem {
 export const mainNavItems: WorkspaceNavItem[] = [
   { id: "sessions", label: "Sessions", icon: MessageCircle },
   { id: "files", label: "Files", icon: FileText },
-  { id: "automations", label: "Autos", icon: CalendarClock },
+  { id: "skills", label: "Skills", icon: Sparkles },
   { id: "connectors", label: "Connectors", icon: Plug },
+  { id: "automations", label: "Autos", icon: CalendarClock },
 ];
 
 export const mobileNavItems: WorkspaceNavItem[] = [

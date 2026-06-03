@@ -5,6 +5,7 @@ description: "用 gog 读/写 Google Docs。**先读 gog-shared**。对 update/w
 metadata:
   requires:
     bins: ["gog"]
+    connectors: ["google_workspace"]
 ---
 
 # gog-docs

@@ -23,11 +23,12 @@ function testConnectorsPageHasMobileSpecificCopy() {
   assert.match(html, /hidden sm:inline[^>]*>Connectors</);
   assert.match(html, /sm:hidden[^>]*>0\/0 ready</);
   assert.match(html, /hidden sm:inline[^>]*>0\/0 connected</);
-  assert.match(html, /sm:hidden[^>]*>Refresh</);
-  assert.match(html, /hidden sm:inline[^>]*>Refresh</);
+  assert.doesNotMatch(html, /sm:hidden[^>]*>Refresh</);
+  assert.match(html, /hidden lg:inline[^>]*>Refresh</);
   assert.match(html, /sm:hidden[^>]*>No connectors</);
   assert.match(html, /hidden sm:inline[^>]*>No connectors</);
   assert.match(html, /aria-label="Back to settings"/);
+  assert.match(html, /aria-label="Refresh"/);
   assert.match(html, /lg:hidden/);
 }
 
@@ -139,6 +140,9 @@ function testConnectorsPageUsesCompactMobileDensity() {
 
   assert.match(source, /COMPACT_IOS_PAGE_BACKGROUND/);
   assert.match(source, /MOBILE_GLASS_ICON_BUTTON_CLASS/);
+  assert.match(source, /className=\{`\$\{MOBILE_GLASS_ICON_BUTTON_CLASS\} shrink-0/);
+  assert.match(source, /<span className="hidden lg:inline">\{t\("connectors\.refresh"\)\}<\/span>/);
+  assert.doesNotMatch(source, /sm:hidden">\{t\("connectors\.refresh"\)\}/);
   assert.match(source, /MOBILE_PAGE_TOP_SAFE_AREA_CLASS/);
   assert.match(source, /MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS/);
   assert.match(source, /LUCIDE_NAV_STROKE_WIDTH/);
@@ -165,7 +169,9 @@ function testConnectorsPageRendersChineseChrome() {
   assert.match(html, /aria-label="返回设置"/);
   assert.match(html, /sm:hidden[^>]*>连接器</);
   assert.match(html, /0\/0 就绪/);
-  assert.match(html, />刷新</);
+  assert.doesNotMatch(html, /sm:hidden[^>]*>刷新</);
+  assert.match(html, /hidden lg:inline[^>]*>刷新</);
+  assert.match(html, /aria-label="刷新"/);
   assert.match(html, />暂无连接器</);
 }
 

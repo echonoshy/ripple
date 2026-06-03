@@ -36,6 +36,7 @@ import type { ConnectorInfo, ConnectorStatus, GogcliAccountInfo } from "@/types"
 import {
   COMPACT_IOS_PAGE_BACKGROUND,
   LUCIDE_NAV_STROKE_WIDTH,
+  LUCIDE_STANDARD_STROKE_WIDTH,
   MOBILE_GLASS_ICON_BUTTON_CLASS,
   MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS,
   MOBILE_PAGE_TOP_SAFE_AREA_CLASS,
@@ -662,11 +663,20 @@ export default function ConnectorsPage({
           <button
             type="button"
             onClick={() => void loadConnectors({ force: true })}
-            className={`inline-flex h-10 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white/78 px-3 text-[#384152] shadow-[0_8px_18px_rgba(44,63,123,0.05)] hover:bg-white ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+            title={t("connectors.refresh")}
+            aria-label={t("connectors.refresh")}
+            className={`${MOBILE_GLASS_ICON_BUTTON_CLASS} shrink-0 disabled:cursor-not-allowed disabled:opacity-60 lg:h-10 lg:w-auto lg:gap-1.5 lg:border-[#dfe6f4] lg:bg-white/78 lg:px-3 lg:shadow-[0_8px_18px_rgba(44,63,123,0.05)] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
           >
-            {isLoading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-            <span className="sm:hidden">{t("connectors.refresh")}</span>
-            <span className="hidden sm:inline">{t("connectors.refresh")}</span>
+            {isLoading ? (
+              <Loader2
+                size={18}
+                strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH}
+                className="animate-spin"
+              />
+            ) : (
+              <RefreshCw size={18} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
+            )}
+            <span className="hidden lg:inline">{t("connectors.refresh")}</span>
           </button>
         </header>
 

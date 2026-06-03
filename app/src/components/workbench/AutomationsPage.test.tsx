@@ -136,6 +136,7 @@ function testAutomationCardUsesCompactResponsiveLayout() {
 
   assert.match(source, /COMPACT_IOS_PAGE_BACKGROUND/);
   assert.match(source, /MOBILE_GLASS_ICON_BUTTON_CLASS/);
+  assert.match(source, /className=\{`\$\{MOBILE_GLASS_ICON_BUTTON_CLASS\} shrink-0/);
   assert.match(source, /MOBILE_PAGE_TOP_SAFE_AREA_CLASS/);
   assert.match(source, /MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS/);
   assert.match(source, /LUCIDE_NAV_STROKE_WIDTH/);

@@ -37,6 +37,7 @@ import type { AgentRunInfo, ScheduleInfo, ScheduleKind } from "@/types";
 import {
   COMPACT_IOS_PAGE_BACKGROUND,
   LUCIDE_NAV_STROKE_WIDTH,
+  LUCIDE_STANDARD_STROKE_WIDTH,
   MOBILE_GLASS_ICON_BUTTON_CLASS,
   MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS,
   MOBILE_PAGE_TOP_SAFE_AREA_CLASS,
@@ -629,9 +630,17 @@ export default function AutomationsPage({
               disabled={isLoading}
               aria-label={t("automations.refreshAutomations")}
               title={t("automations.refreshAutomations")}
-              className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-[#dfe6f4] bg-white/78 text-[#384152] shadow-[0_10px_24px_rgba(44,63,123,0.06)] hover:bg-white disabled:opacity-60 lg:h-10 lg:w-10"
+              className={`${MOBILE_GLASS_ICON_BUTTON_CLASS} shrink-0 disabled:cursor-not-allowed disabled:opacity-60 lg:h-10 lg:w-10`}
             >
-              {isLoading ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
+              {isLoading ? (
+                <Loader2
+                  size={18}
+                  strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH}
+                  className="animate-spin"
+                />
+              ) : (
+                <RefreshCw size={18} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
+              )}
             </button>
             <button
               type="button"

@@ -77,22 +77,25 @@ function testGatewayShowsPrimaryLoginWithoutProductIntroModule() {
   assert.equal(developerAccessMatches.length, 1);
 }
 
-function testGatewayHeroBrandMarkAndInputsAreReadable() {
+function testGatewayHeaderBrandAndInputsAreReadable() {
   const html = renderGateway();
   const source = readFileSync(new URL("./AuthGateway.tsx", import.meta.url), "utf8");
-  const heroMark = html.match(/<div[^>]*data-ripple-auth-hero-mark="true"[^>]*>/)?.[0];
-  const heroLabel = html.match(/<p[^>]*data-ripple-auth-hero-label="true"[^>]*>/)?.[0];
+  const headerWordmark = html.match(
+    /<div[^>]*data-ripple-auth-header-wordmark="true"[^>]*>RIPPLE<\/div>/
+  )?.[0];
   const brandWith = html.match(/<span[^>]*data-ripple-auth-brand-with="true"[^>]*>/)?.[0];
 
-  assert.ok(heroMark);
-  assert.ok(heroLabel);
+  assert.ok(headerWordmark);
+  assert.doesNotMatch(html, /data-ripple-auth-hero-mark="true"/);
+  assert.doesNotMatch(html, /data-ripple-auth-hero-label="true"/);
   assert.ok(brandWith);
-  assert.match(heroMark, /h-16/);
-  assert.match(heroMark, /w-16/);
-  assert.match(source, /<RippleIcon size=\{56\} className="h-14 w-14 rounded-\[14px\]"/);
-  assert.doesNotMatch(source, /<RippleIcon size=\{44\} className="h-11 w-11/);
-  assert.match(heroLabel, /text-\[15px\]/);
-  assert.match(heroLabel, /tracking-\[0\.14em\]/);
+  assert.match(
+    source,
+    /<RippleIcon\s+size=\{48\}\s+className="h-12 w-12 rounded-\[14px\][^"]*"/
+  );
+  assert.doesNotMatch(source, /<RippleIcon size=\{56\} className="h-14 w-14/);
+  assert.match(headerWordmark, /text-\[#007aff\]/);
+  assert.match(headerWordmark, /tracking-\[0\.14em\]/);
   assert.match(brandWith, /text-\[20px\]/);
   assert.match(brandWith, /sm:text-\[22px\]/);
   assert.doesNotMatch(brandWith, /TYPOGRAPHY_MICRO/);
@@ -163,7 +166,8 @@ function testGatewayRendersChineseLoginCopy() {
   assert.match(html, />每一次迭代的涟漪，都是向解的收敛。</);
   assert.match(html, />Each ripple of iteration converges toward the solution\./);
   assert.match(html, />你的 AI 工作空间</);
-  assert.match(html, />登录 Ripple</);
+  assert.match(html, /<h1 class="text-\[25px\][^"]*">登录<\/h1>/);
+  assert.doesNotMatch(html, />登录 Ripple</);
   assert.doesNotMatch(html, />使用你的账号凭据继续。</);
   assert.match(html, /aria-label="邮箱"/);
   assert.match(html, /aria-label="密码"/);
@@ -173,7 +177,7 @@ function testGatewayRendersChineseLoginCopy() {
 }
 
 testGatewayShowsPrimaryLoginWithoutProductIntroModule();
-testGatewayHeroBrandMarkAndInputsAreReadable();
+testGatewayHeaderBrandAndInputsAreReadable();
 testGatewayMainContentSitsSlightlyHigher();
 testGatewayDoesNotUseOldEqualWeightModeTabs();
 testGatewayShowsInviteFormWhenSelected();

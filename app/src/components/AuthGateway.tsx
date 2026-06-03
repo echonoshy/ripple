@@ -157,14 +157,19 @@ export default function AuthGateway({
       className="min-h-screen w-screen overflow-y-auto bg-[#f2f2f7] text-[#101828]"
     >
       <div className="mx-auto flex min-h-screen w-full max-w-[760px] flex-col px-4 pt-[calc(max(env(safe-area-inset-top),12px)+20px)] pb-[max(env(safe-area-inset-bottom),20px)] sm:px-6 lg:max-w-[880px] lg:pt-[calc(max(env(safe-area-inset-top),16px)+28px)]">
-        <header className="flex h-12 shrink-0 items-center">
-          <div className="flex items-center gap-3">
+        <header className="flex h-14 shrink-0 items-center">
+          <div className="flex items-center gap-3.5">
             <RippleIcon
-              size={38}
-              className="h-9 w-9 rounded-xl shadow-[0_12px_28px_rgba(60,60,67,0.10)]"
+              size={48}
+              className="h-12 w-12 rounded-[14px] shadow-[0_14px_32px_rgba(60,60,67,0.12)]"
             />
             <div className="min-w-0">
-              <div className="text-base leading-5 font-semibold">Ripple</div>
+              <div
+                data-ripple-auth-header-wordmark="true"
+                className="text-[15px] leading-5 font-semibold tracking-[0.14em] text-[#007aff]"
+              >
+                RIPPLE
+              </div>
               <div className="text-xs font-medium text-[#667085]">{t("auth.tagline")}</div>
             </div>
           </div>
@@ -175,21 +180,9 @@ export default function AuthGateway({
           className="flex flex-1 -translate-y-6 flex-col items-center justify-center gap-6 py-6 sm:-translate-y-8 sm:gap-7 lg:-translate-y-10 lg:py-10"
         >
           <section className="w-full max-w-[680px] text-center" aria-label="Ripple">
-            <div
-              data-ripple-auth-hero-mark="true"
-              className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-white/80 bg-white/76 shadow-[0_18px_38px_rgba(60,60,67,0.10)] backdrop-blur-xl"
-            >
-              <RippleIcon size={56} className="h-14 w-14 rounded-[14px]" />
-            </div>
-            <p
-              data-ripple-auth-hero-label="true"
-              className="text-[15px] leading-6 font-semibold tracking-[0.14em] text-[#007aff] uppercase"
-            >
-              Ripple
-            </p>
             <h1
               data-ripple-brand-wordmark="true"
-              className="relative mx-auto mt-2 flex max-w-[680px] flex-wrap items-baseline justify-center gap-x-2 text-[36px] leading-[40px] font-semibold tracking-normal text-[#111827] sm:gap-x-3 sm:text-[52px] sm:leading-[56px]"
+              className="relative mx-auto flex max-w-[680px] flex-wrap items-baseline justify-center gap-x-2 text-[36px] leading-[40px] font-semibold tracking-normal text-[#111827] sm:gap-x-3 sm:text-[52px] sm:leading-[56px]"
               aria-label={t("auth.brandPhrase")}
             >
               <span className="inline-block">Flow</span>

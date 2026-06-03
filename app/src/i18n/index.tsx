@@ -36,7 +36,7 @@ const zhMessages = {
     sloganPrimary: "每一次迭代的涟漪，都是向解的收敛。",
     sloganSecondary: "Each ripple of iteration converges toward the solution.",
     developerAccess: "开发者访问",
-    loginTitle: "登录 Ripple",
+    loginTitle: "登录",
     loginDescription: "使用你的账号凭据继续。",
     inviteTitle: "创建工作空间访问",
     inviteDescription: "使用邀请码并为此工作空间选择凭据。",

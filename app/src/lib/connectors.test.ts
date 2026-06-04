@@ -58,7 +58,7 @@ function testConnectorGroupsOnlyExposeUserConnectorsForManagementPage() {
 
   assert.equal(sections.length, 1);
   assert.equal(sections[0].kind, "user_connector");
-  assert.equal(sections[0].title, "User Connectors");
+  assert.equal(sections[0].title, "Links");
   assert.deepEqual(
     sections[0].connectors.map((item) => item.name),
     ["notion"]

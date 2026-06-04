@@ -27,7 +27,7 @@ function testDesktopProductTabsExcludeSettings() {
   assert.match(html, />Sessions</);
   assert.match(html, />Files</);
   assert.match(html, />Skills</);
-  assert.match(html, />Connectors</);
+  assert.match(html, />Links</);
   assert.match(html, />Autos</);
   assert.match(html, /data-ripple-top-tab="sessions"/);
   assert.match(html, /data-ripple-top-tab="files"/);

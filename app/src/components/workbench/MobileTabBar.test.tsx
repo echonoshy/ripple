@@ -27,8 +27,8 @@ function testUsesShortMobileNavigationLabels() {
   assert.match(html, /aria-label="Open Files"/);
   assert.match(html, />Skills</);
   assert.match(html, /aria-label="Open Skills"/);
-  assert.match(html, />Connectors</);
-  assert.match(html, /aria-label="Open Connectors"/);
+  assert.match(html, />Links</);
+  assert.match(html, /aria-label="Open Links"/);
   assert.match(html, />Autos</);
   assert.match(html, /aria-label="Open Autos"/);
   assert.match(html, />Settings</);

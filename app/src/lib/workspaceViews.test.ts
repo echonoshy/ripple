@@ -22,7 +22,7 @@ function testViewTitlesAreHumanReadable() {
   assert.equal(viewTitle("automations"), "Autos");
   assert.equal(viewTitle("files"), "Files");
   assert.equal(viewTitle("skills"), "Skills");
-  assert.equal(viewTitle("connectors"), "Connectors");
+  assert.equal(viewTitle("connectors"), "Links");
 }
 
 function testInspectorOnlyAppearsForSessionWorkbench() {

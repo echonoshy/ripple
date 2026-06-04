@@ -34,7 +34,7 @@ export function connectorReadinessSummary(
 
 export function connectorGroupSections(connectors: ConnectorInfo[]): ConnectorGroupSection[] {
   const sections: ConnectorGroupSection[] = [
-    { kind: "user_connector", title: "User Connectors", connectors: userConnectors(connectors) },
+    { kind: "user_connector", title: "Links", connectors: userConnectors(connectors) },
   ];
   return sections.filter((section) => section.connectors.length > 0);
 }

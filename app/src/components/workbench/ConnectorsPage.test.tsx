@@ -19,14 +19,14 @@ function renderConnectorsPage(locale: LocalePreference = "en-US") {
 function testConnectorsPageHasMobileSpecificCopy() {
   const html = renderConnectorsPage();
 
-  assert.match(html, /sm:hidden[^>]*>Connectors</);
-  assert.match(html, /hidden sm:inline[^>]*>Connectors</);
+  assert.match(html, /sm:hidden[^>]*>Links</);
+  assert.match(html, /hidden sm:inline[^>]*>Links</);
   assert.match(html, /sm:hidden[^>]*>0\/0 ready</);
   assert.match(html, /hidden sm:inline[^>]*>0\/0 connected</);
   assert.doesNotMatch(html, /sm:hidden[^>]*>Refresh</);
   assert.match(html, /hidden lg:inline[^>]*>Refresh</);
-  assert.match(html, /sm:hidden[^>]*>No connectors</);
-  assert.match(html, /hidden sm:inline[^>]*>No connectors</);
+  assert.match(html, /sm:hidden[^>]*>No links</);
+  assert.match(html, /hidden sm:inline[^>]*>No links</);
   assert.match(html, /aria-label="Back to settings"/);
   assert.match(html, /aria-label="Refresh"/);
   assert.match(html, /lg:hidden/);

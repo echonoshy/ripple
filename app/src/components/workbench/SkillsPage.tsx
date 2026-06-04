@@ -105,6 +105,7 @@ const CONNECTOR_GROUP_LABELS: Record<
 
 const SKILL_STATUS_RANK: Record<string, number> = {
   needs_connection: 0,
+  needs_confirmation: 1,
   needs_fix: 1,
   unavailable: 1,
   not_enabled: 2,
@@ -159,6 +160,7 @@ function skillTitle(skill: SkillInfo): string {
 function skillStatusKey(status: string | undefined): MessageKey {
   if (status === "available") return "skills.available";
   if (status === "needs_connection") return "skills.needsConnection";
+  if (status === "needs_confirmation") return "skills.needsConfirmation";
   if (status === "needs_fix") return "skills.needsFix";
   if (status === "disabled") return "skills.disabled";
   if (status === "unavailable") return "skills.unavailable";
@@ -168,6 +170,7 @@ function skillStatusKey(status: string | undefined): MessageKey {
 function skillStatusClass(status: string | undefined): string {
   if (status === "available") return "border-[#22A06B]/20 bg-[#E4F8EE]/78 text-[#16845B]";
   if (status === "needs_connection") return "border-[#FAD355]/45 bg-[#FFF8DB]/82 text-[#8B5E00]";
+  if (status === "needs_confirmation") return "border-[#BACEFD] bg-[#F0F5FF] text-[#1456F0]";
   if (status === "needs_fix") return "border-[#FDCACA]/45 bg-[#FFF1F0]/82 text-[#B42318]";
   if (status === "disabled") return "border-[#DEE0E3] bg-[#F8F9FA] text-[#8F959E]";
   if (status === "unavailable") return "border-[#DEE0E3] bg-[#F8F9FA] text-[#8F959E]";
@@ -380,6 +383,20 @@ export default function SkillsPage({
     onOpenChat?.(t("skills.createChatPrompt"), { autoSend: true, newSession: true });
   }, [onOpenChat, t]);
 
+  const openEditSkillChat = useCallback(
+    (skill: SkillInfo) => {
+      onOpenChat?.(
+        t("skills.editChatPrompt", {
+          name: skillTitle(skill),
+          id: skill.id,
+          path: skill.path,
+        }),
+        { autoSend: true, newSession: true }
+      );
+    },
+    [onOpenChat, t]
+  );
+
   const openConnectorChat = useCallback(
     (group: SkillConnectorGroup) => {
       const name = group.label || (group.labelKey ? t(group.labelKey) : t("skills.groupGeneral"));
@@ -440,11 +457,8 @@ export default function SkillsPage({
       setActionError(null);
       try {
         const validation = await validateSkill(skill.id);
-        replaceSkill({
-          ...skill,
-          validation,
-          user_status: validation.passed ? "not_enabled" : "needs_fix",
-        });
+        replaceSkill({ ...skill, validation });
+        await loadSkills({ force: true, background: true });
         setActionMessage(t("skills.validated"));
       } catch (error) {
         setActionError(error instanceof Error ? error.message : t("skills.failed"));
@@ -452,7 +466,7 @@ export default function SkillsPage({
         setBusySkillId(null);
       }
     },
-    [replaceSkill, t]
+    [loadSkills, replaceSkill, t]
   );
 
   const handleToggle = useCallback(
@@ -492,6 +506,7 @@ export default function SkillsPage({
     const status = (skill.user_status || "not_enabled") as SkillUserStatus;
     const isBusy = busySkillId === skill.id;
     const readOnly = Boolean(skill.read_only || skill.source !== "user");
+    const canEdit = !readOnly && skill.can_edit !== false && Boolean(onOpenChat);
 
     return (
       <details
@@ -565,8 +580,8 @@ export default function SkillsPage({
               </button>
               <button
                 type="button"
-                disabled
-                className={`${SKILL_ACTION_BUTTON_CLASS} text-[#8F959E] disabled:opacity-70`}
+                onClick={() => canEdit && openEditSkillChat(skill)}
+                className={`${SKILL_ACTION_BUTTON_CLASS} ${canEdit ? "" : "pointer-events-none opacity-60"}`}
               >
                 <Pencil size={13} />
                 {t("skills.edit")}

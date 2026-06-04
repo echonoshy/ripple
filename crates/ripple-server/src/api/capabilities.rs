@@ -6,14 +6,15 @@ use axum::Json;
 use serde_json::{json, Value};
 
 use crate::api::connectors::{connector_status_value, read_valid_bilibili_credential_file};
+use crate::api::skills::reconcile_user_skill_settings;
 use crate::api::ApiError;
 use crate::capabilities::{
     connector_definitions, connector_info, related_connector_for_skill,
     related_skills_for_connector,
 };
 use crate::skills::{
-    build_skill_manifest_with_options, read_user_skill_settings, SkillManifestEntry,
-    SkillManifestOptions, UserSkillSettings,
+    build_skill_manifest_with_options, read_user_skill_settings, write_user_skill_settings,
+    SkillManifestEntry, SkillManifestOptions, UserSkillSettings,
 };
 use crate::state::AppState;
 use crate::user::user_id_from_headers;
@@ -47,8 +48,14 @@ pub(crate) fn skill_manifest_options_for_user(
     user_id: &str,
 ) -> anyhow::Result<SkillManifestOptions> {
     let settings_file = state.sandboxes.skill_settings_file(user_id)?;
-    let settings = read_user_skill_settings(&settings_file);
-    skill_manifest_options_for_user_with_settings(state, user_id, &settings)
+    let mut settings = read_user_skill_settings(&settings_file);
+    let connector_statuses = lightweight_connector_statuses(state, user_id)?;
+    if reconcile_user_skill_settings(state, user_id, &mut settings, connector_statuses.clone())
+        .map_err(|error| anyhow::anyhow!("failed to reconcile user skills: {error:?}"))?
+    {
+        write_user_skill_settings(&settings_file, &settings)?;
+    }
+    skill_manifest_options_for_user_with_settings(&settings, connector_statuses)
 }
 
 pub(crate) async fn catalog_skill_manifest_options_for_user(
@@ -56,44 +63,39 @@ pub(crate) async fn catalog_skill_manifest_options_for_user(
     user_id: &str,
 ) -> Result<SkillManifestOptions, ApiError> {
     let settings_file = state.sandboxes.skill_settings_file(user_id)?;
-    let settings = read_user_skill_settings(&settings_file);
-    catalog_skill_manifest_options_for_user_with_settings(state, user_id, &settings).await
+    let mut settings = read_user_skill_settings(&settings_file);
+    let connector_statuses = catalog_connector_statuses(state, user_id).await?;
+    if reconcile_user_skill_settings(state, user_id, &mut settings, connector_statuses.clone())? {
+        write_user_skill_settings(&settings_file, &settings)?;
+    }
+    Ok(skill_manifest_options_for_user_with_settings(
+        &settings,
+        connector_statuses,
+    )?)
 }
 
 fn skill_manifest_options_for_user_with_settings(
-    state: &AppState,
-    user_id: &str,
     settings: &UserSkillSettings,
+    connector_statuses: BTreeMap<String, bool>,
 ) -> anyhow::Result<SkillManifestOptions> {
     Ok(SkillManifestOptions {
         enabled_user_skill_ids: settings.enabled_manifest_skill_ids(),
         validated_user_skill_ids: settings.validated_manifest_skill_ids(),
         validated_user_skill_hashes: settings.validated_manifest_skill_hashes(),
         archived_user_skill_ids: settings.archived_skill_ids(),
-        connector_statuses: lightweight_connector_statuses(state, user_id)?,
-    })
-}
-
-async fn catalog_skill_manifest_options_for_user_with_settings(
-    state: &AppState,
-    user_id: &str,
-    settings: &UserSkillSettings,
-) -> Result<SkillManifestOptions, ApiError> {
-    Ok(SkillManifestOptions {
-        enabled_user_skill_ids: settings.enabled_manifest_skill_ids(),
-        validated_user_skill_ids: settings.validated_manifest_skill_ids(),
-        validated_user_skill_hashes: settings.validated_manifest_skill_hashes(),
-        archived_user_skill_ids: settings.archived_skill_ids(),
-        connector_statuses: catalog_connector_statuses(state, user_id).await?,
+        connector_statuses,
     })
 }
 
 async fn capability_catalog(state: &AppState, user_id: &str) -> Result<Vec<Value>, ApiError> {
     let workspace = state.sandboxes.workspace_dir(user_id)?;
     let settings_file = state.sandboxes.skill_settings_file(user_id)?;
-    let settings = read_user_skill_settings(&settings_file);
-    let options =
-        catalog_skill_manifest_options_for_user_with_settings(state, user_id, &settings).await?;
+    let mut settings = read_user_skill_settings(&settings_file);
+    let connector_statuses = catalog_connector_statuses(state, user_id).await?;
+    if reconcile_user_skill_settings(state, user_id, &mut settings, connector_statuses.clone())? {
+        write_user_skill_settings(&settings_file, &settings)?;
+    }
+    let options = skill_manifest_options_for_user_with_settings(&settings, connector_statuses)?;
     let skills = build_skill_manifest_with_options(&state.config, Some(&workspace), &options);
     let connector_statuses = options.connector_statuses.clone();
     let mut capabilities = Vec::new();
@@ -226,7 +228,7 @@ fn skill_requirements(skill: &SkillManifestEntry) -> Vec<Value> {
     requirements
 }
 
-fn lightweight_connector_statuses(
+pub(crate) fn lightweight_connector_statuses(
     state: &AppState,
     user_id: &str,
 ) -> anyhow::Result<BTreeMap<String, bool>> {

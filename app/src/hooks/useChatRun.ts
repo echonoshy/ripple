@@ -148,6 +148,12 @@ export function shouldContinueConnectorAuthPoll(
   );
 }
 
+export function shouldAutoOpenConnectorAuthWindow(
+  connector: FeishuAuthOpenPayload["connector"]
+): boolean {
+  return connector !== "feishu" && connector !== "google_workspace";
+}
+
 function attachmentUploadErrorMessage(error: unknown): string {
   const message = readableApiErrorMessage(error);
   if (/length limit/i.test(message)) {
@@ -969,7 +975,9 @@ export function useChatRun({
               beginConnectorAuthPollRef.current?.(pendingConnectorAuthPayload, {
                 baseMessages,
                 allowWhileGenerating: true,
-                openAuthWindow: pendingConnectorAuthPayload.connector !== "feishu",
+                openAuthWindow: shouldAutoOpenConnectorAuthWindow(
+                  pendingConnectorAuthPayload.connector
+                ),
               });
               return;
             }

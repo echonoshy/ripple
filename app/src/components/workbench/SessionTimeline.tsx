@@ -527,7 +527,6 @@ export default function SessionTimeline({
             {feishuAuthWaiting
               ? t("timeline.feishuWaiting", {
                   label: feishuAuthWaiting.label,
-                  seconds: feishuAuthWaiting.elapsedSeconds,
                 })
               : waitingStatusMessage}
           </div>

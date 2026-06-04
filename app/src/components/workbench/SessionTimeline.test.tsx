@@ -56,6 +56,26 @@ function renderGeneratingTimeline(locale: LocalePreference = "en-US") {
   );
 }
 
+function renderConnectorAuthWaitingTimeline(locale: LocalePreference = "en-US") {
+  return renderToStaticMarkup(
+    <I18nProvider initialPreference={locale}>
+      <SessionTimeline
+        messages={[{ id: "assistant-waiting", role: "assistant", content: "" }]}
+        events={[]}
+        isGenerating
+        feishuAuthWaiting={{
+          connector: "google_workspace",
+          url: "https://accounts.google.com/o/oauth2/auth?state=abc",
+          elapsedSeconds: 1,
+          label: "Google authorization",
+        }}
+        onQuickReply={noop}
+        onPermissionResolve={noop}
+      />
+    </I18nProvider>
+  );
+}
+
 function testTimelineImagePreviewsUseWorkspaceImageCache() {
   const source = readFileSync(new URL("./SessionTimeline.tsx", import.meta.url), "utf8");
 
@@ -177,6 +197,17 @@ function testChineseGeneratingPlaceholderUsesRandomWaitingCopy() {
   }
 }
 
+function testConnectorAuthTimelineWaitingCopyDoesNotTickSeconds() {
+  const enHtml = renderConnectorAuthWaitingTimeline();
+  const zhHtml = renderConnectorAuthWaitingTimeline("zh-CN");
+
+  assert.match(enHtml, /Waiting for Google authorization in the browser/);
+  assert.doesNotMatch(enHtml, /1 seconds elapsed/);
+  assert.doesNotMatch(enHtml, /seconds elapsed/);
+  assert.match(zhHtml, /正在等待浏览器中的Google authorization完成/);
+  assert.doesNotMatch(zhHtml, /已等待 1 秒/);
+}
+
 function testWaitingCopyAvoidsConcreteOperationClaims() {
   const concreteOperationPattern =
     /\b(shortcut|workspace|files?|context|diff|wiring|toolbox|path|thread|signal|lever|clues|map|terrain|reading|checking|tracing|opening|running|testing|gathering|mapping)\b/i;
@@ -207,6 +238,7 @@ testCopyActionCanBeRevealedOnMobileWithoutStayingVisible();
 testToolEventsDoNotExposeCopyAction();
 testGeneratingPlaceholderUsesRandomWaitingCopy();
 testChineseGeneratingPlaceholderUsesRandomWaitingCopy();
+testConnectorAuthTimelineWaitingCopyDoesNotTickSeconds();
 testWaitingCopyAvoidsConcreteOperationClaims();
 testTimelineUsesReadableMobileTypeScale();
 

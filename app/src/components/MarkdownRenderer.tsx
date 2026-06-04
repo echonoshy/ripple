@@ -10,6 +10,7 @@ import rehypeKatex from "rehype-katex";
 import {
   ChevronRight,
   Brain,
+  CheckCircle2,
   ExternalLink,
   KeyRound,
   Loader2,
@@ -91,12 +92,20 @@ export interface FeishuAuthWaitingState {
 }
 
 interface ContentSegment {
-  type: "text" | "thinking" | "feishu" | "google" | "bilibili";
+  type:
+    | "text"
+    | "thinking"
+    | "feishu"
+    | "google"
+    | "googleAuthorized"
+    | "bilibili"
+    | "bilibiliAuthorized";
   content: string;
   tag?: FeishuTag;
   url?: string;
   qrcodeImageUrl?: string;
   appUrl?: string;
+  bilibiliMode?: "connect" | "skill";
 }
 
 type ConnectorAuthLinkVariant = "primary" | "info" | "warning" | "neutral";
@@ -151,7 +160,7 @@ function parseThinkingBlocks(content: string): ContentSegment[] {
 function parseConnectorAuthBlocks(text: string): ContentSegment[] {
   const segments: ContentSegment[] = [];
   const bilibiliRe =
-    /\[BILIBILI_AUTH\][\s\S]*?(\/v1\/bilibili\/qrcode\.png\?\S+)[\s\S]*?(https?:\/\/\S+)(?:[\s\S]*?(bilibili:\/\/\S+))?/g;
+    /\[BILIBILI_AUTH(?:_(CONNECT|SKILL))?\][\s\S]*?(\/v1\/bilibili\/qrcode\.png\?\S+)[\s\S]*?(https?:\/\/\S+)(?:[\s\S]*?(bilibili:\/\/\S+))?/g;
   let lastBilibili = 0;
   let bilibiliMatch: RegExpExecArray | null;
 
@@ -163,11 +172,15 @@ function parseConnectorAuthBlocks(text: string): ContentSegment[] {
     segments.push({
       type: "bilibili",
       content: bilibiliMatch[0],
-      qrcodeImageUrl: bilibiliMatch[1],
-      url: bilibiliMatch[2],
-      appUrl: bilibiliMatch[3],
+      bilibiliMode: bilibiliMatch[1] === "SKILL" ? "skill" : "connect",
+      qrcodeImageUrl: bilibiliMatch[2],
+      url: bilibiliMatch[3],
+      appUrl: bilibiliMatch[4],
     });
-    lastBilibili = bilibiliMatch.index + bilibiliMatch[0].length;
+    lastBilibili =
+      bilibiliMatch.index +
+      bilibiliMatch[0].length +
+      legacyBilibiliAuthTailLength(text.slice(bilibiliMatch.index + bilibiliMatch[0].length));
   }
 
   if (segments.length > 0) {
@@ -183,7 +196,8 @@ function parseConnectorAuthBlocks(text: string): ContentSegment[] {
 
 function parseBrowserConnectorAuthBlocks(text: string): ContentSegment[] {
   const segments: ContentSegment[] = [];
-  const re = /\[(FEISHU_(SETUP|AUTH)|GOOGLE_AUTH)\][\s\S]*?(https?:\/\/\S+)/g;
+  const re =
+    /\[(GOOGLE_AUTHORIZED|BILIBILI_AUTHORIZED(?:_(CONNECT|SKILL))?)\]|\[(FEISHU_(SETUP|AUTH)|GOOGLE_AUTH)\][\s\S]*?(https?:\/\/\S+)/g;
   let last = 0;
   let m: RegExpExecArray | null;
 
@@ -192,13 +206,21 @@ function parseBrowserConnectorAuthBlocks(text: string): ContentSegment[] {
       const before = text.slice(last, m.index).trim();
       if (before) segments.push({ type: "text", content: before });
     }
-    if (m[1] === "GOOGLE_AUTH") {
-      segments.push({ type: "google", content: m[0], url: m[3] });
+    if (m[1] === "GOOGLE_AUTHORIZED") {
+      segments.push({ type: "googleAuthorized", content: m[0] });
+    } else if (m[1]?.startsWith("BILIBILI_AUTHORIZED")) {
+      segments.push({
+        type: "bilibiliAuthorized",
+        content: m[0],
+        bilibiliMode: m[2] === "SKILL" ? "skill" : "connect",
+      });
+    } else if (m[3] === "GOOGLE_AUTH") {
+      segments.push({ type: "google", content: m[0], url: m[5] });
     } else {
-      const tag: FeishuTag = m[2] === "SETUP" ? "setup" : "auth";
-      segments.push({ type: "feishu", content: m[0], tag, url: m[3] });
+      const tag: FeishuTag = m[4] === "SETUP" ? "setup" : "auth";
+      segments.push({ type: "feishu", content: m[0], tag, url: m[5] });
     }
-    last = m.index + m[0].length;
+    last = m.index + m[0].length + legacyConnectorAuthTailLength(text.slice(m.index + m[0].length));
   }
 
   if (last < text.length) {
@@ -207,6 +229,20 @@ function parseBrowserConnectorAuthBlocks(text: string): ContentSegment[] {
   }
 
   return segments.length > 0 ? segments : [{ type: "text", content: text }];
+}
+
+function legacyBilibiliAuthTailLength(text: string): number {
+  const match = text.match(
+    /^\s*(?:扫码或点链接确认后，回到这里发送「好了」。|After confirming with the QR code or link, come back here and send "done"\.)/
+  );
+  return match?.[0].length ?? 0;
+}
+
+function legacyConnectorAuthTailLength(text: string): number {
+  const match = text.match(
+    /^\s*(?:授权完成后 Ripple 会自动继续。|After authorization, Ripple will continue automatically\.)/
+  );
+  return match?.[0].length ?? 0;
 }
 
 function FeishuCard({
@@ -337,19 +373,69 @@ function GoogleAuthCard({
   );
 }
 
+function GoogleAuthorizedCard() {
+  const { t } = useI18n();
+
+  return (
+    <div className="my-3 overflow-hidden rounded-2xl border border-[#dfe6f4] bg-white/74 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl">
+      <div className="flex items-center gap-2 border-b border-[#dfe6f4] bg-[#dafbe1]/60 px-4 py-3 text-[#1a7f37]">
+        <IconTile tone="success" size="sm">
+          <CheckCircle2 size={15} />
+        </IconTile>
+        <span className="text-sm font-semibold">{t("connectors.googleAuthorizedTitle")}</span>
+      </div>
+      <div className="px-4 py-3">
+        <p className="text-sm font-medium text-[#374151]">
+          {t("connectors.googleAuthorizedSubtitle")}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function BilibiliAuthorizedCard({ mode = "connect" }: { mode?: "connect" | "skill" }) {
+  const { t } = useI18n();
+  const subtitle =
+    mode === "skill"
+      ? t("connectors.bilibiliSkillAuthorizedSubtitle")
+      : t("connectors.bilibiliAuthorizedSubtitle");
+
+  return (
+    <div className="my-3 overflow-hidden rounded-2xl border border-[#dfe6f4] bg-white/74 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl">
+      <div className="flex items-center gap-2 border-b border-[#dfe6f4] bg-[#dafbe1]/60 px-4 py-3 text-[#1a7f37]">
+        <IconTile tone="success" size="sm">
+          <CheckCircle2 size={15} />
+        </IconTile>
+        <span className="text-sm font-semibold">{t("connectors.bilibiliAuthorizedTitle")}</span>
+      </div>
+      <div className="px-4 py-3">
+        <p className="text-sm font-medium text-[#374151]">{subtitle}</p>
+      </div>
+    </div>
+  );
+}
+
 function BilibiliAuthCard({
   qrcodeImageUrl,
   scanUrl,
   appUrl,
+  mode = "connect",
 }: {
   qrcodeImageUrl: string;
   scanUrl: string;
   appUrl?: string;
+  mode?: "connect" | "skill";
 }) {
   const { t } = useI18n();
   const qrSrc = resolveBackendUrl(qrcodeImageUrl) || qrcodeImageUrl;
   const href = resolveBackendUrl(scanUrl) || scanUrl;
   const appHref = appUrl?.trim();
+  const title =
+    mode === "skill" ? t("connectors.bilibiliSkillAuthTitle") : t("connectors.bilibiliAuthTitle");
+  const subtitle =
+    mode === "skill"
+      ? t("connectors.bilibiliSkillAuthSubtitle")
+      : t("connectors.bilibiliAuthSubtitle");
 
   const handleOpen = (targetHref: string) => (event: React.MouseEvent<HTMLAnchorElement>) => {
     event.preventDefault();
@@ -362,10 +448,10 @@ function BilibiliAuthCard({
         <IconTile tone="warning" size="sm">
           <QrCode size={15} />
         </IconTile>
-        <span className="text-sm font-semibold">{t("connectors.bilibiliAuthTitle")}</span>
+        <span className="text-sm font-semibold">{title}</span>
       </div>
       <div className="space-y-3 px-4 py-3">
-        <p className="text-sm font-medium text-[#374151]">{t("connectors.bilibiliAuthSubtitle")}</p>
+        <p className="text-sm font-medium text-[#374151]">{subtitle}</p>
         <div className="flex flex-wrap items-start gap-4">
           <img
             src={qrSrc}
@@ -475,7 +561,11 @@ function MarkdownContent({
   const segments = parseConnectorAuthBlocks(normalized);
   const hasConnectorAuth = segments.some(
     (segment) =>
-      segment.type === "feishu" || segment.type === "google" || segment.type === "bilibili"
+      segment.type === "feishu" ||
+      segment.type === "google" ||
+      segment.type === "googleAuthorized" ||
+      segment.type === "bilibili" ||
+      segment.type === "bilibiliAuthorized"
   );
 
   if (hasConnectorAuth) {
@@ -503,6 +593,12 @@ function MarkdownContent({
               />
             );
           }
+          if (segment.type === "googleAuthorized") {
+            return <GoogleAuthorizedCard key={index} />;
+          }
+          if (segment.type === "bilibiliAuthorized") {
+            return <BilibiliAuthorizedCard key={index} mode={segment.bilibiliMode} />;
+          }
           if (segment.type === "bilibili" && segment.qrcodeImageUrl && segment.url) {
             return (
               <BilibiliAuthCard
@@ -510,6 +606,7 @@ function MarkdownContent({
                 qrcodeImageUrl={segment.qrcodeImageUrl}
                 scanUrl={segment.url}
                 appUrl={segment.appUrl}
+                mode={segment.bilibiliMode}
               />
             );
           }
@@ -684,6 +781,12 @@ export default function MarkdownRenderer({
             />
           );
         }
+        if (segment.type === "googleAuthorized") {
+          return <GoogleAuthorizedCard key={i} />;
+        }
+        if (segment.type === "bilibiliAuthorized") {
+          return <BilibiliAuthorizedCard key={i} mode={segment.bilibiliMode} />;
+        }
         if (segment.type === "bilibili" && segment.qrcodeImageUrl && segment.url) {
           return (
             <BilibiliAuthCard
@@ -691,6 +794,7 @@ export default function MarkdownRenderer({
               qrcodeImageUrl={segment.qrcodeImageUrl}
               scanUrl={segment.url}
               appUrl={segment.appUrl}
+              mode={segment.bilibiliMode}
             />
           );
         }

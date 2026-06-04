@@ -27,6 +27,7 @@ const MODEL_CONNECTOR_AUTH_REQUEST_CLOSE: &str = "</ripple_connector_auth_reques
 pub(crate) struct ModelConnectorAuthRequest {
     pub(crate) connector: String,
     pub(crate) force_reauth: bool,
+    pub(crate) source: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -36,6 +37,7 @@ struct RawModelConnectorAuthRequest {
     #[serde(default)]
     force_reauth: bool,
     reason: Option<String>,
+    source: Option<String>,
 }
 
 pub(crate) struct ConnectorAuthDecision {
@@ -78,9 +80,16 @@ pub(crate) fn parse_model_connector_auth_request(text: &str) -> Option<ModelConn
         return None;
     }
     let _reason = request.reason.as_deref().unwrap_or("").trim();
+    let source = request
+        .source
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
     Some(ModelConnectorAuthRequest {
         connector: connector.to_string(),
         force_reauth: request.force_reauth,
+        source,
     })
 }
 
@@ -100,6 +109,7 @@ pub(crate) async fn start_model_connector_auth_for_chat(
         user_input,
         request_base_url,
         request.force_reauth,
+        request.source.as_deref().unwrap_or("session_skill"),
     )
     .await
 }
@@ -122,11 +132,12 @@ pub(crate) async fn continue_pending_connector_auth(
         return Ok(None);
     }
     if connector_is_connected(state, user_id, &connector).await? {
+        let source = pending_auth_source(&pending);
         let event = connector_auth_event(
             &connector,
             "connector_auth_updated",
             "authorized",
-            connector_authorized_message(&connector),
+            connector_authorized_message_for_source(&connector, source),
             None,
         );
         return Ok(Some(ConnectorAuthDecision {
@@ -167,6 +178,7 @@ async fn start_connector_auth_for_chat(
     user_input: &str,
     request_base_url: Option<&str>,
     force_reauth: bool,
+    source: &str,
 ) -> Result<ConnectorAuthDecision, ApiError> {
     let payload = match connector {
         "notion" => extract_notion_token(user_input)
@@ -200,10 +212,14 @@ async fn start_connector_auth_for_chat(
         });
     }
 
-    let action = connector_auth_start_action(state, user_id, connector, &payload, request_base_url)
-        .await?
-        .0;
+    let mut action =
+        connector_auth_start_action(state, user_id, connector, &payload, request_base_url)
+            .await?
+            .0;
+    annotate_connector_auth_source(&mut action, source);
     let resume_user_input = if connector == "notion" || connector == "feishu" {
+        String::new()
+    } else if source == "connectors_page" {
         String::new()
     } else {
         user_input.to_string()
@@ -350,7 +366,7 @@ async fn continue_bilibili_auth(
             resume_user_input: None,
         }));
     }
-    let action = connector_auth_complete_action(
+    let mut action = connector_auth_complete_action(
         state,
         user_id,
         "bilibili",
@@ -358,6 +374,7 @@ async fn continue_bilibili_auth(
     )
     .await?
     .0;
+    annotate_connector_auth_source(&mut action, pending_auth_source(pending));
     Ok(Some(decision_from_action(
         session,
         "bilibili",
@@ -537,6 +554,14 @@ fn pending_from_event(connector: &str, event: &Value, resume_user_input: String)
         "action".to_string(),
         event.get("action").cloned().unwrap_or(Value::Null),
     );
+    if let Some(source) = event
+        .pointer("/action/source")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        pending.insert("source".to_string(), json!(source));
+    }
     for key in [
         "device_code",
         "oauth_url",
@@ -582,11 +607,7 @@ pub(crate) fn connector_auth_message(connector: &str, action: &Value) -> String 
         "google_workspace" => data
             .and_then(|data| data.get("oauth_url"))
             .and_then(Value::as_str)
-            .map(|url| {
-                format!(
-                    "[GOOGLE_AUTH]\nGoogle Workspace 授权\n\n请打开下面的授权链接并点击允许：\n\n{url}\n\n授权完成后 Ripple 会自动继续。"
-                )
-            })
+            .map(|url| format!("[GOOGLE_AUTH]\n{url}"))
             .unwrap_or_else(|| {
                 if stage == "authorized" {
                     connector_authorized_message(connector).to_string()
@@ -631,16 +652,24 @@ pub(crate) fn connector_auth_message(connector: &str, action: &Value) -> String 
                     } else {
                         format!("\n\n{app_url}")
                     };
-                    format!(
-                        "[BILIBILI_AUTH]\nB 站扫码登录\n\n{qrcode_image_url}\n\n{qrcode_content}{app_url_section}\n\n扫码或点链接确认后，回到这里发送「好了」。"
-                    )
+                    let marker = if connector_auth_source(action) == "connectors_page" {
+                        "[BILIBILI_AUTH_CONNECT]"
+                    } else {
+                        "[BILIBILI_AUTH_SKILL]"
+                    };
+                    format!("{marker}\n{qrcode_image_url}\n\n{qrcode_content}{app_url_section}")
                 } else if stage == "authorized" {
-                    connector_authorized_message(connector).to_string()
+                    connector_authorized_message_for_source(
+                        connector,
+                        connector_auth_source(action),
+                    )
+                    .to_string()
                 } else {
                     detail.to_string()
                 }
             } else if stage == "authorized" {
-                connector_authorized_message(connector).to_string()
+                connector_authorized_message_for_source(connector, connector_auth_source(action))
+                    .to_string()
             } else {
                 detail.to_string()
             }
@@ -689,11 +718,16 @@ fn connector_auth_flow(connector: &str) -> &'static str {
 }
 
 fn connector_authorized_message(connector: &str) -> &'static str {
+    connector_authorized_message_for_source(connector, "session_skill")
+}
+
+fn connector_authorized_message_for_source(connector: &str, source: &str) -> &'static str {
     match connector {
-        "google_workspace" => "Google Workspace 授权已完成。继续执行刚才的请求。",
+        "google_workspace" => "[GOOGLE_AUTHORIZED]",
         "notion" => "Notion token 已保存。继续执行刚才的请求。",
         "feishu" => "飞书授权已完成。",
-        "bilibili" => "Bilibili 已授权。继续执行刚才的请求。",
+        "bilibili" if source == "connectors_page" => "[BILIBILI_AUTHORIZED_CONNECT]",
+        "bilibili" => "[BILIBILI_AUTHORIZED_SKILL]",
         _ => "Connector authorization completed. Continuing.",
     }
 }
@@ -717,8 +751,37 @@ fn pending_resume_user_input(pending: &Value) -> Option<String> {
         .map(str::to_string)
 }
 
+fn pending_auth_source(pending: &Value) -> &str {
+    pending
+        .get("source")
+        .or_else(|| pending.pointer("/action/source"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("session_skill")
+}
+
+fn connector_auth_source(action: &Value) -> &str {
+    action
+        .get("source")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("session_skill")
+}
+
+fn annotate_connector_auth_source(action: &mut Value, source: &str) {
+    let source = source.trim();
+    if source.is_empty() {
+        return;
+    }
+    if let Some(object) = action.as_object_mut() {
+        object.insert("source".to_string(), json!(source));
+    }
+}
+
 fn connector_resume_user_input(connector: &str, resume_user_input: String) -> Option<String> {
-    if connector == "feishu" {
+    if connector == "feishu" || connector == "google_workspace" || connector == "bilibili" {
         return None;
     }
     let trimmed = resume_user_input.trim();
@@ -815,6 +878,108 @@ mod tests {
     }
 
     #[test]
+    fn google_auth_message_uses_structured_marker_only() {
+        let message = connector_auth_message(
+            "google_workspace",
+            &json!({
+                "stage": "awaiting_browser_callback",
+                "data": {"oauth_url": "https://accounts.google.com/o/oauth2/auth?state=abc"}
+            }),
+        );
+
+        assert_eq!(
+            message,
+            "[GOOGLE_AUTH]\nhttps://accounts.google.com/o/oauth2/auth?state=abc"
+        );
+        assert!(!message.contains("授权完成后"));
+        assert!(!message.contains("continue automatically"));
+    }
+
+    #[test]
+    fn google_authorized_message_is_setup_only() {
+        let message = connector_auth_message("google_workspace", &json!({"stage": "authorized"}));
+
+        assert_eq!(message, "[GOOGLE_AUTHORIZED]");
+        assert!(!message.contains("继续执行"));
+    }
+
+    #[test]
+    fn bilibili_auth_message_uses_structured_marker_only() {
+        let message = connector_auth_message(
+            "bilibili",
+            &json!({
+                "stage": "awaiting_qr_scan",
+                "data": {
+                    "qrcode_image_url": "/v1/bilibili/qrcode.png?content=encoded",
+                    "qrcode_content": "https://account.bilibili.com/h5/account-h5/auth/scan-web?qrcode_key=abc",
+                    "app_url": "bilibili://browser?url=https%3A%2F%2Faccount.bilibili.com%2Fh5"
+                }
+            }),
+        );
+
+        assert_eq!(
+            message,
+            "[BILIBILI_AUTH_SKILL]\n/v1/bilibili/qrcode.png?content=encoded\n\nhttps://account.bilibili.com/h5/account-h5/auth/scan-web?qrcode_key=abc\n\nbilibili://browser?url=https%3A%2F%2Faccount.bilibili.com%2Fh5"
+        );
+        assert!(!message.contains("扫码或点链接"));
+        assert!(!message.contains("好了"));
+    }
+
+    #[test]
+    fn bilibili_connector_page_auth_message_is_connect_only() {
+        let mut session = test_session_record();
+        let decision = decision_from_action(
+            &mut session,
+            "bilibili",
+            json!({
+                "stage": "awaiting_user",
+                "source": "connectors_page",
+                "data": {
+                    "qrcode_image_url": "/v1/bilibili/qrcode.png?content=encoded",
+                    "qrcode_content": "https://account.bilibili.com/h5/account-h5/auth/scan-web?qrcode_key=abc"
+                }
+            }),
+            String::new(),
+        )
+        .expect("decision");
+
+        assert_eq!(
+            decision.event.get("message").and_then(Value::as_str),
+            Some("[BILIBILI_AUTH_CONNECT]\n/v1/bilibili/qrcode.png?content=encoded\n\nhttps://account.bilibili.com/h5/account-h5/auth/scan-web?qrcode_key=abc")
+        );
+        assert_eq!(
+            session
+                .pending_connector_auth
+                .as_ref()
+                .and_then(|pending| pending.get("source"))
+                .and_then(Value::as_str),
+            Some("connectors_page")
+        );
+    }
+
+    #[test]
+    fn bilibili_authorized_message_is_setup_only() {
+        let message = connector_auth_message(
+            "bilibili",
+            &json!({"stage": "authorized", "source": "connectors_page"}),
+        );
+
+        assert_eq!(message, "[BILIBILI_AUTHORIZED_CONNECT]");
+        assert!(!message.contains("继续执行"));
+    }
+
+    #[test]
+    fn bilibili_skill_authorized_message_guides_next_request() {
+        let message = connector_auth_message(
+            "bilibili",
+            &json!({"stage": "authorized", "source": "session_skill"}),
+        );
+
+        assert_eq!(message, "[BILIBILI_AUTHORIZED_SKILL]");
+        assert!(!message.contains("继续执行"));
+    }
+
+    #[test]
     fn feishu_authorized_decision_does_not_resume_saved_task() {
         let mut session = test_session_record();
         let decision = decision_from_action(
@@ -822,6 +987,36 @@ mod tests {
             "feishu",
             json!({"stage": "authorized", "detail": "ok", "data": {}}),
             "列出我的飞书日程".to_string(),
+        )
+        .expect("decision");
+
+        assert!(decision.resume_user_input.is_none());
+        assert!(session.pending_connector_auth.is_none());
+    }
+
+    #[test]
+    fn google_authorized_decision_does_not_resume_saved_task() {
+        let mut session = test_session_record();
+        let decision = decision_from_action(
+            &mut session,
+            "google_workspace",
+            json!({"stage": "authorized", "detail": "ok", "data": {}}),
+            "列出我的 Gmail 邮件".to_string(),
+        )
+        .expect("decision");
+
+        assert!(decision.resume_user_input.is_none());
+        assert!(session.pending_connector_auth.is_none());
+    }
+
+    #[test]
+    fn bilibili_authorized_decision_does_not_resume_saved_task() {
+        let mut session = test_session_record();
+        let decision = decision_from_action(
+            &mut session,
+            "bilibili",
+            json!({"stage": "authorized", "detail": "ok", "data": {}}),
+            "总结 BV1xx411c7mD".to_string(),
         )
         .expect("decision");
 

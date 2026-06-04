@@ -1758,7 +1758,7 @@ mod tests {
             }),
         );
 
-        assert!(message.contains("[BILIBILI_AUTH]"));
+        assert!(message.contains("[BILIBILI_AUTH_SKILL]"));
         assert!(message.contains("/v1/bilibili/qrcode.png"));
         assert!(message.contains("https://account.bilibili.com/h5/account-h5/auth/scan-web"));
         assert!(message.contains("bilibili://browser?url="));

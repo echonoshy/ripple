@@ -31,6 +31,13 @@ pub(crate) async fn handle_session_control_action(
                     .get("force_reauth")
                     .and_then(Value::as_bool)
                     .unwrap_or(false),
+                source: control_action
+                    .action
+                    .get("source")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string),
             };
             start_model_connector_auth_for_chat(
                 state,

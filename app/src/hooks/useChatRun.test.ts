@@ -5,6 +5,7 @@ import {
   CONNECTOR_AUTH_POLL_TIMEOUT_MS,
   SESSION_TITLE_REFRESH_DELAYS_MS,
   connectorAuthPollPayloadFromEvent,
+  shouldAutoOpenConnectorAuthWindow,
   shouldContinueConnectorAuthPoll,
   uploadPendingLocalImagesForSend,
 } from "./useChatRun";
@@ -161,11 +162,16 @@ function testConnectorAuthPollStopsOnTerminalStages() {
 }
 
 function testFeishuConnectorAuthPollDoesNotAutoOpenBrowserOnRunComplete() {
+  assert.equal(shouldAutoOpenConnectorAuthWindow("feishu"), false);
+}
+
+function testGoogleConnectorAuthPollDoesNotAutoOpenBrowserOnRunComplete() {
   const source = readFileSync(new URL("./useChatRun.ts", import.meta.url), "utf8");
 
+  assert.equal(shouldAutoOpenConnectorAuthWindow("google_workspace"), false);
   assert.match(
     source,
-    /pendingConnectorAuthPayload[\s\S]{0,500}beginConnectorAuthPollRef\.current\?\.\([\s\S]{0,260}openAuthWindow:\s*pendingConnectorAuthPayload\.connector !== "feishu"/
+    /openAuthWindow:\s*shouldAutoOpenConnectorAuthWindow\(\s*pendingConnectorAuthPayload\.connector\s*\)/
   );
 }
 
@@ -298,6 +304,7 @@ testAuthorizedConnectorEventDoesNotStartPoll();
 testConnectorAuthPollContinuesOnlyBeforeTimeout();
 testConnectorAuthPollStopsOnTerminalStages();
 testFeishuConnectorAuthPollDoesNotAutoOpenBrowserOnRunComplete();
+testGoogleConnectorAuthPollDoesNotAutoOpenBrowserOnRunComplete();
 testConnectorAuthPopupUrlResetAllowsManualRetry();
 testAttachmentUploadsKeepSuccessfulFilesWhenOneUploadFails();
 testSessionTitleRefreshUsesShortDelayedPolls();

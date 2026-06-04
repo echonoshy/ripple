@@ -48,8 +48,6 @@ function renderSessionPage({
         sessionId="srv-test"
         onNewSession={noop}
         onInputChange={noop}
-        onClearContext={noop}
-        onCompactContext={noop}
         onAttachFiles={noop}
         onRemovePendingFile={noop}
         onAddPendingImages={noop}
@@ -93,8 +91,6 @@ function renderSessionPageWithTimelineContent() {
       sessionId="srv-test"
       onNewSession={noop}
       onInputChange={noop}
-      onClearContext={noop}
-      onCompactContext={noop}
       onAttachFiles={noop}
       onRemovePendingFile={noop}
       onAddPendingImages={noop}
@@ -272,8 +268,6 @@ function testSessionPageShowsCurrentFolderBadge() {
       sessionId="srv-demo"
       onNewSession={noop}
       onInputChange={noop}
-      onClearContext={noop}
-      onCompactContext={noop}
       onAttachFiles={noop}
       onRemovePendingFile={noop}
       onAddPendingImages={noop}

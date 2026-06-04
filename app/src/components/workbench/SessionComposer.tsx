@@ -11,16 +11,10 @@ import {
   Paperclip,
   Send,
   Square,
-  Trash2,
   X,
 } from "lucide-react";
 import { useI18n } from "@/i18n";
 import type { ChatFileRef } from "@/lib/chatInput";
-import {
-  getQuickActionMatches,
-  getSlashCommandTrigger,
-  type QuickAction,
-} from "@/lib/composerTriggers";
 import { shouldApplyInputFocus } from "@/lib/inputFocus";
 import { formatModelName } from "@/lib/models";
 import {
@@ -32,7 +26,6 @@ import {
 import WorkspaceFolderPicker from "./WorkspaceFolderPicker";
 import {
   LUCIDE_STANDARD_STROKE_WIDTH,
-  TYPOGRAPHY_BODY_CLASS,
   TYPOGRAPHY_META_CLASS,
   TYPOGRAPHY_MICRO_CLASS,
   TYPOGRAPHY_MOBILE_BODY_CLASS,
@@ -44,8 +37,6 @@ interface SessionComposerProps {
   onChange: (value: string) => void;
   onSend: () => void;
   onStop: () => void;
-  onClearContext: () => void;
-  onCompactContext: () => void;
   onAttachFiles: (files: File[]) => void | Promise<void>;
   onRemovePendingFile: (path: string) => void;
   onAddPendingImages: (files: File[], source: PendingImageSource) => void;
@@ -69,11 +60,6 @@ interface SessionComposerProps {
   onSelectWorkspaceFolder?: (path: string) => void | Promise<void>;
 }
 
-type QuickActionsState = {
-  query: string;
-  key: string;
-};
-
 export function shouldExpandComposer(value: string, isComposerFocused: boolean): boolean {
   return isComposerFocused || value.trim().length > 0;
 }
@@ -90,8 +76,6 @@ export default function SessionComposer({
   onChange,
   onSend,
   onStop,
-  onClearContext,
-  onCompactContext,
   onAttachFiles,
   onRemovePendingFile,
   onAddPendingImages,
@@ -118,12 +102,8 @@ export default function SessionComposer({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lastAppliedFocusTokenRef = useRef(focusToken);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const quickActionsRef = useRef<HTMLDivElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
   const folderPickerRef = useRef<HTMLDivElement>(null);
-  const [quickActionsState, setQuickActionsState] = useState<QuickActionsState | null>(null);
-  const [dismissedSlashKey, setDismissedSlashKey] = useState<string | null>(null);
-  const [quickActionIndex, setQuickActionIndex] = useState(0);
   const [isComposerFocused, setIsComposerFocused] = useState(false);
   const [isFolderPickerOpen, setIsFolderPickerOpen] = useState(false);
   const canSend = Boolean(value.trim() || pendingFiles.length > 0 || pendingLocalImages.length > 0);
@@ -135,14 +115,9 @@ export default function SessionComposer({
   const folderButtonTitle = hasFocusFolder
     ? t("composer.focusFolder", { label: effectiveWorkspaceScopeLabel })
     : t("composer.setFocusFolder");
-  const isQuickActionsOpen = quickActionsState !== null;
   const availableModels = useMemo(
     () => (models.length > 0 ? models : [{ id: selectedModel, owned_by: "ripple" }]),
     [models, selectedModel]
-  );
-  const quickActionMatches = useMemo(
-    () => getQuickActionMatches(quickActionsState?.query ?? ""),
-    [quickActionsState?.query]
   );
   const isExpandedComposer = shouldExpandComposer(value, isComposerFocused);
 
@@ -163,56 +138,6 @@ export default function SessionComposer({
     textareaRef.current?.focus();
     lastAppliedFocusTokenRef.current = focusToken;
   }, [focusToken, inputDisabled]);
-
-  const getTextareaCursor = useCallback(
-    () => textareaRef.current?.selectionStart ?? value.length,
-    [value.length]
-  );
-
-  const closeOpenPopups = useCallback(
-    (rememberDismissal: boolean = true) => {
-      const cursor = getTextareaCursor();
-      if (rememberDismissal) {
-        const slashTrigger = getSlashCommandTrigger(value, cursor);
-        if (slashTrigger) {
-          setDismissedSlashKey(slashTrigger.key);
-        }
-      }
-
-      setQuickActionsState(null);
-    },
-    [getTextareaCursor, value]
-  );
-
-  const syncInputDrivenPopups = useCallback(
-    (nextValue: string, cursor: number) => {
-      if (inputDisabled) return;
-
-      const slashTrigger = getSlashCommandTrigger(nextValue, cursor);
-      if (slashTrigger && slashTrigger.key !== dismissedSlashKey) {
-        setQuickActionsState(slashTrigger);
-        setQuickActionIndex(0);
-        return;
-      }
-
-      setQuickActionsState(null);
-    },
-    [dismissedSlashKey, inputDisabled]
-  );
-
-  useEffect(() => {
-    if (!isQuickActionsOpen) return;
-
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (!(target instanceof Node)) return;
-      if (quickActionsRef.current?.contains(target)) return;
-      closeOpenPopups();
-    };
-
-    document.addEventListener("pointerdown", handlePointerDown, true);
-    return () => document.removeEventListener("pointerdown", handlePointerDown, true);
-  }, [closeOpenPopups, isQuickActionsOpen]);
 
   useEffect(() => {
     if (!isModelDropdownOpen) return;
@@ -242,54 +167,7 @@ export default function SessionComposer({
     return () => document.removeEventListener("pointerdown", handlePointerDown, true);
   }, [isFolderPickerOpen]);
 
-  const runQuickAction = useCallback(
-    (action: QuickAction) => {
-      setQuickActionsState(null);
-
-      if (action.id === "clear") {
-        onChange("");
-        onClearContext();
-        requestAnimationFrame(() => textareaRef.current?.focus());
-        return;
-      }
-      if (action.id === "compact") {
-        onChange("");
-        onCompactContext();
-        requestAnimationFrame(() => textareaRef.current?.focus());
-      }
-    },
-    [onChange, onClearContext, onCompactContext]
-  );
-
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (isQuickActionsOpen && event.key === "Escape") {
-      event.preventDefault();
-      closeOpenPopups();
-      return;
-    }
-
-    if (isQuickActionsOpen) {
-      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-        event.preventDefault();
-        const direction = event.key === "ArrowDown" ? 1 : -1;
-        setQuickActionIndex((index) => {
-          const count = quickActionMatches.length;
-          if (count === 0) return 0;
-          return (index + direction + count) % count;
-        });
-        return;
-      }
-
-      if ((event.key === "Enter" || event.key === "Tab") && !event.shiftKey) {
-        const action = quickActionMatches[quickActionIndex] ?? quickActionMatches[0];
-        if (action) {
-          event.preventDefault();
-          runQuickAction(action);
-          return;
-        }
-      }
-    }
-
     if (event.key !== "Enter" || event.shiftKey) return;
     if (event.nativeEvent.isComposing || event.keyCode === 229) return;
     event.preventDefault();
@@ -299,12 +177,6 @@ export default function SessionComposer({
   const handleComposerChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
     const nextValue = event.target.value;
     onChange(nextValue);
-    syncInputDrivenPopups(nextValue, event.target.selectionStart ?? nextValue.length);
-  };
-
-  const handleComposerSelection = (event: React.SyntheticEvent<HTMLTextAreaElement>) => {
-    const currentValue = event.currentTarget.value;
-    syncInputDrivenPopups(currentValue, event.currentTarget.selectionStart ?? currentValue.length);
   };
 
   const handleAttachChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -322,7 +194,6 @@ export default function SessionComposer({
     if (images.length === 0 && attachmentFiles.length === 0) return;
 
     event.preventDefault();
-    closeOpenPopups(false);
     if (images.length > 0) onAddPendingImages(images, "paste");
     if (attachmentFiles.length > 0) void onAttachFiles(attachmentFiles);
   };
@@ -346,7 +217,6 @@ export default function SessionComposer({
             aria-pressed={hasFocusFolder}
             title={folderButtonTitle}
             onClick={() => {
-              setQuickActionsState(null);
               if (isModelDropdownOpen) onToggleModelDropdown();
               setIsFolderPickerOpen((open) => !open);
             }}
@@ -367,27 +237,7 @@ export default function SessionComposer({
           <span className="sr-only">{workspaceScopePath}</span>
         </div>
       )}
-      <div ref={quickActionsRef} className="relative flex items-center">
-        {isQuickActionsOpen && (
-          <div className="absolute bottom-full left-0 z-30 mb-2 w-52 overflow-hidden rounded-2xl border border-[#d7d7dd] bg-white/94 shadow-[0_14px_34px_rgba(60,60,67,0.16)] backdrop-blur-2xl">
-            {quickActionMatches.map((action, index) => (
-              <button
-                key={action.id}
-                type="button"
-                onClick={() => runQuickAction(action)}
-                className={`flex w-full items-center gap-2 px-3 py-2 text-left ${TYPOGRAPHY_BODY_CLASS} text-[#111827] hover:bg-[#f2f2f7] ${
-                  index === quickActionIndex ? "bg-[#eaf4ff]" : ""
-                }`}
-              >
-                <Trash2 size={14} className="text-[#6b7280]" />
-                <span className={`font-[family-name:var(--font-mono)] ${TYPOGRAPHY_META_CLASS}`}>
-                  /{action.command}
-                </span>
-                <span className={`${TYPOGRAPHY_META_CLASS} text-[#6b7280]`}>{action.label}</span>
-              </button>
-            ))}
-          </div>
-        )}
+      <div className="relative flex items-center">
         <button
           type="button"
           aria-label={t("composer.attachFiles")}
@@ -444,8 +294,6 @@ export default function SessionComposer({
       value={value}
       onChange={handleComposerChange}
       onKeyDown={handleKeyDown}
-      onKeyUp={handleComposerSelection}
-      onSelect={handleComposerSelection}
       onFocus={() => setIsComposerFocused(true)}
       onPaste={handlePaste}
       disabled={inputDisabled}

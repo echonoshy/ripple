@@ -261,8 +261,6 @@ export default function Home() {
     abortRunAndResetSessionView,
     applySessionDetails,
     handleStop,
-    handleClearContext,
-    handleCompactContext,
     handleAttachFiles,
     handleRemovePendingFile,
     handleAddPendingImages,
@@ -1002,8 +1000,6 @@ export default function Home() {
               onSelectWorkspaceFolder={handleSelectChatFolder}
               onNewSession={handleNewSession}
               onInputChange={setInput}
-              onClearContext={handleClearContext}
-              onCompactContext={handleCompactContext}
               onAttachFiles={handleAttachFiles}
               onRemovePendingFile={handleRemovePendingFile}
               onAddPendingImages={handleAddPendingImages}

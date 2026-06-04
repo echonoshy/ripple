@@ -30,8 +30,6 @@ function renderComposer(
         onChange={noop}
         onSend={noop}
         onStop={noop}
-        onClearContext={noop}
-        onCompactContext={noop}
         onAttachFiles={noop}
         onRemovePendingFile={noop}
         onAddPendingImages={noop}
@@ -71,6 +69,15 @@ function testComposerToolbarNamesRealActions() {
   assert.doesNotMatch(html, /aria-label="Mention workspace file"/);
   assert.doesNotMatch(html, /title="Quick actions"/);
   assert.doesNotMatch(html, /title="Mention workspace file"/);
+}
+
+function testComposerOmitsSlashCommandPopup() {
+  const source = readFileSync(new URL("./SessionComposer.tsx", import.meta.url), "utf8");
+
+  assert.doesNotMatch(source, /composerTriggers/);
+  assert.doesNotMatch(source, /quickActionsState/);
+  assert.doesNotMatch(source, /quickActionsRef/);
+  assert.doesNotMatch(source, /\/\{action\.command\}/);
 }
 
 function testComposerRendersChineseStaticCopy() {
@@ -231,6 +238,7 @@ function testComposerHasPasteAndDropImageHandlers() {
 
 testShowsSelectedModelAndMenuOptions();
 testComposerToolbarNamesRealActions();
+testComposerOmitsSlashCommandPopup();
 testComposerRendersChineseStaticCopy();
 testComposerToolbarUsesRequestedLucideIconSet();
 testComposerShowsWorkspaceFolderPickerButton();

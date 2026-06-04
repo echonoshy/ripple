@@ -30,8 +30,6 @@ function renderSessionPageWithPlan() {
       sessionId="srv-plan"
       onNewSession={noop}
       onInputChange={noop}
-      onClearContext={noop}
-      onCompactContext={noop}
       onAttachFiles={noop}
       onRemovePendingFile={noop}
       onAddPendingImages={noop}

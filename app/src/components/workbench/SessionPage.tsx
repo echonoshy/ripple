@@ -99,8 +99,6 @@ interface SessionPageProps {
   onSelectWorkspaceFolder?: (path: string) => void | Promise<void>;
   onNewSession: () => void;
   onInputChange: (value: string) => void;
-  onClearContext: () => void;
-  onCompactContext: () => void;
   onAttachFiles: (files: File[]) => void | Promise<void>;
   onRemovePendingFile: (path: string) => void;
   onAddPendingImages: (files: File[], source: PendingImageSource) => void;
@@ -145,8 +143,6 @@ export default function SessionPage({
   onSelectWorkspaceFolder,
   onNewSession,
   onInputChange,
-  onClearContext,
-  onCompactContext,
   onAttachFiles,
   onRemovePendingFile,
   onAddPendingImages,
@@ -552,8 +548,6 @@ export default function SessionPage({
         onChange={onInputChange}
         onSend={onSend}
         onStop={onStop}
-        onClearContext={onClearContext}
-        onCompactContext={onCompactContext}
         onAttachFiles={onAttachFiles}
         onRemovePendingFile={onRemovePendingFile}
         onAddPendingImages={onAddPendingImages}

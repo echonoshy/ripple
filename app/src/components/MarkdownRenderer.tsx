@@ -422,9 +422,7 @@ function GoogleAuthCard({
   const title =
     mode === "connect" ? t("connectors.googleConnectTitle") : t("connectors.googleAuthTitle");
   const subtitle =
-    mode === "connect"
-      ? t("connectors.googleConnectSubtitle")
-      : t("connectors.googleAuthSubtitle");
+    mode === "connect" ? t("connectors.googleConnectSubtitle") : t("connectors.googleAuthSubtitle");
 
   return (
     <div className="my-3 overflow-hidden rounded-2xl border border-[#dfe6f4] bg-white/74 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl">
@@ -818,7 +816,7 @@ function MarkdownContent({
       components={{
         pre({ children }) {
           return (
-            <pre className="not-prose my-2 max-h-40 max-w-full overflow-x-hidden overflow-y-auto rounded-md border border-[#dde2ea] bg-[#f7f8fa] p-2.5 font-[family-name:var(--font-mono)] text-[11px] [overflow-wrap:anywhere] whitespace-pre-wrap text-[#334155]">
+            <pre className="not-prose my-2 max-h-40 max-w-full overflow-x-hidden overflow-y-auto rounded-md border border-[#dde2ea] bg-[#f7f8fa] p-2.5 font-[family-name:var(--font-mono)] text-[13px] leading-[20px] [overflow-wrap:anywhere] whitespace-pre-wrap text-[#334155]">
               {children}
             </pre>
           );
@@ -828,7 +826,7 @@ function MarkdownContent({
           if (isInline) {
             return (
               <code
-                className="rounded border border-[#dde2ea] bg-[#f7f8fa] px-1.5 py-0.5 font-[family-name:var(--font-mono)] text-[11.5px] text-[#171a1f]"
+                className="rounded border border-[#dde2ea] bg-[#f7f8fa] px-1.5 py-0.5 font-[family-name:var(--font-mono)] text-[0.95em] text-[#171a1f]"
                 {...props}
               >
                 {children}
@@ -837,7 +835,7 @@ function MarkdownContent({
           }
           return (
             <code
-              className={`${className} text-[11px] leading-normal [overflow-wrap:anywhere] whitespace-pre-wrap`}
+              className={`${className} text-[13px] leading-[20px] [overflow-wrap:anywhere] whitespace-pre-wrap`}
               {...props}
             >
               {children}

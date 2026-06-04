@@ -356,6 +356,14 @@ function testCodeBlocksWrapLongLinesWithoutHorizontalScroll() {
   assert.doesNotMatch(html, /break-all/);
 }
 
+function testCodeBlocksUseReadableTypeSize() {
+  const html = renderToStaticMarkup(<MarkdownRenderer content={"```text\n名称:\n用途:\n```"} />);
+
+  assert.match(html, /text-\[13px\]/);
+  assert.match(html, /leading-\[20px\]/);
+  assert.doesNotMatch(html, /text-\[11px\]/);
+}
+
 function testGlobalCodeBlockCssKeepsWrappingEnabled() {
   const preRule = cssRule(".markdown-body pre");
   const preCodeRule = cssRule(".markdown-body pre code");
@@ -390,6 +398,7 @@ testBilibiliAuthCardUsesChineseI18nText();
 testRegularMarkdownLinksUseTauriAwareExternalOpener();
 testMarkdownTablesUseReadableTableClasses();
 testCodeBlocksWrapLongLinesWithoutHorizontalScroll();
+testCodeBlocksUseReadableTypeSize();
 testGlobalCodeBlockCssKeepsWrappingEnabled();
 
 console.log("markdown renderer tests passed");

@@ -2,8 +2,6 @@ use std::path::Path as FsPath;
 
 use serde_json::Value;
 
-use crate::api::connectors::read_valid_bilibili_credential_file;
-use crate::api::skills::skill_manifest_options_for_user;
 use crate::skills::{render_skill_manifest_with_options, SkillManifestOptions};
 use crate::state::AppState;
 
@@ -14,6 +12,7 @@ pub(crate) fn build_codex_chat_prompt(
     workspace_root: &FsPath,
     context_folder_path: Option<&str>,
     folder_context_evidence: Option<&str>,
+    skill_options: &SkillManifestOptions,
     user_input: &str,
     attachment_items: &[Value],
     system_prompt: Option<&str>,
@@ -59,8 +58,6 @@ pub(crate) fn build_codex_chat_prompt(
         _ if context_folder_path.is_some() => "No automatic folder context evidence was collected. Search or read files under the context folder before using web_search unless the user explicitly asked for online/latest information.".to_string(),
         _ => "(none)".to_string(),
     };
-    let skill_options = skill_manifest_options_for_user(state, user_id)
-        .unwrap_or_else(|_| SkillManifestOptions::default());
     format!(
         "You are Codex, running as Ripple's trusted execution plane.\n\
 Ripple is the control plane: it owns user identity, sandbox isolation, connector state, permissions, and API/session lifecycle. Do the real work inside the current user's workspace.\n\n\
@@ -77,7 +74,7 @@ Ripple is the control plane: it owns user identity, sandbox isolation, connector
 ## Execution Environment Guardrails\n\
 - Connector authorization, token capture, account disconnect, and QR login are Ripple control-plane flows. Do not invent ad-hoc auth tool calls.\n\
 - Use Available Skills and Connector Status to decide whether a connector-backed skill is needed. Do not infer connector use from keywords alone.\n\
-- Do not collect connector credentials inside Codex. If Google Workspace, Notion, or Feishu is required and the connector status is not_connected, your final answer must contain only this internal control-plane request, with the connector set to one of google_workspace, notion, or feishu:\n\
+- Do not collect connector credentials inside Codex. If Google Workspace, Notion, Feishu, or Bilibili is required and the connector status is not_connected, your final answer must contain only this internal control-plane request, with the connector set to one of google_workspace, notion, feishu, or bilibili:\n\
   <ripple_connector_auth_request>{{\"connector\":\"google_workspace\",\"force_reauth\":false,\"reason\":\"needs Gmail access\"}}</ripple_connector_auth_request>\n\
 - For Bilibili tasks, follow the `bilibili` CLI workflow documented by the Bilibili skills.\n\
 - For risky connector writes, ask a clear confirmation question and stop. Continue only after the user's next message explicitly approves the specific action.\n\n\
@@ -96,8 +93,8 @@ Ripple is the control plane: it owns user identity, sandbox isolation, connector
 {}\n",
         context_section,
         folder_context_evidence_section,
-        connector_manifest(state, user_id),
-        render_skill_manifest_with_options(&state.config, Some(workspace_root), &skill_options),
+        connector_manifest(skill_options),
+        render_skill_manifest_with_options(&state.config, Some(workspace_root), skill_options),
         system_prompt.unwrap_or("(none)"),
         attachment_section,
         if user_input.trim().is_empty() {
@@ -108,21 +105,7 @@ Ripple is the control plane: it owns user identity, sandbox isolation, connector
     )
 }
 
-fn connector_manifest(state: &AppState, user_id: &str) -> String {
-    let workspace = state.sandboxes.workspace_dir(user_id).ok();
-    let credentials = state.sandboxes.credentials_dir(user_id).ok();
-    let has = |path: Option<&FsPath>| path.is_some_and(FsPath::exists);
-    let google = workspace
-        .as_ref()
-        .map(|path| path.join(".config/gogcli/keyring"));
-    let feishu = workspace
-        .as_ref()
-        .map(|path| path.join(".lark-cli/config.json"));
-    let notion = credentials.as_ref().map(|path| path.join("notion.json"));
-    let bilibili = credentials.as_ref().map(|path| path.join("bilibili.json"));
-    let bilibili_connected = bilibili
-        .as_deref()
-        .is_some_and(|path| read_valid_bilibili_credential_file(path).is_some());
+fn connector_manifest(skill_options: &SkillManifestOptions) -> String {
     let connected = |value| {
         if value {
             "connected"
@@ -130,11 +113,20 @@ fn connector_manifest(state: &AppState, user_id: &str) -> String {
             "not_connected"
         }
     };
+    let connector = |name: &str| {
+        connected(
+            skill_options
+                .connector_statuses
+                .get(name)
+                .copied()
+                .unwrap_or(false),
+        )
+    };
     [
-        ("google_workspace", connected(has(google.as_deref()))),
-        ("notion", connected(has(notion.as_deref()))),
-        ("feishu", connected(has(feishu.as_deref()))),
-        ("bilibili", connected(bilibili_connected)),
+        ("google_workspace", connector("google_workspace")),
+        ("notion", connector("notion")),
+        ("feishu", connector("feishu")),
+        ("bilibili", connector("bilibili")),
         ("openai_codex", "connected"),
         ("codex_image_generation", "disabled_by_default"),
         ("codex_image_input", "connected"),

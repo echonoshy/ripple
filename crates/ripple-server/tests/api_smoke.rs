@@ -528,7 +528,9 @@ fn main() {
                     continue;
                 }
 
-                if line.contains("[slow]") {
+                if line.contains("[slow-delete]") {
+                    thread::sleep(Duration::from_millis(2_000));
+                } else if line.contains("[slow]") {
                     thread::sleep(Duration::from_millis(500));
                 }
                 if line.contains("[runtime-events]") {
@@ -4416,7 +4418,7 @@ async fn deleting_running_chat_session_does_not_recreate_session() {
                 json!({
                     "model": "codex-test",
                     "session_id": chat_session_id,
-                    "messages": [{"role": "user", "content": "[slow] delete me while running"}],
+                    "messages": [{"role": "user", "content": "[slow-delete] delete me while running"}],
                     "stream": false
                 }),
                 true,

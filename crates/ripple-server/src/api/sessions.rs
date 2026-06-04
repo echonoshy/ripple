@@ -574,6 +574,8 @@ pub async fn delete_session(
     Path(session_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    let session_run_lock = state.sessions.session_lock(&user_id, &session_id);
+    let _session_run_guard = session_run_lock.lock_owned().await;
     let stopped = state
         .jobs
         .cancel_session_run(&user_id, &session_id)

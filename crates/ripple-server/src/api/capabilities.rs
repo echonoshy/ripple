@@ -1,9 +1,8 @@
 use std::collections::BTreeMap;
 
-use axum::extract::{Path, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::extract::State;
+use axum::http::HeaderMap;
 use axum::Json;
-use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::api::connectors::{connector_status_value, read_valid_bilibili_credential_file};
@@ -13,8 +12,8 @@ use crate::capabilities::{
     related_skills_for_connector,
 };
 use crate::skills::{
-    build_skill_manifest_with_options, read_user_skill_settings, write_user_skill_settings,
-    SkillManifestEntry, SkillManifestOptions, UserSkillSettings,
+    build_skill_manifest_with_options, read_user_skill_settings, SkillManifestEntry,
+    SkillManifestOptions, UserSkillSettings,
 };
 use crate::state::AppState;
 use crate::user::user_id_from_headers;
@@ -43,82 +42,6 @@ pub async fn list_capabilities(
     })))
 }
 
-#[derive(Debug, Deserialize)]
-pub struct SkillUpdateRequest {
-    enabled: Option<bool>,
-}
-
-#[utoipa::path(
-    patch,
-    path = "/skills/{skill_id}",
-    tag = "capabilities",
-    params(("skill_id" = String, Path, description = "Skill id, for example user:my-skill")),
-    request_body = serde_json::Value,
-    responses(
-        (status = 200, description = "Updated skill capability", body = serde_json::Value),
-        (status = 400, description = "Invalid skill update", body = crate::api::openapi::ApiErrorEnvelope),
-        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
-        (status = 403, description = "Read-only skill", body = crate::api::openapi::ApiErrorEnvelope),
-        (status = 404, description = "Skill not found", body = crate::api::openapi::ApiErrorEnvelope)
-    ),
-    security(
-        ("bearerAuth" = []),
-        ("apiKeyAuth" = [])
-    )
-)]
-pub async fn update_skill(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path(skill_id): Path<String>,
-    body: Option<Json<SkillUpdateRequest>>,
-) -> Result<Json<Value>, ApiError> {
-    let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    state.sandboxes.ensure_sandbox(&user_id)?;
-    if !skill_id.starts_with("user:") {
-        return Err(ApiError::new(
-            StatusCode::FORBIDDEN,
-            json!({
-                "code": "read_only",
-                "message": "Only user skills can be enabled or disabled."
-            }),
-        ));
-    }
-    let enabled = body
-        .and_then(|Json(body)| body.enabled)
-        .ok_or_else(|| ApiError::bad_request("enabled must be a boolean"))?;
-    let workspace = state.sandboxes.workspace_dir(&user_id)?;
-    let settings_file = state.sandboxes.skill_settings_file(&user_id)?;
-    let mut settings = read_user_skill_settings(&settings_file);
-    let options =
-        catalog_skill_manifest_options_for_user_with_settings(&state, &user_id, &settings).await?;
-    let existing = build_skill_manifest_with_options(&state.config, Some(&workspace), &options)
-        .into_iter()
-        .find(|skill| skill.id == skill_id)
-        .ok_or_else(|| ApiError::not_found(format!("Skill {skill_id:?} not found")))?;
-    if existing.source != "user" {
-        return Err(ApiError::new(
-            StatusCode::FORBIDDEN,
-            json!({
-                "code": "read_only",
-                "message": "Only user skills can be enabled or disabled."
-            }),
-        ));
-    }
-    if enabled {
-        settings.enabled_skill_ids.insert(skill_id.clone());
-    } else {
-        settings.enabled_skill_ids.remove(&skill_id);
-    }
-    write_user_skill_settings(&settings_file, &settings)?;
-    let options =
-        catalog_skill_manifest_options_for_user_with_settings(&state, &user_id, &settings).await?;
-    let updated = build_skill_manifest_with_options(&state.config, Some(&workspace), &options)
-        .into_iter()
-        .find(|skill| skill.id == skill_id)
-        .ok_or_else(|| ApiError::not_found(format!("Skill {skill_id:?} not found")))?;
-    Ok(Json(skill_capability(&updated)))
-}
-
 pub(crate) fn skill_manifest_options_for_user(
     state: &AppState,
     user_id: &str,
@@ -126,6 +49,15 @@ pub(crate) fn skill_manifest_options_for_user(
     let settings_file = state.sandboxes.skill_settings_file(user_id)?;
     let settings = read_user_skill_settings(&settings_file);
     skill_manifest_options_for_user_with_settings(state, user_id, &settings)
+}
+
+pub(crate) async fn catalog_skill_manifest_options_for_user(
+    state: &AppState,
+    user_id: &str,
+) -> Result<SkillManifestOptions, ApiError> {
+    let settings_file = state.sandboxes.skill_settings_file(user_id)?;
+    let settings = read_user_skill_settings(&settings_file);
+    catalog_skill_manifest_options_for_user_with_settings(state, user_id, &settings).await
 }
 
 fn skill_manifest_options_for_user_with_settings(
@@ -136,6 +68,7 @@ fn skill_manifest_options_for_user_with_settings(
     Ok(SkillManifestOptions {
         enabled_user_skill_ids: settings.enabled_manifest_skill_ids(),
         validated_user_skill_ids: settings.validated_manifest_skill_ids(),
+        validated_user_skill_hashes: settings.validated_manifest_skill_hashes(),
         archived_user_skill_ids: settings.archived_skill_ids(),
         connector_statuses: lightweight_connector_statuses(state, user_id)?,
     })
@@ -149,6 +82,7 @@ async fn catalog_skill_manifest_options_for_user_with_settings(
     Ok(SkillManifestOptions {
         enabled_user_skill_ids: settings.enabled_manifest_skill_ids(),
         validated_user_skill_ids: settings.validated_manifest_skill_ids(),
+        validated_user_skill_hashes: settings.validated_manifest_skill_hashes(),
         archived_user_skill_ids: settings.archived_skill_ids(),
         connector_statuses: catalog_connector_statuses(state, user_id).await?,
     })
@@ -248,6 +182,12 @@ fn skill_capability(skill: &SkillManifestEntry) -> Value {
         "display_name": skill.display_name,
         "description": skill.description,
         "source": skill.source,
+        "display_source": skill.display_source,
+        "kind": skill.kind,
+        "runtime": skill.runtime,
+        "entry": skill.entry,
+        "python_packages": skill.python_packages,
+        "content_hash": skill.content_hash,
         "status": skill.status,
         "enabled": skill.enabled,
         "requirements": skill_requirements(skill),

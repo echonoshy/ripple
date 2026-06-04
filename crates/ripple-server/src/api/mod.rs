@@ -508,6 +508,33 @@ mod tests {
     fn test_state_with_shared_dirs(api_keys: Vec<String>, shared_dirs: Vec<String>) -> AppState {
         let root =
             std::env::temp_dir().join(format!("ripple-api-auth-test-{}", uuid::Uuid::new_v4()));
+        test_state_from_root(api_keys, shared_dirs, root, None, None)
+    }
+
+    fn test_state_with_shared_dirs_and_google_cli(
+        api_keys: Vec<String>,
+        shared_dirs: Vec<String>,
+        gogcli_cli_install_root: std::path::PathBuf,
+        nsjail_path: std::path::PathBuf,
+    ) -> AppState {
+        let root =
+            std::env::temp_dir().join(format!("ripple-api-auth-test-{}", uuid::Uuid::new_v4()));
+        test_state_from_root(
+            api_keys,
+            shared_dirs,
+            root,
+            Some(gogcli_cli_install_root),
+            Some(nsjail_path),
+        )
+    }
+
+    fn test_state_from_root(
+        api_keys: Vec<String>,
+        shared_dirs: Vec<String>,
+        root: std::path::PathBuf,
+        gogcli_cli_install_root: Option<std::path::PathBuf>,
+        nsjail_path: Option<std::path::PathBuf>,
+    ) -> AppState {
         AppState::new(AppConfig {
             repo_root: root.clone(),
             host: "127.0.0.1".to_string(),
@@ -529,7 +556,9 @@ mod tests {
                 retention_seconds: 604_800,
                 max_workspace_mb: 2048,
                 tmpfs_size_mb: 512,
-                nsjail_path: "nsjail".to_string(),
+                nsjail_path: nsjail_path
+                    .map(|path| path.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "nsjail".to_string()),
                 python_envs_root: root.join("cache/python-envs"),
                 python_env_uv_cache: root.join("cache/uv-cache"),
                 python_env_max_packages: 20,
@@ -537,7 +566,7 @@ mod tests {
                 node_dir: None,
                 lark_cli_install_root: None,
                 notion_cli_install_root: None,
-                gogcli_cli_install_root: None,
+                gogcli_cli_install_root,
                 cli_tools: Vec::new(),
                 pypi_mirror_url: None,
                 npm_registry_url: None,
@@ -964,6 +993,77 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn skills_route_blocks_gog_skills_when_google_auth_check_has_no_accounts() {
+        let fake_gog_root = std::env::temp_dir().join(format!(
+            "ripple-api-skills-gog-root-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let fake_gog = fake_gog_root.join("current/bin/gog");
+        std::fs::create_dir_all(fake_gog.parent().unwrap()).unwrap();
+        std::fs::write(&fake_gog, "#!/bin/sh\nexit 0\n").unwrap();
+
+        let fake_nsjail = fake_gog_root.join("fake-nsjail");
+        std::fs::write(
+            &fake_nsjail,
+            "#!/bin/sh\ncase \" $* \" in\n  *\" --check \"*) printf '{\"accounts\":[]}' ;;\n  *) printf '{\"accounts\":[{\"email\":\"stale@example.com\"}]}' ;;\nesac\n",
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&fake_gog, std::fs::Permissions::from_mode(0o755)).unwrap();
+            std::fs::set_permissions(&fake_nsjail, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(std::path::Path::parent)
+            .unwrap()
+            .to_path_buf();
+        let state = test_state_with_shared_dirs_and_google_cli(
+            vec!["service-key".to_string()],
+            vec![repo_root.join("skills/gog").to_string_lossy().to_string()],
+            fake_gog_root.clone(),
+            fake_nsjail,
+        );
+        let workspace = state.sandboxes.ensure_sandbox("skill-gog-user").unwrap();
+        let keyring = workspace.join(".config/gogcli/keyring");
+        std::fs::create_dir_all(keyring.parent().unwrap()).unwrap();
+        std::fs::write(&keyring, "stale-keyring").unwrap();
+
+        let (status, body) = request_json(
+            state,
+            Method::GET,
+            "/v1/skills",
+            "service-key",
+            Some("skill-gog-user"),
+            None,
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        let skills = body
+            .get("skills")
+            .and_then(Value::as_array)
+            .expect("skills array");
+        let sheets = skills
+            .iter()
+            .find(|entry| entry.get("id").and_then(Value::as_str) == Some("ripple:gog-sheets"))
+            .expect("gog-sheets skill");
+        assert_eq!(
+            sheets.get("computed_status").and_then(Value::as_str),
+            Some("blocked_by_connector_auth")
+        );
+        assert_eq!(
+            sheets.get("user_status").and_then(Value::as_str),
+            Some("needs_connection")
+        );
+        assert_eq!(sheets.get("enabled").and_then(Value::as_bool), Some(false));
+
+        let _ = std::fs::remove_dir_all(fake_gog_root);
+    }
+
+    #[tokio::test]
     async fn user_skill_crud_validation_and_archive_flow() {
         let state = test_state(vec!["service-key".to_string()]);
         let workspace = state.sandboxes.ensure_sandbox("skill-crud-user").unwrap();
@@ -1045,7 +1145,7 @@ mod tests {
                 .iter()
                 .filter(|check| check.get("status").and_then(Value::as_str) == Some("passed"))
                 .count(),
-            4
+            5
         );
 
         let (status, enabled) = request_json(
@@ -1102,6 +1202,190 @@ mod tests {
                 .unwrap(),
         );
         assert!(!rendered.contains(&skill_id));
+    }
+
+    #[tokio::test]
+    async fn python_user_skill_validates_hash_and_requires_current_hash_to_render() {
+        let state = test_state(vec!["service-key".to_string()]);
+        let workspace = state.sandboxes.ensure_sandbox("python-skill-user").unwrap();
+
+        let (status, created) = request_json(
+            state.clone(),
+            Method::POST,
+            "/v1/skills",
+            "service-key",
+            Some("python-skill-user"),
+            Some(json!({
+                "display_name": "Python Report",
+                "description": "Create a report with a Python helper.",
+                "when_to_use": "When I ask for a Python-generated report.",
+                "kind": "executable",
+                "runtime": "python",
+                "entry": "scripts/run.py",
+                "python_packages": ["pandas==2.2.3"],
+                "script": "import pandas as pd\nprint(pd.__name__)\n",
+                "requires_connectors": [],
+                "requires_user_confirmation": false
+            })),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::CREATED);
+        assert_eq!(
+            created.get("kind").and_then(Value::as_str),
+            Some("executable")
+        );
+        assert_eq!(
+            created.get("runtime").and_then(Value::as_str),
+            Some("python")
+        );
+        assert_eq!(
+            created.get("entry").and_then(Value::as_str),
+            Some("scripts/run.py")
+        );
+        assert_eq!(
+            created
+                .get("python_packages")
+                .and_then(Value::as_array)
+                .map(Vec::len),
+            Some(1)
+        );
+        let skill_id = created
+            .get("id")
+            .and_then(Value::as_str)
+            .expect("created skill id")
+            .to_string();
+        assert!(workspace
+            .join("skills/python-report/scripts/run.py")
+            .is_file());
+
+        let (status, validation) = request_json(
+            state.clone(),
+            Method::POST,
+            &format!("/v1/skills/{skill_id}/validate"),
+            "service-key",
+            Some("python-skill-user"),
+            None,
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            validation.get("passed").and_then(Value::as_bool),
+            Some(true)
+        );
+        let validated_hash = validation
+            .get("content_hash")
+            .and_then(Value::as_str)
+            .expect("validation hash")
+            .to_string();
+
+        let (status, enabled) = request_json(
+            state.clone(),
+            Method::PATCH,
+            &format!("/v1/skills/{skill_id}"),
+            "service-key",
+            Some("python-skill-user"),
+            Some(json!({"enabled": true})),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            enabled.get("user_status").and_then(Value::as_str),
+            Some("available")
+        );
+        assert_eq!(
+            enabled.get("content_hash").and_then(Value::as_str),
+            Some(validated_hash.as_str())
+        );
+
+        let rendered = crate::skills::render_skill_manifest_with_options(
+            &state.config,
+            Some(&workspace),
+            &crate::api::skills::skill_manifest_options_for_user(&state, "python-skill-user")
+                .unwrap(),
+        );
+        assert!(rendered.contains(&skill_id));
+        assert!(rendered.contains("ripple-py python --with pandas==2.2.3 --"));
+
+        std::fs::write(
+            workspace.join("skills/python-report/scripts/run.py"),
+            "print('changed')\n",
+        )
+        .unwrap();
+        let rendered_after_change = crate::skills::render_skill_manifest_with_options(
+            &state.config,
+            Some(&workspace),
+            &crate::api::skills::skill_manifest_options_for_user(&state, "python-skill-user")
+                .unwrap(),
+        );
+        assert!(!rendered_after_change.contains(&skill_id));
+    }
+
+    #[tokio::test]
+    async fn user_python_skill_validation_rejects_non_python_runtime_and_unsafe_entry() {
+        let state = test_state(vec!["service-key".to_string()]);
+        state
+            .sandboxes
+            .ensure_sandbox("invalid-python-skill-user")
+            .unwrap();
+
+        let (status, created) = request_json(
+            state.clone(),
+            Method::POST,
+            "/v1/skills",
+            "service-key",
+            Some("invalid-python-skill-user"),
+            Some(json!({
+                "display_name": "Unsupported Runtime Skill",
+                "description": "Attempt to run an unsupported executable runtime.",
+                "kind": "executable",
+                "runtime": "ruby",
+                "entry": "../run.rb",
+                "script": "puts 'nope'",
+                "requires_connectors": []
+            })),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::CREATED);
+        let skill_id = created
+            .get("id")
+            .and_then(Value::as_str)
+            .expect("created skill id");
+
+        let (status, validation) = request_json(
+            state.clone(),
+            Method::POST,
+            &format!("/v1/skills/{skill_id}/validate"),
+            "service-key",
+            Some("invalid-python-skill-user"),
+            None,
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            validation.get("passed").and_then(Value::as_bool),
+            Some(false)
+        );
+        let issues = validation
+            .get("issues")
+            .and_then(Value::as_array)
+            .expect("issues");
+        assert!(issues.iter().any(|issue| {
+            issue
+                .as_str()
+                .unwrap_or_default()
+                .contains("Only Python executable skills are supported")
+        }));
+        assert!(issues.iter().any(|issue| {
+            issue
+                .as_str()
+                .unwrap_or_default()
+                .contains("entry must be a relative path inside the skill directory")
+        }));
     }
 
     #[tokio::test]

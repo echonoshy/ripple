@@ -157,8 +157,20 @@ pub(crate) async fn connector_status_value(
             json!({"name": connector_name, "connected": connected, "required": !connected, "detail": if connected {"Notion token is stored for this user."} else {"Notion token is missing for this user."}, "metadata": {}})
         }
         "google_workspace" => {
-            let connected = has_nonempty_file(&workspace.join(".config/gogcli/keyring"));
-            json!({"name": connector_name, "connected": connected, "required": !connected, "detail": if connected {"Google Workspace account is connected for this user."} else {"Google Workspace is not connected for this user."}, "metadata": {"has_client_config": credentials.join("gogcli-client.json").is_file()}})
+            let has_keyring = workspace.join(".config/gogcli/keyring").exists();
+            let accounts = if has_keyring {
+                if let Some(gog) = gog_binary(state) {
+                    list_google_accounts(state, user_id, &gog, true, 30)
+                        .await
+                        .unwrap_or_default()
+                } else {
+                    Vec::new()
+                }
+            } else {
+                Vec::new()
+            };
+            let connected = !accounts.is_empty();
+            json!({"name": connector_name, "connected": connected, "required": !connected, "detail": if connected {"Google Workspace account is connected for this user."} else {"Google Workspace is not connected for this user."}, "metadata": {"has_client_config": credentials.join("gogcli-client.json").is_file(), "has_keyring": has_keyring, "account_count": accounts.len()}})
         }
         "feishu" => feishu_status(state, user_id).await,
         "bilibili" => {
@@ -1290,35 +1302,34 @@ async fn google_accounts(
             "checked": check
         })));
     };
+    let accounts =
+        list_google_accounts(state, user_id, &gog, check, if check { 30 } else { 10 }).await?;
+    let account_count = accounts.len();
+    Ok(Json(json!({
+        "has_client_config": has_client_config,
+        "accounts": accounts,
+        "count": account_count,
+        "checked": check
+    })))
+}
+
+async fn list_google_accounts(
+    state: &AppState,
+    user_id: &str,
+    gog: &FsPath,
+    check: bool,
+    timeout_seconds: u64,
+) -> Result<Vec<Value>, ApiError> {
     let mut args = vec!["auth", "list", "--json"];
     if check {
         args.push("--check");
     }
-    let output = run_gog(
-        state,
-        user_id,
-        &gog,
-        &args,
-        None,
-        if check { 30 } else { 10 },
-    )
-    .await?;
+    let output = run_gog(state, user_id, gog, &args, None, timeout_seconds).await?;
     if !output.status.success() {
-        return Ok(Json(json!({
-            "has_client_config": has_client_config,
-            "accounts": [],
-            "count": 0,
-            "checked": check
-        })));
+        return Ok(Vec::new());
     }
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let accounts = parse_gog_accounts(&stdout);
-    Ok(Json(json!({
-        "has_client_config": has_client_config,
-        "accounts": accounts,
-        "count": accounts.len(),
-        "checked": check
-    })))
+    Ok(parse_gog_accounts(&stdout))
 }
 
 async fn google_disconnect(
@@ -2199,20 +2210,6 @@ fn read_json_string_field(path: &FsPath, field: &str) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
-}
-
-fn has_nonempty_file(dir: &FsPath) -> bool {
-    std::fs::read_dir(dir)
-        .ok()
-        .into_iter()
-        .flatten()
-        .filter_map(Result::ok)
-        .any(|entry| {
-            entry
-                .metadata()
-                .map(|metadata| metadata.is_file() && metadata.len() > 0)
-                .unwrap_or(false)
-        })
 }
 
 fn mask_secret(value: &str) -> String {

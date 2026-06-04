@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use axum::extract::{Path as AxumPath, State};
 use axum::http::{HeaderMap, StatusCode};
@@ -9,9 +9,13 @@ use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use crate::api::capabilities::skill_manifest_options_for_user as capability_skill_manifest_options_for_user;
+use crate::api::capabilities::{
+    catalog_skill_manifest_options_for_user as capability_catalog_skill_manifest_options_for_user,
+    skill_manifest_options_for_user as capability_skill_manifest_options_for_user,
+};
 use crate::api::{require_confirm, ApiError};
 use crate::capabilities::related_connector_for_skill;
+use crate::python_env::validate_requirement;
 use crate::skills::{
     build_skill_manifest_with_options, read_user_skill_settings, write_user_skill_settings,
     SkillManifestEntry, SkillManifestOptions, UserSkillRecord, UserSkillSettings,
@@ -29,6 +33,12 @@ pub struct SkillDraftInput {
     #[serde(default)]
     pub steps: Vec<String>,
     pub output_format: Option<String>,
+    pub kind: Option<String>,
+    pub runtime: Option<String>,
+    pub entry: Option<String>,
+    #[serde(default)]
+    pub python_packages: Vec<String>,
+    pub script: Option<String>,
     #[serde(default)]
     pub requires_connectors: Vec<String>,
     #[serde(default)]
@@ -44,6 +54,11 @@ pub struct SkillPatchRequest {
     pub when_to_use: Option<String>,
     pub steps: Option<Vec<String>>,
     pub output_format: Option<String>,
+    pub kind: Option<String>,
+    pub runtime: Option<String>,
+    pub entry: Option<String>,
+    pub python_packages: Option<Vec<String>>,
+    pub script: Option<String>,
     pub requires_connectors: Option<Vec<String>>,
     pub requires_user_confirmation: Option<bool>,
     pub test_example: Option<String>,
@@ -68,7 +83,7 @@ pub async fn list_skills(
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     state.sandboxes.ensure_sandbox(&user_id)?;
-    let skills = load_skill_infos(&state, &user_id)?;
+    let skills = load_skill_infos(&state, &user_id).await?;
     Ok(Json(json!({ "skills": skills })))
 }
 
@@ -94,7 +109,7 @@ pub async fn get_skill(
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     state.sandboxes.ensure_sandbox(&user_id)?;
     let settings = read_settings(&state, &user_id)?;
-    let skill = find_skill(&state, &user_id, &skill_id)?;
+    let skill = find_catalog_skill(&state, &user_id, &skill_id).await?;
     Ok(Json(skill_info(&skill, &settings)))
 }
 
@@ -158,6 +173,11 @@ pub async fn update_skill(
         || input.when_to_use.is_some()
         || input.steps.is_some()
         || input.output_format.is_some()
+        || input.kind.is_some()
+        || input.runtime.is_some()
+        || input.entry.is_some()
+        || input.python_packages.is_some()
+        || input.script.is_some()
         || input.requires_connectors.is_some()
         || input.requires_user_confirmation.is_some()
         || input.test_example.is_some();
@@ -166,6 +186,27 @@ pub async fn update_skill(
         let draft = merged_patch_input(&skill, &input);
         validate_draft_input(&draft)?;
         std::fs::write(&skill.path, render_skill_markdown(&skill.name, &draft)?)?;
+        if normalized_input_kind(&draft) == "executable" {
+            if let (Some(entry), Some(script)) = (
+                normalized_entry(draft.entry.as_deref()).as_deref(),
+                draft.script.as_deref(),
+            ) {
+                if !safe_relative_entry_path(entry) {
+                    return Err(ApiError::bad_request(
+                        "entry must be a relative path inside the skill directory",
+                    ));
+                }
+                let skill_root = PathBuf::from(&skill.path)
+                    .parent()
+                    .unwrap_or_else(|| Path::new(""))
+                    .to_path_buf();
+                let script_path = skill_root.join(entry);
+                if let Some(parent) = script_path.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::write(script_path, script)?;
+            }
+        }
         let record = settings
             .records
             .entry(skill_id.clone())
@@ -186,7 +227,7 @@ pub async fn update_skill(
             if !record
                 .validation
                 .as_ref()
-                .map(|validation| validation.passed)
+                .map(|validation| validation_matches_skill(validation, &skill))
                 .unwrap_or_else(|| settings.enabled_skill_ids.contains(&skill_id))
             {
                 return Err(ApiError::new(
@@ -282,7 +323,7 @@ pub async fn validate_skill(
     state.sandboxes.ensure_sandbox(&user_id)?;
     let skill = find_skill(&state, &user_id, &skill_id)?;
     ensure_user_skill(&skill)?;
-    let validation = validate_user_skill(&skill)?;
+    let validation = validate_user_skill(&state.config, &skill)?;
     let mut settings = read_settings(&state, &user_id)?;
     let record = settings
         .records
@@ -338,6 +379,20 @@ pub(crate) fn create_user_skill_draft(
     let skill_id = format!("user:{name}");
     std::fs::create_dir_all(&dir)?;
     std::fs::write(dir.join("SKILL.md"), render_skill_markdown(&name, &input)?)?;
+    if normalized_input_kind(&input) == "executable" {
+        if let (Some(entry), Some(script)) = (
+            normalized_entry(input.entry.as_deref()).as_deref(),
+            input.script.as_deref(),
+        ) {
+            if safe_relative_entry_path(entry) {
+                let script_path = dir.join(entry);
+                if let Some(parent) = script_path.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::write(script_path, script)?;
+            }
+        }
+    }
 
     let mut settings = read_settings(state, user_id)?;
     let now = now_iso();
@@ -358,10 +413,10 @@ pub(crate) fn create_user_skill_draft(
     Ok(skill_info(&skill, &settings))
 }
 
-fn load_skill_infos(state: &AppState, user_id: &str) -> Result<Vec<Value>, ApiError> {
+async fn load_skill_infos(state: &AppState, user_id: &str) -> Result<Vec<Value>, ApiError> {
     let settings = read_settings(state, user_id)?;
     let workspace = state.sandboxes.workspace_dir(user_id)?;
-    let options = skill_manifest_options_for_user(state, user_id)?;
+    let options = capability_catalog_skill_manifest_options_for_user(state, user_id).await?;
     let mut skills = build_skill_manifest_with_options(&state.config, Some(&workspace), &options)
         .iter()
         .map(|skill| skill_info(skill, &settings))
@@ -372,6 +427,19 @@ fn load_skill_infos(state: &AppState, user_id: &str) -> Result<Vec<Value>, ApiEr
             .cmp(&right.get("id").and_then(Value::as_str))
     });
     Ok(skills)
+}
+
+async fn find_catalog_skill(
+    state: &AppState,
+    user_id: &str,
+    skill_id: &str,
+) -> Result<SkillManifestEntry, ApiError> {
+    let workspace = state.sandboxes.workspace_dir(user_id)?;
+    let options = capability_catalog_skill_manifest_options_for_user(state, user_id).await?;
+    build_skill_manifest_with_options(&state.config, Some(&workspace), &options)
+        .into_iter()
+        .find(|skill| skill.id == skill_id)
+        .ok_or_else(|| ApiError::not_found(format!("Skill {skill_id:?} not found")))
 }
 
 fn find_skill(
@@ -415,6 +483,7 @@ fn skill_info(skill: &SkillManifestEntry, settings: &UserSkillSettings) -> Value
         "display_name": skill.display_name,
         "description": skill.description,
         "source": skill.source,
+        "display_source": skill.display_source,
         "read_only": read_only,
         "can_edit": !read_only,
         "can_delete": !read_only,
@@ -426,6 +495,11 @@ fn skill_info(skill: &SkillManifestEntry, settings: &UserSkillSettings) -> Value
         "path": skill.path,
         "when_to_use": skill.when_to_use,
         "version": skill.version,
+        "kind": skill.kind,
+        "runtime": skill.runtime,
+        "entry": skill.entry,
+        "python_packages": skill.python_packages,
+        "content_hash": skill.content_hash,
         "requires_connectors": skill.requires_connectors,
         "related_connector": related_connector_for_skill(skill),
         "risk_flags": skill.risk_flags,
@@ -473,7 +547,7 @@ fn user_status_for_skill(
     if skill.status == "conflict_disabled"
         || skill.status == "invalid"
         || validation
-            .map(|validation| !validation.passed)
+            .map(|validation| !validation_matches_skill(validation, skill))
             .unwrap_or(false)
     {
         return "needs_fix".to_string();
@@ -512,7 +586,9 @@ fn validate_draft_input(input: &SkillDraftInput) -> Result<(), ApiError> {
     if input.description.trim().is_empty() {
         return Err(ApiError::bad_request("description is required"));
     }
-    if input.steps.iter().all(|step| step.trim().is_empty()) {
+    if normalized_input_kind(input) == "text"
+        && input.steps.iter().all(|step| step.trim().is_empty())
+    {
         return Err(ApiError::bad_request("at least one step is required"));
     }
     Ok(())
@@ -570,7 +646,50 @@ fn render_skill_markdown(name: &str, input: &SkillDraftInput) -> anyhow::Result<
             yaml_scalar(when_to_use.trim())?
         ));
     }
-    if !input.requires_connectors.is_empty() {
+    let kind = normalized_input_kind(input);
+    let runtime = normalized_runtime(input.runtime.as_deref(), &kind);
+    let entry = if kind == "executable" {
+        normalized_entry(input.entry.as_deref())
+    } else {
+        input
+            .entry
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    };
+    let python_packages = cleaned_python_packages(&input.python_packages);
+    let connectors = cleaned_connectors(&input.requires_connectors);
+    if kind != "text"
+        || runtime.is_some()
+        || entry.is_some()
+        || !python_packages.is_empty()
+        || !connectors.is_empty()
+    {
+        out.push_str("metadata:\n");
+        out.push_str(&format!("  kind: {}\n", yaml_scalar(&kind)?));
+        if let Some(runtime) = runtime.as_deref() {
+            out.push_str(&format!("  runtime: {}\n", yaml_scalar(runtime)?));
+        }
+        if let Some(entry) = entry.as_deref() {
+            out.push_str(&format!("  entry: {}\n", yaml_scalar(entry)?));
+        }
+        if !python_packages.is_empty() || !connectors.is_empty() {
+            out.push_str("  requires:\n");
+        }
+        if !python_packages.is_empty() {
+            out.push_str("    python_packages:\n");
+            for package in &python_packages {
+                out.push_str(&format!("      - {}\n", yaml_scalar(package)?));
+            }
+        }
+        if !connectors.is_empty() {
+            out.push_str("    connectors:\n");
+            for connector in connectors {
+                out.push_str(&format!("      - {}\n", yaml_scalar(&connector)?));
+            }
+        }
+    } else if !input.requires_connectors.is_empty() {
         out.push_str("metadata:\n  requires:\n    connectors:\n");
         for connector in cleaned_connectors(&input.requires_connectors) {
             out.push_str(&format!("      - {}\n", yaml_scalar(&connector)?));
@@ -587,13 +706,18 @@ fn render_skill_markdown(name: &str, input: &SkillDraftInput) -> anyhow::Result<
         out.push_str(when_to_use.trim());
         out.push_str("\n\n");
     }
-    out.push_str("## Steps\n");
-    for step in input.steps.iter().filter(|step| !step.trim().is_empty()) {
-        out.push_str("- ");
-        out.push_str(step.trim());
+    if kind == "executable" {
+        out.push_str("## Execution\n");
+        out.push_str("Run the Python entrypoint declared in the skill metadata.\n\n");
+    } else {
+        out.push_str("## Steps\n");
+        for step in input.steps.iter().filter(|step| !step.trim().is_empty()) {
+            out.push_str("- ");
+            out.push_str(step.trim());
+            out.push('\n');
+        }
         out.push('\n');
     }
-    out.push('\n');
     if let Some(output_format) = input
         .output_format
         .as_deref()
@@ -640,6 +764,53 @@ fn cleaned_connectors(connectors: &[String]) -> Vec<String> {
     out
 }
 
+fn cleaned_python_packages(packages: &[String]) -> Vec<String> {
+    let mut out = packages
+        .iter()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>();
+    out.sort();
+    out.dedup();
+    out
+}
+
+fn normalized_input_kind(input: &SkillDraftInput) -> String {
+    input
+        .kind
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_else(|| {
+            if input.runtime.is_some()
+                || input.entry.is_some()
+                || !input.python_packages.is_empty()
+                || input.script.is_some()
+            {
+                "executable".to_string()
+            } else {
+                "text".to_string()
+            }
+        })
+}
+
+fn normalized_runtime(runtime: Option<&str>, kind: &str) -> Option<String> {
+    runtime
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_ascii_lowercase)
+        .or_else(|| (kind == "executable").then(|| "python".to_string()))
+}
+
+fn normalized_entry(entry: Option<&str>) -> Option<String> {
+    entry
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| Some("scripts/run.py".to_string()))
+}
+
 fn merged_patch_input(skill: &SkillManifestEntry, patch: &SkillPatchRequest) -> SkillDraftInput {
     SkillDraftInput {
         name: Some(skill.name.clone()),
@@ -662,6 +833,14 @@ fn merged_patch_input(skill: &SkillManifestEntry, patch: &SkillPatchRequest) -> 
             .clone()
             .unwrap_or_else(|| vec!["Follow the saved workflow.".to_string()]),
         output_format: patch.output_format.clone(),
+        kind: patch.kind.clone().or_else(|| Some(skill.kind.clone())),
+        runtime: patch.runtime.clone().or_else(|| skill.runtime.clone()),
+        entry: patch.entry.clone().or_else(|| skill.entry.clone()),
+        python_packages: patch
+            .python_packages
+            .clone()
+            .unwrap_or_else(|| skill.python_packages.clone()),
+        script: patch.script.clone(),
         requires_connectors: patch
             .requires_connectors
             .clone()
@@ -671,7 +850,10 @@ fn merged_patch_input(skill: &SkillManifestEntry, patch: &SkillPatchRequest) -> 
     }
 }
 
-fn validate_user_skill(skill: &SkillManifestEntry) -> Result<UserSkillValidationResult, ApiError> {
+fn validate_user_skill(
+    config: &crate::config::AppConfig,
+    skill: &SkillManifestEntry,
+) -> Result<UserSkillValidationResult, ApiError> {
     let text = std::fs::read_to_string(&skill.path)?;
     let mut checks = Vec::new();
     let mut issues = Vec::new();
@@ -679,14 +861,32 @@ fn validate_user_skill(skill: &SkillManifestEntry) -> Result<UserSkillValidation
     push_check(
         &mut checks,
         &mut issues,
+        "frontmatter",
+        frontmatter_parses(&text),
+        "Skill frontmatter parses.",
+        "Fix the SKILL.md YAML frontmatter.",
+    );
+    push_check(
+        &mut checks,
+        &mut issues,
         "format",
         !skill.name.trim().is_empty()
             && !skill.description.trim().is_empty()
-            && text.contains("## Steps")
-            && text.contains("- "),
-        "Skill has a name, description, and steps.",
-        "Add a name, description, and at least one step.",
+            && body_has_content(&text),
+        "Skill has a name, description, and body.",
+        "Add a name, description, and body content.",
     );
+    push_check(
+        &mut checks,
+        &mut issues,
+        "kind",
+        skill.kind == "text" || skill.kind == "executable",
+        "Skill kind is supported.",
+        "Skill kind must be text or executable.",
+    );
+    if skill.kind == "executable" {
+        validate_python_skill(config, skill, &mut checks, &mut issues);
+    }
     push_check(
         &mut checks,
         &mut issues,
@@ -705,22 +905,111 @@ fn validate_user_skill(skill: &SkillManifestEntry) -> Result<UserSkillValidation
         "Required services and system support are available.",
         "Connect required services or ask an administrator to enable missing system support.",
     );
-    push_check(
-        &mut checks,
-        &mut issues,
-        "test_example",
-        has_nonempty_section(&text, "## Test Example"),
-        "A preview test example is present.",
-        "Add a test example before enabling this skill.",
-    );
     let passed = checks.iter().all(|check| check.status == "passed");
     Ok(UserSkillValidationResult {
         passed,
+        content_hash: Some(skill.content_hash.clone()),
         checks,
         issues,
         preview: Some(build_validation_preview(skill, &text)),
         validated_at: Some(now_iso()),
     })
+}
+
+fn validate_python_skill(
+    config: &crate::config::AppConfig,
+    skill: &SkillManifestEntry,
+    checks: &mut Vec<UserSkillValidationCheck>,
+    issues: &mut Vec<String>,
+) {
+    push_check(
+        checks,
+        issues,
+        "runtime",
+        skill.runtime.as_deref() == Some("python"),
+        "Python runtime is supported.",
+        "Only Python executable skills are supported.",
+    );
+
+    let entry_valid = skill
+        .entry
+        .as_deref()
+        .map(safe_relative_entry_path)
+        .unwrap_or(false);
+    let entry_file = skill.entry.as_deref().and_then(|entry| {
+        PathBuf::from(&skill.path)
+            .parent()
+            .map(|parent| parent.join(entry))
+    });
+    let entry_exists = entry_file
+        .as_ref()
+        .map(|path| path.is_file())
+        .unwrap_or(false);
+    let entry_is_python = entry_file
+        .as_ref()
+        .and_then(|path| path.extension())
+        .and_then(|ext| ext.to_str())
+        == Some("py");
+    push_check(
+        checks,
+        issues,
+        "entry",
+        entry_valid && entry_exists && entry_is_python,
+        "Python entrypoint is a safe in-skill .py file.",
+        if !entry_valid {
+            "Python entry must be a relative path inside the skill directory."
+        } else if !entry_exists {
+            "Python entry file is missing."
+        } else {
+            "Python entry file must use the .py extension."
+        },
+    );
+
+    let packages = cleaned_python_packages(&skill.python_packages);
+    let packages_valid = packages.len() <= config.sandbox.python_env_max_packages
+        && packages
+            .iter()
+            .all(|package| validate_requirement(package).is_ok());
+    push_check(
+        checks,
+        issues,
+        "python_packages",
+        packages_valid,
+        "Python package requirements are supported.",
+        "Python package requirements must be pinned package specs without URLs, paths, or whitespace.",
+    );
+}
+
+fn validation_matches_skill(
+    validation: &UserSkillValidationResult,
+    skill: &SkillManifestEntry,
+) -> bool {
+    validation.passed && validation.content_hash.as_deref() == Some(skill.content_hash.as_str())
+}
+
+fn frontmatter_parses(text: &str) -> bool {
+    let Some(rest) = text.strip_prefix("---\n") else {
+        return false;
+    };
+    let Some((yaml, _)) = rest.split_once("\n---") else {
+        return false;
+    };
+    serde_yaml::from_str::<serde_yaml::Value>(yaml).is_ok()
+}
+
+fn body_has_content(text: &str) -> bool {
+    text.split_once("\n---")
+        .map(|(_, body)| body.trim())
+        .filter(|body| !body.is_empty())
+        .is_some()
+}
+
+fn safe_relative_entry_path(value: &str) -> bool {
+    let path = Path::new(value);
+    !path.is_absolute()
+        && path
+            .components()
+            .all(|component| matches!(component, Component::Normal(_)))
 }
 
 fn push_check(
@@ -774,16 +1063,6 @@ fn safety_check_passes(text: &str) -> bool {
     .iter()
     .any(|needle| lower.contains(needle));
     !destructive || lower.contains("user confirmation required: yes")
-}
-
-fn has_nonempty_section(text: &str, heading: &str) -> bool {
-    let Some((_, rest)) = text.split_once(heading) else {
-        return false;
-    };
-    rest.lines()
-        .skip(1)
-        .take_while(|line| !line.starts_with("## "))
-        .any(|line| !line.trim().is_empty())
 }
 
 fn build_validation_preview(skill: &SkillManifestEntry, text: &str) -> String {

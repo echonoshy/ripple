@@ -189,6 +189,7 @@ export interface SkillInfo {
   namespace?: string;
   description: string;
   source: string;
+  display_source?: "system" | "user" | string;
   path: string;
   read_only?: boolean;
   can_edit?: boolean;
@@ -204,6 +205,11 @@ export interface SkillInfo {
   last_tested_at?: string | null;
   when_to_use?: string;
   version?: string;
+  kind?: "text" | "executable" | string;
+  runtime?: "python" | string | null;
+  entry?: string | null;
+  python_packages?: string[];
+  content_hash?: string;
   enabled: boolean;
   status: CapabilityStatus | string;
   conflict_with?: string | null;
@@ -223,6 +229,7 @@ export interface SkillValidationCheck {
 
 export interface SkillValidationResult {
   passed: boolean;
+  content_hash?: string | null;
   checks: SkillValidationCheck[];
   issues?: string[];
   preview?: string | null;
@@ -236,6 +243,11 @@ export interface SkillDraftInput {
   when_to_use?: string;
   steps: string[];
   output_format?: string;
+  kind?: "text" | "executable" | string;
+  runtime?: "python" | string;
+  entry?: string;
+  python_packages?: string[];
+  script?: string;
   requires_connectors?: string[];
   requires_user_confirmation?: boolean;
   test_example?: string;
@@ -248,6 +260,11 @@ export interface SkillUpdateInput {
   when_to_use?: string;
   steps?: string[];
   output_format?: string;
+  kind?: "text" | "executable" | string;
+  runtime?: "python" | string;
+  entry?: string;
+  python_packages?: string[];
+  script?: string;
   requires_connectors?: string[];
   requires_user_confirmation?: boolean;
   test_example?: string;

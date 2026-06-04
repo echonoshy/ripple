@@ -71,7 +71,10 @@ pub(crate) fn parse_model_connector_auth_request(text: &str) -> Option<ModelConn
         .trim();
     let request: RawModelConnectorAuthRequest = serde_json::from_str(json_text).ok()?;
     let connector = request.connector.trim();
-    if !matches!(connector, "google_workspace" | "notion" | "feishu") {
+    if !matches!(
+        connector,
+        "google_workspace" | "notion" | "feishu" | "bilibili"
+    ) {
         return None;
     }
     let _reason = request.reason.as_deref().unwrap_or("").trim();
@@ -770,10 +773,11 @@ mod tests {
         assert_eq!(request.connector, "google_workspace");
         assert!(!request.force_reauth);
         assert!(parse_model_connector_auth_request("hello").is_none());
-        assert!(parse_model_connector_auth_request(
+        let bilibili = parse_model_connector_auth_request(
             "<ripple_connector_auth_request>{\"connector\":\"bilibili\"}</ripple_connector_auth_request>"
         )
-        .is_none());
+        .expect("bilibili request");
+        assert_eq!(bilibili.connector, "bilibili");
     }
 
     #[test]

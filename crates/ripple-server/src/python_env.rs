@@ -287,13 +287,19 @@ pub fn run_ripple_py_cli(config: AppConfig, args: &[String]) -> Result<i32> {
             request,
             python_args,
         } => {
-            let info = manager.ensure(&request)?;
-            let status = Command::new(&info.python_executable)
+            let mut command = if let Some(request) = request {
+                let info = manager.ensure(&request)?;
+                let mut command = Command::new(&info.python_executable);
+                command.env("VIRTUAL_ENV", &info.env_path);
+                command
+            } else {
+                Command::new("python3")
+            };
+            let status = command
                 .args(python_args)
                 .env("PYTHONDONTWRITEBYTECODE", "1")
-                .env("VIRTUAL_ENV", &info.env_path)
                 .status()
-                .context("failed to run shared Python environment")?;
+                .context("failed to run Python")?;
             Ok(status.code().unwrap_or(1))
         }
     }
@@ -328,7 +334,7 @@ enum RipplePyCommand {
         json: bool,
     },
     Python {
-        request: PythonEnvRequest,
+        request: Option<PythonEnvRequest>,
         python_args: Vec<String>,
     },
 }
@@ -349,7 +355,11 @@ impl RipplePyCommand {
             "python" => {
                 let (requirements, python_args) = parse_python_args(&args[1..])?;
                 Ok(Self::Python {
-                    request: PythonEnvRequest::new(requirements, max_packages)?,
+                    request: if requirements.is_empty() {
+                        None
+                    } else {
+                        Some(PythonEnvRequest::new(requirements, max_packages)?)
+                    },
                     python_args,
                 })
             }
@@ -432,7 +442,7 @@ impl Drop for EnvLockGuard {
     }
 }
 
-fn validate_requirement(requirement: &str) -> Result<()> {
+pub(crate) fn validate_requirement(requirement: &str) -> Result<()> {
     if requirement.is_empty() {
         anyhow::bail!("empty Python requirement");
     }
@@ -527,4 +537,31 @@ fn hex_digest(bytes: &[u8]) -> String {
 
 fn sh_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ripple_py_python_accepts_no_requirements_for_plain_python_scripts() {
+        let args = vec![
+            "python".to_string(),
+            "--".to_string(),
+            "scripts/run.py".to_string(),
+        ];
+
+        let command = RipplePyCommand::parse(&args, 20).expect("parse ripple-py python");
+
+        match command {
+            RipplePyCommand::Python {
+                request,
+                python_args,
+            } => {
+                assert!(request.is_none());
+                assert_eq!(python_args, vec!["scripts/run.py"]);
+            }
+            RipplePyCommand::Env { .. } => panic!("expected python command"),
+        }
+    }
 }

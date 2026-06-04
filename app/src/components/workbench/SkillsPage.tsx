@@ -1,28 +1,28 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowBigLeft,
+  ChevronDown,
+  ChevronRight,
   CheckCircle2,
   Loader2,
   Pencil,
   Plug,
-  Plus,
+  MessageSquare,
   Power,
   RefreshCw,
   Trash2,
-  X,
 } from "lucide-react";
 import {
-  createSkill,
   deleteSkill,
   fetchSkills,
   updateSkill,
   validateSkill,
 } from "@/lib/api";
 import { type MessageKey, useI18n } from "@/i18n";
-import type { SkillDraftInput, SkillInfo, SkillUserStatus } from "@/types";
+import type { SkillInfo, SkillUserStatus } from "@/types";
 import {
   COMPACT_IOS_PAGE_BACKGROUND,
   LUCIDE_NAV_STROKE_WIDTH,
@@ -43,18 +43,60 @@ const SKILL_REFRESH_THROTTLE_MS = 10_000;
 interface SkillsPageProps {
   userId: string;
   onBack?: () => void;
-  onOpenConnectors?: () => void;
+  onOpenChat?: (prompt: string) => void;
 }
 
-const defaultDraft: SkillDraftInput = {
-  display_name: "",
-  description: "",
-  when_to_use: "",
-  steps: [""],
-  output_format: "",
-  requires_connectors: [],
-  requires_user_confirmation: false,
-  test_example: "",
+type SkillSourceId = "user" | "system";
+type SkillConnectorGroupId =
+  | "feishu"
+  | "google_workspace"
+  | "bilibili"
+  | "notion"
+  | "custom"
+  | "general";
+
+interface SkillConnectorGroup {
+  id: string;
+  groupId: SkillConnectorGroupId;
+  sourceId: SkillSourceId;
+  labelKey?: MessageKey;
+  label?: string;
+  status: SkillUserStatus | string;
+  defaultOpen: boolean;
+  skills: SkillInfo[];
+}
+
+interface SkillSourceSection {
+  id: SkillSourceId;
+  labelKey: MessageKey;
+  groups: SkillConnectorGroup[];
+}
+
+const CONNECTOR_GROUP_ORDER: SkillConnectorGroupId[] = [
+  "custom",
+  "feishu",
+  "google_workspace",
+  "bilibili",
+  "notion",
+  "general",
+];
+
+const CONNECTOR_GROUP_LABELS: Record<SkillConnectorGroupId, { label?: string; labelKey?: MessageKey }> = {
+  feishu: { label: "Feishu / Lark" },
+  google_workspace: { label: "Google Workspace" },
+  bilibili: { label: "Bilibili" },
+  notion: { label: "Notion" },
+  custom: { labelKey: "skills.groupCustom" },
+  general: { labelKey: "skills.groupGeneral" },
+};
+
+const SKILL_STATUS_RANK: Record<string, number> = {
+  needs_connection: 0,
+  needs_fix: 1,
+  unavailable: 1,
+  not_enabled: 2,
+  disabled: 2,
+  available: 3,
 };
 
 function skillTitle(skill: SkillInfo): string {
@@ -86,81 +128,183 @@ function skillStatusIcon(status: string | undefined) {
   return <Power size={13} />;
 }
 
-function groupSkills(skills: SkillInfo[]) {
-  return {
-    available: skills.filter((skill) => skill.user_status === "available"),
-    needsConnection: skills.filter((skill) => skill.user_status === "needs_connection"),
-    needsFix: skills.filter(
-      (skill) => skill.user_status === "needs_fix" || skill.user_status === "unavailable"
-    ),
-    notEnabled: skills.filter(
-      (skill) => skill.user_status === "not_enabled" || skill.user_status === "disabled"
-    ),
-    mine: skills.filter((skill) => skill.source === "user"),
-  };
+function skillStatusRank(skill: SkillInfo): number {
+  return SKILL_STATUS_RANK[skill.user_status || "not_enabled"] ?? 4;
 }
 
-export default function SkillsPage({ userId, onBack, onOpenConnectors }: SkillsPageProps) {
+function sourceIdForSkill(skill: SkillInfo): SkillSourceId {
+  if (skill.display_source === "user" || skill.display_source === "system") {
+    return skill.display_source;
+  }
+  return skill.source === "user" ? "user" : "system";
+}
+
+function connectorGroupIdForSkill(skill: SkillInfo): SkillConnectorGroupId {
+  const connector = skill.related_connector || skill.requires_connectors?.[0] || "";
+  if (connector === "feishu" || connector === "lark" || skill.name.startsWith("lark-")) {
+    return "feishu";
+  }
+  if (connector === "google_workspace" || skill.name.startsWith("gog-")) {
+    return "google_workspace";
+  }
+  if (connector === "bilibili" || skill.name.startsWith("bilibili-")) {
+    return "bilibili";
+  }
+  if (connector === "notion" || skill.name.startsWith("notion-")) {
+    return "notion";
+  }
+  return sourceIdForSkill(skill) === "user" ? "custom" : "general";
+}
+
+function groupStatusForSkills(skills: SkillInfo[]): SkillUserStatus | string {
+  return [...skills].sort((left, right) => skillStatusRank(left) - skillStatusRank(right))[0]
+    ?.user_status || "not_enabled";
+}
+
+function shouldDefaultOpenGroup(sourceId: SkillSourceId, status: string): boolean {
+  return (
+    sourceId === "user" ||
+    status === "needs_connection" ||
+    status === "needs_fix" ||
+    status === "unavailable"
+  );
+}
+
+function sortSkillsForDisplay(skills: SkillInfo[]): SkillInfo[] {
+  return [...skills].sort((left, right) => {
+    const rank = skillStatusRank(left) - skillStatusRank(right);
+    if (rank !== 0) return rank;
+    return skillTitle(left).localeCompare(skillTitle(right));
+  });
+}
+
+function buildSkillSections(skills: SkillInfo[]): SkillSourceSection[] {
+  const grouped = new Map<SkillSourceId, Map<SkillConnectorGroupId, SkillInfo[]>>();
+  for (const skill of skills) {
+    const sourceId = sourceIdForSkill(skill);
+    const groupId = connectorGroupIdForSkill(skill);
+    const sourceGroups = grouped.get(sourceId) || new Map<SkillConnectorGroupId, SkillInfo[]>();
+    sourceGroups.set(groupId, [...(sourceGroups.get(groupId) || []), skill]);
+    grouped.set(sourceId, sourceGroups);
+  }
+
+  return [
+    { id: "user" as const, labelKey: "skills.mine" as const },
+    { id: "system" as const, labelKey: "skills.builtIn" as const },
+  ]
+    .map((source) => {
+      const sourceGroups = grouped.get(source.id);
+      const groups = CONNECTOR_GROUP_ORDER.flatMap((groupId) => {
+        const groupSkills = sourceGroups?.get(groupId);
+        if (!groupSkills?.length) return [];
+        const status = groupStatusForSkills(groupSkills);
+        const labelConfig = CONNECTOR_GROUP_LABELS[groupId];
+        return [
+          {
+            id: `${source.id}:${groupId}`,
+            groupId,
+            sourceId: source.id,
+            label: labelConfig.label,
+            labelKey: labelConfig.labelKey,
+            status,
+            defaultOpen: shouldDefaultOpenGroup(source.id, status),
+            skills: sortSkillsForDisplay(groupSkills),
+          },
+        ];
+      });
+      return { ...source, groups };
+    })
+    .filter((section) => section.groups.length > 0);
+}
+
+export default function SkillsPage({ userId, onBack, onOpenChat }: SkillsPageProps) {
   const { t } = useI18n();
   const [skills, setSkills] = useState<SkillInfo[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [draft, setDraft] = useState<SkillDraftInput>(defaultDraft);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busySkillId, setBusySkillId] = useState<string | null>(null);
-  const [lastRefreshAt, setLastRefreshAt] = useState(0);
+  const [openGroupIds, setOpenGroupIds] = useState<Set<string>>(new Set());
+  const lastRefreshAtRef = useRef(0);
 
   const loadSkills = useCallback(
     async (force = false) => {
       const now = Date.now();
-      if (!force && now - lastRefreshAt < SKILL_REFRESH_THROTTLE_MS) return;
+      if (!force && now - lastRefreshAtRef.current < SKILL_REFRESH_THROTTLE_MS) return;
       setIsLoading(true);
       setActionError(null);
       try {
         const next = await fetchSkills();
         setSkills(next);
-        setLastRefreshAt(Date.now());
+        lastRefreshAtRef.current = Date.now();
       } catch (error) {
         setActionError(error instanceof Error ? error.message : t("skills.failed"));
       } finally {
         setIsLoading(false);
       }
     },
-    [lastRefreshAt, t]
+    [t]
   );
 
   useEffect(() => {
     void loadSkills(true);
   }, [loadSkills, userId]);
 
-  const grouped = useMemo(() => groupSkills(skills), [skills]);
-  const availableCount = grouped.available.length;
+  const sections = useMemo(() => buildSkillSections(skills), [skills]);
+  const availableCount = useMemo(
+    () => skills.filter((skill) => skill.user_status === "available").length,
+    [skills]
+  );
+  const defaultOpenGroupKey = useMemo(
+    () =>
+      sections
+        .flatMap((section) => section.groups)
+        .filter((group) => group.defaultOpen)
+        .map((group) => group.id)
+        .join("|"),
+    [sections]
+  );
 
-  const updateDraft = useCallback((patch: Partial<SkillDraftInput>) => {
-    setDraft((current) => ({ ...current, ...patch }));
-  }, []);
+  useEffect(() => {
+    setOpenGroupIds(
+      new Set(
+        sections
+          .flatMap((section) => section.groups)
+          .filter((group) => group.defaultOpen)
+          .map((group) => group.id)
+      )
+    );
+  }, [defaultOpenGroupKey, sections]);
 
-  const handleCreate = useCallback(async () => {
-    const steps = (draft.steps || []).map((step) => step.trim()).filter(Boolean);
-    if (!draft.description.trim() || steps.length === 0) return;
-    setIsLoading(true);
-    setActionError(null);
-    try {
-      const created = await createSkill({ ...draft, steps });
-      setSkills((current) => [created, ...current.filter((skill) => skill.id !== created.id)]);
-      setDraft(defaultDraft);
-      setIsCreateOpen(false);
-      setActionMessage(t("skills.saved"));
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : t("skills.failed"));
-    } finally {
-      setIsLoading(false);
-    }
-  }, [draft, t]);
+  const openCreateSkillChat = useCallback(() => {
+    onOpenChat?.(t("skills.createChatPrompt"));
+  }, [onOpenChat, t]);
+
+  const openConnectorChat = useCallback(
+    (group: SkillConnectorGroup) => {
+      onOpenChat?.(
+        t("skills.connectChatPrompt", {
+          name: group.label || (group.labelKey ? t(group.labelKey) : t("skills.groupGeneral")),
+        })
+      );
+    },
+    [onOpenChat, t]
+  );
 
   const replaceSkill = useCallback((next: SkillInfo) => {
     setSkills((current) => current.map((skill) => (skill.id === next.id ? next : skill)));
+  }, []);
+
+  const toggleGroup = useCallback((groupId: string) => {
+    setOpenGroupIds((current) => {
+      const next = new Set(current);
+      if (next.has(groupId)) {
+        next.delete(groupId);
+      } else {
+        next.add(groupId);
+      }
+      return next;
+    });
   }, []);
 
   const handleValidate = useCallback(
@@ -170,7 +314,7 @@ export default function SkillsPage({ userId, onBack, onOpenConnectors }: SkillsP
       try {
         const validation = await validateSkill(skill.id);
         replaceSkill({ ...skill, validation, user_status: validation.passed ? "not_enabled" : "needs_fix" });
-        setActionMessage(t("skills.tested"));
+        setActionMessage(t("skills.validated"));
       } catch (error) {
         setActionError(error instanceof Error ? error.message : t("skills.failed"));
       } finally {
@@ -219,20 +363,24 @@ export default function SkillsPage({ userId, onBack, onOpenConnectors }: SkillsP
     const readOnly = Boolean(skill.read_only || skill.source !== "user");
 
     return (
-      <article
+      <details
         key={skill.id}
         data-ripple-skill-card="true"
-        className="overflow-hidden rounded-lg border border-[#dfe6f4] bg-white/78 shadow-[0_8px_22px_rgba(44,63,123,0.05)]"
+        className="group/skill overflow-hidden bg-white/78"
       >
-        <div className="flex items-start gap-2.5 p-2.5">
-          <div className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#dfe6f4] bg-[#f8faff] text-[#007aff]">
-            {skillStatusIcon(status)}
+        <summary className="flex cursor-pointer list-none items-start gap-2.5 px-2.5 py-2.5 transition-colors hover:bg-[#f8faff] [&::-webkit-details-marker]:hidden">
+          <div className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#dfe6f4] bg-[#f8faff] text-[#007aff]">
+            <ChevronRight
+              size={14}
+              className="transition-transform group-open/skill:rotate-90"
+              strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH}
+            />
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-              <h2 className={`truncate text-[#111827] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
+              <h3 className={`truncate text-[#111827] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
                 {skillTitle(skill)}
-              </h2>
+              </h3>
               <span
                 className={`inline-flex h-6 items-center gap-1 rounded-full border px-2 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} ${skillStatusClass(status)}`}
               >
@@ -243,22 +391,15 @@ export default function SkillsPage({ userId, onBack, onOpenConnectors }: SkillsP
                 {readOnly ? t("skills.builtIn") : t("skills.mine")}
               </span>
             </div>
-            <p className={`mt-1 text-[#4b5563] ${TYPOGRAPHY_BODY_CLASS}`}>{skill.description}</p>
+            <p className={`mt-1 line-clamp-2 text-[#667085] group-open/skill:hidden ${TYPOGRAPHY_META_CLASS}`}>
+              {skill.description}
+            </p>
           </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-1.5 border-t border-[#e8edf7] bg-[#fbfcff]/62 px-2.5 py-1.5">
-          {status === "needs_connection" && (
-            <button
-              type="button"
-              onClick={onOpenConnectors}
-              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[#cfe4ff] bg-[#eaf4ff] px-2.5 text-[#0067d6] transition-colors hover:bg-[#dcefff] disabled:opacity-60"
-            >
-              <Plug size={13} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
-              <span className={TYPOGRAPHY_MICRO_MEDIUM_CLASS}>{t("skills.connectService")}</span>
-            </button>
-          )}
+        </summary>
+        <div className="space-y-2 border-t border-[#e8edf7] bg-[#fbfcff]/62 px-2.5 py-2">
+          <p className={`text-[#4b5563] ${TYPOGRAPHY_META_CLASS}`}>{skill.description}</p>
           {!readOnly && (
-            <>
+            <div className="flex flex-wrap items-center gap-1.5">
               <button
                 type="button"
                 disabled={isBusy}
@@ -266,7 +407,7 @@ export default function SkillsPage({ userId, onBack, onOpenConnectors }: SkillsP
                 className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-2.5 text-[#374151] transition-colors hover:border-[#cfe4ff] hover:bg-[#f8faff] disabled:opacity-60"
               >
                 {isBusy ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
-                <span className={TYPOGRAPHY_MICRO_MEDIUM_CLASS}>{t("skills.test")}</span>
+                <span className={TYPOGRAPHY_MICRO_MEDIUM_CLASS}>{t("skills.validate")}</span>
               </button>
               <button
                 type="button"
@@ -296,15 +437,95 @@ export default function SkillsPage({ userId, onBack, onOpenConnectors }: SkillsP
                 <Trash2 size={13} />
                 <span className={TYPOGRAPHY_MICRO_MEDIUM_CLASS}>{t("skills.delete")}</span>
               </button>
-            </>
+            </div>
           )}
           {readOnly && (
-            <span className={`inline-flex h-8 items-center rounded-full px-2.5 text-[#667085] ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}>
+            <span className={`inline-flex h-7 items-center rounded-full text-[#667085] ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}>
               {t("skills.readOnly")}
             </span>
           )}
         </div>
-      </article>
+      </details>
+    );
+  };
+
+  const renderConnectorGroup = (group: SkillConnectorGroup) => {
+    const isOpen = openGroupIds.has(group.id);
+    const availableInGroup = group.skills.filter((skill) => skill.user_status === "available").length;
+    const groupLabel = group.label || (group.labelKey ? t(group.labelKey) : t("skills.groupGeneral"));
+    const needsConnection = group.skills.some((skill) => skill.user_status === "needs_connection");
+
+    return (
+      <section
+        key={group.id}
+        data-ripple-skill-connector-group="true"
+        className="overflow-hidden rounded-lg border border-[#dfe6f4] bg-white/78 shadow-[0_8px_22px_rgba(44,63,123,0.05)]"
+      >
+        <div className="flex items-center gap-2 border-b border-[#e8edf7] bg-[#fbfcff]/72 px-2.5 py-2">
+          <button
+            type="button"
+            onClick={() => toggleGroup(group.id)}
+            aria-expanded={isOpen}
+            className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          >
+            {isOpen ? (
+              <ChevronDown size={15} className="shrink-0 text-[#667085]" />
+            ) : (
+              <ChevronRight size={15} className="shrink-0 text-[#667085]" />
+            )}
+            <div className="min-w-0 flex-1">
+              <div className={`truncate text-[#111827] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
+                {groupLabel}
+              </div>
+              <div className={`mt-0.5 text-[#7a8496] ${TYPOGRAPHY_META_CLASS}`}>
+                {t("skills.readyCount", {
+                  available: availableInGroup,
+                  total: group.skills.length,
+                })}
+              </div>
+            </div>
+            <span
+              className={`hidden h-6 shrink-0 items-center gap-1 rounded-full border px-2 sm:inline-flex ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} ${skillStatusClass(group.status)}`}
+            >
+              {skillStatusIcon(group.status)}
+              {t(skillStatusKey(group.status))}
+            </span>
+          </button>
+          {needsConnection && (
+            <button
+              type="button"
+              data-ripple-skill-group-connect="true"
+              onClick={() => openConnectorChat(group)}
+              disabled={!onOpenChat}
+              className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-[#cfe4ff] bg-[#eaf4ff] px-2.5 text-[#0067d6] transition-colors hover:bg-[#dcefff] disabled:opacity-60"
+            >
+              <Plug size={13} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
+              <span className={TYPOGRAPHY_MICRO_MEDIUM_CLASS}>{t("skills.connectService")}</span>
+            </button>
+          )}
+        </div>
+        {isOpen && <div className="divide-y divide-[#e8edf7]">{group.skills.map(renderSkillCard)}</div>}
+      </section>
+    );
+  };
+
+  const renderSourceSection = (section: SkillSourceSection) => {
+    const sectionSkills = section.groups.flatMap((group) => group.skills);
+    const availableInSection = sectionSkills.filter((skill) => skill.user_status === "available").length;
+
+    return (
+      <section key={section.id} data-ripple-skill-source-section="true" className="space-y-2">
+        <div className="flex items-end justify-between gap-2 px-0.5">
+          <div className={`text-[#111827] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>{t(section.labelKey)}</div>
+          <div className={`text-[#7a8496] ${TYPOGRAPHY_META_CLASS}`}>
+            {t("skills.readyCount", {
+              available: availableInSection,
+              total: sectionSkills.length,
+            })}
+          </div>
+        </div>
+        <div className="space-y-2">{section.groups.map(renderConnectorGroup)}</div>
+      </section>
     );
   };
 
@@ -340,12 +561,13 @@ export default function SkillsPage({ userId, onBack, onOpenConnectors }: SkillsP
           <div className="flex shrink-0 items-center gap-1.5">
             <button
               type="button"
-              onClick={() => setIsCreateOpen((value) => !value)}
+              onClick={openCreateSkillChat}
+              disabled={!onOpenChat}
               className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-[#cfe4ff] bg-[#eaf4ff] text-[#007aff] shadow-[0_6px_18px_rgba(0,122,255,0.10)] transition-all hover:bg-[#dcefff] active:scale-[0.98] lg:h-10 lg:w-auto lg:gap-1.5 lg:px-3"
               aria-label={t("skills.create")}
               title={t("skills.create")}
             >
-              {isCreateOpen ? <X size={18} /> : <Plus size={18} />}
+              <MessageSquare size={18} />
               <span className="hidden lg:inline">{t("skills.create")}</span>
             </button>
             <button
@@ -378,92 +600,13 @@ export default function SkillsPage({ userId, onBack, onOpenConnectors }: SkillsP
           </div>
         )}
 
-        {isCreateOpen && (
-          <section
-            data-ripple-skill-create-form="true"
-            className="space-y-2 rounded-lg border border-[#dfe6f4] bg-white/78 p-2.5 shadow-[0_8px_22px_rgba(44,63,123,0.05)]"
-          >
-            <div className={`text-[#111827] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
-              {t("skills.createTitle")}
-            </div>
-            <div className="grid gap-2 md:grid-cols-2">
-              <input
-                value={draft.display_name || ""}
-                onChange={(event) => updateDraft({ display_name: event.target.value })}
-                aria-label={t("skills.name")}
-                placeholder={t("skills.name")}
-                className="h-9 rounded-lg border border-[#dfe6f4] bg-white px-2.5 text-sm outline-none focus:border-[#8ec8ff]"
-              />
-              <input
-                value={draft.when_to_use || ""}
-                onChange={(event) => updateDraft({ when_to_use: event.target.value })}
-                aria-label={t("skills.whenToUse")}
-                placeholder={t("skills.whenToUse")}
-                className="h-9 rounded-lg border border-[#dfe6f4] bg-white px-2.5 text-sm outline-none focus:border-[#8ec8ff]"
-              />
-            </div>
-            <textarea
-              value={draft.description}
-              onChange={(event) => updateDraft({ description: event.target.value })}
-              aria-label={t("skills.description")}
-              placeholder={t("skills.description")}
-              className="min-h-20 w-full rounded-lg border border-[#dfe6f4] bg-white px-2.5 py-2 text-sm outline-none focus:border-[#8ec8ff]"
-            />
-            <textarea
-              value={(draft.steps || []).join("\n")}
-              onChange={(event) => updateDraft({ steps: event.target.value.split("\n") })}
-              aria-label={t("skills.steps")}
-              placeholder={t("skills.steps")}
-              className="min-h-20 w-full rounded-lg border border-[#dfe6f4] bg-white px-2.5 py-2 text-sm outline-none focus:border-[#8ec8ff]"
-            />
-            <div className="grid gap-2 md:grid-cols-2">
-              <input
-                value={draft.output_format || ""}
-                onChange={(event) => updateDraft({ output_format: event.target.value })}
-                aria-label={t("skills.outputFormat")}
-                placeholder={t("skills.outputFormat")}
-                className="h-9 rounded-lg border border-[#dfe6f4] bg-white px-2.5 text-sm outline-none focus:border-[#8ec8ff]"
-              />
-              <input
-                value={draft.test_example || ""}
-                onChange={(event) => updateDraft({ test_example: event.target.value })}
-                aria-label={t("skills.testExample")}
-                placeholder={t("skills.testExample")}
-                className="h-9 rounded-lg border border-[#dfe6f4] bg-white px-2.5 text-sm outline-none focus:border-[#8ec8ff]"
-              />
-            </div>
-            <div className="flex justify-end gap-1.5">
-              <button
-                type="button"
-                onClick={() => setIsCreateOpen(false)}
-                className="inline-flex h-8 items-center rounded-full border border-[#dfe6f4] bg-white px-3 text-[#374151]"
-              >
-                <span className={TYPOGRAPHY_MICRO_MEDIUM_CLASS}>{t("skills.cancel")}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleCreate()}
-                className="inline-flex h-8 items-center rounded-full bg-[#007aff] px-3 text-white disabled:bg-[#d0d7e2]"
-                disabled={isLoading}
-              >
-                <span className={TYPOGRAPHY_MICRO_MEDIUM_CLASS}>{t("skills.createDraft")}</span>
-              </button>
-            </div>
-          </section>
-        )}
-
         {skills.length === 0 ? (
           <div className={`flex h-32 items-center justify-center rounded-xl border border-dashed border-[#dfe6f4] bg-white/52 text-[#667085] ${TYPOGRAPHY_BODY_CLASS}`}>
             {t("skills.empty")}
           </div>
         ) : (
-          <div className="grid gap-2 lg:grid-cols-2">
-            {[
-              ...grouped.needsConnection,
-              ...grouped.needsFix,
-              ...grouped.available,
-              ...grouped.notEnabled,
-            ].map(renderSkillCard)}
+          <div className="space-y-3">
+            {sections.map(renderSourceSection)}
           </div>
         )}
       </div>

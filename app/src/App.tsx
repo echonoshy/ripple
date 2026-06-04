@@ -668,6 +668,17 @@ export default function Home() {
     setMobileMotionDirection(1);
     setMobileSessionMode("chat");
   }, []);
+  const handleOpenChatWithPrompt = useCallback(
+    (prompt: string) => {
+      setMobileFilesReturnToChat(false);
+      setPendingWorkspaceFileOpen(null);
+      setActiveView("sessions");
+      setMobileMotionDirection(1);
+      setMobileSessionMode("chat");
+      setInput(prompt);
+    },
+    [setInput]
+  );
   const handleOpenMobileSessionList = useCallback(() => {
     setMobileFilesReturnToChat(false);
     setPendingWorkspaceFileOpen(null);
@@ -890,7 +901,7 @@ export default function Home() {
     ) : activeView === "skills" ? (
       <SkillsPage
         userId={userId}
-        onOpenConnectors={() => setActiveView("connectors")}
+        onOpenChat={handleOpenChatWithPrompt}
       />
     ) : activeView === "connectors" ? (
       <ConnectorsPage userId={userId} onConnectorStateChange={loadSessions} />

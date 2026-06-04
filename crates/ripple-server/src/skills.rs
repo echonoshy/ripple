@@ -1,7 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::Component;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use crate::config::{resolve_path, AppConfig};
 
@@ -24,9 +26,15 @@ pub struct SkillManifestEntry {
     pub namespace: String,
     pub description: String,
     pub source: String,
+    pub display_source: String,
     pub path: String,
     pub when_to_use: Option<String>,
     pub version: Option<String>,
+    pub kind: String,
+    pub runtime: Option<String>,
+    pub entry: Option<String>,
+    pub python_packages: Vec<String>,
+    pub content_hash: String,
     pub enabled: bool,
     pub status: String,
     pub conflict_with: Option<String>,
@@ -42,6 +50,7 @@ pub struct SkillManifestEntry {
 pub struct SkillManifestOptions {
     pub enabled_user_skill_ids: BTreeSet<String>,
     pub validated_user_skill_ids: BTreeSet<String>,
+    pub validated_user_skill_hashes: BTreeMap<String, String>,
     pub archived_user_skill_ids: BTreeSet<String>,
     pub connector_statuses: BTreeMap<String, bool>,
 }
@@ -91,6 +100,19 @@ impl UserSkillSettings {
             .map(|(id, _)| id.clone())
             .collect()
     }
+
+    pub fn validated_manifest_skill_hashes(&self) -> BTreeMap<String, String> {
+        self.records
+            .iter()
+            .filter_map(|(id, record)| {
+                let validation = record.validation.as_ref()?;
+                if !validation.passed {
+                    return None;
+                }
+                Some((id.clone(), validation.content_hash.clone()?))
+            })
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -121,6 +143,8 @@ impl Default for UserSkillRecord {
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct UserSkillValidationResult {
     pub passed: bool,
+    #[serde(default)]
+    pub content_hash: Option<String>,
     #[serde(default)]
     pub checks: Vec<UserSkillValidationCheck>,
     #[serde(default)]
@@ -168,14 +192,22 @@ pub fn build_skill_manifest_with_options(
             if options.archived_user_skill_ids.contains(&skill.id) {
                 continue;
             }
+            let validated_for_current_content = options
+                .validated_user_skill_hashes
+                .get(&skill.id)
+                .map(|hash| hash == &skill.content_hash)
+                .unwrap_or(false)
+                && options.validated_user_skill_ids.contains(&skill.id);
             if shared_names.contains(&skill.name) {
                 skill.enabled = false;
                 skill.status = STATUS_CONFLICT_DISABLED.to_string();
                 skill.conflict_with = Some(format!("{SOURCE_RIPPLE}:{}", skill.name));
+            } else if skill.status == STATUS_INVALID {
+                skill.enabled = false;
             } else if !options.enabled_user_skill_ids.contains(&skill.id) {
                 skill.enabled = false;
                 skill.status = STATUS_PENDING_ENABLE.to_string();
-            } else if !options.validated_user_skill_ids.contains(&skill.id) {
+            } else if !validated_for_current_content {
                 skill.enabled = false;
                 skill.status = STATUS_INVALID.to_string();
             }
@@ -237,19 +269,39 @@ fn render_skill_entries(entries: Vec<SkillManifestEntry>) -> String {
                 },
                 entry.path
             );
-            if let Some(when_to_use) = entry.when_to_use {
+            if let Some(when_to_use) = &entry.when_to_use {
                 line.push_str(&format!("\n  when_to_use: {when_to_use}"));
             }
-            if let Some(version) = entry.version {
+            if let Some(version) = &entry.version {
                 line.push_str(&format!("\n  version: {version}"));
             }
+            line.push_str(&format!("\n  kind: {}", entry.kind));
+            if let Some(runtime) = &entry.runtime {
+                line.push_str(&format!("\n  runtime: {runtime}"));
+            }
+            if let Some(skill_entry) = &entry.entry {
+                line.push_str(&format!("\n  entry: {skill_entry}"));
+            }
+            if !entry.python_packages.is_empty() {
+                line.push_str(&format!(
+                    "\n  python_packages: {}",
+                    entry.python_packages.join(", ")
+                ));
+            }
+            if entry.kind == "executable"
+                && entry.runtime.as_deref() == Some("python")
+                && entry.entry.is_some()
+            {
+                line.push_str(&format!("\n  execute: {}", python_execute_command(&entry)));
+            }
+            line.push_str(&format!("\n  content_hash: {}", entry.content_hash));
             if entry.status != STATUS_AVAILABLE {
                 line.push_str(&format!("\n  status: {}", entry.status));
             }
             if !entry.enabled {
                 line.push_str("\n  enabled: false");
             }
-            if let Some(conflict_with) = entry.conflict_with {
+            if let Some(conflict_with) = &entry.conflict_with {
                 line.push_str(&format!("\n  conflict_with: {conflict_with}"));
             }
             if !entry.requires_bins.is_empty() {
@@ -394,6 +446,25 @@ fn load_skill_file(
     let requires = nested_mapping(&metadata, "requires");
     let requires_bins = string_list_field(requires, "bins");
     let requires_connectors = string_list_field(requires, "connectors");
+    let python_packages = string_list_field_candidates(
+        requires,
+        &["python_packages", "python-packages", "python_packages"],
+    );
+    let kind = metadata_value(&metadata, "kind")
+        .and_then(serde_yaml::Value::as_str)
+        .map(normalized_kind)
+        .unwrap_or_else(|| "text".to_string());
+    let runtime = metadata_value(&metadata, "runtime")
+        .and_then(serde_yaml::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_ascii_lowercase);
+    let entry = metadata_value(&metadata, "entry")
+        .and_then(serde_yaml::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let content_hash = content_hash_for_skill(path, entry.as_deref());
     let risk_flags = string_list_from_candidates(
         [
             metadata_value(&metadata, "risk"),
@@ -421,15 +492,22 @@ fn load_skill_file(
         })
         .cloned()
         .collect::<Vec<_>>();
-    let enabled =
+    let mut enabled =
         missing_bins.is_empty() && missing_connectors.is_empty() && blocked_connectors.is_empty();
-    let status = if !missing_bins.is_empty() || !missing_connectors.is_empty() {
+    let mut status = if !missing_bins.is_empty() || !missing_connectors.is_empty() {
         STATUS_MISSING_REQUIREMENTS
     } else if !blocked_connectors.is_empty() {
         STATUS_BLOCKED_BY_CONNECTOR_AUTH
     } else {
         STATUS_AVAILABLE
     };
+    if source == SOURCE_USER
+        && (kind != "text" && kind != "executable"
+            || kind == "executable" && runtime.as_deref() != Some("python"))
+    {
+        enabled = false;
+        status = STATUS_INVALID;
+    }
     Some(SkillManifestEntry {
         id: format!("{source}:{name}"),
         name,
@@ -441,6 +519,12 @@ fn load_skill_file(
             .unwrap_or("")
             .to_string(),
         source: source.to_string(),
+        display_source: if source == SOURCE_USER {
+            "user"
+        } else {
+            "system"
+        }
+        .to_string(),
         path: path.to_string_lossy().to_string(),
         when_to_use: metadata
             .get("when-to-use")
@@ -451,6 +535,11 @@ fn load_skill_file(
             .get("version")
             .and_then(serde_yaml::Value::as_str)
             .map(str::to_string),
+        kind,
+        runtime,
+        entry,
+        python_packages,
+        content_hash,
         enabled,
         status: status.to_string(),
         conflict_with: None,
@@ -489,13 +578,19 @@ fn metadata_value<'a>(
 }
 
 fn string_list_field(mapping: Option<&serde_yaml::Mapping>, key: &str) -> Vec<String> {
+    string_list_field_candidates(mapping, &[key])
+}
+
+fn string_list_field_candidates(
+    mapping: Option<&serde_yaml::Mapping>,
+    keys: &[&str],
+) -> Vec<String> {
     let Some(mapping) = mapping else {
         return Vec::new();
     };
     string_list_from_candidates(
-        [mapping.get(serde_yaml::Value::String(key.to_string()))]
-            .into_iter()
-            .flatten(),
+        keys.iter()
+            .filter_map(|key| mapping.get(serde_yaml::Value::String((*key).to_string()))),
     )
 }
 
@@ -581,6 +676,69 @@ fn matching_vendor_root<'a>(config: &'a AppConfig, bin: &str) -> Option<&'a Path
         "ntn" => config.sandbox.notion_cli_install_root.as_deref(),
         _ => None,
     }
+}
+
+fn normalized_kind(value: &str) -> String {
+    let normalized = value.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "" => "text".to_string(),
+        "python" => "executable".to_string(),
+        _ => normalized,
+    }
+}
+
+fn content_hash_for_skill(path: &Path, entry: Option<&str>) -> String {
+    let mut hasher = Sha256::new();
+    hash_file_if_readable(&mut hasher, "SKILL.md", path);
+    if let Some(entry) = entry.filter(|entry| safe_relative_path(entry)) {
+        if let Some(parent) = path.parent() {
+            let entry_path = parent.join(entry);
+            if entry_path != path {
+                hash_file_if_readable(&mut hasher, entry, &entry_path);
+            }
+        }
+    }
+    format!("sha256:{}", hex_digest(hasher.finalize().as_slice()))
+}
+
+fn hash_file_if_readable(hasher: &mut Sha256, label: &str, path: &Path) {
+    hasher.update(label.as_bytes());
+    hasher.update(b"\0");
+    if let Ok(bytes) = std::fs::read(path) {
+        hasher.update(bytes);
+    }
+    hasher.update(b"\0");
+}
+
+fn safe_relative_path(value: &str) -> bool {
+    let path = Path::new(value);
+    !path.is_absolute()
+        && path
+            .components()
+            .all(|component| matches!(component, Component::Normal(_)))
+}
+
+fn python_execute_command(entry: &SkillManifestEntry) -> String {
+    let mut command = String::from("ripple-py python");
+    for package in &entry.python_packages {
+        command.push_str(" --with ");
+        command.push_str(package);
+    }
+    command.push_str(" -- ");
+    if let Some(skill_entry) = &entry.entry {
+        command.push_str(skill_entry);
+    }
+    command
+}
+
+fn hex_digest(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        output.push(HEX[(byte >> 4) as usize] as char);
+        output.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    output
 }
 
 #[cfg(test)]
@@ -777,6 +935,54 @@ risk:
             render_all_skill_manifest_with_options(&config, None, &SkillManifestOptions::default());
         assert!(rendered.contains("ripple:gmail"));
         assert!(rendered.contains("status: missing_requirements"));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn manifest_records_python_executable_metadata_and_content_hash() {
+        let root = std::env::temp_dir().join(format!("ripple-skills-test-{}", Uuid::new_v4()));
+        let workspace = root.join("workspace");
+        let skill = workspace.join("skills/py-demo/SKILL.md");
+        let script = workspace.join("skills/py-demo/scripts/run.py");
+        write_skill(
+            &skill,
+            r#"name: py-demo
+description: Python demo
+metadata:
+  kind: executable
+  runtime: python
+  entry: scripts/run.py
+  requires:
+    python_packages:
+      - pandas==2.2.3
+    connectors:
+      - google_workspace"#,
+        );
+        std::fs::create_dir_all(script.parent().unwrap()).unwrap();
+        std::fs::write(&script, "print('hello')\n").unwrap();
+        let config = test_config(&root, Vec::new());
+
+        let entries = build_skill_manifest(&config, Some(&workspace));
+        let entry = entries
+            .iter()
+            .find(|entry| entry.id == "user:py-demo")
+            .unwrap();
+
+        assert_eq!(entry.display_source, "user");
+        assert_eq!(entry.kind, "executable");
+        assert_eq!(entry.runtime.as_deref(), Some("python"));
+        assert_eq!(entry.entry.as_deref(), Some("scripts/run.py"));
+        assert_eq!(entry.python_packages, vec!["pandas==2.2.3"]);
+        assert!(!entry.content_hash.is_empty());
+
+        let original_hash = entry.content_hash.clone();
+        std::fs::write(&script, "print('changed')\n").unwrap();
+        let changed = build_skill_manifest(&config, Some(&workspace))
+            .into_iter()
+            .find(|entry| entry.id == "user:py-demo")
+            .unwrap();
+        assert_ne!(changed.content_hash, original_hash);
 
         let _ = std::fs::remove_dir_all(root);
     }

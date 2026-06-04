@@ -16,6 +16,7 @@ use time::OffsetDateTime;
 use tokio::time::{sleep, Duration, Instant};
 use uuid::Uuid;
 
+use crate::api::capabilities::catalog_skill_manifest_options_for_user;
 use crate::api::run_public::{sanitize_user_visible_text, sanitize_user_visible_value};
 use crate::api::schedule_chat::{maybe_handle_schedule_chat, ScheduleChatDecision};
 use crate::api::skill_chat::maybe_handle_skill_chat;
@@ -333,6 +334,7 @@ pub async fn chat_completions(
 }
 
 async fn create_codex_chat_run(args: &CodexChatStart) -> Result<AgentRunInfo, ApiError> {
+    let skill_options = catalog_skill_manifest_options_for_user(&args.state, &args.user_id).await?;
     let prompt = build_codex_chat_prompt(
         &args.state,
         &args.user_id,
@@ -340,6 +342,7 @@ async fn create_codex_chat_run(args: &CodexChatStart) -> Result<AgentRunInfo, Ap
         &args.workspace_root,
         args.session.context_folder_path.as_deref(),
         args.folder_context_evidence.as_deref(),
+        &skill_options,
         &args.user_input,
         &args.attachment_items,
         args.caller_system_prompt.as_deref(),
@@ -1547,6 +1550,7 @@ mod tests {
             &workspace_root,
             None,
             None,
+            &crate::skills::SkillManifestOptions::default(),
             "hello",
             &[],
             None,
@@ -1589,6 +1593,7 @@ mod tests {
             &workspace_root,
             Some("/workspace/genius_club"),
             Some("Matches:\n1. /workspace/genius_club/001.txt:1\n   天才俱乐部成员名单"),
+            &crate::skills::SkillManifestOptions::default(),
             "天才俱乐部成员分别是谁？",
             &[],
             None,

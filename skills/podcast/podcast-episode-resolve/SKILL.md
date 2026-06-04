@@ -3,6 +3,8 @@ name: podcast-episode-resolve
 description: 根据用户提供的播客标题，找到最可能对应的 episode URL，供后续 extract / auto-md 流水线使用。只负责找页面，不做正文抽取。
 when-to-use: 用户只给出播客标题（或"帮我找这期播客""这期链接是什么"这类意图），且后续链路需要一个 episode URL 才能继续
 allowed-tools: [WebSearch, Bash]
+metadata:
+  visibility: internal
 ---
 
 # podcast-episode-resolve

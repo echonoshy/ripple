@@ -3,6 +3,8 @@ name: podcast-episode-qa
 description: 基于单期播客内容（文本 / transcript / 局部上下文）回答与本期相关的具体问题。支持从 work_dir 读现成 content.txt / transcript.json。
 when-to-use: 用户问"这期嘉宾是谁""刚才讲了什么""xxx 是什么意思""主持人的结论是什么"这类与单期内容相关的问题
 allowed-tools: [Read]
+metadata:
+  visibility: internal
 ---
 
 # podcast-episode-qa

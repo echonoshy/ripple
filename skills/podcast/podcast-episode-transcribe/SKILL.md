@@ -3,6 +3,8 @@ name: podcast-episode-transcribe
 description: 下载播客音频并执行转写，生成 transcript，作为文本内容不足时的兜底。
 when-to-use: 只有 audio_url / 音频文件，或 content-resolve 判定文本不足，或用户明确要求"把这段播客转成文字"
 allowed-tools: [Bash]
+metadata:
+  visibility: internal
 ---
 
 # podcast-episode-transcribe

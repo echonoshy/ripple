@@ -27,12 +27,10 @@ allowed-tools: [Skill, Bash, Write, Read]
 
 ### Step 0 — 仅当只有标题、没 URL 时：先 resolve
 
-```
-Skill(skill="podcast-episode-resolve", args="{\"title\": \"<title>\"}")
-```
+按相邻内部文档 `../podcast-episode-resolve/SKILL.md` 的搜索与打分规则直接解析标题；它是本 skill 的内部参考，不作为独立对外入口暴露。
 
-- 若 `matched: false`：直接返回候选给用户挑，**不**继续后面步骤
-- 若 `matched: true`：用 `best_match.episode_url` 进入 Step 1
+- 若无法确认匹配：直接返回候选给用户挑，**不**继续后面步骤
+- 若确认匹配：用 `best_match.episode_url` 进入 Step 1
 
 ### Step 1 — 用 pipeline.py 一键抓取
 

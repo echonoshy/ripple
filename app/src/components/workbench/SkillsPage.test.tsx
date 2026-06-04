@@ -88,6 +88,19 @@ function testSkillsPageGroupsBySourceAndConnector() {
 
 testSkillsPageGroupsBySourceAndConnector();
 
+function testSkillsPageUsesPlainGeneralGroupLabels() {
+  const i18n = readFileSync(new URL("../../i18n/index.tsx", import.meta.url), "utf8");
+
+  assert.match(i18n, /groupCustom: "自定义"/);
+  assert.match(i18n, /groupGeneral: "通用"/);
+  assert.match(i18n, /groupCustom: "Custom"/);
+  assert.match(i18n, /groupGeneral: "General"/);
+  assert.doesNotMatch(i18n, /group(?:Custom|General): "[^"]*\//);
+  assert.doesNotMatch(i18n, /groupGeneral: "[^"]*(?:无连接器|no connector)/);
+}
+
+testSkillsPageUsesPlainGeneralGroupLabels();
+
 function testSkillsPageRoutesManagementThroughSessions() {
   const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
 

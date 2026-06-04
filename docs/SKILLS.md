@@ -17,6 +17,7 @@ Ripple skills are Markdown files with YAML frontmatter. They are not part of the
 - Ripple skills are manifest-driven instructions plus local helpers; connector auth, confirmations, and account state stay in the Ripple control plane.
 - The prompt only receives skills that are enabled and whose bin/connector requirements are satisfied. Disabled, pending, conflicting, missing, or connector-blocked skills remain visible through the control-plane catalog but are not advertised to Codex as available skills.
 - Connector-backed skills should declare both the required helper binary and the required connector in frontmatter, for example `requires.bins: ["gog"]` and `requires.connectors: ["google_workspace"]`.
+- Shared helper `SKILL.md` files that are only internal pipeline references can set `metadata.visibility: internal`; Ripple skips them when building the public catalog and Codex-facing manifest.
 - User-created skills support `metadata.kind: text` or `metadata.kind: executable`. First-version user executable skills only support `metadata.runtime: python`.
 - Python executable skills declare `metadata.entry` and optional `metadata.requires.python_packages`. The prompt renders an explicit `/workspace/skills/<name>/...` command using `ripple-py python -- ...`; when packages are present it adds one `--with <package>` per requirement.
 - `content_hash` covers `SKILL.md`, the Python entrypoint when declared, and files under `assets/`, `references/`, and `resources/` next to the skill.

@@ -419,6 +419,9 @@ fn load_skill_file(
     if !is_entry && !metadata.contains_key("name") && !metadata.contains_key("description") {
         return None;
     }
+    if metadata_visibility(&metadata) == "internal" {
+        return None;
+    }
     let name = metadata
         .get("name")
         .and_then(serde_yaml::Value::as_str)
@@ -578,6 +581,15 @@ fn metadata_value<'a>(
             .and_then(serde_yaml::Value::as_mapping)
             .and_then(|metadata| metadata.get(serde_yaml::Value::String(key.to_string())))
     })
+}
+
+fn metadata_visibility(metadata: &BTreeMap<String, serde_yaml::Value>) -> String {
+    metadata_value(metadata, "visibility")
+        .and_then(serde_yaml::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_else(|| "public".to_string())
 }
 
 fn string_list_field(mapping: Option<&serde_yaml::Mapping>, key: &str) -> Vec<String> {
@@ -1215,5 +1227,29 @@ metadata:
         assert!(!rendered.contains("bilibili-shared"));
 
         let _ = std::fs::remove_dir_all(fake_bilibili_root);
+    }
+
+    #[test]
+    fn podcast_shared_skills_expose_only_auto_md() {
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .unwrap()
+            .to_path_buf();
+        let config = test_config(&repo_root, vec!["skills/podcast".to_string()]);
+
+        let entries = build_skill_manifest(&config, None);
+        let names = entries
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(names, vec!["podcast-auto-md"]);
+        let rendered = render_skill_manifest(&config, None);
+        assert!(rendered.contains("ripple:podcast-auto-md"));
+        assert!(!rendered.contains("podcast-episode-extract"));
+        assert!(!rendered.contains("podcast-episode-qa"));
+        assert!(!rendered.contains("podcast-episode-resolve"));
+        assert!(!rendered.contains("podcast-episode-transcribe"));
     }
 }

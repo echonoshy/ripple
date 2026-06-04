@@ -3,6 +3,8 @@ name: podcast-episode-extract
 description: 根据已知的 episode URL，抽取该期播客的结构化元信息（标题、节目名、简介、嘉宾、主播、章节 outline 等）。不负责搜索 URL。流水线模式下由 Bash 直接落盘 meta.json / content.txt，绝不让模型手写 JSON。
 when-to-use: 用户提供了播客单集链接，或上游 skill 已经拿到 episode_url 需要取元信息时
 allowed-tools: [Bash]
+metadata:
+  visibility: internal
 ---
 
 # podcast-episode-extract

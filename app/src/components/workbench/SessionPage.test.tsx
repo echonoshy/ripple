@@ -4,7 +4,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { I18nProvider, type LocalePreference } from "@/i18n";
-import SessionPage from "./SessionPage";
+import SessionPage, { shouldTriggerMobileSessionBackSwipe } from "./SessionPage";
 import type { UsageInfo, WorkbenchSessionSummary } from "@/types";
 
 const sessionPageSource = readFileSync(new URL("./SessionPage.tsx", import.meta.url), "utf8");
@@ -405,6 +405,56 @@ function testSessionPageCanRestorePreviousScrollPosition() {
   assert.match(sessionPageSource, /onRestoreScrollComplete\?\.\(\)/);
 }
 
+function testMobileRightSwipeCanReturnToSessionList() {
+  assert.equal(
+    shouldTriggerMobileSessionBackSwipe({
+      startX: 12,
+      startY: 220,
+      endX: 102,
+      endY: 230,
+      viewportWidth: 390,
+    }),
+    true
+  );
+  assert.equal(
+    shouldTriggerMobileSessionBackSwipe({
+      startX: 12,
+      startY: 220,
+      endX: 102,
+      endY: 315,
+      viewportWidth: 390,
+    }),
+    false
+  );
+  assert.equal(
+    shouldTriggerMobileSessionBackSwipe({
+      startX: 72,
+      startY: 220,
+      endX: 164,
+      endY: 230,
+      viewportWidth: 390,
+    }),
+    false
+  );
+  assert.equal(
+    shouldTriggerMobileSessionBackSwipe({
+      startX: 12,
+      startY: 220,
+      endX: 112,
+      endY: 230,
+      viewportWidth: 1280,
+    }),
+    false
+  );
+}
+
+function testSessionPageWiresMobileSwipeGesture() {
+  assert.match(sessionPageSource, /data-ripple-mobile-chat-swipe/);
+  assert.match(sessionPageSource, /handleMobileChatPointerDown/);
+  assert.match(sessionPageSource, /handleMobileChatPointerUp/);
+  assert.match(sessionPageSource, /onBackToMobileSessions\?\.\(\)/);
+}
+
 testOmitsPlaceholderSessionHeaderControls();
 testMobileHeaderButtonsUseToolbarStyling();
 testSessionPageUsesSharedCompactGlassBackground();
@@ -427,5 +477,7 @@ testUserScrollCancelsSessionSwitchStickyBottom();
 testSessionPageOwnsScrollActivation();
 testExplicitSessionSelectionTriggersStickyBottom();
 testSessionPageCanRestorePreviousScrollPosition();
+testMobileRightSwipeCanReturnToSessionList();
+testSessionPageWiresMobileSwipeGesture();
 
 console.log("session page tests passed");

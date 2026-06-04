@@ -464,7 +464,7 @@ export default function SessionTimeline({
                     aria-label={t("timeline.copyEventContent", { title: displayTitle })}
                     title={t("timeline.copyContent")}
                     onClick={() => void handleCopyEvent(event)}
-                    className="pointer-events-none inline-flex h-7 w-7 items-center justify-center rounded-full border border-[#d7d7dd] bg-white/82 text-[#6e6e73] opacity-0 shadow-[0_6px_14px_rgba(60,60,67,0.06)] transition-all group-focus-within/timeline-event:pointer-events-auto group-focus-within/timeline-event:opacity-100 group-hover/timeline-event:pointer-events-auto group-hover/timeline-event:opacity-100 hover:bg-[#f2f2f7] hover:text-[#007aff] focus:pointer-events-auto focus:opacity-100 active:bg-[#eaf4ff]"
+                    className="pointer-events-auto inline-flex h-7 w-7 items-center justify-center rounded-full border border-[#d7d7dd] bg-white/82 text-[#6e6e73] opacity-100 shadow-[0_6px_14px_rgba(60,60,67,0.06)] transition-all hover:bg-[#f2f2f7] hover:text-[#007aff] focus:pointer-events-auto focus:opacity-100 active:bg-[#eaf4ff] lg:pointer-events-none lg:opacity-0 lg:group-focus-within/timeline-event:pointer-events-auto lg:group-focus-within/timeline-event:opacity-100 lg:group-hover/timeline-event:pointer-events-auto lg:group-hover/timeline-event:opacity-100"
                   >
                     {isCopied ? <CheckCircle2 size={14} /> : <Copy size={14} />}
                   </button>

@@ -123,9 +123,18 @@ function testTimelineEventHeadersAlignIconAndTextRows() {
 function testCopyActionIsHiddenUntilMessageInteraction() {
   const source = readFileSync(new URL("./SessionTimeline.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /group-hover\/timeline-event:opacity-100/);
-  assert.match(source, /group-focus-within\/timeline-event:opacity-100/);
-  assert.match(source, /pointer-events-none[\s\S]*opacity-0/);
+  assert.match(source, /lg:group-hover\/timeline-event:opacity-100/);
+  assert.match(source, /lg:group-focus-within\/timeline-event:opacity-100/);
+  assert.match(source, /lg:pointer-events-none[\s\S]*lg:opacity-0/);
+}
+
+function testCopyActionStaysVisibleOnMobile() {
+  const source = readFileSync(new URL("./SessionTimeline.tsx", import.meta.url), "utf8");
+
+  assert.match(
+    source,
+    /pointer-events-auto[\s\S]*opacity-100[\s\S]*lg:pointer-events-none[\s\S]*lg:opacity-0/
+  );
 }
 
 function testToolEventsDoNotExposeCopyAction() {
@@ -192,6 +201,7 @@ testAssistantMessagesExposeCopyAction();
 testUserAndAssistantIconsUseDifferentTones();
 testTimelineEventHeadersAlignIconAndTextRows();
 testCopyActionIsHiddenUntilMessageInteraction();
+testCopyActionStaysVisibleOnMobile();
 testToolEventsDoNotExposeCopyAction();
 testGeneratingPlaceholderUsesRandomWaitingCopy();
 testChineseGeneratingPlaceholderUsesRandomWaitingCopy();

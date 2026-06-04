@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type DragEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type DragEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import {
   AlertTriangle,
   BrainCircuit,
@@ -44,7 +52,53 @@ import {
 
 const STICK_TO_BOTTOM_MS = 1200;
 const BOTTOM_LOCK_THRESHOLD_PX = 40;
+const MOBILE_CHAT_DESKTOP_MIN_WIDTH_PX = 1024;
+const MOBILE_CHAT_SWIPE_EDGE_PX = 48;
+const MOBILE_CHAT_SWIPE_MIN_DISTANCE_PX = 72;
+const MOBILE_CHAT_SWIPE_MAX_VERTICAL_DISTANCE_PX = 64;
 const mobileHeaderButtonClass = MOBILE_GLASS_ICON_BUTTON_CLASS;
+
+interface MobileChatSwipeIntent {
+  startX: number;
+  startY: number;
+  endX: number;
+  endY: number;
+  viewportWidth: number;
+}
+
+interface MobileChatSwipeStart {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  viewportWidth: number;
+}
+
+export function shouldTriggerMobileSessionBackSwipe({
+  startX,
+  startY,
+  endX,
+  endY,
+  viewportWidth,
+}: MobileChatSwipeIntent): boolean {
+  if (viewportWidth >= MOBILE_CHAT_DESKTOP_MIN_WIDTH_PX) return false;
+  if (startX > MOBILE_CHAT_SWIPE_EDGE_PX) return false;
+
+  const horizontalDistance = endX - startX;
+  const verticalDistance = Math.abs(endY - startY);
+
+  if (horizontalDistance < MOBILE_CHAT_SWIPE_MIN_DISTANCE_PX) return false;
+  if (verticalDistance > MOBILE_CHAT_SWIPE_MAX_VERTICAL_DISTANCE_PX) return false;
+  return horizontalDistance > verticalDistance * 1.25;
+}
+
+function isInteractiveMobileChatSwipeTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  return Boolean(
+    target.closest(
+      "a, button, input, textarea, select, [contenteditable='true'], [role='button'], [data-ripple-ignore-chat-swipe]"
+    )
+  );
+}
 
 function currentTimeMs(): number {
   return typeof performance === "undefined" ? Date.now() : performance.now();
@@ -165,6 +219,7 @@ export default function SessionPage({
   const previousScrollToBottomRequestRef = useRef(scrollToBottomRequest);
   const stickToBottomUntilRef = useRef(0);
   const isGeneratingRef = useRef(isGenerating);
+  const mobileChatSwipeStartRef = useRef<MobileChatSwipeStart | null>(null);
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const hasMessages = messages.length > 0;
   const contextWindow =
@@ -352,11 +407,74 @@ export default function SessionPage({
     [isGenerating, isUploadingFiles, onAddPendingImages, onAttachFiles]
   );
 
+  const handleMobileChatPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (!onBackToMobileSessions) return;
+      if (!event.isPrimary || event.pointerType !== "touch") return;
+      if (typeof window === "undefined") return;
+      if (window.innerWidth >= MOBILE_CHAT_DESKTOP_MIN_WIDTH_PX) return;
+      if (event.clientX > MOBILE_CHAT_SWIPE_EDGE_PX) return;
+      if (isInteractiveMobileChatSwipeTarget(event.target)) return;
+
+      mobileChatSwipeStartRef.current = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        viewportWidth: window.innerWidth,
+      };
+
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId);
+      } catch {
+        // Pointer capture can fail if the browser has already ended the touch.
+      }
+    },
+    [onBackToMobileSessions]
+  );
+
+  const handleMobileChatPointerCancel = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const swipeStart = mobileChatSwipeStartRef.current;
+    if (swipeStart && swipeStart.pointerId === event.pointerId) {
+      mobileChatSwipeStartRef.current = null;
+    }
+  }, []);
+
+  const handleMobileChatPointerUp = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const swipeStart = mobileChatSwipeStartRef.current;
+      if (!swipeStart || swipeStart.pointerId !== event.pointerId) return;
+
+      mobileChatSwipeStartRef.current = null;
+      try {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      } catch {
+        // Matching setPointerCapture may not have succeeded on every platform.
+      }
+
+      if (
+        shouldTriggerMobileSessionBackSwipe({
+          startX: swipeStart.startX,
+          startY: swipeStart.startY,
+          endX: event.clientX,
+          endY: event.clientY,
+          viewportWidth: swipeStart.viewportWidth,
+        })
+      ) {
+        onBackToMobileSessions?.();
+      }
+    },
+    [onBackToMobileSessions]
+  );
+
   return (
     <div
+      data-ripple-mobile-chat-swipe
       onDragOver={handlePageDragOver}
       onDragLeave={handlePageDragLeave}
       onDrop={handlePageDrop}
+      onPointerDown={handleMobileChatPointerDown}
+      onPointerUp={handleMobileChatPointerUp}
+      onPointerCancel={handleMobileChatPointerCancel}
       className={`relative flex h-full min-h-0 flex-col ${COMPACT_IOS_PAGE_BACKGROUND} ${
         isDraggingFiles ? "ring-2 ring-[#007aff] ring-inset" : ""
       }`}

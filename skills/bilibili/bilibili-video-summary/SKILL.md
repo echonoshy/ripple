@@ -1,21 +1,22 @@
 ---
-name: bilibili-auto-md
-description: 用户给一个 B 站视频 URL / BV 号，直接产出一份完整 Markdown：在对话里完整呈现，同时落盘到 /workspace/outputs/bilibili/。内部先调 bilibili-episode-extract 抓字幕 + 官方 AI 总结 + 元数据，再由模型按模板写出 MD。
-when-to-use: 用户发送一个 B 站视频链接/BV 号，希望直接拿到 Markdown 总结；或说"帮我整理 / 总结一下这个视频"。
-allowed-tools: [Skill, Bash, Write, Read]
+name: bilibili-video-summary
+display_name: B 站视频总结
+description: 用户给一个 B 站视频 URL / BV 号，基于已登录 B 站账号抓取元数据、字幕和官方 AI 总结，产出一份完整 Markdown 总结并落盘到 /workspace/outputs/bilibili/。
+when-to-use: 用户发送一个 B 站视频链接/BV 号，希望整理、总结、生成视频笔记或提炼时间轴。
+allowed-tools: [Bash, Write, Read]
 metadata:
   requires:
     bins: ["bilibili"]
     connectors: ["bilibili"]
 ---
 
-# bilibili-auto-md
+# B 站视频总结
 
-> **PREREQUISITE：** 先读 `bilibili-shared/SKILL.md`（URL 解析 + SESSDATA + 目录约定）。
+> 参考：`references/shared.md` 记录 URL/BV 解析、CLI、登录态挂载和目录约定；`references/extraction.md` 记录 `bilibili extract` 的原料格式。
 
 ## 目的
 
-> 用户只发一个 B 站 URL / BV → 你产出一份完整 Markdown → 同时**在对话里展示给用户** + **落盘到指定路径**。
+> 用户只发一个 B 站 URL / BV → 你基于登录态抓取字幕、官方 AI 总结和元数据 → 产出一份完整 Markdown → 同时**在对话里展示给用户** + **落盘到指定路径**。
 
 ## 触发
 
@@ -28,82 +29,28 @@ metadata:
 - 裸 URL：`https://www.bilibili.com/video/BV1xx411c7mD`
 - 裸 BV：`BV1xx411c7mD`
 - 短链：`https://b23.tv/xxxxxx`
-- JSON：`{"url": "...", "sessdata": "...", "output_dir": "..."}`
+- JSON：`{"url": "...", "output_dir": "..."}`
 
-`--allow-unauthenticated` 是内部降级开关，默认不传。**只有**用户明确说过
-「不要登录 / 不用登录 / 别扫码 / 只要元数据 / 直接给我」时，才允许传
-`--allow-unauthenticated`。其它情况下禁止传这个参数。
+不要让用户手贴 Cookie，也不要在命令中传 `--sessdata`。B 站登录态由 Ripple connector 控制面保存，并以只读方式挂载到 CLI 默认读取路径。
 
-## 流程（3 步：确认登录态 → 抓取 → 写 MD）
+## 登录前提
 
-### Step 0 — 一次调用确认登录态（**两段式扫码**，默认先登录，别降级）
+- 本 skill 要求 `bilibili` connector 已连接；未连接时通常不会出现在 Available Skills。
+- 不要运行 `bilibili auth start/poll/status/logout`。二维码登录、状态轮询、断开连接都属于 Ripple server control plane。
+- 如果执行中发现登录态缺失或过期，不要降级写半成品 Markdown；停止当前产出，并让 Ripple 重新发起 Bilibili connector 授权。
 
-直接运行 `bilibili auth start --json`——它**自带状态检查**，不需要先跑
-`auth status` 预热一次（那是白烧一个 round-trip）。根据返回 JSON 的
-`stage` / `data.bound` 字段分两支处理：
+如果需要触发重新授权，回复内容只包含下面的内部控制面请求，不要追加其它文字：
 
-- `data.bound=true` 或 `stage="authorized"` → 凭证已绑定且未过期。可顺便看 `expires_at`：≤ 7 天时礼貌提
-  醒一句"登录还有 N 天到期，要不要顺便续一下"，然后**直接进 Step 1**。
+```text
+<ripple_connector_auth_request>{"connector":"bilibili","force_reauth":false,"reason":"needs Bilibili login to fetch subtitles and official AI summary"}</ripple_connector_auth_request>
+```
 
-- `stage="awaiting_user"` → CLI 已返回新二维码，走两段式扫码：
+## 流程（2 步：抓取 → 写 MD）
 
-  **Turn A（当前这个 turn）**：从 `data` 里拿到 `qrcode_key`、`qrcode_image_url`、
-  `qrcode_content`、`app_url` 后，回复里**只输出**下面这个授权块和一句指引：
-
-  ```text
-  [BILIBILI_AUTH]
-  B 站扫码登录
-
-  <qrcode_image_url>
-
-  <qrcode_content>
-
-  <app_url>
-
-  扫码或点链接确认后，回到这里发送「好了」。
-  ```
-
-  然后**结束本 turn**——**不要**在本 turn 内运行 `bilibili auth poll`；**不要**在
-  本 turn 内抢跑 Step 1（抢了也会被扫码闸门挡回）。
-
-  ⚠️ **绝对禁止**在回复里贴 ASCII / Unicode 方块二维码。前端会把
-  `[BILIBILI_AUTH]` 授权块渲染成二维码卡片。
-
-  **Turn B（用户回「好了/ok/扫好了」之后的下一 turn）**：运行
-  `bilibili auth poll --qrcode-key "<qrcode_key>" --max-wait 30 --json`：
-    - `stage="authorized"` → 凭证已落盘，继续 Step 1。
-    - `stage="pending"` + `data.last_state: "scanned"` → 用户扫了但没点确认登录。回复
-      「扫到了，但你还要在 B 站 App 里点一下『确认登录』。点完回我一句我重试。」
-      然后**结束本 turn**，等用户回话再 poll 一次。
-    - `stage="pending"` + `data.last_state: "waiting_scan"` → 用户还没扫。回复「好像
-      还没收到扫码——二维码还在那条链接里，麻烦扫一下，扫完回我。」然后**结束
-      本 turn**，等用户回话再 poll 一次。
-    - `stage="expired"` → 二维码超时；问用户「要不要重新来」，同意再 `bilibili auth start --json`。
-    - `stage="timeout"` → 同上。
-
-  若用户中途说「算了/不登录了/取消」：运行 `bilibili auth logout --json` 释放本地状态，然后按用户
-  意图继续（或走下面的降级路径）。
-
-  - **禁止自作主张降级**：没登录就产出一份带 `⚠️ 未登录` 警告的残疾 MD 是糟糕
-    UX，属于违规；用户问「总结一下 XXX」默认是"要质量好的总结"，不是"任何半成品都行"。
-  - **降级的唯一触发条件**：用户在对话里**明确说过**"不要登录 / 不用登录 / 别扫码 /
-    直接给我 / 只要元数据 / 就用标题简介" 之类的字样。否则一律走扫码。
-  - 只有走降级路径时，Step 1 才允许加入 `--allow-unauthenticated`；默认路径禁止加入。
-
-Step 1 跑完如果 `subtitle.status` 或 `ai_summary.status` 出现
-`need_sessdata` / 疑似鉴权失败，再运行一次 `bilibili auth status --verify --json` 确认
-是不是 SESSDATA 失效了；失效就重新扫码再重跑 `prepare-md`。
-
-### Step 1 — 用 `bilibili prepare-md` 一键抓取 + 算出 output_path
+### Step 1 — 用 `bilibili prepare-md` 抓取原料 + 算出 output_path
 
 ```bash
 bilibili prepare-md --url "<url 或 BV>" --json
-```
-
-若用户已经明确拒绝登录，才可以这样降级运行：
-
-```bash
-bilibili prepare-md --url "<url 或 BV>" --allow-unauthenticated --json
 ```
 
 输出一行 JSON，关键字段：
@@ -118,7 +65,7 @@ bilibili prepare-md --url "<url 或 BV>" --allow-unauthenticated --json
 | `has_view_points` + `view_points_count` | 是否有 UP 主打的原生章节 |
 
 如果输出**顶层**有 `error` 字段（找不到 BV / extract 子进程崩、或
-`auth_required=true` 等阻断），直接把错误告诉用户或继续扫码流程，**不**继续写
+`auth_required=true` 等阻断），直接把错误告诉用户或触发 Ripple connector auth，**不**继续写
 MD，**不**调用 `Write`，也**不要**自己构造 `/workspace/outputs/bilibili/*.md`
 路径。注意：`subtitle.status = "error"` 或 `ai_summary.status = "error"` 是
 **字段级**错误，**不**算这里说的"顶层 error"——按下面"失败回退"表静默处理即可，
@@ -141,7 +88,7 @@ MD，**不**调用 `Write`，也**不要**自己构造 `/workspace/outputs/bilib
 > 这两份不是"两份产出"，是**同一个字符串的两处引用**。装饰化改写 = 违规。
 > 如果你忍不住想"给用户看的版本稍微漂亮一点"——忍住。用户会打开文件的，和你给他看的不一样会让他困惑到底哪个是真的。
 
-### Step 3 — 末尾用一行说明确认
+### 收尾 — 末尾用一行说明确认
 
 `已生成: <output_path>（约 N 字、M 个章节）`
 
@@ -177,7 +124,7 @@ MD，**不**调用 `Write`，也**不要**自己构造 `/workspace/outputs/bilib
     直接使用 summary（官方 AI 总结），可略做语句打磨，不得新增节目外信息
   否则若 subtitle.status=="ok"：
     基于 content.txt 由模型写 1~2 段、≤ 300 字的中等长度摘要
-  否则（双方都不是 ok，含 empty / error / need_sessdata 任何组合）：
+  否则（双方都不是 ok，且不属于双方同时 need_sessdata 的授权阻断场景）：
     "_暂无字幕和 AI 总结，只能基于标题/简介概述：…_"（≤ 100 字，明确标注信息不全）。
     **不要**写"接口被风控 / 抓取失败"之类的技术细节
 }}
@@ -228,7 +175,7 @@ MD，**不**调用 `Write`，也**不要**自己构造 `/workspace/outputs/bilib
 
 ---
 
-<sub>由 bilibili-auto-md 自动整理。原料：`{{work_dir}}`。</sub>
+<sub>由 B 站视频总结自动整理。原料：`{{work_dir}}`。</sub>
 ```
 
 ### 内容硬规则
@@ -238,9 +185,7 @@ MD，**不**调用 `Write`，也**不要**自己构造 `/workspace/outputs/bilib
 - 时间戳格式统一 `HH:MM:SS`（含 0 前缀）；`< 1 小时` 也写成 `00:MM:SS` 方便对齐，或统一写 `MM:SS`——整篇保持一致
 - 播放 / 点赞 / 收藏数据用人类可读格式：`10000 → 1.0 万`，`100000000 → 1.0 亿`
 - 如果 `ai_summary.status == "need_sessdata"` **且** `subtitle.status == "need_sessdata"`：
-  **这种情况只能出现在用户明确拒绝登录的降级路径下**（Step 0 的默认路径会先完成
-  扫码登录，此分支不该被触发）。在"摘要"一节**顶部**加一行：
-  > `> ⚠️ 用户选择不登录 B 站，字幕和官方 AI 总结未获取。本 MD 只基于视频基础元数据；随时可以说「登录一下」重跑拿完整内容。`
+  说明登录态缺失或过期。不要写 Markdown，改为触发 Ripple Bilibili connector 授权。
 - Markdown 不超过 3 级标题
 - 不要在 md 里出现调试信息 / `<details>` / "由模型生成" 字样
 
@@ -263,12 +208,11 @@ MD，**不**调用 `Write`，也**不要**自己构造 `/workspace/outputs/bilib
 | 场景 | 行为 |
 |---|---|
 | `prepare-md` **顶层**返回 `error`（找不到 BV / 进程异常 / extract 子进程崩）| 把 `error.message` 告诉用户，**不**产出 MD（这种是真的没法继续） |
-| `prepare-md` 返回 `auth_required=true` | **不写 MD，不调用 Write**。发起或继续 `bilibili auth start/poll` 扫码流程；只有用户明确拒绝登录后，才可重跑并传 `--allow-unauthenticated` |
-| `subtitle.status = need_sessdata` 且 `ai_summary.status = need_sessdata` | 凭证真的失效了。**先不写 MD**，运行 `bilibili auth status --verify --json` 确认后走扫码流程（Step 0），绑定成功再重跑 `prepare-md` |
+| `prepare-md` 返回 `auth_required=true` | **不写 MD，不调用 Write**。回复内部 `<ripple_connector_auth_request>`，让 Ripple server 发起 Bilibili 授权 |
+| `subtitle.status = need_sessdata` 且 `ai_summary.status = need_sessdata` | 凭证缺失或失效。**先不写 MD**，回复内部 `<ripple_connector_auth_request>`，授权完成后重跑 `prepare-md` |
 | **仅** `subtitle.status = need_sessdata`，`ai_summary` 正常 | 通常意味着 UP 主没开字幕（B 站返回 -101 也有这种歧义）。正常产出，"字幕节选"章节写 `_（本期未提供字幕）_` 即可，**不要**为此重登 |
 | `subtitle.status = error`（**任何原因**：风控 / WBI / 网络 / 字幕文件下载失败） | **静默**按"无字幕"处理 —— 模板里"字幕节选" / "要点"分支按 `empty` 走（写 `_（本期未提供字幕）_`），**不**在 MD 任何位置写错误码、不加 `⚠️`、不告诉用户「被风控了 / 接口失败」。如果同时 AI 总结正常，输出体验对用户来说就是"这视频没字幕"，刚好和"empty"一样 |
 | `ai_summary.status = error`（**任何原因**） | **静默**按"无 AI 总结"处理，等同于 `empty` |
-| `subtitle.status = need_sessdata` 且 `ai_summary.status = need_sessdata`（**用户已明确拒绝登录**） | 仍产出 MD，但顶部加警告行（见上方硬规则）。这一项是"用户主动选择了缺数据"，所以提示是合理的；和 error 的"用户没得选"性质不同，别混淆 |
 | `subtitle.status = ok`、`ai_summary.status = empty`（含真 empty 和静默并入的 error）| 正常产出，摘要改由模型基于字幕写（B 站该视频暂无 AI 总结是常见情况） |
 | `subtitle.status = empty`（含静默并入的 error）、`ai_summary.status = ok` | 正常产出，时间轴/要点基于官方 AI 总结；"字幕节选"相关内容跳过 |
 | `subtitle.status = empty` 且 `ai_summary.status = empty`（含双方静默并入的 error）| 两边都没内容。产出 MD 但"要点"章节写 `_（信息不足以提炼要点，建议直接打开视频查看）_`；**禁止**从 title/desc 硬脑补要点 |
@@ -282,7 +226,6 @@ MD，**不**调用 `Write`，也**不要**自己构造 `/workspace/outputs/bilib
   （一字不差）。**严禁**给对话版加 emoji 标题（📌 📖 🕐 🔑 等）、把列表改成表格、
   给章节小标题加粗、重排章节顺序、添加对话专用的介绍语 / 总结语。**贴给用户的
   版本 = 文件内容**，不是"文件内容 + 装饰"
-- ❌ **不要先跑 `bilibili auth status` 再跑 `bilibili auth start`**——`auth start`
-  自带 bound 检查；多跑一次 status 就是多浪费一个模型 round-trip
+- ❌ 不要运行 `bilibili auth start/poll/status/logout`；B 站授权属于 Ripple server control plane
 - ❌ 不要用正则 / 字符串扣 B 站网页来替代 `bilibili extract/prepare-md`——API 路径已经封装稳了
 - ❌ 不要对无 AI 总结的视频硬编"伪时间轴"——缺就缺，明确标注

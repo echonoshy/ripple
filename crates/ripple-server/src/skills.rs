@@ -830,8 +830,8 @@ fn hex_digest(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
     use crate::config::{
-        AppConfig, CodexConfig, CorsConfig, FeishuConfig, GogcliOAuthConfig, LoggingConfig,
-        SandboxConfig, SecurityConfig, SkillsConfig, UserAuthConfig,
+        AppConfig, CliToolConfig, CodexConfig, CorsConfig, FeishuConfig, GogcliOAuthConfig,
+        LoggingConfig, SandboxConfig, SecurityConfig, SkillsConfig, UserAuthConfig,
     };
     use uuid::Uuid;
 
@@ -1168,5 +1168,52 @@ metadata:
         assert!(!rendered.contains("ripple:gog-gmail"));
 
         let _ = std::fs::remove_dir_all(fake_gog_root);
+    }
+
+    #[test]
+    fn bilibili_shared_skills_expose_only_video_summary() {
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .unwrap()
+            .to_path_buf();
+        let fake_bilibili_root =
+            std::env::temp_dir().join(format!("ripple-bilibili-test-{}", Uuid::new_v4()));
+        let fake_bilibili = fake_bilibili_root.join("current/bin/bilibili");
+        std::fs::create_dir_all(fake_bilibili.parent().unwrap()).unwrap();
+        std::fs::write(&fake_bilibili, "").unwrap();
+        let mut config = test_config(&repo_root, vec!["skills/bilibili".to_string()]);
+        config.sandbox.cli_tools = vec![CliToolConfig {
+            name: "bilibili".to_string(),
+            install_root: fake_bilibili_root.clone(),
+            sandbox_root: PathBuf::from("/opt/bilibili-cli"),
+            bin_dirs: vec![PathBuf::from("current/bin")],
+        }];
+        let mut options = SkillManifestOptions::default();
+        options
+            .connector_statuses
+            .insert("bilibili".to_string(), true);
+
+        let entries = build_skill_manifest_with_options(&config, None, &options);
+        let names = entries
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(names, vec!["bilibili-video-summary"]);
+        let entry = entries.first().expect("Bilibili summary skill");
+        assert_eq!(entry.id, "ripple:bilibili-video-summary");
+        assert_eq!(entry.display_name, "B 站视频总结");
+        assert_eq!(entry.requires_bins, vec!["bilibili"]);
+        assert_eq!(entry.requires_connectors, vec!["bilibili"]);
+        assert!(entry.enabled);
+
+        let rendered = render_skill_manifest_with_options(&config, None, &options);
+        assert!(rendered.contains("ripple:bilibili-video-summary"));
+        assert!(!rendered.contains("bilibili-auto-md"));
+        assert!(!rendered.contains("bilibili-episode-extract"));
+        assert!(!rendered.contains("bilibili-shared"));
+
+        let _ = std::fs::remove_dir_all(fake_bilibili_root);
     }
 }

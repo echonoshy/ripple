@@ -205,6 +205,10 @@ pub fn build_skill_manifest_with_options(
                 skill.conflict_with = Some(format!("{SOURCE_RIPPLE}:{}", skill.name));
             } else if skill.status == STATUS_INVALID {
                 skill.enabled = false;
+            } else if skill.status == STATUS_MISSING_REQUIREMENTS
+                || skill.status == STATUS_BLOCKED_BY_CONNECTOR_AUTH
+            {
+                skill.enabled = false;
             } else if !options.enabled_user_skill_ids.contains(&skill.id) {
                 skill.enabled = false;
                 skill.status = STATUS_PENDING_ENABLE.to_string();
@@ -1130,7 +1134,7 @@ metadata:
 
         assert_eq!(entry.requires_connectors, vec!["feishu"]);
         assert_eq!(entry.blocked_connectors, vec!["feishu"]);
-        assert_eq!(entry.status, "pending_enable");
+        assert_eq!(entry.status, "blocked_by_connector_auth");
 
         options.enabled_user_skill_ids.insert(entry.id.clone());
         options.validated_user_skill_ids.insert(entry.id.clone());

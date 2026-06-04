@@ -900,35 +900,72 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn skill_patch_requires_validation_before_enable() {
+    async fn skill_patch_allows_confirmation_required_skill_after_auto_validation() {
         let state = test_state(vec!["service-key".to_string()]);
-        let workspace = state.sandboxes.ensure_sandbox("skill-user").unwrap();
-        let user_skill = workspace.join("skills/user-demo/SKILL.md");
-        std::fs::create_dir_all(user_skill.parent().unwrap()).unwrap();
-        std::fs::write(
-            &user_skill,
-            "---\nname: user-demo\ndescription: User demo\n---\n# User demo\n",
-        )
-        .unwrap();
+        let workspace = state
+            .sandboxes
+            .ensure_sandbox("skill-confirm-user")
+            .unwrap();
 
-        let (status, body) = request_json(
+        let (status, created) = request_json(
             state.clone(),
-            Method::PATCH,
-            "/v1/skills/user:user-demo",
+            Method::POST,
+            "/v1/skills",
             "service-key",
-            Some("skill-user"),
+            Some("skill-confirm-user"),
+            Some(json!({
+                "display_name": "Careful Review",
+                "description": "Review work that needs explicit confirmation.",
+                "steps": ["Inspect the request", "Ask before risky actions"],
+                "requires_connectors": [],
+                "requires_user_confirmation": true
+            })),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::CREATED);
+        let skill_id = created.get("id").and_then(Value::as_str).expect("skill id");
+        assert_eq!(
+            created.get("desired_state").and_then(Value::as_str),
+            Some("pending_confirmation")
+        );
+        assert_eq!(
+            created.get("user_status").and_then(Value::as_str),
+            Some("needs_confirmation")
+        );
+        assert_eq!(
+            created
+                .pointer("/validation/passed")
+                .and_then(Value::as_bool),
+            Some(true)
+        );
+
+        let rendered_before_enable = crate::skills::render_skill_manifest_with_options(
+            &state.config,
+            Some(&workspace),
+            &crate::api::skills::skill_manifest_options_for_user(&state, "skill-confirm-user")
+                .unwrap(),
+        );
+        assert!(!rendered_before_enable.contains(skill_id));
+
+        let (status, enabled) = request_json(
+            state,
+            Method::PATCH,
+            &format!("/v1/skills/{skill_id}"),
+            "service-key",
+            Some("skill-confirm-user"),
             Some(json!({"enabled": true})),
         )
         .await;
 
-        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(status, StatusCode::OK);
         assert_eq!(
-            body.pointer("/error/code").and_then(Value::as_str),
-            Some("validation_required")
+            enabled.get("desired_state").and_then(Value::as_str),
+            Some("enabled")
         );
         assert_eq!(
-            body.pointer("/error/message").and_then(Value::as_str),
-            Some("Validate this skill before enabling it.")
+            enabled.get("user_status").and_then(Value::as_str),
+            Some("available")
         );
     }
 
@@ -981,8 +1018,8 @@ mod tests {
         assert!(skills.iter().any(|entry| {
             entry.get("id").and_then(Value::as_str) == Some("user:user-demo")
                 && entry.get("read_only").and_then(Value::as_bool) == Some(false)
-                && entry.get("desired_state").and_then(Value::as_str) == Some("pending_enable")
-                && entry.get("user_status").and_then(Value::as_str) == Some("not_enabled")
+                && entry.get("desired_state").and_then(Value::as_str) == Some("draft")
+                && entry.get("user_status").and_then(Value::as_str) == Some("needs_fix")
         }));
         assert!(!skills.iter().any(|entry| {
             entry.get("type").and_then(Value::as_str) == Some("runtime_capability")
@@ -1124,25 +1161,18 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::CREATED);
-        let skill_id = created.get("id").and_then(Value::as_str).expect("skill id");
-
-        let (status, validation) = request_json(
-            state,
-            Method::POST,
-            &format!("/v1/skills/{skill_id}/validate"),
-            "service-key",
-            Some("skill-google-validation-user"),
-            None,
-        )
-        .await;
-
-        assert_eq!(status, StatusCode::OK);
         assert_eq!(
-            validation.get("passed").and_then(Value::as_bool),
+            created
+                .pointer("/validation/passed")
+                .and_then(Value::as_bool),
             Some(false)
         );
-        assert!(validation
-            .get("checks")
+        assert_eq!(
+            created.get("user_status").and_then(Value::as_str),
+            Some("needs_connection")
+        );
+        assert!(created
+            .pointer("/validation/checks")
             .and_then(Value::as_array)
             .unwrap()
             .iter()
@@ -1187,50 +1217,21 @@ mod tests {
         assert!(skill_id.starts_with("user:"));
         assert_eq!(
             created.get("desired_state").and_then(Value::as_str),
-            Some("draft")
+            Some("enabled")
         );
         assert_eq!(
             created.get("user_status").and_then(Value::as_str),
-            Some("not_enabled")
+            Some("available")
         );
-        assert!(workspace
-            .join("skills/project-weekly-review/SKILL.md")
-            .is_file());
-
-        let (status, body) = request_json(
-            state.clone(),
-            Method::PATCH,
-            &format!("/v1/skills/{skill_id}"),
-            "service-key",
-            Some("skill-crud-user"),
-            Some(json!({"enabled": true})),
-        )
-        .await;
-
-        assert_eq!(status, StatusCode::CONFLICT);
         assert_eq!(
-            body.pointer("/error/code").and_then(Value::as_str),
-            Some("validation_required")
-        );
-
-        let (status, validation) = request_json(
-            state.clone(),
-            Method::POST,
-            &format!("/v1/skills/{skill_id}/validate"),
-            "service-key",
-            Some("skill-crud-user"),
-            None,
-        )
-        .await;
-
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(
-            validation.get("passed").and_then(Value::as_bool),
+            created
+                .pointer("/validation/passed")
+                .and_then(Value::as_bool),
             Some(true)
         );
         assert_eq!(
-            validation
-                .get("checks")
+            created
+                .pointer("/validation/checks")
                 .and_then(Value::as_array)
                 .unwrap()
                 .iter()
@@ -1238,26 +1239,9 @@ mod tests {
                 .count(),
             5
         );
-
-        let (status, enabled) = request_json(
-            state.clone(),
-            Method::PATCH,
-            &format!("/v1/skills/{skill_id}"),
-            "service-key",
-            Some("skill-crud-user"),
-            Some(json!({"enabled": true})),
-        )
-        .await;
-
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(
-            enabled.get("desired_state").and_then(Value::as_str),
-            Some("enabled")
-        );
-        assert_eq!(
-            enabled.get("user_status").and_then(Value::as_str),
-            Some("available")
-        );
+        assert!(workspace
+            .join("skills/project-weekly-review/SKILL.md")
+            .is_file());
 
         let rendered = crate::skills::render_skill_manifest_with_options(
             &state.config,
@@ -1402,45 +1386,27 @@ mod tests {
         assert!(workspace
             .join("skills/python-report/scripts/run.py")
             .is_file());
-
-        let (status, validation) = request_json(
-            state.clone(),
-            Method::POST,
-            &format!("/v1/skills/{skill_id}/validate"),
-            "service-key",
-            Some("python-skill-user"),
-            None,
-        )
-        .await;
-
-        assert_eq!(status, StatusCode::OK);
         assert_eq!(
-            validation.get("passed").and_then(Value::as_bool),
-            Some(true)
+            created.get("desired_state").and_then(Value::as_str),
+            Some("enabled")
         );
-        let validated_hash = validation
-            .get("content_hash")
-            .and_then(Value::as_str)
-            .expect("validation hash")
-            .to_string();
-
-        let (status, enabled) = request_json(
-            state.clone(),
-            Method::PATCH,
-            &format!("/v1/skills/{skill_id}"),
-            "service-key",
-            Some("python-skill-user"),
-            Some(json!({"enabled": true})),
-        )
-        .await;
-
-        assert_eq!(status, StatusCode::OK);
         assert_eq!(
-            enabled.get("user_status").and_then(Value::as_str),
+            created.get("user_status").and_then(Value::as_str),
             Some("available")
         );
         assert_eq!(
-            enabled.get("content_hash").and_then(Value::as_str),
+            created
+                .pointer("/validation/passed")
+                .and_then(Value::as_bool),
+            Some(true)
+        );
+        let validated_hash = created
+            .pointer("/validation/content_hash")
+            .and_then(Value::as_str)
+            .expect("validation hash")
+            .to_string();
+        assert_eq!(
+            created.get("content_hash").and_then(Value::as_str),
             Some(validated_hash.as_str())
         );
 
@@ -1464,7 +1430,54 @@ mod tests {
             &crate::api::skills::skill_manifest_options_for_user(&state, "python-skill-user")
                 .unwrap(),
         );
-        assert!(!rendered_after_change.contains(&skill_id));
+        assert!(rendered_after_change.contains(&skill_id));
+
+        let (status, refreshed) = request_json(
+            state.clone(),
+            Method::GET,
+            &format!("/v1/skills/{skill_id}"),
+            "service-key",
+            Some("python-skill-user"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            refreshed.get("user_status").and_then(Value::as_str),
+            Some("available")
+        );
+        assert_ne!(
+            refreshed.pointer("/validation/content_hash"),
+            created.pointer("/validation/content_hash")
+        );
+
+        let (status, disabled) = request_json(
+            state.clone(),
+            Method::PATCH,
+            &format!("/v1/skills/{skill_id}"),
+            "service-key",
+            Some("python-skill-user"),
+            Some(json!({"enabled": false})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            disabled.get("desired_state").and_then(Value::as_str),
+            Some("disabled")
+        );
+
+        std::fs::write(
+            workspace.join("skills/python-report/scripts/run.py"),
+            "print('changed while disabled')\n",
+        )
+        .unwrap();
+        let rendered_after_disabled_change = crate::skills::render_skill_manifest_with_options(
+            &state.config,
+            Some(&workspace),
+            &crate::api::skills::skill_manifest_options_for_user(&state, "python-skill-user")
+                .unwrap(),
+        );
+        assert!(!rendered_after_disabled_change.contains(&skill_id));
     }
 
     #[tokio::test]
@@ -1584,7 +1597,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn chat_can_create_skill_draft_without_enabling_or_starting_codex() {
+    async fn chat_can_create_available_skill_without_starting_codex() {
         let state = test_state(vec!["service-key".to_string()]);
         let workspace = state.sandboxes.ensure_sandbox("skill-chat-user").unwrap();
 
@@ -1613,12 +1626,17 @@ mod tests {
         assert_eq!(
             body.pointer("/event/skill/desired_state")
                 .and_then(Value::as_str),
-            Some("draft")
+            Some("enabled")
         );
         assert_eq!(
             body.pointer("/event/skill/user_status")
                 .and_then(Value::as_str),
-            Some("not_enabled")
+            Some("available")
+        );
+        assert_eq!(
+            body.pointer("/event/skill/validation/passed")
+                .and_then(Value::as_bool),
+            Some(true)
         );
         assert!(workspace
             .join("skills/saved-conversation-skill/SKILL.md")

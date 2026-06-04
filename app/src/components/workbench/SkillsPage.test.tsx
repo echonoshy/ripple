@@ -116,15 +116,45 @@ testSkillsPageRoutesManagementThroughSessions();
 
 function testSkillsPageCreateSkillStartsFreshSession() {
   const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
+  const i18n = readFileSync(new URL("../../i18n/index.tsx", import.meta.url), "utf8");
 
   assert.match(source, /newSession: true/);
   assert.match(
     source,
     /onOpenChat\?\.\(t\("skills\.createChatPrompt"\), \{ autoSend: true, newSession: true \}\)/
   );
+  assert.match(i18n, /automatically checked/);
+  assert.match(i18n, /自动检查/);
 }
 
 testSkillsPageCreateSkillStartsFreshSession();
+
+function testSkillsPageEditSkillOpensScopedChatPrompt() {
+  const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
+  const i18n = readFileSync(new URL("../../i18n/index.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /openEditSkillChat/);
+  assert.match(source, /skill\.can_edit/);
+  assert.match(source, /skills\.editChatPrompt/);
+  assert.match(source, /id: skill\.id/);
+  assert.match(source, /path: skill\.path/);
+  assert.doesNotMatch(source, /type="button"\n\s+disabled\n\s+className=\{`\$\{SKILL_ACTION_BUTTON_CLASS\} text/);
+  assert.match(i18n, /only modify files inside that skill directory/);
+  assert.match(i18n, /只修改这个 skill 目录/);
+}
+
+testSkillsPageEditSkillOpensScopedChatPrompt();
+
+function testSkillsPageSupportsNeedsConfirmationStatus() {
+  const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
+  const i18n = readFileSync(new URL("../../i18n/index.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /needs_confirmation/);
+  assert.match(i18n, /needsConfirmation: "需要确认"/);
+  assert.match(i18n, /needsConfirmation: "Needs confirmation"/);
+}
+
+testSkillsPageSupportsNeedsConfirmationStatus();
 
 function testSkillsPageUsesValidationLanguageInsteadOfTestLanguage() {
   const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");

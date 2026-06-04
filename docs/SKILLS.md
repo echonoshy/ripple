@@ -31,12 +31,12 @@ Ripple skills are Markdown files with YAML frontmatter. They are not part of the
 ## User Skill Management
 
 - `GET /v1/skills` returns a user-facing skill list and omits runtime capabilities.
-- `POST /v1/skills` creates a user skill draft under the current user workspace `skills/` directory.
-- `PATCH /v1/skills/{skill_id}` edits, enables, or disables user skills. Ripple shared skills are read-only.
+- `POST /v1/skills` creates a user skill under the current user workspace `skills/` directory, validates it immediately, and auto-enables it when checks pass and no risky confirmation is required.
+- `PATCH /v1/skills/{skill_id}` edits, enables, or disables user skills. Content edits trigger immediate re-validation; Ripple shared skills are read-only.
 - `DELETE /v1/skills/{skill_id}` archives a user skill after explicit confirmation; archived skills no longer participate in manifest rendering.
-- `POST /v1/skills/{skill_id}/validate` records format, safety, current dependency availability, Python runtime, and content-hash checks. It does not run user scripts or install packages. New or edited user skills must validate before they can be enabled.
+- `POST /v1/skills/{skill_id}/validate` records format, safety, current dependency availability, Python runtime, and content-hash checks. It does not run user scripts or install packages. Safe user skills enter the Codex prompt automatically when validation passes; skills with explicit confirmation/risk flags require the user to enable them.
 - Connector names are stored canonically. `lark` is accepted as a compatibility alias and normalized to `feishu`.
-- Chat-side “save this as a skill” requests create draft user skills only. They are not auto-enabled and do not enter the Codex prompt until validation passes and the user enables them.
+- Chat-side “save this as a skill” requests create user skills and run the same automatic validation/activation flow.
 
 ## Namespaces
 

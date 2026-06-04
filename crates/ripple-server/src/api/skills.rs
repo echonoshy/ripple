@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
 
 use axum::extract::{Path as AxumPath, State};
@@ -11,6 +12,7 @@ use uuid::Uuid;
 
 use crate::api::capabilities::{
     catalog_skill_manifest_options_for_user as capability_catalog_skill_manifest_options_for_user,
+    lightweight_connector_statuses,
     skill_manifest_options_for_user as capability_skill_manifest_options_for_user,
 };
 use crate::api::{require_confirm, ApiError};
@@ -108,6 +110,7 @@ pub async fn get_skill(
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     state.sandboxes.ensure_sandbox(&user_id)?;
+    reconcile_user_skills_lightweight(&state, &user_id)?;
     let settings = read_settings(&state, &user_id)?;
     let skill = find_catalog_skill(&state, &user_id, &skill_id).await?;
     Ok(Json(skill_info(&skill, &settings)))
@@ -134,10 +137,15 @@ pub async fn create_skill(
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     state.sandboxes.ensure_sandbox(&user_id)?;
-    Ok((
-        StatusCode::CREATED,
-        Json(create_user_skill_draft(&state, &user_id, input, false)?),
-    ))
+    let created = create_user_skill_draft(&state, &user_id, input, false)?;
+    let skill_id = created
+        .get("id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ApiError::bad_request("created skill id missing"))?
+        .to_string();
+    let skill = find_catalog_skill(&state, &user_id, &skill_id).await?;
+    let settings = read_settings(&state, &user_id)?;
+    Ok((StatusCode::CREATED, Json(skill_info(&skill, &settings))))
 }
 
 #[utoipa::path(
@@ -211,19 +219,25 @@ pub async fn update_skill(
             .records
             .entry(skill_id.clone())
             .or_insert_with(UserSkillRecord::default);
-        record.desired_state = "draft".to_string();
+        if record.desired_state != "disabled" && record.desired_state != "archived" {
+            record.desired_state = "draft".to_string();
+        }
         record.validation = None;
         record.updated_at = Some(now_iso());
         record.last_tested_at = None;
         settings.enabled_skill_ids.remove(&skill_id);
+        let connector_statuses = lightweight_connector_statuses(&state, &user_id)?;
+        reconcile_user_skill_settings(&state, &user_id, &mut settings, connector_statuses)?;
+    }
+
+    if has_content_update {
+        write_settings(&state, &user_id, &settings)?;
+        settings = read_settings(&state, &user_id)?;
     }
 
     if let Some(enabled) = input.enabled {
         let current_skill = find_catalog_skill(&state, &user_id, &skill_id).await?;
-        let record = settings
-            .records
-            .entry(skill_id.clone())
-            .or_insert_with(UserSkillRecord::default);
+        settings = read_settings(&state, &user_id)?;
         if enabled {
             if current_skill.status == "invalid"
                 || current_skill.status == "conflict_disabled"
@@ -239,12 +253,13 @@ pub async fn update_skill(
                     }),
                 ));
             }
-            if !record
-                .validation
-                .as_ref()
+            let validation_current = settings
+                .records
+                .get(&skill_id)
+                .and_then(|record| record.validation.as_ref())
                 .map(|validation| validation_matches_skill(validation, &current_skill))
-                .unwrap_or_else(|| settings.enabled_skill_ids.contains(&skill_id))
-            {
+                .unwrap_or_else(|| settings.enabled_skill_ids.contains(&skill_id));
+            if !validation_current {
                 return Err(ApiError::new(
                     StatusCode::CONFLICT,
                     json!({
@@ -253,12 +268,24 @@ pub async fn update_skill(
                     }),
                 ));
             }
+            let record = settings
+                .records
+                .entry(skill_id.clone())
+                .or_insert_with(UserSkillRecord::default);
             record.desired_state = "enabled".to_string();
             settings.enabled_skill_ids.insert(skill_id.clone());
         } else {
+            let record = settings
+                .records
+                .entry(skill_id.clone())
+                .or_insert_with(UserSkillRecord::default);
             record.desired_state = "disabled".to_string();
             settings.enabled_skill_ids.remove(&skill_id);
         }
+        let record = settings
+            .records
+            .entry(skill_id.clone())
+            .or_insert_with(UserSkillRecord::default);
         record.updated_at = Some(now_iso());
     }
 
@@ -268,6 +295,7 @@ pub async fn update_skill(
 
     write_settings(&state, &user_id, &settings)?;
     let updated = find_catalog_skill(&state, &user_id, &skill_id).await?;
+    let settings = read_settings(&state, &user_id)?;
     Ok(Json(skill_info(&updated, &settings)))
 }
 
@@ -340,13 +368,18 @@ pub async fn validate_skill(
     ensure_user_skill(&skill)?;
     let validation = validate_user_skill(&state.config, &skill)?;
     let mut settings = read_settings(&state, &user_id)?;
-    let record = settings
-        .records
-        .entry(skill_id)
-        .or_insert_with(UserSkillRecord::default);
-    record.validation = Some(validation.clone());
-    record.updated_at = Some(now_iso());
-    record.last_tested_at = validation.validated_at.clone();
+    let mut enabled_skill_ids = std::mem::take(&mut settings.enabled_skill_ids);
+    {
+        let record = settings
+            .records
+            .entry(skill_id.clone())
+            .or_insert_with(UserSkillRecord::default);
+        record.validation = Some(validation.clone());
+        apply_validation_state(record, &skill, &validation, &mut enabled_skill_ids);
+        record.updated_at = Some(now_iso());
+        record.last_tested_at = validation.validated_at.clone();
+    }
+    settings.enabled_skill_ids = enabled_skill_ids;
     write_settings(&state, &user_id, &settings)?;
     Ok(Json(
         serde_json::to_value(validation).map_err(anyhow::Error::from)?,
@@ -422,13 +455,17 @@ pub(crate) fn create_user_skill_draft(
         },
     );
     settings.enabled_skill_ids.remove(&skill_id);
+    let connector_statuses = lightweight_connector_statuses(state, user_id)?;
+    reconcile_user_skill_settings(state, user_id, &mut settings, connector_statuses)?;
     write_settings(state, user_id, &settings)?;
 
     let skill = find_skill(state, user_id, &skill_id)?;
+    let settings = read_settings(state, user_id)?;
     Ok(skill_info(&skill, &settings))
 }
 
 async fn load_skill_infos(state: &AppState, user_id: &str) -> Result<Vec<Value>, ApiError> {
+    reconcile_user_skills_lightweight(state, user_id)?;
     let settings = read_settings(state, user_id)?;
     let workspace = state.sandboxes.workspace_dir(user_id)?;
     let options = skill_manifest_options_for_user(state, user_id)?;
@@ -483,6 +520,110 @@ fn write_settings(
     let settings_file = state.sandboxes.skill_settings_file(user_id)?;
     write_user_skill_settings(&settings_file, settings)?;
     Ok(())
+}
+
+fn reconcile_user_skills_lightweight(
+    state: &AppState,
+    user_id: &str,
+) -> Result<UserSkillSettings, ApiError> {
+    let mut settings = read_settings(state, user_id)?;
+    let connector_statuses = lightweight_connector_statuses(state, user_id)?;
+    if reconcile_user_skill_settings(state, user_id, &mut settings, connector_statuses)? {
+        write_settings(state, user_id, &settings)?;
+    }
+    Ok(settings)
+}
+
+pub(crate) fn reconcile_user_skill_settings(
+    state: &AppState,
+    user_id: &str,
+    settings: &mut UserSkillSettings,
+    connector_statuses: BTreeMap<String, bool>,
+) -> Result<bool, ApiError> {
+    let workspace = state.sandboxes.workspace_dir(user_id)?;
+    let options = SkillManifestOptions {
+        enabled_user_skill_ids: settings.enabled_manifest_skill_ids(),
+        validated_user_skill_ids: settings.validated_manifest_skill_ids(),
+        validated_user_skill_hashes: settings.validated_manifest_skill_hashes(),
+        archived_user_skill_ids: settings.archived_skill_ids(),
+        connector_statuses,
+    };
+    let skills = build_skill_manifest_with_options(&state.config, Some(&workspace), &options);
+    let mut changed = false;
+    for skill in skills.iter().filter(|skill| skill.source == "user") {
+        if settings.archived_skill_ids().contains(&skill.id) {
+            continue;
+        }
+        let needs_validation = {
+            let record = settings
+                .records
+                .entry(skill.id.clone())
+                .or_insert_with(UserSkillRecord::default);
+            if record.desired_state == "archived" || record.desired_state == "disabled" {
+                continue;
+            }
+            skill.status == "blocked_by_connector_auth"
+                || skill.status == "missing_requirements"
+                || !record
+                    .validation
+                    .as_ref()
+                    .map(|validation| validation_matches_skill(validation, skill))
+                    .unwrap_or(false)
+        };
+        if !needs_validation {
+            continue;
+        }
+        let validation = validate_user_skill(&state.config, skill)?;
+        let mut enabled_skill_ids = std::mem::take(&mut settings.enabled_skill_ids);
+        {
+            let record = settings
+                .records
+                .entry(skill.id.clone())
+                .or_insert_with(UserSkillRecord::default);
+            record.validation = Some(validation.clone());
+            apply_validation_state(record, skill, &validation, &mut enabled_skill_ids);
+            record.updated_at = Some(now_iso());
+            record.last_tested_at = validation.validated_at.clone();
+        }
+        settings.enabled_skill_ids = enabled_skill_ids;
+        changed = true;
+    }
+    Ok(changed)
+}
+
+fn apply_validation_state(
+    record: &mut UserSkillRecord,
+    skill: &SkillManifestEntry,
+    validation: &UserSkillValidationResult,
+    enabled_skill_ids: &mut std::collections::BTreeSet<String>,
+) {
+    if record.desired_state == "disabled" || record.desired_state == "archived" {
+        enabled_skill_ids.remove(&skill.id);
+        return;
+    }
+    if !validation.passed {
+        enabled_skill_ids.remove(&skill.id);
+        if record.desired_state == "enabled" || record.desired_state == "pending_confirmation" {
+            record.desired_state = "draft".to_string();
+        }
+        return;
+    }
+    if skill_requires_manual_enable(skill) && record.desired_state != "enabled" {
+        record.desired_state = "pending_confirmation".to_string();
+        enabled_skill_ids.remove(&skill.id);
+        return;
+    }
+    record.desired_state = "enabled".to_string();
+    enabled_skill_ids.insert(skill.id.clone());
+}
+
+fn skill_requires_manual_enable(skill: &SkillManifestEntry) -> bool {
+    if !skill.risk_flags.is_empty() {
+        return true;
+    }
+    std::fs::read_to_string(&skill.path)
+        .map(|text| existing_user_confirmation_required(&text))
+        .unwrap_or(false)
 }
 
 fn skill_info(skill: &SkillManifestEntry, settings: &UserSkillSettings) -> Value {
@@ -551,9 +692,6 @@ fn user_status_for_skill(
     if desired_state == "disabled" || desired_state == "archived" {
         return "disabled".to_string();
     }
-    if desired_state == "draft" || desired_state == "pending_enable" {
-        return "not_enabled".to_string();
-    }
     if skill.status == "blocked_by_connector_auth" {
         return "needs_connection".to_string();
     }
@@ -568,6 +706,12 @@ fn user_status_for_skill(
     {
         return "needs_fix".to_string();
     }
+    if desired_state == "pending_confirmation" {
+        return "needs_confirmation".to_string();
+    }
+    if desired_state == "draft" || desired_state == "pending_enable" {
+        return "not_enabled".to_string();
+    }
     if desired_state == "enabled" && skill.enabled && skill.status == "available" {
         return "available".to_string();
     }
@@ -578,6 +722,7 @@ fn user_status_label(status: &str) -> &'static str {
     match status {
         "available" => "可用",
         "needs_connection" => "需要连接",
+        "needs_confirmation" => "需要确认",
         "needs_fix" => "需要修复",
         "disabled" => "已停用",
         "unavailable" => "暂不可用",

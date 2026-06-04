@@ -169,6 +169,7 @@ export type CapabilityStatus =
 export type SkillUserStatus =
   | "available"
   | "needs_connection"
+  | "needs_confirmation"
   | "needs_fix"
   | "not_enabled"
   | "disabled"

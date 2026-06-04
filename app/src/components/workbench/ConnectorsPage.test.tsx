@@ -34,6 +34,27 @@ function testConnectorsPageHasMobileSpecificCopy() {
 
 testConnectorsPageHasMobileSpecificCopy();
 
+function testConnectorsPageDoesNotRepeatPageTitleAsSectionTitle() {
+  const source = readFileSync(new URL("./ConnectorsPage.tsx", import.meta.url), "utf8");
+
+  assert.doesNotMatch(source, /<h2[^>]*>\{section\.title\}<\/h2>/);
+  assert.match(source, /t\("connectors\.sectionDescription"\)/);
+}
+
+testConnectorsPageDoesNotRepeatPageTitleAsSectionTitle();
+
+function testConnectorsPageUsesUniformStatusPillDots() {
+  const source = readFileSync(new URL("./ConnectorsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /connectorStatusPillDotClass/);
+  assert.doesNotMatch(
+    source,
+    /data-ripple-connector-status-pill[\s\S]{0,320}connectorStatusDotClass\(/
+  );
+}
+
+testConnectorsPageUsesUniformStatusPillDots();
+
 function testConnectorsPageUsesCatalogWithoutSkillManagement() {
   const source = readFileSync(new URL("./ConnectorsPage.tsx", import.meta.url), "utf8");
 

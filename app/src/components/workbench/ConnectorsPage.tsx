@@ -233,6 +233,13 @@ function connectorStatusPillClass(status: ConnectorStatus | null | undefined): s
   return "border-[#dfe6f4] bg-white/76 text-[#667085]";
 }
 
+function connectorStatusPillDotClass(status: ConnectorStatus | null | undefined): string {
+  const tone = connectorStatusTone(status);
+  if (tone === "connected") return "bg-[#34a853]";
+  if (tone === "needs_setup") return "bg-[#bf8700]";
+  return "bg-[#94a3b8]";
+}
+
 function connectorStatusDotClass(
   status: ConnectorStatus | null | undefined,
   logo: ConnectorLogoMeta
@@ -591,8 +598,7 @@ export default function ConnectorsPage({
             <section key={section.kind} className="space-y-1.5">
               <div className="flex items-end justify-between gap-3">
                 <div>
-                  <h2 className={`text-[#111827] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>{section.title}</h2>
-                  <p className={`mt-0.5 text-[#667085] ${TYPOGRAPHY_META_CLASS}`}>
+                  <p className={`text-[#667085] ${TYPOGRAPHY_META_CLASS}`}>
                     {t("connectors.sectionDescription")}
                   </p>
                 </div>
@@ -626,9 +632,8 @@ export default function ConnectorsPage({
                             >
                               <span
                                 aria-hidden="true"
-                                className={`h-1.5 w-1.5 rounded-full ${connectorStatusDotClass(
-                                  status,
-                                  logo
+                                className={`h-1.5 w-1.5 rounded-full ${connectorStatusPillDotClass(
+                                  status
                                 )}`}
                               />
                               <span className="sm:hidden">{mobileStatusLabel(status, t)}</span>

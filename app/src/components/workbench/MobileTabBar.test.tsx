@@ -13,7 +13,7 @@ function noop() {}
 function renderMobileTabBar(locale: LocalePreference = "en-US") {
   return renderToStaticMarkup(
     <I18nProvider initialPreference={locale}>
-      <MobileTabBar activeView="connectors" onSelectView={noop} />
+      <MobileTabBar activeView="skills" onSelectView={noop} />
     </I18nProvider>
   );
 }
@@ -27,12 +27,12 @@ function testUsesShortMobileNavigationLabels() {
   assert.match(html, /aria-label="Open Files"/);
   assert.match(html, />Skills</);
   assert.match(html, /aria-label="Open Skills"/);
-  assert.match(html, />Links</);
-  assert.match(html, /aria-label="Open Links"/);
   assert.match(html, />Autos</);
   assert.match(html, /aria-label="Open Autos"/);
   assert.match(html, />Settings</);
   assert.match(html, /aria-label="Open Settings"/);
+  assert.doesNotMatch(html, />Links</);
+  assert.doesNotMatch(html, /aria-label="Open Links"/);
   assert.doesNotMatch(html, />New</);
   assert.doesNotMatch(html, />Tasks</);
 }
@@ -46,9 +46,9 @@ function testUsesChineseMobileNavigationLabels() {
   assert.match(html, /aria-label="打开会话"/);
   assert.match(html, />文件</);
   assert.match(html, />能力</);
-  assert.match(html, />连接</);
   assert.match(html, />自动化</);
   assert.match(html, />设置</);
+  assert.doesNotMatch(html, />连接</);
 }
 
 testUsesChineseMobileNavigationLabels();
@@ -97,7 +97,7 @@ testUsesQuietSelectedTabTreatment();
 function testEveryMobileTabUsesSoftIconTile() {
   const html = renderMobileTabBar();
 
-  assert.equal((html.match(/data-ripple-icon-tile="true"/g) || []).length, 6);
+  assert.equal((html.match(/data-ripple-icon-tile="true"/g) || []).length, 5);
   assert.match(html, /data-tone="accent"/);
   assert.match(html, /data-tone="neutral"/);
 }

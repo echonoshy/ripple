@@ -27,13 +27,13 @@ function testDesktopProductTabsExcludeSettings() {
   assert.match(html, />Sessions</);
   assert.match(html, />Files</);
   assert.match(html, />Skills</);
-  assert.match(html, />Links</);
   assert.match(html, />Autos</);
   assert.match(html, /data-ripple-top-tab="sessions"/);
   assert.match(html, /data-ripple-top-tab="files"/);
   assert.match(html, /data-ripple-top-tab="skills"/);
   assert.match(html, /data-ripple-top-tab="automations"/);
-  assert.match(html, /data-ripple-top-tab="connectors"/);
+  assert.doesNotMatch(html, />Links</);
+  assert.doesNotMatch(html, /data-ripple-top-tab="connectors"/);
   assert.doesNotMatch(html, /data-ripple-top-tab="home"/);
 }
 
@@ -94,7 +94,7 @@ function testDesktopProductTabsUseEqualWidths() {
     (match) => match[0]
   );
 
-  assert.equal(tabButtons.length, 5);
+  assert.equal(tabButtons.length, 4);
   for (const button of tabButtons) {
     assert.match(button, /w-\[132px\]/);
     assert.match(button, /justify-center/);
@@ -106,7 +106,7 @@ function testDesktopProductTabIconsDoNotShrink() {
   const html = renderProductTopBar();
   const icons = [...html.matchAll(/<svg[^>]*class="[^"]*h-4 w-4 shrink-0[^"]*"[^>]*>/g)];
 
-  assert.equal(icons.length, 5);
+  assert.equal(icons.length, 4);
 }
 
 function testDesktopProductTabsRenderChineseLabels() {

@@ -70,23 +70,79 @@ function testSkillsPageCachesSnapshotsAcrossTabMounts() {
 
 testSkillsPageCachesSnapshotsAcrossTabMounts();
 
-function testSkillsPageGroupsBySourceAndConnector() {
+function testSkillsPageUsesCategoryIndexInsteadOfStatusSections() {
   const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
+  const i18n = readFileSync(new URL("../../i18n/index.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /buildSkillSections/);
+  assert.match(source, /buildSkillCategories/);
   assert.match(source, /display_source/);
-  assert.match(source, /data-ripple-skill-source-section="true"/);
-  assert.match(source, /data-ripple-skill-connector-group="true"/);
-  assert.match(source, /data-ripple-skill-group-connect="true"/);
+  assert.match(source, /data-ripple-skill-category-index="true"/);
+  assert.match(source, /data-ripple-skill-category-row="true"/);
+  assert.match(source, /data-ripple-skill-category-detail="true"/);
+  assert.match(source, /data-ripple-skill-category-logo="true"/);
+  assert.match(source, /categorySummary\(category,/);
+  assert.match(i18n, /categoryMine: "我创建的"/);
+  assert.match(i18n, /categoryConnectedServices: "需要授权"/);
+  assert.match(i18n, /categoryGeneral: "通用能力"/);
+  assert.match(i18n, /categoryMine: "Mine"/);
+  assert.match(i18n, /categoryConnectedServices: "Needs authorization"/);
+  assert.match(i18n, /categoryGeneral: "General skills"/);
+  assert.match(i18n, /categorySummaries:/);
   assert.match(source, /line-clamp-2/);
-  assert.match(source, /group-open\/skill:hidden/);
-  assert.doesNotMatch(
-    source,
-    /data-ripple-skill-card="true"[\s\S]*skills\.connectService[\s\S]*<\/article>/
-  );
+  assert.match(source, /id: "connected_services"/);
+  assert.match(source, /sourceId: "system"/);
+  assert.doesNotMatch(source, /data-ripple-skill-source-section="true"/);
+  assert.doesNotMatch(source, /shouldDefaultOpenGroup/);
+  assert.doesNotMatch(source, /skills\.noConnectionNeeded/);
 }
 
-testSkillsPageGroupsBySourceAndConnector();
+testSkillsPageUsesCategoryIndexInsteadOfStatusSections();
+
+function testSkillsPageMergesConnectorManagementIntoCategories() {
+  const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /fetchCapabilities/);
+  assert.match(source, /fetchGogcliAccounts/);
+  assert.match(source, /disconnectConnector/);
+  assert.match(source, /data-ripple-skill-connector-panel="true"/);
+  assert.match(source, /data-ripple-skill-connector-account="true"/);
+  assert.match(source, /type: "connector\.auth\.start"/);
+  assert.match(source, /source: "skills_page"/);
+  assert.doesNotMatch(source, /window\.open\(/);
+  assert.doesNotMatch(source, /qrcodeImageUrl/);
+}
+
+testSkillsPageMergesConnectorManagementIntoCategories();
+
+function testSkillsPageKeepsStatusAsFilterOnly() {
+  const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
+  const i18n = readFileSync(new URL("../../i18n/index.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /statusFilter/);
+  assert.match(source, /data-ripple-skill-filter-control="true"/);
+  assert.match(i18n, /filter: "筛选"/);
+  assert.match(i18n, /filter: "Filter"/);
+  assert.doesNotMatch(source, /data-ripple-skill-source-section="true"/);
+  assert.doesNotMatch(source, /data-ripple-skill-connector-group="true"/);
+}
+
+testSkillsPageKeepsStatusAsFilterOnly();
+
+function testSkillsPageUsesCompactSkillRowsInCategoryDetail() {
+  const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /ArrowLeft/);
+  assert.match(source, /data-ripple-skill-status-icon="true"/);
+  assert.doesNotMatch(source, /ArrowBigLeft/);
+  assert.doesNotMatch(source, /<details/);
+  assert.doesNotMatch(source, /<summary/);
+  assert.doesNotMatch(source, /group-open\/skill/);
+  assert.doesNotMatch(source, /skills\.builtIn/);
+  assert.doesNotMatch(source, /skills\.readOnly/);
+  assert.doesNotMatch(source, /t\(skillStatusKey\(status\)\)/);
+}
+
+testSkillsPageUsesCompactSkillRowsInCategoryDetail();
 
 function testSkillsPageUsesPlainGeneralGroupLabels() {
   const i18n = readFileSync(new URL("../../i18n/index.tsx", import.meta.url), "utf8");
@@ -105,7 +161,7 @@ function testSkillsPageRoutesManagementThroughSessions() {
   const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
 
   assert.match(source, /onOpenSessionAction/);
-  assert.match(source, /connectorNameForGroup/);
+  assert.match(source, /connectorNameForCategory/);
   assert.match(source, /type: "connector\.auth\.start"/);
   assert.match(source, /source: "skills_page"/);
   assert.match(source, /autoSend: true/);

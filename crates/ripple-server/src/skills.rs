@@ -1283,4 +1283,23 @@ metadata:
 
         let _ = std::fs::remove_dir_all(fake_podcast_root);
     }
+
+    #[test]
+    fn shared_skills_exclude_developer_and_control_plane_entries() {
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .unwrap()
+            .to_path_buf();
+        let config = test_config(&repo_root, vec!["skills/*".to_string()]);
+
+        let entries = build_skill_manifest(&config, None);
+        let names = entries
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(!names.contains(&"frontend-design"));
+        assert!(!names.contains(&"ripple-automations"));
+    }
 }

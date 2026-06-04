@@ -19,7 +19,6 @@ import {
   AuthError,
 } from "@/lib/api";
 import AutomationsPage from "@/components/workbench/AutomationsPage";
-import ConnectorsPage from "@/components/workbench/ConnectorsPage";
 import SkillsPage from "@/components/workbench/SkillsPage";
 import FilesPage from "@/components/workbench/FilesPage";
 import InspectorPanel from "@/components/workbench/InspectorPanel";
@@ -920,17 +919,12 @@ export default function Home() {
         models={models}
         onAuthExpired={handleAuthExpired}
       />
-    ) : activeView === "skills" ? (
+    ) : activeView === "skills" || activeView === "connectors" ? (
       <SkillsPage
         userId={userId}
         onOpenChat={handleOpenChatWithPrompt}
         onOpenSessionAction={handleOpenSessionAction}
-      />
-    ) : activeView === "connectors" ? (
-      <ConnectorsPage
-        userId={userId}
         onConnectorStateChange={loadSessions}
-        onOpenSessionAction={handleOpenSessionAction}
       />
     ) : (
       <div className="h-full min-h-0">

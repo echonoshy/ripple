@@ -1,5 +1,5 @@
 import type { ComponentType } from "react";
-import { CalendarClock, FileText, MessageCircle, Plug, Settings, Sparkles } from "lucide-react";
+import { CalendarClock, FileText, MessageCircle, Settings, Sparkles } from "lucide-react";
 
 export type WorkspaceView = "home" | "sessions" | "automations" | "files" | "skills" | "connectors";
 
@@ -13,7 +13,6 @@ export const mainNavItems: WorkspaceNavItem[] = [
   { id: "sessions", label: "Sessions", icon: MessageCircle },
   { id: "files", label: "Files", icon: FileText },
   { id: "skills", label: "Skills", icon: Sparkles },
-  { id: "connectors", label: "Links", icon: Plug },
   { id: "automations", label: "Autos", icon: CalendarClock },
 ];
 
@@ -23,6 +22,7 @@ export const mobileNavItems: WorkspaceNavItem[] = [
 ];
 
 export function viewTitle(view: WorkspaceView): string {
+  if (view === "connectors") return "Skills";
   return mobileNavItems.find((item) => item.id === view)?.label || "Ripple";
 }
 

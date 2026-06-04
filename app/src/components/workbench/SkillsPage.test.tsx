@@ -57,6 +57,19 @@ function testSkillsPageRefreshTimestampDoesNotRetriggerInitialLoad() {
 
 testSkillsPageRefreshTimestampDoesNotRetriggerInitialLoad();
 
+function testSkillsPageCachesSnapshotsAcrossTabMounts() {
+  const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /skillSnapshotCache/);
+  assert.match(source, /skillSnapshotInflight/);
+  assert.match(source, /cachedSkillSnapshot\(userId\)/);
+  assert.match(source, /hasSkillSnapshot\(userId\)/);
+  assert.match(source, /background: hasSkillSnapshot\(userId\)/);
+  assert.doesNotMatch(source, /void loadSkills\(true\);/);
+}
+
+testSkillsPageCachesSnapshotsAcrossTabMounts();
+
 function testSkillsPageGroupsBySourceAndConnector() {
   const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
 

@@ -997,7 +997,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn skills_route_blocks_gog_skills_when_google_auth_check_has_no_accounts() {
+    async fn skills_route_uses_lightweight_google_status_without_cli_check() {
         let fake_gog_root = std::env::temp_dir().join(format!(
             "ripple-api-skills-gog-root-{}",
             uuid::Uuid::new_v4()
@@ -1006,10 +1006,14 @@ mod tests {
         std::fs::create_dir_all(fake_gog.parent().unwrap()).unwrap();
         std::fs::write(&fake_gog, "#!/bin/sh\nexit 0\n").unwrap();
 
+        let marker = fake_gog_root.join("gog-invoked");
         let fake_nsjail = fake_gog_root.join("fake-nsjail");
         std::fs::write(
             &fake_nsjail,
-            "#!/bin/sh\ncase \" $* \" in\n  *\" --check \"*) printf '{\"accounts\":[]}' ;;\n  *) printf '{\"accounts\":[{\"email\":\"stale@example.com\"}]}' ;;\nesac\n",
+            format!(
+                "#!/bin/sh\ntouch '{}'\nprintf '{{\"accounts\":[]}}'\n",
+                marker.display()
+            ),
         )
         .unwrap();
         #[cfg(unix)]
@@ -1054,15 +1058,15 @@ mod tests {
             .iter()
             .find(|entry| entry.get("id").and_then(Value::as_str) == Some("ripple:gog-sheets"))
             .expect("gog-sheets skill");
-        assert_eq!(
-            sheets.get("computed_status").and_then(Value::as_str),
-            Some("blocked_by_connector_auth")
+        assert!(
+            !marker.exists(),
+            "skills listing should not invoke gog status checks"
         );
         assert_eq!(
             sheets.get("user_status").and_then(Value::as_str),
-            Some("needs_connection")
+            Some("available")
         );
-        assert_eq!(sheets.get("enabled").and_then(Value::as_bool), Some(false));
+        assert_eq!(sheets.get("enabled").and_then(Value::as_bool), Some(true));
 
         let _ = std::fs::remove_dir_all(fake_gog_root);
     }

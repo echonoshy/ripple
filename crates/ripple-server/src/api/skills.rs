@@ -431,7 +431,7 @@ pub(crate) fn create_user_skill_draft(
 async fn load_skill_infos(state: &AppState, user_id: &str) -> Result<Vec<Value>, ApiError> {
     let settings = read_settings(state, user_id)?;
     let workspace = state.sandboxes.workspace_dir(user_id)?;
-    let options = capability_catalog_skill_manifest_options_for_user(state, user_id).await?;
+    let options = skill_manifest_options_for_user(state, user_id)?;
     let mut skills = build_skill_manifest_with_options(&state.config, Some(&workspace), &options)
         .iter()
         .map(|skill| skill_info(skill, &settings))
@@ -967,7 +967,7 @@ fn validate_user_skill(
         "safety",
         safety_check_passes(&text),
         "Safety rules are explicit.",
-        "Dangerous operations must require user confirmation and must not store credentials.",
+        "Add an explicit Safety/安全/约束 section for confirmation and credential handling.",
     );
     push_check(
         &mut checks,
@@ -1108,35 +1108,168 @@ fn push_check(
 }
 
 fn safety_check_passes(text: &str) -> bool {
+    safety_sections(text)
+        .iter()
+        .any(|section| safety_section_has_explicit_guardrails(section))
+}
+
+fn safety_sections(text: &str) -> Vec<String> {
+    let mut sections = Vec::new();
+    let mut current: Option<(usize, Vec<&str>)> = None;
+
+    for line in text.lines() {
+        if let Some((level, title)) = markdown_heading(line) {
+            if let Some((current_level, lines)) = current.take() {
+                if level <= current_level {
+                    sections.push(lines.join("\n"));
+                } else {
+                    current = Some((current_level, lines));
+                }
+            }
+            if current.is_none() && is_safety_heading(title) {
+                current = Some((level, Vec::new()));
+            }
+            continue;
+        }
+
+        if let Some((_, lines)) = current.as_mut() {
+            lines.push(line);
+        }
+    }
+
+    if let Some((_, lines)) = current {
+        sections.push(lines.join("\n"));
+    }
+
+    sections
+}
+
+fn markdown_heading(line: &str) -> Option<(usize, &str)> {
+    let trimmed = line.trim_start();
+    let level = trimmed.chars().take_while(|ch| *ch == '#').count();
+    if level == 0 || level > 6 {
+        return None;
+    }
+    let rest = trimmed.get(level..)?;
+    if !rest.starts_with(char::is_whitespace) {
+        return None;
+    }
+    Some((level, rest.trim()))
+}
+
+fn is_safety_heading(title: &str) -> bool {
+    let normalized = title
+        .trim_matches(|ch: char| ch == ':' || ch == '：')
+        .trim()
+        .to_lowercase();
+    normalized == "safety"
+        || normalized == "constraints"
+        || normalized.contains("safety")
+        || normalized.contains("安全")
+        || normalized.contains("约束")
+        || normalized.contains("限制")
+}
+
+fn safety_section_has_explicit_guardrails(section: &str) -> bool {
+    let mut has_guardrail = false;
+    for statement in safety_statements(section) {
+        if affirmative_credential_storage(&statement) {
+            return false;
+        }
+        if parse_user_confirmation_required(&statement).is_some()
+            || is_restrictive_safety_statement(&statement)
+        {
+            has_guardrail = true;
+        }
+    }
+    has_guardrail
+}
+
+fn safety_statements(section: &str) -> Vec<String> {
+    section
+        .lines()
+        .map(clean_safety_statement)
+        .filter(|line| !line.is_empty())
+        .collect()
+}
+
+fn clean_safety_statement(line: &str) -> String {
+    let trimmed = line.trim();
+    let without_bullet = trimmed
+        .strip_prefix("- ")
+        .or_else(|| trimmed.strip_prefix("* "))
+        .unwrap_or(trimmed);
+    let without_number = without_bullet
+        .split_once(". ")
+        .and_then(|(prefix, rest)| prefix.chars().all(|ch| ch.is_ascii_digit()).then_some(rest))
+        .unwrap_or(without_bullet);
+    without_number.trim().to_string()
+}
+
+fn parse_user_confirmation_required(statement: &str) -> Option<bool> {
+    let lower = statement.to_lowercase();
+    if lower.contains("user confirmation required") {
+        return bool_value_in_text(&lower);
+    }
+    if statement.contains("用户确认") || statement.contains("人工确认") {
+        return bool_value_in_text(statement);
+    }
+    None
+}
+
+fn bool_value_in_text(text: &str) -> Option<bool> {
     let lower = text.to_lowercase();
-    let stores_secret = [
-        "保存 token",
-        "保存token",
-        "save token",
-        "store token",
-        "cookie",
-        "oauth credential",
-        "auth.json",
-        "codex_home",
-    ]
-    .iter()
-    .any(|needle| lower.contains(needle));
-    if stores_secret {
+    if lower.contains("no")
+        || lower.contains("false")
+        || text.contains('否')
+        || text.contains("不需要")
+        || text.contains("无需")
+    {
+        return Some(false);
+    }
+    if lower.contains("yes")
+        || lower.contains("true")
+        || text.contains('是')
+        || text.contains("需要")
+        || text.contains("必须")
+    {
+        return Some(true);
+    }
+    None
+}
+
+fn is_restrictive_safety_statement(statement: &str) -> bool {
+    let trimmed = statement.trim();
+    let lower = trimmed.to_lowercase();
+    lower.starts_with("do not ")
+        || lower.starts_with("don't ")
+        || lower.starts_with("does not ")
+        || lower.starts_with("will not ")
+        || lower.starts_with("must not ")
+        || lower.starts_with("never ")
+        || lower.starts_with("no ")
+        || lower.contains(" must not ")
+        || trimmed.starts_with('不')
+        || trimmed.starts_with("不要")
+        || trimmed.starts_with("不得")
+        || trimmed.starts_with("禁止")
+        || trimmed.starts_with("不会")
+        || trimmed.starts_with("无需")
+}
+
+fn affirmative_credential_storage(statement: &str) -> bool {
+    if is_restrictive_safety_statement(statement) {
         return false;
     }
-    let destructive = [
-        "send email",
-        "发送邮件",
-        "delete",
-        "删除",
-        "share",
-        "分享",
-        "write",
-        "写入",
-    ]
-    .iter()
-    .any(|needle| lower.contains(needle));
-    !destructive || lower.contains("user confirmation required: yes")
+    let lower = statement.to_lowercase();
+    lower.contains("store credentials")
+        || lower.contains("save credentials")
+        || lower.contains("store token")
+        || lower.contains("save token")
+        || lower.contains("oauth credential")
+        || statement.contains("保存凭证")
+        || statement.contains("保存 token")
+        || statement.contains("保存token")
 }
 
 fn build_validation_preview(skill: &SkillManifestEntry, text: &str) -> String {
@@ -1205,4 +1338,37 @@ fn now_iso() -> String {
     OffsetDateTime::now_utc()
         .format(&Rfc3339)
         .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::safety_check_passes;
+
+    #[test]
+    fn safety_check_allows_denied_external_write_actions_without_confirmation() {
+        let skill = r#"
+# 时空回溯
+
+## 约束
+
+- 不执行发送、删除、覆盖、分享、创建外部可见内容等现实写操作。
+- 不保存 token、cookie 或其他凭证。
+"#;
+
+        assert!(safety_check_passes(skill));
+    }
+
+    #[test]
+    fn safety_check_rejects_missing_explicit_safety_section() {
+        let skill = r#"
+# Gmail Draft
+
+## Steps
+
+- Send email to the requested recipient.
+- Write the result to a shared document.
+"#;
+
+        assert!(!safety_check_passes(skill));
+    }
 }

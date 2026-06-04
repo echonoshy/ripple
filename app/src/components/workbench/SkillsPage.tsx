@@ -44,6 +44,11 @@ const SKILL_ACTION_BUTTON_CLASS = `inline-flex h-8 items-center gap-1.5 rounded-
 const SKILL_PRIMARY_ACTION_BUTTON_CLASS = `inline-flex h-11 w-11 items-center justify-center rounded-full border border-[#1456F0]/30 bg-[#1456F0] text-white shadow-[0_8px_18px_rgba(20,86,240,0.18)] transition-all hover:bg-[#0F4BD8] active:scale-[0.98] disabled:opacity-60 lg:h-10 lg:w-auto lg:gap-1.5 lg:px-3 ${TYPOGRAPHY_META_MEDIUM_CLASS}`;
 const SKILL_DANGER_ACTION_BUTTON_CLASS = `inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#FAD4D4] bg-white px-2.5 text-[#B42318] transition-colors hover:bg-[#FFF1F0] disabled:opacity-60 ${TYPOGRAPHY_META_MEDIUM_CLASS}`;
 
+interface SkillSnapshot {
+  skills: SkillInfo[];
+  loadedAt: number;
+}
+
 interface SkillsPageProps {
   userId: string;
   onBack?: () => void;
@@ -106,6 +111,46 @@ const SKILL_STATUS_RANK: Record<string, number> = {
   disabled: 2,
   available: 3,
 };
+
+const skillSnapshotCache = new Map<string, SkillSnapshot>();
+const skillSnapshotInflight = new Map<string, Promise<SkillSnapshot>>();
+
+function cachedSkillSnapshot(userId: string): SkillSnapshot | null {
+  return skillSnapshotCache.get(userId) || null;
+}
+
+function freshSkillSnapshot(userId: string): SkillSnapshot | null {
+  const snapshot = cachedSkillSnapshot(userId);
+  if (!snapshot) return null;
+  return Date.now() - snapshot.loadedAt < SKILL_REFRESH_THROTTLE_MS ? snapshot : null;
+}
+
+function hasSkillSnapshot(userId: string): boolean {
+  return skillSnapshotCache.has(userId);
+}
+
+async function fetchSkillSnapshot(userId: string, force = false): Promise<SkillSnapshot> {
+  const freshSnapshot = force ? null : freshSkillSnapshot(userId);
+  if (freshSnapshot) return freshSnapshot;
+  const inflightSnapshot = skillSnapshotInflight.get(userId);
+  if (!force && inflightSnapshot) return inflightSnapshot;
+
+  const nextInflight = (async () => {
+    const skills = await fetchSkills();
+    const snapshot = { skills, loadedAt: Date.now() };
+    skillSnapshotCache.set(userId, snapshot);
+    return snapshot;
+  })();
+  skillSnapshotInflight.set(userId, nextInflight);
+
+  try {
+    return await nextInflight;
+  } finally {
+    if (skillSnapshotInflight.get(userId) === nextInflight) {
+      skillSnapshotInflight.delete(userId);
+    }
+  }
+}
 
 function skillTitle(skill: SkillInfo): string {
   return skill.display_name || skill.name;
@@ -246,36 +291,64 @@ export default function SkillsPage({
   onOpenSessionAction,
 }: SkillsPageProps) {
   const { t } = useI18n();
-  const [skills, setSkills] = useState<SkillInfo[]>([]);
+  const [skills, setSkills] = useState<SkillInfo[]>(
+    () => cachedSkillSnapshot(userId)?.skills || []
+  );
   const [isLoading, setIsLoading] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busySkillId, setBusySkillId] = useState<string | null>(null);
   const [openGroupIds, setOpenGroupIds] = useState<Set<string>>(new Set());
-  const lastRefreshAtRef = useRef(0);
+  const loadRequestIdRef = useRef(0);
+  const lastRefreshAtRef = useRef(cachedSkillSnapshot(userId)?.loadedAt || 0);
+
+  const applySnapshot = useCallback((snapshot: SkillSnapshot) => {
+    setSkills(snapshot.skills);
+    lastRefreshAtRef.current = snapshot.loadedAt;
+  }, []);
 
   const loadSkills = useCallback(
-    async (force = false) => {
+    async (options: { force?: boolean; background?: boolean } = {}) => {
+      const cached = options.force ? null : cachedSkillSnapshot(userId);
+      if (cached) {
+        applySnapshot(cached);
+        if (Date.now() - cached.loadedAt < SKILL_REFRESH_THROTTLE_MS) return;
+      }
+
       const now = Date.now();
-      if (!force && now - lastRefreshAtRef.current < SKILL_REFRESH_THROTTLE_MS) return;
-      setIsLoading(true);
+      if (!options.force && now - lastRefreshAtRef.current < SKILL_REFRESH_THROTTLE_MS) return;
+
+      const requestId = loadRequestIdRef.current + 1;
+      loadRequestIdRef.current = requestId;
+      if (!options.background) setIsLoading(true);
       setActionError(null);
       try {
-        const next = await fetchSkills();
-        setSkills(next);
-        lastRefreshAtRef.current = Date.now();
+        const snapshot = await fetchSkillSnapshot(userId, options.force);
+        if (loadRequestIdRef.current !== requestId) return;
+        applySnapshot(snapshot);
       } catch (error) {
-        setActionError(error instanceof Error ? error.message : t("skills.failed"));
+        if (loadRequestIdRef.current === requestId) {
+          setActionError(error instanceof Error ? error.message : t("skills.failed"));
+        }
       } finally {
-        setIsLoading(false);
+        if (loadRequestIdRef.current === requestId) {
+          setIsLoading(false);
+        }
       }
     },
-    [t]
+    [applySnapshot, t, userId]
   );
 
   useEffect(() => {
-    void loadSkills(true);
-  }, [loadSkills, userId]);
+    const cached = cachedSkillSnapshot(userId);
+    if (cached) {
+      applySnapshot(cached);
+    } else {
+      setSkills([]);
+      lastRefreshAtRef.current = 0;
+    }
+    void loadSkills({ background: hasSkillSnapshot(userId) });
+  }, [applySnapshot, loadSkills, userId]);
 
   const sections = useMemo(() => buildSkillSections(skills), [skills]);
   const availableCount = useMemo(
@@ -327,9 +400,27 @@ export default function SkillsPage({
     [onOpenChat, onOpenSessionAction, t]
   );
 
-  const replaceSkill = useCallback((next: SkillInfo) => {
-    setSkills((current) => current.map((skill) => (skill.id === next.id ? next : skill)));
-  }, []);
+  const updateCachedSkills = useCallback(
+    (updater: (current: SkillInfo[]) => SkillInfo[]) => {
+      setSkills((current) => {
+        const nextSkills = updater(current);
+        const snapshot = { skills: nextSkills, loadedAt: Date.now() };
+        skillSnapshotCache.set(userId, snapshot);
+        lastRefreshAtRef.current = snapshot.loadedAt;
+        return nextSkills;
+      });
+    },
+    [userId]
+  );
+
+  const replaceSkill = useCallback(
+    (next: SkillInfo) => {
+      updateCachedSkills((current) =>
+        current.map((skill) => (skill.id === next.id ? next : skill))
+      );
+    },
+    [updateCachedSkills]
+  );
 
   const toggleGroup = useCallback((groupId: string) => {
     setOpenGroupIds((current) => {
@@ -386,7 +477,7 @@ export default function SkillsPage({
       setActionError(null);
       try {
         await deleteSkill(skill.id);
-        setSkills((current) => current.filter((item) => item.id !== skill.id));
+        updateCachedSkills((current) => current.filter((item) => item.id !== skill.id));
         setActionMessage(t("skills.deleted"));
       } catch (error) {
         setActionError(error instanceof Error ? error.message : t("skills.failed"));
@@ -394,7 +485,7 @@ export default function SkillsPage({
         setBusySkillId(null);
       }
     },
-    [t]
+    [t, updateCachedSkills]
   );
 
   const renderSkillCard = (skill: SkillInfo) => {
@@ -639,7 +730,7 @@ export default function SkillsPage({
             </button>
             <button
               type="button"
-              onClick={() => void loadSkills(true)}
+              onClick={() => void loadSkills({ force: true })}
               disabled={isLoading}
               title={t("skills.refresh")}
               aria-label={t("skills.refresh")}

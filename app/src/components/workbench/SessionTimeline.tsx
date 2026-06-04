@@ -353,6 +353,7 @@ export default function SessionTimeline({
   const pendingAskUser = !isGenerating ? lastAssistant?.askUser : undefined;
   const pendingPermission = !isGenerating ? lastAssistant?.permissionRequest : undefined;
   const [copiedEventId, setCopiedEventId] = React.useState<string | null>(null);
+  const [activeCopyEventId, setActiveCopyEventId] = React.useState<string | null>(null);
   const copyResetTimerRef = React.useRef<number | null>(null);
   const waitingStatusKey =
     isGenerating && lastMessage?.role === "assistant" && !lastMessage.content
@@ -379,14 +380,24 @@ export default function SessionTimeline({
     if (!didCopy) return;
 
     setCopiedEventId(event.id);
+    setActiveCopyEventId(event.id);
     if (copyResetTimerRef.current !== null) {
       window.clearTimeout(copyResetTimerRef.current);
     }
     copyResetTimerRef.current = window.setTimeout(() => {
       setCopiedEventId(null);
+      setActiveCopyEventId(null);
       copyResetTimerRef.current = null;
     }, 1400);
   }, []);
+
+  const handleMobileCopyReveal = React.useCallback(
+    (pointerEvent: React.PointerEvent<HTMLElement>, event: WorkbenchTimelineEvent) => {
+      if (pointerEvent.pointerType !== "touch") return;
+      setActiveCopyEventId(event.id);
+    },
+    []
+  );
 
   if (events.length === 0 && !isGenerating) {
     return (
@@ -432,10 +443,15 @@ export default function SessionTimeline({
           event.type !== "image_view" &&
           event.body.trim().length > 0;
         const isCopied = copiedEventId === event.id;
+        const isMobileCopyVisible = activeCopyEventId === event.id || isCopied;
 
         return (
           <article
             key={event.id}
+            data-ripple-copyable-event-id={canCopyEvent ? event.id : undefined}
+            onPointerDown={
+              canCopyEvent ? (pointerEvent) => handleMobileCopyReveal(pointerEvent, event) : undefined
+            }
             className="group/timeline-event relative border-b border-[#e9eef7]/80 py-2.5 last:border-b-0 sm:py-4"
           >
             <IconTile
@@ -463,8 +479,11 @@ export default function SessionTimeline({
                     type="button"
                     aria-label={t("timeline.copyEventContent", { title: displayTitle })}
                     title={t("timeline.copyContent")}
+                    data-ripple-mobile-copy-visible={isMobileCopyVisible ? "true" : "false"}
                     onClick={() => void handleCopyEvent(event)}
-                    className="pointer-events-auto inline-flex h-7 w-7 items-center justify-center rounded-full border border-[#d7d7dd] bg-white/82 text-[#6e6e73] opacity-100 shadow-[0_6px_14px_rgba(60,60,67,0.06)] transition-all hover:bg-[#f2f2f7] hover:text-[#007aff] focus:pointer-events-auto focus:opacity-100 active:bg-[#eaf4ff] lg:pointer-events-none lg:opacity-0 lg:group-focus-within/timeline-event:pointer-events-auto lg:group-focus-within/timeline-event:opacity-100 lg:group-hover/timeline-event:pointer-events-auto lg:group-hover/timeline-event:opacity-100"
+                    className={`inline-flex h-7 w-7 items-center justify-center rounded-full border border-[#d7d7dd] bg-white/82 text-[#6e6e73] shadow-[0_6px_14px_rgba(60,60,67,0.06)] transition-all hover:bg-[#f2f2f7] hover:text-[#007aff] focus:pointer-events-auto focus:opacity-100 active:bg-[#eaf4ff] lg:pointer-events-none lg:opacity-0 lg:group-focus-within/timeline-event:pointer-events-auto lg:group-focus-within/timeline-event:opacity-100 lg:group-hover/timeline-event:pointer-events-auto lg:group-hover/timeline-event:opacity-100 ${
+                      isMobileCopyVisible ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
+                    }`}
                   >
                     {isCopied ? <CheckCircle2 size={14} /> : <Copy size={14} />}
                   </button>

@@ -128,13 +128,15 @@ function testCopyActionIsHiddenUntilMessageInteraction() {
   assert.match(source, /lg:pointer-events-none[\s\S]*lg:opacity-0/);
 }
 
-function testCopyActionStaysVisibleOnMobile() {
+function testCopyActionCanBeRevealedOnMobileWithoutStayingVisible() {
   const source = readFileSync(new URL("./SessionTimeline.tsx", import.meta.url), "utf8");
 
-  assert.match(
-    source,
-    /pointer-events-auto[\s\S]*opacity-100[\s\S]*lg:pointer-events-none[\s\S]*lg:opacity-0/
-  );
+  assert.match(source, /activeCopyEventId/);
+  assert.match(source, /data-ripple-copyable-event-id/);
+  assert.match(source, /data-ripple-mobile-copy-visible/);
+  assert.match(source, /setActiveCopyEventId\(event\.id\)/);
+  assert.match(source, /isMobileCopyVisible \? "pointer-events-auto opacity-100"/);
+  assert.match(source, /: "pointer-events-none opacity-0"/);
 }
 
 function testToolEventsDoNotExposeCopyAction() {
@@ -201,7 +203,7 @@ testAssistantMessagesExposeCopyAction();
 testUserAndAssistantIconsUseDifferentTones();
 testTimelineEventHeadersAlignIconAndTextRows();
 testCopyActionIsHiddenUntilMessageInteraction();
-testCopyActionStaysVisibleOnMobile();
+testCopyActionCanBeRevealedOnMobileWithoutStayingVisible();
 testToolEventsDoNotExposeCopyAction();
 testGeneratingPlaceholderUsesRandomWaitingCopy();
 testChineseGeneratingPlaceholderUsesRandomWaitingCopy();

@@ -73,7 +73,7 @@ function testProviderSuppliesTranslationsAndPreference() {
   assert.match(html, />Language</);
 }
 
-function testUseI18nFallsBackToEnglishWithoutProvider() {
+function testUseI18nFallsBackToDefaultChineseWithoutProvider() {
   function Probe() {
     const { locale, t } = useI18n();
     return (
@@ -86,8 +86,8 @@ function testUseI18nFallsBackToEnglishWithoutProvider() {
 
   const html = renderToStaticMarkup(<Probe />);
 
-  assert.match(html, />en-US</);
-  assert.match(html, />Language</);
+  assert.match(html, />zh-CN</);
+  assert.match(html, />语言</);
 }
 
 testSupportedLocalesAreLimitedToChineseAndEnglish();
@@ -97,6 +97,6 @@ testResolvesLocaleFromSystemLanguages();
 testInterpolatesMessages();
 testFormatsDatesWithResolvedLocale();
 testProviderSuppliesTranslationsAndPreference();
-testUseI18nFallsBackToEnglishWithoutProvider();
+testUseI18nFallsBackToDefaultChineseWithoutProvider();
 
 console.log("i18n tests passed");

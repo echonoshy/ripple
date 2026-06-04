@@ -3,13 +3,16 @@ import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import { I18nProvider } from "@/i18n";
 import FilesPage from "./FilesPage";
 
 const noop = () => {};
 
 function renderFilesPage(overrides: Partial<React.ComponentProps<typeof FilesPage>> = {}) {
   return renderToStaticMarkup(
-    <FilesPage userId="default" refreshToken={0} onBack={noop} {...overrides} />
+    <I18nProvider initialPreference="en-US">
+      <FilesPage userId="default" refreshToken={0} onBack={noop} {...overrides} />
+    </I18nProvider>
   );
 }
 

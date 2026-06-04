@@ -3,7 +3,19 @@ import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import { I18nProvider } from "@/i18n";
 import MarkdownRenderer from "./MarkdownRenderer";
+
+function renderMarkdown(
+  props: React.ComponentProps<typeof MarkdownRenderer>,
+  locale: "en-US" | "zh-CN" = "en-US"
+) {
+  return renderToStaticMarkup(
+    <I18nProvider initialPreference={locale}>
+      <MarkdownRenderer {...props} />
+    </I18nProvider>
+  );
+}
 
 function cssRule(selector: string): string {
   const css = readFileSync(new URL("../globals.css", import.meta.url), "utf8");
@@ -21,11 +33,9 @@ function testPreservesSingleNewlineAsLineBreak() {
 }
 
 function testFeishuAuthCardDoesNotCompleteAuthDirectly() {
-  const html = renderToStaticMarkup(
-    <MarkdownRenderer
-      content={"[FEISHU_AUTH]\ndevice_code: device-123\nhttps://accounts.feishu.cn/device"}
-    />
-  );
+  const html = renderMarkdown({
+    content: "[FEISHU_AUTH]\ndevice_code: device-123\nhttps://accounts.feishu.cn/device",
+  });
 
   assert.match(html, /Open authorization page/);
   assert.match(html, /Complete Feishu authorization/);
@@ -34,17 +44,15 @@ function testFeishuAuthCardDoesNotCompleteAuthDirectly() {
 }
 
 function testFeishuAuthCardShowsWaitingState() {
-  const html = renderToStaticMarkup(
-    <MarkdownRenderer
-      content={"[FEISHU_AUTH]\nhttps://accounts.feishu.cn/device"}
-      feishuAuthWaiting={{
-        connector: "feishu",
-        url: "https://accounts.feishu.cn/device",
-        elapsedSeconds: 12,
-        label: "Feishu operation",
-      }}
-    />
-  );
+  const html = renderMarkdown({
+    content: "[FEISHU_AUTH]\nhttps://accounts.feishu.cn/device",
+    feishuAuthWaiting: {
+      connector: "feishu",
+      url: "https://accounts.feishu.cn/device",
+      elapsedSeconds: 12,
+      label: "Feishu operation",
+    },
+  });
 
   assert.match(html, /Waiting for Feishu in the browser/);
   assert.match(html, /12 seconds elapsed/);
@@ -52,11 +60,9 @@ function testFeishuAuthCardShowsWaitingState() {
 }
 
 function testGoogleAuthCardDoesNotAskForManualCallback() {
-  const html = renderToStaticMarkup(
-    <MarkdownRenderer
-      content={"[GOOGLE_AUTH]\nhttps://accounts.google.com/o/oauth2/auth?state=abc"}
-    />
-  );
+  const html = renderMarkdown({
+    content: "[GOOGLE_AUTH]\nhttps://accounts.google.com/o/oauth2/auth?state=abc",
+  });
 
   assert.match(html, /Open Google authorization/);
   assert.match(html, /continue automatically/);
@@ -65,24 +71,19 @@ function testGoogleAuthCardDoesNotAskForManualCallback() {
 }
 
 function testConnectorAuthLinksUseScopedButtonStyles() {
-  const googleHtml = renderToStaticMarkup(
-    <MarkdownRenderer
-      content={"[GOOGLE_AUTH]\nhttps://accounts.google.com/o/oauth2/auth?state=abc"}
-    />
-  );
-  const feishuHtml = renderToStaticMarkup(
-    <MarkdownRenderer content={"[FEISHU_AUTH]\nhttps://accounts.feishu.cn/device"} />
-  );
-  const bilibiliHtml = renderToStaticMarkup(
-    <MarkdownRenderer
-      content={
-        "[BILIBILI_AUTH]\n" +
-        "/v1/bilibili/qrcode.png?content=encoded\n" +
-        "https://account.bilibili.com/h5/account-h5/auth/scan-web?qrcode_key=abc\n" +
-        "bilibili://browser?url=https%3A%2F%2Faccount.bilibili.com%2Fh5%2Faccount-h5%2Fauth%2Fscan-web%3Fqrcode_key%3Dabc"
-      }
-    />
-  );
+  const googleHtml = renderMarkdown({
+    content: "[GOOGLE_AUTH]\nhttps://accounts.google.com/o/oauth2/auth?state=abc",
+  });
+  const feishuHtml = renderMarkdown({
+    content: "[FEISHU_AUTH]\nhttps://accounts.feishu.cn/device",
+  });
+  const bilibiliHtml = renderMarkdown({
+    content:
+      "[BILIBILI_AUTH]\n" +
+      "/v1/bilibili/qrcode.png?content=encoded\n" +
+      "https://account.bilibili.com/h5/account-h5/auth/scan-web?qrcode_key=abc\n" +
+      "bilibili://browser?url=https%3A%2F%2Faccount.bilibili.com%2Fh5%2Faccount-h5%2Fauth%2Fscan-web%3Fqrcode_key%3Dabc",
+  });
 
   assert.match(
     googleHtml,
@@ -103,14 +104,12 @@ function testConnectorAuthLinksUseScopedButtonStyles() {
 }
 
 function testConnectorAuthCardsUseSoftTileHeaders() {
-  const googleHtml = renderToStaticMarkup(
-    <MarkdownRenderer
-      content={"[GOOGLE_AUTH]\nhttps://accounts.google.com/o/oauth2/auth?state=abc"}
-    />
-  );
-  const feishuHtml = renderToStaticMarkup(
-    <MarkdownRenderer content={"[FEISHU_AUTH]\nhttps://accounts.feishu.cn/device"} />
-  );
+  const googleHtml = renderMarkdown({
+    content: "[GOOGLE_AUTH]\nhttps://accounts.google.com/o/oauth2/auth?state=abc",
+  });
+  const feishuHtml = renderMarkdown({
+    content: "[FEISHU_AUTH]\nhttps://accounts.feishu.cn/device",
+  });
 
   assert.match(googleHtml, /data-ripple-icon-tile="true"/);
   assert.match(googleHtml, /data-tone="accent"/);
@@ -118,16 +117,13 @@ function testConnectorAuthCardsUseSoftTileHeaders() {
 }
 
 function testBilibiliAuthCardShowsQrAndManualOpenLink() {
-  const html = renderToStaticMarkup(
-    <MarkdownRenderer
-      content={
-        "[BILIBILI_AUTH]\n" +
-        "/v1/bilibili/qrcode.png?content=encoded\n" +
-        "https://account.bilibili.com/h5/account-h5/auth/scan-web?qrcode_key=abc\n" +
-        "bilibili://browser?url=https%3A%2F%2Faccount.bilibili.com%2Fh5%2Faccount-h5%2Fauth%2Fscan-web%3Fqrcode_key%3Dabc"
-      }
-    />
-  );
+  const html = renderMarkdown({
+    content:
+      "[BILIBILI_AUTH]\n" +
+      "/v1/bilibili/qrcode.png?content=encoded\n" +
+      "https://account.bilibili.com/h5/account-h5/auth/scan-web?qrcode_key=abc\n" +
+      "bilibili://browser?url=https%3A%2F%2Faccount.bilibili.com%2Fh5%2Faccount-h5%2Fauth%2Fscan-web%3Fqrcode_key%3Dabc",
+  });
 
   assert.match(html, /Bilibili QR login/);
   assert.match(html, /src="[^"]*\/v1\/bilibili\/qrcode\.png\?content=encoded"/);

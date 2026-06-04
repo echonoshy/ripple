@@ -213,6 +213,13 @@ function testRendersChineseMobileSessionChrome() {
   assert.match(html, /4 条消息 · 2 个文件/);
 }
 
+function testMobileSessionOptionsButtonUsesChineseAccessibleLabel() {
+  const html = renderMobileSessionsPage({}, "zh-CN");
+
+  assert.match(html, /aria-label="会话选项"/);
+  assert.match(html, /title="会话选项"/);
+}
+
 testRendersChatAppStyleSessionList();
 testMobileBrandWordmarkHasQuietPersonality();
 testUsesQuietAgentControlPlaneStyling();
@@ -226,5 +233,6 @@ testMobileSessionChromeUsesMotionPresence();
 testMobileSessionRowsUseReadableTypeScale();
 testRendersEmptyStateWithNewSessionAction();
 testRendersChineseMobileSessionChrome();
+testMobileSessionOptionsButtonUsesChineseAccessibleLabel();
 
 console.log("mobile sessions page tests passed");

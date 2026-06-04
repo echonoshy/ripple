@@ -65,43 +65,45 @@ function renderSessionPage({
 
 function renderSessionPageWithTimelineContent() {
   return renderToStaticMarkup(
-    <SessionPage
-      session={null}
-      messages={[]}
-      timelineEvents={[
-        {
-          id: "assistant-1",
-          type: "assistant_message",
-          title: "Update",
-          body: "A wider timeline body should use the available session content width.",
-        },
-      ]}
-      planProgress={null}
-      planSteps={[]}
-      tokenUsage={{ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }}
-      lastContextTokens={0}
-      input=""
-      pendingFiles={[]}
-      pendingLocalImages={[]}
-      isGenerating={false}
-      focusToken={0}
-      selectedModel="codex-medium"
-      models={[{ id: "codex-medium", owned_by: "ripple" }]}
-      isModelDropdownOpen={false}
-      sessionId="srv-test"
-      onNewSession={noop}
-      onInputChange={noop}
-      onAttachFiles={noop}
-      onRemovePendingFile={noop}
-      onAddPendingImages={noop}
-      onRemovePendingLocalImage={noop}
-      onToggleModelDropdown={noop}
-      onSelectModel={noop}
-      onSend={noop}
-      onStop={noop}
-      onQuickReply={noop}
-      onPermissionResolve={noop}
-    />
+    <I18nProvider initialPreference="en-US">
+      <SessionPage
+        session={null}
+        messages={[]}
+        timelineEvents={[
+          {
+            id: "assistant-1",
+            type: "assistant_message",
+            title: "Update",
+            body: "A wider timeline body should use the available session content width.",
+          },
+        ]}
+        planProgress={null}
+        planSteps={[]}
+        tokenUsage={{ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }}
+        lastContextTokens={0}
+        input=""
+        pendingFiles={[]}
+        pendingLocalImages={[]}
+        isGenerating={false}
+        focusToken={0}
+        selectedModel="codex-medium"
+        models={[{ id: "codex-medium", owned_by: "ripple" }]}
+        isModelDropdownOpen={false}
+        sessionId="srv-test"
+        onNewSession={noop}
+        onInputChange={noop}
+        onAttachFiles={noop}
+        onRemovePendingFile={noop}
+        onAddPendingImages={noop}
+        onRemovePendingLocalImage={noop}
+        onToggleModelDropdown={noop}
+        onSelectModel={noop}
+        onSend={noop}
+        onStop={noop}
+        onQuickReply={noop}
+        onPermissionResolve={noop}
+      />
+    </I18nProvider>
   );
 }
 
@@ -249,36 +251,38 @@ function testSessionPageShowsCurrentFolderBadge() {
     contextFolderPath: "/workspace/demo",
   };
   const html = renderToStaticMarkup(
-    <SessionPage
-      session={folderSession}
-      messages={[]}
-      timelineEvents={[]}
-      planProgress={null}
-      planSteps={[]}
-      tokenUsage={{ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }}
-      lastContextTokens={0}
-      input=""
-      pendingFiles={[]}
-      pendingLocalImages={[]}
-      isGenerating={false}
-      focusToken={0}
-      selectedModel="codex-medium"
-      models={[{ id: "codex-medium", owned_by: "ripple" }]}
-      isModelDropdownOpen={false}
-      sessionId="srv-demo"
-      onNewSession={noop}
-      onInputChange={noop}
-      onAttachFiles={noop}
-      onRemovePendingFile={noop}
-      onAddPendingImages={noop}
-      onRemovePendingLocalImage={noop}
-      onToggleModelDropdown={noop}
-      onSelectModel={noop}
-      onSend={noop}
-      onStop={noop}
-      onQuickReply={noop}
-      onPermissionResolve={noop}
-    />
+    <I18nProvider initialPreference="en-US">
+      <SessionPage
+        session={folderSession}
+        messages={[]}
+        timelineEvents={[]}
+        planProgress={null}
+        planSteps={[]}
+        tokenUsage={{ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }}
+        lastContextTokens={0}
+        input=""
+        pendingFiles={[]}
+        pendingLocalImages={[]}
+        isGenerating={false}
+        focusToken={0}
+        selectedModel="codex-medium"
+        models={[{ id: "codex-medium", owned_by: "ripple" }]}
+        isModelDropdownOpen={false}
+        sessionId="srv-demo"
+        onNewSession={noop}
+        onInputChange={noop}
+        onAttachFiles={noop}
+        onRemovePendingFile={noop}
+        onAddPendingImages={noop}
+        onRemovePendingLocalImage={noop}
+        onToggleModelDropdown={noop}
+        onSelectModel={noop}
+        onSend={noop}
+        onStop={noop}
+        onQuickReply={noop}
+        onPermissionResolve={noop}
+      />
+    </I18nProvider>
   );
 
   assert.match(html, /aria-label="Current model: Plus"/);

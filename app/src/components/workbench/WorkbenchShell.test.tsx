@@ -2,48 +2,57 @@ import assert from "node:assert/strict";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import { I18nProvider } from "@/i18n";
 import WorkbenchShell from "./WorkbenchShell";
 
 function renderShell() {
   return renderToStaticMarkup(
-    <WorkbenchShell
-      topBar={<div>Product top bar</div>}
-      content={<div>Content</div>}
-      inspector={null}
-    />
+    <I18nProvider initialPreference="en-US">
+      <WorkbenchShell
+        topBar={<div>Product top bar</div>}
+        content={<div>Content</div>}
+        inspector={null}
+      />
+    </I18nProvider>
   );
 }
 
 function renderShellWithMobileNav() {
   return renderToStaticMarkup(
-    <WorkbenchShell
-      topBar={<div>Product top bar</div>}
-      content={<div>Content</div>}
-      inspector={null}
-      mobileNav={<div>Mobile nav</div>}
-    />
+    <I18nProvider initialPreference="en-US">
+      <WorkbenchShell
+        topBar={<div>Product top bar</div>}
+        content={<div>Content</div>}
+        inspector={null}
+        mobileNav={<div>Mobile nav</div>}
+      />
+    </I18nProvider>
   );
 }
 
 function renderShellWithInspector() {
   return renderToStaticMarkup(
-    <WorkbenchShell
-      topBar={<div>Product top bar</div>}
-      content={<div>Content</div>}
-      inspector={<div>Inspector</div>}
-    />
+    <I18nProvider initialPreference="en-US">
+      <WorkbenchShell
+        topBar={<div>Product top bar</div>}
+        content={<div>Content</div>}
+        inspector={<div>Inspector</div>}
+      />
+    </I18nProvider>
   );
 }
 
 function renderShellWithCollapsedInspector() {
   return renderToStaticMarkup(
-    <WorkbenchShell
-      topBar={<div>Product top bar</div>}
-      content={<div>Content</div>}
-      inspector={<div>Inspector</div>}
-      isInspectorCollapsed
-      onExpandInspector={() => {}}
-    />
+    <I18nProvider initialPreference="en-US">
+      <WorkbenchShell
+        topBar={<div>Product top bar</div>}
+        content={<div>Content</div>}
+        inspector={<div>Inspector</div>}
+        isInspectorCollapsed
+        onExpandInspector={() => {}}
+      />
+    </I18nProvider>
   );
 }
 

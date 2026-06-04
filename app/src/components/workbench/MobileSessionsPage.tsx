@@ -538,6 +538,7 @@ export default function MobileSessionsPage({
                               ? "bg-[#eaf4ff]/78 text-[#111827]"
                               : ""
                           }`}
+                          aria-label={t("sessions.options")}
                           title={t("sessions.options")}
                         >
                           <Ellipsis size={18} strokeWidth={2.2} />

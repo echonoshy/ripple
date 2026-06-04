@@ -219,6 +219,30 @@ function testRendersSessionOptionsButton() {
   assert.match(html, /title="Session options"/);
 }
 
+function testSessionOptionsButtonUsesChineseAccessibleLabel() {
+  const html = renderWorkspaceNav(
+    {
+      sessions: [
+        {
+          sessionId: "sess-zh",
+          title: "讲一个笑话",
+          pinned: false,
+          status: "idle",
+          model: "codex-medium",
+          lastActivityAt: "2026-05-17T00:00:00Z",
+          messageCount: 0,
+          changedFileCount: 0,
+          pendingApprovalCount: 0,
+        },
+      ],
+    },
+    "zh-CN"
+  );
+
+  assert.match(html, /aria-label="会话选项"/);
+  assert.match(html, /title="会话选项"/);
+}
+
 function testSessionRailDoesNotRenderAccountChrome() {
   const html = renderWorkspaceNav();
 
@@ -230,6 +254,7 @@ function testSessionRailDoesNotRenderAccountChrome() {
 testRendersPinnedSessionWithIcon();
 testRendersUnpinnedSessionWithoutPinIcon();
 testRendersSessionOptionsButton();
+testSessionOptionsButtonUsesChineseAccessibleLabel();
 testSessionRailDoesNotRenderAccountChrome();
 
 console.log("workspace nav tests passed");

@@ -1162,12 +1162,12 @@ interface I18nContextValue {
 }
 
 const I18nContext = React.createContext<I18nContextValue | null>(null);
-const fallbackFormatters = createDateTimeFormatters("en-US");
+const fallbackFormatters = createDateTimeFormatters("zh-CN");
 const fallbackI18nContext: I18nContextValue = {
-  locale: "en-US",
+  locale: "zh-CN",
   preference: "system",
   setPreference: () => undefined,
-  t: createTranslator("en-US"),
+  t: createTranslator("zh-CN"),
   ...fallbackFormatters,
 };
 

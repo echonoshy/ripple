@@ -225,6 +225,7 @@ export default function WorkspaceNav({
                         ? "z-50 flex border-[#d7d7dd] bg-white text-[#111827] shadow-[0_2px_8px_rgba(60,60,67,0.06)]"
                         : "hidden border-transparent text-[#8e8e93] group-hover:flex hover:border-[#d7d7dd] hover:bg-white hover:text-[#111827] active:scale-[0.92]"
                     }`}
+                    aria-label={t("sessions.options")}
                     title={t("sessions.options")}
                   >
                     <MoreHorizontal size={14} />

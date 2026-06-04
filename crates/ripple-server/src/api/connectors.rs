@@ -1050,8 +1050,10 @@ async fn feishu_auth_complete(
             json!({"status_detail": status_detail, "status_metadata": status_metadata}),
         )));
     }
+    let pending_approval = is_feishu_auth_pending_approval_message(&msg);
     let final_confirmation = is_feishu_auth_final_confirmation_message(&msg);
-    let stage = if is_feishu_auth_pending_message(&msg) || final_confirmation {
+    let stage = if !pending_approval && (is_feishu_auth_pending_message(&msg) || final_confirmation)
+    {
         "pending"
     } else {
         "auth_failed"
@@ -1060,7 +1062,9 @@ async fn feishu_auth_complete(
         "feishu",
         stage == "pending",
         stage,
-        if final_confirmation {
+        if pending_approval {
+            "Feishu app authorization is pending administrator approval. Ask the Feishu app administrator to approve the requested permissions, then start authorization again."
+        } else if final_confirmation {
             "Feishu authorization was confirmed in the browser, but local user status is not ready yet."
         } else {
             &msg
@@ -2013,6 +2017,9 @@ fn first_json_object(text: &str) -> Option<Value> {
 
 fn is_feishu_auth_pending_message(message: &str) -> bool {
     let normalized = message.to_ascii_lowercase();
+    if is_feishu_auth_pending_approval_message(&normalized) {
+        return false;
+    }
     [
         "pending",
         "not yet",
@@ -2025,6 +2032,11 @@ fn is_feishu_auth_pending_message(message: &str) -> bool {
     ]
     .into_iter()
     .any(|marker| normalized.contains(marker))
+}
+
+fn is_feishu_auth_pending_approval_message(message: &str) -> bool {
+    let normalized = message.to_ascii_lowercase();
+    normalized.contains("pending approval") || normalized.contains("管理员审批")
 }
 
 fn is_feishu_auth_final_confirmation_message(message: &str) -> bool {
@@ -3242,6 +3254,13 @@ mod tests {
             Some("device-123")
         );
         assert_eq!(value_as_u64(payload.get("expires_in_seconds")), Some(600));
+    }
+
+    #[test]
+    fn feishu_pending_approval_is_not_user_auth_pending() {
+        let message = "authorization failed: Unable to authorize. The app is pending approval.";
+
+        assert!(!is_feishu_auth_pending_message(message));
     }
 
     #[test]

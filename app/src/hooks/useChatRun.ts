@@ -138,6 +138,11 @@ export function shouldStartConnectorAuthPoll(payload: FeishuAuthOpenPayload): bo
   return payload.mode !== "connect";
 }
 
+export function connectorAuthRequiresSessionAttention(event: ConnectorAuthChatEvent): boolean {
+  const payload = connectorAuthPollPayloadFromEvent(event);
+  return Boolean(payload && shouldStartConnectorAuthPoll(payload));
+}
+
 export function shouldContinueConnectorAuthPoll(
   lastEvent: ConnectorAuthChatEvent | null,
   targetConnector: FeishuAuthOpenPayload["connector"],
@@ -968,7 +973,9 @@ export function useChatRun({
             const nextPayload = connectorAuthPollPayloadFromEvent(event);
             if (nextPayload) {
               pendingConnectorAuthPayload = nextPayload;
-              onSessionAttention?.(activeSessionId, "needs_input");
+              if (connectorAuthRequiresSessionAttention(event)) {
+                onSessionAttention?.(activeSessionId, "needs_input");
+              }
             }
           },
           onComplete: () => {

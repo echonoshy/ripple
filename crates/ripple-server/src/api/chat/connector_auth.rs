@@ -475,8 +475,16 @@ pub(crate) async fn persist_connector_auth_event(
 
 pub(crate) fn connector_auth_status(event: &Value) -> &'static str {
     let stage = event.get("stage").and_then(Value::as_str).unwrap_or("");
+    let connector = event.get("connector").and_then(Value::as_str).unwrap_or("");
+    let source = event
+        .pointer("/action/source")
+        .or_else(|| event.get("source"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let unblocked_connect_flow = connector == "google_workspace" && source == "connectors_page";
     if event.get("type").and_then(Value::as_str) == Some("connector_auth_required")
         && !is_terminal_connector_auth_stage(stage)
+        && !unblocked_connect_flow
     {
         "awaiting_user_input"
     } else {
@@ -865,8 +873,9 @@ mod tests {
     use serde_json::{json, Value};
 
     use super::{
-        connector_auth_message, decision_from_action, model_connector_auth_request_might_be_start,
-        notion_token_guidance_message_for_source, parse_model_connector_auth_request,
+        connector_auth_message, connector_auth_status, decision_from_action,
+        model_connector_auth_request_might_be_start, notion_token_guidance_message_for_source,
+        parse_model_connector_auth_request,
     };
     use crate::sessions::SessionRecord;
 
@@ -1150,6 +1159,26 @@ mod tests {
         );
         assert!(decision.resume_user_input.is_none());
         assert!(session.pending_connector_auth.is_none());
+    }
+
+    #[test]
+    fn google_connector_page_auth_required_keeps_session_idle() {
+        let mut session = test_session_record();
+        let decision = decision_from_action(
+            &mut session,
+            "google_workspace",
+            json!({
+                "stage": "awaiting_browser_callback",
+                "source": "connectors_page",
+                "detail": "Open auth.",
+                "data": {"oauth_url": "https://accounts.google.com/o/oauth2/auth?state=abc"}
+            }),
+            "Connect Google Workspace".to_string(),
+        )
+        .expect("decision");
+
+        assert!(session.pending_connector_auth.is_none());
+        assert_eq!(connector_auth_status(&decision.event), "idle");
     }
 
     #[test]

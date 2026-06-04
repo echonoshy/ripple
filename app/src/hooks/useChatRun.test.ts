@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import {
   CONNECTOR_AUTH_POLL_TIMEOUT_MS,
   SESSION_TITLE_REFRESH_DELAYS_MS,
+  connectorAuthRequiresSessionAttention,
   connectorAuthPollPayloadFromEvent,
   shouldAutoOpenConnectorAuthWindow,
   shouldContinueConnectorAuthPoll,
@@ -103,15 +104,14 @@ function testGoogleAuthStillStartsAutomaticPoll() {
 }
 
 function testConnectorPageGoogleAuthDoesNotStartAutomaticPoll() {
-  const payload = connectorAuthPollPayloadFromEvent(
-    authEvent({
-      connector: "google_workspace",
-      display_name: "Google Workspace",
-      stage: "awaiting_browser_callback",
-      source: "connectors_page",
-      data: { oauth_url: "https://accounts.google.com/o/oauth2/auth?state=abc" },
-    })
-  );
+  const event = authEvent({
+    connector: "google_workspace",
+    display_name: "Google Workspace",
+    stage: "awaiting_browser_callback",
+    source: "connectors_page",
+    data: { oauth_url: "https://accounts.google.com/o/oauth2/auth?state=abc" },
+  });
+  const payload = connectorAuthPollPayloadFromEvent(event);
 
   assert.deepEqual(payload, {
     connector: "google_workspace",
@@ -121,6 +121,18 @@ function testConnectorPageGoogleAuthDoesNotStartAutomaticPoll() {
     mode: "connect",
   });
   assert.equal(payload && shouldStartConnectorAuthPoll(payload), false);
+  assert.equal(connectorAuthRequiresSessionAttention(event), false);
+}
+
+function testSkillGoogleAuthKeepsSessionAttentionWhilePolling() {
+  const event = authEvent({
+    connector: "google_workspace",
+    display_name: "Google Workspace",
+    stage: "awaiting_browser_callback",
+    data: { oauth_url: "https://accounts.google.com/o/oauth2/auth?state=abc" },
+  });
+
+  assert.equal(connectorAuthRequiresSessionAttention(event), true);
 }
 
 function testBilibiliAuthDoesNotStartAutomaticPollOrOpen() {
@@ -331,6 +343,7 @@ testFeishuSetupAuthStartsAutomaticPoll();
 testFeishuUserAuthStartsAutomaticPoll();
 testGoogleAuthStillStartsAutomaticPoll();
 testConnectorPageGoogleAuthDoesNotStartAutomaticPoll();
+testSkillGoogleAuthKeepsSessionAttentionWhilePolling();
 testBilibiliAuthDoesNotStartAutomaticPollOrOpen();
 testAuthorizedConnectorEventDoesNotStartPoll();
 testConnectorAuthPollContinuesOnlyBeforeTimeout();

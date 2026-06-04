@@ -805,7 +805,7 @@ impl SessionManager {
             created_at: record.created_at.clone(),
             last_active: record.last_active.clone(),
             message_count: record.message_count,
-            status: public_status(&record.status, record.pending_permission_request.as_ref()),
+            status: public_status(record),
             changed_file_count: 0,
             pending_approval_count: u32::from(record.pending_permission_request.is_some()),
             workspace_size_bytes: None,
@@ -943,11 +943,14 @@ fn session_age_seconds(record: &SessionRecord, now: OffsetDateTime) -> Option<u6
     }
 }
 
-fn public_status(status: &str, pending_permission: Option<&Value>) -> String {
-    if pending_permission.is_some() {
+fn public_status(record: &SessionRecord) -> String {
+    if record.pending_permission_request.is_some() {
         return "waiting_for_approval".to_string();
     }
-    match status {
+    if record.status_kind().is_waiting_for_user() && !has_pending_user_work(record) {
+        return "idle".to_string();
+    }
+    match record.status.as_str() {
         "running" => "running",
         "compacting" => "compacting",
         "awaiting_user_input" | "waiting_for_user" => "waiting_for_user",
@@ -959,6 +962,17 @@ fn public_status(status: &str, pending_permission: Option<&Value>) -> String {
         _ => "idle",
     }
     .to_string()
+}
+
+fn has_pending_user_work(record: &SessionRecord) -> bool {
+    record.pending_question.is_some()
+        || record
+            .pending_options
+            .as_ref()
+            .is_some_and(|options| !options.is_empty())
+        || record.pending_permission_request.is_some()
+        || record.pending_connector_auth.is_some()
+        || record.pending_schedule_request.is_some()
 }
 
 fn session_should_appear_in_list(record: &SessionRecord) -> bool {
@@ -1299,6 +1313,64 @@ mod tests {
         assert!(cleared.codex_thread_id.is_none());
         assert!(cleared.plan_steps.is_empty());
         assert!(cleared.plan_progress.is_none());
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn list_sessions_treats_waiting_without_pending_work_as_idle() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("ripple-session-test-{}", Uuid::new_v4()));
+        let config = test_config(&root);
+        let manager = SessionManager::new(config.clone(), SandboxManager::new(config));
+        let user_id = "alice";
+
+        let mut stale_waiting = manager
+            .create_session(
+                user_id,
+                CreateSessionInput {
+                    model: None,
+                    max_turns: None,
+                    system_prompt: None,
+                    context_folder_path: None,
+                    project_id: None,
+                },
+            )
+            .await?;
+        stale_waiting.status = "awaiting_user_input".to_string();
+        stale_waiting
+            .messages
+            .push(serde_json::json!({"role": "assistant", "content": "Open auth."}));
+        manager.save_record(stale_waiting.clone()).await?;
+
+        let mut pending_question = manager
+            .create_session(
+                user_id,
+                CreateSessionInput {
+                    model: None,
+                    max_turns: None,
+                    system_prompt: None,
+                    context_folder_path: None,
+                    project_id: None,
+                },
+            )
+            .await?;
+        pending_question.status = "awaiting_user_input".to_string();
+        pending_question.pending_question = Some("Continue?".to_string());
+        manager.save_record(pending_question.clone()).await?;
+
+        let sessions = manager.list_sessions(user_id).await?;
+        let stale_info = sessions
+            .iter()
+            .find(|session| session.session_id == stale_waiting.session_id)
+            .expect("stale waiting session should be listed");
+        let pending_info = sessions
+            .iter()
+            .find(|session| session.session_id == pending_question.session_id)
+            .expect("pending question session should be listed");
+
+        assert_eq!(stale_info.status, "idle");
+        assert_eq!(pending_info.status, "waiting_for_user");
 
         let _ = std::fs::remove_dir_all(root);
         Ok(())

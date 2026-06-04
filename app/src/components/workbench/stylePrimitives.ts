@@ -12,6 +12,8 @@ export const DENSE_GLASS_ICON_BUTTON_CLASS =
 export const MOBILE_GLASS_ICON_BUTTON_CLASS =
   "inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/76 bg-white/72 text-[#3c3c43] shadow-[0_6px_18px_rgba(60,60,67,0.08)] backdrop-blur-xl transition-all hover:bg-white/88 active:scale-[0.98] active:bg-white/82";
 
+export const WORKBENCH_PAGE_CONTENT_CLASS = "mx-auto w-full max-w-7xl";
+
 export const TYPOGRAPHY_PAGE_TITLE_CLASS = "text-[20px] leading-[30px] font-medium tracking-normal";
 export const TYPOGRAPHY_SECTION_TITLE_CLASS = "text-[16px] leading-6 font-medium tracking-normal";
 export const TYPOGRAPHY_BODY_CLASS = "text-[14px] leading-[22px]";

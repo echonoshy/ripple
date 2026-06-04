@@ -188,7 +188,8 @@ function testConnectorsPageUsesCompactMobileDensity() {
   assert.match(source, /LUCIDE_NAV_STROKE_WIDTH/);
   assert.doesNotMatch(source, /pb-\[calc\(88px\+env\(safe-area-inset-bottom\)\)\]/);
   assert.doesNotMatch(source, /circle_at_16%_0%/);
-  assert.match(source, /className="mx-auto max-w-5xl space-y-2"/);
+  assert.match(source, /WORKBENCH_PAGE_CONTENT_CLASS/);
+  assert.match(source, /className=\{`\$\{WORKBENCH_PAGE_CONTENT_CLASS\} space-y-2`\}/);
   assert.match(source, /data-ripple-connector-logo-shell="true"/);
   assert.match(source, /<ConnectorOfficialLogo connector=\{connector\} status=\{status\} \/>/);
   assert.match(source, /inline-flex h-9 w-9 shrink-0/);

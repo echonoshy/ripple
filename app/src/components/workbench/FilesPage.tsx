@@ -6,6 +6,7 @@ import {
   COMPACT_IOS_PAGE_BACKGROUND,
   MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS,
   MOBILE_PAGE_TOP_SAFE_AREA_CLASS,
+  WORKBENCH_PAGE_CONTENT_CLASS,
 } from "./stylePrimitives";
 
 interface FilesPageProps {
@@ -28,7 +29,7 @@ export default function FilesPage({
       data-ripple-files-page="finder-stage"
       className={`flex h-full min-h-0 flex-col overflow-hidden ${COMPACT_IOS_PAGE_BACKGROUND} px-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} text-[#111827] md:px-6 lg:pb-5`}
     >
-      <div className="mx-auto w-full max-w-5xl flex-1 flex flex-col min-h-0">
+      <div className={`${WORKBENCH_PAGE_CONTENT_CLASS} flex min-h-0 flex-1 flex-col`}>
         <WorkspaceExplorer
           userId={userId}
           refreshToken={refreshToken}

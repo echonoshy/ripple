@@ -43,6 +43,7 @@ import {
   TYPOGRAPHY_META_MEDIUM_CLASS,
   TYPOGRAPHY_MICRO_MEDIUM_CLASS,
   TYPOGRAPHY_PAGE_TITLE_CLASS,
+  WORKBENCH_PAGE_CONTENT_CLASS,
 } from "./stylePrimitives";
 
 const CONNECTOR_CACHE_TTL_MS = 30_000;
@@ -512,7 +513,7 @@ export default function ConnectorsPage({
     <div
       className={`h-full min-h-0 overflow-y-auto ${COMPACT_IOS_PAGE_BACKGROUND} px-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} text-[#111827] md:px-6 lg:pb-5`}
     >
-      <div className="mx-auto max-w-5xl space-y-2">
+      <div className={`${WORKBENCH_PAGE_CONTENT_CLASS} space-y-2`}>
         <header className="flex flex-wrap items-start justify-between gap-2">
           <div className="flex min-w-0 items-start gap-2.5">
             {onBack ? (

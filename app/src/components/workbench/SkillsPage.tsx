@@ -31,6 +31,7 @@ import {
   TYPOGRAPHY_META_MEDIUM_CLASS,
   TYPOGRAPHY_MICRO_MEDIUM_CLASS,
   TYPOGRAPHY_PAGE_TITLE_CLASS,
+  WORKBENCH_PAGE_CONTENT_CLASS,
 } from "./stylePrimitives";
 
 const SKILL_REFRESH_THROTTLE_MS = 10_000;
@@ -600,7 +601,7 @@ export default function SkillsPage({
       data-ripple-skills-page="true"
       className={`h-full min-h-0 overflow-y-auto ${COMPACT_IOS_PAGE_BACKGROUND} px-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} ${SKILLS_PAGE_TEXT_PRIMARY_CLASS} md:px-6 lg:pb-5`}
     >
-      <div className="mx-auto max-w-5xl space-y-2.5">
+      <div className={`${WORKBENCH_PAGE_CONTENT_CLASS} space-y-2.5`}>
         <header className="flex flex-wrap items-start justify-between gap-2">
           <div className="flex min-w-0 items-start gap-2.5">
             {onBack && (

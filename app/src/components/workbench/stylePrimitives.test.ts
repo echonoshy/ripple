@@ -56,6 +56,35 @@ assert.equal(MOBILE_TAB_BAR_MASK_HEIGHT_CLASS, "h-[calc(96px+env(safe-area-inset
 assert.equal(LUCIDE_STANDARD_STROKE_WIDTH, 2.2);
 assert.equal(LUCIDE_NAV_STROKE_WIDTH, 2.25);
 
+const stylePrimitivesSource = readFileSync(new URL("./stylePrimitives.ts", import.meta.url), "utf8");
+assert.match(
+  stylePrimitivesSource,
+  /WORKBENCH_PAGE_CONTENT_CLASS = "mx-auto w-full max-w-7xl"/
+);
+
+const sharedWidthPageSources = [
+  "./FilesPage.tsx",
+  "./SkillsPage.tsx",
+  "./ConnectorsPage.tsx",
+  "./AutomationsPage.tsx",
+];
+
+for (const sourcePath of sharedWidthPageSources) {
+  const source = readFileSync(new URL(sourcePath, import.meta.url), "utf8");
+  assert.match(source, /WORKBENCH_PAGE_CONTENT_CLASS/, `${sourcePath} uses shared page width`);
+  assert.doesNotMatch(source, /mx-auto (?:w-full )?max-w-5xl/, `${sourcePath} avoids narrow 5xl page width`);
+}
+
+const workspaceExplorerSource = readFileSync(
+  new URL("../WorkspaceExplorer.tsx", import.meta.url),
+  "utf8"
+);
+assert.match(
+  workspaceExplorerSource,
+  /lg:grid-cols-\[minmax\(280px,360px\)_minmax\(0,1fr\)\]/
+);
+assert.doesNotMatch(workspaceExplorerSource, /minmax\(320px,440px\)_minmax\(0,1fr\)/);
+
 const mobileReadableSources = [
   "./MobileTabBar.tsx",
   "./MobileSessionsPage.tsx",

@@ -926,6 +926,10 @@ mod tests {
             body.pointer("/error/code").and_then(Value::as_str),
             Some("validation_required")
         );
+        assert_eq!(
+            body.pointer("/error/message").and_then(Value::as_str),
+            Some("Validate this skill before enabling it.")
+        );
     }
 
     #[tokio::test]
@@ -1059,6 +1063,89 @@ mod tests {
             Some("needs_connection")
         );
         assert_eq!(sheets.get("enabled").and_then(Value::as_bool), Some(false));
+
+        let _ = std::fs::remove_dir_all(fake_gog_root);
+    }
+
+    #[tokio::test]
+    async fn user_skill_validation_uses_real_google_account_status() {
+        let fake_gog_root = std::env::temp_dir().join(format!(
+            "ripple-api-skills-gog-root-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let fake_gog = fake_gog_root.join("current/bin/gog");
+        std::fs::create_dir_all(fake_gog.parent().unwrap()).unwrap();
+        std::fs::write(&fake_gog, "#!/bin/sh\nexit 0\n").unwrap();
+
+        let fake_nsjail = fake_gog_root.join("fake-nsjail");
+        std::fs::write(
+            &fake_nsjail,
+            "#!/bin/sh\ncase \" $* \" in\n  *\" --check \"*) printf '{\"accounts\":[]}' ;;\n  *) printf '{\"accounts\":[{\"email\":\"stale@example.com\"}]}' ;;\nesac\n",
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&fake_gog, std::fs::Permissions::from_mode(0o755)).unwrap();
+            std::fs::set_permissions(&fake_nsjail, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let state = test_state_with_shared_dirs_and_google_cli(
+            vec!["service-key".to_string()],
+            Vec::new(),
+            fake_gog_root.clone(),
+            fake_nsjail,
+        );
+        let workspace = state
+            .sandboxes
+            .ensure_sandbox("skill-google-validation-user")
+            .unwrap();
+        let keyring = workspace.join(".config/gogcli/keyring");
+        std::fs::create_dir_all(keyring.parent().unwrap()).unwrap();
+        std::fs::write(&keyring, "stale-keyring").unwrap();
+
+        let (status, created) = request_json(
+            state.clone(),
+            Method::POST,
+            "/v1/skills",
+            "service-key",
+            Some("skill-google-validation-user"),
+            Some(json!({
+                "display_name": "Google Draft",
+                "description": "Use Google Workspace.",
+                "steps": ["Read recent mail"],
+                "requires_connectors": ["google_workspace"],
+                "requires_user_confirmation": false
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        let skill_id = created.get("id").and_then(Value::as_str).expect("skill id");
+
+        let (status, validation) = request_json(
+            state,
+            Method::POST,
+            &format!("/v1/skills/{skill_id}/validate"),
+            "service-key",
+            Some("skill-google-validation-user"),
+            None,
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            validation.get("passed").and_then(Value::as_bool),
+            Some(false)
+        );
+        assert!(validation
+            .get("checks")
+            .and_then(Value::as_array)
+            .unwrap()
+            .iter()
+            .any(|check| {
+                check.get("name").and_then(Value::as_str) == Some("dependencies")
+                    && check.get("status").and_then(Value::as_str) == Some("failed")
+            }));
 
         let _ = std::fs::remove_dir_all(fake_gog_root);
     }
@@ -1202,6 +1289,59 @@ mod tests {
                 .unwrap(),
         );
         assert!(!rendered.contains(&skill_id));
+    }
+
+    #[tokio::test]
+    async fn skill_patch_preserves_existing_body_and_safety_sections() {
+        let state = test_state(vec!["service-key".to_string()]);
+        let workspace = state
+            .sandboxes
+            .ensure_sandbox("skill-patch-preserve-user")
+            .unwrap();
+
+        let (status, created) = request_json(
+            state.clone(),
+            Method::POST,
+            "/v1/skills",
+            "service-key",
+            Some("skill-patch-preserve-user"),
+            Some(json!({
+                "display_name": "Risky Review",
+                "description": "Initial description.",
+                "when_to_use": "When reviewing risky changes.",
+                "steps": ["Collect risky changes", "Ask before writing"],
+                "output_format": "A concise risk report.",
+                "requires_connectors": ["notion"],
+                "requires_user_confirmation": true,
+                "test_example": "Review two risky changes."
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        let skill_id = created.get("id").and_then(Value::as_str).expect("skill id");
+
+        let (status, _updated) = request_json(
+            state,
+            Method::PATCH,
+            &format!("/v1/skills/{skill_id}"),
+            "service-key",
+            Some("skill-patch-preserve-user"),
+            Some(json!({
+                "description": "Updated description."
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let text = std::fs::read_to_string(workspace.join("skills/risky-review/SKILL.md")).unwrap();
+        assert!(text.contains("description: Updated description."));
+        assert!(text.contains("- Collect risky changes"));
+        assert!(text.contains("- Ask before writing"));
+        assert!(text.contains("A concise risk report."));
+        assert!(text.contains("- User confirmation required: yes"));
+        assert!(text.contains("Review two risky changes."));
+        assert!(text.contains("connectors:"));
+        assert!(text.contains("- notion"));
     }
 
     #[tokio::test]

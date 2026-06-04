@@ -18,7 +18,8 @@ Ripple skills are Markdown files with YAML frontmatter. They are not part of the
 - The prompt only receives skills that are enabled and whose bin/connector requirements are satisfied. Disabled, pending, conflicting, missing, or connector-blocked skills remain visible through the control-plane catalog but are not advertised to Codex as available skills.
 - Connector-backed skills should declare both the required helper binary and the required connector in frontmatter, for example `requires.bins: ["gog"]` and `requires.connectors: ["google_workspace"]`.
 - User-created skills support `metadata.kind: text` or `metadata.kind: executable`. First-version user executable skills only support `metadata.runtime: python`.
-- Python executable skills declare `metadata.entry` and optional `metadata.requires.python_packages`. Codex should run them with `ripple-py python -- ...`; when packages are present it should add one `--with <package>` per requirement.
+- Python executable skills declare `metadata.entry` and optional `metadata.requires.python_packages`. The prompt renders an explicit `/workspace/skills/<name>/...` command using `ripple-py python -- ...`; when packages are present it adds one `--with <package>` per requirement.
+- `content_hash` covers `SKILL.md`, the Python entrypoint when declared, and files under `assets/`, `references/`, and `resources/` next to the skill.
 
 ## Capability Catalog
 
@@ -32,7 +33,8 @@ Ripple skills are Markdown files with YAML frontmatter. They are not part of the
 - `POST /v1/skills` creates a user skill draft under the current user workspace `skills/` directory.
 - `PATCH /v1/skills/{skill_id}` edits, enables, or disables user skills. Ripple shared skills are read-only.
 - `DELETE /v1/skills/{skill_id}` archives a user skill after explicit confirmation; archived skills no longer participate in manifest rendering.
-- `POST /v1/skills/{skill_id}/validate` records static format, safety, dependency, Python runtime, and content-hash checks. It does not run user scripts or install packages. New or edited user skills must validate before they can be enabled.
+- `POST /v1/skills/{skill_id}/validate` records format, safety, current dependency availability, Python runtime, and content-hash checks. It does not run user scripts or install packages. New or edited user skills must validate before they can be enabled.
+- Connector names are stored canonically. `lark` is accepted as a compatibility alias and normalized to `feishu`.
 - Chat-side “save this as a skill” requests create draft user skills only. They are not auto-enabled and do not enter the Codex prompt until validation passes and the user enables them.
 
 ## Namespaces

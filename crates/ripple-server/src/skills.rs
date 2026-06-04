@@ -16,7 +16,8 @@ const STATUS_PENDING_ENABLE: &str = "pending_enable";
 const STATUS_CONFLICT_DISABLED: &str = "conflict_disabled";
 const STATUS_MISSING_REQUIREMENTS: &str = "missing_requirements";
 const STATUS_BLOCKED_BY_CONNECTOR_AUTH: &str = "blocked_by_connector_auth";
-const KNOWN_CONNECTORS: &[&str] = &["bilibili", "feishu", "google_workspace", "lark", "notion"];
+const KNOWN_CONNECTORS: &[&str] = &["bilibili", "feishu", "google_workspace", "notion"];
+const HASHED_RESOURCE_DIRS: &[&str] = &["assets", "references", "resources"];
 
 #[derive(Debug, Clone, Serialize)]
 pub struct SkillManifestEntry {
@@ -236,7 +237,7 @@ pub fn render_skill_manifest_with_options(
         .into_iter()
         .filter(|entry| entry.enabled && entry.status == STATUS_AVAILABLE)
         .collect::<Vec<_>>();
-    render_skill_entries(entries)
+    render_skill_entries(entries, workspace_root)
 }
 
 pub fn render_all_skill_manifest_with_options(
@@ -244,14 +245,13 @@ pub fn render_all_skill_manifest_with_options(
     workspace_root: Option<&Path>,
     options: &SkillManifestOptions,
 ) -> String {
-    render_skill_entries(build_skill_manifest_with_options(
-        config,
+    render_skill_entries(
+        build_skill_manifest_with_options(config, workspace_root, options),
         workspace_root,
-        options,
-    ))
+    )
 }
 
-fn render_skill_entries(entries: Vec<SkillManifestEntry>) -> String {
+fn render_skill_entries(entries: Vec<SkillManifestEntry>, workspace_root: Option<&Path>) -> String {
     if entries.is_empty() {
         return "- no skills available".to_string();
     }
@@ -292,7 +292,10 @@ fn render_skill_entries(entries: Vec<SkillManifestEntry>) -> String {
                 && entry.runtime.as_deref() == Some("python")
                 && entry.entry.is_some()
             {
-                line.push_str(&format!("\n  execute: {}", python_execute_command(&entry)));
+                line.push_str(&format!(
+                    "\n  execute: {}",
+                    python_execute_command(&entry, workspace_root)
+                ));
             }
             line.push_str(&format!("\n  content_hash: {}", entry.content_hash));
             if entry.status != STATUS_AVAILABLE {
@@ -445,7 +448,7 @@ fn load_skill_file(
         .to_string();
     let requires = nested_mapping(&metadata, "requires");
     let requires_bins = string_list_field(requires, "bins");
-    let requires_connectors = string_list_field(requires, "connectors");
+    let requires_connectors = canonical_connector_list(string_list_field(requires, "connectors"));
     let python_packages = string_list_field_candidates(
         requires,
         &["python_packages", "python-packages", "python_packages"],
@@ -690,15 +693,54 @@ fn normalized_kind(value: &str) -> String {
 fn content_hash_for_skill(path: &Path, entry: Option<&str>) -> String {
     let mut hasher = Sha256::new();
     hash_file_if_readable(&mut hasher, "SKILL.md", path);
+    let parent = path.parent();
     if let Some(entry) = entry.filter(|entry| safe_relative_path(entry)) {
-        if let Some(parent) = path.parent() {
+        if let Some(parent) = parent {
             let entry_path = parent.join(entry);
             if entry_path != path {
                 hash_file_if_readable(&mut hasher, entry, &entry_path);
             }
         }
     }
+    if let Some(parent) = parent {
+        for resource in skill_resource_files(parent) {
+            let label = resource
+                .strip_prefix(parent)
+                .ok()
+                .map(slash_path)
+                .unwrap_or_else(|| slash_path(&resource));
+            hash_file_if_readable(&mut hasher, &label, &resource);
+        }
+    }
     format!("sha256:{}", hex_digest(hasher.finalize().as_slice()))
+}
+
+fn skill_resource_files(skill_root: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    for dir_name in HASHED_RESOURCE_DIRS {
+        collect_regular_files(&skill_root.join(dir_name), &mut files);
+    }
+    files.sort();
+    files
+}
+
+fn collect_regular_files(path: &Path, files: &mut Vec<PathBuf>) {
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return;
+    };
+    if metadata.is_file() {
+        files.push(path.to_path_buf());
+        return;
+    }
+    if !metadata.is_dir() {
+        return;
+    }
+    let Ok(read_dir) = std::fs::read_dir(path) else {
+        return;
+    };
+    for entry in read_dir.flatten() {
+        collect_regular_files(&entry.path(), files);
+    }
 }
 
 fn hash_file_if_readable(hasher: &mut Sha256, label: &str, path: &Path) {
@@ -718,17 +760,60 @@ fn safe_relative_path(value: &str) -> bool {
             .all(|component| matches!(component, Component::Normal(_)))
 }
 
-fn python_execute_command(entry: &SkillManifestEntry) -> String {
+fn python_execute_command(entry: &SkillManifestEntry, workspace_root: Option<&Path>) -> String {
     let mut command = String::from("ripple-py python");
     for package in &entry.python_packages {
         command.push_str(" --with ");
         command.push_str(package);
     }
     command.push_str(" -- ");
-    if let Some(skill_entry) = &entry.entry {
-        command.push_str(skill_entry);
+    if let Some(skill_entry) = python_entry_command_path(entry, workspace_root) {
+        command.push_str(&skill_entry);
     }
     command
+}
+
+fn python_entry_command_path(
+    entry: &SkillManifestEntry,
+    workspace_root: Option<&Path>,
+) -> Option<String> {
+    let skill_entry = entry.entry.as_deref()?;
+    if let Some(workspace_root) = workspace_root {
+        let skill_file = Path::new(&entry.path);
+        if let Some(skill_dir) = skill_file.parent() {
+            if let Ok(relative_skill_dir) = skill_dir.strip_prefix(workspace_root) {
+                return Some(slash_path(
+                    &Path::new("/workspace")
+                        .join(relative_skill_dir)
+                        .join(skill_entry),
+                ));
+            }
+        }
+    }
+    Some(skill_entry.to_string())
+}
+
+fn slash_path(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
+fn canonical_connector_list(connectors: Vec<String>) -> Vec<String> {
+    let mut connectors = connectors
+        .into_iter()
+        .map(|connector| canonical_connector_name(&connector))
+        .filter(|connector| !connector.is_empty())
+        .collect::<Vec<_>>();
+    connectors.sort();
+    connectors.dedup();
+    connectors
+}
+
+fn canonical_connector_name(connector: &str) -> String {
+    match connector.trim().to_ascii_lowercase().as_str() {
+        "" => String::new(),
+        "lark" => "feishu".to_string(),
+        other => other.to_string(),
+    }
 }
 
 fn hex_digest(bytes: &[u8]) -> String {
@@ -963,6 +1048,15 @@ metadata:
         std::fs::write(&script, "print('hello')\n").unwrap();
         let config = test_config(&root, Vec::new());
 
+        let rendered = render_all_skill_manifest_with_options(
+            &config,
+            Some(&workspace),
+            &SkillManifestOptions::default(),
+        );
+        assert!(rendered.contains(
+            "execute: ripple-py python --with pandas==2.2.3 -- /workspace/skills/py-demo/scripts/run.py"
+        ));
+
         let entries = build_skill_manifest(&config, Some(&workspace));
         let entry = entries
             .iter()
@@ -977,12 +1071,65 @@ metadata:
         assert!(!entry.content_hash.is_empty());
 
         let original_hash = entry.content_hash.clone();
+        let reference = workspace.join("skills/py-demo/references/guide.md");
+        std::fs::create_dir_all(reference.parent().unwrap()).unwrap();
+        std::fs::write(&reference, "reference v1\n").unwrap();
+        let changed_by_reference = build_skill_manifest(&config, Some(&workspace))
+            .into_iter()
+            .find(|entry| entry.id == "user:py-demo")
+            .unwrap();
+        assert_ne!(changed_by_reference.content_hash, original_hash);
+
+        let reference_hash = changed_by_reference.content_hash.clone();
         std::fs::write(&script, "print('changed')\n").unwrap();
         let changed = build_skill_manifest(&config, Some(&workspace))
             .into_iter()
             .find(|entry| entry.id == "user:py-demo")
             .unwrap();
-        assert_ne!(changed.content_hash, original_hash);
+        assert_ne!(changed.content_hash, reference_hash);
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn lark_connector_requirements_are_canonicalized_to_feishu() {
+        let root = std::env::temp_dir().join(format!("ripple-skills-test-{}", Uuid::new_v4()));
+        let workspace = root.join("workspace");
+        let skill = workspace.join("skills/lark-demo/SKILL.md");
+        write_skill(
+            &skill,
+            r#"name: lark-demo
+description: Lark demo
+metadata:
+  requires:
+    connectors:
+      - lark"#,
+        );
+        let config = test_config(&root, Vec::new());
+        let mut options = SkillManifestOptions::default();
+        options
+            .connector_statuses
+            .insert("feishu".to_string(), false);
+
+        let entry = build_skill_manifest_with_options(&config, Some(&workspace), &options)
+            .into_iter()
+            .find(|entry| entry.id == "user:lark-demo")
+            .unwrap();
+
+        assert_eq!(entry.requires_connectors, vec!["feishu"]);
+        assert_eq!(entry.blocked_connectors, vec!["feishu"]);
+        assert_eq!(entry.status, "pending_enable");
+
+        options.enabled_user_skill_ids.insert(entry.id.clone());
+        options.validated_user_skill_ids.insert(entry.id.clone());
+        options
+            .validated_user_skill_hashes
+            .insert(entry.id.clone(), entry.content_hash.clone());
+        let enabled_entry = build_skill_manifest_with_options(&config, Some(&workspace), &options)
+            .into_iter()
+            .find(|entry| entry.id == "user:lark-demo")
+            .unwrap();
+        assert_eq!(enabled_entry.status, "blocked_by_connector_auth");
 
         let _ = std::fs::remove_dir_all(root);
     }

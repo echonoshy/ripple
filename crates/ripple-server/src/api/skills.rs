@@ -165,7 +165,7 @@ pub async fn update_skill(
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     state.sandboxes.ensure_sandbox(&user_id)?;
-    let skill = find_skill(&state, &user_id, &skill_id)?;
+    let skill = find_catalog_skill(&state, &user_id, &skill_id).await?;
     ensure_user_skill(&skill)?;
     let mut settings = read_settings(&state, &user_id)?;
     let has_content_update = input.display_name.is_some()
@@ -219,22 +219,37 @@ pub async fn update_skill(
     }
 
     if let Some(enabled) = input.enabled {
+        let current_skill = find_catalog_skill(&state, &user_id, &skill_id).await?;
         let record = settings
             .records
             .entry(skill_id.clone())
             .or_insert_with(UserSkillRecord::default);
         if enabled {
+            if current_skill.status == "invalid"
+                || current_skill.status == "conflict_disabled"
+                || !current_skill.missing_bins.is_empty()
+                || !current_skill.missing_connectors.is_empty()
+                || !current_skill.blocked_connectors.is_empty()
+            {
+                return Err(ApiError::new(
+                    StatusCode::CONFLICT,
+                    json!({
+                        "code": "requirements_unavailable",
+                        "message": "Connect required services or fix missing skill requirements before enabling it."
+                    }),
+                ));
+            }
             if !record
                 .validation
                 .as_ref()
-                .map(|validation| validation_matches_skill(validation, &skill))
+                .map(|validation| validation_matches_skill(validation, &current_skill))
                 .unwrap_or_else(|| settings.enabled_skill_ids.contains(&skill_id))
             {
                 return Err(ApiError::new(
                     StatusCode::CONFLICT,
                     json!({
                         "code": "validation_required",
-                        "message": "Test this skill before enabling it."
+                        "message": "Validate this skill before enabling it."
                     }),
                 ));
             }
@@ -252,7 +267,7 @@ pub async fn update_skill(
     }
 
     write_settings(&state, &user_id, &settings)?;
-    let updated = find_skill(&state, &user_id, &skill_id)?;
+    let updated = find_catalog_skill(&state, &user_id, &skill_id).await?;
     Ok(Json(skill_info(&updated, &settings)))
 }
 
@@ -321,7 +336,7 @@ pub async fn validate_skill(
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     state.sandboxes.ensure_sandbox(&user_id)?;
-    let skill = find_skill(&state, &user_id, &skill_id)?;
+    let skill = find_catalog_skill(&state, &user_id, &skill_id).await?;
     ensure_user_skill(&skill)?;
     let validation = validate_user_skill(&state.config, &skill)?;
     let mut settings = read_settings(&state, &user_id)?;
@@ -506,7 +521,8 @@ fn skill_info(skill: &SkillManifestEntry, settings: &UserSkillSettings) -> Value
         "validation": validation,
         "created_at": record.and_then(|record| record.created_at.clone()),
         "updated_at": record.and_then(|record| record.updated_at.clone()),
-        "last_tested_at": record.and_then(|record| record.last_tested_at.clone())
+        "last_tested_at": record.and_then(|record| record.last_tested_at.clone()),
+        "last_validated_at": record.and_then(|record| record.last_tested_at.clone())
     })
 }
 
@@ -756,12 +772,20 @@ fn yaml_scalar(value: &str) -> anyhow::Result<String> {
 fn cleaned_connectors(connectors: &[String]) -> Vec<String> {
     let mut out = connectors
         .iter()
-        .map(|value| value.trim().to_string())
+        .map(|value| canonical_connector_name(value))
         .filter(|value| !value.is_empty())
         .collect::<Vec<_>>();
     out.sort();
     out.dedup();
     out
+}
+
+fn canonical_connector_name(connector: &str) -> String {
+    match connector.trim().to_ascii_lowercase().as_str() {
+        "" => String::new(),
+        "lark" => "feishu".to_string(),
+        other => other.to_string(),
+    }
 }
 
 fn cleaned_python_packages(packages: &[String]) -> Vec<String> {
@@ -812,6 +836,7 @@ fn normalized_entry(entry: Option<&str>) -> Option<String> {
 }
 
 fn merged_patch_input(skill: &SkillManifestEntry, patch: &SkillPatchRequest) -> SkillDraftInput {
+    let existing_text = std::fs::read_to_string(&skill.path).unwrap_or_default();
     SkillDraftInput {
         name: Some(skill.name.clone()),
         display_name: Some(
@@ -831,8 +856,11 @@ fn merged_patch_input(skill: &SkillManifestEntry, patch: &SkillPatchRequest) -> 
         steps: patch
             .steps
             .clone()
-            .unwrap_or_else(|| vec!["Follow the saved workflow.".to_string()]),
-        output_format: patch.output_format.clone(),
+            .unwrap_or_else(|| existing_steps(&existing_text)),
+        output_format: patch
+            .output_format
+            .clone()
+            .or_else(|| existing_section(&existing_text, "Output Format")),
         kind: patch.kind.clone().or_else(|| Some(skill.kind.clone())),
         runtime: patch.runtime.clone().or_else(|| skill.runtime.clone()),
         entry: patch.entry.clone().or_else(|| skill.entry.clone()),
@@ -845,9 +873,55 @@ fn merged_patch_input(skill: &SkillManifestEntry, patch: &SkillPatchRequest) -> 
             .requires_connectors
             .clone()
             .unwrap_or_else(|| skill.requires_connectors.clone()),
-        requires_user_confirmation: patch.requires_user_confirmation.unwrap_or(false),
-        test_example: patch.test_example.clone(),
+        requires_user_confirmation: patch
+            .requires_user_confirmation
+            .unwrap_or_else(|| existing_user_confirmation_required(&existing_text)),
+        test_example: patch
+            .test_example
+            .clone()
+            .or_else(|| existing_section(&existing_text, "Test Example")),
     }
+}
+
+fn existing_steps(text: &str) -> Vec<String> {
+    let steps = existing_section(text, "Steps")
+        .map(|section| {
+            section
+                .lines()
+                .filter_map(|line| line.trim().strip_prefix("- ").map(str::trim))
+                .filter(|line| !line.is_empty())
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    if steps.is_empty() {
+        vec!["Follow the saved workflow.".to_string()]
+    } else {
+        steps
+    }
+}
+
+fn existing_section(text: &str, heading: &str) -> Option<String> {
+    let marker = format!("## {heading}");
+    let (_, rest) = text.split_once(&marker)?;
+    let body = rest
+        .lines()
+        .skip(1)
+        .take_while(|line| !line.starts_with("## "))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let body = body.trim();
+    (!body.is_empty()).then(|| body.to_string())
+}
+
+fn existing_user_confirmation_required(text: &str) -> bool {
+    existing_section(text, "Safety")
+        .map(|section| {
+            section
+                .to_lowercase()
+                .contains("user confirmation required: yes")
+        })
+        .unwrap_or(false)
 }
 
 fn validate_user_skill(

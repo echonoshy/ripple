@@ -79,12 +79,12 @@
 - `POST /v1/connectors/:connector_name/auth/cancel` 取消当前 user 的待授权状态，幂等返回 `{ ok, connector, cancelled }`。它会清理 connector runtime pending state，例如 Google assisted OAuth、Feishu setup 进程、Bilibili QR pending state，并清掉该 user 相关 session 的 pending connector auth。
 - `POST /v1/connectors/:connector_name/disconnect` 是本地断开。它删除 Ripple user sandbox 里的 token、keyring、cookie 或 CLI 配置，不承诺撤销 provider 侧授权。Google 支持 `{ email }` 删除单个本地账号 token，也支持 `{ all: true }` 清理本地 Google keyring。
 - `GET /v1/capabilities` 返回内部统一能力目录，合并 connectors、runtime capabilities、Ripple shared skills 和当前 user workspace skills；前端普通用户页面不直接展示 runtime capability 分类。
-- `GET /v1/skills` 返回用户侧 skill 列表，不包含 runtime capability；skill 条目包含 `display_source`、`kind`、`runtime`、`entry`、`python_packages` 和 `content_hash`。
+- `GET /v1/skills` 返回用户侧 skill 列表，不包含 runtime capability；skill 条目包含 `display_source`、`kind`、`runtime`、`entry`、`python_packages`、`content_hash` 和 `last_validated_at`。
 - `POST /v1/skills` 创建当前 user 的 skill 草稿；旧 text skill 字段保持兼容，新增字段支持创建 Python executable skill 草稿。
 - `GET /v1/skills/:skill_id` 返回单个 skill 详情。
 - `PATCH /v1/skills/:skill_id` 支持编辑、启用和停用 `user:*` skill；`ripple:*` shared skills 只读。
 - `DELETE /v1/skills/:skill_id` 需要 `{ confirm: true }`，归档 user skill，不物理丢失。
-- `POST /v1/skills/:skill_id/validate` 执行静态格式、安全、依赖、Python runtime 和 content-hash 校验；不会运行用户脚本或安装 Python 包。新建或修改后的 user skill 校验通过且 hash 未变化前不能启用，也不会注入 Codex prompt。
+- `POST /v1/skills/:skill_id/validate` 执行格式、安全、当前依赖可用性、Python runtime 和 content-hash 校验；不会运行用户脚本或安装 Python 包。新建或修改后的 user skill 校验通过且 hash 未变化前不能启用，也不会注入 Codex prompt。
 
 ## Health And Diagnostics
 

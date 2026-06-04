@@ -203,6 +203,7 @@ export interface SkillInfo {
   created_at?: string | null;
   updated_at?: string | null;
   last_tested_at?: string | null;
+  last_validated_at?: string | null;
   when_to_use?: string;
   version?: string;
   kind?: "text" | "executable" | string;

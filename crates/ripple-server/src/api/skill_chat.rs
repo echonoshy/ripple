@@ -68,7 +68,7 @@ fn skill_workflow_text(input: &str) -> String {
 fn skill_draft_created_event(skill: Value) -> Value {
     json!({
         "type": "skill_draft_created",
-        "message": "已创建能力草稿。测试并启用后，我才会在后续任务中使用它。",
+        "message": "已创建能力草稿。检查并启用后，我才会在后续任务中使用它。",
         "skill": skill
     })
 }

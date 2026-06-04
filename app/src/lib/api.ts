@@ -12,6 +12,7 @@ import {
   GogcliAccountsResponse,
   ScheduleInfo,
   SessionDetail,
+  SessionControlAction,
   SessionSummary,
   SkillDraftInput,
   SkillInfo,
@@ -1256,6 +1257,38 @@ export async function sendChatMessage(
     {
       model,
       messages: [{ role: "user", content: buildChatMessageContent(content, options?.files || []) }],
+      stream: true,
+      session_id: sessionId,
+    },
+    callbacks,
+    { signal: options?.signal }
+  );
+}
+
+export async function sendSessionControlAction(
+  sessionId: string,
+  label: string,
+  action: SessionControlAction,
+  model: string,
+  callbacks: ChatStreamCallbacks,
+  options?: { signal?: AbortSignal }
+) {
+  return streamChatResponse(
+    "/chat/completions",
+    {
+      model,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "ripple_control_action",
+              label,
+              action,
+            },
+          ],
+        },
+      ],
       stream: true,
       session_id: sessionId,
     },

@@ -85,45 +85,50 @@ testConnectorsPageDismissesActionMessageAutomatically();
 function testConnectorsPageHasManagementActions() {
   const source = readFileSync(new URL("./ConnectorsPage.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /cancelConnectorAuth/);
+  assert.match(source, /onOpenSessionAction/);
+  assert.match(source, /type: "connector\.auth\.start"/);
+  assert.doesNotMatch(source, /startConnectorAuth/);
+  assert.doesNotMatch(source, /completeConnectorAuth/);
+  assert.doesNotMatch(source, /cancelConnectorAuth/);
   assert.doesNotMatch(source, /revokeConnector/);
   assert.match(source, /handleDisconnect\(connector,\s*\{\s*email:\s*account\.email/);
-  assert.match(source, /notionToken/);
   assert.doesNotMatch(source, /remote revoke/i);
 }
 
 testConnectorsPageHasManagementActions();
 
-function testConnectorsPageAdvancesFeishuSetupBeforeCompletingAuth() {
+function testConnectorsPageDelegatesAuthToSession() {
   const source = readFileSync(new URL("./ConnectorsPage.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /connector\.name === "feishu" && !deviceCode/);
-  assert.match(source, /startConnectorAuth\(connector\.name\)/);
-  assert.match(source, /pendingExternalUrl/);
+  assert.match(source, /handleStartAuth\(connector\)/);
+  assert.match(source, /onOpenSessionAction\?\.\s*\(/);
+  assert.match(source, /source: "connectors_page"/);
+  assert.doesNotMatch(source, /pendingExternalUrl/);
+  assert.doesNotMatch(source, /handleCompletePendingAuth/);
 }
 
-testConnectorsPageAdvancesFeishuSetupBeforeCompletingAuth();
+testConnectorsPageDelegatesAuthToSession();
 
-function testConnectorsPageKeepsBilibiliAuthQrOnly() {
+function testConnectorsPageLeavesQrRenderingToSession() {
   const source = readFileSync(new URL("./ConnectorsPage.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /maybeUrl && connector\.name !== "bilibili"/);
-  assert.match(source, /connector\.name === "bilibili"\s*\?\s*null\s*:/);
+  assert.doesNotMatch(source, /qrcodeImageUrl/);
+  assert.doesNotMatch(source, /qrcodeContent/);
+  assert.doesNotMatch(source, /bilibiliQrAlt/);
 }
 
-testConnectorsPageKeepsBilibiliAuthQrOnly();
+testConnectorsPageLeavesQrRenderingToSession();
 
-function testConnectorsPageUsesTauriAwareExternalOpener() {
+function testConnectorsPageDoesNotOwnExternalAuthWindows() {
   const source = readFileSync(new URL("./ConnectorsPage.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /import \{ openExternalUrl \} from "@\/lib\/platform";/);
-  assert.match(source, /openExternalUrl\(maybeUrl, "ripple-connector-auth"\)/);
-  assert.match(source, /openExternalUrl\(nextUrl, "ripple-connector-auth"\)/);
-  assert.match(source, /handleOpenPendingExternalUrl/);
+  assert.doesNotMatch(source, /import \{ openExternalUrl \} from "@\/lib\/platform";/);
+  assert.doesNotMatch(source, /openExternalUrl\(/);
+  assert.doesNotMatch(source, /handleOpenPendingExternalUrl/);
   assert.doesNotMatch(source, /window\.open\(/);
 }
 
-testConnectorsPageUsesTauriAwareExternalOpener();
+testConnectorsPageDoesNotOwnExternalAuthWindows();
 
 function testConnectorsPageUsesOfficialLogoComponentsWithoutExternalAssets() {
   const source = readFileSync(new URL("./ConnectorsPage.tsx", import.meta.url), "utf8");

@@ -247,6 +247,40 @@ function testSendFlowKeepsLocalImagesWhenSendTimeUploadFails() {
   assert.match(source, /clearPendingLocalImages\(\);/);
 }
 
+function testSendFlowCanForceFreshSession() {
+  const source = readFileSync(new URL("./useChatRun.ts", import.meta.url), "utf8");
+
+  assert.match(source, /createSession: \(model\?: string \| null\) => Promise<string \| null>/);
+  assert.match(source, /newSession\?: boolean/);
+  assert.match(
+    source,
+    /options\.newSession\s*\?\s*await sessionActions\.createSession\(selectedModel\)\s*:\s*await sessionActions\.ensureSession\(selectedModel\)/
+  );
+}
+
+function testFreshSessionSendDoesNotCarryCurrentViewState() {
+  const source = readFileSync(new URL("./useChatRun.ts", import.meta.url), "utf8");
+
+  assert.match(source, /const baseMessages = options\.newSession \? \[\] : messages;/);
+  assert.match(
+    source,
+    /const baseRuntimeTimelineEvents = options\.newSession \? \[\] : runtimeTimelineEvents;/
+  );
+  assert.match(source, /const baseTokenUsage = options\.newSession \? emptyUsage : tokenUsage;/);
+  assert.match(source, /const basePlanSteps = options\.newSession \? \[\] : planSteps;/);
+  assert.match(source, /const initialMessages: Message\[] = \[\s*...baseMessages,/);
+  assert.match(source, /runtimeTimelineEvents: baseRuntimeTimelineEvents,/);
+}
+
+function testSessionControlActionsStartFreshSessions() {
+  const source = readFileSync(new URL("./useChatRun.ts", import.meta.url), "utf8");
+
+  assert.match(
+    source,
+    /handleSendMessage\(label,\s*\{\s*controlAction:\s*action,\s*newSession:\s*true\s*\}\)/
+  );
+}
+
 function testSendErrorsReleaseSessionForRetry() {
   const source = readFileSync(new URL("./useChatRun.ts", import.meta.url), "utf8");
 
@@ -254,7 +288,7 @@ function testSendErrorsReleaseSessionForRetry() {
   assert.match(source, /streamHadError = true;/);
   assert.match(source, /if \(streamHadError\) return;/);
 
-  const onErrorBlock = source.match(/onError: \(err\) => \{([\s\S]*?)\n {10}\},\n {8}\},/);
+  const onErrorBlock = source.match(/onError: \(err\) => \{([\s\S]*?)\n {10}\},\n {8}\};/);
   assert.ok(onErrorBlock, "send onError block should exist");
   assert.match(onErrorBlock[1], /runningViewStatesRef\.current\.delete\(activeSessionId\)/);
   assert.match(onErrorBlock[1], /clearSessionRunning\(activeSessionId\)/);
@@ -274,6 +308,9 @@ testSessionTitleRefreshUsesShortDelayedPolls();
 await testPendingLocalImagesUploadToWorkspaceRefsBeforeSend();
 await testPendingLocalImageUploadFailuresStopSendFlow();
 testSendFlowKeepsLocalImagesWhenSendTimeUploadFails();
+testSendFlowCanForceFreshSession();
+testFreshSessionSendDoesNotCarryCurrentViewState();
+testSessionControlActionsStartFreshSessions();
 testSendErrorsReleaseSessionForRetry();
 
 console.log("useChatRun tests passed");

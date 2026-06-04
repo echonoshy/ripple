@@ -15,14 +15,9 @@ import {
   RefreshCw,
   Trash2,
 } from "lucide-react";
-import {
-  deleteSkill,
-  fetchSkills,
-  updateSkill,
-  validateSkill,
-} from "@/lib/api";
+import { deleteSkill, fetchSkills, updateSkill, validateSkill } from "@/lib/api";
 import { type MessageKey, useI18n } from "@/i18n";
-import type { SkillInfo, SkillUserStatus } from "@/types";
+import type { SessionControlAction, SkillInfo, SkillUserStatus } from "@/types";
 import {
   COMPACT_IOS_PAGE_BACKGROUND,
   LUCIDE_NAV_STROKE_WIDTH,
@@ -39,11 +34,20 @@ import {
 } from "./stylePrimitives";
 
 const SKILL_REFRESH_THROTTLE_MS = 10_000;
+const SKILLS_PAGE_TEXT_PRIMARY_CLASS = "text-[#1F2329]";
+const SKILLS_PAGE_TEXT_SECONDARY_CLASS = "text-[#646A73]";
+const SKILLS_PAGE_TEXT_TERTIARY_CLASS = "text-[#8F959E]";
+const SKILLS_PAGE_BORDER_CLASS = "border-[#DEE0E3]";
+const SKILLS_PAGE_DIVIDER_CLASS = "border-[#EFF0F1]";
+const SKILL_ACTION_BUTTON_CLASS = `inline-flex h-8 items-center gap-1.5 rounded-lg border ${SKILLS_PAGE_BORDER_CLASS} bg-white px-2.5 text-[#2B2F36] transition-colors hover:bg-[#F8F9FA] disabled:opacity-60 ${TYPOGRAPHY_META_MEDIUM_CLASS}`;
+const SKILL_PRIMARY_ACTION_BUTTON_CLASS = `inline-flex h-11 w-11 items-center justify-center rounded-full border border-[#1456F0]/30 bg-[#1456F0] text-white shadow-[0_8px_18px_rgba(20,86,240,0.18)] transition-all hover:bg-[#0F4BD8] active:scale-[0.98] disabled:opacity-60 lg:h-10 lg:w-auto lg:gap-1.5 lg:px-3 ${TYPOGRAPHY_META_MEDIUM_CLASS}`;
+const SKILL_DANGER_ACTION_BUTTON_CLASS = `inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#FAD4D4] bg-white px-2.5 text-[#B42318] transition-colors hover:bg-[#FFF1F0] disabled:opacity-60 ${TYPOGRAPHY_META_MEDIUM_CLASS}`;
 
 interface SkillsPageProps {
   userId: string;
   onBack?: () => void;
-  onOpenChat?: (prompt: string) => void;
+  onOpenChat?: (prompt: string, options?: { autoSend?: boolean; newSession?: boolean }) => void;
+  onOpenSessionAction?: (action: SessionControlAction, label: string) => void;
 }
 
 type SkillSourceId = "user" | "system";
@@ -81,7 +85,10 @@ const CONNECTOR_GROUP_ORDER: SkillConnectorGroupId[] = [
   "general",
 ];
 
-const CONNECTOR_GROUP_LABELS: Record<SkillConnectorGroupId, { label?: string; labelKey?: MessageKey }> = {
+const CONNECTOR_GROUP_LABELS: Record<
+  SkillConnectorGroupId,
+  { label?: string; labelKey?: MessageKey }
+> = {
   feishu: { label: "Feishu / Lark" },
   google_workspace: { label: "Google Workspace" },
   bilibili: { label: "Bilibili" },
@@ -113,12 +120,12 @@ function skillStatusKey(status: string | undefined): MessageKey {
 }
 
 function skillStatusClass(status: string | undefined): string {
-  if (status === "available") return "border-[#1a7f37]/20 bg-[#dafbe1]/78 text-[#1a7f37]";
-  if (status === "needs_connection") return "border-[#f2cc79]/45 bg-[#fff8df]/82 text-[#7d4e00]";
-  if (status === "needs_fix") return "border-[#f2a7a7]/45 bg-[#fff1f1]/82 text-[#9f1c1c]";
-  if (status === "disabled") return "border-[#dfe6f4] bg-white/76 text-[#667085]";
-  if (status === "unavailable") return "border-[#d7d7dd] bg-[#f2f2f7]/82 text-[#667085]";
-  return "border-[#cfe4ff] bg-[#eaf4ff]/74 text-[#0067d6]";
+  if (status === "available") return "border-[#22A06B]/20 bg-[#E4F8EE]/78 text-[#16845B]";
+  if (status === "needs_connection") return "border-[#FAD355]/45 bg-[#FFF8DB]/82 text-[#8B5E00]";
+  if (status === "needs_fix") return "border-[#FDCACA]/45 bg-[#FFF1F0]/82 text-[#B42318]";
+  if (status === "disabled") return "border-[#DEE0E3] bg-[#F8F9FA] text-[#8F959E]";
+  if (status === "unavailable") return "border-[#DEE0E3] bg-[#F8F9FA] text-[#8F959E]";
+  return "border-[#BACEFD] bg-[#F0F5FF] text-[#1456F0]";
 }
 
 function skillStatusIcon(status: string | undefined) {
@@ -157,8 +164,10 @@ function connectorGroupIdForSkill(skill: SkillInfo): SkillConnectorGroupId {
 }
 
 function groupStatusForSkills(skills: SkillInfo[]): SkillUserStatus | string {
-  return [...skills].sort((left, right) => skillStatusRank(left) - skillStatusRank(right))[0]
-    ?.user_status || "not_enabled";
+  return (
+    [...skills].sort((left, right) => skillStatusRank(left) - skillStatusRank(right))[0]
+      ?.user_status || "not_enabled"
+  );
 }
 
 function shouldDefaultOpenGroup(sourceId: SkillSourceId, status: string): boolean {
@@ -217,7 +226,24 @@ function buildSkillSections(skills: SkillInfo[]): SkillSourceSection[] {
     .filter((section) => section.groups.length > 0);
 }
 
-export default function SkillsPage({ userId, onBack, onOpenChat }: SkillsPageProps) {
+function connectorNameForGroup(group: SkillConnectorGroup): string | null {
+  if (
+    group.groupId === "feishu" ||
+    group.groupId === "google_workspace" ||
+    group.groupId === "bilibili" ||
+    group.groupId === "notion"
+  ) {
+    return group.groupId;
+  }
+  return null;
+}
+
+export default function SkillsPage({
+  userId,
+  onBack,
+  onOpenChat,
+  onOpenSessionAction,
+}: SkillsPageProps) {
   const { t } = useI18n();
   const [skills, setSkills] = useState<SkillInfo[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -277,18 +303,27 @@ export default function SkillsPage({ userId, onBack, onOpenChat }: SkillsPagePro
   }, [defaultOpenGroupKey, sections]);
 
   const openCreateSkillChat = useCallback(() => {
-    onOpenChat?.(t("skills.createChatPrompt"));
+    onOpenChat?.(t("skills.createChatPrompt"), { autoSend: true, newSession: true });
   }, [onOpenChat, t]);
 
   const openConnectorChat = useCallback(
     (group: SkillConnectorGroup) => {
-      onOpenChat?.(
-        t("skills.connectChatPrompt", {
-          name: group.label || (group.labelKey ? t(group.labelKey) : t("skills.groupGeneral")),
-        })
-      );
+      const name = group.label || (group.labelKey ? t(group.labelKey) : t("skills.groupGeneral"));
+      const connector = connectorNameForGroup(group);
+      if (connector && onOpenSessionAction) {
+        onOpenSessionAction(
+          {
+            type: "connector.auth.start",
+            connector,
+            source: "skills_page",
+          },
+          t("skills.connectChatPrompt", { name })
+        );
+        return;
+      }
+      onOpenChat?.(t("skills.connectChatPrompt", { name }), { autoSend: true });
     },
-    [onOpenChat, t]
+    [onOpenChat, onOpenSessionAction, t]
   );
 
   const replaceSkill = useCallback((next: SkillInfo) => {
@@ -313,7 +348,11 @@ export default function SkillsPage({ userId, onBack, onOpenChat }: SkillsPagePro
       setActionError(null);
       try {
         const validation = await validateSkill(skill.id);
-        replaceSkill({ ...skill, validation, user_status: validation.passed ? "not_enabled" : "needs_fix" });
+        replaceSkill({
+          ...skill,
+          validation,
+          user_status: validation.passed ? "not_enabled" : "needs_fix",
+        });
         setActionMessage(t("skills.validated"));
       } catch (error) {
         setActionError(error instanceof Error ? error.message : t("skills.failed"));
@@ -366,10 +405,12 @@ export default function SkillsPage({ userId, onBack, onOpenChat }: SkillsPagePro
       <details
         key={skill.id}
         data-ripple-skill-card="true"
-        className="group/skill overflow-hidden bg-white/78"
+        className="group/skill overflow-hidden bg-white/86"
       >
-        <summary className="flex cursor-pointer list-none items-start gap-2.5 px-2.5 py-2.5 transition-colors hover:bg-[#f8faff] [&::-webkit-details-marker]:hidden">
-          <div className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#dfe6f4] bg-[#f8faff] text-[#007aff]">
+        <summary className="flex cursor-pointer list-none items-start gap-2.5 px-2.5 py-2.5 transition-colors hover:bg-[#F8F9FA] [&::-webkit-details-marker]:hidden">
+          <div
+            className={`mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border bg-[#F8F9FA] text-[#1456F0] ${SKILLS_PAGE_BORDER_CLASS}`}
+          >
             <ChevronRight
               size={14}
               className="transition-transform group-open/skill:rotate-90"
@@ -378,7 +419,9 @@ export default function SkillsPage({ userId, onBack, onOpenChat }: SkillsPagePro
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-              <h3 className={`truncate text-[#111827] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
+              <h3
+                className={`truncate ${SKILLS_PAGE_TEXT_PRIMARY_CLASS} ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+              >
                 {skillTitle(skill)}
               </h3>
               <span
@@ -387,60 +430,70 @@ export default function SkillsPage({ userId, onBack, onOpenChat }: SkillsPagePro
                 {skillStatusIcon(status)}
                 {t(skillStatusKey(status))}
               </span>
-              <span className={`text-[#667085] ${TYPOGRAPHY_META_CLASS}`}>
+              <span className={`${SKILLS_PAGE_TEXT_TERTIARY_CLASS} ${TYPOGRAPHY_META_CLASS}`}>
                 {readOnly ? t("skills.builtIn") : t("skills.mine")}
               </span>
             </div>
-            <p className={`mt-1 line-clamp-2 text-[#667085] group-open/skill:hidden ${TYPOGRAPHY_META_CLASS}`}>
+            <p
+              className={`mt-1 line-clamp-2 ${SKILLS_PAGE_TEXT_SECONDARY_CLASS} group-open/skill:hidden ${TYPOGRAPHY_META_CLASS}`}
+            >
               {skill.description}
             </p>
           </div>
         </summary>
-        <div className="space-y-2 border-t border-[#e8edf7] bg-[#fbfcff]/62 px-2.5 py-2">
-          <p className={`text-[#4b5563] ${TYPOGRAPHY_META_CLASS}`}>{skill.description}</p>
+        <div
+          className={`space-y-2 border-t bg-[#F8F9FA]/70 px-2.5 py-2 ${SKILLS_PAGE_DIVIDER_CLASS}`}
+        >
+          <p className={`${SKILLS_PAGE_TEXT_SECONDARY_CLASS} ${TYPOGRAPHY_META_CLASS}`}>
+            {skill.description}
+          </p>
           {!readOnly && (
             <div className="flex flex-wrap items-center gap-1.5">
               <button
                 type="button"
                 disabled={isBusy}
                 onClick={() => void handleValidate(skill)}
-                className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-2.5 text-[#374151] transition-colors hover:border-[#cfe4ff] hover:bg-[#f8faff] disabled:opacity-60"
+                className={SKILL_ACTION_BUTTON_CLASS}
               >
-                {isBusy ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
-                <span className={TYPOGRAPHY_MICRO_MEDIUM_CLASS}>{t("skills.validate")}</span>
+                {isBusy ? (
+                  <Loader2 size={13} className="animate-spin" />
+                ) : (
+                  <CheckCircle2 size={13} />
+                )}
+                {t("skills.validate")}
               </button>
               <button
                 type="button"
                 disabled={isBusy}
                 onClick={() => void handleToggle(skill)}
-                className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-2.5 text-[#374151] transition-colors hover:border-[#cfe4ff] hover:bg-[#f8faff] disabled:opacity-60"
+                className={SKILL_ACTION_BUTTON_CLASS}
               >
                 <Power size={13} />
-                <span className={TYPOGRAPHY_MICRO_MEDIUM_CLASS}>
-                  {skill.desired_state === "enabled" ? t("skills.disable") : t("skills.enable")}
-                </span>
+                {skill.desired_state === "enabled" ? t("skills.disable") : t("skills.enable")}
               </button>
               <button
                 type="button"
                 disabled
-                className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-2.5 text-[#9ca3af] disabled:opacity-70"
+                className={`${SKILL_ACTION_BUTTON_CLASS} text-[#8F959E] disabled:opacity-70`}
               >
                 <Pencil size={13} />
-                <span className={TYPOGRAPHY_MICRO_MEDIUM_CLASS}>{t("skills.edit")}</span>
+                {t("skills.edit")}
               </button>
               <button
                 type="button"
                 disabled={isBusy}
                 onClick={() => void handleDelete(skill)}
-                className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[#f2d1d1] bg-white px-2.5 text-[#9f1c1c] transition-colors hover:bg-[#fff1f1] disabled:opacity-60"
+                className={SKILL_DANGER_ACTION_BUTTON_CLASS}
               >
                 <Trash2 size={13} />
-                <span className={TYPOGRAPHY_MICRO_MEDIUM_CLASS}>{t("skills.delete")}</span>
+                {t("skills.delete")}
               </button>
             </div>
           )}
           {readOnly && (
-            <span className={`inline-flex h-7 items-center rounded-full text-[#667085] ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}>
+            <span
+              className={`inline-flex h-7 items-center ${SKILLS_PAGE_TEXT_TERTIARY_CLASS} ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
+            >
               {t("skills.readOnly")}
             </span>
           )}
@@ -451,17 +504,22 @@ export default function SkillsPage({ userId, onBack, onOpenChat }: SkillsPagePro
 
   const renderConnectorGroup = (group: SkillConnectorGroup) => {
     const isOpen = openGroupIds.has(group.id);
-    const availableInGroup = group.skills.filter((skill) => skill.user_status === "available").length;
-    const groupLabel = group.label || (group.labelKey ? t(group.labelKey) : t("skills.groupGeneral"));
+    const availableInGroup = group.skills.filter(
+      (skill) => skill.user_status === "available"
+    ).length;
+    const groupLabel =
+      group.label || (group.labelKey ? t(group.labelKey) : t("skills.groupGeneral"));
     const needsConnection = group.skills.some((skill) => skill.user_status === "needs_connection");
 
     return (
       <section
         key={group.id}
         data-ripple-skill-connector-group="true"
-        className="overflow-hidden rounded-lg border border-[#dfe6f4] bg-white/78 shadow-[0_8px_22px_rgba(44,63,123,0.05)]"
+        className={`overflow-hidden rounded-xl border bg-white/82 shadow-[0_10px_24px_rgba(31,35,41,0.045)] backdrop-blur-xl ${SKILLS_PAGE_BORDER_CLASS}`}
       >
-        <div className="flex items-center gap-2 border-b border-[#e8edf7] bg-[#fbfcff]/72 px-2.5 py-2">
+        <div
+          className={`flex items-center gap-2 border-b bg-[#F8F9FA]/88 px-2.5 py-2 ${SKILLS_PAGE_DIVIDER_CLASS}`}
+        >
           <button
             type="button"
             onClick={() => toggleGroup(group.id)}
@@ -469,15 +527,17 @@ export default function SkillsPage({ userId, onBack, onOpenChat }: SkillsPagePro
             className="flex min-w-0 flex-1 items-center gap-2 text-left"
           >
             {isOpen ? (
-              <ChevronDown size={15} className="shrink-0 text-[#667085]" />
+              <ChevronDown size={15} className={`shrink-0 ${SKILLS_PAGE_TEXT_TERTIARY_CLASS}`} />
             ) : (
-              <ChevronRight size={15} className="shrink-0 text-[#667085]" />
+              <ChevronRight size={15} className={`shrink-0 ${SKILLS_PAGE_TEXT_TERTIARY_CLASS}`} />
             )}
             <div className="min-w-0 flex-1">
-              <div className={`truncate text-[#111827] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
+              <div
+                className={`truncate ${SKILLS_PAGE_TEXT_PRIMARY_CLASS} ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+              >
                 {groupLabel}
               </div>
-              <div className={`mt-0.5 text-[#7a8496] ${TYPOGRAPHY_META_CLASS}`}>
+              <div className={`mt-0.5 ${SKILLS_PAGE_TEXT_TERTIARY_CLASS} ${TYPOGRAPHY_META_CLASS}`}>
                 {t("skills.readyCount", {
                   available: availableInGroup,
                   total: group.skills.length,
@@ -496,28 +556,34 @@ export default function SkillsPage({ userId, onBack, onOpenChat }: SkillsPagePro
               type="button"
               data-ripple-skill-group-connect="true"
               onClick={() => openConnectorChat(group)}
-              disabled={!onOpenChat}
-              className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-[#cfe4ff] bg-[#eaf4ff] px-2.5 text-[#0067d6] transition-colors hover:bg-[#dcefff] disabled:opacity-60"
+              disabled={!onOpenChat && !onOpenSessionAction}
+              className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-[#BACEFD] bg-[#F0F5FF] px-2.5 text-[#1456F0] transition-colors hover:bg-[#E8F0FF] disabled:opacity-60 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
             >
               <Plug size={13} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
-              <span className={TYPOGRAPHY_MICRO_MEDIUM_CLASS}>{t("skills.connectService")}</span>
+              {t("skills.connectService")}
             </button>
           )}
         </div>
-        {isOpen && <div className="divide-y divide-[#e8edf7]">{group.skills.map(renderSkillCard)}</div>}
+        {isOpen && (
+          <div className="divide-y divide-[#EFF0F1]">{group.skills.map(renderSkillCard)}</div>
+        )}
       </section>
     );
   };
 
   const renderSourceSection = (section: SkillSourceSection) => {
     const sectionSkills = section.groups.flatMap((group) => group.skills);
-    const availableInSection = sectionSkills.filter((skill) => skill.user_status === "available").length;
+    const availableInSection = sectionSkills.filter(
+      (skill) => skill.user_status === "available"
+    ).length;
 
     return (
       <section key={section.id} data-ripple-skill-source-section="true" className="space-y-2">
         <div className="flex items-end justify-between gap-2 px-0.5">
-          <div className={`text-[#111827] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>{t(section.labelKey)}</div>
-          <div className={`text-[#7a8496] ${TYPOGRAPHY_META_CLASS}`}>
+          <div className={`${SKILLS_PAGE_TEXT_PRIMARY_CLASS} ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
+            {t(section.labelKey)}
+          </div>
+          <div className={`${SKILLS_PAGE_TEXT_TERTIARY_CLASS} ${TYPOGRAPHY_META_CLASS}`}>
             {t("skills.readyCount", {
               available: availableInSection,
               total: sectionSkills.length,
@@ -532,9 +598,9 @@ export default function SkillsPage({ userId, onBack, onOpenChat }: SkillsPagePro
   return (
     <div
       data-ripple-skills-page="true"
-      className={`h-full min-h-0 overflow-y-auto ${COMPACT_IOS_PAGE_BACKGROUND} px-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} text-[#111827] md:px-6 lg:pb-5`}
+      className={`h-full min-h-0 overflow-y-auto ${COMPACT_IOS_PAGE_BACKGROUND} px-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} ${SKILLS_PAGE_TEXT_PRIMARY_CLASS} md:px-6 lg:pb-5`}
     >
-      <div className="mx-auto max-w-5xl space-y-2">
+      <div className="mx-auto max-w-5xl space-y-2.5">
         <header className="flex flex-wrap items-start justify-between gap-2">
           <div className="flex min-w-0 items-start gap-2.5">
             {onBack && (
@@ -553,7 +619,7 @@ export default function SkillsPage({ userId, onBack, onOpenChat }: SkillsPagePro
                 <span className="sm:hidden">{t("skills.title")}</span>
                 <span className="hidden sm:inline">{t("skills.title")}</span>
               </h1>
-              <div className={`mt-1 text-[#7a8496] ${TYPOGRAPHY_META_CLASS}`}>
+              <div className={`mt-1 ${SKILLS_PAGE_TEXT_TERTIARY_CLASS} ${TYPOGRAPHY_META_CLASS}`}>
                 {t("skills.readyCount", { available: availableCount, total: skills.length })}
               </div>
             </div>
@@ -563,7 +629,7 @@ export default function SkillsPage({ userId, onBack, onOpenChat }: SkillsPagePro
               type="button"
               onClick={openCreateSkillChat}
               disabled={!onOpenChat}
-              className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-[#cfe4ff] bg-[#eaf4ff] text-[#007aff] shadow-[0_6px_18px_rgba(0,122,255,0.10)] transition-all hover:bg-[#dcefff] active:scale-[0.98] lg:h-10 lg:w-auto lg:gap-1.5 lg:px-3"
+              className={SKILL_PRIMARY_ACTION_BUTTON_CLASS}
               aria-label={t("skills.create")}
               title={t("skills.create")}
             >
@@ -576,7 +642,7 @@ export default function SkillsPage({ userId, onBack, onOpenChat }: SkillsPagePro
               disabled={isLoading}
               title={t("skills.refresh")}
               aria-label={t("skills.refresh")}
-              className={`${MOBILE_GLASS_ICON_BUTTON_CLASS} shrink-0 disabled:cursor-not-allowed disabled:opacity-60 lg:h-10 lg:w-auto lg:gap-1.5 lg:border-[#dfe6f4] lg:bg-white/78 lg:px-3 lg:shadow-[0_8px_18px_rgba(44,63,123,0.05)] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+              className={`${MOBILE_GLASS_ICON_BUTTON_CLASS} shrink-0 disabled:cursor-not-allowed disabled:opacity-60 lg:h-10 lg:w-auto lg:gap-1.5 lg:border-[#DEE0E3] lg:bg-white/82 lg:px-3 lg:shadow-[0_8px_18px_rgba(31,35,41,0.045)] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
             >
               {isLoading ? (
                 <Loader2 size={18} className="animate-spin" />
@@ -592,8 +658,8 @@ export default function SkillsPage({ userId, onBack, onOpenChat }: SkillsPagePro
           <div
             className={`rounded-lg border px-3 py-2 ${TYPOGRAPHY_META_MEDIUM_CLASS} ${
               actionError
-                ? "border-[#f2d1d1] bg-[#fff1f1] text-[#9f1c1c]"
-                : "border-[#cfe4ff] bg-[#eaf4ff] text-[#0067d6]"
+                ? "border-[#FDCACA] bg-[#FFF1F0] text-[#B42318]"
+                : "border-[#BACEFD] bg-[#F0F5FF] text-[#1456F0]"
             }`}
           >
             {actionError || actionMessage}
@@ -601,13 +667,13 @@ export default function SkillsPage({ userId, onBack, onOpenChat }: SkillsPagePro
         )}
 
         {skills.length === 0 ? (
-          <div className={`flex h-32 items-center justify-center rounded-xl border border-dashed border-[#dfe6f4] bg-white/52 text-[#667085] ${TYPOGRAPHY_BODY_CLASS}`}>
+          <div
+            className={`flex h-32 items-center justify-center rounded-xl border border-dashed ${SKILLS_PAGE_BORDER_CLASS} bg-white/56 ${SKILLS_PAGE_TEXT_TERTIARY_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
+          >
             {t("skills.empty")}
           </div>
         ) : (
-          <div className="space-y-3">
-            {sections.map(renderSourceSection)}
-          </div>
+          <div className="space-y-3">{sections.map(renderSourceSection)}</div>
         )}
       </div>
     </div>

@@ -4207,6 +4207,68 @@ async fn chat_route_completes_non_streaming_with_fake_codex_app_server() {
 }
 
 #[tokio::test]
+async fn chat_route_starts_connector_auth_from_session_control_action() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let (state, app) = test_state_and_app(&root);
+
+    let (status, chat) = call(
+        app,
+        Method::POST,
+        "/v1/chat/completions",
+        json!({
+            "model": "codex-test",
+            "messages": [{
+                "role": "user",
+                "content": [{
+                    "type": "ripple_control_action",
+                    "label": "Connect Notion",
+                    "action": {
+                        "type": "connector.auth.start",
+                        "connector": "notion",
+                        "source": "connectors_page"
+                    }
+                }]
+            }],
+            "stream": false
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        chat.pointer("/connector_auth/type").and_then(Value::as_str),
+        Some("connector_auth_required")
+    );
+    assert_eq!(
+        chat.pointer("/connector_auth/connector")
+            .and_then(Value::as_str),
+        Some("notion")
+    );
+
+    let session_id = chat
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("session id");
+    let reloaded = state
+        .sessions
+        .load("smoke-user", session_id)
+        .await
+        .unwrap()
+        .expect("session");
+    assert_eq!(reloaded.status, "awaiting_user_input");
+    assert_eq!(
+        reloaded
+            .pending_connector_auth
+            .as_ref()
+            .and_then(|pending| pending.get("connector"))
+            .and_then(Value::as_str),
+        Some("notion")
+    );
+    assert!(state.jobs.list_user("smoke-user").await.unwrap().is_empty());
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
 async fn chat_route_converts_model_connector_auth_request_to_event() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let fake_codex = write_fake_codex_app_server(&root);

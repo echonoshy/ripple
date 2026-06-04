@@ -305,6 +305,13 @@ export interface ConnectorAuthChatEvent {
   action?: ConnectorActionResponse | null;
 }
 
+export interface SessionControlAction {
+  type: "connector.auth.start";
+  connector: string;
+  force_reauth?: boolean;
+  source?: string;
+}
+
 export interface WorkspaceEntry {
   name: string;
   path: string;

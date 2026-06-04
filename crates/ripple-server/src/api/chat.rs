@@ -32,11 +32,12 @@ use crate::sessions::{
 use crate::state::AppState;
 use crate::user::user_id_from_headers;
 
-mod connector_auth;
+pub(crate) mod connector_auth;
 mod input;
 mod media;
 mod project_context;
 mod prompt;
+mod session_actions;
 mod title;
 mod wire;
 
@@ -48,6 +49,7 @@ use connector_auth::{
     model_connector_auth_request_might_be_start, parse_model_connector_auth_request,
     persist_connector_auth_event, public_connector_auth_event, start_model_connector_auth_for_chat,
 };
+use input::extract_control_action_from_messages;
 pub(crate) use input::{extract_caller_system_prompt, extract_user_input_and_items};
 pub(crate) use media::{
     collect_chat_image_events, extract_image_event, image_event_to_message_block,
@@ -56,6 +58,7 @@ pub(crate) use media::{
 use media::{decode_base64_image_payload, workspace_path_or_none};
 use project_context::collect_folder_context;
 pub(crate) use prompt::build_codex_chat_prompt;
+use session_actions::handle_session_control_action;
 use title::spawn_session_title_generation;
 use wire::{
     chat_completion_payload, chunk, connector_auth_event_response,
@@ -147,9 +150,18 @@ pub async fn chat_completions(
 ) -> Result<Response<Body>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     let workspace_root = state.sandboxes.ensure_sandbox(&user_id)?;
-    let (user_input, input_items, user_content, attachment_items) =
+    let control_action = extract_control_action_from_messages(&request.messages);
+    let (mut user_input, input_items, mut user_content, attachment_items) =
         extract_user_input_and_items(&request.messages, &workspace_root)?;
-    if user_input.trim().is_empty() && input_items.is_empty() {
+    if let Some(control_action) = control_action.as_ref() {
+        if user_input.trim().is_empty() {
+            if let Some(label) = control_action.label.as_deref() {
+                user_input = label.to_string();
+                user_content = json!([{"type": "text", "text": label}]);
+            }
+        }
+    }
+    if user_input.trim().is_empty() && input_items.is_empty() && control_action.is_none() {
         return Err(ApiError::bad_request("No user message found in messages"));
     }
     let caller_system_prompt = extract_caller_system_prompt(&request.messages);
@@ -182,6 +194,31 @@ pub async fn chat_completions(
     );
     if session_has_active_run(&session) {
         return Err(ApiError::conflict("Session already has work in progress"));
+    }
+    let request_base_url = request_base_url_from_headers(&headers);
+    if let Some(control_action) = control_action.as_ref() {
+        let decision = handle_session_control_action(
+            &state,
+            &user_id,
+            &mut session,
+            control_action,
+            request_base_url.as_deref(),
+        )
+        .await?;
+        persist_connector_auth_event(
+            &state,
+            &mut session,
+            &user_content,
+            &user_input,
+            &decision.event,
+        )
+        .await?;
+        return Ok(connector_auth_event_response(
+            &model,
+            &session.session_id,
+            decision.event,
+            request.stream.unwrap_or(false),
+        ));
     }
     if let Some(decision) = maybe_handle_skill_chat(&state, &user_id, &user_input)? {
         let public_event = persist_control_plane_chat_event(
@@ -230,7 +267,6 @@ pub async fn chat_completions(
     session.pending_options = None;
     session.pending_schedule_request = None;
     clear_session_plan(&mut session);
-    let request_base_url = request_base_url_from_headers(&headers);
 
     if let Some(decision) = maybe_handle_connector_auth(
         &state,

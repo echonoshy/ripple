@@ -4,34 +4,32 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   AlertTriangle,
   ArrowBigLeft,
-  ExternalLink,
-  KeyRound,
   Loader2,
   Plug,
   RefreshCw,
   ShieldCheck,
   Trash2,
-  X,
 } from "lucide-react";
 import {
   AuthError,
-  cancelConnectorAuth,
-  completeConnectorAuth,
   disconnectConnector,
   fetchCapabilities,
   fetchGogcliAccounts,
-  resolveBackendUrl,
-  startConnectorAuth,
 } from "@/lib/api";
 import {
   connectorGroupSections,
   connectorReadinessSummary,
   connectorStatusTone,
 } from "@/lib/connectors";
-import { openExternalUrl } from "@/lib/platform";
 import { IconTile } from "@/components/icons/IconTile";
 import { useI18n } from "@/i18n";
-import type { CapabilityInfo, ConnectorInfo, ConnectorStatus, GogcliAccountInfo } from "@/types";
+import type {
+  CapabilityInfo,
+  ConnectorInfo,
+  ConnectorStatus,
+  GogcliAccountInfo,
+  SessionControlAction,
+} from "@/types";
 import {
   COMPACT_IOS_PAGE_BACKGROUND,
   LUCIDE_NAV_STROKE_WIDTH,
@@ -44,7 +42,6 @@ import {
   TYPOGRAPHY_META_CLASS,
   TYPOGRAPHY_META_MEDIUM_CLASS,
   TYPOGRAPHY_MICRO_MEDIUM_CLASS,
-  TYPOGRAPHY_MOBILE_BODY_CLASS,
   TYPOGRAPHY_PAGE_TITLE_CLASS,
 } from "./stylePrimitives";
 
@@ -58,14 +55,6 @@ interface ConnectorSnapshot {
   statuses: Record<string, ConnectorStatus>;
   accounts: GogcliAccountInfo[];
   loadedAt: number;
-}
-
-interface PendingConnectorAuth {
-  connector: string;
-  stage: string;
-  detail: string;
-  data: Record<string, unknown>;
-  startedAt: number;
 }
 
 type Translator = ReturnType<typeof useI18n>["t"];
@@ -214,25 +203,6 @@ function actionDetail(result: Record<string, unknown>, fallback: string): string
   return typeof result.detail === "string" && result.detail.trim() ? result.detail : fallback;
 }
 
-function actionData(result: Record<string, unknown>): Record<string, unknown> {
-  return result.data && typeof result.data === "object"
-    ? (result.data as Record<string, unknown>)
-    : {};
-}
-
-function authUrlFromData(data: Record<string, unknown>): string | null {
-  for (const key of ["oauth_url", "auth_url", "setup_url", "app_url"]) {
-    const value = data[key];
-    if (typeof value === "string" && value.trim()) return value;
-  }
-  return null;
-}
-
-function stringFromData(data: Record<string, unknown>, key: string): string | null {
-  const value = data[key];
-  return typeof value === "string" && value.trim() ? value : null;
-}
-
 function connectorLogoMeta(connector: ConnectorInfo): ConnectorLogoMeta {
   return CONNECTOR_LOGO_META[connector.name] || FALLBACK_CONNECTOR_LOGO_META;
 }
@@ -363,10 +333,12 @@ export default function ConnectorsPage({
   userId,
   onConnectorStateChange,
   onBack,
+  onOpenSessionAction,
 }: {
   userId: string;
   onConnectorStateChange?: () => Promise<unknown> | unknown;
   onBack?: () => void;
+  onOpenSessionAction?: (action: SessionControlAction, label: string) => void;
 }) {
   const { t } = useI18n();
   const [connectors, setConnectors] = useState<ConnectorInfo[]>(
@@ -383,8 +355,6 @@ export default function ConnectorsPage({
   const [isLoading, setIsLoading] = useState(false);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<string | null>(null);
-  const [notionToken, setNotionToken] = useState("");
-  const [pendingAuth, setPendingAuth] = useState<PendingConnectorAuth | null>(null);
   const loadRequestIdRef = useRef(0);
   const lastFocusRefreshAtRef = useRef(0);
 
@@ -489,137 +459,18 @@ export default function ConnectorsPage({
     [loadConnectors, t]
   );
 
-  const handleOpenPendingExternalUrl = useCallback((event: React.MouseEvent<HTMLAnchorElement>) => {
-    event.preventDefault();
-    const href = event.currentTarget.href.trim();
-    if (!href) return;
-    void openExternalUrl(href, "ripple-connector-auth");
-  }, []);
-
   const handleStartAuth = useCallback(
-    async (connector: ConnectorInfo) => {
-      if (connector.name === "notion") {
-        setConfirmAction("notion-token");
-        return;
-      }
-      const result = await runConnectorMutation(
-        `${connector.name}:connect`,
-        () => startConnectorAuth(connector.name),
-        { refresh: false }
-      );
-      if (!result) return;
-      const data = actionData(result);
-      const maybeUrl = authUrlFromData(data);
-      if (maybeUrl && connector.name !== "bilibili") {
-        void openExternalUrl(maybeUrl, "ripple-connector-auth");
-      }
-      const stage = typeof result.stage === "string" ? result.stage : "pending";
-      if (stage === "authorized") {
-        setPendingAuth(null);
-        await loadConnectors({ force: true });
-      } else {
-        setPendingAuth({
+    (connector: ConnectorInfo) => {
+      onOpenSessionAction?.(
+        {
+          type: "connector.auth.start",
           connector: connector.name,
-          stage,
-          detail: actionDetail(
-            result,
-            t("connectors.authorizationStarted", { name: connector.display_name })
-          ),
-          data,
-          startedAt: Date.now(),
-        });
-      }
-    },
-    [loadConnectors, runConnectorMutation, t]
-  );
-
-  const handleSubmitNotionToken = useCallback(async () => {
-    const token = notionToken.trim();
-    if (!token) {
-      setPageError(t("connectors.notionTokenRequired"));
-      return;
-    }
-    const result = await runConnectorMutation("notion:connect", () =>
-      startConnectorAuth("notion", { api_token: token })
-    );
-    if (!result) return;
-    setNotionToken("");
-    setConfirmAction(null);
-    setPendingAuth(null);
-  }, [notionToken, runConnectorMutation, t]);
-
-  const handleCancelPendingAuth = useCallback(
-    async (connector: ConnectorInfo) => {
-      const result = await runConnectorMutation(`${connector.name}:cancel-auth`, () =>
-        cancelConnectorAuth(connector.name)
+          source: "connectors_page",
+        },
+        `${t("connectors.connect")} ${connector.display_name}`
       );
-      if (!result) return;
-      setPendingAuth((current) => (current?.connector === connector.name ? null : current));
     },
-    [runConnectorMutation]
-  );
-
-  const handleCompletePendingAuth = useCallback(
-    async (connector: ConnectorInfo) => {
-      if (!pendingAuth || pendingAuth.connector !== connector.name) return;
-      const qrcodeKey = stringFromData(pendingAuth.data, "qrcode_key");
-      const deviceCode = stringFromData(pendingAuth.data, "device_code");
-      if (connector.name === "feishu" && !deviceCode) {
-        const result = await runConnectorMutation(
-          `${connector.name}:continue-auth`,
-          () => startConnectorAuth(connector.name),
-          { refresh: false }
-        );
-        if (!result) return;
-        const data = actionData(result);
-        const nextUrl = authUrlFromData(data);
-        const currentUrl = authUrlFromData(pendingAuth.data);
-        if (nextUrl && nextUrl !== currentUrl) {
-          void openExternalUrl(nextUrl, "ripple-connector-auth");
-        }
-        const stage = typeof result.stage === "string" ? result.stage : "pending";
-        if (stage === "authorized") {
-          setPendingAuth(null);
-          await loadConnectors({ force: true });
-        } else {
-          setPendingAuth({
-            connector: connector.name,
-            stage,
-            detail: actionDetail(result, pendingAuth.detail),
-            data: { ...pendingAuth.data, ...data },
-            startedAt: pendingAuth.startedAt,
-          });
-        }
-        return;
-      }
-      const payload =
-        connector.name === "bilibili" && qrcodeKey
-          ? { qrcode_key: qrcodeKey, max_wait_seconds: 5 }
-          : connector.name === "feishu" && deviceCode
-            ? { device_code: deviceCode }
-            : {};
-      const result = await runConnectorMutation(
-        `${connector.name}:complete-auth`,
-        () => completeConnectorAuth(connector.name, payload),
-        { refresh: false }
-      );
-      if (!result) return;
-      const data = actionData(result);
-      const stage = typeof result.stage === "string" ? result.stage : "pending";
-      if (stage === "authorized") {
-        setPendingAuth(null);
-        await loadConnectors({ force: true });
-      } else {
-        setPendingAuth({
-          connector: connector.name,
-          stage,
-          detail: actionDetail(result, pendingAuth.detail),
-          data: { ...pendingAuth.data, ...data },
-          startedAt: pendingAuth.startedAt,
-        });
-      }
-    },
-    [loadConnectors, pendingAuth, runConnectorMutation]
+    [onOpenSessionAction, t]
   );
 
   const handleDisconnect = useCallback(
@@ -642,28 +493,6 @@ export default function ConnectorsPage({
     },
     [confirmAction, runConnectorMutation]
   );
-
-  useEffect(() => {
-    if (!pendingAuth) return;
-    const connectorName = pendingAuth.connector;
-    const timer = window.setInterval(() => {
-      const connector = connectors.find((item) => item.name === connectorName);
-      if (!connector) return;
-      if (connectorName === "google_workspace") {
-        void loadConnectors({ background: true, force: true });
-      } else if (connectorName === "feishu" || connectorName === "bilibili") {
-        void handleCompletePendingAuth(connector);
-      }
-    }, 5000);
-    return () => window.clearInterval(timer);
-  }, [connectors, handleCompletePendingAuth, loadConnectors, pendingAuth]);
-
-  useEffect(() => {
-    if (!pendingAuth) return;
-    if (!statuses[pendingAuth.connector]?.connected) return;
-    setPendingAuth(null);
-    setActionMessage(t("connectors.authorizationCompleted"));
-  }, [pendingAuth, statuses, t]);
 
   return (
     <div
@@ -760,27 +589,6 @@ export default function ConnectorsPage({
                 {section.connectors.map((connector) => {
                   const status = statuses[connector.name] || null;
                   const logo = connectorLogoMeta(connector);
-                  const pendingForConnector =
-                    pendingAuth?.connector === connector.name ? pendingAuth : null;
-                  const qrcodeImageUrl = pendingForConnector
-                    ? resolveBackendUrl(
-                        stringFromData(pendingForConnector.data, "qrcode_image_url") || ""
-                      )
-                    : null;
-                  const qrcodeContent = pendingForConnector
-                    ? stringFromData(pendingForConnector.data, "qrcode_content")
-                    : null;
-                  const pendingExternalUrl =
-                    connector.name === "bilibili"
-                      ? null
-                      : qrcodeContent ||
-                        (pendingForConnector ? authUrlFromData(pendingForConnector.data) : null);
-                  const pendingExternalLabel = stringFromData(
-                    pendingForConnector?.data || {},
-                    "setup_url"
-                  )
-                    ? t("connectors.openSetup")
-                    : t("connectors.openAuth");
 
                   return (
                     <section
@@ -828,31 +636,12 @@ export default function ConnectorsPage({
                           {connector.auth_start_path && !status?.connected ? (
                             <button
                               type="button"
-                              onClick={() => void handleStartAuth(connector)}
-                              disabled={pendingAction === `${connector.name}:connect`}
+                              onClick={() => handleStartAuth(connector)}
+                              disabled={!onOpenSessionAction}
                               className={`inline-flex h-8 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-2.5 text-[#384152] transition-colors duration-200 hover:bg-[#f7f8fa] hover:text-[#111827] disabled:opacity-60 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
                             >
-                              {pendingAction === `${connector.name}:connect` ? (
-                                <Loader2 size={12} className="animate-spin" />
-                              ) : (
-                                <Plug size={12} />
-                              )}
+                              <Plug size={12} />
                               {t("connectors.connect")}
-                            </button>
-                          ) : null}
-                          {pendingForConnector ? (
-                            <button
-                              type="button"
-                              onClick={() => void handleCancelPendingAuth(connector)}
-                              disabled={pendingAction === `${connector.name}:cancel-auth`}
-                              className={`inline-flex h-8 items-center gap-1.5 rounded-full border border-[#cf222e]/25 bg-[#ffebe9] px-2.5 text-[#cf222e] transition-colors duration-200 hover:bg-[#ffdcd9] disabled:opacity-60 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-                            >
-                              {pendingAction === `${connector.name}:cancel-auth` ? (
-                                <Loader2 size={12} className="animate-spin" />
-                              ) : (
-                                <X size={12} />
-                              )}
-                              {t("connectors.cancelAuth")}
                             </button>
                           ) : null}
                           {connector.disconnect_path && status?.connected ? (
@@ -883,89 +672,6 @@ export default function ConnectorsPage({
                           ) : null}
                         </div>
                       </div>
-
-                      {connector.name === "notion" && confirmAction === "notion-token" ? (
-                        <div className="mx-3 mb-3 rounded-xl border border-[#dfe6f4] bg-white/78 p-3 shadow-[0_8px_18px_rgba(44,63,123,0.04)]">
-                          <div className="flex flex-col gap-2 sm:flex-row">
-                            <input
-                              value={notionToken}
-                              onChange={(event) => setNotionToken(event.target.value)}
-                              type="password"
-                              placeholder={t("connectors.notionTokenPlaceholder")}
-                              className={`min-h-10 min-w-0 flex-1 rounded-lg border border-[#dfe6f4] bg-white px-2.5 text-[#111827] outline-none focus:border-[#007aff] lg:min-h-8 lg:text-[14px] lg:leading-[22px] ${TYPOGRAPHY_MOBILE_BODY_CLASS}`}
-                            />
-                            <div className="flex shrink-0 gap-2">
-                              <button
-                                type="button"
-                                onClick={() => void handleSubmitNotionToken()}
-                                disabled={pendingAction === "notion:connect"}
-                                className={`inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#007aff]/30 bg-[#007aff] px-2.5 text-white disabled:opacity-60 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-                              >
-                                {pendingAction === "notion:connect" ? (
-                                  <Loader2 size={12} className="animate-spin" />
-                                ) : (
-                                  <KeyRound size={12} />
-                                )}
-                                {t("connectors.save")}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setConfirmAction(null);
-                                  setNotionToken("");
-                                }}
-                                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#dfe6f4] bg-white text-[#384152] hover:bg-[#f7f8fa]"
-                                aria-label={t("connectors.cancelNotionToken")}
-                                title={t("connectors.cancelNotionToken")}
-                              >
-                                <X size={13} />
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      ) : null}
-
-                      {pendingForConnector ? (
-                        <div className={`mx-3 mb-3 rounded-xl border border-[#dfe6f4] bg-[#f8fbff]/88 p-3 text-[#667085] shadow-[0_8px_18px_rgba(44,63,123,0.04)] ${TYPOGRAPHY_META_CLASS}`}>
-                          <div className="flex items-start gap-2">
-                            <Loader2
-                              size={13}
-                              className="mt-0.5 shrink-0 animate-spin text-[#007aff]"
-                            />
-                            <div className="min-w-0 flex-1">
-                              <div className={`text-[#384152] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
-                                {pendingForConnector.stage}
-                              </div>
-                              <div className="mt-1">{pendingForConnector.detail}</div>
-                              {qrcodeImageUrl || pendingExternalUrl ? (
-                                <div className="mt-2.5 flex flex-col gap-2 sm:flex-row sm:items-center">
-                                  {qrcodeImageUrl ? (
-                                    <img
-                                      src={qrcodeImageUrl}
-                                      alt={t("connectors.bilibiliQrAlt")}
-                                      className="h-28 w-28 rounded-lg border border-[#dfe6f4] bg-white object-contain p-1"
-                                    />
-                                  ) : null}
-                                  {pendingExternalUrl ? (
-                                    <a
-                                      href={pendingExternalUrl}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      onClick={handleOpenPendingExternalUrl}
-                                      className={`inline-flex h-8 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-2.5 text-[#384152] hover:bg-[#f7f8fa] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-                                    >
-                                      <ExternalLink size={12} />
-                                      {qrcodeContent
-                                        ? t("connectors.openLink")
-                                        : pendingExternalLabel}
-                                    </a>
-                                  ) : null}
-                                </div>
-                              ) : null}
-                            </div>
-                          </div>
-                        </div>
-                      ) : null}
 
                       {connector.name === "google_workspace" && accounts.length > 0 && (
                         <div className="px-3 pb-3">

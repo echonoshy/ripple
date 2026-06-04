@@ -67,10 +67,38 @@ function testSkillsPageGroupsBySourceAndConnector() {
   assert.match(source, /data-ripple-skill-group-connect="true"/);
   assert.match(source, /line-clamp-2/);
   assert.match(source, /group-open\/skill:hidden/);
-  assert.doesNotMatch(source, /data-ripple-skill-card="true"[\s\S]*skills\.connectService[\s\S]*<\/article>/);
+  assert.doesNotMatch(
+    source,
+    /data-ripple-skill-card="true"[\s\S]*skills\.connectService[\s\S]*<\/article>/
+  );
 }
 
 testSkillsPageGroupsBySourceAndConnector();
+
+function testSkillsPageRoutesManagementThroughSessions() {
+  const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /onOpenSessionAction/);
+  assert.match(source, /connectorNameForGroup/);
+  assert.match(source, /type: "connector\.auth\.start"/);
+  assert.match(source, /source: "skills_page"/);
+  assert.match(source, /autoSend: true/);
+  assert.doesNotMatch(source, /startConnectorAuth/);
+}
+
+testSkillsPageRoutesManagementThroughSessions();
+
+function testSkillsPageCreateSkillStartsFreshSession() {
+  const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /newSession: true/);
+  assert.match(
+    source,
+    /onOpenChat\?\.\(t\("skills\.createChatPrompt"\), \{ autoSend: true, newSession: true \}\)/
+  );
+}
+
+testSkillsPageCreateSkillStartsFreshSession();
 
 function testSkillsPageUsesValidationLanguageInsteadOfTestLanguage() {
   const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
@@ -87,6 +115,19 @@ function testSkillsPageUsesValidationLanguageInsteadOfTestLanguage() {
 }
 
 testSkillsPageUsesValidationLanguageInsteadOfTestLanguage();
+
+function testSkillsPageUsesFeishuInspiredVisualLanguage() {
+  const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /#1456F0/);
+  assert.match(source, /#1F2329/);
+  assert.match(source, /#646A73/);
+  assert.match(source, /#8F959E/);
+  assert.match(source, /#DEE0E3/);
+  assert.match(source, /TYPOGRAPHY_BODY_MEDIUM_CLASS/);
+}
+
+testSkillsPageUsesFeishuInspiredVisualLanguage();
 
 function testSkillsPageRendersChineseChrome() {
   const html = renderSkillsPage("zh-CN");

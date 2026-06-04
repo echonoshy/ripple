@@ -3,6 +3,7 @@ import type {
   CodexRuntimeEvent,
   ConnectorAuthChatEvent,
   Message,
+  SessionControlAction,
   SessionDetail,
   SessionAttention,
   PlanStep,
@@ -13,10 +14,12 @@ import type {
 import {
   AuthError,
   cancelSessionConnectorAuth,
+  type ChatStreamCallbacks,
   fetchSessionDetails,
   pollSessionConnectorAuth,
   resolveSessionPermissionRequest,
   sendChatMessage,
+  sendSessionControlAction,
   uploadWorkspaceAttachment,
 } from "@/lib/api";
 import { readableApiErrorMessage } from "@/lib/apiErrors";
@@ -49,6 +52,7 @@ import { useI18n } from "@/i18n";
 export interface ChatRunSessionActions {
   getSessionId: () => string | null;
   ensureSession: (model?: string | null) => Promise<string | null>;
+  createSession: (model?: string | null) => Promise<string | null>;
   loadSessions: () => Promise<unknown>;
   clearCurrentSessionContext: () => Promise<boolean>;
   compactCurrentSessionContext: () => Promise<boolean>;
@@ -63,6 +67,11 @@ interface UseChatRunOptions {
   onWorkspaceRefresh: () => void;
   getSessionActions: () => ChatRunSessionActions;
   onSessionAttention?: (sessionId: string, attention: SessionAttention | null) => void;
+}
+
+interface SendMessageOptions {
+  controlAction?: SessionControlAction;
+  newSession?: boolean;
 }
 
 const emptyUsage: UsageInfo = {
@@ -552,21 +561,27 @@ export function useChatRun({
   }, []);
 
   const handleSendMessage = useCallback(
-    async (overrideText?: string) => {
+    async (overrideText?: string, options: SendMessageOptions = {}) => {
+      const isControlAction = Boolean(options.controlAction);
       const text = typeof overrideText === "string" ? overrideText.trim() : input.trim();
-      let filesForSend = typeof overrideText === "string" ? [] : pendingFiles;
-      const localImagesForSend = typeof overrideText === "string" ? [] : pendingLocalImages;
-      if (text === "/clear") {
+      let filesForSend = typeof overrideText === "string" || isControlAction ? [] : pendingFiles;
+      const localImagesForSend =
+        typeof overrideText === "string" || isControlAction ? [] : pendingLocalImages;
+      const allowLocalCommand = !isControlAction && !options.newSession;
+      if (allowLocalCommand && text === "/clear") {
         await handleClearContext();
         return;
       }
-      if (text === "/compact") {
+      if (allowLocalCommand && text === "/compact") {
         await handleCompactContext();
         return;
       }
       if (!text && filesForSend.length === 0 && localImagesForSend.length === 0) return;
 
-      const activeSessionId = await getSessionActions().ensureSession(selectedModel);
+      const sessionActions = getSessionActions();
+      const activeSessionId = options.newSession
+        ? await sessionActions.createSession(selectedModel)
+        : await sessionActions.ensureSession(selectedModel);
       if (!activeSessionId) {
         return;
       }
@@ -610,8 +625,14 @@ export function useChatRun({
       const displayText = describeChatFilesForDisplay(text, filesForSend);
       const userMessageId = Date.now();
       const assistantMessageId = `${userMessageId}-assistant`;
+      const baseMessages = options.newSession ? [] : messages;
+      const baseRuntimeTimelineEvents = options.newSession ? [] : runtimeTimelineEvents;
+      const baseTokenUsage = options.newSession ? emptyUsage : tokenUsage;
+      const baseLastContextTokens = options.newSession ? 0 : lastContextTokens;
+      const basePlanSteps = options.newSession ? [] : planSteps;
+      const basePlanProgress = options.newSession ? null : planProgress;
       const initialMessages: Message[] = [
-        ...messages,
+        ...baseMessages,
         { id: userMessageId, role: "user", content: displayText, created_at: sentAt },
         {
           id: assistantMessageId,
@@ -624,19 +645,24 @@ export function useChatRun({
       runningViewStatesRef.current.set(activeSessionId, {
         sessionId: activeSessionId,
         messages: initialMessages,
-        runtimeTimelineEvents,
+        runtimeTimelineEvents: baseRuntimeTimelineEvents,
         pendingFiles: [],
-        tokenUsage,
-        lastContextTokens,
-        planSteps,
-        planProgress,
+        tokenUsage: baseTokenUsage,
+        lastContextTokens: baseLastContextTokens,
+        planSteps: basePlanSteps,
+        planProgress: basePlanProgress,
       });
       markSessionRunning(activeSessionId);
       setMessages(initialMessages);
+      setRuntimeTimelineEvents(baseRuntimeTimelineEvents);
       setInput("");
       setPendingFiles([]);
       clearPendingLocalImages();
       setAttachmentUploadError(null);
+      setTokenUsage(baseTokenUsage);
+      setLastContextTokens(baseLastContextTokens);
+      setPlanSteps(basePlanSteps);
+      setPlanProgress(basePlanProgress);
 
       const isRunVisible = () => getSessionActions().getSessionId() === activeSessionId;
       const getRunningState = () => {
@@ -740,11 +766,7 @@ export function useChatRun({
         });
       };
 
-      await sendChatMessage(
-        activeSessionId,
-        text,
-        selectedModel,
-        {
+      const callbacks: ChatStreamCallbacks = {
           onMessageDelta: (delta) => {
             if (isStaleRequest()) return;
             currentContent += delta;
@@ -995,9 +1017,23 @@ export function useChatRun({
             void getSessionActions().loadSessions();
             onWorkspaceRefresh();
           },
-        },
-        { signal: abortController.signal, files: filesForSend }
-      );
+        };
+
+      if (options.controlAction) {
+        await sendSessionControlAction(
+          activeSessionId,
+          text,
+          options.controlAction,
+          selectedModel,
+          callbacks,
+          { signal: abortController.signal }
+        );
+      } else {
+        await sendChatMessage(activeSessionId, text, selectedModel, callbacks, {
+          signal: abortController.signal,
+          files: filesForSend,
+        });
+      }
     },
     [
       getSessionActions,
@@ -1020,6 +1056,13 @@ export function useChatRun({
       planSteps,
       tokenUsage,
     ]
+  );
+
+  const handleSessionControlAction = useCallback(
+    async (action: SessionControlAction, label: string) => {
+      await handleSendMessage(label, { controlAction: action, newSession: true });
+    },
+    [handleSendMessage]
   );
 
   const handleQuickReply = useCallback(
@@ -1619,6 +1662,7 @@ export function useChatRun({
     handleAddPendingImages,
     handleRemovePendingLocalImage,
     handleSendMessage,
+    handleSessionControlAction,
     handleQuickReply,
     handlePermissionResolve,
     handleFeishuAuthOpen,

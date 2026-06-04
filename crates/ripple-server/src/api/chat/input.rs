@@ -5,6 +5,12 @@ use serde_json::{json, Value};
 use crate::api::ApiError;
 use crate::workspace as ws;
 
+#[derive(Debug, Clone)]
+pub(crate) struct ExtractedControlAction {
+    pub label: Option<String>,
+    pub action: Value,
+}
+
 pub(crate) fn extract_user_input_and_items(
     messages: &[Value],
     workspace_root: &FsPath,
@@ -70,6 +76,30 @@ pub(crate) fn extract_user_input_and_items(
         Value::Array(user_content),
         attachment_items,
     ))
+}
+
+pub(crate) fn extract_control_action_from_messages(
+    messages: &[Value],
+) -> Option<ExtractedControlAction> {
+    let message = messages
+        .iter()
+        .rev()
+        .find(|message| message.get("role").and_then(Value::as_str) == Some("user"))?;
+    let entries = message.get("content")?.as_array()?;
+    let entry = entries
+        .iter()
+        .find(|entry| entry.get("type").and_then(Value::as_str) == Some("ripple_control_action"))?;
+    let action = entry
+        .get("action")
+        .filter(|value| value.is_object())?
+        .clone();
+    let label = entry
+        .get("label")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    Some(ExtractedControlAction { label, action })
 }
 
 fn image_url(entry: &Value) -> Option<String> {
@@ -215,5 +245,47 @@ fn content_text(content: &Value) -> Option<String> {
             }
         }
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::extract_control_action_from_messages;
+
+    #[test]
+    fn extracts_ripple_control_action_content_block() {
+        let action = extract_control_action_from_messages(&[json!({
+            "role": "user",
+            "content": [
+                {
+                    "type": "ripple_control_action",
+                    "label": "Connect Google Workspace",
+                    "action": {
+                        "type": "connector.auth.start",
+                        "connector": "google_workspace",
+                        "source": "connectors_page"
+                    }
+                }
+            ]
+        })])
+        .expect("control action");
+
+        assert_eq!(action.label.as_deref(), Some("Connect Google Workspace"));
+        assert_eq!(
+            action
+                .action
+                .get("type")
+                .and_then(serde_json::Value::as_str),
+            Some("connector.auth.start")
+        );
+        assert_eq!(
+            action
+                .action
+                .get("connector")
+                .and_then(serde_json::Value::as_str),
+            Some("google_workspace")
+        );
     }
 }

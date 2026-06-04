@@ -52,7 +52,12 @@ import {
   sessionStatusToWorkbenchStatus,
 } from "@/lib/workbench";
 import { shouldShowInspector, type WorkspaceView } from "@/lib/workspaceViews";
-import type { SessionAttention, SessionDetail, WorkspaceFileOpenRequest } from "@/types";
+import type {
+  SessionAttention,
+  SessionControlAction,
+  SessionDetail,
+  WorkspaceFileOpenRequest,
+} from "@/types";
 import { sortModelOptions } from "@/lib/models";
 import {
   getStoredDefaultModel,
@@ -157,6 +162,7 @@ export default function Home() {
   const sessionActionsRef = useRef<ChatRunSessionActions>({
     getSessionId: () => null,
     ensureSession: async () => null,
+    createSession: async () => null,
     loadSessions: async () => [],
     clearCurrentSessionContext: async () => true,
     compactCurrentSessionContext: async () => false,
@@ -266,6 +272,7 @@ export default function Home() {
     handleAddPendingImages,
     handleRemovePendingLocalImage,
     handleSendMessage,
+    handleSessionControlAction,
     handleQuickReply,
     handlePermissionResolve,
     handleFeishuAuthOpen,
@@ -355,6 +362,8 @@ export default function Home() {
     sessionActionsRef.current = {
       getSessionId: () => sessionId,
       ensureSession: (model) => ensureSession(model, activeContextFolderPath),
+      createSession: async (model) =>
+        (await createNewSession(model, activeContextFolderPath))?.sessionId ?? null,
       loadSessions,
       clearCurrentSessionContext,
       compactCurrentSessionContext,
@@ -365,6 +374,7 @@ export default function Home() {
     activeContextFolderPath,
     clearCurrentSessionContext,
     compactCurrentSessionContext,
+    createNewSession,
     ensureSession,
     loadSessions,
     sessionId,
@@ -667,15 +677,29 @@ export default function Home() {
     setMobileSessionMode("chat");
   }, []);
   const handleOpenChatWithPrompt = useCallback(
-    (prompt: string) => {
+    (prompt: string, options?: { autoSend?: boolean; newSession?: boolean }) => {
       setMobileFilesReturnToChat(false);
       setPendingWorkspaceFileOpen(null);
       setActiveView("sessions");
       setMobileMotionDirection(1);
       setMobileSessionMode("chat");
       setInput(prompt);
+      if (options?.autoSend) {
+        void handleSendMessage(prompt, { newSession: options.newSession });
+      }
     },
-    [setInput]
+    [handleSendMessage, setInput]
+  );
+  const handleOpenSessionAction = useCallback(
+    (action: SessionControlAction, label: string) => {
+      setMobileFilesReturnToChat(false);
+      setPendingWorkspaceFileOpen(null);
+      setActiveView("sessions");
+      setMobileMotionDirection(1);
+      setMobileSessionMode("chat");
+      void handleSessionControlAction(action, label);
+    },
+    [handleSessionControlAction]
   );
   const handleOpenMobileSessionList = useCallback(() => {
     setMobileFilesReturnToChat(false);
@@ -900,9 +924,14 @@ export default function Home() {
       <SkillsPage
         userId={userId}
         onOpenChat={handleOpenChatWithPrompt}
+        onOpenSessionAction={handleOpenSessionAction}
       />
     ) : activeView === "connectors" ? (
-      <ConnectorsPage userId={userId} onConnectorStateChange={loadSessions} />
+      <ConnectorsPage
+        userId={userId}
+        onConnectorStateChange={loadSessions}
+        onOpenSessionAction={handleOpenSessionAction}
+      />
     ) : (
       <div className="h-full min-h-0">
         <div className={mobileSessionMode === "list" ? "h-full lg:hidden" : "hidden"}>

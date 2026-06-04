@@ -1,7 +1,7 @@
 ---
 name: notion-files
 version: 1.0.0
-description: "Notion 文件上传：通过 `ntn files` 把本地文件（图片、附件）或外链上传到 Notion，获得 file_upload_id 后嵌入到 page 的 block 中。当用户需要给 Notion page 加封面、插图片、上传附件、嵌入 PDF 时使用。"
+description: "Use when a Notion task needs file upload, image/file/PDF blocks, page cover or icon media, external URL imports, or file_upload ids."
 metadata:
   requires:
     bins: ["ntn"]
@@ -11,7 +11,7 @@ metadata:
 
 # notion-files：文件上传
 
-**CRITICAL — 开始前 MUST 先用 Read 工具读取 [`../notion-shared/SKILL.md`](../notion-shared/SKILL.md)**。
+**CRITICAL — 开始前 MUST 先读取 [`../notion-shared/SKILL.md`](../notion-shared/SKILL.md)**。
 
 ## `ntn files` 子命令一览
 
@@ -25,14 +25,14 @@ ntn files --help
 
 ```bash
 # 上传本地文件（从 stdin 喂二进制）
-ntn files create < /workspace/image.png
+ntn files create --json < /workspace/image.png
 
 # 或者让 Notion 从外链抓
-ntn files create --external-url https://example.com/photo.png
+ntn files create --external-url https://example.com/photo.png --json
 
 # 列出 / 查询已上传
-ntn files list
-ntn files get <upload-id>
+ntn files list --json
+ntn files get <upload-id> --json
 ```
 
 ## 上传流程（两步）
@@ -44,7 +44,7 @@ Notion 的文件模型是 **"先上传拿 id，再把 id 嵌进 block / property
 
 ```bash
 # 本地文件
-ntn files create < /workspace/image.png > upload.json
+ntn files create --filename image.png --content-type image/png --json < /workspace/image.png > upload.json
 
 # 读出 file_upload_id
 UPLOAD_ID=$(jq -r '.id' upload.json)
@@ -52,9 +52,14 @@ UPLOAD_ID=$(jq -r '.id' upload.json)
 
 常见字段：
 - `.id` — file_upload_id，后续一切靠它
-- `.status` — `pending` / `uploaded`；`uploaded` 才能拿去嵌
-- `.file.url` — 上传成功后的 Notion 内部 URL（**有过期时间**，通常 1 小时，
-  所以**不要**把这个 URL 直接发给用户或存到外面）
+- `.status` — `pending` / `uploaded` / `failed` / `expired`；`uploaded` 才能拿去嵌
+- `.expiry_time` — upload id 的过期时间；不要长期保存一个悬置 upload id
+
+如果是外链导入或返回 `pending`，轮询到终态：
+
+```bash
+ntn files get "$UPLOAD_ID" --json
+```
 
 ### 第 2 步：把 `file_upload_id` 绑到 page
 
@@ -88,20 +93,39 @@ ntn api -X PATCH v1/blocks/{page_id}/children -d "{
 }"
 ```
 
-**2c. 作为 page 的 cover / icon：**
+**2c. 作为 page 的 cover：**
 
-Notion API 的 cover/icon 目前**只接受外链**（`type: external`），不接受 file_upload。
-这是 Notion 的限制，别在这里浪费时间，要么就跟用户说清楚，要么把图上传到其他
-静态托管（例如用户自己的图床）后用 `external.url` 设置 cover。
+```bash
+ntn api -X PATCH v1/pages/{page_id} -d "{
+  \"cover\": {
+    \"type\": \"file_upload\",
+    \"file_upload\": {\"id\": \"${UPLOAD_ID}\"}
+  }
+}"
+```
+
+**2d. 作为 page 的 icon：**
+
+```bash
+ntn api -X PATCH v1/pages/{page_id} -d "{
+  \"icon\": {
+    \"type\": \"file_upload\",
+    \"file_upload\": {\"id\": \"${UPLOAD_ID}\"}
+  }
+}"
+```
+
+当前 API 也支持 `external.url`、emoji、Notion native icon 等形式；不确定时先跑
+`ntn api --spec /v1/pages/{page_id} -X PATCH` 查 `pageIconRequest` / `pageCoverRequest`。
 
 ## 外链 vs 上传，怎么选？
 
 | 场景 | 选 |
 |------|----|
 | 已经有公网 URL（CDN / GitHub raw / 图床） | `--external-url`，**不过** Notion 会在第一次访问时把它抓回去存，仍然产生一次外网请求 |
-| 本地生成的文件（截图、渲染出来的图） | 上传本地文件（`ntn files create < file`） |
-| 要作为 page cover 用 | **必须**外链（API 限制） |
-| 文件 >20MB | Notion 官方限制单文件 ≤5MB 免费版 / 最大 20MB 付费版。先确认用户 workspace 版本 |
+| 本地生成的文件（截图、渲染出来的图） | 上传本地文件（`ntn files create --json < file`） |
+| 要作为 page cover / icon 用 | 可以用 `file_upload`，也可以用 `external.url` |
+| 大文件 / 上传失败 | 先读 `ntn api --docs /v1/file_uploads -X POST`，必要时走 multi-part 流程 |
 
 ## 常见错误
 
@@ -115,13 +139,13 @@ Notion API 的 cover/icon 目前**只接受外链**（`type: external`），不�
 
 | 用户意图 | 步骤 |
 |----------|------|
-| "把这张图放进笔记" | `ntn files create < img.png` → 取 id → PATCH `v1/blocks/{page_id}/children` 追加 `image` block |
-| "给这个页面加个 PDF 附件" | `ntn files create < doc.pdf` → 追加 `file` block |
-| "设置页面封面" | 只能用 `external.url`；引导用户给你一个外链 |
-| "看看已经传过哪些文件" | `ntn files list` |
+| "把这张图放进笔记" | `ntn files create --json < img.png` → 取 id → PATCH `v1/blocks/{page_id}/children` 追加 `image` block |
+| "给这个页面加个 PDF 附件" | `ntn files create --json < doc.pdf` → 追加 `file` block |
+| "设置页面封面" | 上传后 PATCH `v1/pages/{page_id}` 的 `cover.file_upload.id` |
+| "看看已经传过哪些文件" | `ntn files list --json` |
 
 ## 最后提醒
 
 - `NOTION_API_TOKEN` 必须已注入（见 notion-shared），否则 `files create` 第一句话就会失败
-- 上传成功后**立刻**把 `file_upload_id` 嵌到 page 里；不要在对话里让它悬置一个小时后再用（URL 会过期）
+- 上传成功后**立刻**把 `file_upload_id` 嵌到 page 里；不要在对话里让它长期悬置
 - 批量上传（>5 个文件）前先跟用户确认一次完整计划

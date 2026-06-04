@@ -1,7 +1,7 @@
 ---
 name: notion-pages
 version: 1.0.0
-description: "Notion 页面（page）CRUD：创建 page（从 Markdown 或结构化 properties）、搜索 page、读取 page 属性和 block 树、追加/修改 block 内容、归档 page。当用户需要创建会议纪要/笔记/文档、搜索某个 page、读取 page 内容、向 page 追加段落、归档 page 时使用。"
+description: "Use when a Notion task needs page creation, page search, page metadata, Markdown/body reads, block appends, block edits, or page archiving."
 metadata:
   requires:
     bins: ["ntn"]
@@ -11,10 +11,10 @@ metadata:
 
 # notion-pages：页面 CRUD
 
-**CRITICAL — 开始前 MUST 先用 Read 工具读取 [`../notion-shared/SKILL.md`](../notion-shared/SKILL.md)**，
+**CRITICAL — 开始前 MUST 先读取 [`../notion-shared/SKILL.md`](../notion-shared/SKILL.md)**，
 其中包含 token 来源、权限错误处理（Integration 必须被 share 到目标 page）。
 
-不确定参数 / schema 时，**先跑** `ntn pages --help` 或 `ntn api --docs v1/pages` 再下手。
+不确定参数 / schema 时，**先跑** `ntn pages --help` 或 `ntn api --docs /v1/pages -X POST` 再下手。
 
 ## 核心概念
 
@@ -23,9 +23,12 @@ Notion 的一个 page 由两部分组成：
 | 部分 | 说明 | 对应 API |
 |------|------|----------|
 | **properties**（元数据） | 标题、状态、标签、日期等 schema 字段 | `v1/pages`（创建/修改） |
-| **content**（block 树） | 正文内容：段落、标题、列表、代码块、引用... | `v1/blocks/{page_id}/children` |
+| **content**（正文） | Markdown 或 block 树：段落、标题、列表、代码块、引用... | `v1/pages/{page_id}/markdown` 或 `v1/blocks/{page_id}/children` |
 
-一次请求只能操作其中**一部分**，不能一股脑塞在一起（这是 Notion API 的硬约束）。
+创建 page 时可以同时传 `properties` + `children` / `markdown`。更新时按目标拆开：
+改元数据走 `PATCH v1/pages/{page_id}`，追加结构化 block 走
+`PATCH v1/blocks/{page_id}/children`，整体 Markdown 内容更新走
+`PATCH v1/pages/{page_id}/markdown`。
 
 ## 搜索页面
 
@@ -35,12 +38,12 @@ Notion 的一个 page 由两部分组成：
 ntn api v1/search -d '{"query":"会议纪要","filter":{"value":"page","property":"object"}}'
 ```
 
-`filter.value` 可选 `page` / `database`。不加 `filter` 就两种都返回。
+`filter.value` 可选 `page` / `data_source`。不加 `filter` 就两种都返回。
 
 ### 列出 Integration 能访问的所有内容
 
 ```bash
-ntn api v1/search -d '{}' | jq '.results[] | {id, object, title: .properties.title}'
+ntn api v1/search -d '{}' | jq '.results[] | {id, object, url}'
 ```
 
 如果这里返回空，八成是 Integration 还没被 share 到任何资源（见 notion-shared）。
@@ -50,11 +53,15 @@ ntn api v1/search -d '{}' | jq '.results[] | {id, object, title: .properties.tit
 ### 方式 A：从 Markdown 一键创建（推荐用于笔记类）
 
 ```bash
-# ntn 有官方 shortcut：
-ntn pages create --parent-page-id <PARENT_PAGE_ID> --title "今日会议纪要" --markdown-file /workspace/notes.md
+# parent 支持 page:<id>、database:<id>、data-source:<id>
+ntn pages create --parent page:<PARENT_PAGE_ID> --json < /workspace/notes.md
+
+# 短内容也可以直接传 --content
+ntn pages create --parent page:<PARENT_PAGE_ID> --content $'# 今日会议纪要\n\n正文...' --json
 ```
 
-先跑 `ntn pages create --help` 确认你手里的 ntn 版本支持哪些 flag（版本间略有差异）。
+当前 `ntn 0.10.0` 没有 `--markdown-file`、`--title`、`--parent-page-id` 这些 flag。
+先跑 `ntn pages create --help` 确认当前版本支持的参数。
 
 ### 方式 B：raw API（精细控制 properties）
 
@@ -62,9 +69,9 @@ ntn pages create --parent-page-id <PARENT_PAGE_ID> --title "今日会议纪要" 
 ntn api v1/pages -d '{
   "parent": {"page_id": "PARENT_ID"},
   "properties": {
-    "title": [{"text": {"content": "今日会议纪要"}}]
+    "title": {"title": [{"text": {"content": "今日会议纪要"}}]}
   },
-  "children": [
+  "content": [
     {"object":"block","type":"heading_1","heading_1":{"rich_text":[{"text":{"content":"讨论事项"}}]}},
     {"object":"block","type":"bulleted_list_item","bulleted_list_item":{"rich_text":[{"text":{"content":"…"}}]}}
   ]
@@ -72,8 +79,9 @@ ntn api v1/pages -d '{
 ```
 
 **硬规则**：
-- `parent.page_id` 传的必须是 **父 page id**；要放进某个数据库就用 `parent.database_id`（此时 properties 必须严格对齐数据库 schema）
-- `children` 数组一次最多 100 个 block，超过要拆多批走 `v1/blocks/{page_id}/children` 追加
+- `parent.page_id` 传的是 **父 page id**；要放进某个 data source 就优先用 `parent.data_source_id`
+- 放进 data source 时，`properties` 必须严格对齐 data source schema
+- `content` / `children` 数组一次最多 100 个 block，超过要拆多批走 `v1/blocks/{page_id}/children` 追加
 
 ## 读取 page
 
@@ -84,6 +92,14 @@ ntn api v1/pages/{page_id}
 ```
 
 ### 读正文（block 树）
+
+优先读 Markdown（适合总结、问答、给用户展示）：
+
+```bash
+ntn api v1/pages/{page_id}/markdown
+```
+
+需要结构化 block 或递归子 block 时再拉 block 树：
 
 ```bash
 ntn api v1/blocks/{page_id}/children page_size==100
@@ -135,6 +151,17 @@ ntn api -X PATCH v1/blocks/{block_id} -d '{
 
 type 字段必须和原 block 类型一致，不能把 `paragraph` 改成 `heading_1`（那得删重建）。
 
+### 用 Markdown 更新正文
+
+```bash
+ntn api -X PATCH v1/pages/{page_id}/markdown -d '{
+  "type": "replace_content",
+  "replace_content": {"new_str": "# 新标题\n\n新正文"}
+}'
+```
+
+这是更新正文内容的高影响操作，执行前要向用户确认会替换/改写页面正文。
+
 ## URL → page_id 解析
 
 用户给你的 page URL 长这样：
@@ -153,9 +180,9 @@ https://www.notion.so/workspace-name/d8f4e2c1a6b048cfb72dd3f9e0a1b2c3
 
 | 用户说... | 跑什么 |
 |-----------|--------|
-| "帮我把这段笔记存到 Notion" | `ntn pages create --markdown-file ...` |
+| "帮我把这段笔记存到 Notion" | `ntn pages create --parent page:<id> --json < notes.md` |
 | "找一下叫 XX 的页面" | `ntn api v1/search -d '{"query":"XX"}'` |
-| "这个页面里有什么？" | `ntn api v1/blocks/{id}/children page_size==100` |
+| "这个页面里有什么？" | 优先 `ntn api v1/pages/{id}/markdown`，需要结构再拉 blocks |
 | "在这个页面末尾加一段" | PATCH `v1/blocks/{id}/children`（追加） |
 | "把这个页面归档" | PATCH `v1/pages/{id}` + `archived:true` + 用户确认 |
-| 要过滤/排序 database | 去 [`../notion-databases`](../notion-databases/SKILL.md) |
+| 要过滤/排序 database / data source | 去 [`../notion-databases`](../notion-databases/SKILL.md) |

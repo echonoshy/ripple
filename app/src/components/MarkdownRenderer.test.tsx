@@ -59,6 +59,22 @@ function testFeishuAuthCardShowsWaitingState() {
   assert.doesNotMatch(html, /continue automatically/);
 }
 
+function testFeishuAuthCardSeparatesConnectAndSkillText() {
+  const connectHtml = renderMarkdown({
+    content: "[FEISHU_AUTH_CONNECT]\nhttps://accounts.feishu.cn/device",
+  });
+  const skillHtml = renderMarkdown({
+    content: "[FEISHU_AUTH_SKILL]\nhttps://accounts.feishu.cn/device",
+  });
+
+  assert.match(connectHtml, /Authorize Feishu account/);
+  assert.doesNotMatch(connectHtml, /for this request/);
+  assert.doesNotMatch(connectHtml, /Step 2\/2/);
+  assert.match(skillHtml, /Authorize Feishu for this request/);
+  assert.match(skillHtml, /This Feishu request needs authorization first/);
+  assert.doesNotMatch(skillHtml, /continue automatically/);
+}
+
 function testGoogleAuthCardGuidesManualTwoStepFlow() {
   const html = renderMarkdown({
     content: "[GOOGLE_AUTH]\nhttps://accounts.google.com/o/oauth2/auth?state=abc",
@@ -71,6 +87,21 @@ function testGoogleAuthCardGuidesManualTwoStepFlow() {
   assert.doesNotMatch(html, /continue automatically/);
   assert.doesNotMatch(html, /callback URL/);
   assert.doesNotMatch(html, /好了/);
+}
+
+function testGoogleAuthCardSeparatesConnectAndSkillText() {
+  const connectHtml = renderMarkdown({
+    content: "[GOOGLE_AUTH_CONNECT]\nhttps://accounts.google.com/o/oauth2/auth?state=abc",
+  });
+  const skillHtml = renderMarkdown({
+    content: "[GOOGLE_AUTH_SKILL]\nhttps://accounts.google.com/o/oauth2/auth?state=abc",
+  });
+
+  assert.match(connectHtml, /Connect Google Workspace/);
+  assert.doesNotMatch(connectHtml, /send your Google Workspace request/);
+  assert.match(skillHtml, /Authorize Google Workspace for this request/);
+  assert.match(skillHtml, /This Google Workspace request needs authorization first/);
+  assert.doesNotMatch(skillHtml, /continue automatically/);
 }
 
 function testGoogleAuthCardConsumesLegacyChineseTrailingInstruction() {
@@ -101,21 +132,52 @@ function testGoogleAuthCardUsesChineseI18nText() {
 }
 
 function testGoogleAuthorizedCardUsesI18nText() {
-  const enHtml = renderMarkdown({ content: "[GOOGLE_AUTHORIZED]" });
+  const enHtml = renderMarkdown({ content: "[GOOGLE_AUTHORIZED_CONNECT]" });
+  const skillHtml = renderMarkdown({ content: "[GOOGLE_AUTHORIZED_SKILL]" });
   const zhHtml = renderToStaticMarkup(
     <I18nProvider initialPreference="zh-CN">
-      <MarkdownRenderer content={"[GOOGLE_AUTHORIZED]"} />
+      <MarkdownRenderer content={"[GOOGLE_AUTHORIZED_SKILL]"} />
     </I18nProvider>
   );
 
   assert.match(enHtml, /Google Workspace connected/);
   assert.doesNotMatch(enHtml, /Step 2\/2/);
-  assert.match(enHtml, /You can now send your Google Workspace request/);
+  assert.match(enHtml, /Authorization is complete/);
+  assert.doesNotMatch(enHtml, /send your Google Workspace request/);
+  assert.match(skillHtml, /You can now send your Google Workspace request/);
   assert.match(zhHtml, /Google Workspace 已连接/);
   assert.doesNotMatch(zhHtml, /第 2\/2 步/);
   assert.match(zhHtml, /现在可以发送你要执行的 Google Workspace 请求/);
   assert.doesNotMatch(enHtml, /继续执行刚才的请求/);
   assert.doesNotMatch(zhHtml, /继续执行刚才的请求/);
+}
+
+function testFeishuAndNotionAuthorizedCardsUseI18nText() {
+  const feishuConnectHtml = renderMarkdown({ content: "[FEISHU_AUTHORIZED_CONNECT]" });
+  const feishuSkillHtml = renderMarkdown({ content: "[FEISHU_AUTHORIZED_SKILL]" });
+  const notionConnectHtml = renderMarkdown({ content: "[NOTION_AUTHORIZED_CONNECT]" });
+  const notionSkillHtml = renderMarkdown({ content: "[NOTION_AUTHORIZED_SKILL]" });
+
+  assert.match(feishuConnectHtml, /Feishu connected/);
+  assert.match(feishuConnectHtml, /Authorization is complete/);
+  assert.doesNotMatch(feishuConnectHtml, /Feishu request/);
+  assert.match(feishuSkillHtml, /You can now send your Feishu request/);
+  assert.match(notionConnectHtml, /Notion connected/);
+  assert.match(notionConnectHtml, /Token saved/);
+  assert.doesNotMatch(notionConnectHtml, /Notion request/);
+  assert.match(notionSkillHtml, /You can now send your Notion request/);
+}
+
+function testNotionTokenCardSeparatesConnectAndSkillText() {
+  const connectHtml = renderMarkdown({ content: "[NOTION_TOKEN_CONNECT]" });
+  const skillHtml = renderMarkdown({ content: "[NOTION_TOKEN_SKILL]" });
+
+  assert.match(connectHtml, /Connect Notion/);
+  assert.match(connectHtml, /Paste your Notion integration token/);
+  assert.doesNotMatch(connectHtml, /This Notion request/);
+  assert.match(skillHtml, /Connect Notion for this request/);
+  assert.match(skillHtml, /This Notion request needs an integration token first/);
+  assert.doesNotMatch(skillHtml, /continue automatically/);
 }
 
 function testConnectorAuthLinksUseScopedButtonStyles() {
@@ -310,10 +372,14 @@ function testGlobalCodeBlockCssKeepsWrappingEnabled() {
 testPreservesSingleNewlineAsLineBreak();
 testFeishuAuthCardDoesNotCompleteAuthDirectly();
 testFeishuAuthCardShowsWaitingState();
+testFeishuAuthCardSeparatesConnectAndSkillText();
 testGoogleAuthCardGuidesManualTwoStepFlow();
+testGoogleAuthCardSeparatesConnectAndSkillText();
 testGoogleAuthCardConsumesLegacyChineseTrailingInstruction();
 testGoogleAuthCardUsesChineseI18nText();
 testGoogleAuthorizedCardUsesI18nText();
+testFeishuAndNotionAuthorizedCardsUseI18nText();
+testNotionTokenCardSeparatesConnectAndSkillText();
 testConnectorAuthLinksUseScopedButtonStyles();
 testConnectorAuthCardsUseSoftTileHeaders();
 testBilibiliAuthCardShowsQrAndManualOpenLink();

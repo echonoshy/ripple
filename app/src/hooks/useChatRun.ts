@@ -110,6 +110,7 @@ export function connectorAuthPollPayloadFromEvent(
   event: ConnectorAuthChatEvent
 ): FeishuAuthOpenPayload | null {
   const data = event.action?.data || {};
+  const mode = event.action?.source === "connectors_page" ? "connect" : "skill";
   const nextUrl =
     typeof data.oauth_url === "string"
       ? data.oauth_url
@@ -129,7 +130,12 @@ export function connectorAuthPollPayloadFromEvent(
     tag: event.connector === "feishu" && data.setup_url === nextUrl ? "setup" : "auth",
     url: nextUrl,
     popup: null,
+    mode,
   };
+}
+
+export function shouldStartConnectorAuthPoll(payload: FeishuAuthOpenPayload): boolean {
+  return payload.mode !== "connect";
 }
 
 export function shouldContinueConnectorAuthPoll(
@@ -969,7 +975,11 @@ export function useChatRun({
             if (isStaleRequest()) return;
             if (streamHadError) return;
             abortControllersRef.current.delete(activeSessionId);
-            if (pendingConnectorAuthPayload && beginConnectorAuthPollRef.current) {
+            if (
+              pendingConnectorAuthPayload &&
+              beginConnectorAuthPollRef.current &&
+              shouldStartConnectorAuthPoll(pendingConnectorAuthPayload)
+            ) {
               const baseMessages =
                 runningViewStatesRef.current.get(activeSessionId)?.messages || initialMessages;
               beginConnectorAuthPollRef.current?.(pendingConnectorAuthPayload, {
@@ -1155,7 +1165,11 @@ export function useChatRun({
   }, []);
 
   const beginConnectorAuthPoll = useCallback(
-    ({ connector, url, popup }: FeishuAuthOpenPayload, options: ConnectorAuthPollOptions = {}) => {
+    (
+      { connector, url, popup, mode }: FeishuAuthOpenPayload,
+      options: ConnectorAuthPollOptions = {}
+    ) => {
+      if (!shouldStartConnectorAuthPoll({ connector, tag: "auth", url, popup, mode })) return;
       const targetConnector = connector === "google_workspace" ? "google_workspace" : "feishu";
       const activeSessionId = getSessionActions().getSessionId();
       if (!activeSessionId) return;
@@ -1602,6 +1616,7 @@ export function useChatRun({
 
   const handleFeishuAuthOpen = useCallback(
     (payload: FeishuAuthOpenPayload) => {
+      if (!shouldStartConnectorAuthPoll(payload)) return;
       beginConnectorAuthPoll(payload);
     },
     [beginConnectorAuthPoll]

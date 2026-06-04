@@ -7,6 +7,7 @@ import {
   connectorAuthPollPayloadFromEvent,
   shouldAutoOpenConnectorAuthWindow,
   shouldContinueConnectorAuthPoll,
+  shouldStartConnectorAuthPoll,
   uploadPendingLocalImagesForSend,
 } from "./useChatRun";
 import type { PendingLocalImage } from "@/lib/pendingImages";
@@ -25,8 +26,12 @@ function pendingImage(name: string): PendingLocalImage {
 }
 
 function authEvent(
-  overrides: Partial<ConnectorAuthChatEvent> & { data?: Record<string, unknown> }
+  overrides: Partial<ConnectorAuthChatEvent> & {
+    data?: Record<string, unknown>;
+    source?: string;
+  }
 ): ConnectorAuthChatEvent {
+  const { data, source, ...eventOverrides } = overrides;
   return {
     type: "connector_auth_required",
     connector: "feishu",
@@ -39,9 +44,10 @@ function authEvent(
       ok: true,
       stage: overrides.stage || "awaiting_setup",
       detail: "",
-      data: overrides.data || {},
+      source,
+      data: data || {},
     },
-    ...overrides,
+    ...eventOverrides,
   };
 }
 
@@ -55,7 +61,9 @@ function testFeishuSetupAuthStartsAutomaticPoll() {
     tag: "setup",
     url: "https://open.feishu.cn/page/cli?user_code=abc",
     popup: null,
+    mode: "skill",
   });
+  assert.equal(payload && shouldStartConnectorAuthPoll(payload), true);
 }
 
 function testFeishuUserAuthStartsAutomaticPoll() {
@@ -71,6 +79,7 @@ function testFeishuUserAuthStartsAutomaticPoll() {
     tag: "auth",
     url: "https://accounts.feishu.cn/device",
     popup: null,
+    mode: "skill",
   });
 }
 
@@ -89,7 +98,29 @@ function testGoogleAuthStillStartsAutomaticPoll() {
     tag: "auth",
     url: "https://accounts.google.com/o/oauth2/auth?state=abc",
     popup: null,
+    mode: "skill",
   });
+}
+
+function testConnectorPageGoogleAuthDoesNotStartAutomaticPoll() {
+  const payload = connectorAuthPollPayloadFromEvent(
+    authEvent({
+      connector: "google_workspace",
+      display_name: "Google Workspace",
+      stage: "awaiting_browser_callback",
+      source: "connectors_page",
+      data: { oauth_url: "https://accounts.google.com/o/oauth2/auth?state=abc" },
+    })
+  );
+
+  assert.deepEqual(payload, {
+    connector: "google_workspace",
+    tag: "auth",
+    url: "https://accounts.google.com/o/oauth2/auth?state=abc",
+    popup: null,
+    mode: "connect",
+  });
+  assert.equal(payload && shouldStartConnectorAuthPoll(payload), false);
 }
 
 function testBilibiliAuthDoesNotStartAutomaticPollOrOpen() {
@@ -299,6 +330,7 @@ function testSendErrorsReleaseSessionForRetry() {
 testFeishuSetupAuthStartsAutomaticPoll();
 testFeishuUserAuthStartsAutomaticPoll();
 testGoogleAuthStillStartsAutomaticPoll();
+testConnectorPageGoogleAuthDoesNotStartAutomaticPoll();
 testBilibiliAuthDoesNotStartAutomaticPollOrOpen();
 testAuthorizedConnectorEventDoesNotStartPoll();
 testConnectorAuthPollContinuesOnlyBeforeTimeout();

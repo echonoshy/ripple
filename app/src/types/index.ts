@@ -292,6 +292,7 @@ export interface ConnectorActionResponse {
   ok: boolean;
   stage: string;
   detail: string;
+  source?: string;
   data: Record<string, unknown>;
 }
 

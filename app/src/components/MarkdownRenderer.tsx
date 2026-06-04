@@ -76,12 +76,14 @@ interface MarkdownRendererProps {
 
 export type FeishuTag = "setup" | "auth";
 export type ConnectorAuthKind = "feishu" | "google_workspace";
+export type ConnectorAuthMode = "connect" | "skill";
 
 export interface FeishuAuthOpenPayload {
   connector: ConnectorAuthKind;
   tag: FeishuTag;
   url: string;
   popup: Window | null;
+  mode?: ConnectorAuthMode;
 }
 
 export interface FeishuAuthWaitingState {
@@ -96,8 +98,11 @@ interface ContentSegment {
     | "text"
     | "thinking"
     | "feishu"
+    | "feishuAuthorized"
     | "google"
     | "googleAuthorized"
+    | "notionToken"
+    | "notionAuthorized"
     | "bilibili"
     | "bilibiliAuthorized";
   content: string;
@@ -105,6 +110,7 @@ interface ContentSegment {
   url?: string;
   qrcodeImageUrl?: string;
   appUrl?: string;
+  authMode?: ConnectorAuthMode;
   bilibiliMode?: "connect" | "skill";
 }
 
@@ -149,10 +155,11 @@ function parseThinkingBlocks(content: string): ContentSegment[] {
 /**
  * 识别服务端 connector auth 消息里的授权标签，转换为可交互的按钮卡片。
  *
- * 标签由 Ripple 的 Feishu chat auth flow 产生：
- *   [FEISHU_SETUP] ... https://open.feishu.cn/page/cli?user_code=...
- *   [FEISHU_AUTH]  ... https://accounts.feishu.cn/...
- *   [GOOGLE_AUTH]  ... https://accounts.google.com/o/oauth2/auth?...
+ * 标签由 Ripple 的 chat auth flow 产生：
+ *   [FEISHU_SETUP_CONNECT] ... https://open.feishu.cn/page/cli?user_code=...
+ *   [FEISHU_AUTH_SKILL]    ... https://accounts.feishu.cn/...
+ *   [GOOGLE_AUTH_CONNECT]  ... https://accounts.google.com/o/oauth2/auth?...
+ *   [NOTION_TOKEN_SKILL]
  *
  * 匹配策略：从标签起扫到第一个 http(s) URL（含），整段替换为授权卡片；
  * 前后的普通文本保留为独立的 text segment。
@@ -197,30 +204,74 @@ function parseConnectorAuthBlocks(text: string): ContentSegment[] {
 function parseBrowserConnectorAuthBlocks(text: string): ContentSegment[] {
   const segments: ContentSegment[] = [];
   const re =
-    /\[(GOOGLE_AUTHORIZED|BILIBILI_AUTHORIZED(?:_(CONNECT|SKILL))?)\]|\[(FEISHU_(SETUP|AUTH)|GOOGLE_AUTH)\][\s\S]*?(https?:\/\/\S+)/g;
+    /\[(GOOGLE_AUTH(?:_(?:CONNECT|SKILL))?|GOOGLE_AUTHORIZED(?:_(?:CONNECT|SKILL))?|FEISHU_(?:SETUP|AUTH)(?:_(?:CONNECT|SKILL))?|FEISHU_AUTHORIZED(?:_(?:CONNECT|SKILL))?|NOTION_TOKEN(?:_(?:CONNECT|SKILL))?|NOTION_AUTHORIZED(?:_(?:CONNECT|SKILL))?|BILIBILI_AUTHORIZED(?:_(?:CONNECT|SKILL))?)\]/g;
   let last = 0;
   let m: RegExpExecArray | null;
 
   while ((m = re.exec(text)) !== null) {
+    const marker = m[1];
+    let segmentEnd = re.lastIndex;
+    let url: string | undefined;
+    if (connectorAuthMarkerNeedsUrl(marker)) {
+      const urlMatch = text.slice(segmentEnd).match(/https?:\/\/\S+/);
+      if (!urlMatch?.index && urlMatch?.index !== 0) {
+        continue;
+      }
+      url = urlMatch[0];
+      segmentEnd += urlMatch.index + url.length;
+    }
     if (m.index > last) {
       const before = text.slice(last, m.index).trim();
       if (before) segments.push({ type: "text", content: before });
     }
-    if (m[1] === "GOOGLE_AUTHORIZED") {
-      segments.push({ type: "googleAuthorized", content: m[0] });
-    } else if (m[1]?.startsWith("BILIBILI_AUTHORIZED")) {
+    if (marker.startsWith("GOOGLE_AUTHORIZED")) {
+      segments.push({
+        type: "googleAuthorized",
+        content: text.slice(m.index, segmentEnd),
+        authMode: authModeFromMarker(marker, "skill"),
+      });
+    } else if (marker.startsWith("GOOGLE_AUTH")) {
+      segments.push({
+        type: "google",
+        content: text.slice(m.index, segmentEnd),
+        url,
+        authMode: authModeFromMarker(marker, "skill"),
+      });
+    } else if (marker.startsWith("FEISHU_AUTHORIZED")) {
+      segments.push({
+        type: "feishuAuthorized",
+        content: text.slice(m.index, segmentEnd),
+        authMode: authModeFromMarker(marker, "skill"),
+      });
+    } else if (marker.startsWith("FEISHU_")) {
+      const tag: FeishuTag = marker.includes("SETUP") ? "setup" : "auth";
+      segments.push({
+        type: "feishu",
+        content: text.slice(m.index, segmentEnd),
+        tag,
+        url,
+        authMode: authModeFromMarker(marker, "connect"),
+      });
+    } else if (marker.startsWith("NOTION_TOKEN")) {
+      segments.push({
+        type: "notionToken",
+        content: text.slice(m.index, segmentEnd),
+        authMode: authModeFromMarker(marker, "skill"),
+      });
+    } else if (marker.startsWith("NOTION_AUTHORIZED")) {
+      segments.push({
+        type: "notionAuthorized",
+        content: text.slice(m.index, segmentEnd),
+        authMode: authModeFromMarker(marker, "skill"),
+      });
+    } else if (marker.startsWith("BILIBILI_AUTHORIZED")) {
       segments.push({
         type: "bilibiliAuthorized",
-        content: m[0],
-        bilibiliMode: m[2] === "SKILL" ? "skill" : "connect",
+        content: text.slice(m.index, segmentEnd),
+        bilibiliMode: authModeFromMarker(marker, "connect"),
       });
-    } else if (m[3] === "GOOGLE_AUTH") {
-      segments.push({ type: "google", content: m[0], url: m[5] });
-    } else {
-      const tag: FeishuTag = m[4] === "SETUP" ? "setup" : "auth";
-      segments.push({ type: "feishu", content: m[0], tag, url: m[5] });
     }
-    last = m.index + m[0].length + legacyConnectorAuthTailLength(text.slice(m.index + m[0].length));
+    last = segmentEnd + legacyConnectorAuthTailLength(text.slice(segmentEnd));
   }
 
   if (last < text.length) {
@@ -229,6 +280,20 @@ function parseBrowserConnectorAuthBlocks(text: string): ContentSegment[] {
   }
 
   return segments.length > 0 ? segments : [{ type: "text", content: text }];
+}
+
+function connectorAuthMarkerNeedsUrl(marker: string): boolean {
+  return (
+    (marker.startsWith("GOOGLE_AUTH") && !marker.startsWith("GOOGLE_AUTHORIZED")) ||
+    marker.startsWith("FEISHU_SETUP") ||
+    (marker.startsWith("FEISHU_AUTH") && !marker.startsWith("FEISHU_AUTHORIZED"))
+  );
+}
+
+function authModeFromMarker(marker: string, legacyDefault: ConnectorAuthMode): ConnectorAuthMode {
+  if (marker.endsWith("_CONNECT")) return "connect";
+  if (marker.endsWith("_SKILL")) return "skill";
+  return legacyDefault;
 }
 
 function legacyBilibiliAuthTailLength(text: string): number {
@@ -248,20 +313,34 @@ function legacyConnectorAuthTailLength(text: string): number {
 function FeishuCard({
   tag,
   url,
+  mode = "connect",
   onOpen,
   waiting,
 }: {
   tag: FeishuTag;
   url: string;
+  mode?: ConnectorAuthMode;
   onOpen?: (payload: FeishuAuthOpenPayload) => void;
   waiting?: FeishuAuthWaitingState | null;
 }) {
   const { t } = useI18n();
   const isSetup = tag === "setup";
-  const title = isSetup ? t("connectors.feishuSetupTitle") : t("connectors.feishuAuthTitle");
-  const subtitle = isSetup
-    ? t("connectors.feishuSetupSubtitle")
-    : t("connectors.feishuAuthSubtitle");
+  const title =
+    mode === "skill"
+      ? isSetup
+        ? t("connectors.feishuSkillSetupTitle")
+        : t("connectors.feishuSkillAuthTitle")
+      : isSetup
+        ? t("connectors.feishuSetupTitle")
+        : t("connectors.feishuAuthTitle");
+  const subtitle =
+    mode === "skill"
+      ? isSetup
+        ? t("connectors.feishuSkillSetupSubtitle")
+        : t("connectors.feishuSkillAuthSubtitle")
+      : isSetup
+        ? t("connectors.feishuSetupSubtitle")
+        : t("connectors.feishuAuthSubtitle");
   const hint = isSetup ? t("connectors.feishuSetupHint") : t("connectors.feishuAuthHint");
   const Icon = isSetup ? Settings2 : KeyRound;
   const accentClass = isSetup ? "bg-[#eef3ff]/60 text-[#007aff]" : "bg-[#dafbe1]/60 text-[#1a7f37]";
@@ -276,7 +355,7 @@ function FeishuCard({
     void (async () => {
       const result = await openExternalUrl(href, "ripple-connector-auth");
       if (!result.opened) return;
-      onOpen({ connector: "feishu", tag, url: href, popup: result.popup });
+      onOpen({ connector: "feishu", tag, url: href, popup: result.popup, mode });
     })();
   };
 
@@ -317,10 +396,12 @@ function FeishuCard({
 
 function GoogleAuthCard({
   url,
+  mode = "skill",
   onOpen,
   waiting,
 }: {
   url: string;
+  mode?: ConnectorAuthMode;
   onOpen?: (payload: FeishuAuthOpenPayload) => void;
   waiting?: FeishuAuthWaitingState | null;
 }) {
@@ -335,9 +416,15 @@ function GoogleAuthCard({
     void (async () => {
       const result = await openExternalUrl(href, "ripple-connector-auth");
       if (!result.opened) return;
-      onOpen({ connector: "google_workspace", tag: "auth", url: href, popup: result.popup });
+      onOpen({ connector: "google_workspace", tag: "auth", url: href, popup: result.popup, mode });
     })();
   };
+  const title =
+    mode === "connect" ? t("connectors.googleConnectTitle") : t("connectors.googleAuthTitle");
+  const subtitle =
+    mode === "connect"
+      ? t("connectors.googleConnectSubtitle")
+      : t("connectors.googleAuthSubtitle");
 
   return (
     <div className="my-3 overflow-hidden rounded-2xl border border-[#dfe6f4] bg-white/74 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl">
@@ -345,10 +432,10 @@ function GoogleAuthCard({
         <IconTile tone="accent" size="sm">
           <KeyRound size={15} />
         </IconTile>
-        <span className="text-sm font-semibold">{t("connectors.googleAuthTitle")}</span>
+        <span className="text-sm font-semibold">{title}</span>
       </div>
       <div className="space-y-3 px-4 py-3">
-        <p className="text-sm font-medium text-[#374151]">{t("connectors.googleAuthSubtitle")}</p>
+        <p className="text-sm font-medium text-[#374151]">{subtitle}</p>
         <a
           href={href}
           target="_blank"
@@ -373,8 +460,12 @@ function GoogleAuthCard({
   );
 }
 
-function GoogleAuthorizedCard() {
+function GoogleAuthorizedCard({ mode = "skill" }: { mode?: ConnectorAuthMode }) {
   const { t } = useI18n();
+  const subtitle =
+    mode === "connect"
+      ? t("connectors.googleAuthorizedSubtitle")
+      : t("connectors.googleSkillAuthorizedSubtitle");
 
   return (
     <div className="my-3 overflow-hidden rounded-2xl border border-[#dfe6f4] bg-white/74 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl">
@@ -385,9 +476,92 @@ function GoogleAuthorizedCard() {
         <span className="text-sm font-semibold">{t("connectors.googleAuthorizedTitle")}</span>
       </div>
       <div className="px-4 py-3">
-        <p className="text-sm font-medium text-[#374151]">
-          {t("connectors.googleAuthorizedSubtitle")}
-        </p>
+        <p className="text-sm font-medium text-[#374151]">{subtitle}</p>
+      </div>
+    </div>
+  );
+}
+
+function FeishuAuthorizedCard({ mode = "skill" }: { mode?: ConnectorAuthMode }) {
+  const { t } = useI18n();
+  const subtitle =
+    mode === "connect"
+      ? t("connectors.feishuAuthorizedSubtitle")
+      : t("connectors.feishuSkillAuthorizedSubtitle");
+
+  return (
+    <div className="my-3 overflow-hidden rounded-2xl border border-[#dfe6f4] bg-white/74 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl">
+      <div className="flex items-center gap-2 border-b border-[#dfe6f4] bg-[#dafbe1]/60 px-4 py-3 text-[#1a7f37]">
+        <IconTile tone="success" size="sm">
+          <CheckCircle2 size={15} />
+        </IconTile>
+        <span className="text-sm font-semibold">{t("connectors.feishuAuthorizedTitle")}</span>
+      </div>
+      <div className="px-4 py-3">
+        <p className="text-sm font-medium text-[#374151]">{subtitle}</p>
+      </div>
+    </div>
+  );
+}
+
+function NotionTokenCard({ mode = "skill" }: { mode?: ConnectorAuthMode }) {
+  const { t } = useI18n();
+  const title =
+    mode === "connect" ? t("connectors.notionTokenTitle") : t("connectors.notionSkillTokenTitle");
+  const subtitle =
+    mode === "connect"
+      ? t("connectors.notionTokenSubtitle")
+      : t("connectors.notionSkillTokenSubtitle");
+
+  return (
+    <div className="my-3 overflow-hidden rounded-2xl border border-[#dfe6f4] bg-white/74 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl">
+      <div className="flex items-center gap-2 border-b border-[#dfe6f4] bg-[#eef3ff]/60 px-4 py-3 text-[#007aff]">
+        <IconTile tone="accent" size="sm">
+          <KeyRound size={15} />
+        </IconTile>
+        <span className="text-sm font-semibold">{title}</span>
+      </div>
+      <div className="space-y-3 px-4 py-3">
+        <p className="text-sm font-medium text-[#374151]">{subtitle}</p>
+        <a
+          href="https://www.notion.so/profile/integrations"
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(event) => {
+            event.preventDefault();
+            void openExternalUrl(
+              "https://www.notion.so/profile/integrations",
+              "ripple-connector-auth"
+            );
+          }}
+          className={connectorAuthLinkClass("primary")}
+        >
+          {t("connectors.openNotionIntegrations")}
+          <ExternalLink size={13} />
+        </a>
+        <p className="text-xs font-medium text-[#6b7280]">{t("connectors.notionTokenHint")}</p>
+      </div>
+    </div>
+  );
+}
+
+function NotionAuthorizedCard({ mode = "skill" }: { mode?: ConnectorAuthMode }) {
+  const { t } = useI18n();
+  const subtitle =
+    mode === "connect"
+      ? t("connectors.notionAuthorizedSubtitle")
+      : t("connectors.notionSkillAuthorizedSubtitle");
+
+  return (
+    <div className="my-3 overflow-hidden rounded-2xl border border-[#dfe6f4] bg-white/74 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl">
+      <div className="flex items-center gap-2 border-b border-[#dfe6f4] bg-[#dafbe1]/60 px-4 py-3 text-[#1a7f37]">
+        <IconTile tone="success" size="sm">
+          <CheckCircle2 size={15} />
+        </IconTile>
+        <span className="text-sm font-semibold">{t("connectors.notionAuthorizedTitle")}</span>
+      </div>
+      <div className="px-4 py-3">
+        <p className="text-sm font-medium text-[#374151]">{subtitle}</p>
       </div>
     </div>
   );
@@ -562,8 +736,11 @@ function MarkdownContent({
   const hasConnectorAuth = segments.some(
     (segment) =>
       segment.type === "feishu" ||
+      segment.type === "feishuAuthorized" ||
       segment.type === "google" ||
       segment.type === "googleAuthorized" ||
+      segment.type === "notionToken" ||
+      segment.type === "notionAuthorized" ||
       segment.type === "bilibili" ||
       segment.type === "bilibiliAuthorized"
   );
@@ -578,6 +755,7 @@ function MarkdownContent({
                 key={index}
                 tag={segment.tag}
                 url={segment.url}
+                mode={segment.authMode}
                 onOpen={onFeishuAuthOpen}
                 waiting={feishuAuthWaiting}
               />
@@ -588,13 +766,23 @@ function MarkdownContent({
               <GoogleAuthCard
                 key={index}
                 url={segment.url}
+                mode={segment.authMode}
                 onOpen={onFeishuAuthOpen}
                 waiting={feishuAuthWaiting}
               />
             );
           }
           if (segment.type === "googleAuthorized") {
-            return <GoogleAuthorizedCard key={index} />;
+            return <GoogleAuthorizedCard key={index} mode={segment.authMode} />;
+          }
+          if (segment.type === "feishuAuthorized") {
+            return <FeishuAuthorizedCard key={index} mode={segment.authMode} />;
+          }
+          if (segment.type === "notionToken") {
+            return <NotionTokenCard key={index} mode={segment.authMode} />;
+          }
+          if (segment.type === "notionAuthorized") {
+            return <NotionAuthorizedCard key={index} mode={segment.authMode} />;
           }
           if (segment.type === "bilibiliAuthorized") {
             return <BilibiliAuthorizedCard key={index} mode={segment.bilibiliMode} />;
@@ -766,6 +954,7 @@ export default function MarkdownRenderer({
               key={i}
               tag={segment.tag}
               url={segment.url}
+              mode={segment.authMode}
               onOpen={onFeishuAuthOpen}
               waiting={feishuAuthWaiting}
             />
@@ -776,13 +965,23 @@ export default function MarkdownRenderer({
             <GoogleAuthCard
               key={i}
               url={segment.url}
+              mode={segment.authMode}
               onOpen={onFeishuAuthOpen}
               waiting={feishuAuthWaiting}
             />
           );
         }
         if (segment.type === "googleAuthorized") {
-          return <GoogleAuthorizedCard key={i} />;
+          return <GoogleAuthorizedCard key={i} mode={segment.authMode} />;
+        }
+        if (segment.type === "feishuAuthorized") {
+          return <FeishuAuthorizedCard key={i} mode={segment.authMode} />;
+        }
+        if (segment.type === "notionToken") {
+          return <NotionTokenCard key={i} mode={segment.authMode} />;
+        }
+        if (segment.type === "notionAuthorized") {
+          return <NotionAuthorizedCard key={i} mode={segment.authMode} />;
         }
         if (segment.type === "bilibiliAuthorized") {
           return <BilibiliAuthorizedCard key={i} mode={segment.bilibiliMode} />;

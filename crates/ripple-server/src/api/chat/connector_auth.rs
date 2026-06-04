@@ -155,7 +155,7 @@ pub(crate) async fn continue_pending_connector_auth(
                 "google_workspace",
                 "connector_auth_required",
                 pending_stage(&pending, "awaiting_browser_callback"),
-                "Google 授权还没有完成。请在刚才打开的 Google 页面点击允许，Ripple 会自动继续。",
+                "Google 授权还没有完成。请在刚才打开的 Google 页面点击允许；授权完成后连接状态会更新。",
                 pending.get("action").cloned(),
             );
             Ok(Some(ConnectorAuthDecision {
@@ -196,16 +196,12 @@ async fn start_connector_auth_for_chat(
             "notion",
             "connector_auth_required",
             "awaiting_token",
-            notion_token_guidance_message(),
+            notion_token_guidance_message_for_source(source),
             Some(
-                json!({"name": "notion", "ok": true, "stage": "awaiting_token", "detail": "api_token is required.", "data": {}}),
+                json!({"name": "notion", "ok": true, "stage": "awaiting_token", "detail": "api_token is required.", "source": source, "data": {}}),
             ),
         );
-        session.pending_connector_auth = Some(pending_from_event(
-            connector,
-            &event,
-            user_input.to_string(),
-        ));
+        session.pending_connector_auth = Some(pending_from_event(connector, &event, String::new()));
         return Ok(ConnectorAuthDecision {
             event,
             resume_user_input: None,
@@ -239,7 +235,7 @@ async fn continue_notion_auth(
             "notion",
             "connector_auth_required",
             "awaiting_token",
-            notion_token_guidance_message(),
+            notion_token_guidance_message_for_source(pending_auth_source(pending)),
             pending.get("action").cloned(),
         );
         return Ok(Some(ConnectorAuthDecision {
@@ -247,15 +243,16 @@ async fn continue_notion_auth(
             resume_user_input: None,
         }));
     };
-    let action =
+    let mut action =
         connector_auth_start_action(state, user_id, "notion", &json!({"api_token": token}), None)
             .await?
             .0;
+    annotate_connector_auth_source(&mut action, pending_auth_source(pending));
     Ok(Some(decision_from_action(
         session,
         "notion",
         action,
-        pending_resume_user_input(pending).unwrap_or_default(),
+        String::new(),
     )?))
 }
 
@@ -285,7 +282,7 @@ async fn continue_feishu_auth(
         }));
     }
     if is_reauth_intent(user_input) {
-        let action = connector_auth_start_action(
+        let mut action = connector_auth_start_action(
             state,
             user_id,
             "feishu",
@@ -294,6 +291,7 @@ async fn continue_feishu_auth(
         )
         .await?
         .0;
+        annotate_connector_auth_source(&mut action, pending_auth_source(pending));
         return Ok(Some(decision_from_action(
             session,
             "feishu",
@@ -306,7 +304,7 @@ async fn continue_feishu_auth(
         .and_then(Value::as_str)
         .unwrap_or("")
         .trim();
-    let action = if device_code.is_empty() {
+    let mut action = if device_code.is_empty() {
         connector_auth_start_action(state, user_id, "feishu", &json!({}), None)
             .await?
             .0
@@ -320,6 +318,7 @@ async fn continue_feishu_auth(
         .await?
         .0
     };
+    annotate_connector_auth_source(&mut action, pending_auth_source(pending));
     Ok(Some(decision_from_action(
         session,
         "feishu",
@@ -400,6 +399,8 @@ pub(crate) fn decision_from_action(
         "connector_auth_required"
     };
     let message = connector_auth_message(connector, &action);
+    let skip_pending_for_connect_flow =
+        connector == "google_workspace" && connector_auth_source(&action) == "connectors_page";
     let mut event = connector_auth_event(connector, event_type, &stage, &message, Some(action));
     if connector == "notion" {
         event["user_content"] = json!([{"type": "text", "text": "[Notion token redacted]"}]);
@@ -417,8 +418,12 @@ pub(crate) fn decision_from_action(
             resume_user_input: None,
         })
     } else {
-        session.pending_connector_auth =
-            Some(pending_from_event(connector, &event, resume_user_input));
+        if skip_pending_for_connect_flow {
+            session.pending_connector_auth = None;
+        } else {
+            session.pending_connector_auth =
+                Some(pending_from_event(connector, &event, resume_user_input));
+        }
         Ok(ConnectorAuthDecision {
             event,
             resume_user_input: None,
@@ -607,10 +612,19 @@ pub(crate) fn connector_auth_message(connector: &str, action: &Value) -> String 
         "google_workspace" => data
             .and_then(|data| data.get("oauth_url"))
             .and_then(Value::as_str)
-            .map(|url| format!("[GOOGLE_AUTH]\n{url}"))
+            .map(|url| {
+                format!(
+                    "[GOOGLE_AUTH_{}]\n{url}",
+                    connector_auth_source_suffix(connector_auth_source(action))
+                )
+            })
             .unwrap_or_else(|| {
                 if stage == "authorized" {
-                    connector_authorized_message(connector).to_string()
+                    connector_authorized_message_for_source(
+                        connector,
+                        connector_auth_source(action),
+                    )
+                    .to_string()
                 } else {
                     detail.to_string()
                 }
@@ -621,17 +635,20 @@ pub(crate) fn connector_auth_message(connector: &str, action: &Value) -> String 
                 .and_then(Value::as_str)
             {
                 format!(
-                    "[FEISHU_SETUP]\n第 1/2 步：准备飞书连接。\n\n首次使用需要在飞书页面完成一次性准备。完成后 Ripple 会显示账号授权步骤。\n\n{setup_url}\n\n请保持当前页面打开；Ripple 会自动检查并显示第 2 步。"
+                    "[FEISHU_SETUP_{}]\n{setup_url}",
+                    connector_auth_source_suffix(connector_auth_source(action))
                 )
             } else if let Some(oauth_url) = data
                 .and_then(|data| data.get("oauth_url"))
                 .and_then(Value::as_str)
             {
                 format!(
-                    "[FEISHU_AUTH]\n第 2/2 步：授权你的飞书账号。\n\n完成飞书授权后，你就可以在 Ripple 里使用你的飞书账号。\n\n{oauth_url}\n\n请保持当前页面打开；授权完成后 Ripple 会自动检测状态。"
+                    "[FEISHU_AUTH_{}]\n{oauth_url}",
+                    connector_auth_source_suffix(connector_auth_source(action))
                 )
             } else if stage == "authorized" {
-                connector_authorized_message(connector).to_string()
+                connector_authorized_message_for_source(connector, connector_auth_source(action))
+                    .to_string()
             } else {
                 detail.to_string()
             }
@@ -676,7 +693,8 @@ pub(crate) fn connector_auth_message(connector: &str, action: &Value) -> String 
         }
         "notion" => {
             if stage == "authorized" {
-                connector_authorized_message(connector).to_string()
+                connector_authorized_message_for_source(connector, connector_auth_source(action))
+                    .to_string()
             } else {
                 detail.to_string()
             }
@@ -717,29 +735,26 @@ fn connector_auth_flow(connector: &str) -> &'static str {
     }
 }
 
-fn connector_authorized_message(connector: &str) -> &'static str {
-    connector_authorized_message_for_source(connector, "session_skill")
-}
-
 fn connector_authorized_message_for_source(connector: &str, source: &str) -> &'static str {
     match connector {
-        "google_workspace" => "[GOOGLE_AUTHORIZED]",
-        "notion" => "Notion token 已保存。继续执行刚才的请求。",
-        "feishu" => "飞书授权已完成。",
+        "google_workspace" if source == "connectors_page" => "[GOOGLE_AUTHORIZED_CONNECT]",
+        "google_workspace" => "[GOOGLE_AUTHORIZED_SKILL]",
+        "notion" if source == "connectors_page" => "[NOTION_AUTHORIZED_CONNECT]",
+        "notion" => "[NOTION_AUTHORIZED_SKILL]",
+        "feishu" if source == "connectors_page" => "[FEISHU_AUTHORIZED_CONNECT]",
+        "feishu" => "[FEISHU_AUTHORIZED_SKILL]",
         "bilibili" if source == "connectors_page" => "[BILIBILI_AUTHORIZED_CONNECT]",
         "bilibili" => "[BILIBILI_AUTHORIZED_SKILL]",
         _ => "Connector authorization completed. Continuing.",
     }
 }
 
-fn notion_token_guidance_message() -> &'static str {
-    "我需要先绑定 Notion integration token，才能读取你的 Notion 内容。\n\n\
-获取方式：\n\
-1. 打开 https://www.notion.so/profile/integrations\n\
-2. 创建或选择一个 Internal Integration。\n\
-3. 复制 Token，格式通常以 ntn_ 或 secret_ 开头。\n\
-4. 回到这里，把 Token 直接粘贴发送给我。\n\n\
-另外，请在 Notion 里把要读取的 page 或 database Share 给这个 Integration；否则 token 正确也可能读不到内容。"
+fn notion_token_guidance_message_for_source(source: &str) -> &'static str {
+    if source == "connectors_page" {
+        "[NOTION_TOKEN_CONNECT]"
+    } else {
+        "[NOTION_TOKEN_SKILL]"
+    }
 }
 
 fn pending_resume_user_input(pending: &Value) -> Option<String> {
@@ -780,8 +795,20 @@ fn annotate_connector_auth_source(action: &mut Value, source: &str) {
     }
 }
 
+fn connector_auth_source_suffix(source: &str) -> &'static str {
+    if source == "connectors_page" {
+        "CONNECT"
+    } else {
+        "SKILL"
+    }
+}
+
 fn connector_resume_user_input(connector: &str, resume_user_input: String) -> Option<String> {
-    if connector == "feishu" || connector == "google_workspace" || connector == "bilibili" {
+    if connector == "feishu"
+        || connector == "google_workspace"
+        || connector == "bilibili"
+        || connector == "notion"
+    {
         return None;
     }
     let trimmed = resume_user_input.trim();
@@ -839,7 +866,7 @@ mod tests {
 
     use super::{
         connector_auth_message, decision_from_action, model_connector_auth_request_might_be_start,
-        parse_model_connector_auth_request,
+        notion_token_guidance_message_for_source, parse_model_connector_auth_request,
     };
     use crate::sessions::SessionRecord;
 
@@ -871,10 +898,44 @@ mod tests {
 
     #[test]
     fn feishu_authorized_message_is_setup_only() {
-        let message = connector_auth_message("feishu", &json!({"stage": "authorized"}));
+        let message = connector_auth_message(
+            "feishu",
+            &json!({"stage": "authorized", "source": "connectors_page"}),
+        );
 
-        assert_eq!(message, "飞书授权已完成。");
+        assert_eq!(message, "[FEISHU_AUTHORIZED_CONNECT]");
         assert!(!message.contains("继续执行"));
+    }
+
+    #[test]
+    fn feishu_auth_message_uses_source_specific_marker_only() {
+        let connect_message = connector_auth_message(
+            "feishu",
+            &json!({
+                "stage": "awaiting_user_auth",
+                "source": "connectors_page",
+                "data": {"oauth_url": "https://accounts.feishu.cn/device"}
+            }),
+        );
+        let skill_message = connector_auth_message(
+            "feishu",
+            &json!({
+                "stage": "awaiting_user_auth",
+                "source": "session_skill",
+                "data": {"oauth_url": "https://accounts.feishu.cn/device"}
+            }),
+        );
+
+        assert_eq!(
+            connect_message,
+            "[FEISHU_AUTH_CONNECT]\nhttps://accounts.feishu.cn/device"
+        );
+        assert_eq!(
+            skill_message,
+            "[FEISHU_AUTH_SKILL]\nhttps://accounts.feishu.cn/device"
+        );
+        assert!(!connect_message.contains("第 2/2 步"));
+        assert!(!skill_message.contains("请保持当前页面打开"));
     }
 
     #[test]
@@ -883,24 +944,82 @@ mod tests {
             "google_workspace",
             &json!({
                 "stage": "awaiting_browser_callback",
+                "source": "session_skill",
                 "data": {"oauth_url": "https://accounts.google.com/o/oauth2/auth?state=abc"}
             }),
         );
 
         assert_eq!(
             message,
-            "[GOOGLE_AUTH]\nhttps://accounts.google.com/o/oauth2/auth?state=abc"
+            "[GOOGLE_AUTH_SKILL]\nhttps://accounts.google.com/o/oauth2/auth?state=abc"
         );
         assert!(!message.contains("授权完成后"));
         assert!(!message.contains("continue automatically"));
     }
 
     #[test]
-    fn google_authorized_message_is_setup_only() {
-        let message = connector_auth_message("google_workspace", &json!({"stage": "authorized"}));
+    fn google_connector_page_auth_message_is_connect_only() {
+        let message = connector_auth_message(
+            "google_workspace",
+            &json!({
+                "stage": "awaiting_browser_callback",
+                "source": "connectors_page",
+                "data": {"oauth_url": "https://accounts.google.com/o/oauth2/auth?state=abc"}
+            }),
+        );
 
-        assert_eq!(message, "[GOOGLE_AUTHORIZED]");
+        assert_eq!(
+            message,
+            "[GOOGLE_AUTH_CONNECT]\nhttps://accounts.google.com/o/oauth2/auth?state=abc"
+        );
+    }
+
+    #[test]
+    fn google_authorized_message_is_setup_only() {
+        let message = connector_auth_message(
+            "google_workspace",
+            &json!({"stage": "authorized", "source": "connectors_page"}),
+        );
+
+        assert_eq!(message, "[GOOGLE_AUTHORIZED_CONNECT]");
         assert!(!message.contains("继续执行"));
+    }
+
+    #[test]
+    fn google_skill_authorized_message_guides_next_request() {
+        let message = connector_auth_message(
+            "google_workspace",
+            &json!({"stage": "authorized", "source": "session_skill"}),
+        );
+
+        assert_eq!(message, "[GOOGLE_AUTHORIZED_SKILL]");
+        assert!(!message.contains("继续执行"));
+    }
+
+    #[test]
+    fn notion_auth_messages_are_source_specific() {
+        assert_eq!(
+            connector_auth_message(
+                "notion",
+                &json!({"stage": "authorized", "source": "connectors_page"})
+            ),
+            "[NOTION_AUTHORIZED_CONNECT]"
+        );
+        assert_eq!(
+            connector_auth_message(
+                "notion",
+                &json!({"stage": "authorized", "source": "session_skill"})
+            ),
+            "[NOTION_AUTHORIZED_SKILL]"
+        );
+        assert_eq!(
+            notion_token_guidance_message_for_source("connectors_page"),
+            "[NOTION_TOKEN_CONNECT]"
+        );
+        assert_eq!(
+            notion_token_guidance_message_for_source("session_skill"),
+            "[NOTION_TOKEN_SKILL]"
+        );
     }
 
     #[test]
@@ -1005,6 +1124,49 @@ mod tests {
         )
         .expect("decision");
 
+        assert!(decision.resume_user_input.is_none());
+        assert!(session.pending_connector_auth.is_none());
+    }
+
+    #[test]
+    fn google_connector_page_auth_decision_does_not_block_session() {
+        let mut session = test_session_record();
+        let decision = decision_from_action(
+            &mut session,
+            "google_workspace",
+            json!({
+                "stage": "awaiting_browser_callback",
+                "source": "connectors_page",
+                "detail": "Open auth.",
+                "data": {"oauth_url": "https://accounts.google.com/o/oauth2/auth?state=abc"}
+            }),
+            "Connect Google Workspace".to_string(),
+        )
+        .expect("decision");
+
+        assert_eq!(
+            decision.event.get("message").and_then(Value::as_str),
+            Some("[GOOGLE_AUTH_CONNECT]\nhttps://accounts.google.com/o/oauth2/auth?state=abc")
+        );
+        assert!(decision.resume_user_input.is_none());
+        assert!(session.pending_connector_auth.is_none());
+    }
+
+    #[test]
+    fn notion_authorized_decision_does_not_resume_saved_task() {
+        let mut session = test_session_record();
+        let decision = decision_from_action(
+            &mut session,
+            "notion",
+            json!({"stage": "authorized", "source": "connectors_page", "detail": "ok", "data": {}}),
+            "Connect Notion".to_string(),
+        )
+        .expect("decision");
+
+        assert_eq!(
+            decision.event.get("message").and_then(Value::as_str),
+            Some("[NOTION_AUTHORIZED_CONNECT]")
+        );
         assert!(decision.resume_user_input.is_none());
         assert!(session.pending_connector_auth.is_none());
     }

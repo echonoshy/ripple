@@ -59,6 +59,26 @@ function testConnectorsPageDoesNotExposeCredentialStorageDetails() {
 
 testConnectorsPageDoesNotExposeCredentialStorageDetails();
 
+function testConnectorsPageDoesNotDuplicateConnectorDescriptionsAsStatusDetails() {
+  const source = readFileSync(new URL("./ConnectorsPage.tsx", import.meta.url), "utf8");
+
+  assert.doesNotMatch(source, /detail:\s*capability\.description/);
+}
+
+testConnectorsPageDoesNotDuplicateConnectorDescriptionsAsStatusDetails();
+
+function testConnectorsPageLocalizesConnectorDescriptions() {
+  const source = readFileSync(new URL("./ConnectorsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /localizedConnectorDescription\(connector,\s*t\)/);
+  assert.doesNotMatch(
+    source,
+    /<p className=\{`mt-1 text-\[#667085\][\s\S]{0,160}\{connector\.description\}/
+  );
+}
+
+testConnectorsPageLocalizesConnectorDescriptions();
+
 function testConnectorsPageCachesAndThrottlesBackgroundRefresh() {
   const source = readFileSync(new URL("./ConnectorsPage.tsx", import.meta.url), "utf8");
 

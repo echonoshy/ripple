@@ -22,7 +22,7 @@ import {
   connectorStatusTone,
 } from "@/lib/connectors";
 import { IconTile } from "@/components/icons/IconTile";
-import { useI18n } from "@/i18n";
+import { useI18n, type MessageKey } from "@/i18n";
 import type {
   CapabilityInfo,
   ConnectorInfo,
@@ -58,6 +58,13 @@ interface ConnectorSnapshot {
 }
 
 type Translator = ReturnType<typeof useI18n>["t"];
+
+const CONNECTOR_DESCRIPTION_KEYS: Partial<Record<string, MessageKey>> = {
+  google_workspace: "connectors.descriptions.googleWorkspace",
+  notion: "connectors.descriptions.notion",
+  feishu: "connectors.descriptions.feishu",
+  bilibili: "connectors.descriptions.bilibili",
+};
 
 interface ConnectorLogoMeta {
   shellClass: string;
@@ -139,7 +146,7 @@ function connectorStatusFromCapability(capability: CapabilityInfo): ConnectorSta
     name: capability.name,
     connected: capability.enabled,
     required: !capability.enabled,
-    detail: capability.description,
+    detail: "",
     metadata: {
       capability_status: capability.status,
     },
@@ -201,6 +208,13 @@ function mobileStatusLabel(status: ConnectorStatus | null | undefined, t: Transl
 
 function actionDetail(result: Record<string, unknown>, fallback: string): string {
   return typeof result.detail === "string" && result.detail.trim() ? result.detail : fallback;
+}
+
+function localizedConnectorDescription(connector: ConnectorInfo, t: Translator): string {
+  const key = CONNECTOR_DESCRIPTION_KEYS[connector.name];
+  if (!key) return connector.description;
+  const description = t(key);
+  return description === key ? connector.description : description;
 }
 
 function connectorLogoMeta(connector: ConnectorInfo): ConnectorLogoMeta {
@@ -621,7 +635,7 @@ export default function ConnectorsPage({
                             </span>
                           </div>
                           <p className={`mt-1 text-[#667085] ${TYPOGRAPHY_META_CLASS}`}>
-                            {connector.description}
+                            {localizedConnectorDescription(connector, t)}
                           </p>
                           {status?.detail && (
                             <div className={`mt-1.5 rounded-lg border border-[#e8edf7] bg-white/64 px-2 py-1 text-[#667085] ${TYPOGRAPHY_META_CLASS}`}>

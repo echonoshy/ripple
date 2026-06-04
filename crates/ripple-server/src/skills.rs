@@ -262,6 +262,7 @@ fn render_skill_entries(entries: Vec<SkillManifestEntry>, workspace_root: Option
     entries
         .into_iter()
         .map(|entry| {
+            let path = public_skill_path(Path::new(&entry.path), workspace_root);
             let mut line = format!(
                 "- {} ({}): {}\n  path: {}",
                 entry.id,
@@ -271,7 +272,7 @@ fn render_skill_entries(entries: Vec<SkillManifestEntry>, workspace_root: Option
                 } else {
                     &entry.description
                 },
-                entry.path
+                path
             );
             if let Some(when_to_use) = &entry.when_to_use {
                 line.push_str(&format!("\n  when_to_use: {when_to_use}"));
@@ -334,6 +335,15 @@ fn render_skill_entries(entries: Vec<SkillManifestEntry>, workspace_root: Option
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+pub fn public_skill_path(path: &Path, workspace_root: Option<&Path>) -> String {
+    if let Some(workspace_root) = workspace_root {
+        if let Ok(relative) = path.strip_prefix(workspace_root) {
+            return slash_path(&Path::new("/workspace").join(relative));
+        }
+    }
+    slash_path(path)
 }
 
 pub fn read_user_skill_settings(path: &Path) -> UserSkillSettings {
@@ -1069,6 +1079,8 @@ metadata:
             Some(&workspace),
             &SkillManifestOptions::default(),
         );
+        assert!(rendered.contains("path: /workspace/skills/py-demo/SKILL.md"));
+        assert!(!rendered.contains(&root.to_string_lossy().to_string()));
         assert!(rendered.contains(
             "execute: ripple-py python --with pandas==2.2.3 -- /workspace/skills/py-demo/scripts/run.py"
         ));

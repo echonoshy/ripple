@@ -300,7 +300,7 @@ const zhMessages = {
     deleted: "能力已删除",
     failed: "操作失败",
     createChatPrompt: "帮我创建一个新的 skill。请先和我确认名称、用途、类型、需要的 Python 包、需要连接的服务，以及是否涉及高风险操作。创建后系统会自动检查，通过后就可以直接使用。",
-    editChatPrompt: "帮我更新 skill「{name}」（id: {id}，path: {path}）。请先读取它的 SKILL.md 和同目录脚本/资源，问我要改哪里，然后只修改这个 skill 目录内的文件。完成后说明修改结果；系统会自动检查，通过后就可以直接使用。",
+    editChatPrompt: "帮我更新 skill「{name}」（id: {id}，workspace 相对目录: {directory}）。请先读取 {directory}/SKILL.md 和同目录脚本/资源，问我要改哪里，然后只修改这个 skill 目录内的文件。完成后说明修改结果；系统会自动检查，通过后就可以直接使用。",
     connectChatPrompt: "帮我连接 {name}，并在连接完成后继续启用相关 skill。",
   },
   automations: {
@@ -865,7 +865,7 @@ const enMessages = {
     deleted: "Skill deleted",
     failed: "Action failed",
     createChatPrompt: "Help me create a new skill. First confirm the name, purpose, type, required Python packages, required services, and whether it involves risky actions. After creation, the skill is automatically checked and can be used directly when it passes.",
-    editChatPrompt: "Help me update the skill \"{name}\" (id: {id}, path: {path}). First read its SKILL.md and adjacent scripts/resources, ask me what to change, then only modify files inside that skill directory. When finished, summarize the changes; the system will automatically check it and make it usable when it passes.",
+    editChatPrompt: "Help me update the skill \"{name}\" (id: {id}, workspace-relative directory: {directory}). First read {directory}/SKILL.md and adjacent scripts/resources, ask me what to change, then only modify files inside that skill directory. When finished, summarize the changes; the system will automatically check it and make it usable when it passes.",
     connectChatPrompt: "Help me connect {name}, then continue enabling the related skill.",
   },
   automations: {

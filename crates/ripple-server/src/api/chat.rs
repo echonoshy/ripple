@@ -967,7 +967,7 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                         }
                         Ok(None) => {}
                         Err(err) => {
-                            yield Ok::<Bytes, Infallible>(sse_json(&stream_error(&format!("{err:?}"), "server_error")));
+                            yield Ok::<Bytes, Infallible>(sse_json(&stream_error_for_user(&state, &user_id, &format!("{err:?}"), "server_error")));
                             break;
                         }
                     }
@@ -1010,7 +1010,7 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                     };
                     let _ = state.sessions.save_record_if_exists(session.clone()).await;
                     let error_type = if info.status == "cancelled" { "cancelled" } else { "server_error" };
-                    yield Ok::<Bytes, Infallible>(sse_json(&stream_error(&info.error.unwrap_or_else(|| "Codex run failed".to_string()), error_type)));
+                    yield Ok::<Bytes, Infallible>(sse_json(&stream_error_for_user(&state, &user_id, &info.error.unwrap_or_else(|| "Codex run failed".to_string()), error_type)));
                 }
                 break;
             }
@@ -1320,6 +1320,18 @@ async fn read_run_output(state: &AppState, user_id: &str, info: &AgentRunInfo) -
     sanitize_user_visible_text(state, user_id, &text)
 }
 
+fn stream_error_for_user(
+    state: &AppState,
+    user_id: &str,
+    message: &str,
+    error_type: &str,
+) -> Value {
+    stream_error(
+        &sanitize_user_visible_text(state, user_id, message),
+        error_type,
+    )
+}
+
 async fn read_run_usage(info: &AgentRunInfo) -> Value {
     let mut usage = empty_usage();
     let mut offset = 0_usize;
@@ -1609,6 +1621,31 @@ mod tests {
         assert!(!prompt.contains(
             "Google Workspace, Notion, and Feishu authorization is handled by Ripple before the Codex turn starts"
         ));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn stream_error_sanitizes_host_paths() {
+        let root = std::env::temp_dir().join(format!("ripple-chat-test-{}", Uuid::new_v4()));
+        let state = AppState::new(test_config(&root));
+        let workspace_root = state.sandboxes.ensure_sandbox("alice").unwrap();
+        let leaked = workspace_root.join("outputs/error.log");
+
+        let event = stream_error_for_user(
+            &state,
+            "alice",
+            &format!("failed while reading {}", leaked.display()),
+            "server_error",
+        );
+
+        let message = event
+            .pointer("/error/message")
+            .and_then(Value::as_str)
+            .expect("error message");
+        assert!(message.contains("outputs/error.log"));
+        assert!(!message.contains(root.to_string_lossy().as_ref()));
+        assert!(!message.contains(".ripple/sandboxes"));
 
         let _ = std::fs::remove_dir_all(root);
     }

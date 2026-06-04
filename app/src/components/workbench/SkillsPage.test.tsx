@@ -137,10 +137,13 @@ function testSkillsPageEditSkillOpensScopedChatPrompt() {
   assert.match(source, /skill\.can_edit/);
   assert.match(source, /skills\.editChatPrompt/);
   assert.match(source, /id: skill\.id/);
-  assert.match(source, /path: skill\.path/);
+  assert.match(source, /directory: skillEditDirectory\(skill\)/);
+  assert.doesNotMatch(source, /path: skill\.path/);
   assert.doesNotMatch(source, /type="button"\n\s+disabled\n\s+className=\{`\$\{SKILL_ACTION_BUTTON_CLASS\} text/);
-  assert.match(i18n, /only modify files inside that skill directory/);
-  assert.match(i18n, /只修改这个 skill 目录/);
+  assert.match(i18n, /workspace-relative directory/);
+  assert.match(i18n, /workspace 相对目录/);
+  assert.doesNotMatch(i18n, /path: \{path\}/);
+  assert.doesNotMatch(i18n, /\/home\/|\.ripple\/sandboxes/);
 }
 
 testSkillsPageEditSkillOpensScopedChatPrompt();

@@ -107,6 +107,100 @@ pub async fn readiness_report(config: &AppConfig) -> Value {
     })
 }
 
+pub fn redact_deployment_paths(config: &AppConfig, value: Value) -> Value {
+    let mut replacements = Vec::new();
+    push_path_replacement(
+        &mut replacements,
+        &config.sandbox.sandboxes_root,
+        "/sandbox/",
+        "/sandbox",
+    );
+    push_path_replacement(
+        &mut replacements,
+        &config.sandbox.caches_root,
+        "/cache/",
+        "/cache",
+    );
+    push_path_replacement(
+        &mut replacements,
+        &database_path(config),
+        "/storage/",
+        "/storage",
+    );
+    let codex_home = config
+        .codex
+        .codex_home
+        .clone()
+        .unwrap_or_else(|| config.repo_root.join(".ripple/codex-service-home"));
+    push_path_replacement(
+        &mut replacements,
+        &codex_home,
+        "/codex-home/",
+        "/codex-home",
+    );
+    push_path_replacement(
+        &mut replacements,
+        &config.repo_root,
+        "[host path redacted]/",
+        "[host path redacted]",
+    );
+    if let Some(parent) = config.repo_root.parent() {
+        push_path_replacement(
+            &mut replacements,
+            parent,
+            "[host path redacted]/",
+            "[host path redacted]",
+        );
+    }
+    replacements.sort_by(|left: &(String, String), right| right.0.len().cmp(&left.0.len()));
+    redact_value_paths(value, &replacements)
+}
+
+fn redact_value_paths(value: Value, replacements: &[(String, String)]) -> Value {
+    match value {
+        Value::String(text) => Value::String(redact_text_paths(&text, replacements)),
+        Value::Array(values) => Value::Array(
+            values
+                .into_iter()
+                .map(|value| redact_value_paths(value, replacements))
+                .collect(),
+        ),
+        Value::Object(object) => Value::Object(
+            object
+                .into_iter()
+                .map(|(key, value)| (key, redact_value_paths(value, replacements)))
+                .collect(),
+        ),
+        other => other,
+    }
+}
+
+fn redact_text_paths(text: &str, replacements: &[(String, String)]) -> String {
+    let mut out = text.to_string();
+    for (from, to) in replacements {
+        out = out.replace(from, to);
+    }
+    out
+}
+
+fn push_path_replacement(
+    replacements: &mut Vec<(String, String)>,
+    path: &Path,
+    child_replacement: &str,
+    exact_replacement: &str,
+) {
+    let path = slash_path(path);
+    if path.is_empty() || path == "/" {
+        return;
+    }
+    replacements.push((format!("{path}/"), child_replacement.to_string()));
+    replacements.push((path, exact_replacement.to_string()));
+}
+
+fn slash_path(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
 pub async fn doctor_report(config: &AppConfig) -> Value {
     let mut checks = vec![
         security_check(config),

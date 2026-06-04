@@ -77,8 +77,8 @@ pub async fn sandbox_info(State(state): State<AppState>) -> Json<Value> {
     Json(json!({
         "enabled": true,
         "deployment_mode": state.config.security.deployment_mode,
-        "sandboxes_root": state.config.sandbox.sandboxes_root,
-        "caches_root": state.config.sandbox.caches_root,
+        "sandboxes_root": "/sandbox",
+        "caches_root": "/cache",
         "security": {
             "trusted_proxy_mode": state.config.security.deployment_mode == "trusted-proxy",
             "requires_confirm_for_risky_api": state.config.security.require_confirm_for_risky_api,

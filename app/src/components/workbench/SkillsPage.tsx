@@ -157,6 +157,39 @@ function skillTitle(skill: SkillInfo): string {
   return skill.display_name || skill.name;
 }
 
+function safeSkillDirectoryName(value: string): string {
+  const parts = value
+    .split("/")
+    .map((part) => part.trim())
+    .filter((part) => part && part !== "." && part !== "..");
+  return parts.join("-") || "skill";
+}
+
+function skillEditDirectory(skill: SkillInfo): string {
+  const normalizedPath = (skill.path || "").replace(/\\/g, "/");
+  const workspaceIndex = normalizedPath.lastIndexOf("/workspace/");
+  const skillsIndex = normalizedPath.lastIndexOf("/skills/");
+  let candidate = "";
+  if (workspaceIndex >= 0) {
+    candidate = normalizedPath.slice(workspaceIndex + "/workspace/".length);
+  } else if (normalizedPath.startsWith("/workspace/")) {
+    candidate = normalizedPath.slice("/workspace/".length);
+  } else if (skillsIndex >= 0) {
+    candidate = `skills/${normalizedPath.slice(skillsIndex + "/skills/".length)}`;
+  } else if (normalizedPath.startsWith("skills/")) {
+    candidate = normalizedPath;
+  }
+  if (candidate.endsWith("/SKILL.md")) {
+    candidate = candidate.slice(0, -"/SKILL.md".length);
+  }
+  const parts = candidate.split("/").filter((part) => part && part !== "." && part !== "..");
+  if (parts.length >= 2 && parts[0] === "skills") {
+    return parts.join("/");
+  }
+  const fallbackName = skill.id.startsWith("user:") ? skill.id.slice("user:".length) : skill.name;
+  return `skills/${safeSkillDirectoryName(fallbackName)}`;
+}
+
 function skillStatusKey(status: string | undefined): MessageKey {
   if (status === "available") return "skills.available";
   if (status === "needs_connection") return "skills.needsConnection";
@@ -389,7 +422,7 @@ export default function SkillsPage({
         t("skills.editChatPrompt", {
           name: skillTitle(skill),
           id: skill.id,
-          path: skill.path,
+          directory: skillEditDirectory(skill),
         }),
         { autoSend: true, newSession: true }
       );

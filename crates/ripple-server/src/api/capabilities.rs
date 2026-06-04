@@ -13,8 +13,8 @@ use crate::capabilities::{
     related_skills_for_connector,
 };
 use crate::skills::{
-    build_skill_manifest_with_options, read_user_skill_settings, write_user_skill_settings,
-    SkillManifestEntry, SkillManifestOptions, UserSkillSettings,
+    build_skill_manifest_with_options, public_skill_path, read_user_skill_settings,
+    write_user_skill_settings, SkillManifestEntry, SkillManifestOptions, UserSkillSettings,
 };
 use crate::state::AppState;
 use crate::user::user_id_from_headers;
@@ -134,7 +134,11 @@ async fn capability_catalog(state: &AppState, user_id: &str) -> Result<Vec<Value
             "connector": connector_info(connector)
         }));
     }
-    capabilities.extend(skills.iter().map(skill_capability));
+    capabilities.extend(
+        skills
+            .iter()
+            .map(|skill| skill_capability(skill, &workspace)),
+    );
     capabilities.sort_by(|left, right| {
         left.get("id")
             .and_then(Value::as_str)
@@ -176,7 +180,9 @@ fn connector_requirements(name: &str, kind: &str, connected: bool) -> Vec<Value>
     })]
 }
 
-fn skill_capability(skill: &SkillManifestEntry) -> Value {
+fn skill_capability(skill: &SkillManifestEntry, workspace_root: &std::path::Path) -> Value {
+    let mut public_skill = skill.clone();
+    public_skill.path = public_skill_path(std::path::Path::new(&skill.path), Some(workspace_root));
     json!({
         "id": skill.id,
         "type": "skill",
@@ -195,7 +201,7 @@ fn skill_capability(skill: &SkillManifestEntry) -> Value {
         "requirements": skill_requirements(skill),
         "related_skills": [],
         "related_connector": related_connector_for_skill(skill),
-        "skill": skill
+        "skill": public_skill
     })
 }
 

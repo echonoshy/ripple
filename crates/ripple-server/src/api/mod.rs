@@ -836,6 +836,106 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn sandbox_info_does_not_expose_host_paths() {
+        let root = std::env::temp_dir().join(format!(
+            "ripple-api-sandbox-info-paths-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let state = test_state_from_root(
+            vec!["service-key".to_string()],
+            Vec::new(),
+            root.clone(),
+            None,
+            None,
+        );
+
+        let (status, body) = request_json(
+            state,
+            Method::GET,
+            "/v1/sandbox/info",
+            "service-key",
+            Some("sandbox-info-user"),
+            None,
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            body.get("sandboxes_root").and_then(Value::as_str),
+            Some("/sandbox")
+        );
+        assert_eq!(
+            body.get("caches_root").and_then(Value::as_str),
+            Some("/cache")
+        );
+        assert!(!body.to_string().contains(root.to_string_lossy().as_ref()));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn health_ready_does_not_expose_host_paths() {
+        let root = std::env::temp_dir().join(format!(
+            "ripple-api-health-ready-paths-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let state = test_state_from_root(
+            vec!["service-key".to_string()],
+            Vec::new(),
+            root.clone(),
+            None,
+            None,
+        );
+
+        let (status, body) = request_json(
+            state,
+            Method::GET,
+            "/v1/health/ready",
+            "service-key",
+            Some("health-ready-user"),
+            None,
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        let body_text = body.to_string();
+        assert!(!body_text.contains(root.to_string_lossy().as_ref()));
+        assert!(body_text.contains("/sandbox") || body_text.contains("/cache"));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn diagnostics_doctor_http_does_not_expose_host_paths() {
+        let root =
+            std::env::temp_dir().join(format!("ripple-api-doctor-paths-{}", uuid::Uuid::new_v4()));
+        let state = test_state_from_root(
+            vec!["service-key".to_string()],
+            Vec::new(),
+            root.clone(),
+            None,
+            None,
+        );
+
+        let (status, body) = request_json(
+            state,
+            Method::GET,
+            "/v1/diagnostics/doctor",
+            "service-key",
+            Some("doctor-user"),
+            None,
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        let body_text = body.to_string();
+        assert!(!body_text.contains(root.to_string_lossy().as_ref()));
+        assert!(body_text.contains("/sandbox") || body_text.contains("/cache"));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
     async fn capabilities_route_lists_connectors_runtime_and_skills() {
         let shared_root = std::env::temp_dir().join(format!(
             "ripple-api-shared-skills-test-{}",
@@ -895,6 +995,21 @@ mod tests {
                 && entry.get("enabled").and_then(Value::as_bool) == Some(false)
                 && entry.get("status").and_then(Value::as_str) == Some("pending_enable")
         }));
+        let user_capability = capabilities
+            .iter()
+            .find(|entry| entry.get("id").and_then(Value::as_str) == Some("user:user-demo"))
+            .expect("user skill capability");
+        assert_eq!(
+            user_capability
+                .pointer("/skill/path")
+                .and_then(Value::as_str),
+            Some("/workspace/skills/user-demo/SKILL.md")
+        );
+        assert!(!user_capability
+            .pointer("/skill/path")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .contains(workspace.to_string_lossy().as_ref()));
 
         let _ = std::fs::remove_dir_all(shared_root);
     }
@@ -1015,12 +1130,31 @@ mod tests {
                 && entry.get("read_only").and_then(Value::as_bool) == Some(true)
                 && entry.get("user_status").and_then(Value::as_str) == Some("available")
         }));
-        assert!(skills.iter().any(|entry| {
-            entry.get("id").and_then(Value::as_str) == Some("user:user-demo")
-                && entry.get("read_only").and_then(Value::as_bool) == Some(false)
-                && entry.get("desired_state").and_then(Value::as_str) == Some("draft")
-                && entry.get("user_status").and_then(Value::as_str) == Some("needs_fix")
-        }));
+        let user_entry = skills
+            .iter()
+            .find(|entry| entry.get("id").and_then(Value::as_str) == Some("user:user-demo"))
+            .expect("user skill entry");
+        assert_eq!(
+            user_entry.get("read_only").and_then(Value::as_bool),
+            Some(false)
+        );
+        assert_eq!(
+            user_entry.get("desired_state").and_then(Value::as_str),
+            Some("draft")
+        );
+        assert_eq!(
+            user_entry.get("user_status").and_then(Value::as_str),
+            Some("needs_fix")
+        );
+        assert_eq!(
+            user_entry.get("path").and_then(Value::as_str),
+            Some("/workspace/skills/user-demo/SKILL.md")
+        );
+        assert!(!user_entry
+            .get("path")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .contains(workspace.to_string_lossy().as_ref()));
         assert!(!skills.iter().any(|entry| {
             entry.get("type").and_then(Value::as_str) == Some("runtime_capability")
                 || entry

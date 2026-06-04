@@ -19,9 +19,9 @@ use crate::api::{require_confirm, ApiError};
 use crate::capabilities::related_connector_for_skill;
 use crate::python_env::validate_requirement;
 use crate::skills::{
-    build_skill_manifest_with_options, read_user_skill_settings, write_user_skill_settings,
-    SkillManifestEntry, SkillManifestOptions, UserSkillRecord, UserSkillSettings,
-    UserSkillValidationCheck, UserSkillValidationResult,
+    build_skill_manifest_with_options, public_skill_path, read_user_skill_settings,
+    write_user_skill_settings, SkillManifestEntry, SkillManifestOptions, UserSkillRecord,
+    UserSkillSettings, UserSkillValidationCheck, UserSkillValidationResult,
 };
 use crate::state::AppState;
 use crate::user::user_id_from_headers;
@@ -113,7 +113,9 @@ pub async fn get_skill(
     reconcile_user_skills_lightweight(&state, &user_id)?;
     let settings = read_settings(&state, &user_id)?;
     let skill = find_catalog_skill(&state, &user_id, &skill_id).await?;
-    Ok(Json(skill_info(&skill, &settings)))
+    Ok(Json(skill_info_for_user(
+        &state, &user_id, &skill, &settings,
+    )?))
 }
 
 #[utoipa::path(
@@ -145,7 +147,10 @@ pub async fn create_skill(
         .to_string();
     let skill = find_catalog_skill(&state, &user_id, &skill_id).await?;
     let settings = read_settings(&state, &user_id)?;
-    Ok((StatusCode::CREATED, Json(skill_info(&skill, &settings))))
+    Ok((
+        StatusCode::CREATED,
+        Json(skill_info_for_user(&state, &user_id, &skill, &settings)?),
+    ))
 }
 
 #[utoipa::path(
@@ -296,7 +301,9 @@ pub async fn update_skill(
     write_settings(&state, &user_id, &settings)?;
     let updated = find_catalog_skill(&state, &user_id, &skill_id).await?;
     let settings = read_settings(&state, &user_id)?;
-    Ok(Json(skill_info(&updated, &settings)))
+    Ok(Json(skill_info_for_user(
+        &state, &user_id, &updated, &settings,
+    )?))
 }
 
 #[utoipa::path(
@@ -339,7 +346,9 @@ pub async fn delete_skill(
     settings.enabled_skill_ids.remove(&skill_id);
     write_settings(&state, &user_id, &settings)?;
 
-    Ok(Json(skill_info(&skill, &settings)))
+    Ok(Json(skill_info_for_user(
+        &state, &user_id, &skill, &settings,
+    )?))
 }
 
 #[utoipa::path(
@@ -461,7 +470,7 @@ pub(crate) fn create_user_skill_draft(
 
     let skill = find_skill(state, user_id, &skill_id)?;
     let settings = read_settings(state, user_id)?;
-    Ok(skill_info(&skill, &settings))
+    Ok(skill_info(&skill, &settings, Some(&workspace)))
 }
 
 async fn load_skill_infos(state: &AppState, user_id: &str) -> Result<Vec<Value>, ApiError> {
@@ -471,7 +480,7 @@ async fn load_skill_infos(state: &AppState, user_id: &str) -> Result<Vec<Value>,
     let options = skill_manifest_options_for_user(state, user_id)?;
     let mut skills = build_skill_manifest_with_options(&state.config, Some(&workspace), &options)
         .iter()
-        .map(|skill| skill_info(skill, &settings))
+        .map(|skill| skill_info(skill, &settings, Some(&workspace)))
         .collect::<Vec<_>>();
     skills.sort_by(|left, right| {
         left.get("id")
@@ -626,12 +635,27 @@ fn skill_requires_manual_enable(skill: &SkillManifestEntry) -> bool {
         .unwrap_or(false)
 }
 
-fn skill_info(skill: &SkillManifestEntry, settings: &UserSkillSettings) -> Value {
+fn skill_info_for_user(
+    state: &AppState,
+    user_id: &str,
+    skill: &SkillManifestEntry,
+    settings: &UserSkillSettings,
+) -> Result<Value, ApiError> {
+    let workspace = state.sandboxes.workspace_dir(user_id)?;
+    Ok(skill_info(skill, settings, Some(&workspace)))
+}
+
+fn skill_info(
+    skill: &SkillManifestEntry,
+    settings: &UserSkillSettings,
+    workspace_root: Option<&Path>,
+) -> Value {
     let record = settings.records.get(&skill.id);
     let desired_state = desired_state_for_skill(skill, settings);
     let validation = record.and_then(|record| record.validation.clone());
     let user_status = user_status_for_skill(skill, &desired_state, validation.as_ref());
     let read_only = skill.source != "user";
+    let path = public_skill_path(Path::new(&skill.path), workspace_root);
     json!({
         "id": skill.id,
         "type": "skill",
@@ -648,7 +672,7 @@ fn skill_info(skill: &SkillManifestEntry, settings: &UserSkillSettings) -> Value
         "computed_status": skill.status,
         "user_status": user_status,
         "status_label": user_status_label(&user_status),
-        "path": skill.path,
+        "path": path,
         "when_to_use": skill.when_to_use,
         "version": skill.version,
         "kind": skill.kind,

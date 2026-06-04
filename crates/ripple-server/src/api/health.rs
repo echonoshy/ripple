@@ -31,7 +31,11 @@ pub async fn health() -> Json<Value> {
     )
 )]
 pub async fn ready(State(state): State<AppState>) -> Json<Value> {
-    Json(crate::diagnostics::readiness_report(&state.config).await)
+    let report = crate::diagnostics::readiness_report(&state.config).await;
+    Json(crate::diagnostics::redact_deployment_paths(
+        &state.config,
+        report,
+    ))
 }
 
 #[utoipa::path(
@@ -48,5 +52,9 @@ pub async fn ready(State(state): State<AppState>) -> Json<Value> {
     )
 )]
 pub async fn doctor(State(state): State<AppState>) -> Json<Value> {
-    Json(crate::diagnostics::doctor_report(&state.config).await)
+    let report = crate::diagnostics::doctor_report(&state.config).await;
+    Json(crate::diagnostics::redact_deployment_paths(
+        &state.config,
+        report,
+    ))
 }

@@ -969,7 +969,7 @@ export function useChatRun({
               beginConnectorAuthPollRef.current?.(pendingConnectorAuthPayload, {
                 baseMessages,
                 allowWhileGenerating: true,
-                openAuthWindow: true,
+                openAuthWindow: pendingConnectorAuthPayload.connector !== "feishu",
               });
               return;
             }

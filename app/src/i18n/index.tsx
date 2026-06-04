@@ -205,14 +205,14 @@ const zhMessages = {
     empty: "暂无连接器",
     feishuSetupTitle: "第 1/2 步：准备飞书连接",
     feishuAuthTitle: "第 2/2 步：授权你的飞书账号",
-    feishuSetupSubtitle: "首次使用需要在飞书页面完成一次性准备，之后会自动进入账号授权。",
-    feishuAuthSubtitle:
-      "授权后 Ripple 会以你的飞书账号继续执行刚才的请求，发送消息会显示为你本人。",
-    feishuSetupHint: "完成后 Ripple 会自动打开第 2 步授权链接。",
-    feishuAuthHint: "授权完成后 Ripple 会自动继续当前任务。",
+    feishuSetupSubtitle: "首次使用需要在飞书页面完成一次性准备，之后会显示账号授权步骤。",
+    feishuAuthSubtitle: "完成飞书授权后，就可以在 Ripple 里使用你的飞书账号。",
+    feishuSetupHint: "完成后 Ripple 会自动检测并显示第 2 步授权链接。",
+    feishuAuthHint: "授权完成后，Ripple 会自动检测授权状态。",
     openFeishuSetup: "打开飞书页面",
     openAuthPage: "打开授权页面",
-    feishuWaitingCard: "正在等待你在浏览器完成飞书操作，Ripple 会自动继续。已等待 {seconds} 秒。",
+    feishuWaitingCard:
+      "正在等待你在浏览器完成飞书操作，Ripple 会自动检测授权状态。已等待 {seconds} 秒。",
     googleAuthTitle: "授权 Google Workspace",
     googleAuthSubtitle:
       "请在 Google 页面选择要绑定的账号并点击允许，授权后 Ripple 会自动继续刚才的请求。",
@@ -726,15 +726,16 @@ const enMessages = {
     feishuSetupTitle: "Step 1/2: Prepare Feishu connection",
     feishuAuthTitle: "Step 2/2: Authorize your Feishu account",
     feishuSetupSubtitle:
-      "First-time use needs a one-time setup on Feishu, then account authorization starts automatically.",
+      "First-time use needs a one-time setup on Feishu, then Ripple will show account authorization.",
     feishuAuthSubtitle:
-      "After authorization, Ripple will continue the request with your Feishu account.",
-    feishuSetupHint: "After setup, Ripple will automatically open the Step 2 authorization link.",
-    feishuAuthHint: "After authorization, Ripple will automatically continue the current task.",
+      "Complete Feishu authorization to use your Feishu account in Ripple.",
+    feishuSetupHint:
+      "After setup, Ripple will detect completion and show the Step 2 authorization link.",
+    feishuAuthHint: "After authorization, Ripple will detect the completed connection.",
     openFeishuSetup: "Open Feishu page",
     openAuthPage: "Open authorization page",
     feishuWaitingCard:
-      "Waiting for Feishu in the browser. Ripple will continue automatically. {seconds} seconds elapsed.",
+      "Waiting for Feishu in the browser. Ripple will detect authorization status. {seconds} seconds elapsed.",
     googleAuthTitle: "Authorize Google Workspace",
     googleAuthSubtitle:
       "Choose the account to connect on Google and allow access. Ripple will continue automatically after authorization.",

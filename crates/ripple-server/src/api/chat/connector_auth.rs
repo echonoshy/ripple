@@ -131,7 +131,10 @@ pub(crate) async fn continue_pending_connector_auth(
         );
         return Ok(Some(ConnectorAuthDecision {
             event,
-            resume_user_input: pending_resume_user_input(&pending),
+            resume_user_input: connector_resume_user_input(
+                &connector,
+                pending_resume_user_input(&pending).unwrap_or_default(),
+            ),
         }));
     }
 
@@ -200,7 +203,7 @@ async fn start_connector_auth_for_chat(
     let action = connector_auth_start_action(state, user_id, connector, &payload, request_base_url)
         .await?
         .0;
-    let resume_user_input = if connector == "notion" {
+    let resume_user_input = if connector == "notion" || connector == "feishu" {
         String::new()
     } else {
         user_input.to_string()
@@ -388,11 +391,7 @@ pub(crate) fn decision_from_action(
         session.pending_connector_auth = None;
         Ok(ConnectorAuthDecision {
             event,
-            resume_user_input: if resume_user_input.trim().is_empty() {
-                None
-            } else {
-                Some(resume_user_input)
-            },
+            resume_user_input: connector_resume_user_input(connector, resume_user_input),
         })
     } else if is_terminal_connector_auth_stage(&stage) {
         session.pending_connector_auth = None;
@@ -601,14 +600,14 @@ pub(crate) fn connector_auth_message(connector: &str, action: &Value) -> String 
                 .and_then(Value::as_str)
             {
                 format!(
-                    "[FEISHU_SETUP]\n第 1/2 步：准备飞书连接。\n\n首次使用需要在飞书页面完成一次性准备。完成后 Ripple 会自动进入账号授权。\n\n{setup_url}\n\n请保持当前页面打开；Ripple 会自动检查并继续第 2 步。"
+                    "[FEISHU_SETUP]\n第 1/2 步：准备飞书连接。\n\n首次使用需要在飞书页面完成一次性准备。完成后 Ripple 会显示账号授权步骤。\n\n{setup_url}\n\n请保持当前页面打开；Ripple 会自动检查并显示第 2 步。"
                 )
             } else if let Some(oauth_url) = data
                 .and_then(|data| data.get("oauth_url"))
                 .and_then(Value::as_str)
             {
                 format!(
-                    "[FEISHU_AUTH]\n第 2/2 步：授权你的飞书账号。\n\n授权后 Ripple 会以你的飞书账号继续执行刚才的请求；发送消息会显示为你本人。\n\n{oauth_url}\n\n请保持当前页面打开；授权完成后 Ripple 会自动继续。"
+                    "[FEISHU_AUTH]\n第 2/2 步：授权你的飞书账号。\n\n完成飞书授权后，你就可以在 Ripple 里使用你的飞书账号。\n\n{oauth_url}\n\n请保持当前页面打开；授权完成后 Ripple 会自动检测状态。"
                 )
             } else if stage == "authorized" {
                 connector_authorized_message(connector).to_string()
@@ -693,7 +692,7 @@ fn connector_authorized_message(connector: &str) -> &'static str {
     match connector {
         "google_workspace" => "Google Workspace 授权已完成。继续执行刚才的请求。",
         "notion" => "Notion token 已保存。继续执行刚才的请求。",
-        "feishu" => "飞书授权已完成。继续执行刚才的请求。",
+        "feishu" => "飞书授权已完成。",
         "bilibili" => "Bilibili 已授权。继续执行刚才的请求。",
         _ => "Connector authorization completed. Continuing.",
     }
@@ -716,6 +715,18 @@ fn pending_resume_user_input(pending: &Value) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
+}
+
+fn connector_resume_user_input(connector: &str, resume_user_input: String) -> Option<String> {
+    if connector == "feishu" {
+        return None;
+    }
+    let trimmed = resume_user_input.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
 }
 
 fn pending_stage<'a>(pending: &'a Value, fallback: &'a str) -> &'a str {
@@ -761,7 +772,13 @@ fn now_iso() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{model_connector_auth_request_might_be_start, parse_model_connector_auth_request};
+    use serde_json::{json, Value};
+
+    use super::{
+        connector_auth_message, decision_from_action, model_connector_auth_request_might_be_start,
+        parse_model_connector_auth_request,
+    };
+    use crate::sessions::SessionRecord;
 
     #[test]
     fn parses_model_connector_auth_request_protocol() {
@@ -787,5 +804,60 @@ mod tests {
             "  <ripple_connector_auth_request>{}"
         ));
         assert!(!model_connector_auth_request_might_be_start("hello"));
+    }
+
+    #[test]
+    fn feishu_authorized_message_is_setup_only() {
+        let message = connector_auth_message("feishu", &json!({"stage": "authorized"}));
+
+        assert_eq!(message, "飞书授权已完成。");
+        assert!(!message.contains("继续执行"));
+    }
+
+    #[test]
+    fn feishu_authorized_decision_does_not_resume_saved_task() {
+        let mut session = test_session_record();
+        let decision = decision_from_action(
+            &mut session,
+            "feishu",
+            json!({"stage": "authorized", "detail": "ok", "data": {}}),
+            "列出我的飞书日程".to_string(),
+        )
+        .expect("decision");
+
+        assert!(decision.resume_user_input.is_none());
+        assert!(session.pending_connector_auth.is_none());
+    }
+
+    fn test_session_record() -> SessionRecord {
+        SessionRecord {
+            session_id: "session-test".to_string(),
+            user_id: "user-test".to_string(),
+            title: "Test".to_string(),
+            pinned: false,
+            project_id: None,
+            project_name: None,
+            project_root: None,
+            context_folder_path: None,
+            model: "codex-test".to_string(),
+            max_turns: 20,
+            caller_system_prompt: None,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            last_input_tokens: 0,
+            created_at: "2026-06-04T00:00:00Z".to_string(),
+            last_active: "2026-06-04T00:00:00Z".to_string(),
+            status: "idle".to_string(),
+            message_count: 0,
+            messages: Vec::new(),
+            pending_question: None,
+            pending_options: None,
+            pending_permission_request: None,
+            pending_connector_auth: None,
+            pending_schedule_request: None,
+            codex_thread_id: None,
+            plan_steps: Vec::<Value>::new(),
+            plan_progress: None,
+        }
     }
 }

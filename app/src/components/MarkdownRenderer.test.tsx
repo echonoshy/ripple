@@ -28,7 +28,8 @@ function testFeishuAuthCardDoesNotCompleteAuthDirectly() {
   );
 
   assert.match(html, /Open authorization page/);
-  assert.match(html, /continue the current task/);
+  assert.match(html, /Complete Feishu authorization/);
+  assert.doesNotMatch(html, /continue the current task/);
   assert.doesNotMatch(html, /done/);
 }
 
@@ -47,6 +48,7 @@ function testFeishuAuthCardShowsWaitingState() {
 
   assert.match(html, /Waiting for Feishu in the browser/);
   assert.match(html, /12 seconds elapsed/);
+  assert.doesNotMatch(html, /continue automatically/);
 }
 
 function testGoogleAuthCardDoesNotAskForManualCallback() {

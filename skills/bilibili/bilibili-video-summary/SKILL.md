@@ -31,7 +31,7 @@ metadata:
 - 短链：`https://b23.tv/xxxxxx`
 - JSON：`{"url": "...", "output_dir": "..."}`
 
-不要让用户手贴 Cookie，也不要在命令中传 `--sessdata`。B 站登录态由 Ripple connector 控制面保存，并以只读方式挂载到 CLI 默认读取路径。
+不要让用户手贴 Cookie，也不要在命令中传 `--sessdata`。B 站登录态由 Ripple connector 控制面保存；在 nsjail connector runtime 中会只读挂载到 CLI 默认读取路径，在 Codex app-server shell 中会通过 `BILIBILI_CREDENTIAL_FILE` 指向同一份只读凭证文件。
 
 ## 登录前提
 

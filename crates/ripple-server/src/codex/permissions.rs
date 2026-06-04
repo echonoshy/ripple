@@ -62,6 +62,12 @@ pub fn thread_permission_config(workspace: &Path, config: &AppConfig) -> Value {
     if let Some(codex_home) = config.codex.codex_home.as_deref() {
         filesystem.insert(codex_home.to_string_lossy().to_string(), json!("none"));
     }
+    if let Some(bilibili_credential) = current_user_bilibili_credential_file(workspace, config) {
+        filesystem.insert(
+            bilibili_credential.to_string_lossy().to_string(),
+            json!("read"),
+        );
+    }
     if let Some(home) = std::env::var_os("HOME") {
         filesystem.insert(
             Path::new(&home)
@@ -90,6 +96,18 @@ fn path_exists_for_permission_rule(path: &Path) -> bool {
         Err(err) if err.kind() == io::ErrorKind::NotFound => false,
         Err(_) => true,
     }
+}
+
+fn current_user_bilibili_credential_file(
+    workspace: &Path,
+    config: &AppConfig,
+) -> Option<std::path::PathBuf> {
+    let sandbox_dir = workspace.parent()?;
+    if sandbox_dir.parent()? != config.sandbox.sandboxes_root.as_path() {
+        return None;
+    }
+    let credential = sandbox_dir.join("credentials/bilibili.json");
+    path_exists_for_permission_rule(&credential).then_some(credential)
 }
 
 #[cfg(test)]
@@ -206,6 +224,35 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(workspace);
+    }
+
+    #[test]
+    fn profile_allows_reading_current_users_bilibili_credential_file() {
+        let config = test_config();
+        let workspace = config.sandbox.sandboxes_root.join("alice/workspace");
+        let bilibili_credential = config
+            .sandbox
+            .sandboxes_root
+            .join("alice/credentials/bilibili.json");
+        std::fs::create_dir_all(workspace.parent().unwrap()).expect("create sandbox dir");
+        std::fs::create_dir_all(bilibili_credential.parent().unwrap())
+            .expect("create credentials dir");
+        std::fs::create_dir_all(&workspace).expect("create workspace");
+        std::fs::write(&bilibili_credential, r#"{"sessdata":"secret"}"#)
+            .expect("write bilibili credential");
+
+        let permissions = thread_permission_config(&workspace, &config);
+        let filesystem = permissions
+            .pointer("/permissions/ripple_workspace/filesystem")
+            .and_then(|filesystem| filesystem.as_object())
+            .expect("filesystem rules");
+
+        assert_eq!(
+            filesystem.get(bilibili_credential.to_string_lossy().as_ref()),
+            Some(&json!("read"))
+        );
+
+        let _ = std::fs::remove_dir_all(&config.repo_root);
     }
 
     fn test_config() -> AppConfig {

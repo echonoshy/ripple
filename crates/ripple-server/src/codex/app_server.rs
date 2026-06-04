@@ -237,6 +237,9 @@ impl CodexAppServerSession {
         {
             command.env("NOTION_API_TOKEN", token);
         }
+        for (key, value) in connector_credential_env(&credentials_dir) {
+            command.env(key, value);
+        }
         if self.config.sandbox.gogcli_cli_install_root.is_some() {
             command.env("GOG_KEYRING_BACKEND", "file");
             let pass_file = credentials_dir.join("gogcli-keyring.pass");
@@ -1343,6 +1346,28 @@ mod tests {
     }
 
     #[test]
+    fn connector_credential_env_points_bilibili_cli_at_user_file() {
+        let root =
+            std::env::temp_dir().join(format!("ripple-app-server-env-{}", uuid::Uuid::new_v4()));
+        let credentials_dir = root.join("credentials");
+        std::fs::create_dir_all(&credentials_dir).expect("create credentials dir");
+        let bilibili_file = credentials_dir.join("bilibili.json");
+        std::fs::write(&bilibili_file, r#"{"sessdata":"secret"}"#)
+            .expect("write bilibili credential");
+
+        let env = connector_credential_env(&credentials_dir);
+
+        assert_eq!(
+            env,
+            vec![(
+                "BILIBILI_CREDENTIAL_FILE".to_string(),
+                bilibili_file.into_os_string()
+            )]
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn unsandboxed_process_server_requests_are_rejected() {
         assert!(is_unsupported_server_request(&json!({
             "id": 7,
@@ -1598,6 +1623,18 @@ async fn read_json_string_field(path: &Path, field: &str) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
+}
+
+fn connector_credential_env(credentials_dir: &Path) -> Vec<(String, std::ffi::OsString)> {
+    let bilibili_file = credentials_dir.join("bilibili.json");
+    if bilibili_file.is_file() {
+        vec![(
+            "BILIBILI_CREDENTIAL_FILE".to_string(),
+            bilibili_file.into_os_string(),
+        )]
+    } else {
+        Vec::new()
+    }
 }
 
 fn hardened_app_server_args(configured: &[String]) -> Vec<String> {

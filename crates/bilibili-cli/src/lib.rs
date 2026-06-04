@@ -19,6 +19,7 @@ pub mod bilibili {
     const OUTPUT_ROOT_DEFAULT: &str = "/workspace/outputs/bilibili";
     const CREDENTIAL_FILE_DEFAULT: &str = "/workspace/.bilibili/sessdata.json";
     const CREDENTIAL_FILE_LEGACY: &str = "/workspace/.bilibili/sessdata.txt";
+    const CREDENTIAL_FILE_ENV: &str = "BILIBILI_CREDENTIAL_FILE";
 
     const MIXIN_KEY_ENC_TAB: [usize; 64] = [
         46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49, 33, 9, 42, 19,
@@ -53,7 +54,7 @@ pub mod bilibili {
                 url: None,
                 bvid: None,
                 qrcode_key: None,
-                credential_file: PathBuf::from(CREDENTIAL_FILE_DEFAULT),
+                credential_file: default_credential_file(),
                 work_root: PathBuf::from(WORK_ROOT_DEFAULT),
                 output_root: PathBuf::from(OUTPUT_ROOT_DEFAULT),
                 output_dir: None,
@@ -63,6 +64,13 @@ pub mod bilibili {
                 allow_unauthenticated: false,
             }
         }
+    }
+
+    fn default_credential_file() -> PathBuf {
+        std::env::var_os(CREDENTIAL_FILE_ENV)
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(CREDENTIAL_FILE_DEFAULT))
     }
 
     pub async fn run_command(command: &[String], options: CliOptions) -> anyhow::Result<Value> {
@@ -1212,7 +1220,7 @@ mod tests {
     use crate::bilibili::{
         build_mixin_key, credential_public_view, format_ts,
         parse_bilibili_cookie_fields_from_crossdomain_url, parse_video_input,
-        prepare_md_output_dir, read_sessdata_from_path, slugify, wbi_sign,
+        prepare_md_output_dir, read_sessdata_from_path, slugify, wbi_sign, CliOptions,
     };
 
     #[test]
@@ -1269,6 +1277,22 @@ mod tests {
 
         assert!(value.is_none());
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn default_credential_file_uses_ripple_env_override() {
+        let path = temp_path("bilibili-env-sessdata-json");
+        let previous = std::env::var_os("BILIBILI_CREDENTIAL_FILE");
+        std::env::set_var("BILIBILI_CREDENTIAL_FILE", &path);
+
+        let options = CliOptions::default();
+
+        assert_eq!(options.credential_file, path);
+        if let Some(previous) = previous {
+            std::env::set_var("BILIBILI_CREDENTIAL_FILE", previous);
+        } else {
+            std::env::remove_var("BILIBILI_CREDENTIAL_FILE");
+        }
     }
 
     #[test]

@@ -65,7 +65,7 @@ Codex-native `.agents/skills` and `.codex/skills` are not Ripple user-skill inst
 Skills may use helper CLIs or scripts next to their `SKILL.md`. Current examples:
 
 - `crates/bilibili-cli` provides the `bilibili` binary used by `skills/bilibili/*`.
-- `skills/podcast/*/pipeline.py`
+- `crates/podcast-cli` provides the `podcast` binary used by `skills/podcast/podcast-auto-md`.
 - `skills/lark/lark-slides/scripts/*.py`
 
 Skill helper paths must be relative to their skill directory unless the helper is a configured vendor CLI exposed on PATH. Do not depend on removed backend packages such as the legacy Python `ripple` control plane or `interfaces.server`.

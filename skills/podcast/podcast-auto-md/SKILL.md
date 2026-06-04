@@ -1,42 +1,39 @@
 ---
 name: podcast-auto-md
-description: 用户给一个播客 URL 或标题，直接产出一份完整 Markdown：在对话里完整呈现，同时落盘到 host 可见路径。无 JSON 切片、无渲染脚本、无中间产物。
-when-to-use: 用户发送一个播客标题或单集链接，希望直接拿到 Markdown
-allowed-tools: [Skill, Bash, Write, Read]
+display_name: 播客 Markdown 整理
+description: 用户给一个播客单集 URL，抓取该期元信息、简介和原始时间轴，直接产出一份完整 Markdown：在对话里完整呈现，同时落盘到 host 可见路径。
+when-to-use: 用户发送一个播客单集链接，希望整理、总结、生成 Markdown 或节目笔记。
+allowed-tools: [Bash, Write, Read]
+metadata:
+  requires:
+    bins: ["podcast"]
 ---
 
 # Podcast Auto MD
 
 ## 目的
 
-> 用户只发一个播客 URL / 标题 → 你产出一份完整 Markdown → 同时**在对话里展示给用户** + **落盘到指定路径**。
+> 用户只发一个播客单集 URL → 你基于 `podcast` CLI 抓取元信息和正文原料 → 产出一份完整 Markdown → 同时**在对话里展示给用户** + **落盘到指定路径**。
 
 ## 触发场景
 
-- 输入是播客标题或 URL
+- 输入是播客单集 URL
 - "帮我整理这期播客 / 生成 md / 总结一下"
 
 ## 输入
 
 `$ARGUMENTS` 可以是：
 - 裸 URL：`https://www.xiaoyuzhoufm.com/episode/xxxx`
-- 裸标题：`某期标题`
-- JSON：`{"episode_url": "...", "title": "...", "output_dir": "..."}`
+- JSON：`{"episode_url": "...", "output_dir": "..."}`
 
-## 流程（仅 2~3 步，不要画蛇添足）
+> 当前不做标题搜索、问答或音频转写。用户只给标题、没有 URL 时，直接请用户补充单集链接。
 
-### Step 0 — 仅当只有标题、没 URL 时：先 resolve
+## 流程（2 步：抓取 → 写 MD）
 
-按相邻内部文档 `../podcast-episode-resolve/SKILL.md` 的搜索与打分规则直接解析标题；它是本 skill 的内部参考，不作为独立对外入口暴露。
-
-- 若无法确认匹配：直接返回候选给用户挑，**不**继续后面步骤
-- 若确认匹配：用 `best_match.episode_url` 进入 Step 1
-
-### Step 1 — 用 pipeline.py 一键抓取
+### Step 1 — 用 `podcast prepare-md` 抓取原料 + 算出 output_path
 
 ```bash
-python pipeline.py prepare \
-  --args '{"episode_url": "<url>"}'
+podcast prepare-md --url "<episode_url>" --json
 ```
 
 输出一行 JSON，关键字段：
@@ -47,18 +44,18 @@ python pipeline.py prepare \
 | `output_path` | **最终 md 落盘路径**，默认 `/workspace/outputs/podcast/YYYY/MM/YYYY-MM-DD-<slug>.md`（从宿主看即 `<repo>/.ripple/sandboxes/<uid>/workspace/outputs/podcast/...`） |
 | `title` / `podcast_name` / `audio_url` / `has_outline` / `outline_sections` | 元信息摘要 |
 
-> **不要再调用 `podcast-episode-extract` / `understand` / `transcribe` / `render.py`**——这些步骤都被 pipeline.py 一次完成或已被废弃。
+如果输出顶层有 `error` 字段或命令退出失败，直接说明抓取失败，不要写 Markdown。
 
 ### Step 2 — 读原料 + 直接写 Markdown + 同时落盘 + 同时呈现
 
-1. **Read** `<work_dir>/meta.json` 和 `<work_dir>/content.txt` 拿原料
+1. **Read** `<work_dir>/meta.json`；如果 `<work_dir>/content.txt` 存在且非空，也读它作为正文原料
 2. **按下面的"模板与硬规则"在对话里直接写出完整 Markdown**
 3. 在**同一条**回复里**用 `Write` 工具**把这段 Markdown 落盘到 `output_path`
 4. 在**同一条**回复里**也**把 Markdown 完整文本呈现在对话正文中（用户的明确要求）
 
 > 关键：**Markdown 写一次，既给用户看、也给 Write 工具用**——同样的内容、同步落盘。**不要让模型生成任何 JSON 文件**。
 
-### Step 3 — 末尾用一行说明确认
+### 收尾 — 末尾用一行说明确认
 
 `已生成: <output_path>（约 N 字、M 个章节）`
 
@@ -143,14 +140,16 @@ python pipeline.py prepare \
 
 | 场景 | 行为 |
 |---|---|
-| Step 0 resolve 失败 | 把候选交给用户，**不**生成 md |
-| Step 1 prepare 抓页面失败（fetched=false） | 仍然产出一份"信息不全"版 md：保留链接 + 简单说明，不编造内容 |
-| 只给 title、resolve 也失败 | 不产出 md，直接告诉用户 |
+| 用户只给标题、没有 URL | 不产出 md，直接请用户补充播客单集链接 |
+| Step 1 prepare 顶层返回 `error` | 把错误告诉用户，**不**产出 md |
+| Step 1 prepare 返回 `fetched=false` | 仍然产出一份"信息不全"版 md：保留链接 + 简单说明，不编造内容 |
+| `<work_dir>/content.txt` 不存在或为空 | 只基于 `meta.json` 写信息不全版；摘要、要点、关键词都必须明确降级 |
 
 ## 禁用项（曾是故障根因，绝对不要做）
 
 - ❌ 不要生成任何 `summary.json` / `outline.json` / `keywords.json` / `understand_input.json`
-- ❌ 不要再调用 `podcast-episode-understand`、`podcast-auto-md/render.py`、`pipeline.py split-understand` —— 它们已经被删除
+- ❌ 不要调用 `podcast-episode-extract`、`podcast-episode-resolve`、`podcast-episode-qa`、`podcast-episode-transcribe` —— 这些旧入口已合并删除
+- ❌ 不要调用 `pipeline.py`、`render.py` 或任何 Python 版 podcast helper —— podcast 抓取入口已经迁移到 Rust CLI
 - ❌ 不要在 markdown 字符串里使用半角双引号 `"`，统一用 `「」` / `『』`
-- ❌ 不要在调完 pipeline 之后又用 `cat` / `Read` 重复读 `meta.json`、`content.txt`——一次就够
+- ❌ 不要在调完 `podcast prepare-md` 之后又用 `cat` / `Read` 反复读 `meta.json`、`content.txt`——一次就够
 - ❌ 不要把 markdown 写成"先调 Write 落盘，然后说'内容如下'再贴一次"的两步——**在同一条回复里**，对话正文 = Write 的内容，逻辑上只有一份

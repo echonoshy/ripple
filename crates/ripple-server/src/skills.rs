@@ -1252,7 +1252,18 @@ metadata:
             .and_then(Path::parent)
             .unwrap()
             .to_path_buf();
-        let config = test_config(&repo_root, vec!["skills/podcast".to_string()]);
+        let fake_podcast_root =
+            std::env::temp_dir().join(format!("ripple-podcast-test-{}", Uuid::new_v4()));
+        let fake_podcast = fake_podcast_root.join("current/bin/podcast");
+        std::fs::create_dir_all(fake_podcast.parent().unwrap()).unwrap();
+        std::fs::write(&fake_podcast, "").unwrap();
+        let mut config = test_config(&repo_root, vec!["skills/podcast".to_string()]);
+        config.sandbox.cli_tools = vec![CliToolConfig {
+            name: "podcast".to_string(),
+            install_root: fake_podcast_root.clone(),
+            sandbox_root: PathBuf::from("/opt/podcast-cli"),
+            bin_dirs: vec![PathBuf::from("current/bin")],
+        }];
 
         let entries = build_skill_manifest(&config, None);
         let names = entries
@@ -1261,11 +1272,15 @@ metadata:
             .collect::<Vec<_>>();
 
         assert_eq!(names, vec!["podcast-auto-md"]);
+        assert_eq!(entries[0].display_name, "播客 Markdown 整理");
+        assert_eq!(entries[0].requires_bins, vec!["podcast"]);
         let rendered = render_skill_manifest(&config, None);
         assert!(rendered.contains("ripple:podcast-auto-md"));
         assert!(!rendered.contains("podcast-episode-extract"));
         assert!(!rendered.contains("podcast-episode-qa"));
         assert!(!rendered.contains("podcast-episode-resolve"));
         assert!(!rendered.contains("podcast-episode-transcribe"));
+
+        let _ = std::fs::remove_dir_all(fake_podcast_root);
     }
 }

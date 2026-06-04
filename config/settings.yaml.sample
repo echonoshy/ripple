@@ -203,6 +203,11 @@ server:
     #     sandbox_root: "/opt/bilibili-cli"
     #     bin_dirs:
     #       - "current/bin"
+    #   - name: podcast
+    #     install_root: "vendor/podcast-cli"
+    #     sandbox_root: "/opt/podcast-cli"
+    #     bin_dirs:
+    #       - "current/bin"
 
     # 资源限制
     resource_limits:

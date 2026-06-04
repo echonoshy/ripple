@@ -1037,20 +1037,39 @@ server:
         sandbox_root: /opt/bilibili-cli
         bin_dirs:
           - current/bin
+      - name: podcast
+        install_root: vendor/podcast-cli
+        sandbox_root: /opt/podcast-cli
+        bin_dirs:
+          - current/bin
 "#,
             AppConfig::load,
         )
         .expect("load config");
 
-        assert_eq!(config.sandbox.cli_tools.len(), 1);
-        let tool = &config.sandbox.cli_tools[0];
-        assert_eq!(tool.name, "bilibili");
-        assert!(tool.install_root.ends_with("vendor/bilibili-cli"));
+        assert_eq!(config.sandbox.cli_tools.len(), 2);
+        let bilibili = &config.sandbox.cli_tools[0];
+        assert_eq!(bilibili.name, "bilibili");
+        assert!(bilibili.install_root.ends_with("vendor/bilibili-cli"));
         assert_eq!(
-            tool.sandbox_root,
+            bilibili.sandbox_root,
             std::path::PathBuf::from("/opt/bilibili-cli")
         );
-        assert_eq!(tool.bin_dirs, vec![std::path::PathBuf::from("current/bin")]);
+        assert_eq!(
+            bilibili.bin_dirs,
+            vec![std::path::PathBuf::from("current/bin")]
+        );
+        let podcast = &config.sandbox.cli_tools[1];
+        assert_eq!(podcast.name, "podcast");
+        assert!(podcast.install_root.ends_with("vendor/podcast-cli"));
+        assert_eq!(
+            podcast.sandbox_root,
+            std::path::PathBuf::from("/opt/podcast-cli")
+        );
+        assert_eq!(
+            podcast.bin_dirs,
+            vec![std::path::PathBuf::from("current/bin")]
+        );
     }
 
     #[test]

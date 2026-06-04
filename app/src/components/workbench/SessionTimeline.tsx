@@ -128,6 +128,11 @@ function randomWaitingStatusMessage(messages: readonly string[]): string {
 
 type Translator = ReturnType<typeof useI18n>["t"];
 
+const TIMELINE_ICON_ROW_CLASS = "grid min-h-6 grid-cols-[24px_minmax(0,1fr)] items-center gap-2";
+const TIMELINE_CONTENT_INDENT_CLASS = "ml-8";
+const TIMELINE_EVENT_DIVIDER_CLASS =
+  "after:absolute after:right-0 after:bottom-0 after:left-8 after:h-px after:bg-[#e9eef7]/80 last:after:hidden";
+
 const EVENT_TITLE_KEYS_BY_TITLE = {
   "User request": "timeline.eventTitles.userRequest",
   Update: "timeline.eventTitles.assistantUpdate",
@@ -308,7 +313,9 @@ function TimelineImagePreview({
             className="block max-h-[460px] w-full object-contain"
           />
         ) : (
-          <div className={`flex min-h-44 items-center justify-center bg-[#f7fafc] px-4 py-8 ${TYPOGRAPHY_META_CLASS} text-[#667085]`}>
+          <div
+            className={`flex min-h-44 items-center justify-center bg-[#f7fafc] px-4 py-8 ${TYPOGRAPHY_META_CLASS} text-[#667085]`}
+          >
             {loading ? t("timeline.loadingImage") : error}
           </div>
         )}
@@ -359,13 +366,10 @@ export default function SessionTimeline({
     isGenerating && lastMessage?.role === "assistant" && !lastMessage.content
       ? String(lastMessage.id)
       : "";
-  const waitingStatusMessage = React.useMemo(
-    () => {
-      const messages = locale === "zh-CN" ? ZH_WAITING_STATUS_MESSAGES : WAITING_STATUS_MESSAGES;
-      return waitingStatusKey ? randomWaitingStatusMessage(messages) : messages[0];
-    },
-    [locale, waitingStatusKey]
-  );
+  const waitingStatusMessage = React.useMemo(() => {
+    const messages = locale === "zh-CN" ? ZH_WAITING_STATUS_MESSAGES : WAITING_STATUS_MESSAGES;
+    return waitingStatusKey ? randomWaitingStatusMessage(messages) : messages[0];
+  }, [locale, waitingStatusKey]);
 
   React.useEffect(() => {
     return () => {
@@ -401,18 +405,24 @@ export default function SessionTimeline({
 
   if (events.length === 0 && !isGenerating) {
     return (
-      <div className="relative min-h-[140px] pl-8">
+      <div className="relative min-h-[140px]">
         <div className="absolute top-2 bottom-2 left-[11px] w-px bg-[#dfe6f4]" />
         <div className="relative py-2">
-          <IconTile
-            tone="accent"
-            size="xs"
-            className="absolute top-2.5 -left-8 rounded-full shadow-[0_8px_18px_rgba(64,92,255,0.12)]"
+          <div className={TIMELINE_ICON_ROW_CLASS}>
+            <IconTile
+              tone="accent"
+              size="xs"
+              className="rounded-full shadow-[0_8px_18px_rgba(64,92,255,0.12)]"
+            >
+              <span className="h-2 w-2 rounded-full bg-current" />
+            </IconTile>
+            <div className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#111827]`}>
+              {t("timeline.ready")}
+            </div>
+          </div>
+          <div
+            className={`mt-1 max-w-xl ${TIMELINE_CONTENT_INDENT_CLASS} ${TYPOGRAPHY_BODY_CLASS} text-[#667085]`}
           >
-            <span className="h-2 w-2 rounded-full bg-current" />
-          </IconTile>
-          <div className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#111827]`}>{t("timeline.ready")}</div>
-          <div className={`mt-1 max-w-xl ${TYPOGRAPHY_BODY_CLASS} text-[#667085]`}>
             {t("timeline.activityWillAppear")}
           </div>
         </div>
@@ -421,7 +431,7 @@ export default function SessionTimeline({
   }
 
   return (
-    <div className="relative pl-8">
+    <div className="relative">
       <div className="absolute top-3 bottom-3 left-[11px] w-px bg-[#dfe6f4]" />
       {events.map((event) => {
         const isToolEvent = [
@@ -450,48 +460,58 @@ export default function SessionTimeline({
             key={event.id}
             data-ripple-copyable-event-id={canCopyEvent ? event.id : undefined}
             onPointerDown={
-              canCopyEvent ? (pointerEvent) => handleMobileCopyReveal(pointerEvent, event) : undefined
+              canCopyEvent
+                ? (pointerEvent) => handleMobileCopyReveal(pointerEvent, event)
+                : undefined
             }
-            className="group/timeline-event relative border-b border-[#e9eef7]/80 py-2.5 last:border-b-0 sm:py-4"
+            className={`group/timeline-event relative py-2.5 sm:py-4 ${TIMELINE_EVENT_DIVIDER_CLASS}`}
           >
-            <IconTile
-              tone={eventIconTone(event.type)}
-              size="xs"
-              className="absolute top-2.5 sm:top-4 -left-8 rounded-full shadow-[0_8px_18px_rgba(44,63,123,0.10)]"
-            >
-              <EventIcon type={event.type} />
-            </IconTile>
-            <div className="mb-1.5 flex min-h-6 items-center justify-between gap-3">
-              <div className="min-w-0">
-                <div className={`truncate ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#111827]`}>
-                  {displayTitle}
+            <div className={`mb-1.5 ${TIMELINE_ICON_ROW_CLASS}`}>
+              <IconTile
+                tone={eventIconTone(event.type)}
+                size="xs"
+                className="rounded-full shadow-[0_8px_18px_rgba(44,63,123,0.10)]"
+              >
+                <EventIcon type={event.type} />
+              </IconTile>
+              <div className="flex min-w-0 items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className={`truncate ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#111827]`}>
+                    {displayTitle}
+                  </div>
                 </div>
-              </div>
-              <div className={`flex shrink-0 items-center gap-1.5 ${TYPOGRAPHY_MICRO_CLASS} text-[#7a8496]`}>
-                {event.status && (
-                  <span className="rounded-full border border-[#dfe6f4] bg-white/80 px-1.5 py-0.5 font-[family-name:var(--font-mono)]">
-                    {displayStatus}
-                  </span>
-                )}
-                {eventTime && <span>{eventTime}</span>}
-                {canCopyEvent && (
-                  <button
-                    type="button"
-                    aria-label={t("timeline.copyEventContent", { title: displayTitle })}
-                    title={t("timeline.copyContent")}
-                    data-ripple-mobile-copy-visible={isMobileCopyVisible ? "true" : "false"}
-                    onClick={() => void handleCopyEvent(event)}
-                    className={`inline-flex h-7 w-7 items-center justify-center rounded-full border border-[#d7d7dd] bg-white/82 text-[#6e6e73] shadow-[0_6px_14px_rgba(60,60,67,0.06)] transition-all hover:bg-[#f2f2f7] hover:text-[#007aff] focus:pointer-events-auto focus:opacity-100 active:bg-[#eaf4ff] lg:pointer-events-none lg:opacity-0 lg:group-focus-within/timeline-event:pointer-events-auto lg:group-focus-within/timeline-event:opacity-100 lg:group-hover/timeline-event:pointer-events-auto lg:group-hover/timeline-event:opacity-100 ${
-                      isMobileCopyVisible ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
-                    }`}
-                  >
-                    {isCopied ? <CheckCircle2 size={14} /> : <Copy size={14} />}
-                  </button>
-                )}
+                <div
+                  className={`flex shrink-0 items-center gap-1.5 ${TYPOGRAPHY_MICRO_CLASS} text-[#7a8496]`}
+                >
+                  {event.status && (
+                    <span className="rounded-full border border-[#dfe6f4] bg-white/80 px-1.5 py-0.5 font-[family-name:var(--font-mono)]">
+                      {displayStatus}
+                    </span>
+                  )}
+                  {eventTime && <span>{eventTime}</span>}
+                  {canCopyEvent && (
+                    <button
+                      type="button"
+                      aria-label={t("timeline.copyEventContent", { title: displayTitle })}
+                      title={t("timeline.copyContent")}
+                      data-ripple-mobile-copy-visible={isMobileCopyVisible ? "true" : "false"}
+                      onClick={() => void handleCopyEvent(event)}
+                      className={`inline-flex h-7 w-7 items-center justify-center rounded-full border border-[#d7d7dd] bg-white/82 text-[#6e6e73] shadow-[0_6px_14px_rgba(60,60,67,0.06)] transition-all hover:bg-[#f2f2f7] hover:text-[#007aff] focus:pointer-events-auto focus:opacity-100 active:bg-[#eaf4ff] lg:pointer-events-none lg:opacity-0 lg:group-focus-within/timeline-event:pointer-events-auto lg:group-focus-within/timeline-event:opacity-100 lg:group-hover/timeline-event:pointer-events-auto lg:group-hover/timeline-event:opacity-100 ${
+                        isMobileCopyVisible
+                          ? "pointer-events-auto opacity-100"
+                          : "pointer-events-none opacity-0"
+                      }`}
+                    >
+                      {isCopied ? <CheckCircle2 size={14} /> : <Copy size={14} />}
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
             {isToolEvent ? (
-              <div className={`mt-2 rounded-xl border border-[#e2e8f0] bg-[linear-gradient(135deg,rgba(248,250,252,0.7),rgba(241,245,249,0.7))] px-3 py-2.5 font-[family-name:var(--font-mono)] ${TYPOGRAPHY_META_CLASS} text-[#334155] shadow-[0_10px_24px_rgba(44,63,123,0.04)] backdrop-blur-md`}>
+              <div
+                className={`${TIMELINE_CONTENT_INDENT_CLASS} mt-2 rounded-xl border border-[#e2e8f0] bg-[linear-gradient(135deg,rgba(248,250,252,0.7),rgba(241,245,249,0.7))] px-3 py-2.5 font-[family-name:var(--font-mono)] ${TYPOGRAPHY_META_CLASS} text-[#334155] shadow-[0_10px_24px_rgba(44,63,123,0.04)] backdrop-blur-md`}
+              >
                 {event.body.split("\n").map((line, index) => (
                   <div key={`${event.id}-${index}`} className="truncate" title={line}>
                     {line}
@@ -499,9 +519,13 @@ export default function SessionTimeline({
                 ))}
               </div>
             ) : event.type === "image_generation" || event.type === "image_view" ? (
-              <TimelineImagePreview event={event} userId={userId} />
+              <div className={TIMELINE_CONTENT_INDENT_CLASS}>
+                <TimelineImagePreview event={event} userId={userId} />
+              </div>
             ) : (
-              <div className={`markdown-body workbench-markdown max-w-4xl ${TYPOGRAPHY_BODY_CLASS} text-[#384152]`}>
+              <div
+                className={`${TIMELINE_CONTENT_INDENT_CLASS} markdown-body workbench-markdown max-w-4xl ${TYPOGRAPHY_BODY_CLASS} text-[#384152]`}
+              >
                 <MarkdownRenderer
                   content={event.body}
                   onFeishuAuthOpen={onFeishuAuthOpen}
@@ -514,27 +538,31 @@ export default function SessionTimeline({
       })}
 
       {isGenerating && lastMessage?.role === "assistant" && !lastMessage.content && (
-        <article className="relative border-b border-[#e9eef7]/80 py-2.5">
-          <IconTile
-            tone="accent"
-            size="xs"
-            className="absolute top-2.5 -left-8 rounded-full shadow-[0_8px_18px_rgba(123,92,255,0.14)]"
-          >
-            <span className="h-2 w-2 animate-pulse rounded-full bg-current" />
-          </IconTile>
-          <div className={`flex items-center gap-2 ${TYPOGRAPHY_BODY_CLASS} text-[#667085]`}>
-            <Bot size={13} />
-            {feishuAuthWaiting
-              ? t("timeline.feishuWaiting", {
-                  label: feishuAuthWaiting.label,
-                })
-              : waitingStatusMessage}
+        <article className={`relative py-2.5 ${TIMELINE_EVENT_DIVIDER_CLASS}`}>
+          <div className={`${TIMELINE_ICON_ROW_CLASS} ${TYPOGRAPHY_BODY_CLASS} text-[#667085]`}>
+            <IconTile
+              tone="accent"
+              size="xs"
+              className="rounded-full shadow-[0_8px_18px_rgba(123,92,255,0.14)]"
+            >
+              <span className="h-2 w-2 animate-pulse rounded-full bg-current" />
+            </IconTile>
+            <div className="flex min-w-0 items-center gap-2">
+              <Bot size={13} className="shrink-0" />
+              {feishuAuthWaiting
+                ? t("timeline.feishuWaiting", {
+                    label: feishuAuthWaiting.label,
+                  })
+                : waitingStatusMessage}
+            </div>
           </div>
         </article>
       )}
 
       {pendingAskUser && (
-        <div className="mt-3 rounded-xl border border-[#f2cc79]/55 bg-[#fff8df]/90 p-3 shadow-[0_10px_24px_rgba(196,122,0,0.08)]">
+        <div
+          className={`${TIMELINE_CONTENT_INDENT_CLASS} mt-3 rounded-xl border border-[#f2cc79]/55 bg-[#fff8df]/90 p-3 shadow-[0_10px_24px_rgba(196,122,0,0.08)]`}
+        >
           <div className={`mb-2 ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#7d4e00]`}>
             {pendingAskUser.question}
           </div>
@@ -554,12 +582,18 @@ export default function SessionTimeline({
       )}
 
       {pendingPermission && (
-        <div className="mt-3 rounded-xl border border-[#f2cc79]/55 bg-[#fff8df]/90 p-3 shadow-[0_10px_24px_rgba(196,122,0,0.08)]">
-          <div className={`mb-2 flex items-center gap-2 ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#7d4e00]`}>
+        <div
+          className={`${TIMELINE_CONTENT_INDENT_CLASS} mt-3 rounded-xl border border-[#f2cc79]/55 bg-[#fff8df]/90 p-3 shadow-[0_10px_24px_rgba(196,122,0,0.08)]`}
+        >
+          <div
+            className={`mb-2 flex items-center gap-2 ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#7d4e00]`}
+          >
             <ShieldAlert size={14} />
             {t("timeline.permissionRequired", { tool: pendingPermission.tool })}
           </div>
-          <pre className={`mb-3 max-h-48 overflow-auto rounded-xl border border-[#e2e8f0] bg-[linear-gradient(135deg,rgba(248,250,252,0.7),rgba(241,245,249,0.7))] p-3 font-[family-name:var(--font-mono)] ${TYPOGRAPHY_META_CLASS} whitespace-pre-wrap text-[#334155] backdrop-blur-md`}>
+          <pre
+            className={`mb-3 max-h-48 overflow-auto rounded-xl border border-[#e2e8f0] bg-[linear-gradient(135deg,rgba(248,250,252,0.7),rgba(241,245,249,0.7))] p-3 font-[family-name:var(--font-mono)] ${TYPOGRAPHY_META_CLASS} whitespace-pre-wrap text-[#334155] backdrop-blur-md`}
+          >
             {typeof pendingPermission.params === "string"
               ? pendingPermission.params
               : JSON.stringify(pendingPermission.params, null, 2)}

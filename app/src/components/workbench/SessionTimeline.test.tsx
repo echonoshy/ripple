@@ -134,10 +134,15 @@ function testUserAndAssistantIconsUseDifferentTones() {
 
 function testTimelineEventHeadersAlignIconAndTextRows() {
   const source = readFileSync(new URL("./SessionTimeline.tsx", import.meta.url), "utf8");
+  const html = renderTimelineWithEvents("zh-CN");
 
-  assert.match(source, /className="group\/timeline-event[\s\S]*sm:py-4"/);
-  assert.match(source, /className="absolute top-2\.5 sm:top-4 -left-8/);
-  assert.match(source, /className="mb-1\.5 flex min-h-6 items-center justify-between gap-3"/);
+  assert.match(source, /TIMELINE_ICON_ROW_CLASS/);
+  assert.match(source, /TIMELINE_CONTENT_INDENT_CLASS/);
+  assert.match(source, /TIMELINE_EVENT_DIVIDER_CLASS/);
+  assert.doesNotMatch(source, /-left-8/);
+  assert.doesNotMatch(source, /top-2\.5 sm:top-4/);
+  assert.match(html, /mb-1\.5 grid min-h-6 grid-cols-\[24px_minmax\(0,1fr\)\] items-center gap-2/);
+  assert.match(html, /after:left-8/);
 }
 
 function testCopyActionIsHiddenUntilMessageInteraction() {
@@ -155,7 +160,7 @@ function testCopyActionCanBeRevealedOnMobileWithoutStayingVisible() {
   assert.match(source, /data-ripple-copyable-event-id/);
   assert.match(source, /data-ripple-mobile-copy-visible/);
   assert.match(source, /setActiveCopyEventId\(event\.id\)/);
-  assert.match(source, /isMobileCopyVisible \? "pointer-events-auto opacity-100"/);
+  assert.match(source, /isMobileCopyVisible[\s\S]*\? "pointer-events-auto opacity-100"/);
   assert.match(source, /: "pointer-events-none opacity-0"/);
 }
 

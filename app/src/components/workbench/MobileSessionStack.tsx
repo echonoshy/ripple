@@ -39,9 +39,22 @@ interface DragState {
   lastX: number;
   lastTime: number;
   velocityX: number;
+  scrollElement: HTMLElement | null;
+  startScrollTop: number;
+}
+
+interface TouchGuardState {
+  startX: number;
+  startY: number;
+  viewportWidth: number;
+  isGuarding: boolean;
+  scrollElement: HTMLElement | null;
+  startScrollTop: number;
 }
 
 const MOBILE_SESSION_STACK_DESKTOP_MIN_WIDTH_PX = 1024;
+const MOBILE_SESSION_STACK_SCROLL_GUARD_DISTANCE_PX = 8;
+const MOBILE_SESSION_STACK_SCROLL_GUARD_RATIO = 1.05;
 const MOBILE_SESSION_STACK_CLAIM_DISTANCE_PX = 16;
 const MOBILE_SESSION_STACK_CLAIM_RATIO = 1.15;
 const MOBILE_SESSION_STACK_COMMIT_MAX_PX = 160;
@@ -60,6 +73,22 @@ function viewportWidth(): number {
   return typeof window === "undefined" ? 0 : window.innerWidth;
 }
 
+function mobileSessionTimelineScrollElement(root: Element): HTMLElement | null {
+  return root.querySelector<HTMLElement>('[data-ripple-session-scroll="timeline"]');
+}
+
+function lockMobileSessionDrawerScroll(dragState: DragState): void {
+  const scrollElement = dragState.scrollElement;
+  if (!scrollElement) return;
+  scrollElement.scrollTop = dragState.startScrollTop;
+}
+
+function lockMobileSessionTouchGuardScroll(guardState: TouchGuardState): void {
+  const scrollElement = guardState.scrollElement;
+  if (!scrollElement) return;
+  scrollElement.scrollTop = guardState.startScrollTop;
+}
+
 export function shouldClaimMobileSessionDrawer({
   deltaX,
   deltaY,
@@ -68,6 +97,16 @@ export function shouldClaimMobileSessionDrawer({
   if (viewportWidth >= MOBILE_SESSION_STACK_DESKTOP_MIN_WIDTH_PX) return false;
   if (deltaX < MOBILE_SESSION_STACK_CLAIM_DISTANCE_PX) return false;
   return deltaX > Math.abs(deltaY) * MOBILE_SESSION_STACK_CLAIM_RATIO;
+}
+
+export function shouldGuardMobileSessionDrawerScroll({
+  deltaX,
+  deltaY,
+  viewportWidth,
+}: DrawerIntentInput): boolean {
+  if (viewportWidth >= MOBILE_SESSION_STACK_DESKTOP_MIN_WIDTH_PX) return false;
+  if (deltaX < MOBILE_SESSION_STACK_SCROLL_GUARD_DISTANCE_PX) return false;
+  return deltaX > Math.abs(deltaY) * MOBILE_SESSION_STACK_SCROLL_GUARD_RATIO;
 }
 
 export function shouldCancelMobileSessionDrawer({
@@ -112,6 +151,7 @@ export default function MobileSessionStack({
   const reduceMotion = useReducedMotion();
   const sheetX = useMotionValue(0);
   const dragStateRef = useRef<DragState | null>(null);
+  const touchGuardStateRef = useRef<TouchGuardState | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const shouldRenderChat = mode === "chat";
 
@@ -144,6 +184,7 @@ export default function MobileSessionStack({
       const currentViewportWidth = viewportWidth();
       if (currentViewportWidth >= MOBILE_SESSION_STACK_DESKTOP_MIN_WIDTH_PX) return;
       if (isInteractiveMobileSessionStackTarget(event.target)) return;
+      const scrollElement = mobileSessionTimelineScrollElement(event.currentTarget);
 
       dragStateRef.current = {
         pointerId: event.pointerId,
@@ -154,6 +195,8 @@ export default function MobileSessionStack({
         lastX: event.clientX,
         lastTime: nowMs(),
         velocityX: 0,
+        scrollElement,
+        startScrollTop: scrollElement?.scrollTop ?? 0,
       };
     },
     [mode]
@@ -189,6 +232,7 @@ export default function MobileSessionStack({
       ) {
         dragState.claimed = true;
         setIsDragging(true);
+        lockMobileSessionDrawerScroll(dragState);
         try {
           event.currentTarget.setPointerCapture(event.pointerId);
         } catch {
@@ -205,9 +249,71 @@ export default function MobileSessionStack({
       dragState.lastX = event.clientX;
       dragState.lastTime = currentTime;
       sheetX.set(Math.max(0, deltaX));
+      lockMobileSessionDrawerScroll(dragState);
     },
     [sheetX]
   );
+
+  const handleTouchStartCapture = useCallback(
+    (event: React.TouchEvent<HTMLDivElement>) => {
+      if (mode !== "chat") return;
+      if (event.touches.length !== 1) return;
+      const currentViewportWidth = viewportWidth();
+      if (currentViewportWidth >= MOBILE_SESSION_STACK_DESKTOP_MIN_WIDTH_PX) return;
+      if (isInteractiveMobileSessionStackTarget(event.target)) return;
+      const touch = event.touches[0];
+      if (!touch) return;
+      const scrollElement = mobileSessionTimelineScrollElement(event.currentTarget);
+
+      touchGuardStateRef.current = {
+        startX: touch.clientX,
+        startY: touch.clientY,
+        viewportWidth: currentViewportWidth,
+        isGuarding: false,
+        scrollElement,
+        startScrollTop: scrollElement?.scrollTop ?? 0,
+      };
+    },
+    [mode]
+  );
+
+  const handleTouchMoveCapture = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
+    const guardState = touchGuardStateRef.current;
+    const touch = event.touches[0];
+    if (!guardState || !touch) return;
+
+    const deltaX = touch.clientX - guardState.startX;
+    const deltaY = touch.clientY - guardState.startY;
+
+    if (
+      !guardState.isGuarding &&
+      shouldCancelMobileSessionDrawer({
+        deltaX,
+        deltaY,
+        viewportWidth: guardState.viewportWidth,
+      })
+    ) {
+      touchGuardStateRef.current = null;
+      return;
+    }
+
+    if (
+      guardState.isGuarding ||
+      shouldGuardMobileSessionDrawerScroll({
+        deltaX,
+        deltaY,
+        viewportWidth: guardState.viewportWidth,
+      })
+    ) {
+      guardState.isGuarding = true;
+      event.preventDefault();
+      lockMobileSessionTouchGuardScroll(guardState);
+    }
+  }, []);
+
+  const clearTouchGuard = useCallback(() => {
+    touchGuardStateRef.current = null;
+  }, []);
 
   const cancelDrag = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
@@ -275,6 +381,10 @@ export default function MobileSessionStack({
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={cancelDrag}
+          onTouchStartCapture={handleTouchStartCapture}
+          onTouchMoveCapture={handleTouchMoveCapture}
+          onTouchEndCapture={clearTouchGuard}
+          onTouchCancelCapture={clearTouchGuard}
         >
           {chat}
         </motion.div>

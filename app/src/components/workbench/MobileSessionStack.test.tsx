@@ -8,6 +8,7 @@ import MobileSessionStack, {
   resolveMobileSessionDrawerRelease,
   shouldCancelMobileSessionDrawer,
   shouldClaimMobileSessionDrawer,
+  shouldGuardMobileSessionDrawerScroll,
 } from "./MobileSessionStack";
 
 const mobileSessionStackSource = readFileSync(
@@ -74,6 +75,53 @@ function testVerticalIntentCancelsDrawerGesture() {
   );
   assert.match(mobileSessionStackSource, /shouldCancelMobileSessionDrawer/);
   assert.match(mobileSessionStackSource, /dragStateRef\.current = null/);
+}
+
+function testHorizontalIntentGuardsScrollBeforeDrawerClaim() {
+  assert.equal(
+    shouldGuardMobileSessionDrawerScroll({
+      deltaX: 8,
+      deltaY: 3,
+      viewportWidth: 390,
+    }),
+    true
+  );
+  assert.equal(
+    shouldGuardMobileSessionDrawerScroll({
+      deltaX: 5,
+      deltaY: 0,
+      viewportWidth: 390,
+    }),
+    false
+  );
+  assert.equal(
+    shouldGuardMobileSessionDrawerScroll({
+      deltaX: 8,
+      deltaY: 12,
+      viewportWidth: 390,
+    }),
+    false
+  );
+  assert.equal(
+    shouldGuardMobileSessionDrawerScroll({
+      deltaX: 20,
+      deltaY: 0,
+      viewportWidth: 1280,
+    }),
+    false
+  );
+  assert.match(mobileSessionStackSource, /onTouchMoveCapture=\{handleTouchMoveCapture\}/);
+  assert.match(mobileSessionStackSource, /event\.preventDefault\(\)/);
+}
+
+function testDrawerDragLocksTimelineScrollTop() {
+  assert.match(mobileSessionStackSource, /data-ripple-session-scroll="timeline"/);
+  assert.match(mobileSessionStackSource, /startScrollTop/);
+  assert.match(mobileSessionStackSource, /scrollElement\.scrollTop = dragState\.startScrollTop/);
+}
+
+function testTouchScrollGuardLocksTimelineBeforeDrawerClaim() {
+  assert.match(mobileSessionStackSource, /scrollElement\.scrollTop = guardState\.startScrollTop/);
 }
 
 function testReleaseCommitAndCancelThresholds() {
@@ -148,6 +196,9 @@ function testPointerMoveOnlyDragsWithoutOpeningList() {
 
 testClaimRequiresHorizontalIntentAcrossChatSurface();
 testVerticalIntentCancelsDrawerGesture();
+testHorizontalIntentGuardsScrollBeforeDrawerClaim();
+testDrawerDragLocksTimelineScrollTop();
+testTouchScrollGuardLocksTimelineBeforeDrawerClaim();
 testReleaseCommitAndCancelThresholds();
 testInteractiveTargetsAreExcludedFromSwipeStart();
 testStackLayersListBehindChatSheet();

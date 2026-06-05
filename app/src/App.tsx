@@ -31,7 +31,7 @@ import SessionPage from "@/components/workbench/SessionPage";
 import WorkbenchShell from "@/components/workbench/WorkbenchShell";
 import WorkspaceNav from "@/components/workbench/WorkspaceNav";
 import {
-  mobilePageTransition,
+  mobilePageSwitchTransition,
   mobilePageVariants,
   reducedMobilePageVariants,
   reducedMotionTransition,
@@ -56,6 +56,8 @@ import type {
   SessionAttention,
   SessionControlAction,
   SessionDetail,
+  UsageInfo,
+  WorkbenchSessionSummary,
   WorkspaceFileOpenRequest,
 } from "@/types";
 import { sortModelOptions } from "@/lib/models";
@@ -74,6 +76,11 @@ const SESSION_RAIL_COLLAPSED_STORAGE_KEY = "ripple.workbench.sessionRailCollapse
 const SESSION_RAIL_DEFAULT_WIDTH = 300;
 const SESSION_RAIL_MIN_WIDTH = 220;
 const SESSION_RAIL_MAX_WIDTH = 420;
+const emptyUsage: UsageInfo = {
+  prompt_tokens: 0,
+  completion_tokens: 0,
+  total_tokens: 0,
+};
 
 function normalizeWorkspaceFolderPath(path: string): string {
   const trimmed = path.trim().replace(/\/+$/, "");
@@ -149,6 +156,9 @@ export default function Home() {
   const [mobileSessionRestoreScrollTop, setMobileSessionRestoreScrollTop] = useState<number | null>(
     null
   );
+  const [pendingMobileSession, setPendingMobileSession] = useState<WorkbenchSessionSummary | null>(
+    null
+  );
   const [pendingWorkspaceFileOpen, setPendingWorkspaceFileOpen] =
     useState<WorkspaceFileOpenRequest | null>(null);
   const [sessionAttentionById, setSessionAttentionById] = useState<
@@ -160,6 +170,7 @@ export default function Home() {
   const selectedSessionIdRef = useRef<string | null>(null);
   const activeViewRef = useRef<WorkspaceView>("sessions");
   const workspaceFileOpenRequestIdRef = useRef(0);
+  const mobileSessionSelectionRequestRef = useRef(0);
 
   const sessionActionsRef = useRef<ChatRunSessionActions>({
     getSessionId: () => null,
@@ -401,6 +412,8 @@ export default function Home() {
       setSessionAttentionById({});
       setAcknowledgedSessionAttentionById({});
       setActiveContextFolderPath(null);
+      setPendingMobileSession(null);
+      mobileSessionSelectionRequestRef.current += 1;
       abortRunAndResetSessionView();
       resetSessionsForUserChange();
       if (authState === "authenticated") {
@@ -613,18 +626,21 @@ export default function Home() {
 
   // ── Session switch ──
   const handleSwitchSession = useCallback(
-    async (targetSessionId: string) => {
+    async (targetSessionId: string): Promise<boolean> => {
       const switched = await switchSession(targetSessionId);
       if (switched) {
         acknowledgeSessionAttention(targetSessionId);
         setSessionScrollToBottomRequest((request) => request + 1);
       }
+      return switched;
     },
     [acknowledgeSessionAttention, switchSession]
   );
 
   // ── New session ──
   const handleNewSession = async () => {
+    setPendingMobileSession(null);
+    mobileSessionSelectionRequestRef.current += 1;
     const session = await createNewSession(defaultModel, activeContextFolderPath);
     if (session) {
       setSelectedModel(session.model || defaultModel);
@@ -657,6 +673,8 @@ export default function Home() {
 
   const handleSelectView = useCallback(
     (view: WorkspaceView) => {
+      setPendingMobileSession(null);
+      mobileSessionSelectionRequestRef.current += 1;
       setMobileFilesReturnToChat(false);
       setMobileSessionRestoreScrollTop(null);
       if (view !== "files") setPendingWorkspaceFileOpen(null);
@@ -672,6 +690,8 @@ export default function Home() {
     [acknowledgeSessionAttention, sessionId]
   );
   const handleReturnFromMobileFiles = useCallback(() => {
+    setPendingMobileSession(null);
+    mobileSessionSelectionRequestRef.current += 1;
     setMobileFilesReturnToChat(false);
     setPendingWorkspaceFileOpen(null);
     setActiveView("sessions");
@@ -680,6 +700,8 @@ export default function Home() {
   }, []);
   const handleOpenChatWithPrompt = useCallback(
     (prompt: string, options?: { autoSend?: boolean; newSession?: boolean }) => {
+      setPendingMobileSession(null);
+      mobileSessionSelectionRequestRef.current += 1;
       setMobileFilesReturnToChat(false);
       setPendingWorkspaceFileOpen(null);
       setActiveView("sessions");
@@ -694,6 +716,8 @@ export default function Home() {
   );
   const handleOpenSessionAction = useCallback(
     (action: SessionControlAction, label: string) => {
+      setPendingMobileSession(null);
+      mobileSessionSelectionRequestRef.current += 1;
       setMobileFilesReturnToChat(false);
       setPendingWorkspaceFileOpen(null);
       setActiveView("sessions");
@@ -704,6 +728,8 @@ export default function Home() {
     [handleSessionControlAction]
   );
   const handleOpenMobileSessionList = useCallback(() => {
+    setPendingMobileSession(null);
+    mobileSessionSelectionRequestRef.current += 1;
     setMobileFilesReturnToChat(false);
     setPendingWorkspaceFileOpen(null);
     setMobileSessionRestoreScrollTop(null);
@@ -712,14 +738,6 @@ export default function Home() {
     setMobileSessionMode("list");
     if (sessionId) acknowledgeSessionAttention(sessionId);
   }, [acknowledgeSessionAttention, sessionId]);
-  const handleSelectMobileSession = useCallback(
-    async (targetSessionId: string) => {
-      await handleSwitchSession(targetSessionId);
-      setMobileMotionDirection(1);
-      setMobileSessionMode("chat");
-    },
-    [handleSwitchSession]
-  );
   useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -741,7 +759,6 @@ export default function Home() {
     };
   }, [activeView, authState, mobileSessionMode]);
 
-  const selectedSessionIsGenerating = Boolean(sessionId && runningSessionIds.includes(sessionId));
   const selectedSessionRuntimeStatus =
     currentSessionRuntimeStatus && sessionId ? currentSessionRuntimeStatus : null;
   const baseWorkbenchSessions = useMemo(() => {
@@ -845,7 +862,70 @@ export default function Home() {
   const selectedWorkbenchSession = sessionId
     ? displayWorkbenchSessions.find((session) => session.sessionId === sessionId) || null
     : null;
-  const isComposerBlocked = selectedWorkbenchSession?.status === "compacting";
+  const activePendingMobileSession =
+    pendingMobileSession && pendingMobileSession.sessionId !== sessionId
+      ? pendingMobileSession
+      : null;
+  const isMobileSessionSwitchPending = Boolean(activePendingMobileSession);
+  const sessionPageSession = activePendingMobileSession || selectedWorkbenchSession;
+  const sessionPageSessionId = activePendingMobileSession?.sessionId ?? sessionId;
+  const sessionPageMessages = isMobileSessionSwitchPending ? [] : messages;
+  const sessionPageTimelineEvents = isMobileSessionSwitchPending ? [] : timelineEvents;
+  const sessionPagePlanSteps = isMobileSessionSwitchPending ? [] : planSteps;
+  const sessionPagePlanProgress = isMobileSessionSwitchPending ? null : planProgress;
+  const sessionPageTokenUsage = isMobileSessionSwitchPending ? emptyUsage : tokenUsage;
+  const sessionPageLastContextTokens = isMobileSessionSwitchPending ? 0 : lastContextTokens;
+  const sessionPageInput = isMobileSessionSwitchPending ? "" : input;
+  const sessionPagePendingFiles = isMobileSessionSwitchPending ? [] : pendingFiles;
+  const sessionPagePendingLocalImages = isMobileSessionSwitchPending ? [] : pendingLocalImages;
+  const sessionPageIsUploadingFiles = isMobileSessionSwitchPending ? false : isUploadingFiles;
+  const sessionPageUploadError = isMobileSessionSwitchPending ? null : attachmentUploadError;
+  const sessionPageSelectedModel = activePendingMobileSession?.model || selectedModel;
+  const sessionPageContextFolderPath =
+    activePendingMobileSession?.contextFolderPath ?? activeContextFolderPath;
+  const sessionPageIsGenerating = Boolean(
+    sessionPageSessionId && runningSessionIds.includes(sessionPageSessionId)
+  );
+  const isComposerBlocked = sessionPageSession?.status === "compacting";
+
+  const handleSelectMobileSession = useCallback(
+    async (targetSessionId: string) => {
+      const targetSession = displayWorkbenchSessions.find(
+        (session) => session.sessionId === targetSessionId
+      ) || {
+        sessionId: targetSessionId,
+        title: "Loading session",
+        pinned: false,
+        status: "idle" as const,
+        model: selectedModel,
+        lastActivityAt: new Date().toISOString(),
+        messageCount: 0,
+        changedFileCount: 0,
+        pendingApprovalCount: 0,
+      };
+      const requestId = mobileSessionSelectionRequestRef.current + 1;
+      mobileSessionSelectionRequestRef.current = requestId;
+
+      setMobileFilesReturnToChat(false);
+      setPendingWorkspaceFileOpen(null);
+      setActiveView("sessions");
+      setMobileMotionDirection(1);
+      if (targetSessionId !== sessionId) {
+        setPendingMobileSession(targetSession);
+      } else {
+        setPendingMobileSession(null);
+      }
+      setMobileSessionMode("chat");
+
+      const switched = await handleSwitchSession(targetSessionId);
+      if (mobileSessionSelectionRequestRef.current !== requestId) return;
+      setPendingMobileSession(null);
+      if (!switched) {
+        setMobileSessionMode("list");
+      }
+    },
+    [displayWorkbenchSessions, handleSwitchSession, selectedModel, sessionId]
+  );
 
   const handleSelectChatFolder = useCallback(
     async (path: string) => {
@@ -920,27 +1000,28 @@ export default function Home() {
   const renderSessionPage = () => (
     <SessionPage
       userId={userId}
-      session={selectedWorkbenchSession}
-      messages={messages}
-      timelineEvents={timelineEvents}
-      planProgress={planProgress}
-      planSteps={planSteps}
-      tokenUsage={tokenUsage}
-      lastContextTokens={lastContextTokens}
-      input={input}
-      pendingFiles={pendingFiles}
-      pendingLocalImages={pendingLocalImages}
-      isUploadingFiles={isUploadingFiles}
-      uploadError={attachmentUploadError}
-      isGenerating={selectedSessionIsGenerating}
+      session={sessionPageSession}
+      messages={sessionPageMessages}
+      timelineEvents={sessionPageTimelineEvents}
+      planProgress={sessionPagePlanProgress}
+      planSteps={sessionPagePlanSteps}
+      tokenUsage={sessionPageTokenUsage}
+      lastContextTokens={sessionPageLastContextTokens}
+      input={sessionPageInput}
+      pendingFiles={sessionPagePendingFiles}
+      pendingLocalImages={sessionPagePendingLocalImages}
+      isUploadingFiles={sessionPageIsUploadingFiles}
+      uploadError={sessionPageUploadError}
+      isGenerating={sessionPageIsGenerating}
+      isSessionLoading={isMobileSessionSwitchPending}
       isComposerBlocked={isComposerBlocked}
       focusToken={inputFocusToken}
-      selectedModel={selectedModel}
+      selectedModel={sessionPageSelectedModel}
       models={models}
       isModelDropdownOpen={openModelDropdown === "composer"}
-      sessionId={sessionId}
+      sessionId={sessionPageSessionId}
       scrollToBottomRequest={sessionScrollToBottomRequest}
-      contextFolderPath={activeContextFolderPath}
+      contextFolderPath={sessionPageContextFolderPath}
       onSelectWorkspaceFolder={handleSelectChatFolder}
       onNewSession={handleNewSession}
       onInputChange={setInput}
@@ -1069,9 +1150,7 @@ export default function Home() {
               <ChevronRight size={16} />
             </button>
           )}
-          <div className="h-full min-w-0 flex-1">
-            {renderSessionPage()}
-          </div>
+          <div className="h-full min-w-0 flex-1">{renderSessionPage()}</div>
         </div>
       </div>
     );
@@ -1081,7 +1160,7 @@ export default function Home() {
     );
   const mobileMotionStage = activeView === "sessions" ? "sessions:page" : `${activeView}:page`;
   const animatedMainContent = (
-    <AnimatePresence mode="wait" initial={false} custom={mobileMotionDirection}>
+    <AnimatePresence initial={false} custom={mobileMotionDirection}>
       <motion.div
         key={mobileMotionStage}
         data-ripple-mobile-motion-stage={mobileMotionStage}
@@ -1090,7 +1169,7 @@ export default function Home() {
         initial="enter"
         animate="center"
         exit="exit"
-        transition={reduceMotion ? reducedMotionTransition : mobilePageTransition}
+        transition={reduceMotion ? reducedMotionTransition : mobilePageSwitchTransition}
         className="h-full min-h-0"
       >
         {mainContent}

@@ -3,9 +3,14 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { animate, motion, useMotionValue, useReducedMotion } from "framer-motion";
 import {
-  mobilePageTransition,
+  mobileStackPushTransition,
+  mobileStackReturnTransition,
+  mobileSwipeBackConfig,
   reducedMotionTransition,
-  swipeSnapTransition,
+  resolveMobileSwipeBackRelease,
+  shouldCancelMobileSwipeBack,
+  shouldClaimMobileSwipeBack,
+  shouldGuardMobileSwipeBackScroll,
 } from "./motionPrimitives";
 
 type MobileSessionStackMode = "list" | "chat";
@@ -63,18 +68,6 @@ interface TouchGuardState {
   startScrollTop: number;
 }
 
-const MOBILE_SESSION_STACK_DESKTOP_MIN_WIDTH_PX = 1024;
-const MOBILE_SESSION_STACK_SCROLL_GUARD_DISTANCE_PX = 6;
-const MOBILE_SESSION_STACK_SCROLL_GUARD_RATIO = 0.8;
-const MOBILE_SESSION_STACK_CLAIM_DISTANCE_PX = 10;
-const MOBILE_SESSION_STACK_CLAIM_RATIO = 0.85;
-const MOBILE_SESSION_STACK_CANCEL_DISTANCE_PX = 22;
-const MOBILE_SESSION_STACK_CANCEL_RATIO = 1.45;
-const MOBILE_SESSION_STACK_COMMIT_MAX_PX = 112;
-const MOBILE_SESSION_STACK_COMMIT_VIEWPORT_RATIO = 0.26;
-const MOBILE_SESSION_STACK_FAST_COMMIT_VELOCITY_PX = 320;
-const MOBILE_SESSION_STACK_FAST_COMMIT_DISTANCE_PX = 32;
-
 export const MOBILE_SESSION_STACK_INTERACTIVE_SELECTOR =
   "a, button, input, textarea, select, summary, [contenteditable='true'], [role='button'], [data-ripple-ignore-chat-swipe]";
 
@@ -122,9 +115,7 @@ export function shouldClaimMobileSessionDrawer({
   deltaY,
   viewportWidth,
 }: DrawerIntentInput): boolean {
-  if (viewportWidth >= MOBILE_SESSION_STACK_DESKTOP_MIN_WIDTH_PX) return false;
-  if (deltaX < MOBILE_SESSION_STACK_CLAIM_DISTANCE_PX) return false;
-  return deltaX > Math.abs(deltaY) * MOBILE_SESSION_STACK_CLAIM_RATIO;
+  return shouldClaimMobileSwipeBack({ deltaX, deltaY, viewportWidth });
 }
 
 export function shouldGuardMobileSessionDrawerScroll({
@@ -132,9 +123,7 @@ export function shouldGuardMobileSessionDrawerScroll({
   deltaY,
   viewportWidth,
 }: DrawerIntentInput): boolean {
-  if (viewportWidth >= MOBILE_SESSION_STACK_DESKTOP_MIN_WIDTH_PX) return false;
-  if (deltaX < MOBILE_SESSION_STACK_SCROLL_GUARD_DISTANCE_PX) return false;
-  return deltaX > Math.abs(deltaY) * MOBILE_SESSION_STACK_SCROLL_GUARD_RATIO;
+  return shouldGuardMobileSwipeBackScroll({ deltaX, deltaY, viewportWidth });
 }
 
 export function shouldCancelMobileSessionDrawer({
@@ -142,10 +131,7 @@ export function shouldCancelMobileSessionDrawer({
   deltaY,
   viewportWidth,
 }: DrawerIntentInput): boolean {
-  if (viewportWidth >= MOBILE_SESSION_STACK_DESKTOP_MIN_WIDTH_PX) return true;
-  const absoluteDeltaY = Math.abs(deltaY);
-  if (absoluteDeltaY < MOBILE_SESSION_STACK_CANCEL_DISTANCE_PX) return false;
-  return absoluteDeltaY > Math.abs(deltaX) * MOBILE_SESSION_STACK_CANCEL_RATIO;
+  return shouldCancelMobileSwipeBack({ deltaX, deltaY, viewportWidth });
 }
 
 export function resolveMobileSessionDrawerRelease({
@@ -153,16 +139,9 @@ export function resolveMobileSessionDrawerRelease({
   velocityX,
   viewportWidth,
 }: DrawerReleaseInput): DrawerReleaseResolution {
-  const commitDistance = Math.min(
-    MOBILE_SESSION_STACK_COMMIT_MAX_PX,
-    viewportWidth * MOBILE_SESSION_STACK_COMMIT_VIEWPORT_RATIO
-  );
-  const shouldOpenList =
-    x >= commitDistance ||
-    (velocityX >= MOBILE_SESSION_STACK_FAST_COMMIT_VELOCITY_PX &&
-      x >= MOBILE_SESSION_STACK_FAST_COMMIT_DISTANCE_PX);
+  const release = resolveMobileSwipeBackRelease({ x, velocityX, viewportWidth });
 
-  return { shouldOpenList, commitDistance };
+  return { shouldOpenList: release.shouldCommit, commitDistance: release.commitDistance };
 }
 
 export function isInteractiveMobileSessionStackTarget(target: EventTarget | null): boolean {
@@ -182,8 +161,16 @@ export default function MobileSessionStack({
   const touchGuardStateRef = useRef<TouchGuardState | null>(null);
   const scrollLockRef = useRef<ScrollLockState | null>(null);
   const activeSheetAnimationRef = useRef<ReturnType<typeof animate> | null>(null);
+  const previousModeRef = useRef(mode);
+  const enterAnimationFrameRef = useRef<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const shouldRenderChat = mode === "chat";
+
+  const cancelEnterAnimationFrame = useCallback(() => {
+    if (enterAnimationFrameRef.current === null || typeof window === "undefined") return;
+    window.cancelAnimationFrame(enterAnimationFrameRef.current);
+    enterAnimationFrameRef.current = null;
+  }, []);
 
   const stopSheetAnimation = useCallback(() => {
     activeSheetAnimationRef.current?.stop();
@@ -196,7 +183,7 @@ export default function MobileSessionStack({
   }, []);
 
   const animateSheetTo = useCallback(
-    (target: number, onComplete?: () => void) => {
+    (target: number, onComplete?: () => void, transition = mobileStackReturnTransition) => {
       stopSheetAnimation();
       if (reduceMotion) {
         sheetX.set(target);
@@ -204,11 +191,7 @@ export default function MobileSessionStack({
         return;
       }
 
-      const animation = animate(
-        sheetX,
-        target,
-        target === 0 ? swipeSnapTransition : mobilePageTransition
-      );
+      const animation = animate(sheetX, target, transition);
       activeSheetAnimationRef.current = animation;
       void animation.then(() => {
         if (activeSheetAnimationRef.current === animation) {
@@ -221,19 +204,55 @@ export default function MobileSessionStack({
   );
 
   useEffect(() => {
+    const previousMode = previousModeRef.current;
+    previousModeRef.current = mode;
+    cancelEnterAnimationFrame();
     stopSheetAnimation();
     dragStateRef.current = null;
     touchGuardStateRef.current = null;
     releaseScrollLock();
+
+    if (mode === "chat" && previousMode === "list") {
+      const currentViewportWidth = viewportWidth();
+      if (currentViewportWidth <= 0 || reduceMotion) {
+        sheetX.set(0);
+        return;
+      }
+
+      sheetX.set(currentViewportWidth);
+      enterAnimationFrameRef.current = window.requestAnimationFrame(() => {
+        enterAnimationFrameRef.current = null;
+        animateSheetTo(0, undefined, mobileStackPushTransition);
+      });
+      return;
+    }
+
     sheetX.set(0);
-  }, [mode, releaseScrollLock, sheetX, stopSheetAnimation]);
+  }, [
+    animateSheetTo,
+    cancelEnterAnimationFrame,
+    mode,
+    reduceMotion,
+    releaseScrollLock,
+    sheetX,
+    stopSheetAnimation,
+  ]);
+
+  useEffect(
+    () => () => {
+      cancelEnterAnimationFrame();
+      stopSheetAnimation();
+      releaseScrollLock();
+    },
+    [cancelEnterAnimationFrame, releaseScrollLock, stopSheetAnimation]
+  );
 
   const handlePointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       if (mode !== "chat") return;
       if (!event.isPrimary || event.pointerType !== "touch") return;
       const currentViewportWidth = viewportWidth();
-      if (currentViewportWidth >= MOBILE_SESSION_STACK_DESKTOP_MIN_WIDTH_PX) return;
+      if (currentViewportWidth >= mobileSwipeBackConfig.desktopMinWidth) return;
       if (isInteractiveMobileSessionStackTarget(event.target)) return;
       stopSheetAnimation();
       const scrollElement = mobileSessionTimelineScrollElement(event.currentTarget);
@@ -314,7 +333,7 @@ export default function MobileSessionStack({
       if (mode !== "chat") return;
       if (event.touches.length !== 1) return;
       const currentViewportWidth = viewportWidth();
-      if (currentViewportWidth >= MOBILE_SESSION_STACK_DESKTOP_MIN_WIDTH_PX) return;
+      if (currentViewportWidth >= mobileSwipeBackConfig.desktopMinWidth) return;
       if (isInteractiveMobileSessionStackTarget(event.target)) return;
       stopSheetAnimation();
       const touch = event.touches[0];
@@ -439,7 +458,7 @@ export default function MobileSessionStack({
           data-ripple-mobile-session-chat-dragging={isDragging ? "true" : "false"}
           className="absolute inset-0 z-10 h-full min-h-0 touch-pan-y bg-[#F5F6F7] shadow-[-18px_0_44px_rgba(31,35,41,0.18)]"
           style={{ x: sheetX }}
-          transition={reduceMotion ? reducedMotionTransition : swipeSnapTransition}
+          transition={reduceMotion ? reducedMotionTransition : mobileStackReturnTransition}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}

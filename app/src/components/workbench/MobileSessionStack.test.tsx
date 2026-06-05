@@ -10,6 +10,12 @@ import MobileSessionStack, {
   shouldClaimMobileSessionDrawer,
   shouldGuardMobileSessionDrawerScroll,
 } from "./MobileSessionStack";
+import {
+  mobilePageSwitchTransition,
+  mobileStackPushTransition,
+  mobileStackReturnTransition,
+  mobileSwipeBackConfig,
+} from "./motionPrimitives";
 
 const mobileSessionStackSource = readFileSync(
   new URL("./MobileSessionStack.tsx", import.meta.url),
@@ -229,6 +235,29 @@ function testPointerMoveOnlyDragsWithoutOpeningList() {
   assert.match(mobileSessionStackSource, /onPointerUp=\{handlePointerUp\}/);
 }
 
+function testMobileMotionUsesFeishuInspiredSharedTiming() {
+  assert.equal(mobileStackPushTransition.duration, 0.3);
+  assert.equal(mobilePageSwitchTransition.duration, 0.3);
+  assert.equal(mobileStackReturnTransition.duration, 0.22);
+  assert.equal(mobileSwipeBackConfig.desktopMinWidth, 1024);
+  assert.equal(mobileSwipeBackConfig.commitMaxPx, 112);
+}
+
+function testChatSheetAnimatesInFromRightWhenOpeningSession() {
+  assert.match(mobileSessionStackSource, /previousModeRef/);
+  assert.match(mobileSessionStackSource, /sheetX\.set\(currentViewportWidth\)/);
+  assert.match(mobileSessionStackSource, /window\.requestAnimationFrame/);
+  assert.match(mobileSessionStackSource, /mobileStackPushTransition/);
+  assert.match(mobileSessionStackSource, /mobileStackReturnTransition/);
+}
+
+function testSessionSwipeBackUsesSharedMotionPrimitive() {
+  assert.match(mobileSessionStackSource, /shouldClaimMobileSwipeBack/);
+  assert.match(mobileSessionStackSource, /shouldGuardMobileSwipeBackScroll/);
+  assert.match(mobileSessionStackSource, /shouldCancelMobileSwipeBack/);
+  assert.match(mobileSessionStackSource, /resolveMobileSwipeBackRelease/);
+}
+
 testClaimRequiresHorizontalIntentAcrossChatSurface();
 testVerticalIntentCancelsDrawerGesture();
 testHorizontalIntentGuardsScrollBeforeDrawerClaim();
@@ -240,5 +269,8 @@ testInteractiveTargetsAreExcludedFromSwipeStart();
 testStackLayersListBehindChatSheet();
 testListModeDoesNotRenderForegroundChatSheet();
 testPointerMoveOnlyDragsWithoutOpeningList();
+testMobileMotionUsesFeishuInspiredSharedTiming();
+testChatSheetAnimatesInFromRightWhenOpeningSession();
+testSessionSwipeBackUsesSharedMotionPrimitive();
 
 console.log("mobile session stack tests passed");

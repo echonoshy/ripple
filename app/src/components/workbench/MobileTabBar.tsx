@@ -5,7 +5,11 @@ import { motion, useReducedMotion } from "framer-motion";
 import { IconTile } from "@/components/icons/IconTile";
 import { type MessageKey, useI18n } from "@/i18n";
 import { mobileNavItems, type WorkspaceView } from "@/lib/workspaceViews";
-import { mobilePageTransition, pressableTap, reducedMotionTransition } from "./motionPrimitives";
+import {
+  mobilePageSwitchTransition,
+  pressableTap,
+  reducedMotionTransition,
+} from "./motionPrimitives";
 import {
   COMPACT_IOS_PAGE_BACKGROUND,
   LUCIDE_NAV_STROKE_WIDTH,
@@ -30,7 +34,7 @@ const mobileNavLabelKeys: Record<WorkspaceView, MessageKey> = {
 export default function MobileTabBar({ activeView, onSelectView }: MobileTabBarProps) {
   const { t } = useI18n();
   const reduceMotion = useReducedMotion();
-  const transition = reduceMotion ? reducedMotionTransition : mobilePageTransition;
+  const transition = reduceMotion ? reducedMotionTransition : mobilePageSwitchTransition;
 
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 lg:hidden">

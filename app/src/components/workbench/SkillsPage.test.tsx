@@ -263,6 +263,30 @@ function testSkillsCategoryDetailSupportsSwipeBackGesture() {
 
 testSkillsCategoryDetailSupportsSwipeBackGesture();
 
+function testSkillsCategorySwipeUsesSharedMotionPrimitive() {
+  const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /shouldClaimMobileSwipeBack/);
+  assert.match(source, /shouldGuardMobileSwipeBackScroll/);
+  assert.match(source, /shouldCancelMobileSwipeBack/);
+  assert.match(source, /resolveMobileSwipeBackRelease/);
+  assert.doesNotMatch(source, /SKILLS_CATEGORY_BACK_SWIPE_CLAIM_DISTANCE_PX/);
+  assert.doesNotMatch(source, /SKILLS_CATEGORY_BACK_SWIPE_FAST_COMMIT_VELOCITY_PX/);
+}
+
+function testSkillsCategoryTransitionDoesNotWaitThroughBlankFrame() {
+  const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /mobilePageSwitchTransition/);
+  assert.doesNotMatch(
+    source,
+    /<AnimatePresence mode="wait" initial=\{false\} custom=\{categoryTransitionDirection\}>/
+  );
+}
+
+testSkillsCategorySwipeUsesSharedMotionPrimitive();
+testSkillsCategoryTransitionDoesNotWaitThroughBlankFrame();
+
 function testSkillsCategoryDetailIsFullMobileSubpage() {
   const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
 

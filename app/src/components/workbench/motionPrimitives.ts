@@ -9,20 +9,29 @@ export const pressableTap = { scale: 0.97 };
 
 export const reducedMotionTransition: Transition = { duration: 0 };
 
-export const mobilePageTransition: Transition = {
-  duration: 0.22,
+export const mobileStackPushTransition: Transition = {
+  duration: 0.3,
   ease: IOS_MOTION_EASE,
 };
 
 export const menuTransition: Transition = {
-  duration: 0.11,
+  duration: 0.12,
   ease: IOS_MOTION_EASE,
 };
 
-export const sheetTransition: Transition = {
+export const mobileStackReturnTransition: Transition = {
   duration: 0.22,
   ease: IOS_MOTION_EASE,
 };
+
+export const mobilePageSwitchTransition: Transition = {
+  duration: 0.3,
+  ease: IOS_MOTION_EASE,
+};
+
+export const mobilePageTransition: Transition = mobilePageSwitchTransition;
+
+export const sheetTransition: Transition = mobileStackReturnTransition;
 
 export const listItemTransition: Transition = {
   duration: 0.16,
@@ -30,9 +39,88 @@ export const listItemTransition: Transition = {
 };
 
 export const swipeSnapTransition: Transition = {
-  duration: 0.18,
+  duration: 0.22,
   ease: IOS_MOTION_EASE,
 };
+
+export const mobileSwipeBackConfig = {
+  desktopMinWidth: 1024,
+  scrollGuardDistancePx: 6,
+  scrollGuardRatio: 0.8,
+  claimDistancePx: 10,
+  claimRatio: 0.85,
+  cancelDistancePx: 22,
+  cancelRatio: 1.45,
+  commitMaxPx: 112,
+  commitViewportRatio: 0.26,
+  fastCommitVelocityPx: 320,
+  fastCommitDistancePx: 32,
+} as const;
+
+export interface MobileSwipeBackIntentInput {
+  deltaX: number;
+  deltaY: number;
+  viewportWidth: number;
+}
+
+export interface MobileSwipeBackReleaseInput {
+  x: number;
+  velocityX: number;
+  viewportWidth: number;
+}
+
+export interface MobileSwipeBackReleaseResolution {
+  shouldCommit: boolean;
+  commitDistance: number;
+}
+
+export function shouldGuardMobileSwipeBackScroll({
+  deltaX,
+  deltaY,
+  viewportWidth,
+}: MobileSwipeBackIntentInput): boolean {
+  if (viewportWidth >= mobileSwipeBackConfig.desktopMinWidth) return false;
+  if (deltaX < mobileSwipeBackConfig.scrollGuardDistancePx) return false;
+  return deltaX > Math.abs(deltaY) * mobileSwipeBackConfig.scrollGuardRatio;
+}
+
+export function shouldClaimMobileSwipeBack({
+  deltaX,
+  deltaY,
+  viewportWidth,
+}: MobileSwipeBackIntentInput): boolean {
+  if (viewportWidth >= mobileSwipeBackConfig.desktopMinWidth) return false;
+  if (deltaX < mobileSwipeBackConfig.claimDistancePx) return false;
+  return deltaX > Math.abs(deltaY) * mobileSwipeBackConfig.claimRatio;
+}
+
+export function shouldCancelMobileSwipeBack({
+  deltaX,
+  deltaY,
+  viewportWidth,
+}: MobileSwipeBackIntentInput): boolean {
+  if (viewportWidth >= mobileSwipeBackConfig.desktopMinWidth) return true;
+  const absoluteDeltaY = Math.abs(deltaY);
+  if (absoluteDeltaY < mobileSwipeBackConfig.cancelDistancePx) return false;
+  return absoluteDeltaY > Math.abs(deltaX) * mobileSwipeBackConfig.cancelRatio;
+}
+
+export function resolveMobileSwipeBackRelease({
+  x,
+  velocityX,
+  viewportWidth,
+}: MobileSwipeBackReleaseInput): MobileSwipeBackReleaseResolution {
+  const commitDistance = Math.min(
+    mobileSwipeBackConfig.commitMaxPx,
+    viewportWidth * mobileSwipeBackConfig.commitViewportRatio
+  );
+  const shouldCommit =
+    x >= commitDistance ||
+    (velocityX >= mobileSwipeBackConfig.fastCommitVelocityPx &&
+      x >= mobileSwipeBackConfig.fastCommitDistancePx);
+
+  return { shouldCommit, commitDistance };
+}
 
 export const mobilePageVariants: Variants = {
   enter: (direction: number = 0) => ({

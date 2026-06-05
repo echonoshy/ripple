@@ -100,8 +100,7 @@ export function getVisualViewportKeyboardInset(
         });
   if (!currentSource?.visualViewport) return 0;
 
-  const visualBottom =
-    currentSource.visualViewport.offsetTop + currentSource.visualViewport.height;
+  const visualBottom = currentSource.visualViewport.offsetTop + currentSource.visualViewport.height;
   return Math.max(0, Math.round(currentSource.innerHeight - visualBottom));
 }
 
@@ -161,6 +160,7 @@ interface SessionPageProps {
   isUploadingFiles?: boolean;
   uploadError?: string | null;
   isGenerating: boolean;
+  isSessionLoading?: boolean;
   isComposerBlocked?: boolean;
   focusToken: number;
   selectedModel: string;
@@ -205,6 +205,7 @@ export default function SessionPage({
   isUploadingFiles = false,
   uploadError = null,
   isGenerating,
+  isSessionLoading = false,
   isComposerBlocked = false,
   focusToken,
   selectedModel,
@@ -319,8 +320,7 @@ export default function SessionPage({
     "--ripple-mobile-keyboard-inset": `${mobileKeyboardInset}px`,
   } as CSSProperties;
   const composerOverlayStyle = {
-    transform:
-      mobileKeyboardInset > 0 ? `translate3d(0, -${mobileKeyboardInset}px, 0)` : undefined,
+    transform: mobileKeyboardInset > 0 ? `translate3d(0, -${mobileKeyboardInset}px, 0)` : undefined,
   } as CSSProperties;
 
   const restoreComposerFocusedScrollTop = useCallback(() => {
@@ -331,10 +331,7 @@ export default function SessionPage({
     scrollContainer.scrollTop = restoreScrollTop;
   }, []);
 
-  const shouldSuppressTimelineAutoScroll = useCallback(
-    () => isComposerFocusedRef.current,
-    []
-  );
+  const shouldSuppressTimelineAutoScroll = useCallback(() => isComposerFocusedRef.current, []);
 
   const handleComposerFocusStateChange = useCallback(
     (focused: boolean) => {
@@ -370,20 +367,17 @@ export default function SessionPage({
     [shouldSuppressTimelineAutoScroll]
   );
 
-  const updateMobileHeaderVisibility = useCallback(
-    (nextScrollTop: number) => {
-      const previousScrollTop = lastMobileHeaderScrollTopRef.current;
-      lastMobileHeaderScrollTopRef.current = nextScrollTop;
-      setIsMobileHeaderHidden((isHidden) =>
-        shouldHideMobileChatHeaderOnScroll({
-          previousScrollTop,
-          nextScrollTop,
-          isHidden,
-        })
-      );
-    },
-    []
-  );
+  const updateMobileHeaderVisibility = useCallback((nextScrollTop: number) => {
+    const previousScrollTop = lastMobileHeaderScrollTopRef.current;
+    lastMobileHeaderScrollTopRef.current = nextScrollTop;
+    setIsMobileHeaderHidden((isHidden) =>
+      shouldHideMobileChatHeaderOnScroll({
+        previousScrollTop,
+        nextScrollTop,
+        isHidden,
+      })
+    );
+  }, []);
 
   const startStickToBottom = useCallback(() => {
     stickToBottomUntilRef.current = currentTimeMs() + STICK_TO_BOTTOM_MS;
@@ -591,7 +585,9 @@ export default function SessionPage({
           <div className={`truncate ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#1F2329]`}>
             {session?.title || t("sessions.fallbackTitle")}
           </div>
-          <div className={`mt-1 flex min-w-0 items-center justify-center gap-1.5 ${TYPOGRAPHY_MICRO_CLASS} text-[#646A73]`}>
+          <div
+            className={`mt-1 flex min-w-0 items-center justify-center gap-1.5 ${TYPOGRAPHY_MICRO_CLASS} text-[#646A73]`}
+          >
             <span
               data-ripple-current-model-badge="mobile"
               aria-label={currentModelAccessibleLabel}
@@ -677,76 +673,97 @@ export default function SessionPage({
         className="min-h-0 flex-1 overflow-y-auto bg-white/92 px-3 pt-[calc(var(--ripple-mobile-chat-header-height)+8px)] pb-[calc(var(--ripple-mobile-chat-composer-height)+12px)] sm:px-4 md:px-5 lg:py-5"
       >
         <div ref={contentRef} className="mx-auto max-w-5xl space-y-2 sm:space-y-5">
-          {planSteps.length > 0 && (
-            <section className="rounded-2xl border border-[#DEE0E3] bg-white/82 shadow-[0_12px_30px_rgba(31,35,41,0.06)] backdrop-blur-xl">
-              <div className="flex items-center justify-between border-b border-[#EFF0F1] px-3 py-1.5">
-                <div className={`${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#1F2329]`}>
-                  {t("sessions.currentPlan")}
-                </div>
-                {planProgress && (
-                  <div className={`font-[family-name:var(--font-mono)] ${TYPOGRAPHY_MICRO_CLASS} text-[#646A73]`}>
-                    {planProgress.completed}/{planProgress.total}
-                  </div>
-                )}
-              </div>
-              <div className="divide-y divide-[#EFF0F1]">
-                {planSteps.map((step) => {
-                  const Icon =
-                    step.status === "completed"
-                      ? CheckCircle2
-                      : step.status === "in_progress"
-                        ? Loader2
-                        : Circle;
-                  return (
-                    <div key={step.id} className={`flex items-start gap-2 px-3 py-1.5 ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
-                      <Icon
-                        size={15}
-                        className={`mt-0.5 shrink-0 ${
-                          step.status === "completed"
-                            ? "text-[#16845B]"
-                            : step.status === "in_progress"
-                              ? "animate-spin text-[#1456F0]"
-                              : "text-[#8F959E]"
-                        }`}
-                      />
-                      <span
-                        className={
-                          step.status === "completed"
-                            ? "text-[#646A73] line-through decoration-[#8F959E]"
-                            : "text-[#1F2329]"
-                        }
-                      >
-                        {step.subject}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          )}
-
-          {contextPercent > 75 && (
-            <div className={`flex items-start gap-2 rounded-2xl border border-[#FAD355]/55 bg-[#FFF8DB]/90 p-3 ${TYPOGRAPHY_BODY_CLASS} text-[#8B5E00] shadow-[0_10px_24px_rgba(196,122,0,0.08)]`}>
-              <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-              {t("sessions.contextWarning", { percent: `${contextPercent}%` })} (
-              {t("sessions.contextDetail", { usage: contextUsageLabel || "" })}).{" "}
-              {t("sessions.contextSuggestion")}
+          {isSessionLoading ? (
+            <div
+              data-ripple-session-loading-skeleton="true"
+              className="space-y-2 pt-1"
+              aria-busy="true"
+            >
+              <div className="h-16 rounded-2xl border border-[#EFF0F1] bg-white/78 shadow-[0_10px_24px_rgba(31,35,41,0.045)]" />
+              <div className="ml-auto h-20 w-[82%] rounded-2xl border border-[#EFF0F1] bg-[#F8F9FA]" />
+              <div className="h-24 w-[88%] rounded-2xl border border-[#EFF0F1] bg-white/78 shadow-[0_10px_24px_rgba(31,35,41,0.045)]" />
             </div>
-          )}
+          ) : (
+            <>
+              {planSteps.length > 0 && (
+                <section className="rounded-2xl border border-[#DEE0E3] bg-white/82 shadow-[0_12px_30px_rgba(31,35,41,0.06)] backdrop-blur-xl">
+                  <div className="flex items-center justify-between border-b border-[#EFF0F1] px-3 py-1.5">
+                    <div className={`${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#1F2329]`}>
+                      {t("sessions.currentPlan")}
+                    </div>
+                    {planProgress && (
+                      <div
+                        className={`font-[family-name:var(--font-mono)] ${TYPOGRAPHY_MICRO_CLASS} text-[#646A73]`}
+                      >
+                        {planProgress.completed}/{planProgress.total}
+                      </div>
+                    )}
+                  </div>
+                  <div className="divide-y divide-[#EFF0F1]">
+                    {planSteps.map((step) => {
+                      const Icon =
+                        step.status === "completed"
+                          ? CheckCircle2
+                          : step.status === "in_progress"
+                            ? Loader2
+                            : Circle;
+                      return (
+                        <div
+                          key={step.id}
+                          className={`flex items-start gap-2 px-3 py-1.5 ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+                        >
+                          <Icon
+                            size={15}
+                            className={`mt-0.5 shrink-0 ${
+                              step.status === "completed"
+                                ? "text-[#16845B]"
+                                : step.status === "in_progress"
+                                  ? "animate-spin text-[#1456F0]"
+                                  : "text-[#8F959E]"
+                            }`}
+                          />
+                          <span
+                            className={
+                              step.status === "completed"
+                                ? "text-[#646A73] line-through decoration-[#8F959E]"
+                                : "text-[#1F2329]"
+                            }
+                          >
+                            {step.subject}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
 
-          <SessionTimeline
-            userId={userId}
-            messages={messages}
-            events={timelineEvents}
-            isGenerating={isGenerating}
-            onQuickReply={onQuickReply}
-            onPermissionResolve={onPermissionResolve}
-            onFeishuAuthOpen={onFeishuAuthOpen}
-            feishuAuthWaiting={feishuAuthWaiting}
-          />
+              {contextPercent > 75 && (
+                <div
+                  className={`flex items-start gap-2 rounded-2xl border border-[#FAD355]/55 bg-[#FFF8DB]/90 p-3 ${TYPOGRAPHY_BODY_CLASS} text-[#8B5E00] shadow-[0_10px_24px_rgba(196,122,0,0.08)]`}
+                >
+                  <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+                  {t("sessions.contextWarning", { percent: `${contextPercent}%` })} (
+                  {t("sessions.contextDetail", { usage: contextUsageLabel || "" })}).{" "}
+                  {t("sessions.contextSuggestion")}
+                </div>
+              )}
+
+              <SessionTimeline
+                userId={userId}
+                messages={messages}
+                events={timelineEvents}
+                isGenerating={isGenerating}
+                onQuickReply={onQuickReply}
+                onPermissionResolve={onPermissionResolve}
+                onFeishuAuthOpen={onFeishuAuthOpen}
+                feishuAuthWaiting={feishuAuthWaiting}
+              />
+            </>
+          )}
         </div>
 
-        {tokenUsage.total_tokens > 0 && (
+        {!isSessionLoading && tokenUsage.total_tokens > 0 && (
           <div className="mx-auto mt-4 flex max-w-5xl justify-start">
             <span
               aria-label={tokenBadgeAccessibleLabel}
@@ -762,12 +779,15 @@ export default function SessionPage({
       <div
         ref={composerOverlayRef}
         data-ripple-mobile-composer-overlay="true"
+        data-ripple-mobile-composer-overlay-loading={isSessionLoading ? "true" : "false"}
         style={composerOverlayStyle}
-        className="absolute inset-x-0 bottom-0 z-30 transition-transform duration-150 ease-out lg:static lg:z-auto lg:shrink-0"
+        className={`absolute inset-x-0 bottom-0 z-30 transition-transform duration-150 ease-out lg:static lg:z-auto lg:shrink-0 ${
+          isSessionLoading ? "pointer-events-none opacity-75" : ""
+        }`}
       >
         <SessionComposer
           userId={userId}
-          value={input}
+          value={isSessionLoading ? "" : input}
           onChange={onInputChange}
           onSend={onSend}
           onStop={onStop}
@@ -775,10 +795,10 @@ export default function SessionPage({
           onRemovePendingFile={onRemovePendingFile}
           onAddPendingImages={onAddPendingImages}
           onRemovePendingLocalImage={onRemovePendingLocalImage}
-          pendingFiles={pendingFiles}
-          pendingLocalImages={pendingLocalImages}
-          isUploadingFiles={isUploadingFiles}
-          uploadError={uploadError}
+          pendingFiles={isSessionLoading ? [] : pendingFiles}
+          pendingLocalImages={isSessionLoading ? [] : pendingLocalImages}
+          isUploadingFiles={isSessionLoading ? false : isUploadingFiles}
+          uploadError={isSessionLoading ? null : uploadError}
           isGenerating={isGenerating}
           isBlocked={isComposerBlocked}
           hasSession={hasMessages || Boolean(session)}

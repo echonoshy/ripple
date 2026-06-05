@@ -210,6 +210,49 @@ function testEmptyCurrentSessionIsNotInferredIntoSidebar() {
   );
 }
 
+function testMobileSessionSelectionSlidesBeforeDetailsResolve() {
+  const selectMobileSessionBlock =
+    appSource.match(
+      /const handleSelectMobileSession = useCallback\([\s\S]*?\n\s{2}const handleSelectChatFolder = useCallback/
+    )?.[0] || "";
+
+  assert.match(appSource, /pendingMobileSession/);
+  assert.match(selectMobileSessionBlock, /setPendingMobileSession/);
+  assert.match(
+    selectMobileSessionBlock,
+    /setMobileSessionMode\("chat"\)[\s\S]*await handleSwitchSession/
+  );
+  assert.match(appSource, /isMobileSessionSwitchPending/);
+  assert.match(appSource, /isSessionLoading=\{isMobileSessionSwitchPending\}/);
+}
+
+function testPendingMobileSessionDoesNotRenderPreviousSessionContent() {
+  assert.match(
+    appSource,
+    /const sessionPageMessages = isMobileSessionSwitchPending \? \[\] : messages/
+  );
+  assert.match(
+    appSource,
+    /const sessionPageTimelineEvents = isMobileSessionSwitchPending \? \[\] : timelineEvents/
+  );
+  assert.match(
+    appSource,
+    /const sessionPagePlanSteps = isMobileSessionSwitchPending \? \[\] : planSteps/
+  );
+  assert.match(
+    appSource,
+    /const sessionPageTokenUsage = isMobileSessionSwitchPending \? emptyUsage : tokenUsage/
+  );
+}
+
+function testTopLevelMobileMotionDoesNotWaitThroughBlankFrame() {
+  assert.match(appSource, /mobilePageSwitchTransition/);
+  assert.doesNotMatch(
+    appSource,
+    /<AnimatePresence mode="wait" initial=\{false\} custom=\{mobileMotionDirection\}>/
+  );
+}
+
 testChatCompletionClearsResidualPlan();
 testSessionDetailsRestorePersistedPlan();
 testRestoringSessionRefreshesWorkspaceViews();
@@ -232,5 +275,8 @@ testDefaultModelSeedsNewSessionsAndChatRuns();
 testContextFolderSeedsNewSessionsAndFilesViewStaysPlain();
 testChatFolderPickerUpdatesCurrentSessionContextFolder();
 testEmptyCurrentSessionIsNotInferredIntoSidebar();
+testMobileSessionSelectionSlidesBeforeDetailsResolve();
+testPendingMobileSessionDoesNotRenderPreviousSessionContent();
+testTopLevelMobileMotionDoesNotWaitThroughBlankFrame();
 
 console.log("app plan tests passed");

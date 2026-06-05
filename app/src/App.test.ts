@@ -94,17 +94,16 @@ function testMobileContentUsesSharedMotionTransitions() {
 
   assert.match(source, /import \{ AnimatePresence, motion \} from "framer-motion"/);
   assert.match(source, /mobilePageVariants/);
-  assert.match(source, /mobilePageTransition/);
+  assert.match(source, /mobilePageSwitchTransition/);
   assert.match(source, /data-ripple-mobile-motion-stage=\{mobileMotionStage\}/);
   assert.match(source, /key=\{mobileMotionStage\}/);
   assert.match(source, /custom=\{mobileMotionDirection\}/);
-  assert.match(source, /mode="wait"/);
+  assert.doesNotMatch(source, /<AnimatePresence mode="wait" initial=\{false\}/);
 }
 
 function testMobileSessionModeDoesNotRemountMotionStage() {
   const source = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
-  const mobileMotionStageBlock =
-    source.match(/const mobileMotionStage =[\s\S]*?;/)?.[0] || "";
+  const mobileMotionStageBlock = source.match(/const mobileMotionStage =[\s\S]*?;/)?.[0] || "";
 
   assert.match(mobileMotionStageBlock, /activeView === "sessions" \? "sessions:page"/);
   assert.doesNotMatch(mobileMotionStageBlock, /mobileSessionMode/);

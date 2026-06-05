@@ -9,7 +9,7 @@ import SessionPage, {
   sessionTimelineBottomScrollTop,
   shouldHideMobileChatHeaderOnScroll,
 } from "./SessionPage";
-import type { UsageInfo, WorkbenchSessionSummary } from "@/types";
+import type { Message, UsageInfo, WorkbenchSessionSummary } from "@/types";
 
 const sessionPageSource = readFileSync(new URL("./SessionPage.tsx", import.meta.url), "utf8");
 
@@ -25,17 +25,23 @@ function sessionAutoScrollEffectSource() {
 function renderSessionPage({
   tokenUsage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
   lastContextTokens = 0,
+  messages = [],
+  session = null,
+  isSessionLoading = false,
   locale = "en-US",
 }: {
   tokenUsage?: UsageInfo;
   lastContextTokens?: number;
+  messages?: Message[];
+  session?: WorkbenchSessionSummary | null;
+  isSessionLoading?: boolean;
   locale?: LocalePreference;
 } = {}) {
   return renderToStaticMarkup(
     <I18nProvider initialPreference={locale}>
       <SessionPage
-        session={null}
-        messages={[]}
+        session={session}
+        messages={messages}
         timelineEvents={[]}
         planProgress={null}
         planSteps={[]}
@@ -49,6 +55,7 @@ function renderSessionPage({
         selectedModel="codex-medium"
         models={[{ id: "codex-medium", owned_by: "ripple" }]}
         isModelDropdownOpen={false}
+        isSessionLoading={isSessionLoading}
         sessionId="srv-test"
         onNewSession={noop}
         onInputChange={noop}
@@ -517,11 +524,15 @@ function testComposerFocusSuppressesTimelineAutoScroll() {
 
 function testComposerFocusDoesNotTrackKeyboardMovedScrollTop() {
   const handleScrollBlock =
-    sessionPageSource.match(/const handleScroll = useCallback\(\(\) => \{[\s\S]*?\}, \[updateMobileHeaderVisibility\]\);/)?.[0] ||
-    "";
+    sessionPageSource.match(
+      /const handleScroll = useCallback\(\(\) => \{[\s\S]*?\}, \[updateMobileHeaderVisibility\]\);/
+    )?.[0] || "";
 
   assert.match(handleScrollBlock, /updateMobileHeaderVisibility\(scrollContainer\.scrollTop\)/);
-  assert.doesNotMatch(handleScrollBlock, /composerFocusedScrollTopRef\.current = scrollContainer\.scrollTop/);
+  assert.doesNotMatch(
+    handleScrollBlock,
+    /composerFocusedScrollTopRef\.current = scrollContainer\.scrollTop/
+  );
 }
 
 function testMobileOverlayMeasurementsUseBorderBoxHeight() {
@@ -539,15 +550,37 @@ function testMobileTimelinePadsForOverlayHeaderAndComposer() {
   assert.match(html, /--ripple-mobile-chat-composer-height:/);
   assert.match(html, /--ripple-mobile-keyboard-inset:/);
   assert.match(html, /pt-\[calc\(var\(--ripple-mobile-chat-header-height\)\+8px\)\]/);
-  assert.match(
-    html,
-    /pb-\[calc\(var\(--ripple-mobile-chat-composer-height\)\+12px\)\]/
-  );
+  assert.match(html, /pb-\[calc\(var\(--ripple-mobile-chat-composer-height\)\+12px\)\]/);
   assert.doesNotMatch(
     html,
     /pb-\[calc\(var\(--ripple-mobile-chat-composer-height\)\+var\(--ripple-mobile-keyboard-inset\)/
   );
   assert.match(sessionPageSource, /translate3d\(0, -\$\{mobileKeyboardInset\}px, 0\)/);
+}
+
+function testPendingSessionDetailsShowSkeletonInsteadOfPreviousMessages() {
+  const loadingSession: WorkbenchSessionSummary = {
+    sessionId: "srv-next",
+    title: "Next mobile session",
+    pinned: false,
+    status: "idle",
+    model: "codex-medium",
+    lastActivityAt: "2026-06-05T00:00:00Z",
+    messageCount: 12,
+    changedFileCount: 0,
+    pendingApprovalCount: 0,
+  };
+  const html = renderSessionPage({
+    session: loadingSession,
+    isSessionLoading: true,
+    messages: [{ id: "old-message", role: "user", content: "old session should not flash" }],
+  });
+
+  assert.match(html, />Next mobile session</);
+  assert.match(html, /data-ripple-session-loading-skeleton="true"/);
+  assert.match(html, /data-ripple-mobile-composer-overlay-loading="true"/);
+  assert.doesNotMatch(html, /old session should not flash/);
+  assert.match(sessionPageSource, /isSessionLoading\?: boolean/);
 }
 
 testOmitsPlaceholderSessionHeaderControls();
@@ -581,5 +614,6 @@ testComposerFocusSuppressesTimelineAutoScroll();
 testComposerFocusDoesNotTrackKeyboardMovedScrollTop();
 testMobileOverlayMeasurementsUseBorderBoxHeight();
 testMobileTimelinePadsForOverlayHeaderAndComposer();
+testPendingSessionDetailsShowSkeletonInsteadOfPreviousMessages();
 
 console.log("session page tests passed");

@@ -54,10 +54,16 @@ import {
   WORKBENCH_PAGE_CONTENT_CLASS,
 } from "./stylePrimitives";
 import {
-  mobilePageTransition,
+  mobilePageSwitchTransition,
   mobilePageVariants,
+  mobileStackReturnTransition,
+  mobileSwipeBackConfig,
   reducedMobilePageVariants,
   reducedMotionTransition,
+  resolveMobileSwipeBackRelease,
+  shouldCancelMobileSwipeBack,
+  shouldClaimMobileSwipeBack,
+  shouldGuardMobileSwipeBackScroll,
 } from "./motionPrimitives";
 import { SkillDescriptionMarkdown } from "./SkillDescriptionMarkdown";
 
@@ -191,17 +197,6 @@ const CATEGORY_SUMMARY_KEYS: Record<SkillCategoryGroupId, MessageKey> = {
   general: "skills.categorySummaries.general",
 };
 
-const SKILLS_CATEGORY_BACK_SWIPE_DESKTOP_MIN_WIDTH_PX = 1024;
-const SKILLS_CATEGORY_BACK_SWIPE_SCROLL_GUARD_DISTANCE_PX = 6;
-const SKILLS_CATEGORY_BACK_SWIPE_SCROLL_GUARD_RATIO = 0.8;
-const SKILLS_CATEGORY_BACK_SWIPE_CLAIM_DISTANCE_PX = 10;
-const SKILLS_CATEGORY_BACK_SWIPE_CLAIM_RATIO = 0.85;
-const SKILLS_CATEGORY_BACK_SWIPE_CANCEL_DISTANCE_PX = 22;
-const SKILLS_CATEGORY_BACK_SWIPE_CANCEL_RATIO = 1.45;
-const SKILLS_CATEGORY_BACK_SWIPE_COMMIT_MAX_PX = 112;
-const SKILLS_CATEGORY_BACK_SWIPE_COMMIT_VIEWPORT_RATIO = 0.26;
-const SKILLS_CATEGORY_BACK_SWIPE_FAST_COMMIT_VELOCITY_PX = 320;
-const SKILLS_CATEGORY_BACK_SWIPE_FAST_COMMIT_DISTANCE_PX = 32;
 const SKILLS_CATEGORY_BACK_SWIPE_INTERACTIVE_SELECTOR =
   "a, button, input, textarea, select, summary, [contenteditable='true'], [role='button'], [data-ripple-ignore-skills-swipe]";
 
@@ -252,9 +247,7 @@ export function shouldGuardSkillsCategoryBackSwipeScroll({
   deltaY,
   viewportWidth,
 }: SkillsCategoryBackSwipeIntentInput): boolean {
-  if (viewportWidth >= SKILLS_CATEGORY_BACK_SWIPE_DESKTOP_MIN_WIDTH_PX) return false;
-  if (deltaX < SKILLS_CATEGORY_BACK_SWIPE_SCROLL_GUARD_DISTANCE_PX) return false;
-  return deltaX > Math.abs(deltaY) * SKILLS_CATEGORY_BACK_SWIPE_SCROLL_GUARD_RATIO;
+  return shouldGuardMobileSwipeBackScroll({ deltaX, deltaY, viewportWidth });
 }
 
 export function shouldClaimSkillsCategoryBackSwipe({
@@ -262,9 +255,7 @@ export function shouldClaimSkillsCategoryBackSwipe({
   deltaY,
   viewportWidth,
 }: SkillsCategoryBackSwipeIntentInput): boolean {
-  if (viewportWidth >= SKILLS_CATEGORY_BACK_SWIPE_DESKTOP_MIN_WIDTH_PX) return false;
-  if (deltaX < SKILLS_CATEGORY_BACK_SWIPE_CLAIM_DISTANCE_PX) return false;
-  return deltaX > Math.abs(deltaY) * SKILLS_CATEGORY_BACK_SWIPE_CLAIM_RATIO;
+  return shouldClaimMobileSwipeBack({ deltaX, deltaY, viewportWidth });
 }
 
 export function shouldCancelSkillsCategoryBackSwipe({
@@ -272,10 +263,7 @@ export function shouldCancelSkillsCategoryBackSwipe({
   deltaY,
   viewportWidth,
 }: SkillsCategoryBackSwipeIntentInput): boolean {
-  if (viewportWidth >= SKILLS_CATEGORY_BACK_SWIPE_DESKTOP_MIN_WIDTH_PX) return true;
-  const absoluteDeltaY = Math.abs(deltaY);
-  if (absoluteDeltaY < SKILLS_CATEGORY_BACK_SWIPE_CANCEL_DISTANCE_PX) return false;
-  return absoluteDeltaY > Math.abs(deltaX) * SKILLS_CATEGORY_BACK_SWIPE_CANCEL_RATIO;
+  return shouldCancelMobileSwipeBack({ deltaX, deltaY, viewportWidth });
 }
 
 export function resolveSkillsCategoryBackSwipeRelease({
@@ -283,16 +271,9 @@ export function resolveSkillsCategoryBackSwipeRelease({
   velocityX,
   viewportWidth,
 }: SkillsCategoryBackSwipeReleaseInput): SkillsCategoryBackSwipeReleaseResolution {
-  const commitDistance = Math.min(
-    SKILLS_CATEGORY_BACK_SWIPE_COMMIT_MAX_PX,
-    viewportWidth * SKILLS_CATEGORY_BACK_SWIPE_COMMIT_VIEWPORT_RATIO
-  );
-  const shouldCloseCategory =
-    x >= commitDistance ||
-    (velocityX >= SKILLS_CATEGORY_BACK_SWIPE_FAST_COMMIT_VELOCITY_PX &&
-      x >= SKILLS_CATEGORY_BACK_SWIPE_FAST_COMMIT_DISTANCE_PX);
+  const release = resolveMobileSwipeBackRelease({ x, velocityX, viewportWidth });
 
-  return { shouldCloseCategory, commitDistance };
+  return { shouldCloseCategory: release.shouldCommit, commitDistance: release.commitDistance };
 }
 
 interface SkillCategoryLogoMeta {
@@ -1015,7 +996,7 @@ export default function SkillsPage({
         return;
       }
 
-      const animation = animate(categorySwipeX, target, mobilePageTransition);
+      const animation = animate(categorySwipeX, target, mobileStackReturnTransition);
       categorySwipeAnimationRef.current = animation;
       void animation.then(() => {
         if (categorySwipeAnimationRef.current === animation) {
@@ -1083,7 +1064,7 @@ export default function SkillsPage({
       if (!selectedCategoryId) return;
       if (!event.isPrimary || event.pointerType !== "touch") return;
       const viewportWidth = skillsCategoryBackSwipeViewportWidth();
-      if (viewportWidth >= SKILLS_CATEGORY_BACK_SWIPE_DESKTOP_MIN_WIDTH_PX) return;
+      if (viewportWidth >= mobileSwipeBackConfig.desktopMinWidth) return;
       if (isInteractiveSkillsCategoryBackSwipeTarget(event.target)) return;
       stopCategorySwipeAnimation();
       const scrollElement = skillsPageScrollRef.current;
@@ -1219,7 +1200,7 @@ export default function SkillsPage({
       if (!selectedCategoryId) return;
       if (event.touches.length !== 1) return;
       const viewportWidth = skillsCategoryBackSwipeViewportWidth();
-      if (viewportWidth >= SKILLS_CATEGORY_BACK_SWIPE_DESKTOP_MIN_WIDTH_PX) return;
+      if (viewportWidth >= mobileSwipeBackConfig.desktopMinWidth) return;
       if (isInteractiveSkillsCategoryBackSwipeTarget(event.target)) return;
       const touch = event.touches[0];
       if (!touch) return;
@@ -1958,7 +1939,7 @@ export default function SkillsPage({
       className={`h-full min-h-0 overflow-y-auto ${COMPACT_IOS_PAGE_BACKGROUND} px-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} ${SKILLS_PAGE_TEXT_PRIMARY_CLASS} md:px-6 lg:pb-5`}
     >
       <div className={WORKBENCH_PAGE_CONTENT_CLASS}>
-        <AnimatePresence mode="wait" initial={false} custom={categoryTransitionDirection}>
+        <AnimatePresence initial={false} custom={categoryTransitionDirection}>
           <motion.div
             key={selectedCategory ? `detail:${selectedCategory.id}` : "index"}
             data-ripple-skill-category-motion-stage="true"
@@ -1967,7 +1948,7 @@ export default function SkillsPage({
             initial="enter"
             animate="center"
             exit="exit"
-            transition={reduceMotion ? reducedMotionTransition : mobilePageTransition}
+            transition={reduceMotion ? reducedMotionTransition : mobilePageSwitchTransition}
             className="min-w-0"
           >
             {renderCategoryStage()}

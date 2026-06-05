@@ -188,8 +188,19 @@ function testComposerOnlyTextInputFocusExpandsEmptyComposer() {
       /<div\s+data-composer-expanded=\{isExpandedComposer \? "true" : "false"\}[\s\S]*?\{toolbarControls\}/
     )?.[0] || "";
 
-  assert.match(textareaBlock, /onFocus=\{\(\) => setIsComposerFocused\(true\)\}/);
+  assert.match(textareaBlock, /onFocus=\{\(\) => \{/);
+  assert.match(textareaBlock, /setIsComposerFocused\(true\)/);
   assert.doesNotMatch(layoutContainer, /onFocus=/);
+}
+
+function testComposerReportsFocusStateToOwner() {
+  const source = readFileSync(new URL("./SessionComposer.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /onFocusStateChange\?: \(focused: boolean\) => void/);
+  assert.match(source, /onFocusStateChange\?\.\(true\)/);
+  assert.match(source, /onFocusStateChange\?\.\(false\)/);
+  assert.match(source, /setIsComposerFocused\(true\)/);
+  assert.match(source, /setIsComposerFocused\(false\)/);
 }
 
 function testComposerIgnoresHistoricalFocusTokenOnMount() {
@@ -260,6 +271,7 @@ testComposerUsesCompactGlassRadiusScale();
 testComposerExpandsActionsBelowTextAfterInput();
 testExpandedComposerKeepsToolbarHorizontalOrigin();
 testComposerOnlyTextInputFocusExpandsEmptyComposer();
+testComposerReportsFocusStateToOwner();
 testComposerIgnoresHistoricalFocusTokenOnMount();
 testComposerExpandsWhenFocusedWithoutInput();
 testComposerRecalculatesTextareaHeightAfterExpansion();

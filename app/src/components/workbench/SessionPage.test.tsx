@@ -5,8 +5,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { I18nProvider, type LocalePreference } from "@/i18n";
 import SessionPage, {
+  getVisualViewportKeyboardInset,
   sessionTimelineBottomScrollTop,
-  shouldTriggerMobileSessionBackSwipe,
+  shouldHideMobileChatHeaderOnScroll,
 } from "./SessionPage";
 import type { UsageInfo, WorkbenchSessionSummary } from "@/types";
 
@@ -192,7 +193,7 @@ function testSessionPageOmitsSecondarySettingsSheet() {
 function testGivesSessionContentMoreHorizontalRoom() {
   const html = renderSessionPage();
 
-  assert.match(html, /overflow-y-auto bg-white\/92 px-3 py-2 sm:px-4 sm:py-5 md:px-5/);
+  assert.match(html, /overflow-y-auto bg-white\/92 px-3/);
   assert.match(html, /mx-auto max-w-5xl space-y-2 sm:space-y-5/);
 }
 
@@ -208,6 +209,15 @@ function testMobileHeaderReservesTopSafeArea() {
   const html = renderSessionPage();
 
   assert.match(html, /pt-\[max\(env\(safe-area-inset-top\),0px\)\]/);
+}
+
+function testMobileHeaderIsOverlayChrome() {
+  const html = renderSessionPage();
+
+  assert.match(html, /data-ripple-mobile-chat-header="true"/);
+  assert.match(html, /absolute inset-x-0 top-0 z-30/);
+  assert.match(html, /transition-transform/);
+  assert.match(html, /data-ripple-mobile-chat-header-hidden=/);
 }
 
 function testDesktopHeaderShowsCurrentModelLikeMobile() {
@@ -418,6 +428,41 @@ function testUserScrollCancelsSessionSwitchStickyBottom() {
   assert.match(sessionPageSource, /ref=\{contentRef\}/);
 }
 
+function testMobileHeaderVisibilityFollowsScrollDirection() {
+  assert.equal(
+    shouldHideMobileChatHeaderOnScroll({
+      previousScrollTop: 24,
+      nextScrollTop: 48,
+      isHidden: false,
+    }),
+    true
+  );
+  assert.equal(
+    shouldHideMobileChatHeaderOnScroll({
+      previousScrollTop: 96,
+      nextScrollTop: 70,
+      isHidden: true,
+    }),
+    false
+  );
+  assert.equal(
+    shouldHideMobileChatHeaderOnScroll({
+      previousScrollTop: 40,
+      nextScrollTop: 3,
+      isHidden: true,
+    }),
+    false
+  );
+  assert.equal(
+    shouldHideMobileChatHeaderOnScroll({
+      previousScrollTop: 40,
+      nextScrollTop: 45,
+      isHidden: true,
+    }),
+    true
+  );
+}
+
 function testSessionPageOwnsScrollActivation() {
   assert.doesNotMatch(sessionPageSource, /scrollActivationKey/);
 }
@@ -437,79 +482,50 @@ function testSessionPageCanRestorePreviousScrollPosition() {
   assert.match(sessionPageSource, /onRestoreScrollComplete\?\.\(\)/);
 }
 
-function testMobileRightSwipeCanReturnToSessionList() {
+function testVisualViewportKeyboardInsetUsesLayoutViewportBottomGap() {
   assert.equal(
-    shouldTriggerMobileSessionBackSwipe({
-      startX: 0,
-      startY: 220,
-      endX: 90,
-      endY: 230,
-      viewportWidth: 390,
+    getVisualViewportKeyboardInset({
+      innerHeight: 800,
+      visualViewport: { height: 520, offsetTop: 0 },
     }),
-    true
+    280
   );
   assert.equal(
-    shouldTriggerMobileSessionBackSwipe({
-      startX: 12,
-      startY: 220,
-      endX: 102,
-      endY: 230,
-      viewportWidth: 390,
+    getVisualViewportKeyboardInset({
+      innerHeight: 800,
+      visualViewport: { height: 780, offsetTop: 20 },
     }),
-    true
+    0
   );
-  assert.equal(
-    shouldTriggerMobileSessionBackSwipe({
-      startX: 12,
-      startY: 220,
-      endX: 102,
-      endY: 315,
-      viewportWidth: 390,
-    }),
-    false
-  );
-  assert.equal(
-    shouldTriggerMobileSessionBackSwipe({
-      startX: 72,
-      startY: 220,
-      endX: 164,
-      endY: 230,
-      viewportWidth: 390,
-    }),
-    true
-  );
-  assert.equal(
-    shouldTriggerMobileSessionBackSwipe({
-      startX: 118,
-      startY: 220,
-      endX: 214,
-      endY: 230,
-      viewportWidth: 390,
-    }),
-    false
-  );
-  assert.equal(
-    shouldTriggerMobileSessionBackSwipe({
-      startX: 12,
-      startY: 220,
-      endX: 112,
-      endY: 230,
-      viewportWidth: 1280,
-    }),
-    false
-  );
+  assert.equal(getVisualViewportKeyboardInset({ innerHeight: 800 }), 0);
 }
 
-function testSessionPageWiresMobileSwipeGesture() {
-  assert.match(sessionPageSource, /data-ripple-mobile-chat-swipe/);
-  assert.match(sessionPageSource, /touch-pan-y/);
-  assert.doesNotMatch(sessionPageSource, /MOBILE_CHAT_SWIPE_SYSTEM_EDGE_GUARD_PX/);
-  assert.match(sessionPageSource, /handleMobileChatPointerDown/);
-  assert.match(sessionPageSource, /handleMobileChatPointerMove/);
-  assert.match(sessionPageSource, /event\.preventDefault\(\)/);
-  assert.match(sessionPageSource, /handleMobileChatPointerUp/);
-  assert.match(sessionPageSource, /onPointerMove=\{handleMobileChatPointerMove\}/);
-  assert.match(sessionPageSource, /onBackToMobileSessions\?\.\(\)/);
+function testSessionPageNoLongerOwnsMobileBackSwipeGesture() {
+  assert.match(sessionPageSource, /data-ripple-mobile-chat-surface/);
+  assert.doesNotMatch(sessionPageSource, /shouldTriggerMobileSessionBackSwipe/);
+  assert.doesNotMatch(sessionPageSource, /MOBILE_CHAT_SWIPE_EDGE_PX/);
+  assert.doesNotMatch(sessionPageSource, /handleMobileChatPointerDown/);
+  assert.doesNotMatch(sessionPageSource, /onPointerMove=\{handleMobileChatPointerMove\}/);
+}
+
+function testComposerFocusSuppressesTimelineAutoScroll() {
+  assert.match(sessionPageSource, /isComposerFocusedRef/);
+  assert.match(sessionPageSource, /shouldSuppressTimelineAutoScroll/);
+  assert.match(sessionPageSource, /handleComposerFocusStateChange/);
+  assert.match(sessionPageSource, /onFocusStateChange=\{handleComposerFocusStateChange\}/);
+}
+
+function testMobileTimelinePadsForOverlayHeaderAndComposer() {
+  const html = renderSessionPage();
+
+  assert.match(html, /--ripple-mobile-chat-header-height:/);
+  assert.match(html, /--ripple-mobile-chat-composer-height:/);
+  assert.match(html, /--ripple-mobile-keyboard-inset:/);
+  assert.match(html, /pt-\[calc\(var\(--ripple-mobile-chat-header-height\)\+8px\)\]/);
+  assert.match(
+    html,
+    /pb-\[calc\(var\(--ripple-mobile-chat-composer-height\)\+var\(--ripple-mobile-keyboard-inset\)\+12px\)\]/
+  );
 }
 
 testOmitsPlaceholderSessionHeaderControls();
@@ -519,6 +535,7 @@ testSessionPageOmitsSecondarySettingsSheet();
 testGivesSessionContentMoreHorizontalRoom();
 testSessionPageHandlesDropAcrossWholeChat();
 testMobileHeaderReservesTopSafeArea();
+testMobileHeaderIsOverlayChrome();
 testDesktopHeaderShowsCurrentModelLikeMobile();
 testCurrentModelBadgeUsesModelSwitchIcon();
 testSessionPageRendersChineseStaticChrome();
@@ -532,10 +549,13 @@ testShortTimelineDoesNotWriteScrollTop();
 testAutoScrollEffectUsesStableTimelineKey();
 testResizeObserverKeepsSessionSwitchPinnedToBottom();
 testUserScrollCancelsSessionSwitchStickyBottom();
+testMobileHeaderVisibilityFollowsScrollDirection();
 testSessionPageOwnsScrollActivation();
 testExplicitSessionSelectionTriggersStickyBottom();
 testSessionPageCanRestorePreviousScrollPosition();
-testMobileRightSwipeCanReturnToSessionList();
-testSessionPageWiresMobileSwipeGesture();
+testVisualViewportKeyboardInsetUsesLayoutViewportBottomGap();
+testSessionPageNoLongerOwnsMobileBackSwipeGesture();
+testComposerFocusSuppressesTimelineAutoScroll();
+testMobileTimelinePadsForOverlayHeaderAndComposer();
 
 console.log("session page tests passed");

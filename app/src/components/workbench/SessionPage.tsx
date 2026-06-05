@@ -6,8 +6,8 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type CSSProperties,
   type DragEvent,
-  type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
   AlertTriangle,
@@ -52,71 +52,57 @@ import {
 
 const STICK_TO_BOTTOM_MS = 1200;
 const BOTTOM_LOCK_THRESHOLD_PX = 40;
-const MOBILE_CHAT_DESKTOP_MIN_WIDTH_PX = 1024;
-const MOBILE_CHAT_SWIPE_EDGE_PX = 96;
-const MOBILE_CHAT_SWIPE_INTENT_DISTANCE_PX = 14;
-const MOBILE_CHAT_SWIPE_MIN_DISTANCE_PX = 60;
-const MOBILE_CHAT_SWIPE_MAX_VERTICAL_DISTANCE_PX = 72;
+const MOBILE_CHAT_HEADER_FALLBACK_HEIGHT_PX = 68;
+const MOBILE_CHAT_COMPOSER_FALLBACK_HEIGHT_PX = 92;
+const MOBILE_CHAT_HEADER_SCROLL_DELTA_PX = 10;
+const MOBILE_CHAT_HEADER_TOP_LOCK_PX = 8;
 const mobileHeaderButtonClass = MOBILE_GLASS_ICON_BUTTON_CLASS;
 
-interface MobileChatSwipeIntent {
-  startX: number;
-  startY: number;
-  endX: number;
-  endY: number;
-  viewportWidth: number;
+interface MobileChatHeaderScrollInput {
+  previousScrollTop: number;
+  nextScrollTop: number;
+  isHidden: boolean;
 }
 
-interface MobileChatSwipeStart {
-  pointerId: number;
-  startX: number;
-  startY: number;
-  viewportWidth: number;
-  hasHorizontalIntent: boolean;
+interface VisualViewportKeyboardSource {
+  innerHeight: number;
+  visualViewport?: { height: number; offsetTop: number } | null;
 }
 
-export function shouldTriggerMobileSessionBackSwipe({
-  startX,
-  startY,
-  endX,
-  endY,
-  viewportWidth,
-}: MobileChatSwipeIntent): boolean {
-  if (viewportWidth >= MOBILE_CHAT_DESKTOP_MIN_WIDTH_PX) return false;
-  if (startX > MOBILE_CHAT_SWIPE_EDGE_PX) return false;
+export function shouldHideMobileChatHeaderOnScroll({
+  previousScrollTop,
+  nextScrollTop,
+  isHidden,
+}: MobileChatHeaderScrollInput): boolean {
+  if (nextScrollTop <= MOBILE_CHAT_HEADER_TOP_LOCK_PX) return false;
 
-  const horizontalDistance = endX - startX;
-  const verticalDistance = Math.abs(endY - startY);
-
-  if (horizontalDistance < MOBILE_CHAT_SWIPE_MIN_DISTANCE_PX) return false;
-  if (verticalDistance > MOBILE_CHAT_SWIPE_MAX_VERTICAL_DISTANCE_PX) return false;
-  return horizontalDistance > verticalDistance * 1.25;
+  const delta = nextScrollTop - previousScrollTop;
+  if (delta > MOBILE_CHAT_HEADER_SCROLL_DELTA_PX) return true;
+  if (delta < -MOBILE_CHAT_HEADER_SCROLL_DELTA_PX) return false;
+  return isHidden;
 }
 
-function shouldClaimMobileSessionBackSwipe({
-  startX,
-  startY,
-  endX,
-  endY,
-  viewportWidth,
-}: MobileChatSwipeIntent): boolean {
-  if (viewportWidth >= MOBILE_CHAT_DESKTOP_MIN_WIDTH_PX) return false;
-  if (startX > MOBILE_CHAT_SWIPE_EDGE_PX) return false;
+export function getVisualViewportKeyboardInset(
+  source?: VisualViewportKeyboardSource | null
+): number {
+  const currentSource =
+    source ||
+    (typeof window === "undefined"
+      ? null
+      : {
+          innerHeight: window.innerHeight,
+          visualViewport: window.visualViewport
+            ? {
+                height: window.visualViewport.height,
+                offsetTop: window.visualViewport.offsetTop,
+              }
+            : null,
+        });
+  if (!currentSource?.visualViewport) return 0;
 
-  const horizontalDistance = endX - startX;
-  const verticalDistance = Math.abs(endY - startY);
-
-  if (horizontalDistance < MOBILE_CHAT_SWIPE_INTENT_DISTANCE_PX) return false;
-  return horizontalDistance > verticalDistance * 1.15;
-}
-
-function isInteractiveMobileChatSwipeTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof Element)) return false;
-  return Boolean(
-    target.closest(
-      "a, button, input, textarea, select, [contenteditable='true'], [role='button'], [data-ripple-ignore-chat-swipe]"
-    )
-  );
+  const visualBottom =
+    currentSource.visualViewport.offsetTop + currentSource.visualViewport.height;
+  return Math.max(0, Math.round(currentSource.innerHeight - visualBottom));
 }
 
 function currentTimeMs(): number {
@@ -245,12 +231,24 @@ export default function SessionPage({
   const { t } = useI18n();
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
+  const mobileHeaderRef = useRef<HTMLDivElement | null>(null);
+  const composerOverlayRef = useRef<HTMLDivElement | null>(null);
   const previousAutoScrollSessionIdRef = useRef<string | null | undefined>(undefined);
   const previousScrollToBottomRequestRef = useRef(scrollToBottomRequest);
   const stickToBottomUntilRef = useRef(0);
   const isGeneratingRef = useRef(isGenerating);
-  const mobileChatSwipeStartRef = useRef<MobileChatSwipeStart | null>(null);
+  const isComposerFocusedRef = useRef(false);
+  const composerFocusedScrollTopRef = useRef<number | null>(null);
+  const lastMobileHeaderScrollTopRef = useRef(0);
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
+  const [mobileHeaderHeight, setMobileHeaderHeight] = useState(
+    MOBILE_CHAT_HEADER_FALLBACK_HEIGHT_PX
+  );
+  const [mobileComposerHeight, setMobileComposerHeight] = useState(
+    MOBILE_CHAT_COMPOSER_FALLBACK_HEIGHT_PX
+  );
+  const [mobileKeyboardInset, setMobileKeyboardInset] = useState(0);
+  const [isMobileHeaderHidden, setIsMobileHeaderHidden] = useState(false);
   const hasMessages = messages.length > 0;
   const contextWindow =
     typeof tokenUsage.model_context_window === "number" && tokenUsage.model_context_window > 0
@@ -311,8 +309,46 @@ export default function SessionPage({
     if (!onSelectWorkspaceFolder) return;
     document.querySelector<HTMLButtonElement>("[data-ripple-composer-folder-button]")?.click();
   }, [onSelectWorkspaceFolder]);
+  const mobileTimelineStyle = {
+    "--ripple-mobile-chat-header-height": `${mobileHeaderHeight}px`,
+    "--ripple-mobile-chat-composer-height": `${mobileComposerHeight}px`,
+    "--ripple-mobile-keyboard-inset": `${mobileKeyboardInset}px`,
+  } as CSSProperties;
+  const composerOverlayStyle = {
+    transform:
+      mobileKeyboardInset > 0 ? `translate3d(0, -${mobileKeyboardInset}px, 0)` : undefined,
+  } as CSSProperties;
+
+  const restoreComposerFocusedScrollTop = useCallback(() => {
+    if (!isComposerFocusedRef.current) return;
+    const scrollContainer = scrollContainerRef.current;
+    const restoreScrollTop = composerFocusedScrollTopRef.current;
+    if (!scrollContainer || typeof restoreScrollTop !== "number") return;
+    scrollContainer.scrollTop = restoreScrollTop;
+  }, []);
+
+  const shouldSuppressTimelineAutoScroll = useCallback(
+    () => isComposerFocusedRef.current,
+    []
+  );
+
+  const handleComposerFocusStateChange = useCallback(
+    (focused: boolean) => {
+      isComposerFocusedRef.current = focused;
+      const scrollContainer = scrollContainerRef.current;
+      composerFocusedScrollTopRef.current =
+        focused && scrollContainer ? scrollContainer.scrollTop : null;
+      if (focused) {
+        window.requestAnimationFrame(() => {
+          restoreComposerFocusedScrollTop();
+        });
+      }
+    },
+    [restoreComposerFocusedScrollTop]
+  );
 
   const scrollToBottom = useCallback(() => {
+    if (shouldSuppressTimelineAutoScroll()) return;
     const scrollContainer = scrollContainerRef.current;
     if (!scrollContainer) return;
     const nextScrollTop = sessionTimelineBottomScrollTop({
@@ -321,10 +357,27 @@ export default function SessionPage({
     });
     if (nextScrollTop === null) return;
     scrollContainer.scrollTop = nextScrollTop;
-  }, []);
+  }, [shouldSuppressTimelineAutoScroll]);
 
   const shouldKeepStickingToBottom = useCallback(
-    () => isGeneratingRef.current || currentTimeMs() <= stickToBottomUntilRef.current,
+    () =>
+      !shouldSuppressTimelineAutoScroll() &&
+      (isGeneratingRef.current || currentTimeMs() <= stickToBottomUntilRef.current),
+    [shouldSuppressTimelineAutoScroll]
+  );
+
+  const updateMobileHeaderVisibility = useCallback(
+    (nextScrollTop: number) => {
+      const previousScrollTop = lastMobileHeaderScrollTopRef.current;
+      lastMobileHeaderScrollTopRef.current = nextScrollTop;
+      setIsMobileHeaderHidden((isHidden) =>
+        shouldHideMobileChatHeaderOnScroll({
+          previousScrollTop,
+          nextScrollTop,
+          isHidden,
+        })
+      );
+    },
     []
   );
 
@@ -336,17 +389,81 @@ export default function SessionPage({
   const handleScroll = useCallback(() => {
     const scrollContainer = scrollContainerRef.current;
     if (!scrollContainer) return;
+    updateMobileHeaderVisibility(scrollContainer.scrollTop);
+    if (isComposerFocusedRef.current) {
+      composerFocusedScrollTopRef.current = scrollContainer.scrollTop;
+    }
 
     const distanceFromBottom =
       scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight;
     if (distanceFromBottom > BOTTOM_LOCK_THRESHOLD_PX) {
       stickToBottomUntilRef.current = 0;
     }
-  }, []);
+  }, [updateMobileHeaderVisibility]);
 
   useEffect(() => {
     isGeneratingRef.current = isGenerating;
   }, [isGenerating]);
+
+  useLayoutEffect(() => {
+    if (typeof ResizeObserver === "undefined") return;
+    const observedNodes: { node: HTMLDivElement; update: (height: number) => void }[] = [];
+    if (mobileHeaderRef.current) {
+      observedNodes.push({ node: mobileHeaderRef.current, update: setMobileHeaderHeight });
+    }
+    if (composerOverlayRef.current) {
+      observedNodes.push({ node: composerOverlayRef.current, update: setMobileComposerHeight });
+    }
+    if (observedNodes.length === 0) return;
+
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const nextHeight = Math.ceil(entry.contentRect.height);
+        const observed = observedNodes.find((item) => item.node === entry.target);
+        if (observed && nextHeight > 0) observed.update(nextHeight);
+      }
+    });
+
+    for (const { node, update } of observedNodes) {
+      const height = Math.ceil(node.getBoundingClientRect().height);
+      if (height > 0) update(height);
+      observer.observe(node);
+    }
+
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const updateKeyboardInset = () => {
+      setMobileKeyboardInset(getVisualViewportKeyboardInset());
+      window.requestAnimationFrame(() => {
+        restoreComposerFocusedScrollTop();
+      });
+    };
+
+    updateKeyboardInset();
+    window.visualViewport?.addEventListener("resize", updateKeyboardInset);
+    window.visualViewport?.addEventListener("scroll", updateKeyboardInset);
+    window.addEventListener("resize", updateKeyboardInset);
+
+    return () => {
+      window.visualViewport?.removeEventListener("resize", updateKeyboardInset);
+      window.visualViewport?.removeEventListener("scroll", updateKeyboardInset);
+      window.removeEventListener("resize", updateKeyboardInset);
+    };
+  }, [restoreComposerFocusedScrollTop]);
+
+  useLayoutEffect(() => {
+    restoreComposerFocusedScrollTop();
+  }, [
+    input,
+    mobileComposerHeight,
+    mobileHeaderHeight,
+    mobileKeyboardInset,
+    restoreComposerFocusedScrollTop,
+  ]);
 
   useLayoutEffect(() => {
     const previousScrollSessionId = previousAutoScrollSessionIdRef.current;
@@ -442,116 +559,24 @@ export default function SessionPage({
     [isGenerating, isUploadingFiles, onAddPendingImages, onAttachFiles]
   );
 
-  const handleMobileChatPointerDown = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      if (!onBackToMobileSessions) return;
-      if (!event.isPrimary || event.pointerType !== "touch") return;
-      if (typeof window === "undefined") return;
-      if (window.innerWidth >= MOBILE_CHAT_DESKTOP_MIN_WIDTH_PX) return;
-      if (event.clientX > MOBILE_CHAT_SWIPE_EDGE_PX) return;
-      if (isInteractiveMobileChatSwipeTarget(event.target)) return;
-
-      mobileChatSwipeStartRef.current = {
-        pointerId: event.pointerId,
-        startX: event.clientX,
-        startY: event.clientY,
-        viewportWidth: window.innerWidth,
-        hasHorizontalIntent: false,
-      };
-    },
-    [onBackToMobileSessions]
-  );
-
-  const handleMobileChatPointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    const swipeStart = mobileChatSwipeStartRef.current;
-    if (!swipeStart || swipeStart.pointerId !== event.pointerId) return;
-
-    const horizontalDistance = event.clientX - swipeStart.startX;
-    const verticalDistance = Math.abs(event.clientY - swipeStart.startY);
-    if (
-      verticalDistance > MOBILE_CHAT_SWIPE_MAX_VERTICAL_DISTANCE_PX &&
-      verticalDistance > Math.abs(horizontalDistance)
-    ) {
-      mobileChatSwipeStartRef.current = null;
-      return;
-    }
-
-    if (
-      !swipeStart.hasHorizontalIntent &&
-      shouldClaimMobileSessionBackSwipe({
-        startX: swipeStart.startX,
-        startY: swipeStart.startY,
-        endX: event.clientX,
-        endY: event.clientY,
-        viewportWidth: swipeStart.viewportWidth,
-      })
-    ) {
-      swipeStart.hasHorizontalIntent = true;
-      try {
-        event.currentTarget.setPointerCapture(event.pointerId);
-      } catch {
-        // Pointer capture can fail if the browser has already ended the touch.
-      }
-    }
-
-    if (swipeStart.hasHorizontalIntent) {
-      event.preventDefault();
-    }
-  }, []);
-
-  const handleMobileChatPointerCancel = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    const swipeStart = mobileChatSwipeStartRef.current;
-    if (swipeStart && swipeStart.pointerId === event.pointerId) {
-      mobileChatSwipeStartRef.current = null;
-    }
-  }, []);
-
-  const handleMobileChatPointerUp = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      const swipeStart = mobileChatSwipeStartRef.current;
-      if (!swipeStart || swipeStart.pointerId !== event.pointerId) return;
-
-      mobileChatSwipeStartRef.current = null;
-      try {
-        event.currentTarget.releasePointerCapture(event.pointerId);
-      } catch {
-        // Matching setPointerCapture may not have succeeded on every platform.
-      }
-
-      if (swipeStart.hasHorizontalIntent) {
-        event.preventDefault();
-      }
-
-      if (
-        shouldTriggerMobileSessionBackSwipe({
-          startX: swipeStart.startX,
-          startY: swipeStart.startY,
-          endX: event.clientX,
-          endY: event.clientY,
-          viewportWidth: swipeStart.viewportWidth,
-        })
-      ) {
-        onBackToMobileSessions?.();
-      }
-    },
-    [onBackToMobileSessions]
-  );
-
   return (
     <div
-      data-ripple-mobile-chat-swipe
+      data-ripple-mobile-chat-surface
       onDragOver={handlePageDragOver}
       onDragLeave={handlePageDragLeave}
       onDrop={handlePageDrop}
-      onPointerDown={handleMobileChatPointerDown}
-      onPointerMove={handleMobileChatPointerMove}
-      onPointerUp={handleMobileChatPointerUp}
-      onPointerCancel={handleMobileChatPointerCancel}
-      className={`relative flex h-full min-h-0 touch-pan-y flex-col ${COMPACT_IOS_PAGE_BACKGROUND} ${
+      className={`relative flex h-full min-h-0 flex-col overflow-hidden ${COMPACT_IOS_PAGE_BACKGROUND} ${
         isDraggingFiles ? "ring-2 ring-[#1456F0] ring-inset" : ""
       }`}
     >
-      <div className="grid min-h-[calc(56px+env(safe-area-inset-top))] shrink-0 grid-cols-[44px_minmax(0,1fr)_44px] items-center border-b border-[#DEE0E3]/70 bg-white/76 px-2.5 pt-[max(env(safe-area-inset-top),0px)] shadow-[0_8px_22px_rgba(31,35,41,0.05)] backdrop-blur-2xl lg:hidden">
+      <div
+        ref={mobileHeaderRef}
+        data-ripple-mobile-chat-header="true"
+        data-ripple-mobile-chat-header-hidden={isMobileHeaderHidden ? "true" : "false"}
+        className={`absolute inset-x-0 top-0 z-30 grid min-h-[calc(56px+env(safe-area-inset-top))] grid-cols-[44px_minmax(0,1fr)_44px] items-center border-b border-[#DEE0E3]/70 bg-white/76 px-2.5 pt-[max(env(safe-area-inset-top),0px)] shadow-[0_8px_22px_rgba(31,35,41,0.05)] backdrop-blur-2xl transition-transform duration-150 ease-out lg:hidden ${
+          isMobileHeaderHidden ? "pointer-events-none -translate-y-full" : "translate-y-0"
+        }`}
+      >
         <button
           type="button"
           aria-label={t("sessions.backToSessions")}
@@ -647,7 +672,8 @@ export default function SessionPage({
         ref={scrollContainerRef}
         data-ripple-session-scroll="timeline"
         onScroll={handleScroll}
-        className="min-h-0 flex-1 overflow-y-auto bg-white/92 px-3 py-2 sm:px-4 sm:py-5 md:px-5"
+        style={mobileTimelineStyle}
+        className="min-h-0 flex-1 overflow-y-auto bg-white/92 px-3 pt-[calc(var(--ripple-mobile-chat-header-height)+8px)] pb-[calc(var(--ripple-mobile-chat-composer-height)+var(--ripple-mobile-keyboard-inset)+12px)] sm:px-4 md:px-5 lg:py-5"
       >
         <div ref={contentRef} className="mx-auto max-w-5xl space-y-2 sm:space-y-5">
           {planSteps.length > 0 && (
@@ -732,34 +758,42 @@ export default function SessionPage({
         )}
       </div>
 
-      <SessionComposer
-        userId={userId}
-        value={input}
-        onChange={onInputChange}
-        onSend={onSend}
-        onStop={onStop}
-        onAttachFiles={onAttachFiles}
-        onRemovePendingFile={onRemovePendingFile}
-        onAddPendingImages={onAddPendingImages}
-        onRemovePendingLocalImage={onRemovePendingLocalImage}
-        pendingFiles={pendingFiles}
-        pendingLocalImages={pendingLocalImages}
-        isUploadingFiles={isUploadingFiles}
-        uploadError={uploadError}
-        isGenerating={isGenerating}
-        isBlocked={isComposerBlocked}
-        hasSession={hasMessages || Boolean(session)}
-        focusToken={focusToken}
-        selectedModel={selectedModel}
-        models={models}
-        isModelDropdownOpen={isModelDropdownOpen}
-        onToggleModelDropdown={onToggleModelDropdown}
-        onSelectModel={onSelectModel}
-        contextFolderPath={effectiveContextFolderPath}
-        workspaceScopeLabel={workspaceScopeLabel}
-        workspaceScopePath={workspaceScopePath}
-        onSelectWorkspaceFolder={onSelectWorkspaceFolder}
-      />
+      <div
+        ref={composerOverlayRef}
+        data-ripple-mobile-composer-overlay="true"
+        style={composerOverlayStyle}
+        className="absolute inset-x-0 bottom-0 z-30 transition-transform duration-150 ease-out lg:static lg:z-auto lg:shrink-0"
+      >
+        <SessionComposer
+          userId={userId}
+          value={input}
+          onChange={onInputChange}
+          onSend={onSend}
+          onStop={onStop}
+          onAttachFiles={onAttachFiles}
+          onRemovePendingFile={onRemovePendingFile}
+          onAddPendingImages={onAddPendingImages}
+          onRemovePendingLocalImage={onRemovePendingLocalImage}
+          pendingFiles={pendingFiles}
+          pendingLocalImages={pendingLocalImages}
+          isUploadingFiles={isUploadingFiles}
+          uploadError={uploadError}
+          isGenerating={isGenerating}
+          isBlocked={isComposerBlocked}
+          hasSession={hasMessages || Boolean(session)}
+          focusToken={focusToken}
+          selectedModel={selectedModel}
+          models={models}
+          isModelDropdownOpen={isModelDropdownOpen}
+          onToggleModelDropdown={onToggleModelDropdown}
+          onSelectModel={onSelectModel}
+          contextFolderPath={effectiveContextFolderPath}
+          workspaceScopeLabel={workspaceScopeLabel}
+          workspaceScopePath={workspaceScopePath}
+          onSelectWorkspaceFolder={onSelectWorkspaceFolder}
+          onFocusStateChange={handleComposerFocusStateChange}
+        />
+      </div>
     </div>
   );
 }

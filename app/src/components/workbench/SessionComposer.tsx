@@ -58,6 +58,7 @@ interface SessionComposerProps {
   workspaceScopeLabel?: string;
   workspaceScopePath?: string;
   onSelectWorkspaceFolder?: (path: string) => void | Promise<void>;
+  onFocusStateChange?: (focused: boolean) => void;
 }
 
 export function shouldExpandComposer(value: string, isComposerFocused: boolean): boolean {
@@ -97,6 +98,7 @@ export default function SessionComposer({
   workspaceScopeLabel,
   workspaceScopePath = "/workspace",
   onSelectWorkspaceFolder,
+  onFocusStateChange,
 }: SessionComposerProps) {
   const { t } = useI18n();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -204,6 +206,7 @@ export default function SessionComposer({
       return;
     }
     setIsComposerFocused(false);
+    onFocusStateChange?.(false);
   };
 
   const toolbarControls = (
@@ -294,7 +297,10 @@ export default function SessionComposer({
       value={value}
       onChange={handleComposerChange}
       onKeyDown={handleKeyDown}
-      onFocus={() => setIsComposerFocused(true)}
+      onFocus={() => {
+        setIsComposerFocused(true);
+        onFocusStateChange?.(true);
+      }}
       onPaste={handlePaste}
       disabled={inputDisabled}
       rows={1}

@@ -73,8 +73,20 @@ function testMobileFileLinkReturnRestoresSessionScroll() {
 function testMobileChatSessionLayoutKeepsComposerPinned() {
   const source = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /\? "relative flex h-full min-h-0 lg:flex"/);
-  assert.match(source, /<div className="h-full min-w-0 flex-1">/);
+  assert.match(source, /import MobileSessionStack/);
+  assert.match(source, /<MobileSessionStack/);
+  assert.match(source, /mode=\{mobileSessionMode\}/);
+  assert.match(source, /list=\{mobileSessionList\}/);
+  assert.match(source, /chat=\{mobileSessionChat\}/);
+  assert.match(source, /onOpenList=\{handleOpenMobileSessionList\}/);
+}
+
+function testDesktopSessionRailStillUsesSeparateLayout() {
+  const source = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /data-ripple-session-layout="desktop"/);
+  assert.match(source, /className="relative hidden h-full min-h-0 lg:flex"/);
+  assert.match(source, /<WorkspaceNav[\s\S]*sessions=\{displayWorkbenchSessions\}/);
 }
 
 function testMobileContentUsesSharedMotionTransitions() {
@@ -167,6 +179,7 @@ testWorkspaceLinksIgnoreSandboxUserInProductSessionAuth();
 testMobileFileLinkRouteCanReturnToChat();
 testMobileFileLinkReturnRestoresSessionScroll();
 testMobileChatSessionLayoutKeepsComposerPinned();
+testDesktopSessionRailStillUsesSeparateLayout();
 testMobileContentUsesSharedMotionTransitions();
 testCurrentSessionListVisibilityUsesRuntimeStatusPresence();
 testDesktopUsesProductTopBarWithSettingsAvatarEntry();

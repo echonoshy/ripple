@@ -22,6 +22,7 @@ import AutomationsPage from "@/components/workbench/AutomationsPage";
 import SkillsPage from "@/components/workbench/SkillsPage";
 import FilesPage from "@/components/workbench/FilesPage";
 import InspectorPanel from "@/components/workbench/InspectorPanel";
+import MobileSessionStack from "@/components/workbench/MobileSessionStack";
 import MobileSessionsPage from "@/components/workbench/MobileSessionsPage";
 import MobileTabBar from "@/components/workbench/MobileTabBar";
 import ProductTopBar from "@/components/workbench/ProductTopBar";
@@ -916,6 +917,67 @@ export default function Home() {
     [updateSessionRailWidth]
   );
 
+  const renderSessionPage = () => (
+    <SessionPage
+      userId={userId}
+      session={selectedWorkbenchSession}
+      messages={messages}
+      timelineEvents={timelineEvents}
+      planProgress={planProgress}
+      planSteps={planSteps}
+      tokenUsage={tokenUsage}
+      lastContextTokens={lastContextTokens}
+      input={input}
+      pendingFiles={pendingFiles}
+      pendingLocalImages={pendingLocalImages}
+      isUploadingFiles={isUploadingFiles}
+      uploadError={attachmentUploadError}
+      isGenerating={selectedSessionIsGenerating}
+      isComposerBlocked={isComposerBlocked}
+      focusToken={inputFocusToken}
+      selectedModel={selectedModel}
+      models={models}
+      isModelDropdownOpen={openModelDropdown === "composer"}
+      sessionId={sessionId}
+      scrollToBottomRequest={sessionScrollToBottomRequest}
+      contextFolderPath={activeContextFolderPath}
+      onSelectWorkspaceFolder={handleSelectChatFolder}
+      onNewSession={handleNewSession}
+      onInputChange={setInput}
+      onAttachFiles={handleAttachFiles}
+      onRemovePendingFile={handleRemovePendingFile}
+      onAddPendingImages={handleAddPendingImages}
+      onRemovePendingLocalImage={handleRemovePendingLocalImage}
+      onToggleModelDropdown={() =>
+        setOpenModelDropdown((open) => (open === "composer" ? null : "composer"))
+      }
+      onSelectModel={handleSelectModel}
+      onSend={handleSendMessage}
+      onStop={handleStop}
+      onQuickReply={handleQuickReply}
+      onPermissionResolve={handlePermissionResolve}
+      onFeishuAuthOpen={handleFeishuAuthOpen}
+      feishuAuthWaiting={feishuAuthWaiting}
+      onBackToMobileSessions={handleOpenMobileSessionList}
+      isInspectorCollapsed={isInspectorCollapsed}
+      restoreScrollTop={mobileSessionRestoreScrollTop}
+      onRestoreScrollComplete={() => setMobileSessionRestoreScrollTop(null)}
+    />
+  );
+  const mobileSessionList = (
+    <MobileSessionsPage
+      sessions={displayWorkbenchSessions}
+      isLoading={isLoadingSessions}
+      sessionLoadError={sessionLoadError}
+      selectedSessionId={sessionId}
+      onNewSession={handleNewSession}
+      onSelectSession={(selectedSessionId) => void handleSelectMobileSession(selectedSessionId)}
+      onDeleteSession={handleDeleteSession}
+      onUpdateSession={updateSessionById}
+    />
+  );
+  const mobileSessionChat = renderSessionPage();
+
   const mainContent =
     activeView === "home" ? (
       <SettingsPage
@@ -951,27 +1013,15 @@ export default function Home() {
       />
     ) : (
       <div className="h-full min-h-0">
-        <div className={mobileSessionMode === "list" ? "h-full lg:hidden" : "hidden"}>
-          <MobileSessionsPage
-            sessions={displayWorkbenchSessions}
-            isLoading={isLoadingSessions}
-            sessionLoadError={sessionLoadError}
-            selectedSessionId={sessionId}
-            onNewSession={handleNewSession}
-            onSelectSession={(selectedSessionId) =>
-              void handleSelectMobileSession(selectedSessionId)
-            }
-            onDeleteSession={handleDeleteSession}
-            onUpdateSession={updateSessionById}
-          />
-        </div>
+        <MobileSessionStack
+          mode={mobileSessionMode}
+          list={mobileSessionList}
+          chat={mobileSessionChat}
+          onOpenList={handleOpenMobileSessionList}
+        />
         <div
           data-ripple-session-layout="desktop"
-          className={
-            mobileSessionMode === "chat"
-              ? "relative flex h-full min-h-0 lg:flex"
-              : "relative hidden h-full min-h-0 lg:flex"
-          }
+          className="relative hidden h-full min-h-0 lg:flex"
         >
           {!isSessionRailCollapsed ? (
             <div
@@ -1020,51 +1070,7 @@ export default function Home() {
             </button>
           )}
           <div className="h-full min-w-0 flex-1">
-            <SessionPage
-              userId={userId}
-              session={selectedWorkbenchSession}
-              messages={messages}
-              timelineEvents={timelineEvents}
-              planProgress={planProgress}
-              planSteps={planSteps}
-              tokenUsage={tokenUsage}
-              lastContextTokens={lastContextTokens}
-              input={input}
-              pendingFiles={pendingFiles}
-              pendingLocalImages={pendingLocalImages}
-              isUploadingFiles={isUploadingFiles}
-              uploadError={attachmentUploadError}
-              isGenerating={selectedSessionIsGenerating}
-              isComposerBlocked={isComposerBlocked}
-              focusToken={inputFocusToken}
-              selectedModel={selectedModel}
-              models={models}
-              isModelDropdownOpen={openModelDropdown === "composer"}
-              sessionId={sessionId}
-              scrollToBottomRequest={sessionScrollToBottomRequest}
-              contextFolderPath={activeContextFolderPath}
-              onSelectWorkspaceFolder={handleSelectChatFolder}
-              onNewSession={handleNewSession}
-              onInputChange={setInput}
-              onAttachFiles={handleAttachFiles}
-              onRemovePendingFile={handleRemovePendingFile}
-              onAddPendingImages={handleAddPendingImages}
-              onRemovePendingLocalImage={handleRemovePendingLocalImage}
-              onToggleModelDropdown={() =>
-                setOpenModelDropdown((open) => (open === "composer" ? null : "composer"))
-              }
-              onSelectModel={handleSelectModel}
-              onSend={handleSendMessage}
-              onStop={handleStop}
-              onQuickReply={handleQuickReply}
-              onPermissionResolve={handlePermissionResolve}
-              onFeishuAuthOpen={handleFeishuAuthOpen}
-              feishuAuthWaiting={feishuAuthWaiting}
-              onBackToMobileSessions={handleOpenMobileSessionList}
-              isInspectorCollapsed={isInspectorCollapsed}
-              restoreScrollTop={mobileSessionRestoreScrollTop}
-              onRestoreScrollComplete={() => setMobileSessionRestoreScrollTop(null)}
-            />
+            {renderSessionPage()}
           </div>
         </div>
       </div>

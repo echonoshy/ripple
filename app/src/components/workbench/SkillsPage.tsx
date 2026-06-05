@@ -192,14 +192,16 @@ const CATEGORY_SUMMARY_KEYS: Record<SkillCategoryGroupId, MessageKey> = {
 };
 
 const SKILLS_CATEGORY_BACK_SWIPE_DESKTOP_MIN_WIDTH_PX = 1024;
-const SKILLS_CATEGORY_BACK_SWIPE_SCROLL_GUARD_DISTANCE_PX = 8;
-const SKILLS_CATEGORY_BACK_SWIPE_SCROLL_GUARD_RATIO = 1.05;
-const SKILLS_CATEGORY_BACK_SWIPE_CLAIM_DISTANCE_PX = 16;
-const SKILLS_CATEGORY_BACK_SWIPE_CLAIM_RATIO = 1.15;
-const SKILLS_CATEGORY_BACK_SWIPE_COMMIT_MAX_PX = 160;
-const SKILLS_CATEGORY_BACK_SWIPE_COMMIT_VIEWPORT_RATIO = 0.38;
-const SKILLS_CATEGORY_BACK_SWIPE_FAST_COMMIT_VELOCITY_PX = 650;
-const SKILLS_CATEGORY_BACK_SWIPE_FAST_COMMIT_DISTANCE_PX = 72;
+const SKILLS_CATEGORY_BACK_SWIPE_SCROLL_GUARD_DISTANCE_PX = 6;
+const SKILLS_CATEGORY_BACK_SWIPE_SCROLL_GUARD_RATIO = 0.8;
+const SKILLS_CATEGORY_BACK_SWIPE_CLAIM_DISTANCE_PX = 10;
+const SKILLS_CATEGORY_BACK_SWIPE_CLAIM_RATIO = 0.85;
+const SKILLS_CATEGORY_BACK_SWIPE_CANCEL_DISTANCE_PX = 22;
+const SKILLS_CATEGORY_BACK_SWIPE_CANCEL_RATIO = 1.45;
+const SKILLS_CATEGORY_BACK_SWIPE_COMMIT_MAX_PX = 112;
+const SKILLS_CATEGORY_BACK_SWIPE_COMMIT_VIEWPORT_RATIO = 0.26;
+const SKILLS_CATEGORY_BACK_SWIPE_FAST_COMMIT_VELOCITY_PX = 320;
+const SKILLS_CATEGORY_BACK_SWIPE_FAST_COMMIT_DISTANCE_PX = 32;
 const SKILLS_CATEGORY_BACK_SWIPE_INTERACTIVE_SELECTOR =
   "a, button, input, textarea, select, summary, [contenteditable='true'], [role='button'], [data-ripple-ignore-skills-swipe]";
 
@@ -272,8 +274,8 @@ export function shouldCancelSkillsCategoryBackSwipe({
 }: SkillsCategoryBackSwipeIntentInput): boolean {
   if (viewportWidth >= SKILLS_CATEGORY_BACK_SWIPE_DESKTOP_MIN_WIDTH_PX) return true;
   const absoluteDeltaY = Math.abs(deltaY);
-  if (absoluteDeltaY < SKILLS_CATEGORY_BACK_SWIPE_CLAIM_DISTANCE_PX) return false;
-  return absoluteDeltaY > Math.abs(deltaX) * SKILLS_CATEGORY_BACK_SWIPE_CLAIM_RATIO;
+  if (absoluteDeltaY < SKILLS_CATEGORY_BACK_SWIPE_CANCEL_DISTANCE_PX) return false;
+  return absoluteDeltaY > Math.abs(deltaX) * SKILLS_CATEGORY_BACK_SWIPE_CANCEL_RATIO;
 }
 
 export function resolveSkillsCategoryBackSwipeRelease({
@@ -729,22 +731,23 @@ function buildSkillCategories(skills: SkillInfo[]): SkillCategorySection[] {
   ]
     .map((section) => {
       const sourceGroups = grouped.get(section.sourceId);
-      const categories = CATEGORY_ORDER.filter((groupId) => section.groups.includes(groupId))
-        .flatMap((groupId) => {
-          const categorySkills = sourceGroups?.get(groupId);
-          if (!categorySkills?.length) return [];
-          const label = CATEGORY_LABELS[groupId];
-          return [
-            {
-              id: `${section.id}:${groupId}`,
-              sourceId: section.sourceId,
-              groupId,
-              label: label.label,
-              labelKey: label.labelKey,
-              skills: sortSkillsForDisplay(categorySkills),
-            },
-          ];
-        });
+      const categories = CATEGORY_ORDER.filter((groupId) =>
+        section.groups.includes(groupId)
+      ).flatMap((groupId) => {
+        const categorySkills = sourceGroups?.get(groupId);
+        if (!categorySkills?.length) return [];
+        const label = CATEGORY_LABELS[groupId];
+        return [
+          {
+            id: `${section.id}:${groupId}`,
+            sourceId: section.sourceId,
+            groupId,
+            label: label.label,
+            labelKey: label.labelKey,
+            skills: sortSkillsForDisplay(categorySkills),
+          },
+        ];
+      });
       return {
         id: section.id,
         sourceId: section.sourceId,
@@ -759,7 +762,9 @@ function skillMatchesStatusFilter(skill: SkillInfo, statusFilter: string): boole
   if (statusFilter === "all") return true;
   if (statusFilter === "enabled") return skill.desired_state === "enabled" || skill.enabled;
   if (statusFilter === "not_enabled") {
-    return skill.user_status === "not_enabled" || (!skill.enabled && skill.desired_state !== "enabled");
+    return (
+      skill.user_status === "not_enabled" || (!skill.enabled && skill.desired_state !== "enabled")
+    );
   }
   return skill.user_status === statusFilter;
 }
@@ -836,15 +841,13 @@ export default function SkillsPage({
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [categoryTransitionDirection, setCategoryTransitionDirection] = useState(0);
   const [isCategorySwipeActive, setIsCategorySwipeActive] = useState(false);
-  const [expandedDescriptionSkillId, setExpandedDescriptionSkillId] = useState<string | null>(
-    null
-  );
+  const [expandedDescriptionSkillId, setExpandedDescriptionSkillId] = useState<string | null>(null);
   const skillsPageScrollRef = useRef<HTMLDivElement | null>(null);
   const categorySwipeDragStateRef = useRef<SkillsCategoryBackSwipeDragState | null>(null);
-  const categorySwipeTouchGuardStateRef =
-    useRef<SkillsCategoryBackSwipeTouchGuardState | null>(null);
-  const categorySwipeScrollLockRef =
-    useRef<SkillsCategoryBackSwipeScrollLockState | null>(null);
+  const categorySwipeTouchGuardStateRef = useRef<SkillsCategoryBackSwipeTouchGuardState | null>(
+    null
+  );
+  const categorySwipeScrollLockRef = useRef<SkillsCategoryBackSwipeScrollLockState | null>(null);
   const categorySwipeAnimationRef = useRef<ReturnType<typeof animate> | null>(null);
   const loadRequestIdRef = useRef(0);
   const connectorLoadRequestIdRef = useRef(0);
@@ -1033,12 +1036,15 @@ export default function SkillsPage({
     categorySwipeX.set(0);
   }, [categorySwipeX, releaseCategorySwipeScrollLock, stopCategorySwipeAnimation]);
 
-  const openCategory = useCallback((categoryId: string) => {
-    resetCategorySwipeState();
-    setCategoryTransitionDirection(1);
-    setExpandedDescriptionSkillId(null);
-    setSelectedCategoryId(categoryId);
-  }, [resetCategorySwipeState]);
+  const openCategory = useCallback(
+    (categoryId: string) => {
+      resetCategorySwipeState();
+      setCategoryTransitionDirection(1);
+      setExpandedDescriptionSkillId(null);
+      setSelectedCategoryId(categoryId);
+    },
+    [resetCategorySwipeState]
+  );
 
   const closeCategory = useCallback(() => {
     resetCategorySwipeState();
@@ -1453,7 +1459,9 @@ export default function SkillsPage({
       >
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-1.5">
-            <h3 className={`truncate ${SKILLS_PAGE_TEXT_PRIMARY_CLASS} ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
+            <h3
+              className={`truncate ${SKILLS_PAGE_TEXT_PRIMARY_CLASS} ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+            >
               {skillTitle(skill)}
             </h3>
             <span
@@ -1652,7 +1660,9 @@ export default function SkillsPage({
           )}
         </div>
         {connectorName === "google_workspace" && googleAccounts.length > 0 && (
-          <div className={`mt-2 divide-y overflow-hidden rounded-lg border ${SKILLS_PAGE_DIVIDER_CLASS}`}>
+          <div
+            className={`mt-2 divide-y overflow-hidden rounded-lg border ${SKILLS_PAGE_DIVIDER_CLASS}`}
+          >
             {googleAccounts.map((account) => {
               const actionKey = `${connectorName}:disconnect:${account.email}`;
               return (
@@ -1724,10 +1734,14 @@ export default function SkillsPage({
         <ChevronRight size={16} className={SKILLS_PAGE_TEXT_TERTIARY_CLASS} />
         <CategoryLogo category={category} status={status} />
         <div className="min-w-0">
-          <div className={`truncate ${SKILLS_PAGE_TEXT_PRIMARY_CLASS} ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
+          <div
+            className={`truncate ${SKILLS_PAGE_TEXT_PRIMARY_CLASS} ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+          >
             {categoryLabel(category)}
           </div>
-          <div className={`mt-1 line-clamp-1 ${SKILLS_PAGE_TEXT_SECONDARY_CLASS} ${TYPOGRAPHY_META_CLASS}`}>
+          <div
+            className={`mt-1 line-clamp-1 ${SKILLS_PAGE_TEXT_SECONDARY_CLASS} ${TYPOGRAPHY_META_CLASS}`}
+          >
             {summary}
           </div>
           <div className={`mt-1 ${SKILLS_PAGE_TEXT_TERTIARY_CLASS} ${TYPOGRAPHY_META_CLASS}`}>
@@ -1755,7 +1769,9 @@ export default function SkillsPage({
     <div data-ripple-skill-category-index="true" className="space-y-3">
       {filteredSections.map((section) => (
         <section key={section.id} className="space-y-2">
-          <div className={`px-0.5 ${SKILLS_PAGE_TEXT_PRIMARY_CLASS} ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
+          <div
+            className={`px-0.5 ${SKILLS_PAGE_TEXT_PRIMARY_CLASS} ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+          >
             {t(section.labelKey)}
           </div>
           <div className="space-y-2">{section.categories.map(renderCategoryRow)}</div>
@@ -1768,6 +1784,89 @@ export default function SkillsPage({
           {t("skills.noResults")}
         </div>
       )}
+    </div>
+  );
+
+  const renderEmptySkillsState = () => (
+    <div
+      className={`flex h-32 items-center justify-center rounded-xl border border-dashed ${SKILLS_PAGE_BORDER_CLASS} bg-white/56 ${SKILLS_PAGE_TEXT_TERTIARY_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
+    >
+      {t("skills.empty")}
+    </div>
+  );
+
+  const renderActionMessage = () => {
+    if (!actionMessage && !actionError) return null;
+    return (
+      <div
+        className={`rounded-lg border px-3 py-2 ${TYPOGRAPHY_META_MEDIUM_CLASS} ${
+          actionError
+            ? "border-[#FDCACA] bg-[#FFF1F0] text-[#B42318]"
+            : "border-[#BACEFD] bg-[#F0F5FF] text-[#1456F0]"
+        }`}
+      >
+        {actionError || actionMessage}
+      </div>
+    );
+  };
+
+  const renderCategoryIndexPage = () => (
+    <div data-ripple-skill-category-index-page="true" className="space-y-2.5">
+      <header className="flex flex-wrap items-start justify-between gap-2">
+        <div className="flex min-w-0 items-start gap-2.5">
+          {onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              aria-label={t("connectors.backToSettings")}
+              title={t("connectors.backToSettings")}
+              className={`${MOBILE_GLASS_ICON_BUTTON_CLASS} mt-0.5 lg:hidden`}
+            >
+              <ArrowLeft size={15} strokeWidth={LUCIDE_NAV_STROKE_WIDTH} />
+            </button>
+          )}
+          <div className="min-w-0">
+            <h1 className={TYPOGRAPHY_PAGE_TITLE_CLASS}>
+              <span className="sm:hidden">{t("skills.title")}</span>
+              <span className="hidden sm:inline">{t("skills.title")}</span>
+            </h1>
+            <div className={`mt-1 ${SKILLS_PAGE_TEXT_TERTIARY_CLASS} ${TYPOGRAPHY_META_CLASS}`}>
+              {t("skills.readyCount", { available: availableCount, total: skills.length })}
+            </div>
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            onClick={openCreateSkillChat}
+            disabled={!onOpenChat}
+            className={SKILL_PRIMARY_ACTION_BUTTON_CLASS}
+            aria-label={t("skills.create")}
+            title={t("skills.create")}
+          >
+            <MessageSquare size={18} />
+            <span className="hidden lg:inline">{t("skills.create")}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => void refreshAll()}
+            disabled={isLoading || isConnectorLoading}
+            title={t("skills.refresh")}
+            aria-label={t("skills.refresh")}
+            className={`${MOBILE_GLASS_ICON_BUTTON_CLASS} shrink-0 disabled:cursor-not-allowed disabled:opacity-60 lg:h-10 lg:w-auto lg:gap-1.5 lg:border-[#DEE0E3] lg:bg-white/82 lg:px-3 lg:shadow-[0_8px_18px_rgba(31,35,41,0.045)] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+          >
+            {isLoading || isConnectorLoading ? (
+              <Loader2 size={18} className="animate-spin" />
+            ) : (
+              <RefreshCw size={18} strokeWidth={LUCIDE_NAV_STROKE_WIDTH} />
+            )}
+            <span className="hidden lg:inline">{t("skills.refresh")}</span>
+          </button>
+        </div>
+      </header>
+      {renderActionMessage()}
+      {renderSearchAndFilters()}
+      {skills.length === 0 ? renderEmptySkillsState() : renderCategoryIndex()}
     </div>
   );
 
@@ -1787,7 +1886,8 @@ export default function SkillsPage({
           <h2 className={TYPOGRAPHY_PAGE_TITLE_CLASS}>{categoryLabel(category)}</h2>
           <div className={`mt-1 ${SKILLS_PAGE_TEXT_TERTIARY_CLASS} ${TYPOGRAPHY_META_CLASS}`}>
             {t("skills.readyCount", {
-              available: category.skills.filter((skill) => skill.user_status === "available").length,
+              available: category.skills.filter((skill) => skill.user_status === "available")
+                .length,
               total: category.skills.length,
             })}
           </div>
@@ -1810,17 +1910,15 @@ export default function SkillsPage({
     </section>
   );
 
+  const renderCategoryDetailPage = (category: SkillCategory) => (
+    <div data-ripple-skill-category-detail-page="true" className="space-y-2.5">
+      {renderActionMessage()}
+      {renderCategoryDetail(category)}
+    </div>
+  );
+
   const renderCategoryStage = () => {
-    if (skills.length === 0) {
-      return (
-        <div
-          className={`flex h-32 items-center justify-center rounded-xl border border-dashed ${SKILLS_PAGE_BORDER_CLASS} bg-white/56 ${SKILLS_PAGE_TEXT_TERTIARY_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
-        >
-          {t("skills.empty")}
-        </div>
-      );
-    }
-    if (!selectedCategory) return renderCategoryIndex();
+    if (!selectedCategory) return renderCategoryIndexPage();
 
     return (
       <div data-ripple-skill-category-swipe-stack="true" className="relative min-w-0">
@@ -1831,7 +1929,7 @@ export default function SkillsPage({
             isCategorySwipeActive ? "opacity-100" : "opacity-0"
           }`}
         >
-          {renderCategoryIndex()}
+          {renderCategoryIndexPage()}
         </div>
         <motion.div
           data-ripple-skill-category-swipe-sheet="true"
@@ -1847,7 +1945,7 @@ export default function SkillsPage({
           onTouchEndCapture={clearCategorySwipeTouchGuard}
           onTouchCancelCapture={clearCategorySwipeTouchGuard}
         >
-          {renderCategoryDetail(selectedCategory)}
+          {renderCategoryDetailPage(selectedCategory)}
         </motion.div>
       </div>
     );
@@ -1859,76 +1957,7 @@ export default function SkillsPage({
       data-ripple-skills-page="true"
       className={`h-full min-h-0 overflow-y-auto ${COMPACT_IOS_PAGE_BACKGROUND} px-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} ${SKILLS_PAGE_TEXT_PRIMARY_CLASS} md:px-6 lg:pb-5`}
     >
-      <div className={`${WORKBENCH_PAGE_CONTENT_CLASS} space-y-2.5`}>
-        {!selectedCategory && (
-          <header className="flex flex-wrap items-start justify-between gap-2">
-            <div className="flex min-w-0 items-start gap-2.5">
-              {onBack && (
-                <button
-                  type="button"
-                  onClick={onBack}
-                  aria-label={t("connectors.backToSettings")}
-                  title={t("connectors.backToSettings")}
-                  className={`${MOBILE_GLASS_ICON_BUTTON_CLASS} mt-0.5 lg:hidden`}
-                >
-                  <ArrowLeft size={15} strokeWidth={LUCIDE_NAV_STROKE_WIDTH} />
-                </button>
-              )}
-              <div className="min-w-0">
-                <h1 className={TYPOGRAPHY_PAGE_TITLE_CLASS}>
-                  <span className="sm:hidden">{t("skills.title")}</span>
-                  <span className="hidden sm:inline">{t("skills.title")}</span>
-                </h1>
-                <div className={`mt-1 ${SKILLS_PAGE_TEXT_TERTIARY_CLASS} ${TYPOGRAPHY_META_CLASS}`}>
-                  {t("skills.readyCount", { available: availableCount, total: skills.length })}
-                </div>
-              </div>
-            </div>
-            <div className="flex shrink-0 items-center gap-1.5">
-              <button
-                type="button"
-                onClick={openCreateSkillChat}
-                disabled={!onOpenChat}
-                className={SKILL_PRIMARY_ACTION_BUTTON_CLASS}
-                aria-label={t("skills.create")}
-                title={t("skills.create")}
-              >
-                <MessageSquare size={18} />
-                <span className="hidden lg:inline">{t("skills.create")}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => void refreshAll()}
-                disabled={isLoading || isConnectorLoading}
-                title={t("skills.refresh")}
-                aria-label={t("skills.refresh")}
-                className={`${MOBILE_GLASS_ICON_BUTTON_CLASS} shrink-0 disabled:cursor-not-allowed disabled:opacity-60 lg:h-10 lg:w-auto lg:gap-1.5 lg:border-[#DEE0E3] lg:bg-white/82 lg:px-3 lg:shadow-[0_8px_18px_rgba(31,35,41,0.045)] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-              >
-                {isLoading || isConnectorLoading ? (
-                  <Loader2 size={18} className="animate-spin" />
-                ) : (
-                  <RefreshCw size={18} strokeWidth={LUCIDE_NAV_STROKE_WIDTH} />
-                )}
-                <span className="hidden lg:inline">{t("skills.refresh")}</span>
-              </button>
-            </div>
-          </header>
-        )}
-
-        {(actionMessage || actionError) && (
-          <div
-            className={`rounded-lg border px-3 py-2 ${TYPOGRAPHY_META_MEDIUM_CLASS} ${
-              actionError
-                ? "border-[#FDCACA] bg-[#FFF1F0] text-[#B42318]"
-                : "border-[#BACEFD] bg-[#F0F5FF] text-[#1456F0]"
-            }`}
-          >
-            {actionError || actionMessage}
-          </div>
-        )}
-
-        {renderSearchAndFilters()}
-
+      <div className={WORKBENCH_PAGE_CONTENT_CLASS}>
         <AnimatePresence mode="wait" initial={false} custom={categoryTransitionDirection}>
           <motion.div
             key={selectedCategory ? `detail:${selectedCategory.id}` : "index"}

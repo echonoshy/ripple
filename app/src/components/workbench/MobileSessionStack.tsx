@@ -2,7 +2,11 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { animate, motion, useMotionValue, useReducedMotion } from "framer-motion";
-import { mobilePageTransition, reducedMotionTransition, swipeSnapTransition } from "./motionPrimitives";
+import {
+  mobilePageTransition,
+  reducedMotionTransition,
+  swipeSnapTransition,
+} from "./motionPrimitives";
 
 type MobileSessionStackMode = "list" | "chat";
 
@@ -60,14 +64,16 @@ interface TouchGuardState {
 }
 
 const MOBILE_SESSION_STACK_DESKTOP_MIN_WIDTH_PX = 1024;
-const MOBILE_SESSION_STACK_SCROLL_GUARD_DISTANCE_PX = 8;
-const MOBILE_SESSION_STACK_SCROLL_GUARD_RATIO = 1.05;
-const MOBILE_SESSION_STACK_CLAIM_DISTANCE_PX = 16;
-const MOBILE_SESSION_STACK_CLAIM_RATIO = 1.15;
-const MOBILE_SESSION_STACK_COMMIT_MAX_PX = 160;
-const MOBILE_SESSION_STACK_COMMIT_VIEWPORT_RATIO = 0.38;
-const MOBILE_SESSION_STACK_FAST_COMMIT_VELOCITY_PX = 650;
-const MOBILE_SESSION_STACK_FAST_COMMIT_DISTANCE_PX = 72;
+const MOBILE_SESSION_STACK_SCROLL_GUARD_DISTANCE_PX = 6;
+const MOBILE_SESSION_STACK_SCROLL_GUARD_RATIO = 0.8;
+const MOBILE_SESSION_STACK_CLAIM_DISTANCE_PX = 10;
+const MOBILE_SESSION_STACK_CLAIM_RATIO = 0.85;
+const MOBILE_SESSION_STACK_CANCEL_DISTANCE_PX = 22;
+const MOBILE_SESSION_STACK_CANCEL_RATIO = 1.45;
+const MOBILE_SESSION_STACK_COMMIT_MAX_PX = 112;
+const MOBILE_SESSION_STACK_COMMIT_VIEWPORT_RATIO = 0.26;
+const MOBILE_SESSION_STACK_FAST_COMMIT_VELOCITY_PX = 320;
+const MOBILE_SESSION_STACK_FAST_COMMIT_DISTANCE_PX = 32;
 
 export const MOBILE_SESSION_STACK_INTERACTIVE_SELECTOR =
   "a, button, input, textarea, select, summary, [contenteditable='true'], [role='button'], [data-ripple-ignore-chat-swipe]";
@@ -138,8 +144,8 @@ export function shouldCancelMobileSessionDrawer({
 }: DrawerIntentInput): boolean {
   if (viewportWidth >= MOBILE_SESSION_STACK_DESKTOP_MIN_WIDTH_PX) return true;
   const absoluteDeltaY = Math.abs(deltaY);
-  if (absoluteDeltaY < MOBILE_SESSION_STACK_CLAIM_DISTANCE_PX) return false;
-  return absoluteDeltaY > Math.abs(deltaX) * MOBILE_SESSION_STACK_CLAIM_RATIO;
+  if (absoluteDeltaY < MOBILE_SESSION_STACK_CANCEL_DISTANCE_PX) return false;
+  return absoluteDeltaY > Math.abs(deltaX) * MOBILE_SESSION_STACK_CANCEL_RATIO;
 }
 
 export function resolveMobileSessionDrawerRelease({
@@ -204,14 +210,12 @@ export default function MobileSessionStack({
         target === 0 ? swipeSnapTransition : mobilePageTransition
       );
       activeSheetAnimationRef.current = animation;
-      void animation.then(
-        () => {
-          if (activeSheetAnimationRef.current === animation) {
-            activeSheetAnimationRef.current = null;
-          }
-          onComplete?.();
+      void animation.then(() => {
+        if (activeSheetAnimationRef.current === animation) {
+          activeSheetAnimationRef.current = null;
         }
-      );
+        onComplete?.();
+      });
     },
     [reduceMotion, sheetX, stopSheetAnimation]
   );

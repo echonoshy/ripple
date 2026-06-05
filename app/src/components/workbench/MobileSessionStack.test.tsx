@@ -32,7 +32,7 @@ function renderStack(mode: "list" | "chat" = "chat") {
 function testClaimRequiresHorizontalIntentAcrossChatSurface() {
   assert.equal(
     shouldClaimMobileSessionDrawer({
-      deltaX: 16,
+      deltaX: 10,
       deltaY: 0,
       viewportWidth: 390,
     }),
@@ -40,7 +40,15 @@ function testClaimRequiresHorizontalIntentAcrossChatSurface() {
   );
   assert.equal(
     shouldClaimMobileSessionDrawer({
-      deltaX: 20,
+      deltaX: 24,
+      deltaY: 24,
+      viewportWidth: 390,
+    }),
+    true
+  );
+  assert.equal(
+    shouldClaimMobileSessionDrawer({
+      deltaX: 16,
       deltaY: 30,
       viewportWidth: 390,
     }),
@@ -67,6 +75,14 @@ function testVerticalIntentCancelsDrawerGesture() {
   );
   assert.equal(
     shouldCancelMobileSessionDrawer({
+      deltaX: 14,
+      deltaY: 20,
+      viewportWidth: 390,
+    }),
+    false
+  );
+  assert.equal(
+    shouldCancelMobileSessionDrawer({
       deltaX: 30,
       deltaY: 20,
       viewportWidth: 390,
@@ -80,8 +96,8 @@ function testVerticalIntentCancelsDrawerGesture() {
 function testHorizontalIntentGuardsScrollBeforeDrawerClaim() {
   assert.equal(
     shouldGuardMobileSessionDrawerScroll({
-      deltaX: 8,
-      deltaY: 3,
+      deltaX: 6,
+      deltaY: 5,
       viewportWidth: 390,
     }),
     true
@@ -135,8 +151,9 @@ function testTouchScrollGuardLocksTimelineBeforeDrawerClaim() {
 
 function testNewSwipeStopsInFlightSheetAnimation() {
   const pointerDownBlock =
-    mobileSessionStackSource.match(/const handlePointerDown[\s\S]*?\},\s*\[mode[\s\S]*?\]\s*\);/)?.[0] ||
-    "";
+    mobileSessionStackSource.match(
+      /const handlePointerDown[\s\S]*?\},\s*\[mode[\s\S]*?\]\s*\);/
+    )?.[0] || "";
 
   assert.match(mobileSessionStackSource, /activeSheetAnimationRef/);
   assert.match(pointerDownBlock, /stopSheetAnimation\(\)/);
@@ -145,7 +162,7 @@ function testNewSwipeStopsInFlightSheetAnimation() {
 function testReleaseCommitAndCancelThresholds() {
   assert.equal(
     resolveMobileSessionDrawerRelease({
-      x: 149,
+      x: 104,
       velocityX: 0,
       viewportWidth: 390,
     }).shouldOpenList,
@@ -153,15 +170,15 @@ function testReleaseCommitAndCancelThresholds() {
   );
   assert.equal(
     resolveMobileSessionDrawerRelease({
-      x: 72,
-      velocityX: 650,
+      x: 32,
+      velocityX: 320,
       viewportWidth: 390,
     }).shouldOpenList,
     true
   );
   assert.equal(
     resolveMobileSessionDrawerRelease({
-      x: 71,
+      x: 31,
       velocityX: 900,
       viewportWidth: 390,
     }).shouldOpenList,
@@ -169,7 +186,7 @@ function testReleaseCommitAndCancelThresholds() {
   );
   assert.equal(
     resolveMobileSessionDrawerRelease({
-      x: 120,
+      x: 96,
       velocityX: 0,
       viewportWidth: 430,
     }).shouldOpenList,

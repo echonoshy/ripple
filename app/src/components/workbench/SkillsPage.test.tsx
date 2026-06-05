@@ -177,10 +177,7 @@ function testSkillsPageAnimatesCategoryDrillInBothLayouts() {
   );
   assert.match(source, /categoryTransitionDirection/);
   assert.match(source, /data-ripple-skill-category-motion-stage/);
-  assert.match(
-    source,
-    /key=\{selectedCategory \? `detail:\$\{selectedCategory\.id\}` : "index"\}/
-  );
+  assert.match(source, /key=\{selectedCategory \? `detail:\$\{selectedCategory\.id\}` : "index"\}/);
   assert.match(source, /custom=\{categoryTransitionDirection\}/);
   assert.match(source, /reducedMobilePageVariants/);
   assert.match(source, /mobilePageVariants/);
@@ -193,16 +190,24 @@ function testSkillsCategoryDetailSupportsSwipeBackGesture() {
 
   assert.equal(
     shouldGuardSkillsCategoryBackSwipeScroll({
-      deltaX: 8,
-      deltaY: 3,
+      deltaX: 6,
+      deltaY: 5,
       viewportWidth: 390,
     }),
     true
   );
   assert.equal(
     shouldClaimSkillsCategoryBackSwipe({
-      deltaX: 16,
+      deltaX: 10,
       deltaY: 0,
+      viewportWidth: 390,
+    }),
+    true
+  );
+  assert.equal(
+    shouldClaimSkillsCategoryBackSwipe({
+      deltaX: 24,
+      deltaY: 24,
       viewportWidth: 390,
     }),
     true
@@ -216,8 +221,16 @@ function testSkillsCategoryDetailSupportsSwipeBackGesture() {
     true
   );
   assert.equal(
+    shouldCancelSkillsCategoryBackSwipe({
+      deltaX: 14,
+      deltaY: 20,
+      viewportWidth: 390,
+    }),
+    false
+  );
+  assert.equal(
     resolveSkillsCategoryBackSwipeRelease({
-      x: 149,
+      x: 104,
       velocityX: 0,
       viewportWidth: 390,
     }).shouldCloseCategory,
@@ -225,8 +238,8 @@ function testSkillsCategoryDetailSupportsSwipeBackGesture() {
   );
   assert.equal(
     resolveSkillsCategoryBackSwipeRelease({
-      x: 72,
-      velocityX: 650,
+      x: 32,
+      velocityX: 320,
       viewportWidth: 390,
     }).shouldCloseCategory,
     true
@@ -249,6 +262,18 @@ function testSkillsCategoryDetailSupportsSwipeBackGesture() {
 }
 
 testSkillsCategoryDetailSupportsSwipeBackGesture();
+
+function testSkillsCategoryDetailIsFullMobileSubpage() {
+  const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /data-ripple-skill-category-index-page="true"/);
+  assert.match(source, /data-ripple-skill-category-detail-page="true"/);
+  assert.match(source, /renderCategoryIndexPage/);
+  assert.match(source, /renderCategoryDetailPage/);
+  assert.doesNotMatch(source, /\{renderSearchAndFilters\(\)\}\s*<AnimatePresence/);
+}
+
+testSkillsCategoryDetailIsFullMobileSubpage();
 
 function testSkillsPageUsesPlainGeneralGroupLabels() {
   const i18n = readFileSync(new URL("../../i18n/index.tsx", import.meta.url), "utf8");
@@ -301,7 +326,10 @@ function testSkillsPageEditSkillOpensScopedChatPrompt() {
   assert.match(source, /id: skill\.id/);
   assert.match(source, /directory: skillEditDirectory\(skill\)/);
   assert.doesNotMatch(source, /path: skill\.path/);
-  assert.doesNotMatch(source, /type="button"\n\s+disabled\n\s+className=\{`\$\{SKILL_ACTION_BUTTON_CLASS\} text/);
+  assert.doesNotMatch(
+    source,
+    /type="button"\n\s+disabled\n\s+className=\{`\$\{SKILL_ACTION_BUTTON_CLASS\} text/
+  );
   assert.match(i18n, /workspace-relative directory/);
   assert.match(i18n, /workspace 相对目录/);
   assert.doesNotMatch(i18n, /path: \{path\}/);

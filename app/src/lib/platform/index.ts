@@ -5,6 +5,12 @@ interface TauriWindow extends Window {
   __TAURI_INTERNALS__?: unknown;
 }
 
+interface AndroidGestureWindow extends Window {
+  RippleAndroidGesture?: {
+    setChatBackGestureEnabled?: (enabled: boolean) => void;
+  };
+}
+
 export interface OpenExternalResult {
   opened: boolean;
   popup: Window | null;
@@ -44,6 +50,19 @@ export async function openExternalUrl(
 
   const popup = window.open(nextHref, target, "noopener,noreferrer");
   return { opened: Boolean(popup), popup };
+}
+
+export function setAndroidChatBackGestureEnabled(enabled: boolean): void {
+  if (!isTauriRuntime() || typeof window === "undefined") return;
+
+  const bridge = (window as AndroidGestureWindow).RippleAndroidGesture;
+  if (typeof bridge?.setChatBackGestureEnabled !== "function") return;
+
+  try {
+    bridge.setChatBackGestureEnabled(enabled);
+  } catch (error) {
+    console.warn("Failed to update Android chat back gesture exclusion:", error);
+  }
 }
 
 export function saveBlobAsDownload(blob: Blob, filename: string): void {

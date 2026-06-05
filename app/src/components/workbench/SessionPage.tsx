@@ -101,6 +101,7 @@ function shouldClaimMobileSessionBackSwipe({
   viewportWidth,
 }: MobileChatSwipeIntent): boolean {
   if (viewportWidth >= MOBILE_CHAT_DESKTOP_MIN_WIDTH_PX) return false;
+  if (startX > MOBILE_CHAT_SWIPE_EDGE_PX) return false;
 
   const horizontalDistance = endX - startX;
   const verticalDistance = Math.abs(endY - startY);
@@ -120,6 +121,17 @@ function isInteractiveMobileChatSwipeTarget(target: EventTarget | null): boolean
 
 function currentTimeMs(): number {
   return typeof performance === "undefined" ? Date.now() : performance.now();
+}
+
+export function sessionTimelineBottomScrollTop({
+  scrollHeight,
+  clientHeight,
+}: {
+  scrollHeight: number;
+  clientHeight: number;
+}): number | null {
+  const maxScrollTop = Math.max(0, scrollHeight - clientHeight);
+  return maxScrollTop > 0 ? maxScrollTop : null;
 }
 
 function formatCompactTokenCount(value: number): string {
@@ -303,7 +315,12 @@ export default function SessionPage({
   const scrollToBottom = useCallback(() => {
     const scrollContainer = scrollContainerRef.current;
     if (!scrollContainer) return;
-    scrollContainer.scrollTop = scrollContainer.scrollHeight;
+    const nextScrollTop = sessionTimelineBottomScrollTop({
+      scrollHeight: scrollContainer.scrollHeight,
+      clientHeight: scrollContainer.clientHeight,
+    });
+    if (nextScrollTop === null) return;
+    scrollContainer.scrollTop = nextScrollTop;
   }, []);
 
   const shouldKeepStickingToBottom = useCallback(

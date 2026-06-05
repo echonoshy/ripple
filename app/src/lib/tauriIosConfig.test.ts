@@ -44,6 +44,10 @@ const androidGradle = readFileSync(
   new URL("../../src-tauri/gen/android/app/build.gradle.kts", import.meta.url),
   "utf8"
 );
+const androidMainActivity = readFileSync(
+  new URL("../../src-tauri/gen/android/app/src/main/java/ai/viaim/ripple/MainActivity.kt", import.meta.url),
+  "utf8"
+);
 const mainCapability = JSON.parse(
   readFileSync(new URL("../../src-tauri/capabilities/main.json", import.meta.url), "utf8")
 ) as { permissions: string[] };
@@ -157,5 +161,18 @@ function testAndroidTargetHasBeenInitialized() {
 }
 
 testAndroidTargetHasBeenInitialized();
+
+function testAndroidMainActivityExposesChatBackGestureExclusionBridge() {
+  assert.match(androidMainActivity, /override fun onWebViewCreate\(webView: WebView\)/);
+  assert.match(androidMainActivity, /addJavascriptInterface\(RippleAndroidGestureBridge\(\), "RippleAndroidGesture"\)/);
+  assert.match(androidMainActivity, /@JavascriptInterface/);
+  assert.match(androidMainActivity, /fun setChatBackGestureEnabled\(enabled: Boolean\)/);
+  assert.match(androidMainActivity, /runOnUiThread/);
+  assert.match(androidMainActivity, /Build\.VERSION\.SDK_INT < Build\.VERSION_CODES\.Q/);
+  assert.match(androidMainActivity, /systemGestureExclusionRects/);
+  assert.match(androidMainActivity, /Rect\(0, 0, width, webView\.height\)/);
+}
+
+testAndroidMainActivityExposesChatBackGestureExclusionBridge();
 
 console.log("tauri mobile config tests passed");

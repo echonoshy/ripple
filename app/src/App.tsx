@@ -63,9 +63,11 @@ import {
   selectPreferredModel,
   setStoredDefaultModel,
 } from "@/lib/modelPreference";
+import { setAndroidChatBackGestureEnabled } from "@/lib/platform";
 import { useI18n } from "@/i18n";
 
 const WORKSPACE_ROOT_PATH = "/workspace";
+const ANDROID_CHAT_BACK_GESTURE_DESKTOP_MIN_WIDTH_PX = 1024;
 const SESSION_RAIL_WIDTH_STORAGE_KEY = "ripple.workbench.sessionRailWidth";
 const SESSION_RAIL_COLLAPSED_STORAGE_KEY = "ripple.workbench.sessionRailCollapsed";
 const SESSION_RAIL_DEFAULT_WIDTH = 300;
@@ -717,6 +719,27 @@ export default function Home() {
     },
     [handleSwitchSession]
   );
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const updateAndroidChatBackGesture = () => {
+      const shouldEnable =
+        authState === "authenticated" &&
+        activeView === "sessions" &&
+        mobileSessionMode === "chat" &&
+        window.innerWidth < ANDROID_CHAT_BACK_GESTURE_DESKTOP_MIN_WIDTH_PX;
+      setAndroidChatBackGestureEnabled(shouldEnable);
+    };
+
+    updateAndroidChatBackGesture();
+    window.addEventListener("resize", updateAndroidChatBackGesture);
+
+    return () => {
+      window.removeEventListener("resize", updateAndroidChatBackGesture);
+      setAndroidChatBackGestureEnabled(false);
+    };
+  }, [activeView, authState, mobileSessionMode]);
+
   const selectedSessionIsGenerating = Boolean(sessionId && runningSessionIds.includes(sessionId));
   const selectedSessionRuntimeStatus =
     currentSessionRuntimeStatus && sessionId ? currentSessionRuntimeStatus : null;

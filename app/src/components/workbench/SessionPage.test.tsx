@@ -4,7 +4,10 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { I18nProvider, type LocalePreference } from "@/i18n";
-import SessionPage, { shouldTriggerMobileSessionBackSwipe } from "./SessionPage";
+import SessionPage, {
+  sessionTimelineBottomScrollTop,
+  shouldTriggerMobileSessionBackSwipe,
+} from "./SessionPage";
 import type { UsageInfo, WorkbenchSessionSummary } from "@/types";
 
 const sessionPageSource = readFileSync(new URL("./SessionPage.tsx", import.meta.url), "utf8");
@@ -355,10 +358,35 @@ function testSessionSwitchScrollsToBottomWithoutSmoothAnimation() {
   const sessionSwitchEffect = sessionAutoScrollEffectSource();
 
   assert.match(sessionSwitchEffect, /sessionChanged/);
-  assert.match(sessionPageSource, /scrollContainer\.scrollTop = scrollContainer\.scrollHeight/);
+  assert.match(sessionPageSource, /sessionTimelineBottomScrollTop/);
+  assert.match(sessionPageSource, /scrollContainer\.scrollTop = nextScrollTop/);
   assert.doesNotMatch(sessionPageSource, /scrollIntoView/);
   assert.doesNotMatch(sessionPageSource, /bottomAnchorRef/);
   assert.doesNotMatch(sessionPageSource, /scrollActivationKey/);
+}
+
+function testShortTimelineDoesNotWriteScrollTop() {
+  assert.equal(
+    sessionTimelineBottomScrollTop({
+      scrollHeight: 320,
+      clientHeight: 480,
+    }),
+    null
+  );
+  assert.equal(
+    sessionTimelineBottomScrollTop({
+      scrollHeight: 480,
+      clientHeight: 480,
+    }),
+    null
+  );
+  assert.equal(
+    sessionTimelineBottomScrollTop({
+      scrollHeight: 960,
+      clientHeight: 480,
+    }),
+    480
+  );
 }
 
 function testAutoScrollEffectUsesStableTimelineKey() {
@@ -410,6 +438,16 @@ function testSessionPageCanRestorePreviousScrollPosition() {
 }
 
 function testMobileRightSwipeCanReturnToSessionList() {
+  assert.equal(
+    shouldTriggerMobileSessionBackSwipe({
+      startX: 0,
+      startY: 220,
+      endX: 90,
+      endY: 230,
+      viewportWidth: 390,
+    }),
+    true
+  );
   assert.equal(
     shouldTriggerMobileSessionBackSwipe({
       startX: 12,
@@ -465,6 +503,7 @@ function testMobileRightSwipeCanReturnToSessionList() {
 function testSessionPageWiresMobileSwipeGesture() {
   assert.match(sessionPageSource, /data-ripple-mobile-chat-swipe/);
   assert.match(sessionPageSource, /touch-pan-y/);
+  assert.doesNotMatch(sessionPageSource, /MOBILE_CHAT_SWIPE_SYSTEM_EDGE_GUARD_PX/);
   assert.match(sessionPageSource, /handleMobileChatPointerDown/);
   assert.match(sessionPageSource, /handleMobileChatPointerMove/);
   assert.match(sessionPageSource, /event\.preventDefault\(\)/);
@@ -489,6 +528,7 @@ testContextWarningUsesReportedModelWindow();
 testContextWarningWaitsForModelWindow();
 testTokenBadgeOmitsContextWhenUnavailable();
 testSessionSwitchScrollsToBottomWithoutSmoothAnimation();
+testShortTimelineDoesNotWriteScrollTop();
 testAutoScrollEffectUsesStableTimelineKey();
 testResizeObserverKeepsSessionSwitchPinnedToBottom();
 testUserScrollCancelsSessionSwitchStickyBottom();

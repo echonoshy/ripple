@@ -194,6 +194,24 @@ function testSkillsCategoryDetailSupportsSwipeBackGesture() {
       deltaY: 5,
       viewportWidth: 390,
     }),
+    false
+  );
+  assert.equal(
+    shouldGuardSkillsCategoryBackSwipeScroll({
+      startX: 4,
+      deltaX: 4,
+      deltaY: 5,
+      viewportWidth: 390,
+    }),
+    true
+  );
+  assert.equal(
+    shouldClaimSkillsCategoryBackSwipe({
+      startX: 4,
+      deltaX: 4,
+      deltaY: 0,
+      viewportWidth: 390,
+    }),
     true
   );
   assert.equal(
@@ -230,7 +248,7 @@ function testSkillsCategoryDetailSupportsSwipeBackGesture() {
   );
   assert.equal(
     resolveSkillsCategoryBackSwipeRelease({
-      x: 104,
+      x: 72,
       velocityX: 0,
       viewportWidth: 390,
     }).shouldCloseCategory,
@@ -238,8 +256,8 @@ function testSkillsCategoryDetailSupportsSwipeBackGesture() {
   );
   assert.equal(
     resolveSkillsCategoryBackSwipeRelease({
-      x: 32,
-      velocityX: 320,
+      x: 24,
+      velocityX: 260,
       viewportWidth: 390,
     }).shouldCloseCategory,
     true

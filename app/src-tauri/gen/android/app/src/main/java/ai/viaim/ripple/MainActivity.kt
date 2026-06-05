@@ -12,7 +12,7 @@ class MainActivity : TauriActivity() {
   private var rippleWebView: WebView? = null
   private var chatBackGestureEnabled = false
   private val chatBackGestureExclusionWidthPx: Int
-    get() = (96 * resources.displayMetrics.density).toInt()
+    get() = (32 * resources.displayMetrics.density).toInt()
   private val chatBackGestureLayoutListener =
     View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
       updateChatBackGestureExclusion()

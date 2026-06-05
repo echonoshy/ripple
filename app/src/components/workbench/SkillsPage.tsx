@@ -125,6 +125,7 @@ interface SkillCategorySection {
 }
 
 interface SkillsCategoryBackSwipeIntentInput {
+  startX?: number;
   deltaX: number;
   deltaY: number;
   viewportWidth: number;
@@ -243,19 +244,21 @@ function releaseSkillsCategoryBackSwipeScrollLock(
 }
 
 export function shouldGuardSkillsCategoryBackSwipeScroll({
+  startX,
   deltaX,
   deltaY,
   viewportWidth,
 }: SkillsCategoryBackSwipeIntentInput): boolean {
-  return shouldGuardMobileSwipeBackScroll({ deltaX, deltaY, viewportWidth });
+  return shouldGuardMobileSwipeBackScroll({ startX, deltaX, deltaY, viewportWidth });
 }
 
 export function shouldClaimSkillsCategoryBackSwipe({
+  startX,
   deltaX,
   deltaY,
   viewportWidth,
 }: SkillsCategoryBackSwipeIntentInput): boolean {
-  return shouldClaimMobileSwipeBack({ deltaX, deltaY, viewportWidth });
+  return shouldClaimMobileSwipeBack({ startX, deltaX, deltaY, viewportWidth });
 }
 
 export function shouldCancelSkillsCategoryBackSwipe({
@@ -1096,6 +1099,7 @@ export default function SkillsPage({
       if (
         !dragState.claimed &&
         shouldCancelSkillsCategoryBackSwipe({
+          startX: dragState.startX,
           deltaX,
           deltaY,
           viewportWidth: dragState.viewportWidth,
@@ -1109,6 +1113,7 @@ export default function SkillsPage({
       if (
         !dragState.claimed &&
         shouldClaimSkillsCategoryBackSwipe({
+          startX: dragState.startX,
           deltaX,
           deltaY,
           viewportWidth: dragState.viewportWidth,
@@ -1231,6 +1236,7 @@ export default function SkillsPage({
       if (
         !guardState.isGuarding &&
         shouldCancelSkillsCategoryBackSwipe({
+          startX: guardState.startX,
           deltaX,
           deltaY,
           viewportWidth: guardState.viewportWidth,
@@ -1244,6 +1250,7 @@ export default function SkillsPage({
       if (
         guardState.isGuarding ||
         shouldGuardSkillsCategoryBackSwipeScroll({
+          startX: guardState.startX,
           deltaX,
           deltaY,
           viewportWidth: guardState.viewportWidth,

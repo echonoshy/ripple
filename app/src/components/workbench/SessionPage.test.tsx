@@ -5,9 +5,13 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { I18nProvider, type LocalePreference } from "@/i18n";
 import SessionPage, {
+  composerFocusedRestoreScrollTop,
   getVisualViewportKeyboardInset,
+  reservedMobileComposerHeight,
   sessionTimelineBottomScrollTop,
   shouldHideMobileChatHeaderOnScroll,
+  shouldRevealTokenFooterOnUsageChange,
+  shouldSuppressTimelineAutoScroll,
 } from "./SessionPage";
 import type { Message, UsageInfo, WorkbenchSessionSummary } from "@/types";
 
@@ -418,6 +422,19 @@ function testAutoScrollEffectUsesStableTimelineKey() {
   assert.doesNotMatch(dependencies, /\btimelineEvents\b/);
 }
 
+function testGeneratingFlagUpdatesBeforeAutoScrollLayoutEffect() {
+  const generatingRefEffectIndex = sessionPageSource.indexOf(
+    "useLayoutEffect(() => {\n    isGeneratingRef.current = isGenerating;"
+  );
+  const autoScrollEffectIndex = sessionPageSource.indexOf(
+    "useLayoutEffect(() => {\n    if (!shouldKeepStickingToBottom()) return;"
+  );
+
+  assert.notEqual(generatingRefEffectIndex, -1);
+  assert.notEqual(autoScrollEffectIndex, -1);
+  assert.ok(generatingRefEffectIndex < autoScrollEffectIndex);
+}
+
 function testResizeObserverKeepsSessionSwitchPinnedToBottom() {
   assert.match(sessionPageSource, /STICK_TO_BOTTOM_MS/);
   assert.match(sessionPageSource, /stickToBottomUntilRef/);
@@ -481,6 +498,16 @@ function testExplicitSessionSelectionTriggersStickyBottom() {
   assert.match(sessionPageSource, /startStickToBottom\(\)/);
 }
 
+function testComposerSendStartsStickyBottomBeforeSending() {
+  const handleComposerSendBlock =
+    sessionPageSource.match(
+      /const handleComposerSend = useCallback\(\(\) => \{[\s\S]*?\}, \[[^\]]+\]\);/
+    )?.[0] || "";
+
+  assert.match(handleComposerSendBlock, /startStickToBottom\(\);[\s\S]*onSend\(\);/);
+  assert.match(sessionPageSource, /onSend=\{handleComposerSend\}/);
+}
+
 function testSessionPageCanRestorePreviousScrollPosition() {
   assert.match(sessionPageSource, /restoreScrollTop\?: number \| null/);
   assert.match(sessionPageSource, /onRestoreScrollComplete\?: \(\) => void/);
@@ -522,6 +549,33 @@ function testComposerFocusSuppressesTimelineAutoScroll() {
   assert.match(sessionPageSource, /onFocusStateChange=\{handleComposerFocusStateChange\}/);
 }
 
+function testComposerFocusDoesNotSuppressRunAutoScroll() {
+  assert.equal(
+    shouldSuppressTimelineAutoScroll({
+      isComposerFocused: true,
+      isGenerating: true,
+      isWithinStickyBottomWindow: false,
+    }),
+    false
+  );
+  assert.equal(
+    shouldSuppressTimelineAutoScroll({
+      isComposerFocused: true,
+      isGenerating: false,
+      isWithinStickyBottomWindow: true,
+    }),
+    false
+  );
+  assert.equal(
+    shouldSuppressTimelineAutoScroll({
+      isComposerFocused: true,
+      isGenerating: false,
+      isWithinStickyBottomWindow: false,
+    }),
+    true
+  );
+}
+
 function testComposerFocusDoesNotTrackKeyboardMovedScrollTop() {
   const handleScrollBlock =
     sessionPageSource.match(
@@ -532,6 +586,96 @@ function testComposerFocusDoesNotTrackKeyboardMovedScrollTop() {
   assert.doesNotMatch(
     handleScrollBlock,
     /composerFocusedScrollTopRef\.current = scrollContainer\.scrollTop/
+  );
+}
+
+function testComposerFocusRestoreAccountsForExpandedComposerHeight() {
+  assert.equal(
+    composerFocusedRestoreScrollTop({
+      focusedScrollTop: 620,
+      focusedComposerHeight: 96,
+      currentComposerHeight: 220,
+      scrollHeight: 1600,
+      clientHeight: 720,
+    }),
+    744
+  );
+  assert.equal(
+    composerFocusedRestoreScrollTop({
+      focusedScrollTop: 930,
+      focusedComposerHeight: 96,
+      currentComposerHeight: 260,
+      scrollHeight: 1600,
+      clientHeight: 720,
+    }),
+    880
+  );
+  assert.equal(
+    composerFocusedRestoreScrollTop({
+      focusedScrollTop: 24,
+      focusedComposerHeight: 180,
+      currentComposerHeight: 96,
+      scrollHeight: 1600,
+      clientHeight: 720,
+    }),
+    0
+  );
+}
+
+function testTokenUsageIncreaseRevealsFooter() {
+  assert.equal(
+    shouldRevealTokenFooterOnUsageChange({
+      previousTotalTokens: 0,
+      nextTotalTokens: 1200,
+    }),
+    true
+  );
+  assert.equal(
+    shouldRevealTokenFooterOnUsageChange({
+      previousTotalTokens: 1200,
+      nextTotalTokens: 1200,
+    }),
+    false
+  );
+  assert.equal(
+    shouldRevealTokenFooterOnUsageChange({
+      previousTotalTokens: 1200,
+      nextTotalTokens: 300,
+    }),
+    false
+  );
+
+  assert.match(sessionPageSource, /previousTokenUsageTotalRef/);
+  assert.match(sessionPageSource, /scrollToBottom\(\{ force: true \}\)/);
+}
+
+function testExpandedComposerUsesExpandedBottomReserve() {
+  assert.equal(
+    reservedMobileComposerHeight({
+      measuredHeight: 92,
+      isExpanded: false,
+    }),
+    92
+  );
+  assert.equal(
+    reservedMobileComposerHeight({
+      measuredHeight: 92,
+      isExpanded: true,
+    }),
+    220
+  );
+  assert.equal(
+    reservedMobileComposerHeight({
+      measuredHeight: 260,
+      isExpanded: true,
+    }),
+    260
+  );
+
+  assert.match(sessionPageSource, /mobileComposerReservedHeight/);
+  assert.match(
+    sessionPageSource,
+    /"--ripple-mobile-chat-composer-height": `\$\{mobileComposerReservedHeight/
   );
 }
 
@@ -602,16 +746,22 @@ testTokenBadgeOmitsContextWhenUnavailable();
 testSessionSwitchScrollsToBottomWithoutSmoothAnimation();
 testShortTimelineDoesNotWriteScrollTop();
 testAutoScrollEffectUsesStableTimelineKey();
+testGeneratingFlagUpdatesBeforeAutoScrollLayoutEffect();
 testResizeObserverKeepsSessionSwitchPinnedToBottom();
 testUserScrollCancelsSessionSwitchStickyBottom();
 testMobileHeaderVisibilityFollowsScrollDirection();
 testSessionPageOwnsScrollActivation();
 testExplicitSessionSelectionTriggersStickyBottom();
+testComposerSendStartsStickyBottomBeforeSending();
 testSessionPageCanRestorePreviousScrollPosition();
 testVisualViewportKeyboardInsetUsesLayoutViewportBottomGap();
 testSessionPageNoLongerOwnsMobileBackSwipeGesture();
 testComposerFocusSuppressesTimelineAutoScroll();
+testComposerFocusDoesNotSuppressRunAutoScroll();
 testComposerFocusDoesNotTrackKeyboardMovedScrollTop();
+testComposerFocusRestoreAccountsForExpandedComposerHeight();
+testTokenUsageIncreaseRevealsFooter();
+testExpandedComposerUsesExpandedBottomReserve();
 testMobileOverlayMeasurementsUseBorderBoxHeight();
 testMobileTimelinePadsForOverlayHeaderAndComposer();
 testPendingSessionDetailsShowSkeletonInsteadOfPreviousMessages();

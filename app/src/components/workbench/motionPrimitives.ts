@@ -45,19 +45,25 @@ export const swipeSnapTransition: Transition = {
 
 export const mobileSwipeBackConfig = {
   desktopMinWidth: 1024,
-  scrollGuardDistancePx: 6,
-  scrollGuardRatio: 0.8,
+  edgeStartWidthPx: 32,
+  edgeScrollGuardDistancePx: 4,
+  edgeScrollGuardRatio: 0.55,
+  edgeClaimDistancePx: 4,
+  edgeClaimRatio: 0.55,
+  scrollGuardDistancePx: 8,
+  scrollGuardRatio: 0.95,
   claimDistancePx: 10,
   claimRatio: 0.85,
   cancelDistancePx: 22,
   cancelRatio: 1.45,
-  commitMaxPx: 112,
-  commitViewportRatio: 0.26,
-  fastCommitVelocityPx: 320,
-  fastCommitDistancePx: 32,
+  commitMaxPx: 72,
+  commitViewportRatio: 0.18,
+  fastCommitVelocityPx: 260,
+  fastCommitDistancePx: 24,
 } as const;
 
 export interface MobileSwipeBackIntentInput {
+  startX?: number;
   deltaX: number;
   deltaY: number;
   viewportWidth: number;
@@ -74,24 +80,44 @@ export interface MobileSwipeBackReleaseResolution {
   commitDistance: number;
 }
 
+function isMobileSwipeBackEdgeStart(startX: number | undefined): boolean {
+  return typeof startX === "number" && startX <= mobileSwipeBackConfig.edgeStartWidthPx;
+}
+
 export function shouldGuardMobileSwipeBackScroll({
+  startX,
   deltaX,
   deltaY,
   viewportWidth,
 }: MobileSwipeBackIntentInput): boolean {
   if (viewportWidth >= mobileSwipeBackConfig.desktopMinWidth) return false;
-  if (deltaX < mobileSwipeBackConfig.scrollGuardDistancePx) return false;
-  return deltaX > Math.abs(deltaY) * mobileSwipeBackConfig.scrollGuardRatio;
+  const isEdgeStart = isMobileSwipeBackEdgeStart(startX);
+  const guardDistance = isEdgeStart
+    ? mobileSwipeBackConfig.edgeScrollGuardDistancePx
+    : mobileSwipeBackConfig.scrollGuardDistancePx;
+  const guardRatio = isEdgeStart
+    ? mobileSwipeBackConfig.edgeScrollGuardRatio
+    : mobileSwipeBackConfig.scrollGuardRatio;
+  if (deltaX < guardDistance) return false;
+  return deltaX > Math.abs(deltaY) * guardRatio;
 }
 
 export function shouldClaimMobileSwipeBack({
+  startX,
   deltaX,
   deltaY,
   viewportWidth,
 }: MobileSwipeBackIntentInput): boolean {
   if (viewportWidth >= mobileSwipeBackConfig.desktopMinWidth) return false;
-  if (deltaX < mobileSwipeBackConfig.claimDistancePx) return false;
-  return deltaX > Math.abs(deltaY) * mobileSwipeBackConfig.claimRatio;
+  const isEdgeStart = isMobileSwipeBackEdgeStart(startX);
+  const claimDistance = isEdgeStart
+    ? mobileSwipeBackConfig.edgeClaimDistancePx
+    : mobileSwipeBackConfig.claimDistancePx;
+  const claimRatio = isEdgeStart
+    ? mobileSwipeBackConfig.edgeClaimRatio
+    : mobileSwipeBackConfig.claimRatio;
+  if (deltaX < claimDistance) return false;
+  return deltaX > Math.abs(deltaY) * claimRatio;
 }
 
 export function shouldCancelMobileSwipeBack({

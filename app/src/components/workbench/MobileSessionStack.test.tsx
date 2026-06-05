@@ -70,6 +70,36 @@ function testClaimRequiresHorizontalIntentAcrossChatSurface() {
   );
 }
 
+function testLeftEdgeSwipeClaimsWithShorterIntent() {
+  assert.equal(
+    shouldClaimMobileSessionDrawer({
+      startX: 4,
+      deltaX: 4,
+      deltaY: 0,
+      viewportWidth: 390,
+    }),
+    true
+  );
+  assert.equal(
+    shouldClaimMobileSessionDrawer({
+      startX: 36,
+      deltaX: 4,
+      deltaY: 0,
+      viewportWidth: 390,
+    }),
+    false
+  );
+  assert.equal(
+    shouldClaimMobileSessionDrawer({
+      startX: 4,
+      deltaX: 6,
+      deltaY: 16,
+      viewportWidth: 390,
+    }),
+    false
+  );
+}
+
 function testVerticalIntentCancelsDrawerGesture() {
   assert.equal(
     shouldCancelMobileSessionDrawer({
@@ -103,6 +133,15 @@ function testHorizontalIntentGuardsScrollBeforeDrawerClaim() {
   assert.equal(
     shouldGuardMobileSessionDrawerScroll({
       deltaX: 6,
+      deltaY: 5,
+      viewportWidth: 390,
+    }),
+    false
+  );
+  assert.equal(
+    shouldGuardMobileSessionDrawerScroll({
+      startX: 4,
+      deltaX: 4,
       deltaY: 5,
       viewportWidth: 390,
     }),
@@ -168,7 +207,7 @@ function testNewSwipeStopsInFlightSheetAnimation() {
 function testReleaseCommitAndCancelThresholds() {
   assert.equal(
     resolveMobileSessionDrawerRelease({
-      x: 104,
+      x: 72,
       velocityX: 0,
       viewportWidth: 390,
     }).shouldOpenList,
@@ -176,15 +215,15 @@ function testReleaseCommitAndCancelThresholds() {
   );
   assert.equal(
     resolveMobileSessionDrawerRelease({
-      x: 32,
-      velocityX: 320,
+      x: 24,
+      velocityX: 260,
       viewportWidth: 390,
     }).shouldOpenList,
     true
   );
   assert.equal(
     resolveMobileSessionDrawerRelease({
-      x: 31,
+      x: 23,
       velocityX: 900,
       viewportWidth: 390,
     }).shouldOpenList,
@@ -192,7 +231,7 @@ function testReleaseCommitAndCancelThresholds() {
   );
   assert.equal(
     resolveMobileSessionDrawerRelease({
-      x: 96,
+      x: 71,
       velocityX: 0,
       viewportWidth: 430,
     }).shouldOpenList,
@@ -240,7 +279,9 @@ function testMobileMotionUsesFeishuInspiredSharedTiming() {
   assert.equal(mobilePageSwitchTransition.duration, 0.3);
   assert.equal(mobileStackReturnTransition.duration, 0.22);
   assert.equal(mobileSwipeBackConfig.desktopMinWidth, 1024);
-  assert.equal(mobileSwipeBackConfig.commitMaxPx, 112);
+  assert.equal(mobileSwipeBackConfig.edgeStartWidthPx, 32);
+  assert.equal(mobileSwipeBackConfig.commitMaxPx, 72);
+  assert.equal(mobileSwipeBackConfig.commitViewportRatio, 0.18);
 }
 
 function testChatSheetAnimatesInFromRightWhenOpeningSession() {
@@ -259,6 +300,7 @@ function testSessionSwipeBackUsesSharedMotionPrimitive() {
 }
 
 testClaimRequiresHorizontalIntentAcrossChatSurface();
+testLeftEdgeSwipeClaimsWithShorterIntent();
 testVerticalIntentCancelsDrawerGesture();
 testHorizontalIntentGuardsScrollBeforeDrawerClaim();
 testDrawerDragLocksTimelineScrollTop();

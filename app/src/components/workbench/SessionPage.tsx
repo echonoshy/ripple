@@ -54,6 +54,7 @@ const STICK_TO_BOTTOM_MS = 1200;
 const BOTTOM_LOCK_THRESHOLD_PX = 40;
 const MOBILE_CHAT_HEADER_FALLBACK_HEIGHT_PX = 68;
 const MOBILE_CHAT_COMPOSER_FALLBACK_HEIGHT_PX = 92;
+const MOBILE_CHAT_COMPOSER_EXPANDED_FALLBACK_HEIGHT_PX = 220;
 const MOBILE_CHAT_HEADER_SCROLL_DELTA_PX = 10;
 const MOBILE_CHAT_HEADER_TOP_LOCK_PX = 8;
 const mobileHeaderButtonClass = MOBILE_GLASS_ICON_BUTTON_CLASS;
@@ -67,6 +68,17 @@ interface MobileChatHeaderScrollInput {
 interface VisualViewportKeyboardSource {
   innerHeight: number;
   visualViewport?: { height: number; offsetTop: number } | null;
+}
+
+interface TimelineAutoScrollSuppressionInput {
+  isComposerFocused: boolean;
+  isGenerating: boolean;
+  isWithinStickyBottomWindow: boolean;
+}
+
+interface TokenFooterRevealInput {
+  previousTotalTokens: number;
+  nextTotalTokens: number;
 }
 
 export function shouldHideMobileChatHeaderOnScroll({
@@ -104,6 +116,36 @@ export function getVisualViewportKeyboardInset(
   return Math.max(0, Math.round(currentSource.innerHeight - visualBottom));
 }
 
+export function shouldSuppressTimelineAutoScroll({
+  isComposerFocused,
+  isGenerating,
+  isWithinStickyBottomWindow,
+}: TimelineAutoScrollSuppressionInput): boolean {
+  return isComposerFocused && !isGenerating && !isWithinStickyBottomWindow;
+}
+
+export function shouldRevealTokenFooterOnUsageChange({
+  previousTotalTokens,
+  nextTotalTokens,
+}: TokenFooterRevealInput): boolean {
+  return nextTotalTokens > previousTotalTokens;
+}
+
+export function reservedMobileComposerHeight({
+  measuredHeight,
+  isExpanded,
+}: {
+  measuredHeight: number;
+  isExpanded: boolean;
+}): number {
+  return Math.max(
+    measuredHeight,
+    isExpanded
+      ? MOBILE_CHAT_COMPOSER_EXPANDED_FALLBACK_HEIGHT_PX
+      : MOBILE_CHAT_COMPOSER_FALLBACK_HEIGHT_PX
+  );
+}
+
 function currentTimeMs(): number {
   return typeof performance === "undefined" ? Date.now() : performance.now();
 }
@@ -121,6 +163,25 @@ export function sessionTimelineBottomScrollTop({
 }): number | null {
   const maxScrollTop = Math.max(0, scrollHeight - clientHeight);
   return maxScrollTop > 0 ? maxScrollTop : null;
+}
+
+export function composerFocusedRestoreScrollTop({
+  focusedScrollTop,
+  focusedComposerHeight,
+  currentComposerHeight,
+  scrollHeight,
+  clientHeight,
+}: {
+  focusedScrollTop: number;
+  focusedComposerHeight: number;
+  currentComposerHeight: number;
+  scrollHeight: number;
+  clientHeight: number;
+}): number {
+  const composerHeightDelta = currentComposerHeight - focusedComposerHeight;
+  const maxScrollTop = Math.max(0, scrollHeight - clientHeight);
+  const nextScrollTop = Math.round(focusedScrollTop + composerHeightDelta);
+  return Math.min(Math.max(0, nextScrollTop), maxScrollTop);
 }
 
 function formatCompactTokenCount(value: number): string {
@@ -244,6 +305,9 @@ export default function SessionPage({
   const isGeneratingRef = useRef(isGenerating);
   const isComposerFocusedRef = useRef(false);
   const composerFocusedScrollTopRef = useRef<number | null>(null);
+  const composerFocusedComposerHeightRef = useRef<number | null>(null);
+  const mobileComposerHeightRef = useRef(MOBILE_CHAT_COMPOSER_FALLBACK_HEIGHT_PX);
+  const previousTokenUsageTotalRef = useRef(tokenUsage.total_tokens);
   const lastMobileHeaderScrollTopRef = useRef(0);
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const [mobileHeaderHeight, setMobileHeaderHeight] = useState(
@@ -254,6 +318,7 @@ export default function SessionPage({
   );
   const [mobileKeyboardInset, setMobileKeyboardInset] = useState(0);
   const [isMobileHeaderHidden, setIsMobileHeaderHidden] = useState(false);
+  const [isComposerFocused, setIsComposerFocused] = useState(false);
   const hasMessages = messages.length > 0;
   const contextWindow =
     typeof tokenUsage.model_context_window === "number" && tokenUsage.model_context_window > 0
@@ -310,13 +375,18 @@ export default function SessionPage({
     ? t("sessions.focusFolder", { label: focusFolderLabel })
     : null;
   const folderBadgeTitle = effectiveContextFolderPath || t("sessions.fullWorkspace");
+  const isMobileComposerExpanded = isComposerFocused || input.trim().length > 0;
+  const mobileComposerReservedHeight = reservedMobileComposerHeight({
+    measuredHeight: mobileComposerHeight,
+    isExpanded: isMobileComposerExpanded,
+  });
   const requestFolderPicker = useCallback(() => {
     if (!onSelectWorkspaceFolder) return;
     document.querySelector<HTMLButtonElement>("[data-ripple-composer-folder-button]")?.click();
   }, [onSelectWorkspaceFolder]);
   const mobileTimelineStyle = {
     "--ripple-mobile-chat-header-height": `${mobileHeaderHeight}px`,
-    "--ripple-mobile-chat-composer-height": `${mobileComposerHeight}px`,
+    "--ripple-mobile-chat-composer-height": `${mobileComposerReservedHeight}px`,
     "--ripple-mobile-keyboard-inset": `${mobileKeyboardInset}px`,
   } as CSSProperties;
   const composerOverlayStyle = {
@@ -328,17 +398,37 @@ export default function SessionPage({
     const scrollContainer = scrollContainerRef.current;
     const restoreScrollTop = composerFocusedScrollTopRef.current;
     if (!scrollContainer || typeof restoreScrollTop !== "number") return;
-    scrollContainer.scrollTop = restoreScrollTop;
+    const focusedComposerHeight = composerFocusedComposerHeightRef.current;
+    scrollContainer.scrollTop =
+      typeof focusedComposerHeight === "number"
+        ? composerFocusedRestoreScrollTop({
+            focusedScrollTop: restoreScrollTop,
+            focusedComposerHeight,
+            currentComposerHeight: mobileComposerHeightRef.current,
+            scrollHeight: scrollContainer.scrollHeight,
+            clientHeight: scrollContainer.clientHeight,
+          })
+        : restoreScrollTop;
   }, []);
 
-  const shouldSuppressTimelineAutoScroll = useCallback(() => isComposerFocusedRef.current, []);
+  const shouldSuppressCurrentTimelineAutoScroll = useCallback(
+    () =>
+      shouldSuppressTimelineAutoScroll({
+        isComposerFocused: isComposerFocusedRef.current,
+        isGenerating: isGeneratingRef.current,
+        isWithinStickyBottomWindow: currentTimeMs() <= stickToBottomUntilRef.current,
+      }),
+    []
+  );
 
   const handleComposerFocusStateChange = useCallback(
     (focused: boolean) => {
+      setIsComposerFocused(focused);
       isComposerFocusedRef.current = focused;
       const scrollContainer = scrollContainerRef.current;
       composerFocusedScrollTopRef.current =
         focused && scrollContainer ? scrollContainer.scrollTop : null;
+      composerFocusedComposerHeightRef.current = focused ? mobileComposerHeightRef.current : null;
       if (focused) {
         window.requestAnimationFrame(() => {
           restoreComposerFocusedScrollTop();
@@ -348,24 +438,32 @@ export default function SessionPage({
     [restoreComposerFocusedScrollTop]
   );
 
-  const scrollToBottom = useCallback(() => {
-    if (shouldSuppressTimelineAutoScroll()) return;
-    const scrollContainer = scrollContainerRef.current;
-    if (!scrollContainer) return;
-    const nextScrollTop = sessionTimelineBottomScrollTop({
-      scrollHeight: scrollContainer.scrollHeight,
-      clientHeight: scrollContainer.clientHeight,
-    });
-    if (nextScrollTop === null) return;
-    scrollContainer.scrollTop = nextScrollTop;
-  }, [shouldSuppressTimelineAutoScroll]);
-
-  const shouldKeepStickingToBottom = useCallback(
-    () =>
-      !shouldSuppressTimelineAutoScroll() &&
-      (isGeneratingRef.current || currentTimeMs() <= stickToBottomUntilRef.current),
-    [shouldSuppressTimelineAutoScroll]
+  const scrollToBottom = useCallback(
+    (options: { force?: boolean } = {}) => {
+      if (!options.force && shouldSuppressCurrentTimelineAutoScroll()) return;
+      const scrollContainer = scrollContainerRef.current;
+      if (!scrollContainer) return;
+      const nextScrollTop = sessionTimelineBottomScrollTop({
+        scrollHeight: scrollContainer.scrollHeight,
+        clientHeight: scrollContainer.clientHeight,
+      });
+      if (nextScrollTop === null) return;
+      scrollContainer.scrollTop = nextScrollTop;
+    },
+    [shouldSuppressCurrentTimelineAutoScroll]
   );
+
+  const shouldKeepStickingToBottom = useCallback(() => {
+    const isWithinStickyBottomWindow = currentTimeMs() <= stickToBottomUntilRef.current;
+    return (
+      !shouldSuppressTimelineAutoScroll({
+        isComposerFocused: isComposerFocusedRef.current,
+        isGenerating: isGeneratingRef.current,
+        isWithinStickyBottomWindow,
+      }) &&
+      (isGeneratingRef.current || isWithinStickyBottomWindow)
+    );
+  }, []);
 
   const updateMobileHeaderVisibility = useCallback((nextScrollTop: number) => {
     const previousScrollTop = lastMobileHeaderScrollTopRef.current;
@@ -384,6 +482,11 @@ export default function SessionPage({
     scrollToBottom();
   }, [scrollToBottom]);
 
+  const handleComposerSend = useCallback(() => {
+    startStickToBottom();
+    onSend();
+  }, [onSend, startStickToBottom]);
+
   const handleScroll = useCallback(() => {
     const scrollContainer = scrollContainerRef.current;
     if (!scrollContainer) return;
@@ -396,9 +499,13 @@ export default function SessionPage({
     }
   }, [updateMobileHeaderVisibility]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     isGeneratingRef.current = isGenerating;
   }, [isGenerating]);
+
+  useLayoutEffect(() => {
+    mobileComposerHeightRef.current = mobileComposerReservedHeight;
+  }, [mobileComposerReservedHeight]);
 
   useLayoutEffect(() => {
     if (typeof ResizeObserver === "undefined") return;
@@ -454,7 +561,7 @@ export default function SessionPage({
     restoreComposerFocusedScrollTop();
   }, [
     input,
-    mobileComposerHeight,
+    mobileComposerReservedHeight,
     mobileHeaderHeight,
     mobileKeyboardInset,
     restoreComposerFocusedScrollTop,
@@ -503,6 +610,19 @@ export default function SessionPage({
     shouldKeepStickingToBottom,
     tokenUsage.total_tokens,
   ]);
+
+  useLayoutEffect(() => {
+    const previousTotalTokens = previousTokenUsageTotalRef.current;
+    previousTokenUsageTotalRef.current = tokenUsage.total_tokens;
+    if (
+      shouldRevealTokenFooterOnUsageChange({
+        previousTotalTokens,
+        nextTotalTokens: tokenUsage.total_tokens,
+      })
+    ) {
+      scrollToBottom({ force: true });
+    }
+  }, [scrollToBottom, tokenUsage.total_tokens]);
 
   useEffect(() => {
     const content = contentRef.current;
@@ -789,7 +909,7 @@ export default function SessionPage({
           userId={userId}
           value={isSessionLoading ? "" : input}
           onChange={onInputChange}
-          onSend={onSend}
+          onSend={handleComposerSend}
           onStop={onStop}
           onAttachFiles={onAttachFiles}
           onRemovePendingFile={onRemovePendingFile}

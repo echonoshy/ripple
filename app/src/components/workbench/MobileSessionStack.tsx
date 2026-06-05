@@ -23,6 +23,7 @@ interface MobileSessionStackProps {
 }
 
 interface DrawerIntentInput {
+  startX?: number;
   deltaX: number;
   deltaY: number;
   viewportWidth: number;
@@ -111,19 +112,21 @@ function releaseMobileSessionScrollLock(lock: ScrollLockState | null): void {
 }
 
 export function shouldClaimMobileSessionDrawer({
+  startX,
   deltaX,
   deltaY,
   viewportWidth,
 }: DrawerIntentInput): boolean {
-  return shouldClaimMobileSwipeBack({ deltaX, deltaY, viewportWidth });
+  return shouldClaimMobileSwipeBack({ startX, deltaX, deltaY, viewportWidth });
 }
 
 export function shouldGuardMobileSessionDrawerScroll({
+  startX,
   deltaX,
   deltaY,
   viewportWidth,
 }: DrawerIntentInput): boolean {
-  return shouldGuardMobileSwipeBackScroll({ deltaX, deltaY, viewportWidth });
+  return shouldGuardMobileSwipeBackScroll({ startX, deltaX, deltaY, viewportWidth });
 }
 
 export function shouldCancelMobileSessionDrawer({
@@ -284,6 +287,7 @@ export default function MobileSessionStack({
       if (
         !dragState.claimed &&
         shouldCancelMobileSessionDrawer({
+          startX: dragState.startX,
           deltaX,
           deltaY,
           viewportWidth: dragState.viewportWidth,
@@ -296,6 +300,7 @@ export default function MobileSessionStack({
       if (
         !dragState.claimed &&
         shouldClaimMobileSessionDrawer({
+          startX: dragState.startX,
           deltaX,
           deltaY,
           viewportWidth: dragState.viewportWidth,
@@ -363,6 +368,7 @@ export default function MobileSessionStack({
     if (
       !guardState.isGuarding &&
       shouldCancelMobileSessionDrawer({
+        startX: guardState.startX,
         deltaX,
         deltaY,
         viewportWidth: guardState.viewportWidth,
@@ -375,6 +381,7 @@ export default function MobileSessionStack({
     if (
       guardState.isGuarding ||
       shouldGuardMobileSessionDrawerScroll({
+        startX: guardState.startX,
         deltaX,
         deltaY,
         viewportWidth: guardState.viewportWidth,

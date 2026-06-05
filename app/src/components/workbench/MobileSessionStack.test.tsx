@@ -117,11 +117,29 @@ function testHorizontalIntentGuardsScrollBeforeDrawerClaim() {
 function testDrawerDragLocksTimelineScrollTop() {
   assert.match(mobileSessionStackSource, /data-ripple-session-scroll="timeline"/);
   assert.match(mobileSessionStackSource, /startScrollTop/);
-  assert.match(mobileSessionStackSource, /scrollElement\.scrollTop = dragState\.startScrollTop/);
+  assert.match(mobileSessionStackSource, /style\.overflowY = "hidden"/);
+  assert.match(mobileSessionStackSource, /releaseMobileSessionScrollLock/);
+  assert.doesNotMatch(
+    mobileSessionStackSource,
+    /scrollElement\.scrollTop = dragState\.startScrollTop/
+  );
 }
 
 function testTouchScrollGuardLocksTimelineBeforeDrawerClaim() {
-  assert.match(mobileSessionStackSource, /scrollElement\.scrollTop = guardState\.startScrollTop/);
+  assert.match(mobileSessionStackSource, /ensureMobileSessionScrollLock/);
+  assert.doesNotMatch(
+    mobileSessionStackSource,
+    /scrollElement\.scrollTop = guardState\.startScrollTop/
+  );
+}
+
+function testNewSwipeStopsInFlightSheetAnimation() {
+  const pointerDownBlock =
+    mobileSessionStackSource.match(/const handlePointerDown[\s\S]*?\},\s*\[mode[\s\S]*?\]\s*\);/)?.[0] ||
+    "";
+
+  assert.match(mobileSessionStackSource, /activeSheetAnimationRef/);
+  assert.match(pointerDownBlock, /stopSheetAnimation\(\)/);
 }
 
 function testReleaseCommitAndCancelThresholds() {
@@ -199,6 +217,7 @@ testVerticalIntentCancelsDrawerGesture();
 testHorizontalIntentGuardsScrollBeforeDrawerClaim();
 testDrawerDragLocksTimelineScrollTop();
 testTouchScrollGuardLocksTimelineBeforeDrawerClaim();
+testNewSwipeStopsInFlightSheetAnimation();
 testReleaseCommitAndCancelThresholds();
 testInteractiveTargetsAreExcludedFromSwipeStart();
 testStackLayersListBehindChatSheet();

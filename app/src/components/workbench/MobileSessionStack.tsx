@@ -43,6 +43,13 @@ interface DragState {
   startScrollTop: number;
 }
 
+interface ScrollLockState {
+  scrollElement: HTMLElement;
+  startScrollTop: number;
+  previousOverflowY: string;
+  previousOverscrollBehaviorY: string;
+}
+
 interface TouchGuardState {
   startX: number;
   startY: number;
@@ -77,16 +84,31 @@ function mobileSessionTimelineScrollElement(root: Element): HTMLElement | null {
   return root.querySelector<HTMLElement>('[data-ripple-session-scroll="timeline"]');
 }
 
-function lockMobileSessionDrawerScroll(dragState: DragState): void {
-  const scrollElement = dragState.scrollElement;
-  if (!scrollElement) return;
-  scrollElement.scrollTop = dragState.startScrollTop;
+function ensureMobileSessionScrollLock(
+  currentLock: ScrollLockState | null,
+  scrollElement: HTMLElement | null,
+  startScrollTop: number
+): ScrollLockState | null {
+  if (currentLock) return currentLock;
+  if (!scrollElement) return null;
+  const lock = {
+    scrollElement,
+    startScrollTop,
+    previousOverflowY: scrollElement.style.overflowY,
+    previousOverscrollBehaviorY: scrollElement.style.overscrollBehaviorY,
+  };
+  scrollElement.scrollTop = startScrollTop;
+  scrollElement.style.overflowY = "hidden";
+  scrollElement.style.overscrollBehaviorY = "contain";
+  return lock;
 }
 
-function lockMobileSessionTouchGuardScroll(guardState: TouchGuardState): void {
-  const scrollElement = guardState.scrollElement;
-  if (!scrollElement) return;
-  scrollElement.scrollTop = guardState.startScrollTop;
+function releaseMobileSessionScrollLock(lock: ScrollLockState | null): void {
+  if (!lock) return;
+  const { scrollElement, startScrollTop, previousOverflowY, previousOverscrollBehaviorY } = lock;
+  scrollElement.style.overflowY = previousOverflowY;
+  scrollElement.style.overscrollBehaviorY = previousOverscrollBehaviorY;
+  scrollElement.scrollTop = startScrollTop;
 }
 
 export function shouldClaimMobileSessionDrawer({
@@ -152,30 +174,55 @@ export default function MobileSessionStack({
   const sheetX = useMotionValue(0);
   const dragStateRef = useRef<DragState | null>(null);
   const touchGuardStateRef = useRef<TouchGuardState | null>(null);
+  const scrollLockRef = useRef<ScrollLockState | null>(null);
+  const activeSheetAnimationRef = useRef<ReturnType<typeof animate> | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const shouldRenderChat = mode === "chat";
 
+  const stopSheetAnimation = useCallback(() => {
+    activeSheetAnimationRef.current?.stop();
+    activeSheetAnimationRef.current = null;
+  }, []);
+
+  const releaseScrollLock = useCallback(() => {
+    releaseMobileSessionScrollLock(scrollLockRef.current);
+    scrollLockRef.current = null;
+  }, []);
+
   const animateSheetTo = useCallback(
     (target: number, onComplete?: () => void) => {
+      stopSheetAnimation();
       if (reduceMotion) {
         sheetX.set(target);
         onComplete?.();
         return;
       }
 
-      void animate(sheetX, target, target === 0 ? swipeSnapTransition : mobilePageTransition).then(
+      const animation = animate(
+        sheetX,
+        target,
+        target === 0 ? swipeSnapTransition : mobilePageTransition
+      );
+      activeSheetAnimationRef.current = animation;
+      void animation.then(
         () => {
+          if (activeSheetAnimationRef.current === animation) {
+            activeSheetAnimationRef.current = null;
+          }
           onComplete?.();
         }
       );
     },
-    [reduceMotion, sheetX]
+    [reduceMotion, sheetX, stopSheetAnimation]
   );
 
   useEffect(() => {
+    stopSheetAnimation();
     dragStateRef.current = null;
+    touchGuardStateRef.current = null;
+    releaseScrollLock();
     sheetX.set(0);
-  }, [mode, sheetX]);
+  }, [mode, releaseScrollLock, sheetX, stopSheetAnimation]);
 
   const handlePointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
@@ -184,6 +231,7 @@ export default function MobileSessionStack({
       const currentViewportWidth = viewportWidth();
       if (currentViewportWidth >= MOBILE_SESSION_STACK_DESKTOP_MIN_WIDTH_PX) return;
       if (isInteractiveMobileSessionStackTarget(event.target)) return;
+      stopSheetAnimation();
       const scrollElement = mobileSessionTimelineScrollElement(event.currentTarget);
 
       dragStateRef.current = {
@@ -199,7 +247,7 @@ export default function MobileSessionStack({
         startScrollTop: scrollElement?.scrollTop ?? 0,
       };
     },
-    [mode]
+    [mode, stopSheetAnimation]
   );
 
   const handlePointerMove = useCallback(
@@ -232,7 +280,11 @@ export default function MobileSessionStack({
       ) {
         dragState.claimed = true;
         setIsDragging(true);
-        lockMobileSessionDrawerScroll(dragState);
+        scrollLockRef.current = ensureMobileSessionScrollLock(
+          scrollLockRef.current,
+          dragState.scrollElement,
+          dragState.startScrollTop
+        );
         try {
           event.currentTarget.setPointerCapture(event.pointerId);
         } catch {
@@ -249,7 +301,6 @@ export default function MobileSessionStack({
       dragState.lastX = event.clientX;
       dragState.lastTime = currentTime;
       sheetX.set(Math.max(0, deltaX));
-      lockMobileSessionDrawerScroll(dragState);
     },
     [sheetX]
   );
@@ -261,6 +312,7 @@ export default function MobileSessionStack({
       const currentViewportWidth = viewportWidth();
       if (currentViewportWidth >= MOBILE_SESSION_STACK_DESKTOP_MIN_WIDTH_PX) return;
       if (isInteractiveMobileSessionStackTarget(event.target)) return;
+      stopSheetAnimation();
       const touch = event.touches[0];
       if (!touch) return;
       const scrollElement = mobileSessionTimelineScrollElement(event.currentTarget);
@@ -274,7 +326,7 @@ export default function MobileSessionStack({
         startScrollTop: scrollElement?.scrollTop ?? 0,
       };
     },
-    [mode]
+    [mode, stopSheetAnimation]
   );
 
   const handleTouchMoveCapture = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
@@ -307,13 +359,18 @@ export default function MobileSessionStack({
     ) {
       guardState.isGuarding = true;
       event.preventDefault();
-      lockMobileSessionTouchGuardScroll(guardState);
+      scrollLockRef.current = ensureMobileSessionScrollLock(
+        scrollLockRef.current,
+        guardState.scrollElement,
+        guardState.startScrollTop
+      );
     }
   }, []);
 
   const clearTouchGuard = useCallback(() => {
     touchGuardStateRef.current = null;
-  }, []);
+    if (!dragStateRef.current?.claimed) releaseScrollLock();
+  }, [releaseScrollLock]);
 
   const cancelDrag = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
@@ -321,10 +378,11 @@ export default function MobileSessionStack({
       if (dragState && dragState.pointerId === event.pointerId) {
         dragStateRef.current = null;
         setIsDragging(false);
+        releaseScrollLock();
         animateSheetTo(0);
       }
     },
-    [animateSheetTo]
+    [animateSheetTo, releaseScrollLock]
   );
 
   const handlePointerUp = useCallback(
@@ -333,6 +391,7 @@ export default function MobileSessionStack({
       if (!dragState || dragState.pointerId !== event.pointerId) return;
 
       dragStateRef.current = null;
+      releaseScrollLock();
       try {
         event.currentTarget.releasePointerCapture(event.pointerId);
       } catch {
@@ -359,7 +418,7 @@ export default function MobileSessionStack({
         onOpenList();
       });
     },
-    [animateSheetTo, onOpenList, sheetX]
+    [animateSheetTo, onOpenList, releaseScrollLock, sheetX]
   );
 
   return (

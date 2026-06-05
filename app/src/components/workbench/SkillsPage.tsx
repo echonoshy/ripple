@@ -52,6 +52,7 @@ import {
   TYPOGRAPHY_PAGE_TITLE_CLASS,
   WORKBENCH_PAGE_CONTENT_CLASS,
 } from "./stylePrimitives";
+import { SkillDescriptionMarkdown } from "./SkillDescriptionMarkdown";
 
 const SKILL_REFRESH_THROTTLE_MS = 10_000;
 const CONNECTOR_REFRESH_THROTTLE_MS = 30_000;
@@ -676,6 +677,9 @@ export default function SkillsPage({
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+  const [expandedDescriptionSkillId, setExpandedDescriptionSkillId] = useState<string | null>(
+    null
+  );
   const loadRequestIdRef = useRef(0);
   const connectorLoadRequestIdRef = useRef(0);
   const lastRefreshAtRef = useRef(cachedSkillSnapshot(userId)?.loadedAt || 0);
@@ -987,6 +991,7 @@ export default function SkillsPage({
     const isBusy = busySkillId === skill.id;
     const readOnly = Boolean(skill.read_only || skill.source !== "user");
     const canEdit = !readOnly && skill.can_edit !== false && Boolean(onOpenChat);
+    const isDescriptionExpanded = expandedDescriptionSkillId === skill.id;
 
     return (
       <div
@@ -1010,9 +1015,15 @@ export default function SkillsPage({
               {skillStatusIcon(status)}
             </span>
           </div>
-          <p className={`mt-1 line-clamp-2 ${SKILLS_PAGE_TEXT_SECONDARY_CLASS} ${TYPOGRAPHY_META_CLASS}`}>
-            {skill.description}
-          </p>
+          <SkillDescriptionMarkdown
+            content={skill.description}
+            clamp={!isDescriptionExpanded}
+            expanded={isDescriptionExpanded}
+            onToggle={() =>
+              setExpandedDescriptionSkillId((current) => (current === skill.id ? null : skill.id))
+            }
+            className={`mt-1 ${SKILLS_PAGE_TEXT_SECONDARY_CLASS} ${TYPOGRAPHY_META_CLASS}`}
+          />
         </div>
         {!readOnly && (
           <div className="flex flex-wrap items-center gap-1.5 sm:justify-end">

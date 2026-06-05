@@ -72,6 +72,10 @@ testSkillsPageCachesSnapshotsAcrossTabMounts();
 
 function testSkillsPageUsesCategoryIndexInsteadOfStatusSections() {
   const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
+  const skillDescriptionSource = readFileSync(
+    new URL("./SkillDescriptionMarkdown.tsx", import.meta.url),
+    "utf8"
+  );
   const i18n = readFileSync(new URL("../../i18n/index.tsx", import.meta.url), "utf8");
 
   assert.match(source, /buildSkillCategories/);
@@ -88,7 +92,11 @@ function testSkillsPageUsesCategoryIndexInsteadOfStatusSections() {
   assert.match(i18n, /categoryConnectedServices: "Needs authorization"/);
   assert.match(i18n, /categoryGeneral: "General skills"/);
   assert.match(i18n, /categorySummaries:/);
-  assert.match(source, /line-clamp-2/);
+  assert.match(source, /SkillDescriptionMarkdown/);
+  assert.match(source, /expandedDescriptionSkillId/);
+  assert.match(source, /setExpandedDescriptionSkillId/);
+  assert.match(source, /clamp=\{!isDescriptionExpanded\}/);
+  assert.match(skillDescriptionSource, /line-clamp-2/);
   assert.match(source, /id: "connected_services"/);
   assert.match(source, /sourceId: "system"/);
   assert.doesNotMatch(source, /data-ripple-skill-source-section="true"/);

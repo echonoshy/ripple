@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { AnimatePresence, animate, motion, useMotionValue, useReducedMotion } from "framer-motion";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -118,6 +118,52 @@ interface SkillCategorySection {
   categories: SkillCategory[];
 }
 
+interface SkillsCategoryBackSwipeIntentInput {
+  deltaX: number;
+  deltaY: number;
+  viewportWidth: number;
+}
+
+interface SkillsCategoryBackSwipeReleaseInput {
+  x: number;
+  velocityX: number;
+  viewportWidth: number;
+}
+
+interface SkillsCategoryBackSwipeReleaseResolution {
+  shouldCloseCategory: boolean;
+  commitDistance: number;
+}
+
+interface SkillsCategoryBackSwipeDragState {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  viewportWidth: number;
+  claimed: boolean;
+  lastX: number;
+  lastTime: number;
+  velocityX: number;
+  scrollElement: HTMLElement | null;
+  startScrollTop: number;
+}
+
+interface SkillsCategoryBackSwipeTouchGuardState {
+  startX: number;
+  startY: number;
+  viewportWidth: number;
+  isGuarding: boolean;
+  scrollElement: HTMLElement | null;
+  startScrollTop: number;
+}
+
+interface SkillsCategoryBackSwipeScrollLockState {
+  scrollElement: HTMLElement;
+  startScrollTop: number;
+  previousOverflowY: string;
+  previousOverscrollBehaviorY: string;
+}
+
 const CATEGORY_ORDER: SkillCategoryGroupId[] = [
   "custom",
   "feishu",
@@ -144,6 +190,108 @@ const CATEGORY_SUMMARY_KEYS: Record<SkillCategoryGroupId, MessageKey> = {
   notion: "skills.categorySummaries.notion",
   general: "skills.categorySummaries.general",
 };
+
+const SKILLS_CATEGORY_BACK_SWIPE_DESKTOP_MIN_WIDTH_PX = 1024;
+const SKILLS_CATEGORY_BACK_SWIPE_SCROLL_GUARD_DISTANCE_PX = 8;
+const SKILLS_CATEGORY_BACK_SWIPE_SCROLL_GUARD_RATIO = 1.05;
+const SKILLS_CATEGORY_BACK_SWIPE_CLAIM_DISTANCE_PX = 16;
+const SKILLS_CATEGORY_BACK_SWIPE_CLAIM_RATIO = 1.15;
+const SKILLS_CATEGORY_BACK_SWIPE_COMMIT_MAX_PX = 160;
+const SKILLS_CATEGORY_BACK_SWIPE_COMMIT_VIEWPORT_RATIO = 0.38;
+const SKILLS_CATEGORY_BACK_SWIPE_FAST_COMMIT_VELOCITY_PX = 650;
+const SKILLS_CATEGORY_BACK_SWIPE_FAST_COMMIT_DISTANCE_PX = 72;
+const SKILLS_CATEGORY_BACK_SWIPE_INTERACTIVE_SELECTOR =
+  "a, button, input, textarea, select, summary, [contenteditable='true'], [role='button'], [data-ripple-ignore-skills-swipe]";
+
+function currentTimeMs(): number {
+  return typeof performance === "undefined" ? Date.now() : performance.now();
+}
+
+function skillsCategoryBackSwipeViewportWidth(): number {
+  return typeof window === "undefined" ? 0 : window.innerWidth;
+}
+
+function isInteractiveSkillsCategoryBackSwipeTarget(target: EventTarget | null): boolean {
+  if (typeof Element === "undefined" || !(target instanceof Element)) return false;
+  return Boolean(target.closest(SKILLS_CATEGORY_BACK_SWIPE_INTERACTIVE_SELECTOR));
+}
+
+function ensureSkillsCategoryBackSwipeScrollLock(
+  currentLock: SkillsCategoryBackSwipeScrollLockState | null,
+  scrollElement: HTMLElement | null,
+  startScrollTop: number
+): SkillsCategoryBackSwipeScrollLockState | null {
+  if (currentLock) return currentLock;
+  if (!scrollElement) return null;
+  const lock = {
+    scrollElement,
+    startScrollTop,
+    previousOverflowY: scrollElement.style.overflowY,
+    previousOverscrollBehaviorY: scrollElement.style.overscrollBehaviorY,
+  };
+  scrollElement.scrollTop = startScrollTop;
+  scrollElement.style.overflowY = "hidden";
+  scrollElement.style.overscrollBehaviorY = "contain";
+  return lock;
+}
+
+function releaseSkillsCategoryBackSwipeScrollLock(
+  lock: SkillsCategoryBackSwipeScrollLockState | null
+): void {
+  if (!lock) return;
+  const { scrollElement, startScrollTop, previousOverflowY, previousOverscrollBehaviorY } = lock;
+  scrollElement.style.overflowY = previousOverflowY;
+  scrollElement.style.overscrollBehaviorY = previousOverscrollBehaviorY;
+  scrollElement.scrollTop = startScrollTop;
+}
+
+export function shouldGuardSkillsCategoryBackSwipeScroll({
+  deltaX,
+  deltaY,
+  viewportWidth,
+}: SkillsCategoryBackSwipeIntentInput): boolean {
+  if (viewportWidth >= SKILLS_CATEGORY_BACK_SWIPE_DESKTOP_MIN_WIDTH_PX) return false;
+  if (deltaX < SKILLS_CATEGORY_BACK_SWIPE_SCROLL_GUARD_DISTANCE_PX) return false;
+  return deltaX > Math.abs(deltaY) * SKILLS_CATEGORY_BACK_SWIPE_SCROLL_GUARD_RATIO;
+}
+
+export function shouldClaimSkillsCategoryBackSwipe({
+  deltaX,
+  deltaY,
+  viewportWidth,
+}: SkillsCategoryBackSwipeIntentInput): boolean {
+  if (viewportWidth >= SKILLS_CATEGORY_BACK_SWIPE_DESKTOP_MIN_WIDTH_PX) return false;
+  if (deltaX < SKILLS_CATEGORY_BACK_SWIPE_CLAIM_DISTANCE_PX) return false;
+  return deltaX > Math.abs(deltaY) * SKILLS_CATEGORY_BACK_SWIPE_CLAIM_RATIO;
+}
+
+export function shouldCancelSkillsCategoryBackSwipe({
+  deltaX,
+  deltaY,
+  viewportWidth,
+}: SkillsCategoryBackSwipeIntentInput): boolean {
+  if (viewportWidth >= SKILLS_CATEGORY_BACK_SWIPE_DESKTOP_MIN_WIDTH_PX) return true;
+  const absoluteDeltaY = Math.abs(deltaY);
+  if (absoluteDeltaY < SKILLS_CATEGORY_BACK_SWIPE_CLAIM_DISTANCE_PX) return false;
+  return absoluteDeltaY > Math.abs(deltaX) * SKILLS_CATEGORY_BACK_SWIPE_CLAIM_RATIO;
+}
+
+export function resolveSkillsCategoryBackSwipeRelease({
+  x,
+  velocityX,
+  viewportWidth,
+}: SkillsCategoryBackSwipeReleaseInput): SkillsCategoryBackSwipeReleaseResolution {
+  const commitDistance = Math.min(
+    SKILLS_CATEGORY_BACK_SWIPE_COMMIT_MAX_PX,
+    viewportWidth * SKILLS_CATEGORY_BACK_SWIPE_COMMIT_VIEWPORT_RATIO
+  );
+  const shouldCloseCategory =
+    x >= commitDistance ||
+    (velocityX >= SKILLS_CATEGORY_BACK_SWIPE_FAST_COMMIT_VELOCITY_PX &&
+      x >= SKILLS_CATEGORY_BACK_SWIPE_FAST_COMMIT_DISTANCE_PX);
+
+  return { shouldCloseCategory, commitDistance };
+}
 
 interface SkillCategoryLogoMeta {
   shellClass: string;
@@ -662,6 +810,7 @@ export default function SkillsPage({
 }: SkillsPageProps) {
   const { t } = useI18n();
   const reduceMotion = useReducedMotion();
+  const categorySwipeX = useMotionValue(0);
   const [skills, setSkills] = useState<SkillInfo[]>(
     () => cachedSkillSnapshot(userId)?.skills || []
   );
@@ -686,9 +835,17 @@ export default function SkillsPage({
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [categoryTransitionDirection, setCategoryTransitionDirection] = useState(0);
+  const [isCategorySwipeActive, setIsCategorySwipeActive] = useState(false);
   const [expandedDescriptionSkillId, setExpandedDescriptionSkillId] = useState<string | null>(
     null
   );
+  const skillsPageScrollRef = useRef<HTMLDivElement | null>(null);
+  const categorySwipeDragStateRef = useRef<SkillsCategoryBackSwipeDragState | null>(null);
+  const categorySwipeTouchGuardStateRef =
+    useRef<SkillsCategoryBackSwipeTouchGuardState | null>(null);
+  const categorySwipeScrollLockRef =
+    useRef<SkillsCategoryBackSwipeScrollLockState | null>(null);
+  const categorySwipeAnimationRef = useRef<ReturnType<typeof animate> | null>(null);
   const loadRequestIdRef = useRef(0);
   const connectorLoadRequestIdRef = useRef(0);
   const lastRefreshAtRef = useRef(cachedSkillSnapshot(userId)?.loadedAt || 0);
@@ -836,17 +993,291 @@ export default function SkillsPage({
   );
   const activeFilterCount = (searchQuery.trim() ? 1 : 0) + (statusFilter !== "all" ? 1 : 0);
 
+  const stopCategorySwipeAnimation = useCallback(() => {
+    categorySwipeAnimationRef.current?.stop();
+    categorySwipeAnimationRef.current = null;
+  }, []);
+
+  const releaseCategorySwipeScrollLock = useCallback(() => {
+    releaseSkillsCategoryBackSwipeScrollLock(categorySwipeScrollLockRef.current);
+    categorySwipeScrollLockRef.current = null;
+  }, []);
+
+  const animateCategorySwipeTo = useCallback(
+    (target: number, onComplete?: () => void) => {
+      stopCategorySwipeAnimation();
+      if (reduceMotion) {
+        categorySwipeX.set(target);
+        onComplete?.();
+        return;
+      }
+
+      const animation = animate(categorySwipeX, target, mobilePageTransition);
+      categorySwipeAnimationRef.current = animation;
+      void animation.then(() => {
+        if (categorySwipeAnimationRef.current === animation) {
+          categorySwipeAnimationRef.current = null;
+        }
+        onComplete?.();
+      });
+    },
+    [categorySwipeX, reduceMotion, stopCategorySwipeAnimation]
+  );
+
+  const resetCategorySwipeState = useCallback(() => {
+    stopCategorySwipeAnimation();
+    categorySwipeDragStateRef.current = null;
+    categorySwipeTouchGuardStateRef.current = null;
+    releaseCategorySwipeScrollLock();
+    setIsCategorySwipeActive(false);
+    categorySwipeX.set(0);
+  }, [categorySwipeX, releaseCategorySwipeScrollLock, stopCategorySwipeAnimation]);
+
   const openCategory = useCallback((categoryId: string) => {
+    resetCategorySwipeState();
     setCategoryTransitionDirection(1);
     setExpandedDescriptionSkillId(null);
     setSelectedCategoryId(categoryId);
-  }, []);
+  }, [resetCategorySwipeState]);
 
   const closeCategory = useCallback(() => {
+    resetCategorySwipeState();
     setCategoryTransitionDirection(-1);
     setExpandedDescriptionSkillId(null);
     setSelectedCategoryId(null);
-  }, []);
+  }, [resetCategorySwipeState]);
+
+  const closeCategoryWithSwipeCommit = useCallback(() => {
+    categorySwipeDragStateRef.current = null;
+    categorySwipeTouchGuardStateRef.current = null;
+    releaseCategorySwipeScrollLock();
+    setIsCategorySwipeActive(false);
+    setCategoryTransitionDirection(-1);
+    setExpandedDescriptionSkillId(null);
+    setSelectedCategoryId(null);
+    const resetSwipeX = () => categorySwipeX.set(0);
+    if (typeof window === "undefined") {
+      resetSwipeX();
+    } else {
+      window.requestAnimationFrame(resetSwipeX);
+    }
+  }, [categorySwipeX, releaseCategorySwipeScrollLock]);
+
+  useEffect(
+    () => () => {
+      stopCategorySwipeAnimation();
+      releaseSkillsCategoryBackSwipeScrollLock(categorySwipeScrollLockRef.current);
+      categorySwipeScrollLockRef.current = null;
+    },
+    [stopCategorySwipeAnimation]
+  );
+
+  const handleCategorySwipePointerDown = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (!selectedCategoryId) return;
+      if (!event.isPrimary || event.pointerType !== "touch") return;
+      const viewportWidth = skillsCategoryBackSwipeViewportWidth();
+      if (viewportWidth >= SKILLS_CATEGORY_BACK_SWIPE_DESKTOP_MIN_WIDTH_PX) return;
+      if (isInteractiveSkillsCategoryBackSwipeTarget(event.target)) return;
+      stopCategorySwipeAnimation();
+      const scrollElement = skillsPageScrollRef.current;
+
+      categorySwipeDragStateRef.current = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        viewportWidth,
+        claimed: false,
+        lastX: event.clientX,
+        lastTime: currentTimeMs(),
+        velocityX: 0,
+        scrollElement,
+        startScrollTop: scrollElement?.scrollTop ?? 0,
+      };
+    },
+    [selectedCategoryId, stopCategorySwipeAnimation]
+  );
+
+  const handleCategorySwipePointerMove = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const dragState = categorySwipeDragStateRef.current;
+      if (!dragState || dragState.pointerId !== event.pointerId) return;
+
+      const deltaX = event.clientX - dragState.startX;
+      const deltaY = event.clientY - dragState.startY;
+
+      if (
+        !dragState.claimed &&
+        shouldCancelSkillsCategoryBackSwipe({
+          deltaX,
+          deltaY,
+          viewportWidth: dragState.viewportWidth,
+        })
+      ) {
+        categorySwipeDragStateRef.current = null;
+        releaseCategorySwipeScrollLock();
+        return;
+      }
+
+      if (
+        !dragState.claimed &&
+        shouldClaimSkillsCategoryBackSwipe({
+          deltaX,
+          deltaY,
+          viewportWidth: dragState.viewportWidth,
+        })
+      ) {
+        dragState.claimed = true;
+        setIsCategorySwipeActive(true);
+        categorySwipeScrollLockRef.current = ensureSkillsCategoryBackSwipeScrollLock(
+          categorySwipeScrollLockRef.current,
+          dragState.scrollElement,
+          dragState.startScrollTop
+        );
+        try {
+          event.currentTarget.setPointerCapture(event.pointerId);
+        } catch {
+          // Pointer capture can fail when the platform has already ended the gesture.
+        }
+      }
+
+      if (!dragState.claimed) return;
+
+      event.preventDefault();
+      const currentTime = currentTimeMs();
+      const elapsed = Math.max(1, currentTime - dragState.lastTime);
+      dragState.velocityX = ((event.clientX - dragState.lastX) / elapsed) * 1000;
+      dragState.lastX = event.clientX;
+      dragState.lastTime = currentTime;
+      categorySwipeX.set(Math.max(0, deltaX));
+    },
+    [categorySwipeX, releaseCategorySwipeScrollLock]
+  );
+
+  const handleCategorySwipePointerUp = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const dragState = categorySwipeDragStateRef.current;
+      if (!dragState || dragState.pointerId !== event.pointerId) return;
+
+      categorySwipeDragStateRef.current = null;
+      releaseCategorySwipeScrollLock();
+      try {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      } catch {
+        // Matching setPointerCapture may not have succeeded on every platform.
+      }
+
+      if (!dragState.claimed) return;
+      event.preventDefault();
+
+      const release = resolveSkillsCategoryBackSwipeRelease({
+        x: categorySwipeX.get(),
+        velocityX: dragState.velocityX,
+        viewportWidth: dragState.viewportWidth,
+      });
+
+      if (!release.shouldCloseCategory) {
+        animateCategorySwipeTo(0, () => {
+          setIsCategorySwipeActive(false);
+        });
+        return;
+      }
+
+      setIsCategorySwipeActive(true);
+      animateCategorySwipeTo(dragState.viewportWidth, closeCategoryWithSwipeCommit);
+    },
+    [
+      animateCategorySwipeTo,
+      categorySwipeX,
+      closeCategoryWithSwipeCommit,
+      releaseCategorySwipeScrollLock,
+    ]
+  );
+
+  const handleCategorySwipePointerCancel = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const dragState = categorySwipeDragStateRef.current;
+      if (dragState && dragState.pointerId === event.pointerId) {
+        categorySwipeDragStateRef.current = null;
+        releaseCategorySwipeScrollLock();
+        animateCategorySwipeTo(0, () => {
+          setIsCategorySwipeActive(false);
+        });
+      }
+    },
+    [animateCategorySwipeTo, releaseCategorySwipeScrollLock]
+  );
+
+  const handleCategorySwipeTouchStartCapture = useCallback(
+    (event: React.TouchEvent<HTMLDivElement>) => {
+      if (!selectedCategoryId) return;
+      if (event.touches.length !== 1) return;
+      const viewportWidth = skillsCategoryBackSwipeViewportWidth();
+      if (viewportWidth >= SKILLS_CATEGORY_BACK_SWIPE_DESKTOP_MIN_WIDTH_PX) return;
+      if (isInteractiveSkillsCategoryBackSwipeTarget(event.target)) return;
+      const touch = event.touches[0];
+      if (!touch) return;
+      stopCategorySwipeAnimation();
+      const scrollElement = skillsPageScrollRef.current;
+
+      categorySwipeTouchGuardStateRef.current = {
+        startX: touch.clientX,
+        startY: touch.clientY,
+        viewportWidth,
+        isGuarding: false,
+        scrollElement,
+        startScrollTop: scrollElement?.scrollTop ?? 0,
+      };
+    },
+    [selectedCategoryId, stopCategorySwipeAnimation]
+  );
+
+  const handleCategorySwipeTouchMoveCapture = useCallback(
+    (event: React.TouchEvent<HTMLDivElement>) => {
+      const guardState = categorySwipeTouchGuardStateRef.current;
+      const touch = event.touches[0];
+      if (!guardState || !touch) return;
+
+      const deltaX = touch.clientX - guardState.startX;
+      const deltaY = touch.clientY - guardState.startY;
+
+      if (
+        !guardState.isGuarding &&
+        shouldCancelSkillsCategoryBackSwipe({
+          deltaX,
+          deltaY,
+          viewportWidth: guardState.viewportWidth,
+        })
+      ) {
+        categorySwipeTouchGuardStateRef.current = null;
+        releaseCategorySwipeScrollLock();
+        return;
+      }
+
+      if (
+        guardState.isGuarding ||
+        shouldGuardSkillsCategoryBackSwipeScroll({
+          deltaX,
+          deltaY,
+          viewportWidth: guardState.viewportWidth,
+        })
+      ) {
+        guardState.isGuarding = true;
+        event.preventDefault();
+        categorySwipeScrollLockRef.current = ensureSkillsCategoryBackSwipeScrollLock(
+          categorySwipeScrollLockRef.current,
+          guardState.scrollElement,
+          guardState.startScrollTop
+        );
+      }
+    },
+    [releaseCategorySwipeScrollLock]
+  );
+
+  const clearCategorySwipeTouchGuard = useCallback(() => {
+    categorySwipeTouchGuardStateRef.current = null;
+    if (!categorySwipeDragStateRef.current?.claimed) releaseCategorySwipeScrollLock();
+  }, [releaseCategorySwipeScrollLock]);
 
   const openCreateSkillChat = useCallback(() => {
     onOpenChat?.(t("skills.createChatPrompt"), { autoSend: true, newSession: true });
@@ -1389,11 +1820,42 @@ export default function SkillsPage({
         </div>
       );
     }
-    return selectedCategory ? renderCategoryDetail(selectedCategory) : renderCategoryIndex();
+    if (!selectedCategory) return renderCategoryIndex();
+
+    return (
+      <div data-ripple-skill-category-swipe-stack="true" className="relative min-w-0">
+        <div
+          data-ripple-skill-category-index-underlay="true"
+          aria-hidden="true"
+          className={`pointer-events-none absolute inset-x-0 top-0 z-0 lg:hidden ${
+            isCategorySwipeActive ? "opacity-100" : "opacity-0"
+          }`}
+        >
+          {renderCategoryIndex()}
+        </div>
+        <motion.div
+          data-ripple-skill-category-swipe-sheet="true"
+          data-ripple-skill-category-swiping={isCategorySwipeActive ? "true" : "false"}
+          style={{ x: categorySwipeX }}
+          className="relative z-10 min-w-0 touch-pan-y bg-[#F5F6F7]"
+          onPointerDown={handleCategorySwipePointerDown}
+          onPointerMove={handleCategorySwipePointerMove}
+          onPointerUp={handleCategorySwipePointerUp}
+          onPointerCancel={handleCategorySwipePointerCancel}
+          onTouchStartCapture={handleCategorySwipeTouchStartCapture}
+          onTouchMoveCapture={handleCategorySwipeTouchMoveCapture}
+          onTouchEndCapture={clearCategorySwipeTouchGuard}
+          onTouchCancelCapture={clearCategorySwipeTouchGuard}
+        >
+          {renderCategoryDetail(selectedCategory)}
+        </motion.div>
+      </div>
+    );
   };
 
   return (
     <div
+      ref={skillsPageScrollRef}
       data-ripple-skills-page="true"
       className={`h-full min-h-0 overflow-y-auto ${COMPACT_IOS_PAGE_BACKGROUND} px-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} ${SKILLS_PAGE_TEXT_PRIMARY_CLASS} md:px-6 lg:pb-5`}
     >

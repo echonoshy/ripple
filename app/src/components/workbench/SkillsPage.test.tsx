@@ -4,7 +4,12 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { I18nProvider, type LocalePreference } from "@/i18n";
-import SkillsPage from "./SkillsPage";
+import SkillsPage, {
+  resolveSkillsCategoryBackSwipeRelease,
+  shouldCancelSkillsCategoryBackSwipe,
+  shouldClaimSkillsCategoryBackSwipe,
+  shouldGuardSkillsCategoryBackSwipeScroll,
+} from "./SkillsPage";
 
 const noop = () => {};
 
@@ -168,7 +173,7 @@ function testSkillsPageAnimatesCategoryDrillInBothLayouts() {
 
   assert.match(
     source,
-    /import \{ AnimatePresence, motion, useReducedMotion \} from "framer-motion"/
+    /import \{ AnimatePresence, animate, motion, useMotionValue, useReducedMotion \} from "framer-motion"/
   );
   assert.match(source, /categoryTransitionDirection/);
   assert.match(source, /data-ripple-skill-category-motion-stage/);
@@ -182,6 +187,68 @@ function testSkillsPageAnimatesCategoryDrillInBothLayouts() {
 }
 
 testSkillsPageAnimatesCategoryDrillInBothLayouts();
+
+function testSkillsCategoryDetailSupportsSwipeBackGesture() {
+  const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
+
+  assert.equal(
+    shouldGuardSkillsCategoryBackSwipeScroll({
+      deltaX: 8,
+      deltaY: 3,
+      viewportWidth: 390,
+    }),
+    true
+  );
+  assert.equal(
+    shouldClaimSkillsCategoryBackSwipe({
+      deltaX: 16,
+      deltaY: 0,
+      viewportWidth: 390,
+    }),
+    true
+  );
+  assert.equal(
+    shouldCancelSkillsCategoryBackSwipe({
+      deltaX: 4,
+      deltaY: 22,
+      viewportWidth: 390,
+    }),
+    true
+  );
+  assert.equal(
+    resolveSkillsCategoryBackSwipeRelease({
+      x: 149,
+      velocityX: 0,
+      viewportWidth: 390,
+    }).shouldCloseCategory,
+    true
+  );
+  assert.equal(
+    resolveSkillsCategoryBackSwipeRelease({
+      x: 72,
+      velocityX: 650,
+      viewportWidth: 390,
+    }).shouldCloseCategory,
+    true
+  );
+  assert.equal(
+    shouldClaimSkillsCategoryBackSwipe({
+      deltaX: 40,
+      deltaY: 0,
+      viewportWidth: 1280,
+    }),
+    false
+  );
+
+  assert.match(source, /data-ripple-skill-category-swipe-stack="true"/);
+  assert.match(source, /data-ripple-skill-category-index-underlay="true"/);
+  assert.match(source, /data-ripple-skill-category-swipe-sheet="true"/);
+  assert.match(source, /onTouchMoveCapture=\{handleCategorySwipeTouchMoveCapture\}/);
+  assert.match(source, /onPointerMove=\{handleCategorySwipePointerMove\}/);
+  assert.match(source, /closeCategoryWithSwipeCommit/);
+}
+
+testSkillsCategoryDetailSupportsSwipeBackGesture();
 
 function testSkillsPageUsesPlainGeneralGroupLabels() {
   const i18n = readFileSync(new URL("../../i18n/index.tsx", import.meta.url), "utf8");

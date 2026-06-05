@@ -258,7 +258,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = "ripple-desktop_iOS/ripple-desktop_iOS.entitlements";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = 932QX878KY;
+				DEVELOPMENT_TEAM = JUC3PB4JJH;
 				ENABLE_BITCODE = NO;
 				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
 				FRAMEWORK_SEARCH_PATHS = (
@@ -363,7 +363,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = "ripple-desktop_iOS/ripple-desktop_iOS.entitlements";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = 932QX878KY;
+				DEVELOPMENT_TEAM = JUC3PB4JJH;
 				ENABLE_BITCODE = NO;
 				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
 				FRAMEWORK_SEARCH_PATHS = (
@@ -463,7 +463,7 @@
 				15ED9E9D8D70680DE2EC1E48 /* release */,
 			);
 			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = debug;
+			defaultConfigurationName = release;
 		};
 		75FE0116D8FD326A918195DE /* Build configuration list for PBXProject "ripple-desktop" */ = {
 			isa = XCConfigurationList;
@@ -472,7 +472,7 @@
 				C69CB0D1171429D2EEE40C30 /* release */,
 			);
 			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = debug;
+			defaultConfigurationName = release;
 		};
 /* End XCConfigurationList section */
 	};

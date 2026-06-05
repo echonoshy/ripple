@@ -53,9 +53,10 @@ import {
 const STICK_TO_BOTTOM_MS = 1200;
 const BOTTOM_LOCK_THRESHOLD_PX = 40;
 const MOBILE_CHAT_DESKTOP_MIN_WIDTH_PX = 1024;
-const MOBILE_CHAT_SWIPE_EDGE_PX = 48;
-const MOBILE_CHAT_SWIPE_MIN_DISTANCE_PX = 72;
-const MOBILE_CHAT_SWIPE_MAX_VERTICAL_DISTANCE_PX = 64;
+const MOBILE_CHAT_SWIPE_EDGE_PX = 96;
+const MOBILE_CHAT_SWIPE_INTENT_DISTANCE_PX = 14;
+const MOBILE_CHAT_SWIPE_MIN_DISTANCE_PX = 60;
+const MOBILE_CHAT_SWIPE_MAX_VERTICAL_DISTANCE_PX = 72;
 const mobileHeaderButtonClass = MOBILE_GLASS_ICON_BUTTON_CLASS;
 
 interface MobileChatSwipeIntent {
@@ -71,6 +72,7 @@ interface MobileChatSwipeStart {
   startX: number;
   startY: number;
   viewportWidth: number;
+  hasHorizontalIntent: boolean;
 }
 
 export function shouldTriggerMobileSessionBackSwipe({
@@ -89,6 +91,22 @@ export function shouldTriggerMobileSessionBackSwipe({
   if (horizontalDistance < MOBILE_CHAT_SWIPE_MIN_DISTANCE_PX) return false;
   if (verticalDistance > MOBILE_CHAT_SWIPE_MAX_VERTICAL_DISTANCE_PX) return false;
   return horizontalDistance > verticalDistance * 1.25;
+}
+
+function shouldClaimMobileSessionBackSwipe({
+  startX,
+  startY,
+  endX,
+  endY,
+  viewportWidth,
+}: MobileChatSwipeIntent): boolean {
+  if (viewportWidth >= MOBILE_CHAT_DESKTOP_MIN_WIDTH_PX) return false;
+
+  const horizontalDistance = endX - startX;
+  const verticalDistance = Math.abs(endY - startY);
+
+  if (horizontalDistance < MOBILE_CHAT_SWIPE_INTENT_DISTANCE_PX) return false;
+  return horizontalDistance > verticalDistance * 1.15;
 }
 
 function isInteractiveMobileChatSwipeTarget(target: EventTarget | null): boolean {
@@ -421,16 +439,48 @@ export default function SessionPage({
         startX: event.clientX,
         startY: event.clientY,
         viewportWidth: window.innerWidth,
+        hasHorizontalIntent: false,
       };
+    },
+    [onBackToMobileSessions]
+  );
 
+  const handleMobileChatPointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const swipeStart = mobileChatSwipeStartRef.current;
+    if (!swipeStart || swipeStart.pointerId !== event.pointerId) return;
+
+    const horizontalDistance = event.clientX - swipeStart.startX;
+    const verticalDistance = Math.abs(event.clientY - swipeStart.startY);
+    if (
+      verticalDistance > MOBILE_CHAT_SWIPE_MAX_VERTICAL_DISTANCE_PX &&
+      verticalDistance > Math.abs(horizontalDistance)
+    ) {
+      mobileChatSwipeStartRef.current = null;
+      return;
+    }
+
+    if (
+      !swipeStart.hasHorizontalIntent &&
+      shouldClaimMobileSessionBackSwipe({
+        startX: swipeStart.startX,
+        startY: swipeStart.startY,
+        endX: event.clientX,
+        endY: event.clientY,
+        viewportWidth: swipeStart.viewportWidth,
+      })
+    ) {
+      swipeStart.hasHorizontalIntent = true;
       try {
         event.currentTarget.setPointerCapture(event.pointerId);
       } catch {
         // Pointer capture can fail if the browser has already ended the touch.
       }
-    },
-    [onBackToMobileSessions]
-  );
+    }
+
+    if (swipeStart.hasHorizontalIntent) {
+      event.preventDefault();
+    }
+  }, []);
 
   const handleMobileChatPointerCancel = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     const swipeStart = mobileChatSwipeStartRef.current;
@@ -449,6 +499,10 @@ export default function SessionPage({
         event.currentTarget.releasePointerCapture(event.pointerId);
       } catch {
         // Matching setPointerCapture may not have succeeded on every platform.
+      }
+
+      if (swipeStart.hasHorizontalIntent) {
+        event.preventDefault();
       }
 
       if (
@@ -473,9 +527,10 @@ export default function SessionPage({
       onDragLeave={handlePageDragLeave}
       onDrop={handlePageDrop}
       onPointerDown={handleMobileChatPointerDown}
+      onPointerMove={handleMobileChatPointerMove}
       onPointerUp={handleMobileChatPointerUp}
       onPointerCancel={handleMobileChatPointerCancel}
-      className={`relative flex h-full min-h-0 flex-col ${COMPACT_IOS_PAGE_BACKGROUND} ${
+      className={`relative flex h-full min-h-0 touch-pan-y flex-col ${COMPACT_IOS_PAGE_BACKGROUND} ${
         isDraggingFiles ? "ring-2 ring-[#1456F0] ring-inset" : ""
       }`}
     >

@@ -438,6 +438,16 @@ function testMobileRightSwipeCanReturnToSessionList() {
       endY: 230,
       viewportWidth: 390,
     }),
+    true
+  );
+  assert.equal(
+    shouldTriggerMobileSessionBackSwipe({
+      startX: 118,
+      startY: 220,
+      endX: 214,
+      endY: 230,
+      viewportWidth: 390,
+    }),
     false
   );
   assert.equal(
@@ -454,8 +464,12 @@ function testMobileRightSwipeCanReturnToSessionList() {
 
 function testSessionPageWiresMobileSwipeGesture() {
   assert.match(sessionPageSource, /data-ripple-mobile-chat-swipe/);
+  assert.match(sessionPageSource, /touch-pan-y/);
   assert.match(sessionPageSource, /handleMobileChatPointerDown/);
+  assert.match(sessionPageSource, /handleMobileChatPointerMove/);
+  assert.match(sessionPageSource, /event\.preventDefault\(\)/);
   assert.match(sessionPageSource, /handleMobileChatPointerUp/);
+  assert.match(sessionPageSource, /onPointerMove=\{handleMobileChatPointerMove\}/);
   assert.match(sessionPageSource, /onBackToMobileSessions\?\.\(\)/);
 }
 

@@ -977,7 +977,7 @@ export default function SettingsPage({
           ref={diagnosticsSectionRef}
           sectionKind="diagnostics"
           data-ripple-settings-diagnostics-section
-          className="scroll-mb-[calc(96px+env(safe-area-inset-bottom))] lg:scroll-mb-4"
+          className="scroll-mb-[calc(84px+env(safe-area-inset-bottom))] lg:scroll-mb-4"
         >
           <button
             type="button"

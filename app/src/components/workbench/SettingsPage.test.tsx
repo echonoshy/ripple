@@ -324,7 +324,7 @@ function testSettingsDiagnosticsExpansionScrollsAboveMobileTabBar() {
   );
   assert.match(
     source,
-    /data-ripple-settings-diagnostics-section[\s\S]*scroll-mb-\[calc\(96px\+env\(safe-area-inset-bottom\)\)\]/
+    /data-ripple-settings-diagnostics-section[\s\S]*scroll-mb-\[calc\(84px\+env\(safe-area-inset-bottom\)\)\]/
   );
 }
 

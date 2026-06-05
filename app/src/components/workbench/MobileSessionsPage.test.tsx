@@ -56,7 +56,7 @@ function testRendersChatAppStyleSessionList() {
   assert.match(html, />Mobile redesign</);
   assert.match(html, /4 messages · 2 files/);
   assert.doesNotMatch(html, /idle/);
-  assert.match(html, /pb-\[calc\(96px\+env\(safe-area-inset-bottom\)\)\]/);
+  assert.match(html, /pb-\[calc\(84px\+env\(safe-area-inset-bottom\)\)\]/);
   assert.match(html, /pt-\[max\(env\(safe-area-inset-top\),12px\)\]/);
 }
 

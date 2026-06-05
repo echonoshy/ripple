@@ -51,8 +51,8 @@ assert.equal(MOBILE_LABEL_TEXT_CLASS, TYPOGRAPHY_BODY_CLASS);
 assert.equal(MOBILE_META_TEXT_CLASS, TYPOGRAPHY_META_CLASS);
 assert.equal(MOBILE_STATUS_TEXT_CLASS, TYPOGRAPHY_MICRO_CLASS);
 assert.equal(MOBILE_PAGE_TOP_SAFE_AREA_CLASS, "pt-[max(env(safe-area-inset-top),12px)]");
-assert.equal(MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS, "pb-[calc(96px+env(safe-area-inset-bottom))]");
-assert.equal(MOBILE_TAB_BAR_MASK_HEIGHT_CLASS, "h-[calc(96px+env(safe-area-inset-bottom))]");
+assert.equal(MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS, "pb-[calc(84px+env(safe-area-inset-bottom))]");
+assert.equal(MOBILE_TAB_BAR_MASK_HEIGHT_CLASS, "h-[calc(84px+env(safe-area-inset-bottom))]");
 assert.equal(LUCIDE_STANDARD_STROKE_WIDTH, 2.2);
 assert.equal(LUCIDE_NAV_STROKE_WIDTH, 2.25);
 

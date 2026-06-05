@@ -12,6 +12,8 @@ pub(crate) fn build_codex_chat_prompt(
     workspace_root: &FsPath,
     context_folder_path: Option<&str>,
     folder_context_evidence: Option<&str>,
+    recent_display_context: Option<&str>,
+    recent_automations_context: Option<&str>,
     skill_options: &SkillManifestOptions,
     user_input: &str,
     attachment_items: &[Value],
@@ -58,6 +60,14 @@ pub(crate) fn build_codex_chat_prompt(
         _ if context_folder_path.is_some() => "No automatic folder context evidence was collected. Search or read files under the context folder before using web_search unless the user explicitly asked for online/latest information.".to_string(),
         _ => "(none)".to_string(),
     };
+    let recent_display_context_section = recent_display_context
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("(none)");
+    let recent_automations_context_section = recent_automations_context
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("(none)");
     format!(
         "You are Codex, running as Ripple's trusted execution plane.\n\
 Ripple is the control plane: it owns user identity, sandbox isolation, connector state, permissions, and API/session lifecycle. Do the real work inside the current user's workspace.\n\n\
@@ -87,7 +97,12 @@ Ripple is the control plane: it owns user identity, sandbox isolation, connector
 ## System Instructions\n\
 {}\n\n\
 ## Conversation State\n\
-- The Codex persistent thread is the authoritative execution context and conversation history. Ripple may store display messages, but it does not replay prior turns into this prompt.\n\n\
+- The Codex persistent thread is the primary execution context and conversation history.\n\
+- Ripple includes bounded recent display context below so control-plane-only turns and recovery paths keep local continuity.\n\n\
+## Recent Ripple Display Context\n\
+{}\n\n\
+## Recent Automations\n\
+{}\n\n\
 ## Attachments\n\
 {}\n\n\
 ## Current User Request\n\
@@ -97,6 +112,8 @@ Ripple is the control plane: it owns user identity, sandbox isolation, connector
         connector_manifest(skill_options),
         render_skill_manifest_with_options(&state.config, Some(workspace_root), skill_options),
         system_prompt.unwrap_or("(none)"),
+        recent_display_context_section,
+        recent_automations_context_section,
         attachment_section,
         if user_input.trim().is_empty() {
             "(The user provided image input without additional text.)"

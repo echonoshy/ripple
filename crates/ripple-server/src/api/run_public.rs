@@ -12,7 +12,11 @@ pub(crate) fn public_run_value(state: &AppState, user_id: &str, run: &AgentRunIn
         object.insert("events_file".to_string(), Value::Null);
         object.insert(
             "output_available".to_string(),
-            json!(run.output_file.is_some()),
+            json!(run_file_available(
+                state,
+                user_id,
+                run.output_file.as_deref()
+            )),
         );
         object.insert(
             "events_available".to_string(),
@@ -20,6 +24,22 @@ pub(crate) fn public_run_value(state: &AppState, user_id: &str, run: &AgentRunIn
         );
     }
     sanitize_user_visible_value(state, user_id, &value)
+}
+
+fn run_file_available(state: &AppState, user_id: &str, path: Option<&str>) -> bool {
+    let Some(path) = path else {
+        return false;
+    };
+    let Ok(sandbox_dir) = state.sandboxes.sandbox_dir(user_id) else {
+        return false;
+    };
+    let Ok(sandbox_dir) = sandbox_dir.canonicalize() else {
+        return false;
+    };
+    let Ok(resolved) = Path::new(path).canonicalize() else {
+        return false;
+    };
+    resolved.starts_with(&sandbox_dir) && resolved.is_file()
 }
 
 pub(crate) fn sanitize_user_visible_value(state: &AppState, user_id: &str, value: &Value) -> Value {

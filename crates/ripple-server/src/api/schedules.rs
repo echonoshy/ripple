@@ -14,7 +14,7 @@ use uuid::Uuid;
 use crate::api::run_public::{public_run_value, sanitize_user_visible_value};
 use crate::api::users::assert_can_create_run;
 use crate::api::{audit_event, paginate, require_confirm, ApiError, ListQuery};
-use crate::jobs::{AgentRunCreateRequest, AgentRunInfo};
+use crate::jobs::{resolve_workspace_cwd, AgentRunCreateRequest, AgentRunInfo};
 use crate::state::AppState;
 use crate::user::user_id_from_headers;
 
@@ -180,7 +180,7 @@ pub(crate) async fn create_schedule_for_user(
     user_id: &str,
     input: ScheduleCreateInput,
 ) -> Result<Value, ApiError> {
-    state.sandboxes.ensure_sandbox(user_id)?;
+    let workspace_root = state.sandboxes.ensure_sandbox(user_id)?;
     let now = OffsetDateTime::now_utc();
     let kind = normalize_kind(&input.kind)?;
     let max_runs = normalize_max_runs(kind, input.max_runs)?;
@@ -189,6 +189,7 @@ pub(crate) async fn create_schedule_for_user(
     let next_run_at = compute_initial_next_run_at(kind, run_at.as_deref(), interval_seconds, now)?;
     let title = clean_required(&input.title, "title")?;
     let prompt = clean_required(&input.prompt, "prompt")?;
+    validate_schedule_cwd(&workspace_root, input.cwd.as_deref())?;
     let record = ScheduleRecord {
         schedule_id: format!("sch-{}", &Uuid::new_v4().simple().to_string()[..10]),
         user_id: user_id.to_string(),
@@ -314,6 +315,8 @@ pub async fn update_schedule(
         record.max_runs = None;
     }
     record.interval_seconds = normalize_interval(&record.kind, record.interval_seconds)?;
+    let workspace_root = state.sandboxes.ensure_sandbox(&user_id)?;
+    validate_schedule_cwd(&workspace_root, record.cwd.as_deref())?;
     if timing_changed || (record.enabled && record.next_run_at.is_none()) {
         record.next_run_at = compute_initial_next_run_at(
             &record.kind,
@@ -514,6 +517,21 @@ pub async fn trigger_due_schedules(
             if next_run_at > now {
                 continue;
             }
+            if should_skip_missed_run(
+                &record,
+                next_run_at,
+                now,
+                state.config.schedule_poll_interval_seconds,
+            ) {
+                record.last_error = None;
+                record.failure_reason = None;
+                record.last_run_status = Some("skipped_missed".to_string());
+                record.status = "active".to_string();
+                record.next_run_at = advance_next_run_at(&record, now)?;
+                record.updated_at = iso(now);
+                persist_schedule_record(state, &user_id, &record).await?;
+                continue;
+            }
             if record.overlap_policy == "skip"
                 && state
                     .jobs
@@ -552,14 +570,23 @@ pub async fn trigger_due_schedules(
                         .push(schedule_id);
                 }
                 Err(err) => {
-                    if record.failure_policy == "pause" {
-                        record.enabled = false;
-                    }
-                    record.status = "error".to_string();
-                    record.next_run_at = None;
-                    record.last_error = Some(format!("{err:?}"));
-                    record.failure_reason = record.last_error.clone();
+                    let summary = format!("{err:?}");
+                    record.last_error = Some(summary.clone());
+                    record.failure_reason = Some(summary);
                     record.last_run_status = Some("failed".to_string());
+                    if record.kind == "interval"
+                        && record.failure_policy == "keep_active"
+                        && record.enabled
+                    {
+                        record.status = "active".to_string();
+                        record.next_run_at = advance_next_run_at(&record, now)?;
+                    } else {
+                        if record.failure_policy == "pause" {
+                            record.enabled = false;
+                        }
+                        record.status = "error".to_string();
+                        record.next_run_at = None;
+                    }
                     record.updated_at = iso(now);
                     persist_schedule_record(state, &user_id, &record).await?;
                 }
@@ -719,9 +746,11 @@ fn apply_latest_run_to_schedule(
 ) -> bool {
     let before = record.clone();
     let Some(run) = latest else {
-        record.last_run_id = None;
-        record.last_run_at = None;
-        record.last_run_status = None;
+        if record.last_run_id.is_some() || record.last_run_at.is_some() {
+            record.last_run_id = None;
+            record.last_run_at = None;
+            record.last_run_status = None;
+        }
         return *record != before;
     };
 
@@ -902,6 +931,12 @@ fn normalize_failure_policy(value: &str) -> Result<&'static str, ApiError> {
     }
 }
 
+fn validate_schedule_cwd(workspace_root: &FsPath, cwd: Option<&str>) -> Result<(), ApiError> {
+    resolve_workspace_cwd(cwd, workspace_root)
+        .map(|_| ())
+        .map_err(|err| ApiError::bad_request(err.to_string()))
+}
+
 fn normalize_run_at(value: Option<&str>, timezone: &str) -> Result<Option<String>, ApiError> {
     let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
         return Ok(None);
@@ -998,6 +1033,19 @@ fn has_datetime_offset(value: &str) -> bool {
         .map(|index| index + 1)
         .unwrap_or(value.len());
     value[time_start..].contains('+') || value[time_start..].contains('-')
+}
+
+fn should_skip_missed_run(
+    record: &ScheduleRecord,
+    next_run_at: OffsetDateTime,
+    now: OffsetDateTime,
+    poll_interval_seconds: u64,
+) -> bool {
+    if record.kind != "interval" || record.missed_run_policy != "skip" {
+        return false;
+    }
+    let tolerance = TimeDuration::seconds(poll_interval_seconds.max(1) as i64);
+    next_run_at + tolerance < now
 }
 
 fn schedule_limit_reached(record: &ScheduleRecord) -> bool {

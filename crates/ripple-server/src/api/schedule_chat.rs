@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use time::format_description::well_known::Rfc3339;
 use time::{Duration as TimeDuration, OffsetDateTime, Time, UtcOffset};
@@ -50,7 +50,7 @@ pub(crate) struct ScheduleChatDecision {
     pub(crate) pending_schedule_request: Option<Value>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct ScheduleDraft {
     title: Option<String>,
@@ -99,6 +99,19 @@ pub(crate) async fn maybe_handle_schedule_chat(
         .as_ref()
         .filter(|value| value.is_object())
     {
+        if pending.get("type").and_then(Value::as_str) == Some("schedule_draft") {
+            return handle_pending_schedule_draft(
+                state,
+                user_id,
+                session,
+                workspace_root,
+                pending,
+                user_input,
+                model,
+                effort,
+            )
+            .await;
+        }
         return handle_pending_schedule_confirmation(state, user_id, pending, user_input).await;
     }
 
@@ -138,7 +151,11 @@ pub(crate) async fn maybe_handle_schedule_chat(
     if let Some(clarification) = schedule_extraction_clarification(&extraction) {
         return Ok(Some(awaiting_decision(
             schedule_clarification_event(&clarification),
-            None,
+            Some(schedule_draft_pending_value(
+                user_input,
+                &extraction,
+                &clarification,
+            )),
         )));
     }
 
@@ -150,7 +167,111 @@ pub(crate) async fn maybe_handle_schedule_chat(
                 schedule_clarification_event(
                     "这个定时任务还缺少有效的时间或执行内容，请补充后我再创建。",
                 ),
-                None,
+                Some(schedule_draft_pending_value(
+                    user_input,
+                    &extraction,
+                    "这个定时任务还缺少有效的时间或执行内容，请补充后我再创建。",
+                )),
+            )));
+        }
+    };
+
+    Ok(Some(awaiting_decision(
+        schedule_proposal_event(&proposal),
+        Some(proposal.payload),
+    )))
+}
+
+async fn handle_pending_schedule_draft(
+    state: &AppState,
+    user_id: &str,
+    session: &SessionRecord,
+    workspace_root: PathBuf,
+    pending: &Value,
+    user_input: &str,
+    model: &str,
+    effort: Option<String>,
+) -> Result<Option<ScheduleChatDecision>, ApiError> {
+    if is_schedule_cancellation(user_input) {
+        return Ok(Some(ScheduleChatDecision {
+            event: schedule_cancelled_event("已取消创建这个定时任务。"),
+            status: "idle".to_string(),
+            clear_pending_schedule: true,
+            pending_schedule_request: None,
+        }));
+    }
+
+    if is_schedule_confirmation(user_input) {
+        return Ok(Some(awaiting_decision(
+            schedule_clarification_event(
+                pending
+                    .get("clarification_question")
+                    .and_then(Value::as_str)
+                    .unwrap_or("这个定时任务还缺少信息，请先补充。"),
+            ),
+            Some(pending.clone()),
+        )));
+    }
+
+    let combined = combine_schedule_draft_followup(pending, user_input);
+    let extraction = match extract_schedule_with_codex(
+        state,
+        user_id,
+        session,
+        workspace_root,
+        &combined,
+        model,
+        effort,
+    )
+    .await
+    {
+        Ok(extraction) => extraction,
+        Err(ScheduleExtractionError::Invalid) => {
+            return Ok(Some(idle_decision(schedule_extraction_failed_event(
+                "定时任务解析结果不合法，不是你的描述问题。请稍后重试。",
+            ))));
+        }
+        Err(ScheduleExtractionError::Api(err)) => return Err(err),
+        Err(ScheduleExtractionError::Runtime) => {
+            return Ok(Some(idle_decision(schedule_extraction_failed_event(
+                "定时任务解析服务失败，不是你的描述问题。请稍后重试。",
+            ))));
+        }
+    };
+
+    if !extraction.is_schedule_request {
+        return Ok(None);
+    }
+
+    if let Some(clarification) = schedule_extraction_clarification(&extraction) {
+        return Ok(Some(awaiting_decision(
+            schedule_clarification_event(&clarification),
+            Some(schedule_draft_pending_value(
+                pending
+                    .get("original_user_input")
+                    .and_then(Value::as_str)
+                    .unwrap_or(user_input),
+                &extraction,
+                &clarification,
+            )),
+        )));
+    }
+
+    let proposal = match schedule_proposal_from_extraction(&extraction) {
+        Ok(Some(proposal)) => proposal,
+        Ok(None) => return Ok(None),
+        Err(_) => {
+            let clarification = "这个定时任务还缺少有效的时间或执行内容，请补充后我再创建。";
+            return Ok(Some(awaiting_decision(
+                schedule_clarification_event(clarification),
+                Some(schedule_draft_pending_value(
+                    pending
+                        .get("original_user_input")
+                        .and_then(Value::as_str)
+                        .unwrap_or(user_input),
+                    &extraction,
+                    clarification,
+                )),
             )));
         }
     };
@@ -344,6 +465,7 @@ Rules:\n\
 - Use kind='once' for one-time future tasks and kind='interval' for recurring tasks.\n\
 - For interval schedules, interval_seconds is required. For once schedules, run_at is required.\n\
 - For daily requests with a clock time, such as '每天 11:15', '每日11点15分', 'daily at 11:15', or 'every day at 11:15', use kind='interval', interval_seconds=86400, and set run_at to the next occurrence of that local clock time. Do not use the extraction time as run_at.\n\
+- For weekly requests such as '一周一次', '每周一次', '每星期一次', or 'weekly', use kind='interval' and interval_seconds=604800. If no start day/time is provided, leave run_at=null.\n\
 - If the user writes in Chinese and omits a timezone, prefer Asia/Shanghai for daily clock-time requests.\n\
 - If the user says to run a recurring task a fixed number of times, set schedule.max_runs to that count.\n\
 - If the user asks to run more than once but does not provide a recurrence interval, set schedule=null, include interval_seconds in missing_fields, and ask how often it should repeat.\n\
@@ -356,6 +478,41 @@ Rules:\n\
 User request:\n{}\n",
         current_time_context(),
         user_input.trim()
+    )
+}
+
+fn schedule_draft_pending_value(
+    original_user_input: &str,
+    extraction: &ScheduleExtractionResult,
+    clarification: &str,
+) -> Value {
+    json!({
+        "type": "schedule_draft",
+        "original_user_input": original_user_input.trim(),
+        "missing_fields": extraction.missing_fields.clone(),
+        "clarification_question": clarification,
+        "partial_schedule": extraction
+            .schedule
+            .as_ref()
+            .and_then(|schedule| serde_json::to_value(schedule).ok())
+            .unwrap_or(Value::Null)
+    })
+}
+
+fn combine_schedule_draft_followup(pending: &Value, user_input: &str) -> String {
+    let original = pending
+        .get("original_user_input")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    let question = pending
+        .get("clarification_question")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    let followup = user_input.trim();
+    format!(
+        "{original}\n\nPrevious clarification question: {question}\nUser follow-up answer: {followup}"
     )
 }
 
@@ -473,7 +630,10 @@ fn normalize_schedule_payload(draft: &ScheduleDraft) -> Result<Value, String> {
     payload.insert("timezone".to_string(), json!(timezone));
     payload.insert("run_at".to_string(), option_string(run_at));
     payload.insert("interval_seconds".to_string(), option_u64(interval_seconds));
-    payload.insert("enabled".to_string(), json!(draft.enabled.unwrap_or(true)));
+    payload.insert(
+        "enabled".to_string(),
+        json!(schedule_enabled_from_intent(&source_text, draft.enabled)),
+    );
     payload.insert(
         "cwd".to_string(),
         option_string(clean_optional_string(draft.cwd.as_deref())),
@@ -623,6 +783,25 @@ fn adjust_hour_for_meridiem(chars: &[char], start: usize, hour: u8) -> u8 {
 fn prefers_shanghai_timezone(text: &str) -> bool {
     text.chars()
         .any(|ch| ('\u{4e00}'..='\u{9fff}').contains(&ch))
+}
+
+fn schedule_enabled_from_intent(text: &str, _extracted_enabled: Option<bool>) -> bool {
+    let normalized = text.to_ascii_lowercase();
+    let explicit_disabled = [
+        "不要启用",
+        "先不要启用",
+        "不启用",
+        "暂停",
+        "先暂停",
+        "保存但不启用",
+        "disabled",
+        "disable",
+        "paused",
+        "inactive",
+    ]
+    .iter()
+    .any(|marker| normalized.contains(marker));
+    !explicit_disabled
 }
 
 fn next_daily_run_at(

@@ -135,7 +135,6 @@ impl JobManager {
         let job_id = format!("agent-{}", &Uuid::new_v4().simple().to_string()[..8]);
         let job_dir = runtime_dir.join("external-agents").join(&job_id);
         let events_file = job_dir.join("events.jsonl");
-        let output_file = job_dir.join("output.txt");
         let now = now_iso();
         let mut metadata = json!({
             "job_id": job_id,
@@ -183,7 +182,7 @@ impl JobManager {
             created_at: now.clone(),
             updated_at: now,
             events_file: Some(events_file.clone()),
-            output_file: Some(output_file.clone()),
+            output_file: None,
             exit_code: None,
             stdout_tail: String::new(),
             stderr_tail: String::new(),
@@ -841,7 +840,10 @@ impl StoredJobRecord {
     }
 }
 
-fn resolve_workspace_cwd(raw_cwd: Option<&str>, workspace_root: &Path) -> anyhow::Result<PathBuf> {
+pub(crate) fn resolve_workspace_cwd(
+    raw_cwd: Option<&str>,
+    workspace_root: &Path,
+) -> anyhow::Result<PathBuf> {
     let root = workspace_root.canonicalize()?;
     let candidate = match raw_cwd.filter(|value| !value.trim().is_empty()) {
         Some(raw) if raw.starts_with("/workspace") => {

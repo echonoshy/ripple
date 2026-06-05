@@ -410,6 +410,14 @@ fn schedule_extraction_text() -> &'static str {
     "{\"is_schedule_request\":true,\"missing_fields\":[],\"clarification_question\":null,\"schedule\":{\"title\":\"Check build\",\"prompt\":\"Check the build status\",\"kind\":\"interval\",\"timezone\":\"UTC\",\"run_at\":null,\"interval_seconds\":3600,\"enabled\":false,\"cwd\":null,\"model\":null,\"effort\":null,\"summary\":null,\"output_schema\":null,\"max_runtime_seconds\":60,\"max_runs\":null}}"
 }
 
+fn schedule_clarification_text() -> &'static str {
+    "{\"is_schedule_request\":true,\"missing_fields\":[\"interval_seconds\"],\"clarification_question\":\"你希望多久监控一次？\",\"schedule\":null}"
+}
+
+fn weekly_price_schedule_extraction_text() -> &'static str {
+    "{\"is_schedule_request\":true,\"missing_fields\":[],\"clarification_question\":null,\"schedule\":{\"title\":\"Monitor used MacBook Pro prices\",\"prompt\":\"监控二手 M4 Pro 和 M5 Pro MacBook Pro 的价格。\",\"kind\":\"interval\",\"timezone\":\"Asia/Shanghai\",\"run_at\":null,\"interval_seconds\":604800,\"enabled\":false,\"cwd\":null,\"model\":null,\"effort\":null,\"summary\":null,\"output_schema\":null,\"max_runtime_seconds\":60,\"max_runs\":null}}"
+}
+
 fn title_generation_text() -> &'static str {
     "{\"title\":\"Chat Greeting\"}"
 }
@@ -495,7 +503,13 @@ fn main() {
                 } else if line.contains("strict chat-title generator") {
                     title_generation_text().to_string()
                 } else if line.contains("\"outputSchema\"") {
-                    schedule_extraction_text().to_string()
+                    if line.contains("[clarify-interval]") && !line.contains("一周一次") {
+                        schedule_clarification_text().to_string()
+                    } else if line.contains("[clarify-interval]") && line.contains("一周一次") {
+                        weekly_price_schedule_extraction_text().to_string()
+                    } else {
+                        schedule_extraction_text().to_string()
+                    }
                 } else if line.contains("[model-auth-alpha]") {
                     "<ripple_connector_auth_request>{\"connector\":\"google_workspace\",\"force_reauth\":false,\"reason\":\"needs Gmail access\"}</ripple_connector_auth_request>".to_string()
                 } else if line.contains("## Context Folder")
@@ -3242,12 +3256,104 @@ async fn schedule_run_now_completes_with_fake_codex_app_server() {
 }
 
 #[tokio::test]
-async fn schedule_run_now_records_error_when_start_fails() {
+async fn running_schedule_run_does_not_expose_missing_output_file() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
-    let (_state, app) = test_state_and_app(&root);
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (_state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
 
     let (status, schedule) = call(
         app.clone(),
+        Method::POST,
+        "/v1/schedules",
+        json!({
+            "title": "Manual slow check",
+            "prompt": "[slow] Run the manual check",
+            "kind": "interval",
+            "interval_seconds": 3600,
+            "enabled": true,
+            "max_runtime_seconds": 5
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let schedule_id = schedule
+        .get("schedule_id")
+        .and_then(Value::as_str)
+        .expect("schedule id")
+        .to_string();
+
+    let (status, run) = call(
+        app.clone(),
+        Method::POST,
+        &format!("/v1/schedules/{schedule_id}/run-now"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(matches!(
+        run.get("status").and_then(Value::as_str),
+        Some("queued" | "running")
+    ));
+    assert_eq!(
+        run.get("output_available").and_then(Value::as_bool),
+        Some(false)
+    );
+    let job_id = run
+        .get("job_id")
+        .and_then(Value::as_str)
+        .expect("job id")
+        .to_string();
+
+    let response = app
+        .clone()
+        .oneshot(request(
+            Method::GET,
+            &format!("/v1/runs/{job_id}/output"),
+            Value::Null,
+            true,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let body = response_json(response).await;
+    assert_eq!(
+        body.pointer("/error/message").and_then(Value::as_str),
+        Some("Agent run output not found")
+    );
+
+    let mut completed = false;
+    for _ in 0..40 {
+        let (status, run) = call(
+            app.clone(),
+            Method::GET,
+            &format!("/v1/runs/{job_id}"),
+            Value::Null,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        if run.get("status").and_then(Value::as_str) == Some("completed") {
+            completed = true;
+            assert_eq!(
+                run.get("output_available").and_then(Value::as_bool),
+                Some(true)
+            );
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert!(completed, "manual schedule run should complete");
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn schedule_create_rejects_cwd_outside_workspace() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let (_state, app) = test_state_and_app(&root);
+
+    let (status, body) = call(
+        app,
         Method::POST,
         "/v1/schedules",
         json!({
@@ -3260,40 +3366,9 @@ async fn schedule_run_now_records_error_when_start_fails() {
         }),
     )
     .await;
-    assert_eq!(status, StatusCode::OK);
-    let schedule_id = schedule
-        .get("schedule_id")
-        .and_then(Value::as_str)
-        .expect("schedule id")
-        .to_string();
-
-    let (status, failed) = call(
-        app.clone(),
-        Method::POST,
-        &format!("/v1/schedules/{schedule_id}/run-now"),
-        Value::Null,
-    )
-    .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert!(failed
+    assert!(body
         .get("detail")
-        .and_then(Value::as_str)
-        .is_some_and(|detail| detail.contains("cwd must stay inside")));
-
-    let (status, reloaded) = call(
-        app,
-        Method::GET,
-        &format!("/v1/schedules/{schedule_id}"),
-        Value::Null,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(
-        reloaded.get("status").and_then(Value::as_str),
-        Some("error")
-    );
-    assert!(reloaded
-        .get("last_error")
         .and_then(Value::as_str)
         .is_some_and(|detail| detail.contains("cwd must stay inside")));
 
@@ -3383,6 +3458,157 @@ async fn schedule_due_trigger_starts_fake_codex_app_server_run() {
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
     assert!(completed, "due schedule run should complete");
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn schedule_due_trigger_skips_missed_interval_when_policy_is_skip() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    let (status, schedule) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/schedules",
+        json!({
+            "title": "Skip missed",
+            "prompt": "Run only current checks",
+            "kind": "interval",
+            "interval_seconds": 3600,
+            "enabled": true,
+            "missed_run_policy": "skip",
+            "max_runtime_seconds": 5
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let schedule_id = schedule
+        .get("schedule_id")
+        .and_then(Value::as_str)
+        .expect("schedule id")
+        .to_string();
+
+    let mut schedule_records = state.storage.list_schedules("smoke-user").await.unwrap();
+    for record in &mut schedule_records {
+        if record.get("schedule_id").and_then(Value::as_str) == Some(schedule_id.as_str()) {
+            record["next_run_at"] = json!("2000-01-01T00:00:00Z");
+        }
+    }
+    state
+        .storage
+        .replace_schedules("smoke-user", &schedule_records)
+        .await
+        .unwrap();
+
+    let triggered = trigger_due_schedules(&state)
+        .await
+        .expect("trigger due schedules");
+    assert!(triggered.get("smoke-user").is_none(), "{triggered:?}");
+
+    let (status, reloaded) = call(
+        app.clone(),
+        Method::GET,
+        &format!("/v1/schedules/{schedule_id}"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{reloaded}");
+    assert_eq!(
+        reloaded.get("status").and_then(Value::as_str),
+        Some("active")
+    );
+    assert_eq!(
+        reloaded.get("last_run_status").and_then(Value::as_str),
+        Some("skipped_missed")
+    );
+    assert!(reloaded
+        .get("next_run_at")
+        .and_then(Value::as_str)
+        .is_some_and(|value| value > "2000-01-01T00:00:00Z"));
+
+    let (status, runs) = call(
+        app,
+        Method::GET,
+        &format!("/v1/schedules/{schedule_id}/runs"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(runs.get("count").and_then(Value::as_u64), Some(0));
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn schedule_due_trigger_keeps_interval_active_after_start_failure_when_configured() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let mut config = test_config(&root);
+    config.codex.enabled = false;
+    let (state, app) = test_state_and_app_with_config(config);
+
+    let (status, schedule) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/schedules",
+        json!({
+            "title": "Keep active",
+            "prompt": "Retry next interval",
+            "kind": "interval",
+            "interval_seconds": 3600,
+            "enabled": true,
+            "failure_policy": "keep_active",
+            "max_runtime_seconds": 5
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{schedule}");
+    let schedule_id = schedule
+        .get("schedule_id")
+        .and_then(Value::as_str)
+        .expect("schedule id")
+        .to_string();
+
+    let mut schedule_records = state.storage.list_schedules("smoke-user").await.unwrap();
+    for record in &mut schedule_records {
+        if record.get("schedule_id").and_then(Value::as_str) == Some(schedule_id.as_str()) {
+            record["next_run_at"] = json!("2000-01-01T00:00:00Z");
+        }
+    }
+    state
+        .storage
+        .replace_schedules("smoke-user", &schedule_records)
+        .await
+        .unwrap();
+
+    let triggered = trigger_due_schedules(&state)
+        .await
+        .expect("trigger due schedules");
+    assert!(triggered.get("smoke-user").is_none(), "{triggered:?}");
+
+    let (status, reloaded) = call(
+        app,
+        Method::GET,
+        &format!("/v1/schedules/{schedule_id}"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{reloaded}");
+    assert_eq!(reloaded.get("enabled").and_then(Value::as_bool), Some(true));
+    assert_eq!(
+        reloaded.get("status").and_then(Value::as_str),
+        Some("active")
+    );
+    assert_eq!(
+        reloaded.get("last_run_status").and_then(Value::as_str),
+        Some("failed")
+    );
+    assert!(reloaded
+        .get("next_run_at")
+        .and_then(Value::as_str)
+        .is_some_and(|value| value > "2000-01-01T00:00:00Z"));
 
     let _ = std::fs::remove_dir_all(root);
 }
@@ -4056,6 +4282,11 @@ async fn chat_route_proposes_schedule_with_fake_codex_extraction() {
         Some(3600)
     );
     assert_eq!(
+        chat.pointer("/event/schedule/enabled")
+            .and_then(Value::as_bool),
+        Some(true)
+    );
+    assert_eq!(
         chat.pointer("/choices/0/message/content")
             .and_then(Value::as_str),
         chat.pointer("/event/message").and_then(Value::as_str)
@@ -4091,6 +4322,70 @@ async fn chat_route_proposes_schedule_with_fake_codex_extraction() {
     );
 
     let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn chat_route_continues_schedule_clarification_with_user_followup() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+    let user_id = "smoke-user";
+    let mut session = state
+        .sessions
+        .create_session(
+            user_id,
+            CreateSessionInput {
+                model: Some("codex-test".to_string()),
+                max_turns: None,
+                system_prompt: None,
+                context_folder_path: None,
+                project_id: None,
+            },
+        )
+        .await
+        .unwrap();
+    session.status = "awaiting_user_input".to_string();
+    session.pending_question = Some("你希望多久监控一次？".to_string());
+    session.pending_schedule_request = Some(json!({
+        "type": "schedule_draft",
+        "original_user_input": "[clarify-interval] 做个定时任务监控二手 M4 Pro 和 M5 Pro MacBook Pro 的价格",
+        "missing_fields": ["interval_seconds"],
+        "clarification_question": "你希望多久监控一次？",
+        "partial_schedule": null
+    }));
+    state.sessions.save_record(session.clone()).await.unwrap();
+
+    let (status, proposal) = call(
+        app,
+        Method::POST,
+        "/v1/chat/completions",
+        json!({
+            "model": "codex-test",
+            "session_id": session.session_id,
+            "messages": [{"role": "user", "content": "一周一次"}],
+            "stream": false
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{proposal}");
+    assert_eq!(
+        proposal.pointer("/event/type").and_then(Value::as_str),
+        Some("schedule_proposed")
+    );
+    assert_eq!(
+        proposal
+            .pointer("/event/schedule/interval_seconds")
+            .and_then(Value::as_u64),
+        Some(604_800)
+    );
+    assert!(
+        proposal
+            .pointer("/event/schedule/prompt")
+            .and_then(Value::as_str)
+            .is_some_and(|prompt| prompt.contains("M4 Pro") && prompt.contains("M5 Pro")),
+        "{proposal}"
+    );
 }
 
 #[tokio::test]

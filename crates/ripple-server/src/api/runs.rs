@@ -241,7 +241,13 @@ pub async fn run_output(
     };
     let output_path = FsPath::new(output_file);
     let sandbox_dir = state.sandboxes.sandbox_dir(&user_id)?;
-    let resolved = output_path.canonicalize().map_err(ApiError::from)?;
+    let resolved = match output_path.canonicalize() {
+        Ok(resolved) => resolved,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            return Err(ApiError::not_found("Agent run output not found"));
+        }
+        Err(err) => return Err(ApiError::from(err)),
+    };
     let sandbox_dir = sandbox_dir.canonicalize().map_err(ApiError::from)?;
     if !resolved.starts_with(&sandbox_dir) || !resolved.is_file() {
         return Err(ApiError::not_found("Agent run output not found"));

@@ -371,6 +371,8 @@ pub async fn chat_completions(
 
 async fn create_codex_chat_run(args: &CodexChatStart) -> Result<AgentRunInfo, ApiError> {
     let skill_options = catalog_skill_manifest_options_for_user(&args.state, &args.user_id).await?;
+    let recent_display_context = recent_display_context(&args.session.messages);
+    let recent_automations_context = recent_automations_context(&args.state, &args.user_id).await?;
     let prompt = build_codex_chat_prompt(
         &args.state,
         &args.user_id,
@@ -378,6 +380,8 @@ async fn create_codex_chat_run(args: &CodexChatStart) -> Result<AgentRunInfo, Ap
         &args.workspace_root,
         args.session.context_folder_path.as_deref(),
         args.folder_context_evidence.as_deref(),
+        recent_display_context.as_deref(),
+        recent_automations_context.as_deref(),
         &skill_options,
         &args.user_input,
         &args.attachment_items,
@@ -1503,6 +1507,167 @@ fn now_epoch_seconds() -> u64 {
         .unwrap_or(0)
 }
 
+const RECENT_DISPLAY_CONTEXT_MESSAGES: usize = 20;
+const RECENT_DISPLAY_CONTEXT_MAX_CHARS: usize = 16_000;
+const RECENT_AUTOMATIONS_CONTEXT_LIMIT: usize = 10;
+const RECENT_AUTOMATIONS_CONTEXT_MAX_CHARS: usize = 16_000;
+const RECENT_AUTOMATION_PROMPT_MAX_CHARS: usize = 1_200;
+
+fn recent_display_context(messages: &[Value]) -> Option<String> {
+    let mut lines = messages
+        .iter()
+        .rev()
+        .filter_map(display_context_line)
+        .take(RECENT_DISPLAY_CONTEXT_MESSAGES)
+        .collect::<Vec<_>>();
+    if lines.is_empty() {
+        return None;
+    }
+    lines.reverse();
+    let joined = lines.join("\n");
+    Some(truncate_display_context(&joined))
+}
+
+fn display_context_line(message: &Value) -> Option<String> {
+    let role = message
+        .get("role")
+        .and_then(Value::as_str)
+        .unwrap_or("message")
+        .trim();
+    let content = message_content_text(message.get("content")?)
+        .trim()
+        .to_string();
+    if content.is_empty() {
+        return None;
+    }
+    Some(format!("{role}: {content}"))
+}
+
+fn message_content_text(content: &Value) -> String {
+    if let Some(text) = content.as_str() {
+        return text.to_string();
+    }
+    if let Some(items) = content.as_array() {
+        return items
+            .iter()
+            .filter_map(|item| {
+                if let Some(text) = item.get("text").and_then(Value::as_str) {
+                    return Some(text.trim().to_string());
+                }
+                if item.get("type").and_then(Value::as_str) == Some("attachment") {
+                    let name = item
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .unwrap_or("attachment");
+                    return Some(format!("[attachment: {name}]"));
+                }
+                None
+            })
+            .filter(|text| !text.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+    }
+    String::new()
+}
+
+fn truncate_display_context(value: &str) -> String {
+    truncate_context(value, RECENT_DISPLAY_CONTEXT_MAX_CHARS)
+}
+
+async fn recent_automations_context(
+    state: &AppState,
+    user_id: &str,
+) -> Result<Option<String>, ApiError> {
+    let schedules = state
+        .storage
+        .list_schedules(user_id)
+        .await?
+        .into_iter()
+        .map(|schedule| sanitize_user_visible_value(state, user_id, &schedule))
+        .collect::<Vec<_>>();
+    Ok(recent_automations_context_from_schedules(schedules))
+}
+
+fn recent_automations_context_from_schedules(mut schedules: Vec<Value>) -> Option<String> {
+    schedules.sort_by(|left, right| {
+        let right_key = schedule_recency_key(right);
+        let left_key = schedule_recency_key(left);
+        right_key.cmp(&left_key)
+    });
+    let automations = schedules
+        .into_iter()
+        .filter_map(recent_automation_context_value)
+        .take(RECENT_AUTOMATIONS_CONTEXT_LIMIT)
+        .collect::<Vec<_>>();
+    if automations.is_empty() {
+        return None;
+    }
+    let context = serde_json::to_string_pretty(&automations).ok()?;
+    Some(truncate_context(
+        &context,
+        RECENT_AUTOMATIONS_CONTEXT_MAX_CHARS,
+    ))
+}
+
+fn schedule_recency_key(schedule: &Value) -> Option<String> {
+    schedule
+        .get("updated_at")
+        .or_else(|| schedule.get("created_at"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_string)
+}
+
+fn recent_automation_context_value(schedule: Value) -> Option<Value> {
+    let schedule_id = clean_value_string(schedule.get("schedule_id")?)?;
+    let title = clean_value_string(schedule.get("title")?)?;
+    let prompt = clean_value_string(schedule.get("prompt")?)?;
+    let mut object = serde_json::Map::new();
+    object.insert("schedule_id".to_string(), json!(schedule_id));
+    object.insert("title".to_string(), json!(title));
+    object.insert(
+        "prompt".to_string(),
+        json!(truncate_context(
+            &prompt,
+            RECENT_AUTOMATION_PROMPT_MAX_CHARS
+        )),
+    );
+    copy_schedule_field(&schedule, &mut object, "kind");
+    copy_schedule_field(&schedule, &mut object, "timezone");
+    copy_schedule_field(&schedule, &mut object, "run_at");
+    copy_schedule_field(&schedule, &mut object, "interval_seconds");
+    copy_schedule_field(&schedule, &mut object, "enabled");
+    copy_schedule_field(&schedule, &mut object, "status");
+    copy_schedule_field(&schedule, &mut object, "next_run_at");
+    copy_schedule_field(&schedule, &mut object, "last_run_at");
+    copy_schedule_field(&schedule, &mut object, "last_run_status");
+    copy_schedule_field(&schedule, &mut object, "updated_at");
+    Some(Value::Object(object))
+}
+
+fn copy_schedule_field(schedule: &Value, object: &mut serde_json::Map<String, Value>, key: &str) {
+    if let Some(value) = schedule.get(key).filter(|value| !value.is_null()) {
+        object.insert(key.to_string(), value.clone());
+    }
+}
+
+fn clean_value_string(value: &Value) -> Option<String> {
+    value
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn truncate_context(value: &str, max_chars: usize) -> String {
+    if value.chars().count() <= max_chars {
+        return value.to_string();
+    }
+    let mut chars = value.chars().rev().take(max_chars).collect::<Vec<_>>();
+    chars.reverse();
+    format!("[truncated]\n{}", chars.into_iter().collect::<String>())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1598,6 +1763,8 @@ mod tests {
             &workspace_root,
             None,
             None,
+            None,
+            None,
             &crate::skills::SkillManifestOptions::default(),
             "hello",
             &[],
@@ -1666,6 +1833,8 @@ mod tests {
             &workspace_root,
             Some("/workspace/genius_club"),
             Some("Matches:\n1. /workspace/genius_club/001.txt:1\n   天才俱乐部成员名单"),
+            None,
+            None,
             &crate::skills::SkillManifestOptions::default(),
             "天才俱乐部成员分别是谁？",
             &[],
@@ -1680,6 +1849,118 @@ mod tests {
         assert!(prompt.contains("/workspace/genius_club/001.txt:1"));
         assert!(!prompt.contains("Ripple Project"));
         assert!(!prompt.contains("Project root"));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn codex_chat_prompt_includes_recent_display_context() {
+        let root = std::env::temp_dir().join(format!("ripple-chat-test-{}", Uuid::new_v4()));
+        let state = AppState::new(test_config(&root));
+        let workspace_root = state
+            .sandboxes
+            .ensure_sandbox("alice")
+            .expect("create sandbox");
+
+        let prompt = build_codex_chat_prompt(
+            &state,
+            "alice",
+            "session-1",
+            &workspace_root,
+            None,
+            None,
+            Some("user: 创建一个定时任务\nassistant: 你希望多久执行一次？"),
+            None,
+            &crate::skills::SkillManifestOptions::default(),
+            "一周一次",
+            &[],
+            None,
+        );
+
+        assert!(prompt.contains("## Recent Ripple Display Context"));
+        assert!(prompt.contains("创建一个定时任务"));
+        assert!(prompt.contains("你希望多久执行一次？"));
+        assert!(prompt.contains("## Current User Request\n一周一次"));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn recent_display_context_keeps_last_twenty_messages() {
+        let messages = (1..=21)
+            .map(|index| {
+                json!({
+                    "role": "user",
+                    "content": format!("message-{index:02}")
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let context = recent_display_context(&messages).expect("context");
+
+        assert!(!context.contains("message-01"));
+        assert!(context.contains("message-02"));
+        assert!(context.contains("message-21"));
+    }
+
+    #[test]
+    fn recent_automations_context_is_structured_and_limited() {
+        let schedules = vec![json!({
+            "schedule_id": "sch-price",
+            "title": "MacBook Pro price monitor",
+            "prompt": "监控二手 M4 Pro 和 M5 Pro MacBook Pro 的价格。",
+            "kind": "interval",
+            "timezone": "Asia/Shanghai",
+            "interval_seconds": 604800,
+            "enabled": true,
+            "status": "active",
+            "next_run_at": "2026-06-12T10:00:00Z",
+            "updated_at": "2026-06-05T10:00:00Z"
+        })];
+
+        let context = recent_automations_context_from_schedules(schedules).expect("context");
+
+        assert!(context.contains("\"schedule_id\": \"sch-price\""));
+        assert!(context.contains("\"title\": \"MacBook Pro price monitor\""));
+        assert!(context.contains("\"interval_seconds\": 604800"));
+        assert!(context.contains("\"prompt\": \"监控二手 M4 Pro 和 M5 Pro MacBook Pro 的价格。\""));
+    }
+
+    #[tokio::test]
+    async fn codex_chat_prompt_includes_recent_automations_context() {
+        let root = std::env::temp_dir().join(format!("ripple-chat-test-{}", Uuid::new_v4()));
+        let state = AppState::new(test_config(&root));
+        let workspace_root = state
+            .sandboxes
+            .ensure_sandbox("alice")
+            .expect("create sandbox");
+
+        let prompt = build_codex_chat_prompt(
+            &state,
+            "alice",
+            "session-1",
+            &workspace_root,
+            None,
+            None,
+            None,
+            Some(
+                r#"[
+  {
+    "schedule_id": "sch-price",
+    "title": "MacBook Pro price monitor",
+    "prompt": "监控二手 M4 Pro 和 M5 Pro MacBook Pro 的价格。"
+  }
+]"#,
+            ),
+            &crate::skills::SkillManifestOptions::default(),
+            "它会监控哪些平台？",
+            &[],
+            None,
+        );
+
+        assert!(prompt.contains("## Recent Automations"));
+        assert!(prompt.contains("\"schedule_id\": \"sch-price\""));
+        assert!(prompt.contains("监控二手 M4 Pro 和 M5 Pro MacBook Pro 的价格"));
 
         let _ = std::fs::remove_dir_all(root);
     }

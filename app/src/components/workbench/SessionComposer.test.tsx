@@ -128,6 +128,16 @@ function testComposerInputDoesNotNeedGlobalBlueFocusOverride() {
   assert.doesNotMatch(globalCss, /outline:\s*2px solid var\(--ripple-brand\)/);
 }
 
+function testComposerInputHidesNativeScrollbar() {
+  const html = renderComposer();
+
+  assert.match(html, /\[-ms-overflow-style:none\]/);
+  assert.match(html, /\[scrollbar-width:none\]/);
+  assert.match(html, /\[(?:&|&amp;)::-webkit-scrollbar\]:hidden/);
+  assert.match(html, /\[(?:&|&amp;)::-webkit-scrollbar\]:h-0/);
+  assert.match(html, /\[(?:&|&amp;)::-webkit-scrollbar\]:w-0/);
+}
+
 function testBlockedComposerStillAllowsDraftingAndShowsStop() {
   const html = renderComposer({ value: "draft", isBlocked: true });
 
@@ -243,6 +253,7 @@ testComposerRendersChineseStaticCopy();
 testComposerToolbarUsesRequestedLucideIconSet();
 testComposerShowsWorkspaceFolderPickerButton();
 testComposerInputDoesNotNeedGlobalBlueFocusOverride();
+testComposerInputHidesNativeScrollbar();
 testBlockedComposerStillAllowsDraftingAndShowsStop();
 testComposerClearsIosHomeIndicatorAndUsesTouchSizedActions();
 testComposerUsesCompactGlassRadiusScale();

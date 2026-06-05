@@ -307,7 +307,7 @@ export default function SessionComposer({
               ? t("composer.askAnything")
               : t("composer.askAnything")
       }
-      className={`session-composer-input mb-[2px] max-h-[104px] min-h-10 min-w-0 resize-none bg-transparent px-1.5 py-2 ${TYPOGRAPHY_MOBILE_BODY_CLASS} text-[#1F2329] outline-none placeholder:text-[15px] placeholder:text-[#8F959E] disabled:opacity-60 lg:mb-0 lg:max-h-[180px] lg:min-h-[36px] lg:px-2 lg:py-1.5 lg:text-[14px] lg:leading-[22px] lg:placeholder:text-[#8F959E] ${
+      className={`session-composer-input mb-[2px] max-h-[104px] min-h-10 min-w-0 resize-none bg-transparent px-1.5 py-2 ${TYPOGRAPHY_MOBILE_BODY_CLASS} text-[#1F2329] [-ms-overflow-style:none] [scrollbar-width:none] outline-none placeholder:text-[15px] placeholder:text-[#8F959E] disabled:opacity-60 [&::-webkit-scrollbar]:hidden [&::-webkit-scrollbar]:h-0 [&::-webkit-scrollbar]:w-0 lg:mb-0 lg:max-h-[180px] lg:min-h-[36px] lg:px-2 lg:py-1.5 lg:text-[14px] lg:leading-[22px] lg:placeholder:text-[#8F959E] ${
         isExpandedComposer ? "col-span-2 row-start-1 w-full" : "flex-1"
       }`}
     />

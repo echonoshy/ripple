@@ -8,7 +8,10 @@ const tauriConfig = JSON.parse(
   readFileSync(new URL("../../src-tauri/tauri.conf.json", import.meta.url), "utf8")
 ) as {
   identifier: string;
-  app: { security: { csp: string } };
+  app: {
+    security: { csp: string };
+    windows: Array<{ label: string; disableInputAccessoryView?: boolean }>;
+  };
   bundle: { icon: string[]; iOS: { infoPlist: string; minimumSystemVersion: string } };
 };
 const tauriIosConfig = JSON.parse(
@@ -87,6 +90,14 @@ function testTauriConfigKeepsTemporaryHttpIpApiAndAssetCsp() {
 }
 
 testTauriConfigKeepsTemporaryHttpIpApiAndAssetCsp();
+
+function testTauriIosWindowDisablesKeyboardAccessoryBar() {
+  const mainWindow = tauriConfig.app.windows.find((window) => window.label === "main");
+
+  assert.equal(mainWindow?.disableInputAccessoryView, true);
+}
+
+testTauriIosWindowDisablesKeyboardAccessoryBar();
 
 function testTauriOpenerCanOpenExternalAuthorizationUrls() {
   assert.match(mainCapability.permissions.join(" "), /opener:allow-open-url/);

@@ -101,6 +101,8 @@ function testShellUsesDynamicViewportForIosWebview() {
 
   assert.match(html, /h-dvh/);
   assert.match(html, /min-h-dvh/);
+  assert.doesNotMatch(html, /h-screen/);
+  assert.doesNotMatch(html, /min-h-screen/);
 }
 
 testShellUsesDynamicViewportForIosWebview();

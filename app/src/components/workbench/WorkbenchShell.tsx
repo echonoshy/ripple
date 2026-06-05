@@ -94,7 +94,7 @@ export default function WorkbenchShell({
 
   return (
     <div
-      className={`h-dvh h-screen min-h-dvh min-h-screen w-screen overflow-hidden ${COMPACT_IOS_PAGE_BACKGROUND} text-[#1F2329]`}
+      className={`h-dvh min-h-dvh w-screen overflow-hidden ${COMPACT_IOS_PAGE_BACKGROUND} text-[#1F2329]`}
     >
       <div className="hidden lg:flex" data-ripple-shell-top-bar="true">
         {topBar}

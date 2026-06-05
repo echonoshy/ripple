@@ -515,6 +515,23 @@ function testComposerFocusSuppressesTimelineAutoScroll() {
   assert.match(sessionPageSource, /onFocusStateChange=\{handleComposerFocusStateChange\}/);
 }
 
+function testComposerFocusDoesNotTrackKeyboardMovedScrollTop() {
+  const handleScrollBlock =
+    sessionPageSource.match(/const handleScroll = useCallback\(\(\) => \{[\s\S]*?\}, \[updateMobileHeaderVisibility\]\);/)?.[0] ||
+    "";
+
+  assert.match(handleScrollBlock, /updateMobileHeaderVisibility\(scrollContainer\.scrollTop\)/);
+  assert.doesNotMatch(handleScrollBlock, /composerFocusedScrollTopRef\.current = scrollContainer\.scrollTop/);
+}
+
+function testMobileOverlayMeasurementsUseBorderBoxHeight() {
+  assert.match(sessionPageSource, /function elementBorderBoxHeight/);
+  assert.match(sessionPageSource, /element\.getBoundingClientRect\(\)\.height/);
+  assert.match(sessionPageSource, /elementBorderBoxHeight\(entry\.target\)/);
+  assert.match(sessionPageSource, /elementBorderBoxHeight\(node\)/);
+  assert.doesNotMatch(sessionPageSource, /entry\.contentRect\.height/);
+}
+
 function testMobileTimelinePadsForOverlayHeaderAndComposer() {
   const html = renderSessionPage();
 
@@ -524,8 +541,13 @@ function testMobileTimelinePadsForOverlayHeaderAndComposer() {
   assert.match(html, /pt-\[calc\(var\(--ripple-mobile-chat-header-height\)\+8px\)\]/);
   assert.match(
     html,
-    /pb-\[calc\(var\(--ripple-mobile-chat-composer-height\)\+var\(--ripple-mobile-keyboard-inset\)\+12px\)\]/
+    /pb-\[calc\(var\(--ripple-mobile-chat-composer-height\)\+12px\)\]/
   );
+  assert.doesNotMatch(
+    html,
+    /pb-\[calc\(var\(--ripple-mobile-chat-composer-height\)\+var\(--ripple-mobile-keyboard-inset\)/
+  );
+  assert.match(sessionPageSource, /translate3d\(0, -\$\{mobileKeyboardInset\}px, 0\)/);
 }
 
 testOmitsPlaceholderSessionHeaderControls();
@@ -556,6 +578,8 @@ testSessionPageCanRestorePreviousScrollPosition();
 testVisualViewportKeyboardInsetUsesLayoutViewportBottomGap();
 testSessionPageNoLongerOwnsMobileBackSwipeGesture();
 testComposerFocusSuppressesTimelineAutoScroll();
+testComposerFocusDoesNotTrackKeyboardMovedScrollTop();
+testMobileOverlayMeasurementsUseBorderBoxHeight();
 testMobileTimelinePadsForOverlayHeaderAndComposer();
 
 console.log("session page tests passed");

@@ -1079,8 +1079,7 @@ export default function Home() {
     activeView === "sessions" && mobileSessionMode === "chat" ? null : (
       <MobileTabBar activeView={activeView} onSelectView={handleSelectView} />
     );
-  const mobileMotionStage =
-    activeView === "sessions" ? `${activeView}:${mobileSessionMode}` : `${activeView}:page`;
+  const mobileMotionStage = activeView === "sessions" ? "sessions:page" : `${activeView}:page`;
   const animatedMainContent = (
     <AnimatePresence mode="wait" initial={false} custom={mobileMotionDirection}>
       <motion.div

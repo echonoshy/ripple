@@ -109,6 +109,10 @@ function currentTimeMs(): number {
   return typeof performance === "undefined" ? Date.now() : performance.now();
 }
 
+function elementBorderBoxHeight(element: Element): number {
+  return Math.ceil(element.getBoundingClientRect().height);
+}
+
 export function sessionTimelineBottomScrollTop({
   scrollHeight,
   clientHeight,
@@ -390,9 +394,6 @@ export default function SessionPage({
     const scrollContainer = scrollContainerRef.current;
     if (!scrollContainer) return;
     updateMobileHeaderVisibility(scrollContainer.scrollTop);
-    if (isComposerFocusedRef.current) {
-      composerFocusedScrollTopRef.current = scrollContainer.scrollTop;
-    }
 
     const distanceFromBottom =
       scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight;
@@ -418,14 +419,14 @@ export default function SessionPage({
 
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
-        const nextHeight = Math.ceil(entry.contentRect.height);
+        const nextHeight = elementBorderBoxHeight(entry.target);
         const observed = observedNodes.find((item) => item.node === entry.target);
         if (observed && nextHeight > 0) observed.update(nextHeight);
       }
     });
 
     for (const { node, update } of observedNodes) {
-      const height = Math.ceil(node.getBoundingClientRect().height);
+      const height = elementBorderBoxHeight(node);
       if (height > 0) update(height);
       observer.observe(node);
     }
@@ -673,7 +674,7 @@ export default function SessionPage({
         data-ripple-session-scroll="timeline"
         onScroll={handleScroll}
         style={mobileTimelineStyle}
-        className="min-h-0 flex-1 overflow-y-auto bg-white/92 px-3 pt-[calc(var(--ripple-mobile-chat-header-height)+8px)] pb-[calc(var(--ripple-mobile-chat-composer-height)+var(--ripple-mobile-keyboard-inset)+12px)] sm:px-4 md:px-5 lg:py-5"
+        className="min-h-0 flex-1 overflow-y-auto bg-white/92 px-3 pt-[calc(var(--ripple-mobile-chat-header-height)+8px)] pb-[calc(var(--ripple-mobile-chat-composer-height)+12px)] sm:px-4 md:px-5 lg:py-5"
       >
         <div ref={contentRef} className="mx-auto max-w-5xl space-y-2 sm:space-y-5">
           {planSteps.length > 0 && (

@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import MobileSessionStack, {
   MOBILE_SESSION_STACK_INTERACTIVE_SELECTOR,
   resolveMobileSessionDrawerRelease,
+  shouldCancelMobileSessionDrawer,
   shouldClaimMobileSessionDrawer,
 } from "./MobileSessionStack";
 
@@ -52,6 +53,27 @@ function testClaimRequiresHorizontalIntentAcrossChatSurface() {
     }),
     false
   );
+}
+
+function testVerticalIntentCancelsDrawerGesture() {
+  assert.equal(
+    shouldCancelMobileSessionDrawer({
+      deltaX: 8,
+      deltaY: 22,
+      viewportWidth: 390,
+    }),
+    true
+  );
+  assert.equal(
+    shouldCancelMobileSessionDrawer({
+      deltaX: 30,
+      deltaY: 20,
+      viewportWidth: 390,
+    }),
+    false
+  );
+  assert.match(mobileSessionStackSource, /shouldCancelMobileSessionDrawer/);
+  assert.match(mobileSessionStackSource, /dragStateRef\.current = null/);
 }
 
 function testReleaseCommitAndCancelThresholds() {
@@ -125,6 +147,7 @@ function testPointerMoveOnlyDragsWithoutOpeningList() {
 }
 
 testClaimRequiresHorizontalIntentAcrossChatSurface();
+testVerticalIntentCancelsDrawerGesture();
 testReleaseCommitAndCancelThresholds();
 testInteractiveTargetsAreExcludedFromSwipeStart();
 testStackLayersListBehindChatSheet();

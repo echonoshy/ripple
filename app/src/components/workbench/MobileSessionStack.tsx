@@ -70,6 +70,17 @@ export function shouldClaimMobileSessionDrawer({
   return deltaX > Math.abs(deltaY) * MOBILE_SESSION_STACK_CLAIM_RATIO;
 }
 
+export function shouldCancelMobileSessionDrawer({
+  deltaX,
+  deltaY,
+  viewportWidth,
+}: DrawerIntentInput): boolean {
+  if (viewportWidth >= MOBILE_SESSION_STACK_DESKTOP_MIN_WIDTH_PX) return true;
+  const absoluteDeltaY = Math.abs(deltaY);
+  if (absoluteDeltaY < MOBILE_SESSION_STACK_CLAIM_DISTANCE_PX) return false;
+  return absoluteDeltaY > Math.abs(deltaX) * MOBILE_SESSION_STACK_CLAIM_RATIO;
+}
+
 export function resolveMobileSessionDrawerRelease({
   x,
   velocityX,
@@ -155,6 +166,18 @@ export default function MobileSessionStack({
 
       const deltaX = event.clientX - dragState.startX;
       const deltaY = event.clientY - dragState.startY;
+
+      if (
+        !dragState.claimed &&
+        shouldCancelMobileSessionDrawer({
+          deltaX,
+          deltaY,
+          viewportWidth: dragState.viewportWidth,
+        })
+      ) {
+        dragStateRef.current = null;
+        return;
+      }
 
       if (
         !dragState.claimed &&

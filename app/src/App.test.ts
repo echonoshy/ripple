@@ -101,6 +101,15 @@ function testMobileContentUsesSharedMotionTransitions() {
   assert.match(source, /mode="wait"/);
 }
 
+function testMobileSessionModeDoesNotRemountMotionStage() {
+  const source = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
+  const mobileMotionStageBlock =
+    source.match(/const mobileMotionStage =[\s\S]*?;/)?.[0] || "";
+
+  assert.match(mobileMotionStageBlock, /activeView === "sessions" \? "sessions:page"/);
+  assert.doesNotMatch(mobileMotionStageBlock, /mobileSessionMode/);
+}
+
 function testCurrentSessionListVisibilityUsesRuntimeStatusPresence() {
   const source = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
 
@@ -181,6 +190,7 @@ testMobileFileLinkReturnRestoresSessionScroll();
 testMobileChatSessionLayoutKeepsComposerPinned();
 testDesktopSessionRailStillUsesSeparateLayout();
 testMobileContentUsesSharedMotionTransitions();
+testMobileSessionModeDoesNotRemountMotionStage();
 testCurrentSessionListVisibilityUsesRuntimeStatusPresence();
 testDesktopUsesProductTopBarWithSettingsAvatarEntry();
 testSessionRailOnlyLivesInsideSessionsView();

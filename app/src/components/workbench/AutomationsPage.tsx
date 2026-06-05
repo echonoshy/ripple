@@ -225,28 +225,22 @@ function runErrorText(run: AgentRunInfo | null | undefined): string | null {
 }
 
 function hasRunOutput(run: AgentRunInfo | null | undefined): boolean {
-  return Boolean(run?.output_available || run?.output_file);
+  return Boolean(run?.output_available && !isActiveRunStatus(run.status));
 }
 
-const automationActionButtonClass =
-  `inline-flex h-8 w-full min-w-0 items-center justify-center gap-1 rounded-full border border-[#DEE0E3] bg-white px-2 text-[#2B2F36] hover:bg-[#F8F9FA] ${TYPOGRAPHY_META_MEDIUM_CLASS} [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0`;
+const automationActionButtonClass = `inline-flex h-8 w-full min-w-0 items-center justify-center gap-1 rounded-full border border-[#DEE0E3] bg-white px-2 text-[#2B2F36] hover:bg-[#F8F9FA] ${TYPOGRAPHY_META_MEDIUM_CLASS} [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0`;
 
-const automationDeleteButtonClass =
-  `inline-flex h-8 w-full min-w-0 items-center justify-center gap-1 rounded-full border px-2 ${TYPOGRAPHY_META_MEDIUM_CLASS} [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0`;
+const automationDeleteButtonClass = `inline-flex h-8 w-full min-w-0 items-center justify-center gap-1 rounded-full border px-2 ${TYPOGRAPHY_META_MEDIUM_CLASS} [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0`;
 
-const runActionButtonClass =
-  `inline-flex h-8 shrink-0 items-center justify-center gap-1 rounded-full border border-[#DEE0E3] bg-white px-2 text-[#2B2F36] hover:bg-[#F8F9FA] disabled:cursor-not-allowed disabled:opacity-60 ${TYPOGRAPHY_META_MEDIUM_CLASS} [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0`;
+const runActionButtonClass = `inline-flex h-8 shrink-0 items-center justify-center gap-1 rounded-full border border-[#DEE0E3] bg-white px-2 text-[#2B2F36] hover:bg-[#F8F9FA] disabled:cursor-not-allowed disabled:opacity-60 ${TYPOGRAPHY_META_MEDIUM_CLASS} [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0`;
 
 const automationFieldLabelClass = `mb-1 block text-[#646A73] ${TYPOGRAPHY_META_MEDIUM_CLASS}`;
 
-const automationFieldControlClass =
-  `h-10 w-full rounded-xl border border-[#DEE0E3] bg-white px-3 text-[#1F2329] outline-none focus:border-[#8FB1FF] ${TYPOGRAPHY_MOBILE_BODY_CLASS} lg:h-9 lg:text-[14px] lg:leading-[22px]`;
+const automationFieldControlClass = `h-10 w-full rounded-xl border border-[#DEE0E3] bg-white px-3 text-[#1F2329] outline-none focus:border-[#8FB1FF] ${TYPOGRAPHY_MOBILE_BODY_CLASS} lg:h-9 lg:text-[14px] lg:leading-[22px]`;
 
-const automationMonoFieldControlClass =
-  `h-10 w-full rounded-xl border border-[#DEE0E3] bg-white px-3 font-[family-name:var(--font-mono)] text-[#1F2329] outline-none focus:border-[#8FB1FF] ${TYPOGRAPHY_MOBILE_BODY_CLASS} lg:h-9 lg:text-[14px] lg:leading-[22px]`;
+const automationMonoFieldControlClass = `h-10 w-full rounded-xl border border-[#DEE0E3] bg-white px-3 font-[family-name:var(--font-mono)] text-[#1F2329] outline-none focus:border-[#8FB1FF] ${TYPOGRAPHY_MOBILE_BODY_CLASS} lg:h-9 lg:text-[14px] lg:leading-[22px]`;
 
-const automationTextareaClass =
-  `w-full resize-none rounded-xl border border-[#DEE0E3] bg-white px-3 py-2 text-[#1F2329] outline-none focus:border-[#8FB1FF] ${TYPOGRAPHY_MOBILE_BODY_CLASS} lg:text-[14px] lg:leading-[22px]`;
+const automationTextareaClass = `w-full resize-none rounded-xl border border-[#DEE0E3] bg-white px-3 py-2 text-[#1F2329] outline-none focus:border-[#8FB1FF] ${TYPOGRAPHY_MOBILE_BODY_CLASS} lg:text-[14px] lg:leading-[22px]`;
 
 function defaultRunAt(): string {
   const date = new Date(Date.now() + 60 * 60 * 1000);
@@ -661,7 +655,9 @@ export default function AutomationsPage({
         </header>
 
         {error ? (
-          <div className={`flex items-start gap-2 rounded-xl border border-[#B42318]/25 bg-[#FFF1F0] px-3 py-3 text-[#B42318] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
+          <div
+            className={`flex items-start gap-2 rounded-xl border border-[#B42318]/25 bg-[#FFF1F0] px-3 py-3 text-[#B42318] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+          >
             <IconTile tone="danger" size="sm" className="mt-0.5">
               <AlertTriangle size={14} />
             </IconTile>
@@ -676,9 +672,7 @@ export default function AutomationsPage({
           >
             <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_220px]">
               <label className="block min-w-0">
-                <span className={automationFieldLabelClass}>
-                  {t("automations.titleLabel")}
-                </span>
+                <span className={automationFieldLabelClass}>{t("automations.titleLabel")}</span>
                 <input
                   value={title}
                   onChange={(event) => setTitle(event.target.value)}
@@ -820,311 +814,335 @@ export default function AutomationsPage({
           </form>
         ) : null}
 
-        <div className="overflow-hidden rounded-2xl border border-[#DEE0E3] bg-white/74 shadow-[0_12px_30px_rgba(31,35,41,0.06)] backdrop-blur-xl">
-          {schedules.length === 0 && !isLoading ? (
-            <div className={`flex h-44 items-center justify-center text-[#646A73] ${TYPOGRAPHY_BODY_CLASS}`}>
-              {t("automations.noAutomations")}
+        {schedules.length === 0 ? (
+          <div className="overflow-hidden rounded-2xl border border-[#DEE0E3] bg-white/74 shadow-[0_12px_30px_rgba(31,35,41,0.06)] backdrop-blur-xl">
+            <div
+              className={`flex h-44 items-center justify-center text-[#646A73] ${TYPOGRAPHY_BODY_CLASS}`}
+            >
+              {isLoading ? null : t("automations.noAutomations")}
             </div>
-          ) : (
-            <div className="divide-y divide-[#EFF0F1]">
-              {schedules.map((schedule) => {
-                const runs = runsBySchedule[schedule.schedule_id] || [];
-                const latestRun = runs[0] || null;
-                const latestRunStatus = latestRun?.status || schedule.last_run_status || null;
-                const latestRunAt = latestRun?.updated_at || schedule.last_run_at;
-                const scheduleError = schedule.status === "error" ? schedule.last_error : null;
-                const latestRunError = runErrorText(latestRun) || scheduleError;
-                const isExpanded = expandedScheduleId === schedule.schedule_id;
+          </div>
+        ) : (
+          <div data-ripple-automation-list className="grid gap-2.5">
+            {schedules.map((schedule) => {
+              const runs = runsBySchedule[schedule.schedule_id] || [];
+              const latestRun = runs[0] || null;
+              const latestRunStatus = latestRun?.status || schedule.last_run_status || null;
+              const latestRunAt = latestRun?.updated_at || schedule.last_run_at;
+              const scheduleError = schedule.status === "error" ? schedule.last_error : null;
+              const latestRunError = runErrorText(latestRun) || scheduleError;
+              const isExpanded = expandedScheduleId === schedule.schedule_id;
 
-                return (
-                  <div
-                    key={schedule.schedule_id}
-                    data-ripple-automation-card-main
-                    className="px-3 py-2 sm:px-4 sm:py-2.5 xl:px-5"
-                  >
-                    <div className="grid gap-2 xl:grid-cols-[minmax(260px,0.82fr)_minmax(0,1.35fr)] xl:items-start">
-                      <div data-ripple-automation-summary className="min-w-0">
-                        <div className="flex min-w-0 items-start gap-2.5">
-                          <IconTile
-                            tone={schedule.enabled ? "accent" : "neutral"}
-                            size="xs"
-                            className="mt-0.5"
-                          >
-                            <CalendarClock size={14} />
-                          </IconTile>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex min-w-0 flex-wrap items-center gap-2">
-                              <span className={`min-w-0 truncate ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
-                                {schedule.title}
-                              </span>
-                              <span
-                                className={`shrink-0 rounded-full border px-1.5 py-0.5 capitalize ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} ${statusClass(
-                                  schedule.status
-                                )}`}
-                              >
-                                {schedule.status}
-                              </span>
-                            </div>
-                            <div className={`mt-0.5 line-clamp-3 text-[#646A73] ${TYPOGRAPHY_BODY_CLASS}`}>
-                              {schedule.prompt}
-                            </div>
-                            {schedule.status === "error" && schedule.last_error ? (
-                              <div className={`mt-1 truncate text-[#B42318] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
-                                {schedule.last_error}
-                              </div>
-                            ) : null}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div
-                        data-ripple-automation-detail-grid
-                        className="grid gap-1.5 md:grid-cols-[minmax(150px,220px)_minmax(0,1fr)]"
-                      >
-                        <div
-                          data-ripple-automation-meta-grid
-                          className="grid grid-cols-2 gap-1.5 md:grid-cols-1"
+              return (
+                <div
+                  key={schedule.schedule_id}
+                  data-ripple-automation-card-main
+                  className="overflow-hidden rounded-xl border border-[#DEE0E3] bg-white/88 px-3 py-2 shadow-[0_10px_24px_rgba(31,35,41,0.055)] backdrop-blur-xl sm:px-4 sm:py-2.5 xl:px-5"
+                >
+                  <div className="grid gap-2 xl:grid-cols-[minmax(260px,0.82fr)_minmax(0,1.35fr)] xl:items-start">
+                    <div data-ripple-automation-summary className="min-w-0">
+                      <div className="flex min-w-0 items-start gap-2.5">
+                        <IconTile
+                          tone={schedule.enabled ? "accent" : "neutral"}
+                          size="xs"
+                          className="mt-0.5"
                         >
-                          <div
-                            data-ripple-automation-meta-cell
-                            className="min-w-0 rounded-lg border border-[#EFF0F1] bg-[#F8F9FA]/80 px-2 py-1"
-                          >
-                            <div className={`tracking-normal text-[#8F959E] uppercase ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
-                              {t("automations.next")}
-                            </div>
-                            <div className={`mt-0.5 truncate text-[#2B2F36] ${TYPOGRAPHY_META_CLASS}`}>
-                              {formatDate(schedule.next_run_at, locale, t)}
-                            </div>
-                          </div>
-                          <div
-                            data-ripple-automation-meta-cell
-                            className="min-w-0 rounded-lg border border-[#EFF0F1] bg-[#F8F9FA]/80 px-2 py-1"
-                          >
-                            <div className={`tracking-normal text-[#8F959E] uppercase ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
-                              {t("automations.repeat")}
-                            </div>
-                            <div className={`mt-0.5 truncate font-[family-name:var(--font-mono)] text-[#2B2F36] ${TYPOGRAPHY_META_CLASS}`}>
-                              {schedule.kind === "interval"
-                                ? `${intervalLabel(schedule.interval_seconds, t)} · ${runCountLabel(schedule, t)}`
-                                : t("automations.once")}
-                            </div>
-                          </div>
-                        </div>
-
-                        <div
-                          data-ripple-automation-latest-run
-                          className={`grid min-w-0 gap-1.5 rounded-lg border border-[#EFF0F1] bg-[#F8F9FA]/70 px-2 py-1.5 ${TYPOGRAPHY_META_CLASS}`}
-                        >
-                          <div className="flex min-w-0 items-start justify-between gap-2">
-                            <span className={`tracking-normal text-[#8F959E] uppercase ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
-                              {t("automations.latestRun")}
+                          <CalendarClock size={14} />
+                        </IconTile>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex min-w-0 flex-wrap items-center gap-2">
+                            <span className={`min-w-0 truncate ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
+                              {schedule.title}
                             </span>
-                            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-                              <span className={`text-[#646A73] ${TYPOGRAPHY_META_CLASS}`}>
-                                {latestRunAt
-                                  ? formatDate(latestRunAt, locale, t)
-                                  : t("automations.never")}
-                              </span>
-                              <span
-                                className={`rounded-full border px-1.5 py-0.5 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} ${runStatusClass(
-                                  latestRunStatus
-                                )}`}
-                              >
-                                {latestRunStatus || t("automations.none")}
-                              </span>
-                            </div>
+                            <span
+                              className={`shrink-0 rounded-full border px-1.5 py-0.5 capitalize ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} ${statusClass(
+                                schedule.status
+                              )}`}
+                            >
+                              {schedule.status}
+                            </span>
                           </div>
-                          {latestRunError ? (
-                            <div className={`truncate text-[#B42318] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
-                              {latestRunError}
+                          <div
+                            className={`mt-0.5 line-clamp-2 text-[#646A73] ${TYPOGRAPHY_BODY_CLASS}`}
+                          >
+                            {schedule.prompt}
+                          </div>
+                          {schedule.status === "error" && schedule.last_error ? (
+                            <div
+                              className={`mt-1 truncate text-[#B42318] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                            >
+                              {schedule.last_error}
                             </div>
                           ) : null}
-                          <div className="flex flex-wrap gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => void handleRefreshRuns(schedule.schedule_id)}
-                              disabled={pendingRunActionId === `${schedule.schedule_id}:refresh`}
-                              className={runActionButtonClass}
-                            >
-                              {pendingRunActionId === `${schedule.schedule_id}:refresh` ? (
-                                <Loader2 size={14} className="animate-spin" />
-                              ) : (
-                                <RefreshCw size={14} />
-                              )}
-                              <span>{t("automations.refresh")}</span>
-                            </button>
-                            {hasRunOutput(latestRun) ? (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() => void handleViewOutput(latestRun, schedule.title)}
-                                  disabled={pendingRunActionId === `${latestRun.job_id}:view`}
-                                  className={runActionButtonClass}
-                                >
-                                  {pendingRunActionId === `${latestRun.job_id}:view` ? (
-                                    <Loader2 size={14} className="animate-spin" />
-                                  ) : (
-                                    <Eye size={14} />
-                                  )}
-                                  <span>{t("automations.viewOutput")}</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => void handleDownloadOutput(latestRun)}
-                                  disabled={pendingRunActionId === `${latestRun.job_id}:download`}
-                                  className={runActionButtonClass}
-                                >
-                                  {pendingRunActionId === `${latestRun.job_id}:download` ? (
-                                    <Loader2 size={14} className="animate-spin" />
-                                  ) : (
-                                    <Download size={14} />
-                                  )}
-                                  <span>{t("automations.downloadOutput")}</span>
-                                </button>
-                              </>
-                            ) : null}
-                          </div>
                         </div>
                       </div>
                     </div>
 
                     <div
-                      data-ripple-automation-actions
-                      className="mt-2 grid grid-cols-3 gap-1.5 md:grid-cols-5"
+                      data-ripple-automation-detail-grid
+                      className="grid gap-1.5 md:grid-cols-[minmax(150px,220px)_minmax(0,1fr)]"
                     >
-                      {confirmDeleteId === schedule.schedule_id ? (
-                        <button
-                          type="button"
-                          onClick={() => setConfirmDeleteId(null)}
-                          className={automationActionButtonClass}
-                        >
-                          {t("automations.cancel")}
-                        </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        onClick={() => beginEditSchedule(schedule)}
-                        aria-label={t("automations.editAutomation")}
-                        title={t("automations.editAutomation")}
-                        className={automationActionButtonClass}
-                      >
-                        <Edit3 size={14} />
-                        <span>{t("automations.edit")}</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          void handleAction(schedule.schedule_id, "toggle", schedule.enabled)
-                        }
-                        aria-label={
-                          schedule.enabled
-                            ? t("automations.pauseAutomation")
-                            : t("automations.resumeAutomation")
-                        }
-                        title={
-                          schedule.enabled
-                            ? t("automations.pauseAutomation")
-                            : t("automations.resumeAutomation")
-                        }
-                        className={automationActionButtonClass}
-                      >
-                        {pendingActionId === `${schedule.schedule_id}:toggle` ? (
-                          <Loader2 size={14} className="animate-spin" />
-                        ) : schedule.enabled ? (
-                          <Pause size={14} />
-                        ) : (
-                          <Play size={14} />
-                        )}
-                        {schedule.enabled ? (
-                          <span>{t("automations.pause")}</span>
-                        ) : (
-                          <span>{t("automations.resume")}</span>
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleAction(schedule.schedule_id, "run")}
-                        aria-label={t("automations.runAutomationNow")}
-                        title={t("automations.runAutomationNow")}
-                        className={automationActionButtonClass}
-                      >
-                        {pendingActionId === `${schedule.schedule_id}:run` ? (
-                          <Loader2 size={14} className="animate-spin" />
-                        ) : (
-                          <Zap size={14} />
-                        )}
-                        <span>{t("automations.runNow")}</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setExpandedScheduleId((current) =>
-                            current === schedule.schedule_id ? null : schedule.schedule_id
-                          )
-                        }
-                        aria-label={t("automations.toggleRunHistory")}
-                        title={t("automations.toggleRunHistory")}
-                        className={automationActionButtonClass}
-                      >
-                        <ChevronDown
-                          size={14}
-                          className={
-                            isExpanded ? "rotate-180 transition-transform" : "transition-transform"
-                          }
-                        />
-                        <span>{t("automations.runHistory")}</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleAction(schedule.schedule_id, "delete")}
-                        aria-label={t("automations.deleteAutomation")}
-                        title={
-                          confirmDeleteId === schedule.schedule_id
-                            ? t("automations.confirmDeleteAutomation")
-                            : t("automations.deleteAutomation")
-                        }
-                        className={`${automationDeleteButtonClass} ${
-                          confirmDeleteId === schedule.schedule_id
-                            ? "border-[#B42318]/25 bg-[#FFF1F0] text-[#B42318]"
-                            : "border-[#DEE0E3] bg-white text-[#8F959E] hover:bg-[#FFF1F0] hover:text-[#B42318]"
-                        }`}
-                      >
-                        {pendingActionId === `${schedule.schedule_id}:delete` ? (
-                          <Loader2 size={14} className="animate-spin" />
-                        ) : confirmDeleteId === schedule.schedule_id ? (
-                          <span className={TYPOGRAPHY_META_MEDIUM_CLASS}>
-                            {t("automations.confirm")}
-                          </span>
-                        ) : (
-                          <>
-                            <Trash2 size={14} />
-                            <span>{t("automations.delete")}</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
-
-                    {isExpanded ? (
                       <div
-                        data-ripple-automation-run-history
-                        className="mt-4 border-t border-[#EFF0F1] pt-3"
+                        data-ripple-automation-meta-grid
+                        className="grid grid-cols-2 gap-1.5 md:grid-cols-1"
                       >
-                        <div className="mb-2 flex items-center justify-between gap-3">
-                          <div className={`tracking-normal text-[#646A73] uppercase ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
-                            {t("automations.runHistory")}
+                        <div
+                          data-ripple-automation-meta-cell
+                          className="min-w-0 rounded-lg border border-[#EFF0F1] bg-[#F8F9FA]/80 px-2 py-1"
+                        >
+                          <div
+                            className={`tracking-normal text-[#8F959E] uppercase ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                          >
+                            {t("automations.next")}
                           </div>
-                          <div className={`font-[family-name:var(--font-mono)] text-[#8F959E] ${TYPOGRAPHY_META_CLASS}`}>
-                            {t("automations.runCount", {
-                              count: runs.length,
-                              label: runs.length === 1 ? "run" : "runs",
-                            })}
+                          <div
+                            className={`mt-0.5 truncate text-[#2B2F36] ${TYPOGRAPHY_META_CLASS}`}
+                          >
+                            {formatDate(schedule.next_run_at, locale, t)}
                           </div>
                         </div>
-                        {runs.length === 0 ? (
-                          <div className={`text-[#646A73] ${TYPOGRAPHY_META_CLASS}`}>
-                            {t("automations.noRunsYet")}
+                        <div
+                          data-ripple-automation-meta-cell
+                          className="min-w-0 rounded-lg border border-[#EFF0F1] bg-[#F8F9FA]/80 px-2 py-1"
+                        >
+                          <div
+                            className={`tracking-normal text-[#8F959E] uppercase ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                          >
+                            {t("automations.repeat")}
                           </div>
-                        ) : (
+                          <div
+                            className={`mt-0.5 truncate font-[family-name:var(--font-mono)] text-[#2B2F36] ${TYPOGRAPHY_META_CLASS}`}
+                          >
+                            {schedule.kind === "interval"
+                              ? `${intervalLabel(schedule.interval_seconds, t)} · ${runCountLabel(schedule, t)}`
+                              : t("automations.once")}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div
+                        data-ripple-automation-latest-run
+                        className={`grid min-w-0 gap-1.5 rounded-lg border border-[#EFF0F1] bg-[#F8F9FA]/70 px-2 py-1.5 ${TYPOGRAPHY_META_CLASS}`}
+                      >
+                        <div className="flex min-w-0 items-start justify-between gap-2">
+                          <span
+                            className={`tracking-normal text-[#8F959E] uppercase ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                          >
+                            {t("automations.latestRun")}
+                          </span>
+                          <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+                            <span className={`text-[#646A73] ${TYPOGRAPHY_META_CLASS}`}>
+                              {latestRunAt
+                                ? formatDate(latestRunAt, locale, t)
+                                : t("automations.never")}
+                            </span>
+                            <span
+                              className={`rounded-full border px-1.5 py-0.5 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} ${runStatusClass(
+                                latestRunStatus
+                              )}`}
+                            >
+                              {latestRunStatus || t("automations.none")}
+                            </span>
+                          </div>
+                        </div>
+                        {latestRunError ? (
+                          <div
+                            className={`truncate text-[#B42318] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                          >
+                            {latestRunError}
+                          </div>
+                        ) : null}
+                        <div className="flex flex-wrap gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => void handleRefreshRuns(schedule.schedule_id)}
+                            disabled={pendingRunActionId === `${schedule.schedule_id}:refresh`}
+                            className={runActionButtonClass}
+                          >
+                            {pendingRunActionId === `${schedule.schedule_id}:refresh` ? (
+                              <Loader2 size={14} className="animate-spin" />
+                            ) : (
+                              <RefreshCw size={14} />
+                            )}
+                            <span>{t("automations.refresh")}</span>
+                          </button>
+                          {hasRunOutput(latestRun) ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => void handleViewOutput(latestRun, schedule.title)}
+                                disabled={pendingRunActionId === `${latestRun.job_id}:view`}
+                                className={runActionButtonClass}
+                              >
+                                {pendingRunActionId === `${latestRun.job_id}:view` ? (
+                                  <Loader2 size={14} className="animate-spin" />
+                                ) : (
+                                  <Eye size={14} />
+                                )}
+                                <span>{t("automations.viewOutput")}</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleDownloadOutput(latestRun)}
+                                disabled={pendingRunActionId === `${latestRun.job_id}:download`}
+                                className={runActionButtonClass}
+                              >
+                                {pendingRunActionId === `${latestRun.job_id}:download` ? (
+                                  <Loader2 size={14} className="animate-spin" />
+                                ) : (
+                                  <Download size={14} />
+                                )}
+                                <span>{t("automations.downloadOutput")}</span>
+                              </button>
+                            </>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div
+                    data-ripple-automation-actions
+                    className="mt-2 grid grid-cols-3 gap-1.5 md:grid-cols-5"
+                  >
+                    {confirmDeleteId === schedule.schedule_id ? (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDeleteId(null)}
+                        className={automationActionButtonClass}
+                      >
+                        {t("automations.cancel")}
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => beginEditSchedule(schedule)}
+                      aria-label={t("automations.editAutomation")}
+                      title={t("automations.editAutomation")}
+                      className={automationActionButtonClass}
+                    >
+                      <Edit3 size={14} />
+                      <span>{t("automations.edit")}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void handleAction(schedule.schedule_id, "toggle", schedule.enabled)
+                      }
+                      aria-label={
+                        schedule.enabled
+                          ? t("automations.pauseAutomation")
+                          : t("automations.resumeAutomation")
+                      }
+                      title={
+                        schedule.enabled
+                          ? t("automations.pauseAutomation")
+                          : t("automations.resumeAutomation")
+                      }
+                      className={automationActionButtonClass}
+                    >
+                      {pendingActionId === `${schedule.schedule_id}:toggle` ? (
+                        <Loader2 size={14} className="animate-spin" />
+                      ) : schedule.enabled ? (
+                        <Pause size={14} />
+                      ) : (
+                        <Play size={14} />
+                      )}
+                      {schedule.enabled ? (
+                        <span>{t("automations.pause")}</span>
+                      ) : (
+                        <span>{t("automations.resume")}</span>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleAction(schedule.schedule_id, "run")}
+                      aria-label={t("automations.runAutomationNow")}
+                      title={t("automations.runAutomationNow")}
+                      className={automationActionButtonClass}
+                    >
+                      {pendingActionId === `${schedule.schedule_id}:run` ? (
+                        <Loader2 size={14} className="animate-spin" />
+                      ) : (
+                        <Zap size={14} />
+                      )}
+                      <span>{t("automations.runNow")}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setExpandedScheduleId((current) =>
+                          current === schedule.schedule_id ? null : schedule.schedule_id
+                        )
+                      }
+                      aria-label={t("automations.toggleRunHistory")}
+                      title={t("automations.toggleRunHistory")}
+                      className={automationActionButtonClass}
+                    >
+                      <ChevronDown
+                        size={14}
+                        className={
+                          isExpanded ? "rotate-180 transition-transform" : "transition-transform"
+                        }
+                      />
+                      <span>{t("automations.runHistory")}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleAction(schedule.schedule_id, "delete")}
+                      aria-label={t("automations.deleteAutomation")}
+                      title={
+                        confirmDeleteId === schedule.schedule_id
+                          ? t("automations.confirmDeleteAutomation")
+                          : t("automations.deleteAutomation")
+                      }
+                      className={`${automationDeleteButtonClass} ${
+                        confirmDeleteId === schedule.schedule_id
+                          ? "border-[#B42318]/25 bg-[#FFF1F0] text-[#B42318]"
+                          : "border-[#DEE0E3] bg-white text-[#8F959E] hover:bg-[#FFF1F0] hover:text-[#B42318]"
+                      }`}
+                    >
+                      {pendingActionId === `${schedule.schedule_id}:delete` ? (
+                        <Loader2 size={14} className="animate-spin" />
+                      ) : confirmDeleteId === schedule.schedule_id ? (
+                        <span className={TYPOGRAPHY_META_MEDIUM_CLASS}>
+                          {t("automations.confirm")}
+                        </span>
+                      ) : (
+                        <>
+                          <Trash2 size={14} />
+                          <span>{t("automations.delete")}</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {isExpanded ? (
+                    <div
+                      data-ripple-automation-run-history
+                      className="mt-2 rounded-lg border border-[#EFF0F1] bg-[#F8F9FA]/60 p-2"
+                    >
+                      <div className="mb-1 flex items-center justify-between gap-3">
+                        <div
+                          className={`tracking-normal text-[#646A73] uppercase ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                        >
+                          {t("automations.runHistory")}
+                        </div>
+                        <div
+                          className={`font-[family-name:var(--font-mono)] text-[#8F959E] ${TYPOGRAPHY_META_CLASS}`}
+                        >
+                          {t("automations.runCount", {
+                            count: runs.length,
+                            label: runs.length === 1 ? "run" : "runs",
+                          })}
+                        </div>
+                      </div>
+                      {runs.length === 0 ? (
+                        <div className={`text-[#646A73] ${TYPOGRAPHY_META_CLASS}`}>
+                          {t("automations.noRunsYet")}
+                        </div>
+                      ) : (
+                        <div className="max-h-44 overflow-y-auto">
                           <div className="divide-y divide-[#EFF0F1]">
                             {runs.map((run) => {
                               const errorText = runErrorText(run);
@@ -1134,7 +1152,7 @@ export default function AutomationsPage({
                                 <div
                                   key={run.job_id}
                                   data-ripple-automation-run-row
-                                  className={`grid gap-2 py-2.5 md:grid-cols-[minmax(0,1fr)_auto] md:items-center ${TYPOGRAPHY_META_CLASS}`}
+                                  className={`grid gap-1.5 py-1.5 md:grid-cols-[minmax(0,1fr)_auto] md:items-center ${TYPOGRAPHY_META_CLASS}`}
                                 >
                                   <div className="min-w-0">
                                     <div className="grid min-w-0 gap-1.5 sm:grid-cols-[90px_minmax(0,1fr)_120px] sm:items-center">
@@ -1145,7 +1163,9 @@ export default function AutomationsPage({
                                       >
                                         {run.status}
                                       </span>
-                                      <span className={`truncate font-[family-name:var(--font-mono)] text-[#2B2F36] ${TYPOGRAPHY_META_CLASS}`}>
+                                      <span
+                                        className={`truncate font-[family-name:var(--font-mono)] text-[#2B2F36] ${TYPOGRAPHY_META_CLASS}`}
+                                      >
                                         {run.job_id}
                                       </span>
                                       <span className={`text-[#646A73] ${TYPOGRAPHY_META_CLASS}`}>
@@ -1153,7 +1173,9 @@ export default function AutomationsPage({
                                       </span>
                                     </div>
                                     {errorText ? (
-                                      <div className={`mt-1 truncate text-[#B42318] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
+                                      <div
+                                        className={`mt-1 truncate text-[#B42318] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                                      >
                                         {errorText}
                                       </div>
                                     ) : null}
@@ -1233,15 +1255,15 @@ export default function AutomationsPage({
                               );
                             })}
                           </div>
-                        )}
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {outputPreview ? (
           <div className="fixed inset-0 z-50 flex items-end bg-black/30 p-3 sm:items-center sm:justify-center">
@@ -1251,7 +1273,9 @@ export default function AutomationsPage({
                   <div className={`truncate ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
                     {outputPreview.title}
                   </div>
-                  <div className={`mt-1 truncate font-[family-name:var(--font-mono)] text-[#646A73] ${TYPOGRAPHY_META_CLASS}`}>
+                  <div
+                    className={`mt-1 truncate font-[family-name:var(--font-mono)] text-[#646A73] ${TYPOGRAPHY_META_CLASS}`}
+                  >
                     {outputPreview.jobId}
                   </div>
                 </div>
@@ -1265,16 +1289,22 @@ export default function AutomationsPage({
               </div>
               <div className="max-h-[calc(82vh-64px)] overflow-auto p-4">
                 {outputPreview.loading ? (
-                  <div className={`flex h-32 items-center justify-center text-[#646A73] ${TYPOGRAPHY_BODY_CLASS}`}>
+                  <div
+                    className={`flex h-32 items-center justify-center text-[#646A73] ${TYPOGRAPHY_BODY_CLASS}`}
+                  >
                     <Loader2 size={16} className="mr-2 animate-spin" />
                     {t("automations.loadingOutput")}
                   </div>
                 ) : outputPreview.error ? (
-                  <div className={`rounded-xl border border-[#B42318]/25 bg-[#FFF1F0] px-3 py-2 text-[#B42318] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
+                  <div
+                    className={`rounded-xl border border-[#B42318]/25 bg-[#FFF1F0] px-3 py-2 text-[#B42318] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+                  >
                     {outputPreview.error}
                   </div>
                 ) : (
-                  <pre className={`font-[family-name:var(--font-mono)] break-words whitespace-pre-wrap text-[#1f2937] ${TYPOGRAPHY_BODY_CLASS}`}>
+                  <pre
+                    className={`font-[family-name:var(--font-mono)] break-words whitespace-pre-wrap text-[#1f2937] ${TYPOGRAPHY_BODY_CLASS}`}
+                  >
                     {outputPreview.text || t("automations.emptyOutput")}
                   </pre>
                 )}

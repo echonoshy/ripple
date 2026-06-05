@@ -86,6 +86,14 @@ function testAutomationRunResultsAreDiscoverable() {
   assert.match(source, /t\("automations\.runHistory"\)/);
 }
 
+function testRunningAutomationRunsDoNotOfferOutputActions() {
+  const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /function hasRunOutput/);
+  assert.match(source, /run\?\.output_available && !isActiveRunStatus\(run\.status\)/);
+  assert.doesNotMatch(source, /run\?\.output_file/);
+}
+
 function testCompletedScheduleRunsDoNotSurfaceToolStderrAsErrors() {
   const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
 
@@ -142,7 +150,12 @@ function testAutomationCardUsesCompactResponsiveLayout() {
   assert.match(source, /LUCIDE_NAV_STROKE_WIDTH/);
   assert.doesNotMatch(source, /pb-\[calc\(88px\+env\(safe-area-inset-bottom\)\)\]/);
   assert.doesNotMatch(source, /circle_at_16%_0%/);
-  assert.match(source, /className="px-3 py-2 sm:px-4 sm:py-2\.5 xl:px-5"/);
+  assert.match(
+    source,
+    /data-ripple-automation-card-main[\s\S]*className="overflow-hidden rounded-xl border border-\[#DEE0E3\] bg-white\/88 px-3 py-2 shadow-\[0_10px_24px_rgba\(31,35,41,0\.055\)\] backdrop-blur-xl sm:px-4 sm:py-2\.5 xl:px-5"/
+  );
+  assert.match(source, /data-ripple-automation-list[\s\S]{0,80}className="grid gap-2\.5"/);
+  assert.doesNotMatch(source, /data-ripple-automation-list[\s\S]{0,120}divide-y/);
   assert.match(source, /xl:grid-cols-\[minmax\(260px,0\.82fr\)_minmax\(0,1\.35fr\)\]/);
   assert.match(source, /data-ripple-automation-detail-grid/);
   assert.match(source, /data-ripple-automation-detail-grid[\s\S]{0,130}className="grid gap-1\.5/);
@@ -179,7 +192,7 @@ function testAutomationCardUsesDesktopRowLayout() {
 
   assert.match(
     source,
-    /data-ripple-automation-card-main[\s\S]*className="px-3 py-2 sm:px-4 sm:py-2\.5 xl:px-5"/
+    /data-ripple-automation-card-main[\s\S]*className="overflow-hidden rounded-xl border border-\[#DEE0E3\] bg-white\/88 px-3 py-2 shadow-\[0_10px_24px_rgba\(31,35,41,0\.055\)\] backdrop-blur-xl sm:px-4 sm:py-2\.5 xl:px-5"/
   );
   assert.match(source, /xl:grid-cols-\[minmax\(260px,0\.82fr\)_minmax\(0,1\.35fr\)\]/);
   assert.match(
@@ -202,6 +215,8 @@ function testAutomationRunHistoryUsesReadableRows() {
   assert.match(source, /data-ripple-automation-run-history/);
   assert.match(source, /data-ripple-automation-run-row/);
   assert.match(source, /divide-y divide-\[#EFF0F1\]/);
+  assert.match(source, /max-h-44 overflow-y-auto/);
+  assert.match(source, /data-ripple-automation-run-row[\s\S]*py-1\.5/);
   assert.match(source, /sm:grid-cols-\[90px_minmax\(0,1fr\)_120px\]/);
 }
 
@@ -220,6 +235,7 @@ testTimezoneUsesSelectControl();
 testAutomationFormCanSelectModel();
 testExistingAutomationsCanBeEdited();
 testAutomationRunResultsAreDiscoverable();
+testRunningAutomationRunsDoNotOfferOutputActions();
 testCompletedScheduleRunsDoNotSurfaceToolStderrAsErrors();
 testAutomationStaticCopyUsesEnglish();
 testAutomationCardUsesSeparatedLayoutRegions();

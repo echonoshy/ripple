@@ -151,7 +151,7 @@ function PdfPage({ pdfDocument, pageNumber, filename, fullscreen = false }: PdfP
     >
       <div className="mx-auto flex w-full max-w-5xl justify-center">
         <div
-          className="relative max-w-full overflow-hidden rounded-md border border-[#dfe6f4] bg-white shadow-[0_12px_30px_rgba(44,63,123,0.08)]"
+          className="relative max-w-full overflow-hidden rounded-md border border-[#DEE0E3] bg-white shadow-[0_12px_30px_rgba(31,35,41,0.08)]"
           style={pageHeight ? { minHeight: Math.ceil(pageHeight) } : undefined}
         >
           {isNearViewport ? (
@@ -164,7 +164,7 @@ function PdfPage({ pdfDocument, pageNumber, filename, fullscreen = false }: PdfP
             <div className="h-[560px] w-[396px] max-w-full bg-white" />
           )}
           {renderError && (
-            <div className="absolute inset-0 flex items-center justify-center bg-white/92 px-4 text-center text-xs font-medium text-[#cf222e]">
+            <div className="absolute inset-0 flex items-center justify-center bg-white/92 px-4 text-center text-xs font-medium text-[#B42318]">
               {renderError}
             </div>
           )}
@@ -253,9 +253,9 @@ export function PdfPreview({
         data-ripple-pdf-state="error"
         className={`${rootClassName} items-center justify-center px-4 text-center`}
       >
-        <AlertTriangle size={20} className="mb-2 text-[#cf222e]" />
-        <p className="text-sm font-semibold text-[#111827]">{t("files.pdfPreviewFailed")}</p>
-        <p className="mt-1 max-w-md text-xs text-[#667085]">{error}</p>
+        <AlertTriangle size={20} className="mb-2 text-[#B42318]" />
+        <p className="text-sm font-semibold text-[#1F2329]">{t("files.pdfPreviewFailed")}</p>
+        <p className="mt-1 max-w-md text-xs text-[#646A73]">{error}</p>
       </div>
     );
   }
@@ -265,7 +265,7 @@ export function PdfPreview({
       <div
         data-ripple-pdf-preview
         data-ripple-pdf-state="loading"
-        className={`${rootClassName} items-center justify-center gap-2 text-sm font-medium text-[#667085]`}
+        className={`${rootClassName} items-center justify-center gap-2 text-sm font-medium text-[#646A73]`}
       >
         <Loader2 size={18} className="animate-spin" />
         <span>{t("files.pdfLoading")}</span>

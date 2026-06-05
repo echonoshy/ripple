@@ -64,9 +64,9 @@ interface SwipeActionRowProps extends Omit<
 }
 
 function actionToneClass(tone: SwipeActionTone = "neutral"): string {
-  if (tone === "danger") return "bg-[#ff3b30] text-white";
-  if (tone === "accent") return "bg-[#007aff] text-white";
-  return "bg-white/80 text-[#3c3c43]";
+  if (tone === "danger") return "bg-[#B42318] text-white";
+  if (tone === "accent") return "bg-[#1456F0] text-white";
+  return "bg-white/80 text-[#2B2F36]";
 }
 
 export function resolveSwipeActionRowEnd({

@@ -75,31 +75,31 @@ interface ConnectorLogoMeta {
 
 const CONNECTOR_LOGO_META: Record<string, ConnectorLogoMeta> = {
   google_workspace: {
-    shellClass: "border-[#dfe6f4] bg-white/82",
-    cardClass: "hover:border-[#cfe4ff]",
+    shellClass: "border-[#DEE0E3] bg-white/82",
+    cardClass: "hover:border-[#BACEFD]",
     connectedDotClass: "bg-[#34a853]",
   },
   notion: {
-    shellClass: "border-[#dfe6f4] bg-white/82",
+    shellClass: "border-[#DEE0E3] bg-white/82",
     cardClass: "hover:border-[#d8d8de]",
-    connectedDotClass: "bg-[#111827]",
+    connectedDotClass: "bg-[#1F2329]",
   },
   feishu: {
-    shellClass: "border-[#dfe6f4] bg-white/82",
+    shellClass: "border-[#DEE0E3] bg-white/82",
     cardClass: "hover:border-[#c7efff]",
     connectedDotClass: "bg-[#18c6ff]",
   },
   bilibili: {
-    shellClass: "border-[#dfe6f4] bg-white/82",
+    shellClass: "border-[#DEE0E3] bg-white/82",
     cardClass: "hover:border-[#ffd5e6]",
     connectedDotClass: "bg-[#23ade5]",
   },
 };
 
 const FALLBACK_CONNECTOR_LOGO_META: ConnectorLogoMeta = {
-  shellClass: "border-[#dfe6f4] bg-white/82 text-[#667085]",
+  shellClass: "border-[#DEE0E3] bg-white/82 text-[#646A73]",
   cardClass: "hover:border-[#d2dbea]",
-  connectedDotClass: "bg-[#1a7f37]",
+  connectedDotClass: "bg-[#16845B]",
 };
 
 const FEISHU_FAVICON_DATA_URI =
@@ -225,18 +225,18 @@ function connectorLogoMeta(connector: ConnectorInfo): ConnectorLogoMeta {
 function connectorStatusPillClass(status: ConnectorStatus | null | undefined): string {
   const tone = connectorStatusTone(status);
   if (tone === "connected") {
-    return "border-[#1a7f37]/20 bg-[#dafbe1]/78 text-[#1a7f37]";
+    return "border-[#16845B]/20 bg-[#E4F8EE]/78 text-[#16845B]";
   }
   if (tone === "needs_setup") {
-    return "border-[#f2cc79]/45 bg-[#fff8df]/82 text-[#7d4e00]";
+    return "border-[#FAD355]/45 bg-[#FFF8DB]/82 text-[#8B5E00]";
   }
-  return "border-[#dfe6f4] bg-white/76 text-[#667085]";
+  return "border-[#DEE0E3] bg-white/76 text-[#646A73]";
 }
 
 function connectorStatusPillDotClass(status: ConnectorStatus | null | undefined): string {
   const tone = connectorStatusTone(status);
   if (tone === "connected") return "bg-[#34a853]";
-  if (tone === "needs_setup") return "bg-[#bf8700]";
+  if (tone === "needs_setup") return "bg-[#D99900]";
   return "bg-[#94a3b8]";
 }
 
@@ -246,7 +246,7 @@ function connectorStatusDotClass(
 ): string {
   const tone = connectorStatusTone(status);
   if (tone === "connected") return logo.connectedDotClass;
-  if (tone === "needs_setup") return "bg-[#bf8700]";
+  if (tone === "needs_setup") return "bg-[#D99900]";
   return "bg-[#94a3b8]";
 }
 
@@ -277,7 +277,7 @@ function NotionLogo() {
   return (
     <svg aria-hidden="true" viewBox="0 0 24 24" className="h-6 w-6">
       <path
-        fill="#111827"
+        fill="#1F2329"
         d="M4.459 4.208c.746.606 1.026.56 2.428.466l13.215-.793c.28 0 .047-.28-.046-.326L17.86 1.968c-.42-.326-.981-.7-2.055-.607L3.01 2.295c-.466.046-.56.28-.374.466zm.793 3.08v13.904c0 .747.373 1.027 1.214.98l14.523-.84c.841-.046.935-.56.935-1.167V6.354c0-.606-.233-.933-.748-.887l-15.177.887c-.56.047-.747.327-.747.933zm14.337.745c.093.42 0 .84-.42.888l-.7.14v10.264c-.608.327-1.168.514-1.635.514-.748 0-.935-.234-1.495-.933l-4.577-7.186v6.952L12.21 19s0 .84-1.168.84l-3.222.186c-.093-.186 0-.653.327-.746l.84-.233V9.854L7.822 9.76c-.094-.42.14-1.026.793-1.073l3.456-.233 4.764 7.279v-6.44l-1.215-.139c-.093-.514.28-.887.747-.933zM1.936 1.035l13.31-.98c1.634-.14 2.055-.047 3.082.7l4.249 2.986c.7.513.934.653.934 1.213v16.378c0 1.026-.373 1.634-1.68 1.726l-15.458.934c-.98.047-1.448-.093-1.962-.747l-3.129-4.06c-.56-.747-.793-1.306-.793-1.96V2.667c0-.839.374-1.54 1.447-1.632z"
       />
     </svg>
@@ -332,7 +332,7 @@ function ConnectorOfficialLogo({
     <span
       data-ripple-connector-logo-shell="true"
       title={connector.display_name}
-      className={`relative inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border shadow-[0_4px_10px_rgba(44,63,123,0.03)] backdrop-blur-xl transition-all duration-300 ${logo.shellClass}`}
+      className={`relative inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border shadow-[0_4px_10px_rgba(31,35,41,0.03)] backdrop-blur-xl transition-all duration-300 ${logo.shellClass}`}
     >
       <span
         data-ripple-connector-official-logo="true"
@@ -518,7 +518,7 @@ export default function ConnectorsPage({
 
   return (
     <div
-      className={`h-full min-h-0 overflow-y-auto ${COMPACT_IOS_PAGE_BACKGROUND} px-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} text-[#111827] md:px-6 lg:pb-5`}
+      className={`h-full min-h-0 overflow-y-auto ${COMPACT_IOS_PAGE_BACKGROUND} px-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} text-[#1F2329] md:px-6 lg:pb-5`}
     >
       <div className={`${WORKBENCH_PAGE_CONTENT_CLASS} space-y-2`}>
         <header className="flex flex-wrap items-start justify-between gap-2">
@@ -539,7 +539,7 @@ export default function ConnectorsPage({
                 <span className="sm:hidden">{t("connectors.title")}</span>
                 <span className="hidden sm:inline">{t("connectors.title")}</span>
               </h1>
-              <div className={`mt-1 text-[#7a8496] ${TYPOGRAPHY_META_CLASS}`}>
+              <div className={`mt-1 text-[#646A73] ${TYPOGRAPHY_META_CLASS}`}>
                 <span className="sm:hidden">
                   {t("connectors.readyCount", {
                     connected: connectorReadiness.connected,
@@ -560,7 +560,7 @@ export default function ConnectorsPage({
             onClick={() => void loadConnectors({ force: true })}
             title={t("connectors.refresh")}
             aria-label={t("connectors.refresh")}
-            className={`${MOBILE_GLASS_ICON_BUTTON_CLASS} shrink-0 disabled:cursor-not-allowed disabled:opacity-60 lg:h-10 lg:w-auto lg:gap-1.5 lg:border-[#dfe6f4] lg:bg-white/78 lg:px-3 lg:shadow-[0_8px_18px_rgba(44,63,123,0.05)] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+            className={`${MOBILE_GLASS_ICON_BUTTON_CLASS} shrink-0 disabled:cursor-not-allowed disabled:opacity-60 lg:h-10 lg:w-auto lg:gap-1.5 lg:border-[#DEE0E3] lg:bg-white/78 lg:px-3 lg:shadow-[0_8px_18px_rgba(31,35,41,0.05)] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
           >
             {isLoading ? (
               <Loader2
@@ -576,7 +576,7 @@ export default function ConnectorsPage({
         </header>
 
         {pageError && (
-          <div className={`flex items-start gap-2 rounded-xl border border-[#cf222e]/25 bg-[#ffebe9] p-2.5 text-[#cf222e] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
+          <div className={`flex items-start gap-2 rounded-xl border border-[#B42318]/25 bg-[#FFF1F0] p-2.5 text-[#B42318] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
             <IconTile tone="danger" size="sm" className="mt-0.5">
               <AlertTriangle size={13} />
             </IconTile>
@@ -585,7 +585,7 @@ export default function ConnectorsPage({
         )}
 
         {actionMessage && (
-          <div className={`flex items-start gap-2 rounded-xl border border-[#1a7f37]/20 bg-[#dafbe1] p-2.5 text-[#1a7f37] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
+          <div className={`flex items-start gap-2 rounded-xl border border-[#16845B]/20 bg-[#E4F8EE] p-2.5 text-[#16845B] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
             <IconTile tone="success" size="sm" className="mt-0.5">
               <ShieldCheck size={13} />
             </IconTile>
@@ -598,11 +598,11 @@ export default function ConnectorsPage({
             <section key={section.kind} className="space-y-1.5">
               <div className="flex items-end justify-between gap-3">
                 <div>
-                  <p className={`text-[#667085] ${TYPOGRAPHY_META_CLASS}`}>
+                  <p className={`text-[#646A73] ${TYPOGRAPHY_META_CLASS}`}>
                     {t("connectors.sectionDescription")}
                   </p>
                 </div>
-                <span className={`text-[#667085] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
+                <span className={`text-[#646A73] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
                   {section.connectors.length}
                 </span>
               </div>
@@ -615,13 +615,13 @@ export default function ConnectorsPage({
                     <section
                       key={connector.name}
                       data-ripple-connector-card="true"
-                      className={`group min-w-0 overflow-hidden rounded-xl border border-[#dfe6f4] bg-white/78 shadow-[0_8px_18px_rgba(44,63,123,0.045)] backdrop-blur-xl transition-all duration-300 ease-out hover:bg-white/88 hover:shadow-[0_12px_24px_rgba(44,63,123,0.065)] ${logo.cardClass}`}
+                      className={`group min-w-0 overflow-hidden rounded-xl border border-[#DEE0E3] bg-white/78 shadow-[0_8px_18px_rgba(31,35,41,0.045)] backdrop-blur-xl transition-all duration-300 ease-out hover:bg-white/88 hover:shadow-[0_12px_24px_rgba(31,35,41,0.065)] ${logo.cardClass}`}
                     >
                       <div className="flex items-start gap-2.5 p-2.5">
                         <ConnectorOfficialLogo connector={connector} status={status} />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center justify-between gap-2">
-                            <h3 className={`min-w-0 flex-1 truncate text-[#111827] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
+                            <h3 className={`min-w-0 flex-1 truncate text-[#1F2329] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
                               {connector.display_name}
                             </h3>
                             <span
@@ -640,25 +640,25 @@ export default function ConnectorsPage({
                               <span className="hidden sm:inline">{statusLabel(status, t)}</span>
                             </span>
                           </div>
-                          <p className={`mt-1 text-[#667085] ${TYPOGRAPHY_META_CLASS}`}>
+                          <p className={`mt-1 text-[#646A73] ${TYPOGRAPHY_META_CLASS}`}>
                             {localizedConnectorDescription(connector, t)}
                           </p>
                           {status?.detail && (
-                            <div className={`mt-1.5 rounded-lg border border-[#e8edf7] bg-white/64 px-2 py-1 text-[#667085] ${TYPOGRAPHY_META_CLASS}`}>
+                            <div className={`mt-1.5 rounded-lg border border-[#EFF0F1] bg-white/64 px-2 py-1 text-[#646A73] ${TYPOGRAPHY_META_CLASS}`}>
                               {status.detail}
                             </div>
                           )}
                         </div>
                       </div>
 
-                      <div className="border-t border-[#e8edf7] bg-[#fbfcff]/62 px-2.5 py-1.5 transition-all duration-300 group-hover:bg-white/70">
+                      <div className="border-t border-[#EFF0F1] bg-[#F8F9FA]/62 px-2.5 py-1.5 transition-all duration-300 group-hover:bg-white/70">
                         <div className="flex flex-wrap items-center gap-1.5">
                           {connector.auth_start_path && !status?.connected ? (
                             <button
                               type="button"
                               onClick={() => handleStartAuth(connector)}
                               disabled={!onOpenSessionAction}
-                              className={`inline-flex h-8 items-center gap-1.5 rounded-full border border-[#dfe6f4] bg-white px-2.5 text-[#384152] transition-colors duration-200 hover:bg-[#f7f8fa] hover:text-[#111827] disabled:opacity-60 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                              className={`inline-flex h-8 items-center gap-1.5 rounded-full border border-[#DEE0E3] bg-white px-2.5 text-[#2B2F36] transition-colors duration-200 hover:bg-[#F8F9FA] hover:text-[#1F2329] disabled:opacity-60 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
                             >
                               <Plug size={12} />
                               {t("connectors.connect")}
@@ -676,8 +676,8 @@ export default function ConnectorsPage({
                               disabled={pendingAction === `${connector.name}:disconnect`}
                               className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-2.5 transition-colors duration-200 disabled:opacity-60 ${TYPOGRAPHY_META_MEDIUM_CLASS} ${
                                 confirmAction === `${connector.name}:disconnect`
-                                  ? "border-[#cf222e]/25 bg-[#ffebe9] text-[#cf222e] hover:bg-[#ffdcd9]"
-                                  : "border-[#dfe6f4] bg-white text-[#384152] hover:bg-[#f7f8fa]"
+                                  ? "border-[#B42318]/25 bg-[#FFF1F0] text-[#B42318] hover:bg-[#ffdcd9]"
+                                  : "border-[#DEE0E3] bg-white text-[#2B2F36] hover:bg-[#F8F9FA]"
                               }`}
                             >
                               {pendingAction === `${connector.name}:disconnect` ? (
@@ -695,7 +695,7 @@ export default function ConnectorsPage({
 
                       {connector.name === "google_workspace" && accounts.length > 0 && (
                         <div className="px-3 pb-3">
-                          <div className="divide-y divide-[#e8edf7] overflow-hidden rounded-xl border border-[#dfe6f4] bg-white/82 shadow-[0_8px_18px_rgba(44,63,123,0.04)]">
+                          <div className="divide-y divide-[#EFF0F1] overflow-hidden rounded-xl border border-[#DEE0E3] bg-white/82 shadow-[0_8px_18px_rgba(31,35,41,0.04)]">
                             {accounts.map((account) => (
                               <div
                                 key={account.email}
@@ -705,7 +705,7 @@ export default function ConnectorsPage({
                                   <div className="truncate font-[family-name:var(--font-mono)]">
                                     {account.email}
                                   </div>
-                                  <div className={`mt-0.5 text-[#6b7280] ${TYPOGRAPHY_META_CLASS}`}>
+                                  <div className={`mt-0.5 text-[#646A73] ${TYPOGRAPHY_META_CLASS}`}>
                                     {account.valid === false
                                       ? t("connectors.invalid")
                                       : t("connectors.ready")}
@@ -724,8 +724,8 @@ export default function ConnectorsPage({
                                     className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-2.5 disabled:opacity-60 ${TYPOGRAPHY_META_MEDIUM_CLASS} ${
                                       confirmAction ===
                                       `${connector.name}:disconnect:${account.email}`
-                                        ? "border-[#cf222e]/25 bg-[#ffebe9] text-[#cf222e]"
-                                        : "border-[#dfe6f4] bg-white text-[#384152] hover:bg-[#f7f8fa]"
+                                        ? "border-[#B42318]/25 bg-[#FFF1F0] text-[#B42318]"
+                                        : "border-[#DEE0E3] bg-white text-[#2B2F36] hover:bg-[#F8F9FA]"
                                     }`}
                                   >
                                     {pendingAction ===
@@ -755,7 +755,7 @@ export default function ConnectorsPage({
         </div>
 
         {connectors.length === 0 && !isLoading && (
-          <div className={`flex h-32 items-center justify-center rounded-xl border border-dashed border-[#dfe6f4] bg-white/52 text-[#667085] ${TYPOGRAPHY_BODY_CLASS}`}>
+          <div className={`flex h-32 items-center justify-center rounded-xl border border-dashed border-[#DEE0E3] bg-white/52 text-[#646A73] ${TYPOGRAPHY_BODY_CLASS}`}>
             <span className="sm:hidden">{t("connectors.empty")}</span>
             <span className="hidden sm:inline">{t("connectors.empty")}</span>
           </div>

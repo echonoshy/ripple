@@ -171,7 +171,10 @@ function testDefaultModelSeedsNewSessionsAndChatRuns() {
     appSource,
     /ensureSession:\s*\(model\) => ensureSession\(model(?:,\s*activeContextFolderPath)?\)/
   );
-  assert.match(chatRunSource, /getSessionActions\(\)\.ensureSession\(selectedModel\)/);
+  assert.match(
+    chatRunSource,
+    /const sessionActions = getSessionActions\(\);[\s\S]*sessionActions\.ensureSession\(selectedModel\)/
+  );
 }
 
 function testContextFolderSeedsNewSessionsAndFilesViewStaysPlain() {

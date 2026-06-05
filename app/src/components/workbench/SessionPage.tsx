@@ -263,8 +263,8 @@ export default function SessionPage({
   const currentModelLabel = isGenerating ? t("composer.working") : modelDisplayName;
   const currentModelAccessibleLabel = t("sessions.currentModel", { model: modelDisplayName });
   const modelBadgeIconClass = isGenerating
-    ? "shrink-0 animate-pulse text-[#007aff]"
-    : "shrink-0 text-[#6e6e73]";
+    ? "shrink-0 animate-pulse text-[#1456F0]"
+    : "shrink-0 text-[#646A73]";
   const effectiveContextFolderPath = session?.contextFolderPath ?? contextFolderPath ?? null;
   const workspaceScopePath = effectiveContextFolderPath || "/workspace";
   const workspaceScopeLabel = folderName(
@@ -476,10 +476,10 @@ export default function SessionPage({
       onPointerUp={handleMobileChatPointerUp}
       onPointerCancel={handleMobileChatPointerCancel}
       className={`relative flex h-full min-h-0 flex-col ${COMPACT_IOS_PAGE_BACKGROUND} ${
-        isDraggingFiles ? "ring-2 ring-[#007aff] ring-inset" : ""
+        isDraggingFiles ? "ring-2 ring-[#1456F0] ring-inset" : ""
       }`}
     >
-      <div className="grid min-h-[calc(56px+env(safe-area-inset-top))] shrink-0 grid-cols-[44px_minmax(0,1fr)_44px] items-center border-b border-[#d7d7dd]/70 bg-white/76 px-2.5 pt-[max(env(safe-area-inset-top),0px)] shadow-[0_8px_22px_rgba(60,60,67,0.05)] backdrop-blur-2xl lg:hidden">
+      <div className="grid min-h-[calc(56px+env(safe-area-inset-top))] shrink-0 grid-cols-[44px_minmax(0,1fr)_44px] items-center border-b border-[#DEE0E3]/70 bg-white/76 px-2.5 pt-[max(env(safe-area-inset-top),0px)] shadow-[0_8px_22px_rgba(31,35,41,0.05)] backdrop-blur-2xl lg:hidden">
         <button
           type="button"
           aria-label={t("sessions.backToSessions")}
@@ -490,20 +490,20 @@ export default function SessionPage({
           <ChevronLeft size={22} strokeWidth={2.2} />
         </button>
         <div className="min-w-0 text-center">
-          <div className={`truncate ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#111827]`}>
+          <div className={`truncate ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#1F2329]`}>
             {session?.title || t("sessions.fallbackTitle")}
           </div>
-          <div className={`mt-1 flex min-w-0 items-center justify-center gap-1.5 ${TYPOGRAPHY_MICRO_CLASS} text-[#7a8496]`}>
+          <div className={`mt-1 flex min-w-0 items-center justify-center gap-1.5 ${TYPOGRAPHY_MICRO_CLASS} text-[#646A73]`}>
             <span
               data-ripple-current-model-badge="mobile"
               aria-label={currentModelAccessibleLabel}
               title={currentModelAccessibleLabel}
-              className={`inline-flex max-w-[116px] min-w-0 items-center gap-1 rounded-full border border-[#d7d7dd] bg-white/74 px-1.5 py-0.5 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} text-[#6e6e73] shadow-[0_4px_12px_rgba(60,60,67,0.05)]`}
+              className={`inline-flex max-w-[116px] min-w-0 items-center gap-1 rounded-full border border-[#DEE0E3] bg-white/74 px-1.5 py-0.5 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} text-[#646A73] shadow-[0_4px_12px_rgba(31,35,41,0.05)]`}
             >
               <BrainCircuit size={11} className={modelBadgeIconClass} strokeWidth={2.2} />
               <span
                 className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-                  isGenerating ? "animate-pulse bg-[#007aff]" : "bg-[#34c759]"
+                  isGenerating ? "animate-pulse bg-[#1456F0]" : "bg-[#22A06B]"
                 }`}
               />
               <span className="truncate">{currentModelLabel}</span>
@@ -514,7 +514,7 @@ export default function SessionPage({
                 aria-label={focusFolderAccessibleLabel}
                 title={folderBadgeTitle}
                 onClick={requestFolderPicker}
-                className={`inline-flex max-w-[144px] min-w-0 items-center gap-1 rounded-full border border-[#d7d7dd] bg-white/74 px-1.5 py-0.5 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} text-[#6e6e73] shadow-[0_4px_12px_rgba(60,60,67,0.05)] hover:text-[#007aff]`}
+                className={`inline-flex max-w-[144px] min-w-0 items-center gap-1 rounded-full border border-[#DEE0E3] bg-white/74 px-1.5 py-0.5 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} text-[#646A73] shadow-[0_4px_12px_rgba(31,35,41,0.05)] hover:text-[#1456F0]`}
               >
                 <Folder size={10} className="shrink-0" strokeWidth={2.2} />
                 <span className="truncate">{focusFolderLabel}</span>
@@ -535,9 +535,9 @@ export default function SessionPage({
         </div>
       </div>
 
-      <div className="hidden h-14 shrink-0 items-center justify-between gap-3 border-b border-[#d7d7dd]/70 bg-white/70 px-5 shadow-[0_8px_22px_rgba(60,60,67,0.04)] backdrop-blur-2xl lg:flex">
+      <div className="hidden h-14 shrink-0 items-center justify-between gap-3 border-b border-[#DEE0E3]/70 bg-white/70 px-5 shadow-[0_8px_22px_rgba(31,35,41,0.04)] backdrop-blur-2xl lg:flex">
         <div className="min-w-0">
-          <div className={`truncate ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#111827]`}>
+          <div className={`truncate ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#1F2329]`}>
             {session?.title || t("sessions.fallbackTitle")}
           </div>
         </div>
@@ -548,9 +548,9 @@ export default function SessionPage({
               aria-label={focusFolderAccessibleLabel}
               title={folderBadgeTitle}
               onClick={requestFolderPicker}
-              className={`inline-flex max-w-[220px] shrink-0 items-center gap-1.5 rounded-full border border-[#d7d7dd] bg-white/82 px-3 py-1.5 ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#3c3c43] shadow-[0_8px_18px_rgba(60,60,67,0.05)]`}
+              className={`inline-flex max-w-[220px] shrink-0 items-center gap-1.5 rounded-full border border-[#DEE0E3] bg-white/82 px-3 py-1.5 ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#2B2F36] shadow-[0_8px_18px_rgba(31,35,41,0.05)]`}
             >
-              <Folder size={13} className="shrink-0 text-[#6e6e73]" strokeWidth={2.2} />
+              <Folder size={13} className="shrink-0 text-[#646A73]" strokeWidth={2.2} />
               <span className="truncate">{focusFolderLabel}</span>
             </button>
           )}
@@ -558,12 +558,12 @@ export default function SessionPage({
             data-ripple-current-model-badge="desktop"
             aria-label={currentModelAccessibleLabel}
             title={currentModelAccessibleLabel}
-            className={`inline-flex max-w-[220px] shrink-0 items-center gap-1.5 rounded-full border border-[#d7d7dd] bg-white/82 px-3 py-1.5 ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#3c3c43] shadow-[0_8px_18px_rgba(60,60,67,0.05)]`}
+            className={`inline-flex max-w-[220px] shrink-0 items-center gap-1.5 rounded-full border border-[#DEE0E3] bg-white/82 px-3 py-1.5 ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#2B2F36] shadow-[0_8px_18px_rgba(31,35,41,0.05)]`}
           >
             <BrainCircuit size={13} className={modelBadgeIconClass} strokeWidth={2.2} />
             <span
               className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-                isGenerating ? "animate-pulse bg-[#007aff]" : "bg-[#34c759]"
+                isGenerating ? "animate-pulse bg-[#1456F0]" : "bg-[#22A06B]"
               }`}
             />
             <span className="truncate">{currentModelLabel}</span>
@@ -579,18 +579,18 @@ export default function SessionPage({
       >
         <div ref={contentRef} className="mx-auto max-w-5xl space-y-2 sm:space-y-5">
           {planSteps.length > 0 && (
-            <section className="rounded-2xl border border-[#d7d7dd] bg-white/82 shadow-[0_12px_30px_rgba(60,60,67,0.06)] backdrop-blur-xl">
-              <div className="flex items-center justify-between border-b border-[#e5e5ea] px-3 py-1.5">
-                <div className={`${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#111827]`}>
+            <section className="rounded-2xl border border-[#DEE0E3] bg-white/82 shadow-[0_12px_30px_rgba(31,35,41,0.06)] backdrop-blur-xl">
+              <div className="flex items-center justify-between border-b border-[#EFF0F1] px-3 py-1.5">
+                <div className={`${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#1F2329]`}>
                   {t("sessions.currentPlan")}
                 </div>
                 {planProgress && (
-                  <div className={`font-[family-name:var(--font-mono)] ${TYPOGRAPHY_MICRO_CLASS} text-[#7a8496]`}>
+                  <div className={`font-[family-name:var(--font-mono)] ${TYPOGRAPHY_MICRO_CLASS} text-[#646A73]`}>
                     {planProgress.completed}/{planProgress.total}
                   </div>
                 )}
               </div>
-              <div className="divide-y divide-[#e5e5ea]">
+              <div className="divide-y divide-[#EFF0F1]">
                 {planSteps.map((step) => {
                   const Icon =
                     step.status === "completed"
@@ -604,17 +604,17 @@ export default function SessionPage({
                         size={15}
                         className={`mt-0.5 shrink-0 ${
                           step.status === "completed"
-                            ? "text-[#1a7f37]"
+                            ? "text-[#16845B]"
                             : step.status === "in_progress"
-                              ? "animate-spin text-[#007aff]"
-                              : "text-[#8b8f94]"
+                              ? "animate-spin text-[#1456F0]"
+                              : "text-[#8F959E]"
                         }`}
                       />
                       <span
                         className={
                           step.status === "completed"
-                            ? "text-[#667085] line-through decoration-[#98a2b3]"
-                            : "text-[#111827]"
+                            ? "text-[#646A73] line-through decoration-[#8F959E]"
+                            : "text-[#1F2329]"
                         }
                       >
                         {step.subject}
@@ -627,7 +627,7 @@ export default function SessionPage({
           )}
 
           {contextPercent > 75 && (
-            <div className={`flex items-start gap-2 rounded-2xl border border-[#f2cc79]/55 bg-[#fff8df]/90 p-3 ${TYPOGRAPHY_BODY_CLASS} text-[#7d4e00] shadow-[0_10px_24px_rgba(196,122,0,0.08)]`}>
+            <div className={`flex items-start gap-2 rounded-2xl border border-[#FAD355]/55 bg-[#FFF8DB]/90 p-3 ${TYPOGRAPHY_BODY_CLASS} text-[#8B5E00] shadow-[0_10px_24px_rgba(196,122,0,0.08)]`}>
               <AlertTriangle size={16} className="mt-0.5 shrink-0" />
               {t("sessions.contextWarning", { percent: `${contextPercent}%` })} (
               {t("sessions.contextDetail", { usage: contextUsageLabel || "" })}).{" "}
@@ -652,7 +652,7 @@ export default function SessionPage({
             <span
               aria-label={tokenBadgeAccessibleLabel}
               title={tokenBadgeAccessibleLabel}
-              className={`inline-flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded-full border border-[#edf2fb]/70 bg-white/60 px-2.5 py-1 font-[family-name:var(--font-mono)] ${TYPOGRAPHY_META_CLASS} text-[#8a94a6] italic shadow-[0_6px_18px_rgba(44,63,123,0.04)] backdrop-blur-xl`}
+              className={`inline-flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded-full border border-[#EFF0F1]/70 bg-white/60 px-2.5 py-1 font-[family-name:var(--font-mono)] ${TYPOGRAPHY_META_CLASS} text-[#8F959E] italic shadow-[0_6px_18px_rgba(31,35,41,0.04)] backdrop-blur-xl`}
             >
               {tokenBadgeText}
             </span>

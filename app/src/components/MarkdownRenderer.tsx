@@ -343,7 +343,7 @@ function FeishuCard({
         : t("connectors.feishuAuthSubtitle");
   const hint = isSetup ? t("connectors.feishuSetupHint") : t("connectors.feishuAuthHint");
   const Icon = isSetup ? Settings2 : KeyRound;
-  const accentClass = isSetup ? "bg-[#eef3ff]/60 text-[#007aff]" : "bg-[#dafbe1]/60 text-[#1a7f37]";
+  const accentClass = isSetup ? "bg-[#F0F5FF]/60 text-[#1456F0]" : "bg-[#E4F8EE]/60 text-[#16845B]";
   const iconTone = isSetup ? "accent" : "success";
   const href = resolveBackendUrl(url) || url;
   const isWaiting =
@@ -360,15 +360,15 @@ function FeishuCard({
   };
 
   return (
-    <div className="my-3 overflow-hidden rounded-2xl border border-[#dfe6f4] bg-white/74 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl">
-      <div className={`flex items-center gap-2 border-b border-[#dfe6f4] px-4 py-3 ${accentClass}`}>
+    <div className="my-3 overflow-hidden rounded-2xl border border-[#DEE0E3] bg-white/74 shadow-[0_12px_30px_rgba(31,35,41,0.06)] backdrop-blur-xl">
+      <div className={`flex items-center gap-2 border-b border-[#DEE0E3] px-4 py-3 ${accentClass}`}>
         <IconTile tone={iconTone} size="sm">
           <Icon size={15} />
         </IconTile>
         <span className="text-sm font-semibold">{title}</span>
       </div>
       <div className="space-y-3 px-4 py-3">
-        <p className="text-sm font-medium text-[#374151]">{subtitle}</p>
+        <p className="text-sm font-medium text-[#2B2F36]">{subtitle}</p>
         <a
           href={href}
           target="_blank"
@@ -379,14 +379,14 @@ function FeishuCard({
           {isSetup ? t("connectors.openFeishuSetup") : t("connectors.openAuthPage")}
           <ExternalLink size={13} />
         </a>
-        <p className="text-xs font-medium text-[#6b7280]">{hint}</p>
+        <p className="text-xs font-medium text-[#646A73]">{hint}</p>
         {isWaiting && (
-          <div className="flex items-start gap-2 rounded-xl border border-[#0969da]/20 bg-[#f6fbff] px-3 py-2 text-xs font-medium text-[#374151]">
-            <Loader2 size={13} className="mt-0.5 shrink-0 animate-spin text-[#0969da]" />
+          <div className="flex items-start gap-2 rounded-xl border border-[#1456F0]/20 bg-[#f6fbff] px-3 py-2 text-xs font-medium text-[#2B2F36]">
+            <Loader2 size={13} className="mt-0.5 shrink-0 animate-spin text-[#1456F0]" />
             <span>{t("connectors.feishuWaitingCard", { seconds: waiting.elapsedSeconds })}</span>
           </div>
         )}
-        <div className="font-[family-name:var(--font-mono)] text-[11px] break-all text-[#6b7280]">
+        <div className="font-[family-name:var(--font-mono)] text-[11px] break-all text-[#646A73]">
           {url}
         </div>
       </div>
@@ -425,15 +425,15 @@ function GoogleAuthCard({
     mode === "connect" ? t("connectors.googleConnectSubtitle") : t("connectors.googleAuthSubtitle");
 
   return (
-    <div className="my-3 overflow-hidden rounded-2xl border border-[#dfe6f4] bg-white/74 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl">
-      <div className="flex items-center gap-2 border-b border-[#dfe6f4] bg-[#eef3ff]/60 px-4 py-3 text-[#007aff]">
+    <div className="my-3 overflow-hidden rounded-2xl border border-[#DEE0E3] bg-white/74 shadow-[0_12px_30px_rgba(31,35,41,0.06)] backdrop-blur-xl">
+      <div className="flex items-center gap-2 border-b border-[#DEE0E3] bg-[#F0F5FF]/60 px-4 py-3 text-[#1456F0]">
         <IconTile tone="accent" size="sm">
           <KeyRound size={15} />
         </IconTile>
         <span className="text-sm font-semibold">{title}</span>
       </div>
       <div className="space-y-3 px-4 py-3">
-        <p className="text-sm font-medium text-[#374151]">{subtitle}</p>
+        <p className="text-sm font-medium text-[#2B2F36]">{subtitle}</p>
         <a
           href={href}
           target="_blank"
@@ -445,12 +445,12 @@ function GoogleAuthCard({
           <ExternalLink size={13} />
         </a>
         {isWaiting && (
-          <div className="flex items-start gap-2 rounded-xl border border-[#007aff]/20 bg-[#f6fbff] px-3 py-2 text-xs font-medium text-[#374151]">
-            <Loader2 size={13} className="mt-0.5 shrink-0 animate-spin text-[#007aff]" />
+          <div className="flex items-start gap-2 rounded-xl border border-[#1456F0]/20 bg-[#f6fbff] px-3 py-2 text-xs font-medium text-[#2B2F36]">
+            <Loader2 size={13} className="mt-0.5 shrink-0 animate-spin text-[#1456F0]" />
             <span>{t("connectors.googleWaitingCard", { seconds: waiting.elapsedSeconds })}</span>
           </div>
         )}
-        <div className="font-[family-name:var(--font-mono)] text-[11px] break-all text-[#6b7280]">
+        <div className="font-[family-name:var(--font-mono)] text-[11px] break-all text-[#646A73]">
           {url}
         </div>
       </div>
@@ -466,15 +466,15 @@ function GoogleAuthorizedCard({ mode = "skill" }: { mode?: ConnectorAuthMode }) 
       : t("connectors.googleSkillAuthorizedSubtitle");
 
   return (
-    <div className="my-3 overflow-hidden rounded-2xl border border-[#dfe6f4] bg-white/74 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl">
-      <div className="flex items-center gap-2 border-b border-[#dfe6f4] bg-[#dafbe1]/60 px-4 py-3 text-[#1a7f37]">
+    <div className="my-3 overflow-hidden rounded-2xl border border-[#DEE0E3] bg-white/74 shadow-[0_12px_30px_rgba(31,35,41,0.06)] backdrop-blur-xl">
+      <div className="flex items-center gap-2 border-b border-[#DEE0E3] bg-[#E4F8EE]/60 px-4 py-3 text-[#16845B]">
         <IconTile tone="success" size="sm">
           <CheckCircle2 size={15} />
         </IconTile>
         <span className="text-sm font-semibold">{t("connectors.googleAuthorizedTitle")}</span>
       </div>
       <div className="px-4 py-3">
-        <p className="text-sm font-medium text-[#374151]">{subtitle}</p>
+        <p className="text-sm font-medium text-[#2B2F36]">{subtitle}</p>
       </div>
     </div>
   );
@@ -488,15 +488,15 @@ function FeishuAuthorizedCard({ mode = "skill" }: { mode?: ConnectorAuthMode }) 
       : t("connectors.feishuSkillAuthorizedSubtitle");
 
   return (
-    <div className="my-3 overflow-hidden rounded-2xl border border-[#dfe6f4] bg-white/74 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl">
-      <div className="flex items-center gap-2 border-b border-[#dfe6f4] bg-[#dafbe1]/60 px-4 py-3 text-[#1a7f37]">
+    <div className="my-3 overflow-hidden rounded-2xl border border-[#DEE0E3] bg-white/74 shadow-[0_12px_30px_rgba(31,35,41,0.06)] backdrop-blur-xl">
+      <div className="flex items-center gap-2 border-b border-[#DEE0E3] bg-[#E4F8EE]/60 px-4 py-3 text-[#16845B]">
         <IconTile tone="success" size="sm">
           <CheckCircle2 size={15} />
         </IconTile>
         <span className="text-sm font-semibold">{t("connectors.feishuAuthorizedTitle")}</span>
       </div>
       <div className="px-4 py-3">
-        <p className="text-sm font-medium text-[#374151]">{subtitle}</p>
+        <p className="text-sm font-medium text-[#2B2F36]">{subtitle}</p>
       </div>
     </div>
   );
@@ -512,15 +512,15 @@ function NotionTokenCard({ mode = "skill" }: { mode?: ConnectorAuthMode }) {
       : t("connectors.notionSkillTokenSubtitle");
 
   return (
-    <div className="my-3 overflow-hidden rounded-2xl border border-[#dfe6f4] bg-white/74 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl">
-      <div className="flex items-center gap-2 border-b border-[#dfe6f4] bg-[#eef3ff]/60 px-4 py-3 text-[#007aff]">
+    <div className="my-3 overflow-hidden rounded-2xl border border-[#DEE0E3] bg-white/74 shadow-[0_12px_30px_rgba(31,35,41,0.06)] backdrop-blur-xl">
+      <div className="flex items-center gap-2 border-b border-[#DEE0E3] bg-[#F0F5FF]/60 px-4 py-3 text-[#1456F0]">
         <IconTile tone="accent" size="sm">
           <KeyRound size={15} />
         </IconTile>
         <span className="text-sm font-semibold">{title}</span>
       </div>
       <div className="space-y-3 px-4 py-3">
-        <p className="text-sm font-medium text-[#374151]">{subtitle}</p>
+        <p className="text-sm font-medium text-[#2B2F36]">{subtitle}</p>
         <a
           href="https://www.notion.so/profile/integrations"
           target="_blank"
@@ -537,7 +537,7 @@ function NotionTokenCard({ mode = "skill" }: { mode?: ConnectorAuthMode }) {
           {t("connectors.openNotionIntegrations")}
           <ExternalLink size={13} />
         </a>
-        <p className="text-xs font-medium text-[#6b7280]">{t("connectors.notionTokenHint")}</p>
+        <p className="text-xs font-medium text-[#646A73]">{t("connectors.notionTokenHint")}</p>
       </div>
     </div>
   );
@@ -551,15 +551,15 @@ function NotionAuthorizedCard({ mode = "skill" }: { mode?: ConnectorAuthMode }) 
       : t("connectors.notionSkillAuthorizedSubtitle");
 
   return (
-    <div className="my-3 overflow-hidden rounded-2xl border border-[#dfe6f4] bg-white/74 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl">
-      <div className="flex items-center gap-2 border-b border-[#dfe6f4] bg-[#dafbe1]/60 px-4 py-3 text-[#1a7f37]">
+    <div className="my-3 overflow-hidden rounded-2xl border border-[#DEE0E3] bg-white/74 shadow-[0_12px_30px_rgba(31,35,41,0.06)] backdrop-blur-xl">
+      <div className="flex items-center gap-2 border-b border-[#DEE0E3] bg-[#E4F8EE]/60 px-4 py-3 text-[#16845B]">
         <IconTile tone="success" size="sm">
           <CheckCircle2 size={15} />
         </IconTile>
         <span className="text-sm font-semibold">{t("connectors.notionAuthorizedTitle")}</span>
       </div>
       <div className="px-4 py-3">
-        <p className="text-sm font-medium text-[#374151]">{subtitle}</p>
+        <p className="text-sm font-medium text-[#2B2F36]">{subtitle}</p>
       </div>
     </div>
   );
@@ -573,15 +573,15 @@ function BilibiliAuthorizedCard({ mode = "connect" }: { mode?: "connect" | "skil
       : t("connectors.bilibiliAuthorizedSubtitle");
 
   return (
-    <div className="my-3 overflow-hidden rounded-2xl border border-[#dfe6f4] bg-white/74 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl">
-      <div className="flex items-center gap-2 border-b border-[#dfe6f4] bg-[#dafbe1]/60 px-4 py-3 text-[#1a7f37]">
+    <div className="my-3 overflow-hidden rounded-2xl border border-[#DEE0E3] bg-white/74 shadow-[0_12px_30px_rgba(31,35,41,0.06)] backdrop-blur-xl">
+      <div className="flex items-center gap-2 border-b border-[#DEE0E3] bg-[#E4F8EE]/60 px-4 py-3 text-[#16845B]">
         <IconTile tone="success" size="sm">
           <CheckCircle2 size={15} />
         </IconTile>
         <span className="text-sm font-semibold">{t("connectors.bilibiliAuthorizedTitle")}</span>
       </div>
       <div className="px-4 py-3">
-        <p className="text-sm font-medium text-[#374151]">{subtitle}</p>
+        <p className="text-sm font-medium text-[#2B2F36]">{subtitle}</p>
       </div>
     </div>
   );
@@ -615,21 +615,21 @@ function BilibiliAuthCard({
   };
 
   return (
-    <div className="my-3 overflow-hidden rounded-2xl border border-[#dfe6f4] bg-white/74 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl">
-      <div className="flex items-center gap-2 border-b border-[#dfe6f4] bg-[#fff4e5]/60 px-4 py-3 text-[#9a3412]">
+    <div className="my-3 overflow-hidden rounded-2xl border border-[#DEE0E3] bg-white/74 shadow-[0_12px_30px_rgba(31,35,41,0.06)] backdrop-blur-xl">
+      <div className="flex items-center gap-2 border-b border-[#DEE0E3] bg-[#fff4e5]/60 px-4 py-3 text-[#9a3412]">
         <IconTile tone="warning" size="sm">
           <QrCode size={15} />
         </IconTile>
         <span className="text-sm font-semibold">{title}</span>
       </div>
       <div className="space-y-3 px-4 py-3">
-        <p className="text-sm font-medium text-[#374151]">{subtitle}</p>
+        <p className="text-sm font-medium text-[#2B2F36]">{subtitle}</p>
         <div className="flex flex-wrap items-start gap-4">
           <img
             src={qrSrc}
             alt={t("connectors.bilibiliQrAlt")}
             loading="lazy"
-            className="h-36 w-36 rounded-xl border border-[#dfe6f4] bg-white object-contain p-2 shadow-sm"
+            className="h-36 w-36 rounded-xl border border-[#DEE0E3] bg-white object-contain p-2 shadow-sm"
           />
           <div className="min-w-0 flex-1 space-y-2">
             <a
@@ -654,10 +654,10 @@ function BilibiliAuthCard({
                 <ExternalLink size={13} />
               </a>
             )}
-            <p className="text-xs font-medium text-[#6b7280]">{t("connectors.bilibiliAuthHint")}</p>
+            <p className="text-xs font-medium text-[#646A73]">{t("connectors.bilibiliAuthHint")}</p>
           </div>
         </div>
-        <div className="font-[family-name:var(--font-mono)] text-[11px] break-all text-[#6b7280]">
+        <div className="font-[family-name:var(--font-mono)] text-[11px] break-all text-[#646A73]">
           {scanUrl}
         </div>
       </div>
@@ -678,21 +678,21 @@ function ThinkingBlock({
   const [isExpanded, setIsExpanded] = useState(false);
 
   return (
-    <div className="my-2 overflow-hidden rounded-lg border border-[#d7dce3] bg-[#f7f8fa]">
+    <div className="my-2 overflow-hidden rounded-lg border border-[#d7dce3] bg-[#F8F9FA]">
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className="flex w-full items-center gap-2 px-4 py-2.5 text-left transition-colors hover:bg-[#eef4ff]"
+        className="flex w-full items-center gap-2 px-4 py-2.5 text-left transition-colors hover:bg-[#F0F5FF]"
       >
         <IconTile tone="accent" size="xs">
           <Brain size={13} />
         </IconTile>
-        <span className="text-xs font-semibold text-[#374151]">{t("common.thoughtProcess")}</span>
+        <span className="text-xs font-semibold text-[#2B2F36]">{t("common.thoughtProcess")}</span>
         <motion.div
           animate={{ rotate: isExpanded ? 90 : 0 }}
           transition={{ duration: 0.1 }}
           className="ml-auto"
         >
-          <ChevronRight size={14} className="text-[#6b7280]" />
+          <ChevronRight size={14} className="text-[#646A73]" />
         </motion.div>
       </button>
       <AnimatePresence>
@@ -705,7 +705,7 @@ function ThinkingBlock({
             className="overflow-hidden"
           >
             <div className="border-t border-[#d7dce3] px-4 pb-3">
-              <div className="markdown-body mt-2 text-sm leading-relaxed text-[#374151]">
+              <div className="markdown-body mt-2 text-sm leading-relaxed text-[#2B2F36]">
                 <MarkdownContent
                   content={content}
                   onFeishuAuthOpen={onFeishuAuthOpen}
@@ -816,7 +816,7 @@ function MarkdownContent({
       components={{
         pre({ children }) {
           return (
-            <pre className="not-prose my-2 max-h-40 max-w-full overflow-x-hidden overflow-y-auto rounded-md border border-[#dde2ea] bg-[#f7f8fa] p-2.5 font-[family-name:var(--font-mono)] text-[13px] leading-[20px] [overflow-wrap:anywhere] whitespace-pre-wrap text-[#334155]">
+            <pre className="not-prose my-2 max-h-40 max-w-full overflow-x-hidden overflow-y-auto rounded-md border border-[#DEE0E3] bg-[#F8F9FA] p-2.5 font-[family-name:var(--font-mono)] text-[13px] leading-[20px] [overflow-wrap:anywhere] whitespace-pre-wrap text-[#334155]">
               {children}
             </pre>
           );
@@ -826,7 +826,7 @@ function MarkdownContent({
           if (isInline) {
             return (
               <code
-                className="rounded border border-[#dde2ea] bg-[#f7f8fa] px-1.5 py-0.5 font-[family-name:var(--font-mono)] text-[0.95em] text-[#171a1f]"
+                className="rounded border border-[#DEE0E3] bg-[#F8F9FA] px-1.5 py-0.5 font-[family-name:var(--font-mono)] text-[0.95em] text-[#1F2329]"
                 {...props}
               >
                 {children}
@@ -874,7 +874,7 @@ function MarkdownContent({
               rel="noopener noreferrer"
               data-ripple-external-link={opensExternally ? "true" : undefined}
               onClick={handleClick}
-              className="cursor-pointer font-semibold break-words text-[#007aff] underline underline-offset-4 hover:text-[#174ea6]"
+              className="cursor-pointer font-semibold break-words text-[#1456F0] underline underline-offset-4 hover:text-[#174ea6]"
             >
               {children}
             </a>
@@ -887,7 +887,7 @@ function MarkdownContent({
               src={resolved}
               alt={alt ?? ""}
               loading="lazy"
-              className={`my-4 block max-h-[420px] max-w-full rounded-lg border border-[#dde2ea] bg-white object-contain ${className ?? ""}`}
+              className={`my-4 block max-h-[420px] max-w-full rounded-lg border border-[#DEE0E3] bg-white object-contain ${className ?? ""}`}
               {...rest}
             />
           );

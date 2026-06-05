@@ -23,7 +23,7 @@ function testFilesHeaderDoesNotRenderTaskScopedActions() {
   assert.match(html, /data-presentation="page"/);
   assert.match(html, /aria-label="Back to session"/);
   assert.match(html, /lg:hidden/);
-  assert.match(html, /#f2f2f7/);
+  assert.match(html, /#F5F6F7/);
   assert.doesNotMatch(html, /#ece6dc/);
   assert.doesNotMatch(html, /#faf6ee/);
   assert.doesNotMatch(html, />Header actions</);

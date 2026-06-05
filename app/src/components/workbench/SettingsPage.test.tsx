@@ -254,7 +254,7 @@ function testSettingsPageUsesAppStoreGroupedHierarchy() {
   const source = readFileSync(new URL("./SettingsPage.tsx", import.meta.url), "utf8");
 
   assert.match(source, /const settingsSectionClass =/);
-  assert.match(source, /border-\[#d7d7dd\]\/80 bg-white\/82/);
+  assert.match(source, /border-\[#DEE0E3\]\/80 bg-white\/82/);
   assert.match(source, /data-ripple-settings-section=\{sectionKind\}/);
   assert.match(source, /data-ripple-settings-account-summary/);
   assert.match(source, /data-ripple-settings-defaults-list/);
@@ -297,10 +297,10 @@ function testSettingsPageUsesCompactMobileDensity() {
   assert.match(source, /data-ripple-settings-token-grid/);
   assert.match(source, /data-ripple-settings-token-grid[\s\S]*grid-cols-3/);
   assert.match(source, /const baseClassName = compact[\s\S]*\? "px-1\.5 py-1"/);
-  assert.match(source, /compact[\s\S]*\? `text-\[#8b8f94\] \$\{TYPOGRAPHY_META_MEDIUM_CLASS\}`/);
-  assert.match(source, /compact[\s\S]*\? `mt-0\.5 text-\[#253247\] \$\{TYPOGRAPHY_BODY_MEDIUM_CLASS\}`/);
-  assert.match(source, /className="border-t border-\[#e8edf7\] p-2"/);
-  assert.match(source, /mb-1 flex items-center gap-1\.5 text-\[#374151\]/);
+  assert.match(source, /compact[\s\S]*\? `text-\[#8F959E\] \$\{TYPOGRAPHY_META_MEDIUM_CLASS\}`/);
+  assert.match(source, /compact[\s\S]*\? `mt-0\.5 text-\[#1F2329\] \$\{TYPOGRAPHY_BODY_MEDIUM_CLASS\}`/);
+  assert.match(source, /className="border-t border-\[#EFF0F1\] p-2"/);
+  assert.match(source, /mb-1 flex items-center gap-1\.5 text-\[#2B2F36\]/);
   assert.match(source, /data-ripple-settings-language-row/);
   assert.match(source, /data-ripple-settings-language-row[\s\S]*flex-col/);
   assert.match(source, /data-ripple-settings-language-row[\s\S]*sm:flex-row/);

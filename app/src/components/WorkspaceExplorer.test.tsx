@@ -136,7 +136,7 @@ function testWorkspaceExplorerBackButtonNamesSessionReturn() {
   assert.match(source, /MessageCircleReply/);
   assert.match(html, /aria-label="Back to session"/);
   assert.match(html, /title="Back to session"/);
-  assert.match(html, /bg-\[#007aff\]/);
+  assert.match(html, /bg-\[#1456F0\]/);
   assert.match(html, /text-white/);
   assert.doesNotMatch(html, /Back to settings/);
 }
@@ -219,15 +219,15 @@ function testWorkspaceExplorerPageKeepsMobileUploadSeparateFromParentFolder() {
   assert.match(parentButton, /w-8/);
   assert.doesNotMatch(parentButton, /h-11/);
   assert.doesNotMatch(parentButton, /w-11/);
-  assert.match(parentButton, /border-\[#d7e3f8\]/);
-  assert.match(parentButton, /bg-\[#eef4ff\]/);
-  assert.match(parentButton, /text-\[#007aff\]/);
+  assert.match(parentButton, /border-\[#BACEFD\]/);
+  assert.match(parentButton, /bg-\[#F0F5FF\]/);
+  assert.match(parentButton, /text-\[#1456F0\]/);
   assert.match(workspaceExplorerSource, /<FolderUp size=\{14\}/);
   assert.match(uploadButton, /h-11/);
   assert.match(uploadButton, /w-11/);
   assert.match(uploadButton, /border-white\/76/);
   assert.match(uploadButton, /bg-white\/72/);
-  assert.doesNotMatch(uploadButton, /bg-\[#007aff\]/);
+  assert.doesNotMatch(uploadButton, /bg-\[#1456F0\]/);
 }
 
 testWorkspaceExplorerPageKeepsMobileUploadSeparateFromParentFolder();

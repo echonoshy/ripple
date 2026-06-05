@@ -89,14 +89,14 @@ export default function WorkspaceFolderPicker({
   return (
     <div
       data-ripple-chat-folder-picker
-      className="fixed inset-x-3 bottom-[calc(82px+env(safe-area-inset-bottom))] z-50 overflow-hidden rounded-2xl border border-[#dfe6f4] bg-white shadow-[0_24px_64px_rgba(15,23,42,0.18)] sm:absolute sm:bottom-full sm:left-0 sm:mb-2 sm:w-80"
+      className="fixed inset-x-3 bottom-[calc(82px+env(safe-area-inset-bottom))] z-50 overflow-hidden rounded-2xl border border-[#DEE0E3] bg-white shadow-[0_24px_64px_rgba(15,23,42,0.18)] sm:absolute sm:bottom-full sm:left-0 sm:mb-2 sm:w-80"
     >
-      <div className="flex items-center gap-2 border-b border-[#e8edf7] px-4 py-3">
+      <div className="flex items-center gap-2 border-b border-[#EFF0F1] px-4 py-3">
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[13px] font-semibold text-[#111827]">
+          <div className="truncate text-[13px] font-semibold text-[#1F2329]">
             {t("files.chooseFocusFolder")}
           </div>
-          <div className="truncate font-[family-name:var(--font-mono)] text-[12px] text-[#667085]">
+          <div className="truncate font-[family-name:var(--font-mono)] text-[12px] text-[#646A73]">
             {path}
           </div>
         </div>
@@ -106,7 +106,7 @@ export default function WorkspaceFolderPicker({
             aria-label={t("files.goToParentFolder")}
             title={t("files.goToParentFolder")}
             onClick={() => setPath(parent)}
-            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[#667085] hover:bg-[#f3f4f6] hover:text-[#111827]"
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[#646A73] hover:bg-[#F5F6F7] hover:text-[#1F2329]"
           >
             <ArrowBigLeft size={15} />
           </button>
@@ -115,13 +115,13 @@ export default function WorkspaceFolderPicker({
 
       <div className="max-h-[54vh] overflow-y-auto p-2 sm:max-h-80">
         {selectedLabel && (
-          <div className="mb-2 rounded-xl border border-[#dfe6f4] bg-[#f6f8ff] px-3 py-2">
+          <div className="mb-2 rounded-xl border border-[#DEE0E3] bg-[#F8F9FA] px-3 py-2">
             <div className="flex min-w-0 items-center gap-2">
               <div className="min-w-0 flex-1">
-                <div className="text-[12px] font-semibold tracking-[0.08em] text-[#7a8496] uppercase">
+                <div className="text-[12px] font-semibold tracking-[0.08em] text-[#646A73] uppercase">
                   {t("files.selected")}
                 </div>
-                <div className="mt-0.5 truncate text-[12px] font-semibold text-[#172033]">
+                <div className="mt-0.5 truncate text-[12px] font-semibold text-[#1F2329]">
                   {selectedLabel}
                 </div>
               </div>
@@ -129,7 +129,7 @@ export default function WorkspaceFolderPicker({
                 type="button"
                 onClick={() => void selectFolder(WORKSPACE_ROOT)}
                 disabled={Boolean(selectingPath)}
-                className="shrink-0 rounded-lg px-2 py-1 text-[12px] font-semibold text-[#3c3c43] hover:bg-[#f3f4f6] hover:text-[#111827] disabled:cursor-not-allowed disabled:opacity-50"
+                className="shrink-0 rounded-lg px-2 py-1 text-[12px] font-semibold text-[#2B2F36] hover:bg-[#F5F6F7] hover:text-[#1F2329] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {selectingPath === WORKSPACE_ROOT
                   ? t("files.cancelling")
@@ -140,14 +140,14 @@ export default function WorkspaceFolderPicker({
         )}
 
         {loading && (
-          <div className="flex items-center gap-2 px-3 py-4 text-[12px] text-[#667085]">
+          <div className="flex items-center gap-2 px-3 py-4 text-[12px] text-[#646A73]">
             <Loader2 size={14} className="animate-spin" />
             {t("files.loadingFolders")}
           </div>
         )}
-        {error && <div className="px-3 py-3 text-[12px] text-[#cf222e]">{error}</div>}
+        {error && <div className="px-3 py-3 text-[12px] text-[#B42318]">{error}</div>}
         {!loading && !error && directories.length === 0 && (
-          <div className="px-3 py-4 text-[12px] text-[#667085]">{t("files.noFoldersHere")}</div>
+          <div className="px-3 py-4 text-[12px] text-[#646A73]">{t("files.noFoldersHere")}</div>
         )}
         {!loading &&
           !error &&
@@ -159,13 +159,13 @@ export default function WorkspaceFolderPicker({
                   type="button"
                   aria-label={t("files.openFolder", { name: entry.name })}
                   onClick={() => setPath(entry.path)}
-                  className={`flex h-10 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 text-left text-[12px] text-[#172033] hover:bg-[#f7f8fa] ${
+                  className={`flex h-10 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 text-left text-[12px] text-[#1F2329] hover:bg-[#F8F9FA] ${
                     selected ? "bg-[#f3f7ff]" : ""
                   }`}
                 >
                   <Folder size={14} className="shrink-0 text-[#5aaeff]" />
                   <span className="min-w-0 flex-1 truncate font-semibold">{entry.name}</span>
-                  <ChevronRight size={14} className="shrink-0 text-[#98a2b3]" />
+                  <ChevronRight size={14} className="shrink-0 text-[#8F959E]" />
                 </button>
                 <button
                   type="button"
@@ -175,8 +175,8 @@ export default function WorkspaceFolderPicker({
                   disabled={Boolean(selectingPath) || selected}
                   className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
                     selected
-                      ? "bg-[#eef4ff] text-[#007aff]"
-                      : "text-[#667085] hover:bg-[#f3f4f6] hover:text-[#111827]"
+                      ? "bg-[#F0F5FF] text-[#1456F0]"
+                      : "text-[#646A73] hover:bg-[#F5F6F7] hover:text-[#1F2329]"
                   } disabled:cursor-not-allowed disabled:opacity-60`}
                 >
                   {selectingPath === entry.path ? (

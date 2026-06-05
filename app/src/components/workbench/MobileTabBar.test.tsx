@@ -70,7 +70,7 @@ function testMasksScrolledContentBehindRoundedBar() {
   assert.match(html, /data-ripple-mobile-tabbar-nav="true"/);
   assert.match(html, /fixed inset-x-0 bottom-0/);
   assert.match(html, /h-\[calc\(96px\+env\(safe-area-inset-bottom\)\)\]/);
-  assert.match(html, /bg-\[#f2f2f7\]/);
+  assert.match(html, /bg-\[#F5F6F7\]/);
   assert.match(mobileTabBarSource, /COMPACT_IOS_PAGE_BACKGROUND/);
   assert.match(mobileTabBarSource, /MOBILE_TAB_BAR_MASK_HEIGHT_CLASS/);
   assert.match(html, /pointer-events-none/);
@@ -84,10 +84,10 @@ function testUsesQuietSelectedTabTreatment() {
 
   assert.match(html, /bg-white\/74/);
   assert.match(html, /backdrop-blur-2xl/);
-  assert.match(html, /shadow-\[0_18px_44px_rgba\(60,60,67,0\.20\)\]/);
+  assert.match(html, /shadow-\[0_18px_44px_rgba\(31,35,41,0\.20\)\]/);
   assert.match(html, /data-ripple-icon-tile="true"/);
-  assert.match(html, /bg-\[#eaf4ff\]/);
-  assert.match(html, /text-\[#007aff\]/);
+  assert.match(html, /bg-\[#F0F5FF\]/);
+  assert.match(html, /text-\[#1456F0\]/);
   assert.doesNotMatch(html, /linear-gradient/);
   assert.doesNotMatch(html, /shadow-\[0_-14px_34px/);
 }

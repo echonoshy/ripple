@@ -9,7 +9,7 @@ import { useI18n } from "@/i18n";
 export type AuthGatewayMode = "login" | "invite" | "service";
 
 const PRIMARY_ACTION_BUTTON_CLASS =
-  "flex h-11 w-full items-center justify-center rounded-lg border border-[#007aff] bg-[#007aff] text-sm font-semibold text-white shadow-[0_12px_28px_rgba(0,122,255,0.18)] transition-[background-color,border-color,box-shadow] duration-200 ease-out hover:bg-[#1d56d8] hover:shadow-[0_16px_34px_rgba(0,122,255,0.22)] disabled:cursor-not-allowed disabled:border-[#dfe6f4] disabled:bg-[#f2f4f7] disabled:text-[#98a2b3] disabled:shadow-none motion-reduce:transition-none";
+  "flex h-11 w-full items-center justify-center rounded-lg border border-[#1456F0] bg-[#1456F0] text-sm font-semibold text-white shadow-[0_12px_28px_rgba(20,86,240,0.18)] transition-[background-color,border-color,box-shadow] duration-200 ease-out hover:bg-[#0F4BD8] hover:shadow-[0_16px_34px_rgba(20,86,240,0.22)] disabled:cursor-not-allowed disabled:border-[#DEE0E3] disabled:bg-[#EFF0F1] disabled:text-[#8F959E] disabled:shadow-none motion-reduce:transition-none";
 
 interface AuthGatewayProps {
   authMode: AuthGatewayMode;
@@ -78,7 +78,7 @@ function TextInput({
         autoCapitalize="none"
         autoCorrect="off"
         spellCheck={false}
-        className={`h-12 w-full rounded-lg border border-[#dfe6f4] bg-white px-3 pr-4 pl-12 text-[16px] leading-6 text-[#101828] shadow-[0_1px_0_rgba(255,255,255,0.75)_inset] transition-[border-color,box-shadow,transform] duration-200 ease-out outline-none hover:border-[#cbd7ea] hover:shadow-[0_8px_22px_rgba(15,23,42,0.06)] focus:border-[#007aff] focus:shadow-[0_0_0_4px_rgba(0,122,255,0.08),0_10px_24px_rgba(15,23,42,0.08)] focus:ring-2 focus:ring-[#007aff]/12 motion-reduce:transition-none ${mono ? "font-[family-name:var(--font-mono)]" : ""}`}
+        className={`h-12 w-full rounded-lg border border-[#DEE0E3] bg-white px-3 pr-4 pl-12 text-[16px] leading-6 text-[#1F2329] shadow-[0_1px_0_rgba(255,255,255,0.75)_inset] transition-[border-color,box-shadow,transform] duration-200 ease-out outline-none hover:border-[#D0D3D6] hover:shadow-[0_8px_22px_rgba(15,23,42,0.06)] focus:border-[#1456F0] focus:shadow-[0_0_0_4px_rgba(20,86,240,0.08),0_10px_24px_rgba(15,23,42,0.08)] focus:ring-2 focus:ring-[#1456F0]/12 motion-reduce:transition-none ${mono ? "font-[family-name:var(--font-mono)]" : ""}`}
       />
     </div>
   );
@@ -99,8 +99,8 @@ function ModeButton({
       onClick={onClick}
       className={`inline-flex h-9 items-center justify-center rounded-lg border px-3 text-sm font-semibold transition-[background-color,border-color,box-shadow] duration-200 ease-out motion-reduce:transition-none ${
         active
-          ? "border-[#007aff]/20 bg-[#eef4ff] text-[#1f5bd8] shadow-[0_8px_20px_rgba(0,122,255,0.10)]"
-          : "border-[#dfe6f4] bg-white text-[#344054] shadow-[0_1px_0_rgba(255,255,255,0.8)_inset] hover:border-[#cbd7ea] hover:bg-[#f8fafc] hover:shadow-[0_10px_24px_rgba(15,23,42,0.07)]"
+          ? "border-[#1456F0]/20 bg-[#F0F5FF] text-[#1456F0] shadow-[0_8px_20px_rgba(20,86,240,0.10)]"
+          : "border-[#DEE0E3] bg-white text-[#2B2F36] shadow-[0_1px_0_rgba(255,255,255,0.8)_inset] hover:border-[#D0D3D6] hover:bg-[#F8F9FA] hover:shadow-[0_10px_24px_rgba(15,23,42,0.07)]"
       }`}
     >
       {children}
@@ -157,12 +157,12 @@ export default function AuthGateway({
   return (
     <div
       data-ripple-auth-gateway="true"
-      className="relative isolate min-h-screen w-screen overflow-y-auto bg-[#f2f2f7] text-[#101828]"
+      className="relative isolate min-h-screen w-screen overflow-y-auto bg-[#F5F6F7] text-[#1F2329]"
     >
       <div
         data-ripple-auth-ambient="true"
         aria-hidden="true"
-        className="ripple-auth-ambient-motion pointer-events-none absolute inset-x-0 top-0 z-0 h-[58vh] bg-[linear-gradient(180deg,rgba(0,122,255,0.07)_0%,rgba(255,255,255,0.46)_48%,rgba(242,242,247,0)_100%)] motion-reduce:animate-none"
+        className="ripple-auth-ambient-motion pointer-events-none absolute inset-x-0 top-0 z-0 h-[58vh] bg-[linear-gradient(180deg,rgba(20,86,240,0.07)_0%,rgba(255,255,255,0.46)_48%,rgba(245,246,247,0)_100%)] motion-reduce:animate-none"
       />
       <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-[760px] flex-col px-4 pt-[calc(max(env(safe-area-inset-top),12px)+20px)] pb-[max(env(safe-area-inset-bottom),20px)] sm:px-6 lg:max-w-[880px] lg:pt-[calc(max(env(safe-area-inset-top),16px)+28px)]">
         <header className="ripple-auth-header-motion flex h-14 shrink-0 items-center motion-reduce:animate-none">
@@ -174,11 +174,11 @@ export default function AuthGateway({
             <div className="min-w-0">
               <div
                 data-ripple-auth-header-wordmark="true"
-                className="text-[15px] leading-5 font-semibold tracking-[0.14em] text-[#007aff]"
+                className="text-[15px] leading-5 font-semibold tracking-[0.14em] text-[#1456F0]"
               >
                 RIPPLE
               </div>
-              <div className="text-xs font-medium text-[#667085]">{t("auth.tagline")}</div>
+              <div className="text-xs font-medium text-[#646A73]">{t("auth.tagline")}</div>
             </div>
           </div>
         </header>
@@ -193,27 +193,27 @@ export default function AuthGateway({
           >
             <h1
               data-ripple-brand-wordmark="true"
-              className="relative mx-auto flex max-w-[680px] flex-wrap items-baseline justify-center gap-x-2 text-[36px] leading-[40px] font-semibold tracking-normal text-[#111827] sm:gap-x-3 sm:text-[52px] sm:leading-[56px]"
+              className="relative mx-auto flex max-w-[680px] flex-wrap items-baseline justify-center gap-x-2 text-[36px] leading-[40px] font-semibold tracking-normal text-[#1F2329] sm:gap-x-3 sm:text-[52px] sm:leading-[56px]"
               aria-label={t("auth.brandPhrase")}
             >
               <span className="inline-block">Flow</span>
               <span
                 data-ripple-auth-brand-with="true"
-                className="inline-block text-[20px] leading-none font-medium text-[#007aff] italic sm:text-[22px]"
+                className="inline-block text-[20px] leading-none font-medium text-[#1456F0] italic sm:text-[22px]"
               >
                 with
               </span>
               <span className="inline-block">Ripple</span>
               <span
                 aria-hidden="true"
-                className="absolute right-[12%] -bottom-2 left-[12%] h-2 rounded-full bg-[#007aff]/10 blur-[1px]"
+                className="absolute right-[12%] -bottom-2 left-[12%] h-2 rounded-full bg-[#1456F0]/10 blur-[1px]"
               />
             </h1>
             <div className="mt-3 space-y-1">
-              <p className="text-[16px] leading-7 font-medium text-[#384152] sm:text-[17px]">
+              <p className="text-[16px] leading-7 font-medium text-[#2B2F36] sm:text-[17px]">
                 {t("auth.sloganPrimary")}
               </p>
-              <p className="text-[13px] leading-6 text-[#667085] sm:text-sm">
+              <p className="text-[13px] leading-6 text-[#646A73] sm:text-sm">
                 {t("auth.sloganSecondary")}
               </p>
             </div>
@@ -221,18 +221,18 @@ export default function AuthGateway({
 
           <section
             data-ripple-auth-card="true"
-            className="ripple-auth-card-motion w-full max-w-[520px] rounded-2xl border border-[#d7d7dd] bg-white/88 p-5 shadow-[0_30px_90px_rgba(15,23,42,0.12),0_1px_0_rgba(255,255,255,0.82)_inset] backdrop-blur-xl transition-[border-color,box-shadow] duration-300 ease-out hover:border-[#cbd7ea] hover:shadow-[0_34px_110px_rgba(15,23,42,0.14),0_1px_0_rgba(255,255,255,0.88)_inset] motion-reduce:transform-none motion-reduce:animate-none motion-reduce:transition-none sm:p-6"
+            className="ripple-auth-card-motion w-full max-w-[520px] rounded-2xl border border-[#DEE0E3] bg-white/88 p-5 shadow-[0_30px_90px_rgba(15,23,42,0.12),0_1px_0_rgba(255,255,255,0.82)_inset] backdrop-blur-xl transition-[border-color,box-shadow] duration-300 ease-out hover:border-[#D0D3D6] hover:shadow-[0_34px_110px_rgba(15,23,42,0.14),0_1px_0_rgba(255,255,255,0.88)_inset] motion-reduce:transform-none motion-reduce:animate-none motion-reduce:transition-none sm:p-6"
           >
             <div className="mb-5 flex items-start gap-3">
               <IconTile tone={isService ? "warning" : "accent"} size="lg">
                 {isService ? <Code2 size={18} /> : <UserRound size={18} />}
               </IconTile>
               <div className="min-w-0">
-                <h1 className="text-[25px] leading-8 font-semibold tracking-normal text-[#101828]">
+                <h1 className="text-[25px] leading-8 font-semibold tracking-normal text-[#1F2329]">
                   {formTitle}
                 </h1>
                 {showFormDescription ? (
-                  <p className="mt-1 text-sm leading-6 text-[#667085]">{formDescription}</p>
+                  <p className="mt-1 text-sm leading-6 text-[#646A73]">{formDescription}</p>
                 ) : null}
               </div>
             </div>
@@ -240,7 +240,7 @@ export default function AuthGateway({
             {authErrorMsg && (
               <div
                 role="alert"
-                className="mb-4 flex items-start gap-3 rounded-lg border border-[#cf222e]/25 bg-[#fff1f0] p-3 text-sm font-medium text-[#b42318]"
+                className="mb-4 flex items-start gap-3 rounded-lg border border-[#B42318]/25 bg-[#FFF1F0] p-3 text-sm font-medium text-[#B42318]"
               >
                 <IconTile tone="danger" size="sm">
                   <AlertTriangle size={14} />
@@ -274,12 +274,12 @@ export default function AuthGateway({
                     autoComplete="username"
                     mono
                   />
-                  <div className="mt-1.5 flex items-center justify-between gap-3 text-xs text-[#667085]">
+                  <div className="mt-1.5 flex items-center justify-between gap-3 text-xs text-[#646A73]">
                     <span>{t("auth.userIdHelp")}</span>
                     <span className="shrink-0">{t("auth.blankUsesDefault")}</span>
                   </div>
                   {authUserIdError && (
-                    <div className="mt-2 text-xs font-semibold text-[#b42318]">
+                    <div className="mt-2 text-xs font-semibold text-[#B42318]">
                       {authUserIdError}
                     </div>
                   )}
@@ -352,19 +352,19 @@ export default function AuthGateway({
               </form>
             )}
 
-            <div className="mt-5 flex flex-wrap items-center justify-between gap-2 border-t border-[#edf2f7] pt-4">
+            <div className="mt-5 flex flex-wrap items-center justify-between gap-2 border-t border-[#EFF0F1] pt-4">
               {isInvite || isService ? (
                 <ModeButton onClick={() => changeMode("login")}>
                   <ArrowLeft size={14} />
                   <span className="ml-1.5">{t("auth.backToSignIn")}</span>
                 </ModeButton>
               ) : (
-                <div className="flex items-center gap-2 text-sm text-[#667085]">
+                <div className="flex items-center gap-2 text-sm text-[#646A73]">
                   <span>{t("auth.haveInviteCode")}</span>
                   <button
                     type="button"
                     onClick={() => changeMode("invite")}
-                    className="font-semibold text-[#007aff] hover:text-[#1d56d8]"
+                    className="font-semibold text-[#1456F0] hover:text-[#0F4BD8]"
                   >
                     {t("auth.createAccount")}
                   </button>

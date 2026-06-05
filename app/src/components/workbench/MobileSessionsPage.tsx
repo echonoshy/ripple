@@ -191,7 +191,7 @@ export default function MobileSessionsPage({
   }, [activeMenu]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[#f2f2f7] text-[#111827] lg:hidden">
+    <div className="flex h-full min-h-0 flex-col bg-[#F5F6F7] text-[#1F2329] lg:hidden">
       {typeof document !== "undefined"
         ? createPortal(
             <AnimatePresence>
@@ -217,7 +217,7 @@ export default function MobileSessionsPage({
                     animate="visible"
                     exit="hidden"
                     transition={shortTransition}
-                    className="z-50 max-h-[calc(100dvh-104px)] w-36 origin-top-right overflow-y-auto rounded-2xl border border-white/78 bg-white/90 p-1.5 shadow-[0_14px_34px_rgba(60,60,67,0.16)] backdrop-blur-2xl"
+                    className="z-50 max-h-[calc(100dvh-104px)] w-36 origin-top-right overflow-y-auto rounded-2xl border border-white/78 bg-white/90 p-1.5 shadow-[0_14px_34px_rgba(31,35,41,0.16)] backdrop-blur-2xl"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <button
@@ -229,9 +229,9 @@ export default function MobileSessionsPage({
                         });
                         setActiveMenu(null);
                       }}
-                      className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#3c3c43] transition-colors hover:bg-[#f2f2f7] active:bg-[#eaf4ff]`}
+                      className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#2B2F36] transition-colors hover:bg-[#F5F6F7] active:bg-[#F0F5FF]`}
                     >
-                      <Pin size={13} className="shrink-0 text-[#6b7280]" />
+                      <Pin size={13} className="shrink-0 text-[#646A73]" />
                       {activeMenuSession.pinned ? t("sessions.unpin") : t("sessions.pin")}
                     </button>
                     <button
@@ -242,12 +242,12 @@ export default function MobileSessionsPage({
                         setEditingTitle(activeMenuSession.title);
                         setActiveMenu(null);
                       }}
-                      className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#3c3c43] transition-colors hover:bg-[#f2f2f7] active:bg-[#eaf4ff]`}
+                      className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#2B2F36] transition-colors hover:bg-[#F5F6F7] active:bg-[#F0F5FF]`}
                     >
-                      <Edit3 size={13} className="shrink-0 text-[#6b7280]" />
+                      <Edit3 size={13} className="shrink-0 text-[#646A73]" />
                       {t("sessions.rename")}
                     </button>
-                    <div className="my-1 border-t border-[#e5e5ea]" />
+                    <div className="my-1 border-t border-[#EFF0F1]" />
                     <button
                       type="button"
                       onClick={(e) => {
@@ -255,9 +255,9 @@ export default function MobileSessionsPage({
                         onDeleteSession(activeMenuSession.sessionId, e);
                         setActiveMenu(null);
                       }}
-                      className={`flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#cf222e] transition-colors hover:bg-[#ffebe9] active:bg-[#ffd5d6]`}
+                      className={`flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#B42318] transition-colors hover:bg-[#FFF1F0] active:bg-[#FFE3E0]`}
                     >
-                      <Trash2 size={13} className="shrink-0 text-[#cf222e]" />
+                      <Trash2 size={13} className="shrink-0 text-[#B42318]" />
                       {t("sessions.delete")}
                     </button>
                   </motion.div>
@@ -268,14 +268,14 @@ export default function MobileSessionsPage({
           )
         : null}
       <header
-        className={`shrink-0 border-b border-white/74 bg-white/76 px-4 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} pb-2 shadow-[0_8px_24px_rgba(60,60,67,0.06)] backdrop-blur-2xl`}
+        className={`shrink-0 border-b border-white/74 bg-white/76 px-4 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} pb-2 shadow-[0_8px_24px_rgba(31,35,41,0.06)] backdrop-blur-2xl`}
       >
         <div className="flex h-10 items-center justify-between">
           <div className="flex items-center gap-2.5">
             <RippleIcon size={28} className="h-7 w-7 shrink-0 rounded-lg" />
             <span
               data-ripple-mobile-brand-wordmark="true"
-              className={`inline-flex ${TYPOGRAPHY_PAGE_TITLE_CLASS} text-[#111827] drop-shadow-[0_1px_0_rgba(255,255,255,0.78)]`}
+              className={`inline-flex ${TYPOGRAPHY_PAGE_TITLE_CLASS} text-[#1F2329] drop-shadow-[0_1px_0_rgba(255,255,255,0.78)]`}
             >
               Ripple
             </span>
@@ -312,8 +312,8 @@ export default function MobileSessionsPage({
               transition={shortTransition}
               className="overflow-hidden"
             >
-              <div className="flex h-10 items-center gap-2 rounded-full border border-white/76 bg-white/72 px-3 shadow-[0_8px_24px_rgba(60,60,67,0.06)] backdrop-blur-xl">
-                <Search size={15} className="shrink-0 text-[#7a8496]" />
+              <div className="flex h-10 items-center gap-2 rounded-full border border-white/76 bg-white/72 px-3 shadow-[0_8px_24px_rgba(31,35,41,0.06)] backdrop-blur-xl">
+                <Search size={15} className="shrink-0 text-[#646A73]" />
                 <input
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
@@ -331,7 +331,7 @@ export default function MobileSessionsPage({
         className={`min-h-0 flex-1 overflow-y-auto px-3 pt-2.5 ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS}`}
       >
         {sessionLoadError && !isLoading ? (
-          <div className={`mt-2 flex items-start gap-2 rounded-xl border border-[#cf222e]/25 bg-[#ffebe9] p-3 ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#cf222e]`}>
+          <div className={`mt-2 flex items-start gap-2 rounded-xl border border-[#B42318]/25 bg-[#FFF1F0] p-3 ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#B42318]`}>
             <IconTile tone="danger" size="sm" className="mt-0.5">
               <AlertTriangle size={14} />
             </IconTile>
@@ -340,7 +340,7 @@ export default function MobileSessionsPage({
         ) : null}
 
         {isLoading ? (
-          <div className="flex h-40 items-center justify-center text-[#6b7280]">
+          <div className="flex h-40 items-center justify-center text-[#646A73]">
             <Loader2 size={20} className="animate-spin" />
           </div>
         ) : visibleSessions.length === 0 ? (
@@ -348,7 +348,7 @@ export default function MobileSessionsPage({
             <IconTile
               tone="accent"
               size="xl"
-              className="mb-4 h-[60px] w-[60px] rounded-2xl shadow-[0_8px_24px_rgba(44,63,123,0.06)]"
+              className="mb-4 h-[60px] w-[60px] rounded-2xl shadow-[0_8px_24px_rgba(31,35,41,0.06)]"
             >
               <MessageCircle size={28} />
             </IconTile>
@@ -362,7 +362,7 @@ export default function MobileSessionsPage({
               <button
                 type="button"
                 onClick={onNewSession}
-                className={`mt-5 inline-flex h-10 items-center gap-2 rounded-full border border-[#cfe4ff] bg-[#eaf4ff]/86 px-4 ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#007aff] shadow-[0_8px_22px_rgba(0,122,255,0.12)] backdrop-blur-xl hover:bg-[#dff0ff]`}
+                className={`mt-5 inline-flex h-10 items-center gap-2 rounded-full border border-[#BACEFD] bg-[#F0F5FF]/86 px-4 ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#1456F0] shadow-[0_8px_22px_rgba(20,86,240,0.12)] backdrop-blur-xl hover:bg-[#dff0ff]`}
               >
                 <MessageSquarePlus size={16} strokeWidth={2.1} />
                 {t("sessions.newSession")}
@@ -405,7 +405,7 @@ export default function MobileSessionsPage({
                       animate="visible"
                       exit="hidden"
                       transition={shortTransition}
-                      className="flex w-full items-center rounded-2xl border border-[#cfe4ff] bg-white/84 px-3 py-2.5 text-[#111827] shadow-[0_8px_24px_rgba(60,60,67,0.06)] backdrop-blur-xl"
+                      className="flex w-full items-center rounded-2xl border border-[#BACEFD] bg-white/84 px-3 py-2.5 text-[#1F2329] shadow-[0_8px_24px_rgba(31,35,41,0.06)] backdrop-blur-xl"
                       onClick={(e) => e.stopPropagation()}
                     >
                       <input
@@ -422,7 +422,7 @@ export default function MobileSessionsPage({
                             setEditingSessionId(null);
                           }
                         }}
-                        className={`min-w-0 flex-1 bg-transparent py-0.5 ${TYPOGRAPHY_MOBILE_BODY_CLASS} font-medium text-[#0d0d0d] outline-none`}
+                        className={`min-w-0 flex-1 bg-transparent py-0.5 ${TYPOGRAPHY_MOBILE_BODY_CLASS} font-medium text-[#1F2329] outline-none`}
                         autoFocus
                         maxLength={120}
                       />
@@ -479,16 +479,16 @@ export default function MobileSessionsPage({
                       className={isMenuActive ? "z-50 rounded-2xl" : "z-10 rounded-2xl"}
                     >
                       <div
-                        className={`relative flex w-full items-center gap-2 rounded-2xl border bg-white/78 px-3 py-2.5 text-left shadow-[0_8px_24px_rgba(60,60,67,0.05)] backdrop-blur-xl transition-all ${
+                        className={`relative flex w-full items-center gap-2 rounded-2xl border bg-white/78 px-3 py-2.5 text-left shadow-[0_8px_24px_rgba(31,35,41,0.05)] backdrop-blur-xl transition-all ${
                           selected
-                            ? "border-[#cfe4ff] bg-white/90"
+                            ? "border-[#BACEFD] bg-white/90"
                             : "border-white/78 active:bg-white/88"
                         }`}
                       >
                         {selected ? (
                           <span
                             aria-hidden="true"
-                            className="absolute top-2 bottom-2 left-0 w-[3px] rounded-r-full bg-[#007aff]"
+                            className="absolute top-2 bottom-2 left-0 w-[3px] rounded-r-full bg-[#1456F0]"
                           />
                         ) : null}
                         <button
@@ -498,20 +498,20 @@ export default function MobileSessionsPage({
                         >
                           <span className="min-w-0 flex-1">
                             <span className="flex min-w-0 items-center gap-2">
-                              <span className={`truncate ${TYPOGRAPHY_MOBILE_BODY_CLASS} font-medium text-[#111827]`}>
+                              <span className={`truncate ${TYPOGRAPHY_MOBILE_BODY_CLASS} font-medium text-[#1F2329]`}>
                                 {session.title}
                               </span>
                               {session.pinned ? (
-                                <Pin size={12} className="shrink-0 text-[#6b7280]" />
+                                <Pin size={12} className="shrink-0 text-[#646A73]" />
                               ) : null}
                               <SessionAttentionDot attention={session.attention} reserveSpace />
                             </span>
-                            <span className={`mt-0.5 block truncate ${TYPOGRAPHY_META_CLASS} text-[#667085]`}>
+                            <span className={`mt-0.5 block truncate ${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
                               {sessionPreview(session, t)}
                             </span>
                           </span>
                           {activityTime ? (
-                            <span className={`shrink-0 self-start pt-0.5 font-[family-name:var(--font-mono)] ${TYPOGRAPHY_MICRO_CLASS} text-[#8b95a5]`}>
+                            <span className={`shrink-0 self-start pt-0.5 font-[family-name:var(--font-mono)] ${TYPOGRAPHY_MICRO_CLASS} text-[#8F959E]`}>
                               {activityTime}
                             </span>
                           ) : null}
@@ -533,9 +533,9 @@ export default function MobileSessionsPage({
                               };
                             });
                           }}
-                          className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/62 bg-white/42 text-[#6e6e73] shadow-[0_4px_12px_rgba(60,60,67,0.05)] backdrop-blur-xl active:bg-[#eaf4ff]/78 ${
+                          className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/62 bg-white/42 text-[#646A73] shadow-[0_4px_12px_rgba(31,35,41,0.05)] backdrop-blur-xl active:bg-[#F0F5FF]/78 ${
                             activeMenuSessionId === session.sessionId
-                              ? "bg-[#eaf4ff]/78 text-[#111827]"
+                              ? "bg-[#F0F5FF]/78 text-[#1F2329]"
                               : ""
                           }`}
                           aria-label={t("sessions.options")}

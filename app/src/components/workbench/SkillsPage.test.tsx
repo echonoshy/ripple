@@ -136,6 +136,17 @@ function testSkillsPageKeepsStatusAsFilterOnly() {
 
 testSkillsPageKeepsStatusAsFilterOnly();
 
+function testSkillsPageDoesNotUseGlobalBlueFocusOutline() {
+  const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
+  const globalCss = readFileSync(new URL("../../globals.css", import.meta.url), "utf8");
+
+  assert.match(source, /type="search"/);
+  assert.doesNotMatch(globalCss, /:focus-visible\s*\{/);
+  assert.doesNotMatch(globalCss, /outline:\s*2px solid var\(--ripple-brand\)/);
+}
+
+testSkillsPageDoesNotUseGlobalBlueFocusOutline();
+
 function testSkillsPageUsesCompactSkillRowsInCategoryDetail() {
   const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
 
@@ -151,6 +162,26 @@ function testSkillsPageUsesCompactSkillRowsInCategoryDetail() {
 }
 
 testSkillsPageUsesCompactSkillRowsInCategoryDetail();
+
+function testSkillsPageAnimatesCategoryDrillInBothLayouts() {
+  const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(
+    source,
+    /import \{ AnimatePresence, motion, useReducedMotion \} from "framer-motion"/
+  );
+  assert.match(source, /categoryTransitionDirection/);
+  assert.match(source, /data-ripple-skill-category-motion-stage/);
+  assert.match(
+    source,
+    /key=\{selectedCategory \? `detail:\$\{selectedCategory\.id\}` : "index"\}/
+  );
+  assert.match(source, /custom=\{categoryTransitionDirection\}/);
+  assert.match(source, /reducedMobilePageVariants/);
+  assert.match(source, /mobilePageVariants/);
+}
+
+testSkillsPageAnimatesCategoryDrillInBothLayouts();
 
 function testSkillsPageUsesPlainGeneralGroupLabels() {
   const i18n = readFileSync(new URL("../../i18n/index.tsx", import.meta.url), "utf8");

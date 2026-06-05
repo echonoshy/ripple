@@ -176,22 +176,22 @@ function runCountLabel(schedule: ScheduleInfo, t: Translator): string {
 }
 
 function statusClass(status: string): string {
-  if (status === "active") return "border-[#1a7f37]/25 bg-[#dafbe1] text-[#1a7f37]";
-  if (status === "paused") return "border-[#bf8700]/25 bg-[#fff8c5] text-[#7d4e00]";
-  if (status === "completed") return "border-[#0969da]/20 bg-[#ddf4ff] text-[#0969da]";
-  if (status === "error") return "border-[#cf222e]/25 bg-[#ffebe9] text-[#cf222e]";
-  return "border-[#d7dce3] bg-[#f7f8fa] text-[#374151]";
+  if (status === "active") return "border-[#16845B]/25 bg-[#E4F8EE] text-[#16845B]";
+  if (status === "paused") return "border-[#D99900]/25 bg-[#FFF8DB] text-[#8B5E00]";
+  if (status === "completed") return "border-[#1456F0]/20 bg-[#ddf4ff] text-[#1456F0]";
+  if (status === "error") return "border-[#B42318]/25 bg-[#FFF1F0] text-[#B42318]";
+  return "border-[#d7dce3] bg-[#F8F9FA] text-[#2B2F36]";
 }
 
 function runStatusClass(status: string | null | undefined): string {
-  if (status === "completed") return "border-[#1a7f37]/25 bg-[#dafbe1] text-[#1a7f37]";
+  if (status === "completed") return "border-[#16845B]/25 bg-[#E4F8EE] text-[#16845B]";
   if (status === "failed" || status === "cancelled") {
-    return "border-[#cf222e]/25 bg-[#ffebe9] text-[#cf222e]";
+    return "border-[#B42318]/25 bg-[#FFF1F0] text-[#B42318]";
   }
   if (status === "queued" || status === "running") {
-    return "border-[#0969da]/20 bg-[#ddf4ff] text-[#0969da]";
+    return "border-[#1456F0]/20 bg-[#ddf4ff] text-[#1456F0]";
   }
-  return "border-[#d7dce3] bg-[#f7f8fa] text-[#667085]";
+  return "border-[#d7dce3] bg-[#F8F9FA] text-[#646A73]";
 }
 
 function isActiveRunStatus(status: string | null | undefined): boolean {
@@ -229,24 +229,24 @@ function hasRunOutput(run: AgentRunInfo | null | undefined): boolean {
 }
 
 const automationActionButtonClass =
-  `inline-flex h-8 w-full min-w-0 items-center justify-center gap-1 rounded-full border border-[#dfe6f4] bg-white px-2 text-[#384152] hover:bg-[#f7f8fa] ${TYPOGRAPHY_META_MEDIUM_CLASS} [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0`;
+  `inline-flex h-8 w-full min-w-0 items-center justify-center gap-1 rounded-full border border-[#DEE0E3] bg-white px-2 text-[#2B2F36] hover:bg-[#F8F9FA] ${TYPOGRAPHY_META_MEDIUM_CLASS} [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0`;
 
 const automationDeleteButtonClass =
   `inline-flex h-8 w-full min-w-0 items-center justify-center gap-1 rounded-full border px-2 ${TYPOGRAPHY_META_MEDIUM_CLASS} [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0`;
 
 const runActionButtonClass =
-  `inline-flex h-8 shrink-0 items-center justify-center gap-1 rounded-full border border-[#dfe6f4] bg-white px-2 text-[#384152] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:opacity-60 ${TYPOGRAPHY_META_MEDIUM_CLASS} [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0`;
+  `inline-flex h-8 shrink-0 items-center justify-center gap-1 rounded-full border border-[#DEE0E3] bg-white px-2 text-[#2B2F36] hover:bg-[#F8F9FA] disabled:cursor-not-allowed disabled:opacity-60 ${TYPOGRAPHY_META_MEDIUM_CLASS} [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0`;
 
-const automationFieldLabelClass = `mb-1 block text-[#667085] ${TYPOGRAPHY_META_MEDIUM_CLASS}`;
+const automationFieldLabelClass = `mb-1 block text-[#646A73] ${TYPOGRAPHY_META_MEDIUM_CLASS}`;
 
 const automationFieldControlClass =
-  `h-10 w-full rounded-xl border border-[#dfe6f4] bg-white px-3 text-[#111827] outline-none focus:border-[#8da0ff] ${TYPOGRAPHY_MOBILE_BODY_CLASS} lg:h-9 lg:text-[14px] lg:leading-[22px]`;
+  `h-10 w-full rounded-xl border border-[#DEE0E3] bg-white px-3 text-[#1F2329] outline-none focus:border-[#8FB1FF] ${TYPOGRAPHY_MOBILE_BODY_CLASS} lg:h-9 lg:text-[14px] lg:leading-[22px]`;
 
 const automationMonoFieldControlClass =
-  `h-10 w-full rounded-xl border border-[#dfe6f4] bg-white px-3 font-[family-name:var(--font-mono)] text-[#111827] outline-none focus:border-[#8da0ff] ${TYPOGRAPHY_MOBILE_BODY_CLASS} lg:h-9 lg:text-[14px] lg:leading-[22px]`;
+  `h-10 w-full rounded-xl border border-[#DEE0E3] bg-white px-3 font-[family-name:var(--font-mono)] text-[#1F2329] outline-none focus:border-[#8FB1FF] ${TYPOGRAPHY_MOBILE_BODY_CLASS} lg:h-9 lg:text-[14px] lg:leading-[22px]`;
 
 const automationTextareaClass =
-  `w-full resize-none rounded-xl border border-[#dfe6f4] bg-white px-3 py-2 text-[#111827] outline-none focus:border-[#8da0ff] ${TYPOGRAPHY_MOBILE_BODY_CLASS} lg:text-[14px] lg:leading-[22px]`;
+  `w-full resize-none rounded-xl border border-[#DEE0E3] bg-white px-3 py-2 text-[#1F2329] outline-none focus:border-[#8FB1FF] ${TYPOGRAPHY_MOBILE_BODY_CLASS} lg:text-[14px] lg:leading-[22px]`;
 
 function defaultRunAt(): string {
   const date = new Date(Date.now() + 60 * 60 * 1000);
@@ -599,7 +599,7 @@ export default function AutomationsPage({
 
   return (
     <div
-      className={`h-full min-h-0 overflow-y-auto ${COMPACT_IOS_PAGE_BACKGROUND} px-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} text-[#111827] md:px-6 lg:pb-5`}
+      className={`h-full min-h-0 overflow-y-auto ${COMPACT_IOS_PAGE_BACKGROUND} px-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} text-[#1F2329] md:px-6 lg:pb-5`}
     >
       <div className={`${WORKBENCH_PAGE_CONTENT_CLASS} space-y-4`}>
         <header className="flex flex-wrap items-center justify-between gap-3 pb-1">
@@ -618,7 +618,7 @@ export default function AutomationsPage({
             <div className="min-w-0">
               <h1 className={TYPOGRAPHY_PAGE_TITLE_CLASS}>{t("automations.title")}</h1>
               <div
-                className={`mt-1 font-[family-name:var(--font-mono)] text-[#7a8496] ${TYPOGRAPHY_META_CLASS}`}
+                className={`mt-1 font-[family-name:var(--font-mono)] text-[#646A73] ${TYPOGRAPHY_META_CLASS}`}
               >
                 {t("automations.total", { count: schedules.length })}
               </div>
@@ -652,7 +652,7 @@ export default function AutomationsPage({
                   beginCreateSchedule();
                 }
               }}
-              className={`inline-flex h-11 items-center gap-2 rounded-full bg-[#007aff] px-3 text-white shadow-[0_12px_26px_rgba(0,122,255,0.22)] hover:bg-[#006ee6] lg:h-10 ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+              className={`inline-flex h-11 items-center gap-2 rounded-full bg-[#1456F0] px-3 text-white shadow-[0_12px_26px_rgba(20,86,240,0.22)] hover:bg-[#0F4BD8] lg:h-10 ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
             >
               <Plus size={15} />
               {t("automations.new")}
@@ -661,7 +661,7 @@ export default function AutomationsPage({
         </header>
 
         {error ? (
-          <div className={`flex items-start gap-2 rounded-xl border border-[#cf222e]/25 bg-[#ffebe9] px-3 py-3 text-[#cf222e] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
+          <div className={`flex items-start gap-2 rounded-xl border border-[#B42318]/25 bg-[#FFF1F0] px-3 py-3 text-[#B42318] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
             <IconTile tone="danger" size="sm" className="mt-0.5">
               <AlertTriangle size={14} />
             </IconTile>
@@ -672,7 +672,7 @@ export default function AutomationsPage({
         {isCreating ? (
           <form
             onSubmit={handleSubmitSchedule}
-            className="grid gap-4 rounded-2xl border border-[#dfe6f4] bg-white/74 p-4 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl"
+            className="grid gap-4 rounded-2xl border border-[#DEE0E3] bg-white/74 p-4 shadow-[0_12px_30px_rgba(31,35,41,0.06)] backdrop-blur-xl"
           >
             <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_220px]">
               <label className="block min-w-0">
@@ -728,7 +728,7 @@ export default function AutomationsPage({
             <div className="grid gap-3 md:grid-cols-[190px_minmax(0,1fr)_auto] md:items-end">
               <div>
                 <span className={automationFieldLabelClass}>{t("automations.mode")}</span>
-                <div className="grid grid-cols-2 rounded-xl border border-[#dfe6f4] bg-white p-0.5">
+                <div className="grid grid-cols-2 rounded-xl border border-[#DEE0E3] bg-white p-0.5">
                   {(["once", "interval"] as ScheduleKind[]).map((option) => (
                     <button
                       key={option}
@@ -736,8 +736,8 @@ export default function AutomationsPage({
                       onClick={() => setKind(option)}
                       className={`h-9 rounded ${TYPOGRAPHY_BODY_MEDIUM_CLASS} ${
                         kind === option
-                          ? "bg-[#007aff] text-white"
-                          : "text-[#384152] hover:bg-[#f7f8fa]"
+                          ? "bg-[#1456F0] text-white"
+                          : "text-[#2B2F36] hover:bg-[#F8F9FA]"
                       }`}
                     >
                       {option === "once" ? t("automations.once") : t("automations.interval")}
@@ -798,7 +798,7 @@ export default function AutomationsPage({
                 <button
                   type="button"
                   onClick={closeForm}
-                  className={`inline-flex h-10 items-center justify-center rounded-full border border-[#dfe6f4] bg-white px-4 text-[#384152] shadow-[0_10px_24px_rgba(44,63,123,0.04)] hover:bg-[#f7f8fa] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+                  className={`inline-flex h-10 items-center justify-center rounded-full border border-[#DEE0E3] bg-white px-4 text-[#2B2F36] shadow-[0_10px_24px_rgba(31,35,41,0.04)] hover:bg-[#F8F9FA] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
                   disabled={isSubmitting}
                 >
                   {t("automations.cancel")}
@@ -806,7 +806,7 @@ export default function AutomationsPage({
                 <button
                   type="submit"
                   disabled={isSubmitting || !title.trim() || !prompt.trim()}
-                  className={`inline-flex h-10 items-center justify-center gap-2 rounded-full bg-[#007aff] px-4 text-white shadow-[0_12px_26px_rgba(0,122,255,0.22)] hover:bg-[#006ee6] disabled:cursor-not-allowed disabled:bg-[#e5e7eb] disabled:bg-none disabled:text-[#8b8f94] disabled:shadow-none ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+                  className={`inline-flex h-10 items-center justify-center gap-2 rounded-full bg-[#1456F0] px-4 text-white shadow-[0_12px_26px_rgba(20,86,240,0.22)] hover:bg-[#0F4BD8] disabled:cursor-not-allowed disabled:bg-[#EFF0F1] disabled:bg-none disabled:text-[#8F959E] disabled:shadow-none ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
                 >
                   {isSubmitting ? (
                     <Loader2 size={14} className="animate-spin" />
@@ -820,13 +820,13 @@ export default function AutomationsPage({
           </form>
         ) : null}
 
-        <div className="overflow-hidden rounded-2xl border border-[#dfe6f4] bg-white/74 shadow-[0_12px_30px_rgba(44,63,123,0.06)] backdrop-blur-xl">
+        <div className="overflow-hidden rounded-2xl border border-[#DEE0E3] bg-white/74 shadow-[0_12px_30px_rgba(31,35,41,0.06)] backdrop-blur-xl">
           {schedules.length === 0 && !isLoading ? (
-            <div className={`flex h-44 items-center justify-center text-[#667085] ${TYPOGRAPHY_BODY_CLASS}`}>
+            <div className={`flex h-44 items-center justify-center text-[#646A73] ${TYPOGRAPHY_BODY_CLASS}`}>
               {t("automations.noAutomations")}
             </div>
           ) : (
-            <div className="divide-y divide-[#e8edf7]">
+            <div className="divide-y divide-[#EFF0F1]">
               {schedules.map((schedule) => {
                 const runs = runsBySchedule[schedule.schedule_id] || [];
                 const latestRun = runs[0] || null;
@@ -865,11 +865,11 @@ export default function AutomationsPage({
                                 {schedule.status}
                               </span>
                             </div>
-                            <div className={`mt-0.5 line-clamp-3 text-[#667085] ${TYPOGRAPHY_BODY_CLASS}`}>
+                            <div className={`mt-0.5 line-clamp-3 text-[#646A73] ${TYPOGRAPHY_BODY_CLASS}`}>
                               {schedule.prompt}
                             </div>
                             {schedule.status === "error" && schedule.last_error ? (
-                              <div className={`mt-1 truncate text-[#cf222e] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
+                              <div className={`mt-1 truncate text-[#B42318] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
                                 {schedule.last_error}
                               </div>
                             ) : null}
@@ -887,23 +887,23 @@ export default function AutomationsPage({
                         >
                           <div
                             data-ripple-automation-meta-cell
-                            className="min-w-0 rounded-lg border border-[#eef2fb] bg-[#f8fbff]/80 px-2 py-1"
+                            className="min-w-0 rounded-lg border border-[#EFF0F1] bg-[#F8F9FA]/80 px-2 py-1"
                           >
-                            <div className={`tracking-normal text-[#8b8f94] uppercase ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
+                            <div className={`tracking-normal text-[#8F959E] uppercase ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
                               {t("automations.next")}
                             </div>
-                            <div className={`mt-0.5 truncate text-[#384152] ${TYPOGRAPHY_META_CLASS}`}>
+                            <div className={`mt-0.5 truncate text-[#2B2F36] ${TYPOGRAPHY_META_CLASS}`}>
                               {formatDate(schedule.next_run_at, locale, t)}
                             </div>
                           </div>
                           <div
                             data-ripple-automation-meta-cell
-                            className="min-w-0 rounded-lg border border-[#eef2fb] bg-[#f8fbff]/80 px-2 py-1"
+                            className="min-w-0 rounded-lg border border-[#EFF0F1] bg-[#F8F9FA]/80 px-2 py-1"
                           >
-                            <div className={`tracking-normal text-[#8b8f94] uppercase ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
+                            <div className={`tracking-normal text-[#8F959E] uppercase ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
                               {t("automations.repeat")}
                             </div>
-                            <div className={`mt-0.5 truncate font-[family-name:var(--font-mono)] text-[#384152] ${TYPOGRAPHY_META_CLASS}`}>
+                            <div className={`mt-0.5 truncate font-[family-name:var(--font-mono)] text-[#2B2F36] ${TYPOGRAPHY_META_CLASS}`}>
                               {schedule.kind === "interval"
                                 ? `${intervalLabel(schedule.interval_seconds, t)} · ${runCountLabel(schedule, t)}`
                                 : t("automations.once")}
@@ -913,14 +913,14 @@ export default function AutomationsPage({
 
                         <div
                           data-ripple-automation-latest-run
-                          className={`grid min-w-0 gap-1.5 rounded-lg border border-[#e8edf7] bg-[#f8fbff]/70 px-2 py-1.5 ${TYPOGRAPHY_META_CLASS}`}
+                          className={`grid min-w-0 gap-1.5 rounded-lg border border-[#EFF0F1] bg-[#F8F9FA]/70 px-2 py-1.5 ${TYPOGRAPHY_META_CLASS}`}
                         >
                           <div className="flex min-w-0 items-start justify-between gap-2">
-                            <span className={`tracking-normal text-[#8b8f94] uppercase ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
+                            <span className={`tracking-normal text-[#8F959E] uppercase ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
                               {t("automations.latestRun")}
                             </span>
                             <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-                              <span className={`text-[#667085] ${TYPOGRAPHY_META_CLASS}`}>
+                              <span className={`text-[#646A73] ${TYPOGRAPHY_META_CLASS}`}>
                                 {latestRunAt
                                   ? formatDate(latestRunAt, locale, t)
                                   : t("automations.never")}
@@ -935,7 +935,7 @@ export default function AutomationsPage({
                             </div>
                           </div>
                           {latestRunError ? (
-                            <div className={`truncate text-[#cf222e] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
+                            <div className={`truncate text-[#B42318] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
                               {latestRunError}
                             </div>
                           ) : null}
@@ -1085,8 +1085,8 @@ export default function AutomationsPage({
                         }
                         className={`${automationDeleteButtonClass} ${
                           confirmDeleteId === schedule.schedule_id
-                            ? "border-[#cf222e]/25 bg-[#ffebe9] text-[#cf222e]"
-                            : "border-[#dfe6f4] bg-white text-[#8b8f94] hover:bg-[#ffebe9] hover:text-[#cf222e]"
+                            ? "border-[#B42318]/25 bg-[#FFF1F0] text-[#B42318]"
+                            : "border-[#DEE0E3] bg-white text-[#8F959E] hover:bg-[#FFF1F0] hover:text-[#B42318]"
                         }`}
                       >
                         {pendingActionId === `${schedule.schedule_id}:delete` ? (
@@ -1107,13 +1107,13 @@ export default function AutomationsPage({
                     {isExpanded ? (
                       <div
                         data-ripple-automation-run-history
-                        className="mt-4 border-t border-[#e8edf7] pt-3"
+                        className="mt-4 border-t border-[#EFF0F1] pt-3"
                       >
                         <div className="mb-2 flex items-center justify-between gap-3">
-                          <div className={`tracking-normal text-[#667085] uppercase ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
+                          <div className={`tracking-normal text-[#646A73] uppercase ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
                             {t("automations.runHistory")}
                           </div>
-                          <div className={`font-[family-name:var(--font-mono)] text-[#8b8f94] ${TYPOGRAPHY_META_CLASS}`}>
+                          <div className={`font-[family-name:var(--font-mono)] text-[#8F959E] ${TYPOGRAPHY_META_CLASS}`}>
                             {t("automations.runCount", {
                               count: runs.length,
                               label: runs.length === 1 ? "run" : "runs",
@@ -1121,11 +1121,11 @@ export default function AutomationsPage({
                           </div>
                         </div>
                         {runs.length === 0 ? (
-                          <div className={`text-[#667085] ${TYPOGRAPHY_META_CLASS}`}>
+                          <div className={`text-[#646A73] ${TYPOGRAPHY_META_CLASS}`}>
                             {t("automations.noRunsYet")}
                           </div>
                         ) : (
-                          <div className="divide-y divide-[#eef2fb]">
+                          <div className="divide-y divide-[#EFF0F1]">
                             {runs.map((run) => {
                               const errorText = runErrorText(run);
                               const runDeleteKey = `${schedule.schedule_id}:${run.job_id}`;
@@ -1145,15 +1145,15 @@ export default function AutomationsPage({
                                       >
                                         {run.status}
                                       </span>
-                                      <span className={`truncate font-[family-name:var(--font-mono)] text-[#384152] ${TYPOGRAPHY_META_CLASS}`}>
+                                      <span className={`truncate font-[family-name:var(--font-mono)] text-[#2B2F36] ${TYPOGRAPHY_META_CLASS}`}>
                                         {run.job_id}
                                       </span>
-                                      <span className={`text-[#667085] ${TYPOGRAPHY_META_CLASS}`}>
+                                      <span className={`text-[#646A73] ${TYPOGRAPHY_META_CLASS}`}>
                                         {formatDate(run.updated_at, locale, t)}
                                       </span>
                                     </div>
                                     {errorText ? (
-                                      <div className={`mt-1 truncate text-[#cf222e] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
+                                      <div className={`mt-1 truncate text-[#B42318] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
                                         {errorText}
                                       </div>
                                     ) : null}
@@ -1213,8 +1213,8 @@ export default function AutomationsPage({
                                       }
                                       className={`${runActionButtonClass} ${
                                         confirmingRunDelete
-                                          ? "border-[#cf222e]/25 bg-[#ffebe9] text-[#cf222e]"
-                                          : "text-[#8b8f94] hover:bg-[#ffebe9] hover:text-[#cf222e]"
+                                          ? "border-[#B42318]/25 bg-[#FFF1F0] text-[#B42318]"
+                                          : "text-[#8F959E] hover:bg-[#FFF1F0] hover:text-[#B42318]"
                                       }`}
                                     >
                                       {pendingRunActionId === `${run.job_id}:delete` ? (
@@ -1245,32 +1245,32 @@ export default function AutomationsPage({
 
         {outputPreview ? (
           <div className="fixed inset-0 z-50 flex items-end bg-black/30 p-3 sm:items-center sm:justify-center">
-            <div className="max-h-[82vh] w-full overflow-hidden rounded-2xl border border-[#dfe6f4] bg-white shadow-[0_24px_80px_rgba(15,23,42,0.22)] sm:max-w-3xl">
-              <div className="flex items-start justify-between gap-3 border-b border-[#e8edf7] px-4 py-3">
+            <div className="max-h-[82vh] w-full overflow-hidden rounded-2xl border border-[#DEE0E3] bg-white shadow-[0_24px_80px_rgba(15,23,42,0.22)] sm:max-w-3xl">
+              <div className="flex items-start justify-between gap-3 border-b border-[#EFF0F1] px-4 py-3">
                 <div className="min-w-0">
                   <div className={`truncate ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
                     {outputPreview.title}
                   </div>
-                  <div className={`mt-1 truncate font-[family-name:var(--font-mono)] text-[#667085] ${TYPOGRAPHY_META_CLASS}`}>
+                  <div className={`mt-1 truncate font-[family-name:var(--font-mono)] text-[#646A73] ${TYPOGRAPHY_META_CLASS}`}>
                     {outputPreview.jobId}
                   </div>
                 </div>
                 <button
                   type="button"
                   onClick={() => setOutputPreview(null)}
-                  className={`inline-flex h-9 shrink-0 items-center justify-center rounded-full border border-[#dfe6f4] bg-white px-3 text-[#384152] hover:bg-[#f7f8fa] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                  className={`inline-flex h-9 shrink-0 items-center justify-center rounded-full border border-[#DEE0E3] bg-white px-3 text-[#2B2F36] hover:bg-[#F8F9FA] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
                 >
                   {t("automations.close")}
                 </button>
               </div>
               <div className="max-h-[calc(82vh-64px)] overflow-auto p-4">
                 {outputPreview.loading ? (
-                  <div className={`flex h-32 items-center justify-center text-[#667085] ${TYPOGRAPHY_BODY_CLASS}`}>
+                  <div className={`flex h-32 items-center justify-center text-[#646A73] ${TYPOGRAPHY_BODY_CLASS}`}>
                     <Loader2 size={16} className="mr-2 animate-spin" />
                     {t("automations.loadingOutput")}
                   </div>
                 ) : outputPreview.error ? (
-                  <div className={`rounded-xl border border-[#cf222e]/25 bg-[#ffebe9] px-3 py-2 text-[#cf222e] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
+                  <div className={`rounded-xl border border-[#B42318]/25 bg-[#FFF1F0] px-3 py-2 text-[#B42318] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
                     {outputPreview.error}
                   </div>
                 ) : (

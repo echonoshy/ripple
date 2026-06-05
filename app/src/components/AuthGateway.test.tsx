@@ -91,7 +91,7 @@ function testGatewayHeaderBrandAndInputsAreReadable() {
   assert.ok(brandWith);
   assert.match(source, /<RippleIcon\s+size=\{48\}\s+className="h-12 w-12 rounded-\[14px\][^"]*"/);
   assert.doesNotMatch(source, /<RippleIcon size=\{56\} className="h-14 w-14/);
-  assert.match(headerWordmark, /text-\[#007aff\]/);
+  assert.match(headerWordmark, /text-\[#1456F0\]/);
   assert.match(headerWordmark, /tracking-\[0\.14em\]/);
   assert.match(brandWith, /text-\[20px\]/);
   assert.match(brandWith, /sm:text-\[22px\]/);
@@ -119,8 +119,8 @@ function testGatewayUsesRestrainedMotionAndElevation() {
   assert.doesNotMatch(source, /hover:-translate-y-/);
   assert.doesNotMatch(source, /hover:translate-y-/);
   assert.match(card, /motion-reduce:transform-none/);
-  assert.match(source, /focus:shadow-\[0_0_0_4px_rgba\(0,122,255,0\.08\)/);
-  assert.match(source, /hover:shadow-\[0_16px_34px_rgba\(0,122,255,0\.22\)\]/);
+  assert.match(source, /focus:shadow-\[0_0_0_4px_rgba\(20,86,240,0\.08\)/);
+  assert.match(source, /hover:shadow-\[0_16px_34px_rgba\(20,86,240,0\.22\)\]/);
   assert.match(source, /motion-reduce:transition-none/);
   assert.match(globalCss, /@keyframes ripple-auth-rise/);
   assert.match(globalCss, /@keyframes ripple-auth-ambient/);

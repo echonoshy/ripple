@@ -26,12 +26,12 @@ import {
   TYPOGRAPHY_SECTION_TITLE_CLASS,
 } from "./stylePrimitives";
 
-assert.match(COMPACT_IOS_PAGE_BACKGROUND, /#f2f2f7/);
+assert.match(COMPACT_IOS_PAGE_BACKGROUND, /#f5f6f7/i);
 assert.doesNotMatch(COMPACT_IOS_PAGE_BACKGROUND, /radial-gradient/);
 assert.doesNotMatch(COMPACT_IOS_PAGE_BACKGROUND, /139,92,246/);
 assert.doesNotMatch(COMPACT_IOS_PAGE_BACKGROUND, /20,184,166/);
 assert.match(GLASS_PANEL_CLASS, /bg-white\/82/);
-assert.match(GLASS_PANEL_CLASS, /border-\[#d7d7dd\]/);
+assert.match(GLASS_PANEL_CLASS, /border-\[#DEE0E3\]/);
 assert.match(GLASS_PANEL_CLASS, /backdrop-blur-xl/);
 assert.match(GLASS_TOP_BAR_CLASS, /bg-white\/76/);
 assert.match(GLASS_TOP_BAR_CLASS, /backdrop-blur-2xl/);
@@ -57,6 +57,11 @@ assert.equal(LUCIDE_STANDARD_STROKE_WIDTH, 2.2);
 assert.equal(LUCIDE_NAV_STROKE_WIDTH, 2.25);
 
 const stylePrimitivesSource = readFileSync(new URL("./stylePrimitives.ts", import.meta.url), "utf8");
+assert.match(stylePrimitivesSource, /WORKBENCH_BRAND_BLUE = "#1456F0"/);
+assert.match(stylePrimitivesSource, /WORKBENCH_TEXT_PRIMARY = "#1F2329"/);
+assert.match(stylePrimitivesSource, /WORKBENCH_TEXT_SECONDARY = "#646A73"/);
+assert.match(stylePrimitivesSource, /WORKBENCH_TEXT_TERTIARY = "#8F959E"/);
+assert.match(stylePrimitivesSource, /WORKBENCH_BORDER_2 = "#DEE0E3"/);
 assert.match(
   stylePrimitivesSource,
   /WORKBENCH_PAGE_CONTENT_CLASS = "mx-auto w-full max-w-7xl"/
@@ -114,5 +119,9 @@ assert.match(globalsCss, /"Microsoft YaHei UI"/);
 assert.match(globalsCss, /"Noto Sans SC"/);
 assert.match(globalsCss, /"Segoe UI"/);
 assert.match(globalsCss, /"Helvetica Neue"/);
+assert.match(globalsCss, /--ripple-brand: #1456f0/);
+assert.match(globalsCss, /--ripple-text-primary: #1f2329/);
+assert.match(globalsCss, /--ripple-border-2: #dee0e3/);
+assert.doesNotMatch(globalsCss, /#007aff/i);
 
 console.log("style primitives tests passed");

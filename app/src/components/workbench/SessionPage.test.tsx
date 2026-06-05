@@ -114,7 +114,7 @@ function testOmitsPlaceholderSessionHeaderControls() {
   assert.match(html, /aria-label="New session"/);
   assert.doesNotMatch(html, /aria-label="Session options"/);
   assert.doesNotMatch(html, />New Codex task</);
-  assert.doesNotMatch(html, /border-b border-\[#e5e7eb\] bg-white px-4 py-3 md:px-5/);
+  assert.doesNotMatch(html, /border-b border-\[#EFF0F1\] bg-white px-4 py-3 md:px-5/);
   assert.doesNotMatch(html, />Idle</);
   assert.doesNotMatch(html, /Codex keeps the task, files, activity, and approvals connected/);
   assert.doesNotMatch(html, /Ask Codex to refactor, debug, write, or inspect/);
@@ -162,7 +162,7 @@ function testMobileHeaderButtonsUseToolbarStyling() {
   assert.doesNotMatch(sessionPageSource, /<Settings2 size=\{18\}/);
   assert.doesNotMatch(
     sessionPageSource,
-    /className="inline-flex h-10 w-10 items-center justify-center rounded-full text-\[#172033\] active:bg-\[#eef3ff\]/
+    /className="inline-flex h-10 w-10 items-center justify-center rounded-full text-\[#1F2329\] active:bg-\[#F0F5FF\]/
   );
 }
 
@@ -219,9 +219,9 @@ function testCurrentModelBadgeUsesModelSwitchIcon() {
   const html = renderSessionPage();
 
   assert.match(html, /data-ripple-current-model-badge="desktop"[\s\S]{0,1000}lucide-brain-circuit/);
-  assert.match(html, /data-ripple-current-model-badge="desktop"[\s\S]{0,1200}bg-\[#34c759\]/);
+  assert.match(html, /data-ripple-current-model-badge="desktop"[\s\S]{0,1200}bg-\[#22A06B\]/);
   assert.match(html, /data-ripple-current-model-badge="mobile"[\s\S]{0,1000}lucide-brain-circuit/);
-  assert.match(html, /data-ripple-current-model-badge="mobile"[\s\S]{0,1200}bg-\[#34c759\]/);
+  assert.match(html, /data-ripple-current-model-badge="mobile"[\s\S]{0,1200}bg-\[#22A06B\]/);
 }
 
 function testSessionPageRendersChineseStaticChrome() {

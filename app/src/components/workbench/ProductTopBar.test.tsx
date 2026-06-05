@@ -63,7 +63,7 @@ function testSettingsEntryUsesLargerBorderlessAvatarButton() {
   assert.doesNotMatch(entryButton, /w-11/);
   assert.match(entryButton, /rounded-xl/);
   assert.doesNotMatch(entryButton, /rounded-full/);
-  assert.doesNotMatch(entryButton, /border-\[#d7d7dd\]/);
+  assert.doesNotMatch(entryButton, /border-\[#DEE0E3\]/);
   assert.doesNotMatch(entryButton, /bg-white\/82/);
   assert.doesNotMatch(entryButton, /shadow-\[/);
   assert.match(avatarTile, /h-10/);
@@ -83,9 +83,9 @@ function testSelectedTopTabHasStrongerTreatment() {
 
   const selectedTab = html.match(/<button[^>]*data-ripple-top-tab="sessions"[^>]*>/)?.[0] || "";
 
-  assert.match(selectedTab, /bg-\[#007aff\]/);
+  assert.match(selectedTab, /bg-\[#1456F0\]/);
   assert.match(selectedTab, /text-white/);
-  assert.match(selectedTab, /shadow-\[0_8px_18px_rgba\(0,122,255,0\.22\)\]/);
+  assert.match(selectedTab, /shadow-\[0_8px_18px_rgba\(20,86,240,0\.22\)\]/);
 }
 
 function testDesktopProductTabsUseEqualWidths() {

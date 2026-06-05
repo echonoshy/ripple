@@ -23,12 +23,12 @@ function testAttentionDotsUseVividStatusColors() {
   const needsInput = renderToStaticMarkup(<SessionAttentionDot attention="needs_input" />);
   const error = renderToStaticMarkup(<SessionAttentionDot attention="error" />);
 
-  assert.match(completed, /bg-\[#22c55e\]/);
-  assert.match(completed, /ring-\[#22c55e\]\/28/);
-  assert.match(needsInput, /bg-\[#f59e0b\]/);
-  assert.match(needsInput, /ring-\[#f59e0b\]\/28/);
-  assert.match(error, /bg-\[#ef4444\]/);
-  assert.match(error, /ring-\[#ef4444\]\/28/);
+  assert.match(completed, /bg-\[#22A06B\]/);
+  assert.match(completed, /ring-\[#22A06B\]\/28/);
+  assert.match(needsInput, /bg-\[#D99900\]/);
+  assert.match(needsInput, /ring-\[#D99900\]\/28/);
+  assert.match(error, /bg-\[#B42318\]/);
+  assert.match(error, /ring-\[#B42318\]\/28/);
 }
 
 testHidesEmptyAttentionWithoutReservedSpace();

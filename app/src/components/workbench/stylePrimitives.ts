@@ -1,16 +1,37 @@
-export const COMPACT_IOS_PAGE_BACKGROUND = "bg-[#f2f2f7]";
+export const WORKBENCH_BRAND_BLUE = "#1456F0";
+export const WORKBENCH_BRAND_BLUE_HOVER = "#0F4BD8";
+export const WORKBENCH_BRAND_BLUE_SOFT = "#F0F5FF";
+export const WORKBENCH_TEXT_PRIMARY = "#1F2329";
+export const WORKBENCH_TEXT_ICON = "#2B2F36";
+export const WORKBENCH_TEXT_SECONDARY = "#646A73";
+export const WORKBENCH_TEXT_TERTIARY = "#8F959E";
+export const WORKBENCH_TEXT_DISABLED = "#BBBFC4";
+export const WORKBENCH_BACKGROUND_1 = "#EFF0F1";
+export const WORKBENCH_BACKGROUND_2 = "#F5F6F7";
+export const WORKBENCH_BACKGROUND_3 = "#F8F9FA";
+export const WORKBENCH_BORDER_1 = "#D0D3D6";
+export const WORKBENCH_BORDER_2 = "#DEE0E3";
+export const WORKBENCH_DIVIDER = "#EFF0F1";
+export const WORKBENCH_SUCCESS_TEXT = "#16845B";
+export const WORKBENCH_SUCCESS_BG = "#E4F8EE";
+export const WORKBENCH_WARNING_TEXT = "#8B5E00";
+export const WORKBENCH_WARNING_BG = "#FFF8DB";
+export const WORKBENCH_DANGER_TEXT = "#B42318";
+export const WORKBENCH_DANGER_BG = "#FFF1F0";
+
+export const COMPACT_IOS_PAGE_BACKGROUND = "bg-[#F5F6F7]";
 
 export const GLASS_PANEL_CLASS =
-  "border border-[#d7d7dd] bg-white/82 shadow-[0_8px_22px_rgba(60,60,67,0.06)] backdrop-blur-xl";
+  "border border-[#DEE0E3] bg-white/82 shadow-[0_8px_22px_rgba(31,35,41,0.05)] backdrop-blur-xl";
 
 export const GLASS_TOP_BAR_CLASS =
-  "border-b border-[#d7d7dd]/70 bg-white/76 shadow-[0_8px_22px_rgba(60,60,67,0.05)] backdrop-blur-2xl";
+  "border-b border-[#DEE0E3]/70 bg-white/76 shadow-[0_8px_22px_rgba(31,35,41,0.045)] backdrop-blur-2xl";
 
 export const DENSE_GLASS_ICON_BUTTON_CLASS =
-  "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#d7d7dd] bg-white/82 text-[#3c3c43] shadow-[0_6px_18px_rgba(60,60,67,0.06)] backdrop-blur-xl transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-50";
+  "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#DEE0E3] bg-white/82 text-[#2B2F36] shadow-[0_6px_18px_rgba(31,35,41,0.05)] backdrop-blur-xl transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-50";
 
 export const MOBILE_GLASS_ICON_BUTTON_CLASS =
-  "inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/76 bg-white/72 text-[#3c3c43] shadow-[0_6px_18px_rgba(60,60,67,0.08)] backdrop-blur-xl transition-all hover:bg-white/88 active:scale-[0.98] active:bg-white/82";
+  "inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/76 bg-white/72 text-[#2B2F36] shadow-[0_6px_18px_rgba(31,35,41,0.07)] backdrop-blur-xl transition-all hover:bg-white/88 active:scale-[0.98] active:bg-white/82";
 
 export const WORKBENCH_PAGE_CONTENT_CLASS = "mx-auto w-full max-w-7xl";
 

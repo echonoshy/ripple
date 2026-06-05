@@ -155,10 +155,10 @@ function testAutomationCardUsesCompactResponsiveLayout() {
   assert.doesNotMatch(source, /data-ripple-automation-meta-chip/);
   assert.doesNotMatch(source, /data-ripple-automation-meta-grid[\s\S]{0,120}flex flex-wrap/);
   assert.match(source, /TYPOGRAPHY_META_CLASS/);
-  assert.match(source, /mt-0\.5 truncate text-\[#384152\]/);
+  assert.match(source, /mt-0\.5 truncate text-\[#2B2F36\]/);
   assert.match(
     source,
-    /data-ripple-automation-latest-run[\s\S]*rounded-lg border border-\[#e8edf7\] bg-\[#f8fbff\]\/70 px-2 py-1\.5/
+    /data-ripple-automation-latest-run[\s\S]*rounded-lg border border-\[#EFF0F1\] bg-\[#F8F9FA\]\/70 px-2 py-1\.5/
   );
   assert.match(source, /data-ripple-automation-latest-run[\s\S]*grid min-w-0 gap-1\.5/);
   assert.doesNotMatch(source, /const latestRunId/);
@@ -201,7 +201,7 @@ function testAutomationRunHistoryUsesReadableRows() {
 
   assert.match(source, /data-ripple-automation-run-history/);
   assert.match(source, /data-ripple-automation-run-row/);
-  assert.match(source, /divide-y divide-\[#eef2fb\]/);
+  assert.match(source, /divide-y divide-\[#EFF0F1\]/);
   assert.match(source, /sm:grid-cols-\[90px_minmax\(0,1fr\)_120px\]/);
 }
 

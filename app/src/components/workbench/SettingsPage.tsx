@@ -98,18 +98,18 @@ const SETTINGS_AVATAR_MENU_ITEM_HEIGHT = 32;
 const SETTINGS_AVATAR_MENU_VERTICAL_PADDING = 8;
 
 const settingsAccountActionButtonClass =
-  `inline-flex h-9 w-full min-w-0 items-center justify-center gap-1 rounded-xl border border-[#dfe6f4] bg-white px-1.5 text-[#374151] transition-all hover:bg-[#f7f8fa] active:scale-[0.98] sm:w-auto sm:min-w-[60px] sm:gap-1 sm:px-2 lg:h-8 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0`;
+  `inline-flex h-9 w-full min-w-0 items-center justify-center gap-1 rounded-xl border border-[#DEE0E3] bg-white px-1.5 text-[#2B2F36] transition-all hover:bg-[#F8F9FA] active:scale-[0.98] sm:w-auto sm:min-w-[60px] sm:gap-1 sm:px-2 lg:h-8 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0`;
 
 const settingsSectionClass =
-  "overflow-hidden rounded-xl border border-[#d7d7dd]/80 bg-white/82 shadow-[0_10px_26px_rgba(60,60,67,0.06)] backdrop-blur-xl";
+  "overflow-hidden rounded-xl border border-[#DEE0E3]/80 bg-white/82 shadow-[0_10px_26px_rgba(31,35,41,0.06)] backdrop-blur-xl";
 
 const settingsGroupedRowClass =
   "flex min-h-10 flex-wrap items-center justify-between gap-2 px-2.5 py-1.5";
 
-const settingsFieldLabelClass = `min-w-0 text-[#667085] ${TYPOGRAPHY_META_MEDIUM_CLASS}`;
+const settingsFieldLabelClass = `min-w-0 text-[#646A73] ${TYPOGRAPHY_META_MEDIUM_CLASS}`;
 
 const settingsFieldInputClass =
-  `mt-1 h-11 w-full rounded-lg border border-[#dfe6f4] bg-white px-2.5 text-[#111827] outline-none focus:border-[#8da0ff] ${TYPOGRAPHY_MOBILE_BODY_CLASS} lg:h-10 lg:text-[14px] lg:leading-[22px]`;
+  `mt-1 h-11 w-full rounded-lg border border-[#DEE0E3] bg-white px-2.5 text-[#1F2329] outline-none focus:border-[#8FB1FF] ${TYPOGRAPHY_MOBILE_BODY_CLASS} lg:h-10 lg:text-[14px] lg:leading-[22px]`;
 
 const settingsFormButtonClass =
   `inline-flex h-11 items-center gap-1.5 rounded-full px-3 lg:h-10 ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`;
@@ -513,7 +513,7 @@ export default function SettingsPage({
                 left: modelMenuPosition.left,
                 position: "fixed",
               }}
-              className="z-50 max-h-[calc(100dvh-104px)] w-44 overflow-y-auto rounded-xl border border-[#dfe6f4] bg-white p-1 shadow-[0_14px_34px_rgba(44,63,123,0.14)]"
+              className="z-50 max-h-[calc(100dvh-104px)] w-44 overflow-y-auto rounded-xl border border-[#DEE0E3] bg-white p-1 shadow-[0_14px_34px_rgba(31,35,41,0.14)]"
               onClick={(event) => event.stopPropagation()}
             >
               {availableModels.map((model) => {
@@ -529,7 +529,7 @@ export default function SettingsPage({
                       closeModelMenu();
                     }}
                     className={`flex h-8 w-full items-center justify-between rounded-lg px-2.5 text-left ${TYPOGRAPHY_META_MEDIUM_CLASS} ${
-                      selected ? "bg-[#eef3ff] text-[#006ee6]" : "text-[#374151] hover:bg-[#f7f8fa]"
+                      selected ? "bg-[#F0F5FF] text-[#0F4BD8]" : "text-[#2B2F36] hover:bg-[#F8F9FA]"
                     }`}
                   >
                     {formatModelName(model.id)}
@@ -554,7 +554,7 @@ export default function SettingsPage({
                 left: avatarMenuPosition.left,
                 position: "fixed",
               }}
-              className="z-50 w-40 rounded-xl border border-[#dfe6f4] bg-white p-1 shadow-[0_14px_34px_rgba(44,63,123,0.14)]"
+              className="z-50 w-40 rounded-xl border border-[#DEE0E3] bg-white p-1 shadow-[0_14px_34px_rgba(31,35,41,0.14)]"
             >
               <button
                 type="button"
@@ -563,7 +563,7 @@ export default function SettingsPage({
                   closeAvatarMenu();
                   avatarFileInputRef.current?.click();
                 }}
-                className={`flex h-8 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[#374151] hover:bg-[#f7f8fa] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                className={`flex h-8 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[#2B2F36] hover:bg-[#F8F9FA] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
               >
                 <Upload size={13} />
                 {t("settings.uploadAvatar")}
@@ -573,7 +573,7 @@ export default function SettingsPage({
                   type="button"
                   role="menuitem"
                   onClick={handleAvatarRemove}
-                  className={`flex h-8 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[#b42318] hover:bg-[#fff1f0] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                  className={`flex h-8 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[#B42318] hover:bg-[#FFF1F0] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
                 >
                   <X size={13} />
                   {t("settings.removeAvatar")}
@@ -587,7 +587,7 @@ export default function SettingsPage({
 
   return (
     <div
-      className={`h-full min-h-0 overflow-y-auto ${COMPACT_IOS_PAGE_BACKGROUND} px-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} text-[#111827] md:px-6 lg:pb-5`}
+      className={`h-full min-h-0 overflow-y-auto ${COMPACT_IOS_PAGE_BACKGROUND} px-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} text-[#1F2329] md:px-6 lg:pb-5`}
     >
       {modelMenuPortal}
       {avatarMenuPortal}
@@ -600,12 +600,12 @@ export default function SettingsPage({
             />
             <div className="min-w-0">
               <h1 className={TYPOGRAPHY_PAGE_TITLE_CLASS}>Ripple</h1>
-              <div className={`text-[#7a8496] ${TYPOGRAPHY_META_CLASS}`}>
+              <div className={`text-[#646A73] ${TYPOGRAPHY_META_CLASS}`}>
                 {t("settings.title")}
               </div>
             </div>
           </div>
-          {isLoading ? <Loader2 size={15} className="mt-1.5 animate-spin text-[#6b7280]" /> : null}
+          {isLoading ? <Loader2 size={15} className="mt-1.5 animate-spin text-[#646A73]" /> : null}
         </header>
 
         <SettingsSection sectionKind="account">
@@ -624,7 +624,7 @@ export default function SettingsPage({
                   type="button"
                   onClick={() => avatarFileInputRef.current?.click()}
                   disabled={isAvatarUploading}
-                  className={`flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[#d7d7dd] bg-white/86 text-[#3c3c43] shadow-[0_8px_18px_rgba(60,60,67,0.08)] transition-all hover:bg-white active:scale-[0.98] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+                  className={`flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[#DEE0E3] bg-white/86 text-[#2B2F36] shadow-[0_8px_18px_rgba(31,35,41,0.08)] transition-all hover:bg-white active:scale-[0.98] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
                   aria-label={t("settings.uploadAvatarFor", { name: avatarName })}
                   title={t("settings.uploadAvatar")}
                 >
@@ -651,11 +651,11 @@ export default function SettingsPage({
                 <div className="min-w-0">
                   <div
                     aria-label={t("settings.displayName")}
-                    className={`truncate text-[#111827] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+                    className={`truncate text-[#1F2329] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
                   >
                     {authMode === "user" ? profileDisplayName : t("settings.apiKeyAccess")}
                   </div>
-                  <div className={`mt-0.5 truncate text-[#667085] ${TYPOGRAPHY_META_CLASS}`}>
+                  <div className={`mt-0.5 truncate text-[#646A73] ${TYPOGRAPHY_META_CLASS}`}>
                     {authMode === "user"
                       ? profileEmail || t("settings.signedIn")
                       : t("settings.developerMode")}
@@ -720,7 +720,7 @@ export default function SettingsPage({
                     <span>
                       {isAvatarUploading ? t("settings.uploading") : t("settings.avatar")}
                     </span>
-                    <ChevronDown size={12} className="text-[#6b7280]" />
+                    <ChevronDown size={12} className="text-[#646A73]" />
                   </button>
                 </div>
               </div>
@@ -734,7 +734,7 @@ export default function SettingsPage({
             {authMode === "user" && isDisplayNameEditing ? (
               <form
                 onSubmit={handleDisplayNameSubmit}
-                className="space-y-2 rounded-lg border border-[#e8edf7] bg-[#f8faff] p-2"
+                className="space-y-2 rounded-lg border border-[#EFF0F1] bg-[#F8F9FA] p-2"
               >
                 <label className={settingsFieldLabelClass}>
                   {t("settings.displayName")}
@@ -748,7 +748,7 @@ export default function SettingsPage({
                   />
                 </label>
                 {displayNameError ? (
-                  <div className={`text-[#cf222e] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>{displayNameError}</div>
+                  <div className={`text-[#B42318] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>{displayNameError}</div>
                 ) : null}
                 <div className="flex flex-wrap items-center justify-end gap-2">
                   <button
@@ -758,7 +758,7 @@ export default function SettingsPage({
                       setDisplayNameInput(profile?.profile?.display_name ?? "");
                       setDisplayNameError(null);
                     }}
-                    className={`${settingsFormButtonClass} border border-[#dfe6f4] bg-white text-[#374151]`}
+                    className={`${settingsFormButtonClass} border border-[#DEE0E3] bg-white text-[#2B2F36]`}
                   >
                     <X size={12} />
                     {t("settings.cancel")}
@@ -766,7 +766,7 @@ export default function SettingsPage({
                   <button
                     type="submit"
                     disabled={isSavingDisplayName}
-                    className={`${settingsFormButtonClass} bg-[#007aff] text-white disabled:cursor-not-allowed disabled:bg-[#d0d7e2]`}
+                    className={`${settingsFormButtonClass} bg-[#1456F0] text-white disabled:cursor-not-allowed disabled:bg-[#BBBFC4]`}
                   >
                     {isSavingDisplayName ? <Loader2 size={12} className="animate-spin" /> : null}
                     {t("settings.saveName")}
@@ -783,7 +783,7 @@ export default function SettingsPage({
             {authMode === "user" && isPasswordOpen ? (
               <form
                 onSubmit={handlePasswordSubmit}
-                className="space-y-2 rounded-lg border border-[#e8edf7] bg-[#f8faff] p-2"
+                className="space-y-2 rounded-lg border border-[#EFF0F1] bg-[#F8F9FA] p-2"
               >
                 <div className="grid gap-2 sm:grid-cols-2">
                   <label className={settingsFieldLabelClass}>
@@ -806,7 +806,7 @@ export default function SettingsPage({
                   </label>
                 </div>
                 {passwordError ? (
-                  <div className={`text-[#cf222e] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>{passwordError}</div>
+                  <div className={`text-[#B42318] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>{passwordError}</div>
                 ) : null}
                 <div className="flex flex-wrap items-center justify-end gap-2">
                   <button
@@ -815,7 +815,7 @@ export default function SettingsPage({
                       setIsPasswordOpen(false);
                       setPasswordError(null);
                     }}
-                    className={`${settingsFormButtonClass} border border-[#dfe6f4] bg-white text-[#374151]`}
+                    className={`${settingsFormButtonClass} border border-[#DEE0E3] bg-white text-[#2B2F36]`}
                   >
                     <X size={12} />
                     {t("settings.cancel")}
@@ -823,7 +823,7 @@ export default function SettingsPage({
                   <button
                     type="submit"
                     disabled={isChangingPassword}
-                    className={`${settingsFormButtonClass} bg-[#007aff] text-white disabled:cursor-not-allowed disabled:bg-[#d0d7e2]`}
+                    className={`${settingsFormButtonClass} bg-[#1456F0] text-white disabled:cursor-not-allowed disabled:bg-[#BBBFC4]`}
                   >
                     {isChangingPassword ? <Loader2 size={12} className="animate-spin" /> : null}
                     {t("settings.savePassword")}
@@ -870,8 +870,8 @@ export default function SettingsPage({
               activeRuns={usage?.active_runs ?? 0}
             />
           </div>
-          <div className="border-t border-[#e8edf7] p-2">
-            <div className={`mb-1 flex items-center gap-1.5 text-[#374151] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
+          <div className="border-t border-[#EFF0F1] p-2">
+            <div className={`mb-1 flex items-center gap-1.5 text-[#2B2F36] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
               <IconTile tone="neutral" size="xs">
                 <Cpu size={12} />
               </IconTile>
@@ -879,12 +879,12 @@ export default function SettingsPage({
             </div>
             <div
               data-ripple-settings-token-grid
-              className="grid grid-cols-3 overflow-hidden rounded-lg border border-[#e8edf7] bg-[#f8faff] text-center"
+              className="grid grid-cols-3 overflow-hidden rounded-lg border border-[#EFF0F1] bg-[#F8F9FA] text-center"
             >
               {tokenUsageMetrics.map((metric, index) => {
                 const borderClassName = [
-                  index % 3 === 0 ? "" : "border-l border-[#e8edf7]",
-                  index >= 3 ? "border-t border-[#e8edf7]" : "",
+                  index % 3 === 0 ? "" : "border-l border-[#EFF0F1]",
+                  index >= 3 ? "border-t border-[#EFF0F1]" : "",
                 ]
                   .filter(Boolean)
                   .join(" ");
@@ -908,10 +908,10 @@ export default function SettingsPage({
             title={t("settings.defaults")}
             tone="neutral"
           />
-          <div data-ripple-settings-defaults-list className="divide-y divide-[#e8edf7]">
+          <div data-ripple-settings-defaults-list className="divide-y divide-[#EFF0F1]">
             <div className={settingsGroupedRowClass}>
               <div className="min-w-0">
-                <div className={`text-[#111827] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
+                <div className={`text-[#1F2329] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
                   {t("settings.defaultModel")}
                 </div>
               </div>
@@ -919,13 +919,13 @@ export default function SettingsPage({
                 <button
                   type="button"
                   onClick={handleModelMenuToggle}
-                  className={`inline-flex h-11 min-w-28 items-center justify-between gap-2 rounded-full border border-[#dfe6f4] bg-white px-3 text-[#374151] transition-all outline-none hover:bg-[#f7f8fa] focus:border-[#8da0ff] lg:h-10 ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+                  className={`inline-flex h-11 min-w-28 items-center justify-between gap-2 rounded-full border border-[#DEE0E3] bg-white px-3 text-[#2B2F36] transition-all outline-none hover:bg-[#F8F9FA] focus:border-[#8FB1FF] lg:h-10 ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
                   aria-label={t("settings.defaultModel")}
                   aria-haspopup="menu"
                   aria-expanded={isModelMenuOpen}
                 >
                   {formatModelName(defaultModel)}
-                  <ChevronDown size={13} className="text-[#6b7280]" />
+                  <ChevronDown size={13} className="text-[#646A73]" />
                 </button>
               </div>
             </div>
@@ -938,17 +938,17 @@ export default function SettingsPage({
                   <Languages size={13} />
                 </IconTile>
                 <div className="min-w-0">
-                  <div className={`text-[#111827] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
+                  <div className={`text-[#1F2329] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
                     {t("settings.language.title")}
                   </div>
-                  <div className={`mt-0.5 hidden text-[#667085] sm:block ${TYPOGRAPHY_META_CLASS}`}>
+                  <div className={`mt-0.5 hidden text-[#646A73] sm:block ${TYPOGRAPHY_META_CLASS}`}>
                     {t("settings.language.description")}
                   </div>
                 </div>
               </div>
               <div
                 data-ripple-settings-language-control
-                className="grid w-full grid-cols-3 rounded-full border border-[#dfe6f4] bg-white p-0.5 sm:inline-flex sm:w-auto sm:shrink-0"
+                className="grid w-full grid-cols-3 rounded-full border border-[#DEE0E3] bg-white p-0.5 sm:inline-flex sm:w-auto sm:shrink-0"
               >
                 {languageOptions.map((option) => {
                   const selected = localePreference === option.value;
@@ -960,8 +960,8 @@ export default function SettingsPage({
                       onClick={() => setLocalePreference(option.value)}
                       className={`h-9 min-w-0 rounded-full px-1 transition-all sm:min-w-[76px] sm:px-2 lg:h-8 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} sm:text-[12px] sm:leading-5 ${
                         selected
-                          ? "bg-[#eef4ff] text-[#006ee6] shadow-[0_6px_14px_rgba(47,107,255,0.14)]"
-                          : "text-[#667085] hover:bg-[#f7f8fa] hover:text-[#374151]"
+                          ? "bg-[#F0F5FF] text-[#0F4BD8] shadow-[0_6px_14px_rgba(20,86,240,0.14)]"
+                          : "text-[#646A73] hover:bg-[#F8F9FA] hover:text-[#2B2F36]"
                       }`}
                     >
                       {option.label}
@@ -984,7 +984,7 @@ export default function SettingsPage({
             onClick={() => setDiagnosticsOpen((open) => !open)}
             className="flex w-full items-center justify-between gap-2 px-2.5 py-2 text-left"
           >
-            <span className={`flex items-center gap-1.5 text-[#111827] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
+            <span className={`flex items-center gap-1.5 text-[#1F2329] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
               <IconTile tone="neutral" size="xs">
                 <ShieldCheck size={13} />
               </IconTile>
@@ -992,13 +992,13 @@ export default function SettingsPage({
             </span>
             <ChevronDown
               size={14}
-              className={`shrink-0 text-[#6b7280] transition-transform ${
+              className={`shrink-0 text-[#646A73] transition-transform ${
                 diagnosticsOpen ? "rotate-180" : ""
               }`}
             />
           </button>
           {diagnosticsOpen ? (
-            <div className="space-y-1.5 border-t border-[#e8edf7] p-2.5">
+            <div className="space-y-1.5 border-t border-[#EFF0F1] p-2.5">
               <DiagnosticRow
                 icon={<Server size={13} />}
                 label={t("settings.apiEndpoint")}
@@ -1062,7 +1062,7 @@ function SectionHeader({
   tone?: IconTileTone;
 }) {
   return (
-    <div className={`flex min-h-10 items-center gap-1.5 border-b border-[#e5e5ea]/80 bg-white/54 px-2.5 text-[#111827] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
+    <div className={`flex min-h-10 items-center gap-1.5 border-b border-[#EFF0F1]/80 bg-white/54 px-2.5 text-[#1F2329] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
       <IconTile tone={tone} size="xs">
         {icon}
       </IconTile>
@@ -1088,8 +1088,8 @@ function UsageMeter({
 }) {
   const amount = percent(value, max);
   return (
-    <div data-ripple-settings-usage-meter className="rounded-lg bg-[#f8faff]/70 px-2 py-1.5">
-      <div className={`mb-1 flex items-center justify-between text-[#6b7280] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
+    <div data-ripple-settings-usage-meter className="rounded-lg bg-[#F8F9FA]/70 px-2 py-1.5">
+      <div className={`mb-1 flex items-center justify-between text-[#646A73] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
         <span className="flex items-center gap-1.5">
           <IconTile tone={iconTone} size="xs">
             {icon}
@@ -1098,13 +1098,13 @@ function UsageMeter({
         </span>
         <span>{amount.toFixed(1)}%</span>
       </div>
-      <div className="h-1 w-full overflow-hidden rounded-full bg-[#e5e7eb]">
+      <div className="h-1 w-full overflow-hidden rounded-full bg-[#EFF0F1]">
         <div
-          className="h-full bg-[#007aff] transition-all duration-300"
+          className="h-full bg-[#1456F0] transition-all duration-300"
           style={{ width: `${amount}%` }}
         />
       </div>
-      <div className={`mt-1 text-[#8b8f94] ${TYPOGRAPHY_META_CLASS}`}>{detail}</div>
+      <div className={`mt-1 text-[#8F959E] ${TYPOGRAPHY_META_CLASS}`}>{detail}</div>
     </div>
   );
 }
@@ -1122,15 +1122,15 @@ function Metric({
 }) {
   const baseClassName = compact
     ? "px-1.5 py-1"
-    : "rounded-lg border border-[#e8edf7] bg-[#f8faff] p-2";
+    : "rounded-lg border border-[#EFF0F1] bg-[#F8F9FA] p-2";
 
   return (
     <div className={className ? `${baseClassName} ${className}` : baseClassName}>
       <div
         className={
           compact
-            ? `text-[#8b8f94] ${TYPOGRAPHY_META_MEDIUM_CLASS}`
-            : `text-[#8b8f94] ${TYPOGRAPHY_META_MEDIUM_CLASS}`
+            ? `text-[#8F959E] ${TYPOGRAPHY_META_MEDIUM_CLASS}`
+            : `text-[#8F959E] ${TYPOGRAPHY_META_MEDIUM_CLASS}`
         }
       >
         {label}
@@ -1138,8 +1138,8 @@ function Metric({
       <div
         className={
           compact
-            ? `mt-0.5 text-[#253247] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`
-            : `mt-0.5 text-[#253247] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`
+            ? `mt-0.5 text-[#1F2329] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`
+            : `mt-0.5 text-[#1F2329] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`
         }
       >
         {value}
@@ -1158,13 +1158,13 @@ function RunActivityMetrics({ runsToday, activeRuns }: { runsToday: number; acti
   return (
     <div
       data-ripple-settings-run-metrics
-      className="overflow-hidden rounded-lg border border-[#e8edf7] bg-[#f8faff] md:col-span-2"
+      className="overflow-hidden rounded-lg border border-[#EFF0F1] bg-[#F8F9FA] md:col-span-2"
     >
-      <div className="grid grid-cols-2 divide-x divide-[#e8edf7]">
+      <div className="grid grid-cols-2 divide-x divide-[#EFF0F1]">
         {items.map((item) => (
           <div key={item.label} className="px-2 py-1.5">
-            <div className={`text-[#8b8f94] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>{item.label}</div>
-            <div className={`mt-0.5 text-[#253247] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
+            <div className={`text-[#8F959E] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>{item.label}</div>
+            <div className={`mt-0.5 text-[#1F2329] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
               {item.value}
             </div>
           </div>
@@ -1184,13 +1184,13 @@ function DiagnosticRow({
   value: string;
 }) {
   return (
-    <div className="flex min-h-8 items-center gap-1.5 rounded-lg border border-[#e8edf7] bg-[#f8faff] px-2 py-1">
+    <div className="flex min-h-8 items-center gap-1.5 rounded-lg border border-[#EFF0F1] bg-[#F8F9FA] px-2 py-1">
       <IconTile tone="neutral" size="xs">
         {icon}
       </IconTile>
       <span className="min-w-0 flex-1">
-        <span className={`block text-[#6b7280] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>{label}</span>
-        <span className={`block truncate font-mono text-[#253247] ${TYPOGRAPHY_META_CLASS}`}>
+        <span className={`block text-[#646A73] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>{label}</span>
+        <span className={`block truncate font-mono text-[#1F2329] ${TYPOGRAPHY_META_CLASS}`}>
           {value}
         </span>
       </span>

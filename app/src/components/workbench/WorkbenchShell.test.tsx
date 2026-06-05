@@ -139,9 +139,9 @@ function testCollapsedInspectorUsesEdgeHandle() {
   assert.match(html, /data-ripple-panel-edge-handle="workspace-panel"/);
   assert.match(html, /top-1\/2/);
   assert.match(html, /bg-white\/82/);
-  assert.match(html, /text-\[#007aff\]/);
+  assert.match(html, /text-\[#1456F0\]/);
   assert.doesNotMatch(html, /top-6/);
-  assert.doesNotMatch(html, /bg-\[#007aff\][\s\S]*text-white/);
+  assert.doesNotMatch(html, /bg-\[#1456F0\][\s\S]*text-white/);
   assert.doesNotMatch(html, /top-\[14px\] right-4 z-30/);
 }
 

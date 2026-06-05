@@ -220,8 +220,8 @@ export default function SessionComposer({
               if (isModelDropdownOpen) onToggleModelDropdown();
               setIsFolderPickerOpen((open) => !open);
             }}
-            className={`inline-flex h-11 w-11 items-center justify-center rounded-full hover:bg-[#f3f4f6] hover:text-[#111827] active:bg-[#eef3ff] lg:h-8 lg:w-8 ${
-              hasFocusFolder ? "bg-[#eaf4ff] text-[#007aff]" : "text-[#3c3c43]"
+            className={`inline-flex h-11 w-11 items-center justify-center rounded-full hover:bg-[#F5F6F7] hover:text-[#1F2329] active:bg-[#F0F5FF] lg:h-8 lg:w-8 ${
+              hasFocusFolder ? "bg-[#F0F5FF] text-[#1456F0]" : "text-[#2B2F36]"
             }`}
           >
             <FolderGit2 size={16} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
@@ -244,7 +244,7 @@ export default function SessionComposer({
           title={t("composer.attachFiles")}
           onClick={() => fileInputRef.current?.click()}
           disabled={attachDisabled}
-          className="inline-flex h-11 w-11 items-center justify-center rounded-full text-[#3c3c43] hover:bg-[#f2f2f7] hover:text-[#111827] active:bg-[#eaf4ff] disabled:cursor-not-allowed disabled:opacity-50 lg:h-8 lg:w-8"
+          className="inline-flex h-11 w-11 items-center justify-center rounded-full text-[#2B2F36] hover:bg-[#F5F6F7] hover:text-[#1F2329] active:bg-[#F0F5FF] disabled:cursor-not-allowed disabled:opacity-50 lg:h-8 lg:w-8"
         >
           {isUploadingFiles ? (
             <Loader2 size={15} className="animate-spin" />
@@ -262,20 +262,20 @@ export default function SessionComposer({
             setIsFolderPickerOpen(false);
             onToggleModelDropdown();
           }}
-          className="inline-flex h-11 w-11 items-center justify-center rounded-full text-[#3c3c43] hover:bg-[#f2f2f7] hover:text-[#111827] active:bg-[#eaf4ff] lg:h-8 lg:w-8"
+          className="inline-flex h-11 w-11 items-center justify-center rounded-full text-[#2B2F36] hover:bg-[#F5F6F7] hover:text-[#1F2329] active:bg-[#F0F5FF] lg:h-8 lg:w-8"
         >
           <BrainCircuit size={16} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
         </button>
         {isModelDropdownOpen && (
-          <div className="absolute bottom-full left-0 z-30 mb-2 w-48 overflow-hidden rounded-2xl border border-[#d7d7dd] bg-white/94 shadow-[0_14px_34px_rgba(60,60,67,0.16)] backdrop-blur-2xl">
+          <div className="absolute bottom-full left-0 z-30 mb-2 w-48 overflow-hidden rounded-2xl border border-[#DEE0E3] bg-white/94 shadow-[0_14px_34px_rgba(31,35,41,0.16)] backdrop-blur-2xl">
             <div className="p-1">
               {availableModels.map((model) => (
                 <button
                   key={model.id}
                   type="button"
                   onClick={() => onSelectModel(model.id)}
-                  className={`flex w-full items-center rounded-xl px-3 py-2 text-left font-[family-name:var(--font-mono)] ${TYPOGRAPHY_META_CLASS} hover:bg-[#f2f2f7] ${
-                    selectedModel === model.id ? "bg-[#eaf4ff] text-[#007aff]" : "text-[#111827]"
+                  className={`flex w-full items-center rounded-xl px-3 py-2 text-left font-[family-name:var(--font-mono)] ${TYPOGRAPHY_META_CLASS} hover:bg-[#F5F6F7] ${
+                    selectedModel === model.id ? "bg-[#F0F5FF] text-[#1456F0]" : "text-[#1F2329]"
                   }`}
                 >
                   {formatModelName(model.id)}
@@ -307,7 +307,7 @@ export default function SessionComposer({
               ? t("composer.askAnything")
               : t("composer.askAnything")
       }
-      className={`session-composer-input mb-[2px] max-h-[104px] min-h-10 min-w-0 resize-none bg-transparent px-1.5 py-2 ${TYPOGRAPHY_MOBILE_BODY_CLASS} text-[#111827] outline-none placeholder:text-[15px] placeholder:text-[#8e8e93] disabled:opacity-60 lg:mb-0 lg:max-h-[180px] lg:min-h-[36px] lg:px-2 lg:py-1.5 lg:text-[14px] lg:leading-[22px] lg:placeholder:text-[#8e8e93] ${
+      className={`session-composer-input mb-[2px] max-h-[104px] min-h-10 min-w-0 resize-none bg-transparent px-1.5 py-2 ${TYPOGRAPHY_MOBILE_BODY_CLASS} text-[#1F2329] outline-none placeholder:text-[15px] placeholder:text-[#8F959E] disabled:opacity-60 lg:mb-0 lg:max-h-[180px] lg:min-h-[36px] lg:px-2 lg:py-1.5 lg:text-[14px] lg:leading-[22px] lg:placeholder:text-[#8F959E] ${
         isExpandedComposer ? "col-span-2 row-start-1 w-full" : "flex-1"
       }`}
     />
@@ -320,7 +320,7 @@ export default function SessionComposer({
         onClick={onStop}
         aria-label={t("composer.stopGeneration")}
         title={isBlocked ? t("composer.stopRunningSession") : t("composer.stopGeneration")}
-        className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#cf222e]/20 bg-[#ffebe9] text-[#cf222e] shadow-[0_8px_18px_rgba(207,34,46,0.10)] hover:bg-[#ffd7d5] lg:h-8 lg:w-8 ${
+        className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#B42318]/20 bg-[#FFF1F0] text-[#B42318] shadow-[0_8px_18px_rgba(180,35,24,0.10)] hover:bg-[#FFE3E0] lg:h-8 lg:w-8 ${
           isExpandedComposer ? "col-start-2 row-start-2 justify-self-end" : "lg:mb-[2px]"
         }`}
       >
@@ -333,7 +333,7 @@ export default function SessionComposer({
         disabled={!canSend || sendDisabled}
         aria-label={t("composer.sendMessage")}
         title={t("composer.sendMessage")}
-        className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#007aff]/20 bg-[#007aff] text-white shadow-[0_10px_22px_rgba(0,122,255,0.26)] hover:bg-[#006ee6] disabled:cursor-not-allowed disabled:border-[#d7d7dd] disabled:bg-[#f2f2f7] disabled:bg-none disabled:text-[#8e8e93] disabled:shadow-none lg:h-8 lg:w-8 ${
+        className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#1456F0]/20 bg-[#1456F0] text-white shadow-[0_10px_22px_rgba(20,86,240,0.26)] hover:bg-[#0F4BD8] disabled:cursor-not-allowed disabled:border-[#DEE0E3] disabled:bg-[#F5F6F7] disabled:bg-none disabled:text-[#8F959E] disabled:shadow-none lg:h-8 lg:w-8 ${
           isExpandedComposer ? "col-start-2 row-start-2 justify-self-end" : "lg:mb-[2px]"
         }`}
       >
@@ -342,8 +342,8 @@ export default function SessionComposer({
     );
 
   return (
-    <div className="shrink-0 border-t border-[#d7d7dd]/70 bg-white/76 px-3 pt-1 pb-[max(env(safe-area-inset-bottom),8px)] shadow-[0_-14px_32px_rgba(60,60,67,0.08)] backdrop-blur-2xl sm:px-4 sm:pt-2 md:px-6 lg:pb-[max(env(safe-area-inset-bottom),12px)]">
-      <div className="mx-auto max-w-4xl rounded-[22px] border border-[#d7d7dd] bg-white/92 p-1.5 shadow-[0_12px_30px_rgba(60,60,67,0.10)] transition-colors focus-within:border-[#007aff] sm:p-1.5">
+    <div className="shrink-0 border-t border-[#DEE0E3]/70 bg-white/76 px-3 pt-1 pb-[max(env(safe-area-inset-bottom),8px)] shadow-[0_-14px_32px_rgba(31,35,41,0.08)] backdrop-blur-2xl sm:px-4 sm:pt-2 md:px-6 lg:pb-[max(env(safe-area-inset-bottom),12px)]">
+      <div className="mx-auto max-w-4xl rounded-[22px] border border-[#DEE0E3] bg-white/92 p-1.5 shadow-[0_12px_30px_rgba(31,35,41,0.10)] transition-colors focus-within:border-[#1456F0] sm:p-1.5">
         <input
           ref={fileInputRef}
           type="file"
@@ -371,7 +371,7 @@ export default function SessionComposer({
             {pendingLocalImages.map((image) => (
               <span
                 key={image.id}
-                className="group relative inline-flex h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-[#d7d7dd] bg-[#f2f2f7]"
+                className="group relative inline-flex h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-[#DEE0E3] bg-[#F5F6F7]"
                 title={image.name}
               >
                 {image.previewUrl ? (
@@ -381,7 +381,7 @@ export default function SessionComposer({
                     className="h-full w-full object-cover"
                   />
                 ) : (
-                  <span className="flex h-full w-full items-center justify-center text-[#6b7280]">
+                  <span className="flex h-full w-full items-center justify-center text-[#646A73]">
                     <ImageIcon size={18} />
                   </span>
                 )}
@@ -390,7 +390,7 @@ export default function SessionComposer({
                   aria-label={t("composer.removeItem", { name: image.name })}
                   title={t("composer.removeItem", { name: image.name })}
                   onClick={() => onRemovePendingLocalImage(image.id)}
-                  className="absolute top-1 right-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-white/92 text-[#384152] shadow-[0_2px_8px_rgba(15,23,42,0.16)] hover:bg-[#ffebe9] hover:text-[#cf222e]"
+                  className="absolute top-1 right-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-white/92 text-[#2B2F36] shadow-[0_2px_8px_rgba(15,23,42,0.16)] hover:bg-[#FFF1F0] hover:text-[#B42318]"
                 >
                   <X size={12} />
                 </button>
@@ -403,17 +403,17 @@ export default function SessionComposer({
             {pendingFiles.map((file) => (
               <span
                 key={file.path}
-                className={`inline-flex max-w-[240px] items-center gap-1.5 rounded-full border border-[#d7d7dd] bg-[#f2f2f7] px-2 py-1 ${TYPOGRAPHY_MICRO_CLASS} text-[#3c3c43]`}
+                className={`inline-flex max-w-[240px] items-center gap-1.5 rounded-full border border-[#DEE0E3] bg-[#F5F6F7] px-2 py-1 ${TYPOGRAPHY_MICRO_CLASS} text-[#2B2F36]`}
                 title={file.path}
               >
-                <FileText size={13} className="shrink-0 text-[#6b7280]" />
+                <FileText size={13} className="shrink-0 text-[#646A73]" />
                 <span className="truncate">{file.name}</span>
                 <button
                   type="button"
                   aria-label={t("composer.removeItem", { name: file.name })}
                   title={t("composer.removeItem", { name: file.name })}
                   onClick={() => onRemovePendingFile(file.path)}
-                  className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[#667085] hover:bg-[#e5e7eb] hover:text-[#111827]"
+                  className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[#646A73] hover:bg-[#EFF0F1] hover:text-[#1F2329]"
                 >
                   <X size={11} />
                 </button>
@@ -424,7 +424,7 @@ export default function SessionComposer({
         {(isUploadingFiles || uploadError) && (
           <div
             className={`flex min-w-0 items-start gap-1.5 px-2 pt-1 pb-2 ${TYPOGRAPHY_MICRO_CLASS} ${
-              uploadError ? "text-[#cf222e]" : "text-[#57606a]"
+              uploadError ? "text-[#B42318]" : "text-[#646A73]"
             }`}
           >
             {isUploadingFiles ? (

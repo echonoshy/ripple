@@ -67,7 +67,7 @@ function testMobileBrandWordmarkHasQuietPersonality() {
   assert.doesNotMatch(mobileSessionsPageSource, /font-\[800\]/);
   assert.doesNotMatch(
     mobileSessionsPageSource,
-    /data-ripple-mobile-brand-wordmark="true"[\s\S]{0,520}bg-\[#007aff\]/
+    /data-ripple-mobile-brand-wordmark="true"[\s\S]{0,520}bg-\[#1456F0\]/
   );
   assert.doesNotMatch(mobileSessionsPageSource, /tracking-\[-/);
 }
@@ -77,7 +77,7 @@ function testUsesQuietAgentControlPlaneStyling() {
 
   assert.match(html, /bg-white\/78/);
   assert.match(html, /backdrop-blur-xl/);
-  assert.match(html, /shadow-\[0_8px_24px_rgba\(60,60,67,0\.05\)\]/);
+  assert.match(html, /shadow-\[0_8px_24px_rgba\(31,35,41,0\.05\)\]/);
   assert.match(html, /rounded-2xl/);
   assert.doesNotMatch(html, /bg-gradient/);
   assert.doesNotMatch(html, /linear-gradient/);
@@ -129,8 +129,8 @@ function testHeaderActionsUseSharedGlassTreatment() {
     mobileSessionsPageSource,
     /aria-label=\{t\("sessions.newSession"\)\}[\s\S]*?<MessageSquarePlus size=\{18\}/
   );
-  assert.doesNotMatch(headerActionClass, /bg-\[#007aff\]/);
-  assert.doesNotMatch(html, /border-\[#007aff\] bg-\[#007aff\] text-white/);
+  assert.doesNotMatch(headerActionClass, /bg-\[#1456F0\]/);
+  assert.doesNotMatch(html, /border-\[#1456F0\] bg-\[#1456F0\] text-white/);
 }
 
 function testSessionRowsDoNotClipOptionsMenu() {

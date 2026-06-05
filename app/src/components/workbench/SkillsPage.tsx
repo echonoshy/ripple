@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -52,6 +53,12 @@ import {
   TYPOGRAPHY_PAGE_TITLE_CLASS,
   WORKBENCH_PAGE_CONTENT_CLASS,
 } from "./stylePrimitives";
+import {
+  mobilePageTransition,
+  mobilePageVariants,
+  reducedMobilePageVariants,
+  reducedMotionTransition,
+} from "./motionPrimitives";
 import { SkillDescriptionMarkdown } from "./SkillDescriptionMarkdown";
 
 const SKILL_REFRESH_THROTTLE_MS = 10_000;
@@ -153,7 +160,7 @@ const CATEGORY_LOGO_META: Record<SkillCategoryGroupId, SkillCategoryLogoMeta> = 
     dotClass: "bg-[#18C6FF]",
   },
   google_workspace: {
-    shellClass: "border-[#DFE6F4] bg-white/86",
+    shellClass: "border-[#DEE0E3] bg-white/86",
     dotClass: "bg-[#34A853]",
   },
   bilibili: {
@@ -162,7 +169,7 @@ const CATEGORY_LOGO_META: Record<SkillCategoryGroupId, SkillCategoryLogoMeta> = 
   },
   notion: {
     shellClass: "border-[#DFE0E3] bg-white/86",
-    dotClass: "bg-[#111827]",
+    dotClass: "bg-[#1F2329]",
   },
   general: {
     shellClass: "border-[#D8E8DE] bg-[#F0F9F4] text-[#16845B]",
@@ -453,7 +460,7 @@ function NotionLogo() {
   return (
     <svg aria-hidden="true" viewBox="0 0 24 24" className="h-6 w-6">
       <path
-        fill="#111827"
+        fill="#1F2329"
         d="M4.459 4.208c.746.606 1.026.56 2.428.466l13.215-.793c.28 0 .047-.28-.046-.326L17.86 1.968c-.42-.326-.981-.7-2.055-.607L3.01 2.295c-.466.046-.56.28-.374.466zm.793 3.08v13.904c0 .747.373 1.027 1.214.98l14.523-.84c.841-.046.935-.56.935-1.167V6.354c0-.606-.233-.933-.748-.887l-15.177.887c-.56.047-.747.327-.747.933zm14.337.745c.093.42 0 .84-.42.888l-.7.14v10.264c-.608.327-1.168.514-1.635.514-.748 0-.935-.234-1.495-.933l-4.577-7.186v6.952L12.21 19s0 .84-1.168.84l-3.222.186c-.093-.186 0-.653.327-.746l.84-.233V9.854L7.822 9.76c-.094-.42.14-1.026.793-1.073l3.456-.233 4.764 7.279v-6.44l-1.215-.139c-.093-.514.28-.887.747-.933zM1.936 1.035l13.31-.98c1.634-.14 2.055-.047 3.082.7l4.249 2.986c.7.513.934.653.934 1.213v16.378c0 1.026-.373 1.634-1.68 1.726l-15.458.934c-.98.047-1.448-.093-1.962-.747l-3.129-4.06c-.56-.747-.793-1.306-.793-1.96V2.667c0-.839.374-1.54 1.447-1.632z"
       />
     </svg>
@@ -498,7 +505,7 @@ function categoryConnectionDotClass(
 ): string {
   if (!connectorNameForCategory(category)) return CATEGORY_LOGO_META[category.groupId].dotClass;
   if (status?.connected) return CATEGORY_LOGO_META[category.groupId].dotClass;
-  if (status) return "bg-[#BF8700]";
+  if (status) return "bg-[#D99900]";
   return "bg-[#8F959E]";
 }
 
@@ -654,6 +661,7 @@ export default function SkillsPage({
   onConnectorStateChange,
 }: SkillsPageProps) {
   const { t } = useI18n();
+  const reduceMotion = useReducedMotion();
   const [skills, setSkills] = useState<SkillInfo[]>(
     () => cachedSkillSnapshot(userId)?.skills || []
   );
@@ -677,6 +685,7 @@ export default function SkillsPage({
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+  const [categoryTransitionDirection, setCategoryTransitionDirection] = useState(0);
   const [expandedDescriptionSkillId, setExpandedDescriptionSkillId] = useState<string | null>(
     null
   );
@@ -826,6 +835,18 @@ export default function SkillsPage({
     [searchQuery, selectedCategory, statusFilter]
   );
   const activeFilterCount = (searchQuery.trim() ? 1 : 0) + (statusFilter !== "all" ? 1 : 0);
+
+  const openCategory = useCallback((categoryId: string) => {
+    setCategoryTransitionDirection(1);
+    setExpandedDescriptionSkillId(null);
+    setSelectedCategoryId(categoryId);
+  }, []);
+
+  const closeCategory = useCallback(() => {
+    setCategoryTransitionDirection(-1);
+    setExpandedDescriptionSkillId(null);
+    setSelectedCategoryId(null);
+  }, []);
 
   const openCreateSkillChat = useCallback(() => {
     onOpenChat?.(t("skills.createChatPrompt"), { autoSend: true, newSession: true });
@@ -1092,7 +1113,7 @@ export default function SkillsPage({
           <SlidersHorizontal size={14} />
           <span className="hidden sm:inline">{t("skills.filter")}</span>
           {activeFilterCount > 0 && (
-            <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#1456F0] px-1 text-[10px] leading-none text-white">
+            <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#1456F0] px-1 text-[11px] leading-none text-white">
               {activeFilterCount}
             </span>
           )}
@@ -1266,7 +1287,7 @@ export default function SkillsPage({
         key={category.id}
         type="button"
         data-ripple-skill-category-row="true"
-        onClick={() => setSelectedCategoryId(category.id)}
+        onClick={() => openCategory(category.id)}
         className={`grid min-h-[92px] w-full grid-cols-[auto_auto_minmax(0,1fr)] items-center gap-3 rounded-xl border bg-white/86 px-3 py-3 text-left shadow-[0_10px_24px_rgba(31,35,41,0.045)] backdrop-blur-xl transition-colors hover:bg-white sm:grid-cols-[auto_auto_minmax(0,1fr)_auto] ${SKILLS_PAGE_BORDER_CLASS}`}
       >
         <ChevronRight size={16} className={SKILLS_PAGE_TEXT_TERTIARY_CLASS} />
@@ -1324,7 +1345,7 @@ export default function SkillsPage({
       <div className="flex items-start gap-2">
         <button
           type="button"
-          onClick={() => setSelectedCategoryId(null)}
+          onClick={closeCategory}
           aria-label={t("skills.backToCategories")}
           title={t("skills.backToCategories")}
           className={`${MOBILE_GLASS_ICON_BUTTON_CLASS} shrink-0 lg:h-10 lg:w-10`}
@@ -1357,6 +1378,19 @@ export default function SkillsPage({
       </div>
     </section>
   );
+
+  const renderCategoryStage = () => {
+    if (skills.length === 0) {
+      return (
+        <div
+          className={`flex h-32 items-center justify-center rounded-xl border border-dashed ${SKILLS_PAGE_BORDER_CLASS} bg-white/56 ${SKILLS_PAGE_TEXT_TERTIARY_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
+        >
+          {t("skills.empty")}
+        </div>
+      );
+    }
+    return selectedCategory ? renderCategoryDetail(selectedCategory) : renderCategoryIndex();
+  };
 
   return (
     <div
@@ -1433,17 +1467,21 @@ export default function SkillsPage({
 
         {renderSearchAndFilters()}
 
-        {skills.length === 0 ? (
-          <div
-            className={`flex h-32 items-center justify-center rounded-xl border border-dashed ${SKILLS_PAGE_BORDER_CLASS} bg-white/56 ${SKILLS_PAGE_TEXT_TERTIARY_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
+        <AnimatePresence mode="wait" initial={false} custom={categoryTransitionDirection}>
+          <motion.div
+            key={selectedCategory ? `detail:${selectedCategory.id}` : "index"}
+            data-ripple-skill-category-motion-stage="true"
+            custom={categoryTransitionDirection}
+            variants={reduceMotion ? reducedMobilePageVariants : mobilePageVariants}
+            initial="enter"
+            animate="center"
+            exit="exit"
+            transition={reduceMotion ? reducedMotionTransition : mobilePageTransition}
+            className="min-w-0"
           >
-            {t("skills.empty")}
-          </div>
-        ) : selectedCategory ? (
-          renderCategoryDetail(selectedCategory)
-        ) : (
-          renderCategoryIndex()
-        )}
+            {renderCategoryStage()}
+          </motion.div>
+        </AnimatePresence>
       </div>
     </div>
   );

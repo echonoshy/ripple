@@ -119,13 +119,13 @@ function testComposerShowsWorkspaceFolderPickerButton() {
   assert.doesNotMatch(html, /focus folder/i);
 }
 
-function testComposerInputSuppressesGlobalBlueFocusOutline() {
+function testComposerInputDoesNotNeedGlobalBlueFocusOverride() {
   const html = renderComposer();
   const globalCss = readFileSync(new URL("../../globals.css", import.meta.url), "utf8");
 
   assert.match(html, /session-composer-input/);
-  assert.match(globalCss, /\.session-composer-input:focus-visible/);
-  assert.match(globalCss, /outline:\s*none/);
+  assert.doesNotMatch(globalCss, /:focus-visible\s*\{/);
+  assert.doesNotMatch(globalCss, /outline:\s*2px solid var\(--ripple-brand\)/);
 }
 
 function testBlockedComposerStillAllowsDraftingAndShowsStop() {
@@ -150,7 +150,7 @@ function testComposerUsesCompactGlassRadiusScale() {
   const source = readFileSync(new URL("./SessionComposer.tsx", import.meta.url), "utf8");
 
   assert.doesNotMatch(source, /rounded-\[20px\]/);
-  assert.match(source, /rounded-\[22px\] border border-\[#d7d7dd\] bg-white\/92/);
+  assert.match(source, /rounded-\[22px\] border border-\[#DEE0E3\] bg-white\/92/);
 }
 
 function testComposerExpandsActionsBelowTextAfterInput() {
@@ -242,7 +242,7 @@ testComposerOmitsSlashCommandPopup();
 testComposerRendersChineseStaticCopy();
 testComposerToolbarUsesRequestedLucideIconSet();
 testComposerShowsWorkspaceFolderPickerButton();
-testComposerInputSuppressesGlobalBlueFocusOutline();
+testComposerInputDoesNotNeedGlobalBlueFocusOverride();
 testBlockedComposerStillAllowsDraftingAndShowsStop();
 testComposerClearsIosHomeIndicatorAndUsesTouchSizedActions();
 testComposerUsesCompactGlassRadiusScale();

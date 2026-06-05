@@ -7,11 +7,11 @@ export const ACTION_ICON_SIZE = 14;
 export const ACTION_ICON_STROKE_WIDTH = 2.2;
 
 const tileToneClass: Record<IconTileTone, string> = {
-  neutral: "border-[#e5e5ea] bg-[#f2f2f7] text-[#6e6e73]",
-  accent: "border-[#cfe4ff] bg-[#eaf4ff] text-[#007aff]",
-  success: "border-[#1a7f37]/25 bg-[#dafbe1] text-[#1a7f37]",
-  warning: "border-[#bf8700]/25 bg-[#fff8c5] text-[#7d4e00]",
-  danger: "border-[#cf222e]/25 bg-[#ffebe9] text-[#cf222e]",
+  neutral: "border-[#DEE0E3] bg-[#F5F6F7] text-[#646A73]",
+  accent: "border-[#BACEFD] bg-[#F0F5FF] text-[#1456F0]",
+  success: "border-[#22A06B]/20 bg-[#E4F8EE] text-[#16845B]",
+  warning: "border-[#FAD355]/45 bg-[#FFF8DB] text-[#8B5E00]",
+  danger: "border-[#FAD4D4] bg-[#FFF1F0] text-[#B42318]",
 };
 
 const tileSizeClass: Record<IconTileSize, string> = {
@@ -58,7 +58,7 @@ export function ActionIcon({ label, className = "", children }: ActionIconProps)
       data-ripple-action-icon="true"
       role="img"
       aria-label={label}
-      className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[#4b5563] ${className}`}
+      className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[#2B2F36] ${className}`}
     >
       {children}
     </span>

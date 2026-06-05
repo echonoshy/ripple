@@ -7,9 +7,9 @@ const ATTENTION_LABELS: Record<SessionAttention, string> = {
 };
 
 const ATTENTION_CLASSES: Record<SessionAttention, string> = {
-  completed: "bg-[#22c55e] ring-[#22c55e]/28",
-  needs_input: "bg-[#f59e0b] ring-[#f59e0b]/28",
-  error: "bg-[#ef4444] ring-[#ef4444]/28",
+  completed: "bg-[#22A06B] ring-[#22A06B]/28",
+  needs_input: "bg-[#D99900] ring-[#D99900]/28",
+  error: "bg-[#B42318] ring-[#B42318]/28",
 };
 
 export function attentionLabel(attention: SessionAttention): string {

@@ -41,7 +41,7 @@ export default function MobileTabBar({ activeView, onSelectView }: MobileTabBarP
       />
       <nav
         data-ripple-mobile-tabbar-nav="true"
-        className="pointer-events-auto relative mx-3 mb-[max(env(safe-area-inset-bottom),10px)] rounded-[28px] border border-white/78 bg-white/74 px-2 py-1 shadow-[0_18px_44px_rgba(60,60,67,0.20)] backdrop-blur-2xl"
+        className="pointer-events-auto relative mx-3 mb-[max(env(safe-area-inset-bottom),10px)] rounded-[28px] border border-white/78 bg-white/74 px-2 py-1 shadow-[0_18px_44px_rgba(31,35,41,0.20)] backdrop-blur-2xl"
       >
         <div
           className="mx-auto grid h-[58px] max-w-md"
@@ -60,7 +60,7 @@ export default function MobileTabBar({ activeView, onSelectView }: MobileTabBarP
                 whileTap={reduceMotion ? undefined : pressableTap}
                 transition={transition}
                 className={`group flex min-w-0 flex-col items-center justify-center gap-0.5 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} transition-colors ${
-                  selected ? "text-[#007aff]" : "text-[#3c3c43]"
+                  selected ? "text-[#1456F0]" : "text-[#2B2F36]"
                 }`}
               >
                 <motion.span
@@ -73,8 +73,8 @@ export default function MobileTabBar({ activeView, onSelectView }: MobileTabBarP
                     size="sm"
                     className={
                       selected
-                        ? "shadow-[0_6px_16px_rgba(0,122,255,0.12)]"
-                        : "group-active:border-[#cfe4ff] group-active:bg-[#eaf4ff]"
+                        ? "shadow-[0_6px_16px_rgba(20,86,240,0.12)]"
+                        : "group-active:border-[#BACEFD] group-active:bg-[#F0F5FF]"
                     }
                   >
                     <Icon size={15} strokeWidth={LUCIDE_NAV_STROKE_WIDTH} />

@@ -15,8 +15,8 @@ function testIconTileRendersToneSizeAndMarker() {
   assert.match(html, /data-tone="success"/);
   assert.match(html, /h-10/);
   assert.match(html, /w-10/);
-  assert.match(html, /bg-\[#dafbe1\]/);
-  assert.match(html, /text-\[#1a7f37\]/);
+  assert.match(html, /bg-\[#E4F8EE\]/);
+  assert.match(html, /text-\[#16845B\]/);
 }
 
 function testActionIconUsesConsistentStrokeDefaults() {
@@ -30,6 +30,7 @@ function testActionIconUsesConsistentStrokeDefaults() {
   assert.match(html, /aria-label="Search"/);
   assert.match(html, /h-8/);
   assert.match(html, /w-8/);
+  assert.match(html, /text-\[#2B2F36\]/);
 }
 
 testIconTileRendersToneSizeAndMarker();

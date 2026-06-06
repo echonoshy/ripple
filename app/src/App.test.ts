@@ -163,14 +163,17 @@ function testCollapsedSessionRailUsesEdgeHandle() {
   assert.doesNotMatch(source, /top-\[14px\] left-4 z-30 hidden h-8/);
 }
 
-function testAndroidChatBackGestureExclusionOnlyAppliesToMobileChat() {
+function testAndroidBackGestureExclusionAppliesToMobileSwipeBackSurfaces() {
   const source = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
 
   assert.match(source, /setAndroidChatBackGestureEnabled/);
   assert.match(source, /ANDROID_CHAT_BACK_GESTURE_DESKTOP_MIN_WIDTH_PX/);
+  assert.match(source, /isSkillsMobileBackGestureActive/);
+  assert.match(source, /setIsSkillsMobileBackGestureActive/);
+  assert.match(source, /onMobileBackGestureScopeChange=\{setIsSkillsMobileBackGestureActive\}/);
   assert.match(source, /authState === "authenticated"/);
-  assert.match(source, /activeView === "sessions"/);
-  assert.match(source, /mobileSessionMode === "chat"/);
+  assert.match(source, /const isMobileChatBackGestureActive =/);
+  assert.match(source, /const isMobileSkillsBackGestureActive =/);
   assert.match(source, /window\.innerWidth < ANDROID_CHAT_BACK_GESTURE_DESKTOP_MIN_WIDTH_PX/);
   assert.match(source, /setAndroidChatBackGestureEnabled\(shouldEnable\)/);
   assert.match(source, /window\.addEventListener\("resize", updateAndroidChatBackGesture\)/);
@@ -195,6 +198,6 @@ testDesktopUsesProductTopBarWithSettingsAvatarEntry();
 testSessionRailOnlyLivesInsideSessionsView();
 testDesktopSessionRailCanResizeAndCollapse();
 testCollapsedSessionRailUsesEdgeHandle();
-testAndroidChatBackGestureExclusionOnlyAppliesToMobileChat();
+testAndroidBackGestureExclusionAppliesToMobileSwipeBackSurfaces();
 
 console.log("app tests passed");

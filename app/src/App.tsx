@@ -153,6 +153,7 @@ export default function Home() {
   const [activeView, setActiveView] = useState<WorkspaceView>("sessions");
   const [mobileMotionDirection, setMobileMotionDirection] = useState(0);
   const [mobileFilesReturnToChat, setMobileFilesReturnToChat] = useState(false);
+  const [isSkillsMobileBackGestureActive, setIsSkillsMobileBackGestureActive] = useState(false);
   const [mobileSessionRestoreScrollTop, setMobileSessionRestoreScrollTop] = useState<number | null>(
     null
   );
@@ -678,6 +679,7 @@ export default function Home() {
       setMobileFilesReturnToChat(false);
       setMobileSessionRestoreScrollTop(null);
       if (view !== "files") setPendingWorkspaceFileOpen(null);
+      if (view !== "skills" && view !== "connectors") setIsSkillsMobileBackGestureActive(false);
       setMobileMotionDirection(0);
       setActiveView(view);
       if (view === "sessions") {
@@ -742,10 +744,14 @@ export default function Home() {
     if (typeof window === "undefined") return;
 
     const updateAndroidChatBackGesture = () => {
+      const isMobileChatBackGestureActive =
+        activeView === "sessions" && mobileSessionMode === "chat";
+      const isMobileSkillsBackGestureActive =
+        (activeView === "skills" || activeView === "connectors") &&
+        isSkillsMobileBackGestureActive;
       const shouldEnable =
         authState === "authenticated" &&
-        activeView === "sessions" &&
-        mobileSessionMode === "chat" &&
+        (isMobileChatBackGestureActive || isMobileSkillsBackGestureActive) &&
         window.innerWidth < ANDROID_CHAT_BACK_GESTURE_DESKTOP_MIN_WIDTH_PX;
       setAndroidChatBackGestureEnabled(shouldEnable);
     };
@@ -757,7 +763,7 @@ export default function Home() {
       window.removeEventListener("resize", updateAndroidChatBackGesture);
       setAndroidChatBackGestureEnabled(false);
     };
-  }, [activeView, authState, mobileSessionMode]);
+  }, [activeView, authState, isSkillsMobileBackGestureActive, mobileSessionMode]);
 
   const selectedSessionRuntimeStatus =
     currentSessionRuntimeStatus && sessionId ? currentSessionRuntimeStatus : null;
@@ -1091,6 +1097,7 @@ export default function Home() {
         onOpenChat={handleOpenChatWithPrompt}
         onOpenSessionAction={handleOpenSessionAction}
         onConnectorStateChange={loadSessions}
+        onMobileBackGestureScopeChange={setIsSkillsMobileBackGestureActive}
       />
     ) : (
       <div className="h-full min-h-0">

@@ -64,6 +64,7 @@ import {
   shouldCancelMobileSwipeBack,
   shouldClaimMobileSwipeBack,
   shouldGuardMobileSwipeBackScroll,
+  shouldReleaseMobileSwipeBackScrollGuard,
 } from "./motionPrimitives";
 import { SkillDescriptionMarkdown } from "./SkillDescriptionMarkdown";
 
@@ -96,6 +97,7 @@ interface SkillsPageProps {
   onOpenChat?: (prompt: string, options?: { autoSend?: boolean; newSession?: boolean }) => void;
   onOpenSessionAction?: (action: SessionControlAction, label: string) => void;
   onConnectorStateChange?: () => Promise<unknown> | unknown;
+  onMobileBackGestureScopeChange?: (active: boolean) => void;
 }
 
 type SkillSourceId = "user" | "system";
@@ -267,6 +269,15 @@ export function shouldCancelSkillsCategoryBackSwipe({
   viewportWidth,
 }: SkillsCategoryBackSwipeIntentInput): boolean {
   return shouldCancelMobileSwipeBack({ deltaX, deltaY, viewportWidth });
+}
+
+export function shouldReleaseSkillsCategoryBackSwipeScrollGuard({
+  startX,
+  deltaX,
+  deltaY,
+  viewportWidth,
+}: SkillsCategoryBackSwipeIntentInput): boolean {
+  return shouldReleaseMobileSwipeBackScrollGuard({ startX, deltaX, deltaY, viewportWidth });
 }
 
 export function resolveSkillsCategoryBackSwipeRelease({
@@ -796,6 +807,7 @@ export default function SkillsPage({
   onOpenChat,
   onOpenSessionAction,
   onConnectorStateChange,
+  onMobileBackGestureScopeChange,
 }: SkillsPageProps) {
   const { t } = useI18n();
   const reduceMotion = useReducedMotion();
@@ -1062,6 +1074,17 @@ export default function SkillsPage({
     [stopCategorySwipeAnimation]
   );
 
+  useEffect(() => {
+    onMobileBackGestureScopeChange?.(Boolean(selectedCategoryId));
+  }, [onMobileBackGestureScopeChange, selectedCategoryId]);
+
+  useEffect(
+    () => () => {
+      onMobileBackGestureScopeChange?.(false);
+    },
+    [onMobileBackGestureScopeChange]
+  );
+
   const handleCategorySwipePointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       if (!selectedCategoryId) return;
@@ -1232,6 +1255,20 @@ export default function SkillsPage({
 
       const deltaX = touch.clientX - guardState.startX;
       const deltaY = touch.clientY - guardState.startY;
+
+      if (
+        guardState.isGuarding &&
+        shouldReleaseSkillsCategoryBackSwipeScrollGuard({
+          startX: guardState.startX,
+          deltaX,
+          deltaY,
+          viewportWidth: guardState.viewportWidth,
+        })
+      ) {
+        categorySwipeTouchGuardStateRef.current = null;
+        releaseCategorySwipeScrollLock();
+        return;
+      }
 
       if (
         !guardState.isGuarding &&

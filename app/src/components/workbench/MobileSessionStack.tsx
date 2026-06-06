@@ -11,6 +11,7 @@ import {
   shouldCancelMobileSwipeBack,
   shouldClaimMobileSwipeBack,
   shouldGuardMobileSwipeBackScroll,
+  shouldReleaseMobileSwipeBackScrollGuard,
 } from "./motionPrimitives";
 
 type MobileSessionStackMode = "list" | "chat";
@@ -135,6 +136,15 @@ export function shouldCancelMobileSessionDrawer({
   viewportWidth,
 }: DrawerIntentInput): boolean {
   return shouldCancelMobileSwipeBack({ deltaX, deltaY, viewportWidth });
+}
+
+export function shouldReleaseMobileSessionDrawerScrollGuard({
+  startX,
+  deltaX,
+  deltaY,
+  viewportWidth,
+}: DrawerIntentInput): boolean {
+  return shouldReleaseMobileSwipeBackScrollGuard({ startX, deltaX, deltaY, viewportWidth });
 }
 
 export function resolveMobileSessionDrawerRelease({
@@ -357,45 +367,62 @@ export default function MobileSessionStack({
     [mode, stopSheetAnimation]
   );
 
-  const handleTouchMoveCapture = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
-    const guardState = touchGuardStateRef.current;
-    const touch = event.touches[0];
-    if (!guardState || !touch) return;
+  const handleTouchMoveCapture = useCallback(
+    (event: React.TouchEvent<HTMLDivElement>) => {
+      const guardState = touchGuardStateRef.current;
+      const touch = event.touches[0];
+      if (!guardState || !touch) return;
 
-    const deltaX = touch.clientX - guardState.startX;
-    const deltaY = touch.clientY - guardState.startY;
+      const deltaX = touch.clientX - guardState.startX;
+      const deltaY = touch.clientY - guardState.startY;
 
-    if (
-      !guardState.isGuarding &&
-      shouldCancelMobileSessionDrawer({
-        startX: guardState.startX,
-        deltaX,
-        deltaY,
-        viewportWidth: guardState.viewportWidth,
-      })
-    ) {
-      touchGuardStateRef.current = null;
-      return;
-    }
+      if (
+        guardState.isGuarding &&
+        shouldReleaseMobileSessionDrawerScrollGuard({
+          startX: guardState.startX,
+          deltaX,
+          deltaY,
+          viewportWidth: guardState.viewportWidth,
+        })
+      ) {
+        touchGuardStateRef.current = null;
+        releaseScrollLock();
+        return;
+      }
 
-    if (
-      guardState.isGuarding ||
-      shouldGuardMobileSessionDrawerScroll({
-        startX: guardState.startX,
-        deltaX,
-        deltaY,
-        viewportWidth: guardState.viewportWidth,
-      })
-    ) {
-      guardState.isGuarding = true;
-      event.preventDefault();
-      scrollLockRef.current = ensureMobileSessionScrollLock(
-        scrollLockRef.current,
-        guardState.scrollElement,
-        guardState.startScrollTop
-      );
-    }
-  }, []);
+      if (
+        !guardState.isGuarding &&
+        shouldCancelMobileSessionDrawer({
+          startX: guardState.startX,
+          deltaX,
+          deltaY,
+          viewportWidth: guardState.viewportWidth,
+        })
+      ) {
+        touchGuardStateRef.current = null;
+        return;
+      }
+
+      if (
+        guardState.isGuarding ||
+        shouldGuardMobileSessionDrawerScroll({
+          startX: guardState.startX,
+          deltaX,
+          deltaY,
+          viewportWidth: guardState.viewportWidth,
+        })
+      ) {
+        guardState.isGuarding = true;
+        event.preventDefault();
+        scrollLockRef.current = ensureMobileSessionScrollLock(
+          scrollLockRef.current,
+          guardState.scrollElement,
+          guardState.startScrollTop
+        );
+      }
+    },
+    [releaseScrollLock]
+  );
 
   const clearTouchGuard = useCallback(() => {
     touchGuardStateRef.current = null;

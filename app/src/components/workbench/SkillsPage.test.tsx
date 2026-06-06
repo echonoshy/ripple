@@ -9,6 +9,7 @@ import SkillsPage, {
   shouldCancelSkillsCategoryBackSwipe,
   shouldClaimSkillsCategoryBackSwipe,
   shouldGuardSkillsCategoryBackSwipeScroll,
+  shouldReleaseSkillsCategoryBackSwipeScrollGuard,
 } from "./SkillsPage";
 
 const noop = () => {};
@@ -220,6 +221,14 @@ function testSkillsCategoryDetailSupportsSwipeBackGesture() {
       deltaY: 0,
       viewportWidth: 390,
     }),
+    false
+  );
+  assert.equal(
+    shouldClaimSkillsCategoryBackSwipe({
+      deltaX: 24,
+      deltaY: 0,
+      viewportWidth: 390,
+    }),
     true
   );
   assert.equal(
@@ -228,7 +237,7 @@ function testSkillsCategoryDetailSupportsSwipeBackGesture() {
       deltaY: 24,
       viewportWidth: 390,
     }),
-    true
+    false
   );
   assert.equal(
     shouldCancelSkillsCategoryBackSwipe({
@@ -287,9 +296,25 @@ function testSkillsCategorySwipeUsesSharedMotionPrimitive() {
   assert.match(source, /shouldClaimMobileSwipeBack/);
   assert.match(source, /shouldGuardMobileSwipeBackScroll/);
   assert.match(source, /shouldCancelMobileSwipeBack/);
+  assert.match(source, /shouldReleaseMobileSwipeBackScrollGuard/);
   assert.match(source, /resolveMobileSwipeBackRelease/);
   assert.doesNotMatch(source, /SKILLS_CATEGORY_BACK_SWIPE_CLAIM_DISTANCE_PX/);
   assert.doesNotMatch(source, /SKILLS_CATEGORY_BACK_SWIPE_FAST_COMMIT_VELOCITY_PX/);
+}
+
+function testSkillsCategoryGuardedScrollCanReleaseBackToVerticalIntent() {
+  const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
+
+  assert.equal(
+    shouldReleaseSkillsCategoryBackSwipeScrollGuard({
+      deltaX: 8,
+      deltaY: 26,
+      viewportWidth: 390,
+    }),
+    true
+  );
+  assert.match(source, /shouldReleaseSkillsCategoryBackSwipeScrollGuard/);
+  assert.match(source, /releaseCategorySwipeScrollLock\(\)/);
 }
 
 function testSkillsCategoryTransitionDoesNotWaitThroughBlankFrame() {
@@ -303,6 +328,7 @@ function testSkillsCategoryTransitionDoesNotWaitThroughBlankFrame() {
 }
 
 testSkillsCategorySwipeUsesSharedMotionPrimitive();
+testSkillsCategoryGuardedScrollCanReleaseBackToVerticalIntent();
 testSkillsCategoryTransitionDoesNotWaitThroughBlankFrame();
 
 function testSkillsCategoryDetailIsFullMobileSubpage() {

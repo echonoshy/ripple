@@ -50,10 +50,10 @@ export const mobileSwipeBackConfig = {
   edgeScrollGuardRatio: 0.55,
   edgeClaimDistancePx: 4,
   edgeClaimRatio: 0.55,
-  scrollGuardDistancePx: 8,
-  scrollGuardRatio: 0.95,
-  claimDistancePx: 10,
-  claimRatio: 0.85,
+  scrollGuardDistancePx: 18,
+  scrollGuardRatio: 1.1,
+  claimDistancePx: 24,
+  claimRatio: 1.1,
   cancelDistancePx: 22,
   cancelRatio: 1.45,
   commitMaxPx: 72,
@@ -129,6 +129,12 @@ export function shouldCancelMobileSwipeBack({
   const absoluteDeltaY = Math.abs(deltaY);
   if (absoluteDeltaY < mobileSwipeBackConfig.cancelDistancePx) return false;
   return absoluteDeltaY > Math.abs(deltaX) * mobileSwipeBackConfig.cancelRatio;
+}
+
+export function shouldReleaseMobileSwipeBackScrollGuard(
+  input: MobileSwipeBackIntentInput
+): boolean {
+  return shouldCancelMobileSwipeBack(input);
 }
 
 export function resolveMobileSwipeBackRelease({

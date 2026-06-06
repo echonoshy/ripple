@@ -8,6 +8,7 @@ import MobileSessionStack, {
   resolveMobileSessionDrawerRelease,
   shouldCancelMobileSessionDrawer,
   shouldClaimMobileSessionDrawer,
+  shouldReleaseMobileSessionDrawerScrollGuard,
   shouldGuardMobileSessionDrawerScroll,
 } from "./MobileSessionStack";
 import {
@@ -42,6 +43,14 @@ function testClaimRequiresHorizontalIntentAcrossChatSurface() {
       deltaY: 0,
       viewportWidth: 390,
     }),
+    false
+  );
+  assert.equal(
+    shouldClaimMobileSessionDrawer({
+      deltaX: 24,
+      deltaY: 0,
+      viewportWidth: 390,
+    }),
     true
   );
   assert.equal(
@@ -50,7 +59,7 @@ function testClaimRequiresHorizontalIntentAcrossChatSurface() {
       deltaY: 24,
       viewportWidth: 390,
     }),
-    true
+    false
   );
   assert.equal(
     shouldClaimMobileSessionDrawer({
@@ -149,7 +158,7 @@ function testHorizontalIntentGuardsScrollBeforeDrawerClaim() {
   );
   assert.equal(
     shouldGuardMobileSessionDrawerScroll({
-      deltaX: 5,
+      deltaX: 16,
       deltaY: 0,
       viewportWidth: 390,
     }),
@@ -157,8 +166,16 @@ function testHorizontalIntentGuardsScrollBeforeDrawerClaim() {
   );
   assert.equal(
     shouldGuardMobileSessionDrawerScroll({
-      deltaX: 8,
-      deltaY: 12,
+      deltaX: 20,
+      deltaY: 0,
+      viewportWidth: 390,
+    }),
+    true
+  );
+  assert.equal(
+    shouldGuardMobileSessionDrawerScroll({
+      deltaX: 24,
+      deltaY: 24,
       viewportWidth: 390,
     }),
     false
@@ -173,6 +190,19 @@ function testHorizontalIntentGuardsScrollBeforeDrawerClaim() {
   );
   assert.match(mobileSessionStackSource, /onTouchMoveCapture=\{handleTouchMoveCapture\}/);
   assert.match(mobileSessionStackSource, /event\.preventDefault\(\)/);
+}
+
+function testGuardedScrollCanReleaseBackToVerticalIntent() {
+  assert.equal(
+    shouldReleaseMobileSessionDrawerScrollGuard({
+      deltaX: 8,
+      deltaY: 26,
+      viewportWidth: 390,
+    }),
+    true
+  );
+  assert.match(mobileSessionStackSource, /shouldReleaseMobileSessionDrawerScrollGuard/);
+  assert.match(mobileSessionStackSource, /releaseScrollLock\(\)/);
 }
 
 function testDrawerDragLocksTimelineScrollTop() {
@@ -303,6 +333,7 @@ testClaimRequiresHorizontalIntentAcrossChatSurface();
 testLeftEdgeSwipeClaimsWithShorterIntent();
 testVerticalIntentCancelsDrawerGesture();
 testHorizontalIntentGuardsScrollBeforeDrawerClaim();
+testGuardedScrollCanReleaseBackToVerticalIntent();
 testDrawerDragLocksTimelineScrollTop();
 testTouchScrollGuardLocksTimelineBeforeDrawerClaim();
 testNewSwipeStopsInFlightSheetAnimation();

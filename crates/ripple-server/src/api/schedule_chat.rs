@@ -41,6 +41,7 @@ const CANCEL_WORDS: &[&str] = &[
     "不用",
     "先不要",
 ];
+const AUTOMATION_DETAILS_MISSING_FIELD: &str = "automation_details";
 
 #[derive(Debug)]
 pub(crate) struct ScheduleChatDecision {
@@ -176,6 +177,17 @@ pub(crate) async fn maybe_handle_schedule_chat(
         }
     };
 
+    if let Some(clarification) = schedule_detail_clarification(&proposal.payload) {
+        return Ok(Some(awaiting_decision(
+            schedule_clarification_event(&clarification),
+            Some(schedule_detail_pending_value(
+                user_input,
+                &proposal.payload,
+                &clarification,
+            )),
+        )));
+    }
+
     Ok(Some(awaiting_decision(
         schedule_proposal_event(&proposal),
         Some(proposal.payload),
@@ -275,6 +287,22 @@ async fn handle_pending_schedule_draft(
             )));
         }
     };
+
+    if !pending_requested_automation_details(pending) {
+        if let Some(clarification) = schedule_detail_clarification(&proposal.payload) {
+            return Ok(Some(awaiting_decision(
+                schedule_clarification_event(&clarification),
+                Some(schedule_detail_pending_value(
+                    pending
+                        .get("original_user_input")
+                        .and_then(Value::as_str)
+                        .unwrap_or(user_input),
+                    &proposal.payload,
+                    &clarification,
+                )),
+            )));
+        }
+    }
 
     Ok(Some(awaiting_decision(
         schedule_proposal_event(&proposal),
@@ -473,6 +501,7 @@ Rules:\n\
 - Always set schedule.output_schema=null.\n\
 - schedule.prompt is the exact instruction Codex should receive when the schedule fires.\n\
 - Preserve execution-time intent in schedule.prompt. For example, if the user asks for a filename based on the execution date/time, say to compute it at execution time rather than hard-coding the extraction time.\n\
+- For automations that gather, search, summarize, or monitor information and then send/update an external service such as Feishu/Lark, Gmail, email, webhook, or chat, treat sources/scope, item count or output format, delivery target/method, and empty-result/failure behavior as important details. If they are absent, ask one concise clarification instead of proposing immediately.\n\
 - Do not execute the task now. Do not create timers, cron jobs, sleep loops, or background daemons.\n\
 - If required information is missing, set schedule=null, list missing_fields, and provide one concise clarification_question.\n\n\
 User request:\n{}\n",
@@ -497,6 +526,31 @@ fn schedule_draft_pending_value(
             .and_then(|schedule| serde_json::to_value(schedule).ok())
             .unwrap_or(Value::Null)
     })
+}
+
+fn schedule_detail_pending_value(
+    original_user_input: &str,
+    payload: &Value,
+    clarification: &str,
+) -> Value {
+    json!({
+        "type": "schedule_draft",
+        "original_user_input": original_user_input.trim(),
+        "missing_fields": [AUTOMATION_DETAILS_MISSING_FIELD],
+        "clarification_question": clarification,
+        "partial_schedule": payload
+    })
+}
+
+fn pending_requested_automation_details(pending: &Value) -> bool {
+    pending
+        .get("missing_fields")
+        .and_then(Value::as_array)
+        .is_some_and(|fields| {
+            fields
+                .iter()
+                .any(|field| field.as_str() == Some(AUTOMATION_DETAILS_MISSING_FIELD))
+        })
 }
 
 fn combine_schedule_draft_followup(pending: &Value, user_input: &str) -> String {
@@ -557,6 +611,149 @@ fn schedule_extraction_clarification(result: &ScheduleExtractionResult) -> Optio
         return Some("还需要补充定时任务的时间和执行内容。".to_string());
     }
     None
+}
+
+fn schedule_detail_clarification(payload: &Value) -> Option<String> {
+    if !should_request_schedule_details(payload) {
+        return None;
+    }
+
+    Some(
+        "这个自动化还需要补充一些执行细节后再创建，避免运行时找错来源或发错对象。请一次性补充：\n\
+- 新闻来源或范围：例如指定网站、关键词、语言、时间范围，或排除哪些来源。\n\
+- 筛选和输出：每次发几条、按什么标准选、是否要摘要、链接和格式。\n\
+- 飞书发送方式：发给联系人、群、机器人还是 Webhook，以及可识别的账号、群名或 ID。\n\
+- 空结果或发送失败时怎么处理，是否需要保存运行输出。"
+            .to_string(),
+    )
+}
+
+fn should_request_schedule_details(payload: &Value) -> bool {
+    let text = format!(
+        "{}\n{}",
+        value_string(payload, "title"),
+        value_string(payload, "prompt")
+    )
+    .to_ascii_lowercase();
+
+    let gathers_information = contains_any(
+        &text,
+        &[
+            "新闻",
+            "资讯",
+            "搜索",
+            "搜集",
+            "收集",
+            "查找",
+            "检索",
+            "整理",
+            "摘要",
+            "监控",
+            "news",
+            "latest",
+            "search",
+            "collect",
+            "digest",
+            "summarize",
+            "monitor",
+        ],
+    );
+    let sends_external_message = contains_any(
+        &text,
+        &[
+            "飞书",
+            "feishu",
+            "lark",
+            "发消息",
+            "发给",
+            "发送",
+            "通知",
+            "推送",
+            "webhook",
+            "email",
+            "gmail",
+            "mail",
+            "send",
+            "notify",
+            "message",
+        ],
+    );
+
+    if !(gathers_information && sends_external_message) {
+        return false;
+    }
+
+    let detail_buckets = [
+        contains_any(
+            &text,
+            &[
+                "来源",
+                "新闻源",
+                "source",
+                "site:",
+                "rss",
+                "网站",
+                "媒体",
+                "公众号",
+                "关键词",
+                "排除",
+                "语言",
+                "时间范围",
+            ],
+        ),
+        contains_any(
+            &text,
+            &[
+                "几条", "条", "top", "最多", "摘要", "链接", "格式", "markdown", "列表", "筛选",
+                "标准", "重要",
+            ],
+        ),
+        contains_any(
+            &text,
+            &[
+                "群",
+                "群聊",
+                "机器人",
+                "webhook",
+                "open_id",
+                "user_id",
+                "chat_id",
+                "union_id",
+                "邮箱",
+                "账号",
+                "联系人",
+                "@",
+            ],
+        ),
+        contains_any(
+            &text,
+            &[
+                "失败",
+                "重试",
+                "暂停",
+                "跳过",
+                "空结果",
+                "没有新闻",
+                "找不到",
+                "保存",
+                "文件",
+                "输出",
+                "日志",
+                "retry",
+                "failure",
+            ],
+        ),
+    ];
+    let detail_count = detail_buckets
+        .iter()
+        .filter(|has_detail| **has_detail)
+        .count();
+
+    detail_count < 3
+}
+
+fn contains_any(text: &str, markers: &[&str]) -> bool {
+    markers.iter().any(|marker| text.contains(marker))
 }
 
 struct ScheduleProposal {
@@ -1042,6 +1239,8 @@ fn is_schedule_intent(text: &str) -> bool {
     let markers = [
         "定时",
         "定一个",
+        "自动化",
+        "自动执行",
         "周期",
         "重复",
         "每天",
@@ -1053,6 +1252,8 @@ fn is_schedule_intent(text: &str) -> bool {
         "闹钟",
         "schedule",
         "scheduled",
+        "automation",
+        "automate",
         "recurring",
         "remind",
     ];
@@ -1123,7 +1324,11 @@ mod tests {
     #[test]
     fn detects_schedule_intent_and_confirmation_words() {
         assert!(is_schedule_intent("5分钟后提醒我检查构建"));
+        assert!(is_schedule_intent("帮我创建一个新的自动化"));
         assert!(is_schedule_intent("schedule this every day"));
+        assert!(is_schedule_intent(
+            "create automation to check prices every day"
+        ));
         assert!(!is_schedule_intent("帮我检查构建"));
         assert!(is_schedule_confirmation("确认创建"));
         assert!(is_schedule_cancellation("取消。"));
@@ -1197,5 +1402,83 @@ mod tests {
                 .is_some_and(|run_at| run_at.contains("T03:15:00Z")),
             "run_at should keep 11:15 Asia/Shanghai instead of the extraction time: {payload:?}"
         );
+    }
+
+    #[test]
+    fn asks_for_more_details_before_external_news_delivery_schedule() {
+        let draft = ScheduleDraft {
+            title: Some("每日 AI 新闻飞书发送".to_string()),
+            prompt: Some(
+                "每天早上9点搜集一下 ai 相关的新闻，并且在飞书上给胡胖发消息，把新闻发给他。"
+                    .to_string(),
+            ),
+            kind: Some("interval".to_string()),
+            timezone: Some("Asia/Shanghai".to_string()),
+            run_at: Some("2026-06-08T01:00:00Z".to_string()),
+            interval_seconds: Some(86_400),
+            enabled: Some(true),
+            cwd: None,
+            model: None,
+            effort: None,
+            summary: None,
+            output_schema: None,
+            max_runtime_seconds: None,
+            max_runs: None,
+        };
+
+        let payload = normalize_schedule_payload(&draft).expect("payload");
+        let clarification = schedule_detail_clarification(&payload).expect("clarification");
+
+        assert!(clarification.contains("新闻来源"));
+        assert!(clarification.contains("飞书"));
+        assert!(clarification.contains("失败"));
+    }
+
+    #[test]
+    fn does_not_ask_extra_details_for_simple_internal_schedule() {
+        let draft = ScheduleDraft {
+            title: Some("检查构建".to_string()),
+            prompt: Some("检查构建状态并总结结果。".to_string()),
+            kind: Some("interval".to_string()),
+            timezone: Some("UTC".to_string()),
+            run_at: None,
+            interval_seconds: Some(3_600),
+            enabled: Some(true),
+            cwd: None,
+            model: None,
+            effort: None,
+            summary: None,
+            output_schema: None,
+            max_runtime_seconds: None,
+            max_runs: None,
+        };
+
+        let payload = normalize_schedule_payload(&draft).expect("payload");
+
+        assert!(schedule_detail_clarification(&payload).is_none());
+    }
+
+    #[test]
+    fn does_not_ask_extra_details_for_simple_external_reminder() {
+        let draft = ScheduleDraft {
+            title: Some("飞书喝水提醒".to_string()),
+            prompt: Some("每天早上9点在飞书发消息提醒我喝水。".to_string()),
+            kind: Some("interval".to_string()),
+            timezone: Some("Asia/Shanghai".to_string()),
+            run_at: Some("2026-06-08T01:00:00Z".to_string()),
+            interval_seconds: Some(86_400),
+            enabled: Some(true),
+            cwd: None,
+            model: None,
+            effort: None,
+            summary: None,
+            output_schema: None,
+            max_runtime_seconds: None,
+            max_runs: None,
+        };
+
+        let payload = normalize_schedule_payload(&draft).expect("payload");
+
+        assert!(schedule_detail_clarification(&payload).is_none());
     }
 }

@@ -220,7 +220,7 @@ pub async fn chat_completions(
             request.stream.unwrap_or(false),
         ));
     }
-    if let Some(decision) = maybe_handle_skill_chat(&state, &user_id, &user_input)? {
+    if let Some(decision) = maybe_handle_skill_chat(&state, &user_id, &session, &user_input)? {
         let public_event = persist_control_plane_chat_event(
             &state,
             &mut session,
@@ -1784,6 +1784,9 @@ mod tests {
         ));
         assert!(prompt.contains("- codex_image_generation: disabled_by_default"));
         assert!(prompt.contains("Do not generate images unless the current user explicitly asks"));
+        assert!(prompt.contains("When creating or updating a skill"));
+        assert!(prompt.contains("Ask one consolidated clarification"));
+        assert!(prompt.contains("instead of asking repeatedly"));
         assert!(prompt.contains("<ripple_connector_auth_request>"));
         assert!(!prompt.contains(
             "Google Workspace, Notion, and Feishu authorization is handled by Ripple before the Codex turn starts"

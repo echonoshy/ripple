@@ -1790,6 +1790,125 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn chat_asks_for_skill_details_before_saving_sparse_workflow() {
+        let state = test_state(vec!["service-key".to_string()]);
+        let workspace = state
+            .sandboxes
+            .ensure_sandbox("skill-chat-details-user")
+            .unwrap();
+
+        let (status, body) = request_json(
+            state.clone(),
+            Method::POST,
+            "/v1/chat/completions",
+            "service-key",
+            Some("skill-chat-details-user"),
+            Some(json!({
+                "model": "codex-test",
+                "messages": [{
+                    "role": "user",
+                    "content": "把这个流程保存成一个能力：处理消息"
+                }],
+                "stream": false
+            })),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            body.pointer("/event/type").and_then(Value::as_str),
+            Some("skill_clarification_required")
+        );
+        let message = body
+            .pointer("/event/message")
+            .and_then(Value::as_str)
+            .expect("clarification message");
+        assert!(message.contains("使用场景"), "{message}");
+        assert!(message.contains("步骤"), "{message}");
+        assert!(message.contains("输出"), "{message}");
+        assert!(!workspace
+            .join("skills/saved-conversation-skill/SKILL.md")
+            .is_file());
+
+        let session_id = body
+            .get("session_id")
+            .and_then(Value::as_str)
+            .expect("session id");
+        let reloaded = state
+            .sessions
+            .load("skill-chat-details-user", session_id)
+            .await
+            .unwrap()
+            .expect("session");
+        assert_eq!(reloaded.status, "awaiting_user_input");
+        assert_eq!(
+            reloaded
+                .pending_schedule_request
+                .as_ref()
+                .and_then(|value| value.get("type"))
+                .and_then(Value::as_str),
+            Some("skill_draft")
+        );
+    }
+
+    #[tokio::test]
+    async fn chat_creates_skill_after_one_detail_followup() {
+        let state = test_state(vec!["service-key".to_string()]);
+        let workspace = state
+            .sandboxes
+            .ensure_sandbox("skill-chat-followup-user")
+            .unwrap();
+
+        let (_status, first) = request_json(
+            state.clone(),
+            Method::POST,
+            "/v1/chat/completions",
+            "service-key",
+            Some("skill-chat-followup-user"),
+            Some(json!({
+                "model": "codex-test",
+                "messages": [{
+                    "role": "user",
+                    "content": "把这个流程保存成一个能力：处理消息"
+                }],
+                "stream": false
+            })),
+        )
+        .await;
+        let session_id = first
+            .get("session_id")
+            .and_then(Value::as_str)
+            .expect("session id");
+
+        let (status, second) = request_json(
+            state,
+            Method::POST,
+            "/v1/chat/completions",
+            "service-key",
+            Some("skill-chat-followup-user"),
+            Some(json!({
+                "model": "codex-test",
+                "session_id": session_id,
+                "messages": [{
+                    "role": "user",
+                    "content": "场景是整理飞书群里的项目更新；步骤是读取消息、提炼进展和风险；输出 Markdown 列表；发送消息前要确认；测试样例是给三条项目消息生成摘要。"
+                }],
+                "stream": false
+            })),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            second.pointer("/event/type").and_then(Value::as_str),
+            Some("skill_draft_created")
+        );
+        assert!(workspace
+            .join("skills/saved-conversation-skill/SKILL.md")
+            .is_file());
+    }
+
+    #[tokio::test]
     async fn user_management_routes_are_not_registered() {
         let state = test_state(vec!["service-key".to_string()]);
         let cases = [

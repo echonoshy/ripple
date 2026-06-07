@@ -1,11 +1,11 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
-    "PingFang SC", "Microsoft YaHei UI", "Noto Sans SC", "Segoe UI", "Helvetica Neue", Arial,
-    sans-serif;
-  --font-mono: "SF Mono", "Cascadia Mono", Menlo, Consolas, "Liberation Mono", "Noto Sans Mono",
-    monospace;
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "PingFang SC",
+    "Microsoft YaHei UI", "Noto Sans SC", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-mono:
+    "SF Mono", "Cascadia Mono", Menlo, Consolas, "Liberation Mono", "Noto Sans Mono", monospace;
   --font-cjk: "PingFang SC", "Microsoft YaHei UI", "Noto Sans SC", sans-serif;
 }
 
@@ -32,7 +32,7 @@
 }
 
 body {
-  background-color: #FFFFFF;
+  background-color: #ffffff;
   color: var(--ripple-text-primary);
   font-family: var(--font-sans);
   overflow: hidden;
@@ -261,7 +261,7 @@ body {
 }
 
 .markdown-body .markdown-table-wrap {
-  background: #FFFFFF;
+  background: #ffffff;
   border: 1px solid var(--ripple-border-2);
   border-radius: 8px;
   margin: 1rem 0;
@@ -480,9 +480,9 @@ body {
 .connector-auth-link--primary {
   --connector-auth-bg: var(--ripple-brand);
   --connector-auth-border: rgba(20, 86, 240, 0.25);
-  --connector-auth-fg: #FFFFFF;
+  --connector-auth-fg: #ffffff;
   --connector-auth-hover-bg: var(--ripple-brand-hover);
-  --connector-auth-hover-fg: #FFFFFF;
+  --connector-auth-hover-fg: #ffffff;
   --connector-auth-shadow: 0 8px 20px rgba(20, 86, 240, 0.16);
   --connector-auth-hover-shadow: 0 10px 24px rgba(20, 86, 240, 0.2);
 }
@@ -491,7 +491,7 @@ body {
   --connector-auth-bg: var(--ripple-brand-soft);
   --connector-auth-border: rgba(20, 86, 240, 0.25);
   --connector-auth-fg: var(--ripple-brand);
-  --connector-auth-hover-bg: #E8F0FF;
+  --connector-auth-hover-bg: #e8f0ff;
   --connector-auth-hover-fg: var(--ripple-brand-hover);
 }
 
@@ -499,12 +499,12 @@ body {
   --connector-auth-bg: var(--ripple-warning-bg);
   --connector-auth-border: rgba(250, 211, 85, 0.45);
   --connector-auth-fg: var(--ripple-warning-text);
-  --connector-auth-hover-bg: #FFF1BA;
+  --connector-auth-hover-bg: #fff1ba;
   --connector-auth-hover-fg: var(--ripple-warning-text);
 }
 
 .connector-auth-link--neutral {
-  --connector-auth-bg: #FFFFFF;
+  --connector-auth-bg: #ffffff;
   --connector-auth-border: var(--ripple-border-2);
   --connector-auth-fg: var(--ripple-text-icon);
   --connector-auth-hover-bg: var(--ripple-bg-3);
@@ -572,12 +572,12 @@ body {
 }
 
 .hljs-addition {
-  color: #16845B;
+  color: #16845b;
   background: rgba(74, 222, 128, 0.1);
 }
 
 .hljs-deletion {
-  color: #B42318;
+  color: #b42318;
   background: rgba(248, 113, 113, 0.1);
 }
 

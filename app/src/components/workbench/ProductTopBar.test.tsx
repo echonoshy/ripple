@@ -48,9 +48,7 @@ function testSettingsLivesInRightAvatarEntry() {
 
 function testSettingsEntryUsesLargerBorderlessAvatarButton() {
   const html = renderProductTopBar();
-  const entryButton = html.match(
-    /<button[^>]*data-ripple-top-settings-entry="true"[^>]*>/
-  )?.[0];
+  const entryButton = html.match(/<button[^>]*data-ripple-top-settings-entry="true"[^>]*>/)?.[0];
   const avatarTile = html.match(
     /<span[^>]*data-ripple-icon-tile="true"[^>]*data-tone="neutral"[^>]*>/
   )?.[0];

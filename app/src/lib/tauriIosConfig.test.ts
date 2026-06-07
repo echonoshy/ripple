@@ -45,7 +45,10 @@ const androidGradle = readFileSync(
   "utf8"
 );
 const androidMainActivity = readFileSync(
-  new URL("../../src-tauri/gen/android/app/src/main/java/ai/viaim/ripple/MainActivity.kt", import.meta.url),
+  new URL(
+    "../../src-tauri/gen/android/app/src/main/java/ai/viaim/ripple/MainActivity.kt",
+    import.meta.url
+  ),
   "utf8"
 );
 const mainCapability = JSON.parse(
@@ -164,7 +167,10 @@ testAndroidTargetHasBeenInitialized();
 
 function testAndroidMainActivityExposesChatBackGestureExclusionBridge() {
   assert.match(androidMainActivity, /override fun onWebViewCreate\(webView: WebView\)/);
-  assert.match(androidMainActivity, /addJavascriptInterface\(RippleAndroidGestureBridge\(\), "RippleAndroidGesture"\)/);
+  assert.match(
+    androidMainActivity,
+    /addJavascriptInterface\(RippleAndroidGestureBridge\(\), "RippleAndroidGesture"\)/
+  );
   assert.match(androidMainActivity, /@JavascriptInterface/);
   assert.match(androidMainActivity, /fun setChatBackGestureEnabled\(enabled: Boolean\)/);
   assert.match(androidMainActivity, /runOnUiThread/);

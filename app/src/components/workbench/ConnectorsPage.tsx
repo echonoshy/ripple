@@ -10,12 +10,7 @@ import {
   ShieldCheck,
   Trash2,
 } from "lucide-react";
-import {
-  AuthError,
-  disconnectConnector,
-  fetchCapabilities,
-  fetchGogcliAccounts,
-} from "@/lib/api";
+import { AuthError, disconnectConnector, fetchCapabilities, fetchGogcliAccounts } from "@/lib/api";
 import {
   connectorGroupSections,
   connectorReadinessSummary,
@@ -576,7 +571,9 @@ export default function ConnectorsPage({
         </header>
 
         {pageError && (
-          <div className={`flex items-start gap-2 rounded-xl border border-[#B42318]/25 bg-[#FFF1F0] p-2.5 text-[#B42318] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
+          <div
+            className={`flex items-start gap-2 rounded-xl border border-[#B42318]/25 bg-[#FFF1F0] p-2.5 text-[#B42318] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+          >
             <IconTile tone="danger" size="sm" className="mt-0.5">
               <AlertTriangle size={13} />
             </IconTile>
@@ -585,7 +582,9 @@ export default function ConnectorsPage({
         )}
 
         {actionMessage && (
-          <div className={`flex items-start gap-2 rounded-xl border border-[#16845B]/20 bg-[#E4F8EE] p-2.5 text-[#16845B] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
+          <div
+            className={`flex items-start gap-2 rounded-xl border border-[#16845B]/20 bg-[#E4F8EE] p-2.5 text-[#16845B] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+          >
             <IconTile tone="success" size="sm" className="mt-0.5">
               <ShieldCheck size={13} />
             </IconTile>
@@ -621,7 +620,9 @@ export default function ConnectorsPage({
                         <ConnectorOfficialLogo connector={connector} status={status} />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center justify-between gap-2">
-                            <h3 className={`min-w-0 flex-1 truncate text-[#1F2329] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
+                            <h3
+                              className={`min-w-0 flex-1 truncate text-[#1F2329] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+                            >
                               {connector.display_name}
                             </h3>
                             <span
@@ -644,7 +645,9 @@ export default function ConnectorsPage({
                             {localizedConnectorDescription(connector, t)}
                           </p>
                           {status?.detail && (
-                            <div className={`mt-1.5 rounded-lg border border-[#EFF0F1] bg-white/64 px-2 py-1 text-[#646A73] ${TYPOGRAPHY_META_CLASS}`}>
+                            <div
+                              className={`mt-1.5 rounded-lg border border-[#EFF0F1] bg-white/64 px-2 py-1 text-[#646A73] ${TYPOGRAPHY_META_CLASS}`}
+                            >
                               {status.detail}
                             </div>
                           )}
@@ -751,11 +754,12 @@ export default function ConnectorsPage({
               </div>
             </section>
           ))}
-
         </div>
 
         {connectors.length === 0 && !isLoading && (
-          <div className={`flex h-32 items-center justify-center rounded-xl border border-dashed border-[#DEE0E3] bg-white/52 text-[#646A73] ${TYPOGRAPHY_BODY_CLASS}`}>
+          <div
+            className={`flex h-32 items-center justify-center rounded-xl border border-dashed border-[#DEE0E3] bg-white/52 text-[#646A73] ${TYPOGRAPHY_BODY_CLASS}`}
+          >
             <span className="sm:hidden">{t("connectors.empty")}</span>
             <span className="hidden sm:inline">{t("connectors.empty")}</span>
           </div>

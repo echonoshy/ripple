@@ -51,11 +51,7 @@ export function SkillDescriptionMarkdown({
       tabIndex={isInteractive ? 0 : undefined}
       aria-expanded={isInteractive ? Boolean(expanded) : undefined}
       title={descriptionTitle(normalized) || undefined}
-      className={[
-        clamp ? "line-clamp-2" : "",
-        isInteractive ? "cursor-pointer" : "",
-        className,
-      ]
+      className={[clamp ? "line-clamp-2" : "", isInteractive ? "cursor-pointer" : "", className]
         .filter(Boolean)
         .join(" ")}
       onClick={onToggle}

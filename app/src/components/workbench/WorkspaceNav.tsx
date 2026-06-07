@@ -116,12 +116,16 @@ export default function WorkspaceNav({
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2.5 py-3">
         {sessionLoadError && !isLoading ? (
-          <div className={`flex items-start gap-2 rounded-lg border border-[#B42318]/25 bg-[#FFF1F0] px-3 py-3 ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#B42318]`}>
+          <div
+            className={`flex items-start gap-2 rounded-lg border border-[#B42318]/25 bg-[#FFF1F0] px-3 py-3 ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#B42318]`}
+          >
             <AlertTriangle size={14} className="mt-0.5 shrink-0" />
             <span className="min-w-0 break-words">{sessionLoadError}</span>
           </div>
         ) : sessions.length === 0 && !isLoading ? (
-          <div className={`rounded-lg border border-dashed border-[#EFF0F1] bg-white px-3 py-5 text-center ${TYPOGRAPHY_BODY_CLASS} text-[#646A73]`}>
+          <div
+            className={`rounded-lg border border-dashed border-[#EFF0F1] bg-white px-3 py-5 text-center ${TYPOGRAPHY_BODY_CLASS} text-[#646A73]`}
+          >
             {t("sessions.empty")}
           </div>
         ) : (

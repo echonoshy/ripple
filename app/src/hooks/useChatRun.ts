@@ -784,265 +784,264 @@ export function useChatRun({
       };
 
       const callbacks: ChatStreamCallbacks = {
-          onMessageDelta: (delta) => {
-            if (isStaleRequest()) return;
-            currentContent += delta;
-            updateRunningMessages((prev) => {
-              const msgs = [...prev];
-              const last = msgs[msgs.length - 1];
-              if (last.role === "assistant") last.content = currentContent;
-              return msgs;
-            });
-          },
-          onAssistantUpdateDelta: (id, delta) => {
-            if (isStaleRequest()) return;
-            const next = (assistantUpdates.get(id) || "") + delta;
-            assistantUpdates.set(id, next);
-            upsertAssistantUpdate(id, next);
-          },
-          onAssistantUpdate: (id, content) => {
-            if (isStaleRequest()) return;
-            assistantUpdates.set(id, content);
-            upsertAssistantUpdate(id, content);
-          },
-          onToolCall: (toolCall) => {
-            if (isStaleRequest()) return;
-            updateRunningMessages((prev) => {
-              const msgs = [...prev];
-              const last = msgs[msgs.length - 1];
-              if (last.role === "assistant") {
-                const idx = last.toolCalls?.findIndex((t) => t.id === toolCall.id) ?? -1;
-                if (idx >= 0 && last.toolCalls) {
-                  last.toolCalls[idx] = toolCall;
-                } else {
-                  last.toolCalls = [...(last.toolCalls || []), toolCall];
-                }
-                if (toolCall.name === "AskUser") {
-                  try {
-                    const args =
-                      typeof toolCall.arguments === "string"
-                        ? JSON.parse(toolCall.arguments)
-                        : toolCall.arguments;
-                    if (args?.question) {
-                      last.askUser = { question: args.question, options: args.options || [] };
-                      blockedForInteraction = true;
-                      onSessionAttention?.(activeSessionId, "needs_input");
-                    }
-                  } catch {
-                    /* ignore parse error */
+        onMessageDelta: (delta) => {
+          if (isStaleRequest()) return;
+          currentContent += delta;
+          updateRunningMessages((prev) => {
+            const msgs = [...prev];
+            const last = msgs[msgs.length - 1];
+            if (last.role === "assistant") last.content = currentContent;
+            return msgs;
+          });
+        },
+        onAssistantUpdateDelta: (id, delta) => {
+          if (isStaleRequest()) return;
+          const next = (assistantUpdates.get(id) || "") + delta;
+          assistantUpdates.set(id, next);
+          upsertAssistantUpdate(id, next);
+        },
+        onAssistantUpdate: (id, content) => {
+          if (isStaleRequest()) return;
+          assistantUpdates.set(id, content);
+          upsertAssistantUpdate(id, content);
+        },
+        onToolCall: (toolCall) => {
+          if (isStaleRequest()) return;
+          updateRunningMessages((prev) => {
+            const msgs = [...prev];
+            const last = msgs[msgs.length - 1];
+            if (last.role === "assistant") {
+              const idx = last.toolCalls?.findIndex((t) => t.id === toolCall.id) ?? -1;
+              if (idx >= 0 && last.toolCalls) {
+                last.toolCalls[idx] = toolCall;
+              } else {
+                last.toolCalls = [...(last.toolCalls || []), toolCall];
+              }
+              if (toolCall.name === "AskUser") {
+                try {
+                  const args =
+                    typeof toolCall.arguments === "string"
+                      ? JSON.parse(toolCall.arguments)
+                      : toolCall.arguments;
+                  if (args?.question) {
+                    last.askUser = { question: args.question, options: args.options || [] };
+                    blockedForInteraction = true;
+                    onSessionAttention?.(activeSessionId, "needs_input");
                   }
+                } catch {
+                  /* ignore parse error */
                 }
               }
-              return msgs;
-            });
-          },
-          onNewTurn: () => {
-            if (isStaleRequest()) return;
-            currentContent = "";
-            updateRunningMessages((prev) => [
-              ...prev,
-              {
-                id: Date.now() + Math.random(),
-                role: "assistant",
-                content: "",
-                toolCalls: [],
-                created_at: new Date().toISOString(),
-              },
-            ]);
-          },
-          onToolResult: (toolId, result) => {
-            if (isStaleRequest()) return;
-            updateRunningMessages((prev) => {
-              const msgs = [...prev];
-              const last = msgs[msgs.length - 1];
-              if (last.role === "assistant") {
-                const tc = last.toolCalls?.find((t) => t.id === toolId);
-                if (tc) {
-                  tc.status = "success";
-                  tc.result = result;
-                }
+            }
+            return msgs;
+          });
+        },
+        onNewTurn: () => {
+          if (isStaleRequest()) return;
+          currentContent = "";
+          updateRunningMessages((prev) => [
+            ...prev,
+            {
+              id: Date.now() + Math.random(),
+              role: "assistant",
+              content: "",
+              toolCalls: [],
+              created_at: new Date().toISOString(),
+            },
+          ]);
+        },
+        onToolResult: (toolId, result) => {
+          if (isStaleRequest()) return;
+          updateRunningMessages((prev) => {
+            const msgs = [...prev];
+            const last = msgs[msgs.length - 1];
+            if (last.role === "assistant") {
+              const tc = last.toolCalls?.find((t) => t.id === toolId);
+              if (tc) {
+                tc.status = "success";
+                tc.result = result;
               }
-              return msgs;
-            });
-          },
-          onPlanStepCreated: (step) => {
-            if (isStaleRequest()) return;
-            updateRunningPlanSteps((prev) => upsertPlanStep(prev, step));
-          },
-          onPlanStepUpdated: (step) => {
-            if (isStaleRequest()) return;
-            updateRunningPlanSteps((prev) => applyPlanStepUpdate(prev, step));
-          },
-          onPlanProgress: (progress) => {
-            if (isStaleRequest()) return;
-            updateRunningPlanProgress(progress);
-          },
-          onPlanUpdated: (update) => {
-            if (isStaleRequest()) return;
-            const next = applyPlanUpdate([], update);
-            replaceRunningPlan(next);
-          },
-          onRuntimeEvent: (event) => {
-            if (isStaleRequest()) return;
-            if (!shouldShowRuntimeEvent(event)) return;
-            const createdAt = new Date().toISOString();
-            updateRunningTimelineEvents((prev) =>
-              upsertRuntimeTimelineEvent(prev, event, {
-                id:
-                  event.type === "codex_turn_diff_updated"
-                    ? `runtime-${requestId}-workspace-diff`
-                    : `runtime-${requestId}-${prev.length}`,
-                createdAt,
-              })
-            );
-          },
-          onAgentStop: (data) => {
-            if (isStaleRequest()) return;
-            updateRunningMessages((prev) => {
-              const msgs = [...prev];
-              const last = msgs[msgs.length - 1];
-              if (last.role !== "assistant") return msgs;
+            }
+            return msgs;
+          });
+        },
+        onPlanStepCreated: (step) => {
+          if (isStaleRequest()) return;
+          updateRunningPlanSteps((prev) => upsertPlanStep(prev, step));
+        },
+        onPlanStepUpdated: (step) => {
+          if (isStaleRequest()) return;
+          updateRunningPlanSteps((prev) => applyPlanStepUpdate(prev, step));
+        },
+        onPlanProgress: (progress) => {
+          if (isStaleRequest()) return;
+          updateRunningPlanProgress(progress);
+        },
+        onPlanUpdated: (update) => {
+          if (isStaleRequest()) return;
+          const next = applyPlanUpdate([], update);
+          replaceRunningPlan(next);
+        },
+        onRuntimeEvent: (event) => {
+          if (isStaleRequest()) return;
+          if (!shouldShowRuntimeEvent(event)) return;
+          const createdAt = new Date().toISOString();
+          updateRunningTimelineEvents((prev) =>
+            upsertRuntimeTimelineEvent(prev, event, {
+              id:
+                event.type === "codex_turn_diff_updated"
+                  ? `runtime-${requestId}-workspace-diff`
+                  : `runtime-${requestId}-${prev.length}`,
+              createdAt,
+            })
+          );
+        },
+        onAgentStop: (data) => {
+          if (isStaleRequest()) return;
+          updateRunningMessages((prev) => {
+            const msgs = [...prev];
+            const last = msgs[msgs.length - 1];
+            if (last.role !== "assistant") return msgs;
 
-              if (data.stop_reason === "ask_user" && typeof data.metadata.question === "string") {
-                blockedForInteraction = true;
-                onSessionAttention?.(activeSessionId, "needs_input");
-                if (typeof data.metadata.message === "string") {
-                  last.content = data.metadata.message;
-                }
-                last.askUser = {
-                  question: data.metadata.question,
-                  options: Array.isArray(data.metadata.options)
-                    ? data.metadata.options.filter(
-                        (option): option is string => typeof option === "string"
-                      )
-                    : [],
-                };
+            if (data.stop_reason === "ask_user" && typeof data.metadata.question === "string") {
+              blockedForInteraction = true;
+              onSessionAttention?.(activeSessionId, "needs_input");
+              if (typeof data.metadata.message === "string") {
+                last.content = data.metadata.message;
               }
+              last.askUser = {
+                question: data.metadata.question,
+                options: Array.isArray(data.metadata.options)
+                  ? data.metadata.options.filter(
+                      (option): option is string => typeof option === "string"
+                    )
+                  : [],
+              };
+            }
 
-              if (data.stop_reason === "permission_request") {
-                blockedForInteraction = true;
-                onSessionAttention?.(activeSessionId, "needs_input");
-                last.permissionRequest = {
-                  tool: typeof data.metadata.tool === "string" ? data.metadata.tool : "unknown",
-                  params:
-                    typeof data.metadata.params === "string" ||
-                    (data.metadata.params && typeof data.metadata.params === "object")
-                      ? (data.metadata.params as Record<string, unknown> | string)
-                      : {},
-                  riskLevel:
-                    typeof data.metadata.riskLevel === "string"
-                      ? data.metadata.riskLevel
-                      : "dangerous",
-                };
-              }
+            if (data.stop_reason === "permission_request") {
+              blockedForInteraction = true;
+              onSessionAttention?.(activeSessionId, "needs_input");
+              last.permissionRequest = {
+                tool: typeof data.metadata.tool === "string" ? data.metadata.tool : "unknown",
+                params:
+                  typeof data.metadata.params === "string" ||
+                  (data.metadata.params && typeof data.metadata.params === "object")
+                    ? (data.metadata.params as Record<string, unknown> | string)
+                    : {},
+                riskLevel:
+                  typeof data.metadata.riskLevel === "string"
+                    ? data.metadata.riskLevel
+                    : "dangerous",
+              };
+            }
 
-              return msgs;
+            return msgs;
+          });
+        },
+        onPermissionRequest: (request) => {
+          if (isStaleRequest()) return;
+          blockedForInteraction = true;
+          onSessionAttention?.(activeSessionId, "needs_input");
+          clearSessionRunning(activeSessionId);
+          if (isRunVisible()) setInputFocusToken((prev) => bumpInputFocusToken(prev));
+          updateRunningMessages((prev) => {
+            const msgs = [...prev];
+            const last = msgs[msgs.length - 1];
+            if (last.role === "assistant") last.permissionRequest = request;
+            return msgs;
+          });
+        },
+        onUsage: (usage) => {
+          if (isStaleRequest()) return;
+          updateRunningUsage((prev) => ({
+            prompt_tokens: prev.prompt_tokens + usage.prompt_tokens,
+            completion_tokens: prev.completion_tokens + usage.completion_tokens,
+            total_tokens: prev.total_tokens + usage.total_tokens,
+            last_prompt_tokens: usage.last_prompt_tokens ?? prev.last_prompt_tokens,
+            cached_input_tokens: (prev.cached_input_tokens ?? 0) + (usage.cached_input_tokens ?? 0),
+            reasoning_output_tokens:
+              (prev.reasoning_output_tokens ?? 0) + (usage.reasoning_output_tokens ?? 0),
+            model_context_window: usage.model_context_window ?? prev.model_context_window,
+          }));
+          const ctx = usage.last_prompt_tokens ?? usage.prompt_tokens;
+          if (ctx > 0) updateRunningContextTokens(ctx);
+        },
+        onConnectorAuth: (event) => {
+          if (isStaleRequest()) return;
+          const nextPayload = connectorAuthPollPayloadFromEvent(event);
+          if (nextPayload) {
+            pendingConnectorAuthPayload = nextPayload;
+            if (connectorAuthRequiresSessionAttention(event)) {
+              onSessionAttention?.(activeSessionId, "needs_input");
+            }
+          }
+        },
+        onComplete: () => {
+          if (isStaleRequest()) return;
+          if (streamHadError) return;
+          abortControllersRef.current.delete(activeSessionId);
+          if (
+            pendingConnectorAuthPayload &&
+            beginConnectorAuthPollRef.current &&
+            shouldStartConnectorAuthPoll(pendingConnectorAuthPayload)
+          ) {
+            const baseMessages =
+              runningViewStatesRef.current.get(activeSessionId)?.messages || initialMessages;
+            beginConnectorAuthPollRef.current?.(pendingConnectorAuthPayload, {
+              baseMessages,
+              allowWhileGenerating: true,
+              openAuthWindow: shouldAutoOpenConnectorAuthWindow(
+                pendingConnectorAuthPayload.connector
+              ),
             });
-          },
-          onPermissionRequest: (request) => {
-            if (isStaleRequest()) return;
-            blockedForInteraction = true;
-            onSessionAttention?.(activeSessionId, "needs_input");
+            return;
+          }
+          if (!blockedForInteraction) {
+            onSessionAttention?.(activeSessionId, "completed");
+          }
+          clearSessionRunning(activeSessionId);
+          const nextPlan = clearPlanState();
+          replaceRunningPlan(nextPlan);
+          runningViewStatesRef.current.delete(activeSessionId);
+          if (isRunVisible()) setInputFocusToken((prev) => bumpInputFocusToken(prev));
+          getSessionActions().loadSessions();
+          for (const delayMs of SESSION_TITLE_REFRESH_DELAYS_MS) {
+            window.setTimeout(() => {
+              void getSessionActions().loadSessions();
+            }, delayMs);
+          }
+          onWorkspaceRefresh();
+        },
+        onError: (err) => {
+          if (isStaleRequest()) return;
+          streamHadError = true;
+          abortControllersRef.current.delete(activeSessionId);
+          if (err instanceof AuthError) {
+            handleAuthExpired();
             clearSessionRunning(activeSessionId);
             if (isRunVisible()) setInputFocusToken((prev) => bumpInputFocusToken(prev));
-            updateRunningMessages((prev) => {
-              const msgs = [...prev];
-              const last = msgs[msgs.length - 1];
-              if (last.role === "assistant") last.permissionRequest = request;
-              return msgs;
-            });
-          },
-          onUsage: (usage) => {
-            if (isStaleRequest()) return;
-            updateRunningUsage((prev) => ({
-              prompt_tokens: prev.prompt_tokens + usage.prompt_tokens,
-              completion_tokens: prev.completion_tokens + usage.completion_tokens,
-              total_tokens: prev.total_tokens + usage.total_tokens,
-              last_prompt_tokens: usage.last_prompt_tokens ?? prev.last_prompt_tokens,
-              cached_input_tokens:
-                (prev.cached_input_tokens ?? 0) + (usage.cached_input_tokens ?? 0),
-              reasoning_output_tokens:
-                (prev.reasoning_output_tokens ?? 0) + (usage.reasoning_output_tokens ?? 0),
-              model_context_window: usage.model_context_window ?? prev.model_context_window,
-            }));
-            const ctx = usage.last_prompt_tokens ?? usage.prompt_tokens;
-            if (ctx > 0) updateRunningContextTokens(ctx);
-          },
-          onConnectorAuth: (event) => {
-            if (isStaleRequest()) return;
-            const nextPayload = connectorAuthPollPayloadFromEvent(event);
-            if (nextPayload) {
-              pendingConnectorAuthPayload = nextPayload;
-              if (connectorAuthRequiresSessionAttention(event)) {
-                onSessionAttention?.(activeSessionId, "needs_input");
-              }
+            return;
+          }
+          console.error("Chat error:", err);
+          onSessionAttention?.(activeSessionId, "error");
+          clearSessionRunning(activeSessionId);
+          if (isRunVisible()) setInputFocusToken((prev) => bumpInputFocusToken(prev));
+          updateRunningMessages((prev) => {
+            const msgs = [...prev];
+            const last = msgs[msgs.length - 1];
+            if (last.role === "assistant" && !last.content) {
+              last.content = chatErrorContent(err);
             }
-          },
-          onComplete: () => {
-            if (isStaleRequest()) return;
-            if (streamHadError) return;
-            abortControllersRef.current.delete(activeSessionId);
-            if (
-              pendingConnectorAuthPayload &&
-              beginConnectorAuthPollRef.current &&
-              shouldStartConnectorAuthPoll(pendingConnectorAuthPayload)
-            ) {
-              const baseMessages =
-                runningViewStatesRef.current.get(activeSessionId)?.messages || initialMessages;
-              beginConnectorAuthPollRef.current?.(pendingConnectorAuthPayload, {
-                baseMessages,
-                allowWhileGenerating: true,
-                openAuthWindow: shouldAutoOpenConnectorAuthWindow(
-                  pendingConnectorAuthPayload.connector
-                ),
-              });
-              return;
-            }
-            if (!blockedForInteraction) {
-              onSessionAttention?.(activeSessionId, "completed");
-            }
-            clearSessionRunning(activeSessionId);
-            const nextPlan = clearPlanState();
-            replaceRunningPlan(nextPlan);
-            runningViewStatesRef.current.delete(activeSessionId);
-            if (isRunVisible()) setInputFocusToken((prev) => bumpInputFocusToken(prev));
-            getSessionActions().loadSessions();
-            for (const delayMs of SESSION_TITLE_REFRESH_DELAYS_MS) {
-              window.setTimeout(() => {
-                void getSessionActions().loadSessions();
-              }, delayMs);
-            }
-            onWorkspaceRefresh();
-          },
-          onError: (err) => {
-            if (isStaleRequest()) return;
-            streamHadError = true;
-            abortControllersRef.current.delete(activeSessionId);
-            if (err instanceof AuthError) {
-              handleAuthExpired();
-              clearSessionRunning(activeSessionId);
-              if (isRunVisible()) setInputFocusToken((prev) => bumpInputFocusToken(prev));
-              return;
-            }
-            console.error("Chat error:", err);
-            onSessionAttention?.(activeSessionId, "error");
-            clearSessionRunning(activeSessionId);
-            if (isRunVisible()) setInputFocusToken((prev) => bumpInputFocusToken(prev));
-            updateRunningMessages((prev) => {
-              const msgs = [...prev];
-              const last = msgs[msgs.length - 1];
-              if (last.role === "assistant" && !last.content) {
-                last.content = chatErrorContent(err);
-              }
-              return msgs;
-            });
-            const nextPlan = clearPlanState();
-            replaceRunningPlan(nextPlan);
-            runningViewStatesRef.current.delete(activeSessionId);
-            void getSessionActions().loadSessions();
-            onWorkspaceRefresh();
-          },
-        };
+            return msgs;
+          });
+          const nextPlan = clearPlanState();
+          replaceRunningPlan(nextPlan);
+          runningViewStatesRef.current.delete(activeSessionId);
+          void getSessionActions().loadSessions();
+          onWorkspaceRefresh();
+        },
+      };
 
       if (options.controlAction) {
         await sendSessionControlAction(

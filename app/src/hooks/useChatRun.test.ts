@@ -333,32 +333,32 @@ function testSendErrorsReleaseSessionForRetry() {
   assert.match(source, /streamHadError = true;/);
   assert.match(source, /if \(streamHadError\) return;/);
 
-  const onErrorBlock = source.match(/onError: \(err\) => \{([\s\S]*?)\n {10}\},\n {8}\};/);
+  const onErrorBlock = source.match(/onError: \(err\) => \{([\s\S]*?)\n\s*\},\n\s*\};/);
   assert.ok(onErrorBlock, "send onError block should exist");
   assert.match(onErrorBlock[1], /runningViewStatesRef\.current\.delete\(activeSessionId\)/);
   assert.match(onErrorBlock[1], /clearSessionRunning\(activeSessionId\)/);
 }
 
-testFeishuSetupAuthStartsAutomaticPoll();
-testFeishuUserAuthStartsAutomaticPoll();
-testGoogleAuthStillStartsAutomaticPoll();
-testConnectorPageGoogleAuthDoesNotStartAutomaticPoll();
-testSkillGoogleAuthKeepsSessionAttentionWhilePolling();
-testBilibiliAuthDoesNotStartAutomaticPollOrOpen();
-testAuthorizedConnectorEventDoesNotStartPoll();
-testConnectorAuthPollContinuesOnlyBeforeTimeout();
-testConnectorAuthPollStopsOnTerminalStages();
-testFeishuConnectorAuthPollDoesNotAutoOpenBrowserOnRunComplete();
-testGoogleConnectorAuthPollDoesNotAutoOpenBrowserOnRunComplete();
-testConnectorAuthPopupUrlResetAllowsManualRetry();
-testAttachmentUploadsKeepSuccessfulFilesWhenOneUploadFails();
-testSessionTitleRefreshUsesShortDelayedPolls();
-await testPendingLocalImagesUploadToWorkspaceRefsBeforeSend();
-await testPendingLocalImageUploadFailuresStopSendFlow();
-testSendFlowKeepsLocalImagesWhenSendTimeUploadFails();
-testSendFlowCanForceFreshSession();
-testFreshSessionSendDoesNotCarryCurrentViewState();
-testSessionControlActionsStartFreshSessions();
-testSendErrorsReleaseSessionForRetry();
-
-console.log("useChatRun tests passed");
+test("useChatRun behavior", async () => {
+  testFeishuSetupAuthStartsAutomaticPoll();
+  testFeishuUserAuthStartsAutomaticPoll();
+  testGoogleAuthStillStartsAutomaticPoll();
+  testConnectorPageGoogleAuthDoesNotStartAutomaticPoll();
+  testSkillGoogleAuthKeepsSessionAttentionWhilePolling();
+  testBilibiliAuthDoesNotStartAutomaticPollOrOpen();
+  testAuthorizedConnectorEventDoesNotStartPoll();
+  testConnectorAuthPollContinuesOnlyBeforeTimeout();
+  testConnectorAuthPollStopsOnTerminalStages();
+  testFeishuConnectorAuthPollDoesNotAutoOpenBrowserOnRunComplete();
+  testGoogleConnectorAuthPollDoesNotAutoOpenBrowserOnRunComplete();
+  testConnectorAuthPopupUrlResetAllowsManualRetry();
+  testAttachmentUploadsKeepSuccessfulFilesWhenOneUploadFails();
+  testSessionTitleRefreshUsesShortDelayedPolls();
+  await testPendingLocalImagesUploadToWorkspaceRefsBeforeSend();
+  await testPendingLocalImageUploadFailuresStopSendFlow();
+  testSendFlowKeepsLocalImagesWhenSendTimeUploadFails();
+  testSendFlowCanForceFreshSession();
+  testFreshSessionSendDoesNotCarryCurrentViewState();
+  testSessionControlActionsStartFreshSessions();
+  testSendErrorsReleaseSessionForRetry();
+});

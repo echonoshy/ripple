@@ -18,18 +18,30 @@ function getStorage(storage?: StorageLike): StorageLike | null {
 }
 
 export function getStoredCurrentSessionId(storage?: StorageLike): string | null {
-  return getStorage(storage)?.getItem(CURRENT_SESSION_STORAGE_KEY) ?? null;
+  try {
+    return getStorage(storage)?.getItem(CURRENT_SESSION_STORAGE_KEY) ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export function setStoredCurrentSessionId(
   storage: StorageLike | undefined,
   sessionId: string
 ): void {
-  getStorage(storage)?.setItem(CURRENT_SESSION_STORAGE_KEY, sessionId);
+  try {
+    getStorage(storage)?.setItem(CURRENT_SESSION_STORAGE_KEY, sessionId);
+  } catch {
+    /* Storage can be disabled or quota-limited in restricted browser contexts. */
+  }
 }
 
 export function clearStoredCurrentSessionId(storage?: StorageLike): void {
-  getStorage(storage)?.removeItem(CURRENT_SESSION_STORAGE_KEY);
+  try {
+    getStorage(storage)?.removeItem(CURRENT_SESSION_STORAGE_KEY);
+  } catch {
+    /* Storage can be disabled in restricted browser contexts. */
+  }
 }
 
 export function pickRestorableSessionId(

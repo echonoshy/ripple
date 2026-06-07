@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronLeft } from "lucide-react";
 import { useI18n } from "@/i18n";
+import { getClientStorageItem, setClientStorageItem } from "@/lib/platform";
 import { COMPACT_IOS_PAGE_BACKGROUND } from "./stylePrimitives";
 
 const INSPECTOR_WIDTH_STORAGE_KEY = "ripple.workbench.inspectorWidth";
@@ -15,8 +16,7 @@ function clampInspectorWidth(value: number): number {
 }
 
 function initialInspectorWidth(): number {
-  if (typeof window === "undefined") return DEFAULT_INSPECTOR_WIDTH;
-  const rawValue = window.localStorage.getItem(INSPECTOR_WIDTH_STORAGE_KEY);
+  const rawValue = getClientStorageItem(INSPECTOR_WIDTH_STORAGE_KEY);
   if (rawValue === null) return DEFAULT_INSPECTOR_WIDTH;
   const stored = Number(rawValue);
   if (!Number.isFinite(stored)) return DEFAULT_INSPECTOR_WIDTH;
@@ -47,7 +47,7 @@ export default function WorkbenchShell({
 
   useEffect(() => {
     inspectorWidthRef.current = inspectorWidth;
-    window.localStorage.setItem(INSPECTOR_WIDTH_STORAGE_KEY, String(inspectorWidth));
+    setClientStorageItem(INSPECTOR_WIDTH_STORAGE_KEY, String(inspectorWidth));
   }, [inspectorWidth]);
 
   const updateInspectorWidth = useCallback((value: number) => {

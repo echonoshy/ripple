@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import React, { Suspense, lazy, useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useReducedMotion } from "framer-motion";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Loader2 } from "lucide-react";
 import AuthGateway, { type AuthGatewayMode } from "@/components/AuthGateway";
 import {
   fetchModels,
@@ -18,15 +18,10 @@ import {
   logoutUserSession,
   AuthError,
 } from "@/lib/api";
-import AutomationsPage from "@/components/workbench/AutomationsPage";
-import SkillsPage from "@/components/workbench/SkillsPage";
-import FilesPage from "@/components/workbench/FilesPage";
-import InspectorPanel from "@/components/workbench/InspectorPanel";
 import MobileSessionStack from "@/components/workbench/MobileSessionStack";
 import MobileSessionsPage from "@/components/workbench/MobileSessionsPage";
 import MobileTabBar from "@/components/workbench/MobileTabBar";
 import ProductTopBar from "@/components/workbench/ProductTopBar";
-import SettingsPage from "@/components/workbench/SettingsPage";
 import SessionPage from "@/components/workbench/SessionPage";
 import WorkbenchShell from "@/components/workbench/WorkbenchShell";
 import WorkspaceNav from "@/components/workbench/WorkspaceNav";
@@ -66,10 +61,19 @@ import {
   selectPreferredModel,
   setStoredDefaultModel,
 } from "@/lib/modelPreference";
-import { setAndroidChatBackGestureEnabled } from "@/lib/platform";
+import {
+  getClientStorageItem,
+  setAndroidChatBackGestureEnabled,
+  setClientStorageItem,
+} from "@/lib/platform";
 import { useI18n } from "@/i18n";
 
 const WORKSPACE_ROOT_PATH = "/workspace";
+const AutomationsPage = lazy(() => import("@/components/workbench/AutomationsPage"));
+const FilesPage = lazy(() => import("@/components/workbench/FilesPage"));
+const InspectorPanel = lazy(() => import("@/components/workbench/InspectorPanel"));
+const SettingsPage = lazy(() => import("@/components/workbench/SettingsPage"));
+const SkillsPage = lazy(() => import("@/components/workbench/SkillsPage"));
 const ANDROID_CHAT_BACK_GESTURE_DESKTOP_MIN_WIDTH_PX = 1024;
 const SESSION_RAIL_WIDTH_STORAGE_KEY = "ripple.workbench.sessionRailWidth";
 const SESSION_RAIL_COLLAPSED_STORAGE_KEY = "ripple.workbench.sessionRailCollapsed";
@@ -81,6 +85,18 @@ const emptyUsage: UsageInfo = {
   completion_tokens: 0,
   total_tokens: 0,
 };
+
+function LazyWorkbenchFallback() {
+  return (
+    <div
+      role="status"
+      aria-label="Loading"
+      className="flex h-full min-h-0 items-center justify-center bg-[#F8FAFC] text-[#1456F0]"
+    >
+      <Loader2 size={20} className="animate-spin" />
+    </div>
+  );
+}
 
 function normalizeWorkspaceFolderPath(path: string): string {
   const trimmed = path.trim().replace(/\/+$/, "");
@@ -94,16 +110,14 @@ function clampSessionRailWidth(value: number): number {
 }
 
 function initialSessionRailWidth(): number {
-  if (typeof window === "undefined") return SESSION_RAIL_DEFAULT_WIDTH;
-  const rawValue = window.localStorage.getItem(SESSION_RAIL_WIDTH_STORAGE_KEY);
+  const rawValue = getClientStorageItem(SESSION_RAIL_WIDTH_STORAGE_KEY);
   if (rawValue === null) return SESSION_RAIL_DEFAULT_WIDTH;
   const stored = Number(rawValue);
   return Number.isFinite(stored) ? clampSessionRailWidth(stored) : SESSION_RAIL_DEFAULT_WIDTH;
 }
 
 function initialSessionRailCollapsed(): boolean {
-  if (typeof window === "undefined") return false;
-  return window.localStorage.getItem(SESSION_RAIL_COLLAPSED_STORAGE_KEY) === "true";
+  return getClientStorageItem(SESSION_RAIL_COLLAPSED_STORAGE_KEY) === "true";
 }
 
 export default function Home() {
@@ -140,8 +154,7 @@ export default function Home() {
 
   // ── UI state ──
   const [isInspectorCollapsed, setIsInspectorCollapsed] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return window.localStorage.getItem("ripple.workbench.inspectorCollapsed") === "true";
+    return getClientStorageItem("ripple.workbench.inspectorCollapsed") === "true";
   });
   const [sessionRailWidth, setSessionRailWidth] = useState(initialSessionRailWidth);
   const sessionRailWidthRef = useRef(sessionRailWidth);
@@ -349,19 +362,16 @@ export default function Home() {
   );
 
   useEffect(() => {
-    window.localStorage.setItem(
-      "ripple.workbench.inspectorCollapsed",
-      String(isInspectorCollapsed)
-    );
+    setClientStorageItem("ripple.workbench.inspectorCollapsed", String(isInspectorCollapsed));
   }, [isInspectorCollapsed]);
 
   useEffect(() => {
     sessionRailWidthRef.current = sessionRailWidth;
-    window.localStorage.setItem(SESSION_RAIL_WIDTH_STORAGE_KEY, String(sessionRailWidth));
+    setClientStorageItem(SESSION_RAIL_WIDTH_STORAGE_KEY, String(sessionRailWidth));
   }, [sessionRailWidth]);
 
   useEffect(() => {
-    window.localStorage.setItem(SESSION_RAIL_COLLAPSED_STORAGE_KEY, String(isSessionRailCollapsed));
+    setClientStorageItem(SESSION_RAIL_COLLAPSED_STORAGE_KEY, String(isSessionRailCollapsed));
   }, [isSessionRailCollapsed]);
 
   useEffect(() => {
@@ -1179,7 +1189,7 @@ export default function Home() {
         transition={reduceMotion ? reducedMotionTransition : mobilePageSwitchTransition}
         className="h-full min-h-0"
       >
-        {mainContent}
+        <Suspense fallback={<LazyWorkbenchFallback />}>{mainContent}</Suspense>
       </motion.div>
     </AnimatePresence>
   );
@@ -1239,13 +1249,15 @@ export default function Home() {
         content={animatedMainContent}
         inspector={
           shouldShowInspector(activeView) ? (
-            <InspectorPanel
-              userId={userId}
-              refreshToken={workspaceRefreshToken}
-              onCollapse={() => setIsInspectorCollapsed(true)}
-              openFileRequest={pendingWorkspaceFileOpen}
-              onOpenFileRequestConsumed={handlePendingWorkspaceFileOpenConsumed}
-            />
+            <Suspense fallback={null}>
+              <InspectorPanel
+                userId={userId}
+                refreshToken={workspaceRefreshToken}
+                onCollapse={() => setIsInspectorCollapsed(true)}
+                openFileRequest={pendingWorkspaceFileOpen}
+                onOpenFileRequestConsumed={handlePendingWorkspaceFileOpenConsumed}
+              />
+            </Suspense>
           ) : null
         }
         mobileNav={mobileNav}

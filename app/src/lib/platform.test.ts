@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { getClientStorage } from "./platform";
 
 const platformSource = readFileSync(new URL("./platform/index.ts", import.meta.url), "utf8");
 
@@ -14,6 +15,34 @@ function testAndroidChatBackGestureUsesNativeBridgeWhenAvailable() {
   assert.doesNotMatch(platformSource, /AndroidBackButtonEvent/);
 }
 
-testAndroidChatBackGestureUsesNativeBridgeWhenAvailable();
+function testClientStorageHandlesUnavailableLocalStorage() {
+  const globalWithWindow = globalThis as typeof globalThis & { window?: unknown };
+  const previousWindow = globalWithWindow.window;
 
-console.log("platform tests passed");
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: Object.defineProperty({}, "localStorage", {
+      get() {
+        throw new DOMException("blocked", "SecurityError");
+      },
+    }),
+  });
+
+  try {
+    assert.equal(getClientStorage(), null);
+  } finally {
+    if (previousWindow === undefined) {
+      Reflect.deleteProperty(globalWithWindow, "window");
+    } else {
+      Object.defineProperty(globalThis, "window", {
+        configurable: true,
+        value: previousWindow,
+      });
+    }
+  }
+}
+
+test("platform browser integration", () => {
+  testAndroidChatBackGestureUsesNativeBridgeWhenAvailable();
+  testClientStorageHandlesUnavailableLocalStorage();
+});

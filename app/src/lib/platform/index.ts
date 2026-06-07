@@ -25,7 +25,35 @@ export function isTauriRuntime(): boolean {
 
 export function getClientStorage(): StorageLike | null {
   if (typeof window === "undefined") return null;
-  return window.localStorage;
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+export function getClientStorageItem(key: string): string | null {
+  try {
+    return getClientStorage()?.getItem(key) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function setClientStorageItem(key: string, value: string): void {
+  try {
+    getClientStorage()?.setItem(key, value);
+  } catch {
+    /* Storage can be disabled or quota-limited in restricted browser contexts. */
+  }
+}
+
+export function removeClientStorageItem(key: string): void {
+  try {
+    getClientStorage()?.removeItem(key);
+  } catch {
+    /* Storage can be disabled in restricted browser contexts. */
+  }
 }
 
 export async function openExternalUrl(

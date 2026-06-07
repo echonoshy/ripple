@@ -1,3 +1,4 @@
+import { getClientStorageItem, setClientStorageItem } from "@/lib/platform";
 import type { ModelOption } from "./models";
 
 const DEFAULT_MODEL_ID = "codex-medium";
@@ -6,21 +7,12 @@ function storageKey(userId: string): string {
   return `ripple.defaultModel.${encodeURIComponent(userId || "default")}`;
 }
 
-function localStorageOrNull(): Storage | null {
-  if (typeof window === "undefined") return null;
-  try {
-    return window.localStorage;
-  } catch {
-    return null;
-  }
-}
-
 export function getStoredDefaultModel(userId: string): string | null {
-  return localStorageOrNull()?.getItem(storageKey(userId)) || null;
+  return getClientStorageItem(storageKey(userId));
 }
 
 export function setStoredDefaultModel(userId: string, model: string): void {
-  localStorageOrNull()?.setItem(storageKey(userId), model);
+  setClientStorageItem(storageKey(userId), model);
 }
 
 export function selectPreferredModel(models: ModelOption[], storedModel: string | null): string {

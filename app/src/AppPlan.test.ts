@@ -127,7 +127,10 @@ function testMobileUsesBottomTabBarForTopLevelViews() {
 }
 
 function testSettingsIsSinglePageSurface() {
-  assert.match(appSource, /import SettingsPage/);
+  assert.match(
+    appSource,
+    /const SettingsPage = lazy\(\(\) => import\("@\/components\/workbench\/SettingsPage"\)\)/
+  );
   assert.doesNotMatch(appSource, /import SettingsModal/);
   assert.doesNotMatch(appSource, /isSettingsOpen/);
   assert.match(appSource, /activeView === "home"/);

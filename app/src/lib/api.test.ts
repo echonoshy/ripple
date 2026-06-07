@@ -390,14 +390,8 @@ async function testSkillApisUseUserFacingSkillEndpoints() {
       });
     },
     async () => {
-      const {
-        createSkill,
-        deleteSkill,
-        fetchSkill,
-        fetchSkills,
-        updateSkill,
-        validateSkill,
-      } = await import("./api");
+      const { createSkill, deleteSkill, fetchSkill, fetchSkills, updateSkill, validateSkill } =
+        await import("./api");
       await fetchSkills();
       await fetchSkill("user:demo/with space");
       await createSkill({
@@ -554,6 +548,28 @@ async function testAvatarApisUseServerProfileStorage() {
     assert.equal(seen[1].method, "GET");
     assert.equal(seen[1].headers.get("authorization"), "Bearer service-key");
     assert.equal(seen[2].method, "DELETE");
+  });
+}
+
+async function testAvatarImageRejectsExternalUrlsBeforeAuthFetch() {
+  await withBrowserStorage(async () => {
+    setApiKey("service-key");
+    let fetchCalled = false;
+
+    await withFetch(
+      async () => {
+        fetchCalled = true;
+        return new Response("unexpected", { status: 200 });
+      },
+      async () => {
+        await assert.rejects(
+          () => fetchUserAvatarImage("https://evil.example/avatar.png"),
+          (error) => error instanceof Error && /Ripple API URL/.test(error.message)
+        );
+      }
+    );
+
+    assert.equal(fetchCalled, false);
   });
 }
 
@@ -1244,40 +1260,41 @@ function testChatStreamingAcceptsImageRuntimeEvents() {
   assert.match(source, /"image_view"/);
 }
 
-testDefaultApiOriginUsesPublicBaseUrl();
-testDevDefaultApiUrlUsesSameOriginProxy();
-testViteDevServerProxiesV1ToLocalRippleServer();
-testChatStreamingStaysOpenWhenPageIsHidden();
-testChatStreamingAcceptsImageRuntimeEvents();
-await testRenameEndpointNotFoundAsksForServerRestart();
-await testRenamePathNotFoundStaysFileSpecific();
-await testRenameConflictUsesFriendlyMessage();
-await testSessionIdIsEncodedInPath();
-await testScheduleIdIsEncodedInPath();
-await testScheduleRunApisEncodeIdsAndDownloadOutput();
-await testConnectorManagementApisEncodeNamesAndPayloads();
-await testCapabilityApisUseUnifiedCatalogAndSkillPatch();
-await testSkillApisUseUserFacingSkillEndpoints();
-await testChangePasswordPostsCurrentAndNewPassword();
-await testAvatarApisUseServerProfileStorage();
-await testUpdateUserProfilePatchesDisplayName();
-await testAuthHeadersUseUserSessionWithoutSpoofableUserId();
-await testAuthHeadersKeepServiceKeyUserIdCompatibility();
-testParseWorkspaceLinkDecodesEncodedSandboxPath();
-await testWorkspaceFilePreviewPathNotFoundStaysFileSpecific();
-await testWorkspaceDocumentPreviewUsesPreviewEndpoint();
-await testWorkspaceDownloadDecodesUtf8ContentDispositionFilename();
-await testScheduleApiUsesExpectedBackendShape();
-await testCreateScheduleAddsOffsetForNonUtcRunAt();
-await testFetchSessionsNormalizesBackendShape();
-await testCreateSessionNormalizesBackendShape();
-await testCreateSessionPostsSelectedModel();
-await testCreateSessionPostsContextFolderPath();
-await testFetchSessionDetailsNormalizesBackendShape();
-await testFetchSessionsRejectsServerFailures();
-await testFetchSessionsRejectsNetworkFailures();
-await testWorkspaceSearchDefaultsToNameScope();
-await testChatStreamUsesServerConflictDetail();
-await testSessionControlActionUsesStructuredChatBlock();
-
-console.log("api tests passed");
+test("api client behavior", async () => {
+  testDefaultApiOriginUsesPublicBaseUrl();
+  testDevDefaultApiUrlUsesSameOriginProxy();
+  testViteDevServerProxiesV1ToLocalRippleServer();
+  testChatStreamingStaysOpenWhenPageIsHidden();
+  testChatStreamingAcceptsImageRuntimeEvents();
+  await testRenameEndpointNotFoundAsksForServerRestart();
+  await testRenamePathNotFoundStaysFileSpecific();
+  await testRenameConflictUsesFriendlyMessage();
+  await testSessionIdIsEncodedInPath();
+  await testScheduleIdIsEncodedInPath();
+  await testScheduleRunApisEncodeIdsAndDownloadOutput();
+  await testConnectorManagementApisEncodeNamesAndPayloads();
+  await testCapabilityApisUseUnifiedCatalogAndSkillPatch();
+  await testSkillApisUseUserFacingSkillEndpoints();
+  await testChangePasswordPostsCurrentAndNewPassword();
+  await testAvatarApisUseServerProfileStorage();
+  await testAvatarImageRejectsExternalUrlsBeforeAuthFetch();
+  await testUpdateUserProfilePatchesDisplayName();
+  await testAuthHeadersUseUserSessionWithoutSpoofableUserId();
+  await testAuthHeadersKeepServiceKeyUserIdCompatibility();
+  testParseWorkspaceLinkDecodesEncodedSandboxPath();
+  await testWorkspaceFilePreviewPathNotFoundStaysFileSpecific();
+  await testWorkspaceDocumentPreviewUsesPreviewEndpoint();
+  await testWorkspaceDownloadDecodesUtf8ContentDispositionFilename();
+  await testScheduleApiUsesExpectedBackendShape();
+  await testCreateScheduleAddsOffsetForNonUtcRunAt();
+  await testFetchSessionsNormalizesBackendShape();
+  await testCreateSessionNormalizesBackendShape();
+  await testCreateSessionPostsSelectedModel();
+  await testCreateSessionPostsContextFolderPath();
+  await testFetchSessionDetailsNormalizesBackendShape();
+  await testFetchSessionsRejectsServerFailures();
+  await testFetchSessionsRejectsNetworkFailures();
+  await testWorkspaceSearchDefaultsToNameScope();
+  await testChatStreamUsesServerConflictDetail();
+  await testSessionControlActionUsesStructuredChatBlock();
+});

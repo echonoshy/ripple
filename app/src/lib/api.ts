@@ -32,7 +32,11 @@ import {
 } from "@/types";
 import { buildChatMessageContent, type ChatFileRef } from "@/lib/chatInput";
 import { readableApiErrorMessage } from "@/lib/apiErrors";
-import { getClientStorage } from "@/lib/platform";
+import {
+  getClientStorageItem,
+  removeClientStorageItem,
+  setClientStorageItem,
+} from "@/lib/platform";
 
 // TEMP_HTTP_IP_API: use direct HTTP IP until test-oauth.weilai.ai is unblocked.
 const DEFAULT_PUBLIC_API_URL = "http://140.143.229.103:8810/v1";
@@ -87,6 +91,40 @@ export function resolveBackendUrl(href: string | undefined): string | undefined 
     return `${getApiOrigin()}${href}`;
   }
   return href;
+}
+
+function apiOriginForValidation(): string | null {
+  const apiOrigin = getApiOrigin();
+  if (apiOrigin) {
+    try {
+      return new URL(apiOrigin).origin;
+    } catch {
+      return null;
+    }
+  }
+  if (typeof window === "undefined") return null;
+  return window.location.origin;
+}
+
+function resolveRippleApiUrl(href: string, resourceName: string): string {
+  const resolved = resolveBackendUrl(href)?.trim();
+  const expectedOrigin = apiOriginForValidation();
+  if (!resolved || !expectedOrigin) {
+    throw new Error(`${resourceName} must be a Ripple API URL.`);
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(resolved, expectedOrigin);
+  } catch {
+    throw new Error(`${resourceName} must be a Ripple API URL.`);
+  }
+
+  if (parsed.origin !== expectedOrigin || !parsed.pathname.startsWith("/v1/")) {
+    throw new Error(`${resourceName} must be a Ripple API URL.`);
+  }
+
+  return parsed.toString();
 }
 
 export interface ParsedWorkspaceLink {
@@ -367,32 +405,29 @@ function scheduleInputForRequest<T extends ScheduleCreateInput | ScheduleUpdateI
 }
 
 export function getApiKey(): string | null {
-  return getClientStorage()?.getItem(API_KEY_STORAGE_KEY) ?? null;
+  return getClientStorageItem(API_KEY_STORAGE_KEY);
 }
 
 export function getAuthMode(): AuthMode {
-  const mode = getClientStorage()?.getItem(AUTH_MODE_STORAGE_KEY);
+  const mode = getClientStorageItem(AUTH_MODE_STORAGE_KEY);
   if (mode === "user" || mode === "service") return mode;
   return "service";
 }
 
 export function setApiKey(key: string): void {
-  const storage = getClientStorage();
-  storage?.setItem(API_KEY_STORAGE_KEY, key);
-  storage?.setItem(AUTH_MODE_STORAGE_KEY, "service");
+  setClientStorageItem(API_KEY_STORAGE_KEY, key);
+  setClientStorageItem(AUTH_MODE_STORAGE_KEY, "service");
 }
 
 export function setUserSessionToken(token: string, userId: string): void {
-  const storage = getClientStorage();
-  storage?.setItem(API_KEY_STORAGE_KEY, token);
-  storage?.setItem(AUTH_MODE_STORAGE_KEY, "user");
+  setClientStorageItem(API_KEY_STORAGE_KEY, token);
+  setClientStorageItem(AUTH_MODE_STORAGE_KEY, "user");
   setUserId(userId);
 }
 
 export function clearApiKey(): void {
-  const storage = getClientStorage();
-  storage?.removeItem(API_KEY_STORAGE_KEY);
-  storage?.removeItem(AUTH_MODE_STORAGE_KEY);
+  removeClientStorageItem(API_KEY_STORAGE_KEY);
+  removeClientStorageItem(AUTH_MODE_STORAGE_KEY);
 }
 
 export function isUserSessionAuth(): boolean {
@@ -404,7 +439,7 @@ export function isValidUserId(uid: string): boolean {
 }
 
 export function getUserId(): string {
-  const stored = getClientStorage()?.getItem(USER_ID_STORAGE_KEY);
+  const stored = getClientStorageItem(USER_ID_STORAGE_KEY);
   if (stored && isValidUserId(stored)) return stored;
   return DEFAULT_USER_ID;
 }
@@ -414,11 +449,11 @@ export function setUserId(uid: string): void {
   if (!isValidUserId(trimmed)) {
     throw new Error("Invalid user_id: must match ^[a-zA-Z0-9_-]{1,64}$");
   }
-  getClientStorage()?.setItem(USER_ID_STORAGE_KEY, trimmed);
+  setClientStorageItem(USER_ID_STORAGE_KEY, trimmed);
 }
 
 export function clearUserId(): void {
-  getClientStorage()?.removeItem(USER_ID_STORAGE_KEY);
+  removeClientStorageItem(USER_ID_STORAGE_KEY);
 }
 
 function authHeaders(): Record<string, string> {
@@ -1398,10 +1433,7 @@ export async function createSkill(input: SkillDraftInput): Promise<SkillInfo> {
   return (await res.json()) as SkillInfo;
 }
 
-export async function updateSkill(
-  skillId: string,
-  input: SkillUpdateInput
-): Promise<SkillInfo> {
+export async function updateSkill(skillId: string, input: SkillUpdateInput): Promise<SkillInfo> {
   const res = await fetch(`${API_URL}/skills/${encodeURIComponent(skillId)}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json", ...authHeaders() },
@@ -1828,7 +1860,7 @@ export async function deleteUserAvatar(): Promise<UserProfile> {
 }
 
 export async function fetchUserAvatarImage(avatarUri: string): Promise<Blob> {
-  const href = resolveBackendUrl(avatarUri) ?? avatarUri;
+  const href = resolveRippleApiUrl(avatarUri, "Avatar URL");
   const res = await fetch(href, { headers: { ...authHeaders() } });
   if (res.status === 401) throw new AuthError();
   if (!res.ok) {

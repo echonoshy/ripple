@@ -1,6 +1,6 @@
 import React from "react";
 
-import { getClientStorage } from "@/lib/platform";
+import { getClientStorageItem, setClientStorageItem } from "@/lib/platform";
 
 export const SUPPORTED_LOCALES = ["zh-CN", "en-US"] as const;
 export type SupportedLocale = (typeof SUPPORTED_LOCALES)[number];
@@ -242,7 +242,8 @@ const zhMessages = {
     notionSkillTokenTitle: "为此请求连接 Notion",
     notionTokenSubtitle: "粘贴你的 Notion integration token，完成 Notion 连接。",
     notionSkillTokenSubtitle: "这个 Notion 请求需要先提供 integration token。",
-    notionTokenHint: "Token 通常以 ntn_ 或 secret_ 开头；还需要把目标页面或数据库分享给该 integration。",
+    notionTokenHint:
+      "Token 通常以 ntn_ 或 secret_ 开头；还需要把目标页面或数据库分享给该 integration。",
     openNotionIntegrations: "打开 Notion integrations",
     notionAuthorizedTitle: "Notion 已连接",
     notionAuthorizedSubtitle: "Token 已保存。",
@@ -326,8 +327,10 @@ const zhMessages = {
     validated: "检查完成",
     deleted: "能力已删除",
     failed: "操作失败",
-    createChatPrompt: "帮我创建一个新的 skill。请先和我确认名称、用途、类型、需要的 Python 包、需要连接的服务，以及是否涉及高风险操作。创建后系统会自动检查，通过后就可以直接使用。",
-    editChatPrompt: "帮我更新 skill「{name}」（id: {id}，workspace 相对目录: {directory}）。请先读取 {directory}/SKILL.md 和同目录脚本/资源，问我要改哪里，然后只修改这个 skill 目录内的文件。完成后说明修改结果；系统会自动检查，通过后就可以直接使用。",
+    createChatPrompt:
+      "帮我创建一个新的 skill。请先和我确认名称、用途、类型、需要的 Python 包、需要连接的服务，以及是否涉及高风险操作。创建后系统会自动检查，通过后就可以直接使用。",
+    editChatPrompt:
+      "帮我更新 skill「{name}」（id: {id}，workspace 相对目录: {directory}）。请先读取 {directory}/SKILL.md 和同目录脚本/资源，问我要改哪里，然后只修改这个 skill 目录内的文件。完成后说明修改结果；系统会自动检查，通过后就可以直接使用。",
     connectChatPrompt: "帮我连接 {name}，并在连接完成后继续启用相关 skill。",
   },
   automations: {
@@ -796,8 +799,7 @@ const enMessages = {
     feishuSkillAuthTitle: "Authorize Feishu for this request",
     feishuSetupSubtitle:
       "First-time use needs a one-time setup on Feishu, then Ripple will show account authorization.",
-    feishuAuthSubtitle:
-      "Complete Feishu authorization to use your Feishu account in Ripple.",
+    feishuAuthSubtitle: "Complete Feishu authorization to use your Feishu account in Ripple.",
     feishuSkillSetupSubtitle:
       "This Feishu request needs one-time setup first. After that, authorize your Feishu account.",
     feishuSkillAuthSubtitle: "This Feishu request needs authorization first.",
@@ -850,8 +852,7 @@ const enMessages = {
       'After confirming with the QR code or link, come back here and send "done" to finish connecting.',
     bilibiliAuthorizedTitle: "Bilibili connected",
     bilibiliAuthorizedSubtitle: "Authorization is complete.",
-    bilibiliSkillAuthorizedSubtitle:
-      "Send the Bilibili video link or BV ID you want summarized.",
+    bilibiliSkillAuthorizedSubtitle: "Send the Bilibili video link or BV ID you want summarized.",
   },
   skills: {
     title: "Skills",
@@ -918,8 +919,10 @@ const enMessages = {
     validated: "Validation complete",
     deleted: "Skill deleted",
     failed: "Action failed",
-    createChatPrompt: "Help me create a new skill. First confirm the name, purpose, type, required Python packages, required services, and whether it involves risky actions. After creation, the skill is automatically checked and can be used directly when it passes.",
-    editChatPrompt: "Help me update the skill \"{name}\" (id: {id}, workspace-relative directory: {directory}). First read {directory}/SKILL.md and adjacent scripts/resources, ask me what to change, then only modify files inside that skill directory. When finished, summarize the changes; the system will automatically check it and make it usable when it passes.",
+    createChatPrompt:
+      "Help me create a new skill. First confirm the name, purpose, type, required Python packages, required services, and whether it involves risky actions. After creation, the skill is automatically checked and can be used directly when it passes.",
+    editChatPrompt:
+      'Help me update the skill "{name}" (id: {id}, workspace-relative directory: {directory}). First read {directory}/SKILL.md and adjacent scripts/resources, ask me what to change, then only modify files inside that skill directory. When finished, summarize the changes; the system will automatically check it and make it usable when it passes.',
     connectChatPrompt: "Help me connect {name}, then continue enabling the related skill.",
   },
   automations: {
@@ -1254,11 +1257,11 @@ export function getSystemLanguages(): readonly string[] {
 }
 
 export function readStoredLocalePreference(): LocalePreference | null {
-  return normalizeLocalePreference(getClientStorage()?.getItem(LOCALE_PREFERENCE_STORAGE_KEY));
+  return normalizeLocalePreference(getClientStorageItem(LOCALE_PREFERENCE_STORAGE_KEY));
 }
 
 function storeLocalePreference(preference: LocalePreference): void {
-  getClientStorage()?.setItem(LOCALE_PREFERENCE_STORAGE_KEY, preference);
+  setClientStorageItem(LOCALE_PREFERENCE_STORAGE_KEY, preference);
 }
 
 export function createDateTimeFormatters(locale: SupportedLocale, timeZone?: string) {

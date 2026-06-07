@@ -194,6 +194,12 @@ function testAndroidBackGestureExclusionAppliesToMobileSwipeBackSurfaces() {
   assert.doesNotMatch(source, /onBackButtonPress/);
 }
 
+function testAutomationsPageReceivesChatOpenHandler() {
+  const source = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /<AutomationsPage[\s\S]*onOpenChat=\{handleOpenChatWithPrompt\}/);
+}
+
 testAppUsesAuthGatewayForLoginScreen();
 testAuthModeChangesClearSensitiveInputs();
 testWorkspaceLinksRouteToFilesPageOnMobile();
@@ -211,5 +217,6 @@ testSessionRailOnlyLivesInsideSessionsView();
 testDesktopSessionRailCanResizeAndCollapse();
 testCollapsedSessionRailUsesEdgeHandle();
 testAndroidBackGestureExclusionAppliesToMobileSwipeBackSurfaces();
+testAutomationsPageReceivesChatOpenHandler();
 
 console.log("app tests passed");

@@ -22,7 +22,6 @@ import { IconTile } from "@/components/icons/IconTile";
 import { useI18n } from "@/i18n";
 import {
   AuthError,
-  createSchedule,
   deleteSchedule,
   deleteScheduleRun,
   downloadRunOutput,
@@ -57,10 +56,14 @@ interface AutomationsPageProps {
   selectedModel: string;
   models: { id: string; owned_by: string }[];
   onAuthExpired: (message: string) => void;
+  onOpenChat?: (prompt: string, options?: { autoSend?: boolean; newSession?: boolean }) => void;
   onBack?: () => void;
 }
 
 type IntervalUnit = "minutes" | "hours" | "days";
+type MissedRunPolicy = "run_once" | "skip";
+type OverlapPolicy = "skip" | "allow";
+type FailurePolicy = "pause" | "keep_active";
 
 type OutputPreviewState = {
   jobId: string;
@@ -77,6 +80,11 @@ const intervalUnitSeconds: Record<IntervalUnit, number> = {
   hours: 3600,
   days: 86_400,
 };
+const defaultMaxRuntimeSeconds = 1800;
+
+const missedRunPolicyOptions: MissedRunPolicy[] = ["run_once", "skip"];
+const overlapPolicyOptions: OverlapPolicy[] = ["skip", "allow"];
+const failurePolicyOptions: FailurePolicy[] = ["pause", "keep_active"];
 
 const commonTimezones = [
   "UTC",
@@ -269,6 +277,7 @@ export default function AutomationsPage({
   selectedModel,
   models,
   onAuthExpired,
+  onOpenChat,
   onBack,
 }: AutomationsPageProps) {
   const { locale, t } = useI18n();
@@ -287,6 +296,12 @@ export default function AutomationsPage({
   const [intervalValue, setIntervalValue] = useState(1);
   const [intervalUnit, setIntervalUnit] = useState<IntervalUnit>("hours");
   const [maxRuns, setMaxRuns] = useState("");
+  const [cwd, setCwd] = useState("");
+  const [maxRuntimeSeconds, setMaxRuntimeSeconds] = useState(String(defaultMaxRuntimeSeconds));
+  const [missedRunPolicy, setMissedRunPolicy] = useState<MissedRunPolicy>("run_once");
+  const [overlapPolicy, setOverlapPolicy] = useState<OverlapPolicy>("skip");
+  const [failurePolicy, setFailurePolicy] = useState<FailurePolicy>("pause");
+  const [isAdvancedConfigOpen, setIsAdvancedConfigOpen] = useState(false);
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
   const [pendingRunActionId, setPendingRunActionId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -357,6 +372,12 @@ export default function AutomationsPage({
     setIntervalValue(1);
     setIntervalUnit("hours");
     setMaxRuns("");
+    setCwd("");
+    setMaxRuntimeSeconds(String(defaultMaxRuntimeSeconds));
+    setMissedRunPolicy("run_once");
+    setOverlapPolicy("skip");
+    setFailurePolicy("pause");
+    setIsAdvancedConfigOpen(false);
   }, [selectedModel]);
 
   function beginEditSchedule(schedule: ScheduleInfo) {
@@ -371,20 +392,21 @@ export default function AutomationsPage({
     setIntervalValue(interval.value);
     setIntervalUnit(interval.unit);
     setMaxRuns(schedule.max_runs ? String(schedule.max_runs) : "");
+    setCwd(schedule.cwd || "");
+    setMaxRuntimeSeconds(String(schedule.max_runtime_seconds || defaultMaxRuntimeSeconds));
+    setMissedRunPolicy((schedule.missed_run_policy as MissedRunPolicy) || "run_once");
+    setOverlapPolicy((schedule.overlap_policy as OverlapPolicy) || "skip");
+    setFailurePolicy((schedule.failure_policy as FailurePolicy) || "pause");
+    setIsAdvancedConfigOpen(false);
     setConfirmDeleteId(null);
     setActiveScheduleMenuId(null);
     setError(null);
     setIsCreating(true);
   }
 
-  const beginCreateSchedule = useCallback(() => {
-    resetForm();
-    setEditingScheduleId(null);
-    setConfirmDeleteId(null);
-    setActiveScheduleMenuId(null);
-    setError(null);
-    setIsCreating(true);
-  }, [resetForm]);
+  const openCreateAutomationChat = useCallback(() => {
+    onOpenChat?.(t("automations.createChatPrompt"), { autoSend: true, newSession: true });
+  }, [onOpenChat, t]);
 
   const closeForm = useCallback(() => {
     resetForm();
@@ -395,7 +417,7 @@ export default function AutomationsPage({
   const handleSubmitSchedule = useCallback(
     async (event: React.FormEvent) => {
       event.preventDefault();
-      if (!title.trim() || !prompt.trim()) return;
+      if (!editingScheduleId || !title.trim() || !prompt.trim()) return;
       setIsSubmitting(true);
       setError(null);
       try {
@@ -404,6 +426,11 @@ export default function AutomationsPage({
           kind === "interval" && maxRuns.trim() && Number.isFinite(parsedMaxRuns)
             ? Math.max(1, Math.floor(parsedMaxRuns))
             : null;
+        const parsedMaxRuntimeSeconds = Number(maxRuntimeSeconds);
+        const maxRuntimeSecondsLimit =
+          maxRuntimeSeconds.trim() && Number.isFinite(parsedMaxRuntimeSeconds)
+            ? Math.max(1, Math.floor(parsedMaxRuntimeSeconds))
+            : defaultMaxRuntimeSeconds;
         const payload = {
           title: title.trim(),
           prompt: prompt.trim(),
@@ -413,12 +440,13 @@ export default function AutomationsPage({
           interval_seconds: kind === "interval" ? intervalSeconds : null,
           max_runs: maxRunsLimit,
           model: formModel,
+          cwd: cwd.trim() || null,
+          max_runtime_seconds: maxRuntimeSecondsLimit,
+          missed_run_policy: missedRunPolicy,
+          overlap_policy: overlapPolicy,
+          failure_policy: failurePolicy,
         };
-        if (editingScheduleId) {
-          await updateSchedule(editingScheduleId, payload);
-        } else {
-          await createSchedule(payload);
-        }
+        await updateSchedule(editingScheduleId, payload);
         resetForm();
         setEditingScheduleId(null);
         setIsCreating(false);
@@ -434,13 +462,18 @@ export default function AutomationsPage({
       }
     },
     [
+      cwd,
       editingScheduleId,
+      failurePolicy,
       formModel,
       intervalSeconds,
       kind,
       loadSchedules,
       maxRuns,
+      maxRuntimeSeconds,
+      missedRunPolicy,
       onAuthExpired,
+      overlapPolicy,
       prompt,
       resetForm,
       runAt,
@@ -644,14 +677,9 @@ export default function AutomationsPage({
             </button>
             <button
               type="button"
-              onClick={() => {
-                if (isCreating && !editingScheduleId) {
-                  closeForm();
-                } else {
-                  beginCreateSchedule();
-                }
-              }}
-              className={`inline-flex h-11 items-center gap-2 rounded-full bg-[#1456F0] px-3 text-white shadow-[0_12px_26px_rgba(20,86,240,0.22)] hover:bg-[#0F4BD8] lg:h-10 ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+              onClick={openCreateAutomationChat}
+              disabled={!onOpenChat}
+              className={`inline-flex h-11 items-center gap-2 rounded-full bg-[#1456F0] px-3 text-white shadow-[0_12px_26px_rgba(20,86,240,0.22)] hover:bg-[#0F4BD8] disabled:cursor-not-allowed disabled:bg-[#EFF0F1] disabled:text-[#8F959E] disabled:shadow-none lg:h-10 ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
             >
               <Plus size={15} />
               {t("automations.new")}
@@ -684,7 +712,7 @@ export default function AutomationsPage({
             >
               <div className="flex items-center justify-between gap-2 md:hidden">
                 <div className={`text-[#1F2329] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
-                  {editingScheduleId ? t("automations.edit") : t("automations.new")}
+                  {t("automations.edit")}
                 </div>
                 <button
                   type="button"
@@ -743,7 +771,7 @@ export default function AutomationsPage({
                 />
               </label>
 
-              <div className="grid gap-3 md:grid-cols-[190px_minmax(0,1fr)_auto] md:items-end">
+              <div className="grid gap-3 md:grid-cols-[190px_minmax(0,1fr)] md:items-end">
                 <div>
                   <span className={automationFieldLabelClass}>{t("automations.mode")}</span>
                   <div className="grid grid-cols-2 rounded-xl border border-[#DEE0E3] bg-white p-0.5">
@@ -811,29 +839,126 @@ export default function AutomationsPage({
                     </label>
                   </div>
                 )}
+              </div>
 
-                <div className="flex items-center justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={closeForm}
-                    className={`hidden h-10 items-center justify-center rounded-full border border-[#DEE0E3] bg-white px-4 text-[#2B2F36] shadow-[0_10px_24px_rgba(31,35,41,0.04)] hover:bg-[#F8F9FA] md:inline-flex ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
-                    disabled={isSubmitting}
-                  >
-                    {t("automations.cancel")}
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isSubmitting || !title.trim() || !prompt.trim()}
-                    className={`inline-flex h-10 items-center justify-center gap-2 rounded-full bg-[#1456F0] px-4 text-white shadow-[0_12px_26px_rgba(20,86,240,0.22)] hover:bg-[#0F4BD8] disabled:cursor-not-allowed disabled:bg-[#EFF0F1] disabled:bg-none disabled:text-[#8F959E] disabled:shadow-none ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
-                  >
-                    {isSubmitting ? (
-                      <Loader2 size={14} className="animate-spin" />
-                    ) : (
-                      <CalendarClock size={14} />
-                    )}
-                    {editingScheduleId ? t("automations.save") : t("automations.create")}
-                  </button>
+              <button
+                type="button"
+                onClick={() => setIsAdvancedConfigOpen((current) => !current)}
+                className={`inline-flex h-9 w-fit items-center gap-1 rounded-full border border-[#DEE0E3] bg-white px-3 text-[#2B2F36] hover:bg-[#F8F9FA] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+              >
+                <ChevronDown
+                  size={14}
+                  className={
+                    isAdvancedConfigOpen ? "rotate-180 transition-transform" : "transition-transform"
+                  }
+                />
+                {t("automations.advancedConfig")}
+              </button>
+
+              {isAdvancedConfigOpen ? (
+                <div
+                  data-ripple-automation-advanced-config
+                  className="grid gap-3 rounded-xl border border-[#EFF0F1] bg-[#F8F9FA]/70 p-3 md:grid-cols-2 xl:grid-cols-5"
+                >
+                  <label className="block min-w-0 md:col-span-2 xl:col-span-1">
+                    <span className={automationFieldLabelClass}>{t("automations.cwd")}</span>
+                    <input
+                      value={cwd}
+                      onChange={(event) => setCwd(event.target.value)}
+                      placeholder="/workspace"
+                      className={automationMonoFieldControlClass}
+                    />
+                  </label>
+                  <label className="block min-w-0">
+                    <span className={automationFieldLabelClass}>
+                      {t("automations.maxRuntimeSeconds")}
+                    </span>
+                    <input
+                      type="number"
+                      min={1}
+                      value={maxRuntimeSeconds}
+                      onChange={(event) => setMaxRuntimeSeconds(event.target.value)}
+                      className={automationFieldControlClass}
+                    />
+                  </label>
+                  <label className="block min-w-0">
+                    <span className={automationFieldLabelClass}>
+                      {t("automations.missedRunPolicy")}
+                    </span>
+                    <select
+                      value={missedRunPolicy}
+                      onChange={(event) => setMissedRunPolicy(event.target.value as MissedRunPolicy)}
+                      className={automationFieldControlClass}
+                    >
+                      {missedRunPolicyOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option === "run_once"
+                            ? t("automations.missedRunPolicyRunOnce")
+                            : t("automations.missedRunPolicySkip")}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block min-w-0">
+                    <span className={automationFieldLabelClass}>
+                      {t("automations.overlapPolicy")}
+                    </span>
+                    <select
+                      value={overlapPolicy}
+                      onChange={(event) => setOverlapPolicy(event.target.value as OverlapPolicy)}
+                      className={automationFieldControlClass}
+                    >
+                      {overlapPolicyOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option === "skip"
+                            ? t("automations.overlapPolicySkip")
+                            : t("automations.overlapPolicyAllow")}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block min-w-0">
+                    <span className={automationFieldLabelClass}>
+                      {t("automations.failurePolicy")}
+                    </span>
+                    <select
+                      value={failurePolicy}
+                      onChange={(event) => setFailurePolicy(event.target.value as FailurePolicy)}
+                      className={automationFieldControlClass}
+                    >
+                      {failurePolicyOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option === "pause"
+                            ? t("automations.failurePolicyPause")
+                            : t("automations.failurePolicyKeepActive")}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                 </div>
+              ) : null}
+
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={closeForm}
+                  className={`hidden h-10 items-center justify-center rounded-full border border-[#DEE0E3] bg-white px-4 text-[#2B2F36] shadow-[0_10px_24px_rgba(31,35,41,0.04)] hover:bg-[#F8F9FA] md:inline-flex ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+                  disabled={isSubmitting}
+                >
+                  {t("automations.cancel")}
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting || !editingScheduleId || !title.trim() || !prompt.trim()}
+                  className={`inline-flex h-10 items-center justify-center gap-2 rounded-full bg-[#1456F0] px-4 text-white shadow-[0_12px_26px_rgba(20,86,240,0.22)] hover:bg-[#0F4BD8] disabled:cursor-not-allowed disabled:bg-[#EFF0F1] disabled:bg-none disabled:text-[#8F959E] disabled:shadow-none ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+                >
+                  {isSubmitting ? (
+                    <Loader2 size={14} className="animate-spin" />
+                  ) : (
+                    <CalendarClock size={14} />
+                  )}
+                  {t("automations.save")}
+                </button>
               </div>
             </form>
           </>

@@ -380,6 +380,8 @@ function testSkillsPageCreateSkillStartsFreshSession() {
   );
   assert.match(i18n, /automatically checked/);
   assert.match(i18n, /自动检查/);
+  assert.match(i18n, /不要直接创建/);
+  assert.match(i18n, /最多追问一轮/);
 }
 
 testSkillsPageCreateSkillStartsFreshSession();
@@ -400,6 +402,8 @@ function testSkillsPageEditSkillOpensScopedChatPrompt() {
   );
   assert.match(i18n, /workspace-relative directory/);
   assert.match(i18n, /workspace 相对目录/);
+  assert.match(i18n, /不要直接修改/);
+  assert.match(i18n, /at most one follow-up round/);
   assert.doesNotMatch(i18n, /path: \{path\}/);
   assert.doesNotMatch(i18n, /\/home\/|\.ripple\/sandboxes/);
 }

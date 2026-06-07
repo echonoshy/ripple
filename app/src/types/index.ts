@@ -362,6 +362,9 @@ export interface WorkspaceUploadResponse {
 
 export type ScheduleKind = "once" | "interval";
 export type ScheduleStatus = "active" | "paused" | "completed" | "error" | string;
+export type MissedRunPolicy = "run_once" | "skip" | string;
+export type OverlapPolicy = "skip" | "allow" | string;
+export type FailurePolicy = "pause" | "keep_active" | string;
 
 export interface AgentRunInfo {
   job_id: string;
@@ -399,9 +402,9 @@ export interface ScheduleInfo {
   last_error: string | null;
   failure_reason?: string | null;
   last_run_status?: string | null;
-  missed_run_policy?: string;
-  overlap_policy?: string;
-  failure_policy?: string;
+  missed_run_policy?: MissedRunPolicy;
+  overlap_policy?: OverlapPolicy;
+  failure_policy?: FailurePolicy;
   cwd: string | null;
   model: string | null;
   effort: string | null;

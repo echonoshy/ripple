@@ -1100,6 +1100,7 @@ export default function Home() {
         selectedModel={defaultModel}
         models={models}
         onAuthExpired={handleAuthExpired}
+        onOpenChat={handleOpenChatWithPrompt}
       />
     ) : activeView === "skills" || activeView === "connectors" ? (
       <SkillsPage

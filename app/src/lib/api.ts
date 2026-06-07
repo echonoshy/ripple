@@ -236,6 +236,7 @@ export interface ScheduleCreateInput {
   interval_seconds?: number | null;
   enabled?: boolean;
   model?: string | null;
+  effort?: string | null;
   cwd?: string | null;
   max_runtime_seconds?: number;
   max_runs?: number | null;

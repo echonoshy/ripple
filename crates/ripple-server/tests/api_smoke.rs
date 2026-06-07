@@ -414,6 +414,10 @@ fn schedule_clarification_text() -> &'static str {
     "{\"is_schedule_request\":true,\"missing_fields\":[\"interval_seconds\"],\"clarification_question\":\"你希望多久监控一次？\",\"schedule\":null}"
 }
 
+fn news_feishu_schedule_extraction_text() -> &'static str {
+    "{\"is_schedule_request\":true,\"missing_fields\":[],\"clarification_question\":null,\"schedule\":{\"title\":\"每日 AI 新闻飞书发送\",\"prompt\":\"每天早上9点搜集一下 ai 相关的新闻，并且在飞书上给胡胖发消息，把新闻发给他。\",\"kind\":\"interval\",\"timezone\":\"Asia/Shanghai\",\"run_at\":\"2026-06-08T01:00:00Z\",\"interval_seconds\":86400,\"enabled\":true,\"cwd\":null,\"model\":null,\"effort\":null,\"summary\":null,\"output_schema\":null,\"max_runtime_seconds\":60,\"max_runs\":null}}"
+}
+
 fn weekly_price_schedule_extraction_text() -> &'static str {
     "{\"is_schedule_request\":true,\"missing_fields\":[],\"clarification_question\":null,\"schedule\":{\"title\":\"Monitor used MacBook Pro prices\",\"prompt\":\"监控二手 M4 Pro 和 M5 Pro MacBook Pro 的价格。\",\"kind\":\"interval\",\"timezone\":\"Asia/Shanghai\",\"run_at\":null,\"interval_seconds\":604800,\"enabled\":false,\"cwd\":null,\"model\":null,\"effort\":null,\"summary\":null,\"output_schema\":null,\"max_runtime_seconds\":60,\"max_runs\":null}}"
 }
@@ -505,6 +509,8 @@ fn main() {
                 } else if line.contains("\"outputSchema\"") {
                     if line.contains("[clarify-interval]") && !line.contains("一周一次") {
                         schedule_clarification_text().to_string()
+                    } else if line.contains("[news-feishu]") {
+                        news_feishu_schedule_extraction_text().to_string()
                     } else if line.contains("[clarify-interval]") && line.contains("一周一次") {
                         weekly_price_schedule_extraction_text().to_string()
                     } else {
@@ -4319,6 +4325,78 @@ async fn chat_route_proposes_schedule_with_fake_codex_extraction() {
             .and_then(|options| options.first())
             .map(String::as_str),
         Some("确认创建")
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn chat_route_asks_details_before_complex_external_schedule_proposal() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+    let user_id = "smoke-user";
+
+    let (status, chat) = call(
+        app,
+        Method::POST,
+        "/v1/chat/completions",
+        json!({
+            "model": "codex-test",
+            "messages": [{
+                "role": "user",
+                "content": "[news-feishu] 每天早上9点搜集一下 ai 相关的新闻，并且在飞书上给胡胖发消息，把新闻发给他"
+            }],
+            "stream": false
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        chat.pointer("/event/type").and_then(Value::as_str),
+        Some("schedule_clarification_required")
+    );
+    let message = chat
+        .pointer("/event/message")
+        .and_then(Value::as_str)
+        .expect("clarification message");
+    assert!(message.contains("新闻来源"), "{message}");
+    assert!(message.contains("飞书"), "{message}");
+    assert!(message.contains("失败"), "{message}");
+
+    let session_id = chat
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("session id");
+    let reloaded = state
+        .sessions
+        .load(user_id, session_id)
+        .await
+        .unwrap()
+        .expect("session");
+    assert_eq!(reloaded.status, "awaiting_user_input");
+    let pending = reloaded
+        .pending_schedule_request
+        .as_ref()
+        .expect("pending schedule draft");
+    assert_eq!(
+        pending.get("type").and_then(Value::as_str),
+        Some("schedule_draft")
+    );
+    assert_eq!(
+        pending
+            .get("missing_fields")
+            .and_then(Value::as_array)
+            .and_then(|fields| fields.first())
+            .and_then(Value::as_str),
+        Some("automation_details")
+    );
+    assert_eq!(
+        pending
+            .pointer("/partial_schedule/title")
+            .and_then(Value::as_str),
+        Some("每日 AI 新闻飞书发送")
     );
 
     let _ = std::fs::remove_dir_all(root);

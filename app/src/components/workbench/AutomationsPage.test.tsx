@@ -18,6 +18,7 @@ function renderAutomationsPage(locale: LocalePreference = "en-US") {
           { id: "codex-high", owned_by: "ripple" },
         ]}
         onAuthExpired={noop}
+        onOpenChat={noop}
         onBack={noop}
       />
     </I18nProvider>
@@ -58,6 +59,20 @@ function testAutomationFormCanSelectModel() {
   assert.match(source, /t\("automations\.model"\)/);
   assert.match(source, /availableModels\.map/);
   assert.match(source, /model:\s*formModel/);
+}
+
+function testNewAutomationOpensChatInsteadOfCreateForm() {
+  const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /onOpenChat\?: \(prompt: string, options\?: \{ autoSend\?: boolean; newSession\?: boolean \}\) => void/);
+  assert.match(source, /const openCreateAutomationChat = useCallback/);
+  assert.match(
+    source,
+    /onOpenChat\?\.\(t\("automations\.createChatPrompt"\), \{ autoSend: true, newSession: true \}\)/
+  );
+  assert.match(source, /onClick=\{openCreateAutomationChat\}/);
+  assert.doesNotMatch(source, /createSchedule/);
+  assert.doesNotMatch(source, /beginCreateSchedule/);
 }
 
 function testExistingAutomationsCanBeEdited() {
@@ -116,7 +131,7 @@ function testAutomationStaticCopyUsesEnglish() {
 
   assert.doesNotMatch(
     source,
-    /查看结果|下载结果|运行记录|删除记录|确认删除|执行记录|运行中|取消|已失效|失败/
+    /查看结果|下载结果|运行记录|删除记录|确认删除|执行记录|运行中|已失效|失败/
   );
 }
 
@@ -130,13 +145,20 @@ function testAutomationCardUsesSeparatedLayoutRegions() {
   assert.match(source, /data-ripple-automation-actions/);
 }
 
-function testAutomationCardDoesNotExposePolicyControls() {
+function testAutomationConfigExposesAdvancedPolicyControls() {
   const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
 
-  assert.doesNotMatch(source, />\s*Policy\s*</);
-  assert.doesNotMatch(source, /missed_run_policy/);
-  assert.doesNotMatch(source, /overlap_policy/);
-  assert.doesNotMatch(source, /failure_policy/);
+  assert.match(source, /const \[isAdvancedConfigOpen, setIsAdvancedConfigOpen\]/);
+  assert.match(source, /data-ripple-automation-advanced-config/);
+  assert.match(source, /t\("automations\.advancedConfig"\)/);
+  assert.match(source, /value=\{cwd\}/);
+  assert.match(source, /value=\{maxRuntimeSeconds\}/);
+  assert.match(source, /value=\{missedRunPolicy\}/);
+  assert.match(source, /value=\{overlapPolicy\}/);
+  assert.match(source, /value=\{failurePolicy\}/);
+  assert.match(source, /missed_run_policy:\s*missedRunPolicy/);
+  assert.match(source, /overlap_policy:\s*overlapPolicy/);
+  assert.match(source, /failure_policy:\s*failurePolicy/);
 }
 
 function testAutomationCardUsesCompactResponsiveLayout() {
@@ -247,13 +269,14 @@ testAutomationsPageHasMobileBackNavigation();
 testAutomationActionsUseVisibleDistinctLabels();
 testTimezoneUsesSelectControl();
 testAutomationFormCanSelectModel();
+testNewAutomationOpensChatInsteadOfCreateForm();
 testExistingAutomationsCanBeEdited();
 testAutomationRunResultsAreDiscoverable();
 testRunningAutomationRunsDoNotOfferOutputActions();
 testCompletedScheduleRunsDoNotSurfaceToolStderrAsErrors();
 testAutomationStaticCopyUsesEnglish();
 testAutomationCardUsesSeparatedLayoutRegions();
-testAutomationCardDoesNotExposePolicyControls();
+testAutomationConfigExposesAdvancedPolicyControls();
 testAutomationCardUsesCompactResponsiveLayout();
 testAutomationCardUsesDesktopRowLayout();
 testAutomationsPageUsesMobileSheetsForFormAndOverflowActions();

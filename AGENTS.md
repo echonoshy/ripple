@@ -133,6 +133,24 @@ Python helper 规则：
 - 修改前端后在 `app` 运行 `bun run lint`、`bun run build` 或相应最小验证。
 - UI 变更优先保持现有 Vite + React + Tauri 结构，不引入新的前端框架。
 
+App 设计语言：
+
+- Ripple App 的产品气质参考飞书 / Lark 的协作工具设计语言，而不是营销站、消费级社交 App 或传统后台管理台。参考的是信息架构、交互节奏、移动触控和动效原则，不复制飞书品牌资产、商标或专有视觉。
+- 官方参考：
+  - Universe Design 概述：`https://open.feishu.cn/document/design-specification/written-in-advance?lang=zh-CN`
+  - 飞书导航规范：`https://open.feishu.cn/document/tools-and-resources/design-specification/gadget-design-specification/visual-specifications/navigation?lang=zh-CN`
+  - 飞书动效规范：`https://open.feishu.cn/document/design-specification/design-language/animation?lang=zh-CN`
+  - 飞书字体规范：`https://open.feishu.cn/document/design-specification/design-language/font?lang=zh-CN`
+- 移动端默认采用“一级页面底部 Tab + 二级/详情页顶部返回”的结构。非一级页面必须有清晰可点的返回入口；可以增加手势返回，但不能只依赖隐藏手势。
+- 移动端手势按飞书式协作 App 习惯处理：纵向滚动优先，左边缘右滑返回优先；非边缘区域必须提高横滑阈值，避免聊天流、列表、文档内容因为轻微斜滑误触返回。
+- `touch guard` 或滚动锁只用于确认横向意图的短暂阶段；一旦手势明显转为纵向滚动，必须释放滚动锁并停止继续 `preventDefault()`。
+- iOS 和 Android 共用的 WebView 手势逻辑要保持一致；Android 如果自定义左边缘返回手势，需要同步更新原生 `systemGestureExclusionRects` 范围，避免系统返回手势抢占 App 内返回。
+- 动效遵循“快速响应、缓慢结束”：用户直接拖动的对象要跟手，释放后的回弹/提交动画要短、顺、可预测；关闭/退出通常比进入更快。现有 `motionPrimitives.ts` 是移动动效参数的优先来源。
+- 列表、聊天、文件、设置等高频工作流优先保证扫描效率、触控热区和稳定布局。避免大面积装饰、过度卡片化、强品牌渐变、复杂背景和会降低信息密度的视觉噪声。
+- 字体层级保持克制：正文和列表优先使用当前 `stylePrimitives.ts` 的 14/16px 等级，标题只用于页面级语义；不要在紧凑面板、卡片或工具条内使用 hero 级字号。
+- 图标继续使用 `lucide-react` 线性风格。图标按钮要有明确 `aria-label` / `title`，尺寸、描边和视觉重量与当前 App 保持一致。
+- 做移动 UI 或手势变更后，除 `bun run lint`、`bun run build` 或最小测试外，还应人工列出需要真机验证的 iOS / Android 场景，例如边缘返回、纵向滚动、键盘弹出、底部安全区、Android 系统返回手势竞争。
+
 ## 配置
 
 - 主配置文件：`config/settings.yaml`

@@ -48,6 +48,7 @@ import {
 import type { SandboxInfo, UserProfile } from "@/types";
 import { IconTile, type IconTileTone } from "@/components/icons/IconTile";
 import RippleIcon from "@/components/icons/RippleIcon";
+import MobileActionSheet from "./MobileActionSheet";
 import {
   COMPACT_IOS_PAGE_BACKGROUND,
   MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS,
@@ -97,8 +98,7 @@ const SETTINGS_AVATAR_MENU_WIDTH = 160;
 const SETTINGS_AVATAR_MENU_ITEM_HEIGHT = 32;
 const SETTINGS_AVATAR_MENU_VERTICAL_PADDING = 8;
 
-const settingsAccountActionButtonClass =
-  `inline-flex h-9 w-full min-w-0 items-center justify-center gap-1 rounded-xl border border-[#DEE0E3] bg-white px-1.5 text-[#2B2F36] transition-all hover:bg-[#F8F9FA] active:scale-[0.98] sm:w-auto sm:min-w-[60px] sm:gap-1 sm:px-2 lg:h-8 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0`;
+const settingsAccountActionButtonClass = `flex h-11 w-full min-w-0 items-center justify-start gap-2 rounded-xl border border-[#DEE0E3] bg-white px-3 text-[#2B2F36] transition-all hover:bg-[#F8F9FA] active:scale-[0.98] sm:inline-flex sm:h-9 sm:w-auto sm:min-w-[60px] sm:justify-center sm:gap-1 sm:px-2 lg:h-8 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0`;
 
 const settingsSectionClass =
   "overflow-hidden rounded-xl border border-[#DEE0E3]/80 bg-white/82 shadow-[0_10px_26px_rgba(31,35,41,0.06)] backdrop-blur-xl";
@@ -108,11 +108,9 @@ const settingsGroupedRowClass =
 
 const settingsFieldLabelClass = `min-w-0 text-[#646A73] ${TYPOGRAPHY_META_MEDIUM_CLASS}`;
 
-const settingsFieldInputClass =
-  `mt-1 h-11 w-full rounded-lg border border-[#DEE0E3] bg-white px-2.5 text-[#1F2329] outline-none focus:border-[#8FB1FF] ${TYPOGRAPHY_MOBILE_BODY_CLASS} lg:h-10 lg:text-[14px] lg:leading-[22px]`;
+const settingsFieldInputClass = `mt-1 h-11 w-full rounded-lg border border-[#DEE0E3] bg-white px-2.5 text-[#1F2329] outline-none focus:border-[#8FB1FF] ${TYPOGRAPHY_MOBILE_BODY_CLASS} lg:h-10 lg:text-[14px] lg:leading-[22px]`;
 
-const settingsFormButtonClass =
-  `inline-flex h-11 items-center gap-1.5 rounded-full px-3 lg:h-10 ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`;
+const settingsFormButtonClass = `inline-flex h-11 items-center gap-1.5 rounded-full px-3 lg:h-10 ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`;
 
 interface ModelMenuPosition {
   top: number;
@@ -504,7 +502,10 @@ export default function SettingsPage({
     isModelMenuOpen && modelMenuPosition && typeof document !== "undefined"
       ? createPortal(
           <>
-            <div className="fixed inset-0 z-40 bg-transparent" onClick={closeModelMenu} />
+            <div
+              className="fixed inset-0 z-40 hidden bg-transparent lg:block"
+              onClick={closeModelMenu}
+            />
             <div
               ref={modelMenuRef}
               role="menu"
@@ -513,7 +514,7 @@ export default function SettingsPage({
                 left: modelMenuPosition.left,
                 position: "fixed",
               }}
-              className="z-50 max-h-[calc(100dvh-104px)] w-44 overflow-y-auto rounded-xl border border-[#DEE0E3] bg-white p-1 shadow-[0_14px_34px_rgba(31,35,41,0.14)]"
+              className="z-50 hidden max-h-[calc(100dvh-104px)] w-44 overflow-y-auto rounded-xl border border-[#DEE0E3] bg-white p-1 shadow-[0_14px_34px_rgba(31,35,41,0.14)] lg:block"
               onClick={(event) => event.stopPropagation()}
             >
               {availableModels.map((model) => {
@@ -546,7 +547,10 @@ export default function SettingsPage({
     isAvatarMenuOpen && avatarMenuPosition && typeof document !== "undefined"
       ? createPortal(
           <>
-            <div className="fixed inset-0 z-40 bg-transparent" onClick={closeAvatarMenu} />
+            <div
+              className="fixed inset-0 z-40 hidden bg-transparent lg:block"
+              onClick={closeAvatarMenu}
+            />
             <div
               role="menu"
               style={{
@@ -554,7 +558,7 @@ export default function SettingsPage({
                 left: avatarMenuPosition.left,
                 position: "fixed",
               }}
-              className="z-50 w-40 rounded-xl border border-[#DEE0E3] bg-white p-1 shadow-[0_14px_34px_rgba(31,35,41,0.14)]"
+              className="z-50 hidden w-40 rounded-xl border border-[#DEE0E3] bg-white p-1 shadow-[0_14px_34px_rgba(31,35,41,0.14)] lg:block"
             >
               <button
                 type="button"
@@ -591,6 +595,56 @@ export default function SettingsPage({
     >
       {modelMenuPortal}
       {avatarMenuPortal}
+      <MobileActionSheet
+        open={isModelMenuOpen}
+        data-ripple-settings-model-sheet
+        title={t("settings.defaultModel")}
+        closeLabel={t("settings.cancel")}
+        onClose={closeModelMenu}
+        actions={availableModels.map((model) => ({
+          key: model.id,
+          label: formatModelName(model.id),
+          selected: model.id === defaultModel,
+          tone: model.id === defaultModel ? "accent" : "neutral",
+          onClick: () => {
+            onSelectDefaultModel(model.id);
+            closeModelMenu();
+          },
+        }))}
+      />
+      <MobileActionSheet
+        open={isAvatarMenuOpen}
+        data-ripple-settings-avatar-sheet
+        title={t("settings.avatarActions")}
+        closeLabel={t("settings.cancel")}
+        onClose={closeAvatarMenu}
+        actions={[
+          {
+            key: "upload-avatar",
+            label: t("settings.uploadAvatar"),
+            icon: <Upload size={16} />,
+            loading: isAvatarUploading,
+            disabled: isAvatarUploading,
+            onClick: () => {
+              closeAvatarMenu();
+              avatarFileInputRef.current?.click();
+            },
+          },
+          ...(profileAvatarUri
+            ? [
+                {
+                  key: "remove-avatar",
+                  label: t("settings.removeAvatar"),
+                  icon: <X size={16} />,
+                  tone: "danger" as const,
+                  onClick: () => {
+                    handleAvatarRemove();
+                  },
+                },
+              ]
+            : []),
+        ]}
+      />
       <div className="mx-auto max-w-5xl space-y-2.5">
         <header className="flex items-start justify-between gap-2">
           <div className="flex min-w-0 items-center gap-1.5">
@@ -600,9 +654,7 @@ export default function SettingsPage({
             />
             <div className="min-w-0">
               <h1 className={TYPOGRAPHY_PAGE_TITLE_CLASS}>Ripple</h1>
-              <div className={`text-[#646A73] ${TYPOGRAPHY_META_CLASS}`}>
-                {t("settings.title")}
-              </div>
+              <div className={`text-[#646A73] ${TYPOGRAPHY_META_CLASS}`}>{t("settings.title")}</div>
             </div>
           </div>
           {isLoading ? <Loader2 size={15} className="mt-1.5 animate-spin text-[#646A73]" /> : null}
@@ -669,6 +721,7 @@ export default function SettingsPage({
                 {authMode === "user" ? (
                   <button
                     type="button"
+                    data-ripple-settings-row-action
                     onClick={() => {
                       setIsDisplayNameEditing((editing) => !editing);
                       setDisplayNameError(null);
@@ -683,6 +736,7 @@ export default function SettingsPage({
                 {authMode === "user" ? (
                   <button
                     type="button"
+                    data-ripple-settings-row-action
                     onClick={() => {
                       setIsPasswordOpen((open) => !open);
                       setPasswordError(null);
@@ -696,6 +750,7 @@ export default function SettingsPage({
                 ) : null}
                 <button
                   type="button"
+                  data-ripple-settings-row-action
                   onClick={onApiKeyChange}
                   className={settingsAccountActionButtonClass}
                 >
@@ -705,6 +760,7 @@ export default function SettingsPage({
                 <div className="relative">
                   <button
                     type="button"
+                    data-ripple-settings-row-action
                     onClick={handleAvatarMenuToggle}
                     disabled={isAvatarUploading}
                     aria-label={t("settings.avatarActions")}
@@ -726,7 +782,9 @@ export default function SettingsPage({
               </div>
             </div>
             {avatarError ? (
-              <div className={`rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-red-700 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
+              <div
+                className={`rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-red-700 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+              >
                 {avatarError}
               </div>
             ) : null}
@@ -748,7 +806,9 @@ export default function SettingsPage({
                   />
                 </label>
                 {displayNameError ? (
-                  <div className={`text-[#B42318] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>{displayNameError}</div>
+                  <div className={`text-[#B42318] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
+                    {displayNameError}
+                  </div>
                 ) : null}
                 <div className="flex flex-wrap items-center justify-end gap-2">
                   <button
@@ -775,7 +835,9 @@ export default function SettingsPage({
               </form>
             ) : null}
             {displayNameMessage ? (
-              <div className={`rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-emerald-700 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
+              <div
+                className={`rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-emerald-700 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+              >
                 {displayNameMessage}
               </div>
             ) : null}
@@ -806,7 +868,9 @@ export default function SettingsPage({
                   </label>
                 </div>
                 {passwordError ? (
-                  <div className={`text-[#B42318] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>{passwordError}</div>
+                  <div className={`text-[#B42318] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
+                    {passwordError}
+                  </div>
                 ) : null}
                 <div className="flex flex-wrap items-center justify-end gap-2">
                   <button
@@ -832,7 +896,9 @@ export default function SettingsPage({
               </form>
             ) : null}
             {passwordMessage ? (
-              <div className={`rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-emerald-700 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
+              <div
+                className={`rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-emerald-700 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+              >
                 {passwordMessage}
               </div>
             ) : null}
@@ -871,7 +937,9 @@ export default function SettingsPage({
             />
           </div>
           <div className="border-t border-[#EFF0F1] p-2">
-            <div className={`mb-1 flex items-center gap-1.5 text-[#2B2F36] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
+            <div
+              className={`mb-1 flex items-center gap-1.5 text-[#2B2F36] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+            >
               <IconTile tone="neutral" size="xs">
                 <Cpu size={12} />
               </IconTile>
@@ -984,7 +1052,9 @@ export default function SettingsPage({
             onClick={() => setDiagnosticsOpen((open) => !open)}
             className="flex w-full items-center justify-between gap-2 px-2.5 py-2 text-left"
           >
-            <span className={`flex items-center gap-1.5 text-[#1F2329] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
+            <span
+              className={`flex items-center gap-1.5 text-[#1F2329] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+            >
               <IconTile tone="neutral" size="xs">
                 <ShieldCheck size={13} />
               </IconTile>
@@ -1062,7 +1132,9 @@ function SectionHeader({
   tone?: IconTileTone;
 }) {
   return (
-    <div className={`flex min-h-10 items-center gap-1.5 border-b border-[#EFF0F1]/80 bg-white/54 px-2.5 text-[#1F2329] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
+    <div
+      className={`flex min-h-10 items-center gap-1.5 border-b border-[#EFF0F1]/80 bg-white/54 px-2.5 text-[#1F2329] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+    >
       <IconTile tone={tone} size="xs">
         {icon}
       </IconTile>
@@ -1089,7 +1161,9 @@ function UsageMeter({
   const amount = percent(value, max);
   return (
     <div data-ripple-settings-usage-meter className="rounded-lg bg-[#F8F9FA]/70 px-2 py-1.5">
-      <div className={`mb-1 flex items-center justify-between text-[#646A73] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
+      <div
+        className={`mb-1 flex items-center justify-between text-[#646A73] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+      >
         <span className="flex items-center gap-1.5">
           <IconTile tone={iconTone} size="xs">
             {icon}

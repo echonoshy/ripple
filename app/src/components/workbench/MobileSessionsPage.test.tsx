@@ -133,26 +133,36 @@ function testHeaderActionsUseSharedGlassTreatment() {
   assert.doesNotMatch(html, /border-\[#1456F0\] bg-\[#1456F0\] text-white/);
 }
 
-function testSessionRowsDoNotClipOptionsMenu() {
+function testSessionRowsUseMobileActionSheetForOptions() {
   const html = renderMobileSessionsPage();
   const source = readFileSync(new URL("./MobileSessionsPage.tsx", import.meta.url), "utf8");
 
   assert.doesNotMatch(html, /overflow-hidden rounded-lg border/);
-  assert.match(source, /getMeasuredViewportMenuPosition/);
-  assert.match(source, /getMobileSessionMenuPosition/);
-  assert.match(source, /activeMenuRef/);
-  assert.match(source, /getBoundingClientRect\(\)\.height/);
-  assert.match(source, /useLayoutEffect/);
-  assert.match(source, /position: "fixed"/);
+  assert.match(source, /import MobileActionSheet from "\.\/MobileActionSheet"/);
+  assert.match(source, /data-ripple-mobile-session-actions-sheet/);
+  assert.match(source, /activeMenuSessionId/);
+  assert.match(source, /setActiveMenuSessionId/);
+  assert.match(source, /tone: "danger"/);
+  assert.doesNotMatch(source, /getMeasuredViewportMenuPosition/);
+  assert.doesNotMatch(source, /getMobileSessionMenuPosition/);
+  assert.doesNotMatch(source, /position: "fixed"/);
   assert.doesNotMatch(source, /absolute top-12 right-3/);
 }
 
-function testSessionOptionsMenuEscapesBlurredRowsWithPortal() {
+function testSessionOptionsSheetEscapesBlurredRowsWithSharedPortal() {
   const source = readFileSync(new URL("./MobileSessionsPage.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /import \{ createPortal \} from "react-dom"/);
-  assert.match(source, /createPortal\(/);
-  assert.match(source, /document\.body/);
+  assert.match(source, /<MobileActionSheet/);
+  assert.match(source, /open=\{Boolean\(activeMenuSession\)\}/);
+  assert.match(source, /onClose=\{\(\) => setActiveMenuSessionId\(null\)\}/);
+}
+
+function testMobileSessionSearchHasExplicitCancelState() {
+  const source = readFileSync(new URL("./MobileSessionsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /data-ripple-mobile-search-cancel/);
+  assert.match(source, /setIsSearching\(false\)/);
+  assert.match(source, /setQuery\(""\)/);
 }
 
 function testSessionRowsExposeIosStyleSwipeActions() {
@@ -226,8 +236,9 @@ testUsesQuietAgentControlPlaneStyling();
 testSessionRowsRemoveRepeatedChatIcon();
 testSearchInputUsesReadableMobileType();
 testHeaderActionsUseSharedGlassTreatment();
-testSessionRowsDoNotClipOptionsMenu();
-testSessionOptionsMenuEscapesBlurredRowsWithPortal();
+testSessionRowsUseMobileActionSheetForOptions();
+testSessionOptionsSheetEscapesBlurredRowsWithSharedPortal();
+testMobileSessionSearchHasExplicitCancelState();
 testSessionRowsExposeIosStyleSwipeActions();
 testMobileSessionChromeUsesMotionPresence();
 testMobileSessionRowsUseReadableTypeScale();

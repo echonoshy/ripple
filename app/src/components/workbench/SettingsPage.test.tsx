@@ -168,17 +168,18 @@ function testSettingsPageReservesMobileTopSafeArea() {
   assert.match(html, /pt-\[max\(env\(safe-area-inset-top\),12px\)\]/);
 }
 
-function testSettingsPageUsesInlineModelMenuAndTokenBreakdown() {
+function testSettingsPageUsesMobileSheetsForPickersAndTokenBreakdown() {
   const source = readFileSync(new URL("./SettingsPage.tsx", import.meta.url), "utf8");
   const html = renderSettingsPage();
 
   assert.doesNotMatch(source, /<select/);
   assert.match(source, /isModelMenuOpen/);
+  assert.match(source, /import MobileActionSheet from "\.\/MobileActionSheet"/);
+  assert.match(source, /data-ripple-settings-model-sheet/);
+  assert.match(source, /data-ripple-settings-avatar-sheet/);
+  assert.match(source, /data-ripple-settings-row-action/);
   assert.match(source, /createPortal/);
-  assert.match(source, /getMeasuredViewportMenuPosition/);
-  assert.match(source, /getResponsiveMenuBottomInsetPx/);
-  assert.match(source, /position: "fixed"/);
-  assert.match(source, /className="fixed inset-0 z-40 bg-transparent"/);
+  assert.match(source, /hidden[\s\S]{0,80}lg:block/);
   assert.doesNotMatch(source, /absolute top-full/);
   assert.match(source, /total_input_tokens/);
   assert.match(source, /total_output_tokens/);
@@ -291,14 +292,22 @@ function testSettingsPageUsesCompactMobileDensity() {
   assert.match(source, /data-ripple-settings-account-actions[\s\S]*grid[\s\S]*grid-cols-2/);
   assert.match(source, /data-ripple-settings-account-actions[\s\S]*sm:flex[\s\S]*sm:flex-wrap/);
   assert.match(source, /const settingsAccountActionButtonClass =[\s\S]*w-full min-w-0/);
-  assert.match(source, /const settingsAccountActionButtonClass =[\s\S]*h-9 w-full/);
-  assert.match(source, /const settingsAccountActionButtonClass =[\s\S]*TYPOGRAPHY_MICRO_MEDIUM_CLASS/);
+  assert.match(source, /const settingsAccountActionButtonClass =[\s\S]*h-11 w-full/);
+  assert.match(source, /const settingsAccountActionButtonClass =[\s\S]*justify-start/);
+  assert.match(source, /const settingsAccountActionButtonClass =[\s\S]*sm:h-9/);
+  assert.match(
+    source,
+    /const settingsAccountActionButtonClass =[\s\S]*TYPOGRAPHY_MICRO_MEDIUM_CLASS/
+  );
   assert.match(source, /className="grid gap-1\.5 p-2\.5 md:grid-cols-2"/);
   assert.match(source, /data-ripple-settings-token-grid/);
   assert.match(source, /data-ripple-settings-token-grid[\s\S]*grid-cols-3/);
   assert.match(source, /const baseClassName = compact[\s\S]*\? "px-1\.5 py-1"/);
   assert.match(source, /compact[\s\S]*\? `text-\[#8F959E\] \$\{TYPOGRAPHY_META_MEDIUM_CLASS\}`/);
-  assert.match(source, /compact[\s\S]*\? `mt-0\.5 text-\[#1F2329\] \$\{TYPOGRAPHY_BODY_MEDIUM_CLASS\}`/);
+  assert.match(
+    source,
+    /compact[\s\S]*\? `mt-0\.5 text-\[#1F2329\] \$\{TYPOGRAPHY_BODY_MEDIUM_CLASS\}`/
+  );
   assert.match(source, /className="border-t border-\[#EFF0F1\] p-2"/);
   assert.match(source, /mb-1 flex items-center gap-1\.5 text-\[#2B2F36\]/);
   assert.match(source, /data-ripple-settings-language-row/);
@@ -346,7 +355,7 @@ testSettingsPageSupportsLocalAvatarUpload();
 testSettingsPageDoesNotDuplicatePrimaryWorkspaceTabs();
 testSettingsPageHidesDiagnosticsByDefault();
 testSettingsPageReservesMobileTopSafeArea();
-testSettingsPageUsesInlineModelMenuAndTokenBreakdown();
+testSettingsPageUsesMobileSheetsForPickersAndTokenBreakdown();
 testSettingsPageCombinesRunCountersInOneRow();
 testSettingsPageSessionCountMeterUsesNeutralIcon();
 testSettingsPageDoesNotFetchConnectorData();

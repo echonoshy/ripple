@@ -19,6 +19,10 @@ const workspaceExplorerSource = readFileSync(
   "utf8"
 );
 
+test("workspace explorer script assertions are registered with Bun", () => {
+  assert.match(workspaceExplorerSource, /WorkspaceExplorer/);
+});
+
 function renderExplorer(
   overrides: Partial<React.ComponentProps<typeof WorkspaceExplorer>> = {},
   locale: LocalePreference = "en-US"
@@ -445,7 +449,7 @@ function testWorkspaceExplorerMobileSearchSheetKeepsSearchAndFiltersTogether() {
 
   assert.ok(sheetIndex >= 0);
   assert.match(source, /data-ripple-files-mobile-search-trigger/);
-  assert.match(source, /data-ripple-files-mobile-actions-menu/);
+  assert.match(source, /data-ripple-files-mobile-actions-sheet/);
 
   const afterSheetIndex = source.indexOf("{error &&", sheetIndex);
   assert.ok(afterSheetIndex > sheetIndex);
@@ -459,6 +463,21 @@ function testWorkspaceExplorerMobileSearchSheetKeepsSearchAndFiltersTogether() {
 }
 
 testWorkspaceExplorerMobileSearchSheetKeepsSearchAndFiltersTogether();
+
+function testWorkspaceExplorerUsesMobileActionSheetForPageMoreActions() {
+  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+
+  assert.match(
+    source,
+    /import MobileActionSheet from "@\/components\/workbench\/MobileActionSheet"/
+  );
+  assert.match(source, /data-ripple-files-mobile-actions-sheet/);
+  assert.match(source, /MobileActionSheet[\s\S]*t\("files\.moreFileActions"\)/);
+  assert.match(source, /data-ripple-files-selection-bottom-bar/);
+  assert.doesNotMatch(source, /data-ripple-files-mobile-actions-menu/);
+}
+
+testWorkspaceExplorerUsesMobileActionSheetForPageMoreActions();
 
 function testWorkspaceExplorerPageMergesRepeatedLocationLabels() {
   const html = renderExplorer({ presentation: "page" });

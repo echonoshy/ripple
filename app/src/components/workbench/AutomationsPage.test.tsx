@@ -177,7 +177,8 @@ function testAutomationCardUsesCompactResponsiveLayout() {
   assert.doesNotMatch(source, /const latestRunId/);
   assert.doesNotMatch(source, /\{latestRunId \|\| "No run"\}/);
   assert.match(source, /latestRunAt[\s\S]*formatDate\(latestRunAt, locale, t\)/);
-  assert.match(source, /data-ripple-automation-actions[\s\S]*mt-2 grid grid-cols-3 gap-1\.5/);
+  assert.match(source, /data-ripple-automation-mobile-primary-actions/);
+  assert.match(source, /data-ripple-automation-actions[\s\S]*mt-2 hidden grid-cols-3 gap-1\.5/);
   assert.doesNotMatch(source, /data-ripple-automation-actions[\s\S]{0,120}pl-8/);
   assert.match(source, /md:grid-cols-5/);
   assert.doesNotMatch(source, /data-ripple-automation-actions[\s\S]{0,220}overflow-x-auto/);
@@ -205,8 +206,21 @@ function testAutomationCardUsesDesktopRowLayout() {
   );
   assert.doesNotMatch(source, /data-ripple-automation-meta-grid[\s\S]{0,120}sm:grid-cols-3/);
   assert.doesNotMatch(source, /col-span-2 min-w-0[\s\S]*sm:col-span-1/);
+  assert.match(source, /data-ripple-automation-actions[\s\S]*hidden grid-cols-3[\s\S]*md:grid/);
   assert.match(source, /data-ripple-automation-actions[\s\S]*md:grid-cols-5/);
   assert.doesNotMatch(source, /data-ripple-automation-actions[\s\S]{0,160}sm:flex/);
+}
+
+function testAutomationsPageUsesMobileSheetsForFormAndOverflowActions() {
+  const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /import MobileActionSheet from "\.\/MobileActionSheet"/);
+  assert.match(source, /data-ripple-automation-form-sheet/);
+  assert.match(source, /data-ripple-automation-more-sheet/);
+  assert.match(source, /activeScheduleMenuId/);
+  assert.match(source, /MoreHorizontal/);
+  assert.match(source, /<ArrowLeft size=\{16\}/);
+  assert.doesNotMatch(source, /ArrowBigLeft/);
 }
 
 function testAutomationRunHistoryUsesReadableRows() {
@@ -242,6 +256,7 @@ testAutomationCardUsesSeparatedLayoutRegions();
 testAutomationCardDoesNotExposePolicyControls();
 testAutomationCardUsesCompactResponsiveLayout();
 testAutomationCardUsesDesktopRowLayout();
+testAutomationsPageUsesMobileSheetsForFormAndOverflowActions();
 testAutomationRunHistoryUsesReadableRows();
 testAutomationsPageRendersChineseChrome();
 

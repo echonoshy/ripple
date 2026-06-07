@@ -3,13 +3,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
-  ArrowBigLeft,
+  ArrowLeft,
   CalendarClock,
   ChevronDown,
   Download,
   Edit3,
   Eye,
   Loader2,
+  MoreHorizontal,
   Pause,
   Play,
   Plus,
@@ -34,6 +35,7 @@ import {
 import { formatModelName } from "@/lib/models";
 import { saveBlobAsDownload } from "@/lib/platform";
 import type { AgentRunInfo, ScheduleInfo, ScheduleKind } from "@/types";
+import MobileActionSheet from "./MobileActionSheet";
 import {
   COMPACT_IOS_PAGE_BACKGROUND,
   LUCIDE_NAV_STROKE_WIDTH,
@@ -289,6 +291,7 @@ export default function AutomationsPage({
   const [pendingRunActionId, setPendingRunActionId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [confirmRunDeleteId, setConfirmRunDeleteId] = useState<string | null>(null);
+  const [activeScheduleMenuId, setActiveScheduleMenuId] = useState<string | null>(null);
   const [runsBySchedule, setRunsBySchedule] = useState<Record<string, AgentRunInfo[]>>({});
   const [expandedScheduleId, setExpandedScheduleId] = useState<string | null>(null);
   const [outputPreview, setOutputPreview] = useState<OutputPreviewState>(null);
@@ -369,6 +372,7 @@ export default function AutomationsPage({
     setIntervalUnit(interval.unit);
     setMaxRuns(schedule.max_runs ? String(schedule.max_runs) : "");
     setConfirmDeleteId(null);
+    setActiveScheduleMenuId(null);
     setError(null);
     setIsCreating(true);
   }
@@ -377,6 +381,7 @@ export default function AutomationsPage({
     resetForm();
     setEditingScheduleId(null);
     setConfirmDeleteId(null);
+    setActiveScheduleMenuId(null);
     setError(null);
     setIsCreating(true);
   }, [resetForm]);
@@ -606,7 +611,7 @@ export default function AutomationsPage({
                 title={t("automations.backToSettings")}
                 className={`${MOBILE_GLASS_ICON_BUTTON_CLASS} lg:hidden`}
               >
-                <ArrowBigLeft size={16} strokeWidth={LUCIDE_NAV_STROKE_WIDTH} />
+                <ArrowLeft size={16} strokeWidth={LUCIDE_NAV_STROKE_WIDTH} />
               </button>
             ) : null}
             <div className="min-w-0">
@@ -666,152 +671,172 @@ export default function AutomationsPage({
         ) : null}
 
         {isCreating ? (
-          <form
-            onSubmit={handleSubmitSchedule}
-            className="grid gap-4 rounded-2xl border border-[#DEE0E3] bg-white/74 p-4 shadow-[0_12px_30px_rgba(31,35,41,0.06)] backdrop-blur-xl"
-          >
-            <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_220px]">
-              <label className="block min-w-0">
-                <span className={automationFieldLabelClass}>{t("automations.titleLabel")}</span>
-                <input
-                  value={title}
-                  onChange={(event) => setTitle(event.target.value)}
-                  className={automationFieldControlClass}
-                />
-              </label>
-              <label className="block min-w-0">
-                <span className={automationFieldLabelClass}>{t("automations.model")}</span>
-                <select
-                  value={formModel}
-                  onChange={(event) => setFormModel(event.target.value)}
-                  className={automationFieldControlClass}
-                >
-                  {availableModels.map((model) => (
-                    <option key={model.id} value={model.id}>
-                      {formatModelName(model.id)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block min-w-0">
-                <span className={automationFieldLabelClass}>{t("automations.timezone")}</span>
-                <select
-                  value={timezone}
-                  onChange={(event) => setTimezone(event.target.value)}
-                  className={automationMonoFieldControlClass}
-                >
-                  {availableTimezones.map((option) => (
-                    <option key={option} value={option}>
-                      {timezoneLabel(option)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-
-            <label className="block">
-              <span className={automationFieldLabelClass}>{t("automations.prompt")}</span>
-              <textarea
-                value={prompt}
-                onChange={(event) => setPrompt(event.target.value)}
-                rows={4}
-                className={automationTextareaClass}
-              />
-            </label>
-
-            <div className="grid gap-3 md:grid-cols-[190px_minmax(0,1fr)_auto] md:items-end">
-              <div>
-                <span className={automationFieldLabelClass}>{t("automations.mode")}</span>
-                <div className="grid grid-cols-2 rounded-xl border border-[#DEE0E3] bg-white p-0.5">
-                  {(["once", "interval"] as ScheduleKind[]).map((option) => (
-                    <button
-                      key={option}
-                      type="button"
-                      onClick={() => setKind(option)}
-                      className={`h-9 rounded ${TYPOGRAPHY_BODY_MEDIUM_CLASS} ${
-                        kind === option
-                          ? "bg-[#1456F0] text-white"
-                          : "text-[#2B2F36] hover:bg-[#F8F9FA]"
-                      }`}
-                    >
-                      {option === "once" ? t("automations.once") : t("automations.interval")}
-                    </button>
-                  ))}
+          <>
+            <div
+              data-ripple-automation-form-backdrop
+              className="fixed inset-0 z-40 bg-[#1F2329]/18 backdrop-blur-[1px] md:hidden"
+              onClick={closeForm}
+            />
+            <form
+              data-ripple-automation-form-sheet
+              onSubmit={handleSubmitSchedule}
+              className="grid gap-4 rounded-2xl border border-[#DEE0E3] bg-white/74 p-4 shadow-[0_12px_30px_rgba(31,35,41,0.06)] backdrop-blur-xl max-md:fixed max-md:inset-x-2 max-md:bottom-[max(env(safe-area-inset-bottom),8px)] max-md:z-50 max-md:max-h-[calc(100dvh-24px-env(safe-area-inset-top))] max-md:overflow-y-auto max-md:bg-white/96"
+            >
+              <div className="flex items-center justify-between gap-2 md:hidden">
+                <div className={`text-[#1F2329] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
+                  {editingScheduleId ? t("automations.edit") : t("automations.new")}
                 </div>
-              </div>
-
-              {kind === "once" ? (
-                <label className="block min-w-0">
-                  <span className={automationFieldLabelClass}>{t("automations.runAt")}</span>
-                  <input
-                    type="datetime-local"
-                    value={runAt}
-                    onChange={(event) => setRunAt(event.target.value)}
-                    className={automationFieldControlClass}
-                  />
-                </label>
-              ) : (
-                <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_120px_130px]">
-                  <label className="block min-w-0">
-                    <span className={automationFieldLabelClass}>{t("automations.every")}</span>
-                    <input
-                      type="number"
-                      min={1}
-                      value={intervalValue}
-                      onChange={(event) => setIntervalValue(Number(event.target.value) || 1)}
-                      className={automationFieldControlClass}
-                    />
-                  </label>
-                  <label className="block min-w-0">
-                    <span className={automationFieldLabelClass}>{t("automations.unit")}</span>
-                    <select
-                      value={intervalUnit}
-                      onChange={(event) => setIntervalUnit(event.target.value as IntervalUnit)}
-                      className={automationFieldControlClass}
-                    >
-                      <option value="minutes">{t("automations.minutes")}</option>
-                      <option value="hours">{t("automations.hours")}</option>
-                      <option value="days">{t("automations.days")}</option>
-                    </select>
-                  </label>
-                  <label className="block min-w-0">
-                    <span className={automationFieldLabelClass}>{t("automations.maxRuns")}</span>
-                    <input
-                      type="number"
-                      min={1}
-                      placeholder={t("automations.noLimit")}
-                      value={maxRuns}
-                      onChange={(event) => setMaxRuns(event.target.value)}
-                      className={automationFieldControlClass}
-                    />
-                  </label>
-                </div>
-              )}
-
-              <div className="flex items-center justify-end gap-2">
                 <button
                   type="button"
                   onClick={closeForm}
-                  className={`inline-flex h-10 items-center justify-center rounded-full border border-[#DEE0E3] bg-white px-4 text-[#2B2F36] shadow-[0_10px_24px_rgba(31,35,41,0.04)] hover:bg-[#F8F9FA] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
-                  disabled={isSubmitting}
+                  className={`h-9 rounded-xl border border-[#DEE0E3] bg-white px-3 text-[#646A73] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
                 >
                   {t("automations.cancel")}
                 </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting || !title.trim() || !prompt.trim()}
-                  className={`inline-flex h-10 items-center justify-center gap-2 rounded-full bg-[#1456F0] px-4 text-white shadow-[0_12px_26px_rgba(20,86,240,0.22)] hover:bg-[#0F4BD8] disabled:cursor-not-allowed disabled:bg-[#EFF0F1] disabled:bg-none disabled:text-[#8F959E] disabled:shadow-none ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
-                >
-                  {isSubmitting ? (
-                    <Loader2 size={14} className="animate-spin" />
-                  ) : (
-                    <CalendarClock size={14} />
-                  )}
-                  {editingScheduleId ? t("automations.save") : t("automations.create")}
-                </button>
               </div>
-            </div>
-          </form>
+              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_220px]">
+                <label className="block min-w-0">
+                  <span className={automationFieldLabelClass}>{t("automations.titleLabel")}</span>
+                  <input
+                    value={title}
+                    onChange={(event) => setTitle(event.target.value)}
+                    className={automationFieldControlClass}
+                  />
+                </label>
+                <label className="block min-w-0">
+                  <span className={automationFieldLabelClass}>{t("automations.model")}</span>
+                  <select
+                    value={formModel}
+                    onChange={(event) => setFormModel(event.target.value)}
+                    className={automationFieldControlClass}
+                  >
+                    {availableModels.map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {formatModelName(model.id)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block min-w-0">
+                  <span className={automationFieldLabelClass}>{t("automations.timezone")}</span>
+                  <select
+                    value={timezone}
+                    onChange={(event) => setTimezone(event.target.value)}
+                    className={automationMonoFieldControlClass}
+                  >
+                    {availableTimezones.map((option) => (
+                      <option key={option} value={option}>
+                        {timezoneLabel(option)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              <label className="block">
+                <span className={automationFieldLabelClass}>{t("automations.prompt")}</span>
+                <textarea
+                  value={prompt}
+                  onChange={(event) => setPrompt(event.target.value)}
+                  rows={4}
+                  className={automationTextareaClass}
+                />
+              </label>
+
+              <div className="grid gap-3 md:grid-cols-[190px_minmax(0,1fr)_auto] md:items-end">
+                <div>
+                  <span className={automationFieldLabelClass}>{t("automations.mode")}</span>
+                  <div className="grid grid-cols-2 rounded-xl border border-[#DEE0E3] bg-white p-0.5">
+                    {(["once", "interval"] as ScheduleKind[]).map((option) => (
+                      <button
+                        key={option}
+                        type="button"
+                        onClick={() => setKind(option)}
+                        className={`h-9 rounded ${TYPOGRAPHY_BODY_MEDIUM_CLASS} ${
+                          kind === option
+                            ? "bg-[#1456F0] text-white"
+                            : "text-[#2B2F36] hover:bg-[#F8F9FA]"
+                        }`}
+                      >
+                        {option === "once" ? t("automations.once") : t("automations.interval")}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {kind === "once" ? (
+                  <label className="block min-w-0">
+                    <span className={automationFieldLabelClass}>{t("automations.runAt")}</span>
+                    <input
+                      type="datetime-local"
+                      value={runAt}
+                      onChange={(event) => setRunAt(event.target.value)}
+                      className={automationFieldControlClass}
+                    />
+                  </label>
+                ) : (
+                  <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_120px_130px]">
+                    <label className="block min-w-0">
+                      <span className={automationFieldLabelClass}>{t("automations.every")}</span>
+                      <input
+                        type="number"
+                        min={1}
+                        value={intervalValue}
+                        onChange={(event) => setIntervalValue(Number(event.target.value) || 1)}
+                        className={automationFieldControlClass}
+                      />
+                    </label>
+                    <label className="block min-w-0">
+                      <span className={automationFieldLabelClass}>{t("automations.unit")}</span>
+                      <select
+                        value={intervalUnit}
+                        onChange={(event) => setIntervalUnit(event.target.value as IntervalUnit)}
+                        className={automationFieldControlClass}
+                      >
+                        <option value="minutes">{t("automations.minutes")}</option>
+                        <option value="hours">{t("automations.hours")}</option>
+                        <option value="days">{t("automations.days")}</option>
+                      </select>
+                    </label>
+                    <label className="block min-w-0">
+                      <span className={automationFieldLabelClass}>{t("automations.maxRuns")}</span>
+                      <input
+                        type="number"
+                        min={1}
+                        placeholder={t("automations.noLimit")}
+                        value={maxRuns}
+                        onChange={(event) => setMaxRuns(event.target.value)}
+                        className={automationFieldControlClass}
+                      />
+                    </label>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={closeForm}
+                    className={`hidden h-10 items-center justify-center rounded-full border border-[#DEE0E3] bg-white px-4 text-[#2B2F36] shadow-[0_10px_24px_rgba(31,35,41,0.04)] hover:bg-[#F8F9FA] md:inline-flex ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+                    disabled={isSubmitting}
+                  >
+                    {t("automations.cancel")}
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting || !title.trim() || !prompt.trim()}
+                    className={`inline-flex h-10 items-center justify-center gap-2 rounded-full bg-[#1456F0] px-4 text-white shadow-[0_12px_26px_rgba(20,86,240,0.22)] hover:bg-[#0F4BD8] disabled:cursor-not-allowed disabled:bg-[#EFF0F1] disabled:bg-none disabled:text-[#8F959E] disabled:shadow-none ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+                  >
+                    {isSubmitting ? (
+                      <Loader2 size={14} className="animate-spin" />
+                    ) : (
+                      <CalendarClock size={14} />
+                    )}
+                    {editingScheduleId ? t("automations.save") : t("automations.create")}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </>
         ) : null}
 
         {schedules.length === 0 ? (
@@ -1002,8 +1027,106 @@ export default function AutomationsPage({
                   </div>
 
                   <div
+                    data-ripple-automation-mobile-primary-actions
+                    className="mt-2 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_44px] gap-1.5 md:hidden"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => void handleAction(schedule.schedule_id, "run")}
+                      aria-label={t("automations.runAutomationNow")}
+                      title={t("automations.runAutomationNow")}
+                      className={automationActionButtonClass}
+                    >
+                      {pendingActionId === `${schedule.schedule_id}:run` ? (
+                        <Loader2 size={14} className="animate-spin" />
+                      ) : (
+                        <Zap size={14} />
+                      )}
+                      <span>{t("automations.runNow")}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setExpandedScheduleId((current) =>
+                          current === schedule.schedule_id ? null : schedule.schedule_id
+                        )
+                      }
+                      aria-label={t("automations.toggleRunHistory")}
+                      title={t("automations.toggleRunHistory")}
+                      className={automationActionButtonClass}
+                    >
+                      <ChevronDown
+                        size={14}
+                        className={
+                          isExpanded ? "rotate-180 transition-transform" : "transition-transform"
+                        }
+                      />
+                      <span>{t("automations.runHistory")}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setActiveScheduleMenuId((current) =>
+                          current === schedule.schedule_id ? null : schedule.schedule_id
+                        )
+                      }
+                      aria-label={t("automations.editAutomation")}
+                      title={t("automations.editAutomation")}
+                      className={`${automationActionButtonClass} px-0`}
+                    >
+                      <MoreHorizontal size={16} />
+                    </button>
+                  </div>
+
+                  <MobileActionSheet
+                    open={activeScheduleMenuId === schedule.schedule_id}
+                    data-ripple-automation-more-sheet
+                    title={schedule.title}
+                    subtitle={schedule.prompt}
+                    closeLabel={t("automations.cancel")}
+                    onClose={() => setActiveScheduleMenuId(null)}
+                    actions={[
+                      {
+                        key: "edit",
+                        label: t("automations.edit"),
+                        icon: <Edit3 size={16} />,
+                        onClick: () => {
+                          beginEditSchedule(schedule);
+                          setActiveScheduleMenuId(null);
+                        },
+                      },
+                      {
+                        key: "toggle",
+                        label: schedule.enabled ? t("automations.pause") : t("automations.resume"),
+                        icon: schedule.enabled ? <Pause size={16} /> : <Play size={16} />,
+                        loading: pendingActionId === `${schedule.schedule_id}:toggle`,
+                        onClick: () => {
+                          void handleAction(schedule.schedule_id, "toggle", schedule.enabled);
+                          setActiveScheduleMenuId(null);
+                        },
+                      },
+                      {
+                        key: "delete",
+                        label:
+                          confirmDeleteId === schedule.schedule_id
+                            ? t("automations.confirm")
+                            : t("automations.delete"),
+                        icon: <Trash2 size={16} />,
+                        tone: "danger",
+                        loading: pendingActionId === `${schedule.schedule_id}:delete`,
+                        onClick: () => {
+                          void handleAction(schedule.schedule_id, "delete");
+                          if (confirmDeleteId === schedule.schedule_id) {
+                            setActiveScheduleMenuId(null);
+                          }
+                        },
+                      },
+                    ]}
+                  />
+
+                  <div
                     data-ripple-automation-actions
-                    className="mt-2 grid grid-cols-3 gap-1.5 md:grid-cols-5"
+                    className="mt-2 hidden grid-cols-3 gap-1.5 md:grid md:grid-cols-5"
                   >
                     {confirmDeleteId === schedule.schedule_id ? (
                       <button

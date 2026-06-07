@@ -32,6 +32,7 @@ import {
   X,
 } from "lucide-react";
 import { IconTile } from "@/components/icons/IconTile";
+import MobileActionSheet from "@/components/workbench/MobileActionSheet";
 import { PdfPreview } from "./PdfPreview";
 import {
   LUCIDE_STANDARD_STROKE_WIDTH,
@@ -60,7 +61,7 @@ import {
   createWorkspaceEntry,
   type WorkspaceSearchOptions,
 } from "@/lib/api";
-import { saveBlobAsDownload } from "@/lib/platform";
+import { getClientStorageItem, saveBlobAsDownload, setClientStorageItem } from "@/lib/platform";
 import { RIPPLE_API_CONNECTION_ERROR, readableApiErrorMessage } from "@/lib/apiErrors";
 import {
   getMeasuredViewportMenuPosition,
@@ -172,8 +173,7 @@ function getWorkspaceContextMenuPosition({
 }
 
 function initialSplitPercent(): number {
-  if (typeof window === "undefined") return DEFAULT_SPLIT_PERCENT;
-  const rawValue = window.localStorage.getItem(SPLIT_PERCENT_STORAGE_KEY);
+  const rawValue = getClientStorageItem(SPLIT_PERCENT_STORAGE_KEY);
   if (rawValue === null) return DEFAULT_SPLIT_PERCENT;
   const stored = Number(rawValue);
   return Number.isFinite(stored) ? getBoundedSplitPercent(stored) : DEFAULT_SPLIT_PERCENT;
@@ -462,7 +462,7 @@ export default function WorkspaceExplorer({
     visibleEntries.every((entry) => selectedEntryPaths.has(entry.path));
   useEffect(() => {
     splitPercentRef.current = splitPercent;
-    window.localStorage.setItem(SPLIT_PERCENT_STORAGE_KEY, String(splitPercent));
+    setClientStorageItem(SPLIT_PERCENT_STORAGE_KEY, String(splitPercent));
   }, [splitPercent]);
 
   useEffect(() => {
@@ -1967,83 +1967,72 @@ export default function WorkspaceExplorer({
             </div>
           </div>
         )}
-        {isPagePresentation && isActionsMenuOpen && (
-          <div
-            data-ripple-files-mobile-actions-menu
-            className={`absolute top-[76px] right-3 z-40 w-[220px] rounded-2xl border border-[#DEE0E3] bg-white p-1.5 text-[#2B2F36] shadow-[0_18px_44px_rgba(31,35,41,0.16)] lg:hidden ${TYPOGRAPHY_META_CLASS}`}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <button
-              type="button"
-              onClick={() => {
+        <MobileActionSheet
+          open={isPagePresentation && isActionsMenuOpen}
+          data-ripple-files-mobile-actions-sheet
+          title={t("files.moreFileActions")}
+          subtitle={mobilePathLabel}
+          closeLabel={t("files.cancel")}
+          onClose={() => setIsActionsMenuOpen(false)}
+          actions={[
+            {
+              key: "refresh",
+              label: t("files.refreshWorkspace"),
+              icon: <RefreshCw size={16} />,
+              loading,
+              disabled: loading,
+              onClick: () => {
                 setIsActionsMenuOpen(false);
                 void loadDirectory(currentPath);
-              }}
-              disabled={loading}
-              className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left transition-colors hover:bg-[#F5F6F7] disabled:cursor-not-allowed disabled:opacity-50 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-            >
-              {loading ? (
-                <Loader2 size={13} className="shrink-0 animate-spin text-[#646A73]" />
-              ) : (
-                <RefreshCw size={13} className="shrink-0 text-[#646A73]" />
-              )}
-              {t("files.refreshWorkspace")}
-            </button>
-            <button
-              type="button"
-              disabled={!clipboard}
-              onClick={() => {
+              },
+            },
+            {
+              key: "paste",
+              label: clipboard
+                ? clipboard.items.length === 1
+                  ? t("files.pasteNamed", { name: clipboard.items[0]?.name || "" })
+                  : t("files.pasteItems", { count: clipboard.items.length })
+                : t("files.paste"),
+              icon: <Clipboard size={16} />,
+              disabled: !clipboard,
+              onClick: () => {
                 setIsActionsMenuOpen(false);
                 void handlePaste();
-              }}
-              className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left transition-colors hover:bg-[#F5F6F7] disabled:cursor-not-allowed disabled:opacity-40 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-            >
-              <Clipboard size={13} className="shrink-0 text-[#646A73]" />
-              {clipboard ? (
-                <>
-                  {clipboard.items.length === 1
-                    ? t("files.pasteNamed", { name: clipboard.items[0]?.name || "" })
-                    : t("files.pasteItems", { count: clipboard.items.length })}
-                </>
-              ) : (
-                t("files.paste")
-              )}
-            </button>
-            {clipboard ? (
-              <button
-                type="button"
-                onClick={clearClipboard}
-                className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[#646A73] transition-colors hover:bg-[#F5F6F7] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-              >
-                <X size={13} className="shrink-0 text-[#646A73]" />
-                {t("files.clearClipboard")}
-              </button>
-            ) : null}
-            <div className="my-1 border-t border-[#DEE0E3]" />
-            <button
-              type="button"
-              onClick={() => {
+              },
+            },
+            ...(clipboard
+              ? [
+                  {
+                    key: "clear-clipboard",
+                    label: t("files.clearClipboard"),
+                    icon: <X size={16} />,
+                    onClick: () => {
+                      clearClipboard();
+                      setIsActionsMenuOpen(false);
+                    },
+                  },
+                ]
+              : []),
+            {
+              key: "new-file",
+              label: t("files.newFile"),
+              icon: <FilePlus size={16} />,
+              onClick: () => {
                 setCreationModal({ visible: true, kind: "file" });
                 setIsActionsMenuOpen(false);
-              }}
-              className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left transition-colors hover:bg-[#F5F6F7] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-            >
-              <FilePlus size={13} className="shrink-0 text-[#646A73]" />
-              {t("files.newFile")}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
+              },
+            },
+            {
+              key: "new-folder",
+              label: t("files.newFolder"),
+              icon: <FolderPlus size={16} />,
+              onClick: () => {
                 setCreationModal({ visible: true, kind: "directory" });
                 setIsActionsMenuOpen(false);
-              }}
-              className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left transition-colors hover:bg-[#F5F6F7] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-            >
-              <FolderPlus size={13} className="shrink-0 text-[#646A73]" />
-              {t("files.newFolder")}
-            </button>
-          </div>
-        )}
+              },
+            },
+          ]}
+        />
         {!isPagePresentation && isActionsMenuOpen && (
           <div
             data-ripple-files-compact-actions-menu
@@ -2462,7 +2451,12 @@ export default function WorkspaceExplorer({
           {isSelectionActive && (
             <div
               data-ripple-files-selection-bar
-              className={`grid gap-2 border-b border-[#DEE0E3]/70 bg-[#F8F9FA] px-3 py-2.5 text-[#2B2F36] ${TYPOGRAPHY_BODY_CLASS}`}
+              data-ripple-files-selection-bottom-bar={isPagePresentation ? "true" : undefined}
+              className={
+                isPagePresentation
+                  ? `fixed right-3 bottom-[calc(84px+env(safe-area-inset-bottom)+8px)] left-3 z-30 grid gap-2 rounded-2xl border border-[#DEE0E3]/80 bg-white/94 px-3 py-2.5 text-[#2B2F36] shadow-[0_16px_38px_rgba(31,35,41,0.16)] backdrop-blur-2xl lg:static lg:rounded-none lg:border-x-0 lg:border-t-0 lg:border-b lg:bg-[#F8F9FA] lg:shadow-none ${TYPOGRAPHY_BODY_CLASS}`
+                  : `grid gap-2 border-b border-[#DEE0E3]/70 bg-[#F8F9FA] px-3 py-2.5 text-[#2B2F36] ${TYPOGRAPHY_BODY_CLASS}`
+              }
             >
               <div
                 data-ripple-files-selection-status-row

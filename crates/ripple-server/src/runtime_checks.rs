@@ -165,11 +165,7 @@ pub async fn probe_nsjail_runtime(config: Arc<AppConfig>) -> anyhow::Result<Valu
     let user_id = format!("doctorprobe_{}", Uuid::new_v4().simple());
     let other_user_id = format!("doctorother_{}", Uuid::new_v4().simple());
     let configured_nsjail = config.sandbox.nsjail_path.clone();
-    let codex_auth_path = config
-        .codex
-        .codex_home
-        .as_ref()
-        .map(|home| home.join("auth.json"));
+    let codex_auth_path = Some(config.codex_home_path().join("auth.json"));
     let manager = SandboxManager::new(config);
     let result = async {
         manager.ensure_sandbox(&user_id)?;

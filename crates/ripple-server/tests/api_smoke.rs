@@ -5749,6 +5749,64 @@ async fn chat_approval_bridge_resolves_fake_codex_request() {
 }
 
 #[tokio::test]
+async fn cancelling_approval_run_clears_pending_approval() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (_state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    let (status, pending) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/chat/completions",
+        json!({
+            "model": "codex-test",
+            "messages": [{"role": "user", "content": "[approval] run a fake command"}],
+            "stream": false
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    let job_id = pending
+        .pointer("/detail/approval/job_id")
+        .and_then(Value::as_str)
+        .expect("job id")
+        .to_string();
+
+    let (status, cancelled) = call(
+        app.clone(),
+        Method::POST,
+        &format!("/v1/runs/{job_id}/cancel"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        cancelled.get("status").and_then(Value::as_str),
+        Some("cancelled")
+    );
+    assert!(matches!(
+        cancelled.get("pending_approval"),
+        None | Some(Value::Null)
+    ));
+
+    let (status, reloaded) = call(
+        app.clone(),
+        Method::GET,
+        &format!("/v1/runs/{job_id}"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(matches!(
+        reloaded.get("pending_approval"),
+        None | Some(Value::Null)
+    ));
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
 async fn chat_stream_does_not_start_connector_auth_from_user_keywords_before_codex() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let fake_codex = write_fake_codex_app_server(&root);

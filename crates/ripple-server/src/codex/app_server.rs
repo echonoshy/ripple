@@ -163,9 +163,8 @@ impl CodexAppServerSession {
         tokio::fs::create_dir_all(&self.cwd).await?;
         ensure_ripple_py_wrapper(&self.config)?;
         crate::runtime_checks::ensure_codex_linux_sandbox_prerequisites(&self.config).await?;
-        if let Some(codex_home) = &self.config.codex.codex_home {
-            tokio::fs::create_dir_all(codex_home).await?;
-        }
+        let codex_home = self.config.codex_home_path();
+        tokio::fs::create_dir_all(&codex_home).await?;
 
         let mut command = Command::new(&self.config.codex.codex_executable);
         command.env_clear();
@@ -199,9 +198,7 @@ impl CodexAppServerSession {
         if let Some(path) = runtime_path(&self.config) {
             command.env("PATH", path);
         }
-        if let Some(codex_home) = &self.config.codex.codex_home {
-            command.env("CODEX_HOME", codex_home);
-        }
+        command.env("CODEX_HOME", &codex_home);
         let uv_cache_dir = self.cwd.join(".cache/uv");
         tokio::fs::create_dir_all(&uv_cache_dir).await?;
         command.env("UV_CACHE_DIR", uv_cache_dir);
@@ -602,6 +599,7 @@ impl CodexAppServerProvider {
             session.unregister_turn(thread_id, turn_id).await;
         }
         self.active_turns.lock().await.remove(&job_id);
+        self.pending_approvals.lock().await.remove(&job_id);
         drop(turn_rx);
 
         let final_type = match status {
@@ -951,6 +949,7 @@ impl CodexAppServerProvider {
 
     pub async fn cancel(&self, job_id: &str) -> bool {
         let active = self.active_turns.lock().await.get(job_id).cloned();
+        self.pending_approvals.lock().await.remove(job_id);
         let Some(active) = active else {
             return false;
         };
@@ -1104,6 +1103,7 @@ impl CodexAppServerProvider {
     }
 
     async fn shutdown_job_session(&self, job_id: &str) -> bool {
+        self.pending_approvals.lock().await.remove(job_id);
         let session = self.sessions.lock().await.remove(job_id);
         let Some(session) = session else {
             return false;

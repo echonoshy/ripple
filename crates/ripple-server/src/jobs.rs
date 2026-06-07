@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -862,12 +862,26 @@ pub(crate) fn resolve_workspace_cwd(
     let resolved = if candidate.exists() {
         candidate.canonicalize()?
     } else {
-        candidate
+        normalize_path(&candidate)
     };
     if !resolved.starts_with(&root) {
         anyhow::bail!("cwd must stay inside the user workspace");
     }
     Ok(resolved)
+}
+
+fn normalize_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            Component::CurDir => {}
+            other => normalized.push(other.as_os_str()),
+        }
+    }
+    normalized
 }
 
 fn sandbox_cwd_for_host_path(cwd: &Path, workspace_root: &Path) -> String {
@@ -952,7 +966,7 @@ fn now_iso() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::user_requested_image_generation;
+    use super::{resolve_workspace_cwd, user_requested_image_generation};
 
     #[test]
     fn image_generation_intent_requires_explicit_creation_request() {
@@ -966,5 +980,30 @@ mod tests {
         assert!(user_requested_image_generation(
             "create an image of a neon robot"
         ));
+    }
+
+    #[test]
+    fn resolve_workspace_cwd_rejects_nonexistent_parent_traversal() {
+        let root = std::env::temp_dir().join(format!("ripple-cwd-test-{}", uuid::Uuid::new_v4()));
+        let workspace = root.join("workspace");
+        std::fs::create_dir_all(&workspace).expect("create workspace");
+
+        assert!(resolve_workspace_cwd(Some("/workspace/../outside"), &workspace).is_err());
+        assert!(resolve_workspace_cwd(Some("nested/../../outside"), &workspace).is_err());
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn resolve_workspace_cwd_allows_nonexistent_workspace_child() {
+        let root = std::env::temp_dir().join(format!("ripple-cwd-test-{}", uuid::Uuid::new_v4()));
+        let workspace = root.join("workspace");
+        std::fs::create_dir_all(&workspace).expect("create workspace");
+
+        let resolved =
+            resolve_workspace_cwd(Some("/workspace/new-dir"), &workspace).expect("resolve cwd");
+        assert_eq!(resolved, workspace.canonicalize().unwrap().join("new-dir"));
+
+        let _ = std::fs::remove_dir_all(root);
     }
 }

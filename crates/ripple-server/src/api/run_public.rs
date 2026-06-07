@@ -94,12 +94,7 @@ fn path_replacements(state: &AppState, user_id: &str) -> Vec<(String, String)> {
         "/cache/",
         "/cache",
     );
-    let codex_home = state
-        .config
-        .codex
-        .codex_home
-        .clone()
-        .unwrap_or_else(|| state.config.repo_root.join(".ripple/codex-service-home"));
+    let codex_home = state.config.codex_home_path();
     push_path_replacements(
         &mut replacements,
         &codex_home,

@@ -127,11 +127,7 @@ pub fn redact_deployment_paths(config: &AppConfig, value: Value) -> Value {
         "/storage/",
         "/storage",
     );
-    let codex_home = config
-        .codex
-        .codex_home
-        .clone()
-        .unwrap_or_else(|| config.repo_root.join(".ripple/codex-service-home"));
+    let codex_home = config.codex_home_path();
     push_path_replacement(
         &mut replacements,
         &codex_home,

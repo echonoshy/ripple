@@ -59,9 +59,10 @@ pub fn thread_permission_config(workspace: &Path, config: &AppConfig) -> Value {
     ] {
         filesystem.insert(path.to_string_lossy().to_string(), json!("write"));
     }
-    if let Some(codex_home) = config.codex.codex_home.as_deref() {
-        filesystem.insert(codex_home.to_string_lossy().to_string(), json!("none"));
-    }
+    filesystem.insert(
+        config.codex_home_path().to_string_lossy().to_string(),
+        json!("none"),
+    );
     if let Some(bilibili_credential) = current_user_bilibili_credential_file(workspace, config) {
         filesystem.insert(
             bilibili_credential.to_string_lossy().to_string(),
@@ -206,15 +207,7 @@ mod tests {
             Some(&json!("none"))
         );
         assert_eq!(
-            filesystem.get(
-                config
-                    .codex
-                    .codex_home
-                    .as_ref()
-                    .unwrap()
-                    .to_string_lossy()
-                    .as_ref()
-            ),
+            filesystem.get(config.codex_home_path().to_string_lossy().as_ref()),
             Some(&json!("none"))
         );
         assert_eq!(workspace_rules.get("."), Some(&json!("write")));

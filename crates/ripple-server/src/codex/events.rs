@@ -172,7 +172,7 @@ pub fn extract_usage_event(event: &Value) -> Option<Value> {
         "prompt_tokens": int_value(last.get("inputTokens")),
         "completion_tokens": int_value(last.get("outputTokens")),
         "total_tokens": int_value(last.get("totalTokens")),
-        "last_prompt_tokens": int_value(last.get("totalTokens")),
+        "last_prompt_tokens": int_value(last.get("inputTokens")),
         "cached_input_tokens": int_value(last.get("cachedInputTokens")),
         "reasoning_output_tokens": int_value(last.get("reasoningOutputTokens"))
     });
@@ -482,6 +482,10 @@ mod tests {
         assert_eq!(
             usage.get("completion_tokens").and_then(Value::as_u64),
             Some(5)
+        );
+        assert_eq!(
+            usage.get("last_prompt_tokens").and_then(Value::as_u64),
+            Some(10)
         );
         assert_eq!(
             usage.get("model_context_window").and_then(Value::as_u64),

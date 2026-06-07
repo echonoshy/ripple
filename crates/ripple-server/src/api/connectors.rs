@@ -3207,9 +3207,7 @@ fn now_epoch_seconds() -> u64 {
 async fn codex_status(state: &AppState) -> Value {
     let mut command = tokio::process::Command::new(&state.config.codex.codex_executable);
     command.args(["login", "status"]);
-    if let Some(codex_home) = &state.config.codex.codex_home {
-        command.env("CODEX_HOME", codex_home);
-    }
+    command.env("CODEX_HOME", state.config.codex_home_path());
     match tokio::time::timeout(std::time::Duration::from_secs(10), command.output()).await {
         Ok(Ok(output)) => {
             let text = String::from_utf8_lossy(&output.stdout).to_string()

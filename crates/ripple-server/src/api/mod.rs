@@ -487,6 +487,18 @@ fn status_code_slug(status: StatusCode) -> &'static str {
     }
 }
 
+impl From<anyhow::Error> for ApiError {
+    fn from(value: anyhow::Error) -> Self {
+        Self::new(StatusCode::INTERNAL_SERVER_ERROR, value.to_string())
+    }
+}
+
+impl From<std::io::Error> for ApiError {
+    fn from(value: std::io::Error) -> Self {
+        Self::new(StatusCode::INTERNAL_SERVER_ERROR, value.to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -1817,17 +1829,5 @@ mod tests {
             .await;
             assert_eq!(status, StatusCode::NOT_FOUND, "{path}");
         }
-    }
-}
-
-impl From<anyhow::Error> for ApiError {
-    fn from(value: anyhow::Error) -> Self {
-        Self::new(StatusCode::INTERNAL_SERVER_ERROR, value.to_string())
-    }
-}
-
-impl From<std::io::Error> for ApiError {
-    fn from(value: std::io::Error) -> Self {
-        Self::new(StatusCode::INTERNAL_SERVER_ERROR, value.to_string())
     }
 }

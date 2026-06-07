@@ -519,9 +519,11 @@ impl AppConfig {
                         "stdio://".to_string(),
                     ]
                 }),
-                codex_home: codex_raw
-                    .codex_home
-                    .map(|value| resolve_path(&repo_root, &value)),
+                codex_home: Some(
+                    clean_config_string(codex_raw.codex_home.as_deref())
+                        .map(|value| resolve_path(&repo_root, &value))
+                        .unwrap_or_else(|| repo_root.join(".ripple/codex-service-home")),
+                ),
                 approval_policy: codex_raw
                     .approval_policy
                     .unwrap_or_else(|| "never".to_string()),
@@ -581,6 +583,13 @@ impl AppConfig {
             return (preset.model.clone(), preset.reasoning_effort.clone());
         }
         (alias.to_string(), None)
+    }
+
+    pub fn codex_home_path(&self) -> PathBuf {
+        self.codex
+            .codex_home
+            .clone()
+            .unwrap_or_else(|| self.repo_root.join(".ripple/codex-service-home"))
     }
 
     pub fn tracing_filter(&self) -> String {
@@ -952,6 +961,27 @@ server:
         .expect("load config");
 
         assert_eq!(config.schedule_poll_interval_seconds, 30);
+    }
+
+    #[test]
+    fn codex_home_defaults_to_private_runtime_dir() {
+        let config = with_temp_config(
+            "default-codex-home",
+            r#"
+server:
+  api_keys: ["test-key"]
+external_agents:
+  codex:
+    enabled: true
+"#,
+            AppConfig::load,
+        )
+        .expect("load config");
+
+        assert_eq!(
+            config.codex.codex_home,
+            Some(config.repo_root.join(".ripple/codex-service-home"))
+        );
     }
 
     #[test]

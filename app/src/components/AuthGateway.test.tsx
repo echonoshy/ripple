@@ -178,6 +178,16 @@ function testGatewayShowsErrorsWithActionableTone() {
   assert.match(html, />Invalid login or password\./);
 }
 
+function testGatewayShowsUserIdValidationAsAlert() {
+  const html = renderGateway({
+    authMode: "service",
+    authUserIdError: "Use letters, numbers, underscores, or hyphens.",
+  });
+
+  assert.match(html, /role="alert"/);
+  assert.match(html, />Use letters, numbers, underscores, or hyphens\.</);
+}
+
 function testGatewayRendersChineseLoginCopy() {
   const html = renderGateway({}, "zh-CN");
 
@@ -204,6 +214,7 @@ testGatewayDoesNotUseOldEqualWeightModeTabs();
 testGatewayShowsInviteFormWhenSelected();
 testGatewayShowsDeveloperAccessAsSecondaryMode();
 testGatewayShowsErrorsWithActionableTone();
+testGatewayShowsUserIdValidationAsAlert();
 testGatewayRendersChineseLoginCopy();
 
 console.log("auth gateway tests passed");

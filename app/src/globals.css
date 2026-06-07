@@ -74,6 +74,7 @@ body {
   color: var(--ripple-text-primary);
   font-family: var(--font-sans);
   overflow: hidden;
+  touch-action: pan-y;
   -webkit-font-smoothing: antialiased;
   overscroll-behavior-x: none;
   text-rendering: optimizeLegibility;

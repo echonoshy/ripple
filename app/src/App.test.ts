@@ -17,6 +17,17 @@ function testAppUsesAuthGatewayForLoginScreen() {
   assert.doesNotMatch(source, /grid grid-cols-3 rounded-lg/);
 }
 
+function testAuthModeChangesClearSensitiveInputs() {
+  const source = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /setPasswordInput\(""\)/);
+  assert.match(source, /setKeyInput\(""\)/);
+  assert.match(source, /setInviteCodeInput\(""\)/);
+  assert.match(source, /setInviteDisplayNameInput\(""\)/);
+  assert.match(source, /setAuthUserIdInput\(initialLoginUserIdInput\(getUserId\(\)\)\)/);
+  assert.match(source, /setAuthUserIdError\(t\("auth\.userIdInvalid"\)\)/);
+}
+
 function testWorkspaceLinksRouteToFilesPageOnMobile() {
   const source = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
 
@@ -184,6 +195,7 @@ function testAndroidBackGestureExclusionAppliesToMobileSwipeBackSurfaces() {
 }
 
 testAppUsesAuthGatewayForLoginScreen();
+testAuthModeChangesClearSensitiveInputs();
 testWorkspaceLinksRouteToFilesPageOnMobile();
 testWorkspaceLinksUsePendingRequestForCollapsedInspector();
 testWorkspaceLinksIgnoreSandboxUserInProductSessionAuth();

@@ -279,7 +279,7 @@ export default function AuthGateway({
                     <span className="shrink-0">{t("auth.blankUsesDefault")}</span>
                   </div>
                   {authUserIdError && (
-                    <div className="mt-2 text-xs font-semibold text-[#B42318]">
+                    <div role="alert" className="mt-2 text-xs font-semibold text-[#B42318]">
                       {authUserIdError}
                     </div>
                   )}

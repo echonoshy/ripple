@@ -529,7 +529,7 @@ export default function Home() {
     if (!keyInput.trim()) return;
     const userIdError = loginUserIdValidationMessage(authUserIdInput);
     if (userIdError) {
-      setAuthUserIdError(userIdError);
+      setAuthUserIdError(t("auth.userIdInvalid"));
       return;
     }
     const nextUserId = normalizeLoginUserId(authUserIdInput);
@@ -1212,6 +1212,11 @@ export default function Home() {
         authUserIdError={authUserIdError}
         onModeChange={(mode) => {
           setAuthMode(mode);
+          setPasswordInput("");
+          setKeyInput("");
+          setInviteCodeInput("");
+          setInviteDisplayNameInput("");
+          setAuthUserIdInput(initialLoginUserIdInput(getUserId()));
           setAuthErrorMsg("");
           setAuthUserIdError(null);
         }}

@@ -13,6 +13,15 @@ function testModelSelectionAppliesToCurrentSessionAndDefault() {
   );
   assert.match(
     appSource,
+    /const handleSelectModel = useCallback\([\s\S]*updateSessionById\([^,]+,\s*\{\s*model\s*\}\)/
+  );
+  assert.match(
+    appSource,
+    /const shouldPatchSelectedSessionModel = Boolean\(sessionId && selectedWorkbenchSession\)/
+  );
+  assert.match(appSource, /if \(sessionId && shouldPatchSelectedSessionModel\)/);
+  assert.match(
+    appSource,
     /const handleSelectDefaultModel = useCallback\([\s\S]*persistDefaultModel\(model\);[\s\S]*setSelectedModel\(model\);[\s\S]*rememberSelectedModelOverride\(model\);/
   );
 }

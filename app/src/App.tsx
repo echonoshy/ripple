@@ -233,16 +233,6 @@ export default function Home() {
     };
   }, []);
 
-  const handleSelectModel = useCallback(
-    (model: string) => {
-      setSelectedModel(model);
-      rememberSelectedModelOverride(model);
-      persistDefaultModel(model);
-      setOpenModelDropdown(null);
-    },
-    [persistDefaultModel, rememberSelectedModelOverride]
-  );
-
   const handleSessionDetailModelChange = useCallback(
     (model: string, detailSessionId?: string | null) => {
       const targetSessionId = detailSessionId || selectedSessionIdRef.current;
@@ -909,6 +899,25 @@ export default function Home() {
   const selectedWorkbenchSession = sessionId
     ? displayWorkbenchSessions.find((session) => session.sessionId === sessionId) || null
     : null;
+  const shouldPatchSelectedSessionModel = Boolean(sessionId && selectedWorkbenchSession);
+  const handleSelectModel = useCallback(
+    (model: string) => {
+      setSelectedModel(model);
+      rememberSelectedModelOverride(model);
+      persistDefaultModel(model);
+      if (sessionId && shouldPatchSelectedSessionModel) {
+        void updateSessionById(sessionId, { model });
+      }
+      setOpenModelDropdown(null);
+    },
+    [
+      persistDefaultModel,
+      rememberSelectedModelOverride,
+      sessionId,
+      shouldPatchSelectedSessionModel,
+      updateSessionById,
+    ]
+  );
   const activePendingMobileSession =
     pendingMobileSession && pendingMobileSession.sessionId !== sessionId
       ? pendingMobileSession

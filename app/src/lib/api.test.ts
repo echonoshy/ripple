@@ -963,6 +963,36 @@ async function testCreateSessionPostsSelectedModel() {
   assert.deepEqual(requestBody, { model: "codex-high" });
 }
 
+async function testUpdateSessionPatchesSelectedModel() {
+  let requestBody: unknown = null;
+
+  await withFetch(
+    async (_input, init) => {
+      requestBody = JSON.parse(String(init?.body || "{}"));
+      return new Response(
+        JSON.stringify({
+          session_id: "srv-updated",
+          title: "Updated session",
+          pinned: false,
+          model: "codex-high",
+          created_at: "2026-05-19T00:00:00.000Z",
+          last_active: "2026-05-19T00:00:00.000Z",
+          message_count: 0,
+          status: "idle",
+          changed_file_count: 0,
+          pending_approval_count: 0,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    },
+    async () => {
+      await updateSession("srv-updated", { model: "codex-high" });
+    }
+  );
+
+  assert.deepEqual(requestBody, { model: "codex-high" });
+}
+
 async function testCreateSessionPostsContextFolderPath() {
   let requestBody: unknown = null;
 
@@ -1290,6 +1320,7 @@ test("api client behavior", async () => {
   await testFetchSessionsNormalizesBackendShape();
   await testCreateSessionNormalizesBackendShape();
   await testCreateSessionPostsSelectedModel();
+  await testUpdateSessionPatchesSelectedModel();
   await testCreateSessionPostsContextFolderPath();
   await testFetchSessionDetailsNormalizesBackendShape();
   await testFetchSessionsRejectsServerFailures();

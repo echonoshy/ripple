@@ -863,6 +863,7 @@ export async function createSession(input: SessionCreateInput = {}): Promise<Ses
 export interface SessionUpdateInput {
   title?: string;
   pinned?: boolean;
+  model?: string | null;
   contextFolderPath?: string | null;
 }
 
@@ -873,6 +874,7 @@ export async function updateSession(
   const body: Record<string, unknown> = {};
   if ("title" in input) body.title = input.title;
   if ("pinned" in input) body.pinned = input.pinned;
+  if ("model" in input) body.model = input.model;
   if ("contextFolderPath" in input) body.context_folder_path = input.contextFolderPath ?? null;
   const res = await fetch(`${API_URL}/sessions/${encodeURIComponent(sessionId)}`, {
     method: "PATCH",

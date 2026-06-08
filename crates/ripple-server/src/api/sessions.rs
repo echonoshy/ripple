@@ -22,6 +22,7 @@ const MAX_SESSION_TITLE_CHARS: usize = 120;
 pub struct UpdateSessionInput {
     pub title: Option<String>,
     pub pinned: Option<bool>,
+    pub model: Option<String>,
     #[serde(default, deserialize_with = "deserialize_nullable_field")]
     pub context_folder_path: Option<Option<String>>,
 }
@@ -548,6 +549,16 @@ pub async fn update_session(
             Ok(title)
         })
         .transpose()?;
+    let model = input
+        .model
+        .map(|model| {
+            let model = model.trim().to_string();
+            if model.is_empty() {
+                return Err(ApiError::bad_request("Session model cannot be empty"));
+            }
+            Ok(model)
+        })
+        .transpose()?;
 
     let Some(info) = state
         .sessions
@@ -557,6 +568,7 @@ pub async fn update_session(
             title,
             input.pinned,
             input.context_folder_path,
+            model,
         )
         .await?
     else {

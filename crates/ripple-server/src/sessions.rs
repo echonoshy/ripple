@@ -355,6 +355,7 @@ impl SessionManager {
         title: Option<String>,
         pinned: Option<bool>,
         context_folder_path: Option<Option<String>>,
+        model: Option<String>,
     ) -> anyhow::Result<Option<SessionInfo>> {
         let key = (user_id.to_string(), session_id.to_string());
         if self.deleted.read().await.contains(&key) {
@@ -376,6 +377,9 @@ impl SessionManager {
         }
         if let Some(pinned) = pinned {
             record.pinned = pinned;
+        }
+        if let Some(model) = model {
+            record.model = model;
         }
         if let Some(context_folder_path) = context_folder_path {
             record.context_folder_path =
@@ -1190,6 +1194,52 @@ mod tests {
         assert!(visible_ids.contains(&active.session_id));
         assert!(visible_ids.contains(&awaiting_auth.session_id));
         assert!(!visible_ids.contains(&suspended_draft.session_id));
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn update_session_metadata_persists_selected_model() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("ripple-session-test-{}", Uuid::new_v4()));
+        let config = test_config(&root);
+        let manager = SessionManager::new(config.clone(), SandboxManager::new(config));
+        let user_id = "alice";
+
+        let session = manager
+            .create_session(
+                user_id,
+                CreateSessionInput {
+                    model: Some("codex-low".to_string()),
+                    max_turns: None,
+                    system_prompt: None,
+                    context_folder_path: None,
+                    project_id: None,
+                },
+            )
+            .await?;
+
+        let updated = manager
+            .update_session_metadata(
+                user_id,
+                &session.session_id,
+                None,
+                None,
+                None,
+                Some("codex-high".to_string()),
+            )
+            .await?
+            .expect("session should be updated");
+
+        assert_eq!(updated.model, "codex-high");
+        assert_eq!(
+            manager
+                .load(user_id, &session.session_id)
+                .await?
+                .expect("session should reload")
+                .model,
+            "codex-high"
+        );
 
         let _ = std::fs::remove_dir_all(root);
         Ok(())

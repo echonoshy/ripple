@@ -17,6 +17,7 @@ import {
   LUCIDE_NAV_STROKE_WIDTH,
   TYPOGRAPHY_BODY_MEDIUM_CLASS,
   TYPOGRAPHY_SECTION_TITLE_CLASS,
+  WORKBENCH_TOP_BAR_CLASS,
 } from "./stylePrimitives";
 
 interface ProductTopBarProps {
@@ -100,7 +101,7 @@ export default function ProductTopBar({
   return (
     <header
       data-ripple-product-top-bar="true"
-      className="flex h-[52px] w-full items-center border-b border-[#DEE0E3]/70 bg-white/76 px-4 shadow-[0_8px_22px_rgba(31,35,41,0.05)] backdrop-blur-2xl"
+      className={`flex h-[52px] w-full items-center px-4 ${WORKBENCH_TOP_BAR_CLASS}`}
     >
       <div className="flex min-w-0 flex-1 items-center gap-2.5">
         <RippleIcon size={28} className="h-7 w-7 shrink-0 rounded-lg" />
@@ -108,7 +109,7 @@ export default function ProductTopBar({
       </div>
 
       <nav className="flex flex-1 justify-center" aria-label={t("nav.primary")}>
-        <div className="inline-flex items-center gap-0.5 rounded-full border border-[#DEE0E3]/80 bg-white/68 p-0.5 shadow-[0_6px_18px_rgba(31,35,41,0.06)] backdrop-blur-xl">
+        <div className="inline-flex items-center gap-0.5 rounded-xl border border-[#DEE0E3] bg-[#F8F9FA] p-0.5">
           {mainNavItems.map((item) => {
             const Icon = item.icon;
             const selected = item.id === activeView;
@@ -118,10 +119,10 @@ export default function ProductTopBar({
                 type="button"
                 data-ripple-top-tab={item.id}
                 onClick={() => onSelectView(item.id)}
-                className={`inline-flex h-8 w-[132px] shrink-0 items-center justify-center gap-1.5 rounded-full px-3 ${TYPOGRAPHY_BODY_MEDIUM_CLASS} whitespace-nowrap transition-all ${
+                className={`relative inline-flex h-8 w-[132px] shrink-0 items-center justify-center gap-1.5 rounded-lg border px-3 ${TYPOGRAPHY_BODY_MEDIUM_CLASS} whitespace-nowrap transition-colors ${
                   selected
-                    ? "bg-[#1456F0] text-white shadow-[0_8px_18px_rgba(20,86,240,0.22)]"
-                    : "text-[#2B2F36] hover:bg-white/82 hover:text-[#1F2329]"
+                    ? "border-[#BACEFD] bg-[#F0F5FF] text-[#1456F0] shadow-none"
+                    : "border-transparent text-[#2B2F36] hover:bg-white hover:text-[#1F2329]"
                 }`}
               >
                 <Icon
@@ -130,6 +131,12 @@ export default function ProductTopBar({
                   strokeWidth={LUCIDE_NAV_STROKE_WIDTH}
                 />
                 {t(navLabelKeys[item.id])}
+                {selected ? (
+                  <span
+                    aria-hidden="true"
+                    className="absolute right-3 bottom-0 left-3 h-0.5 rounded-full bg-[#1456F0]"
+                  />
+                ) : null}
               </button>
             );
           })}

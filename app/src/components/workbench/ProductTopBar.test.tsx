@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { I18nProvider, type LocalePreference } from "@/i18n";
 import ProductTopBar from "./ProductTopBar";
+
+const productTopBarSource = readFileSync(new URL("./ProductTopBar.tsx", import.meta.url), "utf8");
 
 function noop() {}
 
@@ -76,14 +79,21 @@ function testSettingsEntryKeepsLiveStatusDot() {
   assert.match(html, /bg-emerald-500/);
 }
 
-function testSelectedTopTabHasStrongerTreatment() {
+function testSelectedTopTabUsesFeishuWorkbenchTreatment() {
   const html = renderProductTopBar();
 
   const selectedTab = html.match(/<button[^>]*data-ripple-top-tab="sessions"[^>]*>/)?.[0] || "";
 
-  assert.match(selectedTab, /bg-\[#1456F0\]/);
-  assert.match(selectedTab, /text-white/);
-  assert.match(selectedTab, /shadow-\[0_8px_18px_rgba\(20,86,240,0\.22\)\]/);
+  assert.match(selectedTab, /border-\[#BACEFD\]/);
+  assert.match(selectedTab, /bg-\[#F0F5FF\]/);
+  assert.match(selectedTab, /text-\[#1456F0\]/);
+  assert.doesNotMatch(selectedTab, /text-white/);
+  assert.doesNotMatch(selectedTab, /shadow-\[0_8px_18px_rgba\(20,86,240,0\.22\)\]/);
+}
+
+function testProductTopBarUsesSharedWorkbenchTopBarPrimitive() {
+  assert.match(productTopBarSource, /WORKBENCH_TOP_BAR_CLASS/);
+  assert.doesNotMatch(productTopBarSource, /backdrop-blur-2xl/);
 }
 
 function testDesktopProductTabsUseEqualWidths() {
@@ -121,7 +131,8 @@ testDesktopProductTabsExcludeSettings();
 testSettingsLivesInRightAvatarEntry();
 testSettingsEntryUsesLargerBorderlessAvatarButton();
 testSettingsEntryKeepsLiveStatusDot();
-testSelectedTopTabHasStrongerTreatment();
+testSelectedTopTabUsesFeishuWorkbenchTreatment();
+testProductTopBarUsesSharedWorkbenchTopBarPrimitive();
 testDesktopProductTabsUseEqualWidths();
 testDesktopProductTabIconsDoNotShrink();
 testDesktopProductTabsRenderChineseLabels();

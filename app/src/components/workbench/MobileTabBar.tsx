@@ -11,10 +11,10 @@ import {
   reducedMotionTransition,
 } from "./motionPrimitives";
 import {
-  COMPACT_IOS_PAGE_BACKGROUND,
   LUCIDE_NAV_STROKE_WIDTH,
   MOBILE_TAB_BAR_MASK_HEIGHT_CLASS,
   TYPOGRAPHY_MICRO_MEDIUM_CLASS,
+  WORKBENCH_PAGE_BACKGROUND_CLASS,
 } from "./stylePrimitives";
 
 interface MobileTabBarProps {
@@ -41,11 +41,11 @@ export default function MobileTabBar({ activeView, onSelectView }: MobileTabBarP
       <div
         data-ripple-mobile-tabbar-mask="true"
         aria-hidden="true"
-        className={`absolute inset-x-0 bottom-0 ${MOBILE_TAB_BAR_MASK_HEIGHT_CLASS} ${COMPACT_IOS_PAGE_BACKGROUND}`}
+        className={`absolute inset-x-0 bottom-0 ${MOBILE_TAB_BAR_MASK_HEIGHT_CLASS} ${WORKBENCH_PAGE_BACKGROUND_CLASS}`}
       />
       <nav
         data-ripple-mobile-tabbar-nav="true"
-        className="pointer-events-auto relative mx-3 mb-[max(env(safe-area-inset-bottom),10px)] rounded-[28px] border border-white/78 bg-white/74 px-2 py-1 shadow-[0_18px_44px_rgba(31,35,41,0.20)] backdrop-blur-2xl"
+        className="pointer-events-auto relative mx-3 mb-[max(env(safe-area-inset-bottom),10px)] rounded-2xl border border-[#DEE0E3] bg-white px-2 py-1 shadow-[0_8px_24px_rgba(31,35,41,0.10)]"
       >
         <div
           className="mx-auto grid h-[58px] max-w-md"

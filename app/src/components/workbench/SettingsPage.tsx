@@ -98,7 +98,7 @@ const SETTINGS_AVATAR_MENU_WIDTH = 160;
 const SETTINGS_AVATAR_MENU_ITEM_HEIGHT = 32;
 const SETTINGS_AVATAR_MENU_VERTICAL_PADDING = 8;
 
-const settingsAccountActionButtonClass = `flex h-11 w-full min-w-0 items-center justify-start gap-2 rounded-xl border border-[#DEE0E3] bg-white px-3 text-[#2B2F36] transition-all hover:bg-[#F8F9FA] active:scale-[0.98] sm:inline-flex sm:h-9 sm:w-auto sm:min-w-[60px] sm:justify-center sm:gap-1 sm:px-2 lg:h-8 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0`;
+const settingsAccountActionButtonClass = `flex h-9 w-full min-w-0 items-center justify-center gap-1.5 rounded-lg border border-[#DEE0E3] bg-white px-2 text-[#2B2F36] transition-all hover:bg-[#F8F9FA] active:scale-[0.98] sm:inline-flex sm:w-auto sm:min-w-[60px] sm:gap-1 lg:h-8 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0`;
 
 const settingsSectionClass =
   "overflow-hidden rounded-xl border border-[#DEE0E3]/80 bg-white/82 shadow-[0_10px_26px_rgba(31,35,41,0.06)] backdrop-blur-xl";

@@ -292,9 +292,12 @@ function testSettingsPageUsesCompactMobileDensity() {
   assert.match(source, /data-ripple-settings-account-actions[\s\S]*grid[\s\S]*grid-cols-2/);
   assert.match(source, /data-ripple-settings-account-actions[\s\S]*sm:flex[\s\S]*sm:flex-wrap/);
   assert.match(source, /const settingsAccountActionButtonClass =[\s\S]*w-full min-w-0/);
-  assert.match(source, /const settingsAccountActionButtonClass =[\s\S]*h-11 w-full/);
-  assert.match(source, /const settingsAccountActionButtonClass =[\s\S]*justify-start/);
-  assert.match(source, /const settingsAccountActionButtonClass =[\s\S]*sm:h-9/);
+  assert.match(source, /const settingsAccountActionButtonClass =[\s\S]*h-9 w-full/);
+  assert.match(source, /const settingsAccountActionButtonClass =[\s\S]*justify-center/);
+  assert.match(source, /const settingsAccountActionButtonClass =[\s\S]*gap-1\.5/);
+  assert.match(source, /const settingsAccountActionButtonClass =[\s\S]*rounded-lg/);
+  assert.match(source, /const settingsAccountActionButtonClass =[\s\S]*px-2/);
+  assert.match(source, /const settingsAccountActionButtonClass =[\s\S]*lg:h-8/);
   assert.match(
     source,
     /const settingsAccountActionButtonClass =[\s\S]*TYPOGRAPHY_MICRO_MEDIUM_CLASS/

@@ -32,6 +32,7 @@ function renderSessionPage({
   messages = [],
   session = null,
   isSessionLoading = false,
+  isGenerating = false,
   locale = "en-US",
 }: {
   tokenUsage?: UsageInfo;
@@ -39,6 +40,7 @@ function renderSessionPage({
   messages?: Message[];
   session?: WorkbenchSessionSummary | null;
   isSessionLoading?: boolean;
+  isGenerating?: boolean;
   locale?: LocalePreference;
 } = {}) {
   return renderToStaticMarkup(
@@ -54,7 +56,7 @@ function renderSessionPage({
         input=""
         pendingFiles={[]}
         pendingLocalImages={[]}
-        isGenerating={false}
+        isGenerating={isGenerating}
         focusToken={0}
         selectedModel="codex-medium"
         models={[{ id: "codex-medium", owned_by: "ripple" }]}
@@ -258,6 +260,29 @@ function testCurrentModelBadgeUsesModelSwitchIcon() {
   assert.match(html, /data-ripple-current-model-badge="desktop"[\s\S]{0,1200}bg-\[#22A06B\]/);
   assert.match(html, /data-ripple-current-model-badge="mobile"[\s\S]{0,1000}lucide-brain-circuit/);
   assert.match(html, /data-ripple-current-model-badge="mobile"[\s\S]{0,1200}bg-\[#22A06B\]/);
+}
+
+function testMobileRunStatusBarPersistsWhileRunning() {
+  const runningSession: WorkbenchSessionSummary = {
+    sessionId: "srv-running",
+    title: "Running session",
+    pinned: false,
+    status: "running",
+    model: "codex-medium",
+    lastActivityAt: "2026-06-08T00:00:00Z",
+    messageCount: 1,
+    changedFileCount: 0,
+    pendingApprovalCount: 0,
+  };
+  const html = renderSessionPage({ session: runningSession, isGenerating: true });
+
+  assert.match(html, /data-ripple-mobile-run-status-bar="true"/);
+  assert.match(html, /data-ripple-mobile-run-status="running"/);
+  assert.match(html, />Working.../);
+  assert.match(html, /Plus/);
+  assert.match(html, /sticky top-\[calc\(var\(--ripple-mobile-chat-header-height\)\+8px\)\]/);
+  assert.match(sessionPageSource, /mobileRunStatusBarHeight/);
+  assert.match(sessionPageSource, /--ripple-mobile-run-status-height/);
 }
 
 function testSessionPageRendersChineseStaticChrome() {
@@ -748,6 +773,7 @@ testMobileHeaderReservesTopSafeArea();
 testMobileHeaderIsOverlayChrome();
 testDesktopHeaderShowsCurrentModelLikeMobile();
 testCurrentModelBadgeUsesModelSwitchIcon();
+testMobileRunStatusBarPersistsWhileRunning();
 testSessionPageRendersChineseStaticChrome();
 testSessionPageShowsCurrentFolderBadge();
 testTimelineTextUsesWiderContentWidth();

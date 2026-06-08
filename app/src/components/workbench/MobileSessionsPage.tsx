@@ -124,8 +124,9 @@ export default function MobileSessionsPage({
   );
   const activeMenuSession = useMemo(() => {
     if (!activeMenuSessionId) return null;
+    if (activeMenuSessionId !== selectedSessionId) return null;
     return visibleSessions.find((session) => session.sessionId === activeMenuSessionId) ?? null;
-  }, [activeMenuSessionId, visibleSessions]);
+  }, [activeMenuSessionId, selectedSessionId, visibleSessions]);
 
   return (
     <div
@@ -293,7 +294,7 @@ export default function MobileSessionsPage({
             ) : null}
           </div>
         ) : (
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <AnimatePresence initial={false}>
               {visibleSessions.map((session, sessionIndex) => {
                 const selected = session.sessionId === selectedSessionId;
@@ -399,13 +400,15 @@ export default function MobileSessionsPage({
                           },
                         },
                       ]}
-                      className={isMenuActive ? "z-50 rounded-2xl" : "z-10 rounded-2xl"}
+                      className={isMenuActive ? "z-50 rounded-lg" : "z-10 rounded-lg"}
                     >
                       <div
-                        className={`relative flex w-full items-center gap-2 rounded-xl border px-3 py-2.5 text-left shadow-[0_1px_2px_rgba(31,35,41,0.04)] transition-colors ${
+                        data-ripple-mobile-session-row="true"
+                        data-ripple-mobile-session-row-selected={selected ? "true" : "false"}
+                        className={`relative flex w-full items-center gap-2 rounded-lg border px-3 py-3 text-left transition-colors ${
                           selected
-                            ? "border-[#BACEFD] bg-[#F0F5FF]"
-                            : "border-[#DEE0E3] bg-white active:bg-[#F8F9FA]"
+                            ? "border-[#9DBBFF] bg-[#F0F5FF] shadow-[0_2px_8px_rgba(20,86,240,0.06)]"
+                            : "border-[#D8DEE8] bg-white shadow-[0_2px_8px_rgba(31,35,41,0.05)] active:bg-[#F8F9FA]"
                         }`}
                       >
                         {selected ? (
@@ -446,24 +449,27 @@ export default function MobileSessionsPage({
                           ) : null}
                         </button>
 
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setActiveMenuSessionId((current) =>
-                              current === session.sessionId ? null : session.sessionId
-                            );
-                          }}
-                          className={`${WORKBENCH_ICON_BUTTON_CLASS} ${
-                            activeMenuSessionId === session.sessionId
-                              ? "bg-[#F0F5FF] text-[#1F2329]"
-                              : "text-[#646A73]"
-                          }`}
-                          aria-label={t("sessions.options")}
-                          title={t("sessions.options")}
-                        >
-                          <Ellipsis size={18} strokeWidth={2.2} />
-                        </button>
+                        {selected ? (
+                          <button
+                            type="button"
+                            data-ripple-mobile-session-options-visible="true"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveMenuSessionId((current) =>
+                                current === session.sessionId ? null : session.sessionId
+                              );
+                            }}
+                            className={`${WORKBENCH_ICON_BUTTON_CLASS} ${
+                              activeMenuSessionId === session.sessionId
+                                ? "bg-[#F0F5FF] text-[#1F2329]"
+                                : "text-[#646A73]"
+                            }`}
+                            aria-label={t("sessions.options")}
+                            title={t("sessions.options")}
+                          >
+                            <Ellipsis size={18} strokeWidth={2.2} />
+                          </button>
+                        ) : null}
                       </div>
                     </SwipeActionRow>
                   </motion.div>

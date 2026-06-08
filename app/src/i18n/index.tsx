@@ -105,6 +105,14 @@ const zhMessages = {
     tokenBadgeContext: " · Ctx {context}",
     tokenAccessible: "Tokens in {input}, out {output}.{context}",
     tokenAccessibleContext: " Context {context}.",
+    runStatus: {
+      running: "工作中...",
+      waitingForUser: "等待你的回复",
+      waitingForApproval: "等待授权",
+      compacting: "正在压缩上下文",
+      uploading: "正在上传文件",
+      loading: "正在加载会话",
+    },
   },
   composer: {
     attachFiles: "附加文件",
@@ -720,6 +728,14 @@ const enMessages = {
     tokenBadgeContext: " · Ctx {context}",
     tokenAccessible: "Tokens in {input}, out {output}.{context}",
     tokenAccessibleContext: " Context {context}.",
+    runStatus: {
+      running: "Working...",
+      waitingForUser: "Waiting for your reply",
+      waitingForApproval: "Waiting for approval",
+      compacting: "Compacting context",
+      uploading: "Uploading files",
+      loading: "Loading session",
+    },
   },
   composer: {
     attachFiles: "Attach files",

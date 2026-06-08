@@ -26,6 +26,20 @@ const sessions: WorkbenchSessionSummary[] = [
     pendingApprovalCount: 0,
   },
 ];
+const multiSessions: WorkbenchSessionSummary[] = [
+  sessions[0],
+  {
+    sessionId: "srv-2",
+    title: "Quiet follow-up",
+    pinned: true,
+    status: "idle",
+    model: "codex-medium",
+    lastActivityAt: "2026-05-16T00:00:00Z",
+    messageCount: 2,
+    changedFileCount: 0,
+    pendingApprovalCount: 0,
+  },
+];
 
 function renderMobileSessionsPage(
   overrides: Partial<React.ComponentProps<typeof MobileSessionsPage>> = {},
@@ -73,17 +87,32 @@ function testMobileBrandWordmarkHasQuietPersonality() {
 }
 
 function testUsesQuietAgentControlPlaneStyling() {
-  const html = renderMobileSessionsPage();
+  const html = renderMobileSessionsPage({ sessions: multiSessions, selectedSessionId: "srv-1" });
 
   assert.match(html, /border-\[#DEE0E3\]/);
   assert.match(html, /bg-white/);
   assert.match(html, /shadow-\[0_1px_2px_rgba\(31,35,41,0\.04\)\]/);
-  assert.match(html, /rounded-xl/);
+  assert.match(html, /data-ripple-mobile-session-row="true"/);
+  assert.match(html, /data-ripple-mobile-session-row-selected="true"/);
+  assert.match(html, /data-ripple-mobile-session-row-selected="false"/);
+  assert.match(html, /rounded-lg/);
+  assert.match(html, /border-\[#9DBBFF\]/);
+  assert.match(html, /border-\[#D8DEE8\]/);
+  assert.match(html, /shadow-\[0_2px_8px_rgba\(31,35,41,0\.05\)\]/);
   assert.doesNotMatch(html, /backdrop-blur-xl/);
   assert.doesNotMatch(html, /bg-gradient/);
   assert.doesNotMatch(html, /linear-gradient/);
   assert.doesNotMatch(html, /radial-gradient/);
   assert.doesNotMatch(html, /rounded-\[18px\]/);
+}
+
+function testOnlySelectedSessionShowsOptionsButton() {
+  const html = renderMobileSessionsPage({ sessions: multiSessions, selectedSessionId: "srv-1" });
+
+  assert.equal((html.match(/aria-label="Session options"/g) || []).length, 1);
+  assert.match(html, /data-ripple-mobile-session-options-visible="true"/);
+  assert.match(html, /data-ripple-mobile-session-row-selected="false"/);
+  assert.doesNotMatch(html, /Quiet follow-up[\s\S]{0,900}aria-label="Session options"/);
 }
 
 function testSessionRowsRemoveRepeatedChatIcon() {
@@ -232,6 +261,7 @@ function testMobileSessionOptionsButtonUsesChineseAccessibleLabel() {
 testRendersChatAppStyleSessionList();
 testMobileBrandWordmarkHasQuietPersonality();
 testUsesQuietAgentControlPlaneStyling();
+testOnlySelectedSessionShowsOptionsButton();
 testSessionRowsRemoveRepeatedChatIcon();
 testSearchInputUsesReadableMobileType();
 testHeaderActionsUseSharedWorkbenchTreatment();

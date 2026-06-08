@@ -25,6 +25,7 @@ import type {
   PlanProgress,
   UsageInfo,
   WorkbenchSessionSummary,
+  WorkbenchSessionStatus,
   WorkbenchTimelineEvent,
 } from "@/types";
 import type { FeishuAuthOpenPayload, FeishuAuthWaitingState } from "@/components/MarkdownRenderer";
@@ -58,6 +59,7 @@ const MOBILE_CHAT_COMPOSER_FALLBACK_HEIGHT_PX = 92;
 const MOBILE_CHAT_COMPOSER_GAP_PX = 12;
 const MOBILE_CHAT_HEADER_SCROLL_DELTA_PX = 10;
 const MOBILE_CHAT_HEADER_TOP_LOCK_PX = 8;
+const MOBILE_RUN_STATUS_FALLBACK_HEIGHT_PX = 40;
 const mobileHeaderButtonClass = WORKBENCH_MOBILE_ICON_BUTTON_CLASS;
 
 interface MobileChatHeaderScrollInput {
@@ -81,6 +83,14 @@ interface TokenFooterRevealInput {
   previousTotalTokens: number;
   nextTotalTokens: number;
 }
+
+type MobileRunStatusKind =
+  | "running"
+  | "waiting_for_user"
+  | "waiting_for_approval"
+  | "compacting"
+  | "uploading"
+  | "loading";
 
 export function shouldHideMobileChatHeaderOnScroll({
   previousScrollTop,
@@ -198,6 +208,28 @@ function folderName(
 ): string {
   if (!path || path === "/workspace") return workspaceLabel;
   return path.split("/").filter(Boolean).pop() || folderFallback;
+}
+
+function mobileRunStatusKind({
+  isUploadingFiles,
+  isSessionLoading,
+  isComposerBlocked,
+  isGenerating,
+  sessionStatus,
+}: {
+  isUploadingFiles: boolean;
+  isSessionLoading: boolean;
+  isComposerBlocked: boolean;
+  isGenerating: boolean;
+  sessionStatus?: WorkbenchSessionStatus | null;
+}): MobileRunStatusKind | null {
+  if (isUploadingFiles) return "uploading";
+  if (isSessionLoading) return "loading";
+  if (isComposerBlocked || sessionStatus === "compacting") return "compacting";
+  if (sessionStatus === "waiting_for_approval") return "waiting_for_approval";
+  if (sessionStatus === "waiting_for_user") return "waiting_for_user";
+  if (isGenerating || sessionStatus === "running") return "running";
+  return null;
 }
 
 interface SessionPageProps {
@@ -368,6 +400,30 @@ export default function SessionPage({
     ? t("sessions.focusFolder", { label: focusFolderLabel })
     : null;
   const folderBadgeTitle = effectiveContextFolderPath || t("sessions.fullWorkspace");
+  const mobileRunStatus = mobileRunStatusKind({
+    isUploadingFiles,
+    isSessionLoading,
+    isComposerBlocked,
+    isGenerating,
+    sessionStatus: session?.status,
+  });
+  const mobileRunStatusLabel =
+    mobileRunStatus === "uploading"
+      ? t("sessions.runStatus.uploading")
+      : mobileRunStatus === "loading"
+        ? t("sessions.runStatus.loading")
+        : mobileRunStatus === "compacting"
+          ? t("sessions.runStatus.compacting")
+          : mobileRunStatus === "waiting_for_approval"
+            ? t("sessions.runStatus.waitingForApproval")
+            : mobileRunStatus === "waiting_for_user"
+              ? t("sessions.runStatus.waitingForUser")
+              : mobileRunStatus === "running"
+                ? t("sessions.runStatus.running")
+                : null;
+  const mobileRunStatusBarHeight = mobileRunStatus
+    ? MOBILE_RUN_STATUS_FALLBACK_HEIGHT_PX
+    : 0;
   const mobileComposerReservedHeight = reservedMobileComposerHeight({
     measuredHeight: mobileComposerHeight,
   });
@@ -380,6 +436,7 @@ export default function SessionPage({
     "--ripple-mobile-chat-composer-height": `${mobileComposerReservedHeight}px`,
     "--ripple-mobile-chat-composer-gap": `${MOBILE_CHAT_COMPOSER_GAP_PX}px`,
     "--ripple-mobile-keyboard-inset": `${mobileKeyboardInset}px`,
+    "--ripple-mobile-run-status-height": `${mobileRunStatusBarHeight}px`,
   } as CSSProperties;
   const composerOverlayStyle = {
     transform: mobileKeyboardInset > 0 ? `translate3d(0, -${mobileKeyboardInset}px, 0)` : undefined,
@@ -783,6 +840,29 @@ export default function SessionPage({
         style={mobileTimelineStyle}
         className="min-h-0 flex-1 overflow-y-auto bg-white px-3 pt-[calc(var(--ripple-mobile-chat-header-height)+8px)] pb-[calc(var(--ripple-mobile-chat-composer-height)+var(--ripple-mobile-chat-composer-gap))] sm:px-4 md:px-5 lg:py-5"
       >
+        {mobileRunStatus && mobileRunStatusLabel ? (
+          <div
+            data-ripple-mobile-run-status-bar="true"
+            data-ripple-mobile-run-status={mobileRunStatus}
+            className={`sticky top-[calc(var(--ripple-mobile-chat-header-height)+8px)] z-20 mx-auto mb-2 flex max-w-5xl items-center gap-2 rounded-lg border border-[#BACEFD] bg-white px-3 py-2 shadow-[0_2px_10px_rgba(20,86,240,0.10)] lg:hidden ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+          >
+            <span
+              aria-hidden="true"
+              className={`h-2 w-2 shrink-0 rounded-full ${
+                mobileRunStatus === "running" || mobileRunStatus === "uploading"
+                  ? "animate-pulse bg-[#1456F0]"
+                  : mobileRunStatus === "waiting_for_approval" ||
+                      mobileRunStatus === "waiting_for_user"
+                    ? "bg-[#F59E0B]"
+                    : "bg-[#646A73]"
+              }`}
+            />
+            <span className="min-w-0 flex-1 truncate text-[#1F2329]">{mobileRunStatusLabel}</span>
+            <span className="shrink-0 font-[family-name:var(--font-mono)] text-[#646A73]">
+              {modelDisplayName}
+            </span>
+          </div>
+        ) : null}
         <div ref={contentRef} className="mx-auto max-w-5xl space-y-2 sm:space-y-5">
           {isSessionLoading ? (
             <div

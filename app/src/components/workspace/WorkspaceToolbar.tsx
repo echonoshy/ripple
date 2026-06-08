@@ -27,16 +27,12 @@ import {
 } from "@/components/workbench/stylePrimitives";
 import { useI18n } from "@/i18n";
 import type { WorkspaceSearchOptions } from "@/lib/api";
-import type { WorkspacePlace } from "@/lib/workspaceFileCenter";
 import type { WorkspaceListing } from "@/types";
-import WorkspacePlacesNav from "./WorkspacePlacesNav";
 import { DEFAULT_WORKSPACE_PATH } from "./workspaceExplorerUtils";
 
 interface WorkspaceToolbarProps {
   presentation: "compact" | "page";
   onBack?: () => void;
-  currentPlace: WorkspacePlace;
-  onOpenPlace: (place: WorkspacePlace) => void;
   query: string;
   onQueryChange: (value: string) => void;
   isSearchMode: boolean;
@@ -73,8 +69,6 @@ interface WorkspaceToolbarProps {
 export default function WorkspaceToolbar({
   presentation,
   onBack,
-  currentPlace,
-  onOpenPlace,
   query,
   onQueryChange,
   isSearchMode,
@@ -215,10 +209,6 @@ export default function WorkspaceToolbar({
                 <MoreHorizontal size={18} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
               </button>
             </div>
-          )}
-
-          {isPagePresentation && (
-            <WorkspacePlacesNav currentPlace={currentPlace} onOpenPlace={onOpenPlace} />
           )}
 
           <div

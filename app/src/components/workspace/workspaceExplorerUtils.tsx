@@ -1,11 +1,6 @@
 import { TYPOGRAPHY_META_CLASS, TYPOGRAPHY_MICRO_MEDIUM_CLASS } from "@/components/workbench/stylePrimitives";
 import { useI18n } from "@/i18n";
 import { RIPPLE_API_CONNECTION_ERROR, readableApiErrorMessage } from "@/lib/apiErrors";
-import {
-  WORKSPACE_ROOT_PATH,
-  getWorkspaceParentPath,
-  isWritableWorkspacePath,
-} from "@/lib/workspaceFileCenter";
 import type { WorkspaceEntry } from "@/types";
 import type { WorkspaceSearchOptions } from "@/lib/api";
 
@@ -13,7 +8,7 @@ export const SPLIT_PERCENT_STORAGE_KEY = "ripple.workspaceExplorer.splitPercent"
 export const DEFAULT_SPLIT_PERCENT = 48;
 export const MIN_SPLIT_PERCENT = 0;
 export const MAX_SPLIT_PERCENT = 100;
-export const DEFAULT_WORKSPACE_PATH = WORKSPACE_ROOT_PATH;
+export const DEFAULT_WORKSPACE_PATH = "/workspace";
 
 type Translator = ReturnType<typeof useI18n>["t"];
 
@@ -53,6 +48,34 @@ export function sortWorkspaceEntries(entries: WorkspaceEntry[]): WorkspaceEntry[
   return [...entries].sort((a, b) => {
     if (a.kind !== b.kind) return a.kind === "directory" ? -1 : 1;
     return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+  });
+}
+
+export function normalizeWorkspacePath(path: string): string {
+  const cleanPath = path.split(/[?#]/, 1)[0] || DEFAULT_WORKSPACE_PATH;
+  const prefixed = cleanPath.startsWith(DEFAULT_WORKSPACE_PATH)
+    ? cleanPath
+    : `${DEFAULT_WORKSPACE_PATH}/${cleanPath.replace(/^\/+/, "")}`;
+  return prefixed.replace(/\/+$/, "") || DEFAULT_WORKSPACE_PATH;
+}
+
+export function getWorkspaceParentPath(path: string): string {
+  const normalizedPath = normalizeWorkspacePath(path);
+  const slashIndex = normalizedPath.lastIndexOf("/");
+  if (slashIndex <= DEFAULT_WORKSPACE_PATH.length - 1) return DEFAULT_WORKSPACE_PATH;
+  return normalizedPath.slice(0, slashIndex) || DEFAULT_WORKSPACE_PATH;
+}
+
+export function canMoveEntriesToDirectory(
+  entries: WorkspaceEntry[],
+  target: WorkspaceEntry
+): boolean {
+  if (target.kind !== "directory" || entries.length === 0) return false;
+
+  return entries.every((entry) => {
+    if (entry.path === target.path) return false;
+    if (target.path.startsWith(`${entry.path}/`)) return false;
+    return getWorkspaceParentPath(entry.path) !== target.path;
   });
 }
 
@@ -155,5 +178,3 @@ export function displayError(error: string, t?: Translator): string {
   if (t && readable === RIPPLE_API_CONNECTION_ERROR) return t("files.connectionError");
   return readable;
 }
-
-export { getWorkspaceParentPath, isWritableWorkspacePath };

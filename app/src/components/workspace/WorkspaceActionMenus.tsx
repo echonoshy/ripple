@@ -43,7 +43,6 @@ interface WorkspaceActionMenusProps {
   contextMenu: WorkspaceContextMenuState;
   contextMenuRef: React.RefObject<HTMLDivElement | null>;
   clipboard: WorkspaceClipboardState | null;
-  canWriteInCurrentPath: boolean;
   isPagePresentation: boolean;
   isActionsMenuOpen: boolean;
   mobileActionEntry: WorkspaceEntry | null;
@@ -70,7 +69,6 @@ export default function WorkspaceActionMenus({
   contextMenu,
   contextMenuRef,
   clipboard,
-  canWriteInCurrentPath,
   isPagePresentation,
   isActionsMenuOpen,
   mobileActionEntry,
@@ -166,7 +164,7 @@ export default function WorkspaceActionMenus({
               <>
                 <button
                   type="button"
-                  disabled={!clipboard || !canWriteInCurrentPath}
+                  disabled={!clipboard}
                   onClick={handlePaste}
                   className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[#2B2F36] transition-all hover:bg-[#F5F6F7] active:bg-[#F0F5FF] disabled:cursor-not-allowed disabled:opacity-40 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
                 >
@@ -194,7 +192,6 @@ export default function WorkspaceActionMenus({
                 <div className="my-1 border-t border-[#DEE0E3]" />
                 <button
                   type="button"
-                  disabled={!canWriteInCurrentPath}
                   onClick={() => {
                     setCreationModal({ visible: true, kind: "file" });
                     setContextMenu((prev: WorkspaceContextMenuState) => ({ ...prev, visible: false }));
@@ -205,7 +202,6 @@ export default function WorkspaceActionMenus({
                 </button>
                 <button
                   type="button"
-                  disabled={!canWriteInCurrentPath}
                   onClick={() => {
                     setCreationModal({ visible: true, kind: "directory" });
                     setContextMenu((prev: WorkspaceContextMenuState) => ({ ...prev, visible: false }));
@@ -251,7 +247,7 @@ export default function WorkspaceActionMenus({
                 : t("files.pasteItems", { count: clipboard.items.length })
               : t("files.paste"),
             icon: <Clipboard size={16} />,
-            disabled: !clipboard || !canWriteInCurrentPath,
+            disabled: !clipboard,
             onClick: () => {
               closeActionsMenu();
               handlePaste();
@@ -274,7 +270,6 @@ export default function WorkspaceActionMenus({
             key: "new-file",
             label: t("files.newFile"),
             icon: <FilePlus size={16} />,
-            disabled: !canWriteInCurrentPath,
             onClick: () => {
               setCreationModal({ visible: true, kind: "file" });
               closeActionsMenu();
@@ -284,7 +279,6 @@ export default function WorkspaceActionMenus({
             key: "new-folder",
             label: t("files.newFolder"),
             icon: <FolderPlus size={16} />,
-            disabled: !canWriteInCurrentPath,
             onClick: () => {
               setCreationModal({ visible: true, kind: "directory" });
               closeActionsMenu();
@@ -400,7 +394,7 @@ export default function WorkspaceActionMenus({
           </button>
           <button
             type="button"
-            disabled={!clipboard || !canWriteInCurrentPath}
+            disabled={!clipboard}
             onClick={() => {
               closeActionsMenu();
               handlePaste();
@@ -431,7 +425,6 @@ export default function WorkspaceActionMenus({
           <div className="my-1 border-t border-[#DEE0E3]" />
           <button
             type="button"
-            disabled={!canWriteInCurrentPath}
             onClick={() => {
               setCreationModal({ visible: true, kind: "file" });
               closeActionsMenu();
@@ -443,7 +436,6 @@ export default function WorkspaceActionMenus({
           </button>
           <button
             type="button"
-            disabled={!canWriteInCurrentPath}
             onClick={() => {
               setCreationModal({ visible: true, kind: "directory" });
               closeActionsMenu();

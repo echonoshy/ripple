@@ -30,6 +30,8 @@ import {
   getSplitPercentAfterFileDoubleClick,
   getSplitPercentFromVerticalResize,
   getWorkspacePreviewKind,
+  canMoveEntriesToDirectory,
+  getWorkspaceParentPath,
   searchModeLabel,
   shouldDismissWorkspaceContextMenuOnEntryClick,
   sortWorkspaceEntries,
@@ -60,15 +62,6 @@ import {
 } from "@/lib/menuPosition";
 import { getWorkspaceImagePreviewUrl } from "@/lib/workspaceImageCache";
 import {
-  canMoveEntriesToDirectory,
-  getWorkspaceParentPath,
-  getWorkspaceUploadTargetPath,
-  isWritableWorkspacePath,
-  workspaceOperationTarget,
-  workspacePlacePath,
-  type WorkspacePlace,
-} from "@/lib/workspaceFileCenter";
-import {
   WorkspaceEntry,
   WorkspaceFileOpenRequest,
   WorkspaceFilePreview,
@@ -82,7 +75,6 @@ export {
   getSplitPercentFromVerticalResize,
   getWorkspaceParentPath,
   getWorkspacePreviewKind,
-  isWritableWorkspacePath,
   shouldDismissWorkspaceContextMenuOnEntryClick,
 };
 
@@ -304,9 +296,6 @@ export default function WorkspaceExplorer({
   const allVisibleEntriesSelected =
     visibleEntries.length > 0 &&
     visibleEntries.every((entry) => selectedEntryPaths.has(entry.path));
-  const operationTarget = useMemo(() => workspaceOperationTarget(currentPath), [currentPath]);
-  const currentPlace = operationTarget.place;
-  const canWriteInCurrentPath = operationTarget.writable;
   useEffect(() => {
     splitPercentRef.current = splitPercent;
     setClientStorageItem(SPLIT_PERCENT_STORAGE_KEY, String(splitPercent));
@@ -493,35 +482,6 @@ export default function WorkspaceExplorer({
       return promise;
     },
     [userId]
-  );
-
-  const ensureWorkspaceDirectory = useCallback(async (path: string) => {
-    const ensurePath = async (targetPath: string): Promise<void> => {
-      if (targetPath === DEFAULT_WORKSPACE_PATH) return;
-      try {
-        await fetchWorkspaceListing(targetPath);
-        return;
-      } catch {
-        await ensurePath(getWorkspaceParentPath(targetPath));
-        await createWorkspaceEntry(targetPath, "directory");
-      }
-    };
-
-    await ensurePath(path);
-  }, []);
-
-  const openWorkspacePlace = useCallback(
-    async (place: WorkspacePlace) => {
-      const path = workspacePlacePath(place);
-      setError(null);
-      try {
-        await ensureWorkspaceDirectory(path);
-        await loadDirectory(path);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
-      }
-    },
-    [ensureWorkspaceDirectory, loadDirectory]
   );
 
   const openWorkspaceFilePath = useCallback(
@@ -834,16 +794,14 @@ export default function WorkspaceExplorer({
   const uploadFilesToCurrentDirectory = useCallback(
     async (files: File[], overwrite: boolean = false) => {
       if (files.length === 0 || uploading) return;
-      const uploadTargetPath = getWorkspaceUploadTargetPath();
       setUploading(true);
       setUploadError(null);
       setError(null);
       setActionMessage(null);
       try {
-        await ensureWorkspaceDirectory(uploadTargetPath);
-        await uploadWorkspaceFiles(files, uploadTargetPath, overwrite);
-        setActionMessage(t("files.uploadedTo", { path: uploadTargetPath }));
-        await refreshAfterUpload(uploadTargetPath);
+        await uploadWorkspaceFiles(files, currentPath, overwrite);
+        setActionMessage(t("files.uploadedTo", { path: currentPath }));
+        await refreshAfterUpload(currentPath);
       } catch (err) {
         if (err instanceof WorkspaceUploadConflictError && !overwrite) {
           const conflictNames = err.conflicts.map((conflict) => conflict.name).join(", ");
@@ -859,10 +817,9 @@ export default function WorkspaceExplorer({
           });
           if (confirmed) {
             try {
-              await ensureWorkspaceDirectory(uploadTargetPath);
-              await uploadWorkspaceFiles(files, uploadTargetPath, true);
-              setActionMessage(t("files.uploadedTo", { path: uploadTargetPath }));
-              await refreshAfterUpload(uploadTargetPath);
+              await uploadWorkspaceFiles(files, currentPath, true);
+              setActionMessage(t("files.uploadedTo", { path: currentPath }));
+              await refreshAfterUpload(currentPath);
             } catch (overwriteErr) {
               setUploadError(
                 overwriteErr instanceof Error ? overwriteErr.message : String(overwriteErr)
@@ -877,7 +834,7 @@ export default function WorkspaceExplorer({
         setUploading(false);
       }
     },
-    [ensureWorkspaceDirectory, refreshAfterUpload, requestConfirmation, t, uploading]
+    [currentPath, refreshAfterUpload, requestConfirmation, t, uploading]
   );
 
   const handleUploadInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -1165,11 +1122,6 @@ export default function WorkspaceExplorer({
       setCreationModal(null);
       return;
     }
-    if (!canWriteInCurrentPath) {
-      setCreationModal(null);
-      setError(t("files.fixedPlaceRequired"));
-      return;
-    }
     setCreationSaving(true);
     setError(null);
     try {
@@ -1249,12 +1201,6 @@ export default function WorkspaceExplorer({
   const handlePaste = async () => {
     if (!clipboard) return;
     const destination = currentPath;
-    if (!isWritableWorkspacePath(destination)) {
-      setError(t("files.fixedPlaceRequired"));
-      setContextMenu((prev) => ({ ...prev, visible: false }));
-      setIsActionsMenuOpen(false);
-      return;
-    }
     setError(null);
     setActionMessage(null);
     try {
@@ -1491,7 +1437,6 @@ export default function WorkspaceExplorer({
       data-ripple-workspace-explorer="finder-window"
       data-presentation={presentation}
       data-preview-state={previewState}
-      data-ripple-files-write-scope={canWriteInCurrentPath ? "fixed-place" : "restricted"}
       className={
         isPagePresentation
           ? "relative flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-[#DEE0E3] bg-white/86 text-[#1F2329] shadow-[0_12px_30px_rgba(31,35,41,0.06),inset_0_1px_0_rgba(255,255,255,0.92)] backdrop-blur-xl"
@@ -1521,8 +1466,6 @@ export default function WorkspaceExplorer({
       <WorkspaceToolbar
         presentation={presentation}
         onBack={onBack}
-        currentPlace={currentPlace}
-        onOpenPlace={openWorkspacePlace}
         query={query}
         onQueryChange={handleQueryChange}
         isSearchMode={isSearchMode}
@@ -1694,7 +1637,6 @@ export default function WorkspaceExplorer({
         contextMenu={contextMenu}
         contextMenuRef={contextMenuRef}
         clipboard={clipboard}
-        canWriteInCurrentPath={canWriteInCurrentPath}
         isPagePresentation={isPagePresentation}
         isActionsMenuOpen={isActionsMenuOpen}
         mobileActionEntry={mobileActionEntry}

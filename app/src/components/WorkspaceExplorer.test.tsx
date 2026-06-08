@@ -23,7 +23,6 @@ function readWorkspaceExplorerImplementationSource(): string {
     "./workspace/workspaceExplorerUtils.tsx",
     "./workspace/WorkspaceConfirmDialog.tsx",
     "./workspace/WorkspaceCreateEntryDialog.tsx",
-    "./workspace/WorkspacePlacesNav.tsx",
     "./workspace/WorkspacePreviewPanel.tsx",
   ]
     .map((path) => readFileSync(new URL(path, import.meta.url), "utf8"))
@@ -1050,19 +1049,15 @@ testWorkspaceExplorerPageRowsOmitMobileSwipeActions();
 
 function testWorkspaceExplorerSupportsDragMoveIntoDirectories() {
   const source = readWorkspaceExplorerImplementationSource();
-  const fileCenterSource = readFileSync(
-    new URL("../lib/workspaceFileCenter.ts", import.meta.url),
-    "utf8"
-  );
   const html = renderExplorer({
     presentation: "page",
     testInitialListing: {
-      path: "/workspace/uploads",
+      path: "/workspace/projects",
       parent_path: "/workspace",
       entries: [
         {
           name: "alpha.txt",
-          path: "/workspace/uploads/alpha.txt",
+          path: "/workspace/projects/alpha.txt",
           kind: "file",
           size_bytes: 10,
           modified_at: "2026-05-17T00:00:00Z",
@@ -1071,7 +1066,7 @@ function testWorkspaceExplorerSupportsDragMoveIntoDirectories() {
         },
         {
           name: "archive",
-          path: "/workspace/uploads/archive",
+          path: "/workspace/projects/archive",
           kind: "directory",
           size_bytes: 0,
           modified_at: "2026-05-17T00:00:00Z",
@@ -1089,8 +1084,9 @@ function testWorkspaceExplorerSupportsDragMoveIntoDirectories() {
   assert.match(source, /hasDraggedWorkspaceEntries/);
   assert.match(source, /setData\(WORKSPACE_DRAG_ENTRY_MIME/);
   assert.match(source, /pasteWorkspaceEntry\(entry\.path,\s*target\.path,\s*"move"\)/);
-  assert.match(fileCenterSource, /target\.path\.startsWith\(`\$\{entry\.path\}\/`\)/);
-  assert.match(fileCenterSource, /getWorkspaceParentPath\(entry\.path\) !== target\.path/);
+  assert.match(source, /target\.path\.startsWith\(`\$\{entry\.path\}\/`\)/);
+  assert.match(source, /getWorkspaceParentPath\(entry\.path\) !== target\.path/);
+  assert.doesNotMatch(source, /isWritableWorkspacePath/);
   assert.match(source, /selectedEntryPaths\.has\(entry\.path\) \? selectedEntries : \[entry\]/);
   assert.match(html, /draggable="true"/);
   assert.match(html, /data-ripple-files-drop-target="directory"/);
@@ -1162,7 +1158,7 @@ function testWorkspaceExplorerCompactToolbarOffersCreationActionsFromMoreMenu() 
 
 testWorkspaceExplorerCompactToolbarOffersCreationActionsFromMoreMenu();
 
-function testWorkspaceExplorerRendersFixedWorkspacePlacesWithoutRecentFiles() {
+function testWorkspaceExplorerDoesNotRenderFixedWorkspacePlaces() {
   const html = renderExplorer({
     presentation: "page",
     testInitialListing: {
@@ -1172,47 +1168,48 @@ function testWorkspaceExplorerRendersFixedWorkspacePlacesWithoutRecentFiles() {
     },
   });
 
-  assert.match(html, /data-ripple-workspace-places/);
-  assert.match(html, /data-ripple-workspace-place="skills"/);
-  assert.match(html, /data-ripple-workspace-place="uploads"/);
-  assert.match(html, /data-ripple-workspace-place="outputs"/);
-  assert.match(html, />Skills</);
-  assert.match(html, />Uploads</);
-  assert.match(html, />Outputs</);
+  assert.doesNotMatch(workspaceExplorerSource, /WorkspacePlacesNav/);
+  assert.doesNotMatch(workspaceExplorerSource, /WORKSPACE_FIXED_PLACES/);
+  assert.doesNotMatch(html, /data-ripple-workspace-places/);
+  assert.doesNotMatch(html, /data-ripple-workspace-place="skills"/);
+  assert.doesNotMatch(html, /data-ripple-workspace-place="uploads"/);
+  assert.doesNotMatch(html, /data-ripple-workspace-place="outputs"/);
+  assert.doesNotMatch(html, />Skills</);
+  assert.doesNotMatch(html, />Uploads</);
+  assert.doesNotMatch(html, />Outputs</);
   assert.doesNotMatch(html, />Recent</);
   assert.doesNotMatch(html, /data-ripple-workspace-place="recent"/);
 }
 
-testWorkspaceExplorerRendersFixedWorkspacePlacesWithoutRecentFiles();
+testWorkspaceExplorerDoesNotRenderFixedWorkspacePlaces();
 
-function testWorkspaceExplorerConstrainsWritesToFixedWorkspacePlaces() {
+function testWorkspaceExplorerWritesToTheCurrentWorkspaceDirectory() {
   const source = readWorkspaceExplorerImplementationSource();
-  const rootHtml = renderExplorer({
+  const html = renderExplorer({
     presentation: "page",
     testInitialListing: {
-      path: "/workspace",
-      parent_path: null,
-      entries: [],
-    },
-  });
-  const skillsHtml = renderExplorer({
-    presentation: "page",
-    testInitialListing: {
-      path: "/workspace/skills",
+      path: "/workspace/projects/client-a",
       parent_path: "/workspace",
       entries: [],
     },
   });
 
-  assert.match(source, /isWritableWorkspacePath/);
-  assert.match(source, /getWorkspaceUploadTargetPath/);
-  assert.match(source, /uploadWorkspaceFiles\(files,\s*uploadTargetPath/);
-  assert.doesNotMatch(source, /uploadWorkspaceFiles\(files,\s*currentPath/);
-  assert.match(rootHtml, /data-ripple-files-write-scope="restricted"/);
-  assert.match(skillsHtml, /data-ripple-files-write-scope="fixed-place"/);
+  assert.doesNotMatch(source, /workspaceFileCenter/);
+  assert.doesNotMatch(source, /WorkspacePlace/);
+  assert.doesNotMatch(source, /workspaceOperationTarget/);
+  assert.doesNotMatch(source, /getWorkspaceUploadTargetPath/);
+  assert.doesNotMatch(source, /canWriteInCurrentPath/);
+  assert.doesNotMatch(source, /fixedPlaceRequired/);
+  assert.doesNotMatch(source, /data-ripple-files-write-scope/);
+  assert.doesNotMatch(source, /uploadTargetPath/);
+  assert.match(source, /uploadWorkspaceFiles\(files,\s*currentPath/);
+  assert.match(source, /pasteWorkspaceEntry\(item\.path,\s*destination,\s*clipboard\.action\)/);
+  assert.doesNotMatch(source, /disabled=\{!canWriteInCurrentPath\}/);
+  assert.doesNotMatch(source, /disabled=\{!clipboard \|\| !canWriteInCurrentPath\}/);
+  assert.doesNotMatch(html, /data-ripple-files-write-scope=/);
 }
 
-testWorkspaceExplorerConstrainsWritesToFixedWorkspacePlaces();
+testWorkspaceExplorerWritesToTheCurrentWorkspaceDirectory();
 
 function testWorkspaceExplorerUsesAppConfirmationsAndMobileEntryActionSheet() {
   const source = readWorkspaceExplorerImplementationSource();

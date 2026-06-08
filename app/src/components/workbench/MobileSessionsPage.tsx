@@ -5,7 +5,6 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useReducedMotion } from "framer-motion";
 import {
   AlertTriangle,
-  Ellipsis,
   Loader2,
   MessageCircle,
   MessageCircleMore,
@@ -39,7 +38,6 @@ import {
   TYPOGRAPHY_MOBILE_BODY_CLASS,
   TYPOGRAPHY_PAGE_TITLE_CLASS,
   WORKBENCH_FIELD_CLASS,
-  WORKBENCH_ICON_BUTTON_CLASS,
   WORKBENCH_MOBILE_ICON_BUTTON_CLASS,
   WORKBENCH_PAGE_BACKGROUND_CLASS,
   WORKBENCH_TOP_BAR_CLASS,
@@ -92,6 +90,14 @@ function sessionPreview(
 }
 
 const mobileHeaderActionClass = WORKBENCH_MOBILE_ICON_BUTTON_CLASS;
+const SESSION_OPTIONS_LONG_PRESS_MS = 420;
+const SESSION_OPTIONS_LONG_PRESS_MOVE_TOLERANCE_PX = 10;
+
+interface SessionLongPressState {
+  sessionId: string;
+  startX: number;
+  startY: number;
+}
 
 export default function MobileSessionsPage({
   sessions,
@@ -113,6 +119,9 @@ export default function MobileSessionsPage({
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState<string>("");
   const isCancellingRef = React.useRef(false);
+  const longPressTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressStateRef = React.useRef<SessionLongPressState | null>(null);
+  const longPressedSessionIdRef = React.useRef<string | null>(null);
 
   const normalizedQuery = query.trim().toLowerCase();
   const visibleSessions = useMemo(
@@ -124,9 +133,58 @@ export default function MobileSessionsPage({
   );
   const activeMenuSession = useMemo(() => {
     if (!activeMenuSessionId) return null;
-    if (activeMenuSessionId !== selectedSessionId) return null;
     return visibleSessions.find((session) => session.sessionId === activeMenuSessionId) ?? null;
-  }, [activeMenuSessionId, selectedSessionId, visibleSessions]);
+  }, [activeMenuSessionId, visibleSessions]);
+
+  const clearSessionLongPress = React.useCallback(() => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    longPressStateRef.current = null;
+  }, []);
+
+  React.useEffect(() => () => clearSessionLongPress(), [clearSessionLongPress]);
+
+  const closeSessionOptions = () => {
+    clearSessionLongPress();
+    longPressedSessionIdRef.current = null;
+    setActiveMenuSessionId(null);
+  };
+
+  const handleSessionLongPressStart = (
+    sessionId: string,
+    event: React.PointerEvent<HTMLButtonElement>
+  ) => {
+    if (!event.isPrimary || event.pointerType === "mouse") return;
+
+    clearSessionLongPress();
+    longPressStateRef.current = {
+      sessionId,
+      startX: event.clientX,
+      startY: event.clientY,
+    };
+    longPressTimerRef.current = setTimeout(() => {
+      longPressTimerRef.current = null;
+      longPressStateRef.current = null;
+      longPressedSessionIdRef.current = sessionId;
+      setActiveMenuSessionId(sessionId);
+    }, SESSION_OPTIONS_LONG_PRESS_MS);
+  };
+
+  const handleSessionLongPressMove = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const state = longPressStateRef.current;
+    if (!state) return;
+
+    const deltaX = Math.abs(event.clientX - state.startX);
+    const deltaY = Math.abs(event.clientY - state.startY);
+    if (
+      deltaX > SESSION_OPTIONS_LONG_PRESS_MOVE_TOLERANCE_PX ||
+      deltaY > SESSION_OPTIONS_LONG_PRESS_MOVE_TOLERANCE_PX
+    ) {
+      clearSessionLongPress();
+    }
+  };
 
   return (
     <div
@@ -138,7 +196,7 @@ export default function MobileSessionsPage({
         title={activeMenuSession?.title ?? t("sessions.options")}
         subtitle={activeMenuSession ? sessionPreview(activeMenuSession, t) : undefined}
         closeLabel={t("sessions.cancel")}
-        onClose={() => setActiveMenuSessionId(null)}
+        onClose={closeSessionOptions}
         actions={
           activeMenuSession
             ? [
@@ -151,7 +209,7 @@ export default function MobileSessionsPage({
                     void onUpdateSession(activeMenuSession.sessionId, {
                       pinned: !activeMenuSession.pinned,
                     });
-                    setActiveMenuSessionId(null);
+                    closeSessionOptions();
                   },
                 },
                 {
@@ -161,7 +219,7 @@ export default function MobileSessionsPage({
                   onClick: () => {
                     setEditingSessionId(activeMenuSession.sessionId);
                     setEditingTitle(activeMenuSession.title);
-                    setActiveMenuSessionId(null);
+                    closeSessionOptions();
                   },
                 },
                 {
@@ -171,7 +229,7 @@ export default function MobileSessionsPage({
                   tone: "danger",
                   onClick: (event) => {
                     onDeleteSession(activeMenuSession.sessionId, event);
-                    setActiveMenuSessionId(null);
+                    closeSessionOptions();
                   },
                 },
               ]
@@ -419,7 +477,28 @@ export default function MobileSessionsPage({
                         ) : null}
                         <button
                           type="button"
-                          onClick={() => onSelectSession(session.sessionId)}
+                          onClick={(event) => {
+                            if (longPressedSessionIdRef.current === session.sessionId) {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              longPressedSessionIdRef.current = null;
+                              return;
+                            }
+                            onSelectSession(session.sessionId);
+                          }}
+                          onPointerDown={(event) =>
+                            handleSessionLongPressStart(session.sessionId, event)
+                          }
+                          onPointerMove={handleSessionLongPressMove}
+                          onPointerUp={clearSessionLongPress}
+                          onPointerCancel={clearSessionLongPress}
+                          onPointerLeave={clearSessionLongPress}
+                          onContextMenu={(event) => {
+                            event.preventDefault();
+                            clearSessionLongPress();
+                            longPressedSessionIdRef.current = session.sessionId;
+                            setActiveMenuSessionId(session.sessionId);
+                          }}
                           className="flex min-w-0 flex-1 items-center gap-2 py-0.5 pr-1 text-left outline-none"
                         >
                           <span className="min-w-0 flex-1">
@@ -448,28 +527,6 @@ export default function MobileSessionsPage({
                             </span>
                           ) : null}
                         </button>
-
-                        {selected ? (
-                          <button
-                            type="button"
-                            data-ripple-mobile-session-options-visible="true"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setActiveMenuSessionId((current) =>
-                                current === session.sessionId ? null : session.sessionId
-                              );
-                            }}
-                            className={`${WORKBENCH_ICON_BUTTON_CLASS} ${
-                              activeMenuSessionId === session.sessionId
-                                ? "bg-[#F0F5FF] text-[#1F2329]"
-                                : "text-[#646A73]"
-                            }`}
-                            aria-label={t("sessions.options")}
-                            title={t("sessions.options")}
-                          >
-                            <Ellipsis size={18} strokeWidth={2.2} />
-                          </button>
-                        ) : null}
                       </div>
                     </SwipeActionRow>
                   </motion.div>

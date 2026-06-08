@@ -106,13 +106,18 @@ function testUsesQuietAgentControlPlaneStyling() {
   assert.doesNotMatch(html, /rounded-\[18px\]/);
 }
 
-function testOnlySelectedSessionShowsOptionsButton() {
+function testSessionOptionsAreHiddenUntilLongPress() {
   const html = renderMobileSessionsPage({ sessions: multiSessions, selectedSessionId: "srv-1" });
 
-  assert.equal((html.match(/aria-label="Session options"/g) || []).length, 1);
-  assert.match(html, /data-ripple-mobile-session-options-visible="true"/);
+  assert.equal((html.match(/aria-label="Session options"/g) || []).length, 0);
+  assert.doesNotMatch(html, /data-ripple-mobile-session-options-visible="true"/);
   assert.match(html, /data-ripple-mobile-session-row-selected="false"/);
-  assert.doesNotMatch(html, /Quiet follow-up[\s\S]{0,900}aria-label="Session options"/);
+  assert.doesNotMatch(mobileSessionsPageSource, /activeMenuSessionId !== selectedSessionId/);
+  assert.match(mobileSessionsPageSource, /handleSessionLongPressStart/);
+  assert.match(mobileSessionsPageSource, /handleSessionLongPressMove/);
+  assert.match(mobileSessionsPageSource, /longPressedSessionIdRef/);
+  assert.match(mobileSessionsPageSource, /onContextMenu/);
+  assert.match(mobileSessionsPageSource, /setActiveMenuSessionId\(session\.sessionId\)/);
 }
 
 function testSessionRowsRemoveRepeatedChatIcon() {
@@ -149,7 +154,7 @@ function testHeaderActionsUseSharedWorkbenchTreatment() {
     mobileSessionsPageSource,
     /aria-label=\{t\("sessions.newSession"\)\}[\s\S]*?<MessageCircleMore size=\{18\}/
   );
-  assert.match(mobileSessionsPageSource, /Ellipsis/);
+  assert.doesNotMatch(mobileSessionsPageSource, /Ellipsis/);
   assert.doesNotMatch(mobileSessionsPageSource, /<Plus size=\{18\}/);
   assert.doesNotMatch(mobileSessionsPageSource, /<SquarePen size=\{18\}/);
   assert.doesNotMatch(mobileSessionsPageSource, /<MoreHorizontal size=\{18\}/);
@@ -182,7 +187,8 @@ function testSessionOptionsSheetEscapesBlurredRowsWithSharedPortal() {
 
   assert.match(source, /<MobileActionSheet/);
   assert.match(source, /open=\{Boolean\(activeMenuSession\)\}/);
-  assert.match(source, /onClose=\{\(\) => setActiveMenuSessionId\(null\)\}/);
+  assert.match(source, /onClose=\{closeSessionOptions\}/);
+  assert.match(source, /longPressedSessionIdRef\.current = null/);
 }
 
 function testMobileSessionSearchHasExplicitCancelState() {
@@ -251,17 +257,17 @@ function testRendersChineseMobileSessionChrome() {
   assert.match(html, /4 条消息 · 2 个文件/);
 }
 
-function testMobileSessionOptionsButtonUsesChineseAccessibleLabel() {
+function testMobileSessionOptionsMenuDoesNotUsePersistentChineseButton() {
   const html = renderMobileSessionsPage({}, "zh-CN");
 
-  assert.match(html, /aria-label="会话选项"/);
-  assert.match(html, /title="会话选项"/);
+  assert.doesNotMatch(html, /aria-label="会话选项"/);
+  assert.doesNotMatch(html, /title="会话选项"/);
 }
 
 testRendersChatAppStyleSessionList();
 testMobileBrandWordmarkHasQuietPersonality();
 testUsesQuietAgentControlPlaneStyling();
-testOnlySelectedSessionShowsOptionsButton();
+testSessionOptionsAreHiddenUntilLongPress();
 testSessionRowsRemoveRepeatedChatIcon();
 testSearchInputUsesReadableMobileType();
 testHeaderActionsUseSharedWorkbenchTreatment();
@@ -273,6 +279,6 @@ testMobileSessionChromeUsesMotionPresence();
 testMobileSessionRowsUseReadableTypeScale();
 testRendersEmptyStateWithNewSessionAction();
 testRendersChineseMobileSessionChrome();
-testMobileSessionOptionsButtonUsesChineseAccessibleLabel();
+testMobileSessionOptionsMenuDoesNotUsePersistentChineseButton();
 
 console.log("mobile sessions page tests passed");

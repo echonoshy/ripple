@@ -167,6 +167,7 @@ export default function Home() {
   const [mobileMotionDirection, setMobileMotionDirection] = useState(0);
   const [mobileFilesReturnToChat, setMobileFilesReturnToChat] = useState(false);
   const [isSkillsMobileBackGestureActive, setIsSkillsMobileBackGestureActive] = useState(false);
+  const [skillsResetToRootRequest, setSkillsResetToRootRequest] = useState(0);
   const [mobileSessionRestoreScrollTop, setMobileSessionRestoreScrollTop] = useState<number | null>(
     null
   );
@@ -690,6 +691,9 @@ export default function Home() {
       setMobileSessionRestoreScrollTop(null);
       if (view !== "files") setPendingWorkspaceFileOpen(null);
       if (view !== "skills" && view !== "connectors") setIsSkillsMobileBackGestureActive(false);
+      if (view === activeView && (view === "skills" || view === "connectors")) {
+        setSkillsResetToRootRequest((request) => request + 1);
+      }
       setMobileMotionDirection(0);
       setActiveView(view);
       if (view === "sessions") {
@@ -699,7 +703,7 @@ export default function Home() {
         acknowledgeSessionAttention(sessionId);
       }
     },
-    [acknowledgeSessionAttention, sessionId]
+    [acknowledgeSessionAttention, activeView, sessionId]
   );
   const handleReturnFromMobileFiles = useCallback(() => {
     setPendingMobileSession(null);
@@ -757,8 +761,7 @@ export default function Home() {
       const isMobileChatBackGestureActive =
         activeView === "sessions" && mobileSessionMode === "chat";
       const isMobileSkillsBackGestureActive =
-        (activeView === "skills" || activeView === "connectors") &&
-        isSkillsMobileBackGestureActive;
+        (activeView === "skills" || activeView === "connectors") && isSkillsMobileBackGestureActive;
       const shouldEnable =
         authState === "authenticated" &&
         (isMobileChatBackGestureActive || isMobileSkillsBackGestureActive) &&
@@ -1109,6 +1112,7 @@ export default function Home() {
         onOpenSessionAction={handleOpenSessionAction}
         onConnectorStateChange={loadSessions}
         onMobileBackGestureScopeChange={setIsSkillsMobileBackGestureActive}
+        resetToRootRequest={skillsResetToRootRequest}
       />
     ) : (
       <div className="h-full min-h-0">

@@ -649,30 +649,23 @@ function testTokenUsageIncreaseRevealsFooter() {
   assert.match(sessionPageSource, /scrollToBottom\(\{ force: true \}\)/);
 }
 
-function testExpandedComposerUsesExpandedBottomReserve() {
+function testMobileComposerReserveUsesMeasuredHeight() {
   assert.equal(
     reservedMobileComposerHeight({
       measuredHeight: 92,
-      isExpanded: false,
     }),
     92
   );
   assert.equal(
     reservedMobileComposerHeight({
-      measuredHeight: 92,
-      isExpanded: true,
-    }),
-    220
-  );
-  assert.equal(
-    reservedMobileComposerHeight({
       measuredHeight: 260,
-      isExpanded: true,
     }),
     260
   );
 
   assert.match(sessionPageSource, /mobileComposerReservedHeight/);
+  assert.doesNotMatch(sessionPageSource, /MOBILE_CHAT_COMPOSER_EXPANDED_FALLBACK_HEIGHT_PX/);
+  assert.doesNotMatch(sessionPageSource, /isMobileComposerExpanded/);
   assert.match(
     sessionPageSource,
     /"--ripple-mobile-chat-composer-height": `\$\{mobileComposerReservedHeight/
@@ -692,9 +685,13 @@ function testMobileTimelinePadsForOverlayHeaderAndComposer() {
 
   assert.match(html, /--ripple-mobile-chat-header-height:/);
   assert.match(html, /--ripple-mobile-chat-composer-height:/);
+  assert.match(html, /--ripple-mobile-chat-composer-gap:/);
   assert.match(html, /--ripple-mobile-keyboard-inset:/);
   assert.match(html, /pt-\[calc\(var\(--ripple-mobile-chat-header-height\)\+8px\)\]/);
-  assert.match(html, /pb-\[calc\(var\(--ripple-mobile-chat-composer-height\)\+12px\)\]/);
+  assert.match(
+    html,
+    /pb-\[calc\(var\(--ripple-mobile-chat-composer-height\)\+var\(--ripple-mobile-chat-composer-gap\)\)\]/
+  );
   assert.doesNotMatch(
     html,
     /pb-\[calc\(var\(--ripple-mobile-chat-composer-height\)\+var\(--ripple-mobile-keyboard-inset\)/
@@ -761,7 +758,7 @@ testComposerFocusDoesNotSuppressRunAutoScroll();
 testComposerFocusDoesNotTrackKeyboardMovedScrollTop();
 testComposerFocusRestoreAccountsForExpandedComposerHeight();
 testTokenUsageIncreaseRevealsFooter();
-testExpandedComposerUsesExpandedBottomReserve();
+testMobileComposerReserveUsesMeasuredHeight();
 testMobileOverlayMeasurementsUseBorderBoxHeight();
 testMobileTimelinePadsForOverlayHeaderAndComposer();
 testPendingSessionDetailsShowSkeletonInsteadOfPreviousMessages();

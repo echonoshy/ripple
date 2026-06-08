@@ -470,10 +470,7 @@ export default function MobileSessionStack({
         return;
       }
 
-      animateSheetTo(dragState.viewportWidth, () => {
-        sheetX.set(0);
-        onOpenList();
-      });
+      animateSheetTo(dragState.viewportWidth, onOpenList);
     },
     [animateSheetTo, onOpenList, releaseScrollLock, sheetX]
   );

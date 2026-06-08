@@ -45,7 +45,7 @@ export const swipeSnapTransition: Transition = {
 
 export const mobileSwipeBackConfig = {
   desktopMinWidth: 1024,
-  edgeStartWidthPx: 32,
+  edgeStartWidthPx: 48,
   edgeScrollGuardDistancePx: 4,
   edgeScrollGuardRatio: 0.55,
   edgeClaimDistancePx: 4,

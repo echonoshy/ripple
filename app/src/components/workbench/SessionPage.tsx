@@ -54,7 +54,7 @@ const STICK_TO_BOTTOM_MS = 1200;
 const BOTTOM_LOCK_THRESHOLD_PX = 40;
 const MOBILE_CHAT_HEADER_FALLBACK_HEIGHT_PX = 68;
 const MOBILE_CHAT_COMPOSER_FALLBACK_HEIGHT_PX = 92;
-const MOBILE_CHAT_COMPOSER_EXPANDED_FALLBACK_HEIGHT_PX = 220;
+const MOBILE_CHAT_COMPOSER_GAP_PX = 12;
 const MOBILE_CHAT_HEADER_SCROLL_DELTA_PX = 10;
 const MOBILE_CHAT_HEADER_TOP_LOCK_PX = 8;
 const mobileHeaderButtonClass = MOBILE_GLASS_ICON_BUTTON_CLASS;
@@ -133,17 +133,10 @@ export function shouldRevealTokenFooterOnUsageChange({
 
 export function reservedMobileComposerHeight({
   measuredHeight,
-  isExpanded,
 }: {
   measuredHeight: number;
-  isExpanded: boolean;
 }): number {
-  return Math.max(
-    measuredHeight,
-    isExpanded
-      ? MOBILE_CHAT_COMPOSER_EXPANDED_FALLBACK_HEIGHT_PX
-      : MOBILE_CHAT_COMPOSER_FALLBACK_HEIGHT_PX
-  );
+  return Math.max(measuredHeight, MOBILE_CHAT_COMPOSER_FALLBACK_HEIGHT_PX);
 }
 
 function currentTimeMs(): number {
@@ -318,7 +311,6 @@ export default function SessionPage({
   );
   const [mobileKeyboardInset, setMobileKeyboardInset] = useState(0);
   const [isMobileHeaderHidden, setIsMobileHeaderHidden] = useState(false);
-  const [isComposerFocused, setIsComposerFocused] = useState(false);
   const hasMessages = messages.length > 0;
   const contextWindow =
     typeof tokenUsage.model_context_window === "number" && tokenUsage.model_context_window > 0
@@ -375,10 +367,8 @@ export default function SessionPage({
     ? t("sessions.focusFolder", { label: focusFolderLabel })
     : null;
   const folderBadgeTitle = effectiveContextFolderPath || t("sessions.fullWorkspace");
-  const isMobileComposerExpanded = isComposerFocused || input.trim().length > 0;
   const mobileComposerReservedHeight = reservedMobileComposerHeight({
     measuredHeight: mobileComposerHeight,
-    isExpanded: isMobileComposerExpanded,
   });
   const requestFolderPicker = useCallback(() => {
     if (!onSelectWorkspaceFolder) return;
@@ -387,6 +377,7 @@ export default function SessionPage({
   const mobileTimelineStyle = {
     "--ripple-mobile-chat-header-height": `${mobileHeaderHeight}px`,
     "--ripple-mobile-chat-composer-height": `${mobileComposerReservedHeight}px`,
+    "--ripple-mobile-chat-composer-gap": `${MOBILE_CHAT_COMPOSER_GAP_PX}px`,
     "--ripple-mobile-keyboard-inset": `${mobileKeyboardInset}px`,
   } as CSSProperties;
   const composerOverlayStyle = {
@@ -423,7 +414,6 @@ export default function SessionPage({
 
   const handleComposerFocusStateChange = useCallback(
     (focused: boolean) => {
-      setIsComposerFocused(focused);
       isComposerFocusedRef.current = focused;
       const scrollContainer = scrollContainerRef.current;
       composerFocusedScrollTopRef.current =
@@ -790,7 +780,7 @@ export default function SessionPage({
         data-ripple-session-scroll="timeline"
         onScroll={handleScroll}
         style={mobileTimelineStyle}
-        className="min-h-0 flex-1 overflow-y-auto bg-white/92 px-3 pt-[calc(var(--ripple-mobile-chat-header-height)+8px)] pb-[calc(var(--ripple-mobile-chat-composer-height)+12px)] sm:px-4 md:px-5 lg:py-5"
+        className="min-h-0 flex-1 overflow-y-auto bg-white/92 px-3 pt-[calc(var(--ripple-mobile-chat-header-height)+8px)] pb-[calc(var(--ripple-mobile-chat-composer-height)+var(--ripple-mobile-chat-composer-gap))] sm:px-4 md:px-5 lg:py-5"
       >
         <div ref={contentRef} className="mx-auto max-w-5xl space-y-2 sm:space-y-5">
           {isSessionLoading ? (

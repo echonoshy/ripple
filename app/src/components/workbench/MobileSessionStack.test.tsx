@@ -91,7 +91,7 @@ function testLeftEdgeSwipeClaimsWithShorterIntent() {
   );
   assert.equal(
     shouldClaimMobileSessionDrawer({
-      startX: 36,
+      startX: 52,
       deltaX: 4,
       deltaY: 0,
       viewportWidth: 390,
@@ -304,12 +304,22 @@ function testPointerMoveOnlyDragsWithoutOpeningList() {
   assert.match(mobileSessionStackSource, /onPointerUp=\{handlePointerUp\}/);
 }
 
+function testCommittedSwipeDoesNotResetSheetBeforeListUnmountsChat() {
+  const pointerUpBlock =
+    mobileSessionStackSource.match(
+      /const handlePointerUp[\s\S]*?\},\s*\[animateSheetTo[\s\S]*?\]\s*\);/
+    )?.[0] || "";
+
+  assert.match(pointerUpBlock, /animateSheetTo\(dragState\.viewportWidth, onOpenList\)/);
+  assert.doesNotMatch(pointerUpBlock, /sheetX\.set\(0\);\s*onOpenList\(\);/);
+}
+
 function testMobileMotionUsesFeishuInspiredSharedTiming() {
   assert.equal(mobileStackPushTransition.duration, 0.3);
   assert.equal(mobilePageSwitchTransition.duration, 0.3);
   assert.equal(mobileStackReturnTransition.duration, 0.22);
   assert.equal(mobileSwipeBackConfig.desktopMinWidth, 1024);
-  assert.equal(mobileSwipeBackConfig.edgeStartWidthPx, 32);
+  assert.equal(mobileSwipeBackConfig.edgeStartWidthPx, 48);
   assert.equal(mobileSwipeBackConfig.commitMaxPx, 72);
   assert.equal(mobileSwipeBackConfig.commitViewportRatio, 0.18);
 }
@@ -342,6 +352,7 @@ testInteractiveTargetsAreExcludedFromSwipeStart();
 testStackLayersListBehindChatSheet();
 testListModeDoesNotRenderForegroundChatSheet();
 testPointerMoveOnlyDragsWithoutOpeningList();
+testCommittedSwipeDoesNotResetSheetBeforeListUnmountsChat();
 testMobileMotionUsesFeishuInspiredSharedTiming();
 testChatSheetAnimatesInFromRightWhenOpeningSession();
 testSessionSwipeBackUsesSharedMotionPrimitive();

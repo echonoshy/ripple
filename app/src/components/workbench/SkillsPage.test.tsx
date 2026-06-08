@@ -217,6 +217,16 @@ function testSkillsCategoryDetailSupportsSwipeBackGesture() {
   );
   assert.equal(
     shouldClaimSkillsCategoryBackSwipe({
+      startX: 44,
+      deltaX: 5,
+      deltaY: 0,
+      viewportWidth: 390,
+    }),
+    true
+  );
+  assert.equal(
+    shouldClaimSkillsCategoryBackSwipe({
+      startX: 52,
       deltaX: 10,
       deltaY: 0,
       viewportWidth: 390,
@@ -317,10 +327,14 @@ function testSkillsCategoryGuardedScrollCanReleaseBackToVerticalIntent() {
   assert.match(source, /releaseCategorySwipeScrollLock\(\)/);
 }
 
-function testSkillsCategoryTransitionDoesNotWaitThroughBlankFrame() {
+function testSkillsCategoryTransitionDoesNotWaitOrKeepExitingPageInLayoutFlow() {
   const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
 
   assert.match(source, /mobilePageSwitchTransition/);
+  assert.match(
+    source,
+    /<AnimatePresence mode="popLayout" initial=\{false\} custom=\{categoryTransitionDirection\}>/
+  );
   assert.doesNotMatch(
     source,
     /<AnimatePresence mode="wait" initial=\{false\} custom=\{categoryTransitionDirection\}>/
@@ -329,7 +343,7 @@ function testSkillsCategoryTransitionDoesNotWaitThroughBlankFrame() {
 
 testSkillsCategorySwipeUsesSharedMotionPrimitive();
 testSkillsCategoryGuardedScrollCanReleaseBackToVerticalIntent();
-testSkillsCategoryTransitionDoesNotWaitThroughBlankFrame();
+testSkillsCategoryTransitionDoesNotWaitOrKeepExitingPageInLayoutFlow();
 
 function testSkillsCategoryDetailIsFullMobileSubpage() {
   const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
@@ -400,6 +414,8 @@ function testSkillsPageEditSkillOpensScopedChatPrompt() {
     source,
     /type="button"\n\s+disabled\n\s+className=\{`\$\{SKILL_ACTION_BUTTON_CLASS\} text/
   );
+  assert.match(source, /disabled=\{!canEdit\}/);
+  assert.doesNotMatch(source, /pointer-events-none opacity-60/);
   assert.match(i18n, /workspace-relative directory/);
   assert.match(i18n, /workspace 相对目录/);
   assert.match(i18n, /不要直接修改/);
@@ -409,6 +425,40 @@ function testSkillsPageEditSkillOpensScopedChatPrompt() {
 }
 
 testSkillsPageEditSkillOpensScopedChatPrompt();
+
+function testSkillsPageMobileInteractionFixes() {
+  const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
+  const i18n = readFileSync(new URL("../../i18n/index.tsx", import.meta.url), "utf8");
+  const appSource = readFileSync(new URL("../../App.tsx", import.meta.url), "utf8");
+  const motionSource = readFileSync(new URL("./motionPrimitives.ts", import.meta.url), "utf8");
+  const androidMainActivity = readFileSync(
+    new URL(
+      "../../../src-tauri/gen/android/app/src/main/java/ai/viaim/ripple/MainActivity.kt",
+      import.meta.url
+    ),
+    "utf8"
+  );
+
+  assert.match(motionSource, /edgeStartWidthPx: 48/);
+  assert.match(androidMainActivity, /48 \* resources\.displayMetrics\.density/);
+  assert.match(source, /resetToRootRequest/);
+  assert.match(source, /skillsPageScrollRef\.current\?\.scrollTo\(\{ top: 0/);
+  assert.match(appSource, /skillsResetToRootRequest/);
+  assert.match(
+    appSource,
+    /view === activeView && \(view === "skills" \|\| view === "connectors"\)/
+  );
+  assert.match(source, /confirmDeleteSkillId/);
+  assert.match(source, /skills\.confirmDelete/);
+  assert.match(source, /renderActiveFilterNotice/);
+  assert.match(source, /skills\.activeFilters/);
+  assert.match(i18n, /confirmDelete: "确认删除"/);
+  assert.match(i18n, /activeFilters: "已应用筛选"/);
+  assert.match(i18n, /confirmDelete: "Confirm delete"/);
+  assert.match(i18n, /activeFilters: "Filters active"/);
+}
+
+testSkillsPageMobileInteractionFixes();
 
 function testSkillsPageSupportsNeedsConfirmationStatus() {
   const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");

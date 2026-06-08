@@ -75,9 +75,9 @@ const SKILLS_PAGE_TEXT_SECONDARY_CLASS = "text-[#646A73]";
 const SKILLS_PAGE_TEXT_TERTIARY_CLASS = "text-[#8F959E]";
 const SKILLS_PAGE_BORDER_CLASS = "border-[#DEE0E3]";
 const SKILLS_PAGE_DIVIDER_CLASS = "border-[#EFF0F1]";
-const SKILL_ACTION_BUTTON_CLASS = `inline-flex h-8 items-center gap-1.5 rounded-lg border ${SKILLS_PAGE_BORDER_CLASS} bg-white px-2.5 text-[#2B2F36] transition-colors hover:bg-[#F8F9FA] disabled:opacity-60 ${TYPOGRAPHY_META_MEDIUM_CLASS}`;
+const SKILL_ACTION_BUTTON_CLASS = `inline-flex h-10 items-center gap-1.5 rounded-lg border ${SKILLS_PAGE_BORDER_CLASS} bg-white px-2.5 text-[#2B2F36] transition-colors hover:bg-[#F8F9FA] disabled:cursor-not-allowed disabled:opacity-60 sm:h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`;
 const SKILL_PRIMARY_ACTION_BUTTON_CLASS = `inline-flex h-11 w-11 items-center justify-center rounded-full border border-[#1456F0]/30 bg-[#1456F0] text-white shadow-[0_8px_18px_rgba(20,86,240,0.18)] transition-all hover:bg-[#0F4BD8] active:scale-[0.98] disabled:opacity-60 lg:h-10 lg:w-auto lg:gap-1.5 lg:px-3 ${TYPOGRAPHY_META_MEDIUM_CLASS}`;
-const SKILL_DANGER_ACTION_BUTTON_CLASS = `inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#FAD4D4] bg-white px-2.5 text-[#B42318] transition-colors hover:bg-[#FFF1F0] disabled:opacity-60 ${TYPOGRAPHY_META_MEDIUM_CLASS}`;
+const SKILL_DANGER_ACTION_BUTTON_CLASS = `inline-flex h-10 items-center gap-1.5 rounded-lg border border-[#FAD4D4] bg-white px-2.5 text-[#B42318] transition-colors hover:bg-[#FFF1F0] disabled:cursor-not-allowed disabled:opacity-60 sm:h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`;
 
 interface SkillSnapshot {
   skills: SkillInfo[];
@@ -98,6 +98,7 @@ interface SkillsPageProps {
   onOpenSessionAction?: (action: SessionControlAction, label: string) => void;
   onConnectorStateChange?: () => Promise<unknown> | unknown;
   onMobileBackGestureScopeChange?: (active: boolean) => void;
+  resetToRootRequest?: number;
 }
 
 type SkillSourceId = "user" | "system";
@@ -808,6 +809,7 @@ export default function SkillsPage({
   onOpenSessionAction,
   onConnectorStateChange,
   onMobileBackGestureScopeChange,
+  resetToRootRequest = 0,
 }: SkillsPageProps) {
   const { t } = useI18n();
   const reduceMotion = useReducedMotion();
@@ -831,6 +833,7 @@ export default function SkillsPage({
   const [busySkillId, setBusySkillId] = useState<string | null>(null);
   const [pendingConnectorAction, setPendingConnectorAction] = useState<string | null>(null);
   const [confirmConnectorAction, setConfirmConnectorAction] = useState<string | null>(null);
+  const [confirmDeleteSkillId, setConfirmDeleteSkillId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -1032,22 +1035,30 @@ export default function SkillsPage({
     categorySwipeX.set(0);
   }, [categorySwipeX, releaseCategorySwipeScrollLock, stopCategorySwipeAnimation]);
 
+  const scrollSkillsPageToTop = useCallback(() => {
+    skillsPageScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
+  }, []);
+
   const openCategory = useCallback(
     (categoryId: string) => {
       resetCategorySwipeState();
       setCategoryTransitionDirection(1);
+      setConfirmDeleteSkillId(null);
       setExpandedDescriptionSkillId(null);
       setSelectedCategoryId(categoryId);
+      scrollSkillsPageToTop();
     },
-    [resetCategorySwipeState]
+    [resetCategorySwipeState, scrollSkillsPageToTop]
   );
 
   const closeCategory = useCallback(() => {
     resetCategorySwipeState();
     setCategoryTransitionDirection(-1);
+    setConfirmDeleteSkillId(null);
     setExpandedDescriptionSkillId(null);
     setSelectedCategoryId(null);
-  }, [resetCategorySwipeState]);
+    scrollSkillsPageToTop();
+  }, [resetCategorySwipeState, scrollSkillsPageToTop]);
 
   const closeCategoryWithSwipeCommit = useCallback(() => {
     categorySwipeDragStateRef.current = null;
@@ -1055,6 +1066,7 @@ export default function SkillsPage({
     releaseCategorySwipeScrollLock();
     setIsCategorySwipeActive(false);
     setCategoryTransitionDirection(-1);
+    setConfirmDeleteSkillId(null);
     setExpandedDescriptionSkillId(null);
     setSelectedCategoryId(null);
     const resetSwipeX = () => categorySwipeX.set(0);
@@ -1063,7 +1075,8 @@ export default function SkillsPage({
     } else {
       window.requestAnimationFrame(resetSwipeX);
     }
-  }, [categorySwipeX, releaseCategorySwipeScrollLock]);
+    scrollSkillsPageToTop();
+  }, [categorySwipeX, releaseCategorySwipeScrollLock, scrollSkillsPageToTop]);
 
   useEffect(
     () => () => {
@@ -1084,6 +1097,16 @@ export default function SkillsPage({
     },
     [onMobileBackGestureScopeChange]
   );
+
+  useEffect(() => {
+    if (resetToRootRequest <= 0) return;
+    resetCategorySwipeState();
+    setCategoryTransitionDirection(-1);
+    setConfirmDeleteSkillId(null);
+    setExpandedDescriptionSkillId(null);
+    setSelectedCategoryId(null);
+    scrollSkillsPageToTop();
+  }, [resetCategorySwipeState, resetToRootRequest, scrollSkillsPageToTop]);
 
   const handleCategorySwipePointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
@@ -1314,6 +1337,12 @@ export default function SkillsPage({
     onOpenChat?.(t("skills.createChatPrompt"), { autoSend: true, newSession: true });
   }, [onOpenChat, t]);
 
+  const clearFilters = useCallback(() => {
+    setSearchQuery("");
+    setStatusFilter("all");
+    setIsFilterOpen(false);
+  }, []);
+
   const openEditSkillChat = useCallback(
     (skill: SkillInfo) => {
       onOpenChat?.(
@@ -1371,6 +1400,7 @@ export default function SkillsPage({
   const handleValidate = useCallback(
     async (skill: SkillInfo) => {
       setBusySkillId(skill.id);
+      setConfirmDeleteSkillId(null);
       setActionError(null);
       try {
         const validation = await validateSkill(skill.id);
@@ -1389,6 +1419,7 @@ export default function SkillsPage({
   const handleToggle = useCallback(
     async (skill: SkillInfo) => {
       setBusySkillId(skill.id);
+      setConfirmDeleteSkillId(null);
       setActionError(null);
       try {
         const next = await updateSkill(skill.id, { enabled: skill.desired_state !== "enabled" });
@@ -1404,11 +1435,18 @@ export default function SkillsPage({
 
   const handleDelete = useCallback(
     async (skill: SkillInfo) => {
+      if (confirmDeleteSkillId !== skill.id) {
+        setConfirmDeleteSkillId(skill.id);
+        setActionError(null);
+        setActionMessage(null);
+        return;
+      }
       setBusySkillId(skill.id);
       setActionError(null);
       try {
         await deleteSkill(skill.id);
         updateCachedSkills((current) => current.filter((item) => item.id !== skill.id));
+        setConfirmDeleteSkillId(null);
         setActionMessage(t("skills.deleted"));
       } catch (error) {
         setActionError(error instanceof Error ? error.message : t("skills.failed"));
@@ -1416,7 +1454,7 @@ export default function SkillsPage({
         setBusySkillId(null);
       }
     },
-    [t, updateCachedSkills]
+    [confirmDeleteSkillId, t, updateCachedSkills]
   );
 
   const handleDisconnectConnector = useCallback(
@@ -1475,6 +1513,7 @@ export default function SkillsPage({
     const readOnly = Boolean(skill.read_only || skill.source !== "user");
     const canEdit = !readOnly && skill.can_edit !== false && Boolean(onOpenChat);
     const isDescriptionExpanded = expandedDescriptionSkillId === skill.id;
+    const isConfirmingDelete = confirmDeleteSkillId === skill.id;
 
     return (
       <div
@@ -1532,8 +1571,9 @@ export default function SkillsPage({
             </button>
             <button
               type="button"
-              onClick={() => canEdit && openEditSkillChat(skill)}
-              className={`${SKILL_ACTION_BUTTON_CLASS} ${canEdit ? "" : "pointer-events-none opacity-60"}`}
+              disabled={!canEdit}
+              onClick={() => openEditSkillChat(skill)}
+              className={SKILL_ACTION_BUTTON_CLASS}
             >
               <Pencil size={13} />
               {t("skills.edit")}
@@ -1545,7 +1585,7 @@ export default function SkillsPage({
               className={SKILL_DANGER_ACTION_BUTTON_CLASS}
             >
               <Trash2 size={13} />
-              {t("skills.delete")}
+              {isConfirmingDelete ? t("skills.confirmDelete") : t("skills.delete")}
             </button>
           </div>
         )}
@@ -1604,10 +1644,7 @@ export default function SkillsPage({
           {(searchQuery || statusFilter !== "all") && (
             <button
               type="button"
-              onClick={() => {
-                setSearchQuery("");
-                setStatusFilter("all");
-              }}
+              onClick={clearFilters}
               className={`inline-flex h-8 items-center gap-1 rounded-lg border border-[#DEE0E3] bg-white px-2.5 text-[#646A73] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
             >
               <X size={12} />
@@ -1618,6 +1655,28 @@ export default function SkillsPage({
       )}
     </div>
   );
+
+  const renderActiveFilterNotice = () => {
+    if (activeFilterCount === 0) return null;
+    return (
+      <div
+        data-ripple-skill-active-filter-notice="true"
+        className={`flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-white/82 px-3 py-2 ${SKILLS_PAGE_BORDER_CLASS}`}
+      >
+        <div className={`${SKILLS_PAGE_TEXT_SECONDARY_CLASS} ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
+          {t("skills.activeFilters")}
+        </div>
+        <button
+          type="button"
+          onClick={clearFilters}
+          className={`inline-flex h-8 items-center gap-1 rounded-lg border border-[#DEE0E3] bg-white px-2.5 text-[#646A73] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+        >
+          <X size={12} />
+          {t("skills.clearFilters")}
+        </button>
+      </div>
+    );
+  };
 
   const renderConnectorPanel = (category: SkillCategory) => {
     const connectorName = connectorNameForCategory(category);
@@ -1919,6 +1978,7 @@ export default function SkillsPage({
         </div>
       </div>
       {renderConnectorPanel(category)}
+      {renderActiveFilterNotice()}
       <div className={`overflow-hidden rounded-xl border bg-white/86 ${SKILLS_PAGE_BORDER_CLASS}`}>
         {selectedCategorySkills.length === 0 ? (
           <div
@@ -1982,8 +2042,8 @@ export default function SkillsPage({
       data-ripple-skills-page="true"
       className={`h-full min-h-0 overflow-y-auto ${COMPACT_IOS_PAGE_BACKGROUND} px-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} ${SKILLS_PAGE_TEXT_PRIMARY_CLASS} md:px-6 lg:pb-5`}
     >
-      <div className={WORKBENCH_PAGE_CONTENT_CLASS}>
-        <AnimatePresence initial={false} custom={categoryTransitionDirection}>
+      <div className={`${WORKBENCH_PAGE_CONTENT_CLASS} relative`}>
+        <AnimatePresence mode="popLayout" initial={false} custom={categoryTransitionDirection}>
           <motion.div
             key={selectedCategory ? `detail:${selectedCategory.id}` : "index"}
             data-ripple-skill-category-motion-stage="true"
@@ -1993,7 +2053,7 @@ export default function SkillsPage({
             animate="center"
             exit="exit"
             transition={reduceMotion ? reducedMotionTransition : mobilePageSwitchTransition}
-            className="min-w-0"
+            className="w-full min-w-0"
           >
             {renderCategoryStage()}
           </motion.div>

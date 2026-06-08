@@ -123,7 +123,9 @@ function testChatRunStoresActiveRunsBySession() {
 function testMobileUsesBottomTabBarForTopLevelViews() {
   assert.match(appSource, /import MobileTabBar/);
   assert.match(appSource, /mobileNav=\{mobileNav\}/);
-  assert.match(appSource, /activeView === "sessions" && mobileSessionMode === "chat" \? null/);
+  assert.match(appSource, /const isMobileNavHidden = activeView === "sessions" && mobileSessionMode === "chat";/);
+  assert.match(appSource, /isHidden=\{isMobileNavHidden\}/);
+  assert.doesNotMatch(appSource, /activeView === "sessions" && mobileSessionMode === "chat" \? null/);
 }
 
 function testSettingsIsSinglePageSurface() {

@@ -61,6 +61,7 @@ interface SessionComposerProps {
   models: { id: string; owned_by: string }[];
   isModelDropdownOpen: boolean;
   onToggleModelDropdown: () => void;
+  onCloseModelDropdown: () => void;
   onSelectModel: (model: string) => void;
   contextFolderPath?: string | null;
   workspaceScopeLabel?: string;
@@ -157,6 +158,7 @@ export default function SessionComposer({
   models,
   isModelDropdownOpen,
   onToggleModelDropdown,
+  onCloseModelDropdown,
   onSelectModel,
   contextFolderPath = null,
   workspaceScopeLabel,
@@ -212,8 +214,8 @@ export default function SessionComposer({
 
   const closeModelMenu = useCallback(() => {
     setModelMenuPosition(null);
-    onToggleModelDropdown();
-  }, [onToggleModelDropdown]);
+    onCloseModelDropdown();
+  }, [onCloseModelDropdown]);
 
   const adjustHeight = useCallback(() => {
     const el = textareaRef.current;
@@ -239,6 +241,8 @@ export default function SessionComposer({
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
+      if (modelDropdownRef.current && modelDropdownRef.current.getClientRects().length === 0)
+        return;
       if (modelDropdownRef.current?.contains(target)) return;
       if (modelMenuRef.current?.contains(target)) return;
       closeModelMenu();
@@ -405,7 +409,7 @@ export default function SessionComposer({
             aria-pressed={hasFocusFolder}
             title={folderButtonTitle}
             onClick={() => {
-              if (isModelDropdownOpen) onToggleModelDropdown();
+              if (isModelDropdownOpen) closeModelMenu();
               setIsFolderPickerOpen((open) => !open);
             }}
             className={`${COMPOSER_ICON_BUTTON_CLASS} ${

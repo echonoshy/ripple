@@ -46,6 +46,7 @@ function renderComposer(
         ]}
         isModelDropdownOpen={true}
         onToggleModelDropdown={noop}
+        onCloseModelDropdown={noop}
         onSelectModel={noop}
         {...overrides}
       />
@@ -206,6 +207,29 @@ function testComposerModelMenuSelectsOnTouchPointerDown() {
   assert.match(source, /onClick=\{\(\) => handleModelOptionClick\(model\.id\)\}/);
 }
 
+function testComposerModelMenuClosesWithExplicitCloseCallback() {
+  const source = readFileSync(new URL("./SessionComposer.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /onCloseModelDropdown: \(\) => void/);
+  assert.match(
+    source,
+    /const closeModelMenu = useCallback\(\(\) => \{\s*setModelMenuPosition\(null\);\s*onCloseModelDropdown\(\);/
+  );
+  assert.doesNotMatch(
+    source,
+    /const closeModelMenu = useCallback\(\(\) => \{\s*setModelMenuPosition\(null\);\s*onToggleModelDropdown\(\);/
+  );
+}
+
+function testHiddenComposerDoesNotCloseVisibleModelMenu() {
+  const source = readFileSync(new URL("./SessionComposer.tsx", import.meta.url), "utf8");
+
+  assert.match(
+    source,
+    /if \(modelDropdownRef\.current &&\s*modelDropdownRef\.current\.getClientRects\(\)\.length === 0\)\s*return;/
+  );
+}
+
 function testComposerExpandsActionsBelowTextAfterInput() {
   const emptyHtml = renderComposer();
   const draftHtml = renderComposer({ value: "hello" });
@@ -313,6 +337,8 @@ testComposerClearsIosHomeIndicatorAndUsesTouchSizedActions();
 testComposerUsesWorkbenchSurfaceScaleAndIndependentToolButtons();
 testComposerModelMenuUsesViewportPortal();
 testComposerModelMenuSelectsOnTouchPointerDown();
+testComposerModelMenuClosesWithExplicitCloseCallback();
+testHiddenComposerDoesNotCloseVisibleModelMenu();
 testComposerExpandsActionsBelowTextAfterInput();
 testExpandedComposerKeepsToolbarHorizontalOrigin();
 testComposerOnlyTextInputFocusExpandsEmptyComposer();

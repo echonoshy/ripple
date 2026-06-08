@@ -20,6 +20,7 @@ import {
 interface MobileTabBarProps {
   activeView: WorkspaceView;
   onSelectView: (view: WorkspaceView) => void;
+  isHidden?: boolean;
 }
 
 const mobileNavLabelKeys: Record<WorkspaceView, MessageKey> = {
@@ -31,13 +32,23 @@ const mobileNavLabelKeys: Record<WorkspaceView, MessageKey> = {
   home: "nav.settings",
 };
 
-export default function MobileTabBar({ activeView, onSelectView }: MobileTabBarProps) {
+export default function MobileTabBar({
+  activeView,
+  onSelectView,
+  isHidden = false,
+}: MobileTabBarProps) {
   const { t } = useI18n();
   const reduceMotion = useReducedMotion();
   const transition = reduceMotion ? reducedMotionTransition : mobilePageSwitchTransition;
 
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 lg:hidden">
+    <div
+      data-ripple-mobile-tabbar-hidden={isHidden ? "true" : "false"}
+      aria-hidden={isHidden ? true : undefined}
+      className={`pointer-events-none fixed inset-x-0 bottom-0 z-30 lg:hidden ${
+        isHidden ? "opacity-0" : "opacity-100"
+      }`}
+    >
       <div
         data-ripple-mobile-tabbar-mask="true"
         aria-hidden="true"
@@ -45,7 +56,9 @@ export default function MobileTabBar({ activeView, onSelectView }: MobileTabBarP
       />
       <nav
         data-ripple-mobile-tabbar-nav="true"
-        className="pointer-events-auto relative mx-3 mb-[max(env(safe-area-inset-bottom),10px)] rounded-2xl border border-[#DEE0E3] bg-white px-2 py-1 shadow-[0_8px_24px_rgba(31,35,41,0.10)]"
+        className={`relative mx-3 mb-[max(env(safe-area-inset-bottom),10px)] rounded-2xl border border-[#DEE0E3] bg-white px-2 py-1 shadow-[0_8px_24px_rgba(31,35,41,0.10)] ${
+          isHidden ? "pointer-events-none" : "pointer-events-auto"
+        }`}
       >
         <div
           className="mx-auto grid h-[58px] max-w-md"
@@ -61,6 +74,7 @@ export default function MobileTabBar({ activeView, onSelectView }: MobileTabBarP
                 type="button"
                 aria-label={t("nav.open", { label })}
                 onClick={() => onSelectView(item.id)}
+                tabIndex={isHidden ? -1 : undefined}
                 whileTap={reduceMotion ? undefined : pressableTap}
                 transition={transition}
                 className={`group flex min-w-0 flex-col items-center justify-center gap-0.5 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} transition-colors ${

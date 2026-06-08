@@ -918,6 +918,12 @@ export default function Home() {
       updateSessionById,
     ]
   );
+  const handleToggleComposerModelDropdown = useCallback(() => {
+    setOpenModelDropdown((open) => (open === "composer" ? null : "composer"));
+  }, []);
+  const handleCloseModelDropdown = useCallback(() => {
+    setOpenModelDropdown(null);
+  }, []);
   const activePendingMobileSession =
     pendingMobileSession && pendingMobileSession.sessionId !== sessionId
       ? pendingMobileSession
@@ -1085,9 +1091,8 @@ export default function Home() {
       onRemovePendingFile={handleRemovePendingFile}
       onAddPendingImages={handleAddPendingImages}
       onRemovePendingLocalImage={handleRemovePendingLocalImage}
-      onToggleModelDropdown={() =>
-        setOpenModelDropdown((open) => (open === "composer" ? null : "composer"))
-      }
+      onToggleModelDropdown={handleToggleComposerModelDropdown}
+      onCloseModelDropdown={handleCloseModelDropdown}
       onSelectModel={handleSelectModel}
       onSend={handleSendMessage}
       onStop={handleStop}
@@ -1213,10 +1218,14 @@ export default function Home() {
         </div>
       </div>
     );
-  const mobileNav =
-    activeView === "sessions" && mobileSessionMode === "chat" ? null : (
-      <MobileTabBar activeView={activeView} onSelectView={handleSelectView} />
-    );
+  const isMobileNavHidden = activeView === "sessions" && mobileSessionMode === "chat";
+  const mobileNav = (
+    <MobileTabBar
+      activeView={activeView}
+      onSelectView={handleSelectView}
+      isHidden={isMobileNavHidden}
+    />
+  );
   const mobileMotionStage = activeView === "sessions" ? "sessions:page" : `${activeView}:page`;
   const animatedMainContent = (
     <AnimatePresence initial={false} custom={mobileMotionDirection}>

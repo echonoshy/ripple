@@ -10,10 +10,10 @@ const mobileTabBarSource = readFileSync(new URL("./MobileTabBar.tsx", import.met
 
 function noop() {}
 
-function renderMobileTabBar(locale: LocalePreference = "en-US") {
+function renderMobileTabBar(locale: LocalePreference = "en-US", isHidden = false) {
   return renderToStaticMarkup(
     <I18nProvider initialPreference={locale}>
-      <MobileTabBar activeView="skills" onSelectView={noop} />
+      <MobileTabBar activeView="skills" onSelectView={noop} isHidden={isHidden} />
     </I18nProvider>
   );
 }
@@ -78,6 +78,20 @@ function testMasksScrolledContentBehindRoundedBar() {
 }
 
 testMasksScrolledContentBehindRoundedBar();
+
+function testCanStayMountedWhileHiddenWithoutSlideAnimation() {
+  const html = renderMobileTabBar("en-US", true);
+
+  assert.match(html, /data-ripple-mobile-tabbar-hidden="true"/);
+  assert.match(html, /aria-hidden="true"/);
+  assert.match(html, /opacity-0/);
+  assert.match(html, /pointer-events-none/);
+  assert.match(mobileTabBarSource, /isHidden/);
+  assert.doesNotMatch(mobileTabBarSource, /translate-y/);
+  assert.doesNotMatch(mobileTabBarSource, /transition-transform/);
+}
+
+testCanStayMountedWhileHiddenWithoutSlideAnimation();
 
 function testUsesQuietSelectedTabTreatment() {
   const html = renderMobileTabBar();

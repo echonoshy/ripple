@@ -212,6 +212,7 @@ interface SessionPageProps {
   onAddPendingImages: (files: File[], source: PendingImageSource) => void;
   onRemovePendingLocalImage: (id: string) => void;
   onToggleModelDropdown: () => void;
+  onCloseModelDropdown: () => void;
   onSelectModel: (model: string) => void;
   onSend: () => void;
   onStop: () => void;
@@ -257,6 +258,7 @@ export default function SessionPage({
   onAddPendingImages,
   onRemovePendingLocalImage,
   onToggleModelDropdown,
+  onCloseModelDropdown,
   onSelectModel,
   onSend,
   onStop,
@@ -879,6 +881,7 @@ export default function SessionPage({
           models={models}
           isModelDropdownOpen={isModelDropdownOpen}
           onToggleModelDropdown={onToggleModelDropdown}
+          onCloseModelDropdown={onCloseModelDropdown}
           onSelectModel={onSelectModel}
           contextFolderPath={effectiveContextFolderPath}
           workspaceScopeLabel={workspaceScopeLabel}

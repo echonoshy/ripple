@@ -32,6 +32,8 @@ function renderSessionPage({
   session = null,
   isSessionLoading = false,
   isGenerating = false,
+  selectedModel = "codex-medium",
+  models = [{ id: "codex-medium", owned_by: "ripple" }],
   locale = "en-US",
 }: {
   tokenUsage?: UsageInfo;
@@ -40,6 +42,8 @@ function renderSessionPage({
   session?: WorkbenchSessionSummary | null;
   isSessionLoading?: boolean;
   isGenerating?: boolean;
+  selectedModel?: string;
+  models?: { id: string; owned_by: string }[];
   locale?: LocalePreference;
 } = {}) {
   return renderToStaticMarkup(
@@ -57,8 +61,8 @@ function renderSessionPage({
         pendingLocalImages={[]}
         isGenerating={isGenerating}
         focusToken={0}
-        selectedModel="codex-medium"
-        models={[{ id: "codex-medium", owned_by: "ripple" }]}
+        selectedModel={selectedModel}
+        models={models}
         isModelDropdownOpen={false}
         isSessionLoading={isSessionLoading}
         sessionId="srv-test"
@@ -69,6 +73,7 @@ function renderSessionPage({
         onAddPendingImages={noop}
         onRemovePendingLocalImage={noop}
         onToggleModelDropdown={noop}
+        onCloseModelDropdown={noop}
         onSelectModel={noop}
         onSend={noop}
         onStop={noop}
@@ -113,6 +118,7 @@ function renderSessionPageWithTimelineContent() {
         onAddPendingImages={noop}
         onRemovePendingLocalImage={noop}
         onToggleModelDropdown={noop}
+        onCloseModelDropdown={noop}
         onSelectModel={noop}
         onSend={noop}
         onStop={noop}
@@ -252,13 +258,36 @@ function testDesktopHeaderShowsCurrentModelLikeMobile() {
   assert.match(html, /title="Current model: Plus"/);
 }
 
+function testMobileHeaderModelBadgeIsStaticDisplay() {
+  const html = renderSessionPage({
+    selectedModel: "codex-medium",
+    models: [
+      { id: "codex-low", owned_by: "ripple" },
+      { id: "codex-medium", owned_by: "ripple" },
+      { id: "codex-high", owned_by: "ripple" },
+    ],
+  });
+  const headerBadge =
+    html.match(/<span[^>]*data-ripple-current-model-badge="mobile"[\s\S]*?<\/span>/)?.[0] ||
+    "";
+
+  assert.match(headerBadge, /aria-label="Current model: Plus"/);
+  assert.match(headerBadge, /title="Current model: Plus"/);
+  assert.match(headerBadge, /lucide-brain-circuit/);
+  assert.doesNotMatch(html, /data-ripple-mobile-model-button="true"/);
+  assert.doesNotMatch(html, /data-ripple-mobile-model-menu="true"/);
+  assert.doesNotMatch(html, /role="menu"/);
+  assert.doesNotMatch(sessionPageSource, /onToggleMobileHeaderModelDropdown/);
+  assert.doesNotMatch(sessionPageSource, /isMobileHeaderModelDropdownOpen/);
+}
+
 function testCurrentModelBadgeUsesModelSwitchIcon() {
   const html = renderSessionPage();
 
   assert.match(html, /data-ripple-current-model-badge="desktop"[\s\S]{0,1000}lucide-brain-circuit/);
   assert.match(html, /data-ripple-current-model-badge="desktop"[\s\S]{0,1200}bg-\[#22A06B\]/);
   assert.match(html, /data-ripple-current-model-badge="mobile"[\s\S]{0,1000}lucide-brain-circuit/);
-  assert.match(html, /data-ripple-current-model-badge="mobile"[\s\S]{0,1200}bg-\[#22A06B\]/);
+  assert.match(html, /data-ripple-current-model-badge="mobile"[\s\S]{0,1800}bg-\[#22A06B\]/);
 }
 
 function testMobileRunStatusOnlyLivesInHeaderAndComposer() {
@@ -339,6 +368,7 @@ function testSessionPageShowsCurrentFolderBadge() {
         onAddPendingImages={noop}
         onRemovePendingLocalImage={noop}
         onToggleModelDropdown={noop}
+        onCloseModelDropdown={noop}
         onSelectModel={noop}
         onSend={noop}
         onStop={noop}
@@ -746,6 +776,7 @@ testSessionPageHandlesDropAcrossWholeChat();
 testMobileHeaderReservesTopSafeArea();
 testMobileHeaderIsOverlayChrome();
 testDesktopHeaderShowsCurrentModelLikeMobile();
+testMobileHeaderModelBadgeIsStaticDisplay();
 testCurrentModelBadgeUsesModelSwitchIcon();
 testMobileRunStatusOnlyLivesInHeaderAndComposer();
 testSessionPageRendersChineseStaticChrome();

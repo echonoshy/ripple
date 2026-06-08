@@ -35,6 +35,7 @@ function renderSessionPageWithPlan() {
       onAddPendingImages={noop}
       onRemovePendingLocalImage={noop}
       onToggleModelDropdown={noop}
+      onCloseModelDropdown={noop}
       onSelectModel={noop}
       onSend={noop}
       onStop={noop}

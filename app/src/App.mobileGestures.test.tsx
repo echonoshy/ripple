@@ -24,6 +24,35 @@ function testSessionSwipeBackOnlyChangesStackModeInsideStableSessionsPage() {
   assert.doesNotMatch(openListBlock, /setActiveView\("skills"\)/);
 }
 
+function testMobileChatKeepsBottomTabBarMountedWhileHidden() {
+  assert.match(
+    appSource,
+    /const isMobileNavHidden = activeView === "sessions" && mobileSessionMode === "chat";/
+  );
+  assert.match(
+    appSource,
+    /<MobileTabBar[\s\S]*?activeView=\{activeView\}[\s\S]*?onSelectView=\{handleSelectView\}[\s\S]*?isHidden=\{isMobileNavHidden\}[\s\S]*?\/>/
+  );
+  assert.doesNotMatch(
+    appSource,
+    /activeView === "sessions" && mobileSessionMode === "chat" \? null/
+  );
+}
+
+function testModelDropdownStateOnlyTracksComposer() {
+  assert.match(
+    appSource,
+    /const \[openModelDropdown, setOpenModelDropdown\] = useState<"composer" \| null>\(null\);/
+  );
+  assert.doesNotMatch(appSource, /mobile-header/);
+  assert.doesNotMatch(appSource, /enableMobileHeaderModelDropdown/);
+  assert.match(appSource, /const mobileSessionChat = renderSessionPage\(\);/);
+  assert.match(
+    appSource,
+    /<div className="h-full min-w-0 flex-1">\{renderSessionPage\(\)\}<\/div>/
+  );
+}
+
 function testAndroidBackGestureScopeStaysInsideActiveDetailSurfaces() {
   assert.match(appSource, /activeView === "sessions" && mobileSessionMode === "chat"/);
   assert.match(
@@ -35,6 +64,8 @@ function testAndroidBackGestureScopeStaysInsideActiveDetailSurfaces() {
 
 testMobileSwipeBackDoesNotTriggerOuterPageTransition();
 testSessionSwipeBackOnlyChangesStackModeInsideStableSessionsPage();
+testMobileChatKeepsBottomTabBarMountedWhileHidden();
+testModelDropdownStateOnlyTracksComposer();
 testAndroidBackGestureScopeStaysInsideActiveDetailSurfaces();
 
 console.log("app mobile gesture tests passed");

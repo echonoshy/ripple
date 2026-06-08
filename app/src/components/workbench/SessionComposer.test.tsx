@@ -152,17 +152,24 @@ function testComposerClearsIosHomeIndicatorAndUsesTouchSizedActions() {
 
   assert.match(html, /pb-\[max\(env\(safe-area-inset-bottom\),8px\)\]/);
   assert.match(html, /h-11 w-11/);
+  assert.match(html, /h-10 w-10/);
   assert.match(html, /session-composer-input[^"]*text-\[16px\][^"]*lg:text-\[14px\]/);
   assert.doesNotMatch(html, /session-composer-input[^"]*text-\[14px\][^"]*sm:text-\[14px\]/);
 }
 
-function testComposerUsesWorkbenchSurfaceScale() {
+function testComposerUsesWorkbenchSurfaceScaleAndGroupedToolButtons() {
   const source = readFileSync(new URL("./SessionComposer.tsx", import.meta.url), "utf8");
 
   assert.doesNotMatch(source, /rounded-\[20px\]/);
   assert.match(source, /WORKBENCH_MENU_CLASS/);
-  assert.match(source, /WORKBENCH_MOBILE_ICON_BUTTON_CLASS/);
-  assert.match(source, /rounded-xl border border-\[#DEE0E3\] bg-white p-1\.5 shadow-\[0_1px_2px_rgba\(31,35,41,0\.04\)\]/);
+  assert.match(source, /COMPOSER_ICON_BUTTON_CLASS/);
+  assert.match(source, /gap-0\.5 rounded-xl border border-\[#EFF0F1\] bg-\[#F8F9FA\] p-0\.5/);
+  assert.match(source, /border-transparent bg-transparent text-\[#646A73\]/);
+  assert.match(source, /COMPOSER_ICON_BUTTON_ACTIVE_CLASS/);
+  assert.match(
+    source,
+    /rounded-xl border border-\[#DEE0E3\] bg-white p-1\.5 shadow-\[0_1px_2px_rgba\(31,35,41,0\.04\)\]/
+  );
   assert.doesNotMatch(source, /rounded-\[22px\]/);
   assert.doesNotMatch(source, /bg-white\/92/);
   assert.doesNotMatch(source, /backdrop-blur-2xl/);
@@ -180,6 +187,19 @@ function testComposerModelMenuUsesViewportPortal() {
   assert.match(source, /modelMenuRef/);
   assert.match(source, /modelButtonRef/);
   assert.doesNotMatch(source, /absolute bottom-full left-0/);
+}
+
+function testComposerModelMenuSelectsOnTouchPointerDown() {
+  const source = readFileSync(new URL("./SessionComposer.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /handleModelOptionPointerDown/);
+  assert.match(source, /event\.pointerType !== "touch"/);
+  assert.match(source, /event\.preventDefault\(\)/);
+  assert.match(
+    source,
+    /onPointerDown=\{\(event\) => handleModelOptionPointerDown\(event, model\.id\)\}/
+  );
+  assert.match(source, /onClick=\{\(\) => handleModelOptionClick\(model\.id\)\}/);
 }
 
 function testComposerExpandsActionsBelowTextAfterInput() {
@@ -286,8 +306,9 @@ testComposerInputDoesNotNeedGlobalBlueFocusOverride();
 testComposerInputHidesNativeScrollbar();
 testBlockedComposerStillAllowsDraftingAndShowsStop();
 testComposerClearsIosHomeIndicatorAndUsesTouchSizedActions();
-testComposerUsesWorkbenchSurfaceScale();
+testComposerUsesWorkbenchSurfaceScaleAndGroupedToolButtons();
 testComposerModelMenuUsesViewportPortal();
+testComposerModelMenuSelectsOnTouchPointerDown();
 testComposerExpandsActionsBelowTextAfterInput();
 testExpandedComposerKeepsToolbarHorizontalOrigin();
 testComposerOnlyTextInputFocusExpandsEmptyComposer();

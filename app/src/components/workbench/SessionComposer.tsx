@@ -37,7 +37,6 @@ import {
   TYPOGRAPHY_MOBILE_BODY_CLASS,
   WORKBENCH_MENU_CLASS,
   WORKBENCH_MENU_ITEM_CLASS,
-  WORKBENCH_MOBILE_ICON_BUTTON_CLASS,
 } from "./stylePrimitives";
 
 interface SessionComposerProps {
@@ -75,10 +74,19 @@ export function shouldExpandComposer(value: string, isComposerFocused: boolean):
 }
 
 export function composerToolbarClassName(isExpandedComposer: boolean): string {
-  return `flex h-11 shrink-0 items-center lg:h-8 ${
+  return `inline-flex h-11 shrink-0 items-center gap-0.5 rounded-xl border border-[#EFF0F1] bg-[#F8F9FA] p-0.5 lg:h-8 lg:rounded-lg ${
     isExpandedComposer ? "col-start-1 row-start-2" : "-mr-1 lg:mb-[2px]"
   }`;
 }
+
+const COMPOSER_ICON_BUTTON_CLASS =
+  "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-transparent bg-transparent text-[#646A73] transition-colors hover:bg-white hover:text-[#1F2329] active:bg-[#EFF0F1] disabled:cursor-not-allowed disabled:opacity-40 lg:h-7 lg:w-7 lg:rounded-md";
+
+const COMPOSER_ICON_BUTTON_ACTIVE_CLASS =
+  "border-[#BACEFD] bg-white text-[#1456F0] shadow-[0_1px_2px_rgba(20,86,240,0.08)] hover:bg-white hover:text-[#1456F0] active:bg-[#F0F5FF]";
+
+const COMPOSER_SEND_BUTTON_BASE_CLASS =
+  "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-transparent transition-colors focus-visible:ring-2 focus-visible:ring-[#BACEFD] focus-visible:outline-none disabled:cursor-not-allowed lg:h-8 lg:w-8 lg:rounded-lg";
 
 const MODEL_MENU_WIDTH = 192;
 const MODEL_MENU_ITEM_HEIGHT = 32;
@@ -164,6 +172,7 @@ export default function SessionComposer({
   const modelButtonRef = useRef<HTMLButtonElement>(null);
   const modelMenuRef = useRef<HTMLDivElement>(null);
   const folderPickerRef = useRef<HTMLDivElement>(null);
+  const touchSelectedModelRef = useRef<string | null>(null);
   const [isComposerFocused, setIsComposerFocused] = useState(false);
   const [isFolderPickerOpen, setIsFolderPickerOpen] = useState(false);
   const [modelMenuPosition, setModelMenuPosition] = useState<ModelMenuPosition | null>(null);
@@ -181,7 +190,9 @@ export default function SessionComposer({
     [models, selectedModel]
   );
   const isExpandedComposer = shouldExpandComposer(value, isComposerFocused);
-  const composerIconButtonClass = `${WORKBENCH_MOBILE_ICON_BUTTON_CLASS} lg:h-8 lg:w-8`;
+  const sendControlLayoutClass = isExpandedComposer
+    ? "col-start-2 row-start-2 justify-self-end"
+    : "lg:mb-[2px]";
 
   const updateModelMenuPosition = useCallback(
     (measuredHeight?: number | null) => {
@@ -313,6 +324,30 @@ export default function SessionComposer({
     onToggleModelDropdown();
   };
 
+  const handleModelOptionPointerDown = useCallback(
+    (event: React.PointerEvent<HTMLButtonElement>, model: string) => {
+      if (event.pointerType !== "touch") return;
+      event.preventDefault();
+      touchSelectedModelRef.current = model;
+      onSelectModel(model);
+      window.setTimeout(() => {
+        if (touchSelectedModelRef.current === model) touchSelectedModelRef.current = null;
+      }, 350);
+    },
+    [onSelectModel]
+  );
+
+  const handleModelOptionClick = useCallback(
+    (model: string) => {
+      if (touchSelectedModelRef.current === model) {
+        touchSelectedModelRef.current = null;
+        return;
+      }
+      onSelectModel(model);
+    },
+    [onSelectModel]
+  );
+
   const modelMenu = (
     <div
       ref={modelMenuRef}
@@ -328,7 +363,8 @@ export default function SessionComposer({
             type="button"
             role="menuitemradio"
             aria-checked={selected}
-            onClick={() => onSelectModel(model.id)}
+            onPointerDown={(event) => handleModelOptionPointerDown(event, model.id)}
+            onClick={() => handleModelOptionClick(model.id)}
             className={`${WORKBENCH_MENU_ITEM_CLASS} justify-between font-[family-name:var(--font-mono)] ${TYPOGRAPHY_META_CLASS} ${
               selected ? "bg-[#F0F5FF] text-[#1456F0]" : "text-[#1F2329]"
             }`}
@@ -371,8 +407,8 @@ export default function SessionComposer({
               if (isModelDropdownOpen) onToggleModelDropdown();
               setIsFolderPickerOpen((open) => !open);
             }}
-            className={`${composerIconButtonClass} ${
-              hasFocusFolder ? "bg-[#F0F5FF] text-[#1456F0]" : "text-[#2B2F36]"
+            className={`${COMPOSER_ICON_BUTTON_CLASS} ${
+              hasFocusFolder ? COMPOSER_ICON_BUTTON_ACTIVE_CLASS : ""
             }`}
           >
             <FolderGit2 size={16} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
@@ -395,7 +431,7 @@ export default function SessionComposer({
           title={t("composer.attachFiles")}
           onClick={() => fileInputRef.current?.click()}
           disabled={attachDisabled}
-          className={composerIconButtonClass}
+          className={COMPOSER_ICON_BUTTON_CLASS}
         >
           {isUploadingFiles ? (
             <Loader2 size={15} className="animate-spin" />
@@ -411,7 +447,7 @@ export default function SessionComposer({
           aria-label={t("composer.selectModel")}
           title={t("composer.modelTitle", { model: formatModelName(selectedModel) })}
           onClick={handleModelButtonClick}
-          className={composerIconButtonClass}
+          className={COMPOSER_ICON_BUTTON_CLASS}
         >
           <BrainCircuit size={16} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
         </button>
@@ -455,9 +491,7 @@ export default function SessionComposer({
         onClick={onStop}
         aria-label={t("composer.stopGeneration")}
         title={isBlocked ? t("composer.stopRunningSession") : t("composer.stopGeneration")}
-        className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-[#FAD4D4] bg-[#FFF1F0] text-[#B42318] transition-colors hover:bg-[#FFE3E0] lg:h-8 lg:w-8 ${
-          isExpandedComposer ? "col-start-2 row-start-2 justify-self-end" : "lg:mb-[2px]"
-        }`}
+        className={`${COMPOSER_SEND_BUTTON_BASE_CLASS} border-[#FAD4D4] bg-[#FFF1F0] text-[#B42318] hover:bg-[#FFE3E0] ${sendControlLayoutClass}`}
       >
         <Square size={13} fill="currentColor" />
       </button>
@@ -468,11 +502,9 @@ export default function SessionComposer({
         disabled={!canSend || sendDisabled}
         aria-label={t("composer.sendMessage")}
         title={t("composer.sendMessage")}
-        className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-[#1456F0] bg-[#1456F0] text-white transition-colors hover:bg-[#0F4BD8] disabled:cursor-not-allowed disabled:border-[#DEE0E3] disabled:bg-[#F5F6F7] disabled:bg-none disabled:text-[#8F959E] lg:h-8 lg:w-8 ${
-          isExpandedComposer ? "col-start-2 row-start-2 justify-self-end" : "lg:mb-[2px]"
-        }`}
+        className={`${COMPOSER_SEND_BUTTON_BASE_CLASS} bg-[#1456F0] text-white shadow-[0_1px_2px_rgba(20,86,240,0.18)] hover:bg-[#0F4BD8] active:bg-[#0C3BAA] disabled:border-[#EFF0F1] disabled:bg-[#F8F9FA] disabled:text-[#BBBFC4] disabled:shadow-none ${sendControlLayoutClass}`}
       >
-        <Send size={14} />
+        <Send size={14} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
       </button>
     );
 

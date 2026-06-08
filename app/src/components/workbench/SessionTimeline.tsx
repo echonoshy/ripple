@@ -202,11 +202,33 @@ function timelineStatusLabel(status: string, t: Translator): string {
   return statusKey ? t(statusKey) : status;
 }
 
-function formatTime(value: string | undefined): string {
+function isSameLocalDay(first: Date, second: Date): boolean {
+  return (
+    first.getFullYear() === second.getFullYear() &&
+    first.getMonth() === second.getMonth() &&
+    first.getDate() === second.getDate()
+  );
+}
+
+function formatTimelineTimestamp(
+  value: string | undefined,
+  locale: string,
+  now = new Date()
+): string {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+  const timeOptions = { hour: "2-digit", minute: "2-digit" } as const;
+  if (isSameLocalDay(date, now)) {
+    return new Intl.DateTimeFormat(locale, timeOptions).format(date);
+  }
+
+  const dateOptions: Intl.DateTimeFormatOptions =
+    date.getFullYear() === now.getFullYear()
+      ? { month: "short", day: "numeric", ...timeOptions }
+      : { year: "numeric", month: "short", day: "numeric", ...timeOptions };
+  return new Intl.DateTimeFormat(locale, dateOptions).format(date);
 }
 
 function EventIcon({ type }: { type: WorkbenchTimelineEvent["type"] }) {
@@ -450,7 +472,7 @@ export default function SessionTimeline({
           "context_compaction",
           "runtime_update",
         ].includes(event.type);
-        const eventTime = formatTime(event.createdAt);
+        const eventTime = formatTimelineTimestamp(event.createdAt, locale);
         const displayTitle = timelineEventTitle(event, t);
         const displayStatus = event.status ? timelineStatusLabel(event.status, t) : "";
         const canCopyEvent =

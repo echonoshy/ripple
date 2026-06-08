@@ -76,6 +76,72 @@ function renderConnectorAuthWaitingTimeline(locale: LocalePreference = "en-US") 
   );
 }
 
+function withFixedNow<T>(fixedNow: Date, callback: () => T): T {
+  const RealDate = Date;
+
+  class FixedDate extends RealDate {
+    constructor(value?: string | number | Date) {
+      if (arguments.length === 0) {
+        super(fixedNow.getTime());
+        return;
+      }
+      super(value instanceof RealDate ? value.getTime() : (value ?? fixedNow.getTime()));
+    }
+
+    static now() {
+      return fixedNow.getTime();
+    }
+  }
+
+  globalThis.Date = FixedDate as DateConstructor;
+  try {
+    return callback();
+  } finally {
+    globalThis.Date = RealDate;
+  }
+}
+
+function testTimelineTimestampsShowDateWhenNotToday() {
+  const fixedNow = new Date(2026, 5, 8, 13, 37);
+  const olderMessageAt = new Date(2026, 5, 5, 19, 9).toISOString();
+  const todayMessageAt = new Date(2026, 5, 8, 13, 37).toISOString();
+
+  const html = withFixedNow(fixedNow, () =>
+    renderToStaticMarkup(
+      <I18nProvider initialPreference="zh-CN">
+        <SessionTimeline
+          messages={[]}
+          events={[
+            {
+              id: "older-user-message",
+              type: "user_message",
+              title: "User request",
+              body: "今天的天气如何",
+              createdAt: olderMessageAt,
+            },
+            {
+              id: "today-user-message",
+              type: "user_message",
+              title: "User request",
+              body: "今天的天气呢？",
+              createdAt: todayMessageAt,
+            },
+          ]}
+          isGenerating={false}
+          onQuickReply={noop}
+          onPermissionResolve={noop}
+        />
+      </I18nProvider>
+    )
+  );
+
+  assert.match(html, /6月5日/);
+  assert.match(html, /19:09/);
+  assert.match(html, /13:37/);
+  assert.doesNotMatch(html, /6月8日/);
+  assert.doesNotMatch(html, /PM/);
+}
+
 function testTimelineImagePreviewsUseWorkspaceImageCache() {
   const source = readFileSync(new URL("./SessionTimeline.tsx", import.meta.url), "utf8");
 
@@ -260,6 +326,7 @@ testGeneratingPlaceholderUsesRandomWaitingCopy();
 testChineseGeneratingPlaceholderUsesRandomWaitingCopy();
 testConnectorAuthTimelineWaitingCopyDoesNotTickSeconds();
 testWaitingCopyAvoidsConcreteOperationClaims();
+testTimelineTimestampsShowDateWhenNotToday();
 testTimelineUsesReadableMobileTypeScale();
 testTimelineNoticeSurfacesUseWorkbenchPrimitives();
 

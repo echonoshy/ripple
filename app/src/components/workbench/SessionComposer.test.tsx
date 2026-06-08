@@ -170,6 +170,18 @@ function testComposerUsesWorkbenchSurfaceScale() {
   assert.doesNotMatch(source, /shadow-\[0_10px_22px_rgba\(20,86,240,0\.26\)\]/);
 }
 
+function testComposerModelMenuUsesViewportPortal() {
+  const source = readFileSync(new URL("./SessionComposer.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /createPortal/);
+  assert.match(source, /data-ripple-composer-model-menu/);
+  assert.match(source, /role="menu"/);
+  assert.match(source, /position: "fixed"/);
+  assert.match(source, /modelMenuRef/);
+  assert.match(source, /modelButtonRef/);
+  assert.doesNotMatch(source, /absolute bottom-full left-0/);
+}
+
 function testComposerExpandsActionsBelowTextAfterInput() {
   const emptyHtml = renderComposer();
   const draftHtml = renderComposer({ value: "hello" });
@@ -275,6 +287,7 @@ testComposerInputHidesNativeScrollbar();
 testBlockedComposerStillAllowsDraftingAndShowsStop();
 testComposerClearsIosHomeIndicatorAndUsesTouchSizedActions();
 testComposerUsesWorkbenchSurfaceScale();
+testComposerModelMenuUsesViewportPortal();
 testComposerExpandsActionsBelowTextAfterInput();
 testExpandedComposerKeepsToolbarHorizontalOrigin();
 testComposerOnlyTextInputFocusExpandsEmptyComposer();

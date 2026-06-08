@@ -62,7 +62,7 @@ export interface ChatRunSessionActions {
 
 interface UseChatRunOptions {
   selectedModel: string;
-  onSelectedModelChange: (model: string) => void;
+  onSelectedModelChange: (model: string, sessionId?: string | null) => void;
   onAuthExpired: (message: string) => void;
   onWorkspaceRefresh: () => void;
   getSessionActions: () => ChatRunSessionActions;
@@ -393,7 +393,7 @@ export function useChatRun({
 
   const applySessionDetails = useCallback(
     (details: SessionDetail) => {
-      onSelectedModelChange(details.model);
+      onSelectedModelChange(details.model, details.sessionId);
       const runningState = runningViewStatesRef.current.get(details.sessionId);
       if (runningState) {
         applyViewState(runningState);

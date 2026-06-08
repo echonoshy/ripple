@@ -184,6 +184,7 @@ export default function Home() {
     Record<string, SessionAttention | undefined>
   >({});
   const selectedSessionIdRef = useRef<string | null>(null);
+  const selectedModelOverrideBySessionRef = useRef<Record<string, string>>({});
   const activeViewRef = useRef<WorkspaceView>("sessions");
   const workspaceFileOpenRequestIdRef = useRef(0);
   const mobileSessionSelectionRequestRef = useRef(0);
@@ -200,6 +201,7 @@ export default function Home() {
   });
 
   const handleAuthExpired = useCallback((message: string) => {
+    selectedModelOverrideBySessionRef.current = {};
     clearApiKey();
     setAuthState("needs_auth");
     setAuthMode("login");
@@ -222,16 +224,39 @@ export default function Home() {
     [userId]
   );
 
+  const rememberSelectedModelOverride = useCallback((model: string) => {
+    const activeSessionId = selectedSessionIdRef.current;
+    if (!activeSessionId) return;
+    selectedModelOverrideBySessionRef.current = {
+      ...selectedModelOverrideBySessionRef.current,
+      [activeSessionId]: model,
+    };
+  }, []);
+
   const handleSelectModel = useCallback(
     (model: string) => {
       setSelectedModel(model);
+      rememberSelectedModelOverride(model);
       persistDefaultModel(model);
       setOpenModelDropdown(null);
     },
-    [persistDefaultModel]
+    [persistDefaultModel, rememberSelectedModelOverride]
+  );
+
+  const handleSessionDetailModelChange = useCallback(
+    (model: string, detailSessionId?: string | null) => {
+      const targetSessionId = detailSessionId || selectedSessionIdRef.current;
+      if (!targetSessionId) {
+        setSelectedModel(model);
+        return;
+      }
+      setSelectedModel(selectedModelOverrideBySessionRef.current[targetSessionId] || model);
+    },
+    []
   );
 
   const handleAuthReset = useCallback(() => {
+    selectedModelOverrideBySessionRef.current = {};
     if (isUserSessionAuth()) {
       void logoutUserSession().catch(() => undefined);
     }
@@ -307,7 +332,7 @@ export default function Home() {
     handleFeishuAuthOpen,
   } = useChatRun({
     selectedModel,
-    onSelectedModelChange: setSelectedModel,
+    onSelectedModelChange: handleSessionDetailModelChange,
     onAuthExpired: handleAuthExpired,
     onWorkspaceRefresh: handleWorkspaceRefresh,
     getSessionActions,
@@ -356,11 +381,10 @@ export default function Home() {
   const handleSelectDefaultModel = useCallback(
     (model: string) => {
       persistDefaultModel(model);
-      if (!sessionId) {
-        setSelectedModel(model);
-      }
+      setSelectedModel(model);
+      rememberSelectedModelOverride(model);
     },
-    [persistDefaultModel, sessionId]
+    [persistDefaultModel, rememberSelectedModelOverride]
   );
 
   useEffect(() => {
@@ -419,6 +443,7 @@ export default function Home() {
         return;
       }
       setUserIdState(newUid);
+      selectedModelOverrideBySessionRef.current = {};
       const preferredModel = selectPreferredModel(models, getStoredDefaultModel(newUid));
       setDefaultModel(preferredModel);
       setSelectedModel(preferredModel);
@@ -543,6 +568,7 @@ export default function Home() {
     }
     if (nextUserId !== userId) {
       setUserIdState(nextUserId);
+      selectedModelOverrideBySessionRef.current = {};
       setSessionAttentionById({});
       setAcknowledgedSessionAttentionById({});
       setActiveContextFolderPath(null);
@@ -561,6 +587,7 @@ export default function Home() {
     (token: string, nextUserId: string) => {
       setUserSessionToken(token, nextUserId);
       setUserIdState(nextUserId);
+      selectedModelOverrideBySessionRef.current = {};
       setSessionAttentionById({});
       setAcknowledgedSessionAttentionById({});
       setActiveContextFolderPath(null);

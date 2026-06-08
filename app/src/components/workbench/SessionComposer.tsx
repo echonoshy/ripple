@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   AlertTriangle,
   BrainCircuit,
@@ -23,6 +24,11 @@ import {
   type PendingImageSource,
   type PendingLocalImage,
 } from "@/lib/pendingImages";
+import {
+  getMeasuredViewportMenuPosition,
+  getResponsiveMenuBottomInsetPx,
+  type ViewportMenuAnchorRect,
+} from "@/lib/menuPosition";
 import WorkspaceFolderPicker from "./WorkspaceFolderPicker";
 import {
   LUCIDE_STANDARD_STROKE_WIDTH,
@@ -74,6 +80,53 @@ export function composerToolbarClassName(isExpandedComposer: boolean): string {
   }`;
 }
 
+const MODEL_MENU_WIDTH = 192;
+const MODEL_MENU_ITEM_HEIGHT = 32;
+const MODEL_MENU_VERTICAL_PADDING = 8;
+
+interface ModelMenuPosition {
+  top: number;
+  left: number;
+  anchorRect: ViewportMenuAnchorRect;
+  measuredHeight: number | null;
+}
+
+function modelMenuHeight(optionCount: number): number {
+  return optionCount * MODEL_MENU_ITEM_HEIGHT + MODEL_MENU_VERTICAL_PADDING;
+}
+
+function rectToViewportAnchor(rect: DOMRect): ViewportMenuAnchorRect {
+  return {
+    top: rect.top,
+    right: rect.right,
+    bottom: rect.bottom,
+    left: rect.left,
+  };
+}
+
+function getComposerModelMenuPosition(
+  anchorRect: ViewportMenuAnchorRect,
+  optionCount: number,
+  measuredHeight?: number | null
+): ModelMenuPosition {
+  const position = getMeasuredViewportMenuPosition({
+    anchorRect,
+    menuWidth: MODEL_MENU_WIDTH,
+    estimatedMenuHeight: modelMenuHeight(optionCount),
+    measuredMenuHeight: measuredHeight,
+    viewportWidth: window.innerWidth,
+    viewportHeight: window.innerHeight,
+    bottomInset: getResponsiveMenuBottomInsetPx(),
+    align: "left",
+  });
+
+  return {
+    ...position,
+    anchorRect,
+    measuredHeight: measuredHeight ?? null,
+  };
+}
+
 export default function SessionComposer({
   userId,
   value,
@@ -108,9 +161,12 @@ export default function SessionComposer({
   const lastAppliedFocusTokenRef = useRef(focusToken);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
+  const modelButtonRef = useRef<HTMLButtonElement>(null);
+  const modelMenuRef = useRef<HTMLDivElement>(null);
   const folderPickerRef = useRef<HTMLDivElement>(null);
   const [isComposerFocused, setIsComposerFocused] = useState(false);
   const [isFolderPickerOpen, setIsFolderPickerOpen] = useState(false);
+  const [modelMenuPosition, setModelMenuPosition] = useState<ModelMenuPosition | null>(null);
   const canSend = Boolean(value.trim() || pendingFiles.length > 0 || pendingLocalImages.length > 0);
   const inputDisabled = isGenerating;
   const attachDisabled = inputDisabled || isUploadingFiles;
@@ -126,6 +182,27 @@ export default function SessionComposer({
   );
   const isExpandedComposer = shouldExpandComposer(value, isComposerFocused);
   const composerIconButtonClass = `${WORKBENCH_MOBILE_ICON_BUTTON_CLASS} lg:h-8 lg:w-8`;
+
+  const updateModelMenuPosition = useCallback(
+    (measuredHeight?: number | null) => {
+      if (typeof window === "undefined") return null;
+      const anchor = modelButtonRef.current?.getBoundingClientRect();
+      if (!anchor) return null;
+      const position = getComposerModelMenuPosition(
+        rectToViewportAnchor(anchor),
+        availableModels.length,
+        measuredHeight
+      );
+      setModelMenuPosition(position);
+      return position;
+    },
+    [availableModels.length]
+  );
+
+  const closeModelMenu = useCallback(() => {
+    setModelMenuPosition(null);
+    onToggleModelDropdown();
+  }, [onToggleModelDropdown]);
 
   const adjustHeight = useCallback(() => {
     const el = textareaRef.current;
@@ -152,12 +229,25 @@ export default function SessionComposer({
       const target = event.target;
       if (!(target instanceof Node)) return;
       if (modelDropdownRef.current?.contains(target)) return;
-      onToggleModelDropdown();
+      if (modelMenuRef.current?.contains(target)) return;
+      closeModelMenu();
     };
 
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeModelMenu();
+    };
+
+    const handleResize = () => closeModelMenu();
+
     document.addEventListener("pointerdown", handlePointerDown, true);
-    return () => document.removeEventListener("pointerdown", handlePointerDown, true);
-  }, [onToggleModelDropdown, isModelDropdownOpen]);
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("resize", handleResize);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("resize", handleResize);
+    };
+  }, [closeModelMenu, isModelDropdownOpen]);
 
   useEffect(() => {
     if (!isFolderPickerOpen) return;
@@ -213,6 +303,60 @@ export default function SessionComposer({
     onFocusStateChange?.(false);
   };
 
+  const handleModelButtonClick = () => {
+    setIsFolderPickerOpen(false);
+    if (isModelDropdownOpen) {
+      closeModelMenu();
+      return;
+    }
+    updateModelMenuPosition();
+    onToggleModelDropdown();
+  };
+
+  const modelMenu = (
+    <div
+      ref={modelMenuRef}
+      data-ripple-composer-model-menu
+      role="menu"
+      className={`max-h-[calc(100dvh-104px)] w-48 overflow-y-auto ${WORKBENCH_MENU_CLASS}`}
+    >
+      {availableModels.map((model) => {
+        const selected = selectedModel === model.id;
+        return (
+          <button
+            key={model.id}
+            type="button"
+            role="menuitemradio"
+            aria-checked={selected}
+            onClick={() => onSelectModel(model.id)}
+            className={`${WORKBENCH_MENU_ITEM_CLASS} justify-between font-[family-name:var(--font-mono)] ${TYPOGRAPHY_META_CLASS} ${
+              selected ? "bg-[#F0F5FF] text-[#1456F0]" : "text-[#1F2329]"
+            }`}
+          >
+            {formatModelName(model.id)}
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  const modelMenuPortal =
+    isModelDropdownOpen && modelMenuPosition && typeof document !== "undefined"
+      ? createPortal(
+          <div
+            style={{
+              top: modelMenuPosition.top,
+              left: modelMenuPosition.left,
+              position: "fixed",
+            }}
+            className="z-50"
+          >
+            {modelMenu}
+          </div>,
+          document.body
+        )
+      : null;
+
   const toolbarControls = (
     <div className={composerToolbarClassName(isExpandedComposer)}>
       {onSelectWorkspaceFolder && (
@@ -262,35 +406,16 @@ export default function SessionComposer({
       </div>
       <div ref={modelDropdownRef} className="relative flex shrink-0 items-center">
         <button
+          ref={modelButtonRef}
           type="button"
           aria-label={t("composer.selectModel")}
           title={t("composer.modelTitle", { model: formatModelName(selectedModel) })}
-          onClick={() => {
-            setIsFolderPickerOpen(false);
-            onToggleModelDropdown();
-          }}
+          onClick={handleModelButtonClick}
           className={composerIconButtonClass}
         >
           <BrainCircuit size={16} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
         </button>
-        {isModelDropdownOpen && (
-          <div className={`absolute bottom-full left-0 z-30 mb-2 w-48 ${WORKBENCH_MENU_CLASS}`}>
-            <div>
-              {availableModels.map((model) => (
-                <button
-                  key={model.id}
-                  type="button"
-                  onClick={() => onSelectModel(model.id)}
-                  className={`${WORKBENCH_MENU_ITEM_CLASS} font-[family-name:var(--font-mono)] ${TYPOGRAPHY_META_CLASS} ${
-                    selectedModel === model.id ? "bg-[#F0F5FF] text-[#1456F0]" : "text-[#1F2329]"
-                  }`}
-                >
-                  {formatModelName(model.id)}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
+        {isModelDropdownOpen && !modelMenuPortal ? modelMenu : null}
       </div>
     </div>
   );
@@ -376,6 +501,7 @@ export default function SessionComposer({
           {composerInput}
           {sendControl}
         </div>
+        {modelMenuPortal}
         {pendingLocalImages.length > 0 && (
           <div className="flex flex-wrap gap-2 px-1 pt-1 pb-2">
             {pendingLocalImages.map((image) => (

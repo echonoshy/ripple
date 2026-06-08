@@ -303,6 +303,16 @@ function testSendFlowCanForceFreshSession() {
   );
 }
 
+function testSessionDetailsPassSessionIdWhenUpdatingModel() {
+  const source = readFileSync(new URL("./useChatRun.ts", import.meta.url), "utf8");
+
+  assert.match(
+    source,
+    /onSelectedModelChange: \(model: string, sessionId\?: string \| null\) => void/
+  );
+  assert.match(source, /onSelectedModelChange\(details\.model,\s*details\.sessionId\)/);
+}
+
 function testFreshSessionSendDoesNotCarryCurrentViewState() {
   const source = readFileSync(new URL("./useChatRun.ts", import.meta.url), "utf8");
 
@@ -358,6 +368,7 @@ test("useChatRun behavior", async () => {
   await testPendingLocalImageUploadFailuresStopSendFlow();
   testSendFlowKeepsLocalImagesWhenSendTimeUploadFails();
   testSendFlowCanForceFreshSession();
+  testSessionDetailsPassSessionIdWhenUpdatingModel();
   testFreshSessionSendDoesNotCarryCurrentViewState();
   testSessionControlActionsStartFreshSessions();
   testSendErrorsReleaseSessionForRetry();

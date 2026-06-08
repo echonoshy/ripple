@@ -2091,6 +2091,46 @@ export default function SkillsPage({
       </div>
     );
   };
+  const shouldRenderStaticCategoryIndex = skipNextCategoryTransition && !selectedCategory;
+  const renderCategoryMotionContent = () => {
+    if (shouldRenderStaticCategoryIndex) {
+      return (
+        <div data-ripple-skill-category-static-index="true" className="w-full min-w-0">
+          {renderCategoryIndexPage()}
+        </div>
+      );
+    }
+
+    return (
+      <AnimatePresence
+        mode="popLayout"
+        initial={false}
+        custom={skipNextCategoryTransition ? 0 : categoryTransitionDirection}
+      >
+        <motion.div
+          key={selectedCategory ? `detail:${selectedCategory.id}` : "index"}
+          data-ripple-skill-category-motion-stage="true"
+          custom={skipNextCategoryTransition ? 0 : categoryTransitionDirection}
+          variants={
+            skipNextCategoryTransition || reduceMotion
+              ? reducedMobilePageVariants
+              : mobilePageVariants
+          }
+          initial={skipNextCategoryTransition ? false : "enter"}
+          animate="center"
+          exit="exit"
+          transition={
+            skipNextCategoryTransition || reduceMotion
+              ? reducedMotionTransition
+              : mobilePageSwitchTransition
+          }
+          className={`w-full min-w-0 ${selectedCategory ? "h-full min-h-0 lg:h-auto" : ""}`}
+        >
+          {renderCategoryStage()}
+        </motion.div>
+      </AnimatePresence>
+    );
+  };
 
   return (
     <div
@@ -2107,33 +2147,7 @@ export default function SkillsPage({
           selectedCategory ? "h-full min-h-0 lg:h-auto" : "relative"
         }`}
       >
-        <AnimatePresence
-          mode="popLayout"
-          initial={false}
-          custom={skipNextCategoryTransition ? 0 : categoryTransitionDirection}
-        >
-          <motion.div
-            key={selectedCategory ? `detail:${selectedCategory.id}` : "index"}
-            data-ripple-skill-category-motion-stage="true"
-            custom={skipNextCategoryTransition ? 0 : categoryTransitionDirection}
-            variants={
-              skipNextCategoryTransition || reduceMotion
-                ? reducedMobilePageVariants
-                : mobilePageVariants
-            }
-            initial={skipNextCategoryTransition ? false : "enter"}
-            animate="center"
-            exit="exit"
-            transition={
-              skipNextCategoryTransition || reduceMotion
-                ? reducedMotionTransition
-                : mobilePageSwitchTransition
-            }
-            className={`w-full min-w-0 ${selectedCategory ? "h-full min-h-0 lg:h-auto" : ""}`}
-          >
-            {renderCategoryStage()}
-          </motion.div>
-        </AnimatePresence>
+        {renderCategoryMotionContent()}
       </div>
     </div>
   );

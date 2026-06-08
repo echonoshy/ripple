@@ -20,12 +20,12 @@ export const menuTransition: Transition = {
 };
 
 export const mobileStackReturnTransition: Transition = {
-  duration: 0.22,
+  duration: 0.25,
   ease: IOS_MOTION_EASE,
 };
 
 export const mobileStackCommitTransition: Transition = {
-  duration: 0.18,
+  duration: 0.24,
   ease: IOS_MOTION_EASE,
 };
 

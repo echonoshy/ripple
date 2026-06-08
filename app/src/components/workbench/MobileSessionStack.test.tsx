@@ -380,8 +380,8 @@ function testCommittedSwipeDoesNotResetSheetBeforeListUnmountsChat() {
 function testMobileMotionUsesFeishuInspiredSharedTiming() {
   assert.equal(mobileStackPushTransition.duration, 0.3);
   assert.equal(mobilePageSwitchTransition.duration, 0.3);
-  assert.equal(mobileStackCommitTransition.duration, 0.18);
-  assert.equal(mobileStackReturnTransition.duration, 0.22);
+  assert.equal(mobileStackCommitTransition.duration, 0.24);
+  assert.equal(mobileStackReturnTransition.duration, 0.25);
   assert.equal(mobileSwipeBackConfig.desktopMinWidth, 1024);
   assert.equal(mobileSwipeBackConfig.edgeStartWidthPx, 72);
   assert.equal(mobileSwipeBackConfig.commitMaxPx, 72);

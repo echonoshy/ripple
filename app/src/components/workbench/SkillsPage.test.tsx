@@ -427,6 +427,19 @@ function testSkillsCategorySwipeCommitDoesNotJumpScrollAfterReturn() {
   assert.match(source, /skipNextCategoryTransition \|\| reduceMotion/);
 }
 
+function testSkillsCategorySwipeCommitBypassesPresenceAnimation() {
+  const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
+  const staticIndexBlock =
+    source.match(
+      /if \(shouldRenderStaticCategoryIndex\) \{[\s\S]*?data-ripple-skill-category-static-index="true"[\s\S]*?\{renderCategoryIndexPage\(\)\}[\s\S]*?\}/
+    )?.[0] || "";
+
+  assert.match(source, /const shouldRenderStaticCategoryIndex = skipNextCategoryTransition && !selectedCategory/);
+  assert.match(staticIndexBlock, /renderCategoryIndexPage/);
+  assert.doesNotMatch(staticIndexBlock, /AnimatePresence/);
+  assert.doesNotMatch(staticIndexBlock, /motion\.div/);
+}
+
 function testSkillsCategoryTransitionDoesNotWaitOrKeepExitingPageInLayoutFlow() {
   const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
 
@@ -445,6 +458,7 @@ testSkillsCategorySwipeUsesSharedMotionPrimitive();
 testSkillsCategoryGuardedScrollCanReleaseBackToVerticalIntent();
 testSkillsCategorySwipeUsesFullHeightScrollableSheetLikeSession();
 testSkillsCategorySwipeCommitDoesNotJumpScrollAfterReturn();
+testSkillsCategorySwipeCommitBypassesPresenceAnimation();
 testSkillsCategoryTransitionDoesNotWaitOrKeepExitingPageInLayoutFlow();
 
 function testSkillsCategoryDetailIsFullMobileSubpage() {

@@ -189,7 +189,7 @@ export default function WorkspaceFileList({
           data-ripple-files-selection-bottom-bar={isPagePresentation ? "true" : undefined}
           className={
             isPagePresentation
-              ? `fixed right-3 bottom-[calc(84px+env(safe-area-inset-bottom)+8px)] left-3 z-30 grid gap-2 rounded-2xl border border-[#DEE0E3]/80 bg-white/94 px-3 py-2.5 text-[#2B2F36] shadow-[0_16px_38px_rgba(31,35,41,0.16)] backdrop-blur-2xl lg:static lg:rounded-none lg:border-x-0 lg:border-t-0 lg:border-b lg:bg-[#F8F9FA] lg:shadow-none ${TYPOGRAPHY_BODY_CLASS}`
+              ? `fixed right-3 bottom-[calc(84px+env(safe-area-inset-bottom)+8px)] left-3 z-30 grid gap-2 rounded-xl border border-[#DEE0E3] bg-white px-3 py-2.5 text-[#2B2F36] shadow-[0_8px_24px_rgba(31,35,41,0.10)] lg:static lg:rounded-none lg:border-x-0 lg:border-t-0 lg:border-b lg:bg-[#F8F9FA] lg:shadow-none ${TYPOGRAPHY_BODY_CLASS}`
               : `grid gap-2 border-b border-[#DEE0E3]/70 bg-[#F8F9FA] px-3 py-2.5 text-[#2B2F36] ${TYPOGRAPHY_BODY_CLASS}`
           }
         >
@@ -440,7 +440,7 @@ export default function WorkspaceFileList({
                     onClick={(event) => onMoreButtonClick(event, entry)}
                     className={
                       isPagePresentation
-                        ? "mr-2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-transparent text-[#646A73] opacity-100 transition-opacity hover:border-[#DEE0E3] hover:bg-white/78 hover:text-[#1F2329] focus:opacity-100 sm:h-7 sm:w-7 sm:opacity-0 sm:group-hover:opacity-100"
+                        ? "mr-2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-transparent text-[#646A73] opacity-100 transition-opacity hover:border-[#DEE0E3] hover:bg-white hover:text-[#1F2329] focus:opacity-100 sm:h-7 sm:w-7 sm:opacity-0 sm:group-hover:opacity-100"
                         : "mr-2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-transparent text-[#646A73] opacity-100 transition-opacity hover:border-[#DEE0E3] hover:bg-white hover:text-[#1F2329] focus:opacity-100 sm:h-7 sm:w-7 sm:opacity-0 sm:group-hover:opacity-100"
                     }
                   >

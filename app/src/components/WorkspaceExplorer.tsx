@@ -18,6 +18,7 @@ import WorkspaceToolbar from "@/components/workspace/WorkspaceToolbar";
 import {
   TYPOGRAPHY_BODY_MEDIUM_CLASS,
   TYPOGRAPHY_META_MEDIUM_CLASS,
+  WORKBENCH_SECTION_CLASS,
 } from "@/components/workbench/stylePrimitives";
 import {
   DEFAULT_SPLIT_PERCENT,
@@ -1439,7 +1440,7 @@ export default function WorkspaceExplorer({
       data-preview-state={previewState}
       className={
         isPagePresentation
-          ? "relative flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-[#DEE0E3] bg-white/86 text-[#1F2329] shadow-[0_12px_30px_rgba(31,35,41,0.06),inset_0_1px_0_rgba(255,255,255,0.92)] backdrop-blur-xl"
+          ? `relative flex h-full min-h-0 flex-col overflow-hidden text-[#1F2329] ${WORKBENCH_SECTION_CLASS}`
           : "relative flex h-full min-h-0 flex-col overflow-hidden bg-white text-[#1F2329]"
       }
       onDragEnter={handleDragEnter}
@@ -1455,9 +1456,9 @@ export default function WorkspaceExplorer({
         onChange={handleUploadInputChange}
       />
       {isDraggingUpload && (
-        <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center bg-[#FFFFFF]/86 p-4 backdrop-blur-sm">
+        <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center bg-white/86 p-4">
           <div
-            className={`rounded-2xl border border-dashed border-[#1456F0] bg-[#F0F5FF] px-4 py-3 text-[#0F4BD8] shadow-[0_18px_42px_rgba(31,35,41,0.12)] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+            className={`rounded-xl border border-dashed border-[#1456F0] bg-[#F0F5FF] px-4 py-3 text-[#0F4BD8] shadow-[0_1px_2px_rgba(31,35,41,0.04)] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
           >
             {t("files.dropFiles")}
           </div>

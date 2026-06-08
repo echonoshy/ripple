@@ -17,6 +17,9 @@ import {
   TYPOGRAPHY_META_CLASS,
   TYPOGRAPHY_META_MEDIUM_CLASS,
   TYPOGRAPHY_MICRO_MEDIUM_CLASS,
+  WORKBENCH_ICON_BUTTON_CLASS,
+  WORKBENCH_PRIMARY_BUTTON_CLASS,
+  WORKBENCH_SECONDARY_BUTTON_CLASS,
 } from "@/components/workbench/stylePrimitives";
 import { useI18n } from "@/i18n";
 import type { WorkspaceFilePreview } from "@/types";
@@ -90,7 +93,7 @@ export function WorkspacePreviewPanel({
       data-ripple-workspace-preview="preview"
       className={
         isPagePresentation
-          ? "flex min-h-0 flex-col overflow-hidden bg-[linear-gradient(180deg,#FFFFFF,#F8F9FA)]"
+          ? "flex min-h-0 flex-col overflow-hidden bg-white"
           : "relative flex min-h-0 flex-col overflow-hidden bg-white"
       }
     >
@@ -150,7 +153,7 @@ export function WorkspacePreviewPanel({
                   isEditing
                     ? "border-[#1456F0] bg-[#F0F5FF] text-[#2B2F36]"
                     : isPagePresentation
-                      ? "border-[#DEE0E3] bg-white/76 text-[#646A73] hover:bg-[#F8F9FA] disabled:cursor-not-allowed disabled:text-[#8F959E]"
+                      ? "border-[#DEE0E3] bg-white text-[#646A73] hover:bg-[#F8F9FA] disabled:cursor-not-allowed disabled:text-[#8F959E]"
                       : "border-[#DEE0E3] bg-white text-[#646A73] hover:bg-[#F8F9FA] disabled:cursor-not-allowed disabled:text-[#8F959E]"
                 }`}
                 title={preview.truncated ? t("files.truncatedCannotEdit") : t("files.edit")}
@@ -166,7 +169,7 @@ export function WorkspacePreviewPanel({
               onClick={onOpenFullscreen}
               className={
                 isPagePresentation
-                  ? "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#DEE0E3] bg-white/76 text-[#646A73] hover:bg-[#F8F9FA] hover:text-[#1F2329] sm:h-7 sm:w-7"
+                  ? `${WORKBENCH_ICON_BUTTON_CLASS} !h-8 !w-8 text-[#646A73] hover:text-[#1F2329] sm:!h-7 sm:!w-7`
                   : "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[#DEE0E3] bg-white text-[#646A73] hover:bg-[#F8F9FA] hover:text-[#1F2329]"
               }
             >
@@ -181,7 +184,7 @@ export function WorkspacePreviewPanel({
           onClick={onCollapse}
           className={
             isPagePresentation
-              ? "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#DEE0E3] bg-white/76 text-[#646A73] hover:bg-[#F8F9FA] hover:text-[#1F2329] sm:h-7 sm:w-7"
+              ? `${WORKBENCH_ICON_BUTTON_CLASS} !h-8 !w-8 text-[#646A73] hover:text-[#1F2329] sm:!h-7 sm:!w-7`
               : "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[#DEE0E3] bg-white text-[#646A73] hover:bg-[#F8F9FA] hover:text-[#1F2329]"
           }
         >
@@ -224,7 +227,7 @@ export function WorkspacePreviewPanel({
                     disabled={!isDirty || saving}
                     className={
                       isPagePresentation
-                        ? `inline-flex h-8 items-center gap-1 rounded-full border border-[#DEE0E3] bg-white/76 px-2 text-[#646A73] hover:bg-[#F8F9FA] disabled:cursor-not-allowed disabled:text-[#8F959E] ${TYPOGRAPHY_META_MEDIUM_CLASS}`
+                        ? `${WORKBENCH_SECONDARY_BUTTON_CLASS} h-8 px-2 text-[#646A73] disabled:text-[#8F959E] ${TYPOGRAPHY_META_MEDIUM_CLASS}`
                         : `inline-flex h-7 items-center gap-1 rounded-md border border-[#DEE0E3] bg-white px-2 text-[#646A73] hover:bg-[#F8F9FA] disabled:cursor-not-allowed disabled:text-[#8F959E] ${TYPOGRAPHY_META_MEDIUM_CLASS}`
                     }
                   >
@@ -237,7 +240,7 @@ export function WorkspacePreviewPanel({
                     disabled={!isDirty || saving || preview.truncated}
                     className={
                       isPagePresentation
-                        ? `inline-flex h-8 items-center gap-1 rounded-full border border-[#2B2F36] bg-[#2B2F36] px-2 text-white hover:bg-[#1F2329] disabled:cursor-not-allowed disabled:border-[#DEE0E3] disabled:bg-[#F8F9FA] disabled:text-[#8F959E] ${TYPOGRAPHY_META_MEDIUM_CLASS}`
+                        ? `${WORKBENCH_PRIMARY_BUTTON_CLASS} h-8 px-2 disabled:border-[#DEE0E3] ${TYPOGRAPHY_META_MEDIUM_CLASS}`
                         : `inline-flex h-7 items-center gap-1 rounded-md border border-[#1F2329] bg-[#1F2329] px-2 text-white hover:bg-[#2a2f37] disabled:cursor-not-allowed disabled:border-[#DEE0E3] disabled:bg-[#F8F9FA] disabled:text-[#8F959E] ${TYPOGRAPHY_META_MEDIUM_CLASS}`
                     }
                   >
@@ -328,7 +331,7 @@ function WorkspacePreviewBody({
           alt={preview.name}
           className={
             isPagePresentation
-              ? "max-h-[480px] max-w-full rounded-2xl border border-[#DEE0E3] bg-white object-contain p-1.5 shadow-[0_14px_34px_rgba(31,35,41,0.06)] transition-all hover:shadow-[0_18px_42px_rgba(31,35,41,0.10)]"
+              ? "max-h-[480px] max-w-full rounded-xl border border-[#DEE0E3] bg-white object-contain p-1.5 shadow-[0_1px_2px_rgba(31,35,41,0.04)]"
               : "max-h-[480px] max-w-full rounded-md border border-[#e2e8f0] bg-white object-contain p-1.5 shadow-sm transition-all hover:shadow"
           }
         />
@@ -387,7 +390,7 @@ function WorkspaceTextPreviewLines({
     <div
       className={
         isPagePresentation
-          ? "rounded-2xl border border-[#DEE0E3]/80 bg-white/70 py-3 shadow-[0_14px_34px_rgba(31,35,41,0.06),inset_0_1px_0_rgba(255,255,255,0.72)]"
+          ? "rounded-xl border border-[#DEE0E3] bg-white py-3 shadow-[0_1px_2px_rgba(31,35,41,0.04)]"
           : "py-2"
       }
     >
@@ -472,7 +475,7 @@ export function WorkspacePreviewFullscreen({
           aria-label={t("files.closeFullscreenPreview")}
           title={t("files.closeFullscreenPreview")}
           onClick={onClose}
-          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#DEE0E3] bg-white text-[#646A73] hover:bg-[#F8F9FA] hover:text-[#1F2329]"
+          className={`${WORKBENCH_ICON_BUTTON_CLASS} text-[#646A73] hover:text-[#1F2329]`}
         >
           <X size={15} />
         </button>
@@ -490,12 +493,12 @@ export function WorkspacePreviewFullscreen({
             <img
               src={imagePreviewUrl}
               alt={preview.name}
-              className="max-h-full max-w-full rounded-lg border border-[#DEE0E3] bg-white object-contain p-1.5 shadow-[0_18px_42px_rgba(31,35,41,0.10)]"
+              className="max-h-full max-w-full rounded-lg border border-[#DEE0E3] bg-white object-contain p-1.5 shadow-[0_1px_2px_rgba(31,35,41,0.04)]"
             />
           </div>
         ) : (
           <div className="h-full min-h-0 overflow-auto bg-white p-4 sm:p-6">
-            <div className="mx-auto max-w-6xl rounded-lg border border-[#DEE0E3] bg-white py-3 shadow-[0_14px_34px_rgba(31,35,41,0.06)]">
+            <div className="mx-auto max-w-6xl rounded-lg border border-[#DEE0E3] bg-white py-3 shadow-[0_1px_2px_rgba(31,35,41,0.04)]">
               <WorkspaceTextPreviewLines
                 content={isEditing ? draft : preview.content}
                 isPagePresentation={false}

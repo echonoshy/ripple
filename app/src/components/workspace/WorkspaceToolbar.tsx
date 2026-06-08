@@ -16,7 +16,6 @@ import {
 import { IconTile } from "@/components/icons/IconTile";
 import {
   LUCIDE_STANDARD_STROKE_WIDTH,
-  MOBILE_GLASS_ICON_BUTTON_CLASS,
   TYPOGRAPHY_BODY_CLASS,
   TYPOGRAPHY_BODY_MEDIUM_CLASS,
   TYPOGRAPHY_META_CLASS,
@@ -24,6 +23,10 @@ import {
   TYPOGRAPHY_MICRO_MEDIUM_CLASS,
   TYPOGRAPHY_MOBILE_BODY_CLASS,
   TYPOGRAPHY_PAGE_TITLE_CLASS,
+  WORKBENCH_ICON_BUTTON_CLASS,
+  WORKBENCH_MOBILE_ICON_BUTTON_CLASS,
+  WORKBENCH_SECONDARY_BUTTON_CLASS,
+  WORKBENCH_SECTION_CLASS,
 } from "@/components/workbench/stylePrimitives";
 import { useI18n } from "@/i18n";
 import type { WorkspaceSearchOptions } from "@/lib/api";
@@ -102,14 +105,13 @@ export default function WorkspaceToolbar({
 }: WorkspaceToolbarProps) {
   const { t } = useI18n();
   const isPagePresentation = presentation === "page";
-  const filesToolbarIconButtonBaseClass =
-    "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-50";
-  const filesToolbarIconButtonClass = `${filesToolbarIconButtonBaseClass} border-[#EFF0F1] bg-white text-[#646A73] hover:bg-[#F8F9FA] hover:text-[#1F2329]`;
+  const filesToolbarIconButtonBaseClass = WORKBENCH_ICON_BUTTON_CLASS;
+  const filesToolbarIconButtonClass = `${filesToolbarIconButtonBaseClass} text-[#646A73] hover:text-[#1F2329]`;
   const filesToolbarIconButtonActiveClass = `${filesToolbarIconButtonBaseClass} border-[#1456F0]/30 bg-[#F0F5FF] text-[#1456F0] hover:bg-[#F0F5FF]`;
-  const filesMobileToolbarButtonClass = `${MOBILE_GLASS_ICON_BUTTON_CLASS} shrink-0`;
+  const filesMobileToolbarButtonClass = `${WORKBENCH_MOBILE_ICON_BUTTON_CLASS} shrink-0`;
   const pageParentButtonClass =
-    "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#BACEFD] bg-[#F0F5FF] text-[#1456F0] shadow-[0_10px_24px_rgba(31,35,41,0.06)] transition-colors hover:bg-[#e5efff] lg:hidden";
-  const directoryNavigationButtonClass = `group inline-flex h-8 shrink-0 whitespace-nowrap items-center gap-1.5 rounded-full border border-[#D0D3D6] bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(240,245,255,0.78))] px-2.5 text-[#46556f] shadow-[0_8px_20px_rgba(31,35,41,0.07),inset_0_1px_0_rgba(255,255,255,0.9)] backdrop-blur-xl transition-all hover:-translate-y-px hover:border-[#BACEFD] hover:bg-[#F0F5FF] hover:text-[#1456F0] hover:shadow-[0_12px_26px_rgba(31,35,41,0.1)] active:translate-y-0 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`;
+    "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#BACEFD] bg-[#F0F5FF] text-[#1456F0] transition-colors hover:bg-[#e5efff] lg:hidden";
+  const directoryNavigationButtonClass = `${WORKBENCH_SECONDARY_BUTTON_CLASS} h-8 shrink-0 whitespace-nowrap px-2.5 text-[#46556f] hover:border-[#BACEFD] hover:bg-[#F0F5FF] hover:text-[#1456F0] ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`;
   const directoryNavigationIconClass =
     "flex h-5 w-5 items-center justify-center rounded-full bg-[#F0F5FF] text-[#1456F0] ring-1 ring-[#BACEFD] transition-colors group-hover:bg-[#E8F0FF] group-hover:text-[#1456F0]";
 
@@ -118,7 +120,7 @@ export default function WorkspaceToolbar({
       <div
         className={
           isPagePresentation
-            ? "shrink-0 border-b border-[#DEE0E3]/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.78),rgba(255,255,255,0.62))] px-3 py-3 backdrop-blur-2xl sm:px-4"
+            ? "shrink-0 border-b border-[#DEE0E3] bg-white px-3 py-3 shadow-[0_1px_2px_rgba(31,35,41,0.04)] sm:px-4"
             : "shrink-0 border-b border-[#EFF0F1] bg-white px-4 py-3"
         }
       >
@@ -134,7 +136,7 @@ export default function WorkspaceToolbar({
                   onClick={onBack}
                   aria-label={t("files.backToSession")}
                   title={t("files.backToSession")}
-                  className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#1456F0] bg-[#1456F0] text-white shadow-[0_12px_26px_rgba(20,86,240,0.26)] transition-colors hover:bg-[#0F4BD8] active:bg-[#0B3DB2] lg:hidden"
+                  className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-[#1456F0] bg-[#1456F0] text-white transition-colors hover:bg-[#0F4BD8] active:bg-[#0B3DB2] lg:hidden"
                 >
                   <MessageCircleReply size={17} />
                 </button>
@@ -231,7 +233,7 @@ export default function WorkspaceToolbar({
                 aria-label={t("files.searchWorkspaceFiles")}
                 className={
                   isPagePresentation
-                    ? `h-9 w-full rounded-lg border border-[#DEE0E3] bg-white/84 pr-3 pl-9 text-[#1F2329] shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] outline-none placeholder:text-[12px] placeholder:text-[#8F959E] focus:border-[#1456F0] ${TYPOGRAPHY_BODY_CLASS}`
+                    ? `h-9 w-full rounded-lg border border-[#DEE0E3] bg-white pr-3 pl-9 text-[#1F2329] outline-none placeholder:text-[12px] placeholder:text-[#8F959E] focus:border-[#1456F0] ${TYPOGRAPHY_BODY_CLASS}`
                     : `h-8 w-full rounded-full border border-[#EFF0F1] bg-white pr-2 pl-9 text-[#1F2329] outline-none placeholder:text-[12px] placeholder:text-[#8F959E] focus:border-[#8FB1FF] ${TYPOGRAPHY_BODY_CLASS}`
                 }
               />
@@ -300,7 +302,7 @@ export default function WorkspaceToolbar({
         {isPagePresentation && (
           <div
             data-ripple-files-mobile-path-row
-            className="mt-3 flex min-w-0 items-center gap-2 rounded-xl border border-[#DEE0E3]/80 bg-white/62 px-2.5 py-2 text-[#646A73] lg:hidden"
+            className="mt-3 flex min-w-0 items-center gap-2 rounded-xl border border-[#DEE0E3] bg-white px-2.5 py-2 text-[#646A73] lg:hidden"
           >
             {listing?.parent_path ? (
               <button
@@ -345,7 +347,7 @@ export default function WorkspaceToolbar({
           <div
             data-ripple-files-path-row="page"
             data-ripple-workspace-location="current-path"
-            className="mt-3 hidden min-w-0 items-center gap-2 rounded-xl border border-[#DEE0E3]/80 bg-white/62 px-2.5 py-2 text-[#646A73] lg:flex"
+            className="mt-3 hidden min-w-0 items-center gap-2 rounded-xl border border-[#DEE0E3] bg-white px-2.5 py-2 text-[#646A73] lg:flex"
           >
             <div className="flex shrink-0 items-center gap-1">
               {listing?.parent_path ? (
@@ -405,7 +407,7 @@ export default function WorkspaceToolbar({
           <div
             className={
               isPagePresentation
-                ? `mt-3 hidden gap-2 rounded-2xl border border-[#DEE0E3] bg-[#FFFFFF]/76 p-3 text-[#2B2F36] shadow-[0_14px_36px_rgba(31,35,41,0.06)] lg:grid lg:grid-cols-2 ${TYPOGRAPHY_META_CLASS}`
+                ? `mt-3 hidden gap-2 p-3 text-[#2B2F36] lg:grid lg:grid-cols-2 ${TYPOGRAPHY_META_CLASS} ${WORKBENCH_SECTION_CLASS}`
                 : `mb-2 grid gap-2 rounded-2xl border border-[#EFF0F1] bg-[#fbfbfc] p-3 text-[#2B2F36] shadow-sm sm:grid-cols-2 ${TYPOGRAPHY_META_CLASS}`
             }
           >
@@ -450,7 +452,7 @@ export default function WorkspaceToolbar({
           onClick={() => setIsMobileSearchOpen(false)}
         >
           <div
-            className="w-full rounded-2xl border border-[#DEE0E3] bg-white/92 text-[#1F2329] shadow-[0_-14px_34px_rgba(31,35,41,0.14)] backdrop-blur-xl"
+            className="w-full rounded-2xl border border-[#DEE0E3] bg-white text-[#1F2329] shadow-[0_-8px_24px_rgba(31,35,41,0.10)]"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-center gap-2 border-b border-[#EFF0F1] px-3 py-3">
@@ -572,7 +574,7 @@ function WorkspaceSearchFilters({
 }: WorkspaceSearchFiltersProps) {
   const { t } = useI18n();
   const inputClass = compact
-    ? `h-8 min-w-0 flex-1 rounded-lg border border-[#DEE0E3] bg-white/84 px-2 ${TYPOGRAPHY_META_CLASS}`
+    ? `h-8 min-w-0 flex-1 rounded-lg border border-[#DEE0E3] bg-white px-2 ${TYPOGRAPHY_META_CLASS}`
     : `h-10 min-w-0 flex-1 rounded-xl border border-[#DEE0E3] bg-white px-2 ${TYPOGRAPHY_MOBILE_BODY_CLASS}`;
 
   return (

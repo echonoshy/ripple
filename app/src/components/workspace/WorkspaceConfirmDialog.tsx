@@ -6,6 +6,10 @@ import {
   TYPOGRAPHY_BODY_CLASS,
   TYPOGRAPHY_BODY_MEDIUM_CLASS,
   TYPOGRAPHY_META_MEDIUM_CLASS,
+  WORKBENCH_DANGER_BUTTON_CLASS,
+  WORKBENCH_FLOATING_SURFACE_CLASS,
+  WORKBENCH_PRIMARY_BUTTON_CLASS,
+  WORKBENCH_SECONDARY_BUTTON_CLASS,
 } from "@/components/workbench/stylePrimitives";
 
 export interface WorkspaceConfirmation {
@@ -40,7 +44,7 @@ export default function WorkspaceConfirmDialog({
         role="dialog"
         aria-modal="true"
         aria-label={confirmation.title}
-        className="w-full max-w-md rounded-2xl border border-[#DEE0E3] bg-white/96 text-[#1F2329] shadow-[0_18px_48px_rgba(31,35,41,0.18)] backdrop-blur-2xl"
+        className={`w-full max-w-md text-[#1F2329] ${WORKBENCH_FLOATING_SURFACE_CLASS}`}
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-start gap-3 border-b border-[#EFF0F1] px-4 py-3">
@@ -63,7 +67,7 @@ export default function WorkspaceConfirmDialog({
             type="button"
             onClick={() => onResolve(false)}
             disabled={confirmation.loading}
-            className={`h-10 rounded-xl border border-[#DEE0E3] bg-white px-4 text-[#2B2F36] hover:bg-[#F8F9FA] disabled:cursor-not-allowed disabled:opacity-50 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+            className={`h-10 px-4 ${WORKBENCH_SECONDARY_BUTTON_CLASS} ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
           >
             {confirmation.cancelLabel}
           </button>
@@ -71,8 +75,8 @@ export default function WorkspaceConfirmDialog({
             type="button"
             onClick={() => onResolve(true)}
             disabled={confirmation.loading}
-            className={`inline-flex h-10 items-center justify-center gap-2 rounded-xl px-4 text-white disabled:cursor-not-allowed disabled:opacity-60 ${TYPOGRAPHY_META_MEDIUM_CLASS} ${
-              danger ? "bg-[#B42318] hover:bg-[#9F1F16]" : "bg-[#1456F0] hover:bg-[#0F4BD8]"
+            className={`h-10 px-4 disabled:opacity-60 ${TYPOGRAPHY_META_MEDIUM_CLASS} ${
+              danger ? WORKBENCH_DANGER_BUTTON_CLASS : WORKBENCH_PRIMARY_BUTTON_CLASS
             }`}
           >
             {confirmation.loading ? <Loader2 size={14} className="animate-spin" /> : null}

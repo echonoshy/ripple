@@ -19,6 +19,9 @@ import MobileActionSheet from "@/components/workbench/MobileActionSheet";
 import {
   TYPOGRAPHY_META_CLASS,
   TYPOGRAPHY_META_MEDIUM_CLASS,
+  WORKBENCH_MENU_CLASS,
+  WORKBENCH_MENU_DANGER_ITEM_CLASS,
+  WORKBENCH_MENU_ITEM_CLASS,
 } from "@/components/workbench/stylePrimitives";
 import { useI18n } from "@/i18n";
 import type { ViewportMenuAnchorRect } from "@/lib/menuPosition";
@@ -92,6 +95,8 @@ export default function WorkspaceActionMenus({
 }: WorkspaceActionMenusProps) {
   const { t } = useI18n();
   const closeActionsMenu = () => setIsActionsMenuOpen(false);
+  const menuItemClass = `${WORKBENCH_MENU_ITEM_CLASS} ${TYPOGRAPHY_META_MEDIUM_CLASS}`;
+  const menuDangerItemClass = `${WORKBENCH_MENU_DANGER_ITEM_CLASS} ${TYPOGRAPHY_META_MEDIUM_CLASS}`;
 
   const contextMenuPortal =
     contextMenu.visible && typeof document !== "undefined"
@@ -99,7 +104,7 @@ export default function WorkspaceActionMenus({
           <div
             ref={contextMenuRef}
             style={{ top: contextMenu.y, left: contextMenu.x }}
-            className={`animate-in fade-in-50 zoom-in-95 fixed z-50 max-h-[calc(100dvh-104px)] w-[220px] overflow-y-auto rounded-2xl border border-[#DEE0E3] bg-white p-1.5 text-[#2B2F36] shadow-[0_12px_36px_-4px_rgba(0,0,0,0.12),0_4px_16px_-2px_rgba(0,0,0,0.06)] duration-100 ${TYPOGRAPHY_META_CLASS}`}
+            className={`animate-in fade-in-50 zoom-in-95 fixed z-50 max-h-[calc(100dvh-104px)] w-[220px] overflow-y-auto duration-100 ${TYPOGRAPHY_META_CLASS} ${WORKBENCH_MENU_CLASS}`}
             onClick={(e) => e.stopPropagation()}
             onContextMenu={(e) => e.preventDefault()}
           >
@@ -111,21 +116,21 @@ export default function WorkspaceActionMenus({
                     if (contextMenu.entry) startRename(contextMenu.entry);
                     setContextMenu((prev: WorkspaceContextMenuState) => ({ ...prev, visible: false }));
                   }}
-                  className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[#2B2F36] transition-all hover:bg-[#F5F6F7] active:bg-[#F0F5FF] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                  className={menuItemClass}
                 >
                   <Edit3 size={13} className="shrink-0 text-[#646A73]" /> {t("files.rename")}
                 </button>
                 <button
                   type="button"
                   onClick={() => contextMenu.entry && handleCut(contextMenu.entry)}
-                  className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[#2B2F36] transition-all hover:bg-[#F5F6F7] active:bg-[#F0F5FF] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                  className={menuItemClass}
                 >
                   <Scissors size={13} className="shrink-0 text-[#646A73]" /> {t("files.cutMove")}
                 </button>
                 <button
                   type="button"
                   onClick={() => contextMenu.entry && handleCopy(contextMenu.entry)}
-                  className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[#2B2F36] transition-all hover:bg-[#F5F6F7] active:bg-[#F0F5FF] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                  className={menuItemClass}
                 >
                   <Copy size={13} className="shrink-0 text-[#646A73]" /> {t("files.copy")}
                 </button>
@@ -134,7 +139,7 @@ export default function WorkspaceActionMenus({
                   onClick={() =>
                     contextMenu.entry && handleCopyAbsoluteSandboxPath(contextMenu.entry)
                   }
-                  className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left font-[family-name:var(--font-mono)] text-[#2B2F36] transition-all hover:bg-[#F5F6F7] active:bg-[#F0F5FF] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                  className={`${menuItemClass} font-[family-name:var(--font-mono)]`}
                 >
                   <FileText size={13} className="shrink-0 text-[#646A73]" />{" "}
                   {t("files.copySandboxPath")}
@@ -146,7 +151,7 @@ export default function WorkspaceActionMenus({
                       if (contextMenu.entry) handleDownloadFile(contextMenu.entry.path);
                       setContextMenu((prev: WorkspaceContextMenuState) => ({ ...prev, visible: false }));
                     }}
-                    className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[#2B2F36] transition-all hover:bg-[#F5F6F7] active:bg-[#F0F5FF] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                    className={menuItemClass}
                   >
                     <Download size={13} className="shrink-0 text-[#646A73]" /> {t("files.download")}
                   </button>
@@ -155,7 +160,7 @@ export default function WorkspaceActionMenus({
                 <button
                   type="button"
                   onClick={() => contextMenu.entry && handleDelete(contextMenu.entry)}
-                  className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[#B42318] transition-colors hover:bg-[#FFF1F0] active:bg-[#FFE3E0] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                  className={menuDangerItemClass}
                 >
                   <Trash2 size={13} className="shrink-0 text-[#B42318]" /> {t("files.delete")}
                 </button>
@@ -166,7 +171,7 @@ export default function WorkspaceActionMenus({
                   type="button"
                   disabled={!clipboard}
                   onClick={handlePaste}
-                  className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[#2B2F36] transition-all hover:bg-[#F5F6F7] active:bg-[#F0F5FF] disabled:cursor-not-allowed disabled:opacity-40 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                  className={`${menuItemClass} disabled:cursor-not-allowed disabled:opacity-40`}
                 >
                   <Clipboard size={13} className="shrink-0 text-[#646A73]" />
                   {clipboard ? (
@@ -183,7 +188,7 @@ export default function WorkspaceActionMenus({
                   <button
                     type="button"
                     onClick={clearClipboard}
-                    className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[#646A73] transition-all hover:bg-[#F5F6F7] active:bg-[#F0F5FF] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                    className={`${menuItemClass} text-[#646A73]`}
                   >
                     <X size={13} className="shrink-0 text-[#646A73]" />
                     {t("files.clearClipboard")}
@@ -196,7 +201,7 @@ export default function WorkspaceActionMenus({
                     setCreationModal({ visible: true, kind: "file" });
                     setContextMenu((prev: WorkspaceContextMenuState) => ({ ...prev, visible: false }));
                   }}
-                  className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[#2B2F36] transition-all hover:bg-[#F5F6F7] active:bg-[#F0F5FF] disabled:cursor-not-allowed disabled:opacity-40 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                  className={`${menuItemClass} disabled:cursor-not-allowed disabled:opacity-40`}
                 >
                   <FilePlus size={13} className="shrink-0 text-[#646A73]" /> {t("files.newFile")}
                 </button>
@@ -206,7 +211,7 @@ export default function WorkspaceActionMenus({
                     setCreationModal({ visible: true, kind: "directory" });
                     setContextMenu((prev: WorkspaceContextMenuState) => ({ ...prev, visible: false }));
                   }}
-                  className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[#2B2F36] transition-all hover:bg-[#F5F6F7] active:bg-[#F0F5FF] disabled:cursor-not-allowed disabled:opacity-40 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                  className={`${menuItemClass} disabled:cursor-not-allowed disabled:opacity-40`}
                 >
                   <FolderPlus size={13} className="shrink-0 text-[#646A73]" />{" "}
                   {t("files.newFolder")}
@@ -373,7 +378,7 @@ export default function WorkspaceActionMenus({
       {!isPagePresentation && isActionsMenuOpen && (
         <div
           data-ripple-files-compact-actions-menu
-          className={`absolute top-[54px] right-3 z-40 w-[220px] rounded-2xl border border-[#DEE0E3] bg-white p-1.5 text-[#2B2F36] shadow-[0_18px_44px_rgba(31,35,41,0.16)] ${TYPOGRAPHY_META_CLASS}`}
+          className={`absolute top-[54px] right-3 z-40 w-[220px] text-[#2B2F36] ${TYPOGRAPHY_META_CLASS} ${WORKBENCH_MENU_CLASS}`}
           onClick={(event) => event.stopPropagation()}
         >
           <button
@@ -383,7 +388,7 @@ export default function WorkspaceActionMenus({
               loadDirectory(currentPath);
             }}
             disabled={loading}
-            className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left transition-colors hover:bg-[#F5F6F7] disabled:cursor-not-allowed disabled:opacity-50 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+            className={`${menuItemClass} disabled:cursor-not-allowed disabled:opacity-50`}
           >
             {loading ? (
               <Loader2 size={13} className="shrink-0 animate-spin text-[#646A73]" />
@@ -399,7 +404,7 @@ export default function WorkspaceActionMenus({
               closeActionsMenu();
               handlePaste();
             }}
-            className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left transition-colors hover:bg-[#F5F6F7] disabled:cursor-not-allowed disabled:opacity-40 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+            className={`${menuItemClass} disabled:cursor-not-allowed disabled:opacity-40`}
           >
             <Clipboard size={13} className="shrink-0 text-[#646A73]" />
             {clipboard ? (
@@ -416,7 +421,7 @@ export default function WorkspaceActionMenus({
             <button
               type="button"
               onClick={clearClipboard}
-              className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[#646A73] transition-colors hover:bg-[#F5F6F7] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+              className={`${menuItemClass} text-[#646A73]`}
             >
               <X size={13} className="shrink-0 text-[#646A73]" />
               {t("files.clearClipboard")}
@@ -429,7 +434,7 @@ export default function WorkspaceActionMenus({
               setCreationModal({ visible: true, kind: "file" });
               closeActionsMenu();
             }}
-            className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left transition-colors hover:bg-[#F5F6F7] disabled:cursor-not-allowed disabled:opacity-40 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+            className={`${menuItemClass} disabled:cursor-not-allowed disabled:opacity-40`}
           >
             <FilePlus size={13} className="shrink-0 text-[#646A73]" />
             {t("files.newFile")}
@@ -440,7 +445,7 @@ export default function WorkspaceActionMenus({
               setCreationModal({ visible: true, kind: "directory" });
               closeActionsMenu();
             }}
-            className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left transition-colors hover:bg-[#F5F6F7] disabled:cursor-not-allowed disabled:opacity-40 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+            className={`${menuItemClass} disabled:cursor-not-allowed disabled:opacity-40`}
           >
             <FolderPlus size={13} className="shrink-0 text-[#646A73]" />
             {t("files.newFolder")}

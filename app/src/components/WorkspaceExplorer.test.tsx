@@ -241,8 +241,10 @@ function testWorkspaceExplorerPageKeepsMobileUploadSeparateFromParentFolder() {
   assert.match(workspaceExplorerSource, /<FolderUp size=\{14\}/);
   assert.match(uploadButton, /h-11/);
   assert.match(uploadButton, /w-11/);
-  assert.match(uploadButton, /border-white\/76/);
-  assert.match(uploadButton, /bg-white\/72/);
+  assert.match(uploadButton, /border-\[#DEE0E3\]/);
+  assert.match(uploadButton, /bg-white/);
+  assert.doesNotMatch(uploadButton, /border-white\/76/);
+  assert.doesNotMatch(uploadButton, /bg-white\/72/);
   assert.doesNotMatch(uploadButton, /bg-\[#1456F0\]/);
 }
 
@@ -251,8 +253,9 @@ testWorkspaceExplorerPageKeepsMobileUploadSeparateFromParentFolder();
 function testWorkspaceExplorerMobileToolbarMatchesHomeHeaderButtons() {
   assert.match(
     workspaceExplorerSource,
-    /const filesMobileToolbarButtonClass = `\$\{MOBILE_GLASS_ICON_BUTTON_CLASS\} shrink-0`/
+    /const filesMobileToolbarButtonClass = `\$\{WORKBENCH_MOBILE_ICON_BUTTON_CLASS\} shrink-0`/
   );
+  assert.doesNotMatch(workspaceExplorerSource, /MOBILE_GLASS_ICON_BUTTON_CLASS/);
   assert.match(workspaceExplorerSource, /LUCIDE_STANDARD_STROKE_WIDTH/);
   assert.match(
     workspaceExplorerSource,
@@ -293,7 +296,8 @@ testWorkspaceExplorerMobileToolbarMatchesHomeHeaderButtons();
 function testWorkspaceExplorerUsesSharedDenseToolbarButtons() {
   const source = readWorkspaceExplorerImplementationSource();
 
-  assert.match(source, /const filesToolbarIconButtonBaseClass =\s*\n\s*"inline-flex h-8 w-8/);
+  assert.match(source, /WORKBENCH_ICON_BUTTON_CLASS/);
+  assert.match(source, /const filesToolbarIconButtonBaseClass = WORKBENCH_ICON_BUTTON_CLASS/);
   assert.match(
     source,
     /const filesToolbarIconButtonClass =\s*`\$\{filesToolbarIconButtonBaseClass\}/
@@ -302,7 +306,7 @@ function testWorkspaceExplorerUsesSharedDenseToolbarButtons() {
     source,
     /const filesToolbarIconButtonActiveClass =\s*`\$\{filesToolbarIconButtonBaseClass\}/
   );
-  assert.match(source, /rounded-full/);
+  assert.doesNotMatch(source, /filesToolbarIconButtonBaseClass =\s*\n\s*"inline-flex h-8 w-8/);
   assert.doesNotMatch(source, /const pageToolbarIconButtonClass/);
 }
 
@@ -339,8 +343,8 @@ function testWorkspaceExplorerToolbarActionsShareCompactMotion() {
     toggleSelectionBlock,
     /className=\{\s*isSelectionActive \? filesToolbarIconButtonActiveClass : filesToolbarIconButtonClass\s*\}/
   );
-  assert.doesNotMatch(searchFiltersBlock, /rounded-lg/);
-  assert.doesNotMatch(toggleSelectionBlock, /rounded-lg/);
+  assert.doesNotMatch(searchFiltersBlock, /rounded-full/);
+  assert.doesNotMatch(toggleSelectionBlock, /rounded-full/);
   assert.doesNotMatch(searchFiltersBlock, /MOBILE_GLASS_ICON_BUTTON_CLASS/);
   assert.doesNotMatch(toggleSelectionBlock, /MOBILE_GLASS_ICON_BUTTON_CLASS/);
   assert.match(
@@ -368,10 +372,11 @@ function testWorkspaceExplorerToolbarActionsShareCompactMotion() {
 
 testWorkspaceExplorerToolbarActionsShareCompactMotion();
 
-function testWorkspaceExplorerDesktopDirectoryNavigationUsesSharedGlassButtons() {
+function testWorkspaceExplorerDesktopDirectoryNavigationUsesSharedWorkbenchButtons() {
   const source = readWorkspaceExplorerImplementationSource();
 
-  assert.match(source, /const directoryNavigationButtonClass =\s*`group inline-flex h-8/);
+  assert.match(source, /WORKBENCH_SECONDARY_BUTTON_CLASS/);
+  assert.match(source, /const directoryNavigationButtonClass =\s*`\$\{WORKBENCH_SECONDARY_BUTTON_CLASS\}/);
   assert.match(
     source,
     /const directoryNavigationButtonClass =[\s\S]*TYPOGRAPHY_MICRO_MEDIUM_CLASS/
@@ -384,7 +389,23 @@ function testWorkspaceExplorerDesktopDirectoryNavigationUsesSharedGlassButtons()
   );
 }
 
-testWorkspaceExplorerDesktopDirectoryNavigationUsesSharedGlassButtons();
+testWorkspaceExplorerDesktopDirectoryNavigationUsesSharedWorkbenchButtons();
+
+function testWorkspaceExplorerUsesSolidWorkbenchChrome() {
+  const source = readWorkspaceExplorerImplementationSource();
+
+  assert.match(
+    source,
+    /WORKBENCH_MENU_CLASS|WORKBENCH_SECTION_CLASS|WORKBENCH_SECONDARY_BUTTON_CLASS/
+  );
+  assert.doesNotMatch(source, /backdrop-blur-xl/);
+  assert.doesNotMatch(source, /rounded-\[28px\]/);
+  assert.doesNotMatch(source, /shadow-\[0_18px_44px/);
+  assert.doesNotMatch(source, /bg-white\/9[246]/);
+  assert.doesNotMatch(source, /bg-\[#FFFFFF\]\/76/);
+}
+
+testWorkspaceExplorerUsesSolidWorkbenchChrome();
 
 function testWorkspaceExplorerRootFolderControlsUseFolderRootIcon() {
   const pageHtml = renderExplorer({

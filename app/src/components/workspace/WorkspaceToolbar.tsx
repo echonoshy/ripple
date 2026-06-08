@@ -4,7 +4,6 @@ import {
   FolderRoot,
   FolderUp,
   Loader2,
-  MessageCircleReply,
   MoreHorizontal,
   RefreshCw,
   Search,
@@ -14,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import { IconTile } from "@/components/icons/IconTile";
+import MobilePageHeader from "@/components/workbench/MobilePageHeader";
 import {
   LUCIDE_STANDARD_STROKE_WIDTH,
   TYPOGRAPHY_BODY_CLASS,
@@ -109,18 +109,88 @@ export default function WorkspaceToolbar({
   const filesToolbarIconButtonClass = `${filesToolbarIconButtonBaseClass} text-[#646A73] hover:text-[#1F2329]`;
   const filesToolbarIconButtonActiveClass = `${filesToolbarIconButtonBaseClass} border-[#1456F0]/30 bg-[#F0F5FF] text-[#1456F0] hover:bg-[#F0F5FF]`;
   const filesMobileToolbarButtonClass = `${WORKBENCH_MOBILE_ICON_BUTTON_CLASS} shrink-0`;
+  const filesMobilePrimaryHeaderClass =
+    "flex min-w-0 items-center gap-2 border-b border-[#DEE0E3] bg-white px-3 py-3 lg:hidden";
   const pageParentButtonClass =
     "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#BACEFD] bg-[#F0F5FF] text-[#1456F0] transition-colors hover:bg-[#e5efff] lg:hidden";
   const directoryNavigationButtonClass = `${WORKBENCH_SECONDARY_BUTTON_CLASS} h-8 shrink-0 whitespace-nowrap px-2.5 text-[#46556f] hover:border-[#BACEFD] hover:bg-[#F0F5FF] hover:text-[#1456F0] ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`;
   const directoryNavigationIconClass =
     "flex h-5 w-5 items-center justify-center rounded-full bg-[#F0F5FF] text-[#1456F0] ring-1 ring-[#BACEFD] transition-colors group-hover:bg-[#E8F0FF] group-hover:text-[#1456F0]";
+  const mobileFileActions = (
+    <>
+      <button
+        type="button"
+        data-ripple-files-mobile-search-trigger
+        onClick={() => {
+          setIsActionsMenuOpen(false);
+          setIsMobileSearchOpen(true);
+        }}
+        className={`${filesMobileToolbarButtonClass} ${
+          isSearchMode ? "border-[#BACEFD] bg-[#F0F5FF] text-[#1456F0]" : ""
+        }`}
+        title={t("files.searchWorkspaceFiles")}
+        aria-label={t("files.searchWorkspaceFiles")}
+      >
+        <Search size={18} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
+      </button>
+      <button
+        type="button"
+        data-ripple-files-action="toggle-selection"
+        onClick={toggleSelectionMode}
+        className={`${filesMobileToolbarButtonClass} ${
+          isSelectionActive ? "border-[#BACEFD] bg-[#F0F5FF] text-[#1456F0]" : ""
+        }`}
+        title={isSelectionActive ? t("files.doneSelecting") : t("files.selectFiles")}
+        aria-label={isSelectionActive ? t("files.doneSelecting") : t("files.selectFiles")}
+      >
+        {isSelectionActive ? (
+          <X size={18} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
+        ) : (
+          <SquareCheck size={18} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
+        )}
+      </button>
+      <button
+        type="button"
+        data-ripple-files-action="upload"
+        className={filesMobileToolbarButtonClass}
+        title={t("files.uploadFiles")}
+        aria-label={t("files.uploadFiles")}
+        disabled={uploading}
+        onClick={() => uploadInputRef.current?.click()}
+      >
+        {uploading ? (
+          <Loader2
+            size={18}
+            strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH}
+            className="animate-spin"
+          />
+        ) : (
+          <Upload size={18} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
+        )}
+      </button>
+      <button
+        type="button"
+        data-ripple-files-action="mobile-more"
+        className={filesMobileToolbarButtonClass}
+        title={t("files.moreFileActions")}
+        aria-label={t("files.moreFileActions")}
+        onClick={(event) => {
+          event.stopPropagation();
+          setIsMobileSearchOpen(false);
+          setIsActionsMenuOpen((open) => !open);
+        }}
+      >
+        <MoreHorizontal size={18} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
+      </button>
+    </>
+  );
 
   return (
     <>
       <div
         className={
           isPagePresentation
-            ? "shrink-0 border-b border-[#DEE0E3] bg-white px-3 py-3 shadow-[0_1px_2px_rgba(31,35,41,0.04)] sm:px-4"
+            ? "shrink-0 bg-white shadow-[0_1px_2px_rgba(31,35,41,0.04)] lg:border-b lg:border-[#DEE0E3] lg:px-3 lg:py-3"
             : "shrink-0 border-b border-[#EFF0F1] bg-white px-4 py-3"
         }
       >
@@ -129,90 +199,45 @@ export default function WorkspaceToolbar({
           className={isPagePresentation ? "flex flex-col gap-3" : "mb-2 flex items-center gap-2"}
         >
           {isPagePresentation && (
-            <div data-ripple-files-title-row="page" className="flex min-w-0 items-center gap-2">
+            <>
               {onBack ? (
-                <button
-                  type="button"
-                  onClick={onBack}
-                  aria-label={t("files.backToSession")}
-                  title={t("files.backToSession")}
-                  className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-[#1456F0] bg-[#1456F0] text-white transition-colors hover:bg-[#0F4BD8] active:bg-[#0B3DB2] lg:hidden"
+                <MobilePageHeader
+                  title={t("files.title")}
+                  backLabel={t("files.backToSession")}
+                  onBack={onBack}
+                  actions={mobileFileActions}
+                />
+              ) : (
+                <div
+                  data-ripple-files-mobile-primary-header="true"
+                  data-ripple-files-title-row="page"
+                  className={filesMobilePrimaryHeaderClass}
                 >
-                  <MessageCircleReply size={17} />
-                </button>
-              ) : null}
-              <div className="min-w-0 flex-1">
-                <h1 className={`text-[#1F2329] ${TYPOGRAPHY_PAGE_TITLE_CLASS}`}>
-                  {t("files.title")}
-                </h1>
+                  <div className="min-w-0 flex-1">
+                    <h1
+                      data-ripple-files-title="primary"
+                      className={`truncate text-[#1F2329] ${TYPOGRAPHY_PAGE_TITLE_CLASS}`}
+                    >
+                      {t("files.title")}
+                    </h1>
+                  </div>
+                  <div className="flex min-w-0 shrink-0 items-center justify-end gap-1.5">
+                    {mobileFileActions}
+                  </div>
+                </div>
+              )}
+              <div
+                data-ripple-files-title-row="page"
+                className="hidden min-w-0 items-center gap-2 lg:flex"
+              >
+                <div className="min-w-0 flex-1">
+                  <h1 className={`text-[#1F2329] ${TYPOGRAPHY_PAGE_TITLE_CLASS}`}>
+                    {t("files.title")}
+                  </h1>
+                </div>
               </div>
-              <button
-                type="button"
-                data-ripple-files-mobile-search-trigger
-                onClick={() => {
-                  setIsActionsMenuOpen(false);
-                  setIsMobileSearchOpen(true);
-                }}
-                className={`${filesMobileToolbarButtonClass} lg:hidden ${
-                  isSearchMode ? "border-[#BACEFD] bg-[#F0F5FF] text-[#1456F0]" : ""
-                }`}
-                title={t("files.searchWorkspaceFiles")}
-                aria-label={t("files.searchWorkspaceFiles")}
-              >
-                <Search size={18} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
-              </button>
-              <button
-                type="button"
-                data-ripple-files-action="toggle-selection"
-                onClick={toggleSelectionMode}
-                className={`${filesMobileToolbarButtonClass} lg:hidden ${
-                  isSelectionActive ? "border-[#BACEFD] bg-[#F0F5FF] text-[#1456F0]" : ""
-                }`}
-                title={isSelectionActive ? t("files.doneSelecting") : t("files.selectFiles")}
-                aria-label={isSelectionActive ? t("files.doneSelecting") : t("files.selectFiles")}
-              >
-                {isSelectionActive ? (
-                  <X size={18} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
-                ) : (
-                  <SquareCheck size={18} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
-                )}
-              </button>
-              <button
-                type="button"
-                data-ripple-files-action="upload"
-                className={`${filesMobileToolbarButtonClass} lg:hidden`}
-                title={t("files.uploadFiles")}
-                aria-label={t("files.uploadFiles")}
-                disabled={uploading}
-                onClick={() => uploadInputRef.current?.click()}
-              >
-                {uploading ? (
-                  <Loader2
-                    size={18}
-                    strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH}
-                    className="animate-spin"
-                  />
-                ) : (
-                  <Upload size={18} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
-                )}
-              </button>
-              <button
-                type="button"
-                data-ripple-files-action="mobile-more"
-                className={`${filesMobileToolbarButtonClass} lg:hidden`}
-                title={t("files.moreFileActions")}
-                aria-label={t("files.moreFileActions")}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setIsMobileSearchOpen(false);
-                  setIsActionsMenuOpen((open) => !open);
-                }}
-              >
-                <MoreHorizontal size={18} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
-              </button>
-            </div>
+            </>
           )}
-
           <div
             data-ripple-files-search-row={isPagePresentation ? "page" : undefined}
             className={
@@ -302,7 +327,7 @@ export default function WorkspaceToolbar({
         {isPagePresentation && (
           <div
             data-ripple-files-mobile-path-row
-            className="mt-3 flex min-w-0 items-center gap-2 rounded-xl border border-[#DEE0E3] bg-white px-2.5 py-2 text-[#646A73] lg:hidden"
+            className="mx-3 mt-3 flex min-w-0 items-center gap-2 rounded-xl border border-[#DEE0E3] bg-white px-2.5 py-2 text-[#646A73] lg:hidden"
           >
             {listing?.parent_path ? (
               <button

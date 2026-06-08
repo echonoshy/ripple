@@ -11,17 +11,26 @@ const noop = () => {};
 function renderFilesPage(overrides: Partial<React.ComponentProps<typeof FilesPage>> = {}) {
   return renderToStaticMarkup(
     <I18nProvider initialPreference="en-US">
-      <FilesPage userId="default" refreshToken={0} onBack={noop} {...overrides} />
+      <FilesPage userId="default" refreshToken={0} {...overrides} />
     </I18nProvider>
   );
 }
 
 function testFilesHeaderDoesNotRenderTaskScopedActions() {
   const html = renderFilesPage();
+  const toolbarSource = readFileSync(
+    new URL("../workspace/WorkspaceToolbar.tsx", import.meta.url),
+    "utf8"
+  );
 
   assert.match(html, /data-ripple-files-page="finder-stage"/);
   assert.match(html, /data-presentation="page"/);
-  assert.match(html, /aria-label="Back to session"/);
+  assert.match(html, /data-ripple-files-mobile-primary-header="true"/);
+  assert.match(html, /data-ripple-files-title-row="page"[^>]*lg:hidden/);
+  assert.match(html, /data-ripple-files-title="primary"[^>]*>Files</);
+  assert.match(toolbarSource, /filesMobilePrimaryHeaderClass/);
+  assert.doesNotMatch(html, /data-ripple-mobile-page-header="true"/);
+  assert.doesNotMatch(html, /aria-label="Back to session"/);
   assert.match(html, /lg:hidden/);
   assert.match(html, /#F5F6F7/);
   assert.doesNotMatch(html, /#ece6dc/);
@@ -34,6 +43,16 @@ function testFilesHeaderDoesNotRenderTaskScopedActions() {
 }
 
 testFilesHeaderDoesNotRenderTaskScopedActions();
+
+function testFilesPageSecondaryReturnUsesSharedMobilePageHeader() {
+  const html = renderFilesPage({ onBack: noop });
+
+  assert.match(html, /data-ripple-mobile-page-header="true"/);
+  assert.match(html, /data-ripple-mobile-page-header-title="true"[^>]*>Files</);
+  assert.match(html, /aria-label="Back to session"/);
+}
+
+testFilesPageSecondaryReturnUsesSharedMobilePageHeader();
 
 function testFilesPagePassesPendingOpenFileRequestToExplorer() {
   const source = readFileSync(new URL("./FilesPage.tsx", import.meta.url), "utf8");

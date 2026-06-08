@@ -132,12 +132,19 @@ function testWorkspaceExplorerPageStacksHeaderControlsAwayFromTitle() {
 
   assert.match(html, /data-ripple-files-toolbar-layout="stacked"/);
   assert.match(html, /data-ripple-files-title-row="page"/);
+  assert.match(html, /data-ripple-files-mobile-primary-header="true"/);
   assert.match(html, /data-ripple-files-search-row="page"/);
   assert.match(html, /data-ripple-files-mobile-search-trigger/);
   assert.match(workspaceExplorerSource, /TYPOGRAPHY_PAGE_TITLE_CLASS/);
   assert.match(html, /text-\[20px\] leading-\[30px\]/);
 
+  const mobileTitleRow = html.match(
+    /<div[^>]*data-ripple-files-title-row="page"[^>]*>/
+  )?.[0];
   const pageSearchRow = html.match(/<div[^>]*data-ripple-files-search-row="page"[^>]*>/)?.[0];
+  assert.ok(mobileTitleRow);
+  assert.match(mobileTitleRow, /lg:hidden/);
+  assert.doesNotMatch(mobileTitleRow, /grid-cols-\[44px_minmax\(0,1fr\)_auto\]/);
   assert.ok(pageSearchRow);
   assert.match(pageSearchRow, /hidden/);
   assert.match(pageSearchRow, /lg:flex/);
@@ -149,11 +156,12 @@ function testWorkspaceExplorerBackButtonNamesSessionReturn() {
   const source = readWorkspaceExplorerImplementationSource();
   const html = renderExplorer({ presentation: "page", onBack: () => {} });
 
-  assert.match(source, /MessageCircleReply/);
+  assert.match(source, /MobilePageHeader/);
+  assert.match(html, /data-ripple-mobile-page-header="true"/);
   assert.match(html, /aria-label="Back to session"/);
   assert.match(html, /title="Back to session"/);
-  assert.match(html, /bg-\[#1456F0\]/);
-  assert.match(html, /text-white/);
+  assert.match(html, /lucide-chevron-left/);
+  assert.match(html, /border-\[#DEE0E3\]/);
   assert.doesNotMatch(html, /Back to settings/);
 }
 
@@ -183,6 +191,7 @@ function testWorkspaceExplorerPageShowsMobileParentFolderControl() {
   assert.match(html, /data-ripple-files-mobile-path-row/);
   assert.match(html, /data-ripple-files-action="parent-folder"/);
   assert.match(html, /aria-label="Go to parent folder"/);
+  assert.match(html, /data-ripple-files-mobile-path-row[^>]*mx-3/);
   assert.match(
     html,
     /data-ripple-files-mobile-path-row[\s\S]*data-ripple-files-action="parent-folder"/
@@ -267,11 +276,11 @@ function testWorkspaceExplorerMobileToolbarMatchesHomeHeaderButtons() {
   );
   assert.match(
     workspaceExplorerSource,
-    /data-ripple-files-action="upload"[\s\S]*className=\{`\$\{filesMobileToolbarButtonClass\} lg:hidden`\}/
+    /data-ripple-files-action="upload"[\s\S]*className=\{filesMobileToolbarButtonClass\}/
   );
   assert.match(
     workspaceExplorerSource,
-    /data-ripple-files-action="mobile-more"[\s\S]*className=\{`\$\{filesMobileToolbarButtonClass\} lg:hidden`\}/
+    /data-ripple-files-action="mobile-more"[\s\S]*className=\{filesMobileToolbarButtonClass\}/
   );
   assert.match(
     workspaceExplorerSource,

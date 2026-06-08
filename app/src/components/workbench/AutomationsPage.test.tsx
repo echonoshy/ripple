@@ -64,7 +64,10 @@ function testAutomationFormCanSelectModel() {
 function testNewAutomationOpensChatInsteadOfCreateForm() {
   const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /onOpenChat\?: \(prompt: string, options\?: \{ autoSend\?: boolean; newSession\?: boolean \}\) => void/);
+  assert.match(
+    source,
+    /onOpenChat\?: \(prompt: string, options\?: \{ autoSend\?: boolean; newSession\?: boolean \}\) => void/
+  );
   assert.match(source, /const openCreateAutomationChat = useCallback/);
   assert.match(
     source,
@@ -218,7 +221,10 @@ function testAutomationLatestRunSummaryDoesNotDuplicateOutputActions() {
   assert.doesNotMatch(source, /hasRunOutput\(latestRun\)/);
   assert.doesNotMatch(source, /pendingRunActionId === `\$\{latestRun\.job_id\}:view`/);
   assert.doesNotMatch(source, /pendingRunActionId === `\$\{latestRun\.job_id\}:download`/);
-  assert.match(source, /data-ripple-automation-run-row[\s\S]*handleViewOutput\(run, schedule\.title\)/);
+  assert.match(
+    source,
+    /data-ripple-automation-run-row[\s\S]*handleViewOutput\(run, schedule\.title\)/
+  );
   assert.match(source, /data-ripple-automation-run-row[\s\S]*handleDownloadOutput\(run\)/);
   assert.match(source, /t\("automations\.runShort"\)/);
   assert.match(source, /t\("automations\.historyShort"\)/);
@@ -247,13 +253,19 @@ function testAutomationHeaderActionsMatchSkillsPageStyle() {
     source,
     /className=\{`\$\{WORKBENCH_MOBILE_ICON_BUTTON_CLASS\} shrink-0[\s\S]*lg:h-10 lg:w-auto lg:gap-1\.5[\s\S]*lg:px-3/
   );
-  assert.match(source, /<span className="hidden lg:inline">\{t\("automations\.refresh"\)\}<\/span>/);
+  assert.match(
+    source,
+    /<span className="hidden lg:inline">\{t\("automations\.refresh"\)\}<\/span>/
+  );
 }
 
 function testAutomationsPageUsesSolidWorkbenchSurfaces() {
   const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /WORKBENCH_(SECTION|SURFACE|PRIMARY_BUTTON|SECONDARY_BUTTON|STATUS|FIELD|MENU)/);
+  assert.match(
+    source,
+    /WORKBENCH_(SECTION|SURFACE|PRIMARY_BUTTON|SECONDARY_BUTTON|STATUS|FIELD|MENU)/
+  );
   assert.doesNotMatch(source, /bg-white\/7[02468].*backdrop-blur-xl/);
   assert.doesNotMatch(source, /shadow-\[0_18px_44px/);
   assert.doesNotMatch(source, /backdrop-blur-xl/);
@@ -290,8 +302,14 @@ function testAutomationsPageUsesInlineMobileActionsWithoutOverflowSheet() {
     source,
     /data-ripple-automation-mobile-primary-actions[\s\S]*className="mt-2 grid grid-cols-5/
   );
-  assert.match(source, /data-ripple-automation-mobile-primary-actions[\s\S]*beginEditSchedule\(schedule\)/);
-  assert.match(source, /data-ripple-automation-mobile-primary-actions[\s\S]*"toggle", schedule\.enabled/);
+  assert.match(
+    source,
+    /data-ripple-automation-mobile-primary-actions[\s\S]*beginEditSchedule\(schedule\)/
+  );
+  assert.match(
+    source,
+    /data-ripple-automation-mobile-primary-actions[\s\S]*"toggle", schedule\.enabled/
+  );
   assert.match(source, /data-ripple-automation-mobile-primary-actions[\s\S]*"delete"/);
   assert.doesNotMatch(source, /import MobileActionSheet from "\.\/MobileActionSheet"/);
   assert.doesNotMatch(source, /data-ripple-automation-more-sheet/);
@@ -299,6 +317,21 @@ function testAutomationsPageUsesInlineMobileActionsWithoutOverflowSheet() {
   assert.doesNotMatch(source, /MoreHorizontal/);
   assert.match(source, /<ArrowLeft size=\{16\}/);
   assert.doesNotMatch(source, /ArrowBigLeft/);
+}
+
+function testAutomationEditSheetRespectsMobileSafeAreaAndCompactText() {
+  const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /data-ripple-automation-form-sheet/);
+  assert.match(source, /max-md:top-\[calc\(max\(env\(safe-area-inset-top\),16px\)\+8px\)\]/);
+  assert.match(
+    source,
+    /max-md:max-h-\[calc\(100dvh_-_calc\(max\(env\(safe-area-inset-top\),16px\)\+8px\)_-_max\(env\(safe-area-inset-bottom\),8px\)\)\]/
+  );
+  assert.match(source, /const automationFieldLabelClass =[\s\S]*text-\[12px\]/);
+  assert.match(source, /const automationFieldControlClass =[\s\S]*text-\[15px\]/);
+  assert.match(source, /const automationMonoFieldControlClass =[\s\S]*text-\[15px\]/);
+  assert.match(source, /const automationTextareaClass =[\s\S]*text-\[15px\]/);
 }
 
 function testAutomationsMobileActionsStaySingleLineOnNarrowScreens() {
@@ -319,6 +352,25 @@ function testAutomationsMobileActionsStaySingleLineOnNarrowScreens() {
   assert.match(source, /className=\{`\$\{mobileAutomationDeleteButtonClass\}/);
 }
 
+function testMobileAutomationDeleteConfirmationCanBeCancelled() {
+  const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
+  const mobileActions =
+    source.match(
+      /data-ripple-automation-mobile-primary-actions[\s\S]*?<div\s+data-ripple-automation-actions/
+    )?.[0] || "";
+
+  assert.match(source, /const isConfirmingDelete = confirmDeleteId === schedule\.schedule_id;/);
+  assert.match(mobileActions, /isConfirmingDelete \? \(/);
+  assert.match(mobileActions, /onClick=\{\(\) => setConfirmDeleteId\(null\)\}/);
+  assert.match(mobileActions, /aria-label=\{t\("automations\.cancelDeleteAutomation"\)\}/);
+  assert.match(mobileActions, /<span>\{t\("automations\.cancel"\)\}<\/span>/);
+  assert.match(mobileActions, /isConfirmingDelete[\s\S]*t\("automations\.confirm"\)/);
+  assert.doesNotMatch(
+    mobileActions,
+    /data-ripple-automation-mobile-primary-actions[\s\S]{0,120}grid-cols-6/
+  );
+}
+
 function testAutomationRunHistoryUsesReadableRows() {
   const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
 
@@ -328,7 +380,10 @@ function testAutomationRunHistoryUsesReadableRows() {
   assert.match(source, /max-h-44 overflow-y-auto/);
   assert.match(source, /data-ripple-automation-run-row[\s\S]*py-1\.5/);
   assert.match(source, /grid-cols-\[auto_minmax\(0,1fr\)_auto\]/);
-  assert.match(source, /data-ripple-automation-run-row[\s\S]*truncate font-\[family-name:var\(--font-mono\)\]/);
+  assert.match(
+    source,
+    /data-ripple-automation-run-row[\s\S]*truncate font-\[family-name:var\(--font-mono\)\]/
+  );
 }
 
 function testAutomationRunHistoryActionsUseCompactMobileText() {
@@ -374,7 +429,9 @@ testAutomationHeaderActionsMatchSkillsPageStyle();
 testAutomationsPageUsesSolidWorkbenchSurfaces();
 testAutomationCardUsesDesktopRowLayout();
 testAutomationsPageUsesInlineMobileActionsWithoutOverflowSheet();
+testAutomationEditSheetRespectsMobileSafeAreaAndCompactText();
 testAutomationsMobileActionsStaySingleLineOnNarrowScreens();
+testMobileAutomationDeleteConfirmationCanBeCancelled();
 testAutomationRunHistoryUsesReadableRows();
 testAutomationRunHistoryActionsUseCompactMobileText();
 testAutomationsPageRendersChineseChrome();

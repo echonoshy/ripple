@@ -15,6 +15,7 @@ import {
   Play,
   RefreshCw,
   Trash2,
+  X,
   Zap,
 } from "lucide-react";
 import { IconTile } from "@/components/icons/IconTile";
@@ -42,7 +43,6 @@ import {
   TYPOGRAPHY_META_CLASS,
   TYPOGRAPHY_META_MEDIUM_CLASS,
   TYPOGRAPHY_MICRO_MEDIUM_CLASS,
-  TYPOGRAPHY_MOBILE_BODY_CLASS,
   TYPOGRAPHY_PAGE_TITLE_CLASS,
   WORKBENCH_FIELD_CLASS,
   WORKBENCH_MOBILE_ICON_BUTTON_CLASS,
@@ -249,13 +249,14 @@ const mobileRunActionButtonClass = `inline-flex h-8 shrink-0 items-center justif
 
 const AUTOMATION_PRIMARY_ACTION_BUTTON_CLASS = `inline-flex h-11 w-11 items-center justify-center rounded-xl border border-[#1456F0]/30 bg-[#1456F0] text-white shadow-[0_8px_18px_rgba(20,86,240,0.18)] transition-all hover:bg-[#0F4BD8] active:scale-[0.98] disabled:opacity-60 lg:h-10 lg:w-auto lg:gap-1.5 lg:px-3 ${TYPOGRAPHY_META_MEDIUM_CLASS}`;
 
-const automationFieldLabelClass = `mb-1 block text-[#646A73] ${TYPOGRAPHY_META_MEDIUM_CLASS}`;
+const automationFieldLabelClass =
+  "mb-1 block text-[12px] leading-[18px] font-medium text-[#646A73] lg:leading-5";
 
-const automationFieldControlClass = `${WORKBENCH_FIELD_CLASS} h-10 w-full px-3 ${TYPOGRAPHY_MOBILE_BODY_CLASS} lg:h-9 lg:text-[14px] lg:leading-[22px]`;
+const automationFieldControlClass = `${WORKBENCH_FIELD_CLASS} h-10 w-full px-3 text-[15px] leading-[22px] lg:h-9 lg:text-[14px] lg:leading-[22px]`;
 
-const automationMonoFieldControlClass = `${WORKBENCH_FIELD_CLASS} h-10 w-full px-3 font-[family-name:var(--font-mono)] ${TYPOGRAPHY_MOBILE_BODY_CLASS} lg:h-9 lg:text-[14px] lg:leading-[22px]`;
+const automationMonoFieldControlClass = `${WORKBENCH_FIELD_CLASS} h-10 w-full px-3 font-[family-name:var(--font-mono)] text-[15px] leading-[22px] lg:h-9 lg:text-[14px] lg:leading-[22px]`;
 
-const automationTextareaClass = `${WORKBENCH_FIELD_CLASS} w-full resize-none px-3 py-2 ${TYPOGRAPHY_MOBILE_BODY_CLASS} lg:text-[14px] lg:leading-[22px]`;
+const automationTextareaClass = `${WORKBENCH_FIELD_CLASS} w-full resize-none px-3 py-2 text-[15px] leading-[22px] lg:text-[14px] lg:leading-[22px]`;
 
 function defaultRunAt(): string {
   const date = new Date(Date.now() + 60 * 60 * 1000);
@@ -661,11 +662,7 @@ export default function AutomationsPage({
               className={`${WORKBENCH_MOBILE_ICON_BUTTON_CLASS} shrink-0 disabled:cursor-not-allowed disabled:opacity-60 lg:h-10 lg:w-auto lg:gap-1.5 lg:px-3 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
             >
               {isLoading ? (
-                <Loader2
-                  size={18}
-                  strokeWidth={LUCIDE_NAV_STROKE_WIDTH}
-                  className="animate-spin"
-                />
+                <Loader2 size={18} strokeWidth={LUCIDE_NAV_STROKE_WIDTH} className="animate-spin" />
               ) : (
                 <RefreshCw size={18} strokeWidth={LUCIDE_NAV_STROKE_WIDTH} />
               )}
@@ -695,7 +692,7 @@ export default function AutomationsPage({
             <form
               data-ripple-automation-form-sheet
               onSubmit={handleSubmitSchedule}
-              className={`${WORKBENCH_SECTION_CLASS} grid gap-4 p-4 max-md:fixed max-md:inset-x-2 max-md:bottom-[max(env(safe-area-inset-bottom),8px)] max-md:z-50 max-md:max-h-[calc(100dvh-24px-env(safe-area-inset-top))] max-md:overflow-y-auto max-md:bg-white`}
+              className={`${WORKBENCH_SECTION_CLASS} grid gap-4 p-4 max-md:fixed max-md:inset-x-2 max-md:top-[calc(max(env(safe-area-inset-top),16px)+8px)] max-md:bottom-[max(env(safe-area-inset-bottom),8px)] max-md:z-50 max-md:max-h-[calc(100dvh_-_calc(max(env(safe-area-inset-top),16px)+8px)_-_max(env(safe-area-inset-bottom),8px))] max-md:overflow-y-auto max-md:bg-white`}
             >
               <div className="flex items-center justify-between gap-2 md:hidden">
                 <div className={`text-[#1F2329] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
@@ -836,7 +833,9 @@ export default function AutomationsPage({
                 <ChevronDown
                   size={14}
                   className={
-                    isAdvancedConfigOpen ? "rotate-180 transition-transform" : "transition-transform"
+                    isAdvancedConfigOpen
+                      ? "rotate-180 transition-transform"
+                      : "transition-transform"
                   }
                 />
                 {t("automations.advancedConfig")}
@@ -874,7 +873,9 @@ export default function AutomationsPage({
                     </span>
                     <select
                       value={missedRunPolicy}
-                      onChange={(event) => setMissedRunPolicy(event.target.value as MissedRunPolicy)}
+                      onChange={(event) =>
+                        setMissedRunPolicy(event.target.value as MissedRunPolicy)
+                      }
                       className={automationFieldControlClass}
                     >
                       {missedRunPolicyOptions.map((option) => (
@@ -969,6 +970,7 @@ export default function AutomationsPage({
               const scheduleError = schedule.status === "error" ? schedule.last_error : null;
               const latestRunError = runErrorText(latestRun) || scheduleError;
               const isExpanded = expandedScheduleId === schedule.schedule_id;
+              const isConfirmingDelete = confirmDeleteId === schedule.schedule_id;
 
               return (
                 <div
@@ -1140,52 +1142,65 @@ export default function AutomationsPage({
                       <Edit3 size={14} />
                       <span>{t("automations.edit")}</span>
                     </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        void handleAction(schedule.schedule_id, "toggle", schedule.enabled)
-                      }
-                      aria-label={
-                        schedule.enabled
-                          ? t("automations.pauseAutomation")
-                          : t("automations.resumeAutomation")
-                      }
-                      title={
-                        schedule.enabled
-                          ? t("automations.pauseAutomation")
-                          : t("automations.resumeAutomation")
-                      }
-                      className={mobileAutomationActionButtonClass}
-                    >
-                      {pendingActionId === `${schedule.schedule_id}:toggle` ? (
-                        <Loader2 size={14} className="animate-spin" />
-                      ) : schedule.enabled ? (
-                        <Pause size={14} />
-                      ) : (
-                        <Play size={14} />
-                      )}
-                      <span>
-                        {schedule.enabled ? t("automations.pause") : t("automations.resume")}
-                      </span>
-                    </button>
+                    {isConfirmingDelete ? (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDeleteId(null)}
+                        aria-label={t("automations.cancelDeleteAutomation")}
+                        title={t("automations.cancelDeleteAutomation")}
+                        className={mobileAutomationActionButtonClass}
+                      >
+                        <X size={14} />
+                        <span>{t("automations.cancel")}</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void handleAction(schedule.schedule_id, "toggle", schedule.enabled)
+                        }
+                        aria-label={
+                          schedule.enabled
+                            ? t("automations.pauseAutomation")
+                            : t("automations.resumeAutomation")
+                        }
+                        title={
+                          schedule.enabled
+                            ? t("automations.pauseAutomation")
+                            : t("automations.resumeAutomation")
+                        }
+                        className={mobileAutomationActionButtonClass}
+                      >
+                        {pendingActionId === `${schedule.schedule_id}:toggle` ? (
+                          <Loader2 size={14} className="animate-spin" />
+                        ) : schedule.enabled ? (
+                          <Pause size={14} />
+                        ) : (
+                          <Play size={14} />
+                        )}
+                        <span>
+                          {schedule.enabled ? t("automations.pause") : t("automations.resume")}
+                        </span>
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => void handleAction(schedule.schedule_id, "delete")}
                       aria-label={t("automations.deleteAutomation")}
                       title={
-                        confirmDeleteId === schedule.schedule_id
+                        isConfirmingDelete
                           ? t("automations.confirmDeleteAutomation")
                           : t("automations.deleteAutomation")
                       }
                       className={`${mobileAutomationDeleteButtonClass} ${
-                        confirmDeleteId === schedule.schedule_id
+                        isConfirmingDelete
                           ? "border-[#B42318]/25 bg-[#FFF1F0] text-[#B42318]"
                           : "border-[#DEE0E3] bg-white text-[#8F959E] active:bg-[#FFF1F0] active:text-[#B42318]"
                       }`}
                     >
                       {pendingActionId === `${schedule.schedule_id}:delete` ? (
                         <Loader2 size={14} className="animate-spin" />
-                      ) : confirmDeleteId === schedule.schedule_id ? (
+                      ) : isConfirmingDelete ? (
                         <span>{t("automations.confirm")}</span>
                       ) : (
                         <>
@@ -1200,12 +1215,15 @@ export default function AutomationsPage({
                     data-ripple-automation-actions
                     className="mt-2 hidden grid-cols-3 gap-1.5 md:grid md:grid-cols-5"
                   >
-                    {confirmDeleteId === schedule.schedule_id ? (
+                    {isConfirmingDelete ? (
                       <button
                         type="button"
                         onClick={() => setConfirmDeleteId(null)}
+                        aria-label={t("automations.cancelDeleteAutomation")}
+                        title={t("automations.cancelDeleteAutomation")}
                         className={automationActionButtonClass}
                       >
+                        <X size={14} />
                         {t("automations.cancel")}
                       </button>
                     ) : null}
@@ -1287,19 +1305,19 @@ export default function AutomationsPage({
                       onClick={() => void handleAction(schedule.schedule_id, "delete")}
                       aria-label={t("automations.deleteAutomation")}
                       title={
-                        confirmDeleteId === schedule.schedule_id
+                        isConfirmingDelete
                           ? t("automations.confirmDeleteAutomation")
                           : t("automations.deleteAutomation")
                       }
                       className={`${automationDeleteButtonClass} ${
-                        confirmDeleteId === schedule.schedule_id
+                        isConfirmingDelete
                           ? "border-[#B42318]/25 bg-[#FFF1F0] text-[#B42318]"
                           : "border-[#DEE0E3] bg-white text-[#8F959E] hover:bg-[#FFF1F0] hover:text-[#B42318]"
                       }`}
                     >
                       {pendingActionId === `${schedule.schedule_id}:delete` ? (
                         <Loader2 size={14} className="animate-spin" />
-                      ) : confirmDeleteId === schedule.schedule_id ? (
+                      ) : isConfirmingDelete ? (
                         <span className={TYPOGRAPHY_META_MEDIUM_CLASS}>
                           {t("automations.confirm")}
                         </span>

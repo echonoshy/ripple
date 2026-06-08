@@ -226,12 +226,23 @@ function testAutomationLatestRunSummaryDoesNotDuplicateOutputActions() {
 
 function testAutomationHeaderActionsMatchSkillsPageStyle() {
   const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
+  const skillsSource = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
+  const primaryButtonClass =
+    source.match(/const AUTOMATION_PRIMARY_ACTION_BUTTON_CLASS = `([^`]+)`;/)?.[1] || "";
+  const skillCreateButtonClass =
+    skillsSource.match(/const SKILL_CREATE_ACTION_BUTTON_CLASS = `([^`]+)`;/)?.[1] || "";
 
   assert.match(source, /CalendarPlus/);
   assert.doesNotMatch(source, /<Plus size=\{15\}/);
-  assert.match(source, /const AUTOMATION_PRIMARY_ACTION_BUTTON_CLASS = `inline-flex h-11 w-11/);
-  assert.match(source, /AUTOMATION_PRIMARY_ACTION_BUTTON_CLASS[\s\S]*lg:h-10 lg:w-auto lg:gap-1\.5 lg:px-3/);
+  assert.match(source, /const AUTOMATION_PRIMARY_ACTION_BUTTON_CLASS = `inline-flex h-11/);
+  assert.match(primaryButtonClass, /rounded-xl/);
+  assert.doesNotMatch(primaryButtonClass, /rounded-full/);
+  assert.match(primaryButtonClass, /lg:h-10 lg:w-auto lg:gap-1\.5 lg:px-3/);
   assert.match(source, /className=\{AUTOMATION_PRIMARY_ACTION_BUTTON_CLASS\}/);
+  assert.match(skillCreateButtonClass, /rounded-xl/);
+  assert.match(skillCreateButtonClass, /bg-\[#1456F0\]/);
+  assert.match(skillCreateButtonClass, /text-white/);
+  assert.doesNotMatch(skillCreateButtonClass, /text-\[#646A73\]/);
   assert.match(
     source,
     /className=\{`\$\{WORKBENCH_MOBILE_ICON_BUTTON_CLASS\} shrink-0[\s\S]*lg:h-10 lg:w-auto lg:gap-1\.5[\s\S]*lg:px-3/

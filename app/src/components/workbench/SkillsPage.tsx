@@ -78,7 +78,7 @@ const SKILLS_PAGE_TEXT_TERTIARY_CLASS = "text-[#8F959E]";
 const SKILLS_PAGE_BORDER_CLASS = "border-[#DEE0E3]";
 const SKILLS_PAGE_DIVIDER_CLASS = "border-[#EFF0F1]";
 const SKILL_ACTION_BUTTON_CLASS = `inline-flex h-10 items-center gap-1.5 rounded-lg border ${SKILLS_PAGE_BORDER_CLASS} bg-white px-2.5 text-[#2B2F36] transition-colors hover:bg-[#F8F9FA] disabled:cursor-not-allowed disabled:opacity-60 sm:h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`;
-const SKILL_PRIMARY_ACTION_BUTTON_CLASS = `inline-flex h-11 w-11 items-center justify-center rounded-full border border-[#1456F0]/30 bg-[#1456F0] text-white shadow-[0_8px_18px_rgba(20,86,240,0.18)] transition-all hover:bg-[#0F4BD8] active:scale-[0.98] disabled:opacity-60 lg:h-10 lg:w-auto lg:gap-1.5 lg:px-3 ${TYPOGRAPHY_META_MEDIUM_CLASS}`;
+const SKILL_CREATE_ACTION_BUTTON_CLASS = `inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-[#1456F0]/30 bg-[#1456F0] text-white shadow-[0_8px_18px_rgba(20,86,240,0.18)] transition-all hover:bg-[#0F4BD8] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 lg:h-10 lg:w-auto lg:gap-1.5 lg:px-3 ${TYPOGRAPHY_META_MEDIUM_CLASS}`;
 const SKILL_DANGER_ACTION_BUTTON_CLASS = `inline-flex h-10 items-center gap-1.5 rounded-lg border border-[#FAD4D4] bg-white px-2.5 text-[#B42318] transition-colors hover:bg-[#FFF1F0] disabled:cursor-not-allowed disabled:opacity-60 sm:h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`;
 
 interface SkillSnapshot {
@@ -1926,7 +1926,7 @@ export default function SkillsPage({
             type="button"
             onClick={openCreateSkillChat}
             disabled={!onOpenChat}
-            className={SKILL_PRIMARY_ACTION_BUTTON_CLASS}
+            className={SKILL_CREATE_ACTION_BUTTON_CLASS}
             aria-label={t("skills.create")}
             title={t("skills.create")}
           >

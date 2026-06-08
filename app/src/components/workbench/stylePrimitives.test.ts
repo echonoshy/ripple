@@ -3,10 +3,6 @@ import { readFileSync } from "node:fs";
 
 import {
   COMPACT_IOS_PAGE_BACKGROUND,
-  GLASS_PANEL_CLASS,
-  GLASS_TOP_BAR_CLASS,
-  DENSE_GLASS_ICON_BUTTON_CLASS,
-  MOBILE_GLASS_ICON_BUTTON_CLASS,
   MOBILE_LABEL_TEXT_CLASS,
   MOBILE_MAIN_TEXT_CLASS,
   MOBILE_META_TEXT_CLASS,
@@ -17,6 +13,25 @@ import {
   MOBILE_TAB_BAR_MASK_HEIGHT_CLASS,
   LUCIDE_STANDARD_STROKE_WIDTH,
   LUCIDE_NAV_STROKE_WIDTH,
+  WORKBENCH_DANGER_BUTTON_CLASS,
+  WORKBENCH_FIELD_CLASS,
+  WORKBENCH_FLOATING_SURFACE_CLASS,
+  WORKBENCH_GHOST_BUTTON_CLASS,
+  WORKBENCH_ICON_BUTTON_CLASS,
+  WORKBENCH_MENU_CLASS,
+  WORKBENCH_MENU_DANGER_ITEM_CLASS,
+  WORKBENCH_MENU_ITEM_CLASS,
+  WORKBENCH_MOBILE_ICON_BUTTON_CLASS,
+  WORKBENCH_PAGE_BACKGROUND_CLASS,
+  WORKBENCH_PRIMARY_BUTTON_CLASS,
+  WORKBENCH_SECONDARY_BUTTON_CLASS,
+  WORKBENCH_SECTION_CLASS,
+  WORKBENCH_STATUS_DANGER_CLASS,
+  WORKBENCH_STATUS_NEUTRAL_CLASS,
+  WORKBENCH_STATUS_SUCCESS_CLASS,
+  WORKBENCH_STATUS_WARNING_CLASS,
+  WORKBENCH_SURFACE_CLASS,
+  WORKBENCH_TOP_BAR_CLASS,
   TYPOGRAPHY_BODY_CLASS,
   TYPOGRAPHY_BODY_MEDIUM_CLASS,
   TYPOGRAPHY_META_CLASS,
@@ -26,18 +41,40 @@ import {
   TYPOGRAPHY_SECTION_TITLE_CLASS,
 } from "./stylePrimitives";
 
-assert.match(COMPACT_IOS_PAGE_BACKGROUND, /#f5f6f7/i);
-assert.doesNotMatch(COMPACT_IOS_PAGE_BACKGROUND, /radial-gradient/);
-assert.doesNotMatch(COMPACT_IOS_PAGE_BACKGROUND, /139,92,246/);
-assert.doesNotMatch(COMPACT_IOS_PAGE_BACKGROUND, /20,184,166/);
-assert.match(GLASS_PANEL_CLASS, /bg-white\/82/);
-assert.match(GLASS_PANEL_CLASS, /border-\[#DEE0E3\]/);
-assert.match(GLASS_PANEL_CLASS, /backdrop-blur-xl/);
-assert.match(GLASS_TOP_BAR_CLASS, /bg-white\/76/);
-assert.match(GLASS_TOP_BAR_CLASS, /backdrop-blur-2xl/);
-assert.match(DENSE_GLASS_ICON_BUTTON_CLASS, /h-8 w-8/);
-assert.match(MOBILE_GLASS_ICON_BUTTON_CLASS, /h-11 w-11/);
-assert.match(MOBILE_GLASS_ICON_BUTTON_CLASS, /rounded-full/);
+assert.equal(WORKBENCH_PAGE_BACKGROUND_CLASS, "bg-[#F5F6F7]");
+assert.equal(COMPACT_IOS_PAGE_BACKGROUND, WORKBENCH_PAGE_BACKGROUND_CLASS);
+assert.match(WORKBENCH_SURFACE_CLASS, /bg-white/);
+assert.match(WORKBENCH_SURFACE_CLASS, /border-\[#DEE0E3\]/);
+assert.doesNotMatch(WORKBENCH_SURFACE_CLASS, /backdrop-blur/);
+assert.doesNotMatch(WORKBENCH_SURFACE_CLASS, /bg-white\/8/);
+assert.match(WORKBENCH_SECTION_CLASS, /rounded-xl/);
+assert.match(WORKBENCH_SECTION_CLASS, /border-\[#DEE0E3\]/);
+assert.doesNotMatch(WORKBENCH_SECTION_CLASS, /backdrop-blur/);
+assert.match(
+  WORKBENCH_FLOATING_SURFACE_CLASS,
+  /shadow-\[0_12px_32px_rgba\(31,35,41,0\.14\)\]/
+);
+assert.match(WORKBENCH_TOP_BAR_CLASS, /border-b/);
+assert.match(WORKBENCH_TOP_BAR_CLASS, /bg-white/);
+assert.doesNotMatch(WORKBENCH_TOP_BAR_CLASS, /backdrop-blur/);
+assert.match(WORKBENCH_ICON_BUTTON_CLASS, /h-8 w-8/);
+assert.match(WORKBENCH_ICON_BUTTON_CLASS, /rounded-lg/);
+assert.doesNotMatch(WORKBENCH_ICON_BUTTON_CLASS, /backdrop-blur/);
+assert.match(WORKBENCH_MOBILE_ICON_BUTTON_CLASS, /h-11 w-11/);
+assert.match(WORKBENCH_MOBILE_ICON_BUTTON_CLASS, /rounded-xl/);
+assert.doesNotMatch(WORKBENCH_MOBILE_ICON_BUTTON_CLASS, /rounded-full/);
+assert.match(WORKBENCH_PRIMARY_BUTTON_CLASS, /bg-\[#1456F0\]/);
+assert.match(WORKBENCH_SECONDARY_BUTTON_CLASS, /border-\[#DEE0E3\]/);
+assert.match(WORKBENCH_GHOST_BUTTON_CLASS, /bg-transparent/);
+assert.match(WORKBENCH_DANGER_BUTTON_CLASS, /text-\[#B42318\]/);
+assert.match(WORKBENCH_FIELD_CLASS, /focus:border-\[#1456F0\]/);
+assert.match(WORKBENCH_MENU_CLASS, /rounded-xl/);
+assert.match(WORKBENCH_MENU_ITEM_CLASS, /h-8/);
+assert.match(WORKBENCH_MENU_DANGER_ITEM_CLASS, /text-\[#B42318\]/);
+assert.match(WORKBENCH_STATUS_SUCCESS_CLASS, /text-\[#16845B\]/);
+assert.match(WORKBENCH_STATUS_WARNING_CLASS, /text-\[#8B5E00\]/);
+assert.match(WORKBENCH_STATUS_DANGER_CLASS, /text-\[#B42318\]/);
+assert.match(WORKBENCH_STATUS_NEUTRAL_CLASS, /text-\[#646A73\]/);
 assert.equal(TYPOGRAPHY_PAGE_TITLE_CLASS, "text-[20px] leading-[30px] font-medium tracking-normal");
 assert.equal(TYPOGRAPHY_SECTION_TITLE_CLASS, "text-[16px] leading-6 font-medium tracking-normal");
 assert.equal(TYPOGRAPHY_BODY_CLASS, "text-[14px] leading-[22px]");

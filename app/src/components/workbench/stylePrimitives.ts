@@ -19,19 +19,71 @@ export const WORKBENCH_WARNING_BG = "#FFF8DB";
 export const WORKBENCH_DANGER_TEXT = "#B42318";
 export const WORKBENCH_DANGER_BG = "#FFF1F0";
 
-export const COMPACT_IOS_PAGE_BACKGROUND = "bg-[#F5F6F7]";
+export const WORKBENCH_PAGE_BACKGROUND_CLASS = "bg-[#F5F6F7]";
 
-export const GLASS_PANEL_CLASS =
-  "border border-[#DEE0E3] bg-white/82 shadow-[0_8px_22px_rgba(31,35,41,0.05)] backdrop-blur-xl";
+export const WORKBENCH_SURFACE_CLASS =
+  "border border-[#DEE0E3] bg-white shadow-[0_1px_2px_rgba(31,35,41,0.04)]";
 
-export const GLASS_TOP_BAR_CLASS =
-  "border-b border-[#DEE0E3]/70 bg-white/76 shadow-[0_8px_22px_rgba(31,35,41,0.045)] backdrop-blur-2xl";
+export const WORKBENCH_SECTION_CLASS =
+  "rounded-xl border border-[#DEE0E3] bg-white shadow-[0_1px_2px_rgba(31,35,41,0.04)]";
 
-export const DENSE_GLASS_ICON_BUTTON_CLASS =
-  "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#DEE0E3] bg-white/82 text-[#2B2F36] shadow-[0_6px_18px_rgba(31,35,41,0.05)] backdrop-blur-xl transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-50";
+export const WORKBENCH_FLOATING_SURFACE_CLASS =
+  "rounded-xl border border-[#DEE0E3] bg-white shadow-[0_12px_32px_rgba(31,35,41,0.14)]";
 
-export const MOBILE_GLASS_ICON_BUTTON_CLASS =
-  "inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/76 bg-white/72 text-[#2B2F36] shadow-[0_6px_18px_rgba(31,35,41,0.07)] backdrop-blur-xl transition-all hover:bg-white/88 active:scale-[0.98] active:bg-white/82";
+export const WORKBENCH_TOP_BAR_CLASS =
+  "border-b border-[#DEE0E3] bg-white shadow-[0_1px_2px_rgba(31,35,41,0.04)]";
+
+export const WORKBENCH_ICON_BUTTON_CLASS =
+  "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#DEE0E3] bg-white text-[#2B2F36] transition-colors hover:bg-[#F8F9FA] disabled:cursor-not-allowed disabled:opacity-50";
+
+export const WORKBENCH_MOBILE_ICON_BUTTON_CLASS =
+  "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-[#DEE0E3] bg-white text-[#2B2F36] transition-colors hover:bg-[#F8F9FA] active:bg-[#EFF0F1] disabled:cursor-not-allowed disabled:opacity-50";
+
+export const WORKBENCH_PRIMARY_BUTTON_CLASS =
+  "inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#1456F0] px-3 text-white transition-colors hover:bg-[#0F4BD8] disabled:cursor-not-allowed disabled:bg-[#EFF0F1] disabled:text-[#8F959E]";
+
+export const WORKBENCH_SECONDARY_BUTTON_CLASS =
+  "inline-flex items-center justify-center gap-1.5 rounded-lg border border-[#DEE0E3] bg-white px-3 text-[#2B2F36] transition-colors hover:bg-[#F8F9FA] disabled:cursor-not-allowed disabled:opacity-50";
+
+export const WORKBENCH_GHOST_BUTTON_CLASS =
+  "inline-flex items-center justify-center gap-1.5 rounded-lg bg-transparent px-3 text-[#2B2F36] transition-colors hover:bg-[#F8F9FA] disabled:cursor-not-allowed disabled:opacity-50";
+
+export const WORKBENCH_DANGER_BUTTON_CLASS =
+  "inline-flex items-center justify-center gap-1.5 rounded-lg border border-[#FAD4D4] bg-white px-3 text-[#B42318] transition-colors hover:bg-[#FFF1F0] disabled:cursor-not-allowed disabled:opacity-50";
+
+export const WORKBENCH_FIELD_CLASS =
+  "rounded-lg border border-[#DEE0E3] bg-white text-[#1F2329] outline-none transition-colors focus:border-[#1456F0] disabled:cursor-not-allowed disabled:bg-[#F8F9FA] disabled:text-[#8F959E]";
+
+export const WORKBENCH_MENU_CLASS =
+  "rounded-xl border border-[#DEE0E3] bg-white p-1 shadow-[0_12px_32px_rgba(31,35,41,0.14)]";
+
+export const WORKBENCH_MENU_ITEM_CLASS =
+  "flex h-8 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[#2B2F36] transition-colors hover:bg-[#F8F9FA] active:bg-[#EFF0F1]";
+
+export const WORKBENCH_MENU_DANGER_ITEM_CLASS =
+  "flex h-8 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[#B42318] transition-colors hover:bg-[#FFF1F0] active:bg-[#FFE3E0]";
+
+export const WORKBENCH_STATUS_SUCCESS_CLASS =
+  "rounded-full border border-[#16845B]/20 bg-[#E4F8EE] px-2 py-0.5 text-[#16845B]";
+
+export const WORKBENCH_STATUS_WARNING_CLASS =
+  "rounded-full border border-[#FAD355]/45 bg-[#FFF8DB] px-2 py-0.5 text-[#8B5E00]";
+
+export const WORKBENCH_STATUS_DANGER_CLASS =
+  "rounded-full border border-[#FAD4D4] bg-[#FFF1F0] px-2 py-0.5 text-[#B42318]";
+
+export const WORKBENCH_STATUS_NEUTRAL_CLASS =
+  "rounded-full border border-[#DEE0E3] bg-[#F8F9FA] px-2 py-0.5 text-[#646A73]";
+
+export const COMPACT_IOS_PAGE_BACKGROUND = WORKBENCH_PAGE_BACKGROUND_CLASS;
+
+export const GLASS_PANEL_CLASS = WORKBENCH_SECTION_CLASS;
+
+export const GLASS_TOP_BAR_CLASS = WORKBENCH_TOP_BAR_CLASS;
+
+export const DENSE_GLASS_ICON_BUTTON_CLASS = WORKBENCH_ICON_BUTTON_CLASS;
+
+export const MOBILE_GLASS_ICON_BUTTON_CLASS = WORKBENCH_MOBILE_ICON_BUTTON_CLASS;
 
 export const WORKBENCH_PAGE_CONTENT_CLASS = "mx-auto w-full max-w-7xl";
 

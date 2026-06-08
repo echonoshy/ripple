@@ -12,6 +12,7 @@ import MobileSessionStack, {
   shouldGuardMobileSessionDrawerScroll,
 } from "./MobileSessionStack";
 import {
+  mobileStackCommitTransition,
   mobilePageSwitchTransition,
   mobileStackPushTransition,
   mobileStackReturnTransition,
@@ -48,6 +49,14 @@ function testClaimRequiresHorizontalIntentAcrossChatSurface() {
   assert.equal(
     shouldClaimMobileSessionDrawer({
       deltaX: 24,
+      deltaY: 0,
+      viewportWidth: 390,
+    }),
+    false
+  );
+  assert.equal(
+    shouldClaimMobileSessionDrawer({
+      deltaX: 28,
       deltaY: 0,
       viewportWidth: 390,
     }),
@@ -91,8 +100,17 @@ function testLeftEdgeSwipeClaimsWithShorterIntent() {
   );
   assert.equal(
     shouldClaimMobileSessionDrawer({
-      startX: 52,
-      deltaX: 4,
+      startX: 70,
+      deltaX: 6,
+      deltaY: 12,
+      viewportWidth: 390,
+    }),
+    true
+  );
+  assert.equal(
+    shouldClaimMobileSessionDrawer({
+      startX: 74,
+      deltaX: 6,
       deltaY: 0,
       viewportWidth: 390,
     }),
@@ -105,7 +123,7 @@ function testLeftEdgeSwipeClaimsWithShorterIntent() {
       deltaY: 16,
       viewportWidth: 390,
     }),
-    false
+    true
   );
 }
 
@@ -124,7 +142,7 @@ function testVerticalIntentCancelsDrawerGesture() {
       deltaY: 20,
       viewportWidth: 390,
     }),
-    false
+    true
   );
   assert.equal(
     shouldCancelMobileSessionDrawer({
@@ -133,6 +151,24 @@ function testVerticalIntentCancelsDrawerGesture() {
       viewportWidth: 390,
     }),
     false
+  );
+  assert.equal(
+    shouldCancelMobileSessionDrawer({
+      startX: 4,
+      deltaX: 18,
+      deltaY: 22,
+      viewportWidth: 390,
+    }),
+    false
+  );
+  assert.equal(
+    shouldCancelMobileSessionDrawer({
+      startX: 4,
+      deltaX: 10,
+      deltaY: 32,
+      viewportWidth: 390,
+    }),
+    true
   );
   assert.match(mobileSessionStackSource, /shouldCancelMobileSessionDrawer/);
   assert.match(mobileSessionStackSource, /dragStateRef\.current = null/);
@@ -152,6 +188,15 @@ function testHorizontalIntentGuardsScrollBeforeDrawerClaim() {
       startX: 4,
       deltaX: 4,
       deltaY: 5,
+      viewportWidth: 390,
+    }),
+    true
+  );
+  assert.equal(
+    shouldGuardMobileSessionDrawerScroll({
+      startX: 4,
+      deltaX: 6,
+      deltaY: 16,
       viewportWidth: 390,
     }),
     true
@@ -197,6 +242,24 @@ function testGuardedScrollCanReleaseBackToVerticalIntent() {
     shouldReleaseMobileSessionDrawerScrollGuard({
       deltaX: 8,
       deltaY: 26,
+      viewportWidth: 390,
+    }),
+    true
+  );
+  assert.equal(
+    shouldReleaseMobileSessionDrawerScrollGuard({
+      startX: 4,
+      deltaX: 8,
+      deltaY: 24,
+      viewportWidth: 390,
+    }),
+    false
+  );
+  assert.equal(
+    shouldReleaseMobileSessionDrawerScrollGuard({
+      startX: 4,
+      deltaX: 10,
+      deltaY: 32,
       viewportWidth: 390,
     }),
     true
@@ -310,16 +373,17 @@ function testCommittedSwipeDoesNotResetSheetBeforeListUnmountsChat() {
       /const handlePointerUp[\s\S]*?\},\s*\[animateSheetTo[\s\S]*?\]\s*\);/
     )?.[0] || "";
 
-  assert.match(pointerUpBlock, /animateSheetTo\(dragState\.viewportWidth, onOpenList\)/);
+  assert.match(pointerUpBlock, /mobileStackCommitTransition/);
   assert.doesNotMatch(pointerUpBlock, /sheetX\.set\(0\);\s*onOpenList\(\);/);
 }
 
 function testMobileMotionUsesFeishuInspiredSharedTiming() {
   assert.equal(mobileStackPushTransition.duration, 0.3);
   assert.equal(mobilePageSwitchTransition.duration, 0.3);
+  assert.equal(mobileStackCommitTransition.duration, 0.18);
   assert.equal(mobileStackReturnTransition.duration, 0.22);
   assert.equal(mobileSwipeBackConfig.desktopMinWidth, 1024);
-  assert.equal(mobileSwipeBackConfig.edgeStartWidthPx, 48);
+  assert.equal(mobileSwipeBackConfig.edgeStartWidthPx, 72);
   assert.equal(mobileSwipeBackConfig.commitMaxPx, 72);
   assert.equal(mobileSwipeBackConfig.commitViewportRatio, 0.18);
 }
@@ -339,6 +403,10 @@ function testSessionSwipeBackUsesSharedMotionPrimitive() {
   assert.match(mobileSessionStackSource, /resolveMobileSwipeBackRelease/);
 }
 
+function testChatSheetUsesCompositedSwipeAnimation() {
+  assert.match(mobileSessionStackSource, /will-change-transform/);
+}
+
 testClaimRequiresHorizontalIntentAcrossChatSurface();
 testLeftEdgeSwipeClaimsWithShorterIntent();
 testVerticalIntentCancelsDrawerGesture();
@@ -356,5 +424,6 @@ testCommittedSwipeDoesNotResetSheetBeforeListUnmountsChat();
 testMobileMotionUsesFeishuInspiredSharedTiming();
 testChatSheetAnimatesInFromRightWhenOpeningSession();
 testSessionSwipeBackUsesSharedMotionPrimitive();
+testChatSheetUsesCompositedSwipeAnimation();
 
 console.log("mobile session stack tests passed");

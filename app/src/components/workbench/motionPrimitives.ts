@@ -24,6 +24,11 @@ export const mobileStackReturnTransition: Transition = {
   ease: IOS_MOTION_EASE,
 };
 
+export const mobileStackCommitTransition: Transition = {
+  duration: 0.18,
+  ease: IOS_MOTION_EASE,
+};
+
 export const mobilePageSwitchTransition: Transition = {
   duration: 0.3,
   ease: IOS_MOTION_EASE,
@@ -45,17 +50,19 @@ export const swipeSnapTransition: Transition = {
 
 export const mobileSwipeBackConfig = {
   desktopMinWidth: 1024,
-  edgeStartWidthPx: 48,
+  edgeStartWidthPx: 72,
   edgeScrollGuardDistancePx: 4,
-  edgeScrollGuardRatio: 0.55,
+  edgeScrollGuardRatio: 0.35,
   edgeClaimDistancePx: 4,
-  edgeClaimRatio: 0.55,
-  scrollGuardDistancePx: 18,
-  scrollGuardRatio: 1.1,
-  claimDistancePx: 24,
-  claimRatio: 1.1,
-  cancelDistancePx: 22,
-  cancelRatio: 1.45,
+  edgeClaimRatio: 0.35,
+  edgeCancelDistancePx: 28,
+  edgeCancelRatio: 1.8,
+  scrollGuardDistancePx: 20,
+  scrollGuardRatio: 1.35,
+  claimDistancePx: 28,
+  claimRatio: 1.35,
+  cancelDistancePx: 18,
+  cancelRatio: 1.15,
   commitMaxPx: 72,
   commitViewportRatio: 0.18,
   fastCommitVelocityPx: 260,
@@ -121,14 +128,22 @@ export function shouldClaimMobileSwipeBack({
 }
 
 export function shouldCancelMobileSwipeBack({
+  startX,
   deltaX,
   deltaY,
   viewportWidth,
 }: MobileSwipeBackIntentInput): boolean {
   if (viewportWidth >= mobileSwipeBackConfig.desktopMinWidth) return true;
+  const isEdgeStart = isMobileSwipeBackEdgeStart(startX);
+  const cancelDistance = isEdgeStart
+    ? mobileSwipeBackConfig.edgeCancelDistancePx
+    : mobileSwipeBackConfig.cancelDistancePx;
+  const cancelRatio = isEdgeStart
+    ? mobileSwipeBackConfig.edgeCancelRatio
+    : mobileSwipeBackConfig.cancelRatio;
   const absoluteDeltaY = Math.abs(deltaY);
-  if (absoluteDeltaY < mobileSwipeBackConfig.cancelDistancePx) return false;
-  return absoluteDeltaY > Math.abs(deltaX) * mobileSwipeBackConfig.cancelRatio;
+  if (absoluteDeltaY < cancelDistance) return false;
+  return absoluteDeltaY > Math.abs(deltaX) * cancelRatio;
 }
 
 export function shouldReleaseMobileSwipeBackScrollGuard(

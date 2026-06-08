@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { animate, motion, useMotionValue, useReducedMotion } from "framer-motion";
 import {
+  mobileStackCommitTransition,
   mobileStackPushTransition,
   mobileStackReturnTransition,
   mobileSwipeBackConfig,
@@ -131,11 +132,12 @@ export function shouldGuardMobileSessionDrawerScroll({
 }
 
 export function shouldCancelMobileSessionDrawer({
+  startX,
   deltaX,
   deltaY,
   viewportWidth,
 }: DrawerIntentInput): boolean {
-  return shouldCancelMobileSwipeBack({ deltaX, deltaY, viewportWidth });
+  return shouldCancelMobileSwipeBack({ startX, deltaX, deltaY, viewportWidth });
 }
 
 export function shouldReleaseMobileSessionDrawerScrollGuard({
@@ -470,7 +472,7 @@ export default function MobileSessionStack({
         return;
       }
 
-      animateSheetTo(dragState.viewportWidth, onOpenList);
+      animateSheetTo(dragState.viewportWidth, onOpenList, mobileStackCommitTransition);
     },
     [animateSheetTo, onOpenList, releaseScrollLock, sheetX]
   );
@@ -487,7 +489,7 @@ export default function MobileSessionStack({
         <motion.div
           data-ripple-mobile-session-chat-sheet="true"
           data-ripple-mobile-session-chat-dragging={isDragging ? "true" : "false"}
-          className="absolute inset-0 z-10 h-full min-h-0 touch-pan-y bg-[#F5F6F7] shadow-[-18px_0_44px_rgba(31,35,41,0.18)]"
+          className="absolute inset-0 z-10 h-full min-h-0 touch-pan-y bg-[#F5F6F7] shadow-[-18px_0_44px_rgba(31,35,41,0.18)] will-change-transform"
           style={{ x: sheetX }}
           transition={reduceMotion ? reducedMotionTransition : mobileStackReturnTransition}
           onPointerDown={handlePointerDown}

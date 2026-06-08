@@ -176,8 +176,8 @@ function testAndroidMainActivityExposesChatBackGestureExclusionBridge() {
   assert.match(androidMainActivity, /runOnUiThread/);
   assert.match(androidMainActivity, /Build\.VERSION\.SDK_INT < Build\.VERSION_CODES\.Q/);
   assert.match(androidMainActivity, /systemGestureExclusionRects/);
-  assert.match(androidMainActivity, /48 \* resources\.displayMetrics\.density/);
-  assert.doesNotMatch(androidMainActivity, /96 \* resources\.displayMetrics\.density/);
+  assert.match(androidMainActivity, /96 \* resources\.displayMetrics\.density/);
+  assert.doesNotMatch(androidMainActivity, /48 \* resources\.displayMetrics\.density/);
   assert.match(androidMainActivity, /Rect\(0, 0, width, webView\.height\)/);
 }
 

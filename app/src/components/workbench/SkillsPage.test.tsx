@@ -274,7 +274,7 @@ function testSkillsCategoryDetailSupportsSwipeBackGesture() {
   );
   assert.equal(
     shouldClaimSkillsCategoryBackSwipe({
-      startX: 52,
+      startX: 74,
       deltaX: 10,
       deltaY: 0,
       viewportWidth: 390,
@@ -284,6 +284,14 @@ function testSkillsCategoryDetailSupportsSwipeBackGesture() {
   assert.equal(
     shouldClaimSkillsCategoryBackSwipe({
       deltaX: 24,
+      deltaY: 0,
+      viewportWidth: 390,
+    }),
+    false
+  );
+  assert.equal(
+    shouldClaimSkillsCategoryBackSwipe({
+      deltaX: 28,
       deltaY: 0,
       viewportWidth: 390,
     }),
@@ -311,7 +319,7 @@ function testSkillsCategoryDetailSupportsSwipeBackGesture() {
       deltaY: 20,
       viewportWidth: 390,
     }),
-    false
+    true
   );
   assert.equal(
     resolveSkillsCategoryBackSwipeRelease({
@@ -487,9 +495,12 @@ function testSkillsPageMobileInteractionFixes() {
     "utf8"
   );
 
-  assert.match(motionSource, /edgeStartWidthPx: 48/);
-  assert.match(androidMainActivity, /48 \* resources\.displayMetrics\.density/);
+  assert.match(motionSource, /edgeStartWidthPx: 72/);
+  assert.match(motionSource, /mobileStackCommitTransition/);
+  assert.match(androidMainActivity, /96 \* resources\.displayMetrics\.density/);
   assert.match(source, /resetToRootRequest/);
+  assert.match(source, /mobileStackCommitTransition/);
+  assert.match(source, /will-change-transform/);
   assert.match(source, /skillsPageScrollRef\.current\?\.scrollTo\(\{ top: 0/);
   assert.match(appSource, /skillsResetToRootRequest/);
   assert.match(

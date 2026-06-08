@@ -56,6 +56,7 @@ import {
   WORKBENCH_SECTION_CLASS,
 } from "./stylePrimitives";
 import {
+  mobileStackCommitTransition,
   mobilePageSwitchTransition,
   mobilePageVariants,
   mobileStackReturnTransition,
@@ -268,11 +269,12 @@ export function shouldClaimSkillsCategoryBackSwipe({
 }
 
 export function shouldCancelSkillsCategoryBackSwipe({
+  startX,
   deltaX,
   deltaY,
   viewportWidth,
 }: SkillsCategoryBackSwipeIntentInput): boolean {
-  return shouldCancelMobileSwipeBack({ deltaX, deltaY, viewportWidth });
+  return shouldCancelMobileSwipeBack({ startX, deltaX, deltaY, viewportWidth });
 }
 
 export function shouldReleaseSkillsCategoryBackSwipeScrollGuard({
@@ -1009,7 +1011,7 @@ export default function SkillsPage({
   }, []);
 
   const animateCategorySwipeTo = useCallback(
-    (target: number, onComplete?: () => void) => {
+    (target: number, onComplete?: () => void, transition = mobileStackReturnTransition) => {
       stopCategorySwipeAnimation();
       if (reduceMotion) {
         categorySwipeX.set(target);
@@ -1017,7 +1019,7 @@ export default function SkillsPage({
         return;
       }
 
-      const animation = animate(categorySwipeX, target, mobileStackReturnTransition);
+      const animation = animate(categorySwipeX, target, transition);
       categorySwipeAnimationRef.current = animation;
       void animation.then(() => {
         if (categorySwipeAnimationRef.current === animation) {
@@ -1225,7 +1227,11 @@ export default function SkillsPage({
       }
 
       setIsCategorySwipeActive(true);
-      animateCategorySwipeTo(dragState.viewportWidth, closeCategoryWithSwipeCommit);
+      animateCategorySwipeTo(
+        dragState.viewportWidth,
+        closeCategoryWithSwipeCommit,
+        mobileStackCommitTransition
+      );
     },
     [
       animateCategorySwipeTo,
@@ -2052,7 +2058,7 @@ export default function SkillsPage({
           data-ripple-skill-category-swipe-sheet="true"
           data-ripple-skill-category-swiping={isCategorySwipeActive ? "true" : "false"}
           style={{ x: categorySwipeX }}
-          className="relative z-10 min-w-0 touch-pan-y bg-[#F5F6F7]"
+          className="relative z-10 min-w-0 touch-pan-y bg-[#F5F6F7] will-change-transform"
           onPointerDown={handleCategorySwipePointerDown}
           onPointerMove={handleCategorySwipePointerMove}
           onPointerUp={handleCategorySwipePointerUp}

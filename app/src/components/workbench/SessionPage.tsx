@@ -40,14 +40,15 @@ import {
 import SessionComposer from "./SessionComposer";
 import SessionTimeline from "./SessionTimeline";
 import {
-  COMPACT_IOS_PAGE_BACKGROUND,
-  MOBILE_GLASS_ICON_BUTTON_CLASS,
   TYPOGRAPHY_BODY_CLASS,
   TYPOGRAPHY_BODY_MEDIUM_CLASS,
   TYPOGRAPHY_META_CLASS,
   TYPOGRAPHY_META_MEDIUM_CLASS,
   TYPOGRAPHY_MICRO_CLASS,
   TYPOGRAPHY_MICRO_MEDIUM_CLASS,
+  WORKBENCH_MOBILE_ICON_BUTTON_CLASS,
+  WORKBENCH_PAGE_BACKGROUND_CLASS,
+  WORKBENCH_SECTION_CLASS,
 } from "./stylePrimitives";
 
 const STICK_TO_BOTTOM_MS = 1200;
@@ -57,7 +58,7 @@ const MOBILE_CHAT_COMPOSER_FALLBACK_HEIGHT_PX = 92;
 const MOBILE_CHAT_COMPOSER_GAP_PX = 12;
 const MOBILE_CHAT_HEADER_SCROLL_DELTA_PX = 10;
 const MOBILE_CHAT_HEADER_TOP_LOCK_PX = 8;
-const mobileHeaderButtonClass = MOBILE_GLASS_ICON_BUTTON_CLASS;
+const mobileHeaderButtonClass = WORKBENCH_MOBILE_ICON_BUTTON_CLASS;
 
 interface MobileChatHeaderScrollInput {
   previousScrollTop: number;
@@ -670,7 +671,7 @@ export default function SessionPage({
       onDragOver={handlePageDragOver}
       onDragLeave={handlePageDragLeave}
       onDrop={handlePageDrop}
-      className={`relative flex h-full min-h-0 flex-col overflow-hidden ${COMPACT_IOS_PAGE_BACKGROUND} ${
+      className={`relative flex h-full min-h-0 flex-col overflow-hidden ${WORKBENCH_PAGE_BACKGROUND_CLASS} ${
         isDraggingFiles ? "ring-2 ring-[#1456F0] ring-inset" : ""
       }`}
     >
@@ -678,7 +679,7 @@ export default function SessionPage({
         ref={mobileHeaderRef}
         data-ripple-mobile-chat-header="true"
         data-ripple-mobile-chat-header-hidden={isMobileHeaderHidden ? "true" : "false"}
-        className={`absolute inset-x-0 top-0 z-30 grid min-h-[calc(56px+env(safe-area-inset-top))] grid-cols-[44px_minmax(0,1fr)_44px] items-center border-b border-[#DEE0E3]/70 bg-white/76 px-2.5 pt-[max(env(safe-area-inset-top),0px)] shadow-[0_8px_22px_rgba(31,35,41,0.05)] backdrop-blur-2xl transition-transform duration-150 ease-out lg:hidden ${
+        className={`absolute inset-x-0 top-0 z-30 grid min-h-[calc(56px+env(safe-area-inset-top))] grid-cols-[44px_minmax(0,1fr)_44px] items-center border-b border-[#DEE0E3] bg-white px-2.5 pt-[max(env(safe-area-inset-top),0px)] shadow-[0_1px_2px_rgba(31,35,41,0.04)] transition-transform duration-150 ease-out lg:hidden ${
           isMobileHeaderHidden ? "pointer-events-none -translate-y-full" : "translate-y-0"
         }`}
       >
@@ -702,7 +703,7 @@ export default function SessionPage({
               data-ripple-current-model-badge="mobile"
               aria-label={currentModelAccessibleLabel}
               title={currentModelAccessibleLabel}
-              className={`inline-flex max-w-[116px] min-w-0 items-center gap-1 rounded-full border border-[#DEE0E3] bg-white/74 px-1.5 py-0.5 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} text-[#646A73] shadow-[0_4px_12px_rgba(31,35,41,0.05)]`}
+              className={`inline-flex max-w-[116px] min-w-0 items-center gap-1 rounded-full border border-[#DEE0E3] bg-[#F8F9FA] px-1.5 py-0.5 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} text-[#646A73]`}
             >
               <BrainCircuit size={11} className={modelBadgeIconClass} strokeWidth={2.2} />
               <span
@@ -718,7 +719,7 @@ export default function SessionPage({
                 aria-label={focusFolderAccessibleLabel}
                 title={folderBadgeTitle}
                 onClick={requestFolderPicker}
-                className={`inline-flex max-w-[144px] min-w-0 items-center gap-1 rounded-full border border-[#DEE0E3] bg-white/74 px-1.5 py-0.5 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} text-[#646A73] shadow-[0_4px_12px_rgba(31,35,41,0.05)] hover:text-[#1456F0]`}
+                className={`inline-flex max-w-[144px] min-w-0 items-center gap-1 rounded-full border border-[#DEE0E3] bg-[#F8F9FA] px-1.5 py-0.5 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} text-[#646A73] hover:text-[#1456F0]`}
               >
                 <Folder size={10} className="shrink-0" strokeWidth={2.2} />
                 <span className="truncate">{focusFolderLabel}</span>
@@ -739,7 +740,7 @@ export default function SessionPage({
         </div>
       </div>
 
-      <div className="hidden h-14 shrink-0 items-center justify-between gap-3 border-b border-[#DEE0E3]/70 bg-white/70 px-5 shadow-[0_8px_22px_rgba(31,35,41,0.04)] backdrop-blur-2xl lg:flex">
+      <div className="hidden h-14 shrink-0 items-center justify-between gap-3 border-b border-[#DEE0E3] bg-white px-5 shadow-[0_1px_2px_rgba(31,35,41,0.04)] lg:flex">
         <div className="min-w-0">
           <div className={`truncate ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#1F2329]`}>
             {session?.title || t("sessions.fallbackTitle")}
@@ -752,7 +753,7 @@ export default function SessionPage({
               aria-label={focusFolderAccessibleLabel}
               title={folderBadgeTitle}
               onClick={requestFolderPicker}
-              className={`inline-flex max-w-[220px] shrink-0 items-center gap-1.5 rounded-full border border-[#DEE0E3] bg-white/82 px-3 py-1.5 ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#2B2F36] shadow-[0_8px_18px_rgba(31,35,41,0.05)]`}
+              className={`inline-flex max-w-[220px] shrink-0 items-center gap-1.5 rounded-full border border-[#DEE0E3] bg-[#F8F9FA] px-3 py-1.5 ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#2B2F36]`}
             >
               <Folder size={13} className="shrink-0 text-[#646A73]" strokeWidth={2.2} />
               <span className="truncate">{focusFolderLabel}</span>
@@ -762,7 +763,7 @@ export default function SessionPage({
             data-ripple-current-model-badge="desktop"
             aria-label={currentModelAccessibleLabel}
             title={currentModelAccessibleLabel}
-            className={`inline-flex max-w-[220px] shrink-0 items-center gap-1.5 rounded-full border border-[#DEE0E3] bg-white/82 px-3 py-1.5 ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#2B2F36] shadow-[0_8px_18px_rgba(31,35,41,0.05)]`}
+            className={`inline-flex max-w-[220px] shrink-0 items-center gap-1.5 rounded-full border border-[#DEE0E3] bg-[#F8F9FA] px-3 py-1.5 ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#2B2F36]`}
           >
             <BrainCircuit size={13} className={modelBadgeIconClass} strokeWidth={2.2} />
             <span
@@ -780,7 +781,7 @@ export default function SessionPage({
         data-ripple-session-scroll="timeline"
         onScroll={handleScroll}
         style={mobileTimelineStyle}
-        className="min-h-0 flex-1 overflow-y-auto bg-white/92 px-3 pt-[calc(var(--ripple-mobile-chat-header-height)+8px)] pb-[calc(var(--ripple-mobile-chat-composer-height)+var(--ripple-mobile-chat-composer-gap))] sm:px-4 md:px-5 lg:py-5"
+        className="min-h-0 flex-1 overflow-y-auto bg-white px-3 pt-[calc(var(--ripple-mobile-chat-header-height)+8px)] pb-[calc(var(--ripple-mobile-chat-composer-height)+var(--ripple-mobile-chat-composer-gap))] sm:px-4 md:px-5 lg:py-5"
       >
         <div ref={contentRef} className="mx-auto max-w-5xl space-y-2 sm:space-y-5">
           {isSessionLoading ? (
@@ -789,14 +790,14 @@ export default function SessionPage({
               className="space-y-2 pt-1"
               aria-busy="true"
             >
-              <div className="h-16 rounded-2xl border border-[#EFF0F1] bg-white/78 shadow-[0_10px_24px_rgba(31,35,41,0.045)]" />
+              <div className="h-16 rounded-xl border border-[#EFF0F1] bg-white shadow-[0_1px_2px_rgba(31,35,41,0.04)]" />
               <div className="ml-auto h-20 w-[82%] rounded-2xl border border-[#EFF0F1] bg-[#F8F9FA]" />
-              <div className="h-24 w-[88%] rounded-2xl border border-[#EFF0F1] bg-white/78 shadow-[0_10px_24px_rgba(31,35,41,0.045)]" />
+              <div className="h-24 w-[88%] rounded-xl border border-[#EFF0F1] bg-white shadow-[0_1px_2px_rgba(31,35,41,0.04)]" />
             </div>
           ) : (
             <>
               {planSteps.length > 0 && (
-                <section className="rounded-2xl border border-[#DEE0E3] bg-white/82 shadow-[0_12px_30px_rgba(31,35,41,0.06)] backdrop-blur-xl">
+                <section className={WORKBENCH_SECTION_CLASS}>
                   <div className="flex items-center justify-between border-b border-[#EFF0F1] px-3 py-1.5">
                     <div className={`${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#1F2329]`}>
                       {t("sessions.currentPlan")}
@@ -850,7 +851,7 @@ export default function SessionPage({
 
               {contextPercent > 75 && (
                 <div
-                  className={`flex items-start gap-2 rounded-2xl border border-[#FAD355]/55 bg-[#FFF8DB]/90 p-3 ${TYPOGRAPHY_BODY_CLASS} text-[#8B5E00] shadow-[0_10px_24px_rgba(196,122,0,0.08)]`}
+                  className={`flex items-start gap-2 rounded-xl border border-[#FAD355]/45 bg-[#FFF8DB] p-3 ${TYPOGRAPHY_BODY_CLASS} text-[#8B5E00]`}
                 >
                   <AlertTriangle size={16} className="mt-0.5 shrink-0" />
                   {t("sessions.contextWarning", { percent: `${contextPercent}%` })} (
@@ -878,7 +879,7 @@ export default function SessionPage({
             <span
               aria-label={tokenBadgeAccessibleLabel}
               title={tokenBadgeAccessibleLabel}
-              className={`inline-flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded-full border border-[#EFF0F1]/70 bg-white/60 px-2.5 py-1 font-[family-name:var(--font-mono)] ${TYPOGRAPHY_META_CLASS} text-[#8F959E] italic shadow-[0_6px_18px_rgba(31,35,41,0.04)] backdrop-blur-xl`}
+              className={`inline-flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded-full border border-[#DEE0E3] bg-[#F8F9FA] px-2.5 py-1 font-[family-name:var(--font-mono)] ${TYPOGRAPHY_META_CLASS} text-[#646A73] italic`}
             >
               {tokenBadgeText}
             </span>

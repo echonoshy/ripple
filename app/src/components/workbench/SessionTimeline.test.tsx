@@ -232,6 +232,21 @@ function testTimelineUsesReadableMobileTypeScale() {
   assert.doesNotMatch(source, /text-\[10px\]/);
 }
 
+function testTimelineNoticeSurfacesUseWorkbenchPrimitives() {
+  const source = readFileSync(new URL("./SessionTimeline.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /WORKBENCH_SECTION_CLASS/);
+  assert.match(source, /WORKBENCH_STATUS_NEUTRAL_CLASS/);
+  assert.match(source, /WORKBENCH_ICON_BUTTON_CLASS/);
+  assert.match(source, /WORKBENCH_PRIMARY_BUTTON_CLASS/);
+  assert.doesNotMatch(source, /bg-\[linear-gradient/);
+  assert.doesNotMatch(source, /backdrop-blur-md/);
+  assert.doesNotMatch(source, /bg-white\/80/);
+  assert.doesNotMatch(source, /bg-white\/82/);
+  assert.doesNotMatch(source, /shadow-\[0_10px_24px_rgba\(31,35,41,0\.04\)\]/);
+  assert.doesNotMatch(source, /shadow-\[0_10px_22px_rgba\(20,86,240,0\.22\)\]/);
+}
+
 testTimelineImagePreviewsUseWorkspaceImageCache();
 testEmptyTimelineUsesShortReadyCopy();
 testTimelineRendersChineseStaticCopy();
@@ -246,5 +261,6 @@ testChineseGeneratingPlaceholderUsesRandomWaitingCopy();
 testConnectorAuthTimelineWaitingCopyDoesNotTickSeconds();
 testWaitingCopyAvoidsConcreteOperationClaims();
 testTimelineUsesReadableMobileTypeScale();
+testTimelineNoticeSurfacesUseWorkbenchPrimitives();
 
 console.log("session timeline tests passed");

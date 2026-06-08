@@ -63,7 +63,20 @@ function testUsesSessionIdSelectionNaming() {
 
   assert.match(html, /Session 9/);
   assert.match(html, /border-\[#BACEFD\]/);
+  assert.match(html, /bg-\[#F0F5FF\]/);
   assert.match(html, /text-\[#1456F0\]/);
+  assert.doesNotMatch(html, /shadow-\[0_6px_16px_rgba\(31,35,41,0\.06\)\]/);
+}
+
+function testSessionRailUsesSolidWorkbenchSurface() {
+  const html = renderWorkspaceNav();
+
+  const rail = html.match(/<aside[^>]*data-ripple-session-rail="true"[^>]*>/)?.[0] || "";
+
+  assert.match(rail, /bg-white/);
+  assert.match(rail, /border-r/);
+  assert.doesNotMatch(rail, /backdrop-blur-2xl/);
+  assert.doesNotMatch(rail, /shadow-\[8px_0_22px/);
 }
 
 function testSessionsHeaderDoesNotDuplicateNewSessionAction() {
@@ -147,6 +160,7 @@ function testRendersChineseSessionRailChrome() {
 
 testRendersAllSessionsWithoutDeadViewAllButton();
 testUsesSessionIdSelectionNaming();
+testSessionRailUsesSolidWorkbenchSurface();
 testSessionsHeaderDoesNotDuplicateNewSessionAction();
 testSessionRailCanCollapseFromHeader();
 testNewSessionStaysAvailableWhileAnotherSessionRuns();

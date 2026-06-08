@@ -226,6 +226,25 @@ function testConnectorAuthCardsUseSoftTileHeaders() {
   assert.match(feishuHtml, /data-ripple-icon-tile="true"/);
 }
 
+function testConnectorAuthCardsUseWorkbenchNoticeSurfaces() {
+  const googleHtml = renderMarkdown({
+    content: "[GOOGLE_AUTH]\nhttps://accounts.google.com/o/oauth2/auth?state=abc",
+  });
+  const authorizedHtml = renderMarkdown({ content: "[GOOGLE_AUTHORIZED_CONNECT]" });
+
+  for (const html of [googleHtml, authorizedHtml]) {
+    assert.match(html, /rounded-xl/);
+    assert.match(html, /border-\[#DEE0E3\]/);
+    assert.match(html, /bg-white/);
+    assert.match(html, /shadow-\[0_1px_2px_rgba\(31,35,41,0\.04\)\]/);
+    assert.doesNotMatch(html, /rounded-2xl/);
+    assert.doesNotMatch(html, /bg-white\/74/);
+    assert.doesNotMatch(html, /backdrop-blur-xl/);
+  }
+}
+
+testConnectorAuthCardsUseWorkbenchNoticeSurfaces();
+
 function testBilibiliAuthCardShowsQrAndManualOpenLink() {
   const html = renderMarkdown({
     content:

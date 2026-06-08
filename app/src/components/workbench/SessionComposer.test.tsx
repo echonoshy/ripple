@@ -156,11 +156,18 @@ function testComposerClearsIosHomeIndicatorAndUsesTouchSizedActions() {
   assert.doesNotMatch(html, /session-composer-input[^"]*text-\[14px\][^"]*sm:text-\[14px\]/);
 }
 
-function testComposerUsesCompactGlassRadiusScale() {
+function testComposerUsesWorkbenchSurfaceScale() {
   const source = readFileSync(new URL("./SessionComposer.tsx", import.meta.url), "utf8");
 
   assert.doesNotMatch(source, /rounded-\[20px\]/);
-  assert.match(source, /rounded-\[22px\] border border-\[#DEE0E3\] bg-white\/92/);
+  assert.match(source, /WORKBENCH_MENU_CLASS/);
+  assert.match(source, /WORKBENCH_MOBILE_ICON_BUTTON_CLASS/);
+  assert.match(source, /rounded-xl border border-\[#DEE0E3\] bg-white p-1\.5 shadow-\[0_1px_2px_rgba\(31,35,41,0\.04\)\]/);
+  assert.doesNotMatch(source, /rounded-\[22px\]/);
+  assert.doesNotMatch(source, /bg-white\/92/);
+  assert.doesNotMatch(source, /backdrop-blur-2xl/);
+  assert.doesNotMatch(source, /shadow-\[0_12px_30px_rgba\(31,35,41,0\.10\)\]/);
+  assert.doesNotMatch(source, /shadow-\[0_10px_22px_rgba\(20,86,240,0\.26\)\]/);
 }
 
 function testComposerExpandsActionsBelowTextAfterInput() {
@@ -267,7 +274,7 @@ testComposerInputDoesNotNeedGlobalBlueFocusOverride();
 testComposerInputHidesNativeScrollbar();
 testBlockedComposerStillAllowsDraftingAndShowsStop();
 testComposerClearsIosHomeIndicatorAndUsesTouchSizedActions();
-testComposerUsesCompactGlassRadiusScale();
+testComposerUsesWorkbenchSurfaceScale();
 testComposerExpandsActionsBelowTextAfterInput();
 testExpandedComposerKeepsToolbarHorizontalOrigin();
 testComposerOnlyTextInputFocusExpandsEmptyComposer();

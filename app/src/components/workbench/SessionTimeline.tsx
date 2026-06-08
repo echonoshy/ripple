@@ -28,6 +28,12 @@ import {
   TYPOGRAPHY_BODY_MEDIUM_CLASS,
   TYPOGRAPHY_META_CLASS,
   TYPOGRAPHY_MICRO_CLASS,
+  WORKBENCH_DANGER_BUTTON_CLASS,
+  WORKBENCH_ICON_BUTTON_CLASS,
+  WORKBENCH_PRIMARY_BUTTON_CLASS,
+  WORKBENCH_SECTION_CLASS,
+  WORKBENCH_SECONDARY_BUTTON_CLASS,
+  WORKBENCH_STATUS_NEUTRAL_CLASS,
 } from "./stylePrimitives";
 
 export const WAITING_STATUS_MESSAGES = [
@@ -484,7 +490,9 @@ export default function SessionTimeline({
                   className={`flex shrink-0 items-center gap-1.5 ${TYPOGRAPHY_MICRO_CLASS} text-[#646A73]`}
                 >
                   {event.status && (
-                    <span className="rounded-full border border-[#DEE0E3] bg-white/80 px-1.5 py-0.5 font-[family-name:var(--font-mono)]">
+                    <span
+                      className={`${WORKBENCH_STATUS_NEUTRAL_CLASS} font-[family-name:var(--font-mono)]`}
+                    >
                       {displayStatus}
                     </span>
                   )}
@@ -496,7 +504,7 @@ export default function SessionTimeline({
                       title={t("timeline.copyContent")}
                       data-ripple-mobile-copy-visible={isMobileCopyVisible ? "true" : "false"}
                       onClick={() => void handleCopyEvent(event)}
-                      className={`inline-flex h-7 w-7 items-center justify-center rounded-full border border-[#DEE0E3] bg-white/82 text-[#646A73] shadow-[0_6px_14px_rgba(31,35,41,0.06)] transition-all hover:bg-[#F5F6F7] hover:text-[#1456F0] focus:pointer-events-auto focus:opacity-100 active:bg-[#F0F5FF] lg:pointer-events-none lg:opacity-0 lg:group-focus-within/timeline-event:pointer-events-auto lg:group-focus-within/timeline-event:opacity-100 lg:group-hover/timeline-event:pointer-events-auto lg:group-hover/timeline-event:opacity-100 ${
+                      className={`${WORKBENCH_ICON_BUTTON_CLASS} !h-7 !w-7 text-[#646A73] hover:text-[#1456F0] focus:pointer-events-auto focus:opacity-100 lg:pointer-events-none lg:opacity-0 lg:group-focus-within/timeline-event:pointer-events-auto lg:group-focus-within/timeline-event:opacity-100 lg:group-hover/timeline-event:pointer-events-auto lg:group-hover/timeline-event:opacity-100 ${
                         isMobileCopyVisible
                           ? "pointer-events-auto opacity-100"
                           : "pointer-events-none opacity-0"
@@ -510,7 +518,7 @@ export default function SessionTimeline({
             </div>
             {isToolEvent ? (
               <div
-                className={`${TIMELINE_CONTENT_INDENT_CLASS} mt-2 rounded-xl border border-[#e2e8f0] bg-[linear-gradient(135deg,rgba(248,250,252,0.7),rgba(241,245,249,0.7))] px-3 py-2.5 font-[family-name:var(--font-mono)] ${TYPOGRAPHY_META_CLASS} text-[#334155] shadow-[0_10px_24px_rgba(31,35,41,0.04)] backdrop-blur-md`}
+                className={`${TIMELINE_CONTENT_INDENT_CLASS} mt-2 px-3 py-2.5 font-[family-name:var(--font-mono)] ${TYPOGRAPHY_META_CLASS} text-[#334155] ${WORKBENCH_SECTION_CLASS}`}
               >
                 {event.body.split("\n").map((line, index) => (
                   <div key={`${event.id}-${index}`} className="truncate" title={line}>
@@ -561,7 +569,7 @@ export default function SessionTimeline({
 
       {pendingAskUser && (
         <div
-          className={`${TIMELINE_CONTENT_INDENT_CLASS} mt-3 rounded-xl border border-[#FAD355]/55 bg-[#FFF8DB]/90 p-3 shadow-[0_10px_24px_rgba(196,122,0,0.08)]`}
+          className={`${TIMELINE_CONTENT_INDENT_CLASS} mt-3 rounded-xl border border-[#FAD355]/45 bg-[#FFF8DB] p-3`}
         >
           <div className={`mb-2 ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#8B5E00]`}>
             {pendingAskUser.question}
@@ -572,7 +580,7 @@ export default function SessionTimeline({
                 key={option}
                 type="button"
                 onClick={() => onQuickReply(option)}
-                className={`rounded-full border border-[#DEE0E3] bg-white px-3 py-1.5 ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#1F2329] hover:bg-[#F8F9FA]`}
+                className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} py-1.5 ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
               >
                 {option}
               </button>
@@ -583,7 +591,7 @@ export default function SessionTimeline({
 
       {pendingPermission && (
         <div
-          className={`${TIMELINE_CONTENT_INDENT_CLASS} mt-3 rounded-xl border border-[#FAD355]/55 bg-[#FFF8DB]/90 p-3 shadow-[0_10px_24px_rgba(196,122,0,0.08)]`}
+          className={`${TIMELINE_CONTENT_INDENT_CLASS} mt-3 rounded-xl border border-[#FAD355]/45 bg-[#FFF8DB] p-3`}
         >
           <div
             className={`mb-2 flex items-center gap-2 ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#8B5E00]`}
@@ -592,7 +600,7 @@ export default function SessionTimeline({
             {t("timeline.permissionRequired", { tool: pendingPermission.tool })}
           </div>
           <pre
-            className={`mb-3 max-h-48 overflow-auto rounded-xl border border-[#e2e8f0] bg-[linear-gradient(135deg,rgba(248,250,252,0.7),rgba(241,245,249,0.7))] p-3 font-[family-name:var(--font-mono)] ${TYPOGRAPHY_META_CLASS} whitespace-pre-wrap text-[#334155] backdrop-blur-md`}
+            className={`mb-3 max-h-48 overflow-auto p-3 font-[family-name:var(--font-mono)] ${TYPOGRAPHY_META_CLASS} whitespace-pre-wrap text-[#334155] ${WORKBENCH_SECTION_CLASS}`}
           >
             {typeof pendingPermission.params === "string"
               ? pendingPermission.params
@@ -602,21 +610,21 @@ export default function SessionTimeline({
             <button
               type="button"
               onClick={() => onPermissionResolve("allow")}
-              className={`rounded-full border border-[#16845B]/25 bg-[#E4F8EE] px-3 py-1.5 ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#16845B] hover:bg-[#DDF7E9]`}
+              className={`rounded-lg border border-[#16845B]/25 bg-[#E4F8EE] px-3 py-1.5 ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#16845B] hover:bg-[#DDF7E9]`}
             >
               {t("timeline.allowOnce")}
             </button>
             <button
               type="button"
               onClick={() => onPermissionResolve("always")}
-              className={`rounded-full border border-[#1456F0]/20 bg-[#1456F0] px-3 py-1.5 ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-white shadow-[0_10px_22px_rgba(20,86,240,0.22)] hover:bg-[#0F4BD8]`}
+              className={`${WORKBENCH_PRIMARY_BUTTON_CLASS} py-1.5 ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
             >
               {t("timeline.allowForSession")}
             </button>
             <button
               type="button"
               onClick={() => onPermissionResolve("deny")}
-              className={`rounded-full border border-[#B42318]/25 bg-[#FFF1F0] px-3 py-1.5 ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#B42318] hover:bg-[#FFE3E0]`}
+              className={`${WORKBENCH_DANGER_BUTTON_CLASS} py-1.5 ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
             >
               {t("timeline.deny")}
             </button>

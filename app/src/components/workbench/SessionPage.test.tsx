@@ -161,7 +161,12 @@ function testMobileHeaderButtonsUseToolbarStyling() {
   assert.match(backButton, /lucide-chevron-left/);
   assert.match(backButton, /<path d="m15 18-6-6 6-6"><\/path>/);
   assert.doesNotMatch(backButton, /lucide-arrow-big-left/);
-  assert.match(sessionPageSource, /MOBILE_GLASS_ICON_BUTTON_CLASS/);
+  assert.match(backButton, /rounded-xl/);
+  assert.match(backButton, /border-\[#DEE0E3\]/);
+  assert.match(backButton, /bg-white/);
+  assert.doesNotMatch(backButton, /backdrop-blur-xl/);
+  assert.match(sessionPageSource, /WORKBENCH_MOBILE_ICON_BUTTON_CLASS/);
+  assert.doesNotMatch(sessionPageSource, /MOBILE_GLASS_ICON_BUTTON_CLASS/);
   assert.match(sessionPageSource, /ChevronLeft/);
   assert.match(sessionPageSource, /MessageCircleMore/);
   assert.match(sessionPageSource, /grid-cols-\[44px_minmax\(0,1fr\)_44px\]/);
@@ -181,8 +186,9 @@ function testMobileHeaderButtonsUseToolbarStyling() {
   );
 }
 
-function testSessionPageUsesSharedCompactGlassBackground() {
-  assert.match(sessionPageSource, /COMPACT_IOS_PAGE_BACKGROUND/);
+function testSessionPageUsesSharedWorkbenchBackground() {
+  assert.match(sessionPageSource, /WORKBENCH_PAGE_BACKGROUND_CLASS/);
+  assert.doesNotMatch(sessionPageSource, /COMPACT_IOS_PAGE_BACKGROUND/);
   assert.doesNotMatch(sessionPageSource, /circle_at_18%_0%/);
 }
 
@@ -204,7 +210,8 @@ function testSessionPageOmitsSecondarySettingsSheet() {
 function testGivesSessionContentMoreHorizontalRoom() {
   const html = renderSessionPage();
 
-  assert.match(html, /overflow-y-auto bg-white\/92 px-3/);
+  assert.match(html, /overflow-y-auto bg-white px-3/);
+  assert.doesNotMatch(html, /overflow-y-auto bg-white\/92/);
   assert.match(html, /mx-auto max-w-5xl space-y-2 sm:space-y-5/);
 }
 
@@ -224,11 +231,16 @@ function testMobileHeaderReservesTopSafeArea() {
 
 function testMobileHeaderIsOverlayChrome() {
   const html = renderSessionPage();
+  const header =
+    html.match(/<div[^>]*data-ripple-mobile-chat-header="true"[^>]*>/)?.[0] || "";
 
   assert.match(html, /data-ripple-mobile-chat-header="true"/);
   assert.match(html, /absolute inset-x-0 top-0 z-30/);
   assert.match(html, /transition-transform/);
   assert.match(html, /data-ripple-mobile-chat-header-hidden=/);
+  assert.match(header, /bg-white/);
+  assert.doesNotMatch(header, /bg-white\/76/);
+  assert.doesNotMatch(header, /backdrop-blur-2xl/);
 }
 
 function testDesktopHeaderShowsCurrentModelLikeMobile() {
@@ -340,7 +352,9 @@ function testContextWarningUsesReportedModelWindow() {
   assert.match(html, /aria-label="Tokens in 76,000, out 10\. Context 76,000 \/ 100,000\."/);
   assert.match(html, /title="Tokens in 76,000, out 10\. Context 76,000 \/ 100,000\."/);
   assert.match(html, /italic/);
-  assert.match(html, /bg-white\/60/);
+  assert.match(html, /bg-\[#F8F9FA\]/);
+  assert.doesNotMatch(html, /bg-white\/60/);
+  assert.doesNotMatch(html, /backdrop-blur-xl/);
   assert.doesNotMatch(html, /tokens in 76,000 \/ out 10/);
 }
 
@@ -726,7 +740,7 @@ function testPendingSessionDetailsShowSkeletonInsteadOfPreviousMessages() {
 
 testOmitsPlaceholderSessionHeaderControls();
 testMobileHeaderButtonsUseToolbarStyling();
-testSessionPageUsesSharedCompactGlassBackground();
+testSessionPageUsesSharedWorkbenchBackground();
 testSessionPageOmitsSecondarySettingsSheet();
 testGivesSessionContentMoreHorizontalRoom();
 testSessionPageHandlesDropAcrossWholeChat();

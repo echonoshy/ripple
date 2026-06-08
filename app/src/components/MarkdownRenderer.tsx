@@ -116,6 +116,9 @@ interface ContentSegment {
 
 type ConnectorAuthLinkVariant = "primary" | "info" | "warning" | "neutral";
 
+const CONNECTOR_AUTH_CARD_CLASS =
+  "my-3 overflow-hidden rounded-xl border border-[#DEE0E3] bg-white shadow-[0_1px_2px_rgba(31,35,41,0.04)]";
+
 function connectorAuthLinkClass(variant: ConnectorAuthLinkVariant, extra = ""): string {
   return ["connector-auth-link", `connector-auth-link--${variant}`, extra]
     .filter(Boolean)
@@ -360,7 +363,7 @@ function FeishuCard({
   };
 
   return (
-    <div className="my-3 overflow-hidden rounded-2xl border border-[#DEE0E3] bg-white/74 shadow-[0_12px_30px_rgba(31,35,41,0.06)] backdrop-blur-xl">
+    <div className={CONNECTOR_AUTH_CARD_CLASS}>
       <div className={`flex items-center gap-2 border-b border-[#DEE0E3] px-4 py-3 ${accentClass}`}>
         <IconTile tone={iconTone} size="sm">
           <Icon size={15} />
@@ -425,7 +428,7 @@ function GoogleAuthCard({
     mode === "connect" ? t("connectors.googleConnectSubtitle") : t("connectors.googleAuthSubtitle");
 
   return (
-    <div className="my-3 overflow-hidden rounded-2xl border border-[#DEE0E3] bg-white/74 shadow-[0_12px_30px_rgba(31,35,41,0.06)] backdrop-blur-xl">
+    <div className={CONNECTOR_AUTH_CARD_CLASS}>
       <div className="flex items-center gap-2 border-b border-[#DEE0E3] bg-[#F0F5FF]/60 px-4 py-3 text-[#1456F0]">
         <IconTile tone="accent" size="sm">
           <KeyRound size={15} />
@@ -466,7 +469,7 @@ function GoogleAuthorizedCard({ mode = "skill" }: { mode?: ConnectorAuthMode }) 
       : t("connectors.googleSkillAuthorizedSubtitle");
 
   return (
-    <div className="my-3 overflow-hidden rounded-2xl border border-[#DEE0E3] bg-white/74 shadow-[0_12px_30px_rgba(31,35,41,0.06)] backdrop-blur-xl">
+    <div className={CONNECTOR_AUTH_CARD_CLASS}>
       <div className="flex items-center gap-2 border-b border-[#DEE0E3] bg-[#E4F8EE]/60 px-4 py-3 text-[#16845B]">
         <IconTile tone="success" size="sm">
           <CheckCircle2 size={15} />
@@ -488,7 +491,7 @@ function FeishuAuthorizedCard({ mode = "skill" }: { mode?: ConnectorAuthMode }) 
       : t("connectors.feishuSkillAuthorizedSubtitle");
 
   return (
-    <div className="my-3 overflow-hidden rounded-2xl border border-[#DEE0E3] bg-white/74 shadow-[0_12px_30px_rgba(31,35,41,0.06)] backdrop-blur-xl">
+    <div className={CONNECTOR_AUTH_CARD_CLASS}>
       <div className="flex items-center gap-2 border-b border-[#DEE0E3] bg-[#E4F8EE]/60 px-4 py-3 text-[#16845B]">
         <IconTile tone="success" size="sm">
           <CheckCircle2 size={15} />
@@ -512,7 +515,7 @@ function NotionTokenCard({ mode = "skill" }: { mode?: ConnectorAuthMode }) {
       : t("connectors.notionSkillTokenSubtitle");
 
   return (
-    <div className="my-3 overflow-hidden rounded-2xl border border-[#DEE0E3] bg-white/74 shadow-[0_12px_30px_rgba(31,35,41,0.06)] backdrop-blur-xl">
+    <div className={CONNECTOR_AUTH_CARD_CLASS}>
       <div className="flex items-center gap-2 border-b border-[#DEE0E3] bg-[#F0F5FF]/60 px-4 py-3 text-[#1456F0]">
         <IconTile tone="accent" size="sm">
           <KeyRound size={15} />
@@ -551,7 +554,7 @@ function NotionAuthorizedCard({ mode = "skill" }: { mode?: ConnectorAuthMode }) 
       : t("connectors.notionSkillAuthorizedSubtitle");
 
   return (
-    <div className="my-3 overflow-hidden rounded-2xl border border-[#DEE0E3] bg-white/74 shadow-[0_12px_30px_rgba(31,35,41,0.06)] backdrop-blur-xl">
+    <div className={CONNECTOR_AUTH_CARD_CLASS}>
       <div className="flex items-center gap-2 border-b border-[#DEE0E3] bg-[#E4F8EE]/60 px-4 py-3 text-[#16845B]">
         <IconTile tone="success" size="sm">
           <CheckCircle2 size={15} />
@@ -573,7 +576,7 @@ function BilibiliAuthorizedCard({ mode = "connect" }: { mode?: "connect" | "skil
       : t("connectors.bilibiliAuthorizedSubtitle");
 
   return (
-    <div className="my-3 overflow-hidden rounded-2xl border border-[#DEE0E3] bg-white/74 shadow-[0_12px_30px_rgba(31,35,41,0.06)] backdrop-blur-xl">
+    <div className={CONNECTOR_AUTH_CARD_CLASS}>
       <div className="flex items-center gap-2 border-b border-[#DEE0E3] bg-[#E4F8EE]/60 px-4 py-3 text-[#16845B]">
         <IconTile tone="success" size="sm">
           <CheckCircle2 size={15} />
@@ -615,7 +618,7 @@ function BilibiliAuthCard({
   };
 
   return (
-    <div className="my-3 overflow-hidden rounded-2xl border border-[#DEE0E3] bg-white/74 shadow-[0_12px_30px_rgba(31,35,41,0.06)] backdrop-blur-xl">
+    <div className={CONNECTOR_AUTH_CARD_CLASS}>
       <div className="flex items-center gap-2 border-b border-[#DEE0E3] bg-[#fff4e5]/60 px-4 py-3 text-[#9a3412]">
         <IconTile tone="warning" size="sm">
           <QrCode size={15} />

@@ -411,7 +411,10 @@ function testSkillsCategorySwipeUsesFullHeightScrollableSheetLikeSession() {
   assert.match(swipeSheetBlock, /absolute inset-0 z-10 h-full min-h-0/);
   assert.match(swipeSheetBlock, /overflow-y-auto/);
   assert.match(swipeSheetBlock, /data-ripple-skill-category-scroll="detail"/);
-  assert.match(swipeSheetBlock, /shadow-\[-18px_0_44px_rgba\(31,35,41,0\.18\)\]/);
+  assert.match(
+    swipeSheetBlock,
+    /isCategorySwipeActive \? "shadow-\[-18px_0_44px_rgba\(31,35,41,0\.18\)\]" : "shadow-none"/
+  );
 }
 
 function testSkillsCategorySwipeCommitDoesNotJumpScrollAfterReturn() {
@@ -429,15 +432,15 @@ function testSkillsCategorySwipeCommitDoesNotJumpScrollAfterReturn() {
 
 function testSkillsCategorySwipeCommitBypassesPresenceAnimation() {
   const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
-  const staticIndexBlock =
+  const staticContentBlock =
     source.match(
-      /if \(shouldRenderStaticCategoryIndex\) \{[\s\S]*?data-ripple-skill-category-static-index="true"[\s\S]*?\{renderCategoryIndexPage\(\)\}[\s\S]*?\}/
+      /if \(shouldRenderStaticCategoryContent\) \{[\s\S]*?data-ripple-skill-category-static-stage="true"[\s\S]*?\{selectedCategory \? renderCategoryStage\(\) : renderCategoryIndexPage\(\)\}[\s\S]*?\}/
     )?.[0] || "";
 
-  assert.match(source, /const shouldRenderStaticCategoryIndex = skipNextCategoryTransition && !selectedCategory/);
-  assert.match(staticIndexBlock, /renderCategoryIndexPage/);
-  assert.doesNotMatch(staticIndexBlock, /AnimatePresence/);
-  assert.doesNotMatch(staticIndexBlock, /motion\.div/);
+  assert.match(source, /const shouldRenderStaticCategoryContent = skipNextCategoryTransition/);
+  assert.match(staticContentBlock, /renderCategoryStage/);
+  assert.match(staticContentBlock, /renderCategoryIndexPage/);
+  assert.doesNotMatch(staticContentBlock, /AnimatePresence/);
 }
 
 function testSkillsCategoryTransitionDoesNotWaitOrKeepExitingPageInLayoutFlow() {
@@ -459,6 +462,47 @@ testSkillsCategoryGuardedScrollCanReleaseBackToVerticalIntent();
 testSkillsCategorySwipeUsesFullHeightScrollableSheetLikeSession();
 testSkillsCategorySwipeCommitDoesNotJumpScrollAfterReturn();
 testSkillsCategorySwipeCommitBypassesPresenceAnimation();
+
+function testSkillsCategoryClickOpenUsesStaticDetail() {
+  const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
+  const openBlock =
+    source.match(
+      /const openCategory = useCallback\(\n\s{4}\(categoryId: string\) => \{[\s\S]*?\},\n\s{4}\[[\s\S]*?\]\n\s{2}\);/
+    )?.[0] || "";
+
+  assert.match(openBlock, /setSkipNextCategoryTransition\(true\)/);
+  assert.match(openBlock, /setCategoryTransitionDirection\(0\)/);
+}
+
+testSkillsCategoryClickOpenUsesStaticDetail();
+
+function testSkillsCategoryClickBackUsesStaticReturn() {
+  const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
+  const closeBlock =
+    source.match(/const closeCategory = useCallback\(\(\) => \{[\s\S]*?\}, \[[\s\S]*?\]\);/)?.[0] ||
+    "";
+
+  assert.match(closeBlock, /setSkipNextCategoryTransition\(true\)/);
+  assert.match(closeBlock, /setCategoryTransitionDirection\(0\)/);
+  assert.match(source, /const shouldRenderStaticCategoryContent = skipNextCategoryTransition/);
+  assert.match(source, /data-ripple-skill-category-static-stage="true"/);
+}
+
+testSkillsCategoryClickBackUsesStaticReturn();
+
+function testSkillsCategoryResetToRootUsesStaticReturn() {
+  const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
+  const resetBlock =
+    source.match(
+      /useEffect\(\(\) => \{\n\s{4}if \(resetToRootRequest <= 0\)[\s\S]*?\}, \[[\s\S]*?\]\);/
+    )?.[0] ||
+    "";
+
+  assert.match(resetBlock, /setSkipNextCategoryTransition\(true\)/);
+  assert.match(resetBlock, /setCategoryTransitionDirection\(0\)/);
+}
+
+testSkillsCategoryResetToRootUsesStaticReturn();
 testSkillsCategoryTransitionDoesNotWaitOrKeepExitingPageInLayoutFlow();
 
 function testSkillsCategoryDetailIsFullMobileSubpage() {
@@ -560,7 +604,8 @@ function testSkillsPageMobileInteractionFixes() {
   assert.match(androidMainActivity, /96 \* resources\.displayMetrics\.density/);
   assert.match(source, /resetToRootRequest/);
   assert.match(source, /mobileStackCommitTransition/);
-  assert.match(source, /will-change-transform/);
+  assert.match(source, /isCategorySwipeActive \? "will-change-transform" : "will-change-auto"/);
+  assert.match(source, /lg:will-change-auto/);
   assert.match(source, /skillsPageScrollRef\.current\?\.scrollTo\(\{ top: 0/);
   assert.match(appSource, /skillsResetToRootRequest/);
   assert.match(

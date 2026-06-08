@@ -1048,8 +1048,8 @@ export default function SkillsPage({
   const openCategory = useCallback(
     (categoryId: string) => {
       resetCategorySwipeState();
-      setSkipNextCategoryTransition(false);
-      setCategoryTransitionDirection(1);
+      setSkipNextCategoryTransition(true);
+      setCategoryTransitionDirection(0);
       setConfirmDeleteSkillId(null);
       setExpandedDescriptionSkillId(null);
       setSelectedCategoryId(categoryId);
@@ -1060,8 +1060,8 @@ export default function SkillsPage({
 
   const closeCategory = useCallback(() => {
     resetCategorySwipeState();
-    setSkipNextCategoryTransition(false);
-    setCategoryTransitionDirection(-1);
+    setSkipNextCategoryTransition(true);
+    setCategoryTransitionDirection(0);
     setConfirmDeleteSkillId(null);
     setExpandedDescriptionSkillId(null);
     setSelectedCategoryId(null);
@@ -1109,8 +1109,8 @@ export default function SkillsPage({
   useEffect(() => {
     if (resetToRootRequest <= 0) return;
     resetCategorySwipeState();
-    setSkipNextCategoryTransition(false);
-    setCategoryTransitionDirection(-1);
+    setSkipNextCategoryTransition(true);
+    setCategoryTransitionDirection(0);
     setConfirmDeleteSkillId(null);
     setExpandedDescriptionSkillId(null);
     setSelectedCategoryId(null);
@@ -2076,7 +2076,7 @@ export default function SkillsPage({
           data-ripple-skill-category-scroll="detail"
           data-ripple-skill-category-swiping={isCategorySwipeActive ? "true" : "false"}
           style={{ x: categorySwipeX }}
-          className={`absolute inset-0 z-10 h-full min-h-0 touch-pan-y overflow-y-auto bg-[#F5F6F7] px-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} shadow-[-18px_0_44px_rgba(31,35,41,0.18)] will-change-transform lg:relative lg:inset-auto lg:h-auto lg:overflow-visible lg:px-0 lg:pt-0 lg:pb-0 lg:shadow-none`}
+          className={`absolute inset-0 z-10 h-full min-h-0 touch-pan-y overflow-y-auto bg-[#F5F6F7] px-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} ${isCategorySwipeActive ? "shadow-[-18px_0_44px_rgba(31,35,41,0.18)]" : "shadow-none"} ${isCategorySwipeActive ? "will-change-transform" : "will-change-auto"} lg:relative lg:inset-auto lg:h-auto lg:overflow-visible lg:px-0 lg:pt-0 lg:pb-0 lg:shadow-none lg:will-change-auto`}
           onPointerDown={handleCategorySwipePointerDown}
           onPointerMove={handleCategorySwipePointerMove}
           onPointerUp={handleCategorySwipePointerUp}
@@ -2091,12 +2091,15 @@ export default function SkillsPage({
       </div>
     );
   };
-  const shouldRenderStaticCategoryIndex = skipNextCategoryTransition && !selectedCategory;
+  const shouldRenderStaticCategoryContent = skipNextCategoryTransition;
   const renderCategoryMotionContent = () => {
-    if (shouldRenderStaticCategoryIndex) {
+    if (shouldRenderStaticCategoryContent) {
       return (
-        <div data-ripple-skill-category-static-index="true" className="w-full min-w-0">
-          {renderCategoryIndexPage()}
+        <div
+          data-ripple-skill-category-static-stage="true"
+          className={`w-full min-w-0 ${selectedCategory ? "h-full min-h-0 lg:h-auto" : ""}`}
+        >
+          {selectedCategory ? renderCategoryStage() : renderCategoryIndexPage()}
         </div>
       );
     }

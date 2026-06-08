@@ -25,4 +25,16 @@ function testInspectorPanelPassesPendingOpenFileRequestToExplorer() {
 
 testInspectorPanelPassesPendingOpenFileRequestToExplorer();
 
+function testInspectorPanelUsesSolidWorkbenchSurfaces() {
+  const source = readFileSync(new URL("./InspectorPanel.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /WORKBENCH_TOP_BAR_CLASS/);
+  assert.match(source, /WORKBENCH_ICON_BUTTON_CLASS/);
+  assert.doesNotMatch(source, /backdrop-blur-xl/);
+  assert.doesNotMatch(source, /backdrop-blur-2xl/);
+  assert.doesNotMatch(source, /bg-white\/86/);
+}
+
+testInspectorPanelUsesSolidWorkbenchSurfaces();
+
 console.log("inspector panel tests passed");

@@ -5,6 +5,7 @@ import { AlertTriangle, ArrowLeft, Code2, KeyRound, Mail, UserRound } from "luci
 import { IconTile } from "@/components/icons/IconTile";
 import RippleIcon from "@/components/icons/RippleIcon";
 import { useI18n } from "@/i18n";
+import { WORKBENCH_FLOATING_SURFACE_CLASS } from "@/components/workbench/stylePrimitives";
 
 export type AuthGatewayMode = "login" | "invite" | "service";
 
@@ -221,7 +222,7 @@ export default function AuthGateway({
 
           <section
             data-ripple-auth-card="true"
-            className="ripple-auth-card-motion w-full max-w-[520px] rounded-2xl border border-[#DEE0E3] bg-white/88 p-5 shadow-[0_30px_90px_rgba(15,23,42,0.12),0_1px_0_rgba(255,255,255,0.82)_inset] backdrop-blur-xl transition-[border-color,box-shadow] duration-300 ease-out hover:border-[#D0D3D6] hover:shadow-[0_34px_110px_rgba(15,23,42,0.14),0_1px_0_rgba(255,255,255,0.88)_inset] motion-reduce:transform-none motion-reduce:animate-none motion-reduce:transition-none sm:p-6"
+            className={`ripple-auth-card-motion w-full max-w-[520px] p-5 transition-[border-color,box-shadow] duration-200 ease-out hover:border-[#D0D3D6] motion-reduce:transform-none motion-reduce:animate-none motion-reduce:transition-none sm:p-6 ${WORKBENCH_FLOATING_SURFACE_CLASS}`}
           >
             <div className="mb-5 flex items-start gap-3">
               <IconTile tone={isService ? "warning" : "accent"} size="lg">

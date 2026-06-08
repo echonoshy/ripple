@@ -75,10 +75,11 @@ function testMobileBrandWordmarkHasQuietPersonality() {
 function testUsesQuietAgentControlPlaneStyling() {
   const html = renderMobileSessionsPage();
 
-  assert.match(html, /bg-white\/78/);
-  assert.match(html, /backdrop-blur-xl/);
-  assert.match(html, /shadow-\[0_8px_24px_rgba\(31,35,41,0\.05\)\]/);
-  assert.match(html, /rounded-2xl/);
+  assert.match(html, /border-\[#DEE0E3\]/);
+  assert.match(html, /bg-white/);
+  assert.match(html, /shadow-\[0_1px_2px_rgba\(31,35,41,0\.04\)\]/);
+  assert.match(html, /rounded-xl/);
+  assert.doesNotMatch(html, /backdrop-blur-xl/);
   assert.doesNotMatch(html, /bg-gradient/);
   assert.doesNotMatch(html, /linear-gradient/);
   assert.doesNotMatch(html, /radial-gradient/);
@@ -99,18 +100,17 @@ function testSearchInputUsesReadableMobileType() {
   );
 }
 
-function testHeaderActionsUseSharedGlassTreatment() {
+function testHeaderActionsUseSharedWorkbenchTreatment() {
   const html = renderMobileSessionsPage();
-  const headerActionClass =
-    mobileSessionsPageSource.match(/const mobileHeaderActionClass =\s+"([^"]+)"/)?.[1] || "";
 
-  assert.match(html, /bg-white\/72/);
-  assert.match(html, /backdrop-blur-xl/);
   assert.match(
     mobileSessionsPageSource,
-    /mobileHeaderActionClass = MOBILE_GLASS_ICON_BUTTON_CLASS/
+    /mobileHeaderActionClass = WORKBENCH_MOBILE_ICON_BUTTON_CLASS/
   );
-  assert.match(html, /inline-flex h-11 w-11 items-center justify-center rounded-full/);
+  assert.match(mobileSessionsPageSource, /WORKBENCH_PAGE_BACKGROUND_CLASS/);
+  assert.match(html, /inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl/);
+  assert.doesNotMatch(html, /backdrop-blur-xl/);
+  assert.doesNotMatch(mobileSessionsPageSource, /MOBILE_GLASS_ICON_BUTTON_CLASS/);
   assert.match(
     mobileSessionsPageSource,
     /aria-label=\{t\("sessions.search"\)\}[\s\S]{0,220}className=\{mobileHeaderActionClass\}/
@@ -129,7 +129,6 @@ function testHeaderActionsUseSharedGlassTreatment() {
     mobileSessionsPageSource,
     /aria-label=\{t\("sessions.newSession"\)\}[\s\S]*?<MessageSquarePlus size=\{18\}/
   );
-  assert.doesNotMatch(headerActionClass, /bg-\[#1456F0\]/);
   assert.doesNotMatch(html, /border-\[#1456F0\] bg-\[#1456F0\] text-white/);
 }
 
@@ -235,7 +234,7 @@ testMobileBrandWordmarkHasQuietPersonality();
 testUsesQuietAgentControlPlaneStyling();
 testSessionRowsRemoveRepeatedChatIcon();
 testSearchInputUsesReadableMobileType();
-testHeaderActionsUseSharedGlassTreatment();
+testHeaderActionsUseSharedWorkbenchTreatment();
 testSessionRowsUseMobileActionSheetForOptions();
 testSessionOptionsSheetEscapesBlurredRowsWithSharedPortal();
 testMobileSessionSearchHasExplicitCancelState();

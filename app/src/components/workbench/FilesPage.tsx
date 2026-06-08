@@ -3,9 +3,9 @@
 import WorkspaceExplorer from "@/components/WorkspaceExplorer";
 import type { WorkspaceFileOpenRequest } from "@/types";
 import {
-  COMPACT_IOS_PAGE_BACKGROUND,
   MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS,
   MOBILE_PAGE_TOP_SAFE_AREA_CLASS,
+  WORKBENCH_PAGE_BACKGROUND_CLASS,
   WORKBENCH_PAGE_CONTENT_CLASS,
 } from "./stylePrimitives";
 
@@ -27,7 +27,7 @@ export default function FilesPage({
   return (
     <div
       data-ripple-files-page="finder-stage"
-      className={`flex h-full min-h-0 flex-col overflow-hidden ${COMPACT_IOS_PAGE_BACKGROUND} px-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} text-[#1F2329] md:px-6 lg:pb-5`}
+      className={`flex h-full min-h-0 flex-col overflow-hidden ${WORKBENCH_PAGE_BACKGROUND_CLASS} px-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} text-[#1F2329] md:px-6 lg:pb-5`}
     >
       <div className={`${WORKBENCH_PAGE_CONTENT_CLASS} flex min-h-0 flex-1 flex-col`}>
         <WorkspaceExplorer

@@ -161,11 +161,14 @@ function testDesktopSessionRailCanResizeAndCollapse() {
 function testCollapsedSessionRailUsesEdgeHandle() {
   const source = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
 
+  assert.match(source, /WORKBENCH_ICON_BUTTON_CLASS/);
   assert.match(source, /data-ripple-panel-edge-handle="session-list"/);
   assert.match(
     source,
-    /className="absolute top-1\/2 left-0[\s\S]*bg-white\/82[\s\S]*text-\[#1456F0\]/
+    /className=\{`absolute top-1\/2 left-0[\s\S]*\$\{WORKBENCH_ICON_BUTTON_CLASS\}/
   );
+  assert.doesNotMatch(source, /data-ripple-panel-edge-handle="session-list"[\s\S]*backdrop-blur-xl/);
+  assert.doesNotMatch(source, /data-ripple-panel-edge-handle="session-list"[\s\S]*bg-white\/82/);
   assert.doesNotMatch(
     source,
     /className="absolute top-1\/2 left-0[\s\S]*bg-\[#1456F0\][\s\S]*text-white/

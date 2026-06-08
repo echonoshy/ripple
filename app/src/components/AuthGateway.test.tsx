@@ -116,6 +116,9 @@ function testGatewayUsesRestrainedMotionAndElevation() {
   assert.match(source, /ripple-auth-brand-motion/);
   assert.ok(card);
   assert.match(card, /ripple-auth-card-motion/);
+  assert.match(source, /WORKBENCH_FLOATING_SURFACE_CLASS/);
+  assert.doesNotMatch(card, /backdrop-blur-xl/);
+  assert.doesNotMatch(card, /shadow-\[0_30px_90px/);
   assert.doesNotMatch(source, /hover:-translate-y-/);
   assert.doesNotMatch(source, /hover:translate-y-/);
   assert.match(card, /motion-reduce:transform-none/);

@@ -30,7 +30,6 @@ import {
   searchExpandVariants,
 } from "./motionPrimitives";
 import {
-  MOBILE_GLASS_ICON_BUTTON_CLASS,
   MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS,
   MOBILE_PAGE_TOP_SAFE_AREA_CLASS,
   TYPOGRAPHY_BODY_MEDIUM_CLASS,
@@ -39,6 +38,11 @@ import {
   TYPOGRAPHY_MICRO_CLASS,
   TYPOGRAPHY_MOBILE_BODY_CLASS,
   TYPOGRAPHY_PAGE_TITLE_CLASS,
+  WORKBENCH_FIELD_CLASS,
+  WORKBENCH_ICON_BUTTON_CLASS,
+  WORKBENCH_MOBILE_ICON_BUTTON_CLASS,
+  WORKBENCH_PAGE_BACKGROUND_CLASS,
+  WORKBENCH_TOP_BAR_CLASS,
 } from "./stylePrimitives";
 
 interface MobileSessionsPageProps {
@@ -87,7 +91,7 @@ function sessionPreview(
   return parts.join(" · ");
 }
 
-const mobileHeaderActionClass = MOBILE_GLASS_ICON_BUTTON_CLASS;
+const mobileHeaderActionClass = WORKBENCH_MOBILE_ICON_BUTTON_CLASS;
 
 export default function MobileSessionsPage({
   sessions,
@@ -124,7 +128,9 @@ export default function MobileSessionsPage({
   }, [activeMenuSessionId, visibleSessions]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[#F5F6F7] text-[#1F2329] lg:hidden">
+    <div
+      className={`flex h-full min-h-0 flex-col ${WORKBENCH_PAGE_BACKGROUND_CLASS} text-[#1F2329] lg:hidden`}
+    >
       <MobileActionSheet
         open={Boolean(activeMenuSession)}
         data-ripple-mobile-session-actions-sheet
@@ -172,7 +178,7 @@ export default function MobileSessionsPage({
         }
       />
       <header
-        className={`shrink-0 border-b border-white/74 bg-white/76 px-4 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} pb-2 shadow-[0_8px_24px_rgba(31,35,41,0.06)] backdrop-blur-2xl`}
+        className={`shrink-0 px-4 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} pb-2 ${WORKBENCH_TOP_BAR_CLASS}`}
       >
         <div className="flex h-10 items-center justify-between">
           <div className="flex items-center gap-2.5">
@@ -216,7 +222,7 @@ export default function MobileSessionsPage({
               transition={shortTransition}
               className="overflow-hidden"
             >
-              <div className="flex h-10 items-center gap-2 rounded-full border border-white/76 bg-white/72 px-3 shadow-[0_8px_24px_rgba(31,35,41,0.06)] backdrop-blur-xl">
+              <div className={`${WORKBENCH_FIELD_CLASS} flex h-10 items-center gap-2 px-3`}>
                 <Search size={15} className="shrink-0 text-[#646A73]" />
                 <input
                   value={query}
@@ -279,7 +285,7 @@ export default function MobileSessionsPage({
               <button
                 type="button"
                 onClick={onNewSession}
-                className={`mt-5 inline-flex h-10 items-center gap-2 rounded-full border border-[#BACEFD] bg-[#F0F5FF]/86 px-4 ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#1456F0] shadow-[0_8px_22px_rgba(20,86,240,0.12)] backdrop-blur-xl hover:bg-[#dff0ff]`}
+                className={`mt-5 inline-flex h-10 items-center gap-2 rounded-lg border border-[#BACEFD] bg-[#F0F5FF] px-4 ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#1456F0] transition-colors hover:bg-[#E8F0FF]`}
               >
                 <MessageSquarePlus size={16} strokeWidth={2.1} />
                 {t("sessions.newSession")}
@@ -322,7 +328,7 @@ export default function MobileSessionsPage({
                       animate="visible"
                       exit="hidden"
                       transition={shortTransition}
-                      className="flex w-full items-center rounded-2xl border border-[#BACEFD] bg-white/84 px-3 py-2.5 text-[#1F2329] shadow-[0_8px_24px_rgba(31,35,41,0.06)] backdrop-blur-xl"
+                      className="flex w-full items-center rounded-xl border border-[#BACEFD] bg-white px-3 py-2.5 text-[#1F2329] shadow-[0_1px_2px_rgba(31,35,41,0.04)]"
                       onClick={(e) => e.stopPropagation()}
                     >
                       <input
@@ -396,10 +402,10 @@ export default function MobileSessionsPage({
                       className={isMenuActive ? "z-50 rounded-2xl" : "z-10 rounded-2xl"}
                     >
                       <div
-                        className={`relative flex w-full items-center gap-2 rounded-2xl border bg-white/78 px-3 py-2.5 text-left shadow-[0_8px_24px_rgba(31,35,41,0.05)] backdrop-blur-xl transition-all ${
+                        className={`relative flex w-full items-center gap-2 rounded-xl border px-3 py-2.5 text-left shadow-[0_1px_2px_rgba(31,35,41,0.04)] transition-colors ${
                           selected
-                            ? "border-[#BACEFD] bg-white/90"
-                            : "border-white/78 active:bg-white/88"
+                            ? "border-[#BACEFD] bg-[#F0F5FF]"
+                            : "border-[#DEE0E3] bg-white active:bg-[#F8F9FA]"
                         }`}
                       >
                         {selected ? (
@@ -448,10 +454,10 @@ export default function MobileSessionsPage({
                               current === session.sessionId ? null : session.sessionId
                             );
                           }}
-                          className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/62 bg-white/42 text-[#646A73] shadow-[0_4px_12px_rgba(31,35,41,0.05)] backdrop-blur-xl active:bg-[#F0F5FF]/78 ${
+                          className={`${WORKBENCH_ICON_BUTTON_CLASS} ${
                             activeMenuSessionId === session.sessionId
-                              ? "bg-[#F0F5FF]/78 text-[#1F2329]"
-                              : ""
+                              ? "bg-[#F0F5FF] text-[#1F2329]"
+                              : "text-[#646A73]"
                           }`}
                           aria-label={t("sessions.options")}
                           title={t("sessions.options")}

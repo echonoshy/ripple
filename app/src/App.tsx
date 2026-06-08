@@ -67,6 +67,7 @@ import {
   setClientStorageItem,
 } from "@/lib/platform";
 import { useI18n } from "@/i18n";
+import { WORKBENCH_ICON_BUTTON_CLASS } from "@/components/workbench/stylePrimitives";
 
 const WORKSPACE_ROOT_PATH = "/workspace";
 const AutomationsPage = lazy(() => import("@/components/workbench/AutomationsPage"));
@@ -1167,7 +1168,7 @@ export default function Home() {
               onClick={() => setIsSessionRailCollapsed(false)}
               aria-label={t("common.expandSessionList")}
               title={t("common.expandSessionList")}
-              className="absolute top-1/2 left-0 z-30 hidden h-14 w-7 -translate-y-1/2 items-center justify-center rounded-r-2xl border border-l-0 border-[#BACEFD] bg-white/82 text-[#1456F0] shadow-[0_8px_18px_rgba(31,35,41,0.10)] backdrop-blur-xl transition-colors hover:border-[#8FB1FF] hover:bg-[#F0F5FF] focus-visible:ring-2 focus-visible:ring-[#BACEFD] focus-visible:outline-none lg:inline-flex"
+              className={`absolute top-1/2 left-0 z-30 hidden -translate-y-1/2 ${WORKBENCH_ICON_BUTTON_CLASS} !h-14 !w-7 !rounded-l-none !rounded-r-xl border-l-0 border-[#BACEFD] text-[#1456F0] shadow-[0_4px_12px_rgba(31,35,41,0.08)] hover:border-[#8FB1FF] hover:bg-[#F0F5FF] focus-visible:ring-2 focus-visible:ring-[#BACEFD] focus-visible:outline-none lg:inline-flex`}
             >
               <ChevronRight size={16} />
             </button>

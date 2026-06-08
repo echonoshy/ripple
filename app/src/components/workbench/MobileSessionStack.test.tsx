@@ -333,11 +333,21 @@ function testReleaseCommitAndCancelThresholds() {
   );
 }
 
-function testInteractiveTargetsAreExcludedFromSwipeStart() {
-  assert.match(MOBILE_SESSION_STACK_INTERACTIVE_SELECTOR, /button/);
-  assert.match(MOBILE_SESSION_STACK_INTERACTIVE_SELECTOR, /textarea/);
+function testOnlyExplicitOptOutTargetsAreExcludedFromSwipeStart() {
+  assert.doesNotMatch(MOBILE_SESSION_STACK_INTERACTIVE_SELECTOR, /\bbutton\b/);
+  assert.doesNotMatch(MOBILE_SESSION_STACK_INTERACTIVE_SELECTOR, /\btextarea\b/);
+  assert.doesNotMatch(MOBILE_SESSION_STACK_INTERACTIVE_SELECTOR, /\[role='button'\]/);
   assert.match(MOBILE_SESSION_STACK_INTERACTIVE_SELECTOR, /data-ripple-ignore-chat-swipe/);
   assert.match(mobileSessionStackSource, /closest\(MOBILE_SESSION_STACK_INTERACTIVE_SELECTOR\)/);
+}
+
+function testSwipeBackPointerHandlersRunBeforeClickableChildren() {
+  assert.match(mobileSessionStackSource, /suppressNextClickRef/);
+  assert.match(mobileSessionStackSource, /onPointerDownCapture=\{handlePointerDown\}/);
+  assert.match(mobileSessionStackSource, /onPointerMoveCapture=\{handlePointerMove\}/);
+  assert.match(mobileSessionStackSource, /onPointerUpCapture=\{handlePointerUp\}/);
+  assert.match(mobileSessionStackSource, /onClickCapture=\{handleClickCapture\}/);
+  assert.doesNotMatch(mobileSessionStackSource, /onPointerDown=\{handlePointerDown\}/);
 }
 
 function testStackLayersListBehindChatSheet() {
@@ -367,7 +377,7 @@ function testPointerMoveOnlyDragsWithoutOpeningList() {
 
   assert.match(pointerMoveBlock, /sheetX\.set/);
   assert.doesNotMatch(pointerMoveBlock, /onOpenList/);
-  assert.match(mobileSessionStackSource, /onPointerUp=\{handlePointerUp\}/);
+  assert.match(mobileSessionStackSource, /onPointerUpCapture=\{handlePointerUp\}/);
 }
 
 function testCommittedSwipeDoesNotResetSheetBeforeListUnmountsChat() {
@@ -419,7 +429,8 @@ testDrawerDragLocksTimelineScrollTop();
 testTouchScrollGuardLocksTimelineBeforeDrawerClaim();
 testNewSwipeStopsInFlightSheetAnimation();
 testReleaseCommitAndCancelThresholds();
-testInteractiveTargetsAreExcludedFromSwipeStart();
+testOnlyExplicitOptOutTargetsAreExcludedFromSwipeStart();
+testSwipeBackPointerHandlersRunBeforeClickableChildren();
 testStackLayersListBehindChatSheet();
 testListModeDoesNotRenderForegroundChatSheet();
 testPointerMoveOnlyDragsWithoutOpeningList();

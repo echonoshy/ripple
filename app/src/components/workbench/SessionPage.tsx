@@ -744,7 +744,7 @@ export default function SessionPage({
         data-ripple-session-scroll="timeline"
         onScroll={handleScroll}
         style={mobileTimelineStyle}
-        className="min-h-0 flex-1 overflow-y-auto bg-white px-3 pt-[calc(var(--ripple-mobile-chat-header-height)+8px)] pb-[calc(var(--ripple-mobile-chat-composer-height)+var(--ripple-mobile-chat-composer-gap))] sm:px-4 md:px-5 lg:py-5"
+        className="min-h-0 flex-1 touch-pan-y overflow-y-auto bg-white px-3 pt-[calc(var(--ripple-mobile-chat-header-height)+8px)] pb-[calc(var(--ripple-mobile-chat-composer-height)+var(--ripple-mobile-chat-composer-gap))] sm:px-4 md:px-5 lg:py-5"
       >
         <div ref={contentRef} className="mx-auto max-w-5xl space-y-2 sm:space-y-5">
           {isSessionLoading ? (

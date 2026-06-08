@@ -206,7 +206,7 @@ const CATEGORY_SUMMARY_KEYS: Record<SkillCategoryGroupId, MessageKey> = {
 };
 
 const SKILLS_CATEGORY_BACK_SWIPE_INTERACTIVE_SELECTOR =
-  "a, button, input, textarea, select, summary, [contenteditable='true'], [role='button'], [data-ripple-ignore-skills-swipe]";
+  "[data-ripple-ignore-skills-swipe]";
 
 function currentTimeMs(): number {
   return typeof performance === "undefined" ? Date.now() : performance.now();
@@ -849,6 +849,7 @@ export default function SkillsPage({
   const [expandedDescriptionSkillId, setExpandedDescriptionSkillId] = useState<string | null>(null);
   const skillsPageScrollRef = useRef<HTMLDivElement | null>(null);
   const categorySwipeDragStateRef = useRef<SkillsCategoryBackSwipeDragState | null>(null);
+  const suppressNextCategorySwipeClickRef = useRef(false);
   const categorySwipeTouchGuardStateRef = useRef<SkillsCategoryBackSwipeTouchGuardState | null>(
     null
   );
@@ -1133,6 +1134,7 @@ export default function SkillsPage({
       if (!event.isPrimary || event.pointerType !== "touch") return;
       const viewportWidth = skillsCategoryBackSwipeViewportWidth();
       if (viewportWidth >= mobileSwipeBackConfig.desktopMinWidth) return;
+      suppressNextCategorySwipeClickRef.current = false;
       if (isInteractiveSkillsCategoryBackSwipeTarget(event.target)) return;
       stopCategorySwipeAnimation();
       const scrollElement = event.currentTarget;
@@ -1185,6 +1187,7 @@ export default function SkillsPage({
         })
       ) {
         dragState.claimed = true;
+        suppressNextCategorySwipeClickRef.current = true;
         setIsCategorySwipeActive(true);
         categorySwipeScrollLockRef.current = ensureSkillsCategoryBackSwipeScrollLock(
           categorySwipeScrollLockRef.current,
@@ -1355,6 +1358,13 @@ export default function SkillsPage({
     categorySwipeTouchGuardStateRef.current = null;
     if (!categorySwipeDragStateRef.current?.claimed) releaseCategorySwipeScrollLock();
   }, [releaseCategorySwipeScrollLock]);
+
+  const handleCategorySwipeClickCapture = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if (!suppressNextCategorySwipeClickRef.current) return;
+    suppressNextCategorySwipeClickRef.current = false;
+    event.preventDefault();
+    event.stopPropagation();
+  }, []);
 
   const openCreateSkillChat = useCallback(() => {
     onOpenChat?.(t("skills.createChatPrompt"), { autoSend: true, newSession: true });
@@ -2077,10 +2087,11 @@ export default function SkillsPage({
           data-ripple-skill-category-swiping={isCategorySwipeActive ? "true" : "false"}
           style={{ x: categorySwipeX }}
           className={`absolute inset-0 z-10 h-full min-h-0 touch-pan-y overflow-y-auto bg-[#F5F6F7] px-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} ${isCategorySwipeActive ? "shadow-[-18px_0_44px_rgba(31,35,41,0.18)]" : "shadow-none"} ${isCategorySwipeActive ? "will-change-transform" : "will-change-auto"} lg:relative lg:inset-auto lg:h-auto lg:overflow-visible lg:px-0 lg:pt-0 lg:pb-0 lg:shadow-none lg:will-change-auto`}
-          onPointerDown={handleCategorySwipePointerDown}
-          onPointerMove={handleCategorySwipePointerMove}
-          onPointerUp={handleCategorySwipePointerUp}
-          onPointerCancel={handleCategorySwipePointerCancel}
+          onPointerDownCapture={handleCategorySwipePointerDown}
+          onPointerMoveCapture={handleCategorySwipePointerMove}
+          onPointerUpCapture={handleCategorySwipePointerUp}
+          onPointerCancelCapture={handleCategorySwipePointerCancel}
+          onClickCapture={handleCategorySwipeClickCapture}
           onTouchStartCapture={handleCategorySwipeTouchStartCapture}
           onTouchMoveCapture={handleCategorySwipeTouchMoveCapture}
           onTouchEndCapture={clearCategorySwipeTouchGuard}

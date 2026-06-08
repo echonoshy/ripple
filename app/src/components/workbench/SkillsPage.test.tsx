@@ -356,16 +356,33 @@ function testSkillsCategoryDetailSupportsSwipeBackGesture() {
   assert.match(source, /data-ripple-skill-category-swipe-stack="true"/);
   assert.match(source, /data-ripple-skill-category-index-underlay="true"/);
   assert.match(source, /data-ripple-skill-category-swipe-sheet="true"/);
-  assert.match(swipeSheetBlock, /onPointerDown=\{handleCategorySwipePointerDown\}/);
-  assert.match(swipeSheetBlock, /onPointerMove=\{handleCategorySwipePointerMove\}/);
+  assert.match(swipeSheetBlock, /onPointerDownCapture=\{handleCategorySwipePointerDown\}/);
+  assert.match(swipeSheetBlock, /onPointerMoveCapture=\{handleCategorySwipePointerMove\}/);
+  assert.match(swipeSheetBlock, /onPointerUpCapture=\{handleCategorySwipePointerUp\}/);
+  assert.match(swipeSheetBlock, /onClickCapture=\{handleCategorySwipeClickCapture\}/);
   assert.match(swipeSheetBlock, /onTouchStartCapture=\{handleCategorySwipeTouchStartCapture\}/);
   assert.match(swipeSheetBlock, /onTouchMoveCapture=\{handleCategorySwipeTouchMoveCapture\}/);
   assert.doesNotMatch(pageRootBlock, /onPointerDown=\{handleCategorySwipePointerDown\}/);
+  assert.doesNotMatch(pageRootBlock, /onPointerDownCapture=\{handleCategorySwipePointerDown\}/);
   assert.doesNotMatch(pageRootBlock, /onTouchMoveCapture=\{handleCategorySwipeTouchMoveCapture\}/);
   assert.match(source, /closeCategoryWithSwipeCommit/);
 }
 
 testSkillsCategoryDetailSupportsSwipeBackGesture();
+
+function testSkillsSwipeBackOnlyExcludesExplicitOptOutTargets() {
+  const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
+  const selectorBlock =
+    source.match(/const SKILLS_CATEGORY_BACK_SWIPE_INTERACTIVE_SELECTOR =[\s\S]*?;/)?.[0] || "";
+
+  assert.doesNotMatch(selectorBlock, /\bbutton\b/);
+  assert.doesNotMatch(selectorBlock, /\ba,/);
+  assert.doesNotMatch(selectorBlock, /\[role='button'\]/);
+  assert.match(selectorBlock, /data-ripple-ignore-skills-swipe/);
+  assert.match(source, /suppressNextCategorySwipeClickRef/);
+}
+
+testSkillsSwipeBackOnlyExcludesExplicitOptOutTargets();
 
 function testSkillsCategorySwipeUsesSharedMotionPrimitive() {
   const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");

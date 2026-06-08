@@ -559,6 +559,16 @@ function testSessionPageCanRestorePreviousScrollPosition() {
   assert.match(sessionPageSource, /onRestoreScrollComplete\?\.\(\)/);
 }
 
+function testTimelineScrollContainerAllowsHorizontalSwipeBackInTouchEmulation() {
+  const timelineBlock =
+    sessionPageSource.match(
+      /<div\s+ref=\{scrollContainerRef\}[\s\S]*?data-ripple-session-scroll="timeline"[\s\S]*?>/
+    )?.[0] || "";
+
+  assert.match(timelineBlock, /overflow-y-auto/);
+  assert.match(timelineBlock, /touch-pan-y/);
+}
+
 function testVisualViewportKeyboardInsetUsesLayoutViewportBottomGap() {
   assert.equal(
     getVisualViewportKeyboardInset({
@@ -796,6 +806,7 @@ testSessionPageOwnsScrollActivation();
 testExplicitSessionSelectionTriggersStickyBottom();
 testComposerSendStartsStickyBottomBeforeSending();
 testSessionPageCanRestorePreviousScrollPosition();
+testTimelineScrollContainerAllowsHorizontalSwipeBackInTouchEmulation();
 testVisualViewportKeyboardInsetUsesLayoutViewportBottomGap();
 testSessionPageNoLongerOwnsMobileBackSwipeGesture();
 testComposerFocusSuppressesTimelineAutoScroll();

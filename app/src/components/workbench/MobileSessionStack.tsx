@@ -73,7 +73,7 @@ interface TouchGuardState {
 }
 
 export const MOBILE_SESSION_STACK_INTERACTIVE_SELECTOR =
-  "a, button, input, textarea, select, summary, [contenteditable='true'], [role='button'], [data-ripple-ignore-chat-swipe]";
+  "[data-ripple-ignore-chat-swipe]";
 
 function nowMs(): number {
   return typeof performance === "undefined" ? Date.now() : performance.now();
@@ -175,6 +175,7 @@ export default function MobileSessionStack({
   const reduceMotion = useReducedMotion();
   const sheetX = useMotionValue(0);
   const dragStateRef = useRef<DragState | null>(null);
+  const suppressNextClickRef = useRef(false);
   const touchGuardStateRef = useRef<TouchGuardState | null>(null);
   const scrollLockRef = useRef<ScrollLockState | null>(null);
   const activeSheetAnimationRef = useRef<ReturnType<typeof animate> | null>(null);
@@ -270,6 +271,7 @@ export default function MobileSessionStack({
       if (!event.isPrimary || event.pointerType !== "touch") return;
       const currentViewportWidth = viewportWidth();
       if (currentViewportWidth >= mobileSwipeBackConfig.desktopMinWidth) return;
+      suppressNextClickRef.current = false;
       if (isInteractiveMobileSessionStackTarget(event.target)) return;
       stopSheetAnimation();
       const scrollElement = mobileSessionTimelineScrollElement(event.currentTarget);
@@ -321,6 +323,7 @@ export default function MobileSessionStack({
         })
       ) {
         dragState.claimed = true;
+        suppressNextClickRef.current = true;
         setIsDragging(true);
         scrollLockRef.current = ensureMobileSessionScrollLock(
           scrollLockRef.current,
@@ -433,6 +436,13 @@ export default function MobileSessionStack({
     if (!dragStateRef.current?.claimed) releaseScrollLock();
   }, [releaseScrollLock]);
 
+  const handleClickCapture = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if (!suppressNextClickRef.current) return;
+    suppressNextClickRef.current = false;
+    event.preventDefault();
+    event.stopPropagation();
+  }, []);
+
   const cancelDrag = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       const dragState = dragStateRef.current;
@@ -502,10 +512,11 @@ export default function MobileSessionStack({
           className="absolute inset-0 z-10 h-full min-h-0 touch-pan-y bg-[#F5F6F7] shadow-[-18px_0_44px_rgba(31,35,41,0.18)] will-change-transform"
           style={{ x: sheetX }}
           transition={reduceMotion ? reducedMotionTransition : mobileStackReturnTransition}
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          onPointerCancel={cancelDrag}
+          onPointerDownCapture={handlePointerDown}
+          onPointerMoveCapture={handlePointerMove}
+          onPointerUpCapture={handlePointerUp}
+          onPointerCancelCapture={cancelDrag}
+          onClickCapture={handleClickCapture}
           onTouchStartCapture={handleTouchStartCapture}
           onTouchMoveCapture={handleTouchMoveCapture}
           onTouchEndCapture={clearTouchGuard}

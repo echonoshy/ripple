@@ -341,11 +341,11 @@ function testAutomationsMobileActionsStaySingleLineOnNarrowScreens() {
     source,
     /data-ripple-automation-mobile-primary-actions[\s\S]*className="mt-2 grid grid-cols-5 gap-1 md:hidden"/
   );
-  assert.match(source, /const mobileAutomationActionButtonClass =[\s\S]*text-\[10px\]/);
   assert.match(
     source,
-    /const mobileAutomationActionButtonClass =[\s\S]*min-\[380px\]:text-\[11px\]/
+    /const mobileAutomationActionButtonClass =[\s\S]*TYPOGRAPHY_MICRO_MEDIUM_CLASS/
   );
+  assert.doesNotMatch(source, /const mobileAutomationActionButtonClass =[\s\S]*text-\[10px\]/);
   assert.match(source, /const mobileAutomationActionButtonClass =[\s\S]*px-1/);
   assert.match(source, /const mobileAutomationActionButtonClass =[\s\S]*\[[&]>span\]:max-w-full/);
   assert.match(source, /className=\{mobileAutomationActionButtonClass\}/);
@@ -389,8 +389,8 @@ function testAutomationRunHistoryUsesReadableRows() {
 function testAutomationRunHistoryActionsUseCompactMobileText() {
   const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /const mobileRunActionButtonClass =[\s\S]*text-\[10px\]/);
-  assert.match(source, /const mobileRunActionButtonClass =[\s\S]*min-\[380px\]:text-\[11px\]/);
+  assert.match(source, /const mobileRunActionButtonClass =[\s\S]*TYPOGRAPHY_MICRO_MEDIUM_CLASS/);
+  assert.doesNotMatch(source, /const mobileRunActionButtonClass =[\s\S]*text-\[10px\]/);
   assert.match(source, /const mobileRunActionButtonClass =[\s\S]*px-1\.5/);
   assert.match(
     source,

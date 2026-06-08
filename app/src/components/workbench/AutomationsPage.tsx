@@ -241,11 +241,11 @@ const automationActionButtonClass = `inline-flex h-8 w-full min-w-0 items-center
 
 const automationDeleteButtonClass = `inline-flex h-8 w-full min-w-0 items-center justify-center gap-1 rounded-full border px-2 ${TYPOGRAPHY_META_MEDIUM_CLASS} [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0`;
 
-const mobileAutomationActionButtonClass = `inline-flex h-8 w-full min-w-0 items-center justify-center gap-0.5 rounded-full border border-[#DEE0E3] bg-white px-1 text-[10px] leading-4 font-medium text-[#2B2F36] hover:bg-[#F8F9FA] min-[380px]:gap-1 min-[380px]:text-[11px] [&>span]:min-w-0 [&>span]:max-w-full [&>span]:truncate [&>svg]:shrink-0`;
+const mobileAutomationActionButtonClass = `inline-flex h-8 w-full min-w-0 items-center justify-center gap-0.5 rounded-full border border-[#DEE0E3] bg-white px-1 text-[#2B2F36] hover:bg-[#F8F9FA] min-[380px]:gap-1 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} [&>span]:min-w-0 [&>span]:max-w-full [&>span]:truncate [&>svg]:shrink-0`;
 
-const mobileAutomationDeleteButtonClass = `inline-flex h-8 w-full min-w-0 items-center justify-center gap-0.5 rounded-full border px-1 text-[10px] leading-4 font-medium min-[380px]:gap-1 min-[380px]:text-[11px] [&>span]:min-w-0 [&>span]:max-w-full [&>span]:truncate [&>svg]:shrink-0`;
+const mobileAutomationDeleteButtonClass = `inline-flex h-8 w-full min-w-0 items-center justify-center gap-0.5 rounded-full border px-1 min-[380px]:gap-1 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} [&>span]:min-w-0 [&>span]:max-w-full [&>span]:truncate [&>svg]:shrink-0`;
 
-const mobileRunActionButtonClass = `inline-flex h-8 shrink-0 items-center justify-center gap-0.5 rounded-full border border-[#DEE0E3] bg-white px-1.5 text-[10px] leading-4 font-medium text-[#2B2F36] hover:bg-[#F8F9FA] disabled:cursor-not-allowed disabled:opacity-60 min-[380px]:gap-1 min-[380px]:text-[11px] [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0`;
+const mobileRunActionButtonClass = `inline-flex h-8 shrink-0 items-center justify-center gap-0.5 rounded-full border border-[#DEE0E3] bg-white px-1.5 text-[#2B2F36] hover:bg-[#F8F9FA] disabled:cursor-not-allowed disabled:opacity-60 min-[380px]:gap-1 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0`;
 
 const AUTOMATION_PRIMARY_ACTION_BUTTON_CLASS = `inline-flex h-11 w-11 items-center justify-center rounded-xl border border-[#1456F0]/30 bg-[#1456F0] text-white shadow-[0_8px_18px_rgba(20,86,240,0.18)] transition-all hover:bg-[#0F4BD8] active:scale-[0.98] disabled:opacity-60 lg:h-10 lg:w-auto lg:gap-1.5 lg:px-3 ${TYPOGRAPHY_META_MEDIUM_CLASS}`;
 

@@ -255,7 +255,8 @@ function testSettingsPageUsesAppStoreGroupedHierarchy() {
   const source = readFileSync(new URL("./SettingsPage.tsx", import.meta.url), "utf8");
 
   assert.match(source, /const settingsSectionClass =/);
-  assert.match(source, /border-\[#DEE0E3\]\/80 bg-white\/82/);
+  assert.match(source, /WORKBENCH_SECTION_CLASS/);
+  assert.doesNotMatch(source, /border-\[#DEE0E3\]\/80 bg-white\/82/);
   assert.match(source, /data-ripple-settings-section=\{sectionKind\}/);
   assert.match(source, /data-ripple-settings-account-summary/);
   assert.match(source, /data-ripple-settings-defaults-list/);
@@ -277,7 +278,8 @@ function testDefaultModelControlUsesDefaultModelNotCurrentSessionModel() {
 function testSettingsPageUsesCompactMobileDensity() {
   const source = readFileSync(new URL("./SettingsPage.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /COMPACT_IOS_PAGE_BACKGROUND/);
+  assert.match(source, /WORKBENCH_PAGE_BACKGROUND_CLASS/);
+  assert.doesNotMatch(source, /COMPACT_IOS_PAGE_BACKGROUND/);
   assert.match(source, /MOBILE_PAGE_TOP_SAFE_AREA_CLASS/);
   assert.match(source, /MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS/);
   assert.doesNotMatch(source, /pb-\[calc\(128px\+env\(safe-area-inset-bottom\)\)\]/);
@@ -340,6 +342,15 @@ function testSettingsDiagnosticsExpansionScrollsAboveMobileTabBar() {
   );
 }
 
+function testSettingsPageUsesSolidWorkbenchSurfaces() {
+  const source = readFileSync(new URL("./SettingsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /WORKBENCH_(SECTION|SURFACE|PRIMARY_BUTTON|SECONDARY_BUTTON|STATUS|FIELD|MENU)/);
+  assert.doesNotMatch(source, /bg-white\/7[02468].*backdrop-blur-xl/);
+  assert.doesNotMatch(source, /shadow-\[0_18px_44px/);
+  assert.doesNotMatch(source, /backdrop-blur-xl/);
+}
+
 function testSettingsPageRendersChineseChrome() {
   const html = renderSettingsPage("zh-CN");
 
@@ -367,6 +378,7 @@ testSettingsPageUsesAppStoreGroupedHierarchy();
 testDefaultModelControlUsesDefaultModelNotCurrentSessionModel();
 testSettingsPageUsesCompactMobileDensity();
 testSettingsDiagnosticsExpansionScrollsAboveMobileTabBar();
+testSettingsPageUsesSolidWorkbenchSurfaces();
 testSettingsPageRendersChineseChrome();
 
 console.log("settings page tests passed");

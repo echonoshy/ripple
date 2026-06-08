@@ -199,9 +199,11 @@ testConnectorsPageUsesOfficialLogoComponentsWithoutExternalAssets();
 function testConnectorsPageUsesCompactMobileDensity() {
   const source = readFileSync(new URL("./ConnectorsPage.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /COMPACT_IOS_PAGE_BACKGROUND/);
-  assert.match(source, /MOBILE_GLASS_ICON_BUTTON_CLASS/);
-  assert.match(source, /className=\{`\$\{MOBILE_GLASS_ICON_BUTTON_CLASS\} shrink-0/);
+  assert.match(source, /WORKBENCH_PAGE_BACKGROUND_CLASS/);
+  assert.match(source, /WORKBENCH_MOBILE_ICON_BUTTON_CLASS/);
+  assert.match(source, /className=\{`\$\{WORKBENCH_MOBILE_ICON_BUTTON_CLASS\} shrink-0/);
+  assert.doesNotMatch(source, /COMPACT_IOS_PAGE_BACKGROUND/);
+  assert.doesNotMatch(source, /MOBILE_GLASS_ICON_BUTTON_CLASS/);
   assert.match(source, /<span className="hidden lg:inline">\{t\("connectors\.refresh"\)\}<\/span>/);
   assert.doesNotMatch(source, /sm:hidden">\{t\("connectors\.refresh"\)\}/);
   assert.match(source, /MOBILE_PAGE_TOP_SAFE_AREA_CLASS/);
@@ -218,12 +220,23 @@ function testConnectorsPageUsesCompactMobileDensity() {
   assert.match(source, /<section key=\{section\.kind\} className="space-y-1\.5">/);
   assert.match(source, /<div className="grid gap-2 lg:grid-cols-2">/);
   assert.match(source, /<div className="flex items-start gap-2\.5 p-2\.5">/);
-  assert.match(source, /border-t border-\[#EFF0F1\] bg-\[#F8F9FA\]\/62 px-2\.5 py-1\.5/);
+  assert.match(source, /border-t border-\[#EFF0F1\] bg-\[#F8F9FA\] px-2\.5 py-1\.5/);
   assert.match(source, /inline-flex h-8 items-center gap-1\.5 rounded-full/);
   assert.doesNotMatch(source, /data-ripple-connector-status-pill[\s\S]{0,180}text-\[10px\]/);
 }
 
 testConnectorsPageUsesCompactMobileDensity();
+
+function testConnectorsPageUsesSolidWorkbenchSurfaces() {
+  const source = readFileSync(new URL("./ConnectorsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /WORKBENCH_(SECTION|SURFACE|PRIMARY_BUTTON|SECONDARY_BUTTON|STATUS|FIELD|MENU)/);
+  assert.doesNotMatch(source, /bg-white\/7[02468].*backdrop-blur-xl/);
+  assert.doesNotMatch(source, /shadow-\[0_18px_44px/);
+  assert.doesNotMatch(source, /backdrop-blur-xl/);
+}
+
+testConnectorsPageUsesSolidWorkbenchSurfaces();
 
 function testConnectorsPageRendersChineseChrome() {
   const html = renderConnectorsPage("zh-CN");

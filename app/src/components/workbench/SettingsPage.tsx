@@ -50,7 +50,6 @@ import { IconTile, type IconTileTone } from "@/components/icons/IconTile";
 import RippleIcon from "@/components/icons/RippleIcon";
 import MobileActionSheet from "./MobileActionSheet";
 import {
-  COMPACT_IOS_PAGE_BACKGROUND,
   MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS,
   MOBILE_PAGE_TOP_SAFE_AREA_CLASS,
   TYPOGRAPHY_BODY_MEDIUM_CLASS,
@@ -59,6 +58,9 @@ import {
   TYPOGRAPHY_MICRO_MEDIUM_CLASS,
   TYPOGRAPHY_MOBILE_BODY_CLASS,
   TYPOGRAPHY_PAGE_TITLE_CLASS,
+  WORKBENCH_FIELD_CLASS,
+  WORKBENCH_PAGE_BACKGROUND_CLASS,
+  WORKBENCH_SECTION_CLASS,
 } from "./stylePrimitives";
 
 interface SettingsPageProps {
@@ -100,15 +102,14 @@ const SETTINGS_AVATAR_MENU_VERTICAL_PADDING = 8;
 
 const settingsAccountActionButtonClass = `flex h-9 w-full min-w-0 items-center justify-center gap-1.5 rounded-lg border border-[#DEE0E3] bg-white px-2 text-[#2B2F36] transition-all hover:bg-[#F8F9FA] active:scale-[0.98] sm:inline-flex sm:w-auto sm:min-w-[60px] sm:gap-1 lg:h-8 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0`;
 
-const settingsSectionClass =
-  "overflow-hidden rounded-xl border border-[#DEE0E3]/80 bg-white/82 shadow-[0_10px_26px_rgba(31,35,41,0.06)] backdrop-blur-xl";
+const settingsSectionClass = `overflow-hidden ${WORKBENCH_SECTION_CLASS}`;
 
 const settingsGroupedRowClass =
   "flex min-h-10 flex-wrap items-center justify-between gap-2 px-2.5 py-1.5";
 
 const settingsFieldLabelClass = `min-w-0 text-[#646A73] ${TYPOGRAPHY_META_MEDIUM_CLASS}`;
 
-const settingsFieldInputClass = `mt-1 h-11 w-full rounded-lg border border-[#DEE0E3] bg-white px-2.5 text-[#1F2329] outline-none focus:border-[#8FB1FF] ${TYPOGRAPHY_MOBILE_BODY_CLASS} lg:h-10 lg:text-[14px] lg:leading-[22px]`;
+const settingsFieldInputClass = `mt-1 h-11 w-full px-2.5 ${WORKBENCH_FIELD_CLASS} ${TYPOGRAPHY_MOBILE_BODY_CLASS} lg:h-10 lg:text-[14px] lg:leading-[22px]`;
 
 const settingsFormButtonClass = `inline-flex h-11 items-center gap-1.5 rounded-full px-3 lg:h-10 ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`;
 
@@ -591,7 +592,7 @@ export default function SettingsPage({
 
   return (
     <div
-      className={`h-full min-h-0 overflow-y-auto ${COMPACT_IOS_PAGE_BACKGROUND} px-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} text-[#1F2329] md:px-6 lg:pb-5`}
+      className={`h-full min-h-0 overflow-y-auto ${WORKBENCH_PAGE_BACKGROUND_CLASS} px-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} text-[#1F2329] md:px-6 lg:pb-5`}
     >
       {modelMenuPortal}
       {avatarMenuPortal}
@@ -676,7 +677,7 @@ export default function SettingsPage({
                   type="button"
                   onClick={() => avatarFileInputRef.current?.click()}
                   disabled={isAvatarUploading}
-                  className={`flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[#DEE0E3] bg-white/86 text-[#2B2F36] shadow-[0_8px_18px_rgba(31,35,41,0.08)] transition-all hover:bg-white active:scale-[0.98] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+                  className={`flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[#DEE0E3] bg-white text-[#2B2F36] shadow-[0_1px_2px_rgba(31,35,41,0.04)] transition-colors hover:bg-[#F8F9FA] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
                   aria-label={t("settings.uploadAvatarFor", { name: avatarName })}
                   title={t("settings.uploadAvatar")}
                 >
@@ -1133,7 +1134,7 @@ function SectionHeader({
 }) {
   return (
     <div
-      className={`flex min-h-10 items-center gap-1.5 border-b border-[#EFF0F1]/80 bg-white/54 px-2.5 text-[#1F2329] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+      className={`flex min-h-10 items-center gap-1.5 border-b border-[#EFF0F1]/80 bg-white px-2.5 text-[#1F2329] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
     >
       <IconTile tone={tone} size="xs">
         {icon}
@@ -1160,7 +1161,7 @@ function UsageMeter({
 }) {
   const amount = percent(value, max);
   return (
-    <div data-ripple-settings-usage-meter className="rounded-lg bg-[#F8F9FA]/70 px-2 py-1.5">
+    <div data-ripple-settings-usage-meter className="rounded-lg bg-[#F8F9FA] px-2 py-1.5">
       <div
         className={`mb-1 flex items-center justify-between text-[#646A73] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
       >

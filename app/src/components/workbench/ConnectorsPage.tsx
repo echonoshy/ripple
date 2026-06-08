@@ -26,10 +26,8 @@ import type {
   SessionControlAction,
 } from "@/types";
 import {
-  COMPACT_IOS_PAGE_BACKGROUND,
   LUCIDE_NAV_STROKE_WIDTH,
   LUCIDE_STANDARD_STROKE_WIDTH,
-  MOBILE_GLASS_ICON_BUTTON_CLASS,
   MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS,
   MOBILE_PAGE_TOP_SAFE_AREA_CLASS,
   TYPOGRAPHY_BODY_CLASS,
@@ -38,7 +36,10 @@ import {
   TYPOGRAPHY_META_MEDIUM_CLASS,
   TYPOGRAPHY_MICRO_MEDIUM_CLASS,
   TYPOGRAPHY_PAGE_TITLE_CLASS,
+  WORKBENCH_MOBILE_ICON_BUTTON_CLASS,
+  WORKBENCH_PAGE_BACKGROUND_CLASS,
   WORKBENCH_PAGE_CONTENT_CLASS,
+  WORKBENCH_SECTION_CLASS,
 } from "./stylePrimitives";
 
 const CONNECTOR_CACHE_TTL_MS = 30_000;
@@ -70,29 +71,29 @@ interface ConnectorLogoMeta {
 
 const CONNECTOR_LOGO_META: Record<string, ConnectorLogoMeta> = {
   google_workspace: {
-    shellClass: "border-[#DEE0E3] bg-white/82",
+    shellClass: "border-[#DEE0E3] bg-white",
     cardClass: "hover:border-[#BACEFD]",
     connectedDotClass: "bg-[#34a853]",
   },
   notion: {
-    shellClass: "border-[#DEE0E3] bg-white/82",
+    shellClass: "border-[#DEE0E3] bg-white",
     cardClass: "hover:border-[#d8d8de]",
     connectedDotClass: "bg-[#1F2329]",
   },
   feishu: {
-    shellClass: "border-[#DEE0E3] bg-white/82",
+    shellClass: "border-[#DEE0E3] bg-white",
     cardClass: "hover:border-[#c7efff]",
     connectedDotClass: "bg-[#18c6ff]",
   },
   bilibili: {
-    shellClass: "border-[#DEE0E3] bg-white/82",
+    shellClass: "border-[#DEE0E3] bg-white",
     cardClass: "hover:border-[#ffd5e6]",
     connectedDotClass: "bg-[#23ade5]",
   },
 };
 
 const FALLBACK_CONNECTOR_LOGO_META: ConnectorLogoMeta = {
-  shellClass: "border-[#DEE0E3] bg-white/82 text-[#646A73]",
+  shellClass: "border-[#DEE0E3] bg-white text-[#646A73]",
   cardClass: "hover:border-[#d2dbea]",
   connectedDotClass: "bg-[#16845B]",
 };
@@ -220,12 +221,12 @@ function connectorLogoMeta(connector: ConnectorInfo): ConnectorLogoMeta {
 function connectorStatusPillClass(status: ConnectorStatus | null | undefined): string {
   const tone = connectorStatusTone(status);
   if (tone === "connected") {
-    return "border-[#16845B]/20 bg-[#E4F8EE]/78 text-[#16845B]";
+    return "border-[#16845B]/20 bg-[#E4F8EE] text-[#16845B]";
   }
   if (tone === "needs_setup") {
-    return "border-[#FAD355]/45 bg-[#FFF8DB]/82 text-[#8B5E00]";
+    return "border-[#FAD355]/45 bg-[#FFF8DB] text-[#8B5E00]";
   }
-  return "border-[#DEE0E3] bg-white/76 text-[#646A73]";
+  return "border-[#DEE0E3] bg-[#F8F9FA] text-[#646A73]";
 }
 
 function connectorStatusPillDotClass(status: ConnectorStatus | null | undefined): string {
@@ -327,7 +328,7 @@ function ConnectorOfficialLogo({
     <span
       data-ripple-connector-logo-shell="true"
       title={connector.display_name}
-      className={`relative inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border shadow-[0_4px_10px_rgba(31,35,41,0.03)] backdrop-blur-xl transition-all duration-300 ${logo.shellClass}`}
+      className={`relative inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border shadow-[0_1px_2px_rgba(31,35,41,0.04)] transition-all duration-200 ${logo.shellClass}`}
     >
       <span
         data-ripple-connector-official-logo="true"
@@ -513,7 +514,7 @@ export default function ConnectorsPage({
 
   return (
     <div
-      className={`h-full min-h-0 overflow-y-auto ${COMPACT_IOS_PAGE_BACKGROUND} px-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} text-[#1F2329] md:px-6 lg:pb-5`}
+      className={`h-full min-h-0 overflow-y-auto ${WORKBENCH_PAGE_BACKGROUND_CLASS} px-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} text-[#1F2329] md:px-6 lg:pb-5`}
     >
       <div className={`${WORKBENCH_PAGE_CONTENT_CLASS} space-y-2`}>
         <header className="flex flex-wrap items-start justify-between gap-2">
@@ -524,7 +525,7 @@ export default function ConnectorsPage({
                 onClick={onBack}
                 aria-label={t("connectors.backToSettings")}
                 title={t("connectors.backToSettings")}
-                className={`${MOBILE_GLASS_ICON_BUTTON_CLASS} mt-0.5 lg:hidden`}
+                className={`${WORKBENCH_MOBILE_ICON_BUTTON_CLASS} mt-0.5 lg:hidden`}
               >
                 <ArrowBigLeft size={15} strokeWidth={LUCIDE_NAV_STROKE_WIDTH} />
               </button>
@@ -555,7 +556,7 @@ export default function ConnectorsPage({
             onClick={() => void loadConnectors({ force: true })}
             title={t("connectors.refresh")}
             aria-label={t("connectors.refresh")}
-            className={`${MOBILE_GLASS_ICON_BUTTON_CLASS} shrink-0 disabled:cursor-not-allowed disabled:opacity-60 lg:h-10 lg:w-auto lg:gap-1.5 lg:border-[#DEE0E3] lg:bg-white/78 lg:px-3 lg:shadow-[0_8px_18px_rgba(31,35,41,0.05)] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+            className={`${WORKBENCH_MOBILE_ICON_BUTTON_CLASS} shrink-0 disabled:cursor-not-allowed disabled:opacity-60 lg:h-10 lg:w-auto lg:gap-1.5 lg:px-3 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
           >
             {isLoading ? (
               <Loader2
@@ -614,7 +615,7 @@ export default function ConnectorsPage({
                     <section
                       key={connector.name}
                       data-ripple-connector-card="true"
-                      className={`group min-w-0 overflow-hidden rounded-xl border border-[#DEE0E3] bg-white/78 shadow-[0_8px_18px_rgba(31,35,41,0.045)] backdrop-blur-xl transition-all duration-300 ease-out hover:bg-white/88 hover:shadow-[0_12px_24px_rgba(31,35,41,0.065)] ${logo.cardClass}`}
+                      className={`group min-w-0 overflow-hidden transition-colors duration-200 hover:bg-[#FCFCFD] ${WORKBENCH_SECTION_CLASS} ${logo.cardClass}`}
                     >
                       <div className="flex items-start gap-2.5 p-2.5">
                         <ConnectorOfficialLogo connector={connector} status={status} />
@@ -646,7 +647,7 @@ export default function ConnectorsPage({
                           </p>
                           {status?.detail && (
                             <div
-                              className={`mt-1.5 rounded-lg border border-[#EFF0F1] bg-white/64 px-2 py-1 text-[#646A73] ${TYPOGRAPHY_META_CLASS}`}
+                              className={`mt-1.5 rounded-lg border border-[#EFF0F1] bg-[#F8F9FA] px-2 py-1 text-[#646A73] ${TYPOGRAPHY_META_CLASS}`}
                             >
                               {status.detail}
                             </div>
@@ -654,7 +655,7 @@ export default function ConnectorsPage({
                         </div>
                       </div>
 
-                      <div className="border-t border-[#EFF0F1] bg-[#F8F9FA]/62 px-2.5 py-1.5 transition-all duration-300 group-hover:bg-white/70">
+                      <div className="border-t border-[#EFF0F1] bg-[#F8F9FA] px-2.5 py-1.5 transition-colors duration-200 group-hover:bg-[#F5F6F7]">
                         <div className="flex flex-wrap items-center gap-1.5">
                           {connector.auth_start_path && !status?.connected ? (
                             <button
@@ -698,7 +699,7 @@ export default function ConnectorsPage({
 
                       {connector.name === "google_workspace" && accounts.length > 0 && (
                         <div className="px-3 pb-3">
-                          <div className="divide-y divide-[#EFF0F1] overflow-hidden rounded-xl border border-[#DEE0E3] bg-white/82 shadow-[0_8px_18px_rgba(31,35,41,0.04)]">
+                          <div className="divide-y divide-[#EFF0F1] overflow-hidden rounded-xl border border-[#DEE0E3] bg-white shadow-[0_1px_2px_rgba(31,35,41,0.04)]">
                             {accounts.map((account) => (
                               <div
                                 key={account.email}
@@ -758,7 +759,7 @@ export default function ConnectorsPage({
 
         {connectors.length === 0 && !isLoading && (
           <div
-            className={`flex h-32 items-center justify-center rounded-xl border border-dashed border-[#DEE0E3] bg-white/52 text-[#646A73] ${TYPOGRAPHY_BODY_CLASS}`}
+            className={`flex h-32 items-center justify-center rounded-xl border border-dashed border-[#DEE0E3] bg-white text-[#646A73] ${TYPOGRAPHY_BODY_CLASS}`}
           >
             <span className="sm:hidden">{t("connectors.empty")}</span>
             <span className="hidden sm:inline">{t("connectors.empty")}</span>

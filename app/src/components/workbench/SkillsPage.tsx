@@ -40,9 +40,7 @@ import type {
   SkillUserStatus,
 } from "@/types";
 import {
-  COMPACT_IOS_PAGE_BACKGROUND,
   LUCIDE_NAV_STROKE_WIDTH,
-  MOBILE_GLASS_ICON_BUTTON_CLASS,
   MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS,
   MOBILE_PAGE_TOP_SAFE_AREA_CLASS,
   TYPOGRAPHY_BODY_CLASS,
@@ -51,7 +49,11 @@ import {
   TYPOGRAPHY_META_MEDIUM_CLASS,
   TYPOGRAPHY_MICRO_MEDIUM_CLASS,
   TYPOGRAPHY_PAGE_TITLE_CLASS,
+  WORKBENCH_FIELD_CLASS,
+  WORKBENCH_MOBILE_ICON_BUTTON_CLASS,
+  WORKBENCH_PAGE_BACKGROUND_CLASS,
   WORKBENCH_PAGE_CONTENT_CLASS,
+  WORKBENCH_SECTION_CLASS,
 } from "./stylePrimitives";
 import {
   mobilePageSwitchTransition,
@@ -302,19 +304,19 @@ const CATEGORY_LOGO_META: Record<SkillCategoryGroupId, SkillCategoryLogoMeta> = 
     dotClass: "bg-[#1456F0]",
   },
   feishu: {
-    shellClass: "border-[#C7EFFF] bg-white/86",
+    shellClass: "border-[#C7EFFF] bg-white",
     dotClass: "bg-[#18C6FF]",
   },
   google_workspace: {
-    shellClass: "border-[#DEE0E3] bg-white/86",
+    shellClass: "border-[#DEE0E3] bg-white",
     dotClass: "bg-[#34A853]",
   },
   bilibili: {
-    shellClass: "border-[#FFD5E6] bg-white/86",
+    shellClass: "border-[#FFD5E6] bg-white",
     dotClass: "bg-[#23ADE5]",
   },
   notion: {
-    shellClass: "border-[#DFE0E3] bg-white/86",
+    shellClass: "border-[#DFE0E3] bg-white",
     dotClass: "bg-[#1F2329]",
   },
   general: {
@@ -1519,7 +1521,7 @@ export default function SkillsPage({
       <div
         key={skill.id}
         data-ripple-skill-card="true"
-        className="grid gap-2 bg-white/86 px-2.5 py-2.5 transition-colors hover:bg-[#F8F9FA] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start"
+        className="grid gap-2 bg-white px-2.5 py-2.5 transition-colors hover:bg-[#F8F9FA] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start"
       >
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-1.5">
@@ -1597,7 +1599,7 @@ export default function SkillsPage({
     <div className="space-y-2">
       <div className="flex min-w-0 items-center gap-2">
         <label
-          className={`flex h-10 min-w-0 flex-1 items-center gap-2 rounded-xl border bg-white/82 px-3 shadow-[0_8px_18px_rgba(31,35,41,0.045)] ${SKILLS_PAGE_BORDER_CLASS}`}
+          className={`${WORKBENCH_FIELD_CLASS} flex h-10 min-w-0 flex-1 items-center gap-2 px-3`}
         >
           <Search size={15} className={SKILLS_PAGE_TEXT_TERTIARY_CLASS} />
           <input
@@ -1612,7 +1614,7 @@ export default function SkillsPage({
           type="button"
           data-ripple-skill-filter-control="true"
           onClick={() => setIsFilterOpen((open) => !open)}
-          className={`inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl border bg-white/82 px-3 text-[#2B2F36] shadow-[0_8px_18px_rgba(31,35,41,0.045)] ${SKILLS_PAGE_BORDER_CLASS} ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+          className={`inline-flex h-10 shrink-0 items-center gap-1.5 rounded-lg border bg-white px-3 text-[#2B2F36] transition-colors hover:bg-[#F8F9FA] ${SKILLS_PAGE_BORDER_CLASS} ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
         >
           <SlidersHorizontal size={14} />
           <span className="hidden sm:inline">{t("skills.filter")}</span>
@@ -1625,7 +1627,7 @@ export default function SkillsPage({
       </div>
       {isFilterOpen && (
         <div
-          className={`flex flex-wrap items-center gap-1.5 rounded-xl border bg-white/82 p-2 ${SKILLS_PAGE_BORDER_CLASS}`}
+          className={`flex flex-wrap items-center gap-1.5 rounded-xl border bg-white p-2 ${SKILLS_PAGE_BORDER_CLASS}`}
         >
           {STATUS_FILTERS.map((filter) => (
             <button
@@ -1661,7 +1663,7 @@ export default function SkillsPage({
     return (
       <div
         data-ripple-skill-active-filter-notice="true"
-        className={`flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-white/82 px-3 py-2 ${SKILLS_PAGE_BORDER_CLASS}`}
+        className={`flex flex-wrap items-center justify-between gap-2 px-3 py-2 ${WORKBENCH_SECTION_CLASS}`}
       >
         <div className={`${SKILLS_PAGE_TEXT_SECONDARY_CLASS} ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
           {t("skills.activeFilters")}
@@ -1690,7 +1692,7 @@ export default function SkillsPage({
     return (
       <div
         data-ripple-skill-connector-panel="true"
-        className={`rounded-xl border bg-white/82 p-3 shadow-[0_10px_24px_rgba(31,35,41,0.045)] ${SKILLS_PAGE_BORDER_CLASS}`}
+        className={`${WORKBENCH_SECTION_CLASS} p-3`}
       >
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
@@ -1753,7 +1755,7 @@ export default function SkillsPage({
                 <div
                   key={account.email}
                   data-ripple-skill-connector-account="true"
-                  className={`flex flex-wrap items-center justify-between gap-2 bg-white/70 px-2.5 py-2 ${TYPOGRAPHY_META_CLASS}`}
+                  className={`flex flex-wrap items-center justify-between gap-2 bg-white px-2.5 py-2 ${TYPOGRAPHY_META_CLASS}`}
                 >
                   <div className="min-w-0">
                     <div className="truncate font-[family-name:var(--font-mono)]">
@@ -1813,7 +1815,7 @@ export default function SkillsPage({
         type="button"
         data-ripple-skill-category-row="true"
         onClick={() => openCategory(category.id)}
-        className={`grid min-h-[92px] w-full grid-cols-[auto_auto_minmax(0,1fr)] items-center gap-3 rounded-xl border bg-white/86 px-3 py-3 text-left shadow-[0_10px_24px_rgba(31,35,41,0.045)] backdrop-blur-xl transition-colors hover:bg-white sm:grid-cols-[auto_auto_minmax(0,1fr)_auto] ${SKILLS_PAGE_BORDER_CLASS}`}
+        className={`grid min-h-[92px] w-full grid-cols-[auto_auto_minmax(0,1fr)] items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-[#FCFCFD] sm:grid-cols-[auto_auto_minmax(0,1fr)_auto] ${WORKBENCH_SECTION_CLASS}`}
       >
         <ChevronRight size={16} className={SKILLS_PAGE_TEXT_TERTIARY_CLASS} />
         <CategoryLogo category={category} status={status} />
@@ -1863,7 +1865,7 @@ export default function SkillsPage({
       ))}
       {filteredSections.length === 0 && (
         <div
-          className={`flex h-28 items-center justify-center rounded-xl border border-dashed ${SKILLS_PAGE_BORDER_CLASS} bg-white/56 ${SKILLS_PAGE_TEXT_TERTIARY_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
+          className={`flex h-28 items-center justify-center rounded-xl border border-dashed ${SKILLS_PAGE_BORDER_CLASS} bg-white ${SKILLS_PAGE_TEXT_TERTIARY_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
         >
           {t("skills.noResults")}
         </div>
@@ -1873,7 +1875,7 @@ export default function SkillsPage({
 
   const renderEmptySkillsState = () => (
     <div
-      className={`flex h-32 items-center justify-center rounded-xl border border-dashed ${SKILLS_PAGE_BORDER_CLASS} bg-white/56 ${SKILLS_PAGE_TEXT_TERTIARY_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
+      className={`flex h-32 items-center justify-center rounded-xl border border-dashed ${SKILLS_PAGE_BORDER_CLASS} bg-white ${SKILLS_PAGE_TEXT_TERTIARY_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
     >
       {t("skills.empty")}
     </div>
@@ -1904,7 +1906,7 @@ export default function SkillsPage({
               onClick={onBack}
               aria-label={t("connectors.backToSettings")}
               title={t("connectors.backToSettings")}
-              className={`${MOBILE_GLASS_ICON_BUTTON_CLASS} mt-0.5 lg:hidden`}
+              className={`${WORKBENCH_MOBILE_ICON_BUTTON_CLASS} mt-0.5 lg:hidden`}
             >
               <ArrowLeft size={15} strokeWidth={LUCIDE_NAV_STROKE_WIDTH} />
             </button>
@@ -1937,7 +1939,7 @@ export default function SkillsPage({
             disabled={isLoading || isConnectorLoading}
             title={t("skills.refresh")}
             aria-label={t("skills.refresh")}
-            className={`${MOBILE_GLASS_ICON_BUTTON_CLASS} shrink-0 disabled:cursor-not-allowed disabled:opacity-60 lg:h-10 lg:w-auto lg:gap-1.5 lg:border-[#DEE0E3] lg:bg-white/82 lg:px-3 lg:shadow-[0_8px_18px_rgba(31,35,41,0.045)] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+            className={`${WORKBENCH_MOBILE_ICON_BUTTON_CLASS} shrink-0 disabled:cursor-not-allowed disabled:opacity-60 lg:h-10 lg:w-auto lg:gap-1.5 lg:px-3 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
           >
             {isLoading || isConnectorLoading ? (
               <Loader2 size={18} className="animate-spin" />
@@ -1962,7 +1964,7 @@ export default function SkillsPage({
           onClick={closeCategory}
           aria-label={t("skills.backToCategories")}
           title={t("skills.backToCategories")}
-          className={`${MOBILE_GLASS_ICON_BUTTON_CLASS} shrink-0 lg:h-10 lg:w-10`}
+          className={`${WORKBENCH_MOBILE_ICON_BUTTON_CLASS} shrink-0 lg:h-10 lg:w-10`}
         >
           <ArrowLeft size={15} strokeWidth={LUCIDE_NAV_STROKE_WIDTH} />
         </button>
@@ -1979,7 +1981,7 @@ export default function SkillsPage({
       </div>
       {renderConnectorPanel(category)}
       {renderActiveFilterNotice()}
-      <div className={`overflow-hidden rounded-xl border bg-white/86 ${SKILLS_PAGE_BORDER_CLASS}`}>
+      <div className={`overflow-hidden ${WORKBENCH_SECTION_CLASS}`}>
         {selectedCategorySkills.length === 0 ? (
           <div
             className={`flex h-28 items-center justify-center ${SKILLS_PAGE_TEXT_TERTIARY_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
@@ -2040,7 +2042,7 @@ export default function SkillsPage({
     <div
       ref={skillsPageScrollRef}
       data-ripple-skills-page="true"
-      className={`h-full min-h-0 overflow-y-auto ${COMPACT_IOS_PAGE_BACKGROUND} px-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} ${SKILLS_PAGE_TEXT_PRIMARY_CLASS} md:px-6 lg:pb-5`}
+      className={`h-full min-h-0 overflow-y-auto ${WORKBENCH_PAGE_BACKGROUND_CLASS} px-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} ${SKILLS_PAGE_TEXT_PRIMARY_CLASS} md:px-6 lg:pb-5`}
     >
       <div className={`${WORKBENCH_PAGE_CONTENT_CLASS} relative`}>
         <AnimatePresence mode="popLayout" initial={false} custom={categoryTransitionDirection}>

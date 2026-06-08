@@ -500,6 +500,19 @@ function testSkillsPageUsesFeishuInspiredVisualLanguage() {
 
 testSkillsPageUsesFeishuInspiredVisualLanguage();
 
+function testSkillsPageUsesSolidWorkbenchSurfaces() {
+  const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /WORKBENCH_(SECTION|SURFACE|PRIMARY_BUTTON|SECONDARY_BUTTON|STATUS|FIELD|MENU)/);
+  assert.match(source, /WORKBENCH_MOBILE_ICON_BUTTON_CLASS/);
+  assert.doesNotMatch(source, /MOBILE_GLASS_ICON_BUTTON_CLASS/);
+  assert.doesNotMatch(source, /bg-white\/7[02468].*backdrop-blur-xl/);
+  assert.doesNotMatch(source, /shadow-\[0_18px_44px/);
+  assert.doesNotMatch(source, /backdrop-blur-xl/);
+}
+
+testSkillsPageUsesSolidWorkbenchSurfaces();
+
 function testSkillsPageRendersChineseChrome() {
   const html = renderSkillsPage("zh-CN");
 

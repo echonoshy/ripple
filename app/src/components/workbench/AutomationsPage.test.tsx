@@ -164,9 +164,11 @@ function testAutomationConfigExposesAdvancedPolicyControls() {
 function testAutomationCardUsesCompactResponsiveLayout() {
   const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /COMPACT_IOS_PAGE_BACKGROUND/);
-  assert.match(source, /MOBILE_GLASS_ICON_BUTTON_CLASS/);
-  assert.match(source, /className=\{`\$\{MOBILE_GLASS_ICON_BUTTON_CLASS\} shrink-0/);
+  assert.match(source, /WORKBENCH_PAGE_BACKGROUND_CLASS/);
+  assert.match(source, /WORKBENCH_MOBILE_ICON_BUTTON_CLASS/);
+  assert.match(source, /className=\{`\$\{WORKBENCH_MOBILE_ICON_BUTTON_CLASS\} shrink-0/);
+  assert.doesNotMatch(source, /COMPACT_IOS_PAGE_BACKGROUND/);
+  assert.doesNotMatch(source, /MOBILE_GLASS_ICON_BUTTON_CLASS/);
   assert.match(source, /MOBILE_PAGE_TOP_SAFE_AREA_CLASS/);
   assert.match(source, /MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS/);
   assert.match(source, /LUCIDE_NAV_STROKE_WIDTH/);
@@ -174,7 +176,7 @@ function testAutomationCardUsesCompactResponsiveLayout() {
   assert.doesNotMatch(source, /circle_at_16%_0%/);
   assert.match(
     source,
-    /data-ripple-automation-card-main[\s\S]*className="overflow-hidden rounded-xl border border-\[#DEE0E3\] bg-white\/88 px-3 py-2 shadow-\[0_10px_24px_rgba\(31,35,41,0\.055\)\] backdrop-blur-xl sm:px-4 sm:py-2\.5 xl:px-5"/
+    /data-ripple-automation-card-main[\s\S]*className="overflow-hidden rounded-xl border border-\[#DEE0E3\] bg-white px-3 py-2 shadow-\[0_1px_2px_rgba\(31,35,41,0\.04\)\] sm:px-4 sm:py-2\.5 xl:px-5"/
   );
   assert.match(source, /data-ripple-automation-list[\s\S]{0,80}className="grid gap-2\.5"/);
   assert.doesNotMatch(source, /data-ripple-automation-list[\s\S]{0,120}divide-y/);
@@ -193,7 +195,7 @@ function testAutomationCardUsesCompactResponsiveLayout() {
   assert.match(source, /mt-0\.5 truncate text-\[#2B2F36\]/);
   assert.match(
     source,
-    /data-ripple-automation-latest-run[\s\S]*rounded-lg border border-\[#EFF0F1\] bg-\[#F8F9FA\]\/70 px-2 py-1\.5/
+    /data-ripple-automation-latest-run[\s\S]*rounded-lg border border-\[#EFF0F1\] bg-\[#F8F9FA\] px-2 py-1\.5/
   );
   assert.match(source, /data-ripple-automation-latest-run[\s\S]*grid min-w-0 gap-1\.5/);
   assert.doesNotMatch(source, /const latestRunId/);
@@ -232,9 +234,18 @@ function testAutomationHeaderActionsMatchSkillsPageStyle() {
   assert.match(source, /className=\{AUTOMATION_PRIMARY_ACTION_BUTTON_CLASS\}/);
   assert.match(
     source,
-    /className=\{`\$\{MOBILE_GLASS_ICON_BUTTON_CLASS\} shrink-0[\s\S]*lg:h-10 lg:w-auto lg:gap-1\.5[\s\S]*lg:px-3/
+    /className=\{`\$\{WORKBENCH_MOBILE_ICON_BUTTON_CLASS\} shrink-0[\s\S]*lg:h-10 lg:w-auto lg:gap-1\.5[\s\S]*lg:px-3/
   );
   assert.match(source, /<span className="hidden lg:inline">\{t\("automations\.refresh"\)\}<\/span>/);
+}
+
+function testAutomationsPageUsesSolidWorkbenchSurfaces() {
+  const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /WORKBENCH_(SECTION|SURFACE|PRIMARY_BUTTON|SECONDARY_BUTTON|STATUS|FIELD|MENU)/);
+  assert.doesNotMatch(source, /bg-white\/7[02468].*backdrop-blur-xl/);
+  assert.doesNotMatch(source, /shadow-\[0_18px_44px/);
+  assert.doesNotMatch(source, /backdrop-blur-xl/);
 }
 
 function testAutomationCardUsesDesktopRowLayout() {
@@ -242,7 +253,7 @@ function testAutomationCardUsesDesktopRowLayout() {
 
   assert.match(
     source,
-    /data-ripple-automation-card-main[\s\S]*className="overflow-hidden rounded-xl border border-\[#DEE0E3\] bg-white\/88 px-3 py-2 shadow-\[0_10px_24px_rgba\(31,35,41,0\.055\)\] backdrop-blur-xl sm:px-4 sm:py-2\.5 xl:px-5"/
+    /data-ripple-automation-card-main[\s\S]*className="overflow-hidden rounded-xl border border-\[#DEE0E3\] bg-white px-3 py-2 shadow-\[0_1px_2px_rgba\(31,35,41,0\.04\)\] sm:px-4 sm:py-2\.5 xl:px-5"/
   );
   assert.match(source, /xl:grid-cols-\[minmax\(260px,0\.82fr\)_minmax\(0,1\.35fr\)\]/);
   assert.match(
@@ -315,6 +326,7 @@ testAutomationConfigExposesAdvancedPolicyControls();
 testAutomationCardUsesCompactResponsiveLayout();
 testAutomationLatestRunSummaryDoesNotDuplicateOutputActions();
 testAutomationHeaderActionsMatchSkillsPageStyle();
+testAutomationsPageUsesSolidWorkbenchSurfaces();
 testAutomationCardUsesDesktopRowLayout();
 testAutomationsPageUsesInlineMobileActionsWithoutOverflowSheet();
 testAutomationRunHistoryUsesReadableRows();

@@ -34,9 +34,7 @@ import { formatModelName } from "@/lib/models";
 import { saveBlobAsDownload } from "@/lib/platform";
 import type { AgentRunInfo, ScheduleInfo, ScheduleKind } from "@/types";
 import {
-  COMPACT_IOS_PAGE_BACKGROUND,
   LUCIDE_NAV_STROKE_WIDTH,
-  MOBILE_GLASS_ICON_BUTTON_CLASS,
   MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS,
   MOBILE_PAGE_TOP_SAFE_AREA_CLASS,
   TYPOGRAPHY_BODY_CLASS,
@@ -46,7 +44,11 @@ import {
   TYPOGRAPHY_MICRO_MEDIUM_CLASS,
   TYPOGRAPHY_MOBILE_BODY_CLASS,
   TYPOGRAPHY_PAGE_TITLE_CLASS,
+  WORKBENCH_FIELD_CLASS,
+  WORKBENCH_MOBILE_ICON_BUTTON_CLASS,
+  WORKBENCH_PAGE_BACKGROUND_CLASS,
   WORKBENCH_PAGE_CONTENT_CLASS,
+  WORKBENCH_SECTION_CLASS,
 } from "./stylePrimitives";
 
 interface AutomationsPageProps {
@@ -245,11 +247,11 @@ const AUTOMATION_PRIMARY_ACTION_BUTTON_CLASS = `inline-flex h-11 w-11 items-cent
 
 const automationFieldLabelClass = `mb-1 block text-[#646A73] ${TYPOGRAPHY_META_MEDIUM_CLASS}`;
 
-const automationFieldControlClass = `h-10 w-full rounded-xl border border-[#DEE0E3] bg-white px-3 text-[#1F2329] outline-none focus:border-[#8FB1FF] ${TYPOGRAPHY_MOBILE_BODY_CLASS} lg:h-9 lg:text-[14px] lg:leading-[22px]`;
+const automationFieldControlClass = `${WORKBENCH_FIELD_CLASS} h-10 w-full px-3 ${TYPOGRAPHY_MOBILE_BODY_CLASS} lg:h-9 lg:text-[14px] lg:leading-[22px]`;
 
-const automationMonoFieldControlClass = `h-10 w-full rounded-xl border border-[#DEE0E3] bg-white px-3 font-[family-name:var(--font-mono)] text-[#1F2329] outline-none focus:border-[#8FB1FF] ${TYPOGRAPHY_MOBILE_BODY_CLASS} lg:h-9 lg:text-[14px] lg:leading-[22px]`;
+const automationMonoFieldControlClass = `${WORKBENCH_FIELD_CLASS} h-10 w-full px-3 font-[family-name:var(--font-mono)] ${TYPOGRAPHY_MOBILE_BODY_CLASS} lg:h-9 lg:text-[14px] lg:leading-[22px]`;
 
-const automationTextareaClass = `w-full resize-none rounded-xl border border-[#DEE0E3] bg-white px-3 py-2 text-[#1F2329] outline-none focus:border-[#8FB1FF] ${TYPOGRAPHY_MOBILE_BODY_CLASS} lg:text-[14px] lg:leading-[22px]`;
+const automationTextareaClass = `${WORKBENCH_FIELD_CLASS} w-full resize-none px-3 py-2 ${TYPOGRAPHY_MOBILE_BODY_CLASS} lg:text-[14px] lg:leading-[22px]`;
 
 function defaultRunAt(): string {
   const date = new Date(Date.now() + 60 * 60 * 1000);
@@ -609,7 +611,7 @@ export default function AutomationsPage({
 
   return (
     <div
-      className={`h-full min-h-0 overflow-y-auto ${COMPACT_IOS_PAGE_BACKGROUND} px-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} text-[#1F2329] md:px-6 lg:pb-5`}
+      className={`h-full min-h-0 overflow-y-auto ${WORKBENCH_PAGE_BACKGROUND_CLASS} px-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} text-[#1F2329] md:px-6 lg:pb-5`}
     >
       <div className={`${WORKBENCH_PAGE_CONTENT_CLASS} space-y-4`}>
         <header className="flex flex-wrap items-center justify-between gap-3 pb-1">
@@ -620,7 +622,7 @@ export default function AutomationsPage({
                 onClick={onBack}
                 aria-label={t("automations.backToSettings")}
                 title={t("automations.backToSettings")}
-                className={`${MOBILE_GLASS_ICON_BUTTON_CLASS} lg:hidden`}
+                className={`${WORKBENCH_MOBILE_ICON_BUTTON_CLASS} lg:hidden`}
               >
                 <ArrowLeft size={16} strokeWidth={LUCIDE_NAV_STROKE_WIDTH} />
               </button>
@@ -652,7 +654,7 @@ export default function AutomationsPage({
               disabled={isLoading}
               aria-label={t("automations.refreshAutomations")}
               title={t("automations.refreshAutomations")}
-              className={`${MOBILE_GLASS_ICON_BUTTON_CLASS} shrink-0 disabled:cursor-not-allowed disabled:opacity-60 lg:h-10 lg:w-auto lg:gap-1.5 lg:border-[#DEE0E3] lg:bg-white/82 lg:px-3 lg:shadow-[0_8px_18px_rgba(31,35,41,0.045)] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+              className={`${WORKBENCH_MOBILE_ICON_BUTTON_CLASS} shrink-0 disabled:cursor-not-allowed disabled:opacity-60 lg:h-10 lg:w-auto lg:gap-1.5 lg:px-3 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
             >
               {isLoading ? (
                 <Loader2
@@ -689,7 +691,7 @@ export default function AutomationsPage({
             <form
               data-ripple-automation-form-sheet
               onSubmit={handleSubmitSchedule}
-              className="grid gap-4 rounded-2xl border border-[#DEE0E3] bg-white/74 p-4 shadow-[0_12px_30px_rgba(31,35,41,0.06)] backdrop-blur-xl max-md:fixed max-md:inset-x-2 max-md:bottom-[max(env(safe-area-inset-bottom),8px)] max-md:z-50 max-md:max-h-[calc(100dvh-24px-env(safe-area-inset-top))] max-md:overflow-y-auto max-md:bg-white/96"
+              className={`${WORKBENCH_SECTION_CLASS} grid gap-4 p-4 max-md:fixed max-md:inset-x-2 max-md:bottom-[max(env(safe-area-inset-bottom),8px)] max-md:z-50 max-md:max-h-[calc(100dvh-24px-env(safe-area-inset-top))] max-md:overflow-y-auto max-md:bg-white`}
             >
               <div className="flex items-center justify-between gap-2 md:hidden">
                 <div className={`text-[#1F2329] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
@@ -839,7 +841,7 @@ export default function AutomationsPage({
               {isAdvancedConfigOpen ? (
                 <div
                   data-ripple-automation-advanced-config
-                  className="grid gap-3 rounded-xl border border-[#EFF0F1] bg-[#F8F9FA]/70 p-3 md:grid-cols-2 xl:grid-cols-5"
+                  className="grid gap-3 rounded-xl border border-[#EFF0F1] bg-[#F8F9FA] p-3 md:grid-cols-2 xl:grid-cols-5"
                 >
                   <label className="block min-w-0 md:col-span-2 xl:col-span-1">
                     <span className={automationFieldLabelClass}>{t("automations.cwd")}</span>
@@ -923,7 +925,7 @@ export default function AutomationsPage({
                 <button
                   type="button"
                   onClick={closeForm}
-                  className={`hidden h-10 items-center justify-center rounded-full border border-[#DEE0E3] bg-white px-4 text-[#2B2F36] shadow-[0_10px_24px_rgba(31,35,41,0.04)] hover:bg-[#F8F9FA] md:inline-flex ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+                  className={`hidden h-10 items-center justify-center rounded-lg border border-[#DEE0E3] bg-white px-4 text-[#2B2F36] hover:bg-[#F8F9FA] md:inline-flex ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
                   disabled={isSubmitting}
                 >
                   {t("automations.cancel")}
@@ -946,7 +948,7 @@ export default function AutomationsPage({
         ) : null}
 
         {schedules.length === 0 ? (
-          <div className="overflow-hidden rounded-2xl border border-[#DEE0E3] bg-white/74 shadow-[0_12px_30px_rgba(31,35,41,0.06)] backdrop-blur-xl">
+          <div className={`overflow-hidden ${WORKBENCH_SECTION_CLASS}`}>
             <div
               className={`flex h-44 items-center justify-center text-[#646A73] ${TYPOGRAPHY_BODY_CLASS}`}
             >
@@ -968,7 +970,7 @@ export default function AutomationsPage({
                 <div
                   key={schedule.schedule_id}
                   data-ripple-automation-card-main
-                  className="overflow-hidden rounded-xl border border-[#DEE0E3] bg-white/88 px-3 py-2 shadow-[0_10px_24px_rgba(31,35,41,0.055)] backdrop-blur-xl sm:px-4 sm:py-2.5 xl:px-5"
+                  className="overflow-hidden rounded-xl border border-[#DEE0E3] bg-white px-3 py-2 shadow-[0_1px_2px_rgba(31,35,41,0.04)] sm:px-4 sm:py-2.5 xl:px-5"
                 >
                   <div className="grid gap-2 xl:grid-cols-[minmax(260px,0.82fr)_minmax(0,1.35fr)] xl:items-start">
                     <div data-ripple-automation-summary className="min-w-0">
@@ -1053,7 +1055,7 @@ export default function AutomationsPage({
 
                       <div
                         data-ripple-automation-latest-run
-                        className={`grid min-w-0 gap-1.5 rounded-lg border border-[#EFF0F1] bg-[#F8F9FA]/70 px-2 py-1.5 ${TYPOGRAPHY_META_CLASS}`}
+                        className={`grid min-w-0 gap-1.5 rounded-lg border border-[#EFF0F1] bg-[#F8F9FA] px-2 py-1.5 ${TYPOGRAPHY_META_CLASS}`}
                       >
                         <div className="flex min-w-0 items-start justify-between gap-2">
                           <span

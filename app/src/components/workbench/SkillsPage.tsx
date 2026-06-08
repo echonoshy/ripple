@@ -844,6 +844,7 @@ export default function SkillsPage({
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [categoryTransitionDirection, setCategoryTransitionDirection] = useState(0);
+  const [skipNextCategoryTransition, setSkipNextCategoryTransition] = useState(false);
   const [isCategorySwipeActive, setIsCategorySwipeActive] = useState(false);
   const [expandedDescriptionSkillId, setExpandedDescriptionSkillId] = useState<string | null>(null);
   const skillsPageScrollRef = useRef<HTMLDivElement | null>(null);
@@ -1047,6 +1048,7 @@ export default function SkillsPage({
   const openCategory = useCallback(
     (categoryId: string) => {
       resetCategorySwipeState();
+      setSkipNextCategoryTransition(false);
       setCategoryTransitionDirection(1);
       setConfirmDeleteSkillId(null);
       setExpandedDescriptionSkillId(null);
@@ -1058,6 +1060,7 @@ export default function SkillsPage({
 
   const closeCategory = useCallback(() => {
     resetCategorySwipeState();
+    setSkipNextCategoryTransition(false);
     setCategoryTransitionDirection(-1);
     setConfirmDeleteSkillId(null);
     setExpandedDescriptionSkillId(null);
@@ -1070,6 +1073,7 @@ export default function SkillsPage({
     categorySwipeTouchGuardStateRef.current = null;
     releaseCategorySwipeScrollLock();
     setIsCategorySwipeActive(false);
+    setSkipNextCategoryTransition(true);
     setCategoryTransitionDirection(-1);
     setConfirmDeleteSkillId(null);
     setExpandedDescriptionSkillId(null);
@@ -1080,8 +1084,7 @@ export default function SkillsPage({
     } else {
       window.requestAnimationFrame(resetSwipeX);
     }
-    scrollSkillsPageToTop();
-  }, [categorySwipeX, releaseCategorySwipeScrollLock, scrollSkillsPageToTop]);
+  }, [categorySwipeX, releaseCategorySwipeScrollLock]);
 
   useEffect(
     () => () => {
@@ -1106,12 +1109,23 @@ export default function SkillsPage({
   useEffect(() => {
     if (resetToRootRequest <= 0) return;
     resetCategorySwipeState();
+    setSkipNextCategoryTransition(false);
     setCategoryTransitionDirection(-1);
     setConfirmDeleteSkillId(null);
     setExpandedDescriptionSkillId(null);
     setSelectedCategoryId(null);
     scrollSkillsPageToTop();
   }, [resetCategorySwipeState, resetToRootRequest, scrollSkillsPageToTop]);
+
+  useEffect(() => {
+    if (!skipNextCategoryTransition || selectedCategoryId) return;
+    if (typeof window === "undefined") {
+      setSkipNextCategoryTransition(false);
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => setSkipNextCategoryTransition(false));
+    return () => window.cancelAnimationFrame(frame);
+  }, [selectedCategoryId, skipNextCategoryTransition]);
 
   const handleCategorySwipePointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
@@ -1121,7 +1135,7 @@ export default function SkillsPage({
       if (viewportWidth >= mobileSwipeBackConfig.desktopMinWidth) return;
       if (isInteractiveSkillsCategoryBackSwipeTarget(event.target)) return;
       stopCategorySwipeAnimation();
-      const scrollElement = skillsPageScrollRef.current;
+      const scrollElement = event.currentTarget;
 
       categorySwipeDragStateRef.current = {
         pointerId: event.pointerId,
@@ -1133,7 +1147,7 @@ export default function SkillsPage({
         lastTime: currentTimeMs(),
         velocityX: 0,
         scrollElement,
-        startScrollTop: scrollElement?.scrollTop ?? 0,
+        startScrollTop: scrollElement.scrollTop,
       };
     },
     [selectedCategoryId, stopCategorySwipeAnimation]
@@ -1265,7 +1279,7 @@ export default function SkillsPage({
       const touch = event.touches[0];
       if (!touch) return;
       stopCategorySwipeAnimation();
-      const scrollElement = skillsPageScrollRef.current;
+      const scrollElement = event.currentTarget;
 
       categorySwipeTouchGuardStateRef.current = {
         startX: touch.clientX,
@@ -1273,7 +1287,7 @@ export default function SkillsPage({
         viewportWidth,
         isGuarding: false,
         scrollElement,
-        startScrollTop: scrollElement?.scrollTop ?? 0,
+        startScrollTop: scrollElement.scrollTop,
       };
     },
     [selectedCategoryId, stopCategorySwipeAnimation]
@@ -2044,11 +2058,14 @@ export default function SkillsPage({
     if (!selectedCategory) return renderCategoryIndexPage();
 
     return (
-      <div data-ripple-skill-category-swipe-stack="true" className="relative min-w-0">
+      <div
+        data-ripple-skill-category-swipe-stack="true"
+        className="relative h-full min-h-0 min-w-0 overflow-hidden bg-[#F5F6F7] lg:h-auto lg:overflow-visible"
+      >
         <div
           data-ripple-skill-category-index-underlay="true"
           aria-hidden="true"
-          className={`pointer-events-none absolute inset-x-0 top-0 z-0 lg:hidden ${
+          className={`pointer-events-none absolute inset-0 z-0 overflow-y-auto px-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} lg:hidden ${
             isCategorySwipeActive ? "opacity-100" : "opacity-0"
           }`}
         >
@@ -2056,9 +2073,10 @@ export default function SkillsPage({
         </div>
         <motion.div
           data-ripple-skill-category-swipe-sheet="true"
+          data-ripple-skill-category-scroll="detail"
           data-ripple-skill-category-swiping={isCategorySwipeActive ? "true" : "false"}
           style={{ x: categorySwipeX }}
-          className="relative z-10 min-w-0 touch-pan-y bg-[#F5F6F7] will-change-transform"
+          className={`absolute inset-0 z-10 h-full min-h-0 touch-pan-y overflow-y-auto bg-[#F5F6F7] px-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} shadow-[-18px_0_44px_rgba(31,35,41,0.18)] will-change-transform lg:relative lg:inset-auto lg:h-auto lg:overflow-visible lg:px-0 lg:pt-0 lg:pb-0 lg:shadow-none`}
           onPointerDown={handleCategorySwipePointerDown}
           onPointerMove={handleCategorySwipePointerMove}
           onPointerUp={handleCategorySwipePointerUp}
@@ -2078,20 +2096,40 @@ export default function SkillsPage({
     <div
       ref={skillsPageScrollRef}
       data-ripple-skills-page="true"
-      className={`h-full min-h-0 overflow-y-auto ${WORKBENCH_PAGE_BACKGROUND_CLASS} px-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} ${SKILLS_PAGE_TEXT_PRIMARY_CLASS} md:px-6 lg:pb-5`}
+      className={`flex h-full min-h-0 touch-pan-y flex-col ${WORKBENCH_PAGE_BACKGROUND_CLASS} ${SKILLS_PAGE_TEXT_PRIMARY_CLASS} ${
+        selectedCategory
+          ? "overflow-hidden px-0 pt-0 pb-0 lg:overflow-y-auto lg:px-6 lg:pt-[max(env(safe-area-inset-top),12px)] lg:pb-5"
+          : `overflow-y-auto px-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} md:px-6 lg:pb-5`
+      }`}
     >
-      <div className={`${WORKBENCH_PAGE_CONTENT_CLASS} relative`}>
-        <AnimatePresence mode="popLayout" initial={false} custom={categoryTransitionDirection}>
+      <div
+        className={`${WORKBENCH_PAGE_CONTENT_CLASS} ${
+          selectedCategory ? "h-full min-h-0 lg:h-auto" : "relative"
+        }`}
+      >
+        <AnimatePresence
+          mode="popLayout"
+          initial={false}
+          custom={skipNextCategoryTransition ? 0 : categoryTransitionDirection}
+        >
           <motion.div
             key={selectedCategory ? `detail:${selectedCategory.id}` : "index"}
             data-ripple-skill-category-motion-stage="true"
-            custom={categoryTransitionDirection}
-            variants={reduceMotion ? reducedMobilePageVariants : mobilePageVariants}
-            initial="enter"
+            custom={skipNextCategoryTransition ? 0 : categoryTransitionDirection}
+            variants={
+              skipNextCategoryTransition || reduceMotion
+                ? reducedMobilePageVariants
+                : mobilePageVariants
+            }
+            initial={skipNextCategoryTransition ? false : "enter"}
             animate="center"
             exit="exit"
-            transition={reduceMotion ? reducedMotionTransition : mobilePageSwitchTransition}
-            className="w-full min-w-0"
+            transition={
+              skipNextCategoryTransition || reduceMotion
+                ? reducedMotionTransition
+                : mobilePageSwitchTransition
+            }
+            className={`w-full min-w-0 ${selectedCategory ? "h-full min-h-0 lg:h-auto" : ""}`}
           >
             {renderCategoryStage()}
           </motion.div>

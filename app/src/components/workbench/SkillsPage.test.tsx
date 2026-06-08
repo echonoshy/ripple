@@ -225,9 +225,10 @@ function testSkillsPageAnimatesCategoryDrillInBothLayouts() {
     /import \{ AnimatePresence, animate, motion, useMotionValue, useReducedMotion \} from "framer-motion"/
   );
   assert.match(source, /categoryTransitionDirection/);
+  assert.match(source, /skipNextCategoryTransition/);
   assert.match(source, /data-ripple-skill-category-motion-stage/);
   assert.match(source, /key=\{selectedCategory \? `detail:\$\{selectedCategory\.id\}` : "index"\}/);
-  assert.match(source, /custom=\{categoryTransitionDirection\}/);
+  assert.match(source, /custom=\{skipNextCategoryTransition \? 0 : categoryTransitionDirection\}/);
   assert.match(source, /reducedMobilePageVariants/);
   assert.match(source, /mobilePageVariants/);
 }
@@ -236,6 +237,12 @@ testSkillsPageAnimatesCategoryDrillInBothLayouts();
 
 function testSkillsCategoryDetailSupportsSwipeBackGesture() {
   const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
+  const swipeSheetBlock =
+    source.match(
+      /<motion\.div[\s\S]*?data-ripple-skill-category-swipe-sheet="true"[\s\S]*?<\/motion\.div>/
+    )?.[0] || "";
+  const pageRootBlock =
+    source.match(/<div\s+ref=\{skillsPageScrollRef\}[\s\S]*?>/)?.[0] || "";
 
   assert.equal(
     shouldGuardSkillsCategoryBackSwipeScroll({
@@ -349,8 +356,12 @@ function testSkillsCategoryDetailSupportsSwipeBackGesture() {
   assert.match(source, /data-ripple-skill-category-swipe-stack="true"/);
   assert.match(source, /data-ripple-skill-category-index-underlay="true"/);
   assert.match(source, /data-ripple-skill-category-swipe-sheet="true"/);
-  assert.match(source, /onTouchMoveCapture=\{handleCategorySwipeTouchMoveCapture\}/);
-  assert.match(source, /onPointerMove=\{handleCategorySwipePointerMove\}/);
+  assert.match(swipeSheetBlock, /onPointerDown=\{handleCategorySwipePointerDown\}/);
+  assert.match(swipeSheetBlock, /onPointerMove=\{handleCategorySwipePointerMove\}/);
+  assert.match(swipeSheetBlock, /onTouchStartCapture=\{handleCategorySwipeTouchStartCapture\}/);
+  assert.match(swipeSheetBlock, /onTouchMoveCapture=\{handleCategorySwipeTouchMoveCapture\}/);
+  assert.doesNotMatch(pageRootBlock, /onPointerDown=\{handleCategorySwipePointerDown\}/);
+  assert.doesNotMatch(pageRootBlock, /onTouchMoveCapture=\{handleCategorySwipeTouchMoveCapture\}/);
   assert.match(source, /closeCategoryWithSwipeCommit/);
 }
 
@@ -381,6 +392,39 @@ function testSkillsCategoryGuardedScrollCanReleaseBackToVerticalIntent() {
   );
   assert.match(source, /shouldReleaseSkillsCategoryBackSwipeScrollGuard/);
   assert.match(source, /releaseCategorySwipeScrollLock\(\)/);
+  assert.match(source, /scrollElement\.scrollTop = startScrollTop/);
+}
+
+function testSkillsCategorySwipeUsesFullHeightScrollableSheetLikeSession() {
+  const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
+  const swipeStackBlock =
+    source.match(
+      /<div[\s\S]*?data-ripple-skill-category-swipe-stack="true"[\s\S]*?<motion\.div/
+    )?.[0] || "";
+  const swipeSheetBlock =
+    source.match(
+      /<motion\.div[\s\S]*?data-ripple-skill-category-swipe-sheet="true"[\s\S]*?<\/motion\.div>/
+    )?.[0] || "";
+
+  assert.match(swipeStackBlock, /h-full min-h-0/);
+  assert.match(swipeStackBlock, /overflow-hidden/);
+  assert.match(swipeSheetBlock, /absolute inset-0 z-10 h-full min-h-0/);
+  assert.match(swipeSheetBlock, /overflow-y-auto/);
+  assert.match(swipeSheetBlock, /data-ripple-skill-category-scroll="detail"/);
+  assert.match(swipeSheetBlock, /shadow-\[-18px_0_44px_rgba\(31,35,41,0\.18\)\]/);
+}
+
+function testSkillsCategorySwipeCommitDoesNotJumpScrollAfterReturn() {
+  const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
+  const commitBlock =
+    source.match(/const closeCategoryWithSwipeCommit = useCallback\(\(\) => \{[\s\S]*?\}, \[[\s\S]*?\]\);/)?.[0] ||
+    "";
+
+  assert.match(commitBlock, /setSelectedCategoryId\(null\)/);
+  assert.match(commitBlock, /setSkipNextCategoryTransition\(true\)/);
+  assert.doesNotMatch(commitBlock, /scrollSkillsPageToTop\(\)/);
+  assert.match(source, /initial=\{skipNextCategoryTransition \? false : "enter"\}/);
+  assert.match(source, /skipNextCategoryTransition \|\| reduceMotion/);
 }
 
 function testSkillsCategoryTransitionDoesNotWaitOrKeepExitingPageInLayoutFlow() {
@@ -389,16 +433,18 @@ function testSkillsCategoryTransitionDoesNotWaitOrKeepExitingPageInLayoutFlow() 
   assert.match(source, /mobilePageSwitchTransition/);
   assert.match(
     source,
-    /<AnimatePresence mode="popLayout" initial=\{false\} custom=\{categoryTransitionDirection\}>/
+    /<AnimatePresence[\s\S]*?mode="popLayout"[\s\S]*?initial=\{false\}[\s\S]*?custom=\{skipNextCategoryTransition \? 0 : categoryTransitionDirection\}/
   );
   assert.doesNotMatch(
     source,
-    /<AnimatePresence mode="wait" initial=\{false\} custom=\{categoryTransitionDirection\}>/
+    /<AnimatePresence[\s\S]*?mode="wait"[\s\S]*?initial=\{false\}[\s\S]*?custom=\{skipNextCategoryTransition \? 0 : categoryTransitionDirection\}/
   );
 }
 
 testSkillsCategorySwipeUsesSharedMotionPrimitive();
 testSkillsCategoryGuardedScrollCanReleaseBackToVerticalIntent();
+testSkillsCategorySwipeUsesFullHeightScrollableSheetLikeSession();
+testSkillsCategorySwipeCommitDoesNotJumpScrollAfterReturn();
 testSkillsCategoryTransitionDoesNotWaitOrKeepExitingPageInLayoutFlow();
 
 function testSkillsCategoryDetailIsFullMobileSubpage() {

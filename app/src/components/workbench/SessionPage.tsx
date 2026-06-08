@@ -25,7 +25,6 @@ import type {
   PlanProgress,
   UsageInfo,
   WorkbenchSessionSummary,
-  WorkbenchSessionStatus,
   WorkbenchTimelineEvent,
 } from "@/types";
 import type { FeishuAuthOpenPayload, FeishuAuthWaitingState } from "@/components/MarkdownRenderer";
@@ -57,16 +56,7 @@ const BOTTOM_LOCK_THRESHOLD_PX = 40;
 const MOBILE_CHAT_HEADER_FALLBACK_HEIGHT_PX = 68;
 const MOBILE_CHAT_COMPOSER_FALLBACK_HEIGHT_PX = 92;
 const MOBILE_CHAT_COMPOSER_GAP_PX = 12;
-const MOBILE_CHAT_HEADER_SCROLL_DELTA_PX = 10;
-const MOBILE_CHAT_HEADER_TOP_LOCK_PX = 8;
-const MOBILE_RUN_STATUS_FALLBACK_HEIGHT_PX = 40;
 const mobileHeaderButtonClass = WORKBENCH_MOBILE_ICON_BUTTON_CLASS;
-
-interface MobileChatHeaderScrollInput {
-  previousScrollTop: number;
-  nextScrollTop: number;
-  isHidden: boolean;
-}
 
 interface VisualViewportKeyboardSource {
   innerHeight: number;
@@ -82,27 +72,6 @@ interface TimelineAutoScrollSuppressionInput {
 interface TokenFooterRevealInput {
   previousTotalTokens: number;
   nextTotalTokens: number;
-}
-
-type MobileRunStatusKind =
-  | "running"
-  | "waiting_for_user"
-  | "waiting_for_approval"
-  | "compacting"
-  | "uploading"
-  | "loading";
-
-export function shouldHideMobileChatHeaderOnScroll({
-  previousScrollTop,
-  nextScrollTop,
-  isHidden,
-}: MobileChatHeaderScrollInput): boolean {
-  if (nextScrollTop <= MOBILE_CHAT_HEADER_TOP_LOCK_PX) return false;
-
-  const delta = nextScrollTop - previousScrollTop;
-  if (delta > MOBILE_CHAT_HEADER_SCROLL_DELTA_PX) return true;
-  if (delta < -MOBILE_CHAT_HEADER_SCROLL_DELTA_PX) return false;
-  return isHidden;
 }
 
 export function getVisualViewportKeyboardInset(
@@ -210,28 +179,6 @@ function folderName(
   return path.split("/").filter(Boolean).pop() || folderFallback;
 }
 
-function mobileRunStatusKind({
-  isUploadingFiles,
-  isSessionLoading,
-  isComposerBlocked,
-  isGenerating,
-  sessionStatus,
-}: {
-  isUploadingFiles: boolean;
-  isSessionLoading: boolean;
-  isComposerBlocked: boolean;
-  isGenerating: boolean;
-  sessionStatus?: WorkbenchSessionStatus | null;
-}): MobileRunStatusKind | null {
-  if (isUploadingFiles) return "uploading";
-  if (isSessionLoading) return "loading";
-  if (isComposerBlocked || sessionStatus === "compacting") return "compacting";
-  if (sessionStatus === "waiting_for_approval") return "waiting_for_approval";
-  if (sessionStatus === "waiting_for_user") return "waiting_for_user";
-  if (isGenerating || sessionStatus === "running") return "running";
-  return null;
-}
-
 interface SessionPageProps {
   userId?: string;
   session: WorkbenchSessionSummary | null;
@@ -334,7 +281,6 @@ export default function SessionPage({
   const composerFocusedComposerHeightRef = useRef<number | null>(null);
   const mobileComposerHeightRef = useRef(MOBILE_CHAT_COMPOSER_FALLBACK_HEIGHT_PX);
   const previousTokenUsageTotalRef = useRef(tokenUsage.total_tokens);
-  const lastMobileHeaderScrollTopRef = useRef(0);
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const [mobileHeaderHeight, setMobileHeaderHeight] = useState(
     MOBILE_CHAT_HEADER_FALLBACK_HEIGHT_PX
@@ -343,7 +289,6 @@ export default function SessionPage({
     MOBILE_CHAT_COMPOSER_FALLBACK_HEIGHT_PX
   );
   const [mobileKeyboardInset, setMobileKeyboardInset] = useState(0);
-  const [isMobileHeaderHidden, setIsMobileHeaderHidden] = useState(false);
   const hasMessages = messages.length > 0;
   const contextWindow =
     typeof tokenUsage.model_context_window === "number" && tokenUsage.model_context_window > 0
@@ -400,30 +345,6 @@ export default function SessionPage({
     ? t("sessions.focusFolder", { label: focusFolderLabel })
     : null;
   const folderBadgeTitle = effectiveContextFolderPath || t("sessions.fullWorkspace");
-  const mobileRunStatus = mobileRunStatusKind({
-    isUploadingFiles,
-    isSessionLoading,
-    isComposerBlocked,
-    isGenerating,
-    sessionStatus: session?.status,
-  });
-  const mobileRunStatusLabel =
-    mobileRunStatus === "uploading"
-      ? t("sessions.runStatus.uploading")
-      : mobileRunStatus === "loading"
-        ? t("sessions.runStatus.loading")
-        : mobileRunStatus === "compacting"
-          ? t("sessions.runStatus.compacting")
-          : mobileRunStatus === "waiting_for_approval"
-            ? t("sessions.runStatus.waitingForApproval")
-            : mobileRunStatus === "waiting_for_user"
-              ? t("sessions.runStatus.waitingForUser")
-              : mobileRunStatus === "running"
-                ? t("sessions.runStatus.running")
-                : null;
-  const mobileRunStatusBarHeight = mobileRunStatus
-    ? MOBILE_RUN_STATUS_FALLBACK_HEIGHT_PX
-    : 0;
   const mobileComposerReservedHeight = reservedMobileComposerHeight({
     measuredHeight: mobileComposerHeight,
   });
@@ -436,7 +357,6 @@ export default function SessionPage({
     "--ripple-mobile-chat-composer-height": `${mobileComposerReservedHeight}px`,
     "--ripple-mobile-chat-composer-gap": `${MOBILE_CHAT_COMPOSER_GAP_PX}px`,
     "--ripple-mobile-keyboard-inset": `${mobileKeyboardInset}px`,
-    "--ripple-mobile-run-status-height": `${mobileRunStatusBarHeight}px`,
   } as CSSProperties;
   const composerOverlayStyle = {
     transform: mobileKeyboardInset > 0 ? `translate3d(0, -${mobileKeyboardInset}px, 0)` : undefined,
@@ -513,18 +433,6 @@ export default function SessionPage({
     );
   }, []);
 
-  const updateMobileHeaderVisibility = useCallback((nextScrollTop: number) => {
-    const previousScrollTop = lastMobileHeaderScrollTopRef.current;
-    lastMobileHeaderScrollTopRef.current = nextScrollTop;
-    setIsMobileHeaderHidden((isHidden) =>
-      shouldHideMobileChatHeaderOnScroll({
-        previousScrollTop,
-        nextScrollTop,
-        isHidden,
-      })
-    );
-  }, []);
-
   const startStickToBottom = useCallback(() => {
     stickToBottomUntilRef.current = currentTimeMs() + STICK_TO_BOTTOM_MS;
     scrollToBottom();
@@ -538,14 +446,13 @@ export default function SessionPage({
   const handleScroll = useCallback(() => {
     const scrollContainer = scrollContainerRef.current;
     if (!scrollContainer) return;
-    updateMobileHeaderVisibility(scrollContainer.scrollTop);
 
     const distanceFromBottom =
       scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight;
     if (distanceFromBottom > BOTTOM_LOCK_THRESHOLD_PX) {
       stickToBottomUntilRef.current = 0;
     }
-  }, [updateMobileHeaderVisibility]);
+  }, []);
 
   useLayoutEffect(() => {
     isGeneratingRef.current = isGenerating;
@@ -735,10 +642,7 @@ export default function SessionPage({
       <div
         ref={mobileHeaderRef}
         data-ripple-mobile-chat-header="true"
-        data-ripple-mobile-chat-header-hidden={isMobileHeaderHidden ? "true" : "false"}
-        className={`absolute inset-x-0 top-0 z-30 grid min-h-[calc(56px+env(safe-area-inset-top))] grid-cols-[44px_minmax(0,1fr)_44px] items-center border-b border-[#DEE0E3] bg-white px-2.5 pt-[max(env(safe-area-inset-top),0px)] shadow-[0_1px_2px_rgba(31,35,41,0.04)] transition-transform duration-150 ease-out lg:hidden ${
-          isMobileHeaderHidden ? "pointer-events-none -translate-y-full" : "translate-y-0"
-        }`}
+        className="absolute inset-x-0 top-0 z-30 grid min-h-[calc(56px+env(safe-area-inset-top))] translate-y-0 grid-cols-[44px_minmax(0,1fr)_44px] items-center border-b border-[#DEE0E3] bg-white px-2.5 pt-[max(env(safe-area-inset-top),0px)] shadow-[0_1px_2px_rgba(31,35,41,0.04)] lg:hidden"
       >
         <button
           type="button"
@@ -840,29 +744,6 @@ export default function SessionPage({
         style={mobileTimelineStyle}
         className="min-h-0 flex-1 overflow-y-auto bg-white px-3 pt-[calc(var(--ripple-mobile-chat-header-height)+8px)] pb-[calc(var(--ripple-mobile-chat-composer-height)+var(--ripple-mobile-chat-composer-gap))] sm:px-4 md:px-5 lg:py-5"
       >
-        {mobileRunStatus && mobileRunStatusLabel ? (
-          <div
-            data-ripple-mobile-run-status-bar="true"
-            data-ripple-mobile-run-status={mobileRunStatus}
-            className={`sticky top-[calc(var(--ripple-mobile-chat-header-height)+8px)] z-20 mx-auto mb-2 flex max-w-5xl items-center gap-2 rounded-lg border border-[#BACEFD] bg-white px-3 py-2 shadow-[0_2px_10px_rgba(20,86,240,0.10)] lg:hidden ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-          >
-            <span
-              aria-hidden="true"
-              className={`h-2 w-2 shrink-0 rounded-full ${
-                mobileRunStatus === "running" || mobileRunStatus === "uploading"
-                  ? "animate-pulse bg-[#1456F0]"
-                  : mobileRunStatus === "waiting_for_approval" ||
-                      mobileRunStatus === "waiting_for_user"
-                    ? "bg-[#F59E0B]"
-                    : "bg-[#646A73]"
-              }`}
-            />
-            <span className="min-w-0 flex-1 truncate text-[#1F2329]">{mobileRunStatusLabel}</span>
-            <span className="shrink-0 font-[family-name:var(--font-mono)] text-[#646A73]">
-              {modelDisplayName}
-            </span>
-          </div>
-        ) : null}
         <div ref={contentRef} className="mx-auto max-w-5xl space-y-2 sm:space-y-5">
           {isSessionLoading ? (
             <div

@@ -9,7 +9,6 @@ import SessionPage, {
   getVisualViewportKeyboardInset,
   reservedMobileComposerHeight,
   sessionTimelineBottomScrollTop,
-  shouldHideMobileChatHeaderOnScroll,
   shouldRevealTokenFooterOnUsageChange,
   shouldSuppressTimelineAutoScroll,
 } from "./SessionPage";
@@ -233,13 +232,13 @@ function testMobileHeaderReservesTopSafeArea() {
 
 function testMobileHeaderIsOverlayChrome() {
   const html = renderSessionPage();
-  const header =
-    html.match(/<div[^>]*data-ripple-mobile-chat-header="true"[^>]*>/)?.[0] || "";
+  const header = html.match(/<div[^>]*data-ripple-mobile-chat-header="true"[^>]*>/)?.[0] || "";
 
   assert.match(html, /data-ripple-mobile-chat-header="true"/);
   assert.match(html, /absolute inset-x-0 top-0 z-30/);
-  assert.match(html, /transition-transform/);
-  assert.match(html, /data-ripple-mobile-chat-header-hidden=/);
+  assert.match(html, /translate-y-0/);
+  assert.doesNotMatch(html, /data-ripple-mobile-chat-header-hidden=/);
+  assert.doesNotMatch(html, /-translate-y-full/);
   assert.match(header, /bg-white/);
   assert.doesNotMatch(header, /bg-white\/76/);
   assert.doesNotMatch(header, /backdrop-blur-2xl/);
@@ -262,7 +261,7 @@ function testCurrentModelBadgeUsesModelSwitchIcon() {
   assert.match(html, /data-ripple-current-model-badge="mobile"[\s\S]{0,1200}bg-\[#22A06B\]/);
 }
 
-function testMobileRunStatusBarPersistsWhileRunning() {
+function testMobileRunStatusOnlyLivesInHeaderAndComposer() {
   const runningSession: WorkbenchSessionSummary = {
     sessionId: "srv-running",
     title: "Running session",
@@ -276,13 +275,16 @@ function testMobileRunStatusBarPersistsWhileRunning() {
   };
   const html = renderSessionPage({ session: runningSession, isGenerating: true });
 
-  assert.match(html, /data-ripple-mobile-run-status-bar="true"/);
-  assert.match(html, /data-ripple-mobile-run-status="running"/);
+  assert.doesNotMatch(html, /data-ripple-mobile-run-status-bar="true"/);
+  assert.doesNotMatch(html, /data-ripple-mobile-run-status="running"/);
+  assert.doesNotMatch(
+    html,
+    /sticky top-\[calc\(var\(--ripple-mobile-chat-header-height\)\+8px\)\]/
+  );
+  assert.doesNotMatch(sessionPageSource, /mobileRunStatusBarHeight/);
+  assert.doesNotMatch(sessionPageSource, /--ripple-mobile-run-status-height/);
   assert.match(html, />Working.../);
   assert.match(html, /Plus/);
-  assert.match(html, /sticky top-\[calc\(var\(--ripple-mobile-chat-header-height\)\+8px\)\]/);
-  assert.match(sessionPageSource, /mobileRunStatusBarHeight/);
-  assert.match(sessionPageSource, /--ripple-mobile-run-status-height/);
 }
 
 function testSessionPageRendersChineseStaticChrome() {
@@ -491,39 +493,11 @@ function testUserScrollCancelsSessionSwitchStickyBottom() {
   assert.match(sessionPageSource, /ref=\{contentRef\}/);
 }
 
-function testMobileHeaderVisibilityFollowsScrollDirection() {
-  assert.equal(
-    shouldHideMobileChatHeaderOnScroll({
-      previousScrollTop: 24,
-      nextScrollTop: 48,
-      isHidden: false,
-    }),
-    true
-  );
-  assert.equal(
-    shouldHideMobileChatHeaderOnScroll({
-      previousScrollTop: 96,
-      nextScrollTop: 70,
-      isHidden: true,
-    }),
-    false
-  );
-  assert.equal(
-    shouldHideMobileChatHeaderOnScroll({
-      previousScrollTop: 40,
-      nextScrollTop: 3,
-      isHidden: true,
-    }),
-    false
-  );
-  assert.equal(
-    shouldHideMobileChatHeaderOnScroll({
-      previousScrollTop: 40,
-      nextScrollTop: 45,
-      isHidden: true,
-    }),
-    true
-  );
+function testMobileHeaderStaysVisibleWhileScrolling() {
+  assert.doesNotMatch(sessionPageSource, /isMobileHeaderHidden/);
+  assert.doesNotMatch(sessionPageSource, /setIsMobileHeaderHidden/);
+  assert.doesNotMatch(sessionPageSource, /updateMobileHeaderVisibility/);
+  assert.doesNotMatch(sessionPageSource, /shouldHideMobileChatHeaderOnScroll/);
 }
 
 function testSessionPageOwnsScrollActivation() {
@@ -618,10 +592,10 @@ function testComposerFocusDoesNotSuppressRunAutoScroll() {
 function testComposerFocusDoesNotTrackKeyboardMovedScrollTop() {
   const handleScrollBlock =
     sessionPageSource.match(
-      /const handleScroll = useCallback\(\(\) => \{[\s\S]*?\}, \[updateMobileHeaderVisibility\]\);/
+      /const handleScroll = useCallback\(\(\) => \{[\s\S]*?\}, \[\]\);/
     )?.[0] || "";
 
-  assert.match(handleScrollBlock, /updateMobileHeaderVisibility\(scrollContainer\.scrollTop\)/);
+  assert.doesNotMatch(handleScrollBlock, /updateMobileHeaderVisibility/);
   assert.doesNotMatch(
     handleScrollBlock,
     /composerFocusedScrollTopRef\.current = scrollContainer\.scrollTop/
@@ -773,7 +747,7 @@ testMobileHeaderReservesTopSafeArea();
 testMobileHeaderIsOverlayChrome();
 testDesktopHeaderShowsCurrentModelLikeMobile();
 testCurrentModelBadgeUsesModelSwitchIcon();
-testMobileRunStatusBarPersistsWhileRunning();
+testMobileRunStatusOnlyLivesInHeaderAndComposer();
 testSessionPageRendersChineseStaticChrome();
 testSessionPageShowsCurrentFolderBadge();
 testTimelineTextUsesWiderContentWidth();
@@ -786,7 +760,7 @@ testAutoScrollEffectUsesStableTimelineKey();
 testGeneratingFlagUpdatesBeforeAutoScrollLayoutEffect();
 testResizeObserverKeepsSessionSwitchPinnedToBottom();
 testUserScrollCancelsSessionSwitchStickyBottom();
-testMobileHeaderVisibilityFollowsScrollDirection();
+testMobileHeaderStaysVisibleWhileScrolling();
 testSessionPageOwnsScrollActivation();
 testExplicitSessionSelectionTriggersStickyBottom();
 testComposerSendStartsStickyBottomBeforeSending();

@@ -74,16 +74,16 @@ export function shouldExpandComposer(value: string, isComposerFocused: boolean):
 }
 
 export function composerToolbarClassName(isExpandedComposer: boolean): string {
-  return `inline-flex h-11 shrink-0 items-center gap-0.5 rounded-xl border border-[#EFF0F1] bg-[#F8F9FA] p-0.5 lg:h-8 lg:rounded-lg ${
-    isExpandedComposer ? "col-start-1 row-start-2" : "-mr-1 lg:mb-[2px]"
+  return `inline-flex h-11 shrink-0 items-center gap-1.5 lg:h-8 ${
+    isExpandedComposer ? "col-start-1 row-start-2" : "lg:mb-[2px]"
   }`;
 }
 
 const COMPOSER_ICON_BUTTON_CLASS =
-  "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-transparent bg-transparent text-[#646A73] transition-colors hover:bg-white hover:text-[#1F2329] active:bg-[#EFF0F1] disabled:cursor-not-allowed disabled:opacity-40 lg:h-7 lg:w-7 lg:rounded-md";
+  "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-transparent text-[#646A73] transition-colors hover:bg-[#F5F6F7] hover:text-[#1F2329] active:bg-[#EFF0F1] disabled:cursor-not-allowed disabled:opacity-40 lg:h-7 lg:w-7 lg:rounded-md";
 
 const COMPOSER_ICON_BUTTON_ACTIVE_CLASS =
-  "border-[#BACEFD] bg-white text-[#1456F0] shadow-[0_1px_2px_rgba(20,86,240,0.08)] hover:bg-white hover:text-[#1456F0] active:bg-[#F0F5FF]";
+  "bg-[#F0F5FF] text-[#1456F0] shadow-[0_1px_2px_rgba(20,86,240,0.08)] hover:bg-[#E8F0FF] hover:text-[#1456F0] active:bg-[#DDE8FF]";
 
 const COMPOSER_SEND_BUTTON_BASE_CLASS =
   "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-transparent transition-colors focus-visible:ring-2 focus-visible:ring-[#BACEFD] focus-visible:outline-none disabled:cursor-not-allowed lg:h-8 lg:w-8 lg:rounded-lg";
@@ -393,8 +393,9 @@ export default function SessionComposer({
         )
       : null;
 
+  const toolbarLayoutClass = composerToolbarClassName(isExpandedComposer);
   const toolbarControls = (
-    <div className={composerToolbarClassName(isExpandedComposer)}>
+    <div className={toolbarLayoutClass}>
       {onSelectWorkspaceFolder && (
         <div ref={folderPickerRef} className="relative flex shrink-0 items-center">
           <button

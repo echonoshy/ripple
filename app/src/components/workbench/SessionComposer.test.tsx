@@ -157,15 +157,19 @@ function testComposerClearsIosHomeIndicatorAndUsesTouchSizedActions() {
   assert.doesNotMatch(html, /session-composer-input[^"]*text-\[14px\][^"]*sm:text-\[14px\]/);
 }
 
-function testComposerUsesWorkbenchSurfaceScaleAndGroupedToolButtons() {
+function testComposerUsesWorkbenchSurfaceScaleAndIndependentToolButtons() {
   const source = readFileSync(new URL("./SessionComposer.tsx", import.meta.url), "utf8");
 
   assert.doesNotMatch(source, /rounded-\[20px\]/);
   assert.match(source, /WORKBENCH_MENU_CLASS/);
   assert.match(source, /COMPOSER_ICON_BUTTON_CLASS/);
-  assert.match(source, /gap-0\.5 rounded-xl border border-\[#EFF0F1\] bg-\[#F8F9FA\] p-0\.5/);
-  assert.match(source, /border-transparent bg-transparent text-\[#646A73\]/);
+  assert.doesNotMatch(source, /gap-0\.5 rounded-xl border border-\[#EFF0F1\] bg-\[#F8F9FA\] p-0\.5/);
+  assert.doesNotMatch(source, /className=\{composerToolbarClassName\(isExpandedComposer\)\}/);
+  assert.match(source, /gap-1\.5/);
+  assert.match(source, /bg-transparent text-\[#646A73\]/);
+  assert.doesNotMatch(source, /border-transparent bg-transparent text-\[#646A73\]/);
   assert.match(source, /COMPOSER_ICON_BUTTON_ACTIVE_CLASS/);
+  assert.doesNotMatch(source, /COMPOSER_ICON_BUTTON_ACTIVE_CLASS =\n {2}"border-\[#BACEFD\]/);
   assert.match(
     source,
     /rounded-xl border border-\[#DEE0E3\] bg-white p-1\.5 shadow-\[0_1px_2px_rgba\(31,35,41,0\.04\)\]/
@@ -306,7 +310,7 @@ testComposerInputDoesNotNeedGlobalBlueFocusOverride();
 testComposerInputHidesNativeScrollbar();
 testBlockedComposerStillAllowsDraftingAndShowsStop();
 testComposerClearsIosHomeIndicatorAndUsesTouchSizedActions();
-testComposerUsesWorkbenchSurfaceScaleAndGroupedToolButtons();
+testComposerUsesWorkbenchSurfaceScaleAndIndependentToolButtons();
 testComposerModelMenuUsesViewportPortal();
 testComposerModelMenuSelectsOnTouchPointerDown();
 testComposerExpandsActionsBelowTextAfterInput();

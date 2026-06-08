@@ -210,6 +210,33 @@ function testAutomationCardUsesCompactResponsiveLayout() {
   assert.match(source, /const runActionButtonClass =[\s\S]*h-8/);
 }
 
+function testAutomationLatestRunSummaryDoesNotDuplicateOutputActions() {
+  const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
+
+  assert.doesNotMatch(source, /hasRunOutput\(latestRun\)/);
+  assert.doesNotMatch(source, /pendingRunActionId === `\$\{latestRun\.job_id\}:view`/);
+  assert.doesNotMatch(source, /pendingRunActionId === `\$\{latestRun\.job_id\}:download`/);
+  assert.match(source, /data-ripple-automation-run-row[\s\S]*handleViewOutput\(run, schedule\.title\)/);
+  assert.match(source, /data-ripple-automation-run-row[\s\S]*handleDownloadOutput\(run\)/);
+  assert.match(source, /t\("automations\.runShort"\)/);
+  assert.match(source, /t\("automations\.historyShort"\)/);
+}
+
+function testAutomationHeaderActionsMatchSkillsPageStyle() {
+  const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /CalendarPlus/);
+  assert.doesNotMatch(source, /<Plus size=\{15\}/);
+  assert.match(source, /const AUTOMATION_PRIMARY_ACTION_BUTTON_CLASS = `inline-flex h-11 w-11/);
+  assert.match(source, /AUTOMATION_PRIMARY_ACTION_BUTTON_CLASS[\s\S]*lg:h-10 lg:w-auto lg:gap-1\.5 lg:px-3/);
+  assert.match(source, /className=\{AUTOMATION_PRIMARY_ACTION_BUTTON_CLASS\}/);
+  assert.match(
+    source,
+    /className=\{`\$\{MOBILE_GLASS_ICON_BUTTON_CLASS\} shrink-0[\s\S]*lg:h-10 lg:w-auto lg:gap-1\.5[\s\S]*lg:px-3/
+  );
+  assert.match(source, /<span className="hidden lg:inline">\{t\("automations\.refresh"\)\}<\/span>/);
+}
+
 function testAutomationCardUsesDesktopRowLayout() {
   const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
 
@@ -233,14 +260,21 @@ function testAutomationCardUsesDesktopRowLayout() {
   assert.doesNotMatch(source, /data-ripple-automation-actions[\s\S]{0,160}sm:flex/);
 }
 
-function testAutomationsPageUsesMobileSheetsForFormAndOverflowActions() {
+function testAutomationsPageUsesInlineMobileActionsWithoutOverflowSheet() {
   const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /import MobileActionSheet from "\.\/MobileActionSheet"/);
   assert.match(source, /data-ripple-automation-form-sheet/);
-  assert.match(source, /data-ripple-automation-more-sheet/);
-  assert.match(source, /activeScheduleMenuId/);
-  assert.match(source, /MoreHorizontal/);
+  assert.match(
+    source,
+    /data-ripple-automation-mobile-primary-actions[\s\S]*className="mt-2 grid grid-cols-5/
+  );
+  assert.match(source, /data-ripple-automation-mobile-primary-actions[\s\S]*beginEditSchedule\(schedule\)/);
+  assert.match(source, /data-ripple-automation-mobile-primary-actions[\s\S]*"toggle", schedule\.enabled/);
+  assert.match(source, /data-ripple-automation-mobile-primary-actions[\s\S]*"delete"/);
+  assert.doesNotMatch(source, /import MobileActionSheet from "\.\/MobileActionSheet"/);
+  assert.doesNotMatch(source, /data-ripple-automation-more-sheet/);
+  assert.doesNotMatch(source, /activeScheduleMenuId/);
+  assert.doesNotMatch(source, /MoreHorizontal/);
   assert.match(source, /<ArrowLeft size=\{16\}/);
   assert.doesNotMatch(source, /ArrowBigLeft/);
 }
@@ -253,7 +287,8 @@ function testAutomationRunHistoryUsesReadableRows() {
   assert.match(source, /divide-y divide-\[#EFF0F1\]/);
   assert.match(source, /max-h-44 overflow-y-auto/);
   assert.match(source, /data-ripple-automation-run-row[\s\S]*py-1\.5/);
-  assert.match(source, /sm:grid-cols-\[90px_minmax\(0,1fr\)_120px\]/);
+  assert.match(source, /grid-cols-\[auto_minmax\(0,1fr\)_auto\]/);
+  assert.match(source, /data-ripple-automation-run-row[\s\S]*truncate font-\[family-name:var\(--font-mono\)\]/);
 }
 
 function testAutomationsPageRendersChineseChrome() {
@@ -278,8 +313,10 @@ testAutomationStaticCopyUsesEnglish();
 testAutomationCardUsesSeparatedLayoutRegions();
 testAutomationConfigExposesAdvancedPolicyControls();
 testAutomationCardUsesCompactResponsiveLayout();
+testAutomationLatestRunSummaryDoesNotDuplicateOutputActions();
+testAutomationHeaderActionsMatchSkillsPageStyle();
 testAutomationCardUsesDesktopRowLayout();
-testAutomationsPageUsesMobileSheetsForFormAndOverflowActions();
+testAutomationsPageUsesInlineMobileActionsWithoutOverflowSheet();
 testAutomationRunHistoryUsesReadableRows();
 testAutomationsPageRendersChineseChrome();
 

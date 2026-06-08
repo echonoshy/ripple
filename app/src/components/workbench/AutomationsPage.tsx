@@ -5,15 +5,14 @@ import {
   AlertTriangle,
   ArrowLeft,
   CalendarClock,
+  CalendarPlus,
   ChevronDown,
   Download,
   Edit3,
   Eye,
   Loader2,
-  MoreHorizontal,
   Pause,
   Play,
-  Plus,
   RefreshCw,
   Trash2,
   Zap,
@@ -34,11 +33,9 @@ import {
 import { formatModelName } from "@/lib/models";
 import { saveBlobAsDownload } from "@/lib/platform";
 import type { AgentRunInfo, ScheduleInfo, ScheduleKind } from "@/types";
-import MobileActionSheet from "./MobileActionSheet";
 import {
   COMPACT_IOS_PAGE_BACKGROUND,
   LUCIDE_NAV_STROKE_WIDTH,
-  LUCIDE_STANDARD_STROKE_WIDTH,
   MOBILE_GLASS_ICON_BUTTON_CLASS,
   MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS,
   MOBILE_PAGE_TOP_SAFE_AREA_CLASS,
@@ -244,6 +241,8 @@ const automationDeleteButtonClass = `inline-flex h-8 w-full min-w-0 items-center
 
 const runActionButtonClass = `inline-flex h-8 shrink-0 items-center justify-center gap-1 rounded-full border border-[#DEE0E3] bg-white px-2 text-[#2B2F36] hover:bg-[#F8F9FA] disabled:cursor-not-allowed disabled:opacity-60 ${TYPOGRAPHY_META_MEDIUM_CLASS} [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0`;
 
+const AUTOMATION_PRIMARY_ACTION_BUTTON_CLASS = `inline-flex h-11 w-11 items-center justify-center rounded-full border border-[#1456F0]/30 bg-[#1456F0] text-white shadow-[0_8px_18px_rgba(20,86,240,0.18)] transition-all hover:bg-[#0F4BD8] active:scale-[0.98] disabled:opacity-60 lg:h-10 lg:w-auto lg:gap-1.5 lg:px-3 ${TYPOGRAPHY_META_MEDIUM_CLASS}`;
+
 const automationFieldLabelClass = `mb-1 block text-[#646A73] ${TYPOGRAPHY_META_MEDIUM_CLASS}`;
 
 const automationFieldControlClass = `h-10 w-full rounded-xl border border-[#DEE0E3] bg-white px-3 text-[#1F2329] outline-none focus:border-[#8FB1FF] ${TYPOGRAPHY_MOBILE_BODY_CLASS} lg:h-9 lg:text-[14px] lg:leading-[22px]`;
@@ -306,7 +305,6 @@ export default function AutomationsPage({
   const [pendingRunActionId, setPendingRunActionId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [confirmRunDeleteId, setConfirmRunDeleteId] = useState<string | null>(null);
-  const [activeScheduleMenuId, setActiveScheduleMenuId] = useState<string | null>(null);
   const [runsBySchedule, setRunsBySchedule] = useState<Record<string, AgentRunInfo[]>>({});
   const [expandedScheduleId, setExpandedScheduleId] = useState<string | null>(null);
   const [outputPreview, setOutputPreview] = useState<OutputPreviewState>(null);
@@ -399,7 +397,6 @@ export default function AutomationsPage({
     setFailurePolicy((schedule.failure_policy as FailurePolicy) || "pause");
     setIsAdvancedConfigOpen(false);
     setConfirmDeleteId(null);
-    setActiveScheduleMenuId(null);
     setError(null);
     setIsCreating(true);
   }
@@ -579,25 +576,6 @@ export default function AutomationsPage({
     [onAuthExpired, t]
   );
 
-  const handleRefreshRuns = useCallback(
-    async (scheduleId: string) => {
-      setPendingRunActionId(`${scheduleId}:refresh`);
-      setError(null);
-      try {
-        await loadScheduleRuns(scheduleId);
-      } catch (err) {
-        if (err instanceof AuthError) {
-          onAuthExpired(t("automations.apiKeyExpired"));
-          return;
-        }
-        setError(err instanceof Error ? err.message : t("automations.failedToRefreshRuns"));
-      } finally {
-        setPendingRunActionId(null);
-      }
-    },
-    [loadScheduleRuns, onAuthExpired, t]
-  );
-
   const handleDeleteRun = useCallback(
     async (scheduleId: string, run: AgentRunInfo) => {
       const confirmKey = `${scheduleId}:${run.job_id}`;
@@ -656,33 +634,36 @@ export default function AutomationsPage({
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-1.5">
+            <button
+              type="button"
+              onClick={openCreateAutomationChat}
+              disabled={!onOpenChat}
+              className={AUTOMATION_PRIMARY_ACTION_BUTTON_CLASS}
+              aria-label={t("automations.new")}
+              title={t("automations.new")}
+            >
+              <CalendarPlus size={18} strokeWidth={LUCIDE_NAV_STROKE_WIDTH} />
+              <span className="hidden lg:inline">{t("automations.new")}</span>
+            </button>
             <button
               type="button"
               onClick={() => void loadSchedules()}
               disabled={isLoading}
               aria-label={t("automations.refreshAutomations")}
               title={t("automations.refreshAutomations")}
-              className={`${MOBILE_GLASS_ICON_BUTTON_CLASS} shrink-0 disabled:cursor-not-allowed disabled:opacity-60 lg:h-10 lg:w-10`}
+              className={`${MOBILE_GLASS_ICON_BUTTON_CLASS} shrink-0 disabled:cursor-not-allowed disabled:opacity-60 lg:h-10 lg:w-auto lg:gap-1.5 lg:border-[#DEE0E3] lg:bg-white/82 lg:px-3 lg:shadow-[0_8px_18px_rgba(31,35,41,0.045)] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
             >
               {isLoading ? (
                 <Loader2
                   size={18}
-                  strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH}
+                  strokeWidth={LUCIDE_NAV_STROKE_WIDTH}
                   className="animate-spin"
                 />
               ) : (
-                <RefreshCw size={18} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
+                <RefreshCw size={18} strokeWidth={LUCIDE_NAV_STROKE_WIDTH} />
               )}
-            </button>
-            <button
-              type="button"
-              onClick={openCreateAutomationChat}
-              disabled={!onOpenChat}
-              className={`inline-flex h-11 items-center gap-2 rounded-full bg-[#1456F0] px-3 text-white shadow-[0_12px_26px_rgba(20,86,240,0.22)] hover:bg-[#0F4BD8] disabled:cursor-not-allowed disabled:bg-[#EFF0F1] disabled:text-[#8F959E] disabled:shadow-none lg:h-10 ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
-            >
-              <Plus size={15} />
-              {t("automations.new")}
+              <span className="hidden lg:inline">{t("automations.refresh")}</span>
             </button>
           </div>
         </header>
@@ -1102,58 +1083,13 @@ export default function AutomationsPage({
                             {latestRunError}
                           </div>
                         ) : null}
-                        <div className="flex flex-wrap gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => void handleRefreshRuns(schedule.schedule_id)}
-                            disabled={pendingRunActionId === `${schedule.schedule_id}:refresh`}
-                            className={runActionButtonClass}
-                          >
-                            {pendingRunActionId === `${schedule.schedule_id}:refresh` ? (
-                              <Loader2 size={14} className="animate-spin" />
-                            ) : (
-                              <RefreshCw size={14} />
-                            )}
-                            <span>{t("automations.refresh")}</span>
-                          </button>
-                          {hasRunOutput(latestRun) ? (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => void handleViewOutput(latestRun, schedule.title)}
-                                disabled={pendingRunActionId === `${latestRun.job_id}:view`}
-                                className={runActionButtonClass}
-                              >
-                                {pendingRunActionId === `${latestRun.job_id}:view` ? (
-                                  <Loader2 size={14} className="animate-spin" />
-                                ) : (
-                                  <Eye size={14} />
-                                )}
-                                <span>{t("automations.viewOutput")}</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => void handleDownloadOutput(latestRun)}
-                                disabled={pendingRunActionId === `${latestRun.job_id}:download`}
-                                className={runActionButtonClass}
-                              >
-                                {pendingRunActionId === `${latestRun.job_id}:download` ? (
-                                  <Loader2 size={14} className="animate-spin" />
-                                ) : (
-                                  <Download size={14} />
-                                )}
-                                <span>{t("automations.downloadOutput")}</span>
-                              </button>
-                            </>
-                          ) : null}
-                        </div>
                       </div>
                     </div>
                   </div>
 
                   <div
                     data-ripple-automation-mobile-primary-actions
-                    className="mt-2 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_44px] gap-1.5 md:hidden"
+                    className="mt-2 grid grid-cols-5 gap-1.5 md:hidden"
                   >
                     <button
                       type="button"
@@ -1167,7 +1103,7 @@ export default function AutomationsPage({
                       ) : (
                         <Zap size={14} />
                       )}
-                      <span>{t("automations.runNow")}</span>
+                      <span>{t("automations.runShort")}</span>
                     </button>
                     <button
                       type="button"
@@ -1186,68 +1122,73 @@ export default function AutomationsPage({
                           isExpanded ? "rotate-180 transition-transform" : "transition-transform"
                         }
                       />
-                      <span>{t("automations.runHistory")}</span>
+                      <span>{t("automations.historyShort")}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => beginEditSchedule(schedule)}
+                      aria-label={t("automations.editAutomation")}
+                      title={t("automations.editAutomation")}
+                      className={automationActionButtonClass}
+                    >
+                      <Edit3 size={14} />
+                      <span>{t("automations.edit")}</span>
                     </button>
                     <button
                       type="button"
                       onClick={() =>
-                        setActiveScheduleMenuId((current) =>
-                          current === schedule.schedule_id ? null : schedule.schedule_id
-                        )
+                        void handleAction(schedule.schedule_id, "toggle", schedule.enabled)
                       }
-                      aria-label={t("automations.editAutomation")}
-                      title={t("automations.editAutomation")}
-                      className={`${automationActionButtonClass} px-0`}
+                      aria-label={
+                        schedule.enabled
+                          ? t("automations.pauseAutomation")
+                          : t("automations.resumeAutomation")
+                      }
+                      title={
+                        schedule.enabled
+                          ? t("automations.pauseAutomation")
+                          : t("automations.resumeAutomation")
+                      }
+                      className={automationActionButtonClass}
                     >
-                      <MoreHorizontal size={16} />
+                      {pendingActionId === `${schedule.schedule_id}:toggle` ? (
+                        <Loader2 size={14} className="animate-spin" />
+                      ) : schedule.enabled ? (
+                        <Pause size={14} />
+                      ) : (
+                        <Play size={14} />
+                      )}
+                      <span>
+                        {schedule.enabled ? t("automations.pause") : t("automations.resume")}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleAction(schedule.schedule_id, "delete")}
+                      aria-label={t("automations.deleteAutomation")}
+                      title={
+                        confirmDeleteId === schedule.schedule_id
+                          ? t("automations.confirmDeleteAutomation")
+                          : t("automations.deleteAutomation")
+                      }
+                      className={`${automationDeleteButtonClass} ${
+                        confirmDeleteId === schedule.schedule_id
+                          ? "border-[#B42318]/25 bg-[#FFF1F0] text-[#B42318]"
+                          : "border-[#DEE0E3] bg-white text-[#8F959E] active:bg-[#FFF1F0] active:text-[#B42318]"
+                      }`}
+                    >
+                      {pendingActionId === `${schedule.schedule_id}:delete` ? (
+                        <Loader2 size={14} className="animate-spin" />
+                      ) : confirmDeleteId === schedule.schedule_id ? (
+                        <span>{t("automations.confirm")}</span>
+                      ) : (
+                        <>
+                          <Trash2 size={14} />
+                          <span>{t("automations.delete")}</span>
+                        </>
+                      )}
                     </button>
                   </div>
-
-                  <MobileActionSheet
-                    open={activeScheduleMenuId === schedule.schedule_id}
-                    data-ripple-automation-more-sheet
-                    title={schedule.title}
-                    subtitle={schedule.prompt}
-                    closeLabel={t("automations.cancel")}
-                    onClose={() => setActiveScheduleMenuId(null)}
-                    actions={[
-                      {
-                        key: "edit",
-                        label: t("automations.edit"),
-                        icon: <Edit3 size={16} />,
-                        onClick: () => {
-                          beginEditSchedule(schedule);
-                          setActiveScheduleMenuId(null);
-                        },
-                      },
-                      {
-                        key: "toggle",
-                        label: schedule.enabled ? t("automations.pause") : t("automations.resume"),
-                        icon: schedule.enabled ? <Pause size={16} /> : <Play size={16} />,
-                        loading: pendingActionId === `${schedule.schedule_id}:toggle`,
-                        onClick: () => {
-                          void handleAction(schedule.schedule_id, "toggle", schedule.enabled);
-                          setActiveScheduleMenuId(null);
-                        },
-                      },
-                      {
-                        key: "delete",
-                        label:
-                          confirmDeleteId === schedule.schedule_id
-                            ? t("automations.confirm")
-                            : t("automations.delete"),
-                        icon: <Trash2 size={16} />,
-                        tone: "danger",
-                        loading: pendingActionId === `${schedule.schedule_id}:delete`,
-                        onClick: () => {
-                          void handleAction(schedule.schedule_id, "delete");
-                          if (confirmDeleteId === schedule.schedule_id) {
-                            setActiveScheduleMenuId(null);
-                          }
-                        },
-                      },
-                    ]}
-                  />
 
                   <div
                     data-ripple-automation-actions
@@ -1403,9 +1344,9 @@ export default function AutomationsPage({
                                   className={`grid gap-1.5 py-1.5 md:grid-cols-[minmax(0,1fr)_auto] md:items-center ${TYPOGRAPHY_META_CLASS}`}
                                 >
                                   <div className="min-w-0">
-                                    <div className="grid min-w-0 gap-1.5 sm:grid-cols-[90px_minmax(0,1fr)_120px] sm:items-center">
+                                    <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2">
                                       <span
-                                        className={`w-fit rounded-full border px-1.5 py-0.5 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} ${runStatusClass(
+                                        className={`w-fit shrink-0 rounded-full border px-1.5 py-0.5 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} ${runStatusClass(
                                           run.status
                                         )}`}
                                       >
@@ -1416,7 +1357,9 @@ export default function AutomationsPage({
                                       >
                                         {run.job_id}
                                       </span>
-                                      <span className={`text-[#646A73] ${TYPOGRAPHY_META_CLASS}`}>
+                                      <span
+                                        className={`shrink-0 whitespace-nowrap text-[#646A73] ${TYPOGRAPHY_META_CLASS}`}
+                                      >
                                         {formatDate(run.updated_at, locale, t)}
                                       </span>
                                     </div>
@@ -1438,7 +1381,12 @@ export default function AutomationsPage({
                                           className={runActionButtonClass}
                                         >
                                           <Eye size={14} />
-                                          <span>{t("automations.viewOutput")}</span>
+                                          <span className="sm:hidden">
+                                            {t("automations.outputShort")}
+                                          </span>
+                                          <span className="hidden sm:inline">
+                                            {t("automations.viewOutput")}
+                                          </span>
                                         </button>
                                         <button
                                           type="button"
@@ -1447,7 +1395,12 @@ export default function AutomationsPage({
                                           className={runActionButtonClass}
                                         >
                                           <Download size={14} />
-                                          <span>{t("automations.downloadOutput")}</span>
+                                          <span className="sm:hidden">
+                                            {t("automations.downloadShort")}
+                                          </span>
+                                          <span className="hidden sm:inline">
+                                            {t("automations.downloadOutput")}
+                                          </span>
                                         </button>
                                       </>
                                     ) : null}
@@ -1494,7 +1447,12 @@ export default function AutomationsPage({
                                       ) : (
                                         <>
                                           <Trash2 size={14} />
-                                          <span>{t("automations.deleteRecord")}</span>
+                                          <span className="sm:hidden">
+                                            {t("automations.deleteShort")}
+                                          </span>
+                                          <span className="hidden sm:inline">
+                                            {t("automations.deleteRecord")}
+                                          </span>
                                         </>
                                       )}
                                     </button>

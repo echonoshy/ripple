@@ -72,6 +72,14 @@ interface TimelineAutoScrollSuppressionInput {
 interface TokenFooterRevealInput {
   previousTotalTokens: number;
   nextTotalTokens: number;
+  previousVisible?: boolean;
+  nextVisible?: boolean;
+}
+
+interface TokenFooterVisibilityInput {
+  isGenerating: boolean;
+  isSessionLoading: boolean;
+  totalTokens: number;
 }
 
 export function getVisualViewportKeyboardInset(
@@ -107,8 +115,18 @@ export function shouldSuppressTimelineAutoScroll({
 export function shouldRevealTokenFooterOnUsageChange({
   previousTotalTokens,
   nextTotalTokens,
+  previousVisible = false,
+  nextVisible = false,
 }: TokenFooterRevealInput): boolean {
-  return nextTotalTokens > previousTotalTokens;
+  return nextTotalTokens > previousTotalTokens || (!previousVisible && nextVisible);
+}
+
+export function shouldShowTokenFooter({
+  isGenerating,
+  isSessionLoading,
+  totalTokens,
+}: TokenFooterVisibilityInput): boolean {
+  return !isSessionLoading && !isGenerating && totalTokens > 0;
 }
 
 export function reservedMobileComposerHeight({
@@ -283,6 +301,7 @@ export default function SessionPage({
   const composerFocusedComposerHeightRef = useRef<number | null>(null);
   const mobileComposerHeightRef = useRef(MOBILE_CHAT_COMPOSER_FALLBACK_HEIGHT_PX);
   const previousTokenUsageTotalRef = useRef(tokenUsage.total_tokens);
+  const previousTokenFooterVisibleRef = useRef<boolean | null>(null);
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const [mobileHeaderHeight, setMobileHeaderHeight] = useState(
     MOBILE_CHAT_HEADER_FALLBACK_HEIGHT_PX
@@ -325,6 +344,11 @@ export default function SessionPage({
     context: contextUsageLabel
       ? t("sessions.tokenAccessibleContext", { context: contextUsageLabel })
       : "",
+  });
+  const shouldRenderTokenFooter = shouldShowTokenFooter({
+    isGenerating,
+    isSessionLoading,
+    totalTokens: tokenUsage.total_tokens,
   });
   const lastTimelineEvent = timelineEvents[timelineEvents.length - 1] || null;
   const lastTimelineEventId = lastTimelineEvent?.id || "";
@@ -570,16 +594,21 @@ export default function SessionPage({
 
   useLayoutEffect(() => {
     const previousTotalTokens = previousTokenUsageTotalRef.current;
+    const previousVisible = previousTokenFooterVisibleRef.current;
     previousTokenUsageTotalRef.current = tokenUsage.total_tokens;
+    previousTokenFooterVisibleRef.current = shouldRenderTokenFooter;
+    if (previousVisible === null) return;
     if (
       shouldRevealTokenFooterOnUsageChange({
         previousTotalTokens,
         nextTotalTokens: tokenUsage.total_tokens,
+        previousVisible,
+        nextVisible: shouldRenderTokenFooter,
       })
     ) {
       scrollToBottom({ force: true });
     }
-  }, [scrollToBottom, tokenUsage.total_tokens]);
+  }, [scrollToBottom, shouldRenderTokenFooter, tokenUsage.total_tokens]);
 
   useEffect(() => {
     const content = contentRef.current;
@@ -837,12 +866,12 @@ export default function SessionPage({
           )}
         </div>
 
-        {!isSessionLoading && tokenUsage.total_tokens > 0 && (
+        {shouldRenderTokenFooter && (
           <div className="mx-auto mt-4 flex max-w-5xl justify-start">
             <span
               aria-label={tokenBadgeAccessibleLabel}
               title={tokenBadgeAccessibleLabel}
-              className={`inline-flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded-full border border-[#DEE0E3] bg-[#F8F9FA] px-2.5 py-1 font-[family-name:var(--font-mono)] ${TYPOGRAPHY_META_CLASS} text-[#646A73] italic`}
+              className={`inline-flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded-lg border border-[#DEE0E3] bg-[#F8F9FA] px-2.5 py-1 font-[family-name:var(--font-mono)] ${TYPOGRAPHY_META_CLASS} text-[#646A73] italic`}
             >
               {tokenBadgeText}
             </span>

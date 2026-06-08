@@ -10,6 +10,7 @@ import SessionPage, {
   reservedMobileComposerHeight,
   sessionTimelineBottomScrollTop,
   shouldRevealTokenFooterOnUsageChange,
+  shouldShowTokenFooter,
   shouldSuppressTimelineAutoScroll,
 } from "./SessionPage";
 import type { Message, UsageInfo, WorkbenchSessionSummary } from "@/types";
@@ -446,6 +447,35 @@ function testTokenBadgeOmitsContextWhenUnavailable() {
   assert.doesNotMatch(html, /Ctx/);
 }
 
+function testTokenBadgeHidesPreviousUsageWhileGenerating() {
+  const html = renderSessionPage({
+    tokenUsage: {
+      prompt_tokens: 1200,
+      completion_tokens: 93,
+      total_tokens: 1293,
+    },
+    isGenerating: true,
+  });
+
+  assert.doesNotMatch(html, /Tokens 1\.2k in \/ 93 out/);
+  assert.doesNotMatch(html, /aria-label="Tokens in 1,200, out 93\."/);
+}
+
+function testTokenBadgeUsesCompactRectangleRadius() {
+  const html = renderSessionPage({
+    tokenUsage: {
+      prompt_tokens: 1200,
+      completion_tokens: 93,
+      total_tokens: 1293,
+    },
+  });
+  const tokenBadge =
+    html.match(/<span[^>]*aria-label="Tokens in 1,200, out 93\."[^>]*>/)?.[0] || "";
+
+  assert.match(tokenBadge, /rounded-lg/);
+  assert.doesNotMatch(tokenBadge, /rounded-full/);
+}
+
 function testSessionSwitchScrollsToBottomWithoutSmoothAnimation() {
   const sessionSwitchEffect = sessionAutoScrollEffectSource();
 
@@ -697,9 +727,46 @@ function testTokenUsageIncreaseRevealsFooter() {
     }),
     false
   );
+  assert.equal(
+    shouldRevealTokenFooterOnUsageChange({
+      previousTotalTokens: 1200,
+      nextTotalTokens: 1200,
+      previousVisible: false,
+      nextVisible: true,
+    }),
+    true
+  );
 
   assert.match(sessionPageSource, /previousTokenUsageTotalRef/);
+  assert.match(sessionPageSource, /previousTokenFooterVisibleRef/);
   assert.match(sessionPageSource, /scrollToBottom\(\{ force: true \}\)/);
+}
+
+function testTokenFooterOnlyShowsAfterGenerationSettles() {
+  assert.equal(
+    shouldShowTokenFooter({
+      isGenerating: true,
+      isSessionLoading: false,
+      totalTokens: 1200,
+    }),
+    false
+  );
+  assert.equal(
+    shouldShowTokenFooter({
+      isGenerating: false,
+      isSessionLoading: false,
+      totalTokens: 1200,
+    }),
+    true
+  );
+  assert.equal(
+    shouldShowTokenFooter({
+      isGenerating: false,
+      isSessionLoading: true,
+      totalTokens: 1200,
+    }),
+    false
+  );
 }
 
 function testMobileComposerReserveUsesMeasuredHeight() {
@@ -795,6 +862,8 @@ testTimelineTextUsesWiderContentWidth();
 testContextWarningUsesReportedModelWindow();
 testContextWarningWaitsForModelWindow();
 testTokenBadgeOmitsContextWhenUnavailable();
+testTokenBadgeHidesPreviousUsageWhileGenerating();
+testTokenBadgeUsesCompactRectangleRadius();
 testSessionSwitchScrollsToBottomWithoutSmoothAnimation();
 testShortTimelineDoesNotWriteScrollTop();
 testAutoScrollEffectUsesStableTimelineKey();
@@ -814,6 +883,7 @@ testComposerFocusDoesNotSuppressRunAutoScroll();
 testComposerFocusDoesNotTrackKeyboardMovedScrollTop();
 testComposerFocusRestoreAccountsForExpandedComposerHeight();
 testTokenUsageIncreaseRevealsFooter();
+testTokenFooterOnlyShowsAfterGenerationSettles();
 testMobileComposerReserveUsesMeasuredHeight();
 testMobileOverlayMeasurementsUseBorderBoxHeight();
 testMobileTimelinePadsForOverlayHeaderAndComposer();

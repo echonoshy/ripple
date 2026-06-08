@@ -14,10 +14,23 @@ import WorkspaceExplorer, {
   shouldDismissWorkspaceContextMenuOnEntryClick,
 } from "./WorkspaceExplorer";
 
-const workspaceExplorerSource = readFileSync(
-  new URL("./WorkspaceExplorer.tsx", import.meta.url),
-  "utf8"
-);
+function readWorkspaceExplorerImplementationSource(): string {
+  return [
+    "./WorkspaceExplorer.tsx",
+    "./workspace/WorkspaceActionMenus.tsx",
+    "./workspace/WorkspaceFileList.tsx",
+    "./workspace/WorkspaceToolbar.tsx",
+    "./workspace/workspaceExplorerUtils.tsx",
+    "./workspace/WorkspaceConfirmDialog.tsx",
+    "./workspace/WorkspaceCreateEntryDialog.tsx",
+    "./workspace/WorkspacePlacesNav.tsx",
+    "./workspace/WorkspacePreviewPanel.tsx",
+  ]
+    .map((path) => readFileSync(new URL(path, import.meta.url), "utf8"))
+    .join("\n");
+}
+
+const workspaceExplorerSource = readWorkspaceExplorerImplementationSource();
 
 test("workspace explorer script assertions are registered with Bun", () => {
   assert.match(workspaceExplorerSource, /WorkspaceExplorer/);
@@ -134,7 +147,7 @@ function testWorkspaceExplorerPageStacksHeaderControlsAwayFromTitle() {
 testWorkspaceExplorerPageStacksHeaderControlsAwayFromTitle();
 
 function testWorkspaceExplorerBackButtonNamesSessionReturn() {
-  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const source = readWorkspaceExplorerImplementationSource();
   const html = renderExplorer({ presentation: "page", onBack: () => {} });
 
   assert.match(source, /MessageCircleReply/);
@@ -279,7 +292,7 @@ function testWorkspaceExplorerMobileToolbarMatchesHomeHeaderButtons() {
 testWorkspaceExplorerMobileToolbarMatchesHomeHeaderButtons();
 
 function testWorkspaceExplorerUsesSharedDenseToolbarButtons() {
-  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const source = readWorkspaceExplorerImplementationSource();
 
   assert.match(source, /const filesToolbarIconButtonBaseClass =\s*\n\s*"inline-flex h-8 w-8/);
   assert.match(
@@ -357,7 +370,7 @@ function testWorkspaceExplorerToolbarActionsShareCompactMotion() {
 testWorkspaceExplorerToolbarActionsShareCompactMotion();
 
 function testWorkspaceExplorerDesktopDirectoryNavigationUsesSharedGlassButtons() {
-  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const source = readWorkspaceExplorerImplementationSource();
 
   assert.match(source, /const directoryNavigationButtonClass =\s*`group inline-flex h-8/);
   assert.match(
@@ -444,28 +457,29 @@ function testWorkspaceExplorerCompactDirectoryNavigationOffersParentAndRootContr
 testWorkspaceExplorerCompactDirectoryNavigationOffersParentAndRootControls();
 
 function testWorkspaceExplorerMobileSearchSheetKeepsSearchAndFiltersTogether() {
-  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const source = readWorkspaceExplorerImplementationSource();
   const sheetIndex = source.indexOf("data-ripple-files-mobile-search-sheet");
 
   assert.ok(sheetIndex >= 0);
   assert.match(source, /data-ripple-files-mobile-search-trigger/);
   assert.match(source, /data-ripple-files-mobile-actions-sheet/);
 
-  const afterSheetIndex = source.indexOf("{error &&", sheetIndex);
+  const afterSheetIndex = source.indexOf("interface WorkspaceSearchFiltersProps", sheetIndex);
   assert.ok(afterSheetIndex > sheetIndex);
 
   const sheetSource = source.slice(sheetIndex, afterSheetIndex);
   assert.match(sheetSource, /aria-label=\{t\("files\.searchWorkspaceFiles"\)\}/);
-  assert.match(sheetSource, /value=\{searchScope\}/);
-  assert.match(sheetSource, /value=\{searchKind\}/);
-  assert.match(sheetSource, /value=\{fileType\}/);
-  assert.match(sheetSource, /value=\{searchLimit\}/);
+  assert.match(sheetSource, /<WorkspaceSearchFilters/);
+  assert.match(source, /value=\{searchScope\}/);
+  assert.match(source, /value=\{searchKind\}/);
+  assert.match(source, /value=\{fileType\}/);
+  assert.match(source, /value=\{searchLimit\}/);
 }
 
 testWorkspaceExplorerMobileSearchSheetKeepsSearchAndFiltersTogether();
 
 function testWorkspaceExplorerUsesMobileActionSheetForPageMoreActions() {
-  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const source = readWorkspaceExplorerImplementationSource();
 
   assert.match(
     source,
@@ -519,7 +533,7 @@ function testWorkspaceExplorerExposesUploadControl() {
 testWorkspaceExplorerExposesUploadControl();
 
 function testWorkspaceExplorerSourceSupportsDropUploadAndFileDownload() {
-  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const source = readWorkspaceExplorerImplementationSource();
 
   assert.match(source, /onDrop/);
   assert.match(source, /onDragOver/);
@@ -564,9 +578,9 @@ function testWorkspaceExplorerClassifiesReadOnlyDocumentPreviewFormats() {
 testWorkspaceExplorerClassifiesReadOnlyDocumentPreviewFormats();
 
 function testWorkspaceExplorerRendersDocumentPreviewWithPdfJsRenderer() {
-  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const source = readWorkspaceExplorerImplementationSource();
 
-  assert.match(source, /import \{ PdfPreview \} from "\.\/PdfPreview"/);
+  assert.match(source, /import \{ PdfPreview \} from ".*PdfPreview"/);
   assert.match(source, /fetchWorkspaceDocumentPreview/);
   assert.match(source, /documentPreview/);
   assert.match(source, /data-ripple-workspace-document-preview/);
@@ -579,7 +593,7 @@ function testWorkspaceExplorerRendersDocumentPreviewWithPdfJsRenderer() {
 testWorkspaceExplorerRendersDocumentPreviewWithPdfJsRenderer();
 
 function testWorkspaceExplorerPassesDocumentBlobToPdfPreview() {
-  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const source = readWorkspaceExplorerImplementationSource();
 
   assert.match(source, /setDocumentPreview\(\{\s*blob:\s*documentPreview\.blob/);
   assert.match(source, /filename:\s*documentPreview\.filename/);
@@ -590,7 +604,7 @@ function testWorkspaceExplorerPassesDocumentBlobToPdfPreview() {
 testWorkspaceExplorerPassesDocumentBlobToPdfPreview();
 
 function testWorkspaceExplorerDocumentPreviewFillsAvailableHeight() {
-  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const source = readWorkspaceExplorerImplementationSource();
 
   assert.doesNotMatch(source, /className="flex min-h-full flex-col"/);
   assert.match(source, /className="flex h-full min-h-0 flex-col"/);
@@ -604,7 +618,7 @@ function testWorkspaceExplorerDocumentPreviewFillsAvailableHeight() {
 testWorkspaceExplorerDocumentPreviewFillsAvailableHeight();
 
 function testWorkspaceExplorerPreviewSupportsFullscreenOpenAndClose() {
-  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const source = readWorkspaceExplorerImplementationSource();
   const html = renderExplorer({
     presentation: "page",
     testInitialPreview: {
@@ -631,7 +645,7 @@ function testWorkspaceExplorerPreviewSupportsFullscreenOpenAndClose() {
 testWorkspaceExplorerPreviewSupportsFullscreenOpenAndClose();
 
 function testWorkspaceExplorerMobilePreviewChromeIsCompact() {
-  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const source = readWorkspaceExplorerImplementationSource();
   const html = renderExplorer({
     presentation: "page",
     testInitialPreview: {
@@ -666,7 +680,7 @@ function testWorkspaceExplorerMobilePreviewChromeIsCompact() {
 testWorkspaceExplorerMobilePreviewChromeIsCompact();
 
 function testWorkspaceExplorerPagePreviewSupportsMobileVerticalResize() {
-  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const source = readWorkspaceExplorerImplementationSource();
   const html = renderExplorer({
     presentation: "page",
     testInitialPreview: {
@@ -691,7 +705,7 @@ function testWorkspaceExplorerPagePreviewSupportsMobileVerticalResize() {
 testWorkspaceExplorerPagePreviewSupportsMobileVerticalResize();
 
 function testWorkspaceExplorerTouchPreviewClicksAvoidDragInterference() {
-  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const source = readWorkspaceExplorerImplementationSource();
 
   assert.match(source, /function initialIsCoarsePointer/);
   assert.match(source, /matchMedia\("\(pointer: coarse\)"\)/);
@@ -704,7 +718,7 @@ function testWorkspaceExplorerTouchPreviewClicksAvoidDragInterference() {
 testWorkspaceExplorerTouchPreviewClicksAvoidDragInterference();
 
 function testWorkspaceExplorerPreviewRequestsIgnoreStaleResults() {
-  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const source = readWorkspaceExplorerImplementationSource();
 
   assert.match(source, /previewRequestIdRef/);
   assert.match(source, /const requestId = previewRequestIdRef\.current \+ 1/);
@@ -802,7 +816,7 @@ function testDoubleClickingFileRestoresOnlyHiddenPreviewPanel() {
 testDoubleClickingFileRestoresOnlyHiddenPreviewPanel();
 
 function testPreviewModeButtonIsRemoved() {
-  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const source = readWorkspaceExplorerImplementationSource();
 
   assert.doesNotMatch(source, /title="Preview"/);
   assert.doesNotMatch(source, />\s*Preview\s*</);
@@ -820,7 +834,7 @@ function testWorkspaceNetworkErrorIsActionable() {
 testWorkspaceNetworkErrorIsActionable();
 
 function testWorkspaceSearchDefaultsToNameAndShowsMatchSource() {
-  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const source = readWorkspaceExplorerImplementationSource();
 
   assert.match(source, /useState<NonNullable<WorkspaceSearchOptions\["scope"\]>>\(\s*"name"\s*\)/);
   assert.match(source, /placeholder=\{t\("files\.findFilesByName"\)\}/);
@@ -830,7 +844,7 @@ function testWorkspaceSearchDefaultsToNameAndShowsMatchSource() {
 testWorkspaceSearchDefaultsToNameAndShowsMatchSource();
 
 function testWorkspaceExplorerDoesNotExposeHiddenFileSearchToggle() {
-  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const source = readWorkspaceExplorerImplementationSource();
 
   assert.doesNotMatch(source, /Include hidden files/);
   assert.doesNotMatch(source, /setIncludeHidden/);
@@ -839,7 +853,7 @@ function testWorkspaceExplorerDoesNotExposeHiddenFileSearchToggle() {
 testWorkspaceExplorerDoesNotExposeHiddenFileSearchToggle();
 
 function testWorkspaceExplorerCachesListingsAndAvoidsCurrentPathReloadEffect() {
-  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const source = readWorkspaceExplorerImplementationSource();
 
   assert.match(source, /workspaceListingCache/);
   assert.match(source, /workspaceLastPathCache/);
@@ -849,7 +863,7 @@ function testWorkspaceExplorerCachesListingsAndAvoidsCurrentPathReloadEffect() {
 testWorkspaceExplorerCachesListingsAndAvoidsCurrentPathReloadEffect();
 
 function testWorkspaceLinkOpenLoadsParentDirectoryBeforePreview() {
-  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const source = readWorkspaceExplorerImplementationSource();
 
   assert.equal(
     getWorkspaceParentPath("/workspace/meeting_record/通用会议16.json"),
@@ -862,7 +876,7 @@ function testWorkspaceLinkOpenLoadsParentDirectoryBeforePreview() {
 testWorkspaceLinkOpenLoadsParentDirectoryBeforePreview();
 
 function testWorkspaceExplorerOpensPendingFileRequestAfterMount() {
-  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const source = readWorkspaceExplorerImplementationSource();
 
   assert.match(source, /openFileRequest\?: WorkspaceFileOpenRequest \| null/);
   assert.match(source, /openFileRequest\.id/);
@@ -876,7 +890,7 @@ function testWorkspaceExplorerOpensPendingFileRequestAfterMount() {
 testWorkspaceExplorerOpensPendingFileRequestAfterMount();
 
 function testWorkspaceExplorerConsumesPendingFileRequestAfterPreviewOpenSettles() {
-  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const source = readWorkspaceExplorerImplementationSource();
 
   assert.match(
     source,
@@ -891,7 +905,7 @@ function testWorkspaceExplorerConsumesPendingFileRequestAfterPreviewOpenSettles(
 testWorkspaceExplorerConsumesPendingFileRequestAfterPreviewOpenSettles();
 
 function testWorkspaceLinkOpenReopensCollapsedPreviewPanel() {
-  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const source = readWorkspaceExplorerImplementationSource();
 
   assert.match(source, /setSplitPercent\(\(current\) =>/);
   assert.match(source, /current >= MAX_SPLIT_PERCENT \? DEFAULT_SPLIT_PERCENT : current/);
@@ -900,7 +914,7 @@ function testWorkspaceLinkOpenReopensCollapsedPreviewPanel() {
 testWorkspaceLinkOpenReopensCollapsedPreviewPanel();
 
 function testWorkspaceFileClickReopensCollapsedPreviewPanel() {
-  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const source = readWorkspaceExplorerImplementationSource();
   const openEntryStart = source.indexOf("const openEntry = async");
   const startRenameStart = source.indexOf("const startRename =", openEntryStart);
 
@@ -917,7 +931,7 @@ function testWorkspaceFileClickReopensCollapsedPreviewPanel() {
 testWorkspaceFileClickReopensCollapsedPreviewPanel();
 
 function testWorkspaceFileActionsStayVisibleOnTouchScreens() {
-  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const source = readWorkspaceExplorerImplementationSource();
 
   assert.match(source, /opacity-100/);
   assert.match(source, /sm:opacity-0/);
@@ -927,7 +941,7 @@ function testWorkspaceFileActionsStayVisibleOnTouchScreens() {
 testWorkspaceFileActionsStayVisibleOnTouchScreens();
 
 function testWorkspaceExplorerSupportsMultiSelectionBatchActions() {
-  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const source = readWorkspaceExplorerImplementationSource();
   const html = renderExplorer({
     presentation: "page",
     testInitialListing: {
@@ -968,7 +982,7 @@ function testWorkspaceExplorerSupportsMultiSelectionBatchActions() {
 testWorkspaceExplorerSupportsMultiSelectionBatchActions();
 
 function testWorkspaceExplorerSelectionBarUsesStableTwoRowLayout() {
-  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const source = readWorkspaceExplorerImplementationSource();
 
   const barIndex = source.indexOf("data-ripple-files-selection-bar");
   const statusIndex = source.indexOf("data-ripple-files-selection-status-row", barIndex);
@@ -996,7 +1010,7 @@ function testWorkspaceExplorerSelectionBarUsesStableTwoRowLayout() {
 testWorkspaceExplorerSelectionBarUsesStableTwoRowLayout();
 
 function testWorkspaceExplorerPageRowsOmitMobileSwipeActions() {
-  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const source = readWorkspaceExplorerImplementationSource();
   const html = renderExplorer({
     presentation: "page",
     testInitialListing: {
@@ -1035,16 +1049,20 @@ function testWorkspaceExplorerPageRowsOmitMobileSwipeActions() {
 testWorkspaceExplorerPageRowsOmitMobileSwipeActions();
 
 function testWorkspaceExplorerSupportsDragMoveIntoDirectories() {
-  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const source = readWorkspaceExplorerImplementationSource();
+  const fileCenterSource = readFileSync(
+    new URL("../lib/workspaceFileCenter.ts", import.meta.url),
+    "utf8"
+  );
   const html = renderExplorer({
     presentation: "page",
     testInitialListing: {
-      path: "/workspace",
-      parent_path: null,
+      path: "/workspace/uploads",
+      parent_path: "/workspace",
       entries: [
         {
           name: "alpha.txt",
-          path: "/workspace/alpha.txt",
+          path: "/workspace/uploads/alpha.txt",
           kind: "file",
           size_bytes: 10,
           modified_at: "2026-05-17T00:00:00Z",
@@ -1053,7 +1071,7 @@ function testWorkspaceExplorerSupportsDragMoveIntoDirectories() {
         },
         {
           name: "archive",
-          path: "/workspace/archive",
+          path: "/workspace/uploads/archive",
           kind: "directory",
           size_bytes: 0,
           modified_at: "2026-05-17T00:00:00Z",
@@ -1071,8 +1089,8 @@ function testWorkspaceExplorerSupportsDragMoveIntoDirectories() {
   assert.match(source, /hasDraggedWorkspaceEntries/);
   assert.match(source, /setData\(WORKSPACE_DRAG_ENTRY_MIME/);
   assert.match(source, /pasteWorkspaceEntry\(entry\.path,\s*target\.path,\s*"move"\)/);
-  assert.match(source, /target\.path\.startsWith\(`\$\{entry\.path\}\/`\)/);
-  assert.match(source, /getWorkspaceParentPath\(entry\.path\) !== target\.path/);
+  assert.match(fileCenterSource, /target\.path\.startsWith\(`\$\{entry\.path\}\/`\)/);
+  assert.match(fileCenterSource, /getWorkspaceParentPath\(entry\.path\) !== target\.path/);
   assert.match(source, /selectedEntryPaths\.has\(entry\.path\) \? selectedEntries : \[entry\]/);
   assert.match(html, /draggable="true"/);
   assert.match(html, /data-ripple-files-drop-target="directory"/);
@@ -1082,7 +1100,7 @@ function testWorkspaceExplorerSupportsDragMoveIntoDirectories() {
 testWorkspaceExplorerSupportsDragMoveIntoDirectories();
 
 function testWorkspaceContextMenuUsesViewportAwarePositioning() {
-  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const source = readWorkspaceExplorerImplementationSource();
 
   assert.match(source, /getWorkspaceContextMenuPosition/);
   assert.match(source, /getMeasuredViewportMenuPosition/);
@@ -1098,7 +1116,7 @@ function testWorkspaceContextMenuUsesViewportAwarePositioning() {
 testWorkspaceContextMenuUsesViewportAwarePositioning();
 
 function testWorkspaceContextMenuExposesExpectedRightClickActions() {
-  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const source = readWorkspaceExplorerImplementationSource();
 
   assert.match(source, /onContextMenu=\{onContainerContextMenu\}/);
   assert.match(source, /onContextMenu=\{\(event\) => onEntryContextMenu\(event, entry\)\}/);
@@ -1119,7 +1137,7 @@ function testWorkspaceContextMenuExposesExpectedRightClickActions() {
 testWorkspaceContextMenuExposesExpectedRightClickActions();
 
 function testWorkspaceEntryClickDismissesOpenContextMenuBeforeOpeningEntry() {
-  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const source = readWorkspaceExplorerImplementationSource();
 
   assert.equal(shouldDismissWorkspaceContextMenuOnEntryClick(true), true);
   assert.equal(shouldDismissWorkspaceContextMenuOnEntryClick(false), false);
@@ -1132,7 +1150,7 @@ function testWorkspaceEntryClickDismissesOpenContextMenuBeforeOpeningEntry() {
 testWorkspaceEntryClickDismissesOpenContextMenuBeforeOpeningEntry();
 
 function testWorkspaceExplorerCompactToolbarOffersCreationActionsFromMoreMenu() {
-  const source = readFileSync(new URL("./WorkspaceExplorer.tsx", import.meta.url), "utf8");
+  const source = readWorkspaceExplorerImplementationSource();
   const html = renderExplorer();
 
   assert.match(html, /data-ripple-files-action="compact-more"/);
@@ -1143,6 +1161,74 @@ function testWorkspaceExplorerCompactToolbarOffersCreationActionsFromMoreMenu() 
 }
 
 testWorkspaceExplorerCompactToolbarOffersCreationActionsFromMoreMenu();
+
+function testWorkspaceExplorerRendersFixedWorkspacePlacesWithoutRecentFiles() {
+  const html = renderExplorer({
+    presentation: "page",
+    testInitialListing: {
+      path: "/workspace",
+      parent_path: null,
+      entries: [],
+    },
+  });
+
+  assert.match(html, /data-ripple-workspace-places/);
+  assert.match(html, /data-ripple-workspace-place="skills"/);
+  assert.match(html, /data-ripple-workspace-place="uploads"/);
+  assert.match(html, /data-ripple-workspace-place="outputs"/);
+  assert.match(html, />Skills</);
+  assert.match(html, />Uploads</);
+  assert.match(html, />Outputs</);
+  assert.doesNotMatch(html, />Recent</);
+  assert.doesNotMatch(html, /data-ripple-workspace-place="recent"/);
+}
+
+testWorkspaceExplorerRendersFixedWorkspacePlacesWithoutRecentFiles();
+
+function testWorkspaceExplorerConstrainsWritesToFixedWorkspacePlaces() {
+  const source = readWorkspaceExplorerImplementationSource();
+  const rootHtml = renderExplorer({
+    presentation: "page",
+    testInitialListing: {
+      path: "/workspace",
+      parent_path: null,
+      entries: [],
+    },
+  });
+  const skillsHtml = renderExplorer({
+    presentation: "page",
+    testInitialListing: {
+      path: "/workspace/skills",
+      parent_path: "/workspace",
+      entries: [],
+    },
+  });
+
+  assert.match(source, /isWritableWorkspacePath/);
+  assert.match(source, /getWorkspaceUploadTargetPath/);
+  assert.match(source, /uploadWorkspaceFiles\(files,\s*uploadTargetPath/);
+  assert.doesNotMatch(source, /uploadWorkspaceFiles\(files,\s*currentPath/);
+  assert.match(rootHtml, /data-ripple-files-write-scope="restricted"/);
+  assert.match(skillsHtml, /data-ripple-files-write-scope="fixed-place"/);
+}
+
+testWorkspaceExplorerConstrainsWritesToFixedWorkspacePlaces();
+
+function testWorkspaceExplorerUsesAppConfirmationsAndMobileEntryActionSheet() {
+  const source = readWorkspaceExplorerImplementationSource();
+  const confirmationSource = readFileSync(
+    new URL("./workspace/WorkspaceConfirmDialog.tsx", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(confirmationSource, /data-ripple-files-confirm-dialog/);
+  assert.match(source, /data-ripple-files-mobile-entry-actions-sheet/);
+  assert.match(source, /onTouchStart=\{\(event\) => handleEntryLongPressStart\(event, entry\)\}/);
+  assert.match(source, /onTouchEnd=\{handleEntryLongPressEnd\}/);
+  assert.doesNotMatch(`${source}\n${confirmationSource}`, /window\.confirm/);
+}
+
+testWorkspaceExplorerUsesAppConfirmationsAndMobileEntryActionSheet();
 
 function testWorkspaceExplorerRendersChineseChrome() {
   const html = renderExplorer(

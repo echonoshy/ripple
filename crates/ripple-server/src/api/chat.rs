@@ -1782,6 +1782,9 @@ mod tests {
         assert!(prompt.contains(
             "Do not write derived inspection files into /workspace root unless the user explicitly asks for those files as deliverables"
         ));
+        assert!(prompt.contains(
+            "If the user does not specify an output path for a final, user-visible deliverable, write it under /workspace/outputs"
+        ));
         assert!(prompt.contains("- codex_image_generation: disabled_by_default"));
         assert!(prompt.contains("Do not generate images unless the current user explicitly asks"));
         assert!(prompt.contains("When creating or updating a skill"));

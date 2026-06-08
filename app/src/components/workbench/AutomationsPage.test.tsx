@@ -209,7 +209,7 @@ function testAutomationCardUsesCompactResponsiveLayout() {
   assert.doesNotMatch(source, /data-ripple-automation-actions[\s\S]{0,180}border-t/);
   assert.match(source, /const automationActionButtonClass =[\s\S]*w-full/);
   assert.match(source, /const automationActionButtonClass =[\s\S]*TYPOGRAPHY_META_MEDIUM_CLASS/);
-  assert.match(source, /const runActionButtonClass =[\s\S]*h-8/);
+  assert.match(source, /const mobileRunActionButtonClass =[\s\S]*h-8/);
 }
 
 function testAutomationLatestRunSummaryDoesNotDuplicateOutputActions() {
@@ -301,6 +301,24 @@ function testAutomationsPageUsesInlineMobileActionsWithoutOverflowSheet() {
   assert.doesNotMatch(source, /ArrowBigLeft/);
 }
 
+function testAutomationsMobileActionsStaySingleLineOnNarrowScreens() {
+  const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(
+    source,
+    /data-ripple-automation-mobile-primary-actions[\s\S]*className="mt-2 grid grid-cols-5 gap-1 md:hidden"/
+  );
+  assert.match(source, /const mobileAutomationActionButtonClass =[\s\S]*text-\[10px\]/);
+  assert.match(
+    source,
+    /const mobileAutomationActionButtonClass =[\s\S]*min-\[380px\]:text-\[11px\]/
+  );
+  assert.match(source, /const mobileAutomationActionButtonClass =[\s\S]*px-1/);
+  assert.match(source, /const mobileAutomationActionButtonClass =[\s\S]*\[[&]>span\]:max-w-full/);
+  assert.match(source, /className=\{mobileAutomationActionButtonClass\}/);
+  assert.match(source, /className=\{`\$\{mobileAutomationDeleteButtonClass\}/);
+}
+
 function testAutomationRunHistoryUsesReadableRows() {
   const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
 
@@ -311,6 +329,22 @@ function testAutomationRunHistoryUsesReadableRows() {
   assert.match(source, /data-ripple-automation-run-row[\s\S]*py-1\.5/);
   assert.match(source, /grid-cols-\[auto_minmax\(0,1fr\)_auto\]/);
   assert.match(source, /data-ripple-automation-run-row[\s\S]*truncate font-\[family-name:var\(--font-mono\)\]/);
+}
+
+function testAutomationRunHistoryActionsUseCompactMobileText() {
+  const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /const mobileRunActionButtonClass =[\s\S]*text-\[10px\]/);
+  assert.match(source, /const mobileRunActionButtonClass =[\s\S]*min-\[380px\]:text-\[11px\]/);
+  assert.match(source, /const mobileRunActionButtonClass =[\s\S]*px-1\.5/);
+  assert.match(
+    source,
+    /data-ripple-automation-run-row[\s\S]*className=\{mobileRunActionButtonClass\}/
+  );
+  assert.match(
+    source,
+    /data-ripple-automation-run-row[\s\S]*className=\{`\$\{mobileRunActionButtonClass\}/
+  );
 }
 
 function testAutomationsPageRendersChineseChrome() {
@@ -340,7 +374,9 @@ testAutomationHeaderActionsMatchSkillsPageStyle();
 testAutomationsPageUsesSolidWorkbenchSurfaces();
 testAutomationCardUsesDesktopRowLayout();
 testAutomationsPageUsesInlineMobileActionsWithoutOverflowSheet();
+testAutomationsMobileActionsStaySingleLineOnNarrowScreens();
 testAutomationRunHistoryUsesReadableRows();
+testAutomationRunHistoryActionsUseCompactMobileText();
 testAutomationsPageRendersChineseChrome();
 
 console.log("automations page tests passed");

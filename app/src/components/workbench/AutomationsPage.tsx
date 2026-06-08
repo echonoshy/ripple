@@ -241,7 +241,11 @@ const automationActionButtonClass = `inline-flex h-8 w-full min-w-0 items-center
 
 const automationDeleteButtonClass = `inline-flex h-8 w-full min-w-0 items-center justify-center gap-1 rounded-full border px-2 ${TYPOGRAPHY_META_MEDIUM_CLASS} [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0`;
 
-const runActionButtonClass = `inline-flex h-8 shrink-0 items-center justify-center gap-1 rounded-full border border-[#DEE0E3] bg-white px-2 text-[#2B2F36] hover:bg-[#F8F9FA] disabled:cursor-not-allowed disabled:opacity-60 ${TYPOGRAPHY_META_MEDIUM_CLASS} [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0`;
+const mobileAutomationActionButtonClass = `inline-flex h-8 w-full min-w-0 items-center justify-center gap-0.5 rounded-full border border-[#DEE0E3] bg-white px-1 text-[10px] leading-4 font-medium text-[#2B2F36] hover:bg-[#F8F9FA] min-[380px]:gap-1 min-[380px]:text-[11px] [&>span]:min-w-0 [&>span]:max-w-full [&>span]:truncate [&>svg]:shrink-0`;
+
+const mobileAutomationDeleteButtonClass = `inline-flex h-8 w-full min-w-0 items-center justify-center gap-0.5 rounded-full border px-1 text-[10px] leading-4 font-medium min-[380px]:gap-1 min-[380px]:text-[11px] [&>span]:min-w-0 [&>span]:max-w-full [&>span]:truncate [&>svg]:shrink-0`;
+
+const mobileRunActionButtonClass = `inline-flex h-8 shrink-0 items-center justify-center gap-0.5 rounded-full border border-[#DEE0E3] bg-white px-1.5 text-[10px] leading-4 font-medium text-[#2B2F36] hover:bg-[#F8F9FA] disabled:cursor-not-allowed disabled:opacity-60 min-[380px]:gap-1 min-[380px]:text-[11px] [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0`;
 
 const AUTOMATION_PRIMARY_ACTION_BUTTON_CLASS = `inline-flex h-11 w-11 items-center justify-center rounded-xl border border-[#1456F0]/30 bg-[#1456F0] text-white shadow-[0_8px_18px_rgba(20,86,240,0.18)] transition-all hover:bg-[#0F4BD8] active:scale-[0.98] disabled:opacity-60 lg:h-10 lg:w-auto lg:gap-1.5 lg:px-3 ${TYPOGRAPHY_META_MEDIUM_CLASS}`;
 
@@ -1091,14 +1095,14 @@ export default function AutomationsPage({
 
                   <div
                     data-ripple-automation-mobile-primary-actions
-                    className="mt-2 grid grid-cols-5 gap-1.5 md:hidden"
+                    className="mt-2 grid grid-cols-5 gap-1 md:hidden"
                   >
                     <button
                       type="button"
                       onClick={() => void handleAction(schedule.schedule_id, "run")}
                       aria-label={t("automations.runAutomationNow")}
                       title={t("automations.runAutomationNow")}
-                      className={automationActionButtonClass}
+                      className={mobileAutomationActionButtonClass}
                     >
                       {pendingActionId === `${schedule.schedule_id}:run` ? (
                         <Loader2 size={14} className="animate-spin" />
@@ -1116,7 +1120,7 @@ export default function AutomationsPage({
                       }
                       aria-label={t("automations.toggleRunHistory")}
                       title={t("automations.toggleRunHistory")}
-                      className={automationActionButtonClass}
+                      className={mobileAutomationActionButtonClass}
                     >
                       <ChevronDown
                         size={14}
@@ -1131,7 +1135,7 @@ export default function AutomationsPage({
                       onClick={() => beginEditSchedule(schedule)}
                       aria-label={t("automations.editAutomation")}
                       title={t("automations.editAutomation")}
-                      className={automationActionButtonClass}
+                      className={mobileAutomationActionButtonClass}
                     >
                       <Edit3 size={14} />
                       <span>{t("automations.edit")}</span>
@@ -1151,7 +1155,7 @@ export default function AutomationsPage({
                           ? t("automations.pauseAutomation")
                           : t("automations.resumeAutomation")
                       }
-                      className={automationActionButtonClass}
+                      className={mobileAutomationActionButtonClass}
                     >
                       {pendingActionId === `${schedule.schedule_id}:toggle` ? (
                         <Loader2 size={14} className="animate-spin" />
@@ -1173,7 +1177,7 @@ export default function AutomationsPage({
                           ? t("automations.confirmDeleteAutomation")
                           : t("automations.deleteAutomation")
                       }
-                      className={`${automationDeleteButtonClass} ${
+                      className={`${mobileAutomationDeleteButtonClass} ${
                         confirmDeleteId === schedule.schedule_id
                           ? "border-[#B42318]/25 bg-[#FFF1F0] text-[#B42318]"
                           : "border-[#DEE0E3] bg-white text-[#8F959E] active:bg-[#FFF1F0] active:text-[#B42318]"
@@ -1380,7 +1384,7 @@ export default function AutomationsPage({
                                           type="button"
                                           onClick={() => void handleViewOutput(run, schedule.title)}
                                           disabled={pendingRunActionId === `${run.job_id}:view`}
-                                          className={runActionButtonClass}
+                                          className={mobileRunActionButtonClass}
                                         >
                                           <Eye size={14} />
                                           <span className="sm:hidden">
@@ -1394,7 +1398,7 @@ export default function AutomationsPage({
                                           type="button"
                                           onClick={() => void handleDownloadOutput(run)}
                                           disabled={pendingRunActionId === `${run.job_id}:download`}
-                                          className={runActionButtonClass}
+                                          className={mobileRunActionButtonClass}
                                         >
                                           <Download size={14} />
                                           <span className="sm:hidden">
@@ -1410,7 +1414,7 @@ export default function AutomationsPage({
                                       <button
                                         type="button"
                                         onClick={() => setConfirmRunDeleteId(null)}
-                                        className={runActionButtonClass}
+                                        className={mobileRunActionButtonClass}
                                       >
                                         <span>{t("automations.cancel")}</span>
                                       </button>
@@ -1436,7 +1440,7 @@ export default function AutomationsPage({
                                           ? t("automations.confirmDeleteRunRecord")
                                           : t("automations.deleteRunRecord")
                                       }
-                                      className={`${runActionButtonClass} ${
+                                      className={`${mobileRunActionButtonClass} ${
                                         confirmingRunDelete
                                           ? "border-[#B42318]/25 bg-[#FFF1F0] text-[#B42318]"
                                           : "text-[#8F959E] hover:bg-[#FFF1F0] hover:text-[#B42318]"

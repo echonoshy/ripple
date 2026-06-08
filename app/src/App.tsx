@@ -1119,6 +1119,9 @@ export default function Home() {
     />
   );
   const mobileSessionChat = renderSessionPage();
+  const sessionsMobileNav = (
+    <MobileTabBar activeView={activeView} onSelectView={handleSelectView} placement="absolute" />
+  );
 
   const mainContent =
     activeView === "home" ? (
@@ -1161,6 +1164,7 @@ export default function Home() {
         <MobileSessionStack
           mode={mobileSessionMode}
           list={mobileSessionList}
+          listNav={sessionsMobileNav}
           chat={mobileSessionChat}
           onOpenList={handleOpenMobileSessionList}
         />
@@ -1218,14 +1222,10 @@ export default function Home() {
         </div>
       </div>
     );
-  const isMobileNavHidden = activeView === "sessions" && mobileSessionMode === "chat";
-  const mobileNav = (
-    <MobileTabBar
-      activeView={activeView}
-      onSelectView={handleSelectView}
-      isHidden={isMobileNavHidden}
-    />
-  );
+  const mobileNav =
+    activeView === "sessions" ? null : (
+      <MobileTabBar activeView={activeView} onSelectView={handleSelectView} />
+    );
   const mobileMotionStage = activeView === "sessions" ? "sessions:page" : `${activeView}:page`;
   const animatedMainContent = (
     <AnimatePresence initial={false} custom={mobileMotionDirection}>

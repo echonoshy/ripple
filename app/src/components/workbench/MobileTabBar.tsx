@@ -21,6 +21,7 @@ interface MobileTabBarProps {
   activeView: WorkspaceView;
   onSelectView: (view: WorkspaceView) => void;
   isHidden?: boolean;
+  placement?: "fixed" | "absolute";
 }
 
 const mobileNavLabelKeys: Record<WorkspaceView, MessageKey> = {
@@ -36,16 +37,20 @@ export default function MobileTabBar({
   activeView,
   onSelectView,
   isHidden = false,
+  placement = "fixed",
 }: MobileTabBarProps) {
   const { t } = useI18n();
   const reduceMotion = useReducedMotion();
   const transition = reduceMotion ? reducedMotionTransition : mobilePageSwitchTransition;
+  const placementClass =
+    placement === "fixed" ? "fixed inset-x-0 bottom-0 z-30" : "absolute inset-x-0 bottom-0 z-0";
 
   return (
     <div
       data-ripple-mobile-tabbar-hidden={isHidden ? "true" : "false"}
+      data-ripple-mobile-tabbar-placement={placement}
       aria-hidden={isHidden ? true : undefined}
-      className={`pointer-events-none fixed inset-x-0 bottom-0 z-30 lg:hidden ${
+      className={`pointer-events-none ${placementClass} lg:hidden ${
         isHidden ? "opacity-0" : "opacity-100"
       }`}
     >

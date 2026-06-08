@@ -21,6 +21,7 @@ interface MobileSessionStackProps {
   mode: MobileSessionStackMode;
   list: React.ReactNode;
   chat: React.ReactNode;
+  listNav?: React.ReactNode;
   onOpenList: () => void;
 }
 
@@ -168,6 +169,7 @@ export default function MobileSessionStack({
   mode,
   list,
   chat,
+  listNav = null,
   onOpenList,
 }: MobileSessionStackProps) {
   const reduceMotion = useReducedMotion();
@@ -485,6 +487,14 @@ export default function MobileSessionStack({
       <div data-ripple-mobile-session-list-layer="true" className="absolute inset-0 z-0">
         {list}
       </div>
+      {listNav ? (
+        <div
+          data-ripple-mobile-session-list-nav-underlay="true"
+          className="pointer-events-none absolute inset-0 z-[5]"
+        >
+          {listNav}
+        </div>
+      ) : null}
       {shouldRenderChat ? (
         <motion.div
           data-ripple-mobile-session-chat-sheet="true"

@@ -32,6 +32,7 @@ function renderStack(mode: "list" | "chat" = "chat") {
       mode={mode}
       list={<div>Session list</div>}
       chat={<div>Chat sheet</div>}
+      listNav={<div>Session nav underlay</div>}
       onOpenList={noop}
     />
   );
@@ -344,8 +345,10 @@ function testStackLayersListBehindChatSheet() {
 
   assert.match(html, /data-ripple-mobile-session-stack="true"/);
   assert.match(html, /data-ripple-mobile-session-list-layer="true"/);
+  assert.match(html, /data-ripple-mobile-session-list-nav-underlay="true"/);
   assert.match(html, /data-ripple-mobile-session-chat-sheet="true"/);
   assert.match(html, />Session list</);
+  assert.match(html, />Session nav underlay</);
   assert.match(html, />Chat sheet</);
 }
 

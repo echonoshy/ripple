@@ -88,6 +88,7 @@ function testMobileChatSessionLayoutKeepsComposerPinned() {
   assert.match(source, /<MobileSessionStack/);
   assert.match(source, /mode=\{mobileSessionMode\}/);
   assert.match(source, /list=\{mobileSessionList\}/);
+  assert.match(source, /listNav=\{sessionsMobileNav\}/);
   assert.match(source, /chat=\{mobileSessionChat\}/);
   assert.match(source, /onOpenList=\{handleOpenMobileSessionList\}/);
 }
@@ -167,7 +168,10 @@ function testCollapsedSessionRailUsesEdgeHandle() {
     source,
     /className=\{`absolute top-1\/2 left-0[\s\S]*\$\{WORKBENCH_ICON_BUTTON_CLASS\}/
   );
-  assert.doesNotMatch(source, /data-ripple-panel-edge-handle="session-list"[\s\S]*backdrop-blur-xl/);
+  assert.doesNotMatch(
+    source,
+    /data-ripple-panel-edge-handle="session-list"[\s\S]*backdrop-blur-xl/
+  );
   assert.doesNotMatch(source, /data-ripple-panel-edge-handle="session-list"[\s\S]*bg-white\/82/);
   assert.doesNotMatch(
     source,

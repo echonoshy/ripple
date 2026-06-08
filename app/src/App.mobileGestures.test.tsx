@@ -15,8 +15,9 @@ function testMobileSwipeBackDoesNotTriggerOuterPageTransition() {
 
 function testSessionSwipeBackOnlyChangesStackModeInsideStableSessionsPage() {
   const openListBlock =
-    appSource.match(/const handleOpenMobileSessionList = useCallback\(\(\) => \{[\s\S]*?\}, \[[\s\S]*?\]\);/)?.[0] ||
-    "";
+    appSource.match(
+      /const handleOpenMobileSessionList = useCallback\(\(\) => \{[\s\S]*?\}, \[[\s\S]*?\]\);/
+    )?.[0] || "";
 
   assert.match(openListBlock, /setActiveView\("sessions"\)/);
   assert.match(openListBlock, /setMobileSessionMode\("list"\)/);
@@ -24,19 +25,15 @@ function testSessionSwipeBackOnlyChangesStackModeInsideStableSessionsPage() {
   assert.doesNotMatch(openListBlock, /setActiveView\("skills"\)/);
 }
 
-function testMobileChatKeepsBottomTabBarMountedWhileHidden() {
+function testSessionsUseStackTabBarUnderlayInsteadOfGlobalNav() {
+  assert.match(appSource, /const sessionsMobileNav = \(/);
+  assert.match(appSource, /listNav=\{sessionsMobileNav\}/);
   assert.match(
     appSource,
-    /const isMobileNavHidden = activeView === "sessions" && mobileSessionMode === "chat";/
+    /const mobileNav =\s*activeView === "sessions" \? null : \([\s\S]*<MobileTabBar/
   );
-  assert.match(
-    appSource,
-    /<MobileTabBar[\s\S]*?activeView=\{activeView\}[\s\S]*?onSelectView=\{handleSelectView\}[\s\S]*?isHidden=\{isMobileNavHidden\}[\s\S]*?\/>/
-  );
-  assert.doesNotMatch(
-    appSource,
-    /activeView === "sessions" && mobileSessionMode === "chat" \? null/
-  );
+  assert.match(appSource, /placement="absolute"/);
+  assert.doesNotMatch(appSource, /const isMobileNavHidden =/);
 }
 
 function testModelDropdownStateOnlyTracksComposer() {
@@ -64,7 +61,7 @@ function testAndroidBackGestureScopeStaysInsideActiveDetailSurfaces() {
 
 testMobileSwipeBackDoesNotTriggerOuterPageTransition();
 testSessionSwipeBackOnlyChangesStackModeInsideStableSessionsPage();
-testMobileChatKeepsBottomTabBarMountedWhileHidden();
+testSessionsUseStackTabBarUnderlayInsteadOfGlobalNav();
 testModelDropdownStateOnlyTracksComposer();
 testAndroidBackGestureScopeStaysInsideActiveDetailSurfaces();
 

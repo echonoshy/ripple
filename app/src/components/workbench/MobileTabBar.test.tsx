@@ -10,10 +10,19 @@ const mobileTabBarSource = readFileSync(new URL("./MobileTabBar.tsx", import.met
 
 function noop() {}
 
-function renderMobileTabBar(locale: LocalePreference = "en-US", isHidden = false) {
+function renderMobileTabBar(
+  locale: LocalePreference = "en-US",
+  isHidden = false,
+  placement: "fixed" | "absolute" = "fixed"
+) {
   return renderToStaticMarkup(
     <I18nProvider initialPreference={locale}>
-      <MobileTabBar activeView="skills" onSelectView={noop} isHidden={isHidden} />
+      <MobileTabBar
+        activeView="skills"
+        onSelectView={noop}
+        isHidden={isHidden}
+        placement={placement}
+      />
     </I18nProvider>
   );
 }
@@ -78,6 +87,16 @@ function testMasksScrolledContentBehindRoundedBar() {
 }
 
 testMasksScrolledContentBehindRoundedBar();
+
+function testCanRenderAsAbsoluteSessionStackUnderlay() {
+  const html = renderMobileTabBar("en-US", false, "absolute");
+
+  assert.match(html, /absolute inset-x-0 bottom-0/);
+  assert.match(html, /data-ripple-mobile-tabbar-placement="absolute"/);
+  assert.doesNotMatch(html, /fixed inset-x-0 bottom-0/);
+}
+
+testCanRenderAsAbsoluteSessionStackUnderlay();
 
 function testCanStayMountedWhileHiddenWithoutSlideAnimation() {
   const html = renderMobileTabBar("en-US", true);

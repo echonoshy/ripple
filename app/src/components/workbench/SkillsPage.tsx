@@ -68,6 +68,7 @@ import {
   shouldGuardMobileSwipeBackScroll,
   shouldReleaseMobileSwipeBackScrollGuard,
 } from "./motionPrimitives";
+import MobilePageHeader from "./MobilePageHeader";
 import { SkillDescriptionMarkdown } from "./SkillDescriptionMarkdown";
 
 const SKILL_REFRESH_THROTTLE_MS = 10_000;
@@ -1804,10 +1805,15 @@ export default function SkillsPage({
     const availableInCategory = category.skills.filter(
       (skill) => skill.user_status === "available"
     ).length;
-    const googleAccountText =
-      connectorName === "google_workspace" && googleAccounts.length > 0
-        ? ` · ${t("skills.accountCount", { count: googleAccounts.length })}`
-        : "";
+    const connectorStatusLabel = connectorName
+      ? status?.connected
+        ? t("skills.connectorConnected")
+        : t("skills.connectorNotConnected")
+      : null;
+    const mobileConnectorStatusLabel =
+      connectorName === "google_workspace" && googleAccounts.length > 0 && connectorStatusLabel
+        ? `${connectorStatusLabel} · ${t("skills.accountCount", { count: googleAccounts.length })}`
+        : connectorStatusLabel;
 
     return (
       <button
@@ -1815,11 +1821,10 @@ export default function SkillsPage({
         type="button"
         data-ripple-skill-category-row="true"
         onClick={() => openCategory(category.id)}
-        className={`grid min-h-[92px] w-full grid-cols-[auto_auto_minmax(0,1fr)] items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-[#FCFCFD] sm:grid-cols-[auto_auto_minmax(0,1fr)_auto] ${WORKBENCH_SECTION_CLASS}`}
+        className="flex min-h-[76px] w-full items-center gap-3 bg-white px-3 py-2.5 text-left transition-colors hover:bg-[#F8F9FA] active:bg-[#EFF0F1]"
       >
-        <ChevronRight size={16} className={SKILLS_PAGE_TEXT_TERTIARY_CLASS} />
         <CategoryLogo category={category} status={status} />
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <div
             className={`truncate ${SKILLS_PAGE_TEXT_PRIMARY_CLASS} ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
           >
@@ -1835,8 +1840,17 @@ export default function SkillsPage({
               available: availableInCategory,
               total: category.skills.length,
             })}
-            {googleAccountText}
           </div>
+          {mobileConnectorStatusLabel && (
+            <span
+              data-ripple-skill-category-mobile-status="true"
+              className={`mt-1.5 inline-flex h-6 max-w-full items-center truncate rounded-full border px-2 sm:hidden ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} ${connectorStatusClass(
+                status
+              )}`}
+            >
+              {mobileConnectorStatusLabel}
+            </span>
+          )}
         </div>
         {connectorName && (
           <span
@@ -1844,9 +1858,10 @@ export default function SkillsPage({
               status
             )}`}
           >
-            {status?.connected ? t("skills.connectorConnected") : t("skills.connectorNotConnected")}
+            {connectorStatusLabel}
           </span>
         )}
+        <ChevronRight size={16} className={`shrink-0 ${SKILLS_PAGE_TEXT_TERTIARY_CLASS}`} />
       </button>
     );
   };
@@ -1860,7 +1875,12 @@ export default function SkillsPage({
           >
             {t(section.labelKey)}
           </div>
-          <div className="space-y-2">{section.categories.map(renderCategoryRow)}</div>
+          <div
+            data-ripple-skill-category-group="true"
+            className={`overflow-hidden rounded-lg border ${SKILLS_PAGE_BORDER_CLASS} bg-white shadow-[0_1px_2px_rgba(31,35,41,0.04)] divide-y divide-[#EFF0F1]`}
+          >
+            {section.categories.map(renderCategoryRow)}
+          </div>
         </section>
       ))}
       {filteredSections.length === 0 && (
@@ -1958,7 +1978,17 @@ export default function SkillsPage({
 
   const renderCategoryDetail = (category: SkillCategory) => (
     <section data-ripple-skill-category-detail="true" className="space-y-2.5">
-      <div className="flex items-start gap-2">
+      <MobilePageHeader
+        title={categoryLabel(category)}
+        subtitle={t("skills.readyCount", {
+          available: category.skills.filter((skill) => skill.user_status === "available").length,
+          total: category.skills.length,
+        })}
+        backLabel={t("skills.backToCategories")}
+        onBack={closeCategory}
+        className="-mx-3 -mt-[max(env(safe-area-inset-top),12px)] md:-mx-6"
+      />
+      <div className="hidden items-start gap-2 lg:flex">
         <button
           type="button"
           onClick={closeCategory}

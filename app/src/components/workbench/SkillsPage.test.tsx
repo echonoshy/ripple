@@ -169,6 +169,54 @@ function testSkillsPageUsesCompactSkillRowsInCategoryDetail() {
 
 testSkillsPageUsesCompactSkillRowsInCategoryDetail();
 
+function testSkillsCategoryDetailUsesSharedMobilePageHeader() {
+  const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /import MobilePageHeader from "\.\/MobilePageHeader"/);
+  assert.match(source, /<MobilePageHeader[\s\S]*title=\{categoryLabel\(category\)\}/);
+  assert.match(source, /backLabel=\{t\("skills\.backToCategories"\)\}/);
+  assert.match(source, /onBack=\{closeCategory\}/);
+  assert.doesNotMatch(
+    source,
+    /<section data-ripple-skill-category-detail="true" className="space-y-2\.5">\s*<div className="flex items-start gap-2">/
+  );
+}
+
+testSkillsCategoryDetailUsesSharedMobilePageHeader();
+
+function testSkillsCategoryIndexUsesGroupedListRows() {
+  const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
+  const rowSource =
+    source.match(/const renderCategoryRow =[\s\S]*?;\n\n {2}const renderCategoryIndex =/)?.[0] ||
+    "";
+
+  assert.match(source, /data-ripple-skill-category-group="true"/);
+  assert.match(source, /divide-y divide-\[#EFF0F1\]/);
+  assert.match(rowSource, /data-ripple-skill-category-row="true"/);
+  assert.match(rowSource, /min-h-\[76px\]/);
+  assert.doesNotMatch(rowSource, /WORKBENCH_SECTION_CLASS/);
+  assert.doesNotMatch(rowSource, /grid-cols-\[auto_auto_minmax\(0,1fr\)\]/);
+}
+
+testSkillsCategoryIndexUsesGroupedListRows();
+
+function testSkillsCategoryRowsUseRightChevronAndMobileStatusTag() {
+  const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
+  const rowSource =
+    source.match(/const renderCategoryRow =[\s\S]*?;\n\n {2}const renderCategoryIndex =/)?.[0] ||
+    "";
+
+  const logoIndex = rowSource.indexOf("<CategoryLogo");
+  const chevronIndex = rowSource.indexOf("<ChevronRight");
+  assert.ok(logoIndex >= 0);
+  assert.ok(chevronIndex > logoIndex);
+  assert.match(rowSource, /data-ripple-skill-category-mobile-status="true"/);
+  assert.match(rowSource, /sm:hidden/);
+  assert.match(rowSource, /sm:inline-flex/);
+}
+
+testSkillsCategoryRowsUseRightChevronAndMobileStatusTag();
+
 function testSkillsPageAnimatesCategoryDrillInBothLayouts() {
   const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
 

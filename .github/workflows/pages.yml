@@ -6,8 +6,9 @@ on:
       - master
     paths:
       - "sites/**"
-      - "assets/ripple-icon.svg"
-      - "assets/app/**"
+      - "assets/ripple-launcher-icon.svg"
+      - "assets/web/**"
+      - "assets/iOS/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -41,9 +42,11 @@ jobs:
           mkdir -p "$artifact_dir"
           cp -R sites/. "$artifact_dir"/
           mkdir -p "$artifact_dir/assets"
-          cp assets/ripple-icon.svg "$artifact_dir/assets/ripple-icon.svg"
-          mkdir -p "$artifact_dir/assets/app"
-          cp assets/app/*.png "$artifact_dir/assets/app/"
+          cp assets/ripple-launcher-icon.svg "$artifact_dir/assets/ripple-launcher-icon.svg"
+          mkdir -p "$artifact_dir/assets/web"
+          cp assets/web/*.png "$artifact_dir/assets/web/"
+          mkdir -p "$artifact_dir/assets/iOS"
+          cp assets/iOS/*.png "$artifact_dir/assets/iOS/"
           echo "path=$artifact_dir" >> "$GITHUB_OUTPUT"
 
       - name: Upload Pages artifact

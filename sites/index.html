@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="Ripple is a Codex-powered agent workspace for sessions, files, connectors, automations, and multi-platform clients."
+      content="Ripple is a multi-platform AI agent workspace and Rust control plane for sessions, files, capabilities, automations, and Codex app-server execution."
     />
-    <title>Ripple | Codex-powered Agent Workspace</title>
+    <title>Ripple | Multi-platform AI Agent Workspace</title>
     <link rel="icon" href="assets/ripple-launcher-icon.svg" />
     <link rel="stylesheet" href="styles.css" />
   </head>
@@ -20,6 +20,7 @@
       <nav class="nav-links" aria-label="Primary navigation">
         <a href="#product">Product</a>
         <a href="#workspace">Workspace</a>
+        <a href="#mobile">Mobile</a>
         <a href="#platform">Platform</a>
         <a href="#docs">Docs</a>
         <a href="#contact">Contact</a>
@@ -30,21 +31,21 @@
     <main id="top">
       <section class="hero">
         <div class="hero-copy">
-          <p class="eyebrow">Codex-powered Agent Workspace</p>
-          <h1>Let agents <span class="text-gradient">keep working</span> after the chat starts.</h1>
+          <p class="eyebrow">Multi-platform AI Agent Workspace</p>
+          <h1>Flow <span class="text-gradient">with Ripple</span></h1>
           <p class="hero-lede">
-            Ripple 将 Codex 转化为面向终端用户的高效工作空间。将会话、持久化文件、第三方连接器与自动化调度，统一置于安全合规的物理沙箱边界之中。
+            每一次迭代的涟漪，都是向解的收敛。Ripple 将会话、文件、能力、自动化和设置统一成面向终端用户的 AI 工作空间，并由 Rust 控制面托管 Codex app-server 执行链路。
           </p>
           <div class="hero-actions">
             <a class="button button-primary" href="#product">Explore product</a>
-            <a class="button button-secondary" href="#docs">Read docs</a>
+            <a class="button button-secondary" href="https://github.com/echonoshy/ripple">View GitHub</a>
           </div>
         </div>
 
         <div class="hero-visual" aria-label="Ripple desktop app preview">
           <img
-            src="assets/app/ripple.app.003.png"
-            alt="Ripple desktop workspace showing a generated image, sessions, and files"
+            src="assets/web/ripple-web-session.png"
+            alt="Ripple web workspace showing sessions, chat, and files"
           />
         </div>
       </section>
@@ -56,11 +57,11 @@
         </div>
         <div>
           <span>Workspace</span>
-          <strong>Files and outputs persist</strong>
+          <strong>Files and outputs stay visible</strong>
         </div>
         <div>
-          <span>Connectors</span>
-          <strong>Accounts stay user-scoped</strong>
+          <span>Capabilities</span>
+          <strong>Skills and connectors merge</strong>
         </div>
         <div>
           <span>Automations</span>
@@ -71,10 +72,10 @@
       <section id="product" class="section section-product">
         <div class="section-heading">
           <p class="eyebrow">Product</p>
-          <h2>A compact workspace for real agent tasks.</h2>
+          <h2>A real workspace for agent tasks.</h2>
           <p>
             Ripple is not another prompt box. It gives each user a persistent place where agents can
-            read and write files, resume sessions, request connector authorization, generate outputs,
+            resume sessions, read and write files, request connector authorization, generate outputs,
             and expose progress without moving server logic into the client.
           </p>
         </div>
@@ -82,16 +83,15 @@
         <div class="showcase-grid">
           <article class="showcase-card large">
             <img
-              src="assets/app/ripple.app.001.png"
-              alt="Ripple mobile sessions and chat flows"
+              src="assets/web/ripple-web-files.png"
+              alt="Ripple file workspace with PDF preview"
             />
           </article>
           <article class="showcase-copy">
-            <h3>Built around the user journey</h3>
+            <h3>From conversation to durable output</h3>
             <p>
-              Users start from sessions, continue into task progress, review generated files, and
-              return later without losing the workspace. The same model works across mobile, desktop,
-              and web clients.
+              Users can move from a session into generated artifacts, inspect files, preview PDFs,
+              upload inputs, and return later without losing the workspace.
             </p>
           </article>
         </div>
@@ -100,34 +100,59 @@
       <section id="workspace" class="section section-muted">
         <div class="section-heading">
           <p class="eyebrow">Workspace</p>
-          <h2>Files, connectors, automations, and settings live together.</h2>
+          <h2>Capabilities and automations live beside the work.</h2>
         </div>
 
         <div class="workspace-layout">
           <div class="workspace-shot">
             <img
-              src="assets/app/ripple.app.002.png"
-              alt="Ripple mobile files, connectors, automations, and settings"
+              src="assets/web/ripple-web-skills.png"
+              alt="Ripple capabilities page with connectors and custom skills"
             />
           </div>
           <div class="feature-list">
             <article>
-              <h3>Files</h3>
-              <p>Users can inspect the workspace and generated artifacts without leaving the app.</p>
+              <h3>Capabilities</h3>
+              <p>Shared skills, custom skills, service integrations, and authorization state appear in one surface.</p>
             </article>
             <article>
               <h3>Connectors</h3>
-              <p>External account access is explicit, visible, and scoped to the current user.</p>
+              <p>Google Workspace, Feishu / Lark, Bilibili, and Notion access stays explicit and user-scoped.</p>
             </article>
             <article>
               <h3>Automations</h3>
-              <p>Scheduled work uses the same sessions, permissions, and execution boundary.</p>
+              <p>Scheduled work uses the same sessions, permissions, sandbox, and execution boundary.</p>
             </article>
             <article>
               <h3>Settings</h3>
-              <p>Client configuration, sandbox status, and usage stay close to the product surface.</p>
+              <p>Account, quota, token usage, default model, language, and diagnostics stay close to the product surface.</p>
             </article>
           </div>
+        </div>
+
+        <div class="web-showcase-row" aria-label="Ripple web feature screenshots">
+          <img src="assets/web/ripple-web-auto.png" alt="Ripple automations page" />
+          <img src="assets/web/ripple-web-settings.png" alt="Ripple settings and usage page" />
+        </div>
+      </section>
+
+      <section id="mobile" class="section">
+        <div class="section-heading">
+          <p class="eyebrow">Mobile</p>
+          <h2>The same workspace, shaped for touch.</h2>
+          <p>
+            The Tauri mobile shell keeps the backend on Ripple Server and brings the product flow to
+            iOS and Android: sign in, continue sessions, browse files, manage capabilities, and check
+            automations from a bottom-tab mobile experience.
+          </p>
+        </div>
+
+        <div class="mobile-shot-grid" aria-label="Ripple iOS screenshots">
+          <img src="assets/iOS/ripple-ios-login.png" alt="Ripple iOS sign in screen" />
+          <img src="assets/iOS/ripple-ios-session.png" alt="Ripple iOS session detail" />
+          <img src="assets/iOS/ripple-ios-files.png" alt="Ripple iOS file workspace" />
+          <img src="assets/iOS/ripple-ios-skills.png" alt="Ripple iOS custom capabilities" />
+          <img src="assets/iOS/ripple-ios-autos.png" alt="Ripple iOS automations" />
         </div>
       </section>
 
@@ -237,7 +262,7 @@
 
     <footer class="site-footer">
       <span>Ripple</span>
-      <span>Codex-powered Agent Workspace</span>
+      <span>Each ripple of iteration converges toward the solution.</span>
     </footer>
   </body>
 </html>

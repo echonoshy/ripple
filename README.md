@@ -3,10 +3,10 @@
 
 # Flow with Ripple
 
-> **每一次迭代的涟漪，都是向解的收敛。**
-> **Each ripple of iteration converges toward the solution.**
+> 每一次迭代的涟漪，都是向解的收敛。
+> Each ripple of iteration converges toward the solution.
 
-**面向真实终端用户的 AI 工作空间，也是运行在 Codex app-server 之上的 Agent 控制面。**
+**面向真实终端用户的多端 AI Agent 工作空间**
 
 [![Language](https://img.shields.io/badge/Backend-Rust-orange?style=flat-square&logo=rust)](crates/ripple-server)
 [![Frontend](https://img.shields.io/badge/Frontend-React-blue?style=flat-square&logo=react)](app)
@@ -20,33 +20,43 @@
 ---
 
 <div align="center">
-  <img src="assets/app/ripple.app.001.png" alt="Ripple Mobile" width="47%" />
-  <img src="assets/app/ripple.app.002.png" alt="Ripple Mobile" width="48%" />
+  <img src="assets/web/ripple-web-session.png" alt="Ripple Web session workspace" width="100%" />
 </div>
 
 <br />
 
 <div align="center">
-  <img src="assets/app/ripple.app.003.png" alt="Ripple Desktop" width="47%" />
-  <img src="assets/app/ripple.app.004.png" alt="Ripple Desktop" width="47%" />
+  <img src="assets/iOS/ripple-ios-login.png" alt="Ripple iOS sign in" width="19%" />
+  <img src="assets/iOS/ripple-ios-session.png" alt="Ripple iOS session" width="19%" />
+  <img src="assets/iOS/ripple-ios-files.png" alt="Ripple iOS files" width="19%" />
+  <img src="assets/iOS/ripple-ios-skills.png" alt="Ripple iOS capabilities" width="19%" />
+  <img src="assets/iOS/ripple-ios-autos.png" alt="Ripple iOS automations" width="19%" />
 </div>
 
 ---
 
 ## 项目定位
 
-**Ripple** 是一个面向 Web / Tauri / Mobile 多端客户端的 AI 工作空间与 Agent 控制面。它为用户提供会话、文件、连接器、Skill、自动化调度与审批协同的统一入口，并把实际执行委托给服务端 Codex app-server。
+**Ripple** 是一个面向 Web / Tauri / Mobile 多端客户端的 AI Agent 工作空间与控制面。它把会话、文件、能力、自动化、设置与用量管理放在同一个终端用户界面里，并把实际执行委托给服务端 Codex app-server。
 
 随着大语言模型（LLM）生态的快速演进，Agent 的**纯执行层能力**（如 Claude Code / Codex 等）正逐渐收敛为底层的标准化基础设施（Infrastructure）。
 
 在这一背景下，**用户专属数据、开箱即用的交互体验、持久化记忆与个性化 Skill**，才是真正需要构建差异化体验的关键赛道。Ripple 的定位是在保持控制面 / 执行面分离的同时，让每一次迭代都能更稳定地向解收敛。
 
-### 核心职责
+### 产品能力
+
+*   **会话工作流**：用户可以创建、恢复和继续长期 Agent 会话，历史消息、生成过程和上下文在同一 workspace 中持续存在。
+*   **文件与产物**：内置 workspace 文件浏览、搜索、上传、预览和下载，支持查看 Agent 生成的文档、图片、PDF 与脚本产物。
+*   **能力与连接器**：将 Shared / Workspace Skills、自定义能力和 Google Workspace、飞书/Lark、Notion、Bilibili 等授权状态整合到统一的能力页。
+*   **自动化调度**：支持创建、暂停、恢复、立即运行和查看历史记录，让 Agent 工作可以按计划持续执行。
+*   **多端客户端**：同一套 Vite + React 客户端覆盖 Web、Tauri Desktop、iOS 和 Android；移动端保持底部 Tab、详情页返回和触控友好的工作流。
+
+### 控制面职责
 
 *   **多用户物理沙箱**：基于 `user_id` 的强沙箱环境隔离，确保多用户数据与运行环境物理安全隔离。
-*   **连接器凭证托管**：内置 Google Workspace、飞书/Lark、Notion、Bilibili 等连接器的安全授权流程与运行时账号拦截。
-*   **Skill 动态加载**：解析与加载 Shared / Workspace 级 Skill Manifest，通过控制面自动向提示词注入，按需执行。
-*   **全生命周期控制**：管理 Session 会话记录、Run 异步任务、后台 Schedule 周期调度任务以及用户 Quota 额度。
+*   **连接器凭证托管**：管理第三方账号 OAuth、token 保存、状态检查与运行时授权拦截。
+*   **Skill Manifest 注入**：解析 Shared / Workspace 级 Skill Manifest，通过控制面向 Codex-facing prompt 注入可用能力。
+*   **全生命周期状态**：管理 Session 会话记录、Run 异步任务、后台 Schedule 周期调度任务以及用户 Quota 额度。
 *   **协同审批桥接**：在 Codex 自动化执行与客户端之间架起 Approval Bridge，提供人机协同的安全性二次确认。
 
 ---

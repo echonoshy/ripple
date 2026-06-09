@@ -70,7 +70,7 @@ export default defineConfig({
       : undefined,
     proxy: {
       "/v1": {
-        target: "http://127.0.0.1:8810",
+        target: "http://140.143.229.103:8810",
         changeOrigin: true,
       },
     },

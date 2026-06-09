@@ -204,7 +204,9 @@ function testAutomationCardUsesCompactResponsiveLayout() {
   assert.doesNotMatch(source, /const latestRunId/);
   assert.doesNotMatch(source, /\{latestRunId \|\| "No run"\}/);
   assert.match(source, /latestRunAt[\s\S]*formatDate\(latestRunAt, locale, t\)/);
-  assert.match(source, /data-ripple-automation-mobile-primary-actions/);
+  assert.match(source, /data-ripple-automation-mobile-summary-card/);
+  assert.match(source, /data-ripple-automation-mobile-detail-actions/);
+  assert.doesNotMatch(source, /data-ripple-automation-mobile-primary-actions/);
   assert.match(source, /data-ripple-automation-actions[\s\S]*mt-2 hidden grid-cols-3 gap-1\.5/);
   assert.doesNotMatch(source, /data-ripple-automation-actions[\s\S]{0,120}pl-8/);
   assert.match(source, /md:grid-cols-5/);
@@ -226,8 +228,8 @@ function testAutomationLatestRunSummaryDoesNotDuplicateOutputActions() {
     /data-ripple-automation-run-row[\s\S]*handleViewOutput\(run, schedule\.title\)/
   );
   assert.match(source, /data-ripple-automation-run-row[\s\S]*handleDownloadOutput\(run\)/);
-  assert.match(source, /t\("automations\.runShort"\)/);
-  assert.match(source, /t\("automations\.historyShort"\)/);
+  assert.match(source, /t\("automations\.runNow"\)/);
+  assert.match(source, /t\("automations\.runHistory"\)/);
 }
 
 function testAutomationHeaderActionsMatchSkillsPageStyle() {
@@ -298,19 +300,15 @@ function testAutomationsPageUsesInlineMobileActionsWithoutOverflowSheet() {
   const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
 
   assert.match(source, /data-ripple-automation-form-sheet/);
+  assert.match(source, /data-ripple-automation-mobile-summary-card/);
+  assert.match(source, /data-ripple-automation-detail-page="true"/);
+  assert.match(source, /data-ripple-automation-mobile-detail-actions/);
+  assert.match(source, /data-ripple-automation-mobile-detail-actions[\s\S]*beginEditSchedule\(schedule\)/);
   assert.match(
     source,
-    /data-ripple-automation-mobile-primary-actions[\s\S]*className="mt-2 grid grid-cols-5/
+    /data-ripple-automation-mobile-detail-actions[\s\S]*"toggle", schedule\.enabled/
   );
-  assert.match(
-    source,
-    /data-ripple-automation-mobile-primary-actions[\s\S]*beginEditSchedule\(schedule\)/
-  );
-  assert.match(
-    source,
-    /data-ripple-automation-mobile-primary-actions[\s\S]*"toggle", schedule\.enabled/
-  );
-  assert.match(source, /data-ripple-automation-mobile-primary-actions[\s\S]*"delete"/);
+  assert.match(source, /data-ripple-automation-mobile-detail-actions[\s\S]*"delete"/);
   assert.doesNotMatch(source, /import MobileActionSheet from "\.\/MobileActionSheet"/);
   assert.doesNotMatch(source, /data-ripple-automation-more-sheet/);
   assert.doesNotMatch(source, /activeScheduleMenuId/);
@@ -337,17 +335,16 @@ function testAutomationEditSheetRespectsMobileSafeAreaAndCompactText() {
 function testAutomationsMobileActionsStaySingleLineOnNarrowScreens() {
   const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
 
+  assert.match(source, /data-ripple-automation-mobile-detail-actions/);
+  assert.match(source, /data-ripple-automation-mobile-detail-actions[\s\S]*grid grid-cols-2/);
+  assert.doesNotMatch(source, /grid-cols-5 gap-1 md:hidden/);
   assert.match(
     source,
-    /data-ripple-automation-mobile-primary-actions[\s\S]*className="mt-2 grid grid-cols-5 gap-1 md:hidden"/
-  );
-  assert.match(
-    source,
-    /const mobileAutomationActionButtonClass =[\s\S]*TYPOGRAPHY_MICRO_MEDIUM_CLASS/
+    /const mobileAutomationActionButtonClass =[\s\S]*h-11[\s\S]*TYPOGRAPHY_META_MEDIUM_CLASS/
   );
   assert.doesNotMatch(source, /const mobileAutomationActionButtonClass =[\s\S]*text-\[10px\]/);
-  assert.match(source, /const mobileAutomationActionButtonClass =[\s\S]*px-1/);
-  assert.match(source, /const mobileAutomationActionButtonClass =[\s\S]*\[[&]>span\]:max-w-full/);
+  assert.match(source, /const mobileAutomationActionButtonClass =[\s\S]*px-2\.5/);
+  assert.match(source, /data-ripple-ignore-automations-swipe/);
   assert.match(source, /className=\{mobileAutomationActionButtonClass\}/);
   assert.match(source, /className=\{`\$\{mobileAutomationDeleteButtonClass\}/);
 }
@@ -356,7 +353,7 @@ function testMobileAutomationDeleteConfirmationCanBeCancelled() {
   const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
   const mobileActions =
     source.match(
-      /data-ripple-automation-mobile-primary-actions[\s\S]*?<div\s+data-ripple-automation-actions/
+      /data-ripple-automation-mobile-detail-actions[\s\S]*?\{isExpanded \?/
     )?.[0] || "";
 
   assert.match(source, /const isConfirmingDelete = confirmDeleteId === schedule\.schedule_id;/);
@@ -367,8 +364,36 @@ function testMobileAutomationDeleteConfirmationCanBeCancelled() {
   assert.match(mobileActions, /isConfirmingDelete[\s\S]*t\("automations\.confirm"\)/);
   assert.doesNotMatch(
     mobileActions,
-    /data-ripple-automation-mobile-primary-actions[\s\S]{0,120}grid-cols-6/
+    /data-ripple-automation-mobile-detail-actions[\s\S]{0,120}grid-cols-6/
   );
+}
+
+function testAutomationsMobileDetailUsesSkillsStyleSwipeBack() {
+  const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
+  const swipeSheetBlock =
+    source.match(
+      /<motion\.div[\s\S]*?data-ripple-automation-detail-swipe-sheet="true"[\s\S]*?<\/motion\.div>/
+    )?.[0] || "";
+
+  assert.match(source, /import \{ AnimatePresence, animate, motion, useMotionValue, useReducedMotion \} from "framer-motion"/);
+  assert.match(source, /import MobilePageHeader from "\.\/MobilePageHeader"/);
+  assert.match(source, /mobilePageVariants/);
+  assert.match(source, /reducedMobilePageVariants/);
+  assert.match(source, /mobileStackCommitTransition/);
+  assert.match(source, /resolveMobileSwipeBackRelease/);
+  assert.match(source, /data-ripple-automation-detail-swipe-stack="true"/);
+  assert.match(source, /data-ripple-automation-detail-motion-stage="true"/);
+  assert.match(swipeSheetBlock, /style=\{\{ x: detailSwipeX \}\}/);
+  assert.match(swipeSheetBlock, /onPointerDownCapture=\{handleDetailSwipePointerDown\}/);
+  assert.match(swipeSheetBlock, /onPointerMoveCapture=\{handleDetailSwipePointerMove\}/);
+  assert.match(swipeSheetBlock, /onPointerUpCapture=\{handleDetailSwipePointerUp\}/);
+  assert.match(swipeSheetBlock, /onClickCapture=\{handleDetailSwipeClickCapture\}/);
+  assert.match(swipeSheetBlock, /onTouchStartCapture=\{handleDetailSwipeTouchStartCapture\}/);
+  assert.match(swipeSheetBlock, /onTouchMoveCapture=\{handleDetailSwipeTouchMoveCapture\}/);
+  assert.match(source, /shouldClaimAutomationBackSwipe/);
+  assert.match(source, /shouldGuardAutomationBackSwipeScroll/);
+  assert.match(source, /shouldCancelAutomationBackSwipe/);
+  assert.match(source, /shouldReleaseAutomationBackSwipeScrollGuard/);
 }
 
 function testAutomationRunHistoryUsesReadableRows() {
@@ -432,6 +457,7 @@ testAutomationsPageUsesInlineMobileActionsWithoutOverflowSheet();
 testAutomationEditSheetRespectsMobileSafeAreaAndCompactText();
 testAutomationsMobileActionsStaySingleLineOnNarrowScreens();
 testMobileAutomationDeleteConfirmationCanBeCancelled();
+testAutomationsMobileDetailUsesSkillsStyleSwipeBack();
 testAutomationRunHistoryUsesReadableRows();
 testAutomationRunHistoryActionsUseCompactMobileText();
 testAutomationsPageRendersChineseChrome();

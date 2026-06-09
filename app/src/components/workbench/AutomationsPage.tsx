@@ -1,12 +1,14 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, animate, motion, useMotionValue, useReducedMotion } from "framer-motion";
 import {
   AlertTriangle,
   ArrowLeft,
   CalendarClock,
   CalendarPlus,
   ChevronDown,
+  ChevronRight,
   Download,
   Edit3,
   Eye,
@@ -50,6 +52,21 @@ import {
   WORKBENCH_PAGE_CONTENT_CLASS,
   WORKBENCH_SECTION_CLASS,
 } from "./stylePrimitives";
+import {
+  mobilePageSwitchTransition,
+  mobilePageVariants,
+  mobileStackCommitTransition,
+  mobileStackReturnTransition,
+  mobileSwipeBackConfig,
+  reducedMobilePageVariants,
+  reducedMotionTransition,
+  resolveMobileSwipeBackRelease,
+  shouldCancelMobileSwipeBack,
+  shouldClaimMobileSwipeBack,
+  shouldGuardMobileSwipeBackScroll,
+  shouldReleaseMobileSwipeBackScrollGuard,
+} from "./motionPrimitives";
+import MobilePageHeader from "./MobilePageHeader";
 
 interface AutomationsPageProps {
   selectedModel: string;
@@ -73,6 +90,53 @@ type OutputPreviewState = {
 } | null;
 
 type Translator = ReturnType<typeof useI18n>["t"];
+
+interface AutomationBackSwipeIntentInput {
+  startX?: number;
+  deltaX: number;
+  deltaY: number;
+  viewportWidth: number;
+}
+
+interface AutomationBackSwipeReleaseInput {
+  x: number;
+  velocityX: number;
+  viewportWidth: number;
+}
+
+interface AutomationBackSwipeReleaseResolution {
+  shouldCloseDetail: boolean;
+  commitDistance: number;
+}
+
+interface AutomationBackSwipeDragState {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  viewportWidth: number;
+  claimed: boolean;
+  lastX: number;
+  lastTime: number;
+  velocityX: number;
+  scrollElement: HTMLElement | null;
+  startScrollTop: number;
+}
+
+interface AutomationBackSwipeTouchGuardState {
+  startX: number;
+  startY: number;
+  viewportWidth: number;
+  isGuarding: boolean;
+  scrollElement: HTMLElement | null;
+  startScrollTop: number;
+}
+
+interface AutomationBackSwipeScrollLockState {
+  scrollElement: HTMLElement;
+  startScrollTop: number;
+  previousOverflowY: string;
+  previousOverscrollBehaviorY: string;
+}
 
 const intervalUnitSeconds: Record<IntervalUnit, number> = {
   minutes: 60,
@@ -237,13 +301,104 @@ function hasRunOutput(run: AgentRunInfo | null | undefined): boolean {
   return Boolean(run?.output_available && !isActiveRunStatus(run.status));
 }
 
+const AUTOMATIONS_BACK_SWIPE_INTERACTIVE_SELECTOR =
+  "button, a, input, textarea, select, [role='button'], [data-ripple-ignore-automations-swipe]";
+
+function currentTimeMs(): number {
+  return typeof performance === "undefined" ? Date.now() : performance.now();
+}
+
+function automationBackSwipeViewportWidth(): number {
+  return typeof window === "undefined" ? 0 : window.innerWidth;
+}
+
+function isInteractiveAutomationBackSwipeTarget(target: EventTarget | null): boolean {
+  if (typeof Element === "undefined" || !(target instanceof Element)) return false;
+  return Boolean(target.closest(AUTOMATIONS_BACK_SWIPE_INTERACTIVE_SELECTOR));
+}
+
+function ensureAutomationBackSwipeScrollLock(
+  currentLock: AutomationBackSwipeScrollLockState | null,
+  scrollElement: HTMLElement | null,
+  startScrollTop: number
+): AutomationBackSwipeScrollLockState | null {
+  if (currentLock) return currentLock;
+  if (!scrollElement) return null;
+  const lock = {
+    scrollElement,
+    startScrollTop,
+    previousOverflowY: scrollElement.style.overflowY,
+    previousOverscrollBehaviorY: scrollElement.style.overscrollBehaviorY,
+  };
+  scrollElement.scrollTop = startScrollTop;
+  scrollElement.style.overflowY = "hidden";
+  scrollElement.style.overscrollBehaviorY = "contain";
+  return lock;
+}
+
+function releaseAutomationBackSwipeScrollLock(
+  lock: AutomationBackSwipeScrollLockState | null
+): void {
+  if (!lock) return;
+  const { scrollElement, startScrollTop, previousOverflowY, previousOverscrollBehaviorY } = lock;
+  scrollElement.style.overflowY = previousOverflowY;
+  scrollElement.style.overscrollBehaviorY = previousOverscrollBehaviorY;
+  scrollElement.scrollTop = startScrollTop;
+}
+
+export function shouldGuardAutomationBackSwipeScroll({
+  startX,
+  deltaX,
+  deltaY,
+  viewportWidth,
+}: AutomationBackSwipeIntentInput): boolean {
+  return shouldGuardMobileSwipeBackScroll({ startX, deltaX, deltaY, viewportWidth });
+}
+
+export function shouldClaimAutomationBackSwipe({
+  startX,
+  deltaX,
+  deltaY,
+  viewportWidth,
+}: AutomationBackSwipeIntentInput): boolean {
+  return shouldClaimMobileSwipeBack({ startX, deltaX, deltaY, viewportWidth });
+}
+
+export function shouldCancelAutomationBackSwipe({
+  startX,
+  deltaX,
+  deltaY,
+  viewportWidth,
+}: AutomationBackSwipeIntentInput): boolean {
+  return shouldCancelMobileSwipeBack({ startX, deltaX, deltaY, viewportWidth });
+}
+
+export function shouldReleaseAutomationBackSwipeScrollGuard({
+  startX,
+  deltaX,
+  deltaY,
+  viewportWidth,
+}: AutomationBackSwipeIntentInput): boolean {
+  return shouldReleaseMobileSwipeBackScrollGuard({ startX, deltaX, deltaY, viewportWidth });
+}
+
+export function resolveAutomationBackSwipeRelease({
+  x,
+  velocityX,
+  viewportWidth,
+}: AutomationBackSwipeReleaseInput): AutomationBackSwipeReleaseResolution {
+  const release = resolveMobileSwipeBackRelease({ x, velocityX, viewportWidth });
+
+  return { shouldCloseDetail: release.shouldCommit, commitDistance: release.commitDistance };
+}
+
 const automationActionButtonClass = `inline-flex h-8 w-full min-w-0 items-center justify-center gap-1 rounded-full border border-[#DEE0E3] bg-white px-2 text-[#2B2F36] hover:bg-[#F8F9FA] ${TYPOGRAPHY_META_MEDIUM_CLASS} [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0`;
 
 const automationDeleteButtonClass = `inline-flex h-8 w-full min-w-0 items-center justify-center gap-1 rounded-full border px-2 ${TYPOGRAPHY_META_MEDIUM_CLASS} [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0`;
 
-const mobileAutomationActionButtonClass = `inline-flex h-8 w-full min-w-0 items-center justify-center gap-0.5 rounded-full border border-[#DEE0E3] bg-white px-1 text-[#2B2F36] hover:bg-[#F8F9FA] min-[380px]:gap-1 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} [&>span]:min-w-0 [&>span]:max-w-full [&>span]:truncate [&>svg]:shrink-0`;
+const mobileAutomationActionButtonClass = `inline-flex h-11 w-full min-w-0 items-center justify-center gap-1.5 rounded-xl border border-[#DEE0E3] bg-white px-2.5 text-[#2B2F36] hover:bg-[#F8F9FA] active:bg-[#F8F9FA] ${TYPOGRAPHY_META_MEDIUM_CLASS} [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0`;
 
-const mobileAutomationDeleteButtonClass = `inline-flex h-8 w-full min-w-0 items-center justify-center gap-0.5 rounded-full border px-1 min-[380px]:gap-1 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} [&>span]:min-w-0 [&>span]:max-w-full [&>span]:truncate [&>svg]:shrink-0`;
+const mobileAutomationDeleteButtonClass = `inline-flex h-11 w-full min-w-0 items-center justify-center gap-1.5 rounded-xl border px-2.5 ${TYPOGRAPHY_META_MEDIUM_CLASS} [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0`;
 
 const mobileRunActionButtonClass = `inline-flex h-8 shrink-0 items-center justify-center gap-0.5 rounded-full border border-[#DEE0E3] bg-white px-1.5 text-[#2B2F36] hover:bg-[#F8F9FA] disabled:cursor-not-allowed disabled:opacity-60 min-[380px]:gap-1 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0`;
 
@@ -287,6 +442,8 @@ export default function AutomationsPage({
   onBack,
 }: AutomationsPageProps) {
   const { locale, t } = useI18n();
+  const reduceMotion = useReducedMotion();
+  const detailSwipeX = useMotionValue(0);
   const [schedules, setSchedules] = useState<ScheduleInfo[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -315,6 +472,16 @@ export default function AutomationsPage({
   const [runsBySchedule, setRunsBySchedule] = useState<Record<string, AgentRunInfo[]>>({});
   const [expandedScheduleId, setExpandedScheduleId] = useState<string | null>(null);
   const [outputPreview, setOutputPreview] = useState<OutputPreviewState>(null);
+  const [selectedScheduleId, setSelectedScheduleId] = useState<string | null>(null);
+  const [detailTransitionDirection, setDetailTransitionDirection] = useState(0);
+  const [skipNextDetailTransition, setSkipNextDetailTransition] = useState(false);
+  const [isDetailSwipeActive, setIsDetailSwipeActive] = useState(false);
+  const automationsPageScrollRef = useRef<HTMLDivElement | null>(null);
+  const detailSwipeDragStateRef = useRef<AutomationBackSwipeDragState | null>(null);
+  const suppressNextDetailSwipeClickRef = useRef(false);
+  const detailSwipeTouchGuardStateRef = useRef<AutomationBackSwipeTouchGuardState | null>(null);
+  const detailSwipeScrollLockRef = useRef<AutomationBackSwipeScrollLockState | null>(null);
+  const detailSwipeAnimationRef = useRef<ReturnType<typeof animate> | null>(null);
 
   const intervalSeconds = useMemo(
     () => Math.max(1, intervalValue) * intervalUnitSeconds[intervalUnit],
@@ -325,6 +492,10 @@ export default function AutomationsPage({
     [models, selectedModel]
   );
   const availableTimezones = useMemo(() => timezoneOptions(timezone), [timezone]);
+  const selectedSchedule = useMemo(
+    () => schedules.find((schedule) => schedule.schedule_id === selectedScheduleId) || null,
+    [schedules, selectedScheduleId]
+  );
 
   const loadScheduleRuns = useCallback(async (scheduleId: string) => {
     const runs = await fetchScheduleRuns(scheduleId);
@@ -366,6 +537,357 @@ export default function AutomationsPage({
     }, 3000);
     return () => window.clearInterval(timer);
   }, [loadSchedules, runsBySchedule, schedules]);
+
+  const stopDetailSwipeAnimation = useCallback(() => {
+    detailSwipeAnimationRef.current?.stop();
+    detailSwipeAnimationRef.current = null;
+  }, []);
+
+  const releaseDetailSwipeScrollLock = useCallback(() => {
+    releaseAutomationBackSwipeScrollLock(detailSwipeScrollLockRef.current);
+    detailSwipeScrollLockRef.current = null;
+  }, []);
+
+  const animateDetailSwipeTo = useCallback(
+    (target: number, onComplete?: () => void, transition = mobileStackReturnTransition) => {
+      stopDetailSwipeAnimation();
+      if (reduceMotion) {
+        detailSwipeX.set(target);
+        onComplete?.();
+        return;
+      }
+
+      const animation = animate(detailSwipeX, target, transition);
+      detailSwipeAnimationRef.current = animation;
+      void animation.then(() => {
+        if (detailSwipeAnimationRef.current === animation) {
+          detailSwipeAnimationRef.current = null;
+        }
+        onComplete?.();
+      });
+    },
+    [detailSwipeX, reduceMotion, stopDetailSwipeAnimation]
+  );
+
+  const resetDetailSwipeState = useCallback(() => {
+    stopDetailSwipeAnimation();
+    detailSwipeDragStateRef.current = null;
+    detailSwipeTouchGuardStateRef.current = null;
+    releaseDetailSwipeScrollLock();
+    setIsDetailSwipeActive(false);
+    detailSwipeX.set(0);
+  }, [detailSwipeX, releaseDetailSwipeScrollLock, stopDetailSwipeAnimation]);
+
+  const scrollAutomationsPageToTop = useCallback(() => {
+    automationsPageScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
+  }, []);
+
+  const openScheduleDetail = useCallback(
+    (scheduleId: string) => {
+      resetDetailSwipeState();
+      setSkipNextDetailTransition(true);
+      setDetailTransitionDirection(0);
+      setConfirmDeleteId(null);
+      setConfirmRunDeleteId(null);
+      setExpandedScheduleId(null);
+      setSelectedScheduleId(scheduleId);
+      scrollAutomationsPageToTop();
+    },
+    [resetDetailSwipeState, scrollAutomationsPageToTop]
+  );
+
+  const closeScheduleDetail = useCallback(() => {
+    resetDetailSwipeState();
+    setSkipNextDetailTransition(true);
+    setDetailTransitionDirection(0);
+    setConfirmDeleteId(null);
+    setConfirmRunDeleteId(null);
+    setExpandedScheduleId(null);
+    setSelectedScheduleId(null);
+    scrollAutomationsPageToTop();
+  }, [resetDetailSwipeState, scrollAutomationsPageToTop]);
+
+  const closeScheduleDetailWithSwipeCommit = useCallback(() => {
+    detailSwipeDragStateRef.current = null;
+    detailSwipeTouchGuardStateRef.current = null;
+    releaseDetailSwipeScrollLock();
+    setIsDetailSwipeActive(false);
+    setSkipNextDetailTransition(true);
+    setDetailTransitionDirection(-1);
+    setConfirmDeleteId(null);
+    setConfirmRunDeleteId(null);
+    setExpandedScheduleId(null);
+    setSelectedScheduleId(null);
+    const resetSwipeX = () => detailSwipeX.set(0);
+    if (typeof window === "undefined") {
+      resetSwipeX();
+    } else {
+      window.requestAnimationFrame(resetSwipeX);
+    }
+  }, [detailSwipeX, releaseDetailSwipeScrollLock]);
+
+  useEffect(
+    () => () => {
+      stopDetailSwipeAnimation();
+      releaseAutomationBackSwipeScrollLock(detailSwipeScrollLockRef.current);
+      detailSwipeScrollLockRef.current = null;
+    },
+    [stopDetailSwipeAnimation]
+  );
+
+  useEffect(() => {
+    if (!selectedScheduleId) return;
+    if (schedules.some((schedule) => schedule.schedule_id === selectedScheduleId)) return;
+    closeScheduleDetail();
+  }, [closeScheduleDetail, schedules, selectedScheduleId]);
+
+  useEffect(() => {
+    if (!skipNextDetailTransition || selectedScheduleId) return;
+    if (typeof window === "undefined") {
+      setSkipNextDetailTransition(false);
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => setSkipNextDetailTransition(false));
+    return () => window.cancelAnimationFrame(frame);
+  }, [selectedScheduleId, skipNextDetailTransition]);
+
+  const handleDetailSwipePointerDown = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (!selectedScheduleId) return;
+      if (!event.isPrimary || event.pointerType !== "touch") return;
+      const viewportWidth = automationBackSwipeViewportWidth();
+      if (viewportWidth >= mobileSwipeBackConfig.desktopMinWidth) return;
+      suppressNextDetailSwipeClickRef.current = false;
+      if (isInteractiveAutomationBackSwipeTarget(event.target)) return;
+      stopDetailSwipeAnimation();
+      const scrollElement = event.currentTarget;
+
+      detailSwipeDragStateRef.current = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        viewportWidth,
+        claimed: false,
+        lastX: event.clientX,
+        lastTime: currentTimeMs(),
+        velocityX: 0,
+        scrollElement,
+        startScrollTop: scrollElement.scrollTop,
+      };
+    },
+    [selectedScheduleId, stopDetailSwipeAnimation]
+  );
+
+  const handleDetailSwipePointerMove = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const dragState = detailSwipeDragStateRef.current;
+      if (!dragState || dragState.pointerId !== event.pointerId) return;
+
+      const deltaX = event.clientX - dragState.startX;
+      const deltaY = event.clientY - dragState.startY;
+
+      if (
+        !dragState.claimed &&
+        shouldCancelAutomationBackSwipe({
+          startX: dragState.startX,
+          deltaX,
+          deltaY,
+          viewportWidth: dragState.viewportWidth,
+        })
+      ) {
+        detailSwipeDragStateRef.current = null;
+        releaseDetailSwipeScrollLock();
+        return;
+      }
+
+      if (
+        !dragState.claimed &&
+        shouldClaimAutomationBackSwipe({
+          startX: dragState.startX,
+          deltaX,
+          deltaY,
+          viewportWidth: dragState.viewportWidth,
+        })
+      ) {
+        dragState.claimed = true;
+        suppressNextDetailSwipeClickRef.current = true;
+        setIsDetailSwipeActive(true);
+        detailSwipeScrollLockRef.current = ensureAutomationBackSwipeScrollLock(
+          detailSwipeScrollLockRef.current,
+          dragState.scrollElement,
+          dragState.startScrollTop
+        );
+        try {
+          event.currentTarget.setPointerCapture(event.pointerId);
+        } catch {
+          // Pointer capture can fail when the platform has already ended the gesture.
+        }
+      }
+
+      if (!dragState.claimed) return;
+
+      event.preventDefault();
+      const currentTime = currentTimeMs();
+      const elapsed = Math.max(1, currentTime - dragState.lastTime);
+      dragState.velocityX = ((event.clientX - dragState.lastX) / elapsed) * 1000;
+      dragState.lastX = event.clientX;
+      dragState.lastTime = currentTime;
+      detailSwipeX.set(Math.max(0, deltaX));
+    },
+    [detailSwipeX, releaseDetailSwipeScrollLock]
+  );
+
+  const handleDetailSwipePointerUp = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const dragState = detailSwipeDragStateRef.current;
+      if (!dragState || dragState.pointerId !== event.pointerId) return;
+
+      detailSwipeDragStateRef.current = null;
+      releaseDetailSwipeScrollLock();
+      try {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      } catch {
+        // Matching setPointerCapture may not have succeeded on every platform.
+      }
+
+      if (!dragState.claimed) return;
+      event.preventDefault();
+
+      const release = resolveAutomationBackSwipeRelease({
+        x: detailSwipeX.get(),
+        velocityX: dragState.velocityX,
+        viewportWidth: dragState.viewportWidth,
+      });
+
+      if (!release.shouldCloseDetail) {
+        animateDetailSwipeTo(0, () => {
+          setIsDetailSwipeActive(false);
+        });
+        return;
+      }
+
+      setIsDetailSwipeActive(true);
+      animateDetailSwipeTo(
+        dragState.viewportWidth,
+        closeScheduleDetailWithSwipeCommit,
+        mobileStackCommitTransition
+      );
+    },
+    [
+      animateDetailSwipeTo,
+      closeScheduleDetailWithSwipeCommit,
+      detailSwipeX,
+      releaseDetailSwipeScrollLock,
+    ]
+  );
+
+  const handleDetailSwipePointerCancel = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const dragState = detailSwipeDragStateRef.current;
+      if (dragState && dragState.pointerId === event.pointerId) {
+        detailSwipeDragStateRef.current = null;
+        releaseDetailSwipeScrollLock();
+        animateDetailSwipeTo(0, () => {
+          setIsDetailSwipeActive(false);
+        });
+      }
+    },
+    [animateDetailSwipeTo, releaseDetailSwipeScrollLock]
+  );
+
+  const handleDetailSwipeTouchStartCapture = useCallback(
+    (event: React.TouchEvent<HTMLDivElement>) => {
+      if (!selectedScheduleId) return;
+      if (event.touches.length !== 1) return;
+      const viewportWidth = automationBackSwipeViewportWidth();
+      if (viewportWidth >= mobileSwipeBackConfig.desktopMinWidth) return;
+      if (isInteractiveAutomationBackSwipeTarget(event.target)) return;
+      const touch = event.touches[0];
+      if (!touch) return;
+      stopDetailSwipeAnimation();
+      const scrollElement = event.currentTarget;
+
+      detailSwipeTouchGuardStateRef.current = {
+        startX: touch.clientX,
+        startY: touch.clientY,
+        viewportWidth,
+        isGuarding: false,
+        scrollElement,
+        startScrollTop: scrollElement.scrollTop,
+      };
+    },
+    [selectedScheduleId, stopDetailSwipeAnimation]
+  );
+
+  const handleDetailSwipeTouchMoveCapture = useCallback(
+    (event: React.TouchEvent<HTMLDivElement>) => {
+      const guardState = detailSwipeTouchGuardStateRef.current;
+      const touch = event.touches[0];
+      if (!guardState || !touch) return;
+
+      const deltaX = touch.clientX - guardState.startX;
+      const deltaY = touch.clientY - guardState.startY;
+
+      if (
+        guardState.isGuarding &&
+        shouldReleaseAutomationBackSwipeScrollGuard({
+          startX: guardState.startX,
+          deltaX,
+          deltaY,
+          viewportWidth: guardState.viewportWidth,
+        })
+      ) {
+        detailSwipeTouchGuardStateRef.current = null;
+        releaseDetailSwipeScrollLock();
+        return;
+      }
+
+      if (
+        !guardState.isGuarding &&
+        shouldCancelAutomationBackSwipe({
+          startX: guardState.startX,
+          deltaX,
+          deltaY,
+          viewportWidth: guardState.viewportWidth,
+        })
+      ) {
+        detailSwipeTouchGuardStateRef.current = null;
+        releaseDetailSwipeScrollLock();
+        return;
+      }
+
+      if (
+        guardState.isGuarding ||
+        shouldGuardAutomationBackSwipeScroll({
+          startX: guardState.startX,
+          deltaX,
+          deltaY,
+          viewportWidth: guardState.viewportWidth,
+        })
+      ) {
+        guardState.isGuarding = true;
+        event.preventDefault();
+        detailSwipeScrollLockRef.current = ensureAutomationBackSwipeScrollLock(
+          detailSwipeScrollLockRef.current,
+          guardState.scrollElement,
+          guardState.startScrollTop
+        );
+      }
+    },
+    [releaseDetailSwipeScrollLock]
+  );
+
+  const clearDetailSwipeTouchGuard = useCallback(() => {
+    detailSwipeTouchGuardStateRef.current = null;
+    if (!detailSwipeDragStateRef.current?.claimed) releaseDetailSwipeScrollLock();
+  }, [releaseDetailSwipeScrollLock]);
+
+  const handleDetailSwipeClickCapture = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if (!suppressNextDetailSwipeClickRef.current) return;
+    suppressNextDetailSwipeClickRef.current = false;
+    event.preventDefault();
+    event.stopPropagation();
+  }, []);
 
   const resetForm = useCallback(() => {
     setTitle("");
@@ -978,7 +1500,50 @@ export default function AutomationsPage({
                   data-ripple-automation-card-main
                   className="overflow-hidden rounded-xl border border-[#DEE0E3] bg-white px-3 py-2 shadow-[0_1px_2px_rgba(31,35,41,0.04)] sm:px-4 sm:py-2.5 xl:px-5"
                 >
-                  <div className="grid gap-2 xl:grid-cols-[minmax(260px,0.82fr)_minmax(0,1.35fr)] xl:items-start">
+                  <button
+                    type="button"
+                    data-ripple-automation-mobile-summary-card
+                    onClick={() => openScheduleDetail(schedule.schedule_id)}
+                    className="flex w-full min-w-0 items-start gap-2.5 text-left md:hidden"
+                  >
+                    <IconTile
+                      tone={schedule.enabled ? "accent" : "neutral"}
+                      size="xs"
+                      className="mt-0.5"
+                    >
+                      <CalendarClock size={14} />
+                    </IconTile>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className={`min-w-0 truncate ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
+                          {schedule.title}
+                        </span>
+                        <span
+                          className={`shrink-0 rounded-full border px-1.5 py-0.5 capitalize ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} ${statusClass(
+                            schedule.status
+                          )}`}
+                        >
+                          {schedule.status}
+                        </span>
+                      </span>
+                      <span className={`mt-0.5 block truncate text-[#646A73] ${TYPOGRAPHY_BODY_CLASS}`}>
+                        {schedule.prompt}
+                      </span>
+                      <span className={`mt-1 flex min-w-0 items-center gap-1.5 text-[#8F959E] ${TYPOGRAPHY_META_CLASS}`}>
+                        <span className="shrink-0">{t("automations.next")}</span>
+                        <span className="min-w-0 truncate text-[#646A73]">
+                          {formatDate(schedule.next_run_at, locale, t)}
+                        </span>
+                      </span>
+                    </span>
+                    <ChevronRight
+                      size={18}
+                      strokeWidth={LUCIDE_NAV_STROKE_WIDTH}
+                      className="mt-2 shrink-0 text-[#8F959E]"
+                    />
+                  </button>
+
+                  <div className="hidden gap-2 md:grid xl:grid-cols-[minmax(260px,0.82fr)_minmax(0,1.35fr)] xl:items-start">
                     <div data-ripple-automation-summary className="min-w-0">
                       <div className="flex min-w-0 items-start gap-2.5">
                         <IconTile
@@ -1093,122 +1658,6 @@ export default function AutomationsPage({
                         ) : null}
                       </div>
                     </div>
-                  </div>
-
-                  <div
-                    data-ripple-automation-mobile-primary-actions
-                    className="mt-2 grid grid-cols-5 gap-1 md:hidden"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => void handleAction(schedule.schedule_id, "run")}
-                      aria-label={t("automations.runAutomationNow")}
-                      title={t("automations.runAutomationNow")}
-                      className={mobileAutomationActionButtonClass}
-                    >
-                      {pendingActionId === `${schedule.schedule_id}:run` ? (
-                        <Loader2 size={14} className="animate-spin" />
-                      ) : (
-                        <Zap size={14} />
-                      )}
-                      <span>{t("automations.runShort")}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setExpandedScheduleId((current) =>
-                          current === schedule.schedule_id ? null : schedule.schedule_id
-                        )
-                      }
-                      aria-label={t("automations.toggleRunHistory")}
-                      title={t("automations.toggleRunHistory")}
-                      className={mobileAutomationActionButtonClass}
-                    >
-                      <ChevronDown
-                        size={14}
-                        className={
-                          isExpanded ? "rotate-180 transition-transform" : "transition-transform"
-                        }
-                      />
-                      <span>{t("automations.historyShort")}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => beginEditSchedule(schedule)}
-                      aria-label={t("automations.editAutomation")}
-                      title={t("automations.editAutomation")}
-                      className={mobileAutomationActionButtonClass}
-                    >
-                      <Edit3 size={14} />
-                      <span>{t("automations.edit")}</span>
-                    </button>
-                    {isConfirmingDelete ? (
-                      <button
-                        type="button"
-                        onClick={() => setConfirmDeleteId(null)}
-                        aria-label={t("automations.cancelDeleteAutomation")}
-                        title={t("automations.cancelDeleteAutomation")}
-                        className={mobileAutomationActionButtonClass}
-                      >
-                        <X size={14} />
-                        <span>{t("automations.cancel")}</span>
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          void handleAction(schedule.schedule_id, "toggle", schedule.enabled)
-                        }
-                        aria-label={
-                          schedule.enabled
-                            ? t("automations.pauseAutomation")
-                            : t("automations.resumeAutomation")
-                        }
-                        title={
-                          schedule.enabled
-                            ? t("automations.pauseAutomation")
-                            : t("automations.resumeAutomation")
-                        }
-                        className={mobileAutomationActionButtonClass}
-                      >
-                        {pendingActionId === `${schedule.schedule_id}:toggle` ? (
-                          <Loader2 size={14} className="animate-spin" />
-                        ) : schedule.enabled ? (
-                          <Pause size={14} />
-                        ) : (
-                          <Play size={14} />
-                        )}
-                        <span>
-                          {schedule.enabled ? t("automations.pause") : t("automations.resume")}
-                        </span>
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => void handleAction(schedule.schedule_id, "delete")}
-                      aria-label={t("automations.deleteAutomation")}
-                      title={
-                        isConfirmingDelete
-                          ? t("automations.confirmDeleteAutomation")
-                          : t("automations.deleteAutomation")
-                      }
-                      className={`${mobileAutomationDeleteButtonClass} ${
-                        isConfirmingDelete
-                          ? "border-[#B42318]/25 bg-[#FFF1F0] text-[#B42318]"
-                          : "border-[#DEE0E3] bg-white text-[#8F959E] active:bg-[#FFF1F0] active:text-[#B42318]"
-                      }`}
-                    >
-                      {pendingActionId === `${schedule.schedule_id}:delete` ? (
-                        <Loader2 size={14} className="animate-spin" />
-                      ) : isConfirmingDelete ? (
-                        <span>{t("automations.confirm")}</span>
-                      ) : (
-                        <>
-                          <Trash2 size={14} />
-                          <span>{t("automations.delete")}</span>
-                        </>
-                      )}
-                    </button>
                   </div>
 
                   <div
@@ -1494,6 +1943,476 @@ export default function AutomationsPage({
             })}
           </div>
         )}
+
+        <div
+          data-ripple-automation-detail-swipe-stack="true"
+          className="pointer-events-none fixed inset-0 z-30 md:hidden"
+        >
+          <AnimatePresence
+            mode="popLayout"
+            initial={false}
+            custom={skipNextDetailTransition ? 0 : detailTransitionDirection}
+          >
+            {selectedSchedule ? (
+              <motion.div
+                key={`detail:${selectedSchedule.schedule_id}`}
+                data-ripple-automation-detail-motion-stage="true"
+                custom={skipNextDetailTransition ? 0 : detailTransitionDirection}
+                variants={
+                  skipNextDetailTransition || reduceMotion
+                    ? reducedMobilePageVariants
+                    : mobilePageVariants
+                }
+                initial={skipNextDetailTransition ? false : "enter"}
+                animate="center"
+                exit="exit"
+                transition={
+                  skipNextDetailTransition || reduceMotion
+                    ? reducedMotionTransition
+                    : mobilePageSwitchTransition
+                }
+                className="pointer-events-none h-full min-h-0 w-full min-w-0"
+              >
+                <motion.div
+                  data-ripple-automation-detail-swipe-sheet="true"
+                  data-ripple-automation-detail-scroll="detail"
+                  data-ripple-automation-detail-swiping={isDetailSwipeActive ? "true" : "false"}
+                  style={{ x: detailSwipeX }}
+                  className={`pointer-events-auto h-full min-h-0 touch-pan-y overflow-y-auto bg-[#F5F6F7] px-3 ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} ${
+                    isDetailSwipeActive ? "shadow-[-18px_0_44px_rgba(31,35,41,0.18)]" : "shadow-none"
+                  } ${isDetailSwipeActive ? "will-change-transform" : "will-change-auto"}`}
+                  onPointerDownCapture={handleDetailSwipePointerDown}
+                  onPointerMoveCapture={handleDetailSwipePointerMove}
+                  onPointerUpCapture={handleDetailSwipePointerUp}
+                  onPointerCancelCapture={handleDetailSwipePointerCancel}
+                  onClickCapture={handleDetailSwipeClickCapture}
+                  onTouchStartCapture={handleDetailSwipeTouchStartCapture}
+                  onTouchMoveCapture={handleDetailSwipeTouchMoveCapture}
+                  onTouchEndCapture={clearDetailSwipeTouchGuard}
+                  onTouchCancelCapture={clearDetailSwipeTouchGuard}
+                >
+                  {(() => {
+                    const schedule = selectedSchedule;
+                    const runs = runsBySchedule[schedule.schedule_id] || [];
+                    const latestRun = runs[0] || null;
+                    const latestRunStatus = latestRun?.status || schedule.last_run_status || null;
+                    const latestRunAt = latestRun?.updated_at || schedule.last_run_at;
+                    const scheduleError =
+                      schedule.status === "error" ? schedule.last_error : null;
+                    const latestRunError = runErrorText(latestRun) || scheduleError;
+                    const isExpanded = expandedScheduleId === schedule.schedule_id;
+                    const isConfirmingDelete = confirmDeleteId === schedule.schedule_id;
+
+                    return (
+                      <div data-ripple-automation-detail-page="true" className="space-y-2.5">
+                        <MobilePageHeader
+                          title={schedule.title}
+                          subtitle={formatDate(schedule.next_run_at, locale, t)}
+                          backLabel={t("automations.backToAutomations")}
+                          onBack={closeScheduleDetail}
+                          className="-mx-3"
+                        />
+
+                        <section className={`grid gap-2 p-3 ${WORKBENCH_SECTION_CLASS}`}>
+                          <div className="flex min-w-0 items-start gap-2.5">
+                            <IconTile
+                              tone={schedule.enabled ? "accent" : "neutral"}
+                              size="xs"
+                              className="mt-0.5"
+                            >
+                              <CalendarClock size={14} />
+                            </IconTile>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex min-w-0 items-center gap-2">
+                                <span
+                                  className={`min-w-0 truncate ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+                                >
+                                  {schedule.title}
+                                </span>
+                                <span
+                                  className={`shrink-0 rounded-full border px-1.5 py-0.5 capitalize ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} ${statusClass(
+                                    schedule.status
+                                  )}`}
+                                >
+                                  {schedule.status}
+                                </span>
+                              </div>
+                              <div
+                                className={`mt-1 whitespace-pre-wrap text-[#646A73] ${TYPOGRAPHY_BODY_CLASS}`}
+                              >
+                                {schedule.prompt}
+                              </div>
+                              {schedule.status === "error" && schedule.last_error ? (
+                                <div
+                                  className={`mt-2 break-words text-[#B42318] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                                >
+                                  {schedule.last_error}
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+                        </section>
+
+                        <div data-ripple-automation-detail-grid className="grid gap-2">
+                          <div
+                            data-ripple-automation-meta-grid
+                            className="grid grid-cols-2 gap-1.5"
+                          >
+                            <div
+                              data-ripple-automation-meta-cell
+                              className="min-w-0 rounded-lg border border-[#EFF0F1] bg-white px-2 py-1"
+                            >
+                              <div
+                                className={`tracking-normal text-[#8F959E] uppercase ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                              >
+                                {t("automations.next")}
+                              </div>
+                              <div
+                                className={`mt-0.5 truncate text-[#2B2F36] ${TYPOGRAPHY_META_CLASS}`}
+                              >
+                                {formatDate(schedule.next_run_at, locale, t)}
+                              </div>
+                            </div>
+                            <div
+                              data-ripple-automation-meta-cell
+                              className="min-w-0 rounded-lg border border-[#EFF0F1] bg-white px-2 py-1"
+                            >
+                              <div
+                                className={`tracking-normal text-[#8F959E] uppercase ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                              >
+                                {t("automations.repeat")}
+                              </div>
+                              <div
+                                className={`mt-0.5 break-words font-[family-name:var(--font-mono)] text-[#2B2F36] ${TYPOGRAPHY_META_CLASS}`}
+                              >
+                                {schedule.kind === "interval"
+                                  ? `${intervalLabel(schedule.interval_seconds, t)} · ${runCountLabel(schedule, t)}`
+                                  : t("automations.once")}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div
+                            data-ripple-automation-latest-run
+                            className={`grid min-w-0 gap-1.5 rounded-lg border border-[#EFF0F1] bg-white px-2 py-1.5 ${TYPOGRAPHY_META_CLASS}`}
+                          >
+                            <div className="flex min-w-0 items-start justify-between gap-2">
+                              <span
+                                className={`tracking-normal text-[#8F959E] uppercase ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                              >
+                                {t("automations.latestRun")}
+                              </span>
+                              <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+                                <span className={`text-[#646A73] ${TYPOGRAPHY_META_CLASS}`}>
+                                  {latestRunAt
+                                    ? formatDate(latestRunAt, locale, t)
+                                    : t("automations.never")}
+                                </span>
+                                <span
+                                  className={`rounded-full border px-1.5 py-0.5 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} ${runStatusClass(
+                                    latestRunStatus
+                                  )}`}
+                                >
+                                  {latestRunStatus || t("automations.none")}
+                                </span>
+                              </div>
+                            </div>
+                            {latestRunError ? (
+                              <div
+                                className={`break-words text-[#B42318] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                              >
+                                {latestRunError}
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        <div
+                          data-ripple-automation-mobile-detail-actions
+                          data-ripple-ignore-automations-swipe
+                          className="grid grid-cols-2 gap-1.5"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => void handleAction(schedule.schedule_id, "run")}
+                            aria-label={t("automations.runAutomationNow")}
+                            title={t("automations.runAutomationNow")}
+                            className={mobileAutomationActionButtonClass}
+                          >
+                            {pendingActionId === `${schedule.schedule_id}:run` ? (
+                              <Loader2 size={14} className="animate-spin" />
+                            ) : (
+                              <Zap size={14} />
+                            )}
+                            <span>{t("automations.runNow")}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setExpandedScheduleId((current) =>
+                                current === schedule.schedule_id ? null : schedule.schedule_id
+                              )
+                            }
+                            aria-label={t("automations.toggleRunHistory")}
+                            title={t("automations.toggleRunHistory")}
+                            className={mobileAutomationActionButtonClass}
+                          >
+                            <ChevronDown
+                              size={14}
+                              className={
+                                isExpanded
+                                  ? "rotate-180 transition-transform"
+                                  : "transition-transform"
+                              }
+                            />
+                            <span>{t("automations.runHistory")}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              beginEditSchedule(schedule);
+                              closeScheduleDetail();
+                            }}
+                            aria-label={t("automations.editAutomation")}
+                            title={t("automations.editAutomation")}
+                            className={mobileAutomationActionButtonClass}
+                          >
+                            <Edit3 size={14} />
+                            <span>{t("automations.edit")}</span>
+                          </button>
+                          {isConfirmingDelete ? (
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeleteId(null)}
+                              aria-label={t("automations.cancelDeleteAutomation")}
+                              title={t("automations.cancelDeleteAutomation")}
+                              className={mobileAutomationActionButtonClass}
+                            >
+                              <X size={14} />
+                              <span>{t("automations.cancel")}</span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void handleAction(schedule.schedule_id, "toggle", schedule.enabled)
+                              }
+                              aria-label={
+                                schedule.enabled
+                                  ? t("automations.pauseAutomation")
+                                  : t("automations.resumeAutomation")
+                              }
+                              title={
+                                schedule.enabled
+                                  ? t("automations.pauseAutomation")
+                                  : t("automations.resumeAutomation")
+                              }
+                              className={mobileAutomationActionButtonClass}
+                            >
+                              {pendingActionId === `${schedule.schedule_id}:toggle` ? (
+                                <Loader2 size={14} className="animate-spin" />
+                              ) : schedule.enabled ? (
+                                <Pause size={14} />
+                              ) : (
+                                <Play size={14} />
+                              )}
+                              <span>
+                                {schedule.enabled
+                                  ? t("automations.pause")
+                                  : t("automations.resume")}
+                              </span>
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => void handleAction(schedule.schedule_id, "delete")}
+                            aria-label={t("automations.deleteAutomation")}
+                            title={
+                              isConfirmingDelete
+                                ? t("automations.confirmDeleteAutomation")
+                                : t("automations.deleteAutomation")
+                            }
+                            className={`${mobileAutomationDeleteButtonClass} col-span-2 ${
+                              isConfirmingDelete
+                                ? "border-[#B42318]/25 bg-[#FFF1F0] text-[#B42318]"
+                                : "border-[#DEE0E3] bg-white text-[#8F959E] active:bg-[#FFF1F0] active:text-[#B42318]"
+                            }`}
+                          >
+                            {pendingActionId === `${schedule.schedule_id}:delete` ? (
+                              <Loader2 size={14} className="animate-spin" />
+                            ) : isConfirmingDelete ? (
+                              <span>{t("automations.confirm")}</span>
+                            ) : (
+                              <>
+                                <Trash2 size={14} />
+                                <span>{t("automations.delete")}</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+
+                        {isExpanded ? (
+                          <div
+                            data-ripple-automation-run-history
+                            className="rounded-lg border border-[#EFF0F1] bg-white p-2"
+                          >
+                            <div className="mb-1 flex items-center justify-between gap-3">
+                              <div
+                                className={`tracking-normal text-[#646A73] uppercase ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                              >
+                                {t("automations.runHistory")}
+                              </div>
+                              <div
+                                className={`font-[family-name:var(--font-mono)] text-[#8F959E] ${TYPOGRAPHY_META_CLASS}`}
+                              >
+                                {t("automations.runCount", {
+                                  count: runs.length,
+                                  label: runs.length === 1 ? "run" : "runs",
+                                })}
+                              </div>
+                            </div>
+                            {runs.length === 0 ? (
+                              <div className={`text-[#646A73] ${TYPOGRAPHY_META_CLASS}`}>
+                                {t("automations.noRunsYet")}
+                              </div>
+                            ) : (
+                              <div className="max-h-64 overflow-y-auto">
+                                <div className="divide-y divide-[#EFF0F1]">
+                                  {runs.map((run) => {
+                                    const errorText = runErrorText(run);
+                                    const runDeleteKey = `${schedule.schedule_id}:${run.job_id}`;
+                                    const confirmingRunDelete =
+                                      confirmRunDeleteId === runDeleteKey;
+                                    return (
+                                      <div
+                                        key={run.job_id}
+                                        data-ripple-automation-run-row
+                                        className={`grid gap-1.5 py-1.5 ${TYPOGRAPHY_META_CLASS}`}
+                                      >
+                                        <div className="min-w-0">
+                                          <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2">
+                                            <span
+                                              className={`w-fit shrink-0 rounded-full border px-1.5 py-0.5 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} ${runStatusClass(
+                                                run.status
+                                              )}`}
+                                            >
+                                              {run.status}
+                                            </span>
+                                            <span
+                                              className={`truncate font-[family-name:var(--font-mono)] text-[#2B2F36] ${TYPOGRAPHY_META_CLASS}`}
+                                            >
+                                              {run.job_id}
+                                            </span>
+                                          </div>
+                                          <div
+                                            className={`mt-0.5 text-[#646A73] ${TYPOGRAPHY_META_CLASS}`}
+                                          >
+                                            {formatDate(run.updated_at, locale, t)}
+                                          </div>
+                                          {errorText ? (
+                                            <div
+                                              className={`mt-1 break-words text-[#B42318] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                                            >
+                                              {errorText}
+                                            </div>
+                                          ) : null}
+                                        </div>
+                                        <div
+                                          data-ripple-ignore-automations-swipe
+                                          className="flex flex-wrap gap-1.5"
+                                        >
+                                          {hasRunOutput(run) ? (
+                                            <>
+                                              <button
+                                                type="button"
+                                                onClick={() =>
+                                                  void handleViewOutput(run, schedule.title)
+                                                }
+                                                disabled={
+                                                  pendingRunActionId === `${run.job_id}:view`
+                                                }
+                                                className={mobileRunActionButtonClass}
+                                              >
+                                                <Eye size={14} />
+                                                <span>{t("automations.outputShort")}</span>
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() => void handleDownloadOutput(run)}
+                                                disabled={
+                                                  pendingRunActionId === `${run.job_id}:download`
+                                                }
+                                                className={mobileRunActionButtonClass}
+                                              >
+                                                <Download size={14} />
+                                                <span>{t("automations.downloadShort")}</span>
+                                              </button>
+                                            </>
+                                          ) : null}
+                                          {confirmingRunDelete ? (
+                                            <button
+                                              type="button"
+                                              onClick={() => setConfirmRunDeleteId(null)}
+                                              className={mobileRunActionButtonClass}
+                                            >
+                                              <span>{t("automations.cancel")}</span>
+                                            </button>
+                                          ) : null}
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              void handleDeleteRun(schedule.schedule_id, run)
+                                            }
+                                            disabled={
+                                              pendingRunActionId === `${run.job_id}:delete` ||
+                                              isActiveRunStatus(run.status)
+                                            }
+                                            title={
+                                              isActiveRunStatus(run.status)
+                                                ? t("automations.waitUntilRunFinishes")
+                                                : confirmingRunDelete
+                                                  ? t("automations.confirmDeleteRunRecord")
+                                                  : t("automations.deleteRunRecord")
+                                            }
+                                            aria-label={
+                                              confirmingRunDelete
+                                                ? t("automations.confirmDeleteRunRecord")
+                                                : t("automations.deleteRunRecord")
+                                            }
+                                            className={`${mobileRunActionButtonClass} ${
+                                              confirmingRunDelete
+                                                ? "border-[#B42318]/25 bg-[#FFF1F0] text-[#B42318]"
+                                                : "text-[#8F959E] hover:bg-[#FFF1F0] hover:text-[#B42318]"
+                                            }`}
+                                          >
+                                            {pendingRunActionId === `${run.job_id}:delete` ? (
+                                              <Loader2 size={14} className="animate-spin" />
+                                            ) : confirmingRunDelete ? (
+                                              <span>{t("automations.confirmDelete")}</span>
+                                            ) : (
+                                              <>
+                                                <Trash2 size={14} />
+                                                <span>{t("automations.deleteShort")}</span>
+                                              </>
+                                            )}
+                                          </button>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })()}
+                </motion.div>
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
+        </div>
 
         {outputPreview ? (
           <div className="fixed inset-0 z-50 flex items-end bg-black/30 p-3 sm:items-center sm:justify-center">

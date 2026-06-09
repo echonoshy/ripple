@@ -447,9 +447,9 @@ export function WorkspacePreviewFullscreen({
   return (
     <div
       data-ripple-workspace-preview-fullscreen
-      className="fixed inset-0 z-[70] flex min-h-0 flex-col bg-white text-[#1F2329]"
+      className="fixed inset-0 z-[70] flex min-h-0 flex-col bg-white pt-[max(env(safe-area-inset-top),0px)] pb-[max(env(safe-area-inset-bottom),0px)] text-[#1F2329]"
     >
-      <div className="flex min-h-[48px] shrink-0 items-center gap-2 border-b border-[#DEE0E3] bg-white px-3 py-2 sm:min-h-[60px] sm:gap-3 sm:px-4">
+      <div className="flex min-h-[56px] shrink-0 items-center gap-2 border-b border-[#DEE0E3] bg-white px-3 py-1.5 sm:min-h-[60px] sm:gap-3 sm:px-4">
         <IconTile tone="accent" size="sm">
           <FileText size={13} />
         </IconTile>
@@ -475,7 +475,7 @@ export function WorkspacePreviewFullscreen({
           aria-label={t("files.closeFullscreenPreview")}
           title={t("files.closeFullscreenPreview")}
           onClick={onClose}
-          className={`${WORKBENCH_ICON_BUTTON_CLASS} text-[#646A73] hover:text-[#1F2329]`}
+          className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-[#DEE0E3] bg-white text-[#646A73] hover:bg-[#F8F9FA] hover:text-[#1F2329]"
         >
           <X size={15} />
         </button>

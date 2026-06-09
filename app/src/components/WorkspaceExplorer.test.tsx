@@ -668,6 +668,17 @@ function testWorkspaceExplorerPreviewSupportsFullscreenOpenAndClose() {
   assert.match(source, /setIsPreviewFullscreenOpen\(false\)/);
   assert.match(source, /event\.key === "Escape"/);
   assert.match(source, /data-ripple-workspace-preview-fullscreen/);
+  assert.match(
+    source,
+    /data-ripple-workspace-preview-fullscreen[\s\S]*pt-\[max\(env\(safe-area-inset-top\),0px\)\]/
+  );
+  assert.match(
+    source,
+    /data-ripple-workspace-preview-fullscreen[\s\S]*pb-\[max\(env\(safe-area-inset-bottom\),0px\)\]/
+  );
+  assert.match(source, /min-h-\[56px\]/);
+  assert.match(source, /aria-label=\{t\("files\.closeFullscreenPreview"\)\}/);
+  assert.match(source, /className="inline-flex h-11 w-11 shrink-0/);
   assert.match(html, /aria-label="Open fullscreen preview"/);
 }
 

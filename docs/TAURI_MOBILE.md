@@ -54,7 +54,7 @@ Ripple mobile 主线采用 **Tauri 复用主 App 工作台**。
 
 3. 补充 iOS/Tauri 配置。
 
-   - 保持 bundle identifier 与 App Store Connect 中注册的 Bundle ID 一致；当前 Tauri identifier 是 `ai.viaim.ripple`。
+   - 保持 bundle identifier 与 App Store Connect 中注册的 Bundle ID 一致；当前 Tauri identifier 是 `com.viaim.ripple`。
    - 临时保持 production API 指向 `http://140.143.229.103:8810/v1`；恢复域名后切回 HTTPS。
    - CSP 需要允许当前 production API、后端返回的图片/asset URL、`blob:` 和 Tauri asset 源。
    - 新增或检查 `Info.ios.plist`，包含 App Store/TestFlight 所需的 encryption export compliance 字段。

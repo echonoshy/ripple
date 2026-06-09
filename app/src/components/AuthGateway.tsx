@@ -163,10 +163,10 @@ export default function AuthGateway({
       <div
         data-ripple-auth-ambient="true"
         aria-hidden="true"
-        className="ripple-auth-ambient-motion pointer-events-none absolute inset-x-0 top-0 z-0 h-[58vh] bg-[linear-gradient(180deg,rgba(20,86,240,0.07)_0%,rgba(255,255,255,0.46)_48%,rgba(245,246,247,0)_100%)] motion-reduce:animate-none"
+        className="pointer-events-none absolute inset-x-0 top-0 z-0 h-[58vh] bg-[linear-gradient(180deg,rgba(20,86,240,0.07)_0%,rgba(255,255,255,0.46)_48%,rgba(245,246,247,0)_100%)]"
       />
       <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-[760px] flex-col px-4 pt-[calc(max(env(safe-area-inset-top),12px)+20px)] pb-[max(env(safe-area-inset-bottom),20px)] sm:px-6 lg:max-w-[880px] lg:pt-[calc(max(env(safe-area-inset-top),16px)+28px)]">
-        <header className="ripple-auth-header-motion flex h-14 shrink-0 items-center motion-reduce:animate-none">
+        <header className="flex h-14 shrink-0 items-center">
           <div className="flex items-center gap-3.5">
             <RippleIcon
               size={48}
@@ -189,7 +189,7 @@ export default function AuthGateway({
           className="flex flex-1 -translate-y-6 flex-col items-center justify-center gap-6 py-6 sm:-translate-y-8 sm:gap-7 lg:-translate-y-10 lg:py-10"
         >
           <section
-            className="ripple-auth-brand-motion w-full max-w-[680px] text-center motion-reduce:animate-none"
+            className="w-full max-w-[680px] text-center"
             aria-label="Ripple"
           >
             <h1
@@ -222,7 +222,7 @@ export default function AuthGateway({
 
           <section
             data-ripple-auth-card="true"
-            className={`ripple-auth-card-motion w-full max-w-[520px] p-5 transition-[border-color,box-shadow] duration-200 ease-out hover:border-[#D0D3D6] motion-reduce:transform-none motion-reduce:animate-none motion-reduce:transition-none sm:p-6 ${WORKBENCH_FLOATING_SURFACE_CLASS}`}
+            className={`w-full max-w-[520px] p-5 transition-[border-color,box-shadow] duration-200 ease-out hover:border-[#D0D3D6] motion-reduce:transform-none motion-reduce:transition-none sm:p-6 ${WORKBENCH_FLOATING_SURFACE_CLASS}`}
           >
             <div className="mb-5 flex items-start gap-3">
               <IconTile tone={isService ? "warning" : "accent"} size="lg">

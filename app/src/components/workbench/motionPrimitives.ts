@@ -10,7 +10,7 @@ export const pressableTap = { scale: 0.97 };
 export const reducedMotionTransition: Transition = { duration: 0 };
 
 export const mobileStackPushTransition: Transition = {
-  duration: 0.3,
+  duration: 0.18,
   ease: IOS_MOTION_EASE,
 };
 
@@ -20,17 +20,17 @@ export const menuTransition: Transition = {
 };
 
 export const mobileStackReturnTransition: Transition = {
-  duration: 0.25,
+  duration: 0.16,
   ease: IOS_MOTION_EASE,
 };
 
 export const mobileStackCommitTransition: Transition = {
-  duration: 0.24,
+  duration: 0.16,
   ease: IOS_MOTION_EASE,
 };
 
 export const mobilePageSwitchTransition: Transition = {
-  duration: 0.3,
+  duration: 0.16,
   ease: IOS_MOTION_EASE,
 };
 
@@ -39,12 +39,12 @@ export const mobilePageTransition: Transition = mobilePageSwitchTransition;
 export const sheetTransition: Transition = mobileStackReturnTransition;
 
 export const listItemTransition: Transition = {
-  duration: 0.16,
+  duration: 0.08,
   ease: IOS_MOTION_EASE,
 };
 
 export const swipeSnapTransition: Transition = {
-  duration: 0.22,
+  duration: 0.14,
   ease: IOS_MOTION_EASE,
 };
 
@@ -171,37 +171,29 @@ export function resolveMobileSwipeBackRelease({
 
 export const mobilePageVariants: Variants = {
   enter: (direction: number = 0) => ({
-    opacity: 0,
-    x: direction > 0 ? 28 : direction < 0 ? -22 : 0,
-    y: direction === 0 ? 8 : 0,
+    x: direction > 0 ? 16 : direction < 0 ? -16 : 0,
   }),
   center: {
-    opacity: 1,
     x: 0,
-    y: 0,
   },
   exit: (direction: number = 0) => ({
-    opacity: 0,
-    x: direction > 0 ? -18 : direction < 0 ? 26 : 0,
-    y: direction === 0 ? -4 : 0,
+    x: direction > 0 ? -12 : direction < 0 ? 12 : 0,
   }),
 };
 
 export const reducedMobilePageVariants: Variants = {
-  enter: { opacity: 0 },
-  center: { opacity: 1 },
-  exit: { opacity: 0 },
+  enter: { x: 0 },
+  center: { x: 0 },
+  exit: { x: 0 },
 };
 
 export const searchExpandVariants: Variants = {
   collapsed: {
     height: 0,
-    opacity: 0,
     marginTop: 0,
   },
   expanded: {
     height: "auto",
-    opacity: 1,
     marginTop: 8,
   },
 };
@@ -228,13 +220,9 @@ export const sheetPanelVariants: Variants = {
 };
 
 export const listItemVariants: Variants = {
-  hidden: { opacity: 0, y: 4 },
-  visible: (index: number = 0) => ({
+  hidden: { opacity: 1, y: 0 },
+  visible: () => ({
     opacity: 1,
     y: 0,
-    transition: {
-      ...listItemTransition,
-      delay: Math.min(index, 7) * 0.018,
-    },
   }),
 };

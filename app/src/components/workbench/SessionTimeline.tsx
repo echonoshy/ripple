@@ -575,7 +575,7 @@ export default function SessionTimeline({
               size="xs"
               className="rounded-full shadow-[0_8px_18px_rgba(123,92,255,0.14)]"
             >
-              <span className="h-2 w-2 animate-pulse rounded-full bg-current" />
+              <span className="h-2 w-2 rounded-full bg-current" />
             </IconTile>
             <div className="flex min-w-0 items-center gap-2">
               <Bot size={13} className="shrink-0" />

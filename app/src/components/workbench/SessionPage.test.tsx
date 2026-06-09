@@ -844,6 +844,12 @@ function testPendingSessionDetailsShowSkeletonInsteadOfPreviousMessages() {
   assert.match(sessionPageSource, /isSessionLoading\?: boolean/);
 }
 
+function testMobileChatStatusUsesStaticGenerationIndicators() {
+  assert.doesNotMatch(sessionPageSource, /animate-pulse/);
+  assert.match(sessionPageSource, /isGenerating\s*\?\s*"shrink-0 text-\[#1456F0\]"/);
+  assert.match(sessionPageSource, /isGenerating\s*\?\s*"bg-\[#1456F0\]"\s*:\s*"bg-\[#22A06B\]"/);
+}
+
 testOmitsPlaceholderSessionHeaderControls();
 testMobileHeaderButtonsUseToolbarStyling();
 testSessionPageUsesSharedWorkbenchBackground();
@@ -888,5 +894,6 @@ testMobileComposerReserveUsesMeasuredHeight();
 testMobileOverlayMeasurementsUseBorderBoxHeight();
 testMobileTimelinePadsForOverlayHeaderAndComposer();
 testPendingSessionDetailsShowSkeletonInsteadOfPreviousMessages();
+testMobileChatStatusUsesStaticGenerationIndicators();
 
 console.log("session page tests passed");

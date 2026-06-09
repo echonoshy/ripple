@@ -111,11 +111,11 @@ function testGatewayUsesRestrainedMotionAndElevation() {
   const card = html.match(/<section[^>]*data-ripple-auth-card="true"[^>]*>/)?.[0];
 
   assert.match(html, /data-ripple-auth-ambient="true"/);
-  assert.match(source, /ripple-auth-ambient-motion/);
-  assert.match(source, /ripple-auth-header-motion/);
-  assert.match(source, /ripple-auth-brand-motion/);
+  assert.doesNotMatch(source, /ripple-auth-ambient-motion/);
+  assert.doesNotMatch(source, /ripple-auth-header-motion/);
+  assert.doesNotMatch(source, /ripple-auth-brand-motion/);
   assert.ok(card);
-  assert.match(card, /ripple-auth-card-motion/);
+  assert.doesNotMatch(card, /ripple-auth-card-motion/);
   assert.match(source, /WORKBENCH_FLOATING_SURFACE_CLASS/);
   assert.doesNotMatch(card, /backdrop-blur-xl/);
   assert.doesNotMatch(card, /shadow-\[0_30px_90px/);
@@ -125,9 +125,8 @@ function testGatewayUsesRestrainedMotionAndElevation() {
   assert.match(source, /focus:shadow-\[0_0_0_4px_rgba\(20,86,240,0\.08\)/);
   assert.match(source, /hover:shadow-\[0_16px_34px_rgba\(20,86,240,0\.22\)\]/);
   assert.match(source, /motion-reduce:transition-none/);
-  assert.match(globalCss, /@keyframes ripple-auth-rise/);
-  assert.match(globalCss, /@keyframes ripple-auth-ambient/);
-  assert.match(globalCss, /prefers-reduced-motion:\s*reduce/);
+  assert.doesNotMatch(globalCss, /@keyframes ripple-auth-rise/);
+  assert.doesNotMatch(globalCss, /@keyframes ripple-auth-ambient/);
 }
 
 function testGatewayMainContentSitsSlightlyHigher() {

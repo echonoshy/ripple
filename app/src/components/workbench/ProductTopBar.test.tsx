@@ -75,7 +75,7 @@ function testSettingsEntryKeepsLiveStatusDot() {
   const html = renderProductTopBar();
 
   assert.match(html, /data-ripple-settings-status-dot="true"/);
-  assert.match(html, /animate-ping/);
+  assert.doesNotMatch(html, /animate-ping/);
   assert.match(html, /bg-emerald-500/);
 }
 

@@ -12,15 +12,22 @@ import MobileSessionStack, {
   shouldGuardMobileSessionDrawerScroll,
 } from "./MobileSessionStack";
 import {
+  listItemVariants,
   mobileStackCommitTransition,
   mobilePageSwitchTransition,
+  mobilePageVariants,
   mobileStackPushTransition,
   mobileStackReturnTransition,
   mobileSwipeBackConfig,
+  swipeSnapTransition,
 } from "./motionPrimitives";
 
 const mobileSessionStackSource = readFileSync(
   new URL("./MobileSessionStack.tsx", import.meta.url),
+  "utf8"
+);
+const motionPrimitivesSource = readFileSync(
+  new URL("./motionPrimitives.ts", import.meta.url),
   "utf8"
 );
 
@@ -390,15 +397,41 @@ function testCommittedSwipeDoesNotResetSheetBeforeListUnmountsChat() {
   assert.doesNotMatch(pointerUpBlock, /sheetX\.set\(0\);\s*onOpenList\(\);/);
 }
 
-function testMobileMotionUsesFeishuInspiredSharedTiming() {
-  assert.equal(mobileStackPushTransition.duration, 0.3);
-  assert.equal(mobilePageSwitchTransition.duration, 0.3);
-  assert.equal(mobileStackCommitTransition.duration, 0.24);
-  assert.equal(mobileStackReturnTransition.duration, 0.25);
+function testMobileMotionUsesRestrainedSharedTiming() {
+  assert.equal(mobileStackPushTransition.duration, 0.18);
+  assert.equal(mobilePageSwitchTransition.duration, 0.16);
+  assert.equal(mobileStackCommitTransition.duration, 0.16);
+  assert.equal(mobileStackReturnTransition.duration, 0.16);
+  assert.equal(swipeSnapTransition.duration, 0.14);
   assert.equal(mobileSwipeBackConfig.desktopMinWidth, 1024);
   assert.equal(mobileSwipeBackConfig.edgeStartWidthPx, 72);
   assert.equal(mobileSwipeBackConfig.commitMaxPx, 72);
   assert.equal(mobileSwipeBackConfig.commitViewportRatio, 0.18);
+}
+
+function variantState(
+  variant: unknown,
+  custom?: number
+): Record<string, unknown> {
+  return typeof variant === "function"
+    ? (variant as (custom?: number) => Record<string, unknown>)(custom)
+    : (variant as Record<string, unknown>);
+}
+
+function testMobilePageVariantsAvoidFadeAndVerticalDrift() {
+  assert.deepEqual(variantState(mobilePageVariants.enter, 1), { x: 16 });
+  assert.deepEqual(variantState(mobilePageVariants.enter, -1), { x: -16 });
+  assert.deepEqual(variantState(mobilePageVariants.enter, 0), { x: 0 });
+  assert.deepEqual(variantState(mobilePageVariants.center), { x: 0 });
+  assert.deepEqual(variantState(mobilePageVariants.exit, 1), { x: -12 });
+  assert.deepEqual(variantState(mobilePageVariants.exit, -1), { x: 12 });
+  assert.deepEqual(variantState(mobilePageVariants.exit, 0), { x: 0 });
+}
+
+function testMobileListItemsDoNotStaggerOrFade() {
+  assert.deepEqual(variantState(listItemVariants.hidden), { opacity: 1, y: 0 });
+  assert.deepEqual(variantState(listItemVariants.visible, 6), { opacity: 1, y: 0 });
+  assert.doesNotMatch(motionPrimitivesSource, /delay: Math/);
 }
 
 function testChatSheetAnimatesInFromRightWhenOpeningSession() {
@@ -435,7 +468,9 @@ testStackLayersListBehindChatSheet();
 testListModeDoesNotRenderForegroundChatSheet();
 testPointerMoveOnlyDragsWithoutOpeningList();
 testCommittedSwipeDoesNotResetSheetBeforeListUnmountsChat();
-testMobileMotionUsesFeishuInspiredSharedTiming();
+testMobileMotionUsesRestrainedSharedTiming();
+testMobilePageVariantsAvoidFadeAndVerticalDrift();
+testMobileListItemsDoNotStaggerOrFade();
 testChatSheetAnimatesInFromRightWhenOpeningSession();
 testSessionSwipeBackUsesSharedMotionPrimitive();
 testChatSheetUsesCompositedSwipeAnimation();

@@ -313,6 +313,13 @@ function testTimelineNoticeSurfacesUseWorkbenchPrimitives() {
   assert.doesNotMatch(source, /shadow-\[0_10px_22px_rgba\(20,86,240,0\.22\)\]/);
 }
 
+function testGeneratingPlaceholderUsesStaticIndicator() {
+  const source = readFileSync(new URL("./SessionTimeline.tsx", import.meta.url), "utf8");
+
+  assert.doesNotMatch(source, /animate-pulse/);
+  assert.match(source, /className="h-2 w-2 rounded-full bg-current"/);
+}
+
 testTimelineImagePreviewsUseWorkspaceImageCache();
 testEmptyTimelineUsesShortReadyCopy();
 testTimelineRendersChineseStaticCopy();
@@ -329,5 +336,6 @@ testWaitingCopyAvoidsConcreteOperationClaims();
 testTimelineTimestampsShowDateWhenNotToday();
 testTimelineUsesReadableMobileTypeScale();
 testTimelineNoticeSurfacesUseWorkbenchPrimitives();
+testGeneratingPlaceholderUsesStaticIndicator();
 
 console.log("session timeline tests passed");

@@ -357,7 +357,7 @@ export default function SessionPage({
   const currentModelLabel = isGenerating ? t("composer.working") : modelDisplayName;
   const currentModelAccessibleLabel = t("sessions.currentModel", { model: modelDisplayName });
   const modelBadgeIconClass = isGenerating
-    ? "shrink-0 animate-pulse text-[#1456F0]"
+    ? "shrink-0 text-[#1456F0]"
     : "shrink-0 text-[#646A73]";
   const effectiveContextFolderPath = session?.contextFolderPath ?? contextFolderPath ?? null;
   const workspaceScopePath = effectiveContextFolderPath || "/workspace";
@@ -700,7 +700,7 @@ export default function SessionPage({
               <BrainCircuit size={11} className={modelBadgeIconClass} strokeWidth={2.2} />
               <span
                 className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-                  isGenerating ? "animate-pulse bg-[#1456F0]" : "bg-[#22A06B]"
+                  isGenerating ? "bg-[#1456F0]" : "bg-[#22A06B]"
                 }`}
               />
               <span className="truncate">{currentModelLabel}</span>
@@ -760,7 +760,7 @@ export default function SessionPage({
             <BrainCircuit size={13} className={modelBadgeIconClass} strokeWidth={2.2} />
             <span
               className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-                isGenerating ? "animate-pulse bg-[#1456F0]" : "bg-[#22A06B]"
+                isGenerating ? "bg-[#1456F0]" : "bg-[#22A06B]"
               }`}
             />
             <span className="truncate">{currentModelLabel}</span>

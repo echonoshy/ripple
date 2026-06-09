@@ -14,7 +14,7 @@
     "tauri:build:linux": "tauri build --bundles deb,rpm",
     "tauri:ios:init": "tauri ios init",
     "tauri:ios:dev": "tauri ios dev",
-    "tauri:ios:build:testflight": "tauri ios build --export-method release-testing",
+    "tauri:ios:build:testflight": "tauri ios build --export-method app-store-connect",
     "tauri:android:init": "tauri android init",
     "tauri:android:dev": "tauri android dev",
     "tauri:android:build": "tauri android build",

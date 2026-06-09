@@ -1,6 +1,6 @@
 name: ripple-desktop
 options:
-  bundleIdPrefix: ai.viaim.ripple
+  bundleIdPrefix: com.viaim.ripple
   deploymentTarget:
     iOS: 14.0
 fileGroups: [../../src]
@@ -11,7 +11,8 @@ settingGroups:
   app:
     base:
       PRODUCT_NAME: Ripple
-      PRODUCT_BUNDLE_IDENTIFIER: ai.viaim.ripple
+      PRODUCT_BUNDLE_IDENTIFIER: com.viaim.ripple
+      DEVELOPMENT_TEAM: 932QX878KY
 targetTemplates:
   app:
     type: application

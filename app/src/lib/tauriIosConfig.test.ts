@@ -46,7 +46,7 @@ const androidGradle = readFileSync(
 );
 const androidMainActivity = readFileSync(
   new URL(
-    "../../src-tauri/gen/android/app/src/main/java/ai/viaim/ripple/MainActivity.kt",
+    "../../src-tauri/gen/android/app/src/main/java/com/viaim/ripple/MainActivity.kt",
     import.meta.url
   ),
   "utf8"
@@ -60,7 +60,7 @@ function testPackageExposesIosTauriScripts() {
   assert.equal(packageJson.scripts["tauri:ios:dev"], "tauri ios dev");
   assert.equal(
     packageJson.scripts["tauri:ios:build:testflight"],
-    "tauri ios build --export-method release-testing"
+    "tauri ios build --export-method app-store-connect"
   );
 }
 
@@ -77,7 +77,7 @@ testPackageExposesAndroidTauriScripts();
 function testTauriConfigKeepsTemporaryHttpIpApiAndAssetCsp() {
   const csp = tauriConfig.app.security.csp;
 
-  assert.equal(tauriConfig.identifier, "ai.viaim.ripple");
+  assert.equal(tauriConfig.identifier, "com.viaim.ripple");
   assert.match(csp, /connect-src[^;]*http:\/\/140\.143\.229\.103:8810/);
   assert.match(csp, /connect-src[^;]*https:\/\/test-oauth\.weilai\.ai/);
   assert.match(csp, /img-src[^;]*asset:/);
@@ -120,9 +120,9 @@ function testPackagePinsPdfJsForMobilePreview() {
 testPackagePinsPdfJsForMobilePreview();
 
 function testTauriIosDevUsesPublicRippleServer() {
-  assert.equal(tauriIosConfig.identifier, "ai.viaim.ripple");
+  assert.equal(tauriIosConfig.identifier, "com.viaim.ripple");
   assert.match(appleProjectConfig, /PRODUCT_NAME: Ripple/);
-  assert.match(appleProjectConfig, /PRODUCT_BUNDLE_IDENTIFIER: ai\.viaim\.ripple/);
+  assert.match(appleProjectConfig, /PRODUCT_BUNDLE_IDENTIFIER: com\.viaim\.ripple/);
   assert.match(
     tauriIosConfig.build.beforeDevCommand,
     /VITE_RIPPLE_API_URL=http:\/\/140\.143\.229\.103:8810/
@@ -160,12 +160,15 @@ function testAndroidTargetHasBeenInitialized() {
     true
   );
   assert.equal(existsSync(new URL("../../src-tauri/gen/android/gradlew", import.meta.url)), true);
+  assert.match(androidGradle, /namespace\s*=\s*"com\.viaim\.ripple"/);
+  assert.match(androidGradle, /applicationId\s*=\s*"com\.viaim\.ripple"/);
   assert.match(androidGradle, /manifestPlaceholders\["usesCleartextTraffic"\]\s*=\s*"true"/);
 }
 
 testAndroidTargetHasBeenInitialized();
 
 function testAndroidMainActivityExposesChatBackGestureExclusionBridge() {
+  assert.match(androidMainActivity, /package com\.viaim\.ripple/);
   assert.match(androidMainActivity, /override fun onWebViewCreate\(webView: WebView\)/);
   assert.match(
     androidMainActivity,

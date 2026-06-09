@@ -1,4 +1,4 @@
-package ai.viaim.ripple
+package com.viaim.ripple
 
 import android.graphics.Rect
 import android.os.Build

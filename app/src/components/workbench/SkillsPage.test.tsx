@@ -610,7 +610,7 @@ function testSkillsPageMobileInteractionFixes() {
   const motionSource = readFileSync(new URL("./motionPrimitives.ts", import.meta.url), "utf8");
   const androidMainActivity = readFileSync(
     new URL(
-      "../../../src-tauri/gen/android/app/src/main/java/ai/viaim/ripple/MainActivity.kt",
+      "../../../src-tauri/gen/android/app/src/main/java/com/viaim/ripple/MainActivity.kt",
       import.meta.url
     ),
     "utf8"

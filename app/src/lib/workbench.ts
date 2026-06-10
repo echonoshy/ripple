@@ -44,6 +44,14 @@ export function sessionAttentionFromStatus(
   return null;
 }
 
+export function shouldNotifySessionAttention(
+  attention: SessionAttention,
+  targetSessionId: string,
+  visibleSessionDetailId: string | null
+): boolean {
+  return attention !== "completed" || targetSessionId !== visibleSessionDetailId;
+}
+
 export function mapSessionSummariesToWorkbenchSessions(
   sessions: SessionSummary[]
 ): WorkbenchSessionSummary[] {
@@ -204,8 +212,7 @@ export function applySessionAttentionMarkers(
       storedAttention && (sessionIsOpen || acknowledgedAttention === storedAttention)
         ? null
         : storedAttention;
-    const attention =
-      visibleStatusAttention || visibleStoredAttention || null;
+    const attention = visibleStatusAttention || visibleStoredAttention || null;
 
     if ((session.attention || null) === attention) return session;
     return {

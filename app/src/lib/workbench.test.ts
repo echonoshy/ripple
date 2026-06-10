@@ -9,6 +9,7 @@ import {
   mergeTimelineEvents,
   mergeInferredWorkbenchSessions,
   mapSessionSummariesToWorkbenchSessions,
+  shouldNotifySessionAttention,
   messagesToTimelineEvents,
   sortWorkbenchSessions,
   stabilizeWorkbenchSessionOrder,
@@ -300,6 +301,14 @@ function testClearsNeedsInputAttentionForOpenWaitingSession() {
 
   assert.equal(marked[0].sessionId, "srv-waiting");
   assert.equal(marked[0].attention, undefined);
+}
+
+function testCompletedAttentionIsConsumedWhenSessionDetailIsVisible() {
+  assert.equal(shouldNotifySessionAttention("completed", "srv-current", "srv-current"), false);
+  assert.equal(shouldNotifySessionAttention("completed", "srv-background", "srv-current"), true);
+  assert.equal(shouldNotifySessionAttention("completed", "srv-current", null), true);
+  assert.equal(shouldNotifySessionAttention("needs_input", "srv-current", "srv-current"), true);
+  assert.equal(shouldNotifySessionAttention("error", "srv-current", "srv-current"), true);
 }
 
 function testMergesMissingRunningSessionIntoSidebarSessions() {
@@ -904,6 +913,7 @@ testAppliesUnreadCompletionAttentionOnlyOffCurrentSession();
 testHidesFailedAttentionForOpenSession();
 testAcknowledgedFailedAttentionStaysHiddenOffCurrentSession();
 testClearsNeedsInputAttentionForOpenWaitingSession();
+testCompletedAttentionIsConsumedWhenSessionDetailIsVisible();
 testMergesMissingRunningSessionIntoSidebarSessions();
 testStabilizesSessionOrderAcrossActivityRefreshes();
 testStabilizedSessionOrderAllowsPinnedSessionsToMove();

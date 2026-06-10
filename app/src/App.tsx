@@ -46,6 +46,7 @@ import {
   mergeInferredWorkbenchSessions,
   sessionAttentionFromStatus,
   sessionStatusToWorkbenchStatus,
+  shouldNotifySessionAttention,
   stabilizeWorkbenchSessionOrder,
 } from "@/lib/workbench";
 import { shouldShowInspector, type WorkspaceView } from "@/lib/workspaceViews";
@@ -196,6 +197,8 @@ export default function Home() {
   const selectedSessionIdRef = useRef<string | null>(null);
   const selectedModelOverrideBySessionRef = useRef<Record<string, string>>({});
   const activeViewRef = useRef<WorkspaceView>("sessions");
+  const isMobileLayoutRef = useRef(isMobileLayout);
+  const mobileSessionModeRef = useRef<"list" | "chat">(mobileSessionMode);
   const workspaceFileOpenRequestIdRef = useRef(0);
   const mobileSessionSelectionRequestRef = useRef(0);
   const displayWorkbenchSessionOrderRef = useRef<WorkbenchSessionSummary[]>([]);
@@ -274,6 +277,14 @@ export default function Home() {
 
   const handleSessionAttention = useCallback(
     (targetSessionId: string, attention: SessionAttention | null) => {
+      const visibleSessionDetailId =
+        activeViewRef.current === "sessions" &&
+        (!isMobileLayoutRef.current || mobileSessionModeRef.current === "chat")
+          ? selectedSessionIdRef.current
+          : null;
+      const shouldNotify =
+        attention &&
+        shouldNotifySessionAttention(attention, targetSessionId, visibleSessionDetailId);
       setAcknowledgedSessionAttentionById((prev) => {
         if (!prev[targetSessionId]) return prev;
         const next = { ...prev };
@@ -281,7 +292,7 @@ export default function Home() {
         return next;
       });
       setSessionAttentionById((prev) => {
-        if (!attention) {
+        if (!attention || !shouldNotify) {
           if (!prev[targetSessionId]) return prev;
           const next = { ...prev };
           delete next[targetSessionId];
@@ -403,6 +414,14 @@ export default function Home() {
   useEffect(() => {
     activeViewRef.current = activeView;
   }, [activeView]);
+
+  useEffect(() => {
+    isMobileLayoutRef.current = isMobileLayout;
+  }, [isMobileLayout]);
+
+  useEffect(() => {
+    mobileSessionModeRef.current = mobileSessionMode;
+  }, [mobileSessionMode]);
 
   useEffect(() => {
     sessionActionsRef.current = {
@@ -917,28 +936,25 @@ export default function Home() {
   const openSessionIdForAttention = sessionDetailVisibleForAttention ? sessionId : null;
   const sessionListVisibleForStableOrder =
     activeView === "sessions" && (!isMobileLayout || mobileSessionMode === "list");
-  const displayWorkbenchSessions = useMemo(
-    () => {
-      const markedSessions = applySessionAttentionMarkers(
-        mergedWorkbenchSessions,
-        sessionAttentionById,
-        openSessionIdForAttention,
-        acknowledgedSessionAttentionById
-      );
-      const orderedSessions = sessionListVisibleForStableOrder
-        ? stabilizeWorkbenchSessionOrder(displayWorkbenchSessionOrderRef.current, markedSessions)
-        : markedSessions;
-      displayWorkbenchSessionOrderRef.current = orderedSessions;
-      return orderedSessions;
-    },
-    [
-      acknowledgedSessionAttentionById,
+  const displayWorkbenchSessions = useMemo(() => {
+    const markedSessions = applySessionAttentionMarkers(
       mergedWorkbenchSessions,
-      openSessionIdForAttention,
-      sessionListVisibleForStableOrder,
       sessionAttentionById,
-    ]
-  );
+      openSessionIdForAttention,
+      acknowledgedSessionAttentionById
+    );
+    const orderedSessions = sessionListVisibleForStableOrder
+      ? stabilizeWorkbenchSessionOrder(displayWorkbenchSessionOrderRef.current, markedSessions)
+      : markedSessions;
+    displayWorkbenchSessionOrderRef.current = orderedSessions;
+    return orderedSessions;
+  }, [
+    acknowledgedSessionAttentionById,
+    mergedWorkbenchSessions,
+    openSessionIdForAttention,
+    sessionListVisibleForStableOrder,
+    sessionAttentionById,
+  ]);
   const selectedWorkbenchSession = sessionId
     ? displayWorkbenchSessions.find((session) => session.sessionId === sessionId) || null
     : null;

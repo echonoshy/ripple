@@ -16,8 +16,9 @@ const TEXT_EXTENSIONS: &[&str] = &[
     "cfg", "conf", "csv", "env", "ini", "json", "jsonl", "log", "txt", "toml", "xml", "yaml", "yml",
 ];
 const MAX_PREVIEW_BYTES: usize = 1024 * 1024;
-const SENSITIVE_TOP_LEVEL_ENTRIES: &[&str] =
-    &[".bilibili", ".codex", ".config", ".lark-cli", ".tmp"];
+// .tmp is hidden from normal listings, but Codex may emit explicit image preview
+// paths there for temporary document inspection artifacts.
+const SENSITIVE_TOP_LEVEL_ENTRIES: &[&str] = &[".bilibili", ".codex", ".config", ".lark-cli"];
 const SUPPRESSED_DIRECTORY_NAMES: &[&str] = &["__pycache__"];
 
 #[derive(Debug, Serialize)]

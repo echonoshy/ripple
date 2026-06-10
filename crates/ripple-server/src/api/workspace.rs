@@ -966,6 +966,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn download_workspace_file_allows_tmp_image_artifacts() -> anyhow::Result<()> {
+        let state = test_state(2048);
+        let workspace = state.sandboxes.ensure_sandbox("alice")?;
+        let artifact = workspace
+            .join(".tmp")
+            .join("pdf-inspect")
+            .join("images")
+            .join("obj006_2610x1471.jpg");
+        std::fs::create_dir_all(artifact.parent().expect("artifact parent"))?;
+        std::fs::write(&artifact, b"jpeg bytes")?;
+
+        let encoded_path = url::form_urlencoded::byte_serialize(
+            b"/workspace/.tmp/pdf-inspect/images/obj006_2610x1471.jpg",
+        )
+        .collect::<String>();
+        let (status, headers, body) = request_bytes(
+            state,
+            Method::GET,
+            &format!("/v1/workspace/download?path={encoded_path}"),
+            None,
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, b"jpeg bytes");
+        assert_eq!(
+            headers
+                .get(header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok()),
+            Some("image/jpeg")
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn paste_copy_checks_quota_before_writing() -> anyhow::Result<()> {
         let state = test_state(0);
         let workspace = state.sandboxes.ensure_sandbox("alice")?;

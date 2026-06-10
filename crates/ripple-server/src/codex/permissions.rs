@@ -76,7 +76,9 @@ pub fn thread_permission_config(workspace: &Path, config: &AppConfig) -> Value {
         }
     }
     if let Some(user_codex_home) = current_user_codex_home(workspace, config) {
-        filesystem.insert(user_codex_home.to_string_lossy().to_string(), json!("none"));
+        if !path_is_covered_by_parent(&user_codex_home, &config.sandbox.sandboxes_root) {
+            filesystem.insert(user_codex_home.to_string_lossy().to_string(), json!("none"));
+        }
     }
     if let Some(user_runtime_home) = current_user_codex_runtime_home(workspace, config) {
         filesystem.insert(
@@ -274,7 +276,7 @@ mod tests {
     }
 
     #[test]
-    fn profile_denies_current_user_codex_home_and_service_codex_home() {
+    fn profile_omits_user_codex_home_child_when_sandboxes_root_is_denied() {
         let mut config = test_config();
         config.codex.codex_home = Some(config.repo_root.join(".ripple/codex-service-home"));
         let workspace = config.sandbox.sandboxes_root.join("alice/workspace");
@@ -291,9 +293,9 @@ mod tests {
             .and_then(|filesystem| filesystem.as_object())
             .expect("filesystem rules");
 
-        assert_eq!(
-            filesystem.get(user_codex_home.to_string_lossy().as_ref()),
-            Some(&json!("none"))
+        assert!(
+            !filesystem.contains_key(user_codex_home.to_string_lossy().as_ref()),
+            "user Codex home child should be covered by the denied sandboxes root"
         );
         assert_eq!(
             filesystem.get(config.codex_home_path().to_string_lossy().as_ref()),

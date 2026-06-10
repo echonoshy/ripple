@@ -180,6 +180,8 @@ function testSkillsCategoryDetailUsesSharedMobilePageHeader() {
   assert.match(source, /backLabel=\{t\("skills\.backToCategories"\)\}/);
   assert.match(source, /onBack=\{closeCategory\}/);
   assert.match(headerBlock, /backButtonVariant="ghost"/);
+  assert.match(headerBlock, /titleClassName=\{MOBILE_DETAIL_HEADER_TITLE_CLASS\}/);
+  assert.match(headerBlock, /className=\{MOBILE_DETAIL_PAGE_HEADER_CLASS\}/);
   assert.doesNotMatch(
     source,
     /<section data-ripple-skill-category-detail="true" className="space-y-2\.5">\s*<div className="flex items-start gap-2">/

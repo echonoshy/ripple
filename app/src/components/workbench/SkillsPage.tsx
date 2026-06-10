@@ -41,6 +41,8 @@ import type {
 } from "@/types";
 import {
   LUCIDE_NAV_STROKE_WIDTH,
+  MOBILE_DETAIL_HEADER_TITLE_CLASS,
+  MOBILE_DETAIL_PAGE_HEADER_CLASS,
   MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS,
   MOBILE_PAGE_TOP_SAFE_AREA_CLASS,
   TYPOGRAPHY_BODY_CLASS,
@@ -2016,8 +2018,9 @@ export default function SkillsPage({
         })}
         backLabel={t("skills.backToCategories")}
         onBack={closeCategory}
+        titleClassName={MOBILE_DETAIL_HEADER_TITLE_CLASS}
         backButtonVariant="ghost"
-        className="-mx-3 -mt-[max(env(safe-area-inset-top),12px)] md:-mx-6"
+        className={MOBILE_DETAIL_PAGE_HEADER_CLASS}
       />
       <div className="hidden items-start gap-2 lg:flex">
         <button

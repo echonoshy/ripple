@@ -1275,6 +1275,8 @@ async fn session_overview_groups_sessions_and_enriches_linked_runs() {
             AgentRunCreateRequest {
                 prompt: "Linked session run".to_string(),
                 provider: "codex".to_string(),
+                base_instructions: None,
+                turn_context: None,
                 cwd: None,
                 input_items: Vec::new(),
                 model: Some("codex-test".to_string()),
@@ -1306,6 +1308,8 @@ async fn session_overview_groups_sessions_and_enriches_linked_runs() {
             AgentRunCreateRequest {
                 prompt: "Standalone run".to_string(),
                 provider: "codex".to_string(),
+                base_instructions: None,
+                turn_context: None,
                 cwd: None,
                 input_items: Vec::new(),
                 model: Some("codex-test".to_string()),

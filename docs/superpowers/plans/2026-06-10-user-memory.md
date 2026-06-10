@@ -33,7 +33,7 @@
 - [ ] Add per-user Codex home field to `CodexAppServerSession`.
 - [ ] Ensure app-server startup validates the auth symlink before spawning Codex.
 - [ ] Pass per-user Codex home to compact/read thread sessions as well as normal runs.
-- [ ] Add conservative memory config to thread config: `features.memories`, `memories.use_memories`, `memories.generate_memories`, `memories.dedicated_tools=false`, `memories.disable_on_external_context=true`.
+- [ ] Add memory config to thread config: `features.memories`, `memories.use_memories`, `memories.generate_memories`, `memories.dedicated_tools=false`, `memories.disable_on_external_context=false`.
 - [ ] Run focused app-server tests.
 
 ### Task 3: Memory Settings and API

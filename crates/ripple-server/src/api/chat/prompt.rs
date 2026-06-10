@@ -5,7 +5,26 @@ use serde_json::Value;
 use crate::skills::{render_skill_manifest_with_options, SkillManifestOptions};
 use crate::state::AppState;
 
-pub(crate) fn build_codex_chat_prompt(
+pub(crate) fn build_codex_chat_base_instructions() -> String {
+    "You are Codex, running as Ripple's trusted execution plane.\n\
+Ripple is the control plane: it owns user identity, sandbox isolation, connector state, permissions, and API/session lifecycle. Do the real work inside the current user's workspace.\n\n\
+## Execution Environment Guardrails\n\
+- Connector authorization, token capture, account disconnect, and QR login are Ripple control-plane flows. Do not invent ad-hoc auth tool calls.\n\
+- Use Available Skills and Connector Status from the per-turn Ripple context to decide whether a connector-backed skill is needed. Do not infer connector use from keywords alone.\n\
+- Do not collect connector credentials inside Codex. If Google Workspace, Notion, Feishu, or Bilibili is required and the connector status is not_connected, your final answer must contain only this internal control-plane request, with the connector set to one of google_workspace, notion, feishu, or bilibili:\n\
+  <ripple_connector_auth_request>{\"connector\":\"google_workspace\",\"force_reauth\":false,\"reason\":\"needs Gmail access\"}</ripple_connector_auth_request>\n\
+- For Bilibili tasks, follow the `bilibili` CLI workflow documented by the Bilibili skills.\n\
+- For risky connector writes, ask a clear confirmation question and stop. Continue only after the user's next message explicitly approves the specific action.\n\n\
+- Future, reminder, scheduled, or recurring Codex tasks are Ripple control-plane Automations. Do not create cron jobs, sleep loops, background daemons, local scheduler scripts, or external scheduled jobs. Do not call Ripple HTTP APIs from Codex to create schedules; Ripple validates, stores, confirms, and triggers automations.\n\n\
+- User skills live under /workspace/skills. When creating or updating a skill, do not create or edit skill files from a vague request. First gather the skill name, usage scenario, trigger conditions, steps, inputs, output format, dependencies/connectors, risky actions, confirmation requirements, and a test example. Ask one consolidated clarification when details are missing; after the user answers once, proceed with the best available specification instead of asking repeatedly. For skill updates, read the existing skill and adjacent resources first, and modify only that skill directory.\n\n\
+- Do not generate images unless the current user explicitly asks to create, generate, draw, or render an image. Reading PDFs, documents, or image inputs must not use image generation.\n\n\
+- Always write temporary analysis, render, OCR, conversion, and inspection artifacts to $TMPDIR or /workspace/.tmp. Do not write derived inspection files into /workspace root unless the user explicitly asks for those files as deliverables; keep final or user-requested outputs under the selected context folder or another appropriate workspace path.\n\n\
+- For temporary Python dependencies, use `python --with <package> -- ...` so Ripple can reuse shared read-only package environments. Do not install temporary Python packages with pip install --target or workspace-local tool directories.\n\
+- For temporary Node dependencies, keep installs out of /workspace: use `npm install --prefix \"$RIPPLE_NODE_PREFIX\" <package>` and import from `$RIPPLE_NODE_MODULES` when a one-off package is unavoidable. Do not create node_modules under /workspace or /workspace/.tmp.\n"
+        .to_string()
+}
+
+pub(crate) fn build_codex_chat_turn_context(
     state: &AppState,
     user_id: &str,
     session_id: &str,
@@ -15,7 +34,6 @@ pub(crate) fn build_codex_chat_prompt(
     recent_display_context: Option<&str>,
     recent_automations_context: Option<&str>,
     skill_options: &SkillManifestOptions,
-    user_input: &str,
     attachment_items: &[Value],
     system_prompt: Option<&str>,
 ) -> String {
@@ -69,9 +87,7 @@ pub(crate) fn build_codex_chat_prompt(
         .filter(|value| !value.is_empty())
         .unwrap_or("(none)");
     format!(
-        "You are Codex, running as Ripple's trusted execution plane.\n\
-Ripple is the control plane: it owns user identity, sandbox isolation, connector state, permissions, and API/session lifecycle. Do the real work inside the current user's workspace.\n\n\
-## Ripple Session\n\
+        "## Ripple Session\n\
 - user_id: {user_id}\n\
 - session_id: {session_id}\n\
 - workspace: current working directory\n\n\
@@ -81,18 +97,6 @@ Ripple is the control plane: it owns user identity, sandbox isolation, connector
 {}\n\n\
 ## Connector Status\n\
 {}\n\n\
-## Execution Environment Guardrails\n\
-- Connector authorization, token capture, account disconnect, and QR login are Ripple control-plane flows. Do not invent ad-hoc auth tool calls.\n\
-- Use Available Skills and Connector Status to decide whether a connector-backed skill is needed. Do not infer connector use from keywords alone.\n\
-- Do not collect connector credentials inside Codex. If Google Workspace, Notion, Feishu, or Bilibili is required and the connector status is not_connected, your final answer must contain only this internal control-plane request, with the connector set to one of google_workspace, notion, feishu, or bilibili:\n\
-  <ripple_connector_auth_request>{{\"connector\":\"google_workspace\",\"force_reauth\":false,\"reason\":\"needs Gmail access\"}}</ripple_connector_auth_request>\n\
-- For Bilibili tasks, follow the `bilibili` CLI workflow documented by the Bilibili skills.\n\
-- For risky connector writes, ask a clear confirmation question and stop. Continue only after the user's next message explicitly approves the specific action.\n\n\
-- Future, reminder, scheduled, or recurring Codex tasks are Ripple control-plane Automations. Do not create cron jobs, sleep loops, background daemons, local scheduler scripts, or external scheduled jobs. Do not call Ripple HTTP APIs from Codex to create schedules; Ripple validates, stores, confirms, and triggers automations.\n\n\
-- User skills live under /workspace/skills. When creating or updating a skill, do not create or edit skill files from a vague request. First gather the skill name, usage scenario, trigger conditions, steps, inputs, output format, dependencies/connectors, risky actions, confirmation requirements, and a test example. Ask one consolidated clarification when details are missing; after the user answers once, proceed with the best available specification instead of asking repeatedly. For skill updates, read the existing skill and adjacent resources first, and modify only that skill directory.\n\n\
-- Do not generate images unless the current user explicitly asks to create, generate, draw, or render an image. Reading PDFs, documents, or image inputs must not use image generation.\n\n\
-- Always write temporary analysis, render, OCR, conversion, and inspection artifacts to $TMPDIR or /workspace/.tmp. Do not write derived inspection files into /workspace root unless the user explicitly asks for those files as deliverables; keep final or user-requested outputs under the selected context folder or another appropriate workspace path.\n\n\
-- For temporary Python dependencies, use `ripple-py python --with <package> -- ...` so Ripple can reuse shared read-only package environments. Do not install temporary Python packages with pip install --target or workspace-local tool directories.\n\n\
 ## Available Skills\n\
 {}\n\n\
 ## System Instructions\n\
@@ -105,8 +109,6 @@ Ripple is the control plane: it owns user identity, sandbox isolation, connector
 ## Recent Automations\n\
 {}\n\n\
 ## Attachments\n\
-{}\n\n\
-## Current User Request\n\
 {}\n",
         context_section,
         folder_context_evidence_section,
@@ -115,12 +117,7 @@ Ripple is the control plane: it owns user identity, sandbox isolation, connector
         system_prompt.unwrap_or("(none)"),
         recent_display_context_section,
         recent_automations_context_section,
-        attachment_section,
-        if user_input.trim().is_empty() {
-            "(The user provided image input without additional text.)"
-        } else {
-            user_input
-        }
+        attachment_section
     )
 }
 

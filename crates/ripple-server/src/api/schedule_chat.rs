@@ -365,6 +365,8 @@ async fn extract_schedule_with_codex(
     let create = AgentRunCreateRequest {
         prompt: prompt.clone(),
         provider: "codex".to_string(),
+        base_instructions: None,
+        turn_context: None,
         cwd: Some("/workspace".to_string()),
         input_items: vec![json!({"type": "text", "text": prompt})],
         model: Some(model.to_string()),

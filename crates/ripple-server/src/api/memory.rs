@@ -77,7 +77,7 @@ pub async fn memory_status(
         use_memories: settings.use_memories,
         generate_memories: settings.generate_memories,
         dedicated_tools: false,
-        disable_on_external_context: true,
+        disable_on_external_context: false,
         summary_available: summary.summary_available,
         last_updated_at: summary.last_updated_at,
     }))
@@ -106,7 +106,7 @@ pub async fn update_memory_settings_handler(
         use_memories: settings.use_memories,
         generate_memories: settings.generate_memories,
         dedicated_tools: false,
-        disable_on_external_context: true,
+        disable_on_external_context: false,
         summary_available: summary.summary_available,
         last_updated_at: summary.last_updated_at,
     }))
@@ -120,12 +120,17 @@ pub async fn reset_memory(
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     require_confirm(payload.as_ref().map(|value| &value.0), "memory reset")?;
     let workspace_root = state.sandboxes.ensure_sandbox(&user_id)?;
+    let cancelled_runs = state.jobs.stop_user(&user_id).await?;
     state
         .jobs
         .reset_memory(user_id.clone(), workspace_root)
         .await
         .map_err(|err| ApiError::new(StatusCode::BAD_GATEWAY, err.to_string()))?;
-    Ok(Json(json!({ "ok": true, "user_id": user_id })))
+    Ok(Json(json!({
+        "ok": true,
+        "user_id": user_id,
+        "cancelled_run_count": cancelled_runs.len()
+    })))
 }
 
 pub async fn load_memory_settings(
@@ -182,6 +187,14 @@ pub async fn read_memory_summary(
     let memory_path = memory_root.join("MEMORY.md");
     let memory_summary = read_redacted_file(&memory_summary_path).await?;
     let memory = read_redacted_file(&memory_path).await?;
+    if is_empty_bootstrap_memory_repository(&memory_root, &memory_summary, &memory).await? {
+        return Ok(MemorySummary {
+            summary_available: false,
+            memory_summary: None,
+            memory: None,
+            last_updated_at: None,
+        });
+    }
     let last_updated_at = newest_modified_time(&[&memory_summary_path, &memory_path]).await;
     Ok(MemorySummary {
         summary_available: memory_summary.is_some() || memory.is_some(),
@@ -189,6 +202,60 @@ pub async fn read_memory_summary(
         memory,
         last_updated_at,
     })
+}
+
+async fn is_empty_bootstrap_memory_repository(
+    memory_root: &std::path::Path,
+    memory_summary: &Option<String>,
+    memory: &Option<String>,
+) -> anyhow::Result<bool> {
+    let raw_memories_path = memory_root.join("raw_memories.md");
+    let raw_memories = match tokio::fs::read_to_string(&raw_memories_path).await {
+        Ok(contents) => contents,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(err) => return Err(err.into()),
+    };
+    if !raw_memories_are_empty(&raw_memories) {
+        return Ok(false);
+    }
+    if has_rollout_summary_files(&memory_root.join("rollout_summaries")).await? {
+        return Ok(false);
+    }
+    Ok(memory_summary
+        .as_deref()
+        .into_iter()
+        .chain(memory.as_deref())
+        .any(looks_like_empty_bootstrap_memory))
+}
+
+fn raw_memories_are_empty(contents: &str) -> bool {
+    let meaningful = contents
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .filter(|line| *line != "# Raw Memories")
+        .collect::<Vec<_>>();
+    meaningful == ["No raw memories yet."]
+}
+
+async fn has_rollout_summary_files(path: &std::path::Path) -> anyhow::Result<bool> {
+    let mut entries = match tokio::fs::read_dir(path).await {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(err) => return Err(err.into()),
+    };
+    while let Some(entry) = entries.next_entry().await? {
+        if entry.file_type().await?.is_file() {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn looks_like_empty_bootstrap_memory(contents: &str) -> bool {
+    contents.contains("No durable user profile has been established")
+        || contents.contains("Memory repository bootstrap state")
+        || contents.contains("empty input set")
 }
 
 fn memory_settings_file(
@@ -296,6 +363,71 @@ mod tests {
         assert_eq!(summary.memory_summary.as_deref(), Some("alice project"));
         assert_ne!(summary.memory_summary.as_deref(), Some("bob secret"));
         assert!(summary.summary_available);
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn memory_summary_ignores_empty_bootstrap_repository() {
+        let root =
+            std::env::temp_dir().join(format!("ripple-memory-test-{}", uuid::Uuid::new_v4()));
+        let sandboxes = SandboxManager::new(test_config(&root));
+        let memories = sandboxes.codex_home_dir("alice").unwrap().join("memories");
+        std::fs::create_dir_all(&memories).unwrap();
+        std::fs::write(
+            memories.join("raw_memories.md"),
+            "# Raw Memories\n\nNo raw memories yet.\n",
+        )
+        .unwrap();
+        std::fs::write(
+            memories.join("memory_summary.md"),
+            "## User Profile\n\nNo durable user profile has been established in this memory repository yet.",
+        )
+        .unwrap();
+        std::fs::write(
+            memories.join("MEMORY.md"),
+            "# Task Group: Memory repository bootstrap state\n\nempty input set",
+        )
+        .unwrap();
+
+        let summary = read_memory_summary(&sandboxes, "alice").await.unwrap();
+
+        assert!(!summary.summary_available);
+        assert!(summary.memory_summary.is_none());
+        assert!(summary.memory.is_none());
+        assert!(summary.last_updated_at.is_none());
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn memory_summary_keeps_bootstrap_text_when_rollout_evidence_exists() {
+        let root =
+            std::env::temp_dir().join(format!("ripple-memory-test-{}", uuid::Uuid::new_v4()));
+        let sandboxes = SandboxManager::new(test_config(&root));
+        let memories = sandboxes.codex_home_dir("alice").unwrap().join("memories");
+        let rollout_summaries = memories.join("rollout_summaries");
+        std::fs::create_dir_all(&rollout_summaries).unwrap();
+        std::fs::write(
+            memories.join("raw_memories.md"),
+            "# Raw Memories\n\nNo raw memories yet.\n",
+        )
+        .unwrap();
+        std::fs::write(
+            memories.join("memory_summary.md"),
+            "Memory repository bootstrap state, but backed by rollout evidence.",
+        )
+        .unwrap();
+        std::fs::write(rollout_summaries.join("rollout-1.md"), "real evidence").unwrap();
+
+        let summary = read_memory_summary(&sandboxes, "alice").await.unwrap();
+
+        assert!(summary.summary_available);
+        assert!(summary
+            .memory_summary
+            .as_deref()
+            .unwrap_or_default()
+            .contains("backed by rollout evidence"));
 
         let _ = std::fs::remove_dir_all(root);
     }

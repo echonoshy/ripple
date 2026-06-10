@@ -58,7 +58,7 @@ pub(crate) use media::{
 #[cfg(test)]
 use media::{decode_base64_image_payload, workspace_path_or_none};
 use project_context::collect_folder_context;
-pub(crate) use prompt::build_codex_chat_prompt;
+pub(crate) use prompt::{build_codex_chat_base_instructions, build_codex_chat_turn_context};
 use session_actions::handle_session_control_action;
 use title::spawn_session_title_generation;
 use wire::{
@@ -376,7 +376,8 @@ async fn create_codex_chat_run(args: &CodexChatStart) -> Result<AgentRunInfo, Ap
     let skill_options = catalog_skill_manifest_options_for_user(&args.state, &args.user_id).await?;
     let recent_display_context = recent_display_context(&args.session.messages);
     let recent_automations_context = recent_automations_context(&args.state, &args.user_id).await?;
-    let prompt = build_codex_chat_prompt(
+    let base_instructions = build_codex_chat_base_instructions();
+    let turn_context = build_codex_chat_turn_context(
         &args.state,
         &args.user_id,
         &args.session.session_id,
@@ -386,10 +387,10 @@ async fn create_codex_chat_run(args: &CodexChatStart) -> Result<AgentRunInfo, Ap
         recent_display_context.as_deref(),
         recent_automations_context.as_deref(),
         &skill_options,
-        &args.user_input,
         &args.attachment_items,
         args.caller_system_prompt.as_deref(),
     );
+    let prompt = chat_turn_prompt(&args.user_input);
     let mut native_items = args.input_items.clone();
     native_items.push(json!({"type": "text", "text": prompt}));
     let runtime_dir = args
@@ -403,6 +404,8 @@ async fn create_codex_chat_run(args: &CodexChatStart) -> Result<AgentRunInfo, Ap
     let create = AgentRunCreateRequest {
         prompt,
         provider: "codex".to_string(),
+        base_instructions: Some(base_instructions),
+        turn_context: Some(turn_context),
         cwd: Some(chat_cwd_for_session(&args.session)),
         input_items: native_items,
         model: Some(args.model.clone()),
@@ -432,6 +435,15 @@ async fn create_codex_chat_run(args: &CodexChatStart) -> Result<AgentRunInfo, Ap
         )
         .await
         .map_err(|err| ApiError::bad_request(err.to_string()))
+}
+
+fn chat_turn_prompt(user_input: &str) -> String {
+    let trimmed = user_input.trim();
+    if trimmed.is_empty() {
+        "(The user provided image input without additional text.)".to_string()
+    } else {
+        trimmed.to_string()
+    }
 }
 
 async fn create_codex_chat_run_marking_start_failure(
@@ -1796,7 +1808,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn codex_chat_prompt_omits_local_proxy_helper() {
+    async fn codex_chat_context_omits_local_proxy_helper() {
         let root = std::env::temp_dir().join(format!("ripple-chat-test-{}", Uuid::new_v4()));
         let state = AppState::new(test_config(&root));
         let workspace_root = state
@@ -1804,7 +1816,8 @@ mod tests {
             .ensure_sandbox("alice")
             .expect("create sandbox");
 
-        let prompt = build_codex_chat_prompt(
+        let base_instructions = build_codex_chat_base_instructions();
+        let turn_context = build_codex_chat_turn_context(
             &state,
             "alice",
             "session-1",
@@ -1814,16 +1827,17 @@ mod tests {
             None,
             None,
             &crate::skills::SkillManifestOptions::default(),
-            "hello",
             &[],
             None,
         );
+        let prompt = format!("{base_instructions}\n{turn_context}");
 
         assert!(!prompt.contains("proxy_on"));
-        assert!(prompt.contains("ripple-py"));
+        assert!(prompt.contains("python --with <package> --"));
         assert!(
             prompt.contains("Do not install temporary Python packages with pip install --target")
         );
+        assert!(prompt.contains("Do not create node_modules under /workspace or /workspace/.tmp"));
         assert!(prompt.contains(
             "write temporary analysis, render, OCR, conversion, and inspection artifacts to $TMPDIR or /workspace/.tmp"
         ));
@@ -1870,7 +1884,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn codex_chat_prompt_prefers_context_folder_files_with_web_as_supplement() {
+    async fn codex_chat_context_prefers_context_folder_files_with_web_as_supplement() {
         let root = std::env::temp_dir().join(format!("ripple-chat-test-{}", Uuid::new_v4()));
         let state = AppState::new(test_config(&root));
         let workspace_root = state
@@ -1878,7 +1892,7 @@ mod tests {
             .ensure_sandbox("alice")
             .expect("create sandbox");
 
-        let prompt = build_codex_chat_prompt(
+        let prompt = build_codex_chat_turn_context(
             &state,
             "alice",
             "session-1",
@@ -1888,7 +1902,6 @@ mod tests {
             None,
             None,
             &crate::skills::SkillManifestOptions::default(),
-            "天才俱乐部成员分别是谁？",
             &[],
             None,
         );
@@ -1906,7 +1919,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn codex_chat_prompt_includes_recent_display_context() {
+    async fn codex_chat_context_includes_recent_display_context_without_user_request() {
         let root = std::env::temp_dir().join(format!("ripple-chat-test-{}", Uuid::new_v4()));
         let state = AppState::new(test_config(&root));
         let workspace_root = state
@@ -1914,7 +1927,7 @@ mod tests {
             .ensure_sandbox("alice")
             .expect("create sandbox");
 
-        let prompt = build_codex_chat_prompt(
+        let prompt = build_codex_chat_turn_context(
             &state,
             "alice",
             "session-1",
@@ -1924,7 +1937,6 @@ mod tests {
             Some("user: 创建一个定时任务\nassistant: 你希望多久执行一次？"),
             None,
             &crate::skills::SkillManifestOptions::default(),
-            "一周一次",
             &[],
             None,
         );
@@ -1932,7 +1944,8 @@ mod tests {
         assert!(prompt.contains("## Recent Ripple Display Context"));
         assert!(prompt.contains("创建一个定时任务"));
         assert!(prompt.contains("你希望多久执行一次？"));
-        assert!(prompt.contains("## Current User Request\n一周一次"));
+        assert!(!prompt.contains("## Current User Request"));
+        assert!(!prompt.contains("一周一次"));
 
         let _ = std::fs::remove_dir_all(root);
     }
@@ -1979,7 +1992,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn codex_chat_prompt_includes_recent_automations_context() {
+    async fn codex_chat_context_includes_recent_automations_context() {
         let root = std::env::temp_dir().join(format!("ripple-chat-test-{}", Uuid::new_v4()));
         let state = AppState::new(test_config(&root));
         let workspace_root = state
@@ -1987,7 +2000,7 @@ mod tests {
             .ensure_sandbox("alice")
             .expect("create sandbox");
 
-        let prompt = build_codex_chat_prompt(
+        let prompt = build_codex_chat_turn_context(
             &state,
             "alice",
             "session-1",
@@ -2005,7 +2018,6 @@ mod tests {
 ]"#,
             ),
             &crate::skills::SkillManifestOptions::default(),
-            "它会监控哪些平台？",
             &[],
             None,
         );

@@ -189,10 +189,12 @@ features.memories
 memories.use_memories
 memories.generate_memories
 memories.dedicated_tools = false
-memories.disable_on_external_context = true
+memories.disable_on_external_context = false
 ```
 
 真正的 memory 抽取由 Codex app-server 内部触发。app-server 收到有用户输入的 turn 后，会启动 memory startup task。该任务会扫描符合条件的旧 thread，而不是立刻抽取当前 turn。
+
+`disable_on_external_context` 设为 `false` 是有意为之：Ripple 的真实任务经常会经过 web/search/connector，上游 Codex 会在 `true` 时把这些 thread 标成 `polluted`，导致最有价值的任务无法进入 memory 候选。Ripple 侧通过把控制面 prompt 放入 `baseInstructions` / `additionalContext`，避免把控制面文本伪装成用户输入。
 
 引入 idle pool 后，job 完成不会立刻关闭 app-server，因此 Codex 内部 memory pipeline 有更大概率跑完。
 
@@ -306,7 +308,8 @@ memory 相关测试：
 - memory settings 改变后，下一次 job 注入最新配置。
 - memory reset 后对应用户 pool 重启或清理。
 - temporary/internal jobs 不使用或生成 memory。
-- connector/external context 仍设置 `memories.disable_on_external_context = true`。
+- connector/external context 不应把正常任务标成 `polluted`。
+- Ripple 控制面 prompt 不应出现在 Codex thread 的 user input/title/preview 中。
 
 故障测试：
 

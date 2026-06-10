@@ -608,6 +608,8 @@ async fn start_schedule_run(
     let create = AgentRunCreateRequest {
         prompt: record.prompt.clone(),
         provider: "codex".to_string(),
+        base_instructions: None,
+        turn_context: None,
         cwd: record.cwd.clone(),
         input_items: Vec::new(),
         model: Some(model),

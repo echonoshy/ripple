@@ -29,6 +29,10 @@ pub struct AgentRunCreateRequest {
     #[serde(default = "default_provider")]
     pub provider: String,
     #[serde(default)]
+    pub base_instructions: Option<String>,
+    #[serde(default)]
+    pub turn_context: Option<String>,
+    #[serde(default)]
     pub cwd: Option<String>,
     #[serde(default)]
     pub input_items: Vec<Value>,
@@ -215,6 +219,8 @@ impl JobManager {
         let request = AgentRunnerRequest {
             provider: "codex".to_string(),
             prompt,
+            base_instructions: create.base_instructions,
+            turn_context: create.turn_context,
             cwd,
             input_items: create.input_items,
             model: create.model,
@@ -322,6 +328,8 @@ impl JobManager {
         let request = AgentRunnerRequest {
             provider: "codex".to_string(),
             prompt: prompt.clone(),
+            base_instructions: create.base_instructions,
+            turn_context: create.turn_context,
             cwd: cwd.clone(),
             input_items: create.input_items,
             model: create.model,

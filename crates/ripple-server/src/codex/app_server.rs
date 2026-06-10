@@ -57,6 +57,8 @@ const INHERITED_NETWORK_ENV: &[&str] = &[
 pub struct AgentRunnerRequest {
     pub provider: String,
     pub prompt: String,
+    pub base_instructions: Option<String>,
+    pub turn_context: Option<String>,
     pub cwd: PathBuf,
     pub input_items: Vec<Value>,
     pub model: Option<String>,
@@ -856,22 +858,16 @@ impl CodexAppServerProvider {
             .map(str::to_string);
         if persistent_thread {
             if let Some(thread_id) = requested_thread_id {
-                if session.loaded_thread_ids.lock().await.contains(&thread_id) {
-                    return Ok((thread_id, false));
-                }
-                let thread_result = session
-                    .request(
-                        "thread/resume",
-                        json!({
-                            "threadId": thread_id,
-                            "cwd": request.cwd,
-                            "approvalPolicy": self.config.codex.approval_policy,
-                            "config": permission_config,
-                            "permissions": RIPPLE_CODEX_PERMISSION_PROFILE,
-                            "excludeTurns": true
-                        }),
-                    )
-                    .await?;
+                let mut resume_params = json!({
+                    "threadId": thread_id,
+                    "cwd": request.cwd,
+                    "approvalPolicy": self.config.codex.approval_policy,
+                    "config": permission_config,
+                    "permissions": RIPPLE_CODEX_PERMISSION_PROFILE,
+                    "excludeTurns": true
+                });
+                add_base_instructions(&mut resume_params, request);
+                let thread_result = session.request("thread/resume", resume_params).await?;
                 let thread_id = thread_result
                     .pointer("/thread/id")
                     .and_then(Value::as_str)
@@ -886,19 +882,16 @@ impl CodexAppServerProvider {
             }
         }
 
-        let thread_result = session
-            .request(
-                "thread/start",
-                json!({
-                    "cwd": request.cwd,
-                    "approvalPolicy": self.config.codex.approval_policy,
-                    "ephemeral": !persistent_thread,
-                    "serviceName": "ripple",
-                    "config": permission_config,
-                    "permissions": RIPPLE_CODEX_PERMISSION_PROFILE
-                }),
-            )
-            .await?;
+        let mut start_params = json!({
+            "cwd": request.cwd,
+            "approvalPolicy": self.config.codex.approval_policy,
+            "ephemeral": !persistent_thread,
+            "serviceName": "ripple",
+            "config": permission_config,
+            "permissions": RIPPLE_CODEX_PERMISSION_PROFILE
+        });
+        add_base_instructions(&mut start_params, request);
+        let thread_result = session.request("thread/start", start_params).await?;
         let thread_id = thread_result
             .pointer("/thread/id")
             .and_then(Value::as_str)
@@ -1420,6 +1413,22 @@ fn turn_start_params(
         "input".to_string(),
         Value::Array(codex_input_items(request)),
     );
+    if let Some(turn_context) = request
+        .turn_context
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        params.insert(
+            "additionalContext".to_string(),
+            json!({
+                "ripple_turn_context": {
+                    "value": turn_context,
+                    "kind": "application"
+                }
+            }),
+        );
+    }
     params.insert("cwd".to_string(), json!(request.cwd));
     params.insert("approvalPolicy".to_string(), json!(approval_policy));
     if let Some(model) = &request.model {
@@ -1469,10 +1478,27 @@ fn thread_config_for_request(
         object.insert("memories.dedicated_tools".to_string(), json!(false));
         object.insert(
             "memories.disable_on_external_context".to_string(),
-            json!(true),
+            json!(false),
         );
     }
     thread_config
+}
+
+fn add_base_instructions(params: &mut Value, request: &AgentRunnerRequest) {
+    let Some(base_instructions) = request
+        .base_instructions
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return;
+    };
+    if let Some(object) = params.as_object_mut() {
+        object.insert(
+            "baseInstructions".to_string(),
+            json!(base_instructions.to_string()),
+        );
+    }
 }
 
 fn image_generation_enabled_for_request(request: &AgentRunnerRequest) -> bool {
@@ -1613,6 +1639,8 @@ mod tests {
         let request = AgentRunnerRequest {
             provider: "codex".to_string(),
             prompt: "fallback prompt".to_string(),
+            base_instructions: None,
+            turn_context: None,
             cwd: PathBuf::from("/tmp/ripple-test"),
             input_items: vec![
                 json!({"type": "skill", "name": "google_workspace"}),
@@ -1647,6 +1675,45 @@ mod tests {
     }
 
     #[test]
+    fn turn_start_params_keep_ripple_context_out_of_user_input() {
+        let request = AgentRunnerRequest {
+            provider: "codex".to_string(),
+            prompt: "帮我检查 memory".to_string(),
+            base_instructions: Some("Ripple guardrails".to_string()),
+            turn_context: Some("## Connector Status\n- google_workspace: connected".to_string()),
+            cwd: PathBuf::from("/tmp/ripple-test"),
+            input_items: Vec::new(),
+            model: None,
+            effort: None,
+            summary: None,
+            output_schema: None,
+            max_runtime_seconds: 60,
+            user_id: Some("alice".to_string()),
+            session_id: Some("session-1".to_string()),
+            metadata: json!({}),
+        };
+
+        let params = turn_start_params("thread-1", &request, "never");
+
+        assert_eq!(
+            params.pointer("/input/0/text").and_then(Value::as_str),
+            Some("帮我检查 memory")
+        );
+        assert_eq!(
+            params
+                .pointer("/additionalContext/ripple_turn_context/kind")
+                .and_then(Value::as_str),
+            Some("application")
+        );
+        assert_eq!(
+            params
+                .pointer("/additionalContext/ripple_turn_context/value")
+                .and_then(Value::as_str),
+            Some("## Connector Status\n- google_workspace: connected")
+        );
+    }
+
+    #[test]
     fn app_server_args_append_native_hardening_overrides() {
         let args = hardened_app_server_args(&[
             "app-server".to_string(),
@@ -1678,6 +1745,8 @@ mod tests {
         let mut request = AgentRunnerRequest {
             provider: "codex".to_string(),
             prompt: "fallback prompt".to_string(),
+            base_instructions: None,
+            turn_context: None,
             cwd: PathBuf::from("/tmp/ripple-test"),
             input_items: Vec::new(),
             model: None,
@@ -1729,6 +1798,8 @@ mod tests {
         let request = AgentRunnerRequest {
             provider: "codex".to_string(),
             prompt: "remember useful project context".to_string(),
+            base_instructions: None,
+            turn_context: None,
             cwd: workspace.clone(),
             input_items: Vec::new(),
             model: None,
@@ -1758,7 +1829,7 @@ mod tests {
         );
         assert_eq!(
             thread_config.get("memories.disable_on_external_context"),
-            Some(&json!(true))
+            Some(&json!(false))
         );
     }
 
@@ -1769,6 +1840,8 @@ mod tests {
         let request = AgentRunnerRequest {
             provider: "codex".to_string(),
             prompt: "temporary chat".to_string(),
+            base_instructions: None,
+            turn_context: None,
             cwd: workspace.clone(),
             input_items: Vec::new(),
             model: None,

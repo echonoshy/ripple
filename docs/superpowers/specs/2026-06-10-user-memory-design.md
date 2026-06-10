@@ -57,15 +57,19 @@ Each user gets a private Codex home under that user's sandbox:
 .ripple/
   codex-service-home/
     auth.json
+  codex-runtime/
+    users/
+      <user_id>/
+        sqlite/
+          state_5.sqlite
+          logs_2.sqlite
+          goals_1.sqlite
+          memories_1.sqlite
   sandboxes/
     <user_id>/
       workspace/
       codex-home/
         auth.json -> ../../../codex-service-home/auth.json
-        state_5.sqlite
-        logs_2.sqlite
-        goals_1.sqlite
-        memories_1.sqlite
         memories/
           memory_summary.md
           MEMORY.md
@@ -107,7 +111,7 @@ features.memories = true
 memories.use_memories = true
 memories.generate_memories = true
 memories.dedicated_tools = false
-memories.disable_on_external_context = true
+memories.disable_on_external_context = false
 ```
 
 Rationale:
@@ -115,7 +119,7 @@ Rationale:
 - `use_memories` lets Codex use prior per-user memory.
 - `generate_memories` lets normal eligible chat sessions contribute future memory.
 - `dedicated_tools = false` avoids exposing direct memory tools to the model in the first rollout.
-- `disable_on_external_context = true` reduces the chance that connector, web, or other external context becomes durable memory.
+- `disable_on_external_context = false` keeps connector/web-backed user tasks eligible for extraction. Ripple keeps its own control-plane prompt out of user input by sending stable instructions as `baseInstructions` and dynamic context as `additionalContext`.
 
 Ripple should not build a separate editable memory store. If the user says "remember this" in chat, Codex app-server should decide whether and how to fold that durable instruction into native memory.
 
@@ -221,7 +225,7 @@ Phase 1: Isolation foundation
 Phase 2: Native memory enablement
 
 - Enable Codex native memory for a test user or config-gated cohort.
-- Use conservative defaults with `dedicated_tools = false` and `disable_on_external_context = true`.
+- Use defaults with `dedicated_tools = false` and `disable_on_external_context = false`.
 - Add user-level status and reset APIs.
 - Add session-level memory disable.
 

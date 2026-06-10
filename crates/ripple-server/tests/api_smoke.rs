@@ -2722,6 +2722,68 @@ async fn runs_route_completes_with_fake_codex_app_server() {
 }
 
 #[tokio::test]
+async fn sequential_runs_for_same_user_reuse_idle_fake_codex_app_server() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (_state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    let first_job_id = start_fake_ids_run(app.clone(), "[ids] first fake run").await;
+    let first = wait_for_completed_run(app.clone(), &first_job_id).await;
+    assert_eq!(
+        first.get("stdout_tail").and_then(Value::as_str),
+        Some("fake codex completed thread-1 turn-1")
+    );
+
+    let second_job_id = start_fake_ids_run(app.clone(), "[ids] second fake run").await;
+    let second = wait_for_completed_run(app.clone(), &second_job_id).await;
+    assert_eq!(
+        second.get("stdout_tail").and_then(Value::as_str),
+        Some("fake codex completed thread-2 turn-2"),
+        "the second same-user run should borrow the first run's idle pooled worker"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+async fn start_fake_ids_run(app: axum::Router, prompt: &str) -> String {
+    let (status, run) = call(
+        app,
+        Method::POST,
+        "/v1/runs",
+        json!({
+            "prompt": prompt,
+            "model": "codex-test",
+            "max_runtime_seconds": 5
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    run.get("job_id")
+        .and_then(Value::as_str)
+        .expect("job id")
+        .to_string()
+}
+
+async fn wait_for_completed_run(app: axum::Router, job_id: &str) -> Value {
+    for _ in 0..80 {
+        let (status, run) = call(
+            app.clone(),
+            Method::GET,
+            &format!("/v1/runs/{job_id}"),
+            Value::Null,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        if run.get("status").and_then(Value::as_str) == Some("completed") {
+            return run;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    panic!("run {job_id} should complete");
+}
+
+#[tokio::test]
 async fn run_public_apis_hide_host_paths_from_metadata_output_events_and_schedule_history() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let (state, app) = test_state_and_app(&root);
@@ -5347,11 +5409,13 @@ async fn chat_follow_up_resumes_codex_thread_without_replaying_turns() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "follow-up response: {follow_up}");
-    assert_eq!(
-        follow_up
-            .pointer("/choices/0/message/content")
-            .and_then(Value::as_str),
-        Some("fake codex completed thread-1 turn-1")
+    let content = follow_up
+        .pointer("/choices/0/message/content")
+        .and_then(Value::as_str)
+        .expect("follow-up content");
+    assert!(
+        content.starts_with("fake codex completed thread-1 turn-"),
+        "follow-up should resume the original thread, got {content:?}"
     );
 
     let _ = std::fs::remove_dir_all(root);

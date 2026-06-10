@@ -585,6 +585,14 @@ fn ensure_sandbox_exists(state: &AppState, user_id: &str) -> Result<(), ApiError
     }
 }
 
+async fn restart_codex_runtime_for_credential_change(
+    state: &AppState,
+    user_id: &str,
+) -> Result<(), ApiError> {
+    let _ = state.jobs.stop_user(user_id).await?;
+    Ok(())
+}
+
 async fn cancel_connector_auth_state(
     state: &AppState,
     user_id: &str,
@@ -645,6 +653,7 @@ async fn notion_auth_start(
     let path = state.sandboxes.notion_config_file(user_id)?;
     write_secret_json(&path, &json!({"api_token": token})).await?;
     state.sandboxes.write_nsjail_config(user_id)?;
+    restart_codex_runtime_for_credential_change(state, user_id).await?;
     Ok(Json(action_response(
         "notion",
         true,
@@ -658,6 +667,9 @@ async fn notion_disconnect(state: &AppState, user_id: &str) -> Result<Json<Value
     let path = state.sandboxes.notion_config_file(user_id)?;
     let removed = remove_file_if_exists(&path).await?;
     state.sandboxes.write_nsjail_config(user_id)?;
+    if removed {
+        restart_codex_runtime_for_credential_change(state, user_id).await?;
+    }
     Ok(Json(action_response(
         "notion",
         true,
@@ -862,6 +874,7 @@ async fn google_auth_complete(
             json!({}),
         )));
     }
+    restart_codex_runtime_for_credential_change(state, user_id).await?;
     Ok(Json(action_response(
         "google_workspace",
         true,
@@ -1106,6 +1119,9 @@ async fn bilibili_disconnect(state: &AppState, user_id: &str) -> Result<Json<Val
     let path = state.sandboxes.bilibili_config_file(user_id)?;
     let removed = remove_file_if_exists(&path).await?;
     state.sandboxes.write_nsjail_config(user_id)?;
+    if removed {
+        restart_codex_runtime_for_credential_change(state, user_id).await?;
+    }
     Ok(Json(action_response(
         "bilibili",
         true,
@@ -1241,6 +1257,7 @@ async fn bilibili_auth_complete(
                         write_bilibili_credential(state, user_id, &credential).await?;
                         state.sandboxes.write_nsjail_config(user_id)?;
                         release_pending_bilibili_qr(state, user_id);
+                        restart_codex_runtime_for_credential_change(state, user_id).await?;
                         return Ok(Json(action_response(
                             "bilibili",
                             true,
@@ -1399,6 +1416,7 @@ async fn google_disconnect(
             json!({}),
         )));
     }
+    restart_codex_runtime_for_credential_change(state, user_id).await?;
     let accounts = google_accounts(state, user_id, false).await?.0;
     Ok(Json(action_response(
         "google_workspace",
@@ -1422,6 +1440,9 @@ async fn google_disconnect_all(state: &AppState, user_id: &str) -> Result<Json<V
     let pass_file = state.sandboxes.gogcli_keyring_pass_file(user_id)?;
     let password_removed = remove_file_if_exists(&pass_file).await?;
     state.sandboxes.write_nsjail_config(user_id)?;
+    if keyring_removed || password_removed {
+        restart_codex_runtime_for_credential_change(state, user_id).await?;
+    }
     Ok(Json(action_response(
         "google_workspace",
         true,
@@ -3055,6 +3076,7 @@ async fn complete_google_workspace_oauth_callback(
             json!({}),
         )));
     }
+    restart_codex_runtime_for_credential_change(state, &pending.user_id).await?;
     Ok(Json(action_response(
         "google_workspace",
         true,

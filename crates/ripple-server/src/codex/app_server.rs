@@ -1,9 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
@@ -13,7 +13,7 @@ use time::OffsetDateTime;
 use tokio::fs::OpenOptions;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::sync::{mpsc, oneshot, Mutex, Notify};
 use tokio::time::timeout;
 
 use crate::codex::approvals::{approval_response_for_action, CodexApproval};
@@ -25,6 +25,9 @@ use crate::sandbox::SandboxManager;
 use crate::user::validate_user_id;
 
 const TAIL_CHARS: usize = 64_000;
+const MAX_WORKERS_PER_POOL: usize = 4;
+const MAX_TOTAL_POOL_WORKERS: usize = 64;
+const IDLE_REAPER_INTERVAL_SECONDS: u64 = 5;
 const CODEX_NATIVE_INPUT_TYPES: &[&str] = &["text", "image", "localImage"];
 const CODEX_NATIVE_HARDENING_CONFIG_OVERRIDES: &[&str] = &[
     "include_apps_instructions=false",
@@ -514,8 +517,17 @@ impl CodexAppServerSession {
         }
     }
 
-    async fn stderr_tail(&self) -> String {
-        self.stderr_tail.lock().await.clone()
+    async fn stderr_tail_len(&self) -> usize {
+        self.stderr_tail.lock().await.len()
+    }
+
+    async fn stderr_tail_since(&self, offset: usize) -> String {
+        let tail = self.stderr_tail.lock().await;
+        if offset <= tail.len() {
+            tail[offset..].to_string()
+        } else {
+            tail.clone()
+        }
     }
 
     async fn shutdown(&self) {
@@ -532,10 +544,33 @@ impl CodexAppServerSession {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct PoolKey {
+    user_key: String,
+    workspace_root: PathBuf,
+    generation: String,
+}
+
+struct PoolWorker {
+    worker_id: u64,
+    session: Arc<CodexAppServerSession>,
+    active_job_id: Option<String>,
+    last_used_at: Instant,
+}
+
+#[derive(Default)]
+struct PoolState {
+    pools: HashMap<PoolKey, Vec<PoolWorker>>,
+    job_to_worker: HashMap<String, (PoolKey, u64)>,
+}
+
 #[derive(Clone)]
 pub struct CodexAppServerProvider {
     config: Arc<AppConfig>,
-    sessions: Arc<Mutex<HashMap<String, Arc<CodexAppServerSession>>>>,
+    pools: Arc<Mutex<PoolState>>,
+    pool_notify: Arc<Notify>,
+    next_worker_id: Arc<AtomicU64>,
+    reaper_started: Arc<AtomicBool>,
     active_turns: Arc<Mutex<HashMap<String, ActiveTurn>>>,
     pending_approvals: Arc<Mutex<HashMap<String, Value>>>,
 }
@@ -544,7 +579,10 @@ impl CodexAppServerProvider {
     pub fn new(config: Arc<AppConfig>) -> Self {
         Self {
             config,
-            sessions: Arc::new(Mutex::new(HashMap::new())),
+            pools: Arc::new(Mutex::new(PoolState::default())),
+            pool_notify: Arc::new(Notify::new()),
+            next_worker_id: Arc::new(AtomicU64::new(1)),
+            reaper_started: Arc::new(AtomicBool::new(false)),
             active_turns: Arc::new(Mutex::new(HashMap::new())),
             pending_approvals: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -587,6 +625,7 @@ impl CodexAppServerProvider {
         .await?;
 
         let session = self.session_for_request(&request).await?;
+        let stderr_start = session.stderr_tail_len().await;
         let mut turn_rx = None;
         let (status, error) = match self
             .run_turn(&request, &job_id, &events_file, &mut sequence, &session)
@@ -635,8 +674,8 @@ impl CodexAppServerProvider {
                 metadata.insert("codex_thread_resumed".to_string(), json!(thread_resumed));
             }
         }
-        let stderr_tail = redact_text(&session.stderr_tail().await);
-        self.shutdown_job_session(&job_id).await;
+        let stderr_tail = redact_text(&session.stderr_tail_since(stderr_start).await);
+        self.release_job_session(&job_id).await;
         Ok(AgentRunnerResult {
             job_id,
             provider: request.provider,
@@ -893,15 +932,156 @@ impl CodexAppServerProvider {
             .and_then(Value::as_str)
             .map(PathBuf::from)
             .unwrap_or_else(|| request.cwd.clone());
-        let mut sessions = self.sessions.lock().await;
-        let session = sessions
-            .entry(job_key)
-            .or_insert_with(|| {
-                CodexAppServerSession::new(user_key, self.config.clone(), workspace_root)
-            })
-            .clone();
-        session.ensure_started().await?;
-        Ok(session)
+        let pool_key = PoolKey {
+            user_key: user_key.clone(),
+            workspace_root: workspace_root.clone(),
+            generation: pool_generation(&self.config),
+        };
+
+        loop {
+            let notified = self.pool_notify.notified();
+            let session = {
+                let mut state = self.pools.lock().await;
+                let mut claimed_idle = None;
+                if let Some(workers) = state.pools.get_mut(&pool_key) {
+                    if let Some(worker) = workers
+                        .iter_mut()
+                        .find(|worker| worker.active_job_id.is_none())
+                    {
+                        worker.active_job_id = Some(job_key.clone());
+                        worker.last_used_at = Instant::now();
+                        claimed_idle = Some((worker.worker_id, worker.session.clone()));
+                    }
+                }
+                if let Some((worker_id, session)) = claimed_idle {
+                    state
+                        .job_to_worker
+                        .insert(job_key.clone(), (pool_key.clone(), worker_id));
+                    Some(session)
+                } else {
+                    let pool_size = state.pools.get(&pool_key).map_or(0, Vec::len);
+                    let total_workers = state.pools.values().map(Vec::len).sum::<usize>();
+                    if pool_size >= MAX_WORKERS_PER_POOL || total_workers >= MAX_TOTAL_POOL_WORKERS
+                    {
+                        None
+                    } else {
+                        let worker_id = self.next_worker_id.fetch_add(1, Ordering::SeqCst);
+                        let session = CodexAppServerSession::new(
+                            user_key.clone(),
+                            self.config.clone(),
+                            workspace_root.clone(),
+                        );
+                        state
+                            .pools
+                            .entry(pool_key.clone())
+                            .or_default()
+                            .push(PoolWorker {
+                                worker_id,
+                                session: session.clone(),
+                                active_job_id: Some(job_key.clone()),
+                                last_used_at: Instant::now(),
+                            });
+                        state
+                            .job_to_worker
+                            .insert(job_key.clone(), (pool_key.clone(), worker_id));
+                        Some(session)
+                    }
+                }
+            };
+
+            if let Some(session) = session {
+                if let Err(err) = session.ensure_started().await {
+                    self.discard_job_worker(&job_key).await;
+                    return Err(err);
+                }
+                return Ok(session);
+            }
+
+            notified.await;
+        }
+    }
+
+    async fn discard_job_worker(&self, job_id: &str) -> bool {
+        let session = {
+            let mut state = self.pools.lock().await;
+            let Some((pool_key, worker_id)) = state.job_to_worker.remove(job_id) else {
+                return false;
+            };
+            let session = state.pools.get_mut(&pool_key).and_then(|workers| {
+                workers
+                    .iter()
+                    .position(|worker| worker.worker_id == worker_id)
+                    .map(|index| workers.remove(index).session)
+            });
+            if state
+                .pools
+                .get(&pool_key)
+                .is_some_and(|workers| workers.is_empty())
+            {
+                state.pools.remove(&pool_key);
+            }
+            session
+        };
+        if let Some(session) = session {
+            session.shutdown().await;
+            self.pool_notify.notify_waiters();
+            return true;
+        }
+        false
+    }
+
+    fn ensure_idle_reaper_started(&self) {
+        if self.reaper_started.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let pools = Arc::downgrade(&self.pools);
+        let notify = Arc::downgrade(&self.pool_notify);
+        let idle_timeout = Duration::from_secs(self.config.codex.idle_timeout_seconds.max(1));
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(IDLE_REAPER_INTERVAL_SECONDS)).await;
+                let Some(pools) = pools.upgrade() else {
+                    break;
+                };
+                let Some(notify) = notify.upgrade() else {
+                    break;
+                };
+                let mut expired_sessions = Vec::new();
+                {
+                    let mut state = pools.lock().await;
+                    let now = Instant::now();
+                    let keys = state.pools.keys().cloned().collect::<Vec<_>>();
+                    for key in keys {
+                        if let Some(workers) = state.pools.get_mut(&key) {
+                            let mut index = 0;
+                            while index < workers.len() {
+                                let expired = workers[index].active_job_id.is_none()
+                                    && now.duration_since(workers[index].last_used_at)
+                                        >= idle_timeout;
+                                if expired {
+                                    expired_sessions.push(workers.remove(index).session);
+                                } else {
+                                    index += 1;
+                                }
+                            }
+                        }
+                        if state
+                            .pools
+                            .get(&key)
+                            .is_some_and(|workers| workers.is_empty())
+                        {
+                            state.pools.remove(&key);
+                        }
+                    }
+                }
+                if !expired_sessions.is_empty() {
+                    for session in expired_sessions {
+                        session.shutdown().await;
+                    }
+                    notify.notify_waiters();
+                }
+            }
+        });
     }
 
     pub async fn pending_approval(&self, job_id: &str) -> Option<Value> {
@@ -1105,63 +1285,92 @@ impl CodexAppServerProvider {
     }
 
     pub async fn stop_user(&self, user_id: &str) -> usize {
-        let sessions = {
-            let mut sessions = self.sessions.lock().await;
-            let job_ids = sessions
-                .iter()
-                .filter_map(|(job_id, session)| {
-                    (session.user_key == user_id).then(|| job_id.clone())
-                })
+        let (sessions, active_job_ids) = {
+            let mut state = self.pools.lock().await;
+            let keys = state
+                .pools
+                .keys()
+                .filter(|key| key.user_key == user_id)
+                .cloned()
                 .collect::<Vec<_>>();
-            job_ids
-                .into_iter()
-                .filter_map(|job_id| sessions.remove(&job_id).map(|session| (job_id, session)))
-                .collect::<Vec<_>>()
+            let mut sessions = Vec::new();
+            let mut active_job_ids = Vec::new();
+            for key in keys {
+                if let Some(workers) = state.pools.remove(&key) {
+                    for worker in workers {
+                        if let Some(job_id) = worker.active_job_id.clone() {
+                            state.job_to_worker.remove(&job_id);
+                            active_job_ids.push(job_id);
+                        }
+                        sessions.push(worker.session);
+                    }
+                }
+            }
+            (sessions, active_job_ids)
         };
         if sessions.is_empty() {
             return 0;
         }
         let mut removed = 0_usize;
-        let mut removed_job_ids = Vec::new();
-        for (session_job_id, session) in &sessions {
+        {
             let mut active_turns = self.active_turns.lock().await;
-            let job_ids = active_turns
-                .iter()
-                .filter_map(|(job_id, active)| {
-                    Arc::ptr_eq(&active.session, session).then(|| job_id.clone())
-                })
-                .collect::<Vec<_>>();
-            for job_id in job_ids {
-                if active_turns.remove(&job_id).is_some() {
+            for job_id in &active_job_ids {
+                if active_turns.remove(job_id).is_some() {
                     removed += 1;
-                    removed_job_ids.push(job_id);
                 }
             }
-            if active_turns.remove(session_job_id).is_some() {
+            let remaining_job_ids = active_turns
+                .iter()
+                .filter_map(|(job_id, active)| {
+                    sessions
+                        .iter()
+                        .any(|session| Arc::ptr_eq(&active.session, session))
+                        .then(|| job_id.clone())
+                })
+                .collect::<Vec<_>>();
+            for job_id in remaining_job_ids {
+                active_turns.remove(&job_id);
                 removed += 1;
-                removed_job_ids.push(session_job_id.clone());
             }
         }
-        if !removed_job_ids.is_empty() {
+        if !active_job_ids.is_empty() {
             let mut approvals = self.pending_approvals.lock().await;
-            for job_id in removed_job_ids {
+            for job_id in active_job_ids {
                 approvals.remove(&job_id);
             }
         }
-        for (_, session) in sessions {
+        for session in sessions {
             session.shutdown().await;
         }
+        self.pool_notify.notify_waiters();
         removed
     }
 
-    async fn shutdown_job_session(&self, job_id: &str) -> bool {
+    async fn release_job_session(&self, job_id: &str) -> bool {
         self.pending_approvals.lock().await.remove(job_id);
-        let session = self.sessions.lock().await.remove(job_id);
-        let Some(session) = session else {
-            return false;
+        let released = {
+            let mut state = self.pools.lock().await;
+            let Some((pool_key, worker_id)) = state.job_to_worker.remove(job_id) else {
+                return false;
+            };
+            let mut released = false;
+            if let Some(workers) = state.pools.get_mut(&pool_key) {
+                if let Some(worker) = workers
+                    .iter_mut()
+                    .find(|worker| worker.worker_id == worker_id)
+                {
+                    worker.active_job_id = None;
+                    worker.last_used_at = Instant::now();
+                    released = true;
+                }
+            }
+            released
         };
-        session.shutdown().await;
-        true
+        if released {
+            self.ensure_idle_reaper_started();
+            self.pool_notify.notify_waiters();
+        };
+        released
     }
 }
 
@@ -1305,6 +1514,21 @@ fn memory_disabled_for_request(request: &AgentRunnerRequest) -> bool {
         .or_else(|| request.metadata.get("temporary"))
         .and_then(Value::as_bool)
         .unwrap_or(false)
+}
+
+fn pool_generation(config: &AppConfig) -> String {
+    [
+        config.codex.codex_executable.as_str(),
+        &config.codex.app_server_args.join("\u{1f}"),
+        config.codex.approval_policy.as_str(),
+        config.codex.sandbox_type.as_str(),
+        if config.codex.network_access {
+            "network"
+        } else {
+            "no-network"
+        },
+    ]
+    .join("\u{1e}")
 }
 
 fn codex_home_for_user(config: &AppConfig, user_id: &str) -> anyhow::Result<PathBuf> {

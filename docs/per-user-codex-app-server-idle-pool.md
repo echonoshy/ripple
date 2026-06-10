@@ -25,16 +25,18 @@ Ripple 是控制面，Codex app-server 是执行面。当前主链路里，每�
 - 不把 memory 存储从 Codex 原生 memory 改成 Ripple 自定义 memory 系统。
 - 不把服务端业务逻辑下沉到前端或 Tauri 客户端。
 
-## 当前实现
+## 当前实现状态
 
 当前关键代码在 `crates/ripple-server/src/codex/app_server.rs`：
 
-- `CodexAppServerProvider.sessions` 是 `HashMap<String, Arc<CodexAppServerSession>>`，key 当前是 `job_id`。
-- `session_for_request()` 会按当前 job 创建 `CodexAppServerSession`。
-- job 完成后 `shutdown_job_session(job_id)` 会从 map 移除 session 并关闭 app-server 进程。
+- `CodexAppServerProvider` 已改为 per-user/workspace/generation worker pool。
+- `session_for_request()` 会先复用同一 pool 内的 idle worker；如果所有 worker 都 busy，会创建新 worker，直到内部 worker 上限。
+- job 完成后 `release_job_session(job_id)` 只把 worker 标记为 idle，不立即关闭 app-server 进程。
+- idle reaper 根据 `external_agents.codex.idle_timeout_seconds` 关闭过期 idle worker。
 - `active_turns` 仍然按 `job_id` 追踪 active turn，用于 approval、steer 和 cancel。
+- `stop_user(user_id)`、memory reset、Notion / Google Workspace / Bilibili credential 变化会关闭对应用户的 pooled app-server，避免复用旧 runtime/env。
 
-这意味着 app-server 生命周期目前由 job 拥有。
+这意味着 app-server 生命周期已经从 job 拥有演进为 worker pool 拥有；job 只是在运行期间借用 worker。
 
 ## 推荐形态
 
@@ -250,6 +252,16 @@ stop_reason
 不要在用户可见 API 中暴露敏感路径、token、auth file 或 connector credential。
 
 ## 配置建议
+
+当前实现先复用既有配置：
+
+```yaml
+external_agents:
+  codex:
+    idle_timeout_seconds: 1800
+```
+
+worker 上限暂为服务端内部常量：单个 pool 最多 4 个 worker，全局最多 64 个 worker。
 
 新增配置可以放在 `config/*.yaml`：
 

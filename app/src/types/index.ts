@@ -106,6 +106,29 @@ export interface UserProfile {
   limits?: UserLimits;
 }
 
+export interface MemoryStatus {
+  enabled: boolean;
+  useMemories: boolean;
+  generateMemories: boolean;
+  dedicatedTools: boolean;
+  disableOnExternalContext: boolean;
+  summaryAvailable: boolean;
+  lastUpdatedAt?: string | null;
+}
+
+export interface MemorySummary {
+  summaryAvailable: boolean;
+  memorySummary?: string | null;
+  memory?: string | null;
+  lastUpdatedAt?: string | null;
+}
+
+export interface MemorySettingsPatch {
+  enabled?: boolean;
+  useMemories?: boolean;
+  generateMemories?: boolean;
+}
+
 export interface WorkspaceFileOpenRequest {
   id: number;
   path: string;

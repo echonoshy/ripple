@@ -21,6 +21,8 @@ import {
   fetchRun,
   fetchRunOutputText,
   fetchUserAvatarImage,
+  fetchMemoryStatus,
+  fetchMemorySummary,
   fetchModels,
   fetchWorkspaceDocumentPreview,
   fetchWorkspaceFilePreview,
@@ -34,7 +36,9 @@ import {
   sendChatMessage,
   sendSessionControlAction,
   stopSession,
+  resetMemory,
   updateSchedule,
+  updateMemorySettings,
   updateSession,
   updateUserProfile,
   uploadUserAvatar,
@@ -288,6 +292,71 @@ async function testScheduleRunApisEncodeIdsAndDownloadOutput() {
     ]
   );
   assert.equal(requests.at(-1)?.body, JSON.stringify({ confirm: true }));
+}
+
+async function testMemoryApisUseCurrentUserControlPlaneEndpoints() {
+  const requests: Array<{ url: string; method: string; body?: string }> = [];
+
+  await withFetch(
+    async (input, init) => {
+      requests.push({
+        url: String(input),
+        method: init?.method || "GET",
+        body: typeof init?.body === "string" ? init.body : undefined,
+      });
+      return new Response(
+        JSON.stringify({
+          enabled: true,
+          use_memories: true,
+          generate_memories: false,
+          dedicated_tools: false,
+          disable_on_external_context: true,
+          summary_available: true,
+          memory_summary: "Project: Ripple uses Codex-managed memory.",
+          memory: "User prefers concise Chinese answers.",
+          last_updated_at: "2026-06-10T00:00:00Z",
+          ok: true,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    },
+    async () => {
+      const status = await fetchMemoryStatus();
+      const summary = await fetchMemorySummary();
+      const updated = await updateMemorySettings({ useMemories: true, generateMemories: false });
+      const reset = await resetMemory();
+
+      assert.equal(status.useMemories, true);
+      assert.equal(status.generateMemories, false);
+      assert.equal(summary.memorySummary, "Project: Ripple uses Codex-managed memory.");
+      assert.equal(summary.memory, "User prefers concise Chinese answers.");
+      assert.equal(updated.disableOnExternalContext, true);
+      assert.equal(reset, true);
+    }
+  );
+
+  assert.deepEqual(requests, [
+    {
+      url: "http://140.143.229.103:8810/v1/memory/status",
+      method: "GET",
+      body: undefined,
+    },
+    {
+      url: "http://140.143.229.103:8810/v1/memory/summary",
+      method: "GET",
+      body: undefined,
+    },
+    {
+      url: "http://140.143.229.103:8810/v1/memory/settings",
+      method: "PATCH",
+      body: JSON.stringify({ use_memories: true, generate_memories: false }),
+    },
+    {
+      url: "http://140.143.229.103:8810/v1/memory/reset",
+      method: "POST",
+      body: JSON.stringify({ confirm: true }),
+    },
+  ]);
 }
 
 async function testConnectorManagementApisEncodeNamesAndPayloads() {
@@ -1302,6 +1371,7 @@ test("api client behavior", async () => {
   await testSessionIdIsEncodedInPath();
   await testScheduleIdIsEncodedInPath();
   await testScheduleRunApisEncodeIdsAndDownloadOutput();
+  await testMemoryApisUseCurrentUserControlPlaneEndpoints();
   await testConnectorManagementApisEncodeNamesAndPayloads();
   await testCapabilityApisUseUnifiedCatalogAndSkillPatch();
   await testSkillApisUseUserFacingSkillEndpoints();

@@ -67,15 +67,13 @@ pub fn thread_permission_config(workspace: &Path, config: &AppConfig) -> Value {
         json!("none"),
     );
     let service_auth_file = service_codex_home.join("auth.json");
-    filesystem.insert(
-        service_auth_file.to_string_lossy().to_string(),
-        json!("none"),
-    );
     if let Ok(resolved_service_auth_file) = std::fs::canonicalize(&service_auth_file) {
-        filesystem.insert(
-            resolved_service_auth_file.to_string_lossy().to_string(),
-            json!("none"),
-        );
+        if !path_is_covered_by_parent(&resolved_service_auth_file, &service_codex_home) {
+            filesystem.insert(
+                resolved_service_auth_file.to_string_lossy().to_string(),
+                json!("none"),
+            );
+        }
     }
     if let Some(user_codex_home) = current_user_codex_home(workspace, config) {
         filesystem.insert(user_codex_home.to_string_lossy().to_string(), json!("none"));
@@ -146,6 +144,13 @@ fn path_exists_for_permission_rule(path: &Path) -> bool {
         Err(err) if err.kind() == io::ErrorKind::NotFound => false,
         Err(_) => true,
     }
+}
+
+fn path_is_covered_by_parent(path: &Path, parent: &Path) -> bool {
+    path.starts_with(parent)
+        || std::fs::canonicalize(parent)
+            .map(|canonical_parent| path.starts_with(canonical_parent))
+            .unwrap_or(false)
 }
 
 fn current_user_bilibili_credential_file(
@@ -269,7 +274,7 @@ mod tests {
     }
 
     #[test]
-    fn profile_denies_current_user_codex_home_and_resolved_service_auth() {
+    fn profile_denies_current_user_codex_home_and_service_codex_home() {
         let mut config = test_config();
         config.codex.codex_home = Some(config.repo_root.join(".ripple/codex-service-home"));
         let workspace = config.sandbox.sandboxes_root.join("alice/workspace");
@@ -294,9 +299,37 @@ mod tests {
             filesystem.get(config.codex_home_path().to_string_lossy().as_ref()),
             Some(&json!("none"))
         );
+        assert!(
+            !filesystem.contains_key(service_auth.to_string_lossy().as_ref()),
+            "service auth child should be covered by the denied service Codex home"
+        );
+
+        let _ = std::fs::remove_dir_all(&config.repo_root);
+    }
+
+    #[test]
+    fn profile_omits_service_auth_child_when_service_codex_home_is_denied() {
+        let mut config = test_config();
+        config.codex.codex_home = Some(config.repo_root.join(".ripple/codex-service-home"));
+        let workspace = config.sandbox.sandboxes_root.join("alice/workspace");
+        let service_auth = config.codex_home_path().join("auth.json");
+        std::fs::create_dir_all(&workspace).expect("create workspace");
+        std::fs::create_dir_all(service_auth.parent().unwrap()).expect("create service codex home");
+        std::fs::write(&service_auth, r#"{"OPENAI_API_KEY":"test"}"#).expect("write service auth");
+
+        let permissions = thread_permission_config(&workspace, &config);
+        let filesystem = permissions
+            .pointer("/permissions/ripple_workspace/filesystem")
+            .and_then(|filesystem| filesystem.as_object())
+            .expect("filesystem rules");
+
         assert_eq!(
-            filesystem.get(service_auth.to_string_lossy().as_ref()),
+            filesystem.get(config.codex_home_path().to_string_lossy().as_ref()),
             Some(&json!("none"))
+        );
+        assert!(
+            !filesystem.contains_key(service_auth.to_string_lossy().as_ref()),
+            "service auth child should be covered by the denied service Codex home"
         );
 
         let _ = std::fs::remove_dir_all(&config.repo_root);

@@ -368,6 +368,50 @@ function testMobileAutomationDeleteConfirmationCanBeCancelled() {
   );
 }
 
+function testMobileAutomationDetailPutsRunHistoryAtBottom() {
+  const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
+  const mobileActions =
+    source.match(
+      /data-ripple-automation-mobile-detail-actions[\s\S]*?\{isExpanded \?/
+    )?.[0] || "";
+
+  const runNowIndex = mobileActions.indexOf('aria-label={t("automations.runAutomationNow")}');
+  const deleteIndex = mobileActions.indexOf('aria-label={t("automations.deleteAutomation")}');
+  const editIndex = mobileActions.indexOf('aria-label={t("automations.editAutomation")}');
+  const pauseIndex = mobileActions.indexOf('t("automations.pauseAutomation")');
+  const runHistoryIndex = mobileActions.indexOf('aria-label={t("automations.toggleRunHistory")}');
+
+  assert.ok(runNowIndex >= 0);
+  assert.ok(deleteIndex > runNowIndex);
+  assert.ok(editIndex > deleteIndex);
+  assert.ok(pauseIndex > editIndex);
+  assert.ok(runHistoryIndex > pauseIndex);
+  assert.match(
+    mobileActions,
+    /aria-label=\{t\("automations\.toggleRunHistory"\)\}[\s\S]*className=\{`\$\{mobileAutomationActionButtonClass\} col-span-2`\}/
+  );
+}
+
+function testMobileAutomationDeleteConfirmationKeepsHistoryLast() {
+  const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
+  const mobileActions =
+    source.match(
+      /data-ripple-automation-mobile-detail-actions[\s\S]*?\{isExpanded \?/
+    )?.[0] || "";
+
+  const confirmIndex = mobileActions.indexOf('<span>{t("automations.confirm")}</span>');
+  const editIndex = mobileActions.indexOf('aria-label={t("automations.editAutomation")}');
+  const cancelIndex = mobileActions.indexOf(
+    'aria-label={t("automations.cancelDeleteAutomation")}'
+  );
+  const runHistoryIndex = mobileActions.indexOf('aria-label={t("automations.toggleRunHistory")}');
+
+  assert.ok(confirmIndex >= 0);
+  assert.ok(editIndex > confirmIndex);
+  assert.ok(cancelIndex > editIndex);
+  assert.ok(runHistoryIndex > cancelIndex);
+}
+
 function testAutomationsMobileDetailUsesSkillsStyleSwipeBack() {
   const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
   const swipeSheetBlock =
@@ -407,6 +451,17 @@ function testAutomationsMobileDetailUsesSkillsStyleSwipeBack() {
   assert.match(source, /shouldReleaseAutomationBackSwipeScrollGuard/);
 }
 
+function testAutomationDetailUsesCompactMobileHeaderTitle() {
+  const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
+  const detailHeaderBlock =
+    source.match(/<MobilePageHeader[\s\S]*?backLabel=\{t\("automations\.backToAutomations"\)\}/)
+      ?.[0] || "";
+
+  assert.match(detailHeaderBlock, /title=\{schedule\.title\}/);
+  assert.match(detailHeaderBlock, /titleClassName="text-\[18px\] leading-\[26px\] font-medium"/);
+  assert.match(detailHeaderBlock, /backButtonVariant="ghost"/);
+}
+
 function testAutomationRunHistoryUsesReadableRows() {
   const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
 
@@ -436,6 +491,20 @@ function testAutomationRunHistoryActionsUseCompactMobileText() {
     source,
     /data-ripple-automation-run-row[\s\S]*className=\{`\$\{mobileRunActionButtonClass\}/
   );
+}
+
+function testAutomationRefreshesKeepExistingContentVisible() {
+  const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(
+    source,
+    /const loadSchedules = useCallback\(async \(options: \{ background\?: boolean \} = \{\}\)/
+  );
+  assert.match(source, /if \(!options\.background\) setIsLoading\(true\)/);
+  assert.match(source, /if \(!options\.background\) \{\s*setIsLoading\(false\);\s*\}/);
+  assert.match(source, /void loadSchedules\(\{ background: true \}\)/);
+  assert.match(source, /await loadSchedules\(\{ background: true \}\)/);
+  assert.match(source, /onClick=\{\(\) => void loadSchedules\(\{ background: true \}\)\}/);
 }
 
 function testAutomationsPageRendersChineseChrome() {
@@ -468,9 +537,13 @@ testAutomationsPageUsesInlineMobileActionsWithoutOverflowSheet();
 testAutomationEditSheetRespectsMobileSafeAreaAndCompactText();
 testAutomationsMobileActionsStaySingleLineOnNarrowScreens();
 testMobileAutomationDeleteConfirmationCanBeCancelled();
+testMobileAutomationDetailPutsRunHistoryAtBottom();
+testMobileAutomationDeleteConfirmationKeepsHistoryLast();
 testAutomationsMobileDetailUsesSkillsStyleSwipeBack();
+testAutomationDetailUsesCompactMobileHeaderTitle();
 testAutomationRunHistoryUsesReadableRows();
 testAutomationRunHistoryActionsUseCompactMobileText();
+testAutomationRefreshesKeepExistingContentVisible();
 testAutomationsPageRendersChineseChrome();
 
 console.log("automations page tests passed");

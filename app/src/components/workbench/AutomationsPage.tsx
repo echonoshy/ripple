@@ -503,8 +503,8 @@ export default function AutomationsPage({
     return runs;
   }, []);
 
-  const loadSchedules = useCallback(async () => {
-    setIsLoading(true);
+  const loadSchedules = useCallback(async (options: { background?: boolean } = {}) => {
+    if (!options.background) setIsLoading(true);
     setError(null);
     try {
       const records = await fetchSchedules();
@@ -517,7 +517,9 @@ export default function AutomationsPage({
       }
       setError(err instanceof Error ? err.message : t("automations.failedToLoad"));
     } finally {
-      setIsLoading(false);
+      if (!options.background) {
+        setIsLoading(false);
+      }
     }
   }, [loadScheduleRuns, onAuthExpired, t]);
 
@@ -533,7 +535,7 @@ export default function AutomationsPage({
     if (!hasActiveRun) return;
 
     const timer = window.setInterval(() => {
-      void loadSchedules();
+      void loadSchedules({ background: true });
     }, 3000);
     return () => window.clearInterval(timer);
   }, [loadSchedules, runsBySchedule, schedules]);
@@ -976,7 +978,7 @@ export default function AutomationsPage({
         resetForm();
         setEditingScheduleId(null);
         setIsCreating(false);
-        await loadSchedules();
+        await loadSchedules({ background: true });
       } catch (err) {
         if (err instanceof AuthError) {
           onAuthExpired(t("automations.apiKeyExpired"));
@@ -1033,7 +1035,7 @@ export default function AutomationsPage({
           await deleteSchedule(scheduleId);
           setConfirmDeleteId(null);
         }
-        await loadSchedules();
+        await loadSchedules({ background: true });
       } catch (err) {
         if (err instanceof AuthError) {
           onAuthExpired(t("automations.apiKeyExpired"));
@@ -1122,7 +1124,7 @@ export default function AutomationsPage({
           [scheduleId]: (current[scheduleId] || []).filter((item) => item.job_id !== run.job_id),
         }));
         setOutputPreview((current) => (current?.jobId === run.job_id ? null : current));
-        await loadSchedules();
+        await loadSchedules({ background: true });
       } catch (err) {
         if (err instanceof AuthError) {
           onAuthExpired(t("automations.apiKeyExpired"));
@@ -1177,7 +1179,7 @@ export default function AutomationsPage({
             </button>
             <button
               type="button"
-              onClick={() => void loadSchedules()}
+              onClick={() => void loadSchedules({ background: true })}
               disabled={isLoading}
               aria-label={t("automations.refreshAutomations")}
               title={t("automations.refreshAutomations")}
@@ -2006,6 +2008,8 @@ export default function AutomationsPage({
                         <MobilePageHeader
                           title={schedule.title}
                           subtitle={formatDate(schedule.next_run_at, locale, t)}
+                          titleClassName="text-[18px] leading-[26px] font-medium"
+                          backButtonVariant="ghost"
                           backLabel={t("automations.backToAutomations")}
                           onBack={closeScheduleDetail}
                           className="-mx-3"
@@ -2146,24 +2150,29 @@ export default function AutomationsPage({
                           </button>
                           <button
                             type="button"
-                            onClick={() =>
-                              setExpandedScheduleId((current) =>
-                                current === schedule.schedule_id ? null : schedule.schedule_id
-                              )
+                            onClick={() => void handleAction(schedule.schedule_id, "delete")}
+                            aria-label={t("automations.deleteAutomation")}
+                            title={
+                              isConfirmingDelete
+                                ? t("automations.confirmDeleteAutomation")
+                                : t("automations.deleteAutomation")
                             }
-                            aria-label={t("automations.toggleRunHistory")}
-                            title={t("automations.toggleRunHistory")}
-                            className={mobileAutomationActionButtonClass}
+                            className={`${mobileAutomationDeleteButtonClass} ${
+                              isConfirmingDelete
+                                ? "border-[#B42318]/25 bg-[#FFF1F0] text-[#B42318]"
+                                : "border-[#DEE0E3] bg-white text-[#8F959E] active:bg-[#FFF1F0] active:text-[#B42318]"
+                            }`}
                           >
-                            <ChevronDown
-                              size={14}
-                              className={
-                                isExpanded
-                                  ? "rotate-180 transition-transform"
-                                  : "transition-transform"
-                              }
-                            />
-                            <span>{t("automations.runHistory")}</span>
+                            {pendingActionId === `${schedule.schedule_id}:delete` ? (
+                              <Loader2 size={14} className="animate-spin" />
+                            ) : isConfirmingDelete ? (
+                              <span>{t("automations.confirm")}</span>
+                            ) : (
+                              <>
+                                <Trash2 size={14} />
+                                <span>{t("automations.delete")}</span>
+                              </>
+                            )}
                           </button>
                           <button
                             type="button"
@@ -2223,29 +2232,24 @@ export default function AutomationsPage({
                           )}
                           <button
                             type="button"
-                            onClick={() => void handleAction(schedule.schedule_id, "delete")}
-                            aria-label={t("automations.deleteAutomation")}
-                            title={
-                              isConfirmingDelete
-                                ? t("automations.confirmDeleteAutomation")
-                                : t("automations.deleteAutomation")
+                            onClick={() =>
+                              setExpandedScheduleId((current) =>
+                                current === schedule.schedule_id ? null : schedule.schedule_id
+                              )
                             }
-                            className={`${mobileAutomationDeleteButtonClass} col-span-2 ${
-                              isConfirmingDelete
-                                ? "border-[#B42318]/25 bg-[#FFF1F0] text-[#B42318]"
-                                : "border-[#DEE0E3] bg-white text-[#8F959E] active:bg-[#FFF1F0] active:text-[#B42318]"
-                            }`}
+                            aria-label={t("automations.toggleRunHistory")}
+                            title={t("automations.toggleRunHistory")}
+                            className={`${mobileAutomationActionButtonClass} col-span-2`}
                           >
-                            {pendingActionId === `${schedule.schedule_id}:delete` ? (
-                              <Loader2 size={14} className="animate-spin" />
-                            ) : isConfirmingDelete ? (
-                              <span>{t("automations.confirm")}</span>
-                            ) : (
-                              <>
-                                <Trash2 size={14} />
-                                <span>{t("automations.delete")}</span>
-                              </>
-                            )}
+                            <ChevronDown
+                              size={14}
+                              className={
+                                isExpanded
+                                  ? "rotate-180 transition-transform"
+                                  : "transition-transform"
+                              }
+                            />
+                            <span>{t("automations.runHistory")}</span>
                           </button>
                         </div>
 

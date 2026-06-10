@@ -5,6 +5,7 @@ pub mod chat;
 pub mod connectors;
 pub mod documents;
 pub mod health;
+pub mod memory;
 pub mod models;
 pub mod openapi;
 pub(crate) mod run_public;
@@ -162,6 +163,10 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/sessions/:session_id/stop", post(sessions::stop_session))
         .route(
+            "/sessions/:session_id/memory/disable",
+            post(sessions::disable_session_memory),
+        )
+        .route(
             "/sessions/:session_id/context/clear",
             post(sessions::clear_session_context),
         )
@@ -201,6 +206,13 @@ pub fn router(state: AppState) -> Router {
                 .delete(sandboxes::delete_sandbox),
         )
         .route("/sandbox/info", get(sandboxes::sandbox_info))
+        .route("/memory/status", get(memory::memory_status))
+        .route("/memory/summary", get(memory::memory_summary))
+        .route(
+            "/memory/settings",
+            patch(memory::update_memory_settings_handler),
+        )
+        .route("/memory/reset", post(memory::reset_memory))
         .route("/workspace", get(workspace::list_workspace))
         .route("/workspace/search", get(workspace::search_workspace))
         .route(

@@ -317,19 +317,46 @@ function testAutomationsPageUsesInlineMobileActionsWithoutOverflowSheet() {
   assert.doesNotMatch(source, /ArrowBigLeft/);
 }
 
-function testAutomationEditSheetRespectsMobileSafeAreaAndCompactText() {
+function testAutomationEditUsesMobileDetailPageAndCompactText() {
   const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /data-ripple-automation-form-sheet/);
-  assert.match(source, /max-md:top-\[calc\(max\(env\(safe-area-inset-top\),16px\)\+8px\)\]/);
   assert.match(
     source,
-    /max-md:max-h-\[calc\(100dvh_-_calc\(max\(env\(safe-area-inset-top\),16px\)\+8px\)_-_max\(env\(safe-area-inset-bottom\),8px\)\)\]/
+    /data-ripple-automation-edit-page="true"[\s\S]*<MobilePageHeader[\s\S]*title=\{t\("automations\.edit"\)\}[\s\S]*onBack=\{closeForm\}/
   );
+  assert.match(source, /data-ripple-automation-form-page/);
+  assert.match(source, /data-ripple-automation-form-actions/);
+  assert.match(
+    source,
+    /className="fixed inset-x-0 top-0 z-40 flex h-dvh min-h-0 flex-col overflow-hidden/
+  );
+  assert.match(
+    source,
+    /data-ripple-automation-form-actions[\s\S]*className="relative z-10 flex shrink-0/
+  );
+  assert.doesNotMatch(source, /data-ripple-automation-form-backdrop/);
+  assert.doesNotMatch(source, /max-md:fixed/);
   assert.match(source, /const automationFieldLabelClass =[\s\S]*text-\[12px\]/);
   assert.match(source, /const automationFieldControlClass =[\s\S]*text-\[15px\]/);
   assert.match(source, /const automationMonoFieldControlClass =[\s\S]*text-\[15px\]/);
   assert.match(source, /const automationTextareaClass =[\s\S]*text-\[15px\]/);
+}
+
+function testMobileAutomationEditReturnsToDetailPage() {
+  const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
+  const mobileActions =
+    source.match(
+      /data-ripple-automation-mobile-detail-actions[\s\S]*?\{isExpanded \?/
+    )?.[0] || "";
+  const closeFormBlock =
+    source.match(/const closeForm = useCallback\([\s\S]*?\}, \[resetForm\]\);/)?.[0] || "";
+  const submitSuccessBlock =
+    source.match(/await updateSchedule\(editingScheduleId[\s\S]*?await loadSchedules/)?.[0] || "";
+
+  assert.match(mobileActions, /beginEditSchedule\(schedule\);/);
+  assert.doesNotMatch(mobileActions, /closeScheduleDetail\(\);/);
+  assert.doesNotMatch(closeFormBlock, /setSelectedScheduleId\(null\)|closeScheduleDetail/);
+  assert.doesNotMatch(submitSuccessBlock, /setSelectedScheduleId\(null\)|closeScheduleDetail/);
 }
 
 function testAutomationsMobileActionsStaySingleLineOnNarrowScreens() {
@@ -454,12 +481,20 @@ function testAutomationsMobileDetailUsesSkillsStyleSwipeBack() {
 function testAutomationDetailUsesCompactMobileHeaderTitle() {
   const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
   const detailHeaderBlock =
-    source.match(/<MobilePageHeader[\s\S]*?backLabel=\{t\("automations\.backToAutomations"\)\}/)
+    source.match(
+      /<MobilePageHeader[\s\S]*?backLabel=\{t\("automations\.backToAutomations"\)\}[\s\S]*?\/>/
+    )
       ?.[0] || "";
+  const detailSwipeSheetBlock =
+    source.match(
+      /<motion\.div[\s\S]*?data-ripple-automation-detail-swipe-sheet="true"[\s\S]*?<\/motion\.div>/
+    )?.[0] || "";
 
   assert.match(detailHeaderBlock, /title=\{schedule\.title\}/);
-  assert.match(detailHeaderBlock, /titleClassName="text-\[18px\] leading-\[26px\] font-medium"/);
+  assert.match(detailHeaderBlock, /titleClassName=\{MOBILE_DETAIL_HEADER_TITLE_CLASS\}/);
+  assert.match(detailHeaderBlock, /className=\{MOBILE_DETAIL_PAGE_HEADER_CLASS\}/);
   assert.match(detailHeaderBlock, /backButtonVariant="ghost"/);
+  assert.match(detailSwipeSheetBlock, /MOBILE_PAGE_TOP_SAFE_AREA_CLASS/);
 }
 
 function testAutomationRunHistoryUsesReadableRows() {
@@ -534,7 +569,8 @@ testAutomationHeaderActionsMatchSkillsPageStyle();
 testAutomationsPageUsesSolidWorkbenchSurfaces();
 testAutomationCardUsesDesktopRowLayout();
 testAutomationsPageUsesInlineMobileActionsWithoutOverflowSheet();
-testAutomationEditSheetRespectsMobileSafeAreaAndCompactText();
+testAutomationEditUsesMobileDetailPageAndCompactText();
+testMobileAutomationEditReturnsToDetailPage();
 testAutomationsMobileActionsStaySingleLineOnNarrowScreens();
 testMobileAutomationDeleteConfirmationCanBeCancelled();
 testMobileAutomationDetailPutsRunHistoryAtBottom();

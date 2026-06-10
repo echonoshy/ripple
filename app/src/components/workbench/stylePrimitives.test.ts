@@ -4,6 +4,8 @@ import { readFileSync } from "node:fs";
 import {
   COMPACT_IOS_PAGE_BACKGROUND,
   MOBILE_LABEL_TEXT_CLASS,
+  MOBILE_DETAIL_HEADER_TITLE_CLASS,
+  MOBILE_DETAIL_PAGE_HEADER_CLASS,
   MOBILE_MAIN_TEXT_CLASS,
   MOBILE_META_TEXT_CLASS,
   MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS,
@@ -86,6 +88,14 @@ assert.match(WORKBENCH_STATUS_WARNING_CLASS, /text-\[#8B5E00\]/);
 assert.match(WORKBENCH_STATUS_DANGER_CLASS, /text-\[#B42318\]/);
 assert.match(WORKBENCH_STATUS_NEUTRAL_CLASS, /text-\[#646A73\]/);
 assert.equal(TYPOGRAPHY_PAGE_TITLE_CLASS, "text-[20px] leading-[30px] font-medium tracking-normal");
+assert.equal(
+  MOBILE_DETAIL_HEADER_TITLE_CLASS,
+  "text-[18px] leading-[26px] font-medium tracking-normal"
+);
+assert.equal(
+  MOBILE_DETAIL_PAGE_HEADER_CLASS,
+  "-mx-3 -mt-[max(env(safe-area-inset-top),12px)]"
+);
 assert.equal(TYPOGRAPHY_SECTION_TITLE_CLASS, "text-[16px] leading-6 font-medium tracking-normal");
 assert.equal(TYPOGRAPHY_BODY_CLASS, "text-[14px] leading-[22px]");
 assert.equal(TYPOGRAPHY_BODY_MEDIUM_CLASS, "text-[14px] leading-[22px] font-medium");

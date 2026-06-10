@@ -38,6 +38,8 @@ import { saveBlobAsDownload } from "@/lib/platform";
 import type { AgentRunInfo, ScheduleInfo, ScheduleKind } from "@/types";
 import {
   LUCIDE_NAV_STROKE_WIDTH,
+  MOBILE_DETAIL_HEADER_TITLE_CLASS,
+  MOBILE_DETAIL_PAGE_HEADER_CLASS,
   MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS,
   MOBILE_PAGE_TOP_SAFE_AREA_CLASS,
   TYPOGRAPHY_BODY_CLASS,
@@ -405,13 +407,13 @@ const mobileRunActionButtonClass = `inline-flex h-8 shrink-0 items-center justif
 const AUTOMATION_PRIMARY_ACTION_BUTTON_CLASS = `inline-flex h-11 w-11 items-center justify-center rounded-xl border border-[#1456F0]/30 bg-[#1456F0] text-white shadow-[0_8px_18px_rgba(20,86,240,0.18)] transition-all hover:bg-[#0F4BD8] active:scale-[0.98] disabled:opacity-60 lg:h-10 lg:w-auto lg:gap-1.5 lg:px-3 ${TYPOGRAPHY_META_MEDIUM_CLASS}`;
 
 const automationFieldLabelClass =
-  "mb-1 block text-[12px] leading-[18px] font-medium text-[#646A73] lg:leading-5";
+  "mb-0.5 block text-[12px] leading-[18px] font-medium text-[#646A73] lg:leading-5";
 
 const automationFieldControlClass = `${WORKBENCH_FIELD_CLASS} h-10 w-full px-3 text-[15px] leading-[22px] lg:h-9 lg:text-[14px] lg:leading-[22px]`;
 
 const automationMonoFieldControlClass = `${WORKBENCH_FIELD_CLASS} h-10 w-full px-3 font-[family-name:var(--font-mono)] text-[15px] leading-[22px] lg:h-9 lg:text-[14px] lg:leading-[22px]`;
 
-const automationTextareaClass = `${WORKBENCH_FIELD_CLASS} w-full resize-none px-3 py-2 text-[15px] leading-[22px] lg:text-[14px] lg:leading-[22px]`;
+const automationTextareaClass = `${WORKBENCH_FIELD_CLASS} min-h-[88px] w-full resize-none px-3 py-2 text-[15px] leading-[22px] lg:min-h-[84px] lg:text-[14px] lg:leading-[22px]`;
 
 function defaultRunAt(): string {
   const date = new Date(Date.now() + 60 * 60 * 1000);
@@ -1207,273 +1209,283 @@ export default function AutomationsPage({
         ) : null}
 
         {isCreating ? (
-          <>
-            <div
-              data-ripple-automation-form-backdrop
-              className="fixed inset-0 z-40 bg-[#1F2329]/18 backdrop-blur-[1px] md:hidden"
-              onClick={closeForm}
+          <form
+            data-ripple-automation-form-sheet
+            data-ripple-automation-edit-page="true"
+            onSubmit={handleSubmitSchedule}
+            className="fixed inset-x-0 top-0 z-40 flex h-dvh min-h-0 flex-col overflow-hidden bg-[#F5F6F7] md:static md:z-auto md:grid md:h-auto md:gap-3 md:overflow-visible md:rounded-xl md:border md:border-[#DEE0E3] md:bg-white md:p-4 md:shadow-[0_1px_2px_rgba(31,35,41,0.04)]"
+          >
+            <MobilePageHeader
+              title={t("automations.edit")}
+              subtitle={title.trim() || undefined}
+              titleClassName={MOBILE_DETAIL_HEADER_TITLE_CLASS}
+              backButtonVariant="ghost"
+              backLabel={t("automations.cancel")}
+              onBack={closeForm}
+              className="md:hidden"
             />
-            <form
-              data-ripple-automation-form-sheet
-              onSubmit={handleSubmitSchedule}
-              className={`${WORKBENCH_SECTION_CLASS} grid gap-4 p-4 max-md:fixed max-md:inset-x-2 max-md:top-[calc(max(env(safe-area-inset-top),16px)+8px)] max-md:bottom-[max(env(safe-area-inset-bottom),8px)] max-md:z-50 max-md:max-h-[calc(100dvh_-_calc(max(env(safe-area-inset-top),16px)+8px)_-_max(env(safe-area-inset-bottom),8px))] max-md:overflow-y-auto max-md:bg-white`}
+
+            <div
+              data-ripple-automation-form-page
+              className="grid min-h-0 flex-1 gap-2.5 overflow-y-auto px-3 py-2 md:contents"
             >
-              <div className="flex items-center justify-between gap-2 md:hidden">
-                <div className={`text-[#1F2329] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
-                  {t("automations.edit")}
-                </div>
-                <button
-                  type="button"
-                  onClick={closeForm}
-                  className={`h-9 rounded-xl border border-[#DEE0E3] bg-white px-3 text-[#646A73] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-                >
-                  {t("automations.cancel")}
-                </button>
-              </div>
-              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_220px]">
-                <label className="block min-w-0">
-                  <span className={automationFieldLabelClass}>{t("automations.titleLabel")}</span>
-                  <input
-                    value={title}
-                    onChange={(event) => setTitle(event.target.value)}
-                    className={automationFieldControlClass}
-                  />
-                </label>
-                <label className="block min-w-0">
-                  <span className={automationFieldLabelClass}>{t("automations.model")}</span>
-                  <select
-                    value={formModel}
-                    onChange={(event) => setFormModel(event.target.value)}
-                    className={automationFieldControlClass}
-                  >
-                    {availableModels.map((model) => (
-                      <option key={model.id} value={model.id}>
-                        {formatModelName(model.id)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="block min-w-0">
-                  <span className={automationFieldLabelClass}>{t("automations.timezone")}</span>
-                  <select
-                    value={timezone}
-                    onChange={(event) => setTimezone(event.target.value)}
-                    className={automationMonoFieldControlClass}
-                  >
-                    {availableTimezones.map((option) => (
-                      <option key={option} value={option}>
-                        {timezoneLabel(option)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-
-              <label className="block">
-                <span className={automationFieldLabelClass}>{t("automations.prompt")}</span>
-                <textarea
-                  value={prompt}
-                  onChange={(event) => setPrompt(event.target.value)}
-                  rows={4}
-                  className={automationTextareaClass}
-                />
-              </label>
-
-              <div className="grid gap-3 md:grid-cols-[190px_minmax(0,1fr)] md:items-end">
-                <div>
-                  <span className={automationFieldLabelClass}>{t("automations.mode")}</span>
-                  <div className="grid grid-cols-2 rounded-xl border border-[#DEE0E3] bg-white p-0.5">
-                    {(["once", "interval"] as ScheduleKind[]).map((option) => (
-                      <button
-                        key={option}
-                        type="button"
-                        onClick={() => setKind(option)}
-                        className={`h-9 rounded ${TYPOGRAPHY_BODY_MEDIUM_CLASS} ${
-                          kind === option
-                            ? "bg-[#1456F0] text-white"
-                            : "text-[#2B2F36] hover:bg-[#F8F9FA]"
-                        }`}
-                      >
-                        {option === "once" ? t("automations.once") : t("automations.interval")}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {kind === "once" ? (
+              <section className="grid gap-2.5 rounded-xl border border-[#DEE0E3] bg-white p-3 shadow-[0_1px_2px_rgba(31,35,41,0.03)] md:gap-3 md:rounded-none md:border-0 md:bg-transparent md:p-0 md:shadow-none">
+                <div className="grid gap-2.5 md:grid-cols-[minmax(0,1fr)_220px_220px]">
                   <label className="block min-w-0">
-                    <span className={automationFieldLabelClass}>{t("automations.runAt")}</span>
+                    <span className={automationFieldLabelClass}>
+                      {t("automations.titleLabel")}
+                    </span>
                     <input
-                      type="datetime-local"
-                      value={runAt}
-                      onChange={(event) => setRunAt(event.target.value)}
+                      value={title}
+                      onChange={(event) => setTitle(event.target.value)}
                       className={automationFieldControlClass}
                     />
                   </label>
-                ) : (
-                  <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_120px_130px]">
+                  <label className="block min-w-0">
+                    <span className={automationFieldLabelClass}>{t("automations.model")}</span>
+                    <select
+                      value={formModel}
+                      onChange={(event) => setFormModel(event.target.value)}
+                      className={automationFieldControlClass}
+                    >
+                      {availableModels.map((model) => (
+                        <option key={model.id} value={model.id}>
+                          {formatModelName(model.id)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block min-w-0">
+                    <span className={automationFieldLabelClass}>{t("automations.timezone")}</span>
+                    <select
+                      value={timezone}
+                      onChange={(event) => setTimezone(event.target.value)}
+                      className={automationMonoFieldControlClass}
+                    >
+                      {availableTimezones.map((option) => (
+                        <option key={option} value={option}>
+                          {timezoneLabel(option)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                <label className="block">
+                  <span className={automationFieldLabelClass}>{t("automations.prompt")}</span>
+                  <textarea
+                    value={prompt}
+                    onChange={(event) => setPrompt(event.target.value)}
+                    rows={3}
+                    className={automationTextareaClass}
+                  />
+                </label>
+              </section>
+
+              <section className="grid gap-2.5 rounded-xl border border-[#DEE0E3] bg-white p-3 shadow-[0_1px_2px_rgba(31,35,41,0.03)] md:gap-3 md:rounded-none md:border-0 md:bg-transparent md:p-0 md:shadow-none">
+                <div className="grid gap-2.5 md:grid-cols-[180px_minmax(0,1fr)] md:items-end">
+                  <div>
+                    <span className={automationFieldLabelClass}>{t("automations.mode")}</span>
+                    <div className="grid grid-cols-2 rounded-lg border border-[#DEE0E3] bg-white p-0.5">
+                      {(["once", "interval"] as ScheduleKind[]).map((option) => (
+                        <button
+                          key={option}
+                          type="button"
+                          onClick={() => setKind(option)}
+                          className={`h-9 rounded-md ${TYPOGRAPHY_BODY_MEDIUM_CLASS} ${
+                            kind === option
+                              ? "bg-[#1456F0] text-white"
+                              : "text-[#2B2F36] hover:bg-[#F8F9FA]"
+                          }`}
+                        >
+                          {option === "once" ? t("automations.once") : t("automations.interval")}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {kind === "once" ? (
                     <label className="block min-w-0">
-                      <span className={automationFieldLabelClass}>{t("automations.every")}</span>
+                      <span className={automationFieldLabelClass}>{t("automations.runAt")}</span>
+                      <input
+                        type="datetime-local"
+                        value={runAt}
+                        onChange={(event) => setRunAt(event.target.value)}
+                        className={automationFieldControlClass}
+                      />
+                    </label>
+                  ) : (
+                    <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_120px_130px]">
+                      <label className="block min-w-0">
+                        <span className={automationFieldLabelClass}>{t("automations.every")}</span>
+                        <input
+                          type="number"
+                          min={1}
+                          value={intervalValue}
+                          onChange={(event) => setIntervalValue(Number(event.target.value) || 1)}
+                          className={automationFieldControlClass}
+                        />
+                      </label>
+                      <label className="block min-w-0">
+                        <span className={automationFieldLabelClass}>{t("automations.unit")}</span>
+                        <select
+                          value={intervalUnit}
+                          onChange={(event) => setIntervalUnit(event.target.value as IntervalUnit)}
+                          className={automationFieldControlClass}
+                        >
+                          <option value="minutes">{t("automations.minutes")}</option>
+                          <option value="hours">{t("automations.hours")}</option>
+                          <option value="days">{t("automations.days")}</option>
+                        </select>
+                      </label>
+                      <label className="block min-w-0">
+                        <span className={automationFieldLabelClass}>
+                          {t("automations.maxRuns")}
+                        </span>
+                        <input
+                          type="number"
+                          min={1}
+                          placeholder={t("automations.noLimit")}
+                          value={maxRuns}
+                          onChange={(event) => setMaxRuns(event.target.value)}
+                          className={automationFieldControlClass}
+                        />
+                      </label>
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              <div className="grid gap-2.5 rounded-xl border border-[#DEE0E3] bg-white p-3 shadow-[0_1px_2px_rgba(31,35,41,0.03)] md:rounded-none md:border-0 md:bg-transparent md:p-0 md:shadow-none">
+                <button
+                  type="button"
+                  onClick={() => setIsAdvancedConfigOpen((current) => !current)}
+                  className={`inline-flex h-9 w-fit items-center gap-1 rounded-lg border border-[#DEE0E3] bg-white px-3 text-[#2B2F36] hover:bg-[#F8F9FA] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                >
+                  <ChevronDown
+                    size={14}
+                    className={
+                      isAdvancedConfigOpen
+                        ? "rotate-180 transition-transform"
+                        : "transition-transform"
+                    }
+                  />
+                  {t("automations.advancedConfig")}
+                </button>
+
+                {isAdvancedConfigOpen ? (
+                  <div
+                    data-ripple-automation-advanced-config
+                    className="grid gap-2.5 rounded-lg border border-[#EFF0F1] bg-[#F8F9FA] p-2.5 md:grid-cols-2 md:gap-3 md:p-3 xl:grid-cols-5"
+                  >
+                    <label className="block min-w-0 md:col-span-2 xl:col-span-1">
+                      <span className={automationFieldLabelClass}>{t("automations.cwd")}</span>
+                      <input
+                        value={cwd}
+                        onChange={(event) => setCwd(event.target.value)}
+                        placeholder="/workspace"
+                        className={automationMonoFieldControlClass}
+                      />
+                    </label>
+                    <label className="block min-w-0">
+                      <span className={automationFieldLabelClass}>
+                        {t("automations.maxRuntimeSeconds")}
+                      </span>
                       <input
                         type="number"
                         min={1}
-                        value={intervalValue}
-                        onChange={(event) => setIntervalValue(Number(event.target.value) || 1)}
+                        value={maxRuntimeSeconds}
+                        onChange={(event) => setMaxRuntimeSeconds(event.target.value)}
                         className={automationFieldControlClass}
                       />
                     </label>
                     <label className="block min-w-0">
-                      <span className={automationFieldLabelClass}>{t("automations.unit")}</span>
+                      <span className={automationFieldLabelClass}>
+                        {t("automations.missedRunPolicy")}
+                      </span>
                       <select
-                        value={intervalUnit}
-                        onChange={(event) => setIntervalUnit(event.target.value as IntervalUnit)}
+                        value={missedRunPolicy}
+                        onChange={(event) =>
+                          setMissedRunPolicy(event.target.value as MissedRunPolicy)
+                        }
                         className={automationFieldControlClass}
                       >
-                        <option value="minutes">{t("automations.minutes")}</option>
-                        <option value="hours">{t("automations.hours")}</option>
-                        <option value="days">{t("automations.days")}</option>
+                        {missedRunPolicyOptions.map((option) => (
+                          <option key={option} value={option}>
+                            {option === "run_once"
+                              ? t("automations.missedRunPolicyRunOnce")
+                              : t("automations.missedRunPolicySkip")}
+                          </option>
+                        ))}
                       </select>
                     </label>
                     <label className="block min-w-0">
-                      <span className={automationFieldLabelClass}>{t("automations.maxRuns")}</span>
-                      <input
-                        type="number"
-                        min={1}
-                        placeholder={t("automations.noLimit")}
-                        value={maxRuns}
-                        onChange={(event) => setMaxRuns(event.target.value)}
+                      <span className={automationFieldLabelClass}>
+                        {t("automations.overlapPolicy")}
+                      </span>
+                      <select
+                        value={overlapPolicy}
+                        onChange={(event) => setOverlapPolicy(event.target.value as OverlapPolicy)}
                         className={automationFieldControlClass}
-                      />
+                      >
+                        {overlapPolicyOptions.map((option) => (
+                          <option key={option} value={option}>
+                            {option === "skip"
+                              ? t("automations.overlapPolicySkip")
+                              : t("automations.overlapPolicyAllow")}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="block min-w-0">
+                      <span className={automationFieldLabelClass}>
+                        {t("automations.failurePolicy")}
+                      </span>
+                      <select
+                        value={failurePolicy}
+                        onChange={(event) => setFailurePolicy(event.target.value as FailurePolicy)}
+                        className={automationFieldControlClass}
+                      >
+                        {failurePolicyOptions.map((option) => (
+                          <option key={option} value={option}>
+                            {option === "pause"
+                              ? t("automations.failurePolicyPause")
+                              : t("automations.failurePolicyKeepActive")}
+                          </option>
+                        ))}
+                      </select>
                     </label>
                   </div>
-                )}
+                ) : null}
               </div>
+            </div>
 
+            <div
+              data-ripple-automation-form-actions
+              className="relative z-10 flex shrink-0 items-center justify-end gap-2 border-t border-[#DEE0E3] bg-white px-3 py-2 pb-[max(env(safe-area-inset-bottom),12px)] md:border-0 md:bg-transparent md:p-0"
+            >
               <button
                 type="button"
-                onClick={() => setIsAdvancedConfigOpen((current) => !current)}
-                className={`inline-flex h-9 w-fit items-center gap-1 rounded-full border border-[#DEE0E3] bg-white px-3 text-[#2B2F36] hover:bg-[#F8F9FA] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                onClick={closeForm}
+                className={`inline-flex h-11 items-center justify-center rounded-xl border border-[#DEE0E3] bg-white px-4 text-[#2B2F36] hover:bg-[#F8F9FA] disabled:cursor-not-allowed disabled:opacity-60 md:h-10 md:rounded-lg ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+                disabled={isSubmitting}
               >
-                <ChevronDown
-                  size={14}
-                  className={
-                    isAdvancedConfigOpen
-                      ? "rotate-180 transition-transform"
-                      : "transition-transform"
-                  }
-                />
-                {t("automations.advancedConfig")}
+                {t("automations.cancel")}
               </button>
-
-              {isAdvancedConfigOpen ? (
-                <div
-                  data-ripple-automation-advanced-config
-                  className="grid gap-3 rounded-xl border border-[#EFF0F1] bg-[#F8F9FA] p-3 md:grid-cols-2 xl:grid-cols-5"
-                >
-                  <label className="block min-w-0 md:col-span-2 xl:col-span-1">
-                    <span className={automationFieldLabelClass}>{t("automations.cwd")}</span>
-                    <input
-                      value={cwd}
-                      onChange={(event) => setCwd(event.target.value)}
-                      placeholder="/workspace"
-                      className={automationMonoFieldControlClass}
-                    />
-                  </label>
-                  <label className="block min-w-0">
-                    <span className={automationFieldLabelClass}>
-                      {t("automations.maxRuntimeSeconds")}
-                    </span>
-                    <input
-                      type="number"
-                      min={1}
-                      value={maxRuntimeSeconds}
-                      onChange={(event) => setMaxRuntimeSeconds(event.target.value)}
-                      className={automationFieldControlClass}
-                    />
-                  </label>
-                  <label className="block min-w-0">
-                    <span className={automationFieldLabelClass}>
-                      {t("automations.missedRunPolicy")}
-                    </span>
-                    <select
-                      value={missedRunPolicy}
-                      onChange={(event) =>
-                        setMissedRunPolicy(event.target.value as MissedRunPolicy)
-                      }
-                      className={automationFieldControlClass}
-                    >
-                      {missedRunPolicyOptions.map((option) => (
-                        <option key={option} value={option}>
-                          {option === "run_once"
-                            ? t("automations.missedRunPolicyRunOnce")
-                            : t("automations.missedRunPolicySkip")}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="block min-w-0">
-                    <span className={automationFieldLabelClass}>
-                      {t("automations.overlapPolicy")}
-                    </span>
-                    <select
-                      value={overlapPolicy}
-                      onChange={(event) => setOverlapPolicy(event.target.value as OverlapPolicy)}
-                      className={automationFieldControlClass}
-                    >
-                      {overlapPolicyOptions.map((option) => (
-                        <option key={option} value={option}>
-                          {option === "skip"
-                            ? t("automations.overlapPolicySkip")
-                            : t("automations.overlapPolicyAllow")}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="block min-w-0">
-                    <span className={automationFieldLabelClass}>
-                      {t("automations.failurePolicy")}
-                    </span>
-                    <select
-                      value={failurePolicy}
-                      onChange={(event) => setFailurePolicy(event.target.value as FailurePolicy)}
-                      className={automationFieldControlClass}
-                    >
-                      {failurePolicyOptions.map((option) => (
-                        <option key={option} value={option}>
-                          {option === "pause"
-                            ? t("automations.failurePolicyPause")
-                            : t("automations.failurePolicyKeepActive")}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-              ) : null}
-
-              <div className="flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={closeForm}
-                  className={`hidden h-10 items-center justify-center rounded-lg border border-[#DEE0E3] bg-white px-4 text-[#2B2F36] hover:bg-[#F8F9FA] md:inline-flex ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
-                  disabled={isSubmitting}
-                >
-                  {t("automations.cancel")}
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting || !editingScheduleId || !title.trim() || !prompt.trim()}
-                  className={`inline-flex h-10 items-center justify-center gap-2 rounded-full bg-[#1456F0] px-4 text-white shadow-[0_12px_26px_rgba(20,86,240,0.22)] hover:bg-[#0F4BD8] disabled:cursor-not-allowed disabled:bg-[#EFF0F1] disabled:bg-none disabled:text-[#8F959E] disabled:shadow-none ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
-                >
-                  {isSubmitting ? (
-                    <Loader2 size={14} className="animate-spin" />
-                  ) : (
-                    <CalendarClock size={14} />
-                  )}
-                  {t("automations.save")}
-                </button>
-              </div>
-            </form>
-          </>
+              <button
+                type="submit"
+                disabled={isSubmitting || !editingScheduleId || !title.trim() || !prompt.trim()}
+                className={`inline-flex h-11 min-w-[112px] items-center justify-center gap-2 rounded-xl bg-[#1456F0] px-4 text-white hover:bg-[#0F4BD8] disabled:cursor-not-allowed disabled:bg-[#EFF0F1] disabled:text-[#8F959E] md:h-10 md:min-w-0 md:rounded-lg ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+              >
+                {isSubmitting ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <CalendarClock size={14} />
+                )}
+                {t("automations.save")}
+              </button>
+            </div>
+          </form>
         ) : null}
 
         {schedules.length === 0 ? (
@@ -1980,7 +1992,7 @@ export default function AutomationsPage({
                   data-ripple-automation-detail-scroll="detail"
                   data-ripple-automation-detail-swiping={isDetailSwipeActive ? "true" : "false"}
                   style={{ x: detailSwipeX }}
-                  className={`pointer-events-auto h-full min-h-0 touch-pan-y overflow-y-auto border-l bg-[#F5F6F7] px-3 ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} ${isDetailSwipeActive ? "border-[#D0D3D6]" : "border-transparent"} ${isDetailSwipeActive ? "will-change-transform" : "will-change-auto"}`}
+                  className={`pointer-events-auto h-full min-h-0 touch-pan-y overflow-y-auto border-l bg-[#F5F6F7] px-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} ${isDetailSwipeActive ? "border-[#D0D3D6]" : "border-transparent"} ${isDetailSwipeActive ? "will-change-transform" : "will-change-auto"}`}
                   onPointerDownCapture={handleDetailSwipePointerDown}
                   onPointerMoveCapture={handleDetailSwipePointerMove}
                   onPointerUpCapture={handleDetailSwipePointerUp}
@@ -2008,11 +2020,11 @@ export default function AutomationsPage({
                         <MobilePageHeader
                           title={schedule.title}
                           subtitle={formatDate(schedule.next_run_at, locale, t)}
-                          titleClassName="text-[18px] leading-[26px] font-medium"
+                          titleClassName={MOBILE_DETAIL_HEADER_TITLE_CLASS}
                           backButtonVariant="ghost"
                           backLabel={t("automations.backToAutomations")}
                           onBack={closeScheduleDetail}
-                          className="-mx-3"
+                          className={MOBILE_DETAIL_PAGE_HEADER_CLASS}
                         />
 
                         <section className={`grid gap-2 p-3 ${WORKBENCH_SECTION_CLASS}`}>
@@ -2178,7 +2190,6 @@ export default function AutomationsPage({
                             type="button"
                             onClick={() => {
                               beginEditSchedule(schedule);
-                              closeScheduleDetail();
                             }}
                             aria-label={t("automations.editAutomation")}
                             title={t("automations.editAutomation")}

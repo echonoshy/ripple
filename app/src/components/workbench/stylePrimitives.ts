@@ -109,6 +109,10 @@ export const MOBILE_LABEL_TEXT_CLASS = TYPOGRAPHY_BODY_CLASS;
 export const MOBILE_META_TEXT_CLASS = TYPOGRAPHY_META_CLASS;
 export const MOBILE_STATUS_TEXT_CLASS = TYPOGRAPHY_MICRO_CLASS;
 
+export const MOBILE_DETAIL_HEADER_TITLE_CLASS =
+  "text-[18px] leading-[26px] font-medium tracking-normal";
+export const MOBILE_DETAIL_PAGE_HEADER_CLASS = "-mx-3 -mt-[max(env(safe-area-inset-top),12px)]";
+
 export const MOBILE_PAGE_TOP_SAFE_AREA_CLASS = "pt-[max(env(safe-area-inset-top),12px)]";
 export const MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS = "pb-[calc(84px+env(safe-area-inset-bottom))]";
 export const MOBILE_TAB_BAR_MASK_HEIGHT_CLASS = "h-[calc(84px+env(safe-area-inset-bottom))]";

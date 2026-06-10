@@ -61,13 +61,24 @@ function testNewSessionCreationDoesNotDependOnGlobalGenerationState() {
   assert.doesNotMatch(createNewSessionBlock, /isGenerating/);
 }
 
+function testNewSessionCreationOptimisticallyUpdatesSessionList() {
+  const createNewSessionBlock =
+    sessionLifecycleSource.match(
+      /const createNewSession = useCallback\([\s\S]*?\n\s{2}const switchSession = useCallback/
+    )?.[0] || "";
+
+  assert.match(createNewSessionBlock, /setSessionSummaries\(\(prev\) =>/);
+  assert.match(createNewSessionBlock, /session\.sessionId/);
+  assert.match(createNewSessionBlock, /void loadSessions\(\{ showLoading: false \}\)/);
+}
+
 function testStopRefreshesSessionsAfterInterrupt() {
   const handleStopBlock =
     chatRunSource.match(
       /const handleStop = useCallback\([\s\S]*?\n\s{2}const handleClearContext = useCallback/
     )?.[0] || "";
 
-  assert.match(handleStopBlock, /getSessionActions\(\)\.loadSessions\(\)/);
+  assert.match(handleStopBlock, /getSessionActions\(\)\.loadSessions\(\{ showLoading: false \}\)/);
 }
 
 function testCompactSchedulesDelayedSessionRefreshes() {
@@ -168,12 +179,15 @@ function testSessionSelectionAcknowledgesErrorAttention() {
   assert.match(appSource, /acknowledgeSessionAttention/);
   assert.match(appSource, /setAcknowledgedSessionAttentionById/);
   assert.match(appSource, /storedAttention === "error"/);
-  assert.match(appSource, /sessionStatusToWorkbenchStatus\(summary\.status\) === "failed"/);
+  assert.match(appSource, /summaryAttention === "error"/);
   assert.doesNotMatch(appSource, /acknowledgeSessionCompletion/);
 }
 
 function testDefaultModelSeedsNewSessionsAndChatRuns() {
-  assert.match(appSource, /createNewSession\(defaultModel(?:,\s*activeContextFolderPath)?\)/);
+  assert.match(
+    appSource,
+    /createNewSession\(defaultModel,\s*activeContextFolderPath,\s*\{\s*refresh: false,\s*\}\)/
+  );
   assert.match(
     appSource,
     /ensureSession:\s*\(model\) => ensureSession\(model(?:,\s*activeContextFolderPath)?\)/
@@ -187,7 +201,10 @@ function testDefaultModelSeedsNewSessionsAndChatRuns() {
 function testContextFolderSeedsNewSessionsAndFilesViewStaysPlain() {
   assert.match(appSource, /activeContextFolderPath/);
   assert.doesNotMatch(appSource, /fetchProjects/);
-  assert.match(appSource, /createNewSession\(defaultModel,\s*activeContextFolderPath\)/);
+  assert.match(
+    appSource,
+    /createNewSession\(defaultModel,\s*activeContextFolderPath,\s*\{\s*refresh: false,\s*\}\)/
+  );
   assert.match(
     appSource,
     /ensureSession:\s*\(model\) => ensureSession\(model,\s*activeContextFolderPath\)/
@@ -268,6 +285,7 @@ testAuthInitEffectDoesNotDependOnInlineCallbacks();
 testAppDelegatesSessionLifecycle();
 testAppDelegatesChatRun();
 testNewSessionCreationDoesNotDependOnGlobalGenerationState();
+testNewSessionCreationOptimisticallyUpdatesSessionList();
 testStopRefreshesSessionsAfterInterrupt();
 testCompactSchedulesDelayedSessionRefreshes();
 testStopTargetsOneRunningSession();

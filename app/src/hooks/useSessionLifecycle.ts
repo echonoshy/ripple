@@ -41,6 +41,16 @@ interface LoadSessionsOptions {
   showLoading?: boolean;
 }
 
+function mergeCreatedSessionSummary(
+  sessions: SessionSummary[],
+  createdSession: SessionSummary
+): SessionSummary[] {
+  return [
+    createdSession,
+    ...sessions.filter((session) => session.sessionId !== createdSession.sessionId),
+  ];
+}
+
 export function useSessionLifecycle({
   authState,
   isGenerating,
@@ -155,11 +165,14 @@ export function useSessionLifecycle({
       try {
         const session = await createSession({ model, contextFolderPath });
         setSessionId(session.sessionId);
+        setSessionSummaries((prev) => mergeCreatedSessionSummary(prev, session));
         setStoredCurrentSessionId(undefined, session.sessionId);
         onNewSessionView();
         onSessionActivated();
         if (options.refresh !== false) {
           await loadSessions();
+        } else {
+          void loadSessions({ showLoading: false });
         }
         return session;
       } catch (err) {

@@ -689,7 +689,9 @@ export default function Home() {
   const handleNewSession = async () => {
     setPendingMobileSession(null);
     mobileSessionSelectionRequestRef.current += 1;
-    const session = await createNewSession(defaultModel, activeContextFolderPath);
+    const session = await createNewSession(defaultModel, activeContextFolderPath, {
+      refresh: false,
+    });
     if (session) {
       setSelectedModel(session.model || defaultModel);
       setActiveContextFolderPath(session.contextFolderPath ?? activeContextFolderPath);

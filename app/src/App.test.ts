@@ -167,6 +167,15 @@ function testFreshSessionSendSkipsPreflightListRefresh() {
   );
 }
 
+function testMobileNewSessionSkipsVisibleListRefresh() {
+  const source = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
+
+  assert.match(
+    source,
+    /createNewSession\(defaultModel,\s*activeContextFolderPath,\s*\{\s*refresh: false,\s*\}\)/
+  );
+}
+
 function testVisibleSessionListUsesStableOrderAcrossRefreshes() {
   const source = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
   const displaySessionsBlock =
@@ -273,6 +282,7 @@ testCurrentSessionListVisibilityUsesRuntimeStatusPresence();
 testSessionSelectionAcknowledgesNeedsInputAttention();
 testMobileSessionListDoesNotHideSelectedSessionAttention();
 testFreshSessionSendSkipsPreflightListRefresh();
+testMobileNewSessionSkipsVisibleListRefresh();
 testVisibleSessionListUsesStableOrderAcrossRefreshes();
 testDesktopUsesProductTopBarWithSettingsAvatarEntry();
 testSessionRailOnlyLivesInsideSessionsView();

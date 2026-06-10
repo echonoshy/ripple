@@ -34,7 +34,10 @@ function testSessionDetailsRespectCurrentSessionModelOverride() {
 }
 
 function testDefaultModelSeedsNewSessions() {
-  assert.match(appSource, /createNewSession\(defaultModel(?:,\s*activeContextFolderPath)?\)/);
+  assert.match(
+    appSource,
+    /createNewSession\(defaultModel,\s*activeContextFolderPath,\s*\{\s*refresh: false,\s*\}\)/
+  );
   assert.match(appSource, /defaultModel=\{defaultModel\}/);
   assert.match(appSource, /onSelectDefaultModel=\{handleSelectDefaultModel\}/);
 }

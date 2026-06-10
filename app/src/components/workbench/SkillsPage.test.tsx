@@ -356,6 +356,14 @@ function testSkillsCategoryDetailSupportsSwipeBackGesture() {
   assert.match(source, /data-ripple-skill-category-swipe-stack="true"/);
   assert.match(source, /data-ripple-skill-category-index-underlay="true"/);
   assert.match(source, /data-ripple-skill-category-swipe-sheet="true"/);
+  assert.doesNotMatch(source, /resolveMobileStackExitTarget\(dragState\.viewportWidth\)/);
+  assert.match(source, /animateCategorySwipeTo\(\s*dragState\.viewportWidth,/);
+  assert.doesNotMatch(swipeSheetBlock, /shadow-\[-18px_0_44px_rgba\(31,35,41,0\.18\)\]/);
+  assert.match(swipeSheetBlock, /border-l/);
+  assert.match(
+    swipeSheetBlock,
+    /isCategorySwipeActive \? "border-\[#D0D3D6\]" : "border-transparent"/
+  );
   assert.match(swipeSheetBlock, /onPointerDownCapture=\{handleCategorySwipePointerDown\}/);
   assert.match(swipeSheetBlock, /onPointerMoveCapture=\{handleCategorySwipePointerMove\}/);
   assert.match(swipeSheetBlock, /onPointerUpCapture=\{handleCategorySwipePointerUp\}/);
@@ -428,10 +436,8 @@ function testSkillsCategorySwipeUsesFullHeightScrollableSheetLikeSession() {
   assert.match(swipeSheetBlock, /absolute inset-0 z-10 h-full min-h-0/);
   assert.match(swipeSheetBlock, /overflow-y-auto/);
   assert.match(swipeSheetBlock, /data-ripple-skill-category-scroll="detail"/);
-  assert.match(
-    swipeSheetBlock,
-    /isCategorySwipeActive \? "shadow-\[-18px_0_44px_rgba\(31,35,41,0\.18\)\]" : "shadow-none"/
-  );
+  assert.doesNotMatch(swipeSheetBlock, /shadow-\[-18px_0_44px_rgba\(31,35,41,0\.18\)\]/);
+  assert.match(swipeSheetBlock, /border-l/);
 }
 
 function testSkillsCategorySwipeCommitDoesNotJumpScrollAfterReturn() {

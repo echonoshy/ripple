@@ -1978,9 +1978,7 @@ export default function AutomationsPage({
                   data-ripple-automation-detail-scroll="detail"
                   data-ripple-automation-detail-swiping={isDetailSwipeActive ? "true" : "false"}
                   style={{ x: detailSwipeX }}
-                  className={`pointer-events-auto h-full min-h-0 touch-pan-y overflow-y-auto bg-[#F5F6F7] px-3 ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} ${
-                    isDetailSwipeActive ? "shadow-[-18px_0_44px_rgba(31,35,41,0.18)]" : "shadow-none"
-                  } ${isDetailSwipeActive ? "will-change-transform" : "will-change-auto"}`}
+                  className={`pointer-events-auto h-full min-h-0 touch-pan-y overflow-y-auto border-l bg-[#F5F6F7] px-3 ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} ${isDetailSwipeActive ? "border-[#D0D3D6]" : "border-transparent"} ${isDetailSwipeActive ? "will-change-transform" : "will-change-auto"}`}
                   onPointerDownCapture={handleDetailSwipePointerDown}
                   onPointerMoveCapture={handleDetailSwipePointerMove}
                   onPointerUpCapture={handleDetailSwipePointerUp}

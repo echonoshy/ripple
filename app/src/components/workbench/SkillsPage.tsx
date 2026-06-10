@@ -2086,7 +2086,7 @@ export default function SkillsPage({
           data-ripple-skill-category-scroll="detail"
           data-ripple-skill-category-swiping={isCategorySwipeActive ? "true" : "false"}
           style={{ x: categorySwipeX }}
-          className={`absolute inset-0 z-10 h-full min-h-0 touch-pan-y overflow-y-auto bg-[#F5F6F7] px-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} ${isCategorySwipeActive ? "shadow-[-18px_0_44px_rgba(31,35,41,0.18)]" : "shadow-none"} ${isCategorySwipeActive ? "will-change-transform" : "will-change-auto"} lg:relative lg:inset-auto lg:h-auto lg:overflow-visible lg:px-0 lg:pt-0 lg:pb-0 lg:shadow-none lg:will-change-auto`}
+          className={`absolute inset-0 z-10 h-full min-h-0 touch-pan-y overflow-y-auto border-l bg-[#F5F6F7] px-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} ${isCategorySwipeActive ? "border-[#D0D3D6]" : "border-transparent"} ${isCategorySwipeActive ? "will-change-transform" : "will-change-auto"} lg:relative lg:inset-auto lg:h-auto lg:overflow-visible lg:border-l-0 lg:px-0 lg:pt-0 lg:pb-0 lg:will-change-auto`}
           onPointerDownCapture={handleCategorySwipePointerDown}
           onPointerMoveCapture={handleCategorySwipePointerMove}
           onPointerUpCapture={handleCategorySwipePointerUp}

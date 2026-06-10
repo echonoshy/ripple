@@ -509,7 +509,9 @@ export default function MobileSessionStack({
         <motion.div
           data-ripple-mobile-session-chat-sheet="true"
           data-ripple-mobile-session-chat-dragging={isDragging ? "true" : "false"}
-          className="absolute inset-0 z-10 h-full min-h-0 touch-pan-y bg-[#F5F6F7] shadow-[-18px_0_44px_rgba(31,35,41,0.18)] will-change-transform"
+          className={`absolute inset-0 z-10 h-full min-h-0 touch-pan-y border-l bg-[#F5F6F7] ${
+            isDragging ? "border-[#D0D3D6]" : "border-transparent"
+          } will-change-transform`}
           style={{ x: sheetX }}
           transition={reduceMotion ? reducedMotionTransition : mobileStackReturnTransition}
           onPointerDownCapture={handlePointerDown}

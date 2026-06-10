@@ -375,11 +375,22 @@ function testAutomationsMobileDetailUsesSkillsStyleSwipeBack() {
       /<motion\.div[\s\S]*?data-ripple-automation-detail-swipe-sheet="true"[\s\S]*?<\/motion\.div>/
     )?.[0] || "";
 
-  assert.match(source, /import \{ AnimatePresence, animate, motion, useMotionValue, useReducedMotion \} from "framer-motion"/);
+  assert.match(
+    source,
+    /import \{ AnimatePresence, animate, motion, useMotionValue, useReducedMotion \} from "framer-motion"/
+  );
   assert.match(source, /import MobilePageHeader from "\.\/MobilePageHeader"/);
   assert.match(source, /mobilePageVariants/);
   assert.match(source, /reducedMobilePageVariants/);
   assert.match(source, /mobileStackCommitTransition/);
+  assert.doesNotMatch(source, /resolveMobileStackExitTarget\(dragState\.viewportWidth\)/);
+  assert.match(source, /animateDetailSwipeTo\(\s*dragState\.viewportWidth,/);
+  assert.doesNotMatch(swipeSheetBlock, /shadow-\[-18px_0_44px_rgba\(31,35,41,0\.18\)\]/);
+  assert.match(swipeSheetBlock, /border-l/);
+  assert.match(
+    swipeSheetBlock,
+    /isDetailSwipeActive \? "border-\[#D0D3D6\]" : "border-transparent"/
+  );
   assert.match(source, /resolveMobileSwipeBackRelease/);
   assert.match(source, /data-ripple-automation-detail-swipe-stack="true"/);
   assert.match(source, /data-ripple-automation-detail-motion-stage="true"/);

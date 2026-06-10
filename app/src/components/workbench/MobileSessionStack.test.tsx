@@ -397,6 +397,24 @@ function testCommittedSwipeDoesNotResetSheetBeforeListUnmountsChat() {
   assert.doesNotMatch(pointerUpBlock, /sheetX\.set\(0\);\s*onOpenList\(\);/);
 }
 
+function testCommittedSwipeUsesCrispEdgeInsteadOfShadow() {
+  const pointerUpBlock =
+    mobileSessionStackSource.match(
+      /const handlePointerUp[\s\S]*?\},\s*\[animateSheetTo[\s\S]*?\]\s*\);/
+    )?.[0] || "";
+  const chatSheetBlock =
+    mobileSessionStackSource.match(
+      /<motion\.div[\s\S]*?data-ripple-mobile-session-chat-sheet="true"[\s\S]*?>/
+    )?.[0] || "";
+
+  assert.doesNotMatch(motionPrimitivesSource, /exitShadowBleedPx/);
+  assert.doesNotMatch(motionPrimitivesSource, /resolveMobileStackExitTarget/);
+  assert.doesNotMatch(chatSheetBlock, /shadow-\[-18px_0_44px_rgba\(31,35,41,0\.18\)\]/);
+  assert.match(chatSheetBlock, /border-l/);
+  assert.match(chatSheetBlock, /isDragging \? "border-\[#D0D3D6\]" : "border-transparent"/);
+  assert.match(pointerUpBlock, /animateSheetTo\(dragState\.viewportWidth, onOpenList/);
+}
+
 function testMobileMotionUsesRestrainedSharedTiming() {
   assert.equal(mobileStackPushTransition.duration, 0.18);
   assert.equal(mobilePageSwitchTransition.duration, 0.16);
@@ -468,6 +486,7 @@ testStackLayersListBehindChatSheet();
 testListModeDoesNotRenderForegroundChatSheet();
 testPointerMoveOnlyDragsWithoutOpeningList();
 testCommittedSwipeDoesNotResetSheetBeforeListUnmountsChat();
+testCommittedSwipeUsesCrispEdgeInsteadOfShadow();
 testMobileMotionUsesRestrainedSharedTiming();
 testMobilePageVariantsAvoidFadeAndVerticalDrift();
 testMobileListItemsDoNotStaggerOrFade();

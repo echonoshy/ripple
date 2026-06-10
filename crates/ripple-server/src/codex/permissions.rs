@@ -59,10 +59,25 @@ pub fn thread_permission_config(workspace: &Path, config: &AppConfig) -> Value {
     ] {
         filesystem.insert(path.to_string_lossy().to_string(), json!("write"));
     }
+    let service_codex_home = config.codex_home_path();
     filesystem.insert(
-        config.codex_home_path().to_string_lossy().to_string(),
+        service_codex_home.to_string_lossy().to_string(),
         json!("none"),
     );
+    let service_auth_file = service_codex_home.join("auth.json");
+    filesystem.insert(
+        service_auth_file.to_string_lossy().to_string(),
+        json!("none"),
+    );
+    if let Ok(resolved_service_auth_file) = std::fs::canonicalize(&service_auth_file) {
+        filesystem.insert(
+            resolved_service_auth_file.to_string_lossy().to_string(),
+            json!("none"),
+        );
+    }
+    if let Some(user_codex_home) = current_user_codex_home(workspace, config) {
+        filesystem.insert(user_codex_home.to_string_lossy().to_string(), json!("none"));
+    }
     if let Some(bilibili_credential) = current_user_bilibili_credential_file(workspace, config) {
         filesystem.insert(
             bilibili_credential.to_string_lossy().to_string(),
@@ -89,6 +104,14 @@ pub fn thread_permission_config(workspace: &Path, config: &AppConfig) -> Value {
         },
         "shell_environment_policy": {"exclude": ["CODEX_HOME"]}
     })
+}
+
+fn current_user_codex_home(workspace: &Path, config: &AppConfig) -> Option<std::path::PathBuf> {
+    let sandbox_dir = workspace.parent()?;
+    if sandbox_dir.parent()? != config.sandbox.sandboxes_root.as_path() {
+        return None;
+    }
+    Some(sandbox_dir.join("codex-home"))
 }
 
 fn path_exists_for_permission_rule(path: &Path) -> bool {
@@ -217,6 +240,40 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(workspace);
+    }
+
+    #[test]
+    fn profile_denies_current_user_codex_home_and_resolved_service_auth() {
+        let mut config = test_config();
+        config.codex.codex_home = Some(config.repo_root.join(".ripple/codex-service-home"));
+        let workspace = config.sandbox.sandboxes_root.join("alice/workspace");
+        let user_codex_home = config.sandbox.sandboxes_root.join("alice/codex-home");
+        let service_auth = config.codex_home_path().join("auth.json");
+        std::fs::create_dir_all(&workspace).expect("create workspace");
+        std::fs::create_dir_all(service_auth.parent().unwrap()).expect("create service codex home");
+        std::fs::write(&service_auth, r#"{"OPENAI_API_KEY":"test"}"#).expect("write service auth");
+        std::fs::create_dir_all(&user_codex_home).expect("create user codex home");
+
+        let permissions = thread_permission_config(&workspace, &config);
+        let filesystem = permissions
+            .pointer("/permissions/ripple_workspace/filesystem")
+            .and_then(|filesystem| filesystem.as_object())
+            .expect("filesystem rules");
+
+        assert_eq!(
+            filesystem.get(user_codex_home.to_string_lossy().as_ref()),
+            Some(&json!("none"))
+        );
+        assert_eq!(
+            filesystem.get(config.codex_home_path().to_string_lossy().as_ref()),
+            Some(&json!("none"))
+        );
+        assert_eq!(
+            filesystem.get(service_auth.to_string_lossy().as_ref()),
+            Some(&json!("none"))
+        );
+
+        let _ = std::fs::remove_dir_all(&config.repo_root);
     }
 
     #[test]

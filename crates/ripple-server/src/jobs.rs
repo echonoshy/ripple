@@ -52,6 +52,12 @@ pub struct AgentRunCreateRequest {
     pub codex_thread_id: Option<String>,
     #[serde(default)]
     pub codex_persistent_thread: bool,
+    #[serde(default)]
+    pub memory_use_memories: Option<bool>,
+    #[serde(default)]
+    pub memory_generate_memories: Option<bool>,
+    #[serde(default)]
+    pub memory_disabled: bool,
     #[serde(default, skip_deserializing)]
     pub chat_user_input: Option<String>,
     #[serde(default, skip_deserializing)]
@@ -162,6 +168,18 @@ impl JobManager {
             }
             if create.codex_persistent_thread {
                 object.insert("codex_persistent_thread".to_string(), json!(true));
+            }
+            if let Some(use_memories) = create.memory_use_memories {
+                object.insert("memory_use_memories".to_string(), json!(use_memories));
+            }
+            if let Some(generate_memories) = create.memory_generate_memories {
+                object.insert(
+                    "memory_generate_memories".to_string(),
+                    json!(generate_memories),
+                );
+            }
+            if create.memory_disabled {
+                object.insert("memory_disabled".to_string(), json!(true));
             }
             if let Some(chat_user_input) = &create.chat_user_input {
                 object.insert("chat_user_input".to_string(), json!(chat_user_input));
@@ -290,6 +308,7 @@ impl JobManager {
             "job_id": job_id,
             "route": "internal_agent_runner",
             "internal": true,
+            "memory_disabled": true,
             "signals": [],
             "sandbox_cwd": sandbox_cwd_for_host_path(&cwd, &workspace_root),
             "workspace_root": workspace_root,
@@ -326,6 +345,25 @@ impl JobManager {
     ) -> anyhow::Result<Value> {
         self.provider
             .read_thread(user_id, workspace_root, thread_id)
+            .await
+    }
+
+    pub async fn reset_memory(
+        &self,
+        user_id: String,
+        workspace_root: PathBuf,
+    ) -> anyhow::Result<()> {
+        self.provider.reset_memory(user_id, workspace_root).await
+    }
+
+    pub async fn disable_thread_memory(
+        &self,
+        user_id: String,
+        workspace_root: PathBuf,
+        thread_id: String,
+    ) -> anyhow::Result<()> {
+        self.provider
+            .set_thread_memory_mode(user_id, workspace_root, thread_id, "disabled")
             .await
     }
 

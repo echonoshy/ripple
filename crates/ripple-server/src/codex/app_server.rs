@@ -21,6 +21,8 @@ use crate::codex::permissions::{thread_permission_config, RIPPLE_CODEX_PERMISSIO
 use crate::config::AppConfig;
 use crate::python_env::{ensure_ripple_py_wrapper, ripple_py_bin_dir};
 use crate::redaction::{redact_text, redact_value};
+use crate::sandbox::SandboxManager;
+use crate::user::validate_user_id;
 
 const TAIL_CHARS: usize = 64_000;
 const CODEX_NATIVE_INPUT_TYPES: &[&str] = &["text", "image", "localImage"];
@@ -163,7 +165,13 @@ impl CodexAppServerSession {
         tokio::fs::create_dir_all(&self.cwd).await?;
         ensure_ripple_py_wrapper(&self.config)?;
         crate::runtime_checks::ensure_codex_linux_sandbox_prerequisites(&self.config).await?;
-        let codex_home = self.config.codex_home_path();
+        let sandbox_manager = SandboxManager::new(self.config.clone());
+        if sandbox_manager.service_codex_auth_file().exists()
+            || requires_service_codex_auth(&self.config)
+        {
+            sandbox_manager.ensure_user_codex_home_auth_link(&self.user_key)?;
+        }
+        let codex_home = codex_home_for_user(&self.config, &self.user_key)?;
         tokio::fs::create_dir_all(&codex_home).await?;
 
         let mut command = Command::new(&self.config.codex.codex_executable);
@@ -1004,6 +1012,50 @@ impl CodexAppServerProvider {
         result
     }
 
+    pub async fn reset_memory(
+        &self,
+        user_id: String,
+        workspace_root: PathBuf,
+    ) -> anyhow::Result<()> {
+        let session = CodexAppServerSession::new(user_id, self.config.clone(), workspace_root);
+        let result = async {
+            session.ensure_started().await?;
+            session.ensure_initialized().await?;
+            session.request("memory/reset", json!({})).await?;
+            Ok(())
+        }
+        .await;
+        session.shutdown().await;
+        result
+    }
+
+    pub async fn set_thread_memory_mode(
+        &self,
+        user_id: String,
+        workspace_root: PathBuf,
+        thread_id: String,
+        mode: &str,
+    ) -> anyhow::Result<()> {
+        let session = CodexAppServerSession::new(user_id, self.config.clone(), workspace_root);
+        let result = async {
+            session.ensure_started().await?;
+            session.ensure_initialized().await?;
+            session
+                .request(
+                    "thread/memoryMode/set",
+                    json!({
+                        "threadId": thread_id,
+                        "mode": mode
+                    }),
+                )
+                .await?;
+            Ok(())
+        }
+        .await;
+        session.shutdown().await;
+        result
+    }
+
     async fn compact_thread_with_session(
         &self,
         session: &Arc<CodexAppServerSession>,
@@ -1190,10 +1242,26 @@ fn thread_config_for_request(
     request: &AgentRunnerRequest,
 ) -> Value {
     let mut thread_config = thread_permission_config(workspace_root, config);
-    if image_generation_enabled_for_request(request) {
-        if let Some(object) = thread_config.as_object_mut() {
+    if let Some(object) = thread_config.as_object_mut() {
+        if image_generation_enabled_for_request(request) {
             object.insert("features.image_generation".to_string(), json!(true));
         }
+        let use_memories = memory_use_enabled_for_request(request);
+        let generate_memories = memory_generate_enabled_for_request(request);
+        object.insert(
+            "features.memories".to_string(),
+            json!(use_memories || generate_memories),
+        );
+        object.insert("memories.use_memories".to_string(), json!(use_memories));
+        object.insert(
+            "memories.generate_memories".to_string(),
+            json!(generate_memories),
+        );
+        object.insert("memories.dedicated_tools".to_string(), json!(false));
+        object.insert(
+            "memories.disable_on_external_context".to_string(),
+            json!(true),
+        );
     }
     thread_config
 }
@@ -1204,6 +1272,60 @@ fn image_generation_enabled_for_request(request: &AgentRunnerRequest) -> bool {
         .get("image_generation_enabled")
         .and_then(Value::as_bool)
         .unwrap_or(false)
+}
+
+fn memory_use_enabled_for_request(request: &AgentRunnerRequest) -> bool {
+    if memory_disabled_for_request(request) {
+        return false;
+    }
+    request
+        .metadata
+        .get("memory_use_memories")
+        .or_else(|| request.metadata.get("memory_use"))
+        .and_then(Value::as_bool)
+        .unwrap_or(true)
+}
+
+fn memory_generate_enabled_for_request(request: &AgentRunnerRequest) -> bool {
+    if memory_disabled_for_request(request) {
+        return false;
+    }
+    request
+        .metadata
+        .get("memory_generate_memories")
+        .or_else(|| request.metadata.get("memory_generate"))
+        .and_then(Value::as_bool)
+        .unwrap_or(true)
+}
+
+fn memory_disabled_for_request(request: &AgentRunnerRequest) -> bool {
+    request
+        .metadata
+        .get("memory_disabled")
+        .or_else(|| request.metadata.get("temporary"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn codex_home_for_user(config: &AppConfig, user_id: &str) -> anyhow::Result<PathBuf> {
+    validate_user_id(user_id).map_err(anyhow::Error::msg)?;
+    Ok(config
+        .sandbox
+        .sandboxes_root
+        .join(user_id)
+        .join("codex-home"))
+}
+
+fn requires_service_codex_auth(config: &AppConfig) -> bool {
+    let executable_name = Path::new(&config.codex.codex_executable)
+        .file_name()
+        .and_then(|name| name.to_str());
+    executable_name == Some("codex")
+        || config
+            .codex
+            .app_server_args
+            .iter()
+            .any(|arg| arg == "app-server")
 }
 
 fn inherit_env_allowlist(command: &mut Command, keys: &[&str]) {
@@ -1254,7 +1376,13 @@ fn notification_thread_id(message: &Value) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::*;
+    use crate::config::{
+        AppConfig, CodexConfig, CorsConfig, FeishuConfig, GogcliOAuthConfig, LoggingConfig,
+        SandboxConfig, SecurityConfig, SkillsConfig,
+    };
 
     #[test]
     fn codex_input_items_filters_native_skill_and_mention_items() {
@@ -1346,6 +1474,103 @@ mod tests {
     }
 
     #[test]
+    fn codex_home_for_user_uses_user_sandbox() {
+        let config = test_config();
+
+        let codex_home = codex_home_for_user(&config, "alice").expect("codex home");
+
+        assert_eq!(
+            codex_home,
+            config.sandbox.sandboxes_root.join("alice/codex-home")
+        );
+        assert_ne!(codex_home, config.codex_home_path());
+    }
+
+    #[test]
+    fn service_codex_auth_is_required_only_for_real_codex_launches() {
+        let mut config = test_config();
+
+        assert!(requires_service_codex_auth(&config));
+
+        config.codex.codex_executable = "/tmp/fake-codex-app-server".to_string();
+        config.codex.app_server_args.clear();
+
+        assert!(!requires_service_codex_auth(&config));
+    }
+
+    #[test]
+    fn thread_config_includes_conservative_memory_defaults() {
+        let config = test_config();
+        let workspace = config.sandbox.sandboxes_root.join("alice/workspace");
+        let request = AgentRunnerRequest {
+            provider: "codex".to_string(),
+            prompt: "remember useful project context".to_string(),
+            cwd: workspace.clone(),
+            input_items: Vec::new(),
+            model: None,
+            effort: None,
+            summary: None,
+            output_schema: None,
+            max_runtime_seconds: 60,
+            user_id: Some("alice".to_string()),
+            session_id: Some("session-1".to_string()),
+            metadata: json!({}),
+        };
+
+        let thread_config = thread_config_for_request(&workspace, &config, &request);
+
+        assert_eq!(thread_config.get("features.memories"), Some(&json!(true)));
+        assert_eq!(
+            thread_config.get("memories.use_memories"),
+            Some(&json!(true))
+        );
+        assert_eq!(
+            thread_config.get("memories.generate_memories"),
+            Some(&json!(true))
+        );
+        assert_eq!(
+            thread_config.get("memories.dedicated_tools"),
+            Some(&json!(false))
+        );
+        assert_eq!(
+            thread_config.get("memories.disable_on_external_context"),
+            Some(&json!(true))
+        );
+    }
+
+    #[test]
+    fn thread_config_can_disable_memory_from_request_metadata() {
+        let config = test_config();
+        let workspace = config.sandbox.sandboxes_root.join("alice/workspace");
+        let request = AgentRunnerRequest {
+            provider: "codex".to_string(),
+            prompt: "temporary chat".to_string(),
+            cwd: workspace.clone(),
+            input_items: Vec::new(),
+            model: None,
+            effort: None,
+            summary: None,
+            output_schema: None,
+            max_runtime_seconds: 60,
+            user_id: Some("alice".to_string()),
+            session_id: Some("session-1".to_string()),
+            metadata: json!({"memory_disabled": true}),
+        };
+
+        let thread_config = thread_config_for_request(&workspace, &config, &request);
+
+        assert_eq!(thread_config.get("features.memories"), Some(&json!(false)));
+        assert_eq!(
+            thread_config.get("memories.use_memories"),
+            Some(&json!(false))
+        );
+        assert_eq!(
+            thread_config.get("memories.generate_memories"),
+            Some(&json!(false))
+        );
+    }
+
+    #[test]
     fn connector_credential_env_points_bilibili_cli_at_user_file() {
         let root =
             std::env::temp_dir().join(format!("ripple-app-server-env-{}", uuid::Uuid::new_v4()));
@@ -1383,6 +1608,81 @@ mod tests {
             "method": "process/kill",
             "params": {"processHandle": "host-process"}
         })));
+    }
+
+    fn test_config() -> AppConfig {
+        let root =
+            std::env::temp_dir().join(format!("ripple-app-server-config-{}", uuid::Uuid::new_v4()));
+        AppConfig {
+            repo_root: root.clone(),
+            host: "127.0.0.1".to_string(),
+            port: 8810,
+            api_keys: Vec::new(),
+            security: SecurityConfig::default(),
+            user_auth: crate::config::UserAuthConfig::default(),
+            api_docs: crate::config::ApiDocsConfig::default(),
+            cors: CorsConfig::default(),
+            default_model: "codex-medium".to_string(),
+            model_presets: BTreeMap::new(),
+            logging: LoggingConfig {
+                level: "debug".to_string(),
+            },
+            sandbox: SandboxConfig {
+                sandboxes_root: root.join("sandboxes"),
+                caches_root: root.join("cache"),
+                idle_suspend_seconds: 1800,
+                retention_seconds: 604_800,
+                max_workspace_mb: 2048,
+                tmpfs_size_mb: 512,
+                nsjail_path: "nsjail".to_string(),
+                python_envs_root: root.join("cache/python-envs"),
+                python_env_uv_cache: root.join("cache/uv-cache"),
+                python_env_max_packages: 20,
+                uv_bin_dir: None,
+                node_dir: None,
+                lark_cli_install_root: None,
+                notion_cli_install_root: None,
+                gogcli_cli_install_root: None,
+                cli_tools: Vec::new(),
+                pypi_mirror_url: None,
+                npm_registry_url: None,
+            },
+            codex: CodexConfig {
+                enabled: true,
+                codex_executable: "codex".to_string(),
+                app_server_args: vec![
+                    "app-server".to_string(),
+                    "--listen".to_string(),
+                    "stdio://".to_string(),
+                ],
+                codex_home: Some(root.join(".ripple/codex-service-home")),
+                approval_policy: "never".to_string(),
+                sandbox_type: "workspace-write".to_string(),
+                network_access: true,
+                idle_timeout_seconds: 1800,
+                max_runtime_seconds: 3600,
+            },
+            schedule_extraction_max_runtime_seconds: 120,
+            schedule_poll_interval_seconds: 15,
+            document_preview: crate::config::DocumentPreviewConfig {
+                cache_root: root.join("cache/previews"),
+                libreoffice_path: "soffice".to_string(),
+                max_source_bytes: 64 * 1024 * 1024,
+                conversion_timeout_seconds: 120,
+            },
+            skills: SkillsConfig {
+                shared_dirs: vec!["skills/*".to_string()],
+            },
+            public_base_url: None,
+            feishu: FeishuConfig::default(),
+            gogcli_oauth: GogcliOAuthConfig {
+                auto_register_client: true,
+                auto_from_request: true,
+                callback_url: None,
+                client_secret_json: None,
+                client: None,
+            },
+        }
     }
 }
 

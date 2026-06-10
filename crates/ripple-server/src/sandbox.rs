@@ -70,6 +70,54 @@ impl SandboxManager {
         Ok(self.sandbox_dir(user_id)?.join("workspace"))
     }
 
+    pub fn codex_home_dir(&self, user_id: &str) -> anyhow::Result<PathBuf> {
+        Ok(self.sandbox_dir(user_id)?.join("codex-home"))
+    }
+
+    pub fn service_codex_auth_file(&self) -> PathBuf {
+        self.config.codex_home_path().join("auth.json")
+    }
+
+    pub fn ensure_user_codex_home_auth_link(&self, user_id: &str) -> anyhow::Result<PathBuf> {
+        let codex_home = self.codex_home_dir(user_id)?;
+        std::fs::create_dir_all(&codex_home)?;
+        let auth_link = codex_home.join("auth.json");
+        let service_auth = self.service_codex_auth_file();
+        if !service_auth.is_file() {
+            anyhow::bail!(
+                "service Codex auth file does not exist at {}",
+                service_auth.display()
+            );
+        }
+        let service_auth = std::fs::canonicalize(&service_auth)?;
+
+        match std::fs::symlink_metadata(&auth_link) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                let resolved = std::fs::canonicalize(&auth_link)?;
+                if resolved != service_auth {
+                    anyhow::bail!(
+                        "user Codex auth link {} points to {}, expected {}",
+                        auth_link.display(),
+                        resolved.display(),
+                        service_auth.display()
+                    );
+                }
+            }
+            Ok(_) => {
+                anyhow::bail!(
+                    "user Codex auth path {} exists but is not a symlink",
+                    auth_link.display()
+                );
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                create_auth_symlink(&service_auth, &auth_link)?;
+            }
+            Err(err) => return Err(err.into()),
+        }
+
+        Ok(auth_link)
+    }
+
     pub fn credentials_dir(&self, user_id: &str) -> anyhow::Result<PathBuf> {
         Ok(self.sandbox_dir(user_id)?.join("credentials"))
     }
@@ -93,6 +141,7 @@ impl SandboxManager {
     pub fn ensure_sandbox(&self, user_id: &str) -> anyhow::Result<PathBuf> {
         let sandbox_dir = self.sandbox_dir(user_id)?;
         let workspace_dir = sandbox_dir.join("workspace");
+        std::fs::create_dir_all(sandbox_dir.join("codex-home"))?;
         std::fs::create_dir_all(sandbox_dir.join("credentials"))?;
         std::fs::create_dir_all(sandbox_dir.join("sessions"))?;
         std::fs::create_dir_all(&workspace_dir)?;
@@ -573,6 +622,16 @@ fn read_json_string_field(path: &Path, field: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+#[cfg(unix)]
+fn create_auth_symlink(target: &Path, link: &Path) -> std::io::Result<()> {
+    std::os::unix::fs::symlink(target, link)
+}
+
+#[cfg(not(unix))]
+fn create_auth_symlink(target: &Path, link: &Path) -> std::io::Result<()> {
+    std::fs::hard_link(target, link)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -697,6 +756,58 @@ mod tests {
         assert!(cfg.contains("GOG_KEYRING_PASSWORD=pw"));
         assert!(cfg.contains("/opt/gogcli-cli/current/bin"));
         assert!(cfg.contains("/opt/bilibili-cli/current/bin"));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn user_codex_home_is_outside_workspace() {
+        let root =
+            std::env::temp_dir().join(format!("ripple-sandbox-test-{}", uuid::Uuid::new_v4()));
+        let manager = SandboxManager::new(test_config(&root));
+
+        let workspace = manager.workspace_dir("alice").unwrap();
+        let codex_home = manager.codex_home_dir("alice").unwrap();
+
+        assert_eq!(codex_home, root.join("sandboxes/alice/codex-home"));
+        assert!(!codex_home.starts_with(&workspace));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn ensure_user_codex_home_auth_link_points_to_service_auth() {
+        let root =
+            std::env::temp_dir().join(format!("ripple-sandbox-test-{}", uuid::Uuid::new_v4()));
+        let manager = SandboxManager::new(test_config(&root));
+        let service_auth = manager.service_codex_auth_file();
+        std::fs::create_dir_all(service_auth.parent().unwrap()).unwrap();
+        std::fs::write(&service_auth, r#"{"OPENAI_API_KEY":"test"}"#).unwrap();
+
+        let auth_link = manager.ensure_user_codex_home_auth_link("alice").unwrap();
+
+        assert_eq!(
+            auth_link,
+            manager.codex_home_dir("alice").unwrap().join("auth.json")
+        );
+        let metadata = std::fs::symlink_metadata(&auth_link).unwrap();
+        assert!(metadata.file_type().is_symlink());
+        assert_eq!(std::fs::canonicalize(&auth_link).unwrap(), service_auth);
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn ensure_user_codex_home_auth_link_requires_service_auth() {
+        let root =
+            std::env::temp_dir().join(format!("ripple-sandbox-test-{}", uuid::Uuid::new_v4()));
+        let manager = SandboxManager::new(test_config(&root));
+
+        let err = manager
+            .ensure_user_codex_home_auth_link("alice")
+            .expect_err("missing service auth should fail");
+
+        assert!(err.to_string().contains("service Codex auth"));
 
         let _ = std::fs::remove_dir_all(root);
     }

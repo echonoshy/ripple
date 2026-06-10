@@ -73,6 +73,7 @@ function testSettingsPageHasExpectedUserSections() {
   assert.match(html, />Account/);
   assert.doesNotMatch(html, />Connected Accounts/);
   assert.match(html, />Usage &amp; Limits/);
+  assert.match(html, />Memory/);
   assert.match(html, />Defaults/);
   assert.match(html, />Language/);
   assert.match(html, />Choose the App interface language\./);
@@ -92,6 +93,27 @@ function testSettingsPageHasExpectedUserSections() {
   assert.doesNotMatch(html, />Remove avatar/);
   assert.doesNotMatch(html, />Default avatars/);
   assert.doesNotMatch(html, /Switch workspace/);
+}
+
+function testSettingsPageExposesReadOnlyMemoryControls() {
+  const source = readFileSync(new URL("./SettingsPage.tsx", import.meta.url), "utf8");
+  const html = renderSettingsPage();
+
+  assert.match(source, /fetchMemoryStatus/);
+  assert.match(source, /fetchMemorySummary/);
+  assert.match(source, /updateMemorySettings/);
+  assert.match(source, /resetMemory/);
+  assert.match(source, /sectionKind="memory"/);
+  assert.match(html, />Use memories</);
+  assert.match(html, />Update memories automatically</);
+  assert.match(html, />Memory summary</);
+  assert.match(html, />Clear memory</);
+  assert.match(source, /readOnly/);
+  assert.doesNotMatch(source, /manualMemory/);
+  assert.doesNotMatch(source, /addMemory/);
+  assert.doesNotMatch(source, /editMemory/);
+  assert.doesNotMatch(html, />Add memory</);
+  assert.doesNotMatch(html, />Edit memory</);
 }
 
 function testSettingsPageShowsDeveloperModeForServiceAccess() {
@@ -345,7 +367,10 @@ function testSettingsDiagnosticsExpansionScrollsAboveMobileTabBar() {
 function testSettingsPageUsesSolidWorkbenchSurfaces() {
   const source = readFileSync(new URL("./SettingsPage.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /WORKBENCH_(SECTION|SURFACE|PRIMARY_BUTTON|SECONDARY_BUTTON|STATUS|FIELD|MENU)/);
+  assert.match(
+    source,
+    /WORKBENCH_(SECTION|SURFACE|PRIMARY_BUTTON|SECONDARY_BUTTON|STATUS|FIELD|MENU)/
+  );
   assert.doesNotMatch(source, /bg-white\/7[02468].*backdrop-blur-xl/);
   assert.doesNotMatch(source, /shadow-\[0_18px_44px/);
   assert.doesNotMatch(source, /backdrop-blur-xl/);
@@ -363,6 +388,7 @@ function testSettingsPageRendersChineseChrome() {
 }
 
 testSettingsPageHasExpectedUserSections();
+testSettingsPageExposesReadOnlyMemoryControls();
 testSettingsPageShowsDeveloperModeForServiceAccess();
 testSettingsPageCanEditDisplayName();
 testSettingsPageSupportsLocalAvatarUpload();

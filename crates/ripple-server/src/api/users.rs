@@ -634,6 +634,7 @@ mod tests {
             pending_connector_auth: None,
             pending_schedule_request: None,
             codex_thread_id: None,
+            memory_disabled: false,
             plan_steps: Vec::new(),
             plan_progress: None,
         };

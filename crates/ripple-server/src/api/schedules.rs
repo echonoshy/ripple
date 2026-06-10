@@ -620,6 +620,9 @@ async fn start_schedule_run(
         schedule_trigger: Some(trigger.to_string()),
         codex_thread_id: None,
         codex_persistent_thread: false,
+        memory_use_memories: None,
+        memory_generate_memories: None,
+        memory_disabled: false,
         chat_user_input: None,
         chat_user_content: None,
     };

@@ -196,9 +196,9 @@ impl Storage {
                 created_at, last_active, status, message_count,
                 pending_question, pending_options_json, pending_permission_request_json,
                 pending_connector_auth_json, pending_schedule_request_json, codex_thread_id,
-                plan_steps_json, plan_progress_json
+                memory_disabled, plan_steps_json, plan_progress_json
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(user_id, session_id) DO UPDATE SET
                 title = excluded.title,
                 pinned = excluded.pinned,
@@ -222,6 +222,7 @@ impl Storage {
                 pending_connector_auth_json = excluded.pending_connector_auth_json,
                 pending_schedule_request_json = excluded.pending_schedule_request_json,
                 codex_thread_id = excluded.codex_thread_id,
+                memory_disabled = excluded.memory_disabled,
                 plan_steps_json = excluded.plan_steps_json,
                 plan_progress_json = excluded.plan_progress_json
             "#,
@@ -252,6 +253,7 @@ impl Storage {
         .bind(json_option_text(record.pending_connector_auth.as_ref())?)
         .bind(json_option_text(record.pending_schedule_request.as_ref())?)
         .bind(&record.codex_thread_id)
+        .bind(if record.memory_disabled { 1_i64 } else { 0_i64 })
         .bind(json_serialize_text(&record.plan_steps)?)
         .bind(json_option_text(record.plan_progress.as_ref())?)
         .execute(&mut *tx)
@@ -295,7 +297,7 @@ impl Storage {
                    created_at, last_active, status, message_count,
                    pending_question, pending_options_json, pending_permission_request_json,
                    pending_connector_auth_json, pending_schedule_request_json, codex_thread_id,
-                   plan_steps_json, plan_progress_json
+                   memory_disabled, plan_steps_json, plan_progress_json
             FROM sessions
             WHERE user_id = ? AND session_id = ?
             "#,
@@ -321,7 +323,7 @@ impl Storage {
                    created_at, last_active, status, message_count,
                    pending_question, pending_options_json, pending_permission_request_json,
                    pending_connector_auth_json, pending_schedule_request_json, codex_thread_id,
-                   plan_steps_json, plan_progress_json
+                   memory_disabled, plan_steps_json, plan_progress_json
             FROM sessions
             WHERE user_id = ?
             ORDER BY last_active DESC
@@ -1256,6 +1258,7 @@ impl Storage {
                 row.get::<Option<String>, _>("pending_schedule_request_json"),
             )?,
             codex_thread_id: row.get("codex_thread_id"),
+            memory_disabled: row.get::<i64, _>("memory_disabled") != 0,
             plan_steps: serde_json::from_str(row.get::<String, _>("plan_steps_json").as_str())?,
             plan_progress: json_option_from_text(
                 row.get::<Option<String>, _>("plan_progress_json"),
@@ -1433,6 +1436,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     pending_connector_auth_json TEXT,
     pending_schedule_request_json TEXT,
     codex_thread_id TEXT,
+    memory_disabled INTEGER NOT NULL DEFAULT 0,
     plan_steps_json TEXT NOT NULL DEFAULT '[]',
     plan_progress_json TEXT,
     PRIMARY KEY (user_id, session_id)
@@ -1599,6 +1603,10 @@ async fn ensure_schema_columns(pool: &SqlitePool) -> anyhow::Result<()> {
             "context_folder_path",
             "ALTER TABLE sessions ADD COLUMN context_folder_path TEXT",
         ),
+        (
+            "memory_disabled",
+            "ALTER TABLE sessions ADD COLUMN memory_disabled INTEGER NOT NULL DEFAULT 0",
+        ),
     ] {
         let exists = rows
             .iter()
@@ -1684,6 +1692,7 @@ mod tests {
             pending_connector_auth: None,
             pending_schedule_request: None,
             codex_thread_id: None,
+            memory_disabled: false,
             plan_steps: Vec::new(),
             plan_progress: None,
         };
@@ -1738,6 +1747,7 @@ mod tests {
             pending_connector_auth: None,
             pending_schedule_request: None,
             codex_thread_id: None,
+            memory_disabled: false,
             plan_steps: Vec::new(),
             plan_progress: None,
         };
@@ -1792,6 +1802,7 @@ mod tests {
             pending_connector_auth: None,
             pending_schedule_request: None,
             codex_thread_id: None,
+            memory_disabled: false,
             plan_steps: Vec::new(),
             plan_progress: None,
         };
@@ -1928,6 +1939,7 @@ mod tests {
             pending_connector_auth: None,
             pending_schedule_request: None,
             codex_thread_id: None,
+            memory_disabled: false,
             plan_steps: Vec::new(),
             plan_progress: None,
         };

@@ -104,10 +104,18 @@ function testSettingsPageExposesReadOnlyMemoryControls() {
   assert.match(source, /updateMemorySettings/);
   assert.match(source, /resetMemory/);
   assert.match(source, /sectionKind="memory"/);
+  assert.match(source, /function MemorySwitch/);
+  assert.match(source, /role="switch"/);
+  assert.doesNotMatch(source, /type="checkbox"/);
   assert.match(html, />Use memories</);
+  assert.match(html, />Allow future chats to use organized long-term memory\.</);
   assert.match(html, />Update memories automatically</);
+  assert.match(html, />Automatically organize durable context from normal chats\.</);
   assert.match(html, />Memory summary</);
+  assert.match(html, />Memories are organized automatically\. This page is read-only\.</);
   assert.match(html, />Clear memory</);
+  assert.match(html, />Clear this user&#x27;s memory\. Sessions and workspace files stay intact\.</);
+  assert.doesNotMatch(html, /Codex/);
   assert.match(source, /readOnly/);
   assert.doesNotMatch(source, /manualMemory/);
   assert.doesNotMatch(source, /addMemory/);

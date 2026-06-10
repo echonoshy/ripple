@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
-  BrainCircuit,
+  Brain,
   Check,
   ChevronDown,
   Cpu,
@@ -197,9 +197,10 @@ export default function SettingsPage({
   const [memoryStatus, setMemoryStatus] = useState<MemoryStatus | null>(null);
   const [memorySummary, setMemorySummary] = useState<MemorySummary | null>(null);
   const [memoryError, setMemoryError] = useState<string | null>(null);
-  const [memoryMessage, setMemoryMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [isSavingMemory, setIsSavingMemory] = useState(false);
+  const [savingMemoryField, setSavingMemoryField] = useState<
+    "useMemories" | "generateMemories" | null
+  >(null);
   const [isResettingMemory, setIsResettingMemory] = useState(false);
   const [isMemorySummaryOpen, setIsMemorySummaryOpen] = useState(false);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
@@ -360,18 +361,27 @@ export default function SettingsPage({
     field: "useMemories" | "generateMemories",
     value: boolean
   ) => {
-    if (isSavingMemory) return;
+    if (savingMemoryField || !memoryStatus) return;
+    const previousStatus = memoryStatus;
+    const optimisticUseMemories = field === "useMemories" ? value : previousStatus.useMemories;
+    const optimisticGenerateMemories =
+      field === "generateMemories" ? value : previousStatus.generateMemories;
     try {
-      setIsSavingMemory(true);
+      setSavingMemoryField(field);
       setMemoryError(null);
-      setMemoryMessage(null);
+      setMemoryStatus({
+        ...previousStatus,
+        enabled: optimisticUseMemories || optimisticGenerateMemories,
+        useMemories: optimisticUseMemories,
+        generateMemories: optimisticGenerateMemories,
+      });
       const nextStatus = await updateMemorySettings({ [field]: value });
       setMemoryStatus(nextStatus);
-      setMemoryMessage(t("settings.memory.settingsUpdated"));
     } catch (error) {
+      setMemoryStatus(previousStatus);
       setMemoryError(error instanceof Error ? error.message : t("settings.memory.updateFailed"));
     } finally {
-      setIsSavingMemory(false);
+      setSavingMemoryField(null);
     }
   };
 
@@ -383,7 +393,6 @@ export default function SettingsPage({
     try {
       setIsResettingMemory(true);
       setMemoryError(null);
-      setMemoryMessage(null);
       await resetMemory();
       const [nextStatus, nextSummary] = await Promise.all([
         fetchMemoryStatus().catch(() => null),
@@ -391,7 +400,6 @@ export default function SettingsPage({
       ]);
       setMemoryStatus(nextStatus);
       setMemorySummary(nextSummary);
-      setMemoryMessage(t("settings.memory.cleared"));
     } catch (error) {
       setMemoryError(error instanceof Error ? error.message : t("settings.memory.clearFailed"));
     } finally {
@@ -1038,7 +1046,7 @@ export default function SettingsPage({
 
         <SettingsSection sectionKind="memory">
           <SectionHeader
-            icon={<BrainCircuit size={13} />}
+            icon={<Brain size={13} />}
             title={t("settings.memory.title")}
             tone="neutral"
           />
@@ -1052,16 +1060,12 @@ export default function SettingsPage({
                   {t("settings.memory.useMemoriesDescription")}
                 </div>
               </div>
-              <label className="inline-flex h-8 shrink-0 items-center gap-2 rounded-full border border-[#DEE0E3] bg-white px-1.5">
-                <input
-                  type="checkbox"
-                  role="switch"
+              <div className="inline-flex h-8 shrink-0 items-center gap-2">
+                <MemorySwitch
                   checked={memoryStatus?.useMemories ?? true}
-                  disabled={!memoryStatus || isSavingMemory}
-                  onChange={(event) =>
-                    void handleMemorySettingChange("useMemories", event.currentTarget.checked)
-                  }
-                  className="h-4 w-4 accent-[#1456F0]"
+                  disabled={!memoryStatus || Boolean(savingMemoryField)}
+                  label={t("settings.memory.useMemories")}
+                  onChange={(checked) => void handleMemorySettingChange("useMemories", checked)}
                 />
                 <span
                   className={`min-w-8 text-center text-[#646A73] ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
@@ -1070,7 +1074,7 @@ export default function SettingsPage({
                     ? t("settings.memory.on")
                     : t("settings.memory.off")}
                 </span>
-              </label>
+              </div>
             </div>
             <div className={settingsGroupedRowClass}>
               <div className="min-w-0">
@@ -1081,16 +1085,14 @@ export default function SettingsPage({
                   {t("settings.memory.generateMemoriesDescription")}
                 </div>
               </div>
-              <label className="inline-flex h-8 shrink-0 items-center gap-2 rounded-full border border-[#DEE0E3] bg-white px-1.5">
-                <input
-                  type="checkbox"
-                  role="switch"
+              <div className="inline-flex h-8 shrink-0 items-center gap-2">
+                <MemorySwitch
                   checked={memoryStatus?.generateMemories ?? true}
-                  disabled={!memoryStatus || isSavingMemory}
-                  onChange={(event) =>
-                    void handleMemorySettingChange("generateMemories", event.currentTarget.checked)
+                  disabled={!memoryStatus || Boolean(savingMemoryField)}
+                  label={t("settings.memory.generateMemories")}
+                  onChange={(checked) =>
+                    void handleMemorySettingChange("generateMemories", checked)
                   }
-                  className="h-4 w-4 accent-[#1456F0]"
                 />
                 <span
                   className={`min-w-8 text-center text-[#646A73] ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
@@ -1099,7 +1101,7 @@ export default function SettingsPage({
                     ? t("settings.memory.on")
                     : t("settings.memory.off")}
                 </span>
-              </label>
+              </div>
             </div>
             <div className="px-2.5 py-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1156,13 +1158,9 @@ export default function SettingsPage({
               </button>
             </div>
           </div>
-          {memoryError || memoryMessage ? (
-            <div
-              className={`border-t border-[#EFF0F1] px-2.5 py-1.5 ${
-                memoryError ? "text-[#B42318]" : "text-[#22A06B]"
-              } ${TYPOGRAPHY_META_CLASS}`}
-            >
-              {memoryError || memoryMessage}
+          {memoryError ? (
+            <div className={`border-t border-[#EFF0F1] px-2.5 py-1.5 text-[#B42318] ${TYPOGRAPHY_META_CLASS}`}>
+              {memoryError}
             </div>
           ) : null}
         </SettingsSection>
@@ -1337,6 +1335,38 @@ function SectionHeader({
       </IconTile>
       {title}
     </div>
+  );
+}
+
+function MemorySwitch({
+  checked,
+  disabled,
+  label,
+  onChange,
+}: {
+  checked: boolean;
+  disabled: boolean;
+  label: string;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border p-1 outline-none transition-colors duration-150 ease-out focus:ring-2 focus:ring-[#8FB1FF] focus:ring-offset-1 disabled:cursor-not-allowed ${
+        checked ? "border-[#1456F0] bg-[#1456F0]" : "border-[#DEE0E3] bg-[#EFF0F1]"
+      }`}
+    >
+      <span
+        className={`h-5 w-5 rounded-full bg-white shadow-[0_1px_2px_rgba(31,35,41,0.24)] transition-transform duration-150 ease-out ${
+          checked ? "translate-x-5" : "translate-x-0"
+        }`}
+      />
+    </button>
   );
 }
 

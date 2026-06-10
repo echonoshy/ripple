@@ -44,7 +44,9 @@ import {
   applySessionAttentionMarkers,
   createWorkbenchSessionsFromSessionSummaries,
   mergeInferredWorkbenchSessions,
+  sessionAttentionFromStatus,
   sessionStatusToWorkbenchStatus,
+  stabilizeWorkbenchSessionOrder,
 } from "@/lib/workbench";
 import { shouldShowInspector, type WorkspaceView } from "@/lib/workspaceViews";
 import type {
@@ -86,6 +88,13 @@ const emptyUsage: UsageInfo = {
   completion_tokens: 0,
   total_tokens: 0,
 };
+
+function isMobileLayoutViewport(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    window.innerWidth < ANDROID_CHAT_BACK_GESTURE_DESKTOP_MIN_WIDTH_PX
+  );
+}
 
 function LazyWorkbenchFallback() {
   return (
@@ -161,6 +170,7 @@ export default function Home() {
   const sessionRailWidthRef = useRef(sessionRailWidth);
   const [isSessionRailCollapsed, setIsSessionRailCollapsed] = useState(initialSessionRailCollapsed);
   const [mobileSessionMode, setMobileSessionMode] = useState<"list" | "chat">("list");
+  const [isMobileLayout, setIsMobileLayout] = useState(isMobileLayoutViewport);
   const [sessionScrollToBottomRequest, setSessionScrollToBottomRequest] = useState(0);
   const [workspaceRefreshToken, setWorkspaceRefreshToken] = useState(0);
   const [activeContextFolderPath, setActiveContextFolderPath] = useState<string | null>(null);
@@ -188,6 +198,7 @@ export default function Home() {
   const activeViewRef = useRef<WorkspaceView>("sessions");
   const workspaceFileOpenRequestIdRef = useRef(0);
   const mobileSessionSelectionRequestRef = useRef(0);
+  const displayWorkbenchSessionOrderRef = useRef<WorkbenchSessionSummary[]>([]);
 
   const sessionActionsRef = useRef<ChatRunSessionActions>({
     getSessionId: () => null,
@@ -270,12 +281,7 @@ export default function Home() {
         return next;
       });
       setSessionAttentionById((prev) => {
-        const sessionIsOpen =
-          selectedSessionIdRef.current === targetSessionId && activeViewRef.current === "sessions";
-        const shouldClear =
-          !attention || ((attention === "completed" || attention === "error") && sessionIsOpen);
-
-        if (shouldClear) {
+        if (!attention) {
           if (!prev[targetSessionId]) return prev;
           const next = { ...prev };
           delete next[targetSessionId];
@@ -403,7 +409,8 @@ export default function Home() {
       getSessionId: () => sessionId,
       ensureSession: (model) => ensureSession(model, activeContextFolderPath),
       createSession: async (model) =>
-        (await createNewSession(model, activeContextFolderPath))?.sessionId ?? null,
+        (await createNewSession(model, activeContextFolderPath, { refresh: false }))?.sessionId ??
+        null,
       loadSessions,
       clearCurrentSessionContext,
       compactCurrentSessionContext,
@@ -634,9 +641,18 @@ export default function Home() {
     (targetSessionId: string) => {
       const storedAttention = sessionAttentionById[targetSessionId];
       const summary = sessionSummaries.find((summary) => summary.sessionId === targetSessionId);
-      const shouldAcknowledgeError =
-        storedAttention === "error" ||
-        (summary ? sessionStatusToWorkbenchStatus(summary.status) === "failed" : false);
+      const summaryAttention = summary
+        ? sessionAttentionFromStatus(
+            sessionStatusToWorkbenchStatus(summary.status),
+            summary.pendingApprovalCount
+          )
+        : null;
+      const acknowledgedAttention =
+        storedAttention === "needs_input" || storedAttention === "error"
+          ? storedAttention
+          : summaryAttention === "needs_input" || summaryAttention === "error"
+            ? summaryAttention
+            : null;
 
       setSessionAttentionById((prev) => {
         if (!prev[targetSessionId]) return prev;
@@ -645,9 +661,11 @@ export default function Home() {
         return next;
       });
 
-      if (shouldAcknowledgeError) {
+      if (acknowledgedAttention) {
         setAcknowledgedSessionAttentionById((prev) =>
-          prev[targetSessionId] === "error" ? prev : { ...prev, [targetSessionId]: "error" }
+          prev[targetSessionId] === acknowledgedAttention
+            ? prev
+            : { ...prev, [targetSessionId]: acknowledgedAttention }
         );
       }
     },
@@ -717,11 +735,8 @@ export default function Home() {
       if (view === "sessions") {
         setMobileSessionMode("list");
       }
-      if (view === "sessions" && sessionId) {
-        acknowledgeSessionAttention(sessionId);
-      }
     },
-    [acknowledgeSessionAttention, activeView, sessionId]
+    [activeView]
   );
   const handleReturnFromMobileFiles = useCallback(() => {
     setPendingMobileSession(null);
@@ -770,8 +785,23 @@ export default function Home() {
     setActiveView("sessions");
     setMobileMotionDirection(-1);
     setMobileSessionMode("list");
-    if (sessionId) acknowledgeSessionAttention(sessionId);
-  }, [acknowledgeSessionAttention, sessionId]);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const updateMobileLayout = () => {
+      setIsMobileLayout(isMobileLayoutViewport());
+    };
+
+    updateMobileLayout();
+    window.addEventListener("resize", updateMobileLayout);
+
+    return () => {
+      window.removeEventListener("resize", updateMobileLayout);
+    };
+  }, []);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -880,20 +910,31 @@ export default function Home() {
       ]),
     [baseWorkbenchSessions, inferredCurrentSession, inferredRunningSessions]
   );
+  const sessionDetailVisibleForAttention =
+    activeView === "sessions" && (!isMobileLayout || mobileSessionMode === "chat");
+  const openSessionIdForAttention = sessionDetailVisibleForAttention ? sessionId : null;
+  const sessionListVisibleForStableOrder =
+    activeView === "sessions" && (!isMobileLayout || mobileSessionMode === "list");
   const displayWorkbenchSessions = useMemo(
-    () =>
-      applySessionAttentionMarkers(
+    () => {
+      const markedSessions = applySessionAttentionMarkers(
         mergedWorkbenchSessions,
         sessionAttentionById,
-        activeView === "sessions" ? sessionId : null,
+        openSessionIdForAttention,
         acknowledgedSessionAttentionById
-      ),
+      );
+      const orderedSessions = sessionListVisibleForStableOrder
+        ? stabilizeWorkbenchSessionOrder(displayWorkbenchSessionOrderRef.current, markedSessions)
+        : markedSessions;
+      displayWorkbenchSessionOrderRef.current = orderedSessions;
+      return orderedSessions;
+    },
     [
-      activeView,
       acknowledgedSessionAttentionById,
       mergedWorkbenchSessions,
+      openSessionIdForAttention,
+      sessionListVisibleForStableOrder,
       sessionAttentionById,
-      sessionId,
     ]
   );
   const selectedWorkbenchSession = sessionId

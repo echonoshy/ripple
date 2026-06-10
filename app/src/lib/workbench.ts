@@ -39,7 +39,7 @@ export function sessionAttentionFromStatus(
   pendingApprovalCount = 0
 ): SessionAttention | null {
   if (pendingApprovalCount > 0) return "needs_input";
-  if (status === "waiting_for_user" || status === "waiting_for_approval") return "needs_input";
+  if (status === "waiting_for_approval") return "needs_input";
   if (status === "failed") return "error";
   return null;
 }
@@ -75,6 +75,53 @@ export function sortWorkbenchSessions(
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
     return activityTimeValue(b.lastActivityAt) - activityTimeValue(a.lastActivityAt);
   });
+}
+
+export function stabilizeWorkbenchSessionOrder(
+  previousSessions: WorkbenchSessionSummary[],
+  nextSessions: WorkbenchSessionSummary[]
+): WorkbenchSessionSummary[] {
+  if (previousSessions.length === 0 || nextSessions.length <= 1) return nextSessions;
+
+  const nextById = new Map(nextSessions.map((session) => [session.sessionId, session]));
+  const previousById = new Map(previousSessions.map((session) => [session.sessionId, session]));
+  const stableByPinned = new Map<boolean, WorkbenchSessionSummary[]>([
+    [true, []],
+    [false, []],
+  ]);
+
+  for (const previousSession of previousSessions) {
+    const nextSession = nextById.get(previousSession.sessionId);
+    if (!nextSession || nextSession.pinned !== previousSession.pinned) continue;
+    stableByPinned.get(nextSession.pinned)?.push(nextSession);
+  }
+
+  const emitted = new Set<string>();
+  const flushedPinnedBuckets = new Set<boolean>();
+  const stableSessions: WorkbenchSessionSummary[] = [];
+  const flushPinnedBucket = (pinned: boolean) => {
+    if (flushedPinnedBuckets.has(pinned)) return;
+    flushedPinnedBuckets.add(pinned);
+    for (const session of stableByPinned.get(pinned) || []) {
+      if (emitted.has(session.sessionId)) continue;
+      emitted.add(session.sessionId);
+      stableSessions.push(session);
+    }
+  };
+
+  for (const nextSession of nextSessions) {
+    if (emitted.has(nextSession.sessionId)) continue;
+    const previousSession = previousById.get(nextSession.sessionId);
+    if (previousSession && previousSession.pinned === nextSession.pinned) {
+      flushPinnedBucket(nextSession.pinned);
+      continue;
+    }
+
+    emitted.add(nextSession.sessionId);
+    stableSessions.push(nextSession);
+  }
+
+  return stableSessions.length === nextSessions.length ? stableSessions : nextSessions;
 }
 
 function startOfLocalDay(date: Date): Date {
@@ -122,11 +169,13 @@ export function applyCurrentSessionRuntimeStatus(
     changed = true;
     const pendingApprovalCount = runtimeStatus === "running" ? 0 : session.pendingApprovalCount;
     const attention = sessionAttentionFromStatus(runtimeStatus, pendingApprovalCount);
+    const lastActivityAt =
+      runtimeStatus === "running" ? activityAt || session.lastActivityAt : session.lastActivityAt;
     return {
       ...session,
       status: runtimeStatus,
       attention: attention || undefined,
-      lastActivityAt: activityAt || session.lastActivityAt,
+      lastActivityAt,
     };
   });
 
@@ -147,16 +196,16 @@ export function applySessionAttentionMarkers(
     const sessionIsOpen = session.sessionId === openSessionId;
     const acknowledgedAttention = acknowledgedAttentionBySessionId[session.sessionId];
     const visibleStatusAttention =
-      statusAttention === "error" && (sessionIsOpen || acknowledgedAttention === statusAttention)
+      statusAttention && (sessionIsOpen || acknowledgedAttention === statusAttention)
         ? null
         : statusAttention;
     const storedAttention = attentionBySessionId[session.sessionId];
     const visibleStoredAttention =
-      storedAttention === "error" && sessionIsOpen ? null : storedAttention;
+      storedAttention && (sessionIsOpen || acknowledgedAttention === storedAttention)
+        ? null
+        : storedAttention;
     const attention =
-      visibleStatusAttention ||
-      (visibleStoredAttention === "completed" && sessionIsOpen ? null : visibleStoredAttention) ||
-      null;
+      visibleStatusAttention || visibleStoredAttention || null;
 
     if ((session.attention || null) === attention) return session;
     return {

@@ -340,11 +340,26 @@ impl SessionManager {
     }
 
     pub async fn save_record_if_exists(&self, record: SessionRecord) -> anyhow::Result<bool> {
-        self.save_record_inner(record, true).await
+        self.save_record_inner(record, true, true).await
+    }
+
+    pub async fn save_record_if_exists_preserving_activity(
+        &self,
+        record: SessionRecord,
+    ) -> anyhow::Result<bool> {
+        self.save_record_inner(record, true, false).await
     }
 
     pub async fn save_record(&self, record: SessionRecord) -> anyhow::Result<()> {
-        self.save_record_inner(record, false).await?;
+        self.save_record_inner(record, false, true).await?;
+        Ok(())
+    }
+
+    pub async fn save_record_preserving_activity(
+        &self,
+        record: SessionRecord,
+    ) -> anyhow::Result<()> {
+        self.save_record_inner(record, false, false).await?;
         Ok(())
     }
 
@@ -423,6 +438,7 @@ impl SessionManager {
         &self,
         mut record: SessionRecord,
         require_existing: bool,
+        touch_activity: bool,
     ) -> anyhow::Result<bool> {
         let key = (record.user_id.clone(), record.session_id.clone());
         let deleted = self.deleted.read().await;
@@ -451,7 +467,9 @@ impl SessionManager {
         }
 
         record.message_count = record.messages.len();
-        record.last_active = now_iso();
+        if touch_activity {
+            record.last_active = now_iso();
+        }
         self.persist(&record).await?;
         self.active
             .write()
@@ -495,7 +513,7 @@ impl SessionManager {
         if record.status_kind() == SessionStatus::Suspended {
             record.set_status(SessionStatus::Idle);
         }
-        self.save_record(record.clone()).await?;
+        self.save_record_preserving_activity(record.clone()).await?;
         Ok(Some(record))
     }
 
@@ -745,7 +763,7 @@ impl SessionManager {
         record.pending_permission_request = None;
         record.plan_steps.clear();
         record.plan_progress = None;
-        self.save_record_if_exists(record).await
+        self.save_record_if_exists_preserving_activity(record).await
     }
 
     pub async fn recover_stale_context_compaction(
@@ -776,7 +794,7 @@ impl SessionManager {
         record.pending_permission_request = None;
         record.plan_steps.clear();
         record.plan_progress = None;
-        self.save_record_if_exists(record).await
+        self.save_record_if_exists_preserving_activity(record).await
     }
 
     pub async fn load(
@@ -1587,6 +1605,7 @@ mod tests {
         let config = test_config(&root);
         let manager = SessionManager::new(config.clone(), SandboxManager::new(config));
         let user_id = "alice";
+        let old_time = (OffsetDateTime::now_utc() - TimeDuration::seconds(300)).format(&Rfc3339)?;
         let mut session = manager
             .create_session(
                 user_id,
@@ -1602,6 +1621,8 @@ mod tests {
         session.status = "compacting".to_string();
         session.codex_thread_id = Some("thr_123".to_string());
         manager.save_record(session.clone()).await?;
+        session.last_active = old_time.clone();
+        manager.persist(&session).await?;
 
         assert!(
             manager
@@ -1614,6 +1635,50 @@ mod tests {
             .expect("session should exist");
         assert_eq!(recovered.status, "idle");
         assert_eq!(recovered.codex_thread_id.as_deref(), Some("thr_123"));
+        assert_eq!(recovered.last_active, old_time);
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn resume_session_preserves_last_active_for_view_only_restore() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("ripple-session-test-{}", Uuid::new_v4()));
+        let config = test_config(&root);
+        let manager = SessionManager::new(config.clone(), SandboxManager::new(config));
+        let user_id = "alice";
+        let old_time = (OffsetDateTime::now_utc() - TimeDuration::seconds(300)).format(&Rfc3339)?;
+        let mut session = manager
+            .create_session(
+                user_id,
+                CreateSessionInput {
+                    model: None,
+                    max_turns: None,
+                    system_prompt: None,
+                    context_folder_path: None,
+                    project_id: None,
+                },
+            )
+            .await?;
+        session.status = "suspended".to_string();
+        session.last_active = old_time.clone();
+        manager.persist(&session).await?;
+
+        let resumed = manager
+            .resume_session(user_id, &session.session_id)
+            .await?
+            .expect("session should resume");
+
+        assert_eq!(resumed.status, "idle");
+        assert_eq!(resumed.last_active, old_time);
+        assert_eq!(
+            manager
+                .load(user_id, &session.session_id)
+                .await?
+                .expect("session should persist")
+                .last_active,
+            old_time
+        );
 
         let _ = std::fs::remove_dir_all(root);
         Ok(())

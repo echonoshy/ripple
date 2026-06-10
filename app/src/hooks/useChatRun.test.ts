@@ -239,6 +239,27 @@ function testSessionTitleRefreshUsesShortDelayedPolls() {
   assert.deepEqual(SESSION_TITLE_REFRESH_DELAYS_MS, [750, 2000, 5000]);
 }
 
+function testCompletedRunRefreshesSessionsWithoutListLoading() {
+  const source = readFileSync(new URL("./useChatRun.ts", import.meta.url), "utf8");
+  const completeBlock =
+    source.match(/onComplete: \(\) => \{[\s\S]*?onWorkspaceRefresh\(\);[\s\S]*?\n {8}\},/)
+      ?.[0] || "";
+  const silentRefreshCalls =
+    completeBlock.match(/loadSessions\(\{ showLoading: false \}\)/g) || [];
+
+  assert.equal(silentRefreshCalls.length, 2);
+  assert.doesNotMatch(completeBlock, /loadSessions\(\);/);
+}
+
+function testSessionActionRefreshesStaySilentAfterInitialLoad() {
+  const source = readFileSync(new URL("./useChatRun.ts", import.meta.url), "utf8");
+  const silentRefreshCalls =
+    source.match(/getSessionActions\(\)\.loadSessions\(\{ showLoading: false \}\)/g) || [];
+
+  assert.ok(silentRefreshCalls.length >= 8);
+  assert.doesNotMatch(source, /getSessionActions\(\)\.loadSessions\(\)/);
+}
+
 async function testPendingLocalImagesUploadToWorkspaceRefsBeforeSend() {
   const uploadedNames: string[] = [];
   const result = await uploadPendingLocalImagesForSend(
@@ -349,6 +370,27 @@ function testSendErrorsReleaseSessionForRetry() {
   assert.match(onErrorBlock[1], /clearSessionRunning\(activeSessionId\)/);
 }
 
+function testAskUserMarksBackgroundSessionAsNewResult() {
+  const source = readFileSync(new URL("./useChatRun.ts", import.meta.url), "utf8");
+  const toolAskUserBlock = source.match(/if \(toolCall\.name === "AskUser"\) \{[\s\S]*?\n\s*\}/)
+    ?.[0] || "";
+  const stopAskUserBlock =
+    source.match(/if \(data\.stop_reason === "ask_user"[\s\S]*?\n\s*\}/)?.[0] || "";
+
+  assert.match(toolAskUserBlock, /onSessionAttention\?\.\(activeSessionId, "completed"\)/);
+  assert.match(stopAskUserBlock, /onSessionAttention\?\.\(activeSessionId, "completed"\)/);
+}
+
+function testPermissionRequestKeepsApprovalAttention() {
+  const source = readFileSync(new URL("./useChatRun.ts", import.meta.url), "utf8");
+  const permissionStopBlock =
+    source.match(/if \(data\.stop_reason === "permission_request"[\s\S]*?\n\s*\}/)?.[0] ||
+    "";
+
+  assert.match(permissionStopBlock, /onSessionAttention\?\.\(activeSessionId, "needs_input"\)/);
+  assert.match(source, /onPermissionRequest:[\s\S]*onSessionAttention\?\.\(activeSessionId, "needs_input"\)/);
+}
+
 test("useChatRun behavior", async () => {
   testFeishuSetupAuthStartsAutomaticPoll();
   testFeishuUserAuthStartsAutomaticPoll();
@@ -364,6 +406,8 @@ test("useChatRun behavior", async () => {
   testConnectorAuthPopupUrlResetAllowsManualRetry();
   testAttachmentUploadsKeepSuccessfulFilesWhenOneUploadFails();
   testSessionTitleRefreshUsesShortDelayedPolls();
+  testCompletedRunRefreshesSessionsWithoutListLoading();
+  testSessionActionRefreshesStaySilentAfterInitialLoad();
   await testPendingLocalImagesUploadToWorkspaceRefsBeforeSend();
   await testPendingLocalImageUploadFailuresStopSendFlow();
   testSendFlowKeepsLocalImagesWhenSendTimeUploadFails();
@@ -372,4 +416,6 @@ test("useChatRun behavior", async () => {
   testFreshSessionSendDoesNotCarryCurrentViewState();
   testSessionControlActionsStartFreshSessions();
   testSendErrorsReleaseSessionForRetry();
+  testAskUserMarksBackgroundSessionAsNewResult();
+  testPermissionRequestKeepsApprovalAttention();
 });

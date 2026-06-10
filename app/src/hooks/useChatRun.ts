@@ -53,7 +53,7 @@ export interface ChatRunSessionActions {
   getSessionId: () => string | null;
   ensureSession: (model?: string | null) => Promise<string | null>;
   createSession: (model?: string | null) => Promise<string | null>;
-  loadSessions: () => Promise<unknown>;
+  loadSessions: (options?: { showLoading?: boolean }) => Promise<unknown>;
   clearCurrentSessionContext: () => Promise<boolean>;
   compactCurrentSessionContext: () => Promise<boolean>;
   stopCurrentSession: () => Promise<boolean>;
@@ -435,7 +435,7 @@ export function useChatRun({
     } else {
       await getSessionActions().stopCurrentSession();
     }
-    await getSessionActions().loadSessions();
+    await getSessionActions().loadSessions({ showLoading: false });
     onWorkspaceRefresh();
     setInputFocusToken((prev) => bumpInputFocusToken(prev));
   }, [
@@ -453,7 +453,7 @@ export function useChatRun({
       if (!ok) throw new Error("Failed to clear session context");
       resetCurrentContextView();
       setInputFocusToken((prev) => bumpInputFocusToken(prev));
-      await getSessionActions().loadSessions();
+      await getSessionActions().loadSessions({ showLoading: false });
     } catch (err) {
       if (err instanceof AuthError) {
         handleAuthExpired();
@@ -480,10 +480,10 @@ export function useChatRun({
         )
       );
       setInputFocusToken((prev) => bumpInputFocusToken(prev));
-      await getSessionActions().loadSessions();
+      await getSessionActions().loadSessions({ showLoading: false });
       for (const delayMs of [1000, 3000, 8000]) {
         window.setTimeout(() => {
-          void getSessionActions().loadSessions();
+          void getSessionActions().loadSessions({ showLoading: false });
         }, delayMs);
       }
     } catch (err) {
@@ -826,7 +826,7 @@ export function useChatRun({
                   if (args?.question) {
                     last.askUser = { question: args.question, options: args.options || [] };
                     blockedForInteraction = true;
-                    onSessionAttention?.(activeSessionId, "needs_input");
+                    onSessionAttention?.(activeSessionId, "completed");
                   }
                 } catch {
                   /* ignore parse error */
@@ -905,7 +905,7 @@ export function useChatRun({
 
             if (data.stop_reason === "ask_user" && typeof data.metadata.question === "string") {
               blockedForInteraction = true;
-              onSessionAttention?.(activeSessionId, "needs_input");
+              onSessionAttention?.(activeSessionId, "completed");
               if (typeof data.metadata.message === "string") {
                 last.content = data.metadata.message;
               }
@@ -1005,10 +1005,10 @@ export function useChatRun({
           replaceRunningPlan(nextPlan);
           runningViewStatesRef.current.delete(activeSessionId);
           if (isRunVisible()) setInputFocusToken((prev) => bumpInputFocusToken(prev));
-          getSessionActions().loadSessions();
+          void getSessionActions().loadSessions({ showLoading: false });
           for (const delayMs of SESSION_TITLE_REFRESH_DELAYS_MS) {
             window.setTimeout(() => {
-              void getSessionActions().loadSessions();
+              void getSessionActions().loadSessions({ showLoading: false });
             }, delayMs);
           }
           onWorkspaceRefresh();
@@ -1038,7 +1038,7 @@ export function useChatRun({
           const nextPlan = clearPlanState();
           replaceRunningPlan(nextPlan);
           runningViewStatesRef.current.delete(activeSessionId);
-          void getSessionActions().loadSessions();
+          void getSessionActions().loadSessions({ showLoading: false });
           onWorkspaceRefresh();
         },
       };
@@ -1357,7 +1357,7 @@ export function useChatRun({
         runningViewStatesRef.current.delete(activeSessionId);
         clearSessionRunning(activeSessionId);
         setInputFocusToken((prev) => bumpInputFocusToken(prev));
-        await getSessionActions().loadSessions();
+        await getSessionActions().loadSessions({ showLoading: false });
         onWorkspaceRefresh();
       };
 

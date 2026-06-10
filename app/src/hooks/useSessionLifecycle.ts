@@ -33,6 +33,14 @@ interface UseSessionLifecycleOptions {
   onSessionActivated: () => void;
 }
 
+interface CreateNewSessionOptions {
+  refresh?: boolean;
+}
+
+interface LoadSessionsOptions {
+  showLoading?: boolean;
+}
+
 export function useSessionLifecycle({
   authState,
   isGenerating,
@@ -56,11 +64,14 @@ export function useSessionLifecycle({
     [onAuthExpired, t]
   );
 
-  const loadSessions = useCallback(async (): Promise<SessionSummary[]> => {
+  const loadSessions = useCallback(async (options: LoadSessionsOptions = {}): Promise<SessionSummary[]> => {
     if (authState !== "authenticated") return [];
+    const showLoading = options.showLoading !== false;
     try {
-      setIsLoadingSessions(true);
-      setSessionLoadError(null);
+      if (showLoading) {
+        setIsLoadingSessions(true);
+        setSessionLoadError(null);
+      }
       const loadedSessions = await fetchSessions();
       setSessionSummaries(loadedSessions);
       return loadedSessions;
@@ -69,10 +80,14 @@ export function useSessionLifecycle({
         handleAuthExpired();
         return [];
       }
-      setSessionLoadError(readableApiErrorMessage(err));
+      if (showLoading) {
+        setSessionLoadError(readableApiErrorMessage(err));
+      }
       return [];
     } finally {
-      setIsLoadingSessions(false);
+      if (showLoading) {
+        setIsLoadingSessions(false);
+      }
     }
   }, [authState, handleAuthExpired]);
 
@@ -134,7 +149,8 @@ export function useSessionLifecycle({
   const createNewSession = useCallback(
     async (
       model?: string | null,
-      contextFolderPath?: string | null
+      contextFolderPath?: string | null,
+      options: CreateNewSessionOptions = {}
     ): Promise<SessionSummary | null> => {
       try {
         const session = await createSession({ model, contextFolderPath });
@@ -142,7 +158,9 @@ export function useSessionLifecycle({
         setStoredCurrentSessionId(undefined, session.sessionId);
         onNewSessionView();
         onSessionActivated();
-        await loadSessions();
+        if (options.refresh !== false) {
+          await loadSessions();
+        }
         return session;
       } catch (err) {
         if (err instanceof AuthError) {

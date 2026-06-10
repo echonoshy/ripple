@@ -11,6 +11,7 @@ import {
   mapSessionSummariesToWorkbenchSessions,
   messagesToTimelineEvents,
   sortWorkbenchSessions,
+  stabilizeWorkbenchSessionOrder,
   upsertRuntimeTimelineEvent,
 } from "./workbench";
 import type { CodexRuntimeEvent, Message, SessionSummary } from "@/types";
@@ -94,6 +95,20 @@ function testSortsSessionsByRecentActivity() {
   assert.equal(sorted[1].pendingApprovalCount, 1);
 }
 
+function testWaitingForUserSummaryDoesNotUseApprovalAttention() {
+  const sessions = mapSessionSummariesToWorkbenchSessions([
+    makeSession({
+      sessionId: "ask-user",
+      title: "Skill info confirmation",
+      status: "waiting_for_user",
+      pendingApprovalCount: 0,
+    }),
+  ]);
+
+  assert.equal(sessions[0].status, "waiting_for_user");
+  assert.equal(sessions[0].attention, undefined);
+}
+
 function testFormatsSessionActivityTimeLikeCodexSidebar() {
   const now = new Date(2026, 4, 25, 15, 30);
 
@@ -172,6 +187,35 @@ function testAppliesCurrentApprovalStatusToExistingSession() {
   assert.equal(updated[0].attention, "needs_input");
 }
 
+function testWaitingRuntimeStatusDoesNotRefreshActivityTime() {
+  const sessions = mapSessionSummariesToWorkbenchSessions([
+    makeSession({
+      sessionId: "srv-current",
+      title: "Waiting session",
+      status: "idle",
+      lastActiveAt: "2026-05-15T01:00:00.000Z",
+    }),
+    makeSession({
+      sessionId: "srv-other",
+      title: "Other session",
+      status: "idle",
+      lastActiveAt: "2026-05-15T02:00:00.000Z",
+    }),
+  ]);
+
+  const updated = applyCurrentSessionRuntimeStatus(
+    sessions,
+    "srv-current",
+    "waiting_for_user",
+    "2026-05-15T03:00:00.000Z"
+  );
+
+  assert.equal(updated[0].sessionId, "srv-other");
+  assert.equal(updated[1].sessionId, "srv-current");
+  assert.equal(updated[1].status, "waiting_for_user");
+  assert.equal(updated[1].lastActivityAt, "2026-05-15T01:00:00.000Z");
+}
+
 function testAppliesUnreadCompletionAttentionOnlyOffCurrentSession() {
   const sessions = mapSessionSummariesToWorkbenchSessions([
     makeSession({
@@ -240,7 +284,7 @@ function testAcknowledgedFailedAttentionStaysHiddenOffCurrentSession() {
   assert.equal(marked[0].attention, undefined);
 }
 
-function testKeepsNeedsInputAttentionForOpenWaitingSession() {
+function testClearsNeedsInputAttentionForOpenWaitingSession() {
   const sessions = mapSessionSummariesToWorkbenchSessions([
     makeSession({
       sessionId: "srv-waiting",
@@ -255,7 +299,7 @@ function testKeepsNeedsInputAttentionForOpenWaitingSession() {
   });
 
   assert.equal(marked[0].sessionId, "srv-waiting");
-  assert.equal(marked[0].attention, "needs_input");
+  assert.equal(marked[0].attention, undefined);
 }
 
 function testMergesMissingRunningSessionIntoSidebarSessions() {
@@ -285,6 +329,126 @@ function testMergesMissingRunningSessionIntoSidebarSessions() {
   assert.equal(merged[0].sessionId, "srv-running");
   assert.equal(merged[0].status, "running");
   assert.equal(merged[1].sessionId, "srv-other");
+}
+
+function testStabilizesSessionOrderAcrossActivityRefreshes() {
+  const previous = mapSessionSummariesToWorkbenchSessions([
+    makeSession({
+      sessionId: "srv-older-after-refresh",
+      title: "Older after refresh",
+      lastActiveAt: "2026-05-15T02:00:00.000Z",
+    }),
+    makeSession({
+      sessionId: "srv-newer-after-refresh",
+      title: "Newer after refresh",
+      lastActiveAt: "2026-05-15T01:00:00.000Z",
+    }),
+  ]);
+  const refreshed = sortWorkbenchSessions(
+    mapSessionSummariesToWorkbenchSessions([
+      makeSession({
+        sessionId: "srv-older-after-refresh",
+        title: "Older after refresh",
+        lastActiveAt: "2026-05-15T01:00:00.000Z",
+        messageCount: 3,
+      }),
+      makeSession({
+        sessionId: "srv-newer-after-refresh",
+        title: "Newer after refresh",
+        lastActiveAt: "2026-05-15T03:00:00.000Z",
+        messageCount: 4,
+      }),
+    ])
+  );
+
+  const stable = stabilizeWorkbenchSessionOrder(previous, refreshed);
+
+  assert.deepEqual(
+    stable.map((session) => session.sessionId),
+    ["srv-older-after-refresh", "srv-newer-after-refresh"]
+  );
+  assert.equal(stable[1].lastActivityAt, "2026-05-15T03:00:00.000Z");
+  assert.equal(stable[1].messageCount, 4);
+}
+
+function testStabilizedSessionOrderAllowsPinnedSessionsToMove() {
+  const previous = mapSessionSummariesToWorkbenchSessions([
+    makeSession({
+      sessionId: "srv-recent",
+      title: "Recent",
+      lastActiveAt: "2026-05-15T02:00:00.000Z",
+    }),
+    makeSession({
+      sessionId: "srv-pinned-now",
+      title: "Pinned now",
+      lastActiveAt: "2026-05-15T01:00:00.000Z",
+    }),
+  ]);
+  const refreshed = sortWorkbenchSessions(
+    mapSessionSummariesToWorkbenchSessions([
+      makeSession({
+        sessionId: "srv-recent",
+        title: "Recent",
+        lastActiveAt: "2026-05-15T02:00:00.000Z",
+      }),
+      makeSession({
+        sessionId: "srv-pinned-now",
+        title: "Pinned now",
+        pinned: true,
+        lastActiveAt: "2026-05-15T01:00:00.000Z",
+      }),
+    ])
+  );
+
+  const stable = stabilizeWorkbenchSessionOrder(previous, refreshed);
+
+  assert.deepEqual(
+    stable.map((session) => session.sessionId),
+    ["srv-pinned-now", "srv-recent"]
+  );
+}
+
+function testStabilizedSessionOrderKeepsNewSessionsVisible() {
+  const previous = sortWorkbenchSessions(
+    mapSessionSummariesToWorkbenchSessions([
+      makeSession({
+        sessionId: "srv-existing-a",
+        title: "Existing A",
+        lastActiveAt: "2026-05-15T02:00:00.000Z",
+      }),
+      makeSession({
+        sessionId: "srv-existing-b",
+        title: "Existing B",
+        lastActiveAt: "2026-05-15T01:00:00.000Z",
+      }),
+    ])
+  );
+  const refreshed = sortWorkbenchSessions(
+    mapSessionSummariesToWorkbenchSessions([
+      makeSession({
+        sessionId: "srv-existing-a",
+        title: "Existing A",
+        lastActiveAt: "2026-05-15T01:00:00.000Z",
+      }),
+      makeSession({
+        sessionId: "srv-existing-b",
+        title: "Existing B",
+        lastActiveAt: "2026-05-15T03:00:00.000Z",
+      }),
+      makeSession({
+        sessionId: "srv-new",
+        title: "New session",
+        lastActiveAt: "2026-05-15T04:00:00.000Z",
+      }),
+    ])
+  );
+
+  const stable = stabilizeWorkbenchSessionOrder(previous, refreshed);
+
+  assert.deepEqual(
+    stable.map((session) => session.sessionId),
+    ["srv-new", "srv-existing-a", "srv-existing-b"]
+  );
 }
 
 function testMapsToolCallsIntoTimelineEvents() {
@@ -730,15 +894,20 @@ function testRuntimeEventsStayBeforeOptimisticAssistantResponse() {
 
 testMapsSessionSummariesToWorkbenchSummaries();
 testSortsSessionsByRecentActivity();
+testWaitingForUserSummaryDoesNotUseApprovalAttention();
 testFormatsSessionActivityTimeLikeCodexSidebar();
 testFormatsSessionActivityTimeWithLocale();
 testAppliesCurrentRunningStatusToExistingSession();
 testAppliesCurrentApprovalStatusToExistingSession();
+testWaitingRuntimeStatusDoesNotRefreshActivityTime();
 testAppliesUnreadCompletionAttentionOnlyOffCurrentSession();
 testHidesFailedAttentionForOpenSession();
 testAcknowledgedFailedAttentionStaysHiddenOffCurrentSession();
-testKeepsNeedsInputAttentionForOpenWaitingSession();
+testClearsNeedsInputAttentionForOpenWaitingSession();
 testMergesMissingRunningSessionIntoSidebarSessions();
+testStabilizesSessionOrderAcrossActivityRefreshes();
+testStabilizedSessionOrderAllowsPinnedSessionsToMove();
+testStabilizedSessionOrderKeepsNewSessionsVisible();
 testMapsToolCallsIntoTimelineEvents();
 testLimitsToolActivityToRecentSummaries();
 testPlacesAssistantContentAfterItsToolCalls();

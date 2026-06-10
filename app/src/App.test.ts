@@ -128,6 +128,57 @@ function testCurrentSessionListVisibilityUsesRuntimeStatusPresence() {
   assert.doesNotMatch(source, /selectedSessionRuntimeStatus !== "idle"/);
 }
 
+function testSessionSelectionAcknowledgesNeedsInputAttention() {
+  const source = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
+  const acknowledgeBlock =
+    source.match(/const acknowledgeSessionAttention = useCallback\([\s\S]*?\n {2}\);/)?.[0] ||
+    "";
+
+  assert.match(source, /sessionAttentionFromStatus/);
+  assert.match(acknowledgeBlock, /summaryAttention/);
+  assert.match(acknowledgeBlock, /storedAttention === "needs_input"/);
+  assert.match(acknowledgeBlock, /summaryAttention === "needs_input"/);
+  assert.match(acknowledgeBlock, /setAcknowledgedSessionAttentionById/);
+}
+
+function testMobileSessionListDoesNotHideSelectedSessionAttention() {
+  const source = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
+  const displaySessionsBlock =
+    source.match(/const displayWorkbenchSessions = useMemo\([\s\S]*?\n {2}\);/)?.[0] || "";
+  const attentionHandlerBlock =
+    source.match(/const handleSessionAttention = useCallback\([\s\S]*?\n {2}\);/)?.[0] || "";
+
+  assert.match(source, /const \[isMobileLayout, setIsMobileLayout\]/);
+  assert.match(source, /const sessionDetailVisibleForAttention =/);
+  assert.match(source, /!isMobileLayout \|\| mobileSessionMode === "chat"/);
+  assert.match(source, /const openSessionIdForAttention = sessionDetailVisibleForAttention \? sessionId : null/);
+  assert.match(displaySessionsBlock, /openSessionIdForAttention/);
+  assert.doesNotMatch(displaySessionsBlock, /activeView === "sessions" \? sessionId : null/);
+  assert.doesNotMatch(attentionHandlerBlock, /attention === "completed"/);
+  assert.doesNotMatch(attentionHandlerBlock, /attention === "error"[\s\S]*sessionIsOpen/);
+}
+
+function testFreshSessionSendSkipsPreflightListRefresh() {
+  const source = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
+
+  assert.match(
+    source,
+    /createNewSession\(model, activeContextFolderPath, \{ refresh: false \}\)/
+  );
+}
+
+function testVisibleSessionListUsesStableOrderAcrossRefreshes() {
+  const source = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
+  const displaySessionsBlock =
+    source.match(/const displayWorkbenchSessions = useMemo\([\s\S]*?\n {2}\);/)?.[0] || "";
+
+  assert.match(source, /stabilizeWorkbenchSessionOrder/);
+  assert.match(source, /displayWorkbenchSessionOrderRef/);
+  assert.match(source, /const sessionListVisibleForStableOrder =/);
+  assert.match(source, /mobileSessionMode === "list"/);
+  assert.match(displaySessionsBlock, /stabilizeWorkbenchSessionOrder/);
+}
+
 function testDesktopUsesProductTopBarWithSettingsAvatarEntry() {
   const source = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
 
@@ -219,6 +270,10 @@ testDesktopSessionRailStillUsesSeparateLayout();
 testMobileContentUsesSharedMotionTransitions();
 testMobileSessionModeDoesNotRemountMotionStage();
 testCurrentSessionListVisibilityUsesRuntimeStatusPresence();
+testSessionSelectionAcknowledgesNeedsInputAttention();
+testMobileSessionListDoesNotHideSelectedSessionAttention();
+testFreshSessionSendSkipsPreflightListRefresh();
+testVisibleSessionListUsesStableOrderAcrossRefreshes();
 testDesktopUsesProductTopBarWithSettingsAvatarEntry();
 testSessionRailOnlyLivesInsideSessionsView();
 testDesktopSessionRailCanResizeAndCollapse();

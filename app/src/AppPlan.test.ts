@@ -203,6 +203,7 @@ function testChatFolderPickerUpdatesCurrentSessionContextFolder() {
     appSource,
     /updateSessionById\(sessionId,\s*\{\s*contextFolderPath: nextContextFolderPath,\s*\}\)/
   );
+  assert.match(appSource, /updated\.contextFolderPath \?\? nextContextFolderPath/);
   assert.doesNotMatch(appSource, /createProject/);
   assert.doesNotMatch(appSource, /window\.confirm/);
   assert.doesNotMatch(appSource, /setInput\(""\)/);

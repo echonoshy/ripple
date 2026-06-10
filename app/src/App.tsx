@@ -1008,7 +1008,7 @@ export default function Home() {
         contextFolderPath: nextContextFolderPath,
       });
       if (updated) {
-        setActiveContextFolderPath(updated.contextFolderPath ?? null);
+        setActiveContextFolderPath(updated.contextFolderPath ?? nextContextFolderPath);
         setActiveView("sessions");
         setMobileMotionDirection(1);
         setMobileSessionMode("chat");

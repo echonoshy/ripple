@@ -2016,6 +2016,7 @@ export default function SkillsPage({
         })}
         backLabel={t("skills.backToCategories")}
         onBack={closeCategory}
+        backButtonVariant="ghost"
         className="-mx-3 -mt-[max(env(safe-area-inset-top),12px)] md:-mx-6"
       />
       <div className="hidden items-start gap-2 lg:flex">

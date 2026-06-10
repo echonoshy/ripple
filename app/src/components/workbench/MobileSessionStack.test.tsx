@@ -19,6 +19,7 @@ import {
   mobileStackPushTransition,
   mobileStackReturnTransition,
   mobileSwipeBackConfig,
+  searchExpandVariants,
   swipeSnapTransition,
 } from "./motionPrimitives";
 
@@ -452,6 +453,12 @@ function testMobileListItemsDoNotStaggerOrFade() {
   assert.doesNotMatch(motionPrimitivesSource, /delay: Math/);
 }
 
+function testSearchExpandAnimationAvoidsMarginLayoutJank() {
+  assert.deepEqual(variantState(searchExpandVariants.collapsed), { height: 0, opacity: 0 });
+  assert.deepEqual(variantState(searchExpandVariants.expanded), { height: "auto", opacity: 1 });
+  assert.doesNotMatch(motionPrimitivesSource, /searchExpandVariants[\s\S]*marginTop/);
+}
+
 function testChatSheetAnimatesInFromRightWhenOpeningSession() {
   assert.match(mobileSessionStackSource, /previousModeRef/);
   assert.match(mobileSessionStackSource, /sheetX\.set\(currentViewportWidth\)/);
@@ -490,6 +497,7 @@ testCommittedSwipeUsesCrispEdgeInsteadOfShadow();
 testMobileMotionUsesRestrainedSharedTiming();
 testMobilePageVariantsAvoidFadeAndVerticalDrift();
 testMobileListItemsDoNotStaggerOrFade();
+testSearchExpandAnimationAvoidsMarginLayoutJank();
 testChatSheetAnimatesInFromRightWhenOpeningSession();
 testSessionSwipeBackUsesSharedMotionPrimitive();
 testChatSheetUsesCompositedSwipeAnimation();

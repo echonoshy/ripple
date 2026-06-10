@@ -149,15 +149,24 @@ function testSearchInputUsesReadableMobileType() {
   );
 }
 
-function testHeaderActionsUseSharedWorkbenchTreatment() {
+function testHeaderActionsUseUnframedWorkbenchTreatment() {
   const html = renderMobileSessionsPage();
+  const searchButton = html.match(/<button[^>]*aria-label="Search sessions"[^>]*>/)?.[0];
+  const newSessionButton = html.match(/<button[^>]*aria-label="New session"[^>]*>/)?.[0];
 
   assert.match(
     mobileSessionsPageSource,
-    /mobileHeaderActionClass = WORKBENCH_MOBILE_ICON_BUTTON_CLASS/
+    /mobileHeaderActionClass = WORKBENCH_MOBILE_GHOST_ICON_BUTTON_CLASS/
   );
   assert.match(mobileSessionsPageSource, /WORKBENCH_PAGE_BACKGROUND_CLASS/);
-  assert.match(html, /inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl/);
+  assert.ok(searchButton);
+  assert.ok(newSessionButton);
+  assert.match(searchButton, /inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl/);
+  assert.match(newSessionButton, /inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl/);
+  assert.match(searchButton, /bg-transparent/);
+  assert.match(newSessionButton, /bg-transparent/);
+  assert.doesNotMatch(searchButton, /border-\[#DEE0E3\]/);
+  assert.doesNotMatch(newSessionButton, /border-\[#DEE0E3\]/);
   assert.doesNotMatch(html, /backdrop-blur-xl/);
   assert.doesNotMatch(mobileSessionsPageSource, /MOBILE_GLASS_ICON_BUTTON_CLASS/);
   assert.match(
@@ -250,6 +259,18 @@ function testMobileSessionChromeUsesMotionPresence() {
   assert.match(mobileSessionsPageSource, /data-ripple-mobile-search-motion/);
 }
 
+function testMobileSessionSearchPanelSitsCloserToHeaderControls() {
+  assert.match(
+    mobileSessionsPageSource,
+    /data-ripple-mobile-search-motion[\s\S]{0,260}className="overflow-hidden"/
+  );
+  assert.match(
+    mobileSessionsPageSource,
+    /<div className="pt-0\.5 pb-1\.5">\s*<div className=\{`\$\{WORKBENCH_FIELD_CLASS\} flex h-10/
+  );
+  assert.doesNotMatch(mobileSessionsPageSource, /className="-mt-1\.5 overflow-hidden pb-1\.5"/);
+}
+
 function testMobileSessionRowsUseReadableTypeScale() {
   assert.match(mobileSessionsPageSource, /TYPOGRAPHY_MOBILE_BODY_CLASS/);
   assert.match(mobileSessionsPageSource, /TYPOGRAPHY_META_CLASS/);
@@ -286,12 +307,13 @@ testUsesQuietAgentControlPlaneStyling();
 testSessionOptionsAreHiddenUntilLongPress();
 testSessionRowsRemoveRepeatedChatIcon();
 testSearchInputUsesReadableMobileType();
-testHeaderActionsUseSharedWorkbenchTreatment();
+testHeaderActionsUseUnframedWorkbenchTreatment();
 testSessionRowsUseMobileActionSheetForOptions();
 testSessionOptionsSheetEscapesBlurredRowsWithSharedPortal();
 testMobileSessionSearchHasExplicitCancelState();
 testSessionRowsExposeIosStyleSwipeActions();
 testMobileSessionChromeUsesMotionPresence();
+testMobileSessionSearchPanelSitsCloserToHeaderControls();
 testMobileSessionRowsUseReadableTypeScale();
 testRendersEmptyStateWithNewSessionAction();
 testRendersChineseMobileSessionChrome();

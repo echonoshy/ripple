@@ -24,7 +24,7 @@ import {
   TYPOGRAPHY_MOBILE_BODY_CLASS,
   TYPOGRAPHY_PAGE_TITLE_CLASS,
   WORKBENCH_ICON_BUTTON_CLASS,
-  WORKBENCH_MOBILE_ICON_BUTTON_CLASS,
+  WORKBENCH_MOBILE_GHOST_ICON_BUTTON_ACTIVE_CLASS,
   WORKBENCH_SECONDARY_BUTTON_CLASS,
   WORKBENCH_SECTION_CLASS,
 } from "@/components/workbench/stylePrimitives";
@@ -108,9 +108,10 @@ export default function WorkspaceToolbar({
   const filesToolbarIconButtonBaseClass = WORKBENCH_ICON_BUTTON_CLASS;
   const filesToolbarIconButtonClass = `${filesToolbarIconButtonBaseClass} text-[#646A73] hover:text-[#1F2329]`;
   const filesToolbarIconButtonActiveClass = `${filesToolbarIconButtonBaseClass} border-[#1456F0]/30 bg-[#F0F5FF] text-[#1456F0] hover:bg-[#F0F5FF]`;
-  const filesMobileToolbarButtonClass = `${WORKBENCH_MOBILE_ICON_BUTTON_CLASS} shrink-0`;
+  const filesMobileToolbarButtonClass =
+    "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-transparent text-[#2B2F36] transition-colors hover:bg-[#F8F9FA] active:bg-[#EFF0F1] disabled:cursor-not-allowed disabled:opacity-50";
   const filesMobilePrimaryHeaderClass =
-    "flex min-w-0 items-center gap-2 border-b border-[#DEE0E3] bg-white px-3 py-3 lg:hidden";
+    "flex min-w-0 items-center gap-2 border-b border-[#DEE0E3] bg-white px-3 py-2 lg:hidden";
   const pageParentButtonClass =
     "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#BACEFD] bg-[#F0F5FF] text-[#1456F0] transition-colors hover:bg-[#e5efff] lg:hidden";
   const directoryNavigationButtonClass = `${WORKBENCH_SECONDARY_BUTTON_CLASS} h-8 shrink-0 whitespace-nowrap px-2.5 text-[#46556f] hover:border-[#BACEFD] hover:bg-[#F0F5FF] hover:text-[#1456F0] ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`;
@@ -126,7 +127,7 @@ export default function WorkspaceToolbar({
           setIsMobileSearchOpen(true);
         }}
         className={`${filesMobileToolbarButtonClass} ${
-          isSearchMode ? "border-[#BACEFD] bg-[#F0F5FF] text-[#1456F0]" : ""
+          isSearchMode ? WORKBENCH_MOBILE_GHOST_ICON_BUTTON_ACTIVE_CLASS : ""
         }`}
         title={t("files.searchWorkspaceFiles")}
         aria-label={t("files.searchWorkspaceFiles")}
@@ -138,7 +139,7 @@ export default function WorkspaceToolbar({
         data-ripple-files-action="toggle-selection"
         onClick={toggleSelectionMode}
         className={`${filesMobileToolbarButtonClass} ${
-          isSelectionActive ? "border-[#BACEFD] bg-[#F0F5FF] text-[#1456F0]" : ""
+          isSelectionActive ? WORKBENCH_MOBILE_GHOST_ICON_BUTTON_ACTIVE_CLASS : ""
         }`}
         title={isSelectionActive ? t("files.doneSelecting") : t("files.selectFiles")}
         aria-label={isSelectionActive ? t("files.doneSelecting") : t("files.selectFiles")}

@@ -36,6 +36,46 @@ function testMobilePageHeaderHasSharedStructure() {
   assert.match(source, /WORKBENCH_MOBILE_ICON_BUTTON_CLASS/);
 }
 
+function testMobilePageHeaderSupportsGhostBackButton() {
+  const html = renderToStaticMarkup(
+    <MobilePageHeader
+      title="Automations"
+      backLabel="Back"
+      onBack={noop}
+      backButtonVariant="ghost"
+    />
+  );
+  const backButton = html.match(/<button[^>]*aria-label="Back"[^>]*>/)?.[0] || "";
+
+  assert.match(source, /WORKBENCH_MOBILE_GHOST_ICON_BUTTON_CLASS/);
+  assert.match(backButton, /bg-transparent/);
+  assert.doesNotMatch(backButton, /border-\[#DEE0E3\]/);
+  assert.doesNotMatch(backButton, /bg-white/);
+}
+
+function testMobilePageHeaderSupportsCompactTitleClass() {
+  const html = renderToStaticMarkup(
+    <MobilePageHeader
+      title="Long automation title"
+      subtitle="Jun 10, 11:45 PM"
+      backLabel="Back"
+      onBack={noop}
+      titleClassName="text-[18px] leading-[26px] font-medium"
+    />
+  );
+
+  assert.match(
+    html,
+    /data-ripple-mobile-page-header-title="true" class="[^"]*text-\[18px\][^"]*leading-\[26px\][^"]*font-medium[^"]*"/
+  );
+  assert.doesNotMatch(
+    html,
+    /data-ripple-mobile-page-header-title="true" class="[^"]*text-\[20px\]/
+  );
+}
+
 testMobilePageHeaderHasSharedStructure();
+testMobilePageHeaderSupportsGhostBackButton();
+testMobilePageHeaderSupportsCompactTitleClass();
 
 console.log("mobile page header tests passed");

@@ -144,6 +144,8 @@ function testWorkspaceExplorerPageStacksHeaderControlsAwayFromTitle() {
   const pageSearchRow = html.match(/<div[^>]*data-ripple-files-search-row="page"[^>]*>/)?.[0];
   assert.ok(mobileTitleRow);
   assert.match(mobileTitleRow, /lg:hidden/);
+  assert.match(mobileTitleRow, /py-2/);
+  assert.doesNotMatch(mobileTitleRow, /py-3/);
   assert.doesNotMatch(mobileTitleRow, /grid-cols-\[44px_minmax\(0,1fr\)_auto\]/);
   assert.ok(pageSearchRow);
   assert.match(pageSearchRow, /hidden/);
@@ -248,10 +250,13 @@ function testWorkspaceExplorerPageKeepsMobileUploadSeparateFromParentFolder() {
   assert.match(parentButton, /bg-\[#F0F5FF\]/);
   assert.match(parentButton, /text-\[#1456F0\]/);
   assert.match(workspaceExplorerSource, /<FolderUp size=\{14\}/);
-  assert.match(uploadButton, /h-11/);
-  assert.match(uploadButton, /w-11/);
-  assert.match(uploadButton, /border-\[#DEE0E3\]/);
-  assert.match(uploadButton, /bg-white/);
+  assert.match(uploadButton, /h-10/);
+  assert.match(uploadButton, /w-10/);
+  assert.doesNotMatch(uploadButton, /h-11/);
+  assert.doesNotMatch(uploadButton, /w-11/);
+  assert.match(uploadButton, /bg-transparent/);
+  assert.doesNotMatch(uploadButton, /border-\[#DEE0E3\]/);
+  assert.doesNotMatch(uploadButton, /bg-white/);
   assert.doesNotMatch(uploadButton, /border-white\/76/);
   assert.doesNotMatch(uploadButton, /bg-white\/72/);
   assert.doesNotMatch(uploadButton, /bg-\[#1456F0\]/);
@@ -259,11 +264,13 @@ function testWorkspaceExplorerPageKeepsMobileUploadSeparateFromParentFolder() {
 
 testWorkspaceExplorerPageKeepsMobileUploadSeparateFromParentFolder();
 
-function testWorkspaceExplorerMobileToolbarMatchesHomeHeaderButtons() {
+function testWorkspaceExplorerMobileToolbarUsesCompactHeaderButtons() {
   assert.match(
     workspaceExplorerSource,
-    /const filesMobileToolbarButtonClass = `\$\{WORKBENCH_MOBILE_ICON_BUTTON_CLASS\} shrink-0`/
+    /const filesMobileToolbarButtonClass =\s*"inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-transparent text-\[#2B2F36\]/
   );
+  assert.match(workspaceExplorerSource, /WORKBENCH_MOBILE_GHOST_ICON_BUTTON_ACTIVE_CLASS/);
+  assert.doesNotMatch(workspaceExplorerSource, /WORKBENCH_MOBILE_ICON_BUTTON_CLASS/);
   assert.doesNotMatch(workspaceExplorerSource, /MOBILE_GLASS_ICON_BUTTON_CLASS/);
   assert.match(workspaceExplorerSource, /LUCIDE_STANDARD_STROKE_WIDTH/);
   assert.match(
@@ -281,6 +288,14 @@ function testWorkspaceExplorerMobileToolbarMatchesHomeHeaderButtons() {
   assert.match(
     workspaceExplorerSource,
     /data-ripple-files-action="mobile-more"[\s\S]*className=\{filesMobileToolbarButtonClass\}/
+  );
+  assert.doesNotMatch(
+    workspaceExplorerSource,
+    /isSearchMode \? "border-\[#BACEFD\] bg-\[#F0F5FF\] text-\[#1456F0\]"/
+  );
+  assert.doesNotMatch(
+    workspaceExplorerSource,
+    /isSelectionActive \? "border-\[#BACEFD\] bg-\[#F0F5FF\] text-\[#1456F0\]"/
   );
   assert.match(
     workspaceExplorerSource,
@@ -300,7 +315,7 @@ function testWorkspaceExplorerMobileToolbarMatchesHomeHeaderButtons() {
   );
 }
 
-testWorkspaceExplorerMobileToolbarMatchesHomeHeaderButtons();
+testWorkspaceExplorerMobileToolbarUsesCompactHeaderButtons();
 
 function testWorkspaceExplorerUsesSharedDenseToolbarButtons() {
   const source = readWorkspaceExplorerImplementationSource();

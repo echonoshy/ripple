@@ -39,6 +39,12 @@ export const WORKBENCH_ICON_BUTTON_CLASS =
 export const WORKBENCH_MOBILE_ICON_BUTTON_CLASS =
   "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-[#DEE0E3] bg-white text-[#2B2F36] transition-colors hover:bg-[#F8F9FA] active:bg-[#EFF0F1] disabled:cursor-not-allowed disabled:opacity-50";
 
+export const WORKBENCH_MOBILE_GHOST_ICON_BUTTON_CLASS =
+  "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-transparent text-[#2B2F36] transition-colors hover:bg-[#F8F9FA] active:bg-[#EFF0F1] disabled:cursor-not-allowed disabled:opacity-50";
+
+export const WORKBENCH_MOBILE_GHOST_ICON_BUTTON_ACTIVE_CLASS =
+  "bg-[#F0F5FF] text-[#1456F0] hover:bg-[#E8F0FF] active:bg-[#DDE8FF]";
+
 export const WORKBENCH_PRIMARY_BUTTON_CLASS =
   "inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#1456F0] px-3 text-white transition-colors hover:bg-[#0F4BD8] disabled:cursor-not-allowed disabled:bg-[#EFF0F1] disabled:text-[#8F959E]";
 

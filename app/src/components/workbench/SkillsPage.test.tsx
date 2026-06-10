@@ -171,11 +171,15 @@ testSkillsPageUsesCompactSkillRowsInCategoryDetail();
 
 function testSkillsCategoryDetailUsesSharedMobilePageHeader() {
   const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
+  const headerBlock =
+    source.match(/<MobilePageHeader[\s\S]*?backLabel=\{t\("skills\.backToCategories"\)\}[\s\S]*?\/>/)
+      ?.[0] || "";
 
   assert.match(source, /import MobilePageHeader from "\.\/MobilePageHeader"/);
   assert.match(source, /<MobilePageHeader[\s\S]*title=\{categoryLabel\(category\)\}/);
   assert.match(source, /backLabel=\{t\("skills\.backToCategories"\)\}/);
   assert.match(source, /onBack=\{closeCategory\}/);
+  assert.match(headerBlock, /backButtonVariant="ghost"/);
   assert.doesNotMatch(
     source,
     /<section data-ripple-skill-category-detail="true" className="space-y-2\.5">\s*<div className="flex items-start gap-2">/

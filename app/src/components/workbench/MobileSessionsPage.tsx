@@ -37,7 +37,7 @@ import {
   TYPOGRAPHY_MOBILE_BODY_CLASS,
   TYPOGRAPHY_PAGE_TITLE_CLASS,
   WORKBENCH_FIELD_CLASS,
-  WORKBENCH_MOBILE_ICON_BUTTON_CLASS,
+  WORKBENCH_MOBILE_GHOST_ICON_BUTTON_CLASS,
   WORKBENCH_PAGE_BACKGROUND_CLASS,
   WORKBENCH_TOP_BAR_CLASS,
 } from "./stylePrimitives";
@@ -88,7 +88,7 @@ function sessionPreview(
   return parts.join(" · ");
 }
 
-const mobileHeaderActionClass = WORKBENCH_MOBILE_ICON_BUTTON_CLASS;
+const mobileHeaderActionClass = WORKBENCH_MOBILE_GHOST_ICON_BUTTON_CLASS;
 const SESSION_OPTIONS_LONG_PRESS_MS = 420;
 const SESSION_OPTIONS_LONG_PRESS_MOVE_TOLERANCE_PX = 10;
 
@@ -284,26 +284,28 @@ export default function MobileSessionsPage({
               transition={shortTransition}
               className="overflow-hidden"
             >
-              <div className={`${WORKBENCH_FIELD_CLASS} flex h-10 items-center gap-2 px-3`}>
-                <Search size={15} className="shrink-0 text-[#646A73]" />
-                <input
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder={t("sessions.search")}
-                  className="search-sessions-input min-w-0 flex-1 bg-transparent text-[16px] outline-none placeholder:text-[15px] placeholder:text-[#9aa3af] focus:ring-0 focus:outline-none focus-visible:ring-0 focus-visible:outline-none"
-                  autoFocus
-                />
-                <button
-                  type="button"
-                  data-ripple-mobile-search-cancel
-                  onClick={() => {
-                    setQuery("");
-                    setIsSearching(false);
-                  }}
-                  className={`${TYPOGRAPHY_META_MEDIUM_CLASS} shrink-0 text-[#1456F0]`}
-                >
-                  {t("sessions.cancel")}
-                </button>
+              <div className="pt-0.5 pb-1.5">
+                <div className={`${WORKBENCH_FIELD_CLASS} flex h-10 items-center gap-2 px-3`}>
+                  <Search size={15} className="shrink-0 text-[#646A73]" />
+                  <input
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder={t("sessions.search")}
+                    className="search-sessions-input min-w-0 flex-1 bg-transparent text-[16px] outline-none placeholder:text-[15px] placeholder:text-[#9aa3af] focus:ring-0 focus:outline-none focus-visible:ring-0 focus-visible:outline-none"
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    data-ripple-mobile-search-cancel
+                    onClick={() => {
+                      setQuery("");
+                      setIsSearching(false);
+                    }}
+                    className={`${TYPOGRAPHY_META_MEDIUM_CLASS} shrink-0 text-[#1456F0]`}
+                  >
+                    {t("sessions.cancel")}
+                  </button>
+                </div>
               </div>
             </motion.div>
           ) : null}

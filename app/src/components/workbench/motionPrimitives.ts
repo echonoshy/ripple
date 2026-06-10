@@ -190,11 +190,11 @@ export const reducedMobilePageVariants: Variants = {
 export const searchExpandVariants: Variants = {
   collapsed: {
     height: 0,
-    marginTop: 0,
+    opacity: 0,
   },
   expanded: {
     height: "auto",
-    marginTop: 8,
+    opacity: 1,
   },
 };
 

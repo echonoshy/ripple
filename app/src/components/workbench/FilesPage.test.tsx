@@ -29,6 +29,8 @@ function testFilesHeaderDoesNotRenderTaskScopedActions() {
   assert.match(html, /data-ripple-files-title-row="page"[^>]*lg:hidden/);
   assert.match(html, /data-ripple-files-title="primary"[^>]*>Files</);
   assert.match(toolbarSource, /filesMobilePrimaryHeaderClass/);
+  assert.match(toolbarSource, /px-3 py-2 lg:hidden/);
+  assert.doesNotMatch(toolbarSource, /px-3 py-3 lg:hidden/);
   assert.doesNotMatch(html, /data-ripple-mobile-page-header="true"/);
   assert.doesNotMatch(html, /aria-label="Back to session"/);
   assert.match(html, /lg:hidden/);

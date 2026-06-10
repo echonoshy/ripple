@@ -46,7 +46,6 @@ import {
   TYPOGRAPHY_META_MEDIUM_CLASS,
   TYPOGRAPHY_MICRO_CLASS,
   TYPOGRAPHY_MICRO_MEDIUM_CLASS,
-  WORKBENCH_MOBILE_ICON_BUTTON_CLASS,
   WORKBENCH_PAGE_BACKGROUND_CLASS,
   WORKBENCH_SECTION_CLASS,
 } from "./stylePrimitives";
@@ -56,7 +55,8 @@ const BOTTOM_LOCK_THRESHOLD_PX = 40;
 const MOBILE_CHAT_HEADER_FALLBACK_HEIGHT_PX = 68;
 const MOBILE_CHAT_COMPOSER_FALLBACK_HEIGHT_PX = 92;
 const MOBILE_CHAT_COMPOSER_GAP_PX = 12;
-const mobileHeaderButtonClass = WORKBENCH_MOBILE_ICON_BUTTON_CLASS;
+const mobileChatHeaderButtonClass =
+  "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-transparent text-[#2B2F36] transition-colors hover:bg-[#F8F9FA] active:bg-[#EFF0F1] disabled:cursor-not-allowed disabled:opacity-50";
 
 interface VisualViewportKeyboardSource {
   innerHeight: number;
@@ -680,11 +680,11 @@ export default function SessionPage({
           aria-label={t("sessions.backToSessions")}
           title={t("sessions.backToSessions")}
           onClick={onBackToMobileSessions}
-          className={mobileHeaderButtonClass}
+          className={mobileChatHeaderButtonClass}
         >
           <ChevronLeft size={22} strokeWidth={2.2} />
         </button>
-        <div className="min-w-0 text-center">
+        <div className="mx-auto w-full max-w-[56vw] min-w-0 text-center">
           <div className={`truncate ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#1F2329]`}>
             {session?.title || t("sessions.fallbackTitle")}
           </div>
@@ -725,7 +725,7 @@ export default function SessionPage({
             aria-label={t("sessions.newSession")}
             title={t("sessions.newSession")}
             onClick={onNewSession}
-            className={mobileHeaderButtonClass}
+            className={mobileChatHeaderButtonClass}
           >
             <MessageCircleMore size={18} strokeWidth={2.2} />
           </button>

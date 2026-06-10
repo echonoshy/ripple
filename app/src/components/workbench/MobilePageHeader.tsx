@@ -7,8 +7,11 @@ import {
   MOBILE_PAGE_TOP_SAFE_AREA_CLASS,
   TYPOGRAPHY_META_CLASS,
   TYPOGRAPHY_PAGE_TITLE_CLASS,
+  WORKBENCH_MOBILE_GHOST_ICON_BUTTON_CLASS,
   WORKBENCH_MOBILE_ICON_BUTTON_CLASS,
 } from "./stylePrimitives";
+
+type MobilePageHeaderBackButtonVariant = "framed" | "ghost";
 
 interface MobilePageHeaderProps {
   title: React.ReactNode;
@@ -17,6 +20,8 @@ interface MobilePageHeaderProps {
   onBack?: () => void;
   actions?: React.ReactNode;
   className?: string;
+  titleClassName?: string;
+  backButtonVariant?: MobilePageHeaderBackButtonVariant;
 }
 
 export default function MobilePageHeader({
@@ -26,7 +31,15 @@ export default function MobilePageHeader({
   onBack,
   actions,
   className = "",
+  titleClassName,
+  backButtonVariant = "framed",
 }: MobilePageHeaderProps) {
+  const titleTypographyClass = titleClassName || TYPOGRAPHY_PAGE_TITLE_CLASS;
+  const backButtonClass =
+    backButtonVariant === "ghost"
+      ? WORKBENCH_MOBILE_GHOST_ICON_BUTTON_CLASS
+      : WORKBENCH_MOBILE_ICON_BUTTON_CLASS;
+
   return (
     <header
       data-ripple-mobile-page-header="true"
@@ -39,7 +52,7 @@ export default function MobilePageHeader({
             onClick={onBack}
             aria-label={backLabel}
             title={backLabel}
-            className={WORKBENCH_MOBILE_ICON_BUTTON_CLASS}
+            className={backButtonClass}
           >
             <ChevronLeft size={20} strokeWidth={LUCIDE_NAV_STROKE_WIDTH} />
           </button>
@@ -49,7 +62,7 @@ export default function MobilePageHeader({
         <div className="min-w-0 text-center">
           <div
             data-ripple-mobile-page-header-title="true"
-            className={`truncate text-[#1F2329] ${TYPOGRAPHY_PAGE_TITLE_CLASS}`}
+            className={`truncate text-[#1F2329] ${titleTypographyClass}`}
           >
             {title}
           </div>

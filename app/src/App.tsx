@@ -1204,6 +1204,8 @@ export default function Home() {
       />
     ) : activeView === "automations" ? (
       <AutomationsPage
+        key={`automations:${userId}`}
+        userId={userId}
         selectedModel={defaultModel}
         models={models}
         onAuthExpired={handleAuthExpired}

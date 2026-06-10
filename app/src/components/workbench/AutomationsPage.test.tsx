@@ -12,6 +12,7 @@ function renderAutomationsPage(locale: LocalePreference = "en-US") {
   return renderToStaticMarkup(
     <I18nProvider initialPreference={locale}>
       <AutomationsPage
+        userId="default"
         selectedModel="codex-medium"
         models={[
           { id: "codex-medium", owned_by: "ripple" },
@@ -328,6 +329,10 @@ function testAutomationEditUsesMobileDetailPageAndCompactText() {
   assert.match(source, /data-ripple-automation-form-actions/);
   assert.match(
     source,
+    /data-ripple-automation-form-page[\s\S]*auto-rows-max content-start/
+  );
+  assert.match(
+    source,
     /className="fixed inset-x-0 top-0 z-40 flex h-dvh min-h-0 flex-col overflow-hidden/
   );
   assert.match(
@@ -340,6 +345,21 @@ function testAutomationEditUsesMobileDetailPageAndCompactText() {
   assert.match(source, /const automationFieldControlClass =[\s\S]*text-\[15px\]/);
   assert.match(source, /const automationMonoFieldControlClass =[\s\S]*text-\[15px\]/);
   assert.match(source, /const automationTextareaClass =[\s\S]*text-\[15px\]/);
+}
+
+function testAutomationAdvancedConfigUsesDisclosureSection() {
+  const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
+  const advancedSection =
+    source.match(
+      /data-ripple-automation-advanced-section[\s\S]*?data-ripple-automation-advanced-config[\s\S]*?automations\.cwd/
+    )?.[0] || "";
+
+  assert.match(advancedSection, /data-ripple-automation-advanced-trigger/);
+  assert.match(advancedSection, /aria-expanded=\{isAdvancedConfigOpen\}/);
+  assert.match(advancedSection, /flex h-11 w-full items-center justify-between/);
+  assert.match(advancedSection, /overflow-hidden rounded-xl border border-\[#DEE0E3\] bg-white/);
+  assert.match(advancedSection, /border-t border-\[#EFF0F1\] bg-\[#F8F9FA\] p-3/);
+  assert.doesNotMatch(advancedSection, /inline-flex h-9 w-fit items-center gap-1 rounded-lg/);
 }
 
 function testMobileAutomationEditReturnsToDetailPage() {
@@ -542,13 +562,50 @@ function testAutomationRefreshesKeepExistingContentVisible() {
   assert.match(source, /onClick=\{\(\) => void loadSchedules\(\{ background: true \}\)\}/);
 }
 
+function testAutomationsPageCachesLoadedDataPerUserForTabReentry() {
+  const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /userId: string;/);
+  assert.match(source, /const automationsPageCacheByUserId: Record<string, AutomationsPageCache>/);
+  assert.match(source, /const cachedAutomationsPageData = automationsPageCacheByUserId\[userId\]/);
+  assert.match(
+    source,
+    /const \[schedules, setSchedules\] = useState<ScheduleInfo\[\]>\(\s*\(\) => cachedAutomationsPageData\?\.schedules \?\? \[\]\s*\)/
+  );
+  assert.match(source, /const \[isLoading, setIsLoading\] = useState\(\(\) => !cachedAutomationsPageData\)/);
+  assert.match(
+    source,
+    /const \[runsBySchedule, setRunsBySchedule\] = useState<Record<string, AgentRunInfo\[\]>>\(\s*\(\) => cachedAutomationsPageData\?\.runsBySchedule \?\? \{\}\s*\)/
+  );
+  assert.match(source, /automationsPageCacheByUserId\[userId\] = \{/);
+}
+
+function testAutomationsPageOnlySilentlyRefreshesStaleCacheOnTabEntry() {
+  const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
+  const mountRefreshBlock =
+    source.match(/useEffect\(\(\) => \{[\s\S]*?isAutomationsPageCacheStale[\s\S]*?\}, \[[^\]]+\]\);/)?.[0] ||
+    "";
+
+  assert.match(source, /const AUTOMATIONS_PAGE_CACHE_STALE_MS = 60_000;/);
+  assert.match(source, /function isAutomationsPageCacheStale\(userId: string/);
+  assert.match(
+    mountRefreshBlock,
+    /if \(cachedAutomationsPageData && !isAutomationsPageCacheStale\(userId\)\) \{\s*return;\s*\}/
+  );
+  assert.match(
+    mountRefreshBlock,
+    /void loadSchedules\(\{ background: cachedAutomationsPageData !== null \}\)/
+  );
+  assert.doesNotMatch(mountRefreshBlock, /void loadSchedules\(\);\s*\}/);
+}
+
 function testAutomationsPageRendersChineseChrome() {
   const html = renderAutomationsPage("zh-CN");
 
   assert.match(html, />自动化</);
   assert.match(html, /aria-label="返回设置"/);
   assert.match(html, />新建</);
-  assert.match(html, />暂无自动化</);
+  assert.doesNotMatch(html, />暂无自动化</);
 }
 
 testAutomationsPageHasMobileBackNavigation();
@@ -570,6 +627,7 @@ testAutomationsPageUsesSolidWorkbenchSurfaces();
 testAutomationCardUsesDesktopRowLayout();
 testAutomationsPageUsesInlineMobileActionsWithoutOverflowSheet();
 testAutomationEditUsesMobileDetailPageAndCompactText();
+testAutomationAdvancedConfigUsesDisclosureSection();
 testMobileAutomationEditReturnsToDetailPage();
 testAutomationsMobileActionsStaySingleLineOnNarrowScreens();
 testMobileAutomationDeleteConfirmationCanBeCancelled();
@@ -580,6 +638,8 @@ testAutomationDetailUsesCompactMobileHeaderTitle();
 testAutomationRunHistoryUsesReadableRows();
 testAutomationRunHistoryActionsUseCompactMobileText();
 testAutomationRefreshesKeepExistingContentVisible();
+testAutomationsPageCachesLoadedDataPerUserForTabReentry();
+testAutomationsPageOnlySilentlyRefreshesStaleCacheOnTabEntry();
 testAutomationsPageRendersChineseChrome();
 
 console.log("automations page tests passed");

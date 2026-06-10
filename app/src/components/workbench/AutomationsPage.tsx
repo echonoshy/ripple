@@ -71,6 +71,7 @@ import {
 import MobilePageHeader from "./MobilePageHeader";
 
 interface AutomationsPageProps {
+  userId: string;
   selectedModel: string;
   models: { id: string; owned_by: string }[];
   onAuthExpired: (message: string) => void;
@@ -92,6 +93,12 @@ type OutputPreviewState = {
 } | null;
 
 type Translator = ReturnType<typeof useI18n>["t"];
+
+interface AutomationsPageCache {
+  schedules: ScheduleInfo[];
+  runsBySchedule: Record<string, AgentRunInfo[]>;
+  loadedAt: number;
+}
 
 interface AutomationBackSwipeIntentInput {
   startX?: number;
@@ -146,6 +153,14 @@ const intervalUnitSeconds: Record<IntervalUnit, number> = {
   days: 86_400,
 };
 const defaultMaxRuntimeSeconds = 1800;
+const AUTOMATIONS_PAGE_CACHE_STALE_MS = 60_000;
+
+const automationsPageCacheByUserId: Record<string, AutomationsPageCache> = {};
+
+function isAutomationsPageCacheStale(userId: string, now = Date.now()): boolean {
+  const cache = automationsPageCacheByUserId[userId];
+  return !cache || now - cache.loadedAt > AUTOMATIONS_PAGE_CACHE_STALE_MS;
+}
 
 const missedRunPolicyOptions: MissedRunPolicy[] = ["run_once", "skip"];
 const overlapPolicyOptions: OverlapPolicy[] = ["skip", "allow"];
@@ -437,6 +452,7 @@ function intervalParts(seconds: number | null): { value: number; unit: IntervalU
 }
 
 export default function AutomationsPage({
+  userId,
   selectedModel,
   models,
   onAuthExpired,
@@ -446,8 +462,11 @@ export default function AutomationsPage({
   const { locale, t } = useI18n();
   const reduceMotion = useReducedMotion();
   const detailSwipeX = useMotionValue(0);
-  const [schedules, setSchedules] = useState<ScheduleInfo[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const cachedAutomationsPageData = automationsPageCacheByUserId[userId] ?? null;
+  const [schedules, setSchedules] = useState<ScheduleInfo[]>(
+    () => cachedAutomationsPageData?.schedules ?? []
+  );
+  const [isLoading, setIsLoading] = useState(() => !cachedAutomationsPageData);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
@@ -471,7 +490,9 @@ export default function AutomationsPage({
   const [pendingRunActionId, setPendingRunActionId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [confirmRunDeleteId, setConfirmRunDeleteId] = useState<string | null>(null);
-  const [runsBySchedule, setRunsBySchedule] = useState<Record<string, AgentRunInfo[]>>({});
+  const [runsBySchedule, setRunsBySchedule] = useState<Record<string, AgentRunInfo[]>>(
+    () => cachedAutomationsPageData?.runsBySchedule ?? {}
+  );
   const [expandedScheduleId, setExpandedScheduleId] = useState<string | null>(null);
   const [outputPreview, setOutputPreview] = useState<OutputPreviewState>(null);
   const [selectedScheduleId, setSelectedScheduleId] = useState<string | null>(null);
@@ -499,19 +520,27 @@ export default function AutomationsPage({
     [schedules, selectedScheduleId]
   );
 
-  const loadScheduleRuns = useCallback(async (scheduleId: string) => {
-    const runs = await fetchScheduleRuns(scheduleId);
-    setRunsBySchedule((current) => ({ ...current, [scheduleId]: runs }));
-    return runs;
-  }, []);
+  const loadScheduleRuns = useCallback((scheduleId: string) => fetchScheduleRuns(scheduleId), []);
 
   const loadSchedules = useCallback(async (options: { background?: boolean } = {}) => {
     if (!options.background) setIsLoading(true);
     setError(null);
     try {
       const records = await fetchSchedules();
+      const runEntries = await Promise.all(
+        records.map(async (schedule) => {
+          const runs = await loadScheduleRuns(schedule.schedule_id);
+          return [schedule.schedule_id, runs] as const;
+        })
+      );
+      const nextRunsBySchedule = Object.fromEntries(runEntries) as Record<string, AgentRunInfo[]>;
+      automationsPageCacheByUserId[userId] = {
+        schedules: records,
+        runsBySchedule: nextRunsBySchedule,
+        loadedAt: Date.now(),
+      };
       setSchedules(records);
-      await Promise.all(records.map((schedule) => loadScheduleRuns(schedule.schedule_id)));
+      setRunsBySchedule(nextRunsBySchedule);
     } catch (err) {
       if (err instanceof AuthError) {
         onAuthExpired(t("automations.apiKeyExpired"));
@@ -523,11 +552,14 @@ export default function AutomationsPage({
         setIsLoading(false);
       }
     }
-  }, [loadScheduleRuns, onAuthExpired, t]);
+  }, [loadScheduleRuns, onAuthExpired, t, userId]);
 
   useEffect(() => {
-    void loadSchedules();
-  }, [loadSchedules]);
+    if (cachedAutomationsPageData && !isAutomationsPageCacheStale(userId)) {
+      return;
+    }
+    void loadSchedules({ background: cachedAutomationsPageData !== null });
+  }, [cachedAutomationsPageData, loadSchedules, userId]);
 
   useEffect(() => {
     const hasActiveRun = schedules.some((schedule) => {
@@ -1227,7 +1259,7 @@ export default function AutomationsPage({
 
             <div
               data-ripple-automation-form-page
-              className="grid min-h-0 flex-1 gap-2.5 overflow-y-auto px-3 py-2 md:contents"
+              className="grid min-h-0 flex-1 auto-rows-max content-start gap-2.5 overflow-y-auto px-3 py-2 md:contents"
             >
               <section className="grid gap-2.5 rounded-xl border border-[#DEE0E3] bg-white p-3 shadow-[0_1px_2px_rgba(31,35,41,0.03)] md:gap-3 md:rounded-none md:border-0 md:bg-transparent md:p-0 md:shadow-none">
                 <div className="grid gap-2.5 md:grid-cols-[minmax(0,1fr)_220px_220px]">
@@ -1356,27 +1388,34 @@ export default function AutomationsPage({
                 </div>
               </section>
 
-              <div className="grid gap-2.5 rounded-xl border border-[#DEE0E3] bg-white p-3 shadow-[0_1px_2px_rgba(31,35,41,0.03)] md:rounded-none md:border-0 md:bg-transparent md:p-0 md:shadow-none">
+              <section
+                data-ripple-automation-advanced-section
+                className="overflow-hidden rounded-xl border border-[#DEE0E3] bg-white shadow-[0_1px_2px_rgba(31,35,41,0.03)] md:grid md:gap-3 md:overflow-visible md:rounded-none md:border-0 md:bg-transparent md:p-0 md:shadow-none"
+              >
                 <button
                   type="button"
                   onClick={() => setIsAdvancedConfigOpen((current) => !current)}
-                  className={`inline-flex h-9 w-fit items-center gap-1 rounded-lg border border-[#DEE0E3] bg-white px-3 text-[#2B2F36] hover:bg-[#F8F9FA] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                  aria-expanded={isAdvancedConfigOpen}
+                  data-ripple-automation-advanced-trigger
+                  className={`flex h-11 w-full items-center justify-between gap-2 px-3 text-left text-[#2B2F36] hover:bg-[#F8F9FA] focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#1456F0]/20 md:h-9 md:w-fit md:justify-start md:rounded-lg md:border md:border-[#DEE0E3] md:bg-white ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
                 >
-                  <ChevronDown
-                    size={14}
-                    className={
-                      isAdvancedConfigOpen
-                        ? "rotate-180 transition-transform"
-                        : "transition-transform"
-                    }
-                  />
-                  {t("automations.advancedConfig")}
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <ChevronDown
+                      size={14}
+                      className={
+                        isAdvancedConfigOpen
+                          ? "rotate-180 transition-transform"
+                          : "transition-transform"
+                      }
+                    />
+                    <span className="truncate">{t("automations.advancedConfig")}</span>
+                  </span>
                 </button>
 
                 {isAdvancedConfigOpen ? (
                   <div
                     data-ripple-automation-advanced-config
-                    className="grid gap-2.5 rounded-lg border border-[#EFF0F1] bg-[#F8F9FA] p-2.5 md:grid-cols-2 md:gap-3 md:p-3 xl:grid-cols-5"
+                    className="grid gap-2.5 border-t border-[#EFF0F1] bg-[#F8F9FA] p-3 md:rounded-lg md:border md:grid-cols-2 md:gap-3 xl:grid-cols-5"
                   >
                     <label className="block min-w-0 md:col-span-2 xl:col-span-1">
                       <span className={automationFieldLabelClass}>{t("automations.cwd")}</span>
@@ -1457,7 +1496,7 @@ export default function AutomationsPage({
                     </label>
                   </div>
                 ) : null}
-              </div>
+              </section>
             </div>
 
             <div

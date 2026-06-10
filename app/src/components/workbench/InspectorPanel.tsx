@@ -37,7 +37,7 @@ export default function InspectorPanel({
           onClick={onCollapse}
           aria-label={t("common.collapsePanel")}
           title={t("common.collapsePanel")}
-          className={`${WORKBENCH_ICON_BUTTON_CLASS} mt-2 border-transparent text-[#646A73] hover:border-[#DEE0E3] hover:text-[#1F2329]`}
+          className={`${WORKBENCH_ICON_BUTTON_CLASS} mt-2 text-[#646A73] hover:text-[#1F2329]`}
         >
           <ChevronRight size={16} />
         </button>

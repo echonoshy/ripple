@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import { I18nProvider } from "@/i18n";
 import InspectorPanel from "./InspectorPanel";
 
 function noop() {}
@@ -27,9 +28,17 @@ testInspectorPanelPassesPendingOpenFileRequestToExplorer();
 
 function testInspectorPanelUsesSolidWorkbenchSurfaces() {
   const source = readFileSync(new URL("./InspectorPanel.tsx", import.meta.url), "utf8");
+  const html = renderToStaticMarkup(
+    <I18nProvider initialPreference="en-US">
+      <InspectorPanel userId="default" refreshToken={0} />
+    </I18nProvider>
+  );
+  const collapseButton = html.match(/<button[^>]*aria-label="Collapse panel"[^>]*>/)?.[0] || "";
 
   assert.match(source, /WORKBENCH_TOP_BAR_CLASS/);
   assert.match(source, /WORKBENCH_ICON_BUTTON_CLASS/);
+  assert.match(collapseButton, /border-\[#DEE0E3\]/);
+  assert.doesNotMatch(collapseButton, /border-transparent/);
   assert.doesNotMatch(source, /backdrop-blur-xl/);
   assert.doesNotMatch(source, /backdrop-blur-2xl/);
   assert.doesNotMatch(source, /bg-white\/86/);

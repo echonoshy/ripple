@@ -71,7 +71,22 @@ function testRendersChatAppStyleSessionList() {
   assert.match(html, /4 messages · 2 files/);
   assert.doesNotMatch(html, /idle/);
   assert.match(html, /pb-\[calc\(84px\+env\(safe-area-inset-bottom\)\)\]/);
-  assert.match(html, /pt-\[max\(env\(safe-area-inset-top\),12px\)\]/);
+  assert.match(html, /pt-\[max\(env\(safe-area-inset-top\),0px\)\]/);
+}
+
+function testMobileSessionHeaderMatchesChatHeaderHeight() {
+  const html = renderMobileSessionsPage();
+  const header =
+    html.match(/<header[^>]*data-ripple-mobile-sessions-header="true"[^>]*>/)?.[0] || "";
+  const headerRow =
+    html.match(/<div[^>]*data-ripple-mobile-sessions-header-row="true"[^>]*>/)?.[0] || "";
+
+  assert.match(header, /pt-\[max\(env\(safe-area-inset-top\),0px\)\]/);
+  assert.doesNotMatch(header, /pt-\[max\(env\(safe-area-inset-top\),12px\)\]/);
+  assert.doesNotMatch(header, /pb-2/);
+  assert.doesNotMatch(header, /min-h-\[calc\(56px\+env\(safe-area-inset-top\)\)\]/);
+  assert.match(headerRow, /h-\[55px\]/);
+  assert.doesNotMatch(headerRow, /min-h-14/);
 }
 
 function testMobileBrandWordmarkHasQuietPersonality() {
@@ -265,6 +280,7 @@ function testMobileSessionOptionsMenuDoesNotUsePersistentChineseButton() {
 }
 
 testRendersChatAppStyleSessionList();
+testMobileSessionHeaderMatchesChatHeaderHeight();
 testMobileBrandWordmarkHasQuietPersonality();
 testUsesQuietAgentControlPlaneStyling();
 testSessionOptionsAreHiddenUntilLongPress();

@@ -30,7 +30,6 @@ import {
 } from "./motionPrimitives";
 import {
   MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS,
-  MOBILE_PAGE_TOP_SAFE_AREA_CLASS,
   TYPOGRAPHY_BODY_MEDIUM_CLASS,
   TYPOGRAPHY_META_CLASS,
   TYPOGRAPHY_META_MEDIUM_CLASS,
@@ -237,9 +236,13 @@ export default function MobileSessionsPage({
         }
       />
       <header
-        className={`shrink-0 px-4 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} pb-2 ${WORKBENCH_TOP_BAR_CLASS}`}
+        data-ripple-mobile-sessions-header="true"
+        className={`shrink-0 px-4 pt-[max(env(safe-area-inset-top),0px)] ${WORKBENCH_TOP_BAR_CLASS}`}
       >
-        <div className="flex h-10 items-center justify-between">
+        <div
+          data-ripple-mobile-sessions-header-row="true"
+          className="flex h-[55px] items-center justify-between"
+        >
           <div className="flex items-center gap-2.5">
             <RippleIcon size={28} className="h-7 w-7 shrink-0 rounded-lg" />
             <span

@@ -787,7 +787,7 @@ fn safe_relative_path(value: &str) -> bool {
 }
 
 fn python_execute_command(entry: &SkillManifestEntry, workspace_root: Option<&Path>) -> String {
-    let mut command = String::from("ripple-py python");
+    let mut command = String::from("python");
     for package in &entry.python_packages {
         command.push_str(" --with ");
         command.push_str(package);
@@ -1082,7 +1082,7 @@ metadata:
         assert!(rendered.contains("path: /workspace/skills/py-demo/SKILL.md"));
         assert!(!rendered.contains(&root.to_string_lossy().to_string()));
         assert!(rendered.contains(
-            "execute: ripple-py python --with pandas==2.2.3 -- /workspace/skills/py-demo/scripts/run.py"
+            "execute: python --with pandas==2.2.3 -- /workspace/skills/py-demo/scripts/run.py"
         ));
 
         let entries = build_skill_manifest(&config, Some(&workspace));

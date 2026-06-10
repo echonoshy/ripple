@@ -56,6 +56,8 @@ pub fn thread_permission_config(workspace: &Path, config: &AppConfig) -> Value {
     for path in [
         config.sandbox.caches_root.join("pnpm-store"),
         config.sandbox.caches_root.join("corepack-cache"),
+        config.sandbox.caches_root.join("npm-cache"),
+        config.sandbox.caches_root.join("yarn-cache"),
     ] {
         filesystem.insert(path.to_string_lossy().to_string(), json!("write"));
     }
@@ -77,6 +79,12 @@ pub fn thread_permission_config(workspace: &Path, config: &AppConfig) -> Value {
     }
     if let Some(user_codex_home) = current_user_codex_home(workspace, config) {
         filesystem.insert(user_codex_home.to_string_lossy().to_string(), json!("none"));
+    }
+    if let Some(user_runtime_home) = current_user_codex_runtime_home(workspace, config) {
+        filesystem.insert(
+            user_runtime_home.to_string_lossy().to_string(),
+            json!("write"),
+        );
     }
     if let Some(bilibili_credential) = current_user_bilibili_credential_file(workspace, config) {
         filesystem.insert(
@@ -112,6 +120,24 @@ fn current_user_codex_home(workspace: &Path, config: &AppConfig) -> Option<std::
         return None;
     }
     Some(sandbox_dir.join("codex-home"))
+}
+
+fn current_user_codex_runtime_home(
+    workspace: &Path,
+    config: &AppConfig,
+) -> Option<std::path::PathBuf> {
+    let sandbox_dir = workspace.parent()?;
+    if sandbox_dir.parent()? != config.sandbox.sandboxes_root.as_path() {
+        return None;
+    }
+    let user_id = sandbox_dir.file_name()?.to_str()?;
+    let codex_home = config.codex_home_path();
+    let runtime_root = codex_home
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| codex_home.clone())
+        .join("codex-runtime");
+    Some(runtime_root.join("users").join(user_id))
 }
 
 fn path_exists_for_permission_rule(path: &Path) -> bool {
@@ -272,6 +298,41 @@ mod tests {
             filesystem.get(service_auth.to_string_lossy().as_ref()),
             Some(&json!("none"))
         );
+
+        let _ = std::fs::remove_dir_all(&config.repo_root);
+    }
+
+    #[test]
+    fn profile_allows_current_user_runtime_and_node_caches() {
+        let mut config = test_config();
+        config.codex.codex_home = Some(config.repo_root.join(".ripple/codex-service-home"));
+        let workspace = config.sandbox.sandboxes_root.join("alice/workspace");
+        std::fs::create_dir_all(&workspace).expect("create workspace");
+        let user_runtime = config.repo_root.join(".ripple/codex-runtime/users/alice");
+
+        let permissions = thread_permission_config(&workspace, &config);
+        let filesystem = permissions
+            .pointer("/permissions/ripple_workspace/filesystem")
+            .and_then(|filesystem| filesystem.as_object())
+            .expect("filesystem rules");
+
+        assert_eq!(
+            filesystem.get(user_runtime.to_string_lossy().as_ref()),
+            Some(&json!("write"))
+        );
+        for path in [
+            config.sandbox.caches_root.join("pnpm-store"),
+            config.sandbox.caches_root.join("corepack-cache"),
+            config.sandbox.caches_root.join("npm-cache"),
+            config.sandbox.caches_root.join("yarn-cache"),
+        ] {
+            assert_eq!(
+                filesystem.get(path.to_string_lossy().as_ref()),
+                Some(&json!("write")),
+                "{} should be writable",
+                path.display()
+            );
+        }
 
         let _ = std::fs::remove_dir_all(&config.repo_root);
     }

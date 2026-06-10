@@ -177,9 +177,15 @@ impl CodexAppServerSession {
             sandbox_manager.ensure_user_codex_home_auth_link(&self.user_key)?;
         }
         let codex_home = codex_home_for_user(&self.config, &self.user_key)?;
+        let runtime_home = codex_runtime_home_for_user(&self.config, &self.user_key)?;
+        let sqlite_home = codex_sqlite_home_for_user(&self.config, &self.user_key)?;
         tokio::fs::create_dir_all(&codex_home).await?;
+        tokio::fs::create_dir_all(&runtime_home).await?;
+        tokio::fs::create_dir_all(&sqlite_home).await?;
+        let node_runtime = node_runtime_paths(&runtime_home);
 
         let mut command = Command::new(&self.config.codex.codex_executable);
+        command.kill_on_drop(true);
         command.env_clear();
         inherit_env_allowlist(&mut command, INHERITED_NETWORK_ENV);
         let app_server_args = hardened_app_server_args(&self.config.codex.app_server_args);
@@ -208,13 +214,18 @@ impl CodexAppServerSession {
         command.env("XDG_CONFIG_HOME", self.cwd.join(".config"));
         command.env("TMPDIR", self.cwd.join(".tmp"));
         command.env("PYTHONDONTWRITEBYTECODE", "1");
-        if let Some(path) = runtime_path(&self.config) {
+        let extra_path_entries = if self.config.sandbox.node_dir.is_some() {
+            vec![node_runtime.bin.clone()]
+        } else {
+            Vec::new()
+        };
+        if let Some(path) = runtime_path(&self.config, &extra_path_entries) {
             command.env("PATH", path);
         }
         command.env("CODEX_HOME", &codex_home);
-        let uv_cache_dir = self.cwd.join(".cache/uv");
-        tokio::fs::create_dir_all(&uv_cache_dir).await?;
-        command.env("UV_CACHE_DIR", uv_cache_dir);
+        command.env("CODEX_SQLITE_HOME", &sqlite_home);
+        tokio::fs::create_dir_all(&self.config.sandbox.python_env_uv_cache).await?;
+        command.env("UV_CACHE_DIR", &self.config.sandbox.python_env_uv_cache);
         command.env("UV_LINK_MODE", "copy");
         if let Some(url) = &self.config.sandbox.pypi_mirror_url {
             command.env("UV_INDEX_URL", url);
@@ -223,12 +234,33 @@ impl CodexAppServerSession {
         if self.config.sandbox.node_dir.is_some() {
             let pnpm_store = self.config.sandbox.caches_root.join("pnpm-store");
             let corepack_home = self.config.sandbox.caches_root.join("corepack-cache");
+            let npm_cache = self.config.sandbox.caches_root.join("npm-cache");
+            let yarn_cache = self.config.sandbox.caches_root.join("yarn-cache");
             tokio::fs::create_dir_all(&pnpm_store).await?;
             tokio::fs::create_dir_all(&corepack_home).await?;
-            command.env("PNPM_HOME", self.cwd.join(".local/bin"));
-            command.env("NPM_CONFIG_PREFIX", self.cwd.join(".local"));
-            command.env("PNPM_STORE_DIR", pnpm_store);
-            command.env("COREPACK_HOME", corepack_home);
+            tokio::fs::create_dir_all(&npm_cache).await?;
+            tokio::fs::create_dir_all(&yarn_cache).await?;
+            tokio::fs::create_dir_all(&node_runtime.bin).await?;
+            tokio::fs::create_dir_all(&node_runtime.prefix).await?;
+            tokio::fs::create_dir_all(&node_runtime.tmp).await?;
+            tokio::fs::create_dir_all(&node_runtime.compile_cache).await?;
+            command.env("PNPM_HOME", &node_runtime.bin);
+            command.env("NPM_CONFIG_PREFIX", &node_runtime.prefix);
+            command.env("NPM_CONFIG_CACHE", npm_cache);
+            command.env(
+                "npm_config_cache",
+                self.config.sandbox.caches_root.join("npm-cache"),
+            );
+            command.env("NPM_CONFIG_TMP", &node_runtime.tmp);
+            command.env("NODE_COMPILE_CACHE", &node_runtime.compile_cache);
+            command.env("YARN_CACHE_FOLDER", yarn_cache);
+            command.env("PNPM_STORE_DIR", &pnpm_store);
+            command.env("COREPACK_HOME", &corepack_home);
+            command.env("RIPPLE_NODE_PREFIX", &node_runtime.prefix);
+            command.env(
+                "RIPPLE_NODE_MODULES",
+                node_runtime.prefix.join("node_modules"),
+            );
             command.env("COREPACK_ENABLE_AUTO_PIN", "0");
             command.env("COREPACK_ENABLE_DOWNLOAD_PROMPT", "0");
             if let Some(url) = &self.config.sandbox.npm_registry_url {
@@ -1566,6 +1598,38 @@ fn codex_home_for_user(config: &AppConfig, user_id: &str) -> anyhow::Result<Path
         .join("codex-home"))
 }
 
+fn codex_runtime_home_for_user(config: &AppConfig, user_id: &str) -> anyhow::Result<PathBuf> {
+    validate_user_id(user_id).map_err(anyhow::Error::msg)?;
+    let codex_home = config.codex_home_path();
+    let runtime_root = codex_home
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| codex_home.clone())
+        .join("codex-runtime");
+    Ok(runtime_root.join("users").join(user_id))
+}
+
+fn codex_sqlite_home_for_user(config: &AppConfig, user_id: &str) -> anyhow::Result<PathBuf> {
+    Ok(codex_runtime_home_for_user(config, user_id)?.join("sqlite"))
+}
+
+struct NodeRuntimePaths {
+    bin: PathBuf,
+    prefix: PathBuf,
+    tmp: PathBuf,
+    compile_cache: PathBuf,
+}
+
+fn node_runtime_paths(runtime_home: &Path) -> NodeRuntimePaths {
+    let node_home = runtime_home.join("node");
+    NodeRuntimePaths {
+        bin: node_home.join("bin"),
+        prefix: node_home.join("prefix"),
+        tmp: node_home.join("tmp"),
+        compile_cache: node_home.join("compile-cache"),
+    }
+}
+
 fn requires_service_codex_auth(config: &AppConfig) -> bool {
     let executable_name = Path::new(&config.codex.codex_executable)
         .file_name()
@@ -1777,6 +1841,23 @@ mod tests {
             config.sandbox.sandboxes_root.join("alice/codex-home")
         );
         assert_ne!(codex_home, config.codex_home_path());
+    }
+
+    #[test]
+    fn codex_sqlite_home_for_user_uses_service_runtime_root() {
+        let config = test_config();
+
+        let sqlite_home = codex_sqlite_home_for_user(&config, "alice").expect("sqlite home");
+
+        assert_eq!(
+            sqlite_home,
+            config
+                .codex_home_path()
+                .parent()
+                .unwrap()
+                .join("codex-runtime/users/alice/sqlite")
+        );
+        assert!(!sqlite_home.starts_with(&config.sandbox.sandboxes_root));
     }
 
     #[test]
@@ -2243,8 +2324,9 @@ fn hardened_app_server_args(configured: &[String]) -> Vec<String> {
     args
 }
 
-fn runtime_path(config: &AppConfig) -> Option<std::ffi::OsString> {
+fn runtime_path(config: &AppConfig, extra_prefixes: &[PathBuf]) -> Option<std::ffi::OsString> {
     let mut entries = Vec::new();
+    entries.extend(extra_prefixes.iter().cloned());
     entries.push(ripple_py_bin_dir(config));
     if let Some(uv_bin_dir) = &config.sandbox.uv_bin_dir {
         entries.push(uv_bin_dir.clone());

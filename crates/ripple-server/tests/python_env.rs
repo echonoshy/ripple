@@ -9,7 +9,8 @@ use ripple_server::config::{
     SandboxConfig, SecurityConfig, SkillsConfig, UserAuthConfig,
 };
 use ripple_server::python_env::{
-    run_ripple_py_cli, PythonEnvKeyInput, PythonEnvManager, PythonEnvRequest,
+    ensure_ripple_py_wrapper, run_ripple_py_cli, PythonEnvKeyInput, PythonEnvManager,
+    PythonEnvRequest,
 };
 
 #[test]
@@ -137,6 +138,25 @@ fn ripple_py_python_runs_inside_shared_environment() {
     let exit_code = run_ripple_py_cli(config, &args).expect("run ripple-py python");
 
     assert_eq!(exit_code, 0);
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn python_wrappers_route_plain_python_commands_through_ripple_py() {
+    let root = temp_root("wrappers");
+    let config = test_config(&root);
+
+    let wrapper = ensure_ripple_py_wrapper(&config).expect("create wrappers");
+
+    assert_eq!(wrapper, root.join("cache/bin/ripple-py"));
+    let python = fs::read_to_string(root.join("cache/bin/python")).expect("python wrapper");
+    let python3 = fs::read_to_string(root.join("cache/bin/python3")).expect("python3 wrapper");
+    let pip = fs::read_to_string(root.join("cache/bin/pip")).expect("pip wrapper");
+    assert!(python.contains("ripple-py python"));
+    assert!(python3.contains("ripple-py python"));
+    assert!(python.contains("RIPPLE_HOST_PYTHON3="));
+    assert!(pip.contains("pip is disabled"));
 
     let _ = fs::remove_dir_all(root);
 }

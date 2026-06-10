@@ -1575,7 +1575,7 @@ mod tests {
                 .unwrap(),
         );
         assert!(rendered.contains(&skill_id));
-        assert!(rendered.contains("ripple-py python --with pandas==2.2.3 --"));
+        assert!(rendered.contains("python --with pandas==2.2.3 --"));
 
         std::fs::write(
             workspace.join("skills/python-report/scripts/run.py"),

@@ -174,7 +174,7 @@ impl PythonEnvManager {
             .arg("--cache-dir")
             .arg(&self.config.sandbox.python_env_uv_cache)
             .arg("--python")
-            .arg("python3")
+            .arg(host_python3_executable())
             .output()
             .context("failed to run uv pip compile")?;
         if !output.status.success() {
@@ -201,7 +201,7 @@ impl PythonEnvManager {
             .uv_command()
             .arg("venv")
             .arg("--python")
-            .arg("python3")
+            .arg(host_python3_executable())
             .arg(&tmp_env)
             .output()
             .context("failed to run uv venv")?;
@@ -293,8 +293,9 @@ pub fn run_ripple_py_cli(config: AppConfig, args: &[String]) -> Result<i32> {
                 command.env("VIRTUAL_ENV", &info.env_path);
                 command
             } else {
-                Command::new("python3")
+                Command::new(host_python3_executable())
             };
+            reject_pip_module_invocation(&python_args)?;
             let status = command
                 .args(python_args)
                 .env("PYTHONDONTWRITEBYTECODE", "1")
@@ -308,19 +309,32 @@ pub fn run_ripple_py_cli(config: AppConfig, args: &[String]) -> Result<i32> {
 pub fn ensure_ripple_py_wrapper(config: &AppConfig) -> Result<PathBuf> {
     let bin_dir = config.sandbox.caches_root.join("bin");
     fs::create_dir_all(&bin_dir)?;
+    let host_python3 = resolve_host_python3(&bin_dir);
     let wrapper = bin_dir.join("ripple-py");
     let executable =
         std::env::current_exe().context("failed to locate ripple-server executable")?;
     let content = format!(
-        "#!/bin/sh\nexec {} ripple-py \"$@\"\n",
+        "#!/bin/sh\nexport RIPPLE_HOST_PYTHON3={}\nexec {} ripple-py \"$@\"\n",
+        sh_quote(&host_python3.to_string_lossy()),
         sh_quote(&executable.to_string_lossy())
     );
-    if fs::read_to_string(&wrapper).ok().as_deref() != Some(content.as_str()) {
-        fs::write(&wrapper, content)?;
+    write_executable_script(&wrapper, &content)?;
+    for name in ["python", "python3"] {
+        let python_wrapper = bin_dir.join(name);
+        let content = format!(
+            "#!/bin/sh\nexport RIPPLE_HOST_PYTHON3={}\nexec {} ripple-py python \"$@\"\n",
+            sh_quote(&host_python3.to_string_lossy()),
+            sh_quote(&executable.to_string_lossy())
+        );
+        write_executable_script(&python_wrapper, &content)?;
     }
-    let mut permissions = fs::metadata(&wrapper)?.permissions();
-    permissions.set_mode(0o755);
-    fs::set_permissions(&wrapper, permissions)?;
+    for name in ["pip", "pip3"] {
+        let pip_wrapper = bin_dir.join(name);
+        write_executable_script(
+            &pip_wrapper,
+            "#!/bin/sh\necho 'pip is disabled in the Ripple Codex runtime. Use python --with <package> -- <script-or-args> for temporary dependencies.' >&2\nexit 64\n",
+        )?;
+    }
     Ok(wrapper)
 }
 
@@ -404,10 +418,26 @@ fn parse_python_args(args: &[String]) -> Result<(Vec<String>, Vec<String>)> {
                 index += 2;
             }
             "--" => return Ok((requirements, args[index + 1..].to_vec())),
-            other => anyhow::bail!("unexpected ripple-py python argument before --: {other}"),
+            _ => return Ok((requirements, args[index..].to_vec())),
         }
     }
-    anyhow::bail!("ripple-py python requires -- before Python arguments")
+    Ok((requirements, Vec::new()))
+}
+
+fn reject_pip_module_invocation(python_args: &[String]) -> Result<()> {
+    let mut iter = python_args.iter();
+    while let Some(arg) = iter.next() {
+        if arg == "-m" {
+            if let Some(module) = iter.next() {
+                if module == "pip" || module == "pip3" {
+                    anyhow::bail!(
+                        "python -m pip is disabled in the Ripple Codex runtime; use python --with <package> -- <script-or-args> for temporary dependencies"
+                    );
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 struct EnvLockGuard {
@@ -473,7 +503,7 @@ fn canonical_lock_content(lock_content: &str) -> String {
 }
 
 fn python_tag() -> Result<String> {
-    let output = Command::new("python3")
+    let output = Command::new(host_python3_executable())
         .arg("-c")
         .arg(
             "import sys, sysconfig; print(f\"{sys.implementation.name}-{sys.version_info.major}.{sys.version_info.minor}-{sysconfig.get_config_var('SOABI') or 'abi'}-{sysconfig.get_platform()}\")",
@@ -487,6 +517,52 @@ fn python_tag() -> Result<String> {
         );
     }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+fn host_python3_executable() -> PathBuf {
+    std::env::var_os("RIPPLE_HOST_PYTHON3")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("python3"))
+}
+
+fn resolve_host_python3(wrapper_bin_dir: &Path) -> PathBuf {
+    if let Some(value) = std::env::var_os("RIPPLE_HOST_PYTHON3").filter(|value| !value.is_empty()) {
+        return PathBuf::from(value);
+    }
+    if let Some(path) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&path) {
+            if dir == wrapper_bin_dir {
+                continue;
+            }
+            let candidate = dir.join("python3");
+            if is_executable_file(&candidate) {
+                return candidate;
+            }
+        }
+    }
+    let usr_bin = PathBuf::from("/usr/bin/python3");
+    if is_executable_file(&usr_bin) {
+        return usr_bin;
+    }
+    PathBuf::from("python3")
+}
+
+fn is_executable_file(path: &Path) -> bool {
+    match fs::metadata(path) {
+        Ok(metadata) => metadata.is_file() && metadata.permissions().mode() & 0o111 != 0,
+        Err(_) => false,
+    }
+}
+
+fn write_executable_script(path: &Path, content: &str) -> Result<()> {
+    if fs::read_to_string(path).ok().as_deref() != Some(content) {
+        fs::write(path, content)?;
+    }
+    let mut permissions = fs::metadata(path)?.permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(path, permissions)?;
+    Ok(())
 }
 
 fn make_tree_readonly(path: &Path) -> Result<()> {
@@ -563,5 +639,66 @@ mod tests {
             }
             RipplePyCommand::Env { .. } => panic!("expected python command"),
         }
+    }
+
+    #[test]
+    fn ripple_py_python_accepts_direct_python_arguments() {
+        let args = vec![
+            "python".to_string(),
+            "-c".to_string(),
+            "print('ok')".to_string(),
+        ];
+
+        let command = RipplePyCommand::parse(&args, 20).expect("parse direct python args");
+
+        match command {
+            RipplePyCommand::Python {
+                request,
+                python_args,
+            } => {
+                assert!(request.is_none());
+                assert_eq!(python_args, vec!["-c", "print('ok')"]);
+            }
+            RipplePyCommand::Env { .. } => panic!("expected python command"),
+        }
+    }
+
+    #[test]
+    fn ripple_py_python_accepts_with_requirements_without_explicit_separator() {
+        let args = vec![
+            "python".to_string(),
+            "--with".to_string(),
+            "pypdf==5.0.0".to_string(),
+            "-c".to_string(),
+            "import pypdf".to_string(),
+        ];
+
+        let command = RipplePyCommand::parse(&args, 20).expect("parse python --with args");
+
+        match command {
+            RipplePyCommand::Python {
+                request,
+                python_args,
+            } => {
+                let request = request.expect("requirements request");
+                assert_eq!(request.requirements(), &["pypdf==5.0.0".to_string()]);
+                assert_eq!(python_args, vec!["-c", "import pypdf"]);
+            }
+            RipplePyCommand::Env { .. } => panic!("expected python command"),
+        }
+    }
+
+    #[test]
+    fn rejects_python_module_pip_invocation() {
+        let python_args = vec![
+            "-m".to_string(),
+            "pip".to_string(),
+            "install".to_string(),
+            "pypdf".to_string(),
+        ];
+
+        let err = reject_pip_module_invocation(&python_args).expect_err("pip should be rejected");
+
+        assert!(err.to_string().contains("python -m pip is disabled"));
     }
 }

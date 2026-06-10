@@ -11,10 +11,15 @@ use crate::config::AppConfig;
 use crate::user::validate_user_id;
 
 const SANDBOX_NODE_DIR: &str = "/opt/node";
-const SANDBOX_NODE_BIN: &str = "/workspace/.local/bin";
-const SANDBOX_NODE_PREFIX: &str = "/workspace/.local";
+const SANDBOX_NODE_BIN: &str = "/node-bin";
+const SANDBOX_NODE_PREFIX: &str = "/node-prefix";
+const SANDBOX_NODE_TMP: &str = "/node-tmp";
+const SANDBOX_NODE_COMPILE_CACHE: &str = "/node-compile-cache";
+const SANDBOX_NPM_CACHE: &str = "/npm-cache";
 const SANDBOX_PNPM_STORE: &str = "/pnpm-store";
 const SANDBOX_COREPACK_HOME: &str = "/corepack-cache";
+const SANDBOX_YARN_CACHE: &str = "/yarn-cache";
+const SANDBOX_UV_CACHE: &str = "/uv-cache";
 const LARK_CLI_INSTALL_ROOT: &str = "/opt/lark-cli";
 const LARK_CLI_SANDBOX_BIN_DIR: &str = "/opt/lark-cli/current/bin";
 const NOTION_CLI_INSTALL_ROOT: &str = "/opt/notion-cli";
@@ -295,7 +300,7 @@ impl SandboxManager {
                 mounts.push(mount_block(Some(path), path, false, None));
             }
         }
-        self.add_common_nsjail_mounts(&mut mounts)?;
+        self.add_common_nsjail_mounts(user_id, &mut mounts)?;
         mounts.push(mount_block(
             Some(workspace.to_string_lossy().as_ref()),
             "/workspace",
@@ -359,7 +364,11 @@ keep_env: false
         ))
     }
 
-    fn add_common_nsjail_mounts(&self, mounts: &mut Vec<String>) -> anyhow::Result<()> {
+    fn add_common_nsjail_mounts(
+        &self,
+        user_id: &str,
+        mounts: &mut Vec<String>,
+    ) -> anyhow::Result<()> {
         if let Some(uv_bin_dir) = &self.config.sandbox.uv_bin_dir {
             if uv_bin_dir.exists() {
                 mounts.push(mount_block(
@@ -370,6 +379,19 @@ keep_env: false
                 ));
             }
         }
+        std::fs::create_dir_all(&self.config.sandbox.python_env_uv_cache)?;
+        mounts.push(mount_block(
+            Some(
+                self.config
+                    .sandbox
+                    .python_env_uv_cache
+                    .to_string_lossy()
+                    .as_ref(),
+            ),
+            SANDBOX_UV_CACHE,
+            true,
+            None,
+        ));
 
         if let Some(node_dir) = &self.config.sandbox.node_dir {
             if node_dir.exists() {
@@ -382,20 +404,47 @@ keep_env: false
             }
             let pnpm_store = self.config.sandbox.caches_root.join("pnpm-store");
             let corepack_home = self.config.sandbox.caches_root.join("corepack-cache");
+            let npm_cache = self.config.sandbox.caches_root.join("npm-cache");
+            let yarn_cache = self.config.sandbox.caches_root.join("yarn-cache");
+            let node_runtime = self
+                .config
+                .sandbox
+                .caches_root
+                .join("node-runtime")
+                .join(user_id);
+            let node_bin = node_runtime.join("bin");
+            let node_prefix = node_runtime.join("prefix");
+            let node_tmp = node_runtime.join("tmp");
+            let node_compile_cache = node_runtime.join("compile-cache");
             std::fs::create_dir_all(&pnpm_store)?;
             std::fs::create_dir_all(&corepack_home)?;
-            mounts.push(mount_block(
-                Some(pnpm_store.to_string_lossy().as_ref()),
-                SANDBOX_PNPM_STORE,
-                true,
-                None,
-            ));
-            mounts.push(mount_block(
-                Some(corepack_home.to_string_lossy().as_ref()),
-                SANDBOX_COREPACK_HOME,
-                true,
-                None,
-            ));
+            for dir in [
+                &npm_cache,
+                &yarn_cache,
+                &node_bin,
+                &node_prefix,
+                &node_tmp,
+                &node_compile_cache,
+            ] {
+                std::fs::create_dir_all(dir)?;
+            }
+            for (host, sandbox) in [
+                (&pnpm_store, SANDBOX_PNPM_STORE),
+                (&corepack_home, SANDBOX_COREPACK_HOME),
+                (&npm_cache, SANDBOX_NPM_CACHE),
+                (&yarn_cache, SANDBOX_YARN_CACHE),
+                (&node_bin, SANDBOX_NODE_BIN),
+                (&node_prefix, SANDBOX_NODE_PREFIX),
+                (&node_tmp, SANDBOX_NODE_TMP),
+                (&node_compile_cache, SANDBOX_NODE_COMPILE_CACHE),
+            ] {
+                mounts.push(mount_block(
+                    Some(host.to_string_lossy().as_ref()),
+                    sandbox,
+                    true,
+                    None,
+                ));
+            }
         }
 
         for (host_root, sandbox_root) in [
@@ -482,10 +531,7 @@ keep_env: false
                 "TZ".to_string(),
                 std::env::var("TZ").unwrap_or_else(|_| "UTC".to_string()),
             ),
-            (
-                "UV_CACHE_DIR".to_string(),
-                "/workspace/.cache/uv".to_string(),
-            ),
+            ("UV_CACHE_DIR".to_string(), SANDBOX_UV_CACHE.to_string()),
             ("UV_LINK_MODE".to_string(), "copy".to_string()),
             ("PYTHONDONTWRITEBYTECODE".to_string(), "1".to_string()),
         ];
@@ -515,12 +561,37 @@ keep_env: false
             env.push(("PNPM_HOME".to_string(), SANDBOX_NODE_BIN.to_string()));
             env.push(("PNPM_STORE_DIR".to_string(), SANDBOX_PNPM_STORE.to_string()));
             env.push((
+                "NPM_CONFIG_CACHE".to_string(),
+                SANDBOX_NPM_CACHE.to_string(),
+            ));
+            env.push((
+                "npm_config_cache".to_string(),
+                SANDBOX_NPM_CACHE.to_string(),
+            ));
+            env.push((
                 "NPM_CONFIG_PREFIX".to_string(),
                 SANDBOX_NODE_PREFIX.to_string(),
+            ));
+            env.push(("NPM_CONFIG_TMP".to_string(), SANDBOX_NODE_TMP.to_string()));
+            env.push((
+                "NODE_COMPILE_CACHE".to_string(),
+                SANDBOX_NODE_COMPILE_CACHE.to_string(),
+            ));
+            env.push((
+                "YARN_CACHE_FOLDER".to_string(),
+                SANDBOX_YARN_CACHE.to_string(),
             ));
             env.push((
                 "COREPACK_HOME".to_string(),
                 SANDBOX_COREPACK_HOME.to_string(),
+            ));
+            env.push((
+                "RIPPLE_NODE_PREFIX".to_string(),
+                SANDBOX_NODE_PREFIX.to_string(),
+            ));
+            env.push((
+                "RIPPLE_NODE_MODULES".to_string(),
+                format!("{SANDBOX_NODE_PREFIX}/node_modules"),
             ));
             env.push(("COREPACK_ENABLE_AUTO_PIN".to_string(), "0".to_string()));
             env.push((
@@ -749,8 +820,13 @@ mod tests {
         assert!(cfg.contains(r#"dst: "/opt/notion-cli""#));
         assert!(cfg.contains(r#"dst: "/opt/gogcli-cli""#));
         assert!(cfg.contains(r#"dst: "/opt/bilibili-cli""#));
-        assert!(cfg.contains("UV_CACHE_DIR=/workspace/.cache/uv"));
+        assert!(cfg.contains("UV_CACHE_DIR=/uv-cache"));
+        assert!(cfg.contains(r#"dst: "/uv-cache""#));
         assert!(cfg.contains(r#"dst: "/pnpm-store""#));
+        assert!(cfg.contains(r#"dst: "/npm-cache""#));
+        assert!(cfg.contains(r#"dst: "/node-prefix""#));
+        assert!(cfg.contains("NPM_CONFIG_CACHE=/npm-cache"));
+        assert!(cfg.contains("NODE_COMPILE_CACHE=/node-compile-cache"));
         assert!(cfg.contains(r#"options: "size=64M""#));
         assert!(cfg.contains("NOTION_API_TOKEN=secret_test"));
         assert!(cfg.contains("GOG_KEYRING_PASSWORD=pw"));

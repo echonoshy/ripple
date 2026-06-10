@@ -19,7 +19,7 @@ Ripple skills are Markdown files with YAML frontmatter. They are not part of the
 - Connector-backed skills should declare both the required helper binary and the required connector in frontmatter, for example `requires.bins: ["gog"]` and `requires.connectors: ["google_workspace"]`.
 - Shared helper `SKILL.md` files that are only internal pipeline references can set `metadata.visibility: internal`; Ripple skips them when building the public catalog and Codex-facing manifest.
 - User-created skills support `metadata.kind: text` or `metadata.kind: executable`. First-version user executable skills only support `metadata.runtime: python`.
-- Python executable skills declare `metadata.entry` and optional `metadata.requires.python_packages`. The prompt renders an explicit `/workspace/skills/<name>/...` command using `ripple-py python -- ...`; when packages are present it adds one `--with <package>` per requirement.
+- Python executable skills declare `metadata.entry` and optional `metadata.requires.python_packages`. The prompt renders an explicit `/workspace/skills/<name>/...` command using `python -- ...`; when packages are present it adds one `--with <package>` per requirement. The `python`/`python3` wrappers route those package requirements through Ripple's shared uv-managed environments.
 - `content_hash` covers `SKILL.md`, the Python entrypoint when declared, and files under `assets/`, `references/`, and `resources/` next to the skill.
 
 ## Capability Catalog

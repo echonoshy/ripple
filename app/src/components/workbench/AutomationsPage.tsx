@@ -467,6 +467,7 @@ export default function AutomationsPage({
     () => cachedAutomationsPageData?.schedules ?? []
   );
   const [isLoading, setIsLoading] = useState(() => !cachedAutomationsPageData);
+  const [isManualRefreshPending, setIsManualRefreshPending] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
@@ -553,6 +554,15 @@ export default function AutomationsPage({
       }
     }
   }, [loadScheduleRuns, onAuthExpired, t, userId]);
+
+  const handleManualRefresh = useCallback(async () => {
+    setIsManualRefreshPending(true);
+    try {
+      await loadSchedules({ background: true });
+    } finally {
+      setIsManualRefreshPending(false);
+    }
+  }, [loadSchedules]);
 
   useEffect(() => {
     if (cachedAutomationsPageData && !isAutomationsPageCacheStale(userId)) {
@@ -1213,13 +1223,13 @@ export default function AutomationsPage({
             </button>
             <button
               type="button"
-              onClick={() => void loadSchedules({ background: true })}
-              disabled={isLoading}
+              onClick={() => void handleManualRefresh()}
+              disabled={isLoading || isManualRefreshPending}
               aria-label={t("automations.refreshAutomations")}
               title={t("automations.refreshAutomations")}
               className={`${WORKBENCH_MOBILE_ICON_BUTTON_CLASS} shrink-0 disabled:cursor-not-allowed disabled:opacity-60 lg:h-10 lg:w-auto lg:gap-1.5 lg:px-3 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
             >
-              {isLoading ? (
+              {isLoading || isManualRefreshPending ? (
                 <Loader2 size={18} strokeWidth={LUCIDE_NAV_STROKE_WIDTH} className="animate-spin" />
               ) : (
                 <RefreshCw size={18} strokeWidth={LUCIDE_NAV_STROKE_WIDTH} />

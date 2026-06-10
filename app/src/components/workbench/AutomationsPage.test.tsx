@@ -559,7 +559,19 @@ function testAutomationRefreshesKeepExistingContentVisible() {
   assert.match(source, /if \(!options\.background\) \{\s*setIsLoading\(false\);\s*\}/);
   assert.match(source, /void loadSchedules\(\{ background: true \}\)/);
   assert.match(source, /await loadSchedules\(\{ background: true \}\)/);
-  assert.match(source, /onClick=\{\(\) => void loadSchedules\(\{ background: true \}\)\}/);
+  assert.match(source, /const \[isManualRefreshPending, setIsManualRefreshPending\] = useState\(false\)/);
+  assert.match(source, /const handleManualRefresh = useCallback\(async \(\) => \{/);
+  assert.match(source, /setIsManualRefreshPending\(true\)/);
+  assert.match(source, /await loadSchedules\(\{ background: true \}\)/);
+  assert.match(source, /setIsManualRefreshPending\(false\)/);
+  assert.match(source, /onClick=\{\(\) => void handleManualRefresh\(\)\}/);
+  assert.match(source, /disabled=\{isLoading \|\| isManualRefreshPending\}/);
+  assert.match(source, /\{isLoading \|\| isManualRefreshPending \? \(/);
+  assert.doesNotMatch(source, /manualRefreshFeedback/);
+  assert.doesNotMatch(source, /manualRefreshStatusText/);
+  assert.doesNotMatch(source, /aria-live="polite"/);
+  assert.doesNotMatch(source, /automations\.refreshed/);
+  assert.doesNotMatch(source, /automations\.refreshing/);
 }
 
 function testAutomationsPageCachesLoadedDataPerUserForTabReentry() {

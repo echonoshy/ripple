@@ -25,8 +25,8 @@ use crate::sandbox::SandboxManager;
 use crate::user::validate_user_id;
 
 const TAIL_CHARS: usize = 64_000;
-const MAX_WORKERS_PER_POOL: usize = 4;
-const MAX_TOTAL_POOL_WORKERS: usize = 64;
+const MAX_WORKERS_PER_POOL: usize = 8;
+const MAX_TOTAL_POOL_WORKERS: usize = 256;
 const IDLE_REAPER_INTERVAL_SECONDS: u64 = 5;
 const CODEX_NATIVE_INPUT_TYPES: &[&str] = &["text", "image", "localImage"];
 const CODEX_NATIVE_HARDENING_CONFIG_OVERRIDES: &[&str] = &[

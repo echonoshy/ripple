@@ -539,6 +539,169 @@ function testLimitsToolActivityToRecentSummaries() {
   assert.match(events[0].body, /\+1 earlier tool/);
 }
 
+function testSummarizesWebSearchWithoutRawMetadata() {
+  const messages: Message[] = [
+    {
+      id: "assistant-1",
+      role: "assistant",
+      content: "",
+      toolCalls: [
+        {
+          id: "tool-1",
+          name: "web_search",
+          arguments: { action: { type: "other" }, query: "" },
+          status: "success",
+        },
+        {
+          id: "tool-2",
+          name: "web_search",
+          arguments: { action: { type: "search", query: "latest Codex release" }, query: "" },
+          status: "success",
+        },
+        {
+          id: "tool-3",
+          name: "web_search",
+          arguments: { action: null, query: "" },
+          status: "success",
+          result: JSON.stringify({
+            query: "bitcoin latest price",
+            action: { type: "search", query: "bitcoin latest price" },
+          }),
+        },
+        {
+          id: "tool-4",
+          name: "web_search",
+          arguments: { action: null, query: "" },
+          status: "success",
+          result: JSON.stringify({
+            query: "bitcoin latest price",
+            action: { type: "search", query: "bitcoin latest price" },
+          }),
+        },
+      ],
+    },
+  ];
+
+  const events = messagesToTimelineEvents(messages);
+
+  assert.equal(events.length, 1);
+  assert.match(events[0].body, /latest Codex release/);
+  assert.match(events[0].body, /bitcoin latest price/);
+  assert.doesNotMatch(events[0].body, /^web search$/m);
+  assert.doesNotMatch(events[0].body, /x\d+/);
+  assert.doesNotMatch(events[0].body, /"action"/);
+  assert.doesNotMatch(events[0].body, /"query": ""/);
+}
+
+function testHidesGenericWebSearchSummaries() {
+  const messages: Message[] = [
+    {
+      id: "assistant-1",
+      role: "assistant",
+      content: "",
+      toolCalls: [
+        {
+          id: "tool-1",
+          name: "web_search",
+          arguments: { action: null, query: "" },
+          status: "running",
+        },
+        {
+          id: "tool-2",
+          name: "web_search",
+          arguments: { action: null, query: "" },
+          status: "running",
+        },
+        {
+          id: "tool-3",
+          name: "web_search",
+          arguments: { action: null, query: "" },
+          status: "running",
+        },
+      ],
+    },
+  ];
+
+  const events = messagesToTimelineEvents(messages);
+
+  assert.equal(events.length, 0);
+}
+
+function testSummarizesOtherToolsWithoutWrapperMetadata() {
+  const messages: Message[] = [
+    {
+      id: "assistant-1",
+      role: "assistant",
+      content: "",
+      toolCalls: [
+        {
+          id: "tool-1",
+          name: "gmail.search",
+          arguments: {
+            server: "gmail",
+            tool: "search",
+            arguments: { query: "newer_than:7d", max: 5 },
+          },
+          status: "success",
+        },
+        {
+          id: "tool-2",
+          name: "functions.exec_command",
+          arguments: {
+            namespace: "functions",
+            tool: "exec_command",
+            arguments: { cmd: "cargo check -p ripple-server" },
+          },
+          status: "running",
+        },
+        {
+          id: "tool-3",
+          name: "agent.dispatch",
+          arguments: {
+            tool: "dispatch",
+            prompt: "Review the auth flow",
+            model: "codex-medium",
+            receiver_thread_ids: [],
+          },
+          status: "success",
+        },
+        {
+          id: "tool-4",
+          name: "image_generation",
+          arguments: { status: "completed", revised_prompt: "clean product mockup" },
+          status: "success",
+        },
+        {
+          id: "tool-5",
+          name: "AskUser",
+          arguments: { question: "Proceed?", options: ["Yes", "No"] },
+          status: "running",
+        },
+        {
+          id: "tool-6",
+          name: "unknown_tool",
+          arguments: {},
+          status: "success",
+        },
+      ],
+    },
+  ];
+
+  const events = messagesToTimelineEvents(messages);
+
+  assert.equal(events.length, 1);
+  assert.match(events[0].body, /gmail\.search: query=newer_than:7d, max=5/);
+  assert.match(events[0].body, /functions\.exec_command: cmd=cargo check -p ripple-server/);
+  assert.match(events[0].body, /agent\.dispatch: Review the auth flow/);
+  assert.match(events[0].body, /generated image: clean product mockup/);
+  assert.match(events[0].body, /waiting for input: Proceed\?/);
+  assert.match(events[0].body, /unknown_tool/);
+  assert.doesNotMatch(events[0].body, /"server"/);
+  assert.doesNotMatch(events[0].body, /"namespace"/);
+  assert.doesNotMatch(events[0].body, /"receiver_thread_ids"/);
+  assert.doesNotMatch(events[0].body, /unknown_tool: \{\}/);
+}
+
 function testPlacesAssistantContentAfterItsToolCalls() {
   const messages: Message[] = [
     {
@@ -920,6 +1083,9 @@ testStabilizedSessionOrderAllowsPinnedSessionsToMove();
 testStabilizedSessionOrderKeepsNewSessionsVisible();
 testMapsToolCallsIntoTimelineEvents();
 testLimitsToolActivityToRecentSummaries();
+testSummarizesWebSearchWithoutRawMetadata();
+testHidesGenericWebSearchSummaries();
+testSummarizesOtherToolsWithoutWrapperMetadata();
 testPlacesAssistantContentAfterItsToolCalls();
 testExtractsChangedFilesFromToolCalls();
 testMapsCodexRuntimeEventsIntoTimelineEvents();

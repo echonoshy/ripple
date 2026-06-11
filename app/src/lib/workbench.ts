@@ -262,6 +262,16 @@ function toolArgs(tool: ToolCall): Record<string, unknown> {
   return tool.arguments;
 }
 
+function toolResultRecord(tool: ToolCall): Record<string, unknown> {
+  if (!tool.result) return {};
+  try {
+    const parsed: unknown = JSON.parse(tool.result);
+    return isRecord(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 function stringifyToolBody(value: unknown): string {
   if (typeof value === "string") return value;
   if (value === undefined || value === null) return "";
@@ -272,6 +282,49 @@ function compactLine(value: string, maxLength = 180): string {
   const line = value.replace(/\s+/g, " ").trim();
   if (line.length <= maxLength) return line;
   return `${line.slice(0, maxLength - 1)}...`;
+}
+
+function nonEmptyString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function compactToolValue(value: unknown): string {
+  const text = nonEmptyString(value);
+  if (text) return text;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) {
+    const values = value.map(compactToolValue).filter(Boolean);
+    if (values.length === 0) return "";
+    const visible = values.slice(0, 3).join(", ");
+    return values.length > 3 ? `${visible}, +${values.length - 3} more` : visible;
+  }
+  if (isRecord(value)) {
+    for (const key of ["command", "cmd", "query", "path", "url", "prompt", "question", "pattern"]) {
+      const summary = compactToolValue(value[key]);
+      if (summary) return summary;
+    }
+    return summarizeToolArgs(value, 2);
+  }
+  return "";
+}
+
+function summarizeToolArgs(args: Record<string, unknown>, maxItems = 3): string {
+  const pairs = Object.entries(args)
+    .map(([key, value]) => {
+      const summary = compactToolValue(value);
+      return summary ? `${key}=${summary}` : "";
+    })
+    .filter(Boolean)
+    .slice(0, maxItems);
+  return compactLine(pairs.join(", "), 120);
+}
+
+function wrappedToolArguments(args: Record<string, unknown>): Record<string, unknown> | null {
+  if (!isRecord(args.arguments)) return null;
+  const hasToolWrapper =
+    (typeof args.server === "string" && typeof args.tool === "string") ||
+    (typeof args.namespace === "string" && typeof args.tool === "string");
+  return hasToolWrapper ? args.arguments : null;
 }
 
 function stringifyRuntimeBody(value: unknown): string {
@@ -580,7 +633,7 @@ function toolStatus(tools: ToolCall[]): string | undefined {
   return tools[0]?.status;
 }
 
-function toolSummaryLine(tool: ToolCall): string {
+function toolSummaryLine(tool: ToolCall): string | null {
   const args = toolArgs(tool);
   if (tool.name === "command_execution" || tool.name === "exec_command") {
     const command = compactLine(stringifyToolBody(args.command) || stringifyToolBody(args));
@@ -597,20 +650,91 @@ function toolSummaryLine(tool: ToolCall): string {
     return "changed files";
   }
 
+  if (tool.name === "AskUser") {
+    const question = nonEmptyString(args.question);
+    return question ? `waiting for input: ${compactLine(question, 120)}` : "waiting for input";
+  }
+
+  if (tool.name === "web_search") {
+    const result = toolResultRecord(tool);
+    const resultAction = isRecord(result.action) ? result.action : {};
+    const action = isRecord(args.action) ? args.action : resultAction;
+    const actionType = nonEmptyString(action.type);
+    const query =
+      nonEmptyString(args.query) ||
+      nonEmptyString(result.query) ||
+      nonEmptyString(action.query) ||
+      (Array.isArray(action.queries)
+        ? action.queries.map(nonEmptyString).filter(Boolean).join("; ")
+        : "");
+    if (query) return `web search: ${compactLine(query, 120)}`;
+
+    const url = nonEmptyString(action.url);
+    if (actionType === "openPage") {
+      return url ? `opened web page: ${compactLine(url, 120)}` : "opened web page";
+    }
+
+    if (actionType === "findInPage") {
+      const pattern = nonEmptyString(action.pattern);
+      const details = [pattern, url].filter(Boolean).join(" in ");
+      return details ? `searched web page: ${compactLine(details, 120)}` : "searched web page";
+    }
+
+    return null;
+  }
+
+  if (tool.name === "view_image") {
+    const path = nonEmptyString(args.path);
+    return path ? `viewed image: ${compactLine(path, 120)}` : "viewed image";
+  }
+
+  if (tool.name === "image_generation") {
+    const prompt = nonEmptyString(args.revised_prompt);
+    return prompt ? `generated image: ${compactLine(prompt, 120)}` : "generated image";
+  }
+
+  if (tool.name.startsWith("agent.") || tool.name === "agent_tool_call") {
+    const prompt = nonEmptyString(args.prompt);
+    return prompt ? `${tool.name}: ${compactLine(prompt, 120)}` : tool.name;
+  }
+
+  const wrappedArgs = wrappedToolArguments(args);
+  if (wrappedArgs) {
+    const summary = summarizeToolArgs(wrappedArgs);
+    return summary ? `${tool.name}: ${summary}` : tool.name;
+  }
+
+  const summary = summarizeToolArgs(args);
+  if (summary) return `${tool.name}: ${summary}`;
+
   const firstArg = compactLine(stringifyToolBody(args), 120);
+  if (firstArg === "{}" || firstArg === "[]") return tool.name;
   return firstArg ? `${tool.name}: ${firstArg}` : tool.name;
+}
+
+function uniqueToolSummaries(lines: Array<string | null>): string[] {
+  const summaries: string[] = [];
+  const seen = new Set<string>();
+  for (const line of lines) {
+    if (!line || seen.has(line)) continue;
+    seen.add(line);
+    summaries.push(line);
+  }
+  return summaries;
 }
 
 function toolsEvent(
   message: Message,
   tools: ToolCall[],
   options: { maxToolActivityItems?: number } = {}
-): WorkbenchTimelineEvent {
+): WorkbenchTimelineEvent | null {
   const maxItems = Math.max(1, options.maxToolActivityItems ?? 8);
   const visibleTools = tools.slice(-maxItems);
   const hiddenCount = tools.length - visibleTools.length;
+  const summaries = uniqueToolSummaries(visibleTools.map(toolSummaryLine));
+  if (summaries.length === 0) return null;
   const body = [
-    ...visibleTools.map(toolSummaryLine),
+    ...summaries,
     hiddenCount > 0 ? `+${hiddenCount} earlier tool${hiddenCount === 1 ? "" : "s"}` : "",
   ]
     .filter(Boolean)
@@ -669,7 +793,8 @@ export function messagesToTimelineEvents(
     }
 
     if (showToolActivity && toolCalls.length > 0) {
-      events.push(toolsEvent(message, toolCalls, options));
+      const toolEvent = toolsEvent(message, toolCalls, options);
+      if (toolEvent) events.push(toolEvent);
     }
 
     for (const [index, artifact] of (message.artifacts || []).entries()) {

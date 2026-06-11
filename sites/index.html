@@ -46,7 +46,11 @@
           </p>
           <div class="hero-actions">
             <a class="button button-primary" href="#product">查看产品</a>
-            <a class="button button-secondary" href="https://github.com/echonoshy/ripple">打开源码</a>
+            <a
+              class="button button-secondary"
+              href="https://github.com/echonoshy/ripple"
+              >打开源码</a
+            >
           </div>
         </div>
 
@@ -104,24 +108,32 @@
         <div class="section-copy">
           <h2>从一句请求，到一个可继续推进的任务。</h2>
           <p>
-            Ripple 将 Agent 的执行过程整理成产品界面：左侧是长期会话，中间是完整对话和工具活动，右侧是任务产生的文件与工作区状态。
+            Ripple 将 Agent
+            的执行过程整理成产品界面：左侧是长期会话，中间是完整对话和工具活动，右侧是任务产生的文件与工作区状态。
           </p>
         </div>
         <div class="workflow-list">
           <article>
             <span>Request</span>
             <h3>用户提出任务</h3>
-            <p>每个请求进入一个长期 session，后续可以继续追问、恢复上下文或查看历史。</p>
+            <p>
+              每个请求进入一个长期
+              session，后续可以继续追问、恢复上下文或查看历史。
+            </p>
           </article>
           <article>
             <span>Run</span>
             <h3>Codex 执行工作</h3>
-            <p>工具活动、审批、connector 授权和输出状态都回到同一个产品表面。</p>
+            <p>
+              工具活动、审批、connector 授权和输出状态都回到同一个产品表面。
+            </p>
           </article>
           <article>
             <span>Output</span>
             <h3>结果留在工作区</h3>
-            <p>文件、预览、日志和生成产物不会散落在聊天之外，可以继续被下一次任务使用。</p>
+            <p>
+              文件、预览、日志和生成产物不会散落在聊天之外，可以继续被下一次任务使用。
+            </p>
           </article>
         </div>
       </section>
@@ -129,12 +141,16 @@
       <section id="workspace" class="section section-inset">
         <div class="feature-layout">
           <figure class="screen-frame">
-            <img src="assets/web/ripple-web-files.png" alt="Ripple file workspace with preview" />
+            <img
+              src="assets/web/ripple-web-files.png"
+              alt="Ripple file workspace with preview"
+            />
           </figure>
           <div class="feature-copy">
             <h2>文件不是附件，是工作本身的一部分。</h2>
             <p>
-              用户可以上传输入、查看目录、预览产物、下载结果，并在下一次会话继续使用同一个长期 workspace。
+              用户可以上传输入、查看目录、预览产物、下载结果，并在下一次会话继续使用同一个长期
+              workspace。
             </p>
             <dl class="detail-list">
               <div>
@@ -158,36 +174,55 @@
         <div class="section-copy compact">
           <h2>能力、连接器和自动化，不藏在配置里。</h2>
           <p>
-            Ripple 把可用能力展示给用户，也把授权、调度、配额和模型设置放在同一套产品节奏中。
+            Ripple
+            把可用能力展示给用户，也把授权、调度、配额和模型设置放在同一套产品节奏中。
           </p>
         </div>
 
         <div class="capability-grid">
           <article class="capability-feature">
             <figure class="screen-frame">
-              <img src="assets/web/ripple-web-skills.png" alt="Ripple capabilities page" />
+              <img
+                src="assets/web/ripple-web-skills.png"
+                alt="Ripple capabilities page"
+              />
             </figure>
             <div>
               <h3>能力中心</h3>
-              <p>共享 skills、自定义 skills、Google Workspace、Feishu / Lark、Bilibili 和 Notion 连接状态集中呈现。</p>
+              <p>
+                共享 skills、自定义 skills、Google Workspace、Feishu /
+                Lark、Bilibili 和 Notion 连接状态集中呈现。
+              </p>
             </div>
           </article>
           <article class="capability-feature">
             <figure class="screen-frame">
-              <img src="assets/web/ripple-web-auto.png" alt="Ripple automations page" />
+              <img
+                src="assets/web/ripple-web-auto.png"
+                alt="Ripple automations page"
+              />
             </figure>
             <div>
               <h3>自动化</h3>
-              <p>计划任务使用同一个 session、workspace、权限模型和 Codex 执行链路。</p>
+              <p>
+                计划任务使用同一个 session、workspace、权限模型和 Codex
+                执行链路。
+              </p>
             </div>
           </article>
           <article class="capability-feature">
             <figure class="screen-frame">
-              <img src="assets/web/ripple-web-settings.png" alt="Ripple settings page" />
+              <img
+                src="assets/web/ripple-web-settings.png"
+                alt="Ripple settings page"
+              />
             </figure>
             <div>
               <h3>设置与用量</h3>
-              <p>默认模型、语言、诊断、quota 和 token 使用情况都面向真实用户组织。</p>
+              <p>
+                默认模型、语言、诊断、quota 和 token
+                使用情况都面向真实用户组织。
+              </p>
             </div>
           </article>
         </div>
@@ -197,24 +232,33 @@
         <div class="section-copy compact">
           <h2>产品界面在前，Rust 控制面在后。</h2>
           <p>
-            Ripple 不把服务端业务逻辑塞进客户端。这个产品页聚焦 Web 客户端，统一调用 Ripple Server 的 `/v1` API。
+            Ripple 不把服务端业务逻辑塞进客户端。这个产品页聚焦 Web
+            客户端，统一调用 Ripple Server 的 `/v1` API。
           </p>
         </div>
         <div class="architecture-rail" aria-label="Ripple architecture">
           <article>
             <span>Control Plane</span>
             <h3>Rust Server</h3>
-            <p>管理用户隔离、session、workspace、connector auth、approval bridge、schedule 和 run 状态。</p>
+            <p>
+              管理用户隔离、session、workspace、connector auth、approval
+              bridge、schedule 和 run 状态。
+            </p>
           </article>
           <article>
             <span>Execution Plane</span>
             <h3>Codex app-server</h3>
-            <p>按 job 启动可信执行进程，在 managed permissions profile 下完成真实 Agent 工作。</p>
+            <p>
+              按 job 启动可信执行进程，在 managed permissions profile 下完成真实
+              Agent 工作。
+            </p>
           </article>
           <article>
             <span>Client Plane</span>
             <h3>Web Client</h3>
-            <p>Web 客户端专注展示、文件预览和授权流程，不承载后端控制面能力。</p>
+            <p>
+              Web 客户端专注展示、文件预览和授权流程，不承载后端控制面能力。
+            </p>
           </article>
         </div>
       </section>
@@ -225,7 +269,9 @@
           <p>产品页保持轻，部署、skills 和迁移细节放进文档。</p>
         </div>
         <div class="docs-list">
-          <a href="https://github.com/echonoshy/ripple/blob/master/docs/BUILD_AND_DEPLOY.md">
+          <a
+            href="https://github.com/echonoshy/ripple/blob/master/docs/BUILD_AND_DEPLOY.md"
+          >
             <span>Build and deploy</span>
             <strong>部署 Ripple Server 和客户端</strong>
           </a>
@@ -233,11 +279,15 @@
             <span>Agent guide</span>
             <strong>仓库工作边界和开发约定</strong>
           </a>
-          <a href="https://github.com/echonoshy/ripple/blob/master/docs/SKILLS.md">
+          <a
+            href="https://github.com/echonoshy/ripple/blob/master/docs/SKILLS.md"
+          >
             <span>Skill system</span>
             <strong>共享 skills 与 workspace skills</strong>
           </a>
-          <a href="https://github.com/echonoshy/ripple/blob/master/docs/rust-backend-migration.md">
+          <a
+            href="https://github.com/echonoshy/ripple/blob/master/docs/rust-backend-migration.md"
+          >
             <span>Rust migration</span>
             <strong>后端迁移状态与边界</strong>
           </a>
@@ -246,13 +296,15 @@
 
       <section id="contact" class="contact-section">
         <div>
-          <h2>想一起把 Agent 工作区做扎实？</h2>
+          <h2>一起打磨 Ripple，让复杂任务有更好的入口。</h2>
           <p>
             欢迎联系、反馈问题或参与共同建设。我们也开放开发合作和实习机会。
           </p>
         </div>
         <div class="contact-actions">
-          <a class="button button-primary" href="mailto:echonoshy@gmail.com">发送邮件</a>
+          <a class="button button-primary" href="mailto:echonoshy@gmail.com"
+            >发送邮件</a
+          >
           <a
             class="button button-secondary"
             href="https://www.feishu.cn/invitation/page/add_contact/?token=7c0pc01a-60b9-4c7e-bcc4-ed5a2cab4625&amp;unique_id=OQdBliNF4nT10nKMpk4g8g=="

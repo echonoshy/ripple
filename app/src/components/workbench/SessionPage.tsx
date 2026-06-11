@@ -60,6 +60,8 @@ const mobileChatHeaderButtonClass =
 
 interface VisualViewportKeyboardSource {
   innerHeight: number;
+  layoutViewportHeight?: number;
+  userAgent?: string | null;
   visualViewport?: { height: number; offsetTop: number } | null;
 }
 
@@ -85,23 +87,23 @@ interface TokenFooterVisibilityInput {
 export function getVisualViewportKeyboardInset(
   source?: VisualViewportKeyboardSource | null
 ): number {
-  const currentSource =
-    source ||
-    (typeof window === "undefined"
-      ? null
-      : {
-          innerHeight: window.innerHeight,
-          visualViewport: window.visualViewport
-            ? {
-                height: window.visualViewport.height,
-                offsetTop: window.visualViewport.offsetTop,
-              }
-            : null,
-        });
+  const currentSource = source || getCurrentVisualViewportKeyboardSource();
   if (!currentSource?.visualViewport) return 0;
 
+  const layoutViewportHeight =
+    currentSource.layoutViewportHeight && currentSource.layoutViewportHeight > 0
+      ? currentSource.layoutViewportHeight
+      : currentSource.innerHeight;
   const visualBottom = currentSource.visualViewport.offsetTop + currentSource.visualViewport.height;
-  return Math.max(0, Math.round(currentSource.innerHeight - visualBottom));
+  return Math.max(0, Math.round(layoutViewportHeight - visualBottom));
+}
+
+export function getMobileComposerKeyboardInset(
+  source?: VisualViewportKeyboardSource | null
+): number {
+  const currentSource = source || getCurrentVisualViewportKeyboardSource();
+  if (isAndroidUserAgent(currentSource?.userAgent)) return 0;
+  return getVisualViewportKeyboardInset(currentSource);
 }
 
 export function shouldSuppressTimelineAutoScroll({
@@ -139,6 +141,29 @@ export function reservedMobileComposerHeight({
 
 function currentTimeMs(): number {
   return typeof performance === "undefined" ? Date.now() : performance.now();
+}
+
+function getCurrentVisualViewportKeyboardSource(): VisualViewportKeyboardSource | null {
+  if (typeof window === "undefined") return null;
+
+  return {
+    innerHeight: window.innerHeight,
+    layoutViewportHeight:
+      document.documentElement.clientHeight > 0
+        ? document.documentElement.clientHeight
+        : window.innerHeight,
+    userAgent: navigator.userAgent,
+    visualViewport: window.visualViewport
+      ? {
+          height: window.visualViewport.height,
+          offsetTop: window.visualViewport.offsetTop,
+        }
+      : null,
+  };
+}
+
+function isAndroidUserAgent(userAgent?: string | null): boolean {
+  return Boolean(userAgent && /\bAndroid\b/i.test(userAgent));
 }
 
 function elementBorderBoxHeight(element: Element): number {
@@ -520,7 +545,7 @@ export default function SessionPage({
     if (typeof window === "undefined") return;
 
     const updateKeyboardInset = () => {
-      setMobileKeyboardInset(getVisualViewportKeyboardInset());
+      setMobileKeyboardInset(getMobileComposerKeyboardInset());
       window.requestAnimationFrame(() => {
         restoreComposerFocusedScrollTop();
       });

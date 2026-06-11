@@ -44,6 +44,10 @@ const androidGradle = readFileSync(
   new URL("../../src-tauri/gen/android/app/build.gradle.kts", import.meta.url),
   "utf8"
 );
+const androidManifest = readFileSync(
+  new URL("../../src-tauri/gen/android/app/src/main/AndroidManifest.xml", import.meta.url),
+  "utf8"
+);
 const androidMainActivity = readFileSync(
   new URL(
     "../../src-tauri/gen/android/app/src/main/java/com/viaim/ripple/MainActivity.kt",
@@ -167,6 +171,12 @@ function testAndroidTargetHasBeenInitialized() {
 
 testAndroidTargetHasBeenInitialized();
 
+function testAndroidChatActivityUsesResizeImeMode() {
+  assert.match(androidManifest, /android:windowSoftInputMode="adjustResize"/);
+}
+
+testAndroidChatActivityUsesResizeImeMode();
+
 function testAndroidMainActivityExposesChatBackGestureExclusionBridge() {
   assert.match(androidMainActivity, /package com\.viaim\.ripple/);
   assert.match(androidMainActivity, /override fun onWebViewCreate\(webView: WebView\)/);
@@ -185,5 +195,11 @@ function testAndroidMainActivityExposesChatBackGestureExclusionBridge() {
 }
 
 testAndroidMainActivityExposesChatBackGestureExclusionBridge();
+
+function testAndroidMainActivityDoesNotForceWebViewDebugging() {
+  assert.doesNotMatch(androidMainActivity, /setWebContentsDebuggingEnabled\(true\)/);
+}
+
+testAndroidMainActivityDoesNotForceWebViewDebugging();
 
 console.log("tauri mobile config tests passed");

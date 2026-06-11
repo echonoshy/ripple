@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { I18nProvider, type LocalePreference } from "@/i18n";
 import SessionPage, {
   composerFocusedRestoreScrollTop,
+  getMobileComposerKeyboardInset,
   getVisualViewportKeyboardInset,
   reservedMobileComposerHeight,
   sessionTimelineBottomScrollTop,
@@ -621,6 +622,38 @@ function testVisualViewportKeyboardInsetUsesLayoutViewportBottomGap() {
   assert.equal(getVisualViewportKeyboardInset({ innerHeight: 800 }), 0);
 }
 
+function testVisualViewportKeyboardInsetIgnoresAndroidResizedLayoutViewport() {
+  assert.equal(
+    getVisualViewportKeyboardInset({
+      innerHeight: 800,
+      layoutViewportHeight: 520,
+      visualViewport: { height: 520, offsetTop: 0 },
+    }),
+    0
+  );
+}
+
+function testAndroidKeyboardInsetDoesNotDoubleApplyViewportPan() {
+  assert.equal(
+    getMobileComposerKeyboardInset({
+      innerHeight: 853,
+      layoutViewportHeight: 853,
+      userAgent: "Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36",
+      visualViewport: { height: 518, offsetTop: 0 },
+    }),
+    0
+  );
+  assert.equal(
+    getMobileComposerKeyboardInset({
+      innerHeight: 853,
+      layoutViewportHeight: 853,
+      userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)",
+      visualViewport: { height: 518, offsetTop: 0 },
+    }),
+    335
+  );
+}
+
 function testSessionPageNoLongerOwnsMobileBackSwipeGesture() {
   assert.match(sessionPageSource, /data-ripple-mobile-chat-surface/);
   assert.doesNotMatch(sessionPageSource, /shouldTriggerMobileSessionBackSwipe/);
@@ -887,6 +920,8 @@ testComposerSendStartsStickyBottomBeforeSending();
 testSessionPageCanRestorePreviousScrollPosition();
 testTimelineScrollContainerAllowsHorizontalSwipeBackInTouchEmulation();
 testVisualViewportKeyboardInsetUsesLayoutViewportBottomGap();
+testVisualViewportKeyboardInsetIgnoresAndroidResizedLayoutViewport();
+testAndroidKeyboardInsetDoesNotDoubleApplyViewportPan();
 testSessionPageNoLongerOwnsMobileBackSwipeGesture();
 testComposerFocusSuppressesTimelineAutoScroll();
 testComposerFocusDoesNotSuppressRunAutoScroll();

@@ -216,14 +216,22 @@ body {
 }
 
 .markdown-body blockquote {
-  border: 1px solid var(--ripple-border-2);
-  border-left: 3px solid var(--ripple-text-tertiary);
-  background: var(--ripple-bg-3);
-  border-radius: 8px;
-  padding: 0.75em 1em;
-  margin: 1em 0;
-  color: var(--ripple-text-secondary);
+  background: transparent;
+  border: 0;
+  border-left: 3px solid var(--ripple-border-1);
+  border-radius: 0;
+  color: var(--ripple-text-icon);
   font-style: normal;
+  margin: 0.85em 0;
+  padding: 0.125em 0 0.125em 0.9em;
+}
+
+.markdown-body blockquote > :first-child {
+  margin-top: 0;
+}
+
+.markdown-body blockquote > :last-child {
+  margin-bottom: 0;
 }
 
 .markdown-body table {
@@ -378,12 +386,12 @@ body {
 }
 
 .workbench-markdown blockquote {
-  background: var(--ripple-bg-3);
-  border: 1px solid var(--ripple-border-2);
-  border-left: 3px solid var(--ripple-text-tertiary);
-  border-radius: 8px;
+  background: transparent;
+  border: 0;
+  border-left: 3px solid var(--ripple-border-1);
+  border-radius: 0;
   box-shadow: none;
-  color: var(--ripple-text-secondary);
+  color: var(--ripple-text-icon);
   font-style: normal;
 }
 

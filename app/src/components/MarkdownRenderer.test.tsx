@@ -396,6 +396,22 @@ function testGlobalCodeBlockCssKeepsWrappingEnabled() {
   assert.match(preCodeRule, /overflow-wrap:\s*inherit/);
 }
 
+function testBlockquotesUseDocumentStyleInsteadOfCardChrome() {
+  const blockquoteRule = cssRule(".markdown-body blockquote");
+  const workbenchBlockquoteRule = cssRule(".workbench-markdown blockquote");
+  const firstChildRule = cssRule(".markdown-body blockquote > :first-child");
+  const lastChildRule = cssRule(".markdown-body blockquote > :last-child");
+
+  assert.match(blockquoteRule, /border:\s*0/);
+  assert.match(blockquoteRule, /border-left:\s*3px solid var\(--ripple-border-1\)/);
+  assert.match(blockquoteRule, /background:\s*transparent/);
+  assert.match(blockquoteRule, /border-radius:\s*0/);
+  assert.match(blockquoteRule, /padding:\s*0\.125em 0 0\.125em 0\.9em/);
+  assert.match(workbenchBlockquoteRule, /border:\s*0/);
+  assert.match(firstChildRule, /margin-top:\s*0/);
+  assert.match(lastChildRule, /margin-bottom:\s*0/);
+}
+
 testPreservesSingleNewlineAsLineBreak();
 testFeishuAuthCardDoesNotCompleteAuthDirectly();
 testFeishuAuthCardShowsWaitingState();
@@ -419,5 +435,6 @@ testMarkdownTablesUseReadableTableClasses();
 testCodeBlocksWrapLongLinesWithoutHorizontalScroll();
 testCodeBlocksUseReadableTypeSize();
 testGlobalCodeBlockCssKeepsWrappingEnabled();
+testBlockquotesUseDocumentStyleInsteadOfCardChrome();
 
 console.log("markdown renderer tests passed");

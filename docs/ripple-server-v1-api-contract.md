@@ -15,6 +15,7 @@
 - `POST /v1/auth/invite/claim`
 - `POST /v1/auth/login`
 - `POST /v1/auth/logout`
+- `POST /v1/auth/password`
 
 管理员通过 CLI 管理邀请码和用户：`ripple-server auth create-invite`、`list-users`、`disable-user`、`revoke-sessions`。
 

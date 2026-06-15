@@ -1,17 +1,19 @@
-# Rust Backend Migration
+# Rust Backend Current State
 
-Ripple 的 Rust 迁移目标是重写后端控制面，而不是把后端嵌进 Tauri 客户端。
+Ripple 的 Rust 后端已经是当前控制面主链路。本文保留“迁移”文件名，方便旧链接继续有效；内容按当前实现维护，不再记录 Python/FastAPI 迁移计划。
 
-## Target Shape
+## Current Shape
 
-- `ripple-server` 是独立 Linux 后端服务。
-- Web、Tauri 和 Mobile 都只是客户端，只调用 Ripple Server 的 `/v1` API。
-- 后端继续保持多用户模型，`X-Ripple-User-Id` 是可信上游传入的 user 隔离入口；Ripple 不做终端用户鉴权和用户权限管理。
-- sandbox 以 `user_id` 为单位，一个 user 拥有长期 workspace，多个 session 共享该 workspace。
-- Codex app-server 是执行面。Rust 后端负责按 job 启动进程、隔离、转发 JSON-RPC、收集事件、持久化状态；chat 连续上下文依赖持久 Codex thread id。
-- Skills 继续使用 Markdown/YAML frontmatter；Python 仅允许作为 `skills` 下的 helper。
+- `ripple-server` 是独立 Linux 后端服务，Web、Tauri 和 Mobile 都只是 `/v1` API 客户端。
+- 后端保持多用户模型。默认可信上游通过 `X-Ripple-User-Id` 注入隔离身份；启用 `server.user_auth.enabled` 后，浏览器用户也可以通过邀请制账号登录，后端使用 session token 绑定的 `user_id`。
+- sandbox 以 `user_id` 为单位，一个 user 拥有长期 workspace，多个 session 和 `/v1/runs` 共享该 workspace。
+- 控制面状态使用 SQLite：session、messages、jobs、schedules、documents、auth user/session/invite 和索引 metadata 存在 `.ripple/ripple.sqlite`。
+- Codex app-server 是执行面。Rust 后端维护按 `user_id + workspace_root + generation` 隔离的 app-server worker pool，job 运行时借用 worker，完成后释放为 idle worker。
+- Skills 继续使用 Markdown/YAML frontmatter；Python 只允许作为 `skills` 下的 helper。
 
-## Current State
+Python/FastAPI 后端和 legacy Python `ripple` 控制面已经移除，不再作为参考实现或新增能力入口。
+
+## Implemented Surface
 
 Rust 后端位于：
 
@@ -21,17 +23,16 @@ crates/ripple-server/
 
 当前 Rust 控制面已经覆盖主链路：
 
-- 配置加载、服务级 API key middleware、`X-Ripple-User-Id` 校验。
-- user sandbox、session metadata/messages、workspace 文件 API、documents、最小 user profile。
-- Notion、Google Workspace、Feishu/Lark、Bilibili connector 授权、状态和断开。
-- Codex app-server JSON-RPC provider、session 级 chat/compaction 互斥、`/v1/runs`、`/v1/chat/completions`。
+- 配置加载、服务级 API key middleware、轻量 user auth、`X-Ripple-User-Id` 校验。
+- user sandbox、workspace root 分离配置、session metadata/messages、workspace 文件 API、documents、user profile/quota。
+- Notion、Google Workspace、Feishu/Lark、Bilibili connector 授权、状态、账号列表和断开。
+- Codex app-server JSON-RPC provider、worker pool、session 级 chat/compaction 互斥、`/v1/runs`、`/v1/chat/completions`。
 - OpenAI-compatible 非流式和 SSE 响应、Codex event 映射、token usage 持久化、workspace attachment 和 image 事件导入。
 - Codex approval bridge、session stop/delete/context clear/suspend/resume、sandbox teardown cancellation。
 - Schedule CRUD、run history、run-now、due schedule trigger、chat-side schedule proposal/confirmation。
 - Codex managed permissions profile、服务端 Codex auth deny-read、skill manifest rendering。
-- Rust route smoke coverage覆盖主要 `/v1` API、fake Codex app-server、fake nsjail connector CLI 边界和 server listener 启动。
-
-Python/FastAPI 后端和 legacy Python `ripple` 控制面已经移除，不再作为参考实现或新增能力入口。Python 仅保留在 skill helper 中。
+- OpenAPI/Swagger 文档入口、doctor/ready diagnostics、backup posture 检查。
+- Rust route smoke coverage 覆盖主要 `/v1` API、fake Codex app-server、fake nsjail connector CLI 边界和 server listener 启动。
 
 ## Remaining Hardening
 
@@ -62,6 +63,7 @@ Python/FastAPI 后端和 legacy Python `ripple` 控制面已经移除，不再�
 Rust 后端最小验证：
 
 ```bash
+cargo fmt -p ripple-server
 cargo check -p ripple-server
 cargo test -p ripple-server
 bash scripts/smoke-rust-server.sh

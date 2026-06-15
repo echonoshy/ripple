@@ -13,7 +13,7 @@ Trusted Web / Reverse Proxy
     | injects X-Ripple-User-Id, strips spoofed user headers
 Ripple Server :8810
     |
-Codex app-server per job
+Codex app-server worker pool
 ```
 
 关键要求：
@@ -89,6 +89,7 @@ curl http://127.0.0.1:8810/health
 - `POST /v1/auth/invite/claim`
 - `POST /v1/auth/login`
 - `POST /v1/auth/logout`
+- `POST /v1/auth/password`
 
 产品用户登录后，客户端使用 `Authorization: Bearer <session_token>` 调用 `/v1`。这种 token 会固定到自己的 `user_id`，后端会忽略客户端伪造的 `X-Ripple-User-Id`。
 
@@ -103,6 +104,40 @@ Ripple 是控制面，Codex app-server 是服务端受信执行面宿主进程�
 - Codex sandbox prerequisites 或 connector nsjail runtime probe 失败时按 fail-closed 处理，不静默降级执行。
 
 不要把服务端 `CODEX_HOME/auth.json` 复制或挂载进 `.ripple/sandboxes/<user_id>/workspace/`。
+
+## Workspace And Worker Pool Config
+
+默认 workspace 路径是：
+
+```text
+.ripple/sandboxes/<user_id>/workspace
+```
+
+生产如果要把用户 workspace 放到独立磁盘或 NAS，可以配置：
+
+```yaml
+server:
+  sandbox:
+    workspaces_root: "/mnt/ripple-workspaces"
+```
+
+配置后，workspace 路径变为：
+
+```text
+/mnt/ripple-workspaces/<user_id>/workspace
+```
+
+Codex app-server 使用 worker pool 复用服务端受信进程。可按机器容量配置上限：
+
+```yaml
+external_agents:
+  codex:
+    idle_timeout_seconds: 1800
+    max_workers_per_pool: 50
+    max_total_pool_workers: 256
+```
+
+`max_workers_per_pool` 限制同一个 `user_id + workspace_root + generation` pool 的并发 worker 数；`max_total_pool_workers` 限制整机总 worker 数。
 
 ## Document Preview Runtime
 
@@ -153,7 +188,7 @@ sudo dnf install -y libreoffice libreoffice-writer libreoffice-calc libreoffice-
 - `.ripple/ripple.sqlite`
 - `.ripple/ripple.sqlite-wal`
 - `.ripple/ripple.sqlite-shm`
-- `.ripple/sandboxes/<user_id>/workspace`
+- `.ripple/sandboxes/<user_id>/workspace`，或配置 `sandbox.workspaces_root` 后的 `<workspaces_root>/<user_id>/workspace`
 - `.ripple/sandboxes/<user_id>/credentials`
 - `.ripple/sandboxes/<user_id>/agent-runs`
 - `.ripple/sandboxes/<user_id>/sessions`

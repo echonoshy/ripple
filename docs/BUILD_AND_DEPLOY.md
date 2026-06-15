@@ -240,8 +240,11 @@ cp config/settings.yaml.sample config/settings.yaml
 至少修改：
 
 - `server.api_keys`：可信上游服务调用 Ripple 的服务级 API key。
+- `server.user_auth`：如需浏览器用户邀请制登录，启用并设置 session TTL。
 - `server.host` / `server.port`：监听地址和端口，默认 `0.0.0.0:8810`。
+- `server.sandbox.workspaces_root`：生产如需把用户 workspace 放到独立磁盘或 NAS，在这里配置。
 - `external_agents.codex.codex_home`：服务端 Codex 登录态目录。
+- `external_agents.codex.max_workers_per_pool` / `max_total_pool_workers`：Codex app-server worker pool 上限。
 - connector OAuth 配置，例如 Google Workspace / Feishu。
 
 登录服务端 Codex：
@@ -298,7 +301,7 @@ rm -rf dist/ripple-server
 mkdir -p dist/ripple-server/config dist/ripple-server/scripts
 cp target/release/ripple-server dist/ripple-server/
 cp config/settings.yaml.sample dist/ripple-server/config/
-cp scripts/install-feishu-cli.sh scripts/install-notion-cli.sh scripts/install-gogcli-cli.sh dist/ripple-server/scripts/
+cp scripts/install-feishu-cli.sh scripts/install-notion-cli.sh scripts/install-gogcli-cli.sh scripts/install-bilibili-cli.sh scripts/install-podcast-cli.sh dist/ripple-server/scripts/
 cp -R skills dist/ripple-server/
 tar -C dist -czf "ripple-server-$(uname -s)-$(uname -m).tar.gz" ripple-server
 ```
@@ -340,6 +343,8 @@ CODEX_HOME=/opt/ripple/.ripple/codex-service-home codex login
 bash scripts/install-feishu-cli.sh
 bash scripts/install-notion-cli.sh
 bash scripts/install-gogcli-cli.sh
+bash scripts/install-bilibili-cli.sh
+bash scripts/install-podcast-cli.sh
 ```
 
 直接启动：
@@ -397,7 +402,7 @@ cargo test -p ripple-server
 bash scripts/smoke-rust-server.sh
 ```
 
-文件存储迁移到 SQLite：
+旧控制面文件状态迁移到 SQLite：
 
 ```bash
 target/release/ripple-server migrate-files-to-sqlite --config config/settings.yaml

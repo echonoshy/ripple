@@ -29,8 +29,9 @@ model:
 # Ripple 管理 user sandbox、任务状态、事件日志和生命周期；实际执行交给
 # 服务端预装的 Codex app-server。当前版本只接入 Codex。
 #
-# Codex 由管理员在服务端安装一次。当前实现按 job 启动独立 app-server
-# 进程，job 完成后关闭；chat 连续上下文通过持久 Codex thread id 延续。
+# Codex 由管理员在服务端安装一次。当前实现维护按 user/workspace/generation
+# 隔离的 app-server worker pool；job 运行时借用 worker，完成后进入 idle
+# 状态；chat 连续上下文通过持久 Codex thread id 延续。
 #
 # Codex app-server 是服务端受信宿主进程；Codex shell 命令由 Codex Linux
 # sandbox/bubblewrap 和 Ripple managed permissions profile 约束，只应访问当前
@@ -53,7 +54,7 @@ external_agents:
     network_access: true
     max_workers_per_pool: 50
     max_total_pool_workers: 256
-    # 保留配置；当前 app-server 进程按 job 生命周期启动和关闭，不依赖 idle 回收。
+    # 空闲 worker 超过该时间后由 idle reaper 关闭。
     idle_timeout_seconds: 1800
 
 # 日志配置
@@ -151,8 +152,9 @@ server:
     #   <server.public_base_url>/v1/sandboxes/gogcli/oauth/callback
     # callback_url: "http://localhost:8810/v1/sandboxes/gogcli/oauth/callback"
   api_keys:
-    # Service API key for trusted upstream services. Ripple does not manage
-    # end-user auth; callers pass a verified X-Ripple-User-Id for isolation.
+    # Service API key for trusted upstream services. If user_auth is disabled,
+    # callers pass a verified X-Ripple-User-Id for isolation. If user_auth is
+    # enabled, browser users normally use their session token instead.
     - "<RIPPLE_SERVER_API_KEY>"
 
   # 沙箱配置（nsjail）

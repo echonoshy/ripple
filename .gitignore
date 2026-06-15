@@ -92,6 +92,9 @@ instance/
 # Sphinx documentation
 docs/_build/
 
+# Local/historical agent planning artifacts
+docs/superpowers/
+
 # PyBuilder
 .pybuilder/
 target/

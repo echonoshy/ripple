@@ -1,0 +1,695 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ripple Server 生产主备自动切流方案</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f7f8fa;
+        --surface: #ffffff;
+        --surface-soft: #f0f5f7;
+        --ink: #18202a;
+        --muted: #5d6875;
+        --line: #cad3dd;
+        --blue: #2563eb;
+        --green: #0f8a6a;
+        --orange: #b35f00;
+        --red: #c2413d;
+        --shadow: 0 18px 42px rgba(33, 45, 64, 0.1);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-width: 320px;
+        background: var(--bg);
+        color: var(--ink);
+        font-family:
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+        line-height: 1.58;
+      }
+
+      main {
+        width: min(1180px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 40px 0 56px;
+      }
+
+      header {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 28px;
+        align-items: end;
+        padding: 8px 0 28px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        max-width: 760px;
+        font-size: clamp(32px, 5vw, 58px);
+        line-height: 1.05;
+        letter-spacing: 0;
+      }
+
+      .subtitle {
+        margin-top: 16px;
+        max-width: 760px;
+        color: var(--muted);
+        font-size: 17px;
+      }
+
+      .status {
+        display: grid;
+        gap: 8px;
+        min-width: 230px;
+        padding: 16px;
+        border: 1px solid #bdd8cf;
+        border-radius: 8px;
+        background: #edf8f4;
+        color: #0b604c;
+        font-size: 14px;
+      }
+
+      .status strong {
+        color: #074c3d;
+      }
+
+      section {
+        padding: 32px 0 0;
+      }
+
+      .section-head {
+        display: grid;
+        gap: 8px;
+        margin-bottom: 18px;
+      }
+
+      h2 {
+        font-size: clamp(24px, 3vw, 34px);
+        line-height: 1.18;
+      }
+
+      .section-head p {
+        max-width: 780px;
+        color: var(--muted);
+      }
+
+      .diagram-panel,
+      .explain-panel {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface);
+        box-shadow: var(--shadow);
+      }
+
+      .diagram-panel {
+        overflow: hidden;
+      }
+
+      .diagram-title {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        justify-content: space-between;
+        padding: 16px 18px;
+        border-bottom: 1px solid var(--line);
+        background: #fbfcfd;
+      }
+
+      .diagram-title strong {
+        font-size: 15px;
+      }
+
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .legend span {
+        display: inline-flex;
+        gap: 6px;
+        align-items: center;
+      }
+
+      .dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 99px;
+        background: currentColor;
+      }
+
+      .diagram-wrap {
+        padding: 10px;
+        overflow-x: auto;
+      }
+
+      svg {
+        display: block;
+        width: 100%;
+        min-width: 920px;
+        height: auto;
+      }
+
+      .node {
+        fill: #ffffff;
+        stroke: #c7d2de;
+        stroke-width: 2;
+      }
+
+      .node-primary {
+        fill: #eef7ff;
+        stroke: #8bbbf3;
+      }
+
+      .node-standby {
+        fill: #fff7ed;
+        stroke: #f0b36a;
+      }
+
+      .node-backup {
+        fill: #edf8f4;
+        stroke: #8bcfbc;
+      }
+
+      .node-danger {
+        fill: #fff1f1;
+        stroke: #ee9995;
+      }
+
+      .label {
+        fill: var(--ink);
+        font-size: 18px;
+        font-weight: 700;
+      }
+
+      .small {
+        fill: var(--muted);
+        font-size: 13px;
+        font-weight: 500;
+      }
+
+      .mono {
+        font-family:
+          ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          Consolas,
+          monospace;
+      }
+
+      .arrow {
+        fill: none;
+        stroke: #536171;
+        stroke-width: 2.6;
+        marker-end: url(#arrow);
+      }
+
+      .arrow-soft {
+        fill: none;
+        stroke: #7b8794;
+        stroke-width: 2.2;
+        stroke-dasharray: 7 8;
+        marker-end: url(#arrow-soft);
+      }
+
+      .arrow-cut {
+        fill: none;
+        stroke: var(--red);
+        stroke-width: 2.6;
+        marker-end: url(#arrow-red);
+      }
+
+      .callout {
+        fill: #ffffff;
+        stroke: #d6dde6;
+        stroke-width: 1.5;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+      }
+
+      .explain-panel {
+        padding: 18px;
+      }
+
+      .explain-panel h3 {
+        margin-bottom: 8px;
+        font-size: 17px;
+      }
+
+      .explain-panel p,
+      .explain-panel li {
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .explain-panel ul {
+        margin: 10px 0 0;
+        padding-left: 20px;
+      }
+
+      .timeline {
+        display: grid;
+        gap: 12px;
+        counter-reset: step;
+      }
+
+      .step {
+        position: relative;
+        display: grid;
+        grid-template-columns: 42px minmax(0, 1fr);
+        gap: 14px;
+        align-items: start;
+        padding: 16px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface);
+      }
+
+      .step::before {
+        counter-increment: step;
+        content: counter(step);
+        display: grid;
+        place-items: center;
+        width: 34px;
+        height: 34px;
+        border-radius: 99px;
+        background: var(--ink);
+        color: white;
+        font-weight: 700;
+      }
+
+      .step h3 {
+        margin-bottom: 4px;
+        font-size: 16px;
+      }
+
+      .step p {
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .matrix {
+        display: grid;
+        grid-template-columns: 1.1fr 1fr 1fr;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        overflow: hidden;
+        background: var(--surface);
+      }
+
+      .matrix div {
+        min-height: 58px;
+        padding: 14px;
+        border-bottom: 1px solid var(--line);
+        border-right: 1px solid var(--line);
+        font-size: 14px;
+      }
+
+      .matrix div:nth-child(3n) {
+        border-right: 0;
+      }
+
+      .matrix div:nth-last-child(-n + 3) {
+        border-bottom: 0;
+      }
+
+      .matrix .head {
+        background: #f2f5f8;
+        color: var(--ink);
+        font-weight: 700;
+      }
+
+      .matrix .muted {
+        color: var(--muted);
+      }
+
+      code {
+        padding: 2px 5px;
+        border-radius: 5px;
+        background: #edf1f5;
+        color: #26313f;
+        font-family:
+          ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          Consolas,
+          monospace;
+        font-size: 0.92em;
+      }
+
+      @media (max-width: 860px) {
+        main {
+          width: min(100% - 22px, 1180px);
+          padding-top: 24px;
+        }
+
+        header,
+        .grid {
+          grid-template-columns: 1fr;
+        }
+
+        .status {
+          min-width: 0;
+        }
+
+        .matrix {
+          grid-template-columns: 1fr;
+        }
+
+        .matrix div,
+        .matrix div:nth-child(3n),
+        .matrix div:nth-last-child(-n + 3) {
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+        }
+
+        .matrix div:last-child {
+          border-bottom: 0;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <h1>Ripple Server 生产主备自动切流方案</h1>
+          <p class="subtitle">
+            目标是用轻量主备实现自动接管：保留 SQLite 和 Codex 原生运行时文件，使用网关控制唯一写入口，故障时中断运行中的任务并支持用户重试。
+          </p>
+        </div>
+        <aside class="status" aria-label="方案边界">
+          <strong>V1 边界</strong>
+          <span>单 active 写入</span>
+          <span>SQLite 保留在本机 SSD/NVMe</span>
+          <span>NAS 做备份和同步，不做双活共享写盘</span>
+        </aside>
+      </header>
+
+      <section aria-labelledby="architecture-title">
+        <div class="section-head">
+          <h2 id="architecture-title">整体架构</h2>
+          <p>
+            外部网关负责认证、注入可信用户标识和切流；Ripple Server 只在当前主节点写入本地
+            <code>.ripple</code>；Codex app-server 作为本机执行面进程，由 Ripple 按用户和任务启动或复用。
+          </p>
+        </div>
+
+        <article class="diagram-panel">
+          <div class="diagram-title">
+            <strong>正常运行路径与备份路径</strong>
+            <div class="legend" aria-label="图例">
+              <span style="color: var(--blue)"><i class="dot"></i>在线请求</span>
+              <span style="color: var(--green)"><i class="dot"></i>备份同步</span>
+              <span style="color: var(--orange)"><i class="dot"></i>待接管</span>
+            </div>
+          </div>
+          <div class="diagram-wrap">
+            <svg viewBox="0 0 1180 710" role="img" aria-labelledby="svg-title svg-desc">
+              <title id="svg-title">Ripple Server 主备自动切流架构图</title>
+              <desc id="svg-desc">
+                请求从客户端进入网关，网关转发到主节点。主节点运行 ripple-server 和 Codex app-server，并写入本机 .ripple。主节点把数据同步到 NAS 和备用节点。故障时备用节点提升为主节点，网关切到备用节点。
+              </desc>
+              <defs>
+                <marker
+                  id="arrow"
+                  markerWidth="10"
+                  markerHeight="10"
+                  refX="8"
+                  refY="3"
+                  orient="auto"
+                  markerUnits="strokeWidth"
+                >
+                  <path d="M0,0 L0,6 L9,3 z" fill="#536171" />
+                </marker>
+                <marker
+                  id="arrow-soft"
+                  markerWidth="10"
+                  markerHeight="10"
+                  refX="8"
+                  refY="3"
+                  orient="auto"
+                  markerUnits="strokeWidth"
+                >
+                  <path d="M0,0 L0,6 L9,3 z" fill="#7b8794" />
+                </marker>
+                <marker
+                  id="arrow-red"
+                  markerWidth="10"
+                  markerHeight="10"
+                  refX="8"
+                  refY="3"
+                  orient="auto"
+                  markerUnits="strokeWidth"
+                >
+                  <path d="M0,0 L0,6 L9,3 z" fill="#c2413d" />
+                </marker>
+              </defs>
+
+              <rect class="node" x="38" y="76" width="170" height="96" rx="8" />
+              <text class="label" x="123" y="115" text-anchor="middle">Client</text>
+              <text class="small" x="123" y="141" text-anchor="middle">Web / API caller</text>
+
+              <rect class="node" x="278" y="58" width="220" height="132" rx="8" />
+              <text class="label" x="388" y="99" text-anchor="middle">Gateway</text>
+              <text class="small" x="388" y="126" text-anchor="middle">认证 / 鉴权 / TLS</text>
+              <text class="small" x="388" y="150" text-anchor="middle">注入 X-Ripple-User-Id</text>
+
+              <rect class="node-primary" x="602" y="40" width="486" height="240" rx="8" />
+              <text class="label" x="845" y="80" text-anchor="middle">Node A: Primary</text>
+              <text class="small" x="845" y="106" text-anchor="middle">当前唯一写入者</text>
+
+              <rect class="callout" x="636" y="128" width="184" height="70" rx="8" />
+              <text class="small mono" x="728" y="158" text-anchor="middle">ripple-server</text>
+              <text class="small" x="728" y="180" text-anchor="middle">/v1 API</text>
+
+              <rect class="callout" x="864" y="128" width="184" height="70" rx="8" />
+              <text class="small mono" x="956" y="158" text-anchor="middle">Codex app-server</text>
+              <text class="small" x="956" y="180" text-anchor="middle">本机执行面进程</text>
+
+              <rect class="callout" x="700" y="220" width="290" height="42" rx="8" />
+              <text class="small mono" x="845" y="246" text-anchor="middle">local SSD /opt/ripple/.ripple</text>
+
+              <rect class="node-backup" x="602" y="386" width="486" height="110" rx="8" />
+              <text class="label" x="845" y="430" text-anchor="middle">NAS / Backup Store</text>
+              <text class="small" x="845" y="458" text-anchor="middle">一致性快照、历史版本、离线备份</text>
+
+              <rect class="node-standby" x="602" y="562" width="486" height="108" rx="8" />
+              <text class="label" x="845" y="604" text-anchor="middle">Node B: Standby</text>
+              <text class="small" x="845" y="632" text-anchor="middle">同版本服务已安装，等待 promote</text>
+
+              <rect class="node-danger" x="278" y="300" width="220" height="132" rx="8" />
+              <text class="label" x="388" y="341" text-anchor="middle">Failover</text>
+              <text class="small" x="388" y="368" text-anchor="middle">健康检查连续失败</text>
+              <text class="small" x="388" y="392" text-anchor="middle">停止旧主路由，提升备用机</text>
+
+              <path class="arrow" d="M208 124 H278" />
+              <path class="arrow" d="M498 124 C540 124 554 150 602 150" />
+              <path class="arrow" d="M820 163 H864" />
+              <path class="arrow-soft" d="M845 280 V386" />
+              <path class="arrow-soft" d="M845 496 V562" />
+              <path class="arrow-soft" d="M498 365 C548 365 548 616 602 616" />
+              <path class="arrow-cut" d="M388 300 V190" />
+              <path class="arrow-cut" d="M498 340 C572 310 610 246 684 230" />
+
+              <text class="small" x="242" y="107" text-anchor="middle">HTTPS</text>
+              <text class="small" x="552" y="132" text-anchor="middle">active route</text>
+              <text class="small" x="848" y="337" text-anchor="middle">snapshot / sync</text>
+              <text class="small" x="848" y="539" text-anchor="middle">restore latest</text>
+              <text class="small" x="542" y="540" text-anchor="middle">promote</text>
+            </svg>
+          </div>
+        </article>
+      </section>
+
+      <section aria-labelledby="failover-title">
+        <div class="section-head">
+          <h2 id="failover-title">自动切流流程</h2>
+          <p>
+            自动化只负责判断主节点不可用、切断旧主入口、启动备用节点、再把网关指向新主节点。旧主恢复后不自动抢回主角色，避免脑裂。
+          </p>
+        </div>
+
+        <div class="timeline">
+          <article class="step">
+            <div>
+              <h3>连续健康检查失败</h3>
+              <p>
+                Failover controller 每 5-10 秒检查 <code>/health</code> 和
+                <code>/v1/health/ready</code>。连续失败 3 次后，判定 primary 不可用。
+              </p>
+            </div>
+          </article>
+          <article class="step">
+            <div>
+              <h3>网关停止转发到旧主</h3>
+              <p>
+                网关将旧 primary 从 upstream 中摘除。这个动作必须先发生，确保后续只有 standby 能接收新写请求。
+              </p>
+            </div>
+          </article>
+          <article class="step">
+            <div>
+              <h3>备用节点使用最新数据提升为主</h3>
+              <p>
+                standby 从本地同步目录或 NAS 最新快照恢复 <code>.ripple</code>，启动
+                <code>ripple-server</code>，并开始成为唯一写入者。
+              </p>
+            </div>
+          </article>
+          <article class="step">
+            <div>
+              <h3>ready 后网关切到新主</h3>
+              <p>
+                新主通过 ready check 后，网关开始转发请求。旧主即使恢复，也只能人工确认后作为 standby 加回。
+              </p>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section aria-labelledby="data-title">
+        <div class="section-head">
+          <h2 id="data-title">数据与职责边界</h2>
+          <p>
+            这版方案保留 SQLite。Ripple 的控制面 SQLite 和 Codex 自己的 runtime SQLite 都作为文件状态保护；不修改 Codex 源码，也不试图改变 Codex 的存储方式。
+          </p>
+        </div>
+
+        <div class="grid">
+          <article class="explain-panel">
+            <h3>网关</h3>
+            <p>负责外部入口，不让客户端直接控制用户隔离字段。</p>
+            <ul>
+              <li>认证和鉴权</li>
+              <li>删除客户端伪造的 <code>X-Ripple-User-Id</code></li>
+              <li>注入可信 <code>X-Ripple-User-Id</code></li>
+              <li>只转发给当前 primary</li>
+            </ul>
+          </article>
+
+          <article class="explain-panel">
+            <h3>Primary 节点</h3>
+            <p>唯一在线写入者，运行 Ripple 控制面和 Codex 执行面。</p>
+            <ul>
+              <li><code>ripple-server</code> 写控制面 SQLite</li>
+              <li>启动或复用 Codex app-server worker</li>
+              <li>本机 SSD/NVMe 保存 <code>.ripple</code></li>
+              <li>异步同步到 NAS 或 standby</li>
+            </ul>
+          </article>
+
+          <article class="explain-panel">
+            <h3>Standby 节点</h3>
+            <p>预装相同运行环境，平时不接写请求。</p>
+            <ul>
+              <li>同版本 <code>ripple-server</code> 和 <code>codex</code></li>
+              <li>保留最近同步的数据</li>
+              <li>promote 后成为新 primary</li>
+              <li>旧 primary 需人工确认后重新加入</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section aria-labelledby="state-title">
+        <div class="section-head">
+          <h2 id="state-title">需要保护的状态</h2>
+          <p>
+            备份和切换时要把 Ripple 控制面、用户工作区、运行产物和 Codex runtime 状态分开看。只备份
+            <code>ripple.sqlite</code> 不够。
+          </p>
+        </div>
+
+        <div class="matrix" role="table" aria-label="生产状态保护矩阵">
+          <div class="head" role="columnheader">状态</div>
+          <div class="head" role="columnheader">位置</div>
+          <div class="head" role="columnheader">策略</div>
+
+          <div><strong>Ripple 控制面</strong></div>
+          <div class="muted"><code>.ripple/ripple.sqlite*</code></div>
+          <div class="muted">SQLite 一致性备份；包含 WAL/SHM 或使用在线 backup。</div>
+
+          <div><strong>用户 workspace</strong></div>
+          <div class="muted"><code>.ripple/sandboxes/&lt;uid&gt;/workspace</code></div>
+          <div class="muted">文件快照或增量同步；主备切换时只允许新主写。</div>
+
+          <div><strong>任务运行产物</strong></div>
+          <div class="muted"><code>sessions</code>、<code>agent-runs</code></div>
+          <div class="muted">用于恢复历史、输出下载和失败后重试定位。</div>
+
+          <div><strong>Codex runtime</strong></div>
+          <div class="muted"><code>.ripple/codex-runtime/users/&lt;uid&gt;/sqlite</code></div>
+          <div class="muted">按黑盒文件状态备份；不修改 Codex schema。</div>
+
+          <div><strong>服务端 Codex auth</strong></div>
+          <div class="muted"><code>.ripple/codex-service-home</code></div>
+          <div class="muted">建议恢复后重新登录；不要暴露到用户 workspace。</div>
+        </div>
+      </section>
+
+      <section aria-labelledby="guarantees-title">
+        <div class="section-head">
+          <h2 id="guarantees-title">这版方案承诺什么，不承诺什么</h2>
+        </div>
+
+        <div class="grid">
+          <article class="explain-panel">
+            <h3>承诺</h3>
+            <ul>
+              <li>网关自动切到可用主节点。</li>
+              <li>任何时刻只有一台机器写 <code>.ripple</code>。</li>
+              <li>SQLite 可继续作为 50 并发左右的控制面存储。</li>
+              <li>Codex 存储保持原样，跟随自然升级。</li>
+            </ul>
+          </article>
+
+          <article class="explain-panel">
+            <h3>不承诺</h3>
+            <ul>
+              <li>运行中的 Codex job 无损迁移。</li>
+              <li>两台机器同时 active 写同一份状态。</li>
+              <li>修改 Codex app-server 源码或存储格式。</li>
+              <li>SQLite 立即迁 PostgreSQL。</li>
+            </ul>
+          </article>
+
+          <article class="explain-panel">
+            <h3>预期指标</h3>
+            <ul>
+              <li>RTO：约 30-90 秒，取决于检查间隔和启动速度。</li>
+              <li>RPO：约等于备份/同步间隔。</li>
+              <li>失败任务：标记中断，用户重试。</li>
+              <li>旧主恢复：人工确认后作为 standby 加回。</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

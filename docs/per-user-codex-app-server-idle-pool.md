@@ -2,27 +2,28 @@
 
 本文记录 Ripple 将 Codex app-server 从“按 job 启动、job 结束后关闭”演进为“按用户复用、空闲后关闭”的设计思路。
 
+> 说明：`master` 主线不再启用或暴露 Codex 原生 memory。Codex 自提取记忆相关实现保留在实验分支 `experiment/codex-native-memory`。
+
 ## 背景
 
 Ripple 是控制面，Codex app-server 是执行面。当前主链路里，每个 Codex job 会启动一个可信 app-server 进程，完成后关闭。
 
-这个模型隔离清晰，但对 Codex 原生 memory 不够友好。Codex memory pipeline 是 app-server 在处理 turn 时启动的后台任务，它会扫描旧 thread、抽取 raw memory，并进一步整理为 `MEMORY.md` 和 `memory_summary.md`。如果 job 很短，Ripple 关闭 app-server 时，后台 memory task 可能还没跑完。
+这个模型隔离清晰，但每个 job 都冷启动 app-server，会增加延迟和进程抖动；同一用户的连续 chat 也无法复用已经初始化好的执行面。
 
-因此可以考虑引入 per-user app-server idle pool：让同一用户的 app-server 在 job 结束后保留一段时间，给 memory pipeline 和后续同用户请求复用。
+因此可以考虑引入 per-user app-server idle pool：让同一用户的 app-server 在 job 结束后保留一段时间，供后续同用户请求复用。
 
 ## 目标
 
 - 让同一 `user_id` 的 Codex app-server 可以在多个 job 之间短期复用。
-- 保持 Ripple 的多用户隔离模型：不同用户不能共享 app-server、Codex home、workspace、connector credentials 或 memory。
+- 保持 Ripple 的多用户隔离模型：不同用户不能共享 app-server、Codex home、workspace 或 connector credentials。
 - 保留当前同一用户多 session / 多 run 可并行执行的能力。
-- 提高 Codex memory pipeline 完成概率，减少因 job 结束过快导致的后台任务中断。
 - 让进程生命周期可观测、可清理、可重启。
 
 ## 非目标
 
 - 不做全局单例 Codex app-server。
 - 不把同一用户的所有任务强行串行化。
-- 不把 memory 存储从 Codex 原生 memory 改成 Ripple 自定义 memory 系统。
+- 不在主线启用 Codex 原生 memory 或 Ripple 自定义 memory 系统。
 - 不把服务端业务逻辑下沉到前端或 Tauri 客户端。
 
 ## 当前实现状态
@@ -34,7 +35,7 @@ Ripple 是控制面，Codex app-server 是执行面。当前主链路里，每�
 - job 完成后 `release_job_session(job_id)` 只把 worker 标记为 idle，不立即关闭 app-server 进程。
 - idle reaper 根据 `external_agents.codex.idle_timeout_seconds` 关闭过期 idle worker。
 - `active_turns` 仍然按 `job_id` 追踪 active turn，用于 approval、steer 和 cancel。
-- `stop_user(user_id)`、memory reset、Notion / Google Workspace / Bilibili credential 变化会关闭对应用户的 pooled app-server，避免复用旧 runtime/env。
+- `stop_user(user_id)`、Notion / Google Workspace / Bilibili credential 变化会关闭对应用户的 pooled app-server，避免复用旧 runtime/env。
 
 这意味着 app-server 生命周期已经从 job 拥有演进为 worker pool 拥有；job 只是在运行期间借用 worker。
 
@@ -175,36 +176,11 @@ user_id -> small worker pool
 
 - 多端同时发起不同 session 的任务时，pool 需要支持并发或 worker pool。
 - 同一个 session 的连续 chat 仍需要 session 级互斥，避免上下文顺序错乱。
-- memory settings 必须在每次 job 启动前由 Ripple 重新读取，不能长期缓存到 pool entry 中。
-- connector credential 变化、memory reset、用户 logout/stop 等操作需要能重启或清理该用户的 pool entry。
+- connector credential 变化、用户 logout/stop 等操作需要能重启或清理该用户的 pool entry。
 
 ## Memory 行为
 
-Settings 里的 memory 开关只保存用户偏好，不直接触发抽取。
-
-每次 chat/run 启动时，Ripple 会读取当前用户的 memory settings，并把下面配置注入 Codex thread config：
-
-```text
-features.memories
-memories.use_memories
-memories.generate_memories
-memories.dedicated_tools = false
-memories.disable_on_external_context = false
-```
-
-真正的 memory 抽取由 Codex app-server 内部触发。app-server 收到有用户输入的 turn 后，会启动 memory startup task。该任务会扫描符合条件的旧 thread，而不是立刻抽取当前 turn。
-
-`disable_on_external_context` 设为 `false` 是有意为之：Ripple 的真实任务经常会经过 web/search/connector，上游 Codex 会在 `true` 时把这些 thread 标成 `polluted`，导致最有价值的任务无法进入 memory 候选。Ripple 侧通过把控制面 prompt 放入 `baseInstructions` / `additionalContext`，避免把控制面文本伪装成用户输入。
-
-引入 idle pool 后，job 完成不会立刻关闭 app-server，因此 Codex 内部 memory pipeline 有更大概率跑完。
-
-但 Ripple 仍建议增加一个 per-user memory maintenance guard：
-
-```text
-memory_maintenance_running[user_id]
-```
-
-即使 Codex 内部已有 DB claim 和 phase-2 lock，Ripple 侧也应避免同一用户因为多端/多 session 高频 turn 而反复触发过多 memory startup task。
+`master` 主线不向 Codex thread config 注入 `features.memories` 或 `memories.*` 设置，不提供 `/v1/memory/*` API，也不在设置页展示 memory 控制。memory 相关实验继续在 `experiment/codex-native-memory` 分支推进。
 
 ## 清理和重启条件
 
@@ -213,7 +189,6 @@ memory_maintenance_running[user_id]
 - idle timeout 到期。
 - `stop_user(user_id)`。
 - 用户 sandbox teardown。
-- memory reset。
 - connector disconnect 或 credential 变化。
 - Codex executable、app-server args、runtime path、permission profile 等关键配置变化。
 - app-server 进程异常退出。
@@ -303,12 +278,10 @@ enabled: false
 - approval、steer、cancel 仍然只作用于目标 job。
 - 同一 session 互斥仍然生效。
 
-memory 相关测试：
+主线禁用 memory 测试：
 
-- memory settings 改变后，下一次 job 注入最新配置。
-- memory reset 后对应用户 pool 重启或清理。
-- temporary/internal jobs 不使用或生成 memory。
-- connector/external context 不应把正常任务标成 `polluted`。
+- thread config 不应包含 `features.memories` 或任何 `memories.*` 设置。
+- 前端不应调用 `/v1/memory/*` 或展示 Memory 设置区块。
 - Ripple 控制面 prompt 不应出现在 Codex thread 的 user input/title/preview 中。
 
 故障测试：
@@ -338,17 +311,16 @@ memory 相关测试：
 - 如果单 app-server 并发稳定，保留 one worker per user。
 - 如果不稳定，引入 per-user worker pool。
 
-### Phase 4: Memory Hardening
+### Phase 4: Runtime Invalidation
 
-- 增加 memory maintenance guard。
-- memory reset / connector credential 变化时重启对应 pool。
-- 记录 memory 相关诊断信息。
+- connector credential 变化时重启对应 pool。
+- 记录 pool 重启、worker 复用和异常退出诊断信息。
 
 ### Phase 5: Gradual Enablement
 
 - 内部用户灰度。
 - 小比例生产用户启用。
-- 观察进程数、内存、job 延迟、memory summary 更新时间、失败率。
+- 观察进程数、内存、job 延迟和失败率。
 - 再决定是否默认开启。
 
 ## 风险和缓解
@@ -358,10 +330,8 @@ memory 相关测试：
 | 跨用户状态串扰 | pool key 必须包含 user_id；不同 user 永不共享进程 |
 | 同用户并发不稳定 | 先压测单 worker；不稳定则改 per-user worker pool |
 | 权限 profile 残留 | 每次 turn 创建/恢复 thread 时重新注入 thread config |
-| memory settings 过期 | 每次 job 启动前重新读取 settings，不缓存到 pool |
 | connector 凭证变化后进程持有旧环境 | credential 变化时重启该用户 pool |
 | 进程泄漏 | idle reaper、max workers、stop_user、异常退出清理 |
-| 后台 memory task 过多 | per-user memory maintenance guard |
 
 ## 结论
 
@@ -370,4 +340,4 @@ per-user app-server idle pool 是合理方向，但必须坚持两个原则：
 1. 生命周期按用户隔离，不能做全局单例。
 2. 不能为了复用进程而破坏同一用户多 session / 多 run 并行能力。
 
-最稳妥的实现路径是先做可关闭的 pool skeleton 和 idle reaper，再通过并发压测决定单 worker 还是 per-user worker pool。这样既能提高 memory pipeline 完成概率，又不会把 Ripple 当前的隔离和并发模型打散。
+最稳妥的实现路径是先做可关闭的 pool skeleton 和 idle reaper，再通过并发压测决定单 worker 还是 per-user worker pool。这样既能降低 app-server 冷启动成本，又不会把 Ripple 当前的隔离和并发模型打散。

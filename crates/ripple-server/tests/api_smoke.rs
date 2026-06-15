@@ -926,80 +926,6 @@ async fn router_serves_core_control_plane_routes() {
 }
 
 #[tokio::test]
-async fn memory_routes_manage_user_settings_and_summary() {
-    let root = std::env::temp_dir().join(format!("ripple-api-memory-{}", Uuid::new_v4()));
-    let (state, app) = test_state_and_app(&root);
-
-    let (status, initial) = call(app.clone(), Method::GET, "/v1/memory/status", Value::Null).await;
-    assert_eq!(status, StatusCode::OK, "{initial}");
-    assert_eq!(initial.get("enabled").and_then(Value::as_bool), Some(true));
-    assert_eq!(
-        initial.get("use_memories").and_then(Value::as_bool),
-        Some(true)
-    );
-    assert_eq!(
-        initial.get("generate_memories").and_then(Value::as_bool),
-        Some(true)
-    );
-
-    let (status, disabled) = call(
-        app.clone(),
-        Method::PATCH,
-        "/v1/memory/settings",
-        json!({ "enabled": false }),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{disabled}");
-    assert_eq!(
-        disabled.get("enabled").and_then(Value::as_bool),
-        Some(false)
-    );
-    assert_eq!(
-        disabled.get("use_memories").and_then(Value::as_bool),
-        Some(false)
-    );
-    assert_eq!(
-        disabled.get("generate_memories").and_then(Value::as_bool),
-        Some(false)
-    );
-
-    state.sandboxes.ensure_sandbox("smoke-user").unwrap();
-    let memory_root = state
-        .sandboxes
-        .codex_home_dir("smoke-user")
-        .unwrap()
-        .join("memories");
-    fs::create_dir_all(&memory_root).unwrap();
-    fs::write(
-        memory_root.join("memory_summary.md"),
-        "Project: ripple user memory rollout",
-    )
-    .unwrap();
-    fs::write(
-        memory_root.join("MEMORY.md"),
-        "Prefers concise Markdown notes",
-    )
-    .unwrap();
-
-    let (status, summary) = call(app, Method::GET, "/v1/memory/summary", Value::Null).await;
-    assert_eq!(status, StatusCode::OK, "{summary}");
-    assert_eq!(
-        summary.get("summary_available").and_then(Value::as_bool),
-        Some(true)
-    );
-    assert_eq!(
-        summary.get("memory_summary").and_then(Value::as_str),
-        Some("Project: ripple user memory rollout")
-    );
-    assert_eq!(
-        summary.get("memory").and_then(Value::as_str),
-        Some("Prefers concise Markdown notes")
-    );
-
-    let _ = fs::remove_dir_all(root);
-}
-
-#[tokio::test]
 async fn openapi_docs_are_public_and_keep_v1_auth_unchanged() {
     let root = std::env::temp_dir().join(format!("ripple-openapi-docs-{}", Uuid::new_v4()));
     let (_state, app) = test_state_and_app(&root);
@@ -1289,9 +1215,6 @@ async fn session_overview_groups_sessions_and_enriches_linked_runs() {
                 schedule_trigger: None,
                 codex_thread_id: None,
                 codex_persistent_thread: false,
-                memory_use_memories: None,
-                memory_generate_memories: None,
-                memory_disabled: false,
                 chat_user_input: None,
                 chat_user_content: None,
             },
@@ -1322,9 +1245,6 @@ async fn session_overview_groups_sessions_and_enriches_linked_runs() {
                 schedule_trigger: None,
                 codex_thread_id: None,
                 codex_persistent_thread: false,
-                memory_use_memories: None,
-                memory_generate_memories: None,
-                memory_disabled: false,
                 chat_user_input: None,
                 chat_user_content: None,
             },

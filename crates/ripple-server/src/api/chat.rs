@@ -17,7 +17,6 @@ use tokio::time::{sleep, Duration, Instant};
 use uuid::Uuid;
 
 use crate::api::capabilities::catalog_skill_manifest_options_for_user;
-use crate::api::memory::{load_memory_settings, MemorySettings};
 use crate::api::run_public::{sanitize_user_visible_text, sanitize_user_visible_value};
 use crate::api::schedule_chat::{maybe_handle_schedule_chat, ScheduleChatDecision};
 use crate::api::skill_chat::maybe_handle_skill_chat;
@@ -397,10 +396,6 @@ async fn create_codex_chat_run(args: &CodexChatStart) -> Result<AgentRunInfo, Ap
         .state
         .sandboxes
         .session_dir(&args.user_id, &args.session.session_id)?;
-    let memory_settings = load_memory_settings(&args.state.sandboxes, &args.user_id)
-        .await
-        .map_err(|err| ApiError::bad_request(err.to_string()))?;
-    let memory_options = chat_memory_options(&args.session, &args.request, memory_settings);
     let create = AgentRunCreateRequest {
         prompt,
         provider: "codex".to_string(),
@@ -417,10 +412,7 @@ async fn create_codex_chat_run(args: &CodexChatStart) -> Result<AgentRunInfo, Ap
         schedule_title: None,
         schedule_trigger: None,
         codex_thread_id: args.session.codex_thread_id.clone(),
-        codex_persistent_thread: memory_options.codex_persistent_thread,
-        memory_use_memories: Some(memory_options.use_memories),
-        memory_generate_memories: Some(memory_options.generate_memories),
-        memory_disabled: memory_options.memory_disabled,
+        codex_persistent_thread: !args.request.temporary,
         chat_user_input: Some(args.user_input.clone()),
         chat_user_content: Some(args.user_content.clone()),
     };
@@ -771,43 +763,6 @@ fn chat_cwd_for_session(session: &SessionRecord) -> String {
         .filter(|value| !value.is_empty())
         .unwrap_or("/workspace")
         .to_string()
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct ChatMemoryOptions {
-    use_memories: bool,
-    generate_memories: bool,
-    memory_disabled: bool,
-    codex_persistent_thread: bool,
-}
-
-fn chat_memory_options(
-    session: &SessionRecord,
-    request: &ChatCompletionRequest,
-    settings: MemorySettings,
-) -> ChatMemoryOptions {
-    if request.temporary {
-        return ChatMemoryOptions {
-            use_memories: false,
-            generate_memories: false,
-            memory_disabled: true,
-            codex_persistent_thread: false,
-        };
-    }
-    if session.memory_disabled {
-        return ChatMemoryOptions {
-            use_memories: false,
-            generate_memories: false,
-            memory_disabled: true,
-            codex_persistent_thread: true,
-        };
-    }
-    ChatMemoryOptions {
-        use_memories: settings.use_memories,
-        generate_memories: settings.generate_memories,
-        memory_disabled: false,
-        codex_persistent_thread: true,
-    }
 }
 
 async fn wait_for_chat_run(
@@ -2075,82 +2030,6 @@ mod tests {
         apply_requested_chat_model(&mut session, Some("codex-high"), "codex-medium");
 
         assert_eq!(session.model, "codex-high");
-    }
-
-    #[test]
-    fn chat_memory_options_disable_memory_for_temporary_or_opted_out_sessions() {
-        let now = now_iso();
-        let mut session = SessionRecord {
-            session_id: "srv-test".to_string(),
-            user_id: "alice".to_string(),
-            title: String::new(),
-            pinned: false,
-            project_id: None,
-            project_name: None,
-            project_root: None,
-            context_folder_path: None,
-            model: "codex-medium".to_string(),
-            max_turns: 200,
-            caller_system_prompt: None,
-            total_input_tokens: 0,
-            total_output_tokens: 0,
-            last_input_tokens: 0,
-            created_at: now.clone(),
-            last_active: now,
-            status: "idle".to_string(),
-            message_count: 0,
-            messages: Vec::new(),
-            pending_question: None,
-            pending_options: None,
-            pending_permission_request: None,
-            pending_connector_auth: None,
-            pending_schedule_request: None,
-            codex_thread_id: Some("thr_123".to_string()),
-            memory_disabled: false,
-            plan_steps: Vec::new(),
-            plan_progress: None,
-        };
-        let mut request = ChatCompletionRequest {
-            model: None,
-            messages: vec![json!({"role": "user", "content": "hello"})],
-            stream: None,
-            session_id: Some("srv-test".to_string()),
-            temporary: true,
-            max_turns: None,
-            effort: None,
-            summary: None,
-            output_schema: None,
-        };
-        let settings = MemorySettings {
-            use_memories: true,
-            generate_memories: true,
-        };
-
-        let temporary = chat_memory_options(&session, &request, settings);
-
-        assert_eq!(
-            temporary,
-            ChatMemoryOptions {
-                use_memories: false,
-                generate_memories: false,
-                memory_disabled: true,
-                codex_persistent_thread: false,
-            }
-        );
-
-        request.temporary = false;
-        session.memory_disabled = true;
-        let opted_out = chat_memory_options(&session, &request, settings);
-
-        assert_eq!(
-            opted_out,
-            ChatMemoryOptions {
-                use_memories: false,
-                generate_memories: false,
-                memory_disabled: true,
-                codex_persistent_thread: true,
-            }
-        );
     }
 
     #[test]

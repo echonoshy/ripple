@@ -73,7 +73,7 @@ function testSettingsPageHasExpectedUserSections() {
   assert.match(html, />Account/);
   assert.doesNotMatch(html, />Connected Accounts/);
   assert.match(html, />Usage &amp; Limits/);
-  assert.match(html, />Memory/);
+  assert.doesNotMatch(html, />Memory/);
   assert.match(html, />Defaults/);
   assert.match(html, />Language/);
   assert.match(html, />Choose the App interface language\./);
@@ -95,28 +95,31 @@ function testSettingsPageHasExpectedUserSections() {
   assert.doesNotMatch(html, /Switch workspace/);
 }
 
-function testSettingsPageExposesReadOnlyMemoryControls() {
+function testSettingsPageDoesNotExposeMemoryControlsOnMainline() {
   const source = readFileSync(new URL("./SettingsPage.tsx", import.meta.url), "utf8");
   const html = renderSettingsPage();
 
-  assert.match(source, /fetchMemoryStatus/);
-  assert.match(source, /fetchMemorySummary/);
-  assert.match(source, /updateMemorySettings/);
-  assert.match(source, /resetMemory/);
-  assert.match(source, /sectionKind="memory"/);
-  assert.match(source, /function MemorySwitch/);
-  assert.match(source, /role="switch"/);
+  assert.doesNotMatch(source, /fetchMemoryStatus/);
+  assert.doesNotMatch(source, /fetchMemorySummary/);
+  assert.doesNotMatch(source, /updateMemorySettings/);
+  assert.doesNotMatch(source, /resetMemory/);
+  assert.doesNotMatch(source, /sectionKind="memory"/);
+  assert.doesNotMatch(source, /function MemorySwitch/);
+  assert.doesNotMatch(source, /role="switch"/);
   assert.doesNotMatch(source, /type="checkbox"/);
-  assert.match(html, />Use memories</);
-  assert.match(html, />Allow future chats to use organized long-term memory\.</);
-  assert.match(html, />Update memories automatically</);
-  assert.match(html, />Automatically organize durable context from normal chats\.</);
-  assert.match(html, />Memory summary</);
-  assert.match(html, />Memories are organized automatically\. This page is read-only\.</);
-  assert.match(html, />Clear memory</);
-  assert.match(html, />Clear this user&#x27;s memory\. Sessions and workspace files stay intact\.</);
+  assert.doesNotMatch(html, />Use memories</);
+  assert.doesNotMatch(html, />Allow future chats to use organized long-term memory\.</);
+  assert.doesNotMatch(html, />Update memories automatically</);
+  assert.doesNotMatch(html, />Automatically organize durable context from normal chats\.</);
+  assert.doesNotMatch(html, />Memory summary</);
+  assert.doesNotMatch(html, />Memories are organized automatically\. This page is read-only\.</);
+  assert.doesNotMatch(html, />Clear memory</);
+  assert.doesNotMatch(
+    html,
+    />Clear this user&#x27;s memory\. Sessions and workspace files stay intact\./
+  );
   assert.doesNotMatch(html, /Codex/);
-  assert.match(source, /readOnly/);
+  assert.doesNotMatch(source, /readOnly[\s\S]{0,160}settings\.memory/);
   assert.doesNotMatch(source, /manualMemory/);
   assert.doesNotMatch(source, /addMemory/);
   assert.doesNotMatch(source, /editMemory/);
@@ -396,7 +399,7 @@ function testSettingsPageRendersChineseChrome() {
 }
 
 testSettingsPageHasExpectedUserSections();
-testSettingsPageExposesReadOnlyMemoryControls();
+testSettingsPageDoesNotExposeMemoryControlsOnMainline();
 testSettingsPageShowsDeveloperModeForServiceAccess();
 testSettingsPageCanEditDisplayName();
 testSettingsPageSupportsLocalAvatarUpload();

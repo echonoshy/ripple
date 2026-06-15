@@ -412,26 +412,6 @@ impl SessionManager {
         Ok(Some(self.info_from_record(&record)?))
     }
 
-    pub async fn disable_session_memory(
-        &self,
-        user_id: &str,
-        session_id: &str,
-    ) -> anyhow::Result<Option<SessionRecord>> {
-        let key = (user_id.to_string(), session_id.to_string());
-        if self.deleted.read().await.contains(&key) {
-            self.active.write().await.remove(&key);
-            return Ok(None);
-        }
-        let Some(mut record) = self.load(user_id, session_id).await? else {
-            return Ok(None);
-        };
-        record.memory_disabled = true;
-        record.last_active = now_iso();
-        self.persist(&record).await?;
-        self.active.write().await.insert(key, record.clone());
-        Ok(Some(record))
-    }
-
     pub async fn update_generated_title_if_unchanged(
         &self,
         user_id: &str,
@@ -1281,43 +1261,6 @@ mod tests {
                 .model,
             "codex-high"
         );
-
-        let _ = std::fs::remove_dir_all(root);
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn session_memory_disable_defaults_false_and_persists() -> anyhow::Result<()> {
-        let root = std::env::temp_dir().join(format!("ripple-session-test-{}", Uuid::new_v4()));
-        let config = test_config(&root);
-        let manager = SessionManager::new(config.clone(), SandboxManager::new(config));
-        let user_id = "alice";
-        let session = manager
-            .create_session(
-                user_id,
-                CreateSessionInput {
-                    model: None,
-                    max_turns: None,
-                    system_prompt: None,
-                    context_folder_path: None,
-                    project_id: None,
-                },
-            )
-            .await?;
-
-        assert!(!session.memory_disabled);
-
-        let disabled = manager
-            .disable_session_memory(user_id, &session.session_id)
-            .await?
-            .expect("session should exist");
-        let reloaded = manager
-            .load(user_id, &session.session_id)
-            .await?
-            .expect("session should reload");
-
-        assert!(disabled.memory_disabled);
-        assert!(reloaded.memory_disabled);
 
         let _ = std::fs::remove_dir_all(root);
         Ok(())

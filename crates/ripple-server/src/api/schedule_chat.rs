@@ -379,9 +379,6 @@ async fn extract_schedule_with_codex(
         schedule_trigger: None,
         codex_thread_id: None,
         codex_persistent_thread: false,
-        memory_use_memories: None,
-        memory_generate_memories: None,
-        memory_disabled: true,
         chat_user_input: None,
         chat_user_content: None,
     };

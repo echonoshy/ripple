@@ -3,7 +3,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
-  Brain,
   Check,
   ChevronDown,
   Cpu,
@@ -18,7 +17,6 @@ import {
   Server,
   ShieldCheck,
   SlidersHorizontal,
-  Trash2,
   Upload,
   UserRound,
   X,
@@ -28,13 +26,9 @@ import {
   changePassword,
   deleteUserAvatar,
   fetchCurrentSandbox,
-  fetchMemoryStatus,
-  fetchMemorySummary,
   fetchUserAvatarImage,
   fetchUserProfile,
   getConfiguredApiUrl,
-  resetMemory,
-  updateMemorySettings,
   updateUserProfile,
   uploadUserAvatar,
 } from "@/lib/api";
@@ -51,7 +45,7 @@ import {
   getUserProfileAvatarUri,
   getUserProfileDisplayName,
 } from "@/lib/userAvatar";
-import type { MemoryStatus, MemorySummary, SandboxInfo, UserProfile } from "@/types";
+import type { SandboxInfo, UserProfile } from "@/types";
 import { IconTile, type IconTileTone } from "@/components/icons/IconTile";
 import RippleIcon from "@/components/icons/RippleIcon";
 import MobileActionSheet from "./MobileActionSheet";
@@ -194,15 +188,7 @@ export default function SettingsPage({
   const { preference: localePreference, setPreference: setLocalePreference, t } = useI18n();
   const [sandbox, setSandbox] = useState<SandboxInfo | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [memoryStatus, setMemoryStatus] = useState<MemoryStatus | null>(null);
-  const [memorySummary, setMemorySummary] = useState<MemorySummary | null>(null);
-  const [memoryError, setMemoryError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [savingMemoryField, setSavingMemoryField] = useState<
-    "useMemories" | "generateMemories" | null
-  >(null);
-  const [isResettingMemory, setIsResettingMemory] = useState(false);
-  const [isMemorySummaryOpen, setIsMemorySummaryOpen] = useState(false);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [avatarImageUrl, setAvatarImageUrl] = useState<string | null>(null);
   const [avatarError, setAvatarError] = useState<string | null>(null);
@@ -232,17 +218,12 @@ export default function SettingsPage({
   const loadSettingsData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [sandboxData, profileData, memoryStatusData, memorySummaryData] = await Promise.all([
+      const [sandboxData, profileData] = await Promise.all([
         fetchCurrentSandbox(),
         fetchUserProfile().catch(() => null),
-        fetchMemoryStatus().catch(() => null),
-        fetchMemorySummary().catch(() => null),
       ]);
       setSandbox(sandboxData);
       setProfile(profileData);
-      setMemoryStatus(memoryStatusData);
-      setMemorySummary(memorySummaryData);
-      setMemoryError(null);
     } catch {
       setSandbox(null);
       setProfile(null);
@@ -273,10 +254,6 @@ export default function SettingsPage({
       models.length > 0 ? models : [{ id: defaultModel || selectedModel, owned_by: "ripple" }],
     [defaultModel, models, selectedModel]
   );
-  const memorySummaryText = [memorySummary?.memorySummary, memorySummary?.memory]
-    .filter((value): value is string => Boolean(value?.trim()))
-    .join("\n\n");
-  const memoryLastUpdated = memoryStatus?.lastUpdatedAt || memorySummary?.lastUpdatedAt || null;
   const tokenUsageMetrics = [
     { label: t("settings.dailyInput"), value: formatTokens(usage?.daily_input_tokens ?? 0) },
     { label: t("settings.weeklyInput"), value: formatTokens(usage?.weekly_input_tokens ?? 0) },
@@ -354,56 +331,6 @@ export default function SettingsPage({
       );
     } finally {
       setIsSavingDisplayName(false);
-    }
-  };
-
-  const handleMemorySettingChange = async (
-    field: "useMemories" | "generateMemories",
-    value: boolean
-  ) => {
-    if (savingMemoryField || !memoryStatus) return;
-    const previousStatus = memoryStatus;
-    const optimisticUseMemories = field === "useMemories" ? value : previousStatus.useMemories;
-    const optimisticGenerateMemories =
-      field === "generateMemories" ? value : previousStatus.generateMemories;
-    try {
-      setSavingMemoryField(field);
-      setMemoryError(null);
-      setMemoryStatus({
-        ...previousStatus,
-        enabled: optimisticUseMemories || optimisticGenerateMemories,
-        useMemories: optimisticUseMemories,
-        generateMemories: optimisticGenerateMemories,
-      });
-      const nextStatus = await updateMemorySettings({ [field]: value });
-      setMemoryStatus(nextStatus);
-    } catch (error) {
-      setMemoryStatus(previousStatus);
-      setMemoryError(error instanceof Error ? error.message : t("settings.memory.updateFailed"));
-    } finally {
-      setSavingMemoryField(null);
-    }
-  };
-
-  const handleMemoryReset = async () => {
-    if (isResettingMemory) return;
-    if (typeof window !== "undefined" && !window.confirm(t("settings.memory.clearConfirm"))) {
-      return;
-    }
-    try {
-      setIsResettingMemory(true);
-      setMemoryError(null);
-      await resetMemory();
-      const [nextStatus, nextSummary] = await Promise.all([
-        fetchMemoryStatus().catch(() => null),
-        fetchMemorySummary().catch(() => null),
-      ]);
-      setMemoryStatus(nextStatus);
-      setMemorySummary(nextSummary);
-    } catch (error) {
-      setMemoryError(error instanceof Error ? error.message : t("settings.memory.clearFailed"));
-    } finally {
-      setIsResettingMemory(false);
     }
   };
 
@@ -1044,127 +971,6 @@ export default function SettingsPage({
           </div>
         </SettingsSection>
 
-        <SettingsSection sectionKind="memory">
-          <SectionHeader
-            icon={<Brain size={13} />}
-            title={t("settings.memory.title")}
-            tone="neutral"
-          />
-          <div data-ripple-settings-memory-section className="divide-y divide-[#EFF0F1]">
-            <div className={settingsGroupedRowClass}>
-              <div className="min-w-0">
-                <div className={`text-[#1F2329] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
-                  {t("settings.memory.useMemories")}
-                </div>
-                <div className={`mt-0.5 text-[#646A73] ${TYPOGRAPHY_META_CLASS}`}>
-                  {t("settings.memory.useMemoriesDescription")}
-                </div>
-              </div>
-              <div className="inline-flex h-8 shrink-0 items-center gap-2">
-                <MemorySwitch
-                  checked={memoryStatus?.useMemories ?? true}
-                  disabled={!memoryStatus || Boolean(savingMemoryField)}
-                  label={t("settings.memory.useMemories")}
-                  onChange={(checked) => void handleMemorySettingChange("useMemories", checked)}
-                />
-                <span
-                  className={`min-w-8 text-center text-[#646A73] ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
-                >
-                  {(memoryStatus?.useMemories ?? true)
-                    ? t("settings.memory.on")
-                    : t("settings.memory.off")}
-                </span>
-              </div>
-            </div>
-            <div className={settingsGroupedRowClass}>
-              <div className="min-w-0">
-                <div className={`text-[#1F2329] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
-                  {t("settings.memory.generateMemories")}
-                </div>
-                <div className={`mt-0.5 text-[#646A73] ${TYPOGRAPHY_META_CLASS}`}>
-                  {t("settings.memory.generateMemoriesDescription")}
-                </div>
-              </div>
-              <div className="inline-flex h-8 shrink-0 items-center gap-2">
-                <MemorySwitch
-                  checked={memoryStatus?.generateMemories ?? true}
-                  disabled={!memoryStatus || Boolean(savingMemoryField)}
-                  label={t("settings.memory.generateMemories")}
-                  onChange={(checked) =>
-                    void handleMemorySettingChange("generateMemories", checked)
-                  }
-                />
-                <span
-                  className={`min-w-8 text-center text-[#646A73] ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
-                >
-                  {(memoryStatus?.generateMemories ?? true)
-                    ? t("settings.memory.on")
-                    : t("settings.memory.off")}
-                </span>
-              </div>
-            </div>
-            <div className="px-2.5 py-2">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="min-w-0">
-                  <div className={`text-[#1F2329] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
-                    {t("settings.memory.summary")}
-                  </div>
-                  <div className={`mt-0.5 text-[#646A73] ${TYPOGRAPHY_META_CLASS}`}>
-                    {memoryLastUpdated
-                      ? t("settings.memory.lastUpdated", { value: memoryLastUpdated })
-                      : t("settings.memory.summaryDescription")}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsMemorySummaryOpen((open) => !open)}
-                  className={`inline-flex h-8 shrink-0 items-center rounded-full border border-[#DEE0E3] bg-white px-3 text-[#2B2F36] transition-all hover:bg-[#F8F9FA] ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
-                >
-                  {isMemorySummaryOpen
-                    ? t("settings.memory.hideSummary")
-                    : t("settings.memory.showSummary")}
-                </button>
-              </div>
-              {isMemorySummaryOpen ? (
-                <textarea
-                  readOnly
-                  aria-label={t("settings.memory.summary")}
-                  value={memorySummaryText || t("settings.memory.emptySummary")}
-                  className={`mt-2 min-h-24 w-full resize-y rounded-lg border border-[#DEE0E3] bg-[#F8F9FA] px-2.5 py-2 text-[#2B2F36] outline-none ${TYPOGRAPHY_META_CLASS}`}
-                />
-              ) : null}
-            </div>
-            <div className={settingsGroupedRowClass}>
-              <div className="min-w-0">
-                <div className={`text-[#1F2329] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
-                  {t("settings.memory.clearMemory")}
-                </div>
-                <div className={`mt-0.5 text-[#646A73] ${TYPOGRAPHY_META_CLASS}`}>
-                  {t("settings.memory.clearDescription")}
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => void handleMemoryReset()}
-                disabled={isResettingMemory}
-                className={`inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-[#FFD6D6] bg-white px-2.5 text-[#B42318] transition-all hover:bg-[#FFF1F0] disabled:cursor-not-allowed disabled:opacity-60 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
-              >
-                {isResettingMemory ? (
-                  <Loader2 size={13} className="animate-spin" />
-                ) : (
-                  <Trash2 size={13} />
-                )}
-                {t("settings.memory.clearMemory")}
-              </button>
-            </div>
-          </div>
-          {memoryError ? (
-            <div className={`border-t border-[#EFF0F1] px-2.5 py-1.5 text-[#B42318] ${TYPOGRAPHY_META_CLASS}`}>
-              {memoryError}
-            </div>
-          ) : null}
-        </SettingsSection>
-
         <SettingsSection sectionKind="defaults">
           <SectionHeader
             icon={<SlidersHorizontal size={13} />}
@@ -1297,7 +1103,7 @@ export default function SettingsPage({
   );
 }
 
-type SettingsSectionKind = "account" | "usage" | "memory" | "defaults" | "diagnostics";
+type SettingsSectionKind = "account" | "usage" | "defaults" | "diagnostics";
 
 interface SettingsSectionProps extends React.HTMLAttributes<HTMLElement> {
   sectionKind: SettingsSectionKind;
@@ -1335,38 +1141,6 @@ function SectionHeader({
       </IconTile>
       {title}
     </div>
-  );
-}
-
-function MemorySwitch({
-  checked,
-  disabled,
-  label,
-  onChange,
-}: {
-  checked: boolean;
-  disabled: boolean;
-  label: string;
-  onChange: (checked: boolean) => void;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      disabled={disabled}
-      onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border p-1 outline-none transition-colors duration-150 ease-out focus:ring-2 focus:ring-[#8FB1FF] focus:ring-offset-1 disabled:cursor-not-allowed ${
-        checked ? "border-[#1456F0] bg-[#1456F0]" : "border-[#DEE0E3] bg-[#EFF0F1]"
-      }`}
-    >
-      <span
-        className={`h-5 w-5 rounded-full bg-white shadow-[0_1px_2px_rgba(31,35,41,0.24)] transition-transform duration-150 ease-out ${
-          checked ? "translate-x-5" : "translate-x-0"
-        }`}
-      />
-    </button>
   );
 }
 

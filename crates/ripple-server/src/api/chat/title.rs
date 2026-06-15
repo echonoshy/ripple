@@ -75,9 +75,6 @@ async fn generate_and_apply_session_title(
         schedule_trigger: None,
         codex_thread_id: None,
         codex_persistent_thread: false,
-        memory_use_memories: None,
-        memory_generate_memories: None,
-        memory_disabled: true,
         chat_user_input: None,
         chat_user_content: None,
     };

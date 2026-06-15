@@ -1217,50 +1217,6 @@ impl CodexAppServerProvider {
         result
     }
 
-    pub async fn reset_memory(
-        &self,
-        user_id: String,
-        workspace_root: PathBuf,
-    ) -> anyhow::Result<()> {
-        let session = CodexAppServerSession::new(user_id, self.config.clone(), workspace_root);
-        let result = async {
-            session.ensure_started().await?;
-            session.ensure_initialized().await?;
-            session.request("memory/reset", json!({})).await?;
-            Ok(())
-        }
-        .await;
-        session.shutdown().await;
-        result
-    }
-
-    pub async fn set_thread_memory_mode(
-        &self,
-        user_id: String,
-        workspace_root: PathBuf,
-        thread_id: String,
-        mode: &str,
-    ) -> anyhow::Result<()> {
-        let session = CodexAppServerSession::new(user_id, self.config.clone(), workspace_root);
-        let result = async {
-            session.ensure_started().await?;
-            session.ensure_initialized().await?;
-            session
-                .request(
-                    "thread/memoryMode/set",
-                    json!({
-                        "threadId": thread_id,
-                        "mode": mode
-                    }),
-                )
-                .await?;
-            Ok(())
-        }
-        .await;
-        session.shutdown().await;
-        result
-    }
-
     async fn compact_thread_with_session(
         &self,
         session: &Arc<CodexAppServerSession>,
@@ -1496,22 +1452,6 @@ fn thread_config_for_request(
         if image_generation_enabled_for_request(request) {
             object.insert("features.image_generation".to_string(), json!(true));
         }
-        let use_memories = memory_use_enabled_for_request(request);
-        let generate_memories = memory_generate_enabled_for_request(request);
-        object.insert(
-            "features.memories".to_string(),
-            json!(use_memories || generate_memories),
-        );
-        object.insert("memories.use_memories".to_string(), json!(use_memories));
-        object.insert(
-            "memories.generate_memories".to_string(),
-            json!(generate_memories),
-        );
-        object.insert("memories.dedicated_tools".to_string(), json!(false));
-        object.insert(
-            "memories.disable_on_external_context".to_string(),
-            json!(false),
-        );
     }
     thread_config
 }
@@ -1537,39 +1477,6 @@ fn image_generation_enabled_for_request(request: &AgentRunnerRequest) -> bool {
     request
         .metadata
         .get("image_generation_enabled")
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-}
-
-fn memory_use_enabled_for_request(request: &AgentRunnerRequest) -> bool {
-    if memory_disabled_for_request(request) {
-        return false;
-    }
-    request
-        .metadata
-        .get("memory_use_memories")
-        .or_else(|| request.metadata.get("memory_use"))
-        .and_then(Value::as_bool)
-        .unwrap_or(true)
-}
-
-fn memory_generate_enabled_for_request(request: &AgentRunnerRequest) -> bool {
-    if memory_disabled_for_request(request) {
-        return false;
-    }
-    request
-        .metadata
-        .get("memory_generate_memories")
-        .or_else(|| request.metadata.get("memory_generate"))
-        .and_then(Value::as_bool)
-        .unwrap_or(true)
-}
-
-fn memory_disabled_for_request(request: &AgentRunnerRequest) -> bool {
-    request
-        .metadata
-        .get("memory_disabled")
-        .or_else(|| request.metadata.get("temporary"))
         .and_then(Value::as_bool)
         .unwrap_or(false)
 }
@@ -1873,12 +1780,12 @@ mod tests {
     }
 
     #[test]
-    fn thread_config_includes_conservative_memory_defaults() {
+    fn thread_config_omits_codex_memory_settings_on_mainline() {
         let config = test_config();
         let workspace = config.sandbox.sandboxes_root.join("alice/workspace");
         let request = AgentRunnerRequest {
             provider: "codex".to_string(),
-            prompt: "remember useful project context".to_string(),
+            prompt: "normal chat".to_string(),
             base_instructions: None,
             turn_context: None,
             cwd: workspace.clone(),
@@ -1895,27 +1802,17 @@ mod tests {
 
         let thread_config = thread_config_for_request(&workspace, &config, &request);
 
-        assert_eq!(thread_config.get("features.memories"), Some(&json!(true)));
-        assert_eq!(
-            thread_config.get("memories.use_memories"),
-            Some(&json!(true))
-        );
-        assert_eq!(
-            thread_config.get("memories.generate_memories"),
-            Some(&json!(true))
-        );
-        assert_eq!(
-            thread_config.get("memories.dedicated_tools"),
-            Some(&json!(false))
-        );
-        assert_eq!(
-            thread_config.get("memories.disable_on_external_context"),
-            Some(&json!(false))
-        );
+        assert!(thread_config.get("features.memories").is_none());
+        assert!(thread_config.get("memories.use_memories").is_none());
+        assert!(thread_config.get("memories.generate_memories").is_none());
+        assert!(thread_config.get("memories.dedicated_tools").is_none());
+        assert!(thread_config
+            .get("memories.disable_on_external_context")
+            .is_none());
     }
 
     #[test]
-    fn thread_config_can_disable_memory_from_request_metadata() {
+    fn thread_config_ignores_legacy_memory_request_metadata() {
         let config = test_config();
         let workspace = config.sandbox.sandboxes_root.join("alice/workspace");
         let request = AgentRunnerRequest {
@@ -1937,15 +1834,9 @@ mod tests {
 
         let thread_config = thread_config_for_request(&workspace, &config, &request);
 
-        assert_eq!(thread_config.get("features.memories"), Some(&json!(false)));
-        assert_eq!(
-            thread_config.get("memories.use_memories"),
-            Some(&json!(false))
-        );
-        assert_eq!(
-            thread_config.get("memories.generate_memories"),
-            Some(&json!(false))
-        );
+        assert!(thread_config.get("features.memories").is_none());
+        assert!(thread_config.get("memories.use_memories").is_none());
+        assert!(thread_config.get("memories.generate_memories").is_none());
     }
 
     #[test]

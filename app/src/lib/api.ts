@@ -18,9 +18,6 @@ import {
   SkillInfo,
   SkillUpdateInput,
   SkillValidationResult,
-  MemorySettingsPatch,
-  MemoryStatus,
-  MemorySummary,
   PlanStep,
   PlanUpdate,
   PlanProgress,
@@ -668,23 +665,6 @@ interface RawSessionDetail extends RawSessionSummary {
   task_progress?: PlanProgress | null;
 }
 
-interface RawMemoryStatus {
-  enabled?: boolean;
-  use_memories?: boolean;
-  generate_memories?: boolean;
-  dedicated_tools?: boolean;
-  disable_on_external_context?: boolean;
-  summary_available?: boolean;
-  last_updated_at?: string | null;
-}
-
-interface RawMemorySummary {
-  summary_available?: boolean;
-  memory_summary?: string | null;
-  memory?: string | null;
-  last_updated_at?: string | null;
-}
-
 function normalizeSessionSummary(raw: RawSessionSummary): SessionSummary {
   return {
     sessionId: raw.session_id,
@@ -701,27 +681,6 @@ function normalizeSessionSummary(raw: RawSessionSummary): SessionSummary {
     status: raw.status,
     changedFileCount: raw.changed_file_count,
     pendingApprovalCount: raw.pending_approval_count,
-  };
-}
-
-function normalizeMemoryStatus(raw: RawMemoryStatus): MemoryStatus {
-  return {
-    enabled: raw.enabled === true,
-    useMemories: raw.use_memories === true,
-    generateMemories: raw.generate_memories === true,
-    dedicatedTools: raw.dedicated_tools === true,
-    disableOnExternalContext: raw.disable_on_external_context === true,
-    summaryAvailable: raw.summary_available === true,
-    lastUpdatedAt: raw.last_updated_at ?? null,
-  };
-}
-
-function normalizeMemorySummary(raw: RawMemorySummary): MemorySummary {
-  return {
-    summaryAvailable: raw.summary_available === true,
-    memorySummary: raw.memory_summary ?? null,
-    memory: raw.memory ?? null,
-    lastUpdatedAt: raw.last_updated_at ?? null,
   };
 }
 
@@ -878,62 +837,6 @@ export async function deleteScheduleRun(scheduleId: string, jobId: string): Prom
   if (!res.ok) {
     const detail = await responseDetail(res);
     throw new Error(detail || `Failed to delete run (${res.status})`);
-  }
-  return true;
-}
-
-export async function fetchMemoryStatus(): Promise<MemoryStatus> {
-  const res = await fetch(`${API_URL}/memory/status`, { headers: { ...authHeaders() } });
-  if (res.status === 401) throw new AuthError();
-  if (!res.ok) {
-    const detail = await responseDetail(res);
-    throw new Error(detail || `Failed to fetch memory status (${res.status})`);
-  }
-  return normalizeMemoryStatus((await res.json()) as RawMemoryStatus);
-}
-
-export async function fetchMemorySummary(): Promise<MemorySummary> {
-  const res = await fetch(`${API_URL}/memory/summary`, { headers: { ...authHeaders() } });
-  if (res.status === 401) throw new AuthError();
-  if (!res.ok) {
-    const detail = await responseDetail(res);
-    throw new Error(detail || `Failed to fetch memory summary (${res.status})`);
-  }
-  return normalizeMemorySummary((await res.json()) as RawMemorySummary);
-}
-
-export async function updateMemorySettings(input: MemorySettingsPatch): Promise<MemoryStatus> {
-  const body: Record<string, boolean> = {};
-  if ("enabled" in input && typeof input.enabled === "boolean") body.enabled = input.enabled;
-  if ("useMemories" in input && typeof input.useMemories === "boolean") {
-    body.use_memories = input.useMemories;
-  }
-  if ("generateMemories" in input && typeof input.generateMemories === "boolean") {
-    body.generate_memories = input.generateMemories;
-  }
-  const res = await fetch(`${API_URL}/memory/settings`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify(body),
-  });
-  if (res.status === 401) throw new AuthError();
-  if (!res.ok) {
-    const detail = await responseDetail(res);
-    throw new Error(detail || `Failed to update memory settings (${res.status})`);
-  }
-  return normalizeMemoryStatus((await res.json()) as RawMemoryStatus);
-}
-
-export async function resetMemory(): Promise<boolean> {
-  const res = await fetch(`${API_URL}/memory/reset`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify({ confirm: true }),
-  });
-  if (res.status === 401) throw new AuthError();
-  if (!res.ok) {
-    const detail = await responseDetail(res);
-    throw new Error(detail || `Failed to clear memory (${res.status})`);
   }
   return true;
 }

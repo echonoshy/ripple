@@ -27,8 +27,6 @@ use crate::sandbox::SandboxManager;
 use crate::user::validate_user_id;
 
 const TAIL_CHARS: usize = 64_000;
-const MAX_WORKERS_PER_POOL: usize = 8;
-const MAX_TOTAL_POOL_WORKERS: usize = 256;
 const IDLE_REAPER_INTERVAL_SECONDS: u64 = 5;
 const CODEX_NATIVE_INPUT_TYPES: &[&str] = &["text", "image", "localImage"];
 const CODEX_NATIVE_HARDENING_CONFIG_OVERRIDES: &[&str] = &[
@@ -988,7 +986,8 @@ impl CodexAppServerProvider {
                 } else {
                     let pool_size = state.pools.get(&pool_key).map_or(0, Vec::len);
                     let total_workers = state.pools.values().map(Vec::len).sum::<usize>();
-                    if pool_size >= MAX_WORKERS_PER_POOL || total_workers >= MAX_TOTAL_POOL_WORKERS
+                    if pool_size >= self.config.codex.max_workers_per_pool
+                        || total_workers >= self.config.codex.max_total_pool_workers
                     {
                         None
                     } else {
@@ -1934,6 +1933,8 @@ mod tests {
                 sandbox_type: "workspace-write".to_string(),
                 network_access: true,
                 idle_timeout_seconds: 1800,
+                max_workers_per_pool: 8,
+                max_total_pool_workers: 256,
                 max_runtime_seconds: 3600,
             },
             schedule_extraction_max_runtime_seconds: 120,

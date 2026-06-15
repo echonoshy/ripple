@@ -3,16 +3,6 @@
 # 复制本文件为 config/settings.yaml 后，填入本地真实密钥。
 # 不要把包含真实密钥的 config/settings.yaml 提交到仓库。
 
-# Codex 账号与模型元数据配置
-api:
-  # 当前只保留 Codex provider 元数据；实际执行通过 external_agents.codex app-server。
-  provider: "openai-codex"
-
-  providers:
-    # 仅作为模型 preset 的 provider 元数据；真实授权由服务端 Codex CLI 登录态提供。
-    openai-codex:
-      type: "codex-app-server"
-
 # 模型配置
 model:
   # 默认 Codex 预设
@@ -34,11 +24,6 @@ model:
       openai-codex: "gpt-5.5"
       reasoning_effort: "xhigh"
 
-# Agent 配置
-agent:
-  max_turns: 200
-  session_prefix: "ripple"
-
 # Codex app-server runner 配置
 #
 # Ripple 管理 user sandbox、任务状态、事件日志和生命周期；实际执行交给
@@ -52,7 +37,6 @@ agent:
 # user workspace、允许的 runtime/tool 只读路径和必要 cache。服务端 CODEX_HOME
 # 和整个 sandboxes root 必须 deny-read，启动前 runtime probe 失败时拒绝执行。
 external_agents:
-  default_provider: "codex"
   codex:
     enabled: true
     codex_executable: "codex"
@@ -67,6 +51,8 @@ external_agents:
     approval_policy: "never"
     sandbox_type: "workspace-write"
     network_access: true
+    max_workers_per_pool: 50
+    max_total_pool_workers: 256
     # 保留配置；当前 app-server 进程按 job 生命周期启动和关闭，不依赖 idle 回收。
     idle_timeout_seconds: 1800
 
@@ -177,7 +163,7 @@ server:
     #   .ripple/sandboxes/<user_id>/workspace
     # 正式部署到 NAS 时可改成挂载目录，例如:
     #   /mnt/ripple-workspaces
-    # workspaces_root: ".ripple/sandboxes"
+    # workspaces_root: "/mnt/ripple-workspaces"
     # 跨 user 共享的包管理器缓存（uv / corepack / pnpm）
     # caches_root: ".ripple/sandboxes-cache"
     # 跨 user 共享的只读 Python 依赖环境（由 python/python3 wrapper 创建和复用）
@@ -213,31 +199,6 @@ server:
     #     sandbox_root: "/opt/podcast-cli"
     #     bin_dirs:
     #       - "current/bin"
-
-    # 资源限制
-    resource_limits:
-      max_memory_mb: 4096
-      max_file_size_mb: 1024
-      max_pids: 512
-      command_timeout: 120
-
-# 外部服务配置（第三方 API）
-services:
-  # Shazam 音乐识别 API（用于 skills/podcast/music-identify）
-  shazam:
-    api_key: "<SHAZAM_API_KEY>"
-    base_url: "https://shazam-api.com/api"
-    # 连接超时（秒），TCP 握手 + TLS
-    connect_timeout: 10
-    # 读超时（秒），等待服务端响应首字节/后续数据
-    request_timeout: 60
-    # 写超时（秒），上传 mp3 文件时的 write 阶段；大文件建议 120+
-    write_timeout: 120
-    # 轮询总超时（秒）
-    poll_timeout: 60
-    # 轮询间隔（秒）
-    poll_interval: 3
-
 
 # Skills 配置
 skills:

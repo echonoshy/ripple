@@ -1101,6 +1101,8 @@ mod tests {
                 sandbox_type: "workspace-write".to_string(),
                 network_access: true,
                 idle_timeout_seconds: 1800,
+                max_workers_per_pool: 8,
+                max_total_pool_workers: 256,
                 max_runtime_seconds: 3600,
             },
             schedule_extraction_max_runtime_seconds: 120,

@@ -3,6 +3,9 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
+pub const DEFAULT_CODEX_MAX_WORKERS_PER_POOL: usize = 8;
+pub const DEFAULT_CODEX_MAX_TOTAL_POOL_WORKERS: usize = 256;
+
 #[derive(Clone, Debug)]
 pub struct AppConfig {
     pub repo_root: PathBuf,
@@ -140,6 +143,8 @@ pub struct CodexConfig {
     pub sandbox_type: String,
     pub network_access: bool,
     pub idle_timeout_seconds: u64,
+    pub max_workers_per_pool: usize,
+    pub max_total_pool_workers: usize,
     pub max_runtime_seconds: u64,
 }
 
@@ -314,6 +319,8 @@ struct RawCodex {
     sandbox_type: Option<String>,
     network_access: Option<bool>,
     idle_timeout_seconds: Option<u64>,
+    max_workers_per_pool: Option<usize>,
+    max_total_pool_workers: Option<usize>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -532,6 +539,14 @@ impl AppConfig {
                     .unwrap_or_else(|| "workspace-write".to_string()),
                 network_access: codex_raw.network_access.unwrap_or(true),
                 idle_timeout_seconds: codex_raw.idle_timeout_seconds.unwrap_or(1800),
+                max_workers_per_pool: codex_raw
+                    .max_workers_per_pool
+                    .unwrap_or(DEFAULT_CODEX_MAX_WORKERS_PER_POOL)
+                    .max(1),
+                max_total_pool_workers: codex_raw
+                    .max_total_pool_workers
+                    .unwrap_or(DEFAULT_CODEX_MAX_TOTAL_POOL_WORKERS)
+                    .max(1),
                 max_runtime_seconds: codex_chat.max_runtime_seconds.unwrap_or(3600),
             },
             schedule_extraction_max_runtime_seconds: schedule_extraction
@@ -1120,6 +1135,26 @@ server:
             config.sandbox.workspaces_root,
             Some(config.repo_root.join("nas/workspaces"))
         );
+    }
+
+    #[test]
+    fn parses_codex_worker_pool_limits() {
+        let config = with_temp_config(
+            "codex-worker-limits",
+            r#"
+server:
+  api_keys: ["test-key"]
+external_agents:
+  codex:
+    max_workers_per_pool: 50
+    max_total_pool_workers: 256
+"#,
+            AppConfig::load,
+        )
+        .expect("load config");
+
+        assert_eq!(config.codex.max_workers_per_pool, 50);
+        assert_eq!(config.codex.max_total_pool_workers, 256);
     }
 
     #[test]

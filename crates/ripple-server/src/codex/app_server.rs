@@ -17,7 +17,9 @@ use tokio::sync::{mpsc, oneshot, Mutex, Notify};
 use tokio::time::timeout;
 
 use crate::codex::approvals::{approval_response_for_action, CodexApproval};
-use crate::codex::permissions::{thread_permission_config, RIPPLE_CODEX_PERMISSION_PROFILE};
+use crate::codex::permissions::{
+    thread_permission_config_for_user, RIPPLE_CODEX_PERMISSION_PROFILE,
+};
 use crate::config::AppConfig;
 use crate::python_env::{ensure_ripple_py_wrapper, ripple_py_bin_dir};
 use crate::redaction::{redact_text, redact_value};
@@ -1226,7 +1228,8 @@ impl CodexAppServerProvider {
     ) -> anyhow::Result<()> {
         session.ensure_started().await?;
         session.ensure_initialized().await?;
-        let permission_config = thread_permission_config(&session.cwd, &self.config);
+        let permission_config =
+            thread_permission_config_for_user(&session.user_key, &session.cwd, &self.config);
         let thread_result = session
             .request(
                 "thread/resume",
@@ -1447,7 +1450,8 @@ fn thread_config_for_request(
     config: &AppConfig,
     request: &AgentRunnerRequest,
 ) -> Value {
-    let mut thread_config = thread_permission_config(workspace_root, config);
+    let user_id = request.user_id.as_deref().unwrap_or("default");
+    let mut thread_config = thread_permission_config_for_user(user_id, workspace_root, config);
     if let Some(object) = thread_config.as_object_mut() {
         if image_generation_enabled_for_request(request) {
             object.insert("features.image_generation".to_string(), json!(true));
@@ -1898,6 +1902,7 @@ mod tests {
             },
             sandbox: SandboxConfig {
                 sandboxes_root: root.join("sandboxes"),
+                workspaces_root: None,
                 caches_root: root.join("cache"),
                 idle_suspend_seconds: 1800,
                 retention_seconds: 604_800,

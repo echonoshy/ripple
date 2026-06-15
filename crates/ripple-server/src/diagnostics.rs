@@ -83,7 +83,7 @@ impl DoctorCheck {
 }
 
 pub async fn readiness_report(config: &AppConfig) -> Value {
-    let checks = vec![
+    let mut checks = vec![
         sqlite_check(config).await,
         writable_dir_check("sandboxes_root", &config.sandbox.sandboxes_root).await,
         writable_dir_check("caches_root", &config.sandbox.caches_root).await,
@@ -94,6 +94,9 @@ pub async fn readiness_report(config: &AppConfig) -> Value {
             config.codex.enabled,
         ),
     ];
+    if let Some(workspaces_root) = &config.sandbox.workspaces_root {
+        checks.push(writable_dir_check("workspaces_root", workspaces_root).await);
+    }
     let status = aggregate_status(&checks);
     let mut checks_object = serde_json::Map::new();
     for check in checks {
@@ -115,6 +118,14 @@ pub fn redact_deployment_paths(config: &AppConfig, value: Value) -> Value {
         "/sandbox/",
         "/sandbox",
     );
+    if let Some(workspaces_root) = &config.sandbox.workspaces_root {
+        push_path_replacement(
+            &mut replacements,
+            workspaces_root,
+            "/workspace-storage/",
+            "/workspace-storage",
+        );
+    }
     push_path_replacement(
         &mut replacements,
         &config.sandbox.caches_root,
@@ -220,8 +231,16 @@ pub async fn doctor_report(config: &AppConfig) -> Value {
         connector_nsjail_config_check(config).await,
         connector_nsjail_runtime_check(config).await,
     ];
+    if let Some(workspaces_root) = &config.sandbox.workspaces_root {
+        checks.push(writable_dir_check("workspaces_root", workspaces_root).await);
+    }
     checks.extend(connector_cli_checks(config));
     let (pass_count, warn_count, fail_count) = count_statuses(&checks);
+    let workspace_backup_path = if config.sandbox.workspaces_root.is_some() {
+        "sandbox.workspaces_root/<user_id>/workspace"
+    } else {
+        ".ripple/sandboxes/<user_id>/workspace"
+    };
     json!({
         "status": aggregate_status(&checks),
         "service": "ripple-server",
@@ -238,7 +257,7 @@ pub async fn doctor_report(config: &AppConfig) -> Value {
                 ".ripple/ripple.sqlite",
                 ".ripple/ripple.sqlite-wal",
                 ".ripple/ripple.sqlite-shm",
-                ".ripple/sandboxes/<user_id>/workspace",
+                workspace_backup_path,
                 ".ripple/sandboxes/<user_id>/credentials",
                 ".ripple/sandboxes/<user_id>/agent-runs",
                 ".ripple/sandboxes/<user_id>/sessions"
@@ -639,6 +658,7 @@ mod tests {
             },
             sandbox: SandboxConfig {
                 sandboxes_root: root.join("sandboxes"),
+                workspaces_root: None,
                 caches_root: root.join("cache"),
                 idle_suspend_seconds: 1800,
                 retention_seconds: 604_800,

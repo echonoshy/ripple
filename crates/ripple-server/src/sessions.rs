@@ -1073,6 +1073,7 @@ mod tests {
             },
             sandbox: SandboxConfig {
                 sandboxes_root: root.join("sandboxes"),
+                workspaces_root: None,
                 caches_root: root.join("cache"),
                 idle_suspend_seconds: 1,
                 retention_seconds: 1,

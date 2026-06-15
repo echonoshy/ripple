@@ -74,10 +74,22 @@ pub async fn delete_sandbox(
 }
 
 pub async fn sandbox_info(State(state): State<AppState>) -> Json<Value> {
+    let has_configured_workspaces_root = state.config.sandbox.workspaces_root.is_some();
+    let workspaces_root = if has_configured_workspaces_root {
+        "/workspace-storage"
+    } else {
+        "/sandbox"
+    };
+    let workspace_path = if has_configured_workspaces_root {
+        "sandbox.workspaces_root/<user_id>/workspace"
+    } else {
+        ".ripple/sandboxes/<user_id>/workspace"
+    };
     Json(json!({
         "enabled": true,
         "deployment_mode": state.config.security.deployment_mode,
         "sandboxes_root": "/sandbox",
+        "workspaces_root": workspaces_root,
         "caches_root": "/cache",
         "security": {
             "trusted_proxy_mode": state.config.security.deployment_mode == "trusted-proxy",
@@ -122,7 +134,7 @@ pub async fn sandbox_info(State(state): State<AppState>) -> Json<Value> {
             },
             "workspace": {
                 "isolation_unit": "user_id",
-                "path": ".ripple/sandboxes/<user_id>/workspace"
+                "path": workspace_path
             }
         },
         "resource_limits": {

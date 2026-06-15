@@ -102,6 +102,7 @@ pub struct CorsConfig {
 #[derive(Clone, Debug)]
 pub struct SandboxConfig {
     pub sandboxes_root: PathBuf,
+    pub workspaces_root: Option<PathBuf>,
     pub caches_root: PathBuf,
     pub idle_suspend_seconds: u64,
     pub retention_seconds: u64,
@@ -264,6 +265,7 @@ struct RawDocumentPreview {
 #[derive(Debug, Default, Deserialize)]
 struct RawSandbox {
     sandboxes_root: Option<String>,
+    workspaces_root: Option<String>,
     caches_root: Option<String>,
     idle_suspend_seconds: Option<u64>,
     retention_seconds: Option<u64>,
@@ -399,6 +401,15 @@ impl AppConfig {
 
         let model_presets = parse_model_presets(model.presets.unwrap_or_default());
         let default_model = model.default.unwrap_or_else(|| "codex-medium".to_string());
+        let sandbox_sandboxes_root = resolve_path(
+            &repo_root,
+            sandbox
+                .sandboxes_root
+                .as_deref()
+                .unwrap_or(".ripple/sandboxes"),
+        );
+        let sandbox_workspaces_root = clean_config_string(sandbox.workspaces_root.as_deref())
+            .map(|value| resolve_path(&repo_root, &value));
         let sandbox_caches_root = resolve_path(
             &repo_root,
             sandbox
@@ -461,20 +472,9 @@ impl AppConfig {
                     .unwrap_or_else(|| "debug".to_string()),
             },
             sandbox: SandboxConfig {
-                sandboxes_root: resolve_path(
-                    &repo_root,
-                    sandbox
-                        .sandboxes_root
-                        .as_deref()
-                        .unwrap_or(".ripple/sandboxes"),
-                ),
-                caches_root: resolve_path(
-                    &repo_root,
-                    sandbox
-                        .caches_root
-                        .as_deref()
-                        .unwrap_or(".ripple/sandboxes-cache"),
-                ),
+                sandboxes_root: sandbox_sandboxes_root,
+                workspaces_root: sandbox_workspaces_root,
+                caches_root: sandbox_caches_root.clone(),
                 idle_suspend_seconds: sandbox.idle_suspend_seconds.unwrap_or(1800),
                 retention_seconds: sandbox.retention_seconds.unwrap_or(604_800),
                 max_workspace_mb: sandbox.max_workspace_mb.unwrap_or(2048),
@@ -1099,6 +1099,26 @@ server:
         assert_eq!(
             podcast.bin_dirs,
             vec![std::path::PathBuf::from("current/bin")]
+        );
+    }
+
+    #[test]
+    fn parses_configured_workspace_root() {
+        let config = with_temp_config(
+            "workspace-root",
+            r#"
+server:
+  api_keys: ["test-key"]
+  sandbox:
+    workspaces_root: "nas/workspaces"
+"#,
+            AppConfig::load,
+        )
+        .expect("load config");
+
+        assert_eq!(
+            config.sandbox.workspaces_root,
+            Some(config.repo_root.join("nas/workspaces"))
         );
     }
 

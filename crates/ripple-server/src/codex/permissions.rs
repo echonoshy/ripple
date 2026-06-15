@@ -8,6 +8,22 @@ use crate::config::AppConfig;
 pub const RIPPLE_CODEX_PERMISSION_PROFILE: &str = "ripple_workspace";
 
 pub fn thread_permission_config(workspace: &Path, config: &AppConfig) -> Value {
+    thread_permission_config_with_user(None, workspace, config)
+}
+
+pub fn thread_permission_config_for_user(
+    user_id: &str,
+    workspace: &Path,
+    config: &AppConfig,
+) -> Value {
+    thread_permission_config_with_user(Some(user_id), workspace, config)
+}
+
+fn thread_permission_config_with_user(
+    user_id: Option<&str>,
+    workspace: &Path,
+    config: &AppConfig,
+) -> Value {
     let mut filesystem = serde_json::Map::new();
     filesystem.insert(":minimal".to_string(), json!("read"));
     filesystem.insert(
@@ -75,18 +91,20 @@ pub fn thread_permission_config(workspace: &Path, config: &AppConfig) -> Value {
             );
         }
     }
-    if let Some(user_codex_home) = current_user_codex_home(workspace, config) {
+    if let Some(user_codex_home) = current_user_codex_home(user_id, workspace, config) {
         if !path_is_covered_by_parent(&user_codex_home, &config.sandbox.sandboxes_root) {
             filesystem.insert(user_codex_home.to_string_lossy().to_string(), json!("none"));
         }
     }
-    if let Some(user_runtime_home) = current_user_codex_runtime_home(workspace, config) {
+    if let Some(user_runtime_home) = current_user_codex_runtime_home(user_id, workspace, config) {
         filesystem.insert(
             user_runtime_home.to_string_lossy().to_string(),
             json!("write"),
         );
     }
-    if let Some(bilibili_credential) = current_user_bilibili_credential_file(workspace, config) {
+    if let Some(bilibili_credential) =
+        current_user_bilibili_credential_file(user_id, workspace, config)
+    {
         filesystem.insert(
             bilibili_credential.to_string_lossy().to_string(),
             json!("read"),
@@ -114,23 +132,20 @@ pub fn thread_permission_config(workspace: &Path, config: &AppConfig) -> Value {
     })
 }
 
-fn current_user_codex_home(workspace: &Path, config: &AppConfig) -> Option<std::path::PathBuf> {
-    let sandbox_dir = workspace.parent()?;
-    if sandbox_dir.parent()? != config.sandbox.sandboxes_root.as_path() {
-        return None;
-    }
-    Some(sandbox_dir.join("codex-home"))
-}
-
-fn current_user_codex_runtime_home(
+fn current_user_codex_home(
+    user_id: Option<&str>,
     workspace: &Path,
     config: &AppConfig,
 ) -> Option<std::path::PathBuf> {
-    let sandbox_dir = workspace.parent()?;
-    if sandbox_dir.parent()? != config.sandbox.sandboxes_root.as_path() {
-        return None;
-    }
-    let user_id = sandbox_dir.file_name()?.to_str()?;
+    Some(current_user_sandbox_dir(user_id, workspace, config)?.join("codex-home"))
+}
+
+fn current_user_codex_runtime_home(
+    user_id: Option<&str>,
+    workspace: &Path,
+    config: &AppConfig,
+) -> Option<std::path::PathBuf> {
+    let user_id = current_user_id(user_id, workspace, config)?;
     let codex_home = config.codex_home_path();
     let runtime_root = codex_home
         .parent()
@@ -138,6 +153,35 @@ fn current_user_codex_runtime_home(
         .unwrap_or_else(|| codex_home.clone())
         .join("codex-runtime");
     Some(runtime_root.join("users").join(user_id))
+}
+
+fn current_user_sandbox_dir(
+    user_id: Option<&str>,
+    workspace: &Path,
+    config: &AppConfig,
+) -> Option<std::path::PathBuf> {
+    if let Some(user_id) = user_id {
+        return crate::user::validate_user_id(user_id)
+            .is_ok()
+            .then(|| config.sandbox.sandboxes_root.join(user_id));
+    }
+    let sandbox_dir = workspace.parent()?;
+    if sandbox_dir.parent()? != config.sandbox.sandboxes_root.as_path() {
+        return None;
+    }
+    Some(sandbox_dir.to_path_buf())
+}
+
+fn current_user_id(user_id: Option<&str>, workspace: &Path, config: &AppConfig) -> Option<String> {
+    if let Some(user_id) = user_id {
+        return crate::user::validate_user_id(user_id)
+            .is_ok()
+            .then(|| user_id.to_string());
+    }
+    current_user_sandbox_dir(None, workspace, config)?
+        .file_name()?
+        .to_str()
+        .map(str::to_string)
 }
 
 fn path_exists_for_permission_rule(path: &Path) -> bool {
@@ -156,13 +200,11 @@ fn path_is_covered_by_parent(path: &Path, parent: &Path) -> bool {
 }
 
 fn current_user_bilibili_credential_file(
+    user_id: Option<&str>,
     workspace: &Path,
     config: &AppConfig,
 ) -> Option<std::path::PathBuf> {
-    let sandbox_dir = workspace.parent()?;
-    if sandbox_dir.parent()? != config.sandbox.sandboxes_root.as_path() {
-        return None;
-    }
+    let sandbox_dir = current_user_sandbox_dir(user_id, workspace, config)?;
     let credential = sandbox_dir.join("credentials/bilibili.json");
     path_exists_for_permission_rule(&credential).then_some(credential)
 }
@@ -173,7 +215,7 @@ mod tests {
 
     use serde_json::json;
 
-    use super::thread_permission_config;
+    use super::{thread_permission_config, thread_permission_config_for_user};
     use crate::config::{
         AppConfig, CodexConfig, CorsConfig, FeishuConfig, GogcliOAuthConfig, LoggingConfig,
         SandboxConfig, SecurityConfig, SkillsConfig,
@@ -401,6 +443,55 @@ mod tests {
         let _ = std::fs::remove_dir_all(&config.repo_root);
     }
 
+    #[test]
+    fn profile_resolves_current_user_paths_with_configured_workspace_root() {
+        let mut config = test_config();
+        config.codex.codex_home = Some(config.repo_root.join(".ripple/codex-service-home"));
+        config.sandbox.workspaces_root = Some(config.repo_root.join("nas-workspaces"));
+        let workspace = config
+            .sandbox
+            .workspaces_root
+            .as_ref()
+            .unwrap()
+            .join("alice/workspace");
+        let user_runtime = config.repo_root.join(".ripple/codex-runtime/users/alice");
+        let bilibili_credential = config
+            .sandbox
+            .sandboxes_root
+            .join("alice/credentials/bilibili.json");
+        std::fs::create_dir_all(&workspace).expect("create workspace");
+        std::fs::create_dir_all(bilibili_credential.parent().unwrap())
+            .expect("create credentials dir");
+        std::fs::write(&bilibili_credential, r#"{"sessdata":"secret"}"#)
+            .expect("write bilibili credential");
+
+        let permissions = thread_permission_config_for_user("alice", &workspace, &config);
+        let filesystem = permissions
+            .pointer("/permissions/ripple_workspace/filesystem")
+            .and_then(|filesystem| filesystem.as_object())
+            .expect("filesystem rules");
+
+        assert_eq!(
+            filesystem.get(user_runtime.to_string_lossy().as_ref()),
+            Some(&json!("write"))
+        );
+        assert_eq!(
+            filesystem.get(bilibili_credential.to_string_lossy().as_ref()),
+            Some(&json!("read"))
+        );
+        assert_eq!(
+            filesystem.get(workspace.to_string_lossy().as_ref()),
+            Some(&json!({
+                ".": "write",
+                ".git": "write",
+                ".agents": "read",
+                ".codex": "read"
+            }))
+        );
+
+        let _ = std::fs::remove_dir_all(&config.repo_root);
+    }
+
     fn test_config() -> AppConfig {
         let root = std::env::temp_dir().join(format!(
             "ripple-permissions-config-{}",
@@ -422,6 +513,7 @@ mod tests {
             },
             sandbox: SandboxConfig {
                 sandboxes_root: root.join("sandboxes"),
+                workspaces_root: None,
                 caches_root: root.join("cache"),
                 idle_suspend_seconds: 1800,
                 retention_seconds: 604_800,

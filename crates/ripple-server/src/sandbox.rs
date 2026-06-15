@@ -72,7 +72,14 @@ impl SandboxManager {
     }
 
     pub fn workspace_dir(&self, user_id: &str) -> anyhow::Result<PathBuf> {
-        Ok(self.sandbox_dir(user_id)?.join("workspace"))
+        validate_user_id(user_id).map_err(anyhow::Error::msg)?;
+        let root = self
+            .config
+            .sandbox
+            .workspaces_root
+            .as_ref()
+            .unwrap_or(&self.config.sandbox.sandboxes_root);
+        Ok(root.join(user_id).join("workspace"))
     }
 
     pub fn codex_home_dir(&self, user_id: &str) -> anyhow::Result<PathBuf> {
@@ -145,7 +152,7 @@ impl SandboxManager {
 
     pub fn ensure_sandbox(&self, user_id: &str) -> anyhow::Result<PathBuf> {
         let sandbox_dir = self.sandbox_dir(user_id)?;
-        let workspace_dir = sandbox_dir.join("workspace");
+        let workspace_dir = self.workspace_dir(user_id)?;
         std::fs::create_dir_all(sandbox_dir.join("codex-home"))?;
         std::fs::create_dir_all(sandbox_dir.join("credentials"))?;
         std::fs::create_dir_all(sandbox_dir.join("sessions"))?;
@@ -163,8 +170,18 @@ impl SandboxManager {
             anyhow::bail!("default user sandbox cannot be torn down");
         }
         let dir = self.sandbox_dir(user_id)?;
+        let workspace_dir = self.workspace_dir(user_id)?;
+        let workspace_inside_sandbox = workspace_dir.starts_with(&dir);
+        let mut removed = false;
         if dir.exists() {
             std::fs::remove_dir_all(dir)?;
+            removed = true;
+        }
+        if !workspace_inside_sandbox && workspace_dir.exists() {
+            std::fs::remove_dir_all(&workspace_dir)?;
+            removed = true;
+        }
+        if removed {
             self.user_locks
                 .lock()
                 .expect("user locks poisoned")
@@ -742,6 +759,7 @@ mod tests {
             },
             sandbox: SandboxConfig {
                 sandboxes_root: root.join("sandboxes"),
+                workspaces_root: None,
                 caches_root: root.join("cache"),
                 idle_suspend_seconds: 1800,
                 retention_seconds: 604_800,
@@ -847,6 +865,63 @@ mod tests {
 
         assert_eq!(codex_home, root.join("sandboxes/alice/codex-home"));
         assert!(!codex_home.starts_with(&workspace));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn ensure_sandbox_uses_configured_workspace_root() {
+        let root =
+            std::env::temp_dir().join(format!("ripple-sandbox-test-{}", uuid::Uuid::new_v4()));
+        let workspaces_root = root.join("nas-workspaces");
+        let mut config = (*test_config(&root)).clone();
+        config.sandbox.workspaces_root = Some(workspaces_root.clone());
+        let manager = SandboxManager::new(Arc::new(config));
+
+        let workspace = manager.ensure_sandbox("alice").unwrap();
+
+        assert_eq!(workspace, workspaces_root.join("alice/workspace"));
+        assert!(workspace.is_dir());
+        assert!(manager
+            .sandbox_dir("alice")
+            .unwrap()
+            .join("credentials")
+            .is_dir());
+        assert!(manager
+            .sandbox_dir("alice")
+            .unwrap()
+            .join("sessions")
+            .is_dir());
+        assert!(
+            !manager
+                .sandbox_dir("alice")
+                .unwrap()
+                .join("workspace")
+                .exists(),
+            "workspace should not be created below sandboxes_root when workspaces_root is configured"
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn teardown_sandbox_removes_configured_workspace_root() {
+        let root =
+            std::env::temp_dir().join(format!("ripple-sandbox-test-{}", uuid::Uuid::new_v4()));
+        let workspaces_root = root.join("nas-workspaces");
+        let mut config = (*test_config(&root)).clone();
+        config.sandbox.workspaces_root = Some(workspaces_root.clone());
+        let manager = SandboxManager::new(Arc::new(config));
+
+        let workspace = manager.ensure_sandbox("alice").unwrap();
+        std::fs::write(workspace.join("note.txt"), "hello").unwrap();
+        assert!(manager.sandbox_dir("alice").unwrap().exists());
+        assert!(workspace.exists());
+
+        assert!(manager.teardown_sandbox("alice", false).unwrap());
+
+        assert!(!manager.sandbox_dir("alice").unwrap().exists());
+        assert!(!workspace.exists());
 
         let _ = std::fs::remove_dir_all(root);
     }

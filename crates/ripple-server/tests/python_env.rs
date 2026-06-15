@@ -258,6 +258,7 @@ fn test_config(root: &Path) -> AppConfig {
         },
         sandbox: SandboxConfig {
             sandboxes_root: root.join("sandboxes"),
+            workspaces_root: None,
             caches_root: root.join("cache"),
             idle_suspend_seconds: 1800,
             retention_seconds: 604_800,

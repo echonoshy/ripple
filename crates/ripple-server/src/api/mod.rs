@@ -563,6 +563,7 @@ mod tests {
             },
             sandbox: SandboxConfig {
                 sandboxes_root: root.join("sandboxes"),
+                workspaces_root: None,
                 caches_root: root.join("cache"),
                 idle_suspend_seconds: 1800,
                 retention_seconds: 604_800,
@@ -879,6 +880,10 @@ mod tests {
         assert_eq!(
             body.get("caches_root").and_then(Value::as_str),
             Some("/cache")
+        );
+        assert_eq!(
+            body.get("workspaces_root").and_then(Value::as_str),
+            Some("/sandbox")
         );
         assert!(!body.to_string().contains(root.to_string_lossy().as_ref()));
 

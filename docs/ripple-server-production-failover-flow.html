@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Ripple Server 生产主备自动切流方案</title>
+    <title>Ripple Server SSD + NAS 主备方案</title>
     <style>
       :root {
         color-scheme: light;
@@ -192,6 +192,16 @@
         stroke: #8bcfbc;
       }
 
+      .node-ssd {
+        fill: #f6f8fb;
+        stroke: #aeb8c5;
+      }
+
+      .node-oss {
+        fill: #f2f0ff;
+        stroke: #a99df0;
+      }
+
       .node-danger {
         fill: #fff1f1;
         stroke: #ee9995;
@@ -206,6 +216,12 @@
       .small {
         fill: var(--muted);
         font-size: 13px;
+        font-weight: 500;
+      }
+
+      .tiny {
+        fill: var(--muted);
+        font-size: 11px;
         font-weight: 500;
       }
 
@@ -233,6 +249,21 @@
         marker-end: url(#arrow-soft);
       }
 
+      .arrow-data {
+        fill: none;
+        stroke: var(--blue);
+        stroke-width: 2.6;
+        marker-end: url(#arrow-blue);
+      }
+
+      .arrow-backup {
+        fill: none;
+        stroke: var(--green);
+        stroke-width: 2.4;
+        stroke-dasharray: 7 8;
+        marker-end: url(#arrow-green);
+      }
+
       .arrow-cut {
         fill: none;
         stroke: var(--red);
@@ -244,6 +275,12 @@
         fill: #ffffff;
         stroke: #d6dde6;
         stroke-width: 1.5;
+      }
+
+      .chip {
+        fill: #ffffff;
+        stroke: #d6dde6;
+        stroke-width: 1.2;
       }
 
       .grid {
@@ -270,6 +307,43 @@
       .explain-panel ul {
         margin: 10px 0 0;
         padding-left: 20px;
+      }
+
+      .verdict {
+        display: grid;
+        gap: 14px;
+        padding: 20px;
+        border: 1px solid #b9d6cb;
+        border-radius: 8px;
+        background: #eef9f5;
+      }
+
+      .verdict h2 {
+        color: #074c3d;
+      }
+
+      .verdict p {
+        max-width: 920px;
+        color: #28584d;
+      }
+
+      .badge-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        min-height: 28px;
+        padding: 4px 10px;
+        border: 1px solid #9ccbbd;
+        border-radius: 999px;
+        background: #ffffff;
+        color: #0b604c;
+        font-size: 13px;
+        font-weight: 700;
       }
 
       .timeline {
@@ -348,6 +422,74 @@
         color: var(--muted);
       }
 
+      .priority-list {
+        display: grid;
+        gap: 12px;
+      }
+
+      .priority-item {
+        display: grid;
+        grid-template-columns: 72px minmax(0, 1fr);
+        gap: 14px;
+        padding: 16px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface);
+      }
+
+      .priority {
+        align-self: start;
+        padding: 4px 8px;
+        border-radius: 6px;
+        color: #ffffff;
+        font-size: 13px;
+        font-weight: 800;
+        text-align: center;
+      }
+
+      .priority.p0 {
+        background: var(--red);
+      }
+
+      .priority.p1 {
+        background: var(--orange);
+      }
+
+      .priority.p2 {
+        background: var(--blue);
+      }
+
+      .priority-item h3 {
+        margin-bottom: 4px;
+        font-size: 16px;
+      }
+
+      .priority-item p {
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .flow {
+        display: grid;
+        gap: 10px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .flow li {
+        padding: 14px 16px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface);
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .flow strong {
+        color: var(--ink);
+      }
+
       code {
         padding: 2px 5px;
         border-radius: 5px;
@@ -381,6 +523,10 @@
           grid-template-columns: 1fr;
         }
 
+        .priority-item {
+          grid-template-columns: 1fr;
+        }
+
         .matrix div,
         .matrix div:nth-child(3n),
         .matrix div:nth-last-child(-n + 3) {
@@ -398,42 +544,59 @@
     <main>
       <header>
         <div>
-          <h1>Ripple Server 生产主备自动切流方案</h1>
+          <h1>Ripple Server SSD + NAS 主备方案</h1>
           <p class="subtitle">
-            目标是用轻量主备实现自动接管：保留 SQLite 和 Codex 原生运行时文件，使用网关控制唯一写入口，故障时中断运行中的任务并支持用户重试。
+            大 workspace 不落本机盘：控制面和运行时留 SSD，用户 workspace 和大产物放共享 NAS，主备机器都挂载同一份 NAS。
           </p>
         </div>
         <aside class="status" aria-label="方案边界">
           <strong>V1 边界</strong>
-          <span>单 active 写入</span>
-          <span>SQLite 保留在本机 SSD/NVMe</span>
-          <span>NAS 做备份和同步，不做双活共享写盘</span>
+          <span>SSD 跑控制面/runtime</span>
+          <span>NAS 承载 workspace/artifacts</span>
+          <span>NAS 备份交给厂商快照</span>
+          <span>脑裂和租约另行处理</span>
         </aside>
       </header>
+
+      <section aria-labelledby="verdict-title">
+        <article class="verdict">
+          <div class="section-head">
+            <h2 id="verdict-title">方案判断</h2>
+            <p>
+              这个版本更适合大用户目录：NAS 解决容量和主备共享问题，SSD 保住 SQLite、Codex runtime、凭证和 cache 的稳定性。
+            </p>
+          </div>
+          <div class="badge-row" aria-label="方案定位">
+            <span class="badge">推荐 V1</span>
+            <span class="badge">workspace 上 NAS</span>
+            <span class="badge">runtime 留 SSD</span>
+            <span class="badge">减少主备同步</span>
+          </div>
+        </article>
+      </section>
 
       <section aria-labelledby="architecture-title">
         <div class="section-head">
           <h2 id="architecture-title">整体架构</h2>
           <p>
-            外部网关负责认证、注入可信用户标识和切流；Ripple Server 只在当前主节点写入本地
-            <code>.ripple</code>；Codex app-server 作为本机执行面进程，由 Ripple 按用户和任务启动或复用。
+            主从机器共享同一台 NAS；新主接管后直接看到同一份用户 workspace。控制面 SQLite、Codex runtime、凭证和 cache 仍放各自本机 SSD。
           </p>
         </div>
 
         <article class="diagram-panel">
           <div class="diagram-title">
-            <strong>正常运行路径与备份路径</strong>
+            <strong>在线请求、存储和容灾路径</strong>
             <div class="legend" aria-label="图例">
               <span style="color: var(--blue)"><i class="dot"></i>在线请求</span>
-              <span style="color: var(--green)"><i class="dot"></i>备份同步</span>
-              <span style="color: var(--orange)"><i class="dot"></i>待接管</span>
+              <span style="color: var(--green)"><i class="dot"></i>NAS 备份</span>
+              <span style="color: var(--orange)"><i class="dot"></i>切换路径</span>
             </div>
           </div>
           <div class="diagram-wrap">
-            <svg viewBox="0 0 1180 710" role="img" aria-labelledby="svg-title svg-desc">
-              <title id="svg-title">Ripple Server 主备自动切流架构图</title>
+            <svg viewBox="0 0 1180 760" role="img" aria-labelledby="svg-title svg-desc">
+              <title id="svg-title">Ripple Server SSD 加 NAS 主备架构图</title>
               <desc id="svg-desc">
-                请求从客户端进入网关，网关转发到主节点。主节点运行 ripple-server 和 Codex app-server，并写入本机 .ripple。主节点把数据同步到 NAS 和备用节点。故障时备用节点提升为主节点，网关切到备用节点。
+                请求从客户端进入网关，网关转发到当前主节点。主节点的控制面和运行时写本机 SSD，用户 workspace 和大产物写共享 NAS。备用节点也挂载同一份 NAS，接管后无需同步用户 workspace。NAS 使用厂商快照和可选 OSS 或 COS 做容灾。
               </desc>
               <defs>
                 <marker
@@ -459,6 +622,28 @@
                   <path d="M0,0 L0,6 L9,3 z" fill="#7b8794" />
                 </marker>
                 <marker
+                  id="arrow-blue"
+                  markerWidth="10"
+                  markerHeight="10"
+                  refX="8"
+                  refY="3"
+                  orient="auto"
+                  markerUnits="strokeWidth"
+                >
+                  <path d="M0,0 L0,6 L9,3 z" fill="#2563eb" />
+                </marker>
+                <marker
+                  id="arrow-green"
+                  markerWidth="10"
+                  markerHeight="10"
+                  refX="8"
+                  refY="3"
+                  orient="auto"
+                  markerUnits="strokeWidth"
+                >
+                  <path d="M0,0 L0,6 L9,3 z" fill="#0f8a6a" />
+                </marker>
+                <marker
                   id="arrow-red"
                   markerWidth="10"
                   markerHeight="10"
@@ -471,158 +656,102 @@
                 </marker>
               </defs>
 
-              <rect class="node" x="38" y="76" width="170" height="96" rx="8" />
-              <text class="label" x="123" y="115" text-anchor="middle">Client</text>
-              <text class="small" x="123" y="141" text-anchor="middle">Web / API caller</text>
+              <rect class="node" x="34" y="70" width="148" height="92" rx="8" />
+              <text class="label" x="108" y="110" text-anchor="middle">Client</text>
+              <text class="small" x="108" y="136" text-anchor="middle">Web / API</text>
 
-              <rect class="node" x="278" y="58" width="220" height="132" rx="8" />
-              <text class="label" x="388" y="99" text-anchor="middle">Gateway</text>
-              <text class="small" x="388" y="126" text-anchor="middle">认证 / 鉴权 / TLS</text>
-              <text class="small" x="388" y="150" text-anchor="middle">注入 X-Ripple-User-Id</text>
+              <rect class="node" x="236" y="54" width="190" height="124" rx="8" />
+              <text class="label" x="331" y="96" text-anchor="middle">Gateway</text>
+              <text class="small" x="331" y="124" text-anchor="middle">认证 / TLS</text>
+              <text class="small" x="331" y="148" text-anchor="middle">切 active route</text>
 
-              <rect class="node-primary" x="602" y="40" width="486" height="240" rx="8" />
-              <text class="label" x="845" y="80" text-anchor="middle">Node A: Primary</text>
-              <text class="small" x="845" y="106" text-anchor="middle">当前唯一写入者</text>
+              <rect class="node-primary" x="476" y="36" width="308" height="318" rx="8" />
+              <text class="label" x="630" y="76" text-anchor="middle">Node A: Primary</text>
+              <text class="small" x="630" y="101" text-anchor="middle">当前接收请求</text>
 
-              <rect class="callout" x="636" y="128" width="184" height="70" rx="8" />
-              <text class="small mono" x="728" y="158" text-anchor="middle">ripple-server</text>
-              <text class="small" x="728" y="180" text-anchor="middle">/v1 API</text>
+              <rect class="chip" x="504" y="122" width="116" height="58" rx="8" />
+              <text class="small mono" x="562" y="147" text-anchor="middle">ripple</text>
+              <text class="tiny" x="562" y="166" text-anchor="middle">/v1 API</text>
 
-              <rect class="callout" x="864" y="128" width="184" height="70" rx="8" />
-              <text class="small mono" x="956" y="158" text-anchor="middle">Codex app-server</text>
-              <text class="small" x="956" y="180" text-anchor="middle">本机执行面进程</text>
+              <rect class="chip" x="640" y="122" width="116" height="58" rx="8" />
+              <text class="small mono" x="698" y="147" text-anchor="middle">Codex</text>
+              <text class="tiny" x="698" y="166" text-anchor="middle">app-server</text>
 
-              <rect class="callout" x="700" y="220" width="290" height="42" rx="8" />
-              <text class="small mono" x="845" y="246" text-anchor="middle">local SSD /opt/ripple/.ripple</text>
+              <rect class="node-ssd" x="504" y="202" width="252" height="74" rx="8" />
+              <text class="small mono" x="630" y="229" text-anchor="middle">Local SSD</text>
+              <text class="tiny" x="630" y="250" text-anchor="middle">ripple.sqlite / codex-runtime</text>
+              <text class="tiny" x="630" y="266" text-anchor="middle">credentials / caches / active jobs</text>
 
-              <rect class="node-backup" x="602" y="386" width="486" height="110" rx="8" />
-              <text class="label" x="845" y="430" text-anchor="middle">NAS / Backup Store</text>
-              <text class="small" x="845" y="458" text-anchor="middle">一致性快照、历史版本、离线备份</text>
+              <rect class="node-backup" x="504" y="298" width="252" height="38" rx="8" />
+              <text class="small mono" x="630" y="322" text-anchor="middle">NAS mount: workspace</text>
 
-              <rect class="node-standby" x="602" y="562" width="486" height="108" rx="8" />
-              <text class="label" x="845" y="604" text-anchor="middle">Node B: Standby</text>
-              <text class="small" x="845" y="632" text-anchor="middle">同版本服务已安装，等待 promote</text>
+              <rect class="node-standby" x="836" y="36" width="308" height="318" rx="8" />
+              <text class="label" x="990" y="76" text-anchor="middle">Node B: Standby</text>
+              <text class="small" x="990" y="101" text-anchor="middle">同样挂载 NAS</text>
 
-              <rect class="node-danger" x="278" y="300" width="220" height="132" rx="8" />
-              <text class="label" x="388" y="341" text-anchor="middle">Failover</text>
-              <text class="small" x="388" y="368" text-anchor="middle">健康检查连续失败</text>
-              <text class="small" x="388" y="392" text-anchor="middle">停止旧主路由，提升备用机</text>
+              <rect class="chip" x="864" y="122" width="116" height="58" rx="8" />
+              <text class="small mono" x="922" y="147" text-anchor="middle">ripple</text>
+              <text class="tiny" x="922" y="166" text-anchor="middle">待接管</text>
 
-              <path class="arrow" d="M208 124 H278" />
-              <path class="arrow" d="M498 124 C540 124 554 150 602 150" />
-              <path class="arrow" d="M820 163 H864" />
-              <path class="arrow-soft" d="M845 280 V386" />
-              <path class="arrow-soft" d="M845 496 V562" />
-              <path class="arrow-soft" d="M498 365 C548 365 548 616 602 616" />
-              <path class="arrow-cut" d="M388 300 V190" />
-              <path class="arrow-cut" d="M498 340 C572 310 610 246 684 230" />
+              <rect class="chip" x="1000" y="122" width="116" height="58" rx="8" />
+              <text class="small mono" x="1058" y="147" text-anchor="middle">Codex</text>
+              <text class="tiny" x="1058" y="166" text-anchor="middle">待启动/复用</text>
 
-              <text class="small" x="242" y="107" text-anchor="middle">HTTPS</text>
-              <text class="small" x="552" y="132" text-anchor="middle">active route</text>
-              <text class="small" x="848" y="337" text-anchor="middle">snapshot / sync</text>
-              <text class="small" x="848" y="539" text-anchor="middle">restore latest</text>
-              <text class="small" x="542" y="540" text-anchor="middle">promote</text>
+              <rect class="node-ssd" x="864" y="202" width="252" height="74" rx="8" />
+              <text class="small mono" x="990" y="229" text-anchor="middle">Local SSD</text>
+              <text class="tiny" x="990" y="250" text-anchor="middle">本机控制面/runtime</text>
+              <text class="tiny" x="990" y="266" text-anchor="middle">恢复后重建运行时状态</text>
+
+              <rect class="node-backup" x="864" y="298" width="252" height="38" rx="8" />
+              <text class="small mono" x="990" y="322" text-anchor="middle">NAS mount: same workspace</text>
+
+              <rect class="node-backup" x="392" y="432" width="476" height="126" rx="8" />
+              <text class="label" x="630" y="474" text-anchor="middle">Shared NAS</text>
+              <text class="small" x="630" y="502" text-anchor="middle">/mnt/ripple-workspaces/&lt;uid&gt;/workspace</text>
+              <text class="small" x="630" y="526" text-anchor="middle">uploads / documents / large artifacts / downloadable outputs</text>
+
+              <rect class="node" x="82" y="432" width="238" height="126" rx="8" />
+              <text class="label" x="201" y="474" text-anchor="middle">Keep On SSD</text>
+              <text class="small" x="201" y="502" text-anchor="middle">SQLite / Codex runtime</text>
+              <text class="small" x="201" y="526" text-anchor="middle">credentials / cache / active jobs</text>
+
+              <rect class="node" x="906" y="418" width="224" height="92" rx="8" />
+              <text class="label" x="1018" y="454" text-anchor="middle">NAS Snapshot</text>
+              <text class="small" x="1018" y="482" text-anchor="middle">厂商备份 / 快照 / 回滚</text>
+
+              <rect class="node-oss" x="906" y="590" width="224" height="92" rx="8" />
+              <text class="label" x="1018" y="626" text-anchor="middle">OSS / COS</text>
+              <text class="small" x="1018" y="654" text-anchor="middle">可选异地归档</text>
+
+              <rect class="node-danger" x="238" y="628" width="264" height="82" rx="8" />
+              <text class="label" x="370" y="662" text-anchor="middle">Failover</text>
+              <text class="small" x="370" y="688" text-anchor="middle">网关切到 Node B，workspace 无需同步</text>
+
+              <path class="arrow-data" d="M182 116 H236" />
+              <path class="arrow-data" d="M426 116 H476" />
+              <path class="arrow-soft" d="M426 154 C560 260 760 132 836 132" />
+              <path class="arrow-data" d="M630 336 C630 378 630 394 630 432" />
+              <path class="arrow-soft" d="M990 336 C990 390 830 386 770 432" />
+              <path class="arrow-backup" d="M868 484 H906" />
+              <path class="arrow-backup" d="M1018 510 V590" />
+              <path class="arrow-cut" d="M370 628 C450 582 790 398 990 336" />
+
+              <text class="tiny" x="205" y="101" text-anchor="middle">HTTPS</text>
+              <text class="tiny" x="451" y="101" text-anchor="middle">active</text>
+              <text class="tiny" x="566" y="394" text-anchor="middle">read/write</text>
+              <text class="tiny" x="888" y="392" text-anchor="middle">same mount</text>
+              <text class="tiny" x="886" y="468" text-anchor="middle">snapshot</text>
+              <text class="tiny" x="1040" y="552" text-anchor="middle">archive</text>
             </svg>
           </div>
         </article>
       </section>
 
-      <section aria-labelledby="failover-title">
-        <div class="section-head">
-          <h2 id="failover-title">自动切流流程</h2>
-          <p>
-            自动化只负责判断主节点不可用、切断旧主入口、启动备用节点、再把网关指向新主节点。旧主恢复后不自动抢回主角色，避免脑裂。
-          </p>
-        </div>
-
-        <div class="timeline">
-          <article class="step">
-            <div>
-              <h3>连续健康检查失败</h3>
-              <p>
-                Failover controller 每 5-10 秒检查 <code>/health</code> 和
-                <code>/v1/health/ready</code>。连续失败 3 次后，判定 primary 不可用。
-              </p>
-            </div>
-          </article>
-          <article class="step">
-            <div>
-              <h3>网关停止转发到旧主</h3>
-              <p>
-                网关将旧 primary 从 upstream 中摘除。这个动作必须先发生，确保后续只有 standby 能接收新写请求。
-              </p>
-            </div>
-          </article>
-          <article class="step">
-            <div>
-              <h3>备用节点使用最新数据提升为主</h3>
-              <p>
-                standby 从本地同步目录或 NAS 最新快照恢复 <code>.ripple</code>，启动
-                <code>ripple-server</code>，并开始成为唯一写入者。
-              </p>
-            </div>
-          </article>
-          <article class="step">
-            <div>
-              <h3>ready 后网关切到新主</h3>
-              <p>
-                新主通过 ready check 后，网关开始转发请求。旧主即使恢复，也只能人工确认后作为 standby 加回。
-              </p>
-            </div>
-          </article>
-        </div>
-      </section>
-
-      <section aria-labelledby="data-title">
-        <div class="section-head">
-          <h2 id="data-title">数据与职责边界</h2>
-          <p>
-            这版方案保留 SQLite。Ripple 的控制面 SQLite 和 Codex 自己的 runtime SQLite 都作为文件状态保护；不修改 Codex 源码，也不试图改变 Codex 的存储方式。
-          </p>
-        </div>
-
-        <div class="grid">
-          <article class="explain-panel">
-            <h3>网关</h3>
-            <p>负责外部入口，不让客户端直接控制用户隔离字段。</p>
-            <ul>
-              <li>认证和鉴权</li>
-              <li>删除客户端伪造的 <code>X-Ripple-User-Id</code></li>
-              <li>注入可信 <code>X-Ripple-User-Id</code></li>
-              <li>只转发给当前 primary</li>
-            </ul>
-          </article>
-
-          <article class="explain-panel">
-            <h3>Primary 节点</h3>
-            <p>唯一在线写入者，运行 Ripple 控制面和 Codex 执行面。</p>
-            <ul>
-              <li><code>ripple-server</code> 写控制面 SQLite</li>
-              <li>启动或复用 Codex app-server worker</li>
-              <li>本机 SSD/NVMe 保存 <code>.ripple</code></li>
-              <li>异步同步到 NAS 或 standby</li>
-            </ul>
-          </article>
-
-          <article class="explain-panel">
-            <h3>Standby 节点</h3>
-            <p>预装相同运行环境，平时不接写请求。</p>
-            <ul>
-              <li>同版本 <code>ripple-server</code> 和 <code>codex</code></li>
-              <li>保留最近同步的数据</li>
-              <li>promote 后成为新 primary</li>
-              <li>旧 primary 需人工确认后重新加入</li>
-            </ul>
-          </article>
-        </div>
-      </section>
-
       <section aria-labelledby="state-title">
         <div class="section-head">
-          <h2 id="state-title">需要保护的状态</h2>
+          <h2 id="state-title">状态放置</h2>
           <p>
-            备份和切换时要把 Ripple 控制面、用户工作区、运行产物和 Codex runtime 状态分开看。只备份
-            <code>ripple.sqlite</code> 不够。
+            核心原则：大文件上 NAS，小而敏感、锁敏感、运行时强相关的状态留 SSD。
           </p>
         </div>
 
@@ -632,61 +761,62 @@
           <div class="head" role="columnheader">策略</div>
 
           <div><strong>Ripple 控制面</strong></div>
-          <div class="muted"><code>.ripple/ripple.sqlite*</code></div>
-          <div class="muted">SQLite 一致性备份；包含 WAL/SHM 或使用在线 backup。</div>
+          <div class="muted">本机 SSD：<code>.ripple/ripple.sqlite*</code></div>
+          <div class="muted">锁敏感，继续放本机盘。</div>
 
           <div><strong>用户 workspace</strong></div>
-          <div class="muted"><code>.ripple/sandboxes/&lt;uid&gt;/workspace</code></div>
-          <div class="muted">文件快照或增量同步；主备切换时只允许新主写。</div>
+          <div class="muted">NAS：<code>/mnt/ripple-workspaces/&lt;uid&gt;/workspace</code></div>
+          <div class="muted">容量最大，主备共享，无需同步。</div>
+
+          <div><strong>用户 connector 凭证</strong></div>
+          <div class="muted">本机 SSD：<code>.ripple/sandboxes/&lt;uid&gt;/credentials</code></div>
+          <div class="muted">敏感状态，单独加密备份。</div>
 
           <div><strong>任务运行产物</strong></div>
-          <div class="muted"><code>sessions</code>、<code>agent-runs</code></div>
-          <div class="muted">用于恢复历史、输出下载和失败后重试定位。</div>
+          <div class="muted">小状态在 SSD，大 artifacts 可落 NAS。</div>
+          <div class="muted">events/stdout 保留 SSD；大输出可转 NAS。</div>
 
           <div><strong>Codex runtime</strong></div>
-          <div class="muted"><code>.ripple/codex-runtime/users/&lt;uid&gt;/sqlite</code></div>
-          <div class="muted">按黑盒文件状态备份；不修改 Codex schema。</div>
+          <div class="muted">本机 SSD：<code>codex-home</code>、<code>codex-runtime</code></div>
+          <div class="muted">黑盒运行时，不放 NAS。</div>
 
-          <div><strong>服务端 Codex auth</strong></div>
-          <div class="muted"><code>.ripple/codex-service-home</code></div>
-          <div class="muted">建议恢复后重新登录；不要暴露到用户 workspace。</div>
+          <div><strong>NAS 容灾</strong></div>
+          <div class="muted">厂商快照 / 云备份 / 可选 OSS 或 COS 归档。</div>
+          <div class="muted">负责 workspace 误删回滚和异地备份。</div>
         </div>
       </section>
 
-      <section aria-labelledby="guarantees-title">
+      <section aria-labelledby="failover-title">
         <div class="section-head">
-          <h2 id="guarantees-title">这版方案承诺什么，不承诺什么</h2>
+          <h2 id="failover-title">切换流程</h2>
+          <p>
+            主机故障时只需要切网关和启动新主；workspace 已经在 NAS 上，不需要从旧主同步大文件。
+          </p>
         </div>
-
-        <div class="grid">
-          <article class="explain-panel">
-            <h3>承诺</h3>
-            <ul>
-              <li>网关自动切到可用主节点。</li>
-              <li>任何时刻只有一台机器写 <code>.ripple</code>。</li>
-              <li>SQLite 可继续作为 50 并发左右的控制面存储。</li>
-              <li>Codex 存储保持原样，跟随自然升级。</li>
-            </ul>
+        <div class="timeline">
+          <article class="step">
+            <div>
+              <h3>Node A 正常服务</h3>
+              <p>请求走网关到 Node A；Node A 写本机 SSD 上的控制面/runtime，同时读写 NAS 上的 workspace。</p>
+            </div>
           </article>
-
-          <article class="explain-panel">
-            <h3>不承诺</h3>
-            <ul>
-              <li>运行中的 Codex job 无损迁移。</li>
-              <li>两台机器同时 active 写同一份状态。</li>
-              <li>修改 Codex app-server 源码或存储格式。</li>
-              <li>SQLite 立即迁 PostgreSQL。</li>
-            </ul>
+          <article class="step">
+            <div>
+              <h3>Node A 故障</h3>
+              <p>运行中 job 中断；用户大文件仍在 NAS，未绑定旧主本机盘。</p>
+            </div>
           </article>
-
-          <article class="explain-panel">
-            <h3>预期指标</h3>
-            <ul>
-              <li>RTO：约 30-90 秒，取决于检查间隔和启动速度。</li>
-              <li>RPO：约等于备份/同步间隔。</li>
-              <li>失败任务：标记中断，用户重试。</li>
-              <li>旧主恢复：人工确认后作为 standby 加回。</li>
-            </ul>
+          <article class="step">
+            <div>
+              <h3>网关切到 Node B</h3>
+              <p>Node B 使用自己的 SSD runtime，并挂载同一个 NAS workspace；无需同步大目录。</p>
+            </div>
+          </article>
+          <article class="step">
+            <div>
+              <h3>NAS 由厂商快照保护</h3>
+              <p>误删、误改走 NAS 快照恢复；需要异地容灾时再把快照或备份包归档到 OSS/COS。</p>
+            </div>
           </article>
         </div>
       </section>

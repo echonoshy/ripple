@@ -171,8 +171,13 @@ server:
 
   # 沙箱配置（nsjail）
   sandbox:
-    # user 沙箱根目录（每个 user 的 workspace + nsjail.cfg + credentials + sessions/）
+    # user 运行时根目录（每个 user 的 nsjail.cfg + credentials + sessions/）
     # sandboxes_root: ".ripple/sandboxes"
+    # user workspace 存储根目录。默认不配置，继续使用:
+    #   .ripple/sandboxes/<user_id>/workspace
+    # 正式部署到 NAS 时可改成挂载目录，例如:
+    #   /mnt/ripple-workspaces
+    # workspaces_root: ".ripple/sandboxes"
     # 跨 user 共享的包管理器缓存（uv / corepack / pnpm）
     # caches_root: ".ripple/sandboxes-cache"
     # 跨 user 共享的只读 Python 依赖环境（由 python/python3 wrapper 创建和复用）

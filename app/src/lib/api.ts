@@ -246,6 +246,8 @@ export interface ScheduleCreateInput {
   missed_run_policy?: string;
   overlap_policy?: string;
   failure_policy?: string;
+  task_id?: string | null;
+  task_action_id?: string | null;
 }
 
 export type ScheduleUpdateInput = Partial<ScheduleCreateInput>;
@@ -778,7 +780,9 @@ interface RawTaskEvent {
   task_id?: string;
   user_id?: string;
   event_type?: string;
+  type?: string;
   payload?: Record<string, unknown> | null;
+  details?: Record<string, unknown> | null;
   created_at?: string | null;
 }
 
@@ -839,8 +843,8 @@ function normalizeTaskEvent(raw: RawTaskEvent): TaskEventInfo {
     eventId: raw.event_id || raw.id || "",
     taskId: raw.task_id || "",
     userId: raw.user_id || "",
-    eventType: raw.event_type || "task_event",
-    payload: raw.payload ?? null,
+    eventType: raw.event_type || raw.type || "task_event",
+    payload: raw.payload ?? raw.details ?? null,
     createdAt: raw.created_at ?? null,
   };
 }

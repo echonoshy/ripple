@@ -1,5 +1,5 @@
 import type { ComponentType } from "react";
-import { CalendarClock, FileText, ListTodo, MessageCircle, Settings, Sparkles } from "lucide-react";
+import { FileText, ListTodo, MessageCircle, Settings, Sparkles } from "lucide-react";
 
 export type WorkspaceView =
   | "home"
@@ -21,7 +21,6 @@ export const mainNavItems: WorkspaceNavItem[] = [
   { id: "tasks", label: "Tasks", icon: ListTodo },
   { id: "files", label: "Files", icon: FileText },
   { id: "skills", label: "Skills", icon: Sparkles },
-  { id: "automations", label: "Autos", icon: CalendarClock },
 ];
 
 export const mobileNavItems: WorkspaceNavItem[] = [

@@ -11,7 +11,10 @@ use time::format_description::well_known::Rfc3339;
 use time::{Duration as TimeDuration, OffsetDateTime, PrimitiveDateTime};
 use uuid::Uuid;
 
-use crate::api::run_public::{public_run_value, sanitize_user_visible_value};
+use crate::api::run_public::{
+    public_run_value, sanitize_user_visible_text, sanitize_user_visible_value,
+};
+use crate::api::tasks::append_task_event;
 use crate::api::users::assert_can_create_run;
 use crate::api::{audit_event, paginate, require_confirm, ApiError, ListQuery};
 use crate::jobs::{resolve_workspace_cwd, AgentRunCreateRequest, AgentRunInfo};
@@ -646,7 +649,7 @@ async fn start_schedule_run(
         chat_user_content: None,
     };
     assert_can_create_run(state, user_id, create.max_runtime_seconds).await?;
-    state
+    let info = state
         .jobs
         .start(
             create,
@@ -656,7 +659,17 @@ async fn start_schedule_run(
             runtime_dir,
         )
         .await
-        .map_err(|err| ApiError::bad_request(err.to_string()))
+        .map_err(|err| ApiError::bad_request(err.to_string()))?;
+    append_task_trigger_run_event(
+        state,
+        user_id,
+        record,
+        "task_trigger_run_started",
+        &info,
+        trigger,
+    )
+    .await?;
+    Ok(info)
 }
 
 async fn load_schedule_state(state: &AppState, user_id: &str) -> Result<ScheduleState, ApiError> {
@@ -693,11 +706,135 @@ async fn reconcile_schedule_record(
     record: &mut ScheduleRecord,
 ) -> Result<(), ApiError> {
     let records = list_schedule_job_records(state, user_id, &record.schedule_id).await?;
-    if apply_latest_run_to_schedule(record, records.first()) {
+    let previous_run_id = record.last_run_id.clone();
+    let previous_run_status = record.last_run_status.clone();
+    let latest = records.first();
+    if apply_latest_run_to_schedule(record, latest) {
+        if let Some(run) = latest {
+            append_task_trigger_terminal_event_if_needed(
+                state,
+                user_id,
+                record,
+                run,
+                previous_run_id.as_deref(),
+                previous_run_status.as_deref(),
+            )
+            .await?;
+        }
         record.updated_at = iso(OffsetDateTime::now_utc());
         persist_schedule_record(state, user_id, record).await?;
     }
     Ok(())
+}
+
+async fn append_task_trigger_run_event(
+    state: &AppState,
+    user_id: &str,
+    record: &ScheduleRecord,
+    event_type: &str,
+    run: &AgentRunInfo,
+    trigger: &str,
+) -> Result<(), ApiError> {
+    let Some(task_id) = record.task_id.as_deref() else {
+        return Ok(());
+    };
+    append_task_event(
+        &state.storage,
+        user_id,
+        task_id,
+        event_type,
+        json!({
+            "schedule_id": record.schedule_id,
+            "task_action_id": record.task_action_id,
+            "run_id": run.job_id,
+            "status": run.status,
+            "trigger": trigger,
+        }),
+    )
+    .await
+}
+
+async fn append_task_trigger_terminal_event_if_needed(
+    state: &AppState,
+    user_id: &str,
+    record: &ScheduleRecord,
+    run: &AgentRunInfo,
+    previous_run_id: Option<&str>,
+    previous_run_status: Option<&str>,
+) -> Result<(), ApiError> {
+    let Some(event_type) = task_trigger_terminal_event_type(&run.status) else {
+        return Ok(());
+    };
+    if previous_run_id == Some(run.job_id.as_str())
+        && previous_run_status == Some(run.status.as_str())
+    {
+        return Ok(());
+    }
+    let trigger = run
+        .metadata
+        .get("schedule_trigger")
+        .and_then(Value::as_str)
+        .unwrap_or("scheduled");
+    append_task_trigger_run_event(state, user_id, record, event_type, run, trigger).await?;
+    append_task_trigger_session_update_if_needed(state, user_id, record, run).await
+}
+
+fn task_trigger_terminal_event_type(status: &str) -> Option<&'static str> {
+    match status {
+        "completed" => Some("task_trigger_run_completed"),
+        "failed" | "cancelled" => Some("task_trigger_run_failed"),
+        _ => None,
+    }
+}
+
+async fn append_task_trigger_session_update_if_needed(
+    state: &AppState,
+    user_id: &str,
+    record: &ScheduleRecord,
+    run: &AgentRunInfo,
+) -> Result<(), ApiError> {
+    if run.status != "completed" {
+        return Ok(());
+    }
+    let Some(task_id) = record.task_id.as_deref() else {
+        return Ok(());
+    };
+    let Some(task) = state.storage.get_task(user_id, task_id).await? else {
+        return Ok(());
+    };
+    let Some(session_id) = task
+        .get("source_session_id")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+    else {
+        return Ok(());
+    };
+    let Some(mut session) = state.sessions.load(user_id, &session_id).await? else {
+        return Ok(());
+    };
+    let output_text = read_schedule_run_output(run).await;
+    let result_summary = sanitize_user_visible_text(state, user_id, &output_text);
+    if result_summary.trim().is_empty() {
+        return Ok(());
+    }
+    session.messages.push(json!({
+        "role": "assistant",
+        "content": [{"type": "text", "text": result_summary}],
+        "created_at": iso(OffsetDateTime::now_utc())
+    }));
+    session.message_count = session.messages.len();
+    session.last_active = iso(OffsetDateTime::now_utc());
+    state.sessions.save_record_if_exists(session).await?;
+    Ok(())
+}
+
+async fn read_schedule_run_output(run: &AgentRunInfo) -> String {
+    if let Some(output_file) = run.output_file.as_deref() {
+        if let Ok(text) = tokio::fs::read_to_string(output_file).await {
+            return text;
+        }
+    }
+    run.stdout_tail.clone()
 }
 
 async fn list_schedule_job_records(

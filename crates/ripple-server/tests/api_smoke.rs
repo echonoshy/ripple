@@ -1289,11 +1289,18 @@ async fn task_actions_drive_status_machine_progress_and_events() {
         .and_then(Value::as_array)
         .expect("events")
         .iter()
-        .filter_map(|event| event.get("type").and_then(Value::as_str))
+        .filter_map(|event| event.get("event_type").and_then(Value::as_str))
         .collect::<Vec<_>>();
     assert!(event_types.contains(&"task_action_started"), "{events}");
     assert!(event_types.contains(&"task_action_completed"), "{events}");
     assert!(event_types.contains(&"task_completed"), "{events}");
+    assert!(
+        events
+            .pointer("/events/0/payload")
+            .and_then(Value::as_object)
+            .is_some(),
+        "{events}"
+    );
 
     let _ = std::fs::remove_dir_all(root);
 }
@@ -1607,7 +1614,7 @@ async fn task_run_now_executes_codex_and_writes_progress_back() {
         .and_then(Value::as_array)
         .expect("events")
         .iter()
-        .filter_map(|event| event.get("type").and_then(Value::as_str))
+        .filter_map(|event| event.get("event_type").and_then(Value::as_str))
         .collect::<Vec<_>>();
     assert!(event_types.contains(&"task_run_started"), "{events}");
     assert!(event_types.contains(&"task_plan_updated"), "{events}");
@@ -4113,6 +4120,166 @@ async fn schedule_run_now_completes_with_fake_codex_app_server() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(runs.get("count").and_then(Value::as_u64), Some(1));
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn task_linked_schedule_run_records_task_events_and_session_output() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (_state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    let (status, session) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/sessions",
+        json!({"model": "codex-test"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let session_id = session
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("session id")
+        .to_string();
+
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks",
+        json!({
+            "task_id": "task-linked-schedule",
+            "title": "准备明天汇报",
+            "objective": "整理 ripple 最近更新",
+            "status": "active",
+            "source_session_id": session_id,
+            "actions": [
+                {
+                    "action_id": "act-linked-schedule",
+                    "title": "整理 git 更新",
+                    "kind": "execute",
+                    "status": "confirmed"
+                }
+            ]
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+
+    let (status, schedule) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/schedules",
+        json!({
+            "title": "提醒整理 git 更新",
+            "prompt": "整理 ripple 最近 git 更新",
+            "kind": "interval",
+            "interval_seconds": 3600,
+            "enabled": true,
+            "max_runtime_seconds": 5,
+            "task_id": "task-linked-schedule",
+            "task_action_id": "act-linked-schedule"
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{schedule}");
+    let schedule_id = schedule
+        .get("schedule_id")
+        .and_then(Value::as_str)
+        .expect("schedule id")
+        .to_string();
+
+    let (status, run) = call(
+        app.clone(),
+        Method::POST,
+        &format!("/v1/schedules/{schedule_id}/run-now"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{run}");
+    let job_id = run
+        .get("job_id")
+        .and_then(Value::as_str)
+        .expect("job id")
+        .to_string();
+
+    let mut completed = false;
+    for _ in 0..40 {
+        let (status, run) = call(
+            app.clone(),
+            Method::GET,
+            &format!("/v1/runs/{job_id}"),
+            Value::Null,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{run}");
+        if run.get("status").and_then(Value::as_str) == Some("completed") {
+            completed = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert!(completed, "manual linked schedule run should complete");
+
+    let (status, schedule_detail) = call(
+        app.clone(),
+        Method::GET,
+        &format!("/v1/schedules/{schedule_id}"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{schedule_detail}");
+    assert_eq!(
+        schedule_detail
+            .get("last_run_status")
+            .and_then(Value::as_str),
+        Some("completed"),
+        "{schedule_detail}"
+    );
+
+    let (status, events) = call(
+        app.clone(),
+        Method::GET,
+        "/v1/tasks/task-linked-schedule/events",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{events}");
+    let event_types = events
+        .get("events")
+        .and_then(Value::as_array)
+        .expect("events")
+        .iter()
+        .filter_map(|event| event.get("event_type").and_then(Value::as_str))
+        .collect::<Vec<_>>();
+    assert!(
+        event_types.contains(&"task_trigger_run_started"),
+        "{events}"
+    );
+    assert!(
+        event_types.contains(&"task_trigger_run_completed"),
+        "{events}"
+    );
+
+    let (status, session_detail) = call(
+        app,
+        Method::GET,
+        &format!("/v1/sessions/{session_id}"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session_detail}");
+    assert!(
+        session_detail
+            .get("messages")
+            .and_then(Value::as_array)
+            .unwrap_or(&Vec::new())
+            .iter()
+            .any(|message| format!("{message}").contains("fake codex completed")),
+        "{session_detail}"
+    );
 
     let _ = std::fs::remove_dir_all(root);
 }

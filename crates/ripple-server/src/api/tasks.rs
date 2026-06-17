@@ -1362,7 +1362,7 @@ fn append_assistant_message(session: &mut SessionRecord, text: &str) {
     session.last_active = now_iso();
 }
 
-async fn append_task_event(
+pub(crate) async fn append_task_event(
     storage: &Storage,
     user_id: &str,
     task_id: &str,
@@ -1374,8 +1374,8 @@ async fn append_task_event(
         "event_id": generated_id("evt"),
         "task_id": task_id,
         "user_id": user_id,
-        "type": event_type,
-        "details": details,
+        "event_type": event_type,
+        "payload": details,
         "created_at": now
     });
     storage.upsert_task_event(user_id, task_id, &record).await?;

@@ -5,14 +5,14 @@ import { mainNavItems, mobileNavItems, shouldShowInspector, viewTitle } from "./
 function testMainNavItemsExposeDesktopProductTabs() {
   assert.deepEqual(
     mainNavItems.map((item) => item.id),
-    ["sessions", "tasks", "files", "skills", "automations"]
+    ["sessions", "tasks", "files", "skills"]
   );
 }
 
 function testMobileNavKeepsSettingsEntry() {
   assert.deepEqual(
     mobileNavItems.map((item) => item.id),
-    ["sessions", "tasks", "files", "skills", "automations", "home"]
+    ["sessions", "tasks", "files", "skills", "home"]
   );
 }
 
@@ -20,7 +20,7 @@ function testViewTitlesAreHumanReadable() {
   assert.equal(viewTitle("home"), "Settings");
   assert.equal(viewTitle("sessions"), "Sessions");
   assert.equal(viewTitle("tasks"), "Tasks");
-  assert.equal(viewTitle("automations"), "Autos");
+  assert.equal(viewTitle("automations"), "Ripple");
   assert.equal(viewTitle("files"), "Files");
   assert.equal(viewTitle("skills"), "Skills");
   assert.equal(viewTitle("connectors"), "Skills");

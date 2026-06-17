@@ -4,7 +4,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { I18nProvider, type LocalePreference } from "@/i18n";
-import type { TaskActionInfo, TaskEventInfo, TaskInfo } from "@/types";
+import type { ScheduleInfo, TaskActionInfo, TaskEventInfo, TaskInfo } from "@/types";
 import TasksPage from "./TasksPage";
 
 const noop = () => {};
@@ -54,6 +54,8 @@ const actions: TaskActionInfo[] = [
     status: "in_progress",
     assignee: "codex",
     requiresConfirmation: false,
+    lastRunId: "job-quote-1",
+    lastError: "缺少客户预算信息",
     createdAt: "2026-06-17T08:30:00.000Z",
     updatedAt: "2026-06-17T09:00:00.000Z",
   },
@@ -68,6 +70,45 @@ const events: TaskEventInfo[] = [
     payload: { action_id: "act-quote" },
     createdAt: "2026-06-17T09:00:00.000Z",
   },
+  {
+    eventId: "evt-2",
+    taskId: "task-client-plan",
+    userId: "default",
+    eventType: "task_action_blocked",
+    payload: { action_id: "act-quote", status: "blocked" },
+    createdAt: "2026-06-17T09:05:00.000Z",
+  },
+];
+
+const schedules: ScheduleInfo[] = [
+  {
+    schedule_id: "sch-trip",
+    user_id: "default",
+    title: "明早提醒",
+    prompt: "提醒准备材料",
+    kind: "once",
+    timezone: "Asia/Shanghai",
+    run_at: "2026-06-18T07:30:00+08:00",
+    interval_seconds: null,
+    enabled: true,
+    status: "active",
+    next_run_at: "2026-06-17T23:30:00Z",
+    last_run_at: null,
+    last_run_id: "job-sch-trip",
+    last_error: null,
+    cwd: null,
+    model: null,
+    effort: null,
+    summary: null,
+    output_schema: null,
+    max_runtime_seconds: 1800,
+    max_runs: 1,
+    task_id: "task-client-plan",
+    task_action_id: "act-quote",
+    run_count: 1,
+    created_at: "2026-06-17T10:00:00Z",
+    updated_at: "2026-06-17T10:00:00Z",
+  },
 ];
 
 function renderTasksPage(locale: LocalePreference = "zh-CN") {
@@ -79,6 +120,7 @@ function renderTasksPage(locale: LocalePreference = "zh-CN") {
         tasks={[task]}
         actions={actions}
         events={events}
+        schedules={schedules}
         isLoading={false}
         error={null}
         onRefresh={noop}
@@ -101,7 +143,26 @@ function testTasksPageRendersTaskListAndDetail() {
   assert.match(html, /33%/);
   assert.match(html, /生成报价/);
   assert.match(html, /整理会议纪要/);
-  assert.match(html, /来自会话/);
+  assert.match(html, /查看来源会话/);
+  assert.match(html, /缺少客户预算信息/);
+  assert.match(html, /job-quote-1/);
+  assert.match(html, /触发器/);
+  assert.match(html, /明早提醒/);
+  assert.match(html, /job-sch-trip/);
+  assert.match(html, /步骤受阻/);
+  assert.match(html, /开始执行步骤/);
+  assert.ok(html.indexOf("步骤受阻") < html.indexOf("开始执行步骤"));
+}
+
+function testPrimaryNavigationNoLongerIncludesAutos() {
+  const source = readFileSync(new URL("../../lib/workspaceViews.ts", import.meta.url), "utf8");
+  const mainNavItemsSource = source.slice(
+    source.indexOf("export const mainNavItems"),
+    source.indexOf("export const mobileNavItems")
+  );
+
+  assert.doesNotMatch(mainNavItemsSource, /label: "Autos"/);
+  assert.doesNotMatch(mainNavItemsSource, /id: "automations"/);
 }
 
 function testTasksPageKeepsAutomationOutOfPrimaryNavigation() {
@@ -110,11 +171,11 @@ function testTasksPageKeepsAutomationOutOfPrimaryNavigation() {
   assert.match(source, /data-ripple-task-page/);
   assert.match(source, /data-ripple-task-list/);
   assert.match(source, /data-ripple-task-detail/);
-  assert.doesNotMatch(source, /fetchSchedules/);
   assert.doesNotMatch(source, /disconnectConnector/);
 }
 
 testTasksPageRendersTaskListAndDetail();
+testPrimaryNavigationNoLongerIncludesAutos();
 testTasksPageKeepsAutomationOutOfPrimaryNavigation();
 
 console.log("tasks page tests passed");

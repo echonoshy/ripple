@@ -299,6 +299,52 @@ async function testScheduleRunApisEncodeIdsAndDownloadOutput() {
   assert.equal(requests.at(-1)?.body, JSON.stringify({ confirm: true }));
 }
 
+async function testFetchSchedulesKeepsTaskLinks() {
+  await withFetch(
+    async () =>
+      new Response(
+        JSON.stringify({
+          schedules: [
+            {
+              schedule_id: "sch-linked",
+              user_id: "default",
+              title: "明早提醒",
+              prompt: "提醒准备材料",
+              kind: "once",
+              timezone: "Asia/Shanghai",
+              run_at: "2026-06-18T07:30:00+08:00",
+              interval_seconds: null,
+              enabled: true,
+              status: "active",
+              next_run_at: "2026-06-17T23:30:00Z",
+              last_run_at: null,
+              last_run_id: null,
+              last_error: null,
+              cwd: null,
+              model: null,
+              effort: null,
+              summary: null,
+              output_schema: null,
+              max_runtime_seconds: 1800,
+              max_runs: 1,
+              task_id: "task-trip",
+              task_action_id: "act-remind",
+              run_count: 0,
+              created_at: "2026-06-17T10:00:00Z",
+              updated_at: "2026-06-17T10:00:00Z",
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      ),
+    async () => {
+      const schedules = await fetchSchedules();
+      assert.equal(schedules[0]?.task_id, "task-trip");
+      assert.equal(schedules[0]?.task_action_id, "act-remind");
+    }
+  );
+}
+
 function testApiClientDoesNotExposeMemoryEndpointsOnMainline() {
   const source = readFileSync(new URL("./api.ts", import.meta.url), "utf8");
 
@@ -1173,8 +1219,8 @@ async function testTaskApisUseExpectedBackendShape() {
                 event_id: "evt-1",
                 task_id: "task/with space",
                 user_id: "default",
-                event_type: "task_action_started",
-                payload: { action_id: "act/1" },
+                type: "task_action_started",
+                details: { action_id: "act/1" },
                 created_at: "2026-06-17T09:00:00.000Z",
               },
             ],
@@ -1242,7 +1288,9 @@ async function testTaskApisUseExpectedBackendShape() {
       assert.equal((await confirmTask("task/with space")).task.status, "in_progress");
       assert.equal((await runTaskNow("task/with space")).job_id, "job-1");
       assert.equal((await cancelTask("task/with space")).task.taskId, "task/with space");
-      assert.equal((await fetchTaskEvents("task/with space"))[0]?.eventType, "task_action_started");
+      const taskEvents = await fetchTaskEvents("task/with space");
+      assert.equal(taskEvents[0]?.eventType, "task_action_started");
+      assert.deepEqual(taskEvents[0]?.payload, { action_id: "act/1" });
       assert.equal(
         (
           await createTaskAction("task/with space", {
@@ -1504,6 +1552,7 @@ test("api client behavior", async () => {
   await testSessionIdIsEncodedInPath();
   await testScheduleIdIsEncodedInPath();
   await testScheduleRunApisEncodeIdsAndDownloadOutput();
+  await testFetchSchedulesKeepsTaskLinks();
   testApiClientDoesNotExposeMemoryEndpointsOnMainline();
   await testConnectorManagementApisEncodeNamesAndPayloads();
   await testCapabilityApisUseUnifiedCatalogAndSkillPatch();

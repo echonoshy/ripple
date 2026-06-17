@@ -412,6 +412,8 @@ export interface ScheduleInfo {
   output_schema: Record<string, unknown> | null;
   max_runtime_seconds: number;
   max_runs: number | null;
+  task_id?: string | null;
+  task_action_id?: string | null;
   run_count: number;
   created_at: string;
   updated_at: string;

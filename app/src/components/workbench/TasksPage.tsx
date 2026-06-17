@@ -16,12 +16,13 @@ import {
   AuthError,
   cancelTask,
   confirmTask,
+  fetchSchedules,
   fetchTask,
   fetchTaskEvents,
   fetchTasks,
   runTaskNow,
 } from "@/lib/api";
-import type { TaskActionInfo, TaskEventInfo, TaskInfo } from "@/types";
+import type { ScheduleInfo, TaskActionInfo, TaskEventInfo, TaskInfo } from "@/types";
 import { useI18n } from "@/i18n";
 import {
   LUCIDE_NAV_STROKE_WIDTH,
@@ -53,6 +54,7 @@ interface TasksPageProps {
   tasks?: TaskInfo[];
   actions?: TaskActionInfo[];
   events?: TaskEventInfo[];
+  schedules?: ScheduleInfo[];
   isLoading?: boolean;
   error?: string | null;
   onAuthExpired?: (message: string) => void;
@@ -153,12 +155,114 @@ function canCancel(task: TaskInfo): boolean {
   return !["completed", "cancelled", "archived"].includes(task.status);
 }
 
+function eventTimestamp(value: string | null | undefined): number {
+  if (!value) return 0;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+}
+
+function eventLabel(eventType: string, t: ReturnType<typeof useI18n>["t"]): string {
+  switch (eventType) {
+    case "task_created":
+      return t("tasks.event.taskCreated");
+    case "task_updated":
+      return t("tasks.event.taskUpdated");
+    case "task_confirmed":
+      return t("tasks.event.taskConfirmed");
+    case "task_cancelled":
+      return t("tasks.event.taskCancelled");
+    case "task_run_started":
+      return t("tasks.event.taskRunStarted");
+    case "task_plan_updated":
+      return t("tasks.event.taskPlanUpdated");
+    case "task_action_created":
+      return t("tasks.event.taskActionCreated");
+    case "task_action_started":
+      return t("tasks.event.taskActionStarted");
+    case "task_action_completed":
+      return t("tasks.event.taskActionCompleted");
+    case "task_action_blocked":
+      return t("tasks.event.taskActionBlocked");
+    case "task_action_waiting_user":
+      return t("tasks.event.taskActionWaitingUser");
+    case "task_action_cancelled":
+      return t("tasks.event.taskActionCancelled");
+    case "task_trigger_run_started":
+      return t("tasks.event.taskTriggerRunStarted");
+    case "task_trigger_run_completed":
+      return t("tasks.event.taskTriggerRunCompleted");
+    case "task_trigger_run_failed":
+      return t("tasks.event.taskTriggerRunFailed");
+    case "task_completed":
+      return t("tasks.event.taskCompleted");
+    default:
+      return eventType || t("tasks.unknown");
+  }
+}
+
+function payloadString(payload: Record<string, unknown> | null | undefined, key: string) {
+  const value = payload?.[key];
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function payloadRecord(
+  payload: Record<string, unknown> | null | undefined,
+  key: string
+): Record<string, unknown> | null {
+  const value = payload?.[key];
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function eventDetailText(
+  event: TaskEventInfo,
+  actions: TaskActionInfo[],
+  t: ReturnType<typeof useI18n>["t"]
+): string | null {
+  const parts: string[] = [];
+  const actionId = payloadString(event.payload, "action_id");
+  const actionTitle = actionId
+    ? actions.find((action) => action.actionId === actionId)?.title || actionId
+    : null;
+  if (actionTitle) parts.push(t("tasks.eventAction", { title: actionTitle }));
+
+  const runId = payloadString(event.payload, "run_id");
+  if (runId) parts.push(t("tasks.eventRunId", { id: runId }));
+
+  const plan = payloadRecord(event.payload, "plan");
+  const progress = payloadRecord(plan, "progress");
+  const currentTask =
+    (typeof progress?.currentTask === "string" && progress.currentTask) ||
+    (typeof progress?.current_task === "string" && progress.current_task) ||
+    null;
+  if (currentTask) parts.push(t("tasks.eventCurrentTask", { title: currentTask }));
+
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+function actionFollowUpText(
+  action: TaskActionInfo,
+  t: ReturnType<typeof useI18n>["t"]
+): string | null {
+  if (action.lastError) return `${t("tasks.lastError")}: ${action.lastError}`;
+  if (action.waitingReason) return `${t("tasks.waitingReason")}: ${action.waitingReason}`;
+  return action.resultSummary || action.objective || null;
+}
+
+function actionFollowUpClass(action: TaskActionInfo): string {
+  if (action.lastError) return "text-[#B42318]";
+  if (action.waitingReason) return "text-[#8B5E00]";
+  return "text-[#646A73]";
+}
+
 export default function TasksPage({
   userId,
   selectedTaskId,
   tasks,
   actions,
   events,
+  schedules,
   isLoading,
   error,
   onAuthExpired,
@@ -177,6 +281,7 @@ export default function TasksPage({
   );
   const [detailActions, setDetailActions] = useState<TaskActionInfo[]>(() => actions || []);
   const [taskEvents, setTaskEvents] = useState<TaskEventInfo[]>(() => events || []);
+  const [scheduleList, setScheduleList] = useState<ScheduleInfo[]>(() => schedules || []);
   const [internalLoading, setInternalLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [internalError, setInternalError] = useState<string | null>(null);
@@ -194,6 +299,10 @@ export default function TasksPage({
   useEffect(() => {
     if (events) setTaskEvents(events);
   }, [events]);
+
+  useEffect(() => {
+    if (schedules) setScheduleList(schedules);
+  }, [schedules]);
 
   const handleError = useCallback(
     (caught: unknown, fallback: string) => {
@@ -234,8 +343,9 @@ export default function TasksPage({
     if (isControlled) return;
     setInternalLoading(true);
     try {
-      const nextTasks = await fetchTasks();
+      const [nextTasks, nextSchedules] = await Promise.all([fetchTasks(), fetchSchedules()]);
       setTaskList(nextTasks);
+      setScheduleList(nextSchedules);
       const nextSelectedId = selectedId || nextTasks[0]?.taskId || null;
       setSelectedId(nextSelectedId);
       setInternalError(null);
@@ -267,12 +377,30 @@ export default function TasksPage({
     [activeFilter, taskList]
   );
 
-  const visibleActions = selectedTask
-    ? detailActions.filter((action) => action.taskId === selectedTask.taskId)
-    : [];
-  const visibleEvents = selectedTask
-    ? taskEvents.filter((event) => event.taskId === selectedTask.taskId)
-    : [];
+  const visibleActions = useMemo(
+    () =>
+      selectedTask ? detailActions.filter((action) => action.taskId === selectedTask.taskId) : [],
+    [detailActions, selectedTask]
+  );
+  const visibleEvents = useMemo(
+    () =>
+      selectedTask
+        ? taskEvents
+            .filter((event) => event.taskId === selectedTask.taskId)
+            .slice()
+            .sort((left, right) => eventTimestamp(right.createdAt) - eventTimestamp(left.createdAt))
+        : [],
+    [selectedTask, taskEvents]
+  );
+  const selectedTaskSchedules = useMemo(() => {
+    if (!selectedTask) return [];
+    const actionIds = new Set(visibleActions.map((action) => action.actionId));
+    return scheduleList.filter(
+      (schedule) =>
+        schedule.task_id === selectedTask.taskId ||
+        (schedule.task_action_id ? actionIds.has(schedule.task_action_id) : false)
+    );
+  }, [scheduleList, selectedTask, visibleActions]);
   const loading = isLoading ?? internalLoading;
   const errorMessage = error ?? internalError;
 
@@ -500,10 +628,11 @@ export default function TasksPage({
                       <button
                         type="button"
                         onClick={() => onOpenSession?.(selectedTask.sourceSessionId || "")}
+                        title={t("tasks.viewSourceSession")}
                         className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
                       >
                         <CircleDot size={14} strokeWidth={LUCIDE_NAV_STROKE_WIDTH} />
-                        <span>{t("tasks.sourceSession")}</span>
+                        <span>{t("tasks.viewSourceSession")}</span>
                       </button>
                     ) : null}
                     {canConfirm(selectedTask) ? (
@@ -529,7 +658,11 @@ export default function TasksPage({
                         ) : (
                           <Play size={14} />
                         )}
-                        <span>{t("tasks.runNow")}</span>
+                        <span>
+                          {pendingAction === `run:${selectedTask.taskId}`
+                            ? t("tasks.runningNow")
+                            : t("tasks.runNow")}
+                        </span>
                       </button>
                     ) : null}
                     {canCancel(selectedTask) ? (
@@ -573,6 +706,8 @@ export default function TasksPage({
                               <CheckCircle2 size={15} className="shrink-0 text-[#16845B]" />
                             ) : action.status === "waiting_user" ? (
                               <Clock3 size={15} className="shrink-0 text-[#8B5E00]" />
+                            ) : action.status === "blocked" ? (
+                              <AlertTriangle size={15} className="shrink-0 text-[#B42318]" />
                             ) : (
                               <CircleDot size={15} className="shrink-0 text-[#1456F0]" />
                             )}
@@ -586,10 +721,82 @@ export default function TasksPage({
                             {statusLabel(action.status, t)}
                           </span>
                         </div>
-                        {action.resultSummary || action.objective ? (
-                          <p className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
-                            {action.resultSummary || action.objective}
-                          </p>
+                        {actionFollowUpText(action, t) || action.lastRunId ? (
+                          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                            {actionFollowUpText(action, t) ? (
+                              <p
+                                className={`${TYPOGRAPHY_META_CLASS} min-w-0 break-words ${actionFollowUpClass(
+                                  action
+                                )}`}
+                              >
+                                {actionFollowUpText(action, t)}
+                              </p>
+                            ) : null}
+                            {action.lastRunId ? (
+                              <span
+                                className={`shrink-0 rounded-md border border-[#DEE0E3] bg-white px-1.5 py-0.5 font-[family-name:var(--font-mono)] ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} text-[#646A73]`}
+                              >
+                                {t("tasks.lastRun")}: {action.lastRunId}
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="grid gap-2">
+                    <h3 className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#1F2329]`}>
+                      {t("tasks.triggers")}
+                    </h3>
+                    {selectedTaskSchedules.length === 0 ? (
+                      <div
+                        className={`${TYPOGRAPHY_BODY_CLASS} rounded-lg border border-dashed border-[#D0D3D6] px-3 py-4 text-center text-[#646A73]`}
+                      >
+                        {t("tasks.noTriggers")}
+                      </div>
+                    ) : null}
+                    {selectedTaskSchedules.map((schedule) => (
+                      <div
+                        key={schedule.schedule_id}
+                        className="grid gap-1.5 rounded-lg border border-[#EFF0F1] bg-[#F8F9FA] px-3 py-2"
+                      >
+                        <div className="flex min-w-0 items-center justify-between gap-2">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <Clock3 size={15} className="shrink-0 text-[#1456F0]" />
+                            <span className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} truncate`}>
+                              {schedule.title}
+                            </span>
+                          </div>
+                          <span
+                            className={`${
+                              schedule.enabled
+                                ? WORKBENCH_STATUS_NEUTRAL_CLASS
+                                : WORKBENCH_STATUS_WARNING_CLASS
+                            } shrink-0 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
+                          >
+                            {schedule.enabled ? t("tasks.triggerActive") : t("tasks.triggerPaused")}
+                          </span>
+                        </div>
+                        <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
+                          {t("tasks.triggerNext")}:{" "}
+                          {formatDate(schedule.next_run_at, locale, t("tasks.unknown"))}
+                        </div>
+                        {schedule.last_run_id || schedule.last_run_status ? (
+                          <div className="flex min-w-0 flex-wrap items-center gap-2">
+                            {schedule.last_run_id ? (
+                              <span
+                                className={`shrink-0 rounded-md border border-[#DEE0E3] bg-white px-1.5 py-0.5 font-[family-name:var(--font-mono)] ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} text-[#646A73]`}
+                              >
+                                {t("tasks.lastRun")}: {schedule.last_run_id}
+                              </span>
+                            ) : null}
+                            {schedule.last_run_status ? (
+                              <span className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
+                                {schedule.last_run_status}
+                              </span>
+                            ) : null}
+                          </div>
                         ) : null}
                       </div>
                     ))}
@@ -606,19 +813,31 @@ export default function TasksPage({
                         {t("tasks.noEvents")}
                       </div>
                     ) : null}
-                    {visibleEvents.slice(0, 6).map((event) => (
-                      <div
-                        key={event.eventId}
-                        className="flex min-w-0 items-center justify-between gap-3 rounded-lg border border-[#EFF0F1] px-3 py-2"
-                      >
-                        <span className={`${TYPOGRAPHY_META_MEDIUM_CLASS} truncate text-[#2B2F36]`}>
-                          {event.eventType}
-                        </span>
-                        <span className={`${TYPOGRAPHY_META_CLASS} shrink-0 text-[#646A73]`}>
-                          {formatDate(event.createdAt, locale, t("tasks.unknown"))}
-                        </span>
-                      </div>
-                    ))}
+                    {visibleEvents.slice(0, 6).map((event) => {
+                      const detail = eventDetailText(event, visibleActions, t);
+                      return (
+                        <div
+                          key={event.eventId}
+                          className="grid min-w-0 gap-0.5 rounded-lg border border-[#EFF0F1] px-3 py-2"
+                        >
+                          <div className="flex min-w-0 items-center justify-between gap-3">
+                            <span
+                              className={`${TYPOGRAPHY_META_MEDIUM_CLASS} truncate text-[#2B2F36]`}
+                            >
+                              {eventLabel(event.eventType, t)}
+                            </span>
+                            <span className={`${TYPOGRAPHY_META_CLASS} shrink-0 text-[#646A73]`}>
+                              {formatDate(event.createdAt, locale, t("tasks.unknown"))}
+                            </span>
+                          </div>
+                          {detail ? (
+                            <div className={`${TYPOGRAPHY_META_CLASS} truncate text-[#646A73]`}>
+                              {detail}
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               ) : (

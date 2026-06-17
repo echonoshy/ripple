@@ -981,6 +981,53 @@ version: "9.9.9""#,
     }
 
     #[test]
+    fn shared_knowledge_is_exposed_as_regular_shared_skill() {
+        let root = std::env::temp_dir().join(format!("ripple-skills-test-{}", Uuid::new_v4()));
+        let skill = root.join("skills/shared-knowledge/SKILL.md");
+        write_skill(
+            &skill,
+            r#"name: shared-knowledge
+description: Use for viaim, Ripple, product, project, and shared company knowledge.
+version: "1.0.0""#,
+        );
+        let reference = root.join("skills/shared-knowledge/references/ripple.md");
+        std::fs::create_dir_all(reference.parent().unwrap()).unwrap();
+        std::fs::write(&reference, "Ripple 是 viaim 公司推出的一款 Agent 工具。\n").unwrap();
+        let config = test_config(&root, vec!["skills/*".to_string()]);
+
+        let entries = build_skill_manifest(&config, None);
+        let entry = entries
+            .iter()
+            .find(|entry| entry.id == "ripple:shared-knowledge")
+            .unwrap();
+
+        assert_eq!(entry.source, "ripple");
+        assert!(entry.enabled);
+        assert_eq!(entry.status, STATUS_AVAILABLE);
+        assert!(entry.path.ends_with("skills/shared-knowledge/SKILL.md"));
+        assert!(entry.description.contains("shared company knowledge"));
+
+        let rendered = render_skill_manifest(&config, None);
+        assert!(rendered.contains("ripple:shared-knowledge"));
+        assert!(rendered.contains("skills/shared-knowledge/SKILL.md"));
+        assert!(!rendered.contains("knowledge/shared"));
+
+        let original_hash = entry.content_hash.clone();
+        std::fs::write(
+            &reference,
+            "Ripple 是 viaim 公司推出的一款企业 Agent 工具。\n",
+        )
+        .unwrap();
+        let changed = build_skill_manifest(&config, None)
+            .into_iter()
+            .find(|entry| entry.id == "ripple:shared-knowledge")
+            .unwrap();
+        assert_ne!(changed.content_hash, original_hash);
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn user_skills_default_to_pending_enable() {
         let root = std::env::temp_dir().join(format!("ripple-skills-test-{}", Uuid::new_v4()));
         let workspace = root.join("workspace");

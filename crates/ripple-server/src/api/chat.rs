@@ -1877,6 +1877,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn codex_chat_context_does_not_inject_shared_knowledge_evidence() {
+        let root = std::env::temp_dir().join(format!("ripple-chat-test-{}", Uuid::new_v4()));
+        let state = AppState::new(test_config(&root));
+        let workspace_root = state
+            .sandboxes
+            .ensure_sandbox("alice")
+            .expect("create sandbox");
+
+        let prompt = build_codex_chat_turn_context(
+            &state,
+            "alice",
+            "session-1",
+            &workspace_root,
+            None,
+            None,
+            None,
+            None,
+            &crate::skills::SkillManifestOptions::default(),
+            &[],
+            None,
+        );
+
+        assert!(!prompt.contains("## Shared Knowledge Evidence"));
+        assert!(!prompt.contains("knowledge/shared/ripple.md"));
+        assert!(!prompt.contains("viaim 公司推出的一款 Agent 工具"));
+        assert!(!prompt.contains("## Current User Request"));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
     async fn codex_chat_context_includes_recent_display_context_without_user_request() {
         let root = std::env::temp_dir().join(format!("ripple-chat-test-{}", Uuid::new_v4()));
         let state = AppState::new(test_config(&root));

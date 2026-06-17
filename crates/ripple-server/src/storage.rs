@@ -13,7 +13,7 @@ use tokio::sync::OnceCell;
 use crate::config::AppConfig;
 use crate::sessions::SessionRecord;
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 5;
+pub const CURRENT_SCHEMA_VERSION: i64 = 8;
 
 #[derive(Clone)]
 pub struct Storage {
@@ -752,6 +752,207 @@ impl Storage {
             .collect())
     }
 
+    pub async fn upsert_task(&self, user_id: &str, record: &Value) -> anyhow::Result<()> {
+        self.initialize().await?;
+        let Some(task_id) = record.get("task_id").and_then(Value::as_str) else {
+            anyhow::bail!("task record missing task_id");
+        };
+        sqlx::query(
+            r#"
+            INSERT INTO tasks (
+                user_id, task_id, status, priority, due_at, source_session_id, updated_at, record_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, task_id) DO UPDATE SET
+                status = excluded.status,
+                priority = excluded.priority,
+                due_at = excluded.due_at,
+                source_session_id = excluded.source_session_id,
+                updated_at = excluded.updated_at,
+                record_json = excluded.record_json
+            "#,
+        )
+        .bind(user_id)
+        .bind(task_id)
+        .bind(record_str(record, "status"))
+        .bind(record_str(record, "priority"))
+        .bind(record.get("due_at").and_then(Value::as_str))
+        .bind(record.get("source_session_id").and_then(Value::as_str))
+        .bind(record_str(record, "updated_at"))
+        .bind(json_text(record)?)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn get_task(&self, user_id: &str, task_id: &str) -> anyhow::Result<Option<Value>> {
+        self.initialize().await?;
+        sqlx::query(
+            r#"
+            SELECT record_json FROM tasks
+            WHERE user_id = ? AND task_id = ?
+            "#,
+        )
+        .bind(user_id)
+        .bind(task_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .map(|row| json_from_text(row.get::<String, _>("record_json").as_str()))
+        .transpose()
+    }
+
+    pub async fn list_tasks(&self, user_id: &str) -> anyhow::Result<Vec<Value>> {
+        self.initialize().await?;
+        let rows = sqlx::query(
+            r#"
+            SELECT record_json FROM tasks
+            WHERE user_id = ?
+            ORDER BY updated_at DESC
+            "#,
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(|row| json_from_text(row.get::<String, _>("record_json").as_str()))
+            .collect()
+    }
+
+    pub async fn list_tasks_for_session(
+        &self,
+        user_id: &str,
+        session_id: &str,
+    ) -> anyhow::Result<Vec<Value>> {
+        self.initialize().await?;
+        let rows = sqlx::query(
+            r#"
+            SELECT record_json FROM tasks
+            WHERE user_id = ? AND source_session_id = ?
+            ORDER BY updated_at DESC
+            "#,
+        )
+        .bind(user_id)
+        .bind(session_id)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(|row| json_from_text(row.get::<String, _>("record_json").as_str()))
+            .collect()
+    }
+
+    pub async fn upsert_task_action(
+        &self,
+        user_id: &str,
+        task_id: &str,
+        record: &Value,
+    ) -> anyhow::Result<()> {
+        self.initialize().await?;
+        let Some(action_id) = record.get("action_id").and_then(Value::as_str) else {
+            anyhow::bail!("task action record missing action_id");
+        };
+        sqlx::query(
+            r#"
+            INSERT INTO task_actions (
+                user_id, task_id, action_id, kind, status, next_wakeup_at, updated_at, record_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, task_id, action_id) DO UPDATE SET
+                kind = excluded.kind,
+                status = excluded.status,
+                next_wakeup_at = excluded.next_wakeup_at,
+                updated_at = excluded.updated_at,
+                record_json = excluded.record_json
+            "#,
+        )
+        .bind(user_id)
+        .bind(task_id)
+        .bind(action_id)
+        .bind(record_str(record, "kind"))
+        .bind(record_str(record, "status"))
+        .bind(record.get("next_wakeup_at").and_then(Value::as_str))
+        .bind(record_str(record, "updated_at"))
+        .bind(json_text(record)?)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn list_task_actions(
+        &self,
+        user_id: &str,
+        task_id: &str,
+    ) -> anyhow::Result<Vec<Value>> {
+        self.initialize().await?;
+        let rows = sqlx::query(
+            r#"
+            SELECT record_json FROM task_actions
+            WHERE user_id = ? AND task_id = ?
+            ORDER BY
+                CASE WHEN next_wakeup_at IS NULL THEN 1 ELSE 0 END,
+                next_wakeup_at ASC,
+                updated_at DESC
+            "#,
+        )
+        .bind(user_id)
+        .bind(task_id)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(|row| json_from_text(row.get::<String, _>("record_json").as_str()))
+            .collect()
+    }
+
+    pub async fn upsert_task_event(
+        &self,
+        user_id: &str,
+        task_id: &str,
+        record: &Value,
+    ) -> anyhow::Result<()> {
+        self.initialize().await?;
+        let Some(event_id) = record.get("event_id").and_then(Value::as_str) else {
+            anyhow::bail!("task event record missing event_id");
+        };
+        sqlx::query(
+            r#"
+            INSERT INTO task_events (user_id, task_id, event_id, created_at, record_json)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, task_id, event_id) DO UPDATE SET
+                created_at = excluded.created_at,
+                record_json = excluded.record_json
+            "#,
+        )
+        .bind(user_id)
+        .bind(task_id)
+        .bind(event_id)
+        .bind(record_str(record, "created_at"))
+        .bind(json_text(record)?)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn list_task_events(
+        &self,
+        user_id: &str,
+        task_id: &str,
+    ) -> anyhow::Result<Vec<Value>> {
+        self.initialize().await?;
+        let rows = sqlx::query(
+            r#"
+            SELECT record_json FROM task_events
+            WHERE user_id = ? AND task_id = ?
+            ORDER BY created_at ASC
+            "#,
+        )
+        .bind(user_id)
+        .bind(task_id)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(|row| json_from_text(row.get::<String, _>("record_json").as_str()))
+            .collect()
+    }
+
     pub async fn replace_documents(&self, user_id: &str, records: &[Value]) -> anyhow::Result<()> {
         self.initialize().await?;
         let mut tx = self.pool.begin().await?;
@@ -1477,6 +1678,39 @@ CREATE TABLE IF NOT EXISTS schedules (
     PRIMARY KEY (user_id, schedule_id)
 );
 
+CREATE TABLE IF NOT EXISTS tasks (
+    user_id TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    priority TEXT NOT NULL,
+    due_at TEXT,
+    source_session_id TEXT,
+    updated_at TEXT NOT NULL,
+    record_json TEXT NOT NULL,
+    PRIMARY KEY (user_id, task_id)
+);
+
+CREATE TABLE IF NOT EXISTS task_actions (
+    user_id TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    action_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    status TEXT NOT NULL,
+    next_wakeup_at TEXT,
+    updated_at TEXT NOT NULL,
+    record_json TEXT NOT NULL,
+    PRIMARY KEY (user_id, task_id, action_id)
+);
+
+CREATE TABLE IF NOT EXISTS task_events (
+    user_id TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    record_json TEXT NOT NULL,
+    PRIMARY KEY (user_id, task_id, event_id)
+);
+
 CREATE TABLE IF NOT EXISTS documents (
     user_id TEXT NOT NULL,
     document_id TEXT NOT NULL,
@@ -1564,6 +1798,12 @@ CREATE INDEX IF NOT EXISTS idx_jobs_user_schedule
     ON jobs(user_id, schedule_id);
 CREATE INDEX IF NOT EXISTS idx_schedules_user_status_next
     ON schedules(user_id, status, next_run_at);
+CREATE INDEX IF NOT EXISTS idx_tasks_user_status_due
+    ON tasks(user_id, status, due_at);
+CREATE INDEX IF NOT EXISTS idx_tasks_user_session_status
+    ON tasks(user_id, source_session_id, status);
+CREATE INDEX IF NOT EXISTS idx_task_actions_user_task_status_next
+    ON task_actions(user_id, task_id, status, next_wakeup_at);
 CREATE INDEX IF NOT EXISTS idx_documents_user_updated
     ON documents(user_id, updated_at);
 CREATE INDEX IF NOT EXISTS idx_file_refs_user_workspace_path
@@ -1624,6 +1864,18 @@ async fn ensure_schema_columns(pool: &SqlitePool) -> anyhow::Result<()> {
     sqlx::query("DROP TABLE IF EXISTS projects")
         .execute(pool)
         .await?;
+    for statement in [
+        "DROP INDEX IF EXISTS idx_follow_ups_user_session_status_next",
+        "DROP INDEX IF EXISTS idx_follow_ups_status_next",
+        "DROP INDEX IF EXISTS idx_session_objects_user_session_status",
+        "DROP INDEX IF EXISTS idx_session_actions_user_session_status_next",
+        "DROP INDEX IF EXISTS idx_session_actions_object",
+        "DROP TABLE IF EXISTS follow_ups",
+        "DROP TABLE IF EXISTS session_objects",
+        "DROP TABLE IF EXISTS session_actions",
+    ] {
+        sqlx::query(statement).execute(pool).await?;
+    }
     Ok(())
 }
 
@@ -1651,6 +1903,11 @@ async fn ensure_schema_migrations(pool: &SqlitePool) -> anyhow::Result<()> {
     sqlx::query("INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (?, ?)")
         .bind(5_i64)
         .bind("session_context_folder_scope")
+        .execute(pool)
+        .await?;
+    sqlx::query("INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (?, ?)")
+        .bind(8_i64)
+        .bind("task_system_v1")
         .execute(pool)
         .await?;
     Ok(())

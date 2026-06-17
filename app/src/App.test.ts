@@ -131,8 +131,7 @@ function testCurrentSessionListVisibilityUsesRuntimeStatusPresence() {
 function testSessionSelectionAcknowledgesNeedsInputAttention() {
   const source = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
   const acknowledgeBlock =
-    source.match(/const acknowledgeSessionAttention = useCallback\([\s\S]*?\n {2}\);/)?.[0] ||
-    "";
+    source.match(/const acknowledgeSessionAttention = useCallback\([\s\S]*?\n {2}\);/)?.[0] || "";
 
   assert.match(source, /sessionAttentionFromStatus/);
   assert.match(acknowledgeBlock, /summaryAttention/);
@@ -151,7 +150,10 @@ function testMobileSessionListDoesNotHideSelectedSessionAttention() {
   assert.match(source, /const \[isMobileLayout, setIsMobileLayout\]/);
   assert.match(source, /const sessionDetailVisibleForAttention =/);
   assert.match(source, /!isMobileLayout \|\| mobileSessionMode === "chat"/);
-  assert.match(source, /const openSessionIdForAttention = sessionDetailVisibleForAttention \? sessionId : null/);
+  assert.match(
+    source,
+    /const openSessionIdForAttention = sessionDetailVisibleForAttention \? sessionId : null/
+  );
   assert.match(displaySessionsBlock, /openSessionIdForAttention/);
   assert.doesNotMatch(displaySessionsBlock, /activeView === "sessions" \? sessionId : null/);
   assert.doesNotMatch(attentionHandlerBlock, /attention === "completed"/);
@@ -161,10 +163,7 @@ function testMobileSessionListDoesNotHideSelectedSessionAttention() {
 function testFreshSessionSendSkipsPreflightListRefresh() {
   const source = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
 
-  assert.match(
-    source,
-    /createNewSession\(model, activeContextFolderPath, \{ refresh: false \}\)/
-  );
+  assert.match(source, /createNewSession\(model, activeContextFolderPath, \{ refresh: false \}\)/);
 }
 
 function testMobileNewSessionSkipsVisibleListRefresh() {
@@ -267,6 +266,18 @@ function testAutomationsPageReceivesChatOpenHandler() {
   assert.match(source, /<AutomationsPage[\s\S]*onOpenChat=\{handleOpenChatWithPrompt\}/);
 }
 
+function testTasksPageIsAFirstClassWorkspaceView() {
+  const source = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
+
+  assert.match(
+    source,
+    /const TasksPage = lazy\(\(\) => import\("@\/components\/workbench\/TasksPage"\)\)/
+  );
+  assert.match(source, /activeView === "tasks"/);
+  assert.match(source, /<TasksPage[\s\S]*userId=\{userId\}/);
+  assert.doesNotMatch(source, /activeView === "tasks" \|\| activeView === "connectors"/);
+}
+
 testAppUsesAuthGatewayForLoginScreen();
 testAuthModeChangesClearSensitiveInputs();
 testWorkspaceLinksRouteToFilesPageOnMobile();
@@ -290,5 +301,6 @@ testDesktopSessionRailCanResizeAndCollapse();
 testCollapsedSessionRailUsesEdgeHandle();
 testAndroidBackGestureExclusionAppliesToMobileSwipeBackSurfaces();
 testAutomationsPageReceivesChatOpenHandler();
+testTasksPageIsAFirstClassWorkspaceView();
 
 console.log("app tests passed");

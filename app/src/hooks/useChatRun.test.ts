@@ -242,10 +242,9 @@ function testSessionTitleRefreshUsesShortDelayedPolls() {
 function testCompletedRunRefreshesSessionsWithoutListLoading() {
   const source = readFileSync(new URL("./useChatRun.ts", import.meta.url), "utf8");
   const completeBlock =
-    source.match(/onComplete: \(\) => \{[\s\S]*?onWorkspaceRefresh\(\);[\s\S]*?\n {8}\},/)
-      ?.[0] || "";
-  const silentRefreshCalls =
-    completeBlock.match(/loadSessions\(\{ showLoading: false \}\)/g) || [];
+    source.match(/onComplete: \(\) => \{[\s\S]*?onWorkspaceRefresh\(\);[\s\S]*?\n {8}\},/)?.[0] ||
+    "";
+  const silentRefreshCalls = completeBlock.match(/loadSessions\(\{ showLoading: false \}\)/g) || [];
 
   assert.equal(silentRefreshCalls.length, 2);
   assert.doesNotMatch(completeBlock, /loadSessions\(\);/);
@@ -348,6 +347,26 @@ function testFreshSessionSendDoesNotCarryCurrentViewState() {
   assert.match(source, /runtimeTimelineEvents: baseRuntimeTimelineEvents,/);
 }
 
+function testSessionFollowUpsAreRemovedFromChatRunState() {
+  const source = readFileSync(new URL("./useChatRun.ts", import.meta.url), "utf8");
+
+  assert.doesNotMatch(source, /SessionFollowUp/);
+  assert.doesNotMatch(source, /followUps/);
+  assert.doesNotMatch(source, /confirmSessionFollowUp/);
+  assert.doesNotMatch(source, /updateSessionFollowUp/);
+  assert.doesNotMatch(source, /runSessionFollowUpNow/);
+  assert.doesNotMatch(source, /cancelSessionFollowUp/);
+}
+
+function testFollowUpPollingIsRemovedFromChatRun() {
+  const source = readFileSync(new URL("./useChatRun.ts", import.meta.url), "utf8");
+
+  assert.doesNotMatch(source, /FOLLOW_UP_REFRESH_INTERVAL_MS/);
+  assert.doesNotMatch(source, /hasActiveScheduledFollowUps/);
+  assert.doesNotMatch(source, /hasDueFollowUps/);
+  assert.doesNotMatch(source, /onSessionAttention\?\.\(sessionId,\s*"completed"\)/);
+}
+
 function testSessionControlActionsStartFreshSessions() {
   const source = readFileSync(new URL("./useChatRun.ts", import.meta.url), "utf8");
 
@@ -372,8 +391,8 @@ function testSendErrorsReleaseSessionForRetry() {
 
 function testAskUserMarksBackgroundSessionAsNewResult() {
   const source = readFileSync(new URL("./useChatRun.ts", import.meta.url), "utf8");
-  const toolAskUserBlock = source.match(/if \(toolCall\.name === "AskUser"\) \{[\s\S]*?\n\s*\}/)
-    ?.[0] || "";
+  const toolAskUserBlock =
+    source.match(/if \(toolCall\.name === "AskUser"\) \{[\s\S]*?\n\s*\}/)?.[0] || "";
   const stopAskUserBlock =
     source.match(/if \(data\.stop_reason === "ask_user"[\s\S]*?\n\s*\}/)?.[0] || "";
 
@@ -384,11 +403,13 @@ function testAskUserMarksBackgroundSessionAsNewResult() {
 function testPermissionRequestKeepsApprovalAttention() {
   const source = readFileSync(new URL("./useChatRun.ts", import.meta.url), "utf8");
   const permissionStopBlock =
-    source.match(/if \(data\.stop_reason === "permission_request"[\s\S]*?\n\s*\}/)?.[0] ||
-    "";
+    source.match(/if \(data\.stop_reason === "permission_request"[\s\S]*?\n\s*\}/)?.[0] || "";
 
   assert.match(permissionStopBlock, /onSessionAttention\?\.\(activeSessionId, "needs_input"\)/);
-  assert.match(source, /onPermissionRequest:[\s\S]*onSessionAttention\?\.\(activeSessionId, "needs_input"\)/);
+  assert.match(
+    source,
+    /onPermissionRequest:[\s\S]*onSessionAttention\?\.\(activeSessionId, "needs_input"\)/
+  );
 }
 
 test("useChatRun behavior", async () => {
@@ -414,6 +435,8 @@ test("useChatRun behavior", async () => {
   testSendFlowCanForceFreshSession();
   testSessionDetailsPassSessionIdWhenUpdatingModel();
   testFreshSessionSendDoesNotCarryCurrentViewState();
+  testSessionFollowUpsAreRemovedFromChatRunState();
+  testFollowUpPollingIsRemovedFromChatRun();
   testSessionControlActionsStartFreshSessions();
   testSendErrorsReleaseSessionForRetry();
   testAskUserMarksBackgroundSessionAsNewResult();

@@ -3,17 +3,24 @@ import { readFileSync } from "node:fs";
 
 import {
   cancelConnectorAuth,
+  cancelTask,
   cancelSessionConnectorAuth,
   changePassword,
   compactSessionContext,
+  confirmTask,
   createSchedule,
   createSession,
+  createTaskAction,
   deleteUserAvatar,
   deleteSchedule,
   deleteScheduleRun,
   deleteSession,
   downloadRunOutput,
   downloadWorkspaceFile,
+  fetchTask,
+  fetchTaskEvents,
+  fetchTasks,
+  fetchSessionTasks,
   fetchSchedules,
   fetchScheduleRuns,
   fetchSessions,
@@ -30,12 +37,14 @@ import {
   resolveSessionPermissionRequest,
   resolveApiUrl,
   runScheduleNow,
+  runTaskNow,
   searchWorkspaceFiles,
   sendChatMessage,
   sendSessionControlAction,
   stopSession,
   updateSchedule,
   updateSession,
+  updateTaskAction,
   updateUserProfile,
   uploadUserAvatar,
   disconnectConnector,
@@ -1098,6 +1107,189 @@ async function testFetchSessionDetailsNormalizesBackendShape() {
   );
 }
 
+function testSessionFollowUpClientApisAreRemoved() {
+  const source = readFileSync(new URL("./api.ts", import.meta.url), "utf8");
+
+  assert.doesNotMatch(source, /sessionFollowUpPath/);
+  assert.doesNotMatch(source, /fetchSessionFollowUps/);
+  assert.doesNotMatch(source, /confirmSessionFollowUp/);
+  assert.doesNotMatch(source, /updateSessionFollowUp/);
+  assert.doesNotMatch(source, /runSessionFollowUpNow/);
+  assert.doesNotMatch(source, /cancelSessionFollowUp/);
+}
+
+async function testTaskApisUseExpectedBackendShape() {
+  const requests: Array<{ method: string; path: string; body: unknown }> = [];
+  const taskResponse = {
+    task: {
+      task_id: "task/with space",
+      user_id: "default",
+      title: "整理客户方案",
+      objective: "形成报价草案",
+      status: "in_progress",
+      priority: "normal",
+      requires_confirmation: false,
+      source_session_id: "srv-detail",
+      progress: {
+        completed: 1,
+        total: 2,
+        percent: 50,
+        current_action_id: "act/1",
+        current_action_title: "生成报价",
+      },
+      created_at: "2026-06-17T08:00:00.000Z",
+      updated_at: "2026-06-17T09:00:00.000Z",
+    },
+    actions: [
+      {
+        action_id: "act/1",
+        task_id: "task/with space",
+        user_id: "default",
+        kind: "next_step",
+        title: "生成报价",
+        objective: "形成报价草案",
+        status: "in_progress",
+        assignee: "codex",
+        requires_confirmation: false,
+        next_wakeup_at: "2026-06-18T09:00:00.000Z",
+        result_summary: "已完成报价草案。",
+        created_at: "2026-06-17T08:30:00.000Z",
+        updated_at: "2026-06-17T09:00:00.000Z",
+      },
+    ],
+  };
+
+  await withFetch(
+    async (input, init) => {
+      const url = new URL(String(input), "http://ripple.test");
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      requests.push({ method: init?.method || "GET", path: url.pathname, body });
+
+      if (url.pathname.endsWith("/events")) {
+        return new Response(
+          JSON.stringify({
+            events: [
+              {
+                event_id: "evt-1",
+                task_id: "task/with space",
+                user_id: "default",
+                event_type: "task_action_started",
+                payload: { action_id: "act/1" },
+                created_at: "2026-06-17T09:00:00.000Z",
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+
+      if (url.pathname.endsWith("/run-now")) {
+        return new Response(
+          JSON.stringify({
+            job_id: "job-1",
+            provider: "codex",
+            status: "completed",
+            output_file: null,
+            events_file: null,
+            created_at: "2026-06-17T09:00:00.000Z",
+            updated_at: "2026-06-17T09:01:00.000Z",
+            exit_code: 0,
+            prompt_preview: "整理客户方案",
+            sandbox_cwd: "/workspace",
+            stdout_tail: "",
+            stderr_tail: "",
+            error: null,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+
+      if (url.pathname.endsWith("/actions")) {
+        return new Response(JSON.stringify(taskResponse.actions[0]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      if (url.pathname === "/v1/tasks") {
+        return new Response(JSON.stringify({ tasks: [taskResponse.task], count: 1 }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      if (url.pathname.endsWith("/tasks")) {
+        return new Response(JSON.stringify({ tasks: [taskResponse.task], count: 1 }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      return new Response(JSON.stringify(taskResponse), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    },
+    async () => {
+      const tasks = await fetchTasks();
+      assert.equal(tasks[0]?.taskId, "task/with space");
+      assert.equal(tasks[0]?.progress?.currentActionTitle, "生成报价");
+      assert.equal((await fetchSessionTasks("srv-detail"))[0]?.sourceSessionId, "srv-detail");
+      assert.equal(
+        (await fetchTask("task/with space")).actions[0]?.nextWakeupAt,
+        "2026-06-18T09:00:00.000Z"
+      );
+      assert.equal((await confirmTask("task/with space")).task.status, "in_progress");
+      assert.equal((await runTaskNow("task/with space")).job_id, "job-1");
+      assert.equal((await cancelTask("task/with space")).task.taskId, "task/with space");
+      assert.equal((await fetchTaskEvents("task/with space"))[0]?.eventType, "task_action_started");
+      assert.equal(
+        (
+          await createTaskAction("task/with space", {
+            title: "等用户确认",
+            kind: "waiting_user",
+            nextWakeupAt: "2026-06-18T09:00:00.000Z",
+          })
+        ).title,
+        "生成报价"
+      );
+      assert.equal(
+        (
+          await updateTaskAction("task/with space", "act/1", {
+            status: "completed",
+            resultSummary: "已完成报价草案。",
+          })
+        ).action.resultSummary,
+        "已完成报价草案。"
+      );
+    }
+  );
+
+  assert.deepEqual(
+    requests.map((request) => `${request.method} ${request.path}`),
+    [
+      "GET /v1/tasks",
+      "GET /v1/sessions/srv-detail/tasks",
+      "GET /v1/tasks/task%2Fwith%20space",
+      "POST /v1/tasks/task%2Fwith%20space/confirm",
+      "POST /v1/tasks/task%2Fwith%20space/run-now",
+      "DELETE /v1/tasks/task%2Fwith%20space",
+      "GET /v1/tasks/task%2Fwith%20space/events",
+      "POST /v1/tasks/task%2Fwith%20space/actions",
+      "PATCH /v1/tasks/task%2Fwith%20space/actions/act%2F1",
+    ]
+  );
+  assert.deepEqual(requests[7]?.body, {
+    title: "等用户确认",
+    kind: "waiting_user",
+    next_wakeup_at: "2026-06-18T09:00:00.000Z",
+  });
+  assert.deepEqual(requests[8]?.body, {
+    status: "completed",
+    result_summary: "已完成报价草案。",
+  });
+}
+
 async function testFetchSessionsRejectsServerFailures() {
   await withFetch(
     async () => response(500, "session store unavailable"),
@@ -1334,6 +1526,8 @@ test("api client behavior", async () => {
   await testUpdateSessionPatchesSelectedModel();
   await testCreateSessionPostsContextFolderPath();
   await testFetchSessionDetailsNormalizesBackendShape();
+  testSessionFollowUpClientApisAreRemoved();
+  await testTaskApisUseExpectedBackendShape();
   await testFetchSessionsRejectsServerFailures();
   await testFetchSessionsRejectsNetworkFailures();
   await testWorkspaceSearchDefaultsToNameScope();

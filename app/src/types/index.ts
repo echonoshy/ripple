@@ -417,6 +417,81 @@ export interface ScheduleInfo {
   updated_at: string;
 }
 
+export type TaskStatus =
+  | "candidate"
+  | "active"
+  | "in_progress"
+  | "waiting_user"
+  | "blocked"
+  | "completed"
+  | "cancelled"
+  | "archived"
+  | string;
+
+export type TaskActionStatus =
+  | "candidate"
+  | "confirmed"
+  | "in_progress"
+  | "waiting_user"
+  | "blocked"
+  | "completed"
+  | "cancelled"
+  | string;
+
+export interface TaskProgress {
+  completed: number;
+  total: number;
+  percent: number;
+  currentActionId?: string | null;
+  currentActionTitle?: string | null;
+}
+
+export interface TaskInfo {
+  taskId: string;
+  userId: string;
+  title: string;
+  objective?: string | null;
+  status: TaskStatus;
+  priority: string;
+  requiresConfirmation: boolean;
+  sourceSessionId?: string | null;
+  dueAt?: string | null;
+  progress?: TaskProgress | null;
+  lastRunId?: string | null;
+  lastError?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface TaskActionInfo {
+  actionId: string;
+  taskId: string;
+  userId: string;
+  kind: string;
+  title: string;
+  objective?: string | null;
+  status: TaskActionStatus;
+  assignee?: string | null;
+  requiresConfirmation: boolean;
+  sourceSessionId?: string | null;
+  nextWakeupAt?: string | null;
+  resultSummary?: string | null;
+  lastRunId?: string | null;
+  lastError?: string | null;
+  waitingReason?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface TaskEventInfo {
+  eventId: string;
+  taskId: string;
+  userId: string;
+  eventType: string;
+  payload?: Record<string, unknown> | null;
+  createdAt?: string | null;
+}
+
 export interface SessionSummary {
   sessionId: string;
   title: string;

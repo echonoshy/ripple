@@ -32,6 +32,8 @@ function testUsesShortMobileNavigationLabels() {
 
   assert.match(html, />Sessions</);
   assert.match(html, /aria-label="Open Sessions"/);
+  assert.match(html, />Tasks</);
+  assert.match(html, /aria-label="Open Tasks"/);
   assert.match(html, />Files</);
   assert.match(html, /aria-label="Open Files"/);
   assert.match(html, />Skills</);
@@ -43,7 +45,6 @@ function testUsesShortMobileNavigationLabels() {
   assert.doesNotMatch(html, />Links</);
   assert.doesNotMatch(html, /aria-label="Open Links"/);
   assert.doesNotMatch(html, />New</);
-  assert.doesNotMatch(html, />Tasks</);
 }
 
 testUsesShortMobileNavigationLabels();
@@ -53,6 +54,7 @@ function testUsesChineseMobileNavigationLabels() {
 
   assert.match(html, />会话</);
   assert.match(html, /aria-label="打开会话"/);
+  assert.match(html, />任务</);
   assert.match(html, />文件</);
   assert.match(html, />能力</);
   assert.match(html, />自动化</);
@@ -133,7 +135,7 @@ testUsesQuietSelectedTabTreatment();
 function testEveryMobileTabUsesSoftIconTile() {
   const html = renderMobileTabBar();
 
-  assert.equal((html.match(/data-ripple-icon-tile="true"/g) || []).length, 5);
+  assert.equal((html.match(/data-ripple-icon-tile="true"/g) || []).length, 6);
   assert.match(html, /data-tone="accent"/);
   assert.match(html, /data-tone="neutral"/);
 }

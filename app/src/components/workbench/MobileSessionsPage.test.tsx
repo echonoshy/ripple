@@ -30,7 +30,7 @@ const multiSessions: WorkbenchSessionSummary[] = [
   sessions[0],
   {
     sessionId: "srv-2",
-    title: "Quiet follow-up",
+    title: "Pinned session",
     pinned: true,
     status: "idle",
     model: "codex-medium",
@@ -161,8 +161,14 @@ function testHeaderActionsUseUnframedWorkbenchTreatment() {
   assert.match(mobileSessionsPageSource, /WORKBENCH_PAGE_BACKGROUND_CLASS/);
   assert.ok(searchButton);
   assert.ok(newSessionButton);
-  assert.match(searchButton, /inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl/);
-  assert.match(newSessionButton, /inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl/);
+  assert.match(
+    searchButton,
+    /inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl/
+  );
+  assert.match(
+    newSessionButton,
+    /inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl/
+  );
   assert.match(searchButton, /bg-transparent/);
   assert.match(newSessionButton, /bg-transparent/);
   assert.doesNotMatch(searchButton, /border-\[#DEE0E3\]/);

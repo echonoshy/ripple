@@ -381,9 +381,7 @@ export default function SessionPage({
   const modelDisplayName = formatModelName(selectedModel);
   const currentModelLabel = isGenerating ? t("composer.working") : modelDisplayName;
   const currentModelAccessibleLabel = t("sessions.currentModel", { model: modelDisplayName });
-  const modelBadgeIconClass = isGenerating
-    ? "shrink-0 text-[#1456F0]"
-    : "shrink-0 text-[#646A73]";
+  const modelBadgeIconClass = isGenerating ? "shrink-0 text-[#1456F0]" : "shrink-0 text-[#646A73]";
   const effectiveContextFolderPath = session?.contextFolderPath ?? contextFolderPath ?? null;
   const workspaceScopePath = effectiveContextFolderPath || "/workspace";
   const workspaceScopeLabel = folderName(

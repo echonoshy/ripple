@@ -1,0 +1,1432 @@
+use axum::extract::{Path, Query, State};
+use axum::http::HeaderMap;
+use axum::Json;
+use serde_json::{json, Value};
+use time::format_description::well_known::Rfc3339;
+use time::OffsetDateTime;
+use tokio::time::{sleep, Duration, Instant};
+use uuid::Uuid;
+
+use crate::api::run_public::{sanitize_user_visible_text, sanitize_user_visible_value};
+use crate::api::users::assert_can_create_run;
+use crate::api::{paginate, ApiError, ListQuery};
+use crate::codex::events::extract_plan_update_event;
+use crate::jobs::{AgentRunCreateRequest, AgentRunInfo};
+use crate::sessions::SessionRecord;
+use crate::state::AppState;
+use crate::storage::Storage;
+use crate::user::user_id_from_headers;
+
+pub async fn list_tasks(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<ListQuery>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    let records = state.storage.list_tasks(&user_id).await?;
+    Ok(Json(task_list_response(&state, &user_id, records, &query)))
+}
+
+pub async fn list_session_tasks(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(session_id): Path<String>,
+    Query(query): Query<ListQuery>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    require_session(&state, &user_id, &session_id).await?;
+    let records = state
+        .storage
+        .list_tasks_for_session(&user_id, &session_id)
+        .await?;
+    Ok(Json(task_list_response(&state, &user_id, records, &query)))
+}
+
+pub async fn create_task(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(input): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    let (task, actions) = create_task_from_payload(&state.storage, &user_id, None, &input).await?;
+    Ok(Json(json!({
+        "task": public_task_value(&state, &user_id, task),
+        "actions": public_values(&state, &user_id, actions)
+    })))
+}
+
+pub async fn get_task(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(task_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    let task = load_task(&state.storage, &user_id, &task_id).await?;
+    let actions = state.storage.list_task_actions(&user_id, &task_id).await?;
+    Ok(Json(json!({
+        "task": public_task_value(&state, &user_id, task),
+        "actions": public_values(&state, &user_id, actions)
+    })))
+}
+
+pub async fn update_task(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(task_id): Path<String>,
+    Json(input): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    let mut task = load_task(&state.storage, &user_id, &task_id).await?;
+    merge_task_updates(&mut task, &input)?;
+    state.storage.upsert_task(&user_id, &task).await?;
+    append_task_event(
+        &state.storage,
+        &user_id,
+        &task_id,
+        "task_updated",
+        json!({"updates": input}),
+    )
+    .await?;
+    let actions = state.storage.list_task_actions(&user_id, &task_id).await?;
+    Ok(Json(json!({
+        "task": public_task_value(&state, &user_id, task),
+        "actions": public_values(&state, &user_id, actions)
+    })))
+}
+
+pub async fn cancel_task(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(task_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    let mut task = load_task(&state.storage, &user_id, &task_id).await?;
+    transition_task_status(&mut task, "cancelled")?;
+    set_field(&mut task, "updated_at", json!(now_iso()));
+    state.storage.upsert_task(&user_id, &task).await?;
+    append_task_event(
+        &state.storage,
+        &user_id,
+        &task_id,
+        "task_cancelled",
+        json!({}),
+    )
+    .await?;
+    let actions = state.storage.list_task_actions(&user_id, &task_id).await?;
+    Ok(Json(json!({
+        "task": public_task_value(&state, &user_id, task),
+        "actions": public_values(&state, &user_id, actions)
+    })))
+}
+
+pub async fn confirm_task(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(task_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    let mut task = load_task(&state.storage, &user_id, &task_id).await?;
+    transition_task_status(&mut task, "active")?;
+    set_field(&mut task, "requires_confirmation", json!(false));
+    set_field(&mut task, "updated_at", json!(now_iso()));
+    state.storage.upsert_task(&user_id, &task).await?;
+
+    let mut actions = state.storage.list_task_actions(&user_id, &task_id).await?;
+    for action in &mut actions {
+        if action.get("status").and_then(Value::as_str) == Some("candidate") {
+            set_field(action, "status", json!("confirmed"));
+            set_field(action, "requires_confirmation", json!(false));
+            set_field(action, "updated_at", json!(now_iso()));
+            state
+                .storage
+                .upsert_task_action(&user_id, &task_id, action)
+                .await?;
+        }
+    }
+    append_task_event(
+        &state.storage,
+        &user_id,
+        &task_id,
+        "task_confirmed",
+        json!({}),
+    )
+    .await?;
+    let actions = state.storage.list_task_actions(&user_id, &task_id).await?;
+    Ok(Json(json!({
+        "task": public_task_value(&state, &user_id, task),
+        "actions": public_values(&state, &user_id, actions)
+    })))
+}
+
+pub async fn run_task_now(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(task_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    let info = execute_task(&state, &user_id, &task_id).await?;
+    Ok(Json(
+        serde_json::to_value(info).unwrap_or_else(|_| json!({})),
+    ))
+}
+
+pub async fn list_task_actions(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(task_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    let _ = load_task(&state.storage, &user_id, &task_id).await?;
+    let actions = state.storage.list_task_actions(&user_id, &task_id).await?;
+    let count = actions.len();
+    Ok(Json(json!({
+        "actions": public_values(&state, &user_id, actions),
+        "count": count
+    })))
+}
+
+pub async fn create_task_action(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(task_id): Path<String>,
+    Json(input): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    let task = load_task(&state.storage, &user_id, &task_id).await?;
+    let now = now_iso();
+    let action = action_record_from_payload(&input, &user_id, &task_id, &task, &now)?;
+    state
+        .storage
+        .upsert_task_action(&user_id, &task_id, &action)
+        .await?;
+    let _ = refresh_task_progress(&state.storage, &user_id, &task_id).await?;
+    append_task_event(
+        &state.storage,
+        &user_id,
+        &task_id,
+        "task_action_created",
+        json!({"action_id": action.get("action_id").cloned().unwrap_or(Value::Null)}),
+    )
+    .await?;
+    Ok(Json(public_task_action_response(&state, &user_id, action)))
+}
+
+pub async fn update_task_action(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((task_id, action_id)): Path<(String, String)>,
+    Json(input): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    let (task, action, actions) =
+        update_task_action_record(&state.storage, &user_id, &task_id, &action_id, &input, None)
+            .await?;
+    Ok(Json(json!({
+        "task": public_task_value(&state, &user_id, task),
+        "action": public_task_value(&state, &user_id, action),
+        "actions": public_values(&state, &user_id, actions)
+    })))
+}
+
+pub async fn list_task_events(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(task_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    let _ = load_task(&state.storage, &user_id, &task_id).await?;
+    let events = state.storage.list_task_events(&user_id, &task_id).await?;
+    let count = events.len();
+    Ok(Json(json!({
+        "events": public_values(&state, &user_id, events),
+        "count": count
+    })))
+}
+
+pub(crate) async fn persist_task_update(
+    storage: &Storage,
+    user_id: &str,
+    session_id: Option<&str>,
+    arguments: &Value,
+) -> Result<Value, ApiError> {
+    let mode = arguments
+        .get("mode")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ApiError::bad_request("task_update missing mode"))?;
+    let target = arguments
+        .get("target")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ApiError::bad_request("task_update missing target"))?;
+    if target != "task" {
+        return Err(ApiError::bad_request(
+            "task_update currently supports only task",
+        ));
+    }
+    if !matches!(
+        mode,
+        "propose"
+            | "create"
+            | "update_task"
+            | "create_action"
+            | "update_action"
+            | "start_action"
+            | "complete_action"
+            | "block_action"
+            | "wait_user"
+            | "complete_task"
+    ) {
+        return Err(ApiError::bad_request(
+            "task_update mode is not supported for task",
+        ));
+    }
+    if !matches!(mode, "propose" | "create") {
+        return persist_task_update_mutation(storage, user_id, mode, arguments).await;
+    }
+
+    let mut payload = if let Some(task) = arguments.get("task").filter(|value| value.is_object()) {
+        task.clone()
+    } else {
+        arguments.clone()
+    };
+    if let Some(object) = payload.as_object_mut() {
+        object.remove("mode");
+        object.remove("target");
+        object.remove("task");
+        if !object.contains_key("actions") {
+            if let Some(actions) = arguments.get("actions").cloned() {
+                object.insert("actions".to_string(), actions);
+            }
+        }
+        if mode == "propose" {
+            object
+                .entry("status".to_string())
+                .or_insert_with(|| json!("candidate"));
+            object
+                .entry("requires_confirmation".to_string())
+                .or_insert_with(|| json!(true));
+        }
+    }
+    let (task, actions) = create_task_from_payload(storage, user_id, session_id, &payload).await?;
+    Ok(json!({
+        "ok": true,
+        "target": target,
+        "mode": mode,
+        "task": task,
+        "actions": actions,
+        "message": "Task saved."
+    }))
+}
+
+pub(crate) async fn create_task_from_payload(
+    storage: &Storage,
+    user_id: &str,
+    default_session_id: Option<&str>,
+    payload: &Value,
+) -> Result<(Value, Vec<Value>), ApiError> {
+    let now = now_iso();
+    let task = task_record_from_payload(payload, user_id, default_session_id, &now)?;
+    let task_id = task
+        .get("task_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ApiError::bad_request("task missing task_id"))?
+        .to_string();
+    storage.upsert_task(user_id, &task).await?;
+
+    let actions = payload
+        .get("actions")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|action| action_record_from_payload(&action, user_id, &task_id, &task, &now))
+        .collect::<Result<Vec<_>, _>>()?;
+    for action in &actions {
+        storage
+            .upsert_task_action(user_id, &task_id, action)
+            .await?;
+    }
+    let task = refresh_task_progress(storage, user_id, &task_id).await?;
+    append_task_event(
+        storage,
+        user_id,
+        &task_id,
+        "task_created",
+        json!({"action_count": actions.len()}),
+    )
+    .await?;
+    Ok((task, actions))
+}
+
+async fn persist_task_update_mutation(
+    storage: &Storage,
+    user_id: &str,
+    mode: &str,
+    arguments: &Value,
+) -> Result<Value, ApiError> {
+    let task_id = arguments
+        .get("task_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ApiError::bad_request("task_update missing task_id"))?;
+    match mode {
+        "update_task" => {
+            let updates = arguments
+                .get("updates")
+                .filter(|value| value.is_object())
+                .cloned()
+                .unwrap_or_else(|| {
+                    let mut updates = arguments.clone();
+                    if let Some(object) = updates.as_object_mut() {
+                        object.remove("mode");
+                        object.remove("target");
+                        object.remove("task_id");
+                    }
+                    updates
+                });
+            let mut task = load_task(storage, user_id, task_id).await?;
+            merge_task_updates(&mut task, &updates)?;
+            storage.upsert_task(user_id, &task).await?;
+            append_task_event(
+                storage,
+                user_id,
+                task_id,
+                "task_updated",
+                json!({"updates": updates}),
+            )
+            .await?;
+            let actions = storage.list_task_actions(user_id, task_id).await?;
+            Ok(json!({
+                "ok": true,
+                "mode": mode,
+                "target": "task",
+                "task": task,
+                "actions": actions,
+                "message": "Task updated."
+            }))
+        }
+        "create_action" => {
+            let task = load_task(storage, user_id, task_id).await?;
+            let action_payload = arguments
+                .get("action")
+                .filter(|value| value.is_object())
+                .cloned()
+                .ok_or_else(|| ApiError::bad_request("task_update create_action missing action"))?;
+            let now = now_iso();
+            let action =
+                action_record_from_payload(&action_payload, user_id, task_id, &task, &now)?;
+            storage
+                .upsert_task_action(user_id, task_id, &action)
+                .await?;
+            append_task_event(
+                storage,
+                user_id,
+                task_id,
+                "task_action_created",
+                json!({"action_id": action.get("action_id").cloned().unwrap_or(Value::Null)}),
+            )
+            .await?;
+            let task = refresh_task_progress(storage, user_id, task_id).await?;
+            let actions = storage.list_task_actions(user_id, task_id).await?;
+            Ok(json!({
+                "ok": true,
+                "mode": mode,
+                "target": "task",
+                "task": task,
+                "action": action,
+                "actions": actions,
+                "message": "Task action created."
+            }))
+        }
+        "update_action" | "start_action" | "complete_action" | "block_action" | "wait_user" => {
+            let action_id = arguments
+                .get("action_id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ApiError::bad_request("task_update missing action_id"))?;
+            let updates = updates_for_action_mode(mode, arguments)?;
+            let (task, action, actions) = update_task_action_record(
+                storage,
+                user_id,
+                task_id,
+                action_id,
+                &updates,
+                Some(mode),
+            )
+            .await?;
+            Ok(json!({
+                "ok": true,
+                "mode": mode,
+                "target": "task",
+                "task": task,
+                "action": action,
+                "actions": actions,
+                "message": "Task action updated."
+            }))
+        }
+        "complete_task" => {
+            let mut task = load_task(storage, user_id, task_id).await?;
+            set_task_status_internal(&mut task, "completed");
+            set_field(&mut task, "updated_at", json!(now_iso()));
+            storage.upsert_task(user_id, &task).await?;
+            append_task_event(storage, user_id, task_id, "task_completed", json!({})).await?;
+            let actions = storage.list_task_actions(user_id, task_id).await?;
+            Ok(json!({
+                "ok": true,
+                "mode": mode,
+                "target": "task",
+                "task": task,
+                "actions": actions,
+                "message": "Task completed."
+            }))
+        }
+        _ => Err(ApiError::bad_request("unsupported task_update mode")),
+    }
+}
+
+async fn update_task_action_record(
+    storage: &Storage,
+    user_id: &str,
+    task_id: &str,
+    action_id: &str,
+    updates: &Value,
+    event_hint: Option<&str>,
+) -> Result<(Value, Value, Vec<Value>), ApiError> {
+    let mut action = load_task_action(storage, user_id, task_id, action_id).await?;
+    let previous_status = action
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("confirmed")
+        .to_string();
+    merge_task_action_updates(&mut action, updates)?;
+    storage
+        .upsert_task_action(user_id, task_id, &action)
+        .await?;
+    let new_status = action
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or(previous_status.as_str())
+        .to_string();
+    let event_type = event_hint
+        .and_then(event_type_for_task_update_mode)
+        .or_else(|| event_type_for_action_status_change(&previous_status, &new_status));
+    if let Some(event_type) = event_type {
+        append_task_event(
+            storage,
+            user_id,
+            task_id,
+            event_type,
+            json!({
+                "action_id": action_id,
+                "status": new_status,
+                "updates": updates
+            }),
+        )
+        .await?;
+    }
+    let task = refresh_task_progress(storage, user_id, task_id).await?;
+    let actions = storage.list_task_actions(user_id, task_id).await?;
+    Ok((task, action, actions))
+}
+
+fn updates_for_action_mode(mode: &str, arguments: &Value) -> Result<Value, ApiError> {
+    let mut updates = arguments
+        .get("updates")
+        .filter(|value| value.is_object())
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let Some(object) = updates.as_object_mut() else {
+        return Err(ApiError::bad_request(
+            "task_update updates must be an object",
+        ));
+    };
+    match mode {
+        "start_action" => {
+            object.insert("status".to_string(), json!("in_progress"));
+        }
+        "complete_action" => {
+            object.insert("status".to_string(), json!("completed"));
+            if let Some(summary) = arguments.get("result_summary").cloned() {
+                object.insert("result_summary".to_string(), summary);
+            }
+        }
+        "block_action" => {
+            object.insert("status".to_string(), json!("blocked"));
+            if let Some(reason) = arguments
+                .get("reason")
+                .or_else(|| arguments.get("last_error"))
+                .cloned()
+            {
+                object.insert("last_error".to_string(), reason);
+            }
+        }
+        "wait_user" => {
+            object.insert("status".to_string(), json!("waiting_user"));
+            if let Some(reason) = arguments.get("reason").cloned() {
+                object.insert("waiting_reason".to_string(), reason);
+            }
+        }
+        _ => {}
+    }
+    Ok(updates)
+}
+
+fn merge_task_action_updates(action: &mut Value, input: &Value) -> Result<(), ApiError> {
+    let Some(updates) = input.as_object() else {
+        return Err(ApiError::bad_request(
+            "task action update payload must be an object",
+        ));
+    };
+    for (key, value) in updates {
+        if matches!(
+            key.as_str(),
+            "task_id" | "action_id" | "user_id" | "created_at"
+        ) {
+            continue;
+        }
+        if key == "status" {
+            let next = value
+                .as_str()
+                .ok_or_else(|| ApiError::bad_request("task action status must be a string"))?;
+            transition_action_status(action, next)?;
+        } else if key == "title" {
+            let Some(title) = value
+                .as_str()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            else {
+                return Err(ApiError::bad_request("task action title cannot be empty"));
+            };
+            set_field(action, key, json!(title));
+        } else {
+            set_field(action, key, value.clone());
+        }
+    }
+    set_field(action, "updated_at", json!(now_iso()));
+    Ok(())
+}
+
+async fn refresh_task_progress(
+    storage: &Storage,
+    user_id: &str,
+    task_id: &str,
+) -> Result<Value, ApiError> {
+    let mut task = load_task(storage, user_id, task_id).await?;
+    let previous_status = task
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("active")
+        .to_string();
+    let actions = storage.list_task_actions(user_id, task_id).await?;
+    let total = actions.len() as u64;
+    let completed = actions
+        .iter()
+        .filter(|action| action.get("status").and_then(Value::as_str) == Some("completed"))
+        .count() as u64;
+    let current = current_action_for_progress(&actions);
+    let percent = if total == 0 {
+        0
+    } else {
+        (completed * 100) / total
+    };
+    let mut progress = json!({
+        "completed": completed,
+        "total": total,
+        "percent": percent
+    });
+    if let Some(current) = current {
+        if let Some(object) = progress.as_object_mut() {
+            object.insert(
+                "current_action_id".to_string(),
+                current.get("action_id").cloned().unwrap_or(Value::Null),
+            );
+            object.insert(
+                "current_action_title".to_string(),
+                current.get("title").cloned().unwrap_or(Value::Null),
+            );
+        }
+    }
+    set_field(&mut task, "progress", progress);
+    if total > 0 && completed == total {
+        set_task_status_internal(&mut task, "completed");
+    } else if actions
+        .iter()
+        .any(|action| action.get("status").and_then(Value::as_str) == Some("in_progress"))
+    {
+        set_task_status_internal(&mut task, "in_progress");
+    } else if actions
+        .iter()
+        .any(|action| action.get("status").and_then(Value::as_str) == Some("waiting_user"))
+    {
+        set_task_status_internal(&mut task, "waiting_user");
+    } else if actions
+        .iter()
+        .any(|action| action.get("status").and_then(Value::as_str) == Some("blocked"))
+    {
+        set_task_status_internal(&mut task, "blocked");
+    }
+    set_field(&mut task, "updated_at", json!(now_iso()));
+    storage.upsert_task(user_id, &task).await?;
+    if previous_status != "completed"
+        && task.get("status").and_then(Value::as_str) == Some("completed")
+    {
+        append_task_event(storage, user_id, task_id, "task_completed", json!({})).await?;
+    }
+    Ok(task)
+}
+
+fn current_action_for_progress(actions: &[Value]) -> Option<&Value> {
+    for status in [
+        "in_progress",
+        "waiting_user",
+        "blocked",
+        "confirmed",
+        "candidate",
+    ] {
+        if let Some(action) = actions
+            .iter()
+            .find(|action| action.get("status").and_then(Value::as_str) == Some(status))
+        {
+            return Some(action);
+        }
+    }
+    None
+}
+
+fn task_list_response(
+    state: &AppState,
+    user_id: &str,
+    records: Vec<Value>,
+    query: &ListQuery,
+) -> Value {
+    let total = records.len();
+    let (items, next_cursor) = paginate(records, query);
+    json!({
+        "tasks": public_values(state, user_id, items),
+        "count": total,
+        "next_cursor": next_cursor
+    })
+}
+
+fn task_record_from_payload(
+    payload: &Value,
+    user_id: &str,
+    default_session_id: Option<&str>,
+    now: &str,
+) -> Result<Value, ApiError> {
+    let Some(input) = payload.as_object() else {
+        return Err(ApiError::bad_request("task payload must be an object"));
+    };
+    let title = input
+        .get("title")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ApiError::bad_request("task title is required"))?;
+    let task_id = input
+        .get("task_id")
+        .and_then(Value::as_str)
+        .map(stable_id)
+        .unwrap_or_else(|| generated_id("task"));
+    let requires_confirmation = input
+        .get("requires_confirmation")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let status = input
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or(if requires_confirmation {
+            "candidate"
+        } else {
+            "active"
+        });
+    validate_task_status(status)?;
+
+    let mut record = input.clone();
+    record.remove("actions");
+    record.insert("user_id".to_string(), json!(user_id));
+    record.insert("task_id".to_string(), json!(task_id));
+    record.insert("title".to_string(), json!(title));
+    record
+        .entry("objective".to_string())
+        .or_insert_with(|| json!(title));
+    record.insert("status".to_string(), json!(status));
+    record
+        .entry("priority".to_string())
+        .or_insert_with(|| json!("normal"));
+    record
+        .entry("requires_confirmation".to_string())
+        .or_insert_with(|| json!(requires_confirmation));
+    if !record.contains_key("source_session_id") {
+        if let Some(session_id) = default_session_id {
+            record.insert("source_session_id".to_string(), json!(session_id));
+        }
+    }
+    record
+        .entry("created_at".to_string())
+        .or_insert_with(|| json!(now));
+    record.insert("updated_at".to_string(), json!(now));
+    Ok(Value::Object(record))
+}
+
+fn action_record_from_payload(
+    payload: &Value,
+    user_id: &str,
+    task_id: &str,
+    task: &Value,
+    now: &str,
+) -> Result<Value, ApiError> {
+    let Some(input) = payload.as_object() else {
+        return Err(ApiError::bad_request(
+            "task action payload must be an object",
+        ));
+    };
+    let title = input
+        .get("title")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ApiError::bad_request("task action title is required"))?;
+    let action_id = input
+        .get("action_id")
+        .and_then(Value::as_str)
+        .map(stable_id)
+        .unwrap_or_else(|| generated_id("act"));
+    let requires_confirmation = input
+        .get("requires_confirmation")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let task_is_candidate = task.get("status").and_then(Value::as_str) == Some("candidate");
+    let status = input.get("status").and_then(Value::as_str).unwrap_or(
+        if requires_confirmation || task_is_candidate {
+            "candidate"
+        } else {
+            "confirmed"
+        },
+    );
+    validate_action_status(status)?;
+
+    let mut record = input.clone();
+    record.insert("user_id".to_string(), json!(user_id));
+    record.insert("task_id".to_string(), json!(task_id));
+    record.insert("action_id".to_string(), json!(action_id));
+    record.insert("title".to_string(), json!(title));
+    record
+        .entry("objective".to_string())
+        .or_insert_with(|| json!(title));
+    record
+        .entry("kind".to_string())
+        .or_insert_with(|| json!("next_step"));
+    record.insert("status".to_string(), json!(status));
+    record
+        .entry("assignee".to_string())
+        .or_insert_with(|| json!("codex"));
+    record
+        .entry("requires_confirmation".to_string())
+        .or_insert_with(|| json!(requires_confirmation));
+    if !record.contains_key("source_session_id") {
+        if let Some(session_id) = task.get("source_session_id").and_then(Value::as_str) {
+            record.insert("source_session_id".to_string(), json!(session_id));
+        }
+    }
+    record
+        .entry("created_at".to_string())
+        .or_insert_with(|| json!(now));
+    record.insert("updated_at".to_string(), json!(now));
+    Ok(Value::Object(record))
+}
+
+fn merge_task_updates(task: &mut Value, input: &Value) -> Result<(), ApiError> {
+    let Some(updates) = input.as_object() else {
+        return Err(ApiError::bad_request(
+            "task update payload must be an object",
+        ));
+    };
+    if !task.is_object() {
+        return Err(ApiError::bad_request("stored task record is invalid"));
+    }
+    for (key, value) in updates {
+        if matches!(
+            key.as_str(),
+            "task_id" | "user_id" | "created_at" | "actions"
+        ) {
+            continue;
+        }
+        if key == "status" {
+            let next = value
+                .as_str()
+                .ok_or_else(|| ApiError::bad_request("task status must be a string"))?;
+            transition_task_status(task, next)?;
+        } else if key == "title" {
+            let Some(title) = value
+                .as_str()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            else {
+                return Err(ApiError::bad_request("task title cannot be empty"));
+            };
+            set_field(task, key, json!(title));
+        } else {
+            set_field(task, key, value.clone());
+        }
+    }
+    set_field(task, "updated_at", json!(now_iso()));
+    Ok(())
+}
+
+fn validate_task_status(status: &str) -> Result<(), ApiError> {
+    if matches!(
+        status,
+        "candidate"
+            | "active"
+            | "in_progress"
+            | "waiting_user"
+            | "blocked"
+            | "completed"
+            | "cancelled"
+            | "archived"
+    ) {
+        Ok(())
+    } else {
+        Err(ApiError::bad_request(format!(
+            "invalid task status: {status}"
+        )))
+    }
+}
+
+fn validate_action_status(status: &str) -> Result<(), ApiError> {
+    if matches!(
+        status,
+        "candidate"
+            | "confirmed"
+            | "in_progress"
+            | "waiting_user"
+            | "blocked"
+            | "completed"
+            | "cancelled"
+    ) {
+        Ok(())
+    } else {
+        Err(ApiError::bad_request(format!(
+            "invalid task action status: {status}"
+        )))
+    }
+}
+
+fn transition_task_status(task: &mut Value, next: &str) -> Result<(), ApiError> {
+    validate_task_status(next)?;
+    let current = task
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("active");
+    if current == next || allowed_task_transition(current, next) {
+        set_field(task, "status", json!(next));
+        Ok(())
+    } else {
+        Err(ApiError::bad_request(format!(
+            "invalid task status transition: {current} -> {next}"
+        )))
+    }
+}
+
+fn transition_action_status(action: &mut Value, next: &str) -> Result<(), ApiError> {
+    validate_action_status(next)?;
+    let current = action
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("confirmed");
+    if current == next || allowed_action_transition(current, next) {
+        set_field(action, "status", json!(next));
+        Ok(())
+    } else {
+        Err(ApiError::bad_request(format!(
+            "invalid task action status transition: {current} -> {next}"
+        )))
+    }
+}
+
+fn allowed_task_transition(current: &str, next: &str) -> bool {
+    matches!(
+        (current, next),
+        ("candidate", "active")
+            | ("candidate", "cancelled")
+            | ("active", "in_progress")
+            | ("active", "cancelled")
+            | ("in_progress", "waiting_user")
+            | ("in_progress", "blocked")
+            | ("in_progress", "completed")
+            | ("in_progress", "cancelled")
+            | ("waiting_user", "in_progress")
+            | ("waiting_user", "cancelled")
+            | ("blocked", "in_progress")
+            | ("blocked", "cancelled")
+            | ("completed", "archived")
+            | ("cancelled", "archived")
+    )
+}
+
+fn allowed_action_transition(current: &str, next: &str) -> bool {
+    matches!(
+        (current, next),
+        ("candidate", "confirmed")
+            | ("candidate", "cancelled")
+            | ("confirmed", "in_progress")
+            | ("confirmed", "completed")
+            | ("confirmed", "cancelled")
+            | ("in_progress", "completed")
+            | ("in_progress", "waiting_user")
+            | ("in_progress", "blocked")
+            | ("in_progress", "cancelled")
+            | ("waiting_user", "in_progress")
+            | ("waiting_user", "cancelled")
+            | ("blocked", "in_progress")
+            | ("blocked", "cancelled")
+    )
+}
+
+fn set_task_status_internal(task: &mut Value, next: &str) {
+    set_field(task, "status", json!(next));
+}
+
+fn event_type_for_task_update_mode(mode: &str) -> Option<&'static str> {
+    match mode {
+        "start_action" => Some("task_action_started"),
+        "complete_action" => Some("task_action_completed"),
+        "block_action" => Some("task_action_blocked"),
+        "wait_user" => Some("task_action_waiting_user"),
+        "update_action" => Some("task_action_updated"),
+        _ => None,
+    }
+}
+
+fn event_type_for_action_status_change(previous: &str, next: &str) -> Option<&'static str> {
+    if previous == next {
+        return Some("task_action_updated");
+    }
+    match next {
+        "in_progress" => Some("task_action_started"),
+        "completed" => Some("task_action_completed"),
+        "blocked" => Some("task_action_blocked"),
+        "waiting_user" => Some("task_action_waiting_user"),
+        "cancelled" => Some("task_action_cancelled"),
+        _ => Some("task_action_updated"),
+    }
+}
+
+async fn load_task(storage: &Storage, user_id: &str, task_id: &str) -> Result<Value, ApiError> {
+    storage
+        .get_task(user_id, task_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("Task not found"))
+}
+
+async fn load_task_action(
+    storage: &Storage,
+    user_id: &str,
+    task_id: &str,
+    action_id: &str,
+) -> Result<Value, ApiError> {
+    storage
+        .list_task_actions(user_id, task_id)
+        .await?
+        .into_iter()
+        .find(|record| record.get("action_id").and_then(Value::as_str) == Some(action_id))
+        .ok_or_else(|| ApiError::not_found("Task action not found"))
+}
+
+async fn require_session(
+    state: &AppState,
+    user_id: &str,
+    session_id: &str,
+) -> Result<(), ApiError> {
+    if state.sessions.load(user_id, session_id).await?.is_some() {
+        Ok(())
+    } else {
+        Err(ApiError::not_found("Session not found"))
+    }
+}
+
+async fn execute_task(
+    state: &AppState,
+    user_id: &str,
+    task_id: &str,
+) -> Result<AgentRunInfo, ApiError> {
+    let task = load_task(&state.storage, user_id, task_id).await?;
+    let status = task
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("active");
+    if status == "candidate" {
+        return Err(ApiError::bad_request(
+            "Task must be confirmed before it can run.",
+        ));
+    }
+    if matches!(status, "completed" | "cancelled" | "archived") {
+        return Err(ApiError::bad_request(format!(
+            "Task cannot run while status is {status}."
+        )));
+    }
+    let session_id = task
+        .get("source_session_id")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .ok_or_else(|| ApiError::bad_request("Task run-now requires source_session_id"))?;
+    let mut session = state
+        .sessions
+        .load(user_id, &session_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("Session not found"))?;
+    let action = ensure_runnable_action(&state.storage, user_id, task_id, &task).await?;
+    let action_id = action
+        .get("action_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ApiError::bad_request("Task action missing action_id"))?
+        .to_string();
+    let (task, action, _) = update_task_action_record(
+        &state.storage,
+        user_id,
+        task_id,
+        &action_id,
+        &json!({"status": "in_progress"}),
+        Some("start_action"),
+    )
+    .await?;
+
+    let workspace_root = state.sandboxes.ensure_sandbox(user_id)?;
+    let runtime_dir = state.sandboxes.session_dir(user_id, &session_id)?;
+    let prompt = task_run_prompt(&task, &action);
+    let max_runtime_seconds = state.config.codex.max_runtime_seconds;
+    assert_can_create_run(state, user_id, max_runtime_seconds).await?;
+    let create = AgentRunCreateRequest {
+        prompt: prompt.clone(),
+        provider: "codex".to_string(),
+        base_instructions: None,
+        turn_context: None,
+        cwd: Some("/workspace".to_string()),
+        input_items: vec![json!({"type": "text", "text": prompt})],
+        model: Some(session.model.clone()),
+        effort: None,
+        summary: None,
+        output_schema: None,
+        max_runtime_seconds,
+        schedule_id: None,
+        schedule_title: None,
+        schedule_trigger: None,
+        codex_thread_id: session.codex_thread_id.clone(),
+        codex_persistent_thread: true,
+        chat_user_input: Some(task_run_prompt(&task, &action)),
+        chat_user_content: None,
+    };
+    let info = state
+        .jobs
+        .start(
+            create,
+            user_id.to_string(),
+            Some(session_id.clone()),
+            workspace_root,
+            runtime_dir,
+        )
+        .await
+        .map_err(|err| ApiError::bad_request(err.to_string()))?;
+    append_task_event(
+        &state.storage,
+        user_id,
+        task_id,
+        "task_run_started",
+        json!({
+            "action_id": action_id,
+            "run_id": info.job_id
+        }),
+    )
+    .await?;
+
+    let final_info =
+        wait_for_task_run(state, user_id, task_id, &info.job_id, max_runtime_seconds).await?;
+    let output_text = read_run_output(&final_info).await;
+    let previous_codex_thread_id = session.codex_thread_id.clone();
+    record_codex_thread(&mut session, &final_info);
+    let mut session_changed = session.codex_thread_id != previous_codex_thread_id;
+    if final_info.status == "completed" {
+        let result_summary = sanitize_user_visible_text(state, user_id, &output_text);
+        if !result_summary.trim().is_empty() {
+            append_assistant_message(&mut session, &result_summary);
+            session_changed = true;
+        }
+        let mut updates = json!({
+            "status": "completed",
+            "last_run_id": final_info.job_id,
+            "result_summary": result_summary
+        });
+        if output_text.trim().is_empty() {
+            set_field(&mut updates, "result_summary", json!("Task run completed."));
+        }
+        let _ = update_task_action_record(
+            &state.storage,
+            user_id,
+            task_id,
+            &action_id,
+            &updates,
+            Some("complete_action"),
+        )
+        .await?;
+    } else {
+        let error = final_info
+            .error
+            .clone()
+            .unwrap_or_else(|| final_info.status.clone());
+        let _ = update_task_action_record(
+            &state.storage,
+            user_id,
+            task_id,
+            &action_id,
+            &json!({
+                "status": "blocked",
+                "last_run_id": final_info.job_id,
+                "last_error": error
+            }),
+            Some("block_action"),
+        )
+        .await?;
+    }
+    if session_changed {
+        state.sessions.save_record_if_exists(session).await?;
+    }
+    Ok(final_info)
+}
+
+async fn ensure_runnable_action(
+    storage: &Storage,
+    user_id: &str,
+    task_id: &str,
+    task: &Value,
+) -> Result<Value, ApiError> {
+    let actions = storage.list_task_actions(user_id, task_id).await?;
+    if let Some(action) = actions.into_iter().find(|action| {
+        !matches!(
+            action.get("status").and_then(Value::as_str),
+            Some("completed" | "cancelled")
+        )
+    }) {
+        return Ok(action);
+    }
+    let now = now_iso();
+    let action = action_record_from_payload(
+        &json!({
+            "action_id": "act-run-task",
+            "title": "执行任务",
+            "kind": "execute",
+            "status": "confirmed"
+        }),
+        user_id,
+        task_id,
+        task,
+        &now,
+    )?;
+    storage
+        .upsert_task_action(user_id, task_id, &action)
+        .await?;
+    append_task_event(
+        storage,
+        user_id,
+        task_id,
+        "task_action_created",
+        json!({"action_id": "act-run-task"}),
+    )
+    .await?;
+    Ok(action)
+}
+
+fn task_run_prompt(task: &Value, action: &Value) -> String {
+    let task_id = task.get("task_id").and_then(Value::as_str).unwrap_or("");
+    let task_title = task.get("title").and_then(Value::as_str).unwrap_or("任务");
+    let task_objective = task
+        .get("objective")
+        .and_then(Value::as_str)
+        .unwrap_or(task_title);
+    let action_id = action
+        .get("action_id")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let action_title = action
+        .get("title")
+        .and_then(Value::as_str)
+        .unwrap_or("下一步");
+    let action_objective = action
+        .get("objective")
+        .and_then(Value::as_str)
+        .unwrap_or(action_title);
+    let source = task
+        .get("source_summary")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    format!(
+        "Run this Ripple task.\nTask ID: {task_id}\nTask title: {task_title}\nTask objective: {task_objective}\nCurrent action ID: {action_id}\nCurrent action: {action_title}\nAction objective: {action_objective}\nSource context:\n{source}\n\nUse `codex_app.task_update` to update this task's progress. Call start_action when beginning, complete_action when done, wait_user when user input is needed, and block_action if blocked. Return a concise update for the user in the same language as the task."
+    )
+}
+
+async fn wait_for_task_run(
+    state: &AppState,
+    user_id: &str,
+    task_id: &str,
+    job_id: &str,
+    max_runtime_seconds: u64,
+) -> Result<AgentRunInfo, ApiError> {
+    let deadline = Instant::now() + Duration::from_secs(max_runtime_seconds.max(1));
+    let mut line_offset = 0_usize;
+    loop {
+        let Some(info) = state.jobs.info_for_user(job_id, user_id).await? else {
+            return Err(ApiError::not_found("Task run not found"));
+        };
+        if let Some(events_file) = info.events_file.as_deref() {
+            for event in read_new_run_events(events_file, &mut line_offset).await {
+                if let Some(plan_event) = extract_plan_update_event(&event) {
+                    persist_task_plan_update(&state.storage, user_id, task_id, &plan_event).await?;
+                }
+            }
+        }
+        if matches!(info.status.as_str(), "completed" | "failed" | "cancelled") {
+            return Ok(info);
+        }
+        if Instant::now() >= deadline {
+            return Err(ApiError::bad_request("Task run timed out"));
+        }
+        sleep(Duration::from_millis(50)).await;
+    }
+}
+
+async fn read_new_run_events(path: &str, line_offset: &mut usize) -> Vec<Value> {
+    let Ok(text) = tokio::fs::read_to_string(path).await else {
+        return Vec::new();
+    };
+    let lines = text.lines().collect::<Vec<_>>();
+    let events = lines
+        .iter()
+        .skip(*line_offset)
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .collect::<Vec<_>>();
+    *line_offset = lines.len();
+    events
+}
+
+async fn persist_task_plan_update(
+    storage: &Storage,
+    user_id: &str,
+    task_id: &str,
+    plan_event: &Value,
+) -> Result<(), ApiError> {
+    let mut task = load_task(storage, user_id, task_id).await?;
+    if let Some(steps) = plan_event.get("steps").cloned() {
+        set_field(&mut task, "plan_steps", steps);
+    }
+    if let Some(progress) = plan_event.get("progress").cloned() {
+        set_field(&mut task, "plan_progress", progress);
+    }
+    set_field(&mut task, "updated_at", json!(now_iso()));
+    storage.upsert_task(user_id, &task).await?;
+    append_task_event(
+        storage,
+        user_id,
+        task_id,
+        "task_plan_updated",
+        json!({"plan": plan_event}),
+    )
+    .await?;
+    Ok(())
+}
+
+async fn read_run_output(info: &AgentRunInfo) -> String {
+    if let Some(output_file) = info.output_file.as_deref() {
+        if let Ok(text) = tokio::fs::read_to_string(output_file).await {
+            return text;
+        }
+    }
+    info.stdout_tail.clone()
+}
+
+fn record_codex_thread(session: &mut SessionRecord, info: &AgentRunInfo) {
+    if let Some(thread_id) = info
+        .metadata
+        .get("codex_thread_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        session.codex_thread_id = Some(thread_id.to_string());
+    }
+}
+
+fn append_assistant_message(session: &mut SessionRecord, text: &str) {
+    session.messages.push(json!({
+        "role": "assistant",
+        "content": [{"type": "text", "text": text}],
+        "created_at": now_iso()
+    }));
+    session.message_count = session.messages.len();
+    session.last_active = now_iso();
+}
+
+async fn append_task_event(
+    storage: &Storage,
+    user_id: &str,
+    task_id: &str,
+    event_type: &str,
+    details: Value,
+) -> Result<(), ApiError> {
+    let now = now_iso();
+    let record = json!({
+        "event_id": generated_id("evt"),
+        "task_id": task_id,
+        "user_id": user_id,
+        "type": event_type,
+        "details": details,
+        "created_at": now
+    });
+    storage.upsert_task_event(user_id, task_id, &record).await?;
+    Ok(())
+}
+
+fn public_task_value(state: &AppState, user_id: &str, value: Value) -> Value {
+    sanitize_user_visible_value(state, user_id, &value)
+}
+
+fn public_values(state: &AppState, user_id: &str, values: Vec<Value>) -> Vec<Value> {
+    values
+        .into_iter()
+        .map(|value| sanitize_user_visible_value(state, user_id, &value))
+        .collect()
+}
+
+fn public_task_action_response(state: &AppState, user_id: &str, action: Value) -> Value {
+    json!({
+        "action": sanitize_user_visible_value(state, user_id, &action)
+    })
+}
+
+fn set_field(record: &mut Value, key: &str, value: Value) {
+    if let Some(object) = record.as_object_mut() {
+        object.insert(key.to_string(), value);
+    }
+}
+
+fn generated_id(prefix: &str) -> String {
+    format!("{prefix}-{}", &Uuid::new_v4().simple().to_string()[..10])
+}
+
+fn stable_id(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return generated_id("id");
+    }
+    let mut id = String::with_capacity(trimmed.len());
+    for ch in trimmed.chars() {
+        if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
+            id.push(ch);
+        } else {
+            id.push('-');
+        }
+    }
+    id.trim_matches('-').chars().take(80).collect()
+}
+
+fn now_iso() -> String {
+    OffsetDateTime::now_utc()
+        .format(&Rfc3339)
+        .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
+}

@@ -16,6 +16,7 @@ use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{mpsc, oneshot, Mutex, Notify};
 use tokio::time::timeout;
 
+use crate::api::tasks::persist_task_update;
 use crate::codex::approvals::{approval_response_for_action, CodexApproval};
 use crate::codex::permissions::{
     thread_permission_config_for_user, RIPPLE_CODEX_PERMISSION_PROFILE,
@@ -24,6 +25,7 @@ use crate::config::AppConfig;
 use crate::python_env::{ensure_ripple_py_wrapper, ripple_py_bin_dir};
 use crate::redaction::{redact_text, redact_value};
 use crate::sandbox::SandboxManager;
+use crate::storage::Storage;
 use crate::user::validate_user_id;
 
 const TAIL_CHARS: usize = 64_000;
@@ -601,6 +603,7 @@ struct PoolState {
 #[derive(Clone)]
 pub struct CodexAppServerProvider {
     config: Arc<AppConfig>,
+    storage: Storage,
     pools: Arc<Mutex<PoolState>>,
     pool_notify: Arc<Notify>,
     next_worker_id: Arc<AtomicU64>,
@@ -610,9 +613,10 @@ pub struct CodexAppServerProvider {
 }
 
 impl CodexAppServerProvider {
-    pub fn new(config: Arc<AppConfig>) -> Self {
+    pub fn new(config: Arc<AppConfig>, storage: Storage) -> Self {
         Self {
             config,
+            storage,
             pools: Arc::new(Mutex::new(PoolState::default())),
             pool_notify: Arc::new(Notify::new()),
             next_worker_id: Arc::new(AtomicU64::new(1)),
@@ -833,6 +837,12 @@ impl CodexAppServerProvider {
                     .await?;
                     continue;
                 }
+                if self
+                    .handle_dynamic_tool_call_request(request, session, &message)
+                    .await?
+                {
+                    continue;
+                }
                 if is_unsupported_server_request(&message) {
                     let request_id = message.get("id").cloned().unwrap_or(Value::Null);
                     let method = message.get("method").and_then(Value::as_str).unwrap_or("");
@@ -872,6 +882,70 @@ impl CodexAppServerProvider {
         timeout(deadline, collect)
             .await
             .with_context(|| format!("runner timed out after {}s", request.max_runtime_seconds))?
+    }
+
+    async fn handle_dynamic_tool_call_request(
+        &self,
+        request: &AgentRunnerRequest,
+        session: &Arc<CodexAppServerSession>,
+        message: &Value,
+    ) -> anyhow::Result<bool> {
+        if message.get("method").and_then(Value::as_str) != Some("item/tool/call") {
+            return Ok(false);
+        }
+        let request_id = message.get("id").cloned().unwrap_or(Value::Null);
+        let params = message.get("params").cloned().unwrap_or_else(|| json!({}));
+        let namespace = params
+            .get("namespace")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let tool = params.get("tool").and_then(Value::as_str).unwrap_or("");
+        let arguments = params
+            .get("arguments")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        let (success, text) = if namespace == "codex_app" && tool == "task_update" {
+            let user_id = request.user_id.as_deref().unwrap_or("default");
+            if request.session_id.is_none() {
+                (false, "task_update requires a Ripple session".to_string())
+            } else {
+                match persist_task_update(
+                    &self.storage,
+                    user_id,
+                    request.session_id.as_deref(),
+                    &arguments,
+                )
+                .await
+                {
+                    Ok(output) => (
+                        true,
+                        serde_json::to_string(&output)
+                            .unwrap_or_else(|_| "{\"ok\":true}".to_string()),
+                    ),
+                    Err(err) => (false, format!("{err:?}")),
+                }
+            }
+        } else {
+            (
+                false,
+                format!("unsupported dynamic tool {namespace}.{tool}"),
+            )
+        };
+        session
+            .respond(
+                request_id,
+                json!({
+                    "contentItems": [
+                        {
+                            "type": "inputText",
+                            "text": text
+                        }
+                    ],
+                    "success": success
+                }),
+            )
+            .await?;
+        Ok(true)
     }
 
     async fn ensure_thread(
@@ -923,6 +997,7 @@ impl CodexAppServerProvider {
             "permissions": RIPPLE_CODEX_PERMISSION_PROFILE
         });
         add_base_instructions(&mut start_params, request);
+        add_task_dynamic_tools(&mut start_params, request);
         let thread_result = session.request("thread/start", start_params).await?;
         let thread_id = thread_result
             .pointer("/thread/id")
@@ -1476,6 +1551,85 @@ fn add_base_instructions(params: &mut Value, request: &AgentRunnerRequest) {
     }
 }
 
+fn add_task_dynamic_tools(params: &mut Value, request: &AgentRunnerRequest) {
+    if request.session_id.is_none()
+        || request.metadata.get("chat_user_input").is_none()
+        || request.metadata.get("schedule_id").is_some()
+    {
+        return;
+    }
+    if let Some(object) = params.as_object_mut() {
+        object.insert(
+            "dynamicTools".to_string(),
+            json!([
+                {
+                    "namespace": "codex_app",
+                    "name": "task_update",
+                    "description": "Create or propose durable Ripple tasks and task actions from the current conversation.",
+                    "inputSchema": task_update_input_schema(),
+                    "deferLoading": true
+                }
+            ]),
+        );
+    }
+}
+
+fn task_update_input_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "mode": {
+                "type": "string",
+                "enum": [
+                    "propose",
+                    "create",
+                    "update_task",
+                    "create_action",
+                    "update_action",
+                    "start_action",
+                    "complete_action",
+                    "block_action",
+                    "wait_user",
+                    "complete_task"
+                ]
+            },
+            "target": {
+                "type": "string",
+                "enum": ["task"]
+            },
+            "task": {
+                "type": "object",
+                "additionalProperties": true
+            },
+            "actions": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                }
+            },
+            "task_id": {
+                "type": "string"
+            },
+            "action_id": {
+                "type": "string"
+            },
+            "result_summary": {
+                "type": "string"
+            },
+            "reason": {
+                "type": "string"
+            },
+            "updates": {
+                "type": "object",
+                "additionalProperties": true
+            }
+        },
+        "required": ["mode", "target"],
+        "additionalProperties": true
+    })
+}
+
 fn image_generation_enabled_for_request(request: &AgentRunnerRequest) -> bool {
     request
         .metadata
@@ -1654,7 +1808,13 @@ mod tests {
             provider: "codex".to_string(),
             prompt: "帮我检查 memory".to_string(),
             base_instructions: Some("Ripple guardrails".to_string()),
-            turn_context: Some("## Connector Status\n- google_workspace: connected".to_string()),
+            turn_context: Some(
+                "## Connector Status\n\
+- google_workspace: connected\n\n\
+## Available Skills\n\
+(none)"
+                    .to_string(),
+            ),
             cwd: PathBuf::from("/tmp/ripple-test"),
             input_items: Vec::new(),
             model: None,
@@ -1673,6 +1833,11 @@ mod tests {
             params.pointer("/input/0/text").and_then(Value::as_str),
             Some("帮我检查 memory")
         );
+        assert!(!params
+            .pointer("/input/0/text")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .contains("Connector Status"));
         assert_eq!(
             params
                 .pointer("/additionalContext/ripple_turn_context/kind")
@@ -1683,7 +1848,12 @@ mod tests {
             params
                 .pointer("/additionalContext/ripple_turn_context/value")
                 .and_then(Value::as_str),
-            Some("## Connector Status\n- google_workspace: connected")
+            Some(
+                "## Connector Status\n\
+- google_workspace: connected\n\n\
+## Available Skills\n\
+(none)"
+            )
         );
     }
 
@@ -1738,6 +1908,47 @@ mod tests {
         request.metadata = json!({"image_generation_enabled": true});
 
         assert!(image_generation_enabled_for_request(&request));
+    }
+
+    #[test]
+    fn task_dynamic_tools_use_codex_legacy_flat_shape() {
+        let request = AgentRunnerRequest {
+            provider: "codex".to_string(),
+            prompt: "5分钟后提醒我准备材料".to_string(),
+            base_instructions: None,
+            turn_context: None,
+            cwd: PathBuf::from("/tmp/ripple-test"),
+            input_items: Vec::new(),
+            model: None,
+            effort: None,
+            summary: None,
+            output_schema: None,
+            max_runtime_seconds: 60,
+            user_id: Some("alice".to_string()),
+            session_id: Some("session-1".to_string()),
+            metadata: json!({"chat_user_input": "5分钟后提醒我准备材料"}),
+        };
+        let mut params = json!({});
+
+        add_task_dynamic_tools(&mut params, &request);
+
+        let tools = params
+            .get("dynamicTools")
+            .and_then(Value::as_array)
+            .expect("dynamic task tools");
+        assert_eq!(tools.len(), 1);
+        let tool = &tools[0];
+        assert_eq!(
+            tool.get("namespace").and_then(Value::as_str),
+            Some("codex_app")
+        );
+        assert_eq!(
+            tool.get("name").and_then(Value::as_str),
+            Some("task_update")
+        );
+        assert!(tool.get("inputSchema").is_some());
+        assert!(tool.get("tools").is_none());
+        assert!(tool.get("type").is_none());
     }
 
     #[test]

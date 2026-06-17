@@ -57,6 +57,10 @@ struct ScheduleRecord {
     output_schema: Option<Value>,
     max_runtime_seconds: u64,
     max_runs: Option<u64>,
+    #[serde(default)]
+    task_id: Option<String>,
+    #[serde(default)]
+    task_action_id: Option<String>,
     run_count: u64,
     created_at: String,
     updated_at: String,
@@ -90,6 +94,10 @@ pub struct ScheduleCreateInput {
     pub(crate) max_runtime_seconds: u64,
     #[serde(default)]
     pub(crate) max_runs: Option<u64>,
+    #[serde(default)]
+    pub(crate) task_id: Option<String>,
+    #[serde(default)]
+    pub(crate) task_action_id: Option<String>,
     #[serde(default = "default_missed_run_policy")]
     pub(crate) missed_run_policy: String,
     #[serde(default = "default_overlap_policy")]
@@ -127,6 +135,10 @@ pub struct ScheduleUpdateInput {
     max_runtime_seconds: Option<u64>,
     #[serde(default, deserialize_with = "nullable_field")]
     max_runs: Option<Option<u64>>,
+    #[serde(default, deserialize_with = "nullable_field")]
+    task_id: Option<Option<String>>,
+    #[serde(default, deserialize_with = "nullable_field")]
+    task_action_id: Option<Option<String>>,
     missed_run_policy: Option<String>,
     overlap_policy: Option<String>,
     failure_policy: Option<String>,
@@ -217,6 +229,8 @@ pub(crate) async fn create_schedule_for_user(
         output_schema: input.output_schema,
         max_runtime_seconds: input.max_runtime_seconds.clamp(1, 86_400),
         max_runs,
+        task_id: clean_optional_link_id(input.task_id),
+        task_action_id: clean_optional_link_id(input.task_action_id),
         run_count: 0,
         created_at: iso(now),
         updated_at: iso(now),
@@ -301,6 +315,12 @@ pub async fn update_schedule(
     }
     if let Some(max_runs) = input.max_runs {
         record.max_runs = normalize_max_runs(&record.kind, max_runs)?;
+    }
+    if let Some(task_id) = input.task_id {
+        record.task_id = clean_optional_link_id(task_id);
+    }
+    if let Some(task_action_id) = input.task_action_id {
+        record.task_action_id = clean_optional_link_id(task_action_id);
     }
     if let Some(policy) = input.missed_run_policy {
         record.missed_run_policy = normalize_missed_run_policy(&policy)?.to_string();
@@ -873,6 +893,14 @@ fn clean_required(value: &str, field: &str) -> Result<String, ApiError> {
     }
 }
 
+fn clean_optional_link_id(value: Option<String>) -> Option<String> {
+    value
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
 fn normalize_kind(value: &str) -> Result<&'static str, ApiError> {
     match value.trim() {
         "once" => Ok("once"),
@@ -1127,6 +1155,8 @@ mod tests {
             output_schema: None,
             max_runtime_seconds: 1800,
             max_runs: None,
+            task_id: None,
+            task_action_id: None,
             run_count: 1,
             created_at: "2026-05-30T00:00:00Z".to_string(),
             updated_at: "2026-05-30T00:00:00Z".to_string(),

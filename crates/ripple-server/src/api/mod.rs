@@ -15,6 +15,7 @@ pub mod schedules;
 pub mod sessions;
 pub mod skill_chat;
 pub mod skills;
+pub mod tasks;
 pub mod users;
 pub mod workspace;
 
@@ -23,7 +24,7 @@ use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{HeaderValue, Request, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{any, delete, get, patch, post};
+use axum::routing::{delete, get, patch, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -126,8 +127,24 @@ pub fn router(state: AppState) -> Router {
     let protected_v1: OpenApiRouter<AppState> = OpenApiRouter::new()
         .routes(utoipa_axum::routes!(models::list_models))
         .routes(utoipa_axum::routes!(models::system_info))
-        .route("/tasks", any(sessions::deprecated_tasks_api))
-        .route("/tasks/*task_path", any(sessions::deprecated_tasks_api))
+        .route("/tasks", get(tasks::list_tasks).post(tasks::create_task))
+        .route(
+            "/tasks/:task_id",
+            get(tasks::get_task)
+                .patch(tasks::update_task)
+                .delete(tasks::cancel_task),
+        )
+        .route("/tasks/:task_id/confirm", post(tasks::confirm_task))
+        .route("/tasks/:task_id/run-now", post(tasks::run_task_now))
+        .route(
+            "/tasks/:task_id/actions",
+            get(tasks::list_task_actions).post(tasks::create_task_action),
+        )
+        .route(
+            "/tasks/:task_id/actions/:action_id",
+            patch(tasks::update_task_action),
+        )
+        .route("/tasks/:task_id/events", get(tasks::list_task_events))
         .routes(utoipa_axum::routes!(chat::chat_completions))
         .routes(utoipa_axum::routes!(health::ready))
         .routes(utoipa_axum::routes!(health::doctor))
@@ -159,6 +176,10 @@ pub fn router(state: AppState) -> Router {
             get(sessions::get_session)
                 .patch(sessions::update_session)
                 .delete(sessions::delete_session),
+        )
+        .route(
+            "/sessions/:session_id/tasks",
+            get(tasks::list_session_tasks),
         )
         .route("/sessions/:session_id/stop", post(sessions::stop_session))
         .route(

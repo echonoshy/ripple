@@ -362,6 +362,25 @@ fn extract_id(line: &str) -> Option<RequestId> {
     }
 }
 
+fn is_response(line: &str) -> bool {
+    line.contains("\"result\":") || line.contains("\"error\":")
+}
+
+fn complete_pending_response(
+    id: &RequestId,
+    pending_approvals: &mut HashMap<String, (String, String, String, String)>,
+    pending_dynamic_tools: &mut HashMap<String, (String, String, String, String)>,
+) {
+    let Some(key) = id.as_string_key() else {
+        return;
+    };
+    if let Some((thread_id, turn_id, item_id, text)) = pending_approvals.remove(key) {
+        complete_turn(&thread_id, &turn_id, &item_id, &text);
+    } else if let Some((thread_id, turn_id, item_id, text)) = pending_dynamic_tools.remove(key) {
+        complete_turn(&thread_id, &turn_id, &item_id, &text);
+    }
+}
+
 fn complete_turn(thread_id: &str, turn_id: &str, item_id: &str, text: &str) {
     let text_json = json_string(text);
     send(format!(
@@ -429,18 +448,34 @@ fn title_generation_text() -> &'static str {
     "{\"title\":\"Chat Greeting\"}"
 }
 
+fn task_tool_arguments() -> &'static str {
+    "{\"mode\":\"propose\",\"target\":\"task\",\"task\":{\"task_id\":\"task-tool-plan\",\"title\":\"整理客户报价方案\",\"objective\":\"周五前形成可发送给客户的报价方案。\",\"priority\":\"normal\",\"due_at\":\"2026-06-19T10:00:00Z\",\"source_summary\":\"用户在当前 session 中要求周五前完成报价方案。\",\"actions\":[{\"action_id\":\"act-task-budget\",\"title\":\"补充客户预算信息\",\"objective\":\"确认客户预算并补充到报价方案中。\",\"kind\":\"next_step\",\"assignee\":\"user\",\"requires_confirmation\":true}]}}"
+}
+
+fn task_tool_complete_action_arguments() -> &'static str {
+    "{\"mode\":\"complete_action\",\"target\":\"task\",\"task_id\":\"task-progress\",\"action_id\":\"act-draft\",\"result_summary\":\"已整理出客户预算范围和报价假设。\"}"
+}
+
 fn main() {
     let stdin = io::stdin();
     let mut thread_counter = 0_u64;
     let mut turn_counter = 0_u64;
+    let mut thread_has_task_tool: HashMap<String, bool> = HashMap::new();
     let mut pending_approvals: HashMap<String, (String, String, String, String)> = HashMap::new();
+    let mut pending_dynamic_tools: HashMap<String, (String, String, String, String)> = HashMap::new();
 
     for line_result in stdin.lock().lines() {
         let Ok(line) = line_result else {
             continue;
         };
-        let method = extract_string_field(&line, "method");
         let request_id = extract_id(&line);
+        if is_response(&line) {
+            if let Some(id) = request_id.as_ref() {
+                complete_pending_response(id, &mut pending_approvals, &mut pending_dynamic_tools);
+            }
+            continue;
+        }
+        let method = extract_string_field(&line, "method");
 
         match (request_id.as_ref(), method.as_deref()) {
             (Some(id), Some("initialize")) => {
@@ -449,9 +484,15 @@ fn main() {
             (_, Some("initialized")) => {}
             (Some(id), Some("thread/start")) => {
                 thread_counter += 1;
+                let thread_id = format!("thread-{thread_counter}");
+                thread_has_task_tool.insert(
+                    thread_id.clone(),
+                    line.contains("\"dynamicTools\"") && line.contains("task_update"),
+                );
                 send(format!(
-                    "{{\"id\":{},\"result\":{{\"thread\":{{\"id\":\"thread-{thread_counter}\"}}}}}}",
-                    id.raw_json()
+                    "{{\"id\":{},\"result\":{{\"thread\":{{\"id\":{}}}}}}}",
+                    id.raw_json(),
+                    json_string(&thread_id)
                 ));
             }
             (Some(id), Some("thread/resume")) => {
@@ -551,6 +592,66 @@ fn main() {
                     continue;
                 }
 
+                if line.contains("[tool-task]") {
+                    if !thread_has_task_tool.get(&thread_id).copied().unwrap_or(false) {
+                        complete_turn(
+                            &thread_id,
+                            &turn_id,
+                            &item_id,
+                            "task_update dynamic tool missing",
+                        );
+                        continue;
+                    }
+                    let dynamic_request_id = format!("dynamic-task-{turn_counter}");
+                    pending_dynamic_tools.insert(
+                        dynamic_request_id.clone(),
+                        (
+                            thread_id.clone(),
+                            turn_id.clone(),
+                            item_id.clone(),
+                            "task tool saved".to_string(),
+                        ),
+                    );
+                    send(format!(
+                        "{{\"id\":{},\"method\":\"item/tool/call\",\"params\":{{\"threadId\":{},\"turnId\":{},\"callId\":\"call-task-update\",\"namespace\":\"codex_app\",\"tool\":\"task_update\",\"arguments\":{}}}}}",
+                        json_string(&dynamic_request_id),
+                        json_string(&thread_id),
+                        json_string(&turn_id),
+                        task_tool_arguments()
+                    ));
+                    continue;
+                }
+
+                if line.contains("[tool-task-complete]") {
+                    if !thread_has_task_tool.get(&thread_id).copied().unwrap_or(false) {
+                        complete_turn(
+                            &thread_id,
+                            &turn_id,
+                            &item_id,
+                            "task_update dynamic tool missing",
+                        );
+                        continue;
+                    }
+                    let dynamic_request_id = format!("dynamic-task-complete-{turn_counter}");
+                    pending_dynamic_tools.insert(
+                        dynamic_request_id.clone(),
+                        (
+                            thread_id.clone(),
+                            turn_id.clone(),
+                            item_id.clone(),
+                            "task action completed".to_string(),
+                        ),
+                    );
+                    send(format!(
+                        "{{\"id\":{},\"method\":\"item/tool/call\",\"params\":{{\"threadId\":{},\"turnId\":{},\"callId\":\"call-task-complete\",\"namespace\":\"codex_app\",\"tool\":\"task_update\",\"arguments\":{}}}}}",
+                        json_string(&dynamic_request_id),
+                        json_string(&thread_id),
+                        json_string(&turn_id),
+                        task_tool_complete_action_arguments()
+                    ));
+                    continue;
+                }
+
                 if line.contains("[slow-delete]") {
                     thread::sleep(Duration::from_millis(2_000));
                 } else if line.contains("[slow]") {
@@ -562,12 +663,7 @@ fn main() {
                 complete_turn(&thread_id, &turn_id, &item_id, &text);
             }
             (Some(id), None) => {
-                if let Some(key) = id.as_string_key() {
-                    if let Some((thread_id, turn_id, item_id, text)) = pending_approvals.remove(key)
-                    {
-                        complete_turn(&thread_id, &turn_id, &item_id, &text);
-                    }
-                }
+                complete_pending_response(id, &mut pending_approvals, &mut pending_dynamic_tools);
             }
             (Some(id), Some("turn/interrupt" | "turn/steer")) => {
                 send(format!("{{\"id\":{},\"result\":{{}}}}", id.raw_json()));
@@ -923,7 +1019,698 @@ async fn router_serves_core_control_plane_routes() {
         .oneshot(request(Method::GET, "/v1/tasks", Value::Null, true))
         .await
         .unwrap();
-    assert_eq!(tasks.status(), StatusCode::GONE);
+    assert_eq!(tasks.status(), StatusCode::OK);
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn task_api_creates_lists_confirms_and_lists_session_tasks() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let (_state, app) = test_state_and_app(&root);
+
+    let (status, session) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/sessions",
+        json!({"model": "codex-test"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let session_id = session
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("session id");
+
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks",
+        json!({
+            "title": "整理客户报价方案",
+            "objective": "周五前形成可发送给客户的报价方案",
+            "status": "candidate",
+            "priority": "normal",
+            "due_at": "2026-06-19T10:00:00Z",
+            "source_session_id": session_id,
+            "source_summary": "用户在当前 session 中要求周五前完成报价方案。",
+            "requires_confirmation": true,
+            "actions": [
+                {
+                    "title": "补充客户预算信息",
+                    "objective": "确认客户预算并补充到报价方案中",
+                    "kind": "next_step",
+                    "status": "candidate",
+                    "assignee": "user",
+                    "requires_confirmation": true
+                }
+            ]
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+    let task_id = created
+        .pointer("/task/task_id")
+        .and_then(Value::as_str)
+        .expect("task id");
+    let action_id = created
+        .pointer("/actions/0/action_id")
+        .and_then(Value::as_str)
+        .expect("action id");
+    assert_eq!(
+        created.pointer("/task/status").and_then(Value::as_str),
+        Some("candidate"),
+        "{created}"
+    );
+
+    let (status, list) = call(app.clone(), Method::GET, "/v1/tasks", Value::Null).await;
+    assert_eq!(status, StatusCode::OK, "{list}");
+    assert_eq!(list.get("count").and_then(Value::as_u64), Some(1), "{list}");
+    assert_eq!(
+        list.pointer("/tasks/0/task_id").and_then(Value::as_str),
+        Some(task_id),
+        "{list}"
+    );
+
+    let (status, session_tasks) = call(
+        app.clone(),
+        Method::GET,
+        &format!("/v1/sessions/{session_id}/tasks"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session_tasks}");
+    assert_eq!(
+        session_tasks
+            .pointer("/tasks/0/task_id")
+            .and_then(Value::as_str),
+        Some(task_id),
+        "{session_tasks}"
+    );
+
+    let (status, actions) = call(
+        app.clone(),
+        Method::GET,
+        &format!("/v1/tasks/{task_id}/actions"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{actions}");
+    assert_eq!(
+        actions
+            .pointer("/actions/0/action_id")
+            .and_then(Value::as_str),
+        Some(action_id),
+        "{actions}"
+    );
+
+    let (status, confirmed) = call(
+        app.clone(),
+        Method::POST,
+        &format!("/v1/tasks/{task_id}/confirm"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{confirmed}");
+    assert_eq!(
+        confirmed.pointer("/task/status").and_then(Value::as_str),
+        Some("active"),
+        "{confirmed}"
+    );
+    assert_eq!(
+        confirmed
+            .pointer("/task/requires_confirmation")
+            .and_then(Value::as_bool),
+        Some(false),
+        "{confirmed}"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn task_actions_drive_status_machine_progress_and_events() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let (_state, app) = test_state_and_app(&root);
+
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks",
+        json!({
+            "task_id": "task-progress",
+            "title": "整理客户报价方案",
+            "objective": "周五前形成可发送给客户的报价方案",
+            "status": "active",
+            "actions": [
+                {
+                    "action_id": "act-draft",
+                    "title": "生成报价草稿",
+                    "kind": "next_step",
+                    "status": "confirmed"
+                },
+                {
+                    "action_id": "act-review",
+                    "title": "检查最终版本",
+                    "kind": "next_step",
+                    "status": "confirmed"
+                }
+            ]
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+
+    let (status, invalid) = call(
+        app.clone(),
+        Method::PATCH,
+        "/v1/tasks/task-progress",
+        json!({"status": "completed"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{invalid}");
+
+    let (status, started) = call(
+        app.clone(),
+        Method::PATCH,
+        "/v1/tasks/task-progress/actions/act-draft",
+        json!({"status": "in_progress"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{started}");
+    assert_eq!(
+        started.pointer("/task/status").and_then(Value::as_str),
+        Some("in_progress"),
+        "{started}"
+    );
+    assert_eq!(
+        started
+            .pointer("/task/progress/completed")
+            .and_then(Value::as_u64),
+        Some(0),
+        "{started}"
+    );
+    assert_eq!(
+        started
+            .pointer("/task/progress/total")
+            .and_then(Value::as_u64),
+        Some(2),
+        "{started}"
+    );
+    assert_eq!(
+        started
+            .pointer("/task/progress/current_action_id")
+            .and_then(Value::as_str),
+        Some("act-draft"),
+        "{started}"
+    );
+
+    let (status, first_done) = call(
+        app.clone(),
+        Method::PATCH,
+        "/v1/tasks/task-progress/actions/act-draft",
+        json!({"status": "completed", "result_summary": "报价草稿已完成"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{first_done}");
+    assert_eq!(
+        first_done
+            .pointer("/task/progress/completed")
+            .and_then(Value::as_u64),
+        Some(1),
+        "{first_done}"
+    );
+    assert_eq!(
+        first_done.pointer("/task/status").and_then(Value::as_str),
+        Some("in_progress"),
+        "{first_done}"
+    );
+
+    let (status, all_done) = call(
+        app.clone(),
+        Method::PATCH,
+        "/v1/tasks/task-progress/actions/act-review",
+        json!({"status": "completed", "result_summary": "最终版本已检查"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{all_done}");
+    assert_eq!(
+        all_done.pointer("/task/status").and_then(Value::as_str),
+        Some("completed"),
+        "{all_done}"
+    );
+    assert_eq!(
+        all_done
+            .pointer("/task/progress/completed")
+            .and_then(Value::as_u64),
+        Some(2),
+        "{all_done}"
+    );
+
+    let (status, invalid_reopen) = call(
+        app.clone(),
+        Method::PATCH,
+        "/v1/tasks/task-progress",
+        json!({"status": "in_progress"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{invalid_reopen}");
+
+    let (status, events) = call(
+        app,
+        Method::GET,
+        "/v1/tasks/task-progress/events",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{events}");
+    let event_types = events
+        .get("events")
+        .and_then(Value::as_array)
+        .expect("events")
+        .iter()
+        .filter_map(|event| event.get("type").and_then(Value::as_str))
+        .collect::<Vec<_>>();
+    assert!(event_types.contains(&"task_action_started"), "{events}");
+    assert!(event_types.contains(&"task_action_completed"), "{events}");
+    assert!(event_types.contains(&"task_completed"), "{events}");
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn chat_dynamic_task_tool_updates_task_progress() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (_state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks",
+        json!({
+            "task_id": "task-progress",
+            "title": "整理客户报价方案",
+            "objective": "周五前形成可发送给客户的报价方案",
+            "status": "active",
+            "actions": [
+                {
+                    "action_id": "act-draft",
+                    "title": "生成报价草稿",
+                    "kind": "next_step",
+                    "status": "confirmed"
+                }
+            ]
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+
+    let (status, chat) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/chat/completions",
+        json!({
+            "model": "codex-test",
+            "messages": [{"role": "user", "content": "[tool-task-complete] 完成报价草稿"}],
+            "stream": false
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{chat}");
+    assert!(
+        chat.pointer("/choices/0/message/content")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .contains("task action completed"),
+        "{chat}"
+    );
+
+    let (status, detail) = call(app, Method::GET, "/v1/tasks/task-progress", Value::Null).await;
+    assert_eq!(status, StatusCode::OK, "{detail}");
+    assert_eq!(
+        detail.pointer("/task/status").and_then(Value::as_str),
+        Some("completed"),
+        "{detail}"
+    );
+    assert_eq!(
+        detail
+            .pointer("/actions/0/result_summary")
+            .and_then(Value::as_str),
+        Some("已整理出客户预算范围和报价假设。"),
+        "{detail}"
+    );
+    assert_eq!(
+        detail
+            .pointer("/task/progress/completed")
+            .and_then(Value::as_u64),
+        Some(1),
+        "{detail}"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn task_action_with_wakeup_stays_in_task_action_storage() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let (_state, app) = test_state_and_app(&root);
+
+    let (status, session) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/sessions",
+        json!({"model": "codex-test"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let session_id = session
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("session id");
+
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks",
+        json!({
+            "task_id": "task-reminder",
+            "title": "整理客户报价方案",
+            "objective": "周五前形成可发送给客户的报价方案",
+            "status": "active",
+            "source_session_id": session_id
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+
+    let (status, action) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks/task-reminder/actions",
+        json!({
+            "action_id": "act-remind-budget",
+            "title": "提醒补充客户预算",
+            "objective": "提醒用户补充客户预算信息",
+            "kind": "reminder",
+            "status": "confirmed",
+            "next_wakeup_at": "2026-06-19T02:00:00Z"
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{action}");
+
+    assert_eq!(
+        action
+            .pointer("/action/next_wakeup_at")
+            .and_then(Value::as_str),
+        Some("2026-06-19T02:00:00Z"),
+        "{action}"
+    );
+    let (status, missing) = call(
+        app,
+        Method::GET,
+        &format!("/v1/sessions/{session_id}/follow-ups"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{missing}");
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn automation_schedule_can_link_to_task_action() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let (_state, app) = test_state_and_app(&root);
+
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks",
+        json!({
+            "task_id": "task-auto",
+            "title": "监控报价材料",
+            "objective": "每天检查报价材料是否有更新",
+            "status": "active",
+            "actions": [
+                {
+                    "action_id": "act-auto-check",
+                    "title": "检查报价材料更新",
+                    "kind": "execute",
+                    "status": "confirmed"
+                }
+            ]
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+
+    let (status, schedule) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/schedules",
+        json!({
+            "title": "每天检查报价材料",
+            "prompt": "检查报价材料是否有更新",
+            "kind": "interval",
+            "interval_seconds": 86400,
+            "enabled": false,
+            "task_id": "task-auto",
+            "task_action_id": "act-auto-check"
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{schedule}");
+    assert_eq!(
+        schedule.get("task_id").and_then(Value::as_str),
+        Some("task-auto"),
+        "{schedule}"
+    );
+    assert_eq!(
+        schedule.get("task_action_id").and_then(Value::as_str),
+        Some("act-auto-check"),
+        "{schedule}"
+    );
+
+    let (status, schedules) = call(app, Method::GET, "/v1/schedules", Value::Null).await;
+    assert_eq!(status, StatusCode::OK, "{schedules}");
+    assert_eq!(
+        schedules
+            .pointer("/schedules/0/task_id")
+            .and_then(Value::as_str),
+        Some("task-auto"),
+        "{schedules}"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn task_run_now_executes_codex_and_writes_progress_back() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (_state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    let (status, session) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/sessions",
+        json!({"model": "codex-test"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let session_id = session
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("session id");
+
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks",
+        json!({
+            "task_id": "task-run",
+            "title": "[runtime-events] 整理客户报价方案",
+            "objective": "运行 Codex 生成报价方案进展",
+            "status": "active",
+            "source_session_id": session_id,
+            "actions": [
+                {
+                    "action_id": "act-run-draft",
+                    "title": "执行报价方案整理",
+                    "kind": "execute",
+                    "status": "confirmed"
+                }
+            ]
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+
+    let (status, run) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks/task-run/run-now",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{run}");
+    assert_eq!(
+        run.get("status").and_then(Value::as_str),
+        Some("completed"),
+        "{run}"
+    );
+
+    let (status, detail) = call(app.clone(), Method::GET, "/v1/tasks/task-run", Value::Null).await;
+    assert_eq!(status, StatusCode::OK, "{detail}");
+    assert_eq!(
+        detail.pointer("/task/status").and_then(Value::as_str),
+        Some("completed"),
+        "{detail}"
+    );
+    assert!(
+        detail
+            .pointer("/actions/0/last_run_id")
+            .and_then(Value::as_str)
+            .is_some(),
+        "{detail}"
+    );
+    assert!(
+        detail
+            .pointer("/actions/0/result_summary")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .contains("fake codex completed"),
+        "{detail}"
+    );
+    assert_eq!(
+        detail
+            .pointer("/task/progress/completed")
+            .and_then(Value::as_u64),
+        Some(1),
+        "{detail}"
+    );
+
+    let (status, events) = call(
+        app.clone(),
+        Method::GET,
+        "/v1/tasks/task-run/events",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{events}");
+    let event_types = events
+        .get("events")
+        .and_then(Value::as_array)
+        .expect("events")
+        .iter()
+        .filter_map(|event| event.get("type").and_then(Value::as_str))
+        .collect::<Vec<_>>();
+    assert!(event_types.contains(&"task_run_started"), "{events}");
+    assert!(event_types.contains(&"task_plan_updated"), "{events}");
+    assert!(event_types.contains(&"task_action_completed"), "{events}");
+
+    let (status, session_detail) = call(
+        app,
+        Method::GET,
+        &format!("/v1/sessions/{session_id}"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session_detail}");
+    assert!(
+        session_detail
+            .get("messages")
+            .and_then(Value::as_array)
+            .unwrap_or(&Vec::new())
+            .iter()
+            .any(|message| format!("{message}").contains("fake codex completed")),
+        "{session_detail}"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn chat_dynamic_task_tool_creates_task_and_action() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (_state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    let (status, chat) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/chat/completions",
+        json!({
+            "model": "codex-test",
+            "messages": [{"role": "user", "content": "[tool-task] 这个客户报价方案周五前要整理好"}],
+            "stream": false
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{chat}");
+    let content = chat
+        .pointer("/choices/0/message/content")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    assert!(
+        content.contains("task tool saved"),
+        "assistant should continue after task_update: {chat}"
+    );
+    let session_id = chat
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("session id");
+
+    let (status, tasks) = call(app.clone(), Method::GET, "/v1/tasks", Value::Null).await;
+    assert_eq!(status, StatusCode::OK, "{tasks}");
+    assert_eq!(
+        tasks.get("count").and_then(Value::as_u64),
+        Some(1),
+        "{tasks}"
+    );
+    assert_eq!(
+        tasks.pointer("/tasks/0/task_id").and_then(Value::as_str),
+        Some("task-tool-plan"),
+        "{tasks}"
+    );
+    assert_eq!(
+        tasks.pointer("/tasks/0/status").and_then(Value::as_str),
+        Some("candidate"),
+        "{tasks}"
+    );
+    assert_eq!(
+        tasks
+            .pointer("/tasks/0/source_session_id")
+            .and_then(Value::as_str),
+        Some(session_id),
+        "{tasks}"
+    );
+
+    let (status, actions) = call(
+        app,
+        Method::GET,
+        "/v1/tasks/task-tool-plan/actions",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{actions}");
+    assert_eq!(
+        actions
+            .pointer("/actions/0/action_id")
+            .and_then(Value::as_str),
+        Some("act-task-budget"),
+        "{actions}"
+    );
+    assert_eq!(
+        actions.pointer("/actions/0/status").and_then(Value::as_str),
+        Some("candidate"),
+        "{actions}"
+    );
 
     let _ = std::fs::remove_dir_all(root);
 }

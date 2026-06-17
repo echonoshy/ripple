@@ -14,6 +14,9 @@ import {
   SessionDetail,
   SessionControlAction,
   SessionSummary,
+  TaskActionInfo,
+  TaskEventInfo,
+  TaskInfo,
   SkillDraftInput,
   SkillInfo,
   SkillUpdateInput,
@@ -247,6 +250,38 @@ export interface ScheduleCreateInput {
 
 export type ScheduleUpdateInput = Partial<ScheduleCreateInput>;
 
+export interface TaskActionCreateInput {
+  title: string;
+  kind?: string;
+  objective?: string | null;
+  status?: TaskActionInfo["status"];
+  assignee?: string | null;
+  requiresConfirmation?: boolean;
+  nextWakeupAt?: string | null;
+}
+
+export interface TaskActionUpdateInput {
+  title?: string;
+  kind?: string;
+  objective?: string | null;
+  status?: TaskActionInfo["status"];
+  assignee?: string | null;
+  requiresConfirmation?: boolean;
+  nextWakeupAt?: string | null;
+  resultSummary?: string | null;
+  lastError?: string | null;
+  waitingReason?: string | null;
+}
+
+export interface TaskDetailResponse {
+  task: TaskInfo;
+  actions: TaskActionInfo[];
+}
+
+export interface TaskActionUpdateResponse extends TaskDetailResponse {
+  action: TaskActionInfo;
+}
+
 interface LocalDateTimeParts {
   year: number;
   month: number;
@@ -403,6 +438,31 @@ function scheduleInputForRequest<T extends ScheduleCreateInput | ScheduleUpdateI
   const runAt = normalizeScheduleRunAtForRequest(input.run_at, input.timezone);
   if (runAt === input.run_at) return input;
   return { ...input, run_at: runAt };
+}
+
+function taskActionInputForRequest(
+  input: TaskActionCreateInput | TaskActionUpdateInput
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {};
+  if ("title" in input && input.title !== undefined) body.title = input.title;
+  if ("kind" in input && input.kind !== undefined) body.kind = input.kind;
+  if ("objective" in input && input.objective !== undefined) body.objective = input.objective;
+  if ("status" in input && input.status !== undefined) body.status = input.status;
+  if ("assignee" in input && input.assignee !== undefined) body.assignee = input.assignee;
+  if ("requiresConfirmation" in input && input.requiresConfirmation !== undefined) {
+    body.requires_confirmation = input.requiresConfirmation;
+  }
+  if ("nextWakeupAt" in input && input.nextWakeupAt !== undefined) {
+    body.next_wakeup_at = input.nextWakeupAt;
+  }
+  if ("resultSummary" in input && input.resultSummary !== undefined) {
+    body.result_summary = input.resultSummary;
+  }
+  if ("lastError" in input && input.lastError !== undefined) body.last_error = input.lastError;
+  if ("waitingReason" in input && input.waitingReason !== undefined) {
+    body.waiting_reason = input.waitingReason;
+  }
+  return body;
 }
 
 export function getApiKey(): string | null {
@@ -665,6 +725,136 @@ interface RawSessionDetail extends RawSessionSummary {
   task_progress?: PlanProgress | null;
 }
 
+interface RawTaskProgress {
+  completed?: number;
+  total?: number;
+  percent?: number;
+  current_action_id?: string | null;
+  current_action_title?: string | null;
+}
+
+interface RawTask {
+  task_id?: string;
+  id?: string;
+  user_id?: string;
+  title?: string;
+  objective?: string | null;
+  status?: string;
+  priority?: string;
+  requires_confirmation?: boolean;
+  source_session_id?: string | null;
+  due_at?: string | null;
+  progress?: RawTaskProgress | null;
+  last_run_id?: string | null;
+  last_error?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+interface RawTaskAction {
+  action_id?: string;
+  id?: string;
+  task_id?: string;
+  user_id?: string;
+  kind?: string;
+  title?: string;
+  objective?: string | null;
+  status?: string;
+  assignee?: string | null;
+  requires_confirmation?: boolean;
+  source_session_id?: string | null;
+  next_wakeup_at?: string | null;
+  result_summary?: string | null;
+  last_run_id?: string | null;
+  last_error?: string | null;
+  waiting_reason?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+interface RawTaskEvent {
+  event_id?: string;
+  id?: string;
+  task_id?: string;
+  user_id?: string;
+  event_type?: string;
+  payload?: Record<string, unknown> | null;
+  created_at?: string | null;
+}
+
+function normalizeTaskProgress(raw: RawTaskProgress | null | undefined): TaskInfo["progress"] {
+  if (!raw) return null;
+  return {
+    completed: typeof raw.completed === "number" ? raw.completed : 0,
+    total: typeof raw.total === "number" ? raw.total : 0,
+    percent: typeof raw.percent === "number" ? raw.percent : 0,
+    currentActionId: raw.current_action_id ?? null,
+    currentActionTitle: raw.current_action_title ?? null,
+  };
+}
+
+function normalizeTask(raw: RawTask): TaskInfo {
+  return {
+    taskId: raw.task_id || raw.id || "",
+    userId: raw.user_id || "",
+    title: raw.title?.trim() || "Task",
+    objective: raw.objective ?? null,
+    status: raw.status || "active",
+    priority: raw.priority || "normal",
+    requiresConfirmation: raw.requires_confirmation === true,
+    sourceSessionId: raw.source_session_id ?? null,
+    dueAt: raw.due_at ?? null,
+    progress: normalizeTaskProgress(raw.progress),
+    lastRunId: raw.last_run_id ?? null,
+    lastError: raw.last_error ?? null,
+    createdAt: raw.created_at ?? null,
+    updatedAt: raw.updated_at ?? null,
+  };
+}
+
+function normalizeTaskAction(raw: RawTaskAction): TaskActionInfo {
+  return {
+    actionId: raw.action_id || raw.id || "",
+    taskId: raw.task_id || "",
+    userId: raw.user_id || "",
+    kind: raw.kind || "next_step",
+    title: raw.title?.trim() || "Task action",
+    objective: raw.objective ?? null,
+    status: raw.status || "confirmed",
+    assignee: raw.assignee ?? null,
+    requiresConfirmation: raw.requires_confirmation === true,
+    sourceSessionId: raw.source_session_id ?? null,
+    nextWakeupAt: raw.next_wakeup_at ?? null,
+    resultSummary: raw.result_summary ?? null,
+    lastRunId: raw.last_run_id ?? null,
+    lastError: raw.last_error ?? null,
+    waitingReason: raw.waiting_reason ?? null,
+    createdAt: raw.created_at ?? null,
+    updatedAt: raw.updated_at ?? null,
+  };
+}
+
+function normalizeTaskEvent(raw: RawTaskEvent): TaskEventInfo {
+  return {
+    eventId: raw.event_id || raw.id || "",
+    taskId: raw.task_id || "",
+    userId: raw.user_id || "",
+    eventType: raw.event_type || "task_event",
+    payload: raw.payload ?? null,
+    createdAt: raw.created_at ?? null,
+  };
+}
+
+function normalizeTaskDetailResponse(raw: {
+  task?: RawTask;
+  actions?: RawTaskAction[];
+}): TaskDetailResponse {
+  return {
+    task: normalizeTask(raw.task || {}),
+    actions: (raw.actions || []).map(normalizeTaskAction),
+  };
+}
+
 function normalizeSessionSummary(raw: RawSessionSummary): SessionSummary {
   return {
     sessionId: raw.session_id,
@@ -702,6 +892,149 @@ export async function fetchModels(): Promise<{ id: string; owned_by: string }[]>
   if (!res.ok) throw new Error("Failed to fetch models");
   const data = await res.json();
   return data.data || [];
+}
+
+export async function fetchTasks(): Promise<TaskInfo[]> {
+  const res = await fetch(`${API_URL}/tasks`, { headers: { ...authHeaders() } });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to fetch tasks (${res.status})`);
+  }
+  const data = (await res.json()) as { tasks?: RawTask[] };
+  return (data.tasks || []).map(normalizeTask);
+}
+
+export async function fetchSessionTasks(sessionId: string): Promise<TaskInfo[]> {
+  const res = await fetch(`${API_URL}/sessions/${encodeURIComponent(sessionId)}/tasks`, {
+    headers: { ...authHeaders() },
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to fetch session tasks (${res.status})`);
+  }
+  const data = (await res.json()) as { tasks?: RawTask[] };
+  return (data.tasks || []).map(normalizeTask);
+}
+
+export async function fetchTask(taskId: string): Promise<TaskDetailResponse> {
+  const res = await fetch(`${API_URL}/tasks/${encodeURIComponent(taskId)}`, {
+    headers: { ...authHeaders() },
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to fetch task (${res.status})`);
+  }
+  return normalizeTaskDetailResponse(
+    (await res.json()) as { task?: RawTask; actions?: RawTaskAction[] }
+  );
+}
+
+export async function confirmTask(taskId: string): Promise<TaskDetailResponse> {
+  const res = await fetch(`${API_URL}/tasks/${encodeURIComponent(taskId)}/confirm`, {
+    method: "POST",
+    headers: { ...authHeaders() },
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to confirm task (${res.status})`);
+  }
+  return normalizeTaskDetailResponse(
+    (await res.json()) as { task?: RawTask; actions?: RawTaskAction[] }
+  );
+}
+
+export async function cancelTask(taskId: string): Promise<TaskDetailResponse> {
+  const res = await fetch(`${API_URL}/tasks/${encodeURIComponent(taskId)}`, {
+    method: "DELETE",
+    headers: { ...authHeaders() },
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to cancel task (${res.status})`);
+  }
+  return normalizeTaskDetailResponse(
+    (await res.json()) as { task?: RawTask; actions?: RawTaskAction[] }
+  );
+}
+
+export async function runTaskNow(taskId: string): Promise<AgentRunInfo> {
+  const res = await fetch(`${API_URL}/tasks/${encodeURIComponent(taskId)}/run-now`, {
+    method: "POST",
+    headers: { ...authHeaders() },
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to run task (${res.status})`);
+  }
+  return (await res.json()) as AgentRunInfo;
+}
+
+export async function fetchTaskEvents(taskId: string): Promise<TaskEventInfo[]> {
+  const res = await fetch(`${API_URL}/tasks/${encodeURIComponent(taskId)}/events`, {
+    headers: { ...authHeaders() },
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to fetch task events (${res.status})`);
+  }
+  const data = (await res.json()) as { events?: RawTaskEvent[] };
+  return (data.events || []).map(normalizeTaskEvent);
+}
+
+export async function createTaskAction(
+  taskId: string,
+  input: TaskActionCreateInput
+): Promise<TaskActionInfo> {
+  const res = await fetch(`${API_URL}/tasks/${encodeURIComponent(taskId)}/actions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(taskActionInputForRequest(input)),
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to create task action (${res.status})`);
+  }
+  return normalizeTaskAction((await res.json()) as RawTaskAction);
+}
+
+export async function updateTaskAction(
+  taskId: string,
+  actionId: string,
+  input: TaskActionUpdateInput
+): Promise<TaskActionUpdateResponse> {
+  const res = await fetch(
+    `${API_URL}/tasks/${encodeURIComponent(taskId)}/actions/${encodeURIComponent(actionId)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(taskActionInputForRequest(input)),
+    }
+  );
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to update task action (${res.status})`);
+  }
+  const data = (await res.json()) as {
+    task?: RawTask;
+    action?: RawTaskAction;
+    actions?: RawTaskAction[];
+  };
+  const detail = normalizeTaskDetailResponse(data);
+  return {
+    ...detail,
+    action: data.action
+      ? normalizeTaskAction(data.action)
+      : detail.actions.find((action) => action.actionId === actionId) || normalizeTaskAction({}),
+  };
 }
 
 export async function fetchSchedules(): Promise<ScheduleInfo[]> {

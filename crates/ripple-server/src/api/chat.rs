@@ -1809,6 +1809,9 @@ mod tests {
         assert!(prompt.contains("Ask one consolidated clarification"));
         assert!(prompt.contains("instead of asking repeatedly"));
         assert!(prompt.contains("<ripple_connector_auth_request>"));
+        assert!(prompt.contains("task_update"));
+        assert!(!prompt.contains("automation_update"));
+        assert!(!prompt.contains("ripple_session_events"));
         assert!(!prompt.contains(
             "Google Workspace, Notion, and Feishu authorization is handled by Ripple before the Codex turn starts"
         ));

@@ -176,7 +176,10 @@ function testMobileHeaderButtonsUseToolbarStyling() {
   assert.match(backButton, /bg-transparent/);
   assert.doesNotMatch(backButton, /backdrop-blur-xl/);
   assert.match(sessionPageSource, /mobileChatHeaderButtonClass/);
-  assert.doesNotMatch(sessionPageSource, /const mobileHeaderButtonClass = WORKBENCH_MOBILE_ICON_BUTTON_CLASS/);
+  assert.doesNotMatch(
+    sessionPageSource,
+    /const mobileHeaderButtonClass = WORKBENCH_MOBILE_ICON_BUTTON_CLASS/
+  );
   assert.doesNotMatch(sessionPageSource, /MOBILE_GLASS_ICON_BUTTON_CLASS/);
   assert.match(sessionPageSource, /ChevronLeft/);
   assert.match(sessionPageSource, /MessageCircleMore/);
@@ -274,8 +277,7 @@ function testMobileHeaderModelBadgeIsStaticDisplay() {
     ],
   });
   const headerBadge =
-    html.match(/<span[^>]*data-ripple-current-model-badge="mobile"[\s\S]*?<\/span>/)?.[0] ||
-    "";
+    html.match(/<span[^>]*data-ripple-current-model-badge="mobile"[\s\S]*?<\/span>/)?.[0] || "";
 
   assert.match(headerBadge, /aria-label="Current model: Plus"/);
   assert.match(headerBadge, /title="Current model: Plus"/);
@@ -330,6 +332,15 @@ function testSessionPageRendersChineseStaticChrome() {
   assert.doesNotMatch(html, /aria-label="会话选项"/);
   assert.match(html, />会话</);
   assert.match(html, /aria-label="当前模型：Plus"/);
+}
+
+function testSessionPageDoesNotRenderSmartFollowUps() {
+  const html = renderSessionPage({ locale: "zh-CN" });
+
+  assert.doesNotMatch(html, /data-ripple-session-follow-ups="true"/);
+  assert.doesNotMatch(html, />智能跟进</);
+  assert.doesNotMatch(sessionPageSource, /onFollowUp/);
+  assert.doesNotMatch(sessionPageSource, /SessionFollowUp/);
 }
 
 function testSessionPageShowsCurrentFolderBadge() {
@@ -900,6 +911,7 @@ testMobileHeaderModelBadgeIsStaticDisplay();
 testCurrentModelBadgeUsesModelSwitchIcon();
 testMobileRunStatusOnlyLivesInHeaderAndComposer();
 testSessionPageRendersChineseStaticChrome();
+testSessionPageDoesNotRenderSmartFollowUps();
 testSessionPageShowsCurrentFolderBadge();
 testTimelineTextUsesWiderContentWidth();
 testContextWarningUsesReportedModelWindow();

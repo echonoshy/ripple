@@ -111,7 +111,7 @@ impl JobManager {
 
     pub fn new_with_storage(config: Arc<AppConfig>, storage: Storage) -> Self {
         Self {
-            provider: Arc::new(CodexAppServerProvider::new(config)),
+            provider: Arc::new(CodexAppServerProvider::new(config, storage.clone())),
             storage,
             jobs: Arc::new(RwLock::new(HashMap::new())),
         }

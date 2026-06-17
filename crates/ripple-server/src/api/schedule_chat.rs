@@ -1238,11 +1238,18 @@ fn is_schedule_intent(text: &str) -> bool {
         return false;
     }
     let normalized = stripped.to_ascii_lowercase();
-    let markers = [
+    let explicit_markers = [
+        "定时任务",
         "定时",
-        "定一个",
         "自动化",
         "自动执行",
+        "schedule",
+        "scheduled",
+        "automation",
+        "automate",
+        "recurring",
+    ];
+    let recurring_markers = [
         "周期",
         "重复",
         "每天",
@@ -1250,33 +1257,15 @@ fn is_schedule_intent(text: &str) -> bool {
         "每月",
         "每年",
         "每隔",
-        "提醒",
-        "闹钟",
-        "schedule",
-        "scheduled",
-        "automation",
-        "automate",
-        "recurring",
-        "remind",
+        "every day",
+        "every week",
+        "every month",
+        "every year",
     ];
-    markers.iter().any(|marker| normalized.contains(marker)) || has_relative_time(&normalized)
-}
-
-fn has_relative_time(text: &str) -> bool {
-    let has_number = text.chars().any(|ch| ch.is_ascii_digit());
-    if !has_number {
-        return false;
-    }
-    let has_unit = [
-        "秒", "分钟", "小时", "天", "周", "个月", "second", "minute", "hour", "day", "week",
-    ]
-    .iter()
-    .any(|unit| text.contains(unit));
-    has_unit
-        && (text.contains('后')
-            || text.contains("以后")
-            || text.contains("之后")
-            || text.contains("later"))
+    explicit_markers
+        .iter()
+        .chain(recurring_markers.iter())
+        .any(|marker| normalized.contains(marker))
 }
 
 fn is_schedule_confirmation(text: &str) -> bool {
@@ -1325,8 +1314,9 @@ mod tests {
 
     #[test]
     fn detects_schedule_intent_and_confirmation_words() {
-        assert!(is_schedule_intent("5分钟后提醒我检查构建"));
+        assert!(!is_schedule_intent("5分钟后提醒我检查构建"));
         assert!(is_schedule_intent("帮我创建一个新的自动化"));
+        assert!(is_schedule_intent("创建一个定时任务，5分钟后检查构建"));
         assert!(is_schedule_intent("schedule this every day"));
         assert!(is_schedule_intent(
             "create automation to check prices every day"

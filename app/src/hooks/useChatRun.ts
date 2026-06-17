@@ -415,6 +415,27 @@ export function useChatRun({
     [applyViewState, clearPendingLocalImages, onSelectedModelChange, onWorkspaceRefresh]
   );
 
+  const refreshSessionDetails = useCallback(
+    async (targetSessionId: string, options: { refreshList?: boolean } = {}) => {
+      try {
+        const details = await fetchSessionDetails(targetSessionId);
+        if (details && getSessionActions().getSessionId() === targetSessionId) {
+          applySessionDetails(details);
+        }
+        if (options.refreshList !== false) {
+          await getSessionActions().loadSessions({ showLoading: false });
+        }
+      } catch (error) {
+        if (error instanceof AuthError) {
+          handleAuthExpired();
+          return;
+        }
+        console.error("Session details refresh error:", error);
+      }
+    },
+    [applySessionDetails, getSessionActions, handleAuthExpired]
+  );
+
   const handleStop = useCallback(async () => {
     const currentSessionId = getSessionActions().getSessionId();
     const targetSessionId =
@@ -1005,6 +1026,7 @@ export function useChatRun({
           replaceRunningPlan(nextPlan);
           runningViewStatesRef.current.delete(activeSessionId);
           if (isRunVisible()) setInputFocusToken((prev) => bumpInputFocusToken(prev));
+          void refreshSessionDetails(activeSessionId, { refreshList: false });
           void getSessionActions().loadSessions({ showLoading: false });
           for (const delayMs of SESSION_TITLE_REFRESH_DELAYS_MS) {
             window.setTimeout(() => {
@@ -1074,6 +1096,7 @@ export function useChatRun({
       pendingLocalImages,
       runtimeTimelineEvents,
       selectedModel,
+      refreshSessionDetails,
       clearSessionRunning,
       clearPendingLocalImages,
       planProgress,

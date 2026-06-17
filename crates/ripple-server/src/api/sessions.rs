@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path as FsPath, PathBuf};
 
 use axum::extract::{Path, Query, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::HeaderMap;
 use axum::Json;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{json, Value};
@@ -89,9 +89,14 @@ pub async fn list_sessions(
     let sessions = state.sessions.list_sessions(&user_id).await?;
     let total = sessions.len();
     let (sessions, next_cursor) = paginate(sessions, &query);
+    let session_values = sessions
+        .into_iter()
+        .map(serde_json::to_value)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(anyhow::Error::from)?;
     Ok(Json(json!({
-        "sessions": sessions,
-        "count": sessions.len(),
+        "sessions": session_values,
+        "count": session_values.len(),
         "total": total,
         "next_cursor": next_cursor
     })))
@@ -141,13 +146,6 @@ pub async fn session_overview(
             sessions: items,
         })
         .unwrap_or_else(|_| json!({})),
-    ))
-}
-
-pub async fn deprecated_tasks_api() -> Result<Json<Value>, ApiError> {
-    Err(ApiError::new(
-        StatusCode::GONE,
-        "/v1/tasks has been removed. Use /v1/sessions instead.",
     ))
 }
 
@@ -400,9 +398,8 @@ pub async fn get_session(
         return Err(ApiError::not_found("Session not found"));
     };
     backfill_generated_images_from_runs(&state, &user_id, &session_id, &mut session).await?;
-    Ok(Json(
-        serde_json::to_value(session).unwrap_or_else(|_| json!({})),
-    ))
+    let value = serde_json::to_value(session).unwrap_or_else(|_| json!({}));
+    Ok(Json(value))
 }
 
 async fn backfill_generated_images_from_runs(

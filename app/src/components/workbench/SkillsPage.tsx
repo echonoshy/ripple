@@ -71,6 +71,16 @@ import {
   shouldGuardMobileSwipeBackScroll,
   shouldReleaseMobileSwipeBackScrollGuard,
 } from "./motionPrimitives";
+import {
+  currentMobileSwipeBackTimeMs,
+  ensureMobileSwipeBackScrollLock,
+  isInteractiveMobileSwipeBackTarget,
+  mobileSwipeBackViewportWidth,
+  releaseMobileSwipeBackScrollLock,
+  type MobileSwipeBackDragState,
+  type MobileSwipeBackScrollLockState,
+  type MobileSwipeBackTouchGuardState,
+} from "./mobileSwipeBack";
 import MobilePageHeader from "./MobilePageHeader";
 import { SkillDescriptionMarkdown } from "./SkillDescriptionMarkdown";
 
@@ -151,35 +161,6 @@ interface SkillsCategoryBackSwipeReleaseResolution {
   commitDistance: number;
 }
 
-interface SkillsCategoryBackSwipeDragState {
-  pointerId: number;
-  startX: number;
-  startY: number;
-  viewportWidth: number;
-  claimed: boolean;
-  lastX: number;
-  lastTime: number;
-  velocityX: number;
-  scrollElement: HTMLElement | null;
-  startScrollTop: number;
-}
-
-interface SkillsCategoryBackSwipeTouchGuardState {
-  startX: number;
-  startY: number;
-  viewportWidth: number;
-  isGuarding: boolean;
-  scrollElement: HTMLElement | null;
-  startScrollTop: number;
-}
-
-interface SkillsCategoryBackSwipeScrollLockState {
-  scrollElement: HTMLElement;
-  startScrollTop: number;
-  previousOverflowY: string;
-  previousOverscrollBehaviorY: string;
-}
-
 const CATEGORY_ORDER: SkillCategoryGroupId[] = [
   "custom",
   "feishu",
@@ -207,49 +188,13 @@ const CATEGORY_SUMMARY_KEYS: Record<SkillCategoryGroupId, MessageKey> = {
   general: "skills.categorySummaries.general",
 };
 
-const SKILLS_CATEGORY_BACK_SWIPE_INTERACTIVE_SELECTOR =
-  "[data-ripple-ignore-skills-swipe]";
-
-function currentTimeMs(): number {
-  return typeof performance === "undefined" ? Date.now() : performance.now();
-}
-
-function skillsCategoryBackSwipeViewportWidth(): number {
-  return typeof window === "undefined" ? 0 : window.innerWidth;
-}
+const SKILLS_CATEGORY_BACK_SWIPE_INTERACTIVE_SELECTOR = "[data-ripple-ignore-skills-swipe]";
 
 function isInteractiveSkillsCategoryBackSwipeTarget(target: EventTarget | null): boolean {
-  if (typeof Element === "undefined" || !(target instanceof Element)) return false;
-  return Boolean(target.closest(SKILLS_CATEGORY_BACK_SWIPE_INTERACTIVE_SELECTOR));
-}
-
-function ensureSkillsCategoryBackSwipeScrollLock(
-  currentLock: SkillsCategoryBackSwipeScrollLockState | null,
-  scrollElement: HTMLElement | null,
-  startScrollTop: number
-): SkillsCategoryBackSwipeScrollLockState | null {
-  if (currentLock) return currentLock;
-  if (!scrollElement) return null;
-  const lock = {
-    scrollElement,
-    startScrollTop,
-    previousOverflowY: scrollElement.style.overflowY,
-    previousOverscrollBehaviorY: scrollElement.style.overscrollBehaviorY,
-  };
-  scrollElement.scrollTop = startScrollTop;
-  scrollElement.style.overflowY = "hidden";
-  scrollElement.style.overscrollBehaviorY = "contain";
-  return lock;
-}
-
-function releaseSkillsCategoryBackSwipeScrollLock(
-  lock: SkillsCategoryBackSwipeScrollLockState | null
-): void {
-  if (!lock) return;
-  const { scrollElement, startScrollTop, previousOverflowY, previousOverscrollBehaviorY } = lock;
-  scrollElement.style.overflowY = previousOverflowY;
-  scrollElement.style.overscrollBehaviorY = previousOverscrollBehaviorY;
-  scrollElement.scrollTop = startScrollTop;
+  return isInteractiveMobileSwipeBackTarget(
+    target,
+    SKILLS_CATEGORY_BACK_SWIPE_INTERACTIVE_SELECTOR
+  );
 }
 
 export function shouldGuardSkillsCategoryBackSwipeScroll({
@@ -850,12 +795,10 @@ export default function SkillsPage({
   const [isCategorySwipeActive, setIsCategorySwipeActive] = useState(false);
   const [expandedDescriptionSkillId, setExpandedDescriptionSkillId] = useState<string | null>(null);
   const skillsPageScrollRef = useRef<HTMLDivElement | null>(null);
-  const categorySwipeDragStateRef = useRef<SkillsCategoryBackSwipeDragState | null>(null);
+  const categorySwipeDragStateRef = useRef<MobileSwipeBackDragState | null>(null);
   const suppressNextCategorySwipeClickRef = useRef(false);
-  const categorySwipeTouchGuardStateRef = useRef<SkillsCategoryBackSwipeTouchGuardState | null>(
-    null
-  );
-  const categorySwipeScrollLockRef = useRef<SkillsCategoryBackSwipeScrollLockState | null>(null);
+  const categorySwipeTouchGuardStateRef = useRef<MobileSwipeBackTouchGuardState | null>(null);
+  const categorySwipeScrollLockRef = useRef<MobileSwipeBackScrollLockState | null>(null);
   const categorySwipeAnimationRef = useRef<ReturnType<typeof animate> | null>(null);
   const loadRequestIdRef = useRef(0);
   const connectorLoadRequestIdRef = useRef(0);
@@ -1010,7 +953,7 @@ export default function SkillsPage({
   }, []);
 
   const releaseCategorySwipeScrollLock = useCallback(() => {
-    releaseSkillsCategoryBackSwipeScrollLock(categorySwipeScrollLockRef.current);
+    releaseMobileSwipeBackScrollLock(categorySwipeScrollLockRef.current);
     categorySwipeScrollLockRef.current = null;
   }, []);
 
@@ -1092,7 +1035,7 @@ export default function SkillsPage({
   useEffect(
     () => () => {
       stopCategorySwipeAnimation();
-      releaseSkillsCategoryBackSwipeScrollLock(categorySwipeScrollLockRef.current);
+      releaseMobileSwipeBackScrollLock(categorySwipeScrollLockRef.current);
       categorySwipeScrollLockRef.current = null;
     },
     [stopCategorySwipeAnimation]
@@ -1134,7 +1077,7 @@ export default function SkillsPage({
     (event: React.PointerEvent<HTMLDivElement>) => {
       if (!selectedCategoryId) return;
       if (!event.isPrimary || event.pointerType !== "touch") return;
-      const viewportWidth = skillsCategoryBackSwipeViewportWidth();
+      const viewportWidth = mobileSwipeBackViewportWidth();
       if (viewportWidth >= mobileSwipeBackConfig.desktopMinWidth) return;
       suppressNextCategorySwipeClickRef.current = false;
       if (isInteractiveSkillsCategoryBackSwipeTarget(event.target)) return;
@@ -1148,7 +1091,7 @@ export default function SkillsPage({
         viewportWidth,
         claimed: false,
         lastX: event.clientX,
-        lastTime: currentTimeMs(),
+        lastTime: currentMobileSwipeBackTimeMs(),
         velocityX: 0,
         scrollElement,
         startScrollTop: scrollElement.scrollTop,
@@ -1191,7 +1134,7 @@ export default function SkillsPage({
         dragState.claimed = true;
         suppressNextCategorySwipeClickRef.current = true;
         setIsCategorySwipeActive(true);
-        categorySwipeScrollLockRef.current = ensureSkillsCategoryBackSwipeScrollLock(
+        categorySwipeScrollLockRef.current = ensureMobileSwipeBackScrollLock(
           categorySwipeScrollLockRef.current,
           dragState.scrollElement,
           dragState.startScrollTop
@@ -1206,7 +1149,7 @@ export default function SkillsPage({
       if (!dragState.claimed) return;
 
       event.preventDefault();
-      const currentTime = currentTimeMs();
+      const currentTime = currentMobileSwipeBackTimeMs();
       const elapsed = Math.max(1, currentTime - dragState.lastTime);
       dragState.velocityX = ((event.clientX - dragState.lastX) / elapsed) * 1000;
       dragState.lastX = event.clientX;
@@ -1278,7 +1221,7 @@ export default function SkillsPage({
     (event: React.TouchEvent<HTMLDivElement>) => {
       if (!selectedCategoryId) return;
       if (event.touches.length !== 1) return;
-      const viewportWidth = skillsCategoryBackSwipeViewportWidth();
+      const viewportWidth = mobileSwipeBackViewportWidth();
       if (viewportWidth >= mobileSwipeBackConfig.desktopMinWidth) return;
       if (isInteractiveSkillsCategoryBackSwipeTarget(event.target)) return;
       const touch = event.touches[0];
@@ -1346,7 +1289,7 @@ export default function SkillsPage({
       ) {
         guardState.isGuarding = true;
         event.preventDefault();
-        categorySwipeScrollLockRef.current = ensureSkillsCategoryBackSwipeScrollLock(
+        categorySwipeScrollLockRef.current = ensureMobileSwipeBackScrollLock(
           categorySwipeScrollLockRef.current,
           guardState.scrollElement,
           guardState.startScrollTop
@@ -1723,10 +1666,7 @@ export default function SkillsPage({
     const connected = Boolean(status?.connected);
 
     return (
-      <div
-        data-ripple-skill-connector-panel="true"
-        className={`${WORKBENCH_SECTION_CLASS} p-3`}
-      >
+      <div data-ripple-skill-connector-panel="true" className={`${WORKBENCH_SECTION_CLASS} p-3`}>
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
             <div className={`${SKILLS_PAGE_TEXT_PRIMARY_CLASS} ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
@@ -1909,7 +1849,7 @@ export default function SkillsPage({
           </div>
           <div
             data-ripple-skill-category-group="true"
-            className={`overflow-hidden rounded-lg border ${SKILLS_PAGE_BORDER_CLASS} bg-white shadow-[0_1px_2px_rgba(31,35,41,0.04)] divide-y divide-[#EFF0F1]`}
+            className={`overflow-hidden rounded-lg border ${SKILLS_PAGE_BORDER_CLASS} divide-y divide-[#EFF0F1] bg-white shadow-[0_1px_2px_rgba(31,35,41,0.04)]`}
           >
             {section.categories.map(renderCategoryRow)}
           </div>

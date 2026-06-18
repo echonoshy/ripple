@@ -64,39 +64,30 @@ import {
   selectPreferredModel,
   setStoredDefaultModel,
 } from "@/lib/modelPreference";
-import {
-  getClientStorageItem,
-  setAndroidChatBackGestureEnabled,
-  setClientStorageItem,
-} from "@/lib/platform";
+import { getClientStorageItem, setClientStorageItem } from "@/lib/platform";
 import { useI18n } from "@/i18n";
 import { WORKBENCH_ICON_BUTTON_CLASS } from "@/components/workbench/stylePrimitives";
+import {
+  SESSION_RAIL_MAX_WIDTH,
+  SESSION_RAIL_MIN_WIDTH,
+  WORKSPACE_ROOT_PATH,
+  normalizeWorkspaceFolderPath,
+  useAndroidChatBackGesture,
+  useMobileLayout,
+  useSessionRail,
+} from "@/hooks/workbenchLayout";
 
-const WORKSPACE_ROOT_PATH = "/workspace";
 const AutomationsPage = lazy(() => import("@/components/workbench/AutomationsPage"));
 const TasksPage = lazy(() => import("@/components/workbench/TasksPage"));
 const FilesPage = lazy(() => import("@/components/workbench/FilesPage"));
 const InspectorPanel = lazy(() => import("@/components/workbench/InspectorPanel"));
 const SettingsPage = lazy(() => import("@/components/workbench/SettingsPage"));
 const SkillsPage = lazy(() => import("@/components/workbench/SkillsPage"));
-const ANDROID_CHAT_BACK_GESTURE_DESKTOP_MIN_WIDTH_PX = 1024;
-const SESSION_RAIL_WIDTH_STORAGE_KEY = "ripple.workbench.sessionRailWidth";
-const SESSION_RAIL_COLLAPSED_STORAGE_KEY = "ripple.workbench.sessionRailCollapsed";
-const SESSION_RAIL_DEFAULT_WIDTH = 300;
-const SESSION_RAIL_MIN_WIDTH = 220;
-const SESSION_RAIL_MAX_WIDTH = 420;
 const emptyUsage: UsageInfo = {
   prompt_tokens: 0,
   completion_tokens: 0,
   total_tokens: 0,
 };
-
-function isMobileLayoutViewport(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    window.innerWidth < ANDROID_CHAT_BACK_GESTURE_DESKTOP_MIN_WIDTH_PX
-  );
-}
 
 function LazyWorkbenchFallback() {
   return (
@@ -108,28 +99,6 @@ function LazyWorkbenchFallback() {
       <Loader2 size={20} className="animate-spin" />
     </div>
   );
-}
-
-function normalizeWorkspaceFolderPath(path: string): string {
-  const trimmed = path.trim().replace(/\/+$/, "");
-  if (!trimmed || trimmed === WORKSPACE_ROOT_PATH) return WORKSPACE_ROOT_PATH;
-  if (trimmed.startsWith(`${WORKSPACE_ROOT_PATH}/`)) return trimmed;
-  return WORKSPACE_ROOT_PATH;
-}
-
-function clampSessionRailWidth(value: number): number {
-  return Math.min(SESSION_RAIL_MAX_WIDTH, Math.max(SESSION_RAIL_MIN_WIDTH, Math.round(value)));
-}
-
-function initialSessionRailWidth(): number {
-  const rawValue = getClientStorageItem(SESSION_RAIL_WIDTH_STORAGE_KEY);
-  if (rawValue === null) return SESSION_RAIL_DEFAULT_WIDTH;
-  const stored = Number(rawValue);
-  return Number.isFinite(stored) ? clampSessionRailWidth(stored) : SESSION_RAIL_DEFAULT_WIDTH;
-}
-
-function initialSessionRailCollapsed(): boolean {
-  return getClientStorageItem(SESSION_RAIL_COLLAPSED_STORAGE_KEY) === "true";
 }
 
 export default function Home() {
@@ -168,11 +137,15 @@ export default function Home() {
   const [isInspectorCollapsed, setIsInspectorCollapsed] = useState(() => {
     return getClientStorageItem("ripple.workbench.inspectorCollapsed") === "true";
   });
-  const [sessionRailWidth, setSessionRailWidth] = useState(initialSessionRailWidth);
-  const sessionRailWidthRef = useRef(sessionRailWidth);
-  const [isSessionRailCollapsed, setIsSessionRailCollapsed] = useState(initialSessionRailCollapsed);
+  const {
+    sessionRailWidth,
+    isSessionRailCollapsed,
+    setIsSessionRailCollapsed,
+    handleSessionRailResizeStart,
+    handleSessionRailResizeKeyDown,
+  } = useSessionRail();
   const [mobileSessionMode, setMobileSessionMode] = useState<"list" | "chat">("list");
-  const [isMobileLayout, setIsMobileLayout] = useState(isMobileLayoutViewport);
+  const isMobileLayout = useMobileLayout();
   const [sessionScrollToBottomRequest, setSessionScrollToBottomRequest] = useState(0);
   const [workspaceRefreshToken, setWorkspaceRefreshToken] = useState(0);
   const [activeContextFolderPath, setActiveContextFolderPath] = useState<string | null>(null);
@@ -195,6 +168,14 @@ export default function Home() {
   const [acknowledgedSessionAttentionById, setAcknowledgedSessionAttentionById] = useState<
     Record<string, SessionAttention | undefined>
   >({});
+
+  useAndroidChatBackGesture({
+    authState,
+    activeView,
+    mobileSessionMode,
+    isSkillsMobileBackGestureActive,
+  });
+
   const selectedSessionIdRef = useRef<string | null>(null);
   const selectedModelOverrideBySessionRef = useRef<Record<string, string>>({});
   const activeViewRef = useRef<WorkspaceView>("sessions");
@@ -398,15 +379,6 @@ export default function Home() {
   useEffect(() => {
     setClientStorageItem("ripple.workbench.inspectorCollapsed", String(isInspectorCollapsed));
   }, [isInspectorCollapsed]);
-
-  useEffect(() => {
-    sessionRailWidthRef.current = sessionRailWidth;
-    setClientStorageItem(SESSION_RAIL_WIDTH_STORAGE_KEY, String(sessionRailWidth));
-  }, [sessionRailWidth]);
-
-  useEffect(() => {
-    setClientStorageItem(SESSION_RAIL_COLLAPSED_STORAGE_KEY, String(isSessionRailCollapsed));
-  }, [isSessionRailCollapsed]);
 
   useEffect(() => {
     selectedSessionIdRef.current = sessionId;
@@ -809,45 +781,6 @@ export default function Home() {
     setMobileSessionMode("list");
   }, []);
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const updateMobileLayout = () => {
-      setIsMobileLayout(isMobileLayoutViewport());
-    };
-
-    updateMobileLayout();
-    window.addEventListener("resize", updateMobileLayout);
-
-    return () => {
-      window.removeEventListener("resize", updateMobileLayout);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const updateAndroidChatBackGesture = () => {
-      const isMobileChatBackGestureActive =
-        activeView === "sessions" && mobileSessionMode === "chat";
-      const isMobileSkillsBackGestureActive =
-        (activeView === "skills" || activeView === "connectors") && isSkillsMobileBackGestureActive;
-      const shouldEnable =
-        authState === "authenticated" &&
-        (isMobileChatBackGestureActive || isMobileSkillsBackGestureActive) &&
-        window.innerWidth < ANDROID_CHAT_BACK_GESTURE_DESKTOP_MIN_WIDTH_PX;
-      setAndroidChatBackGestureEnabled(shouldEnable);
-    };
-
-    updateAndroidChatBackGesture();
-    window.addEventListener("resize", updateAndroidChatBackGesture);
-
-    return () => {
-      window.removeEventListener("resize", updateAndroidChatBackGesture);
-      setAndroidChatBackGestureEnabled(false);
-    };
-  }, [activeView, authState, isSkillsMobileBackGestureActive, mobileSessionMode]);
-
   const selectedSessionRuntimeStatus =
     currentSessionRuntimeStatus && sessionId ? currentSessionRuntimeStatus : null;
   const baseWorkbenchSessions = useMemo(() => {
@@ -1089,48 +1022,6 @@ export default function Home() {
       void handleSwitchSession(targetSessionId);
     },
     [handleSwitchSession]
-  );
-
-  const updateSessionRailWidth = useCallback((value: number) => {
-    setSessionRailWidth(clampSessionRailWidth(value));
-  }, []);
-
-  const handleSessionRailResizeStart = useCallback(
-    (event: React.PointerEvent<HTMLDivElement>) => {
-      event.preventDefault();
-      const startX = event.clientX;
-      const startWidth = sessionRailWidthRef.current;
-
-      const handlePointerMove = (moveEvent: PointerEvent) => {
-        updateSessionRailWidth(startWidth + moveEvent.clientX - startX);
-      };
-      const handlePointerUp = () => {
-        window.removeEventListener("pointermove", handlePointerMove);
-        window.removeEventListener("pointerup", handlePointerUp);
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
-      };
-
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
-      window.addEventListener("pointermove", handlePointerMove);
-      window.addEventListener("pointerup", handlePointerUp);
-    },
-    [updateSessionRailWidth]
-  );
-
-  const handleSessionRailResizeKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLDivElement>) => {
-      if (event.key === "ArrowLeft") {
-        event.preventDefault();
-        updateSessionRailWidth(sessionRailWidthRef.current - (event.shiftKey ? 40 : 16));
-      }
-      if (event.key === "ArrowRight") {
-        event.preventDefault();
-        updateSessionRailWidth(sessionRailWidthRef.current + (event.shiftKey ? 40 : 16));
-      }
-    },
-    [updateSessionRailWidth]
   );
 
   const renderSessionPage = () => (

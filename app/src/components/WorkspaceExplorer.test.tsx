@@ -20,6 +20,7 @@ function readWorkspaceExplorerImplementationSource(): string {
     "./workspace/WorkspaceActionMenus.tsx",
     "./workspace/WorkspaceFileList.tsx",
     "./workspace/WorkspaceToolbar.tsx",
+    "./workspace/workspaceExplorerState.ts",
     "./workspace/workspaceExplorerUtils.tsx",
     "./workspace/WorkspaceConfirmDialog.tsx",
     "./workspace/WorkspaceCreateEntryDialog.tsx",
@@ -138,9 +139,7 @@ function testWorkspaceExplorerPageStacksHeaderControlsAwayFromTitle() {
   assert.match(workspaceExplorerSource, /TYPOGRAPHY_PAGE_TITLE_CLASS/);
   assert.match(html, /text-\[20px\] leading-\[30px\]/);
 
-  const mobileTitleRow = html.match(
-    /<div[^>]*data-ripple-files-title-row="page"[^>]*>/
-  )?.[0];
+  const mobileTitleRow = html.match(/<div[^>]*data-ripple-files-title-row="page"[^>]*>/)?.[0];
   const pageSearchRow = html.match(/<div[^>]*data-ripple-files-search-row="page"[^>]*>/)?.[0];
   assert.ok(mobileTitleRow);
   assert.match(mobileTitleRow, /lg:hidden/);
@@ -400,7 +399,10 @@ function testWorkspaceExplorerDesktopDirectoryNavigationUsesSharedWorkbenchButto
   const source = readWorkspaceExplorerImplementationSource();
 
   assert.match(source, /WORKBENCH_SECONDARY_BUTTON_CLASS/);
-  assert.match(source, /const directoryNavigationButtonClass =\s*`\$\{WORKBENCH_SECONDARY_BUTTON_CLASS\}/);
+  assert.match(
+    source,
+    /const directoryNavigationButtonClass =\s*`\$\{WORKBENCH_SECONDARY_BUTTON_CLASS\}/
+  );
   assert.match(
     source,
     /const directoryNavigationButtonClass =[\s\S]*TYPOGRAPHY_MICRO_MEDIUM_CLASS/

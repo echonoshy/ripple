@@ -31,6 +31,10 @@ const motionPrimitivesSource = readFileSync(
   new URL("./motionPrimitives.ts", import.meta.url),
   "utf8"
 );
+const mobileSwipeBackSource = readFileSync(
+  new URL("./mobileSwipeBack.ts", import.meta.url),
+  "utf8"
+);
 
 function noop() {}
 
@@ -280,8 +284,9 @@ function testGuardedScrollCanReleaseBackToVerticalIntent() {
 function testDrawerDragLocksTimelineScrollTop() {
   assert.match(mobileSessionStackSource, /data-ripple-session-scroll="timeline"/);
   assert.match(mobileSessionStackSource, /startScrollTop/);
-  assert.match(mobileSessionStackSource, /style\.overflowY = "hidden"/);
-  assert.match(mobileSessionStackSource, /releaseMobileSessionScrollLock/);
+  assert.match(mobileSessionStackSource, /ensureMobileSwipeBackScrollLock/);
+  assert.match(mobileSessionStackSource, /releaseMobileSwipeBackScrollLock/);
+  assert.match(mobileSwipeBackSource, /style\.overflowY = "hidden"/);
   assert.doesNotMatch(
     mobileSessionStackSource,
     /scrollElement\.scrollTop = dragState\.startScrollTop/
@@ -289,7 +294,7 @@ function testDrawerDragLocksTimelineScrollTop() {
 }
 
 function testTouchScrollGuardLocksTimelineBeforeDrawerClaim() {
-  assert.match(mobileSessionStackSource, /ensureMobileSessionScrollLock/);
+  assert.match(mobileSessionStackSource, /ensureMobileSwipeBackScrollLock/);
   assert.doesNotMatch(
     mobileSessionStackSource,
     /scrollElement\.scrollTop = guardState\.startScrollTop/
@@ -346,7 +351,11 @@ function testOnlyExplicitOptOutTargetsAreExcludedFromSwipeStart() {
   assert.doesNotMatch(MOBILE_SESSION_STACK_INTERACTIVE_SELECTOR, /\btextarea\b/);
   assert.doesNotMatch(MOBILE_SESSION_STACK_INTERACTIVE_SELECTOR, /\[role='button'\]/);
   assert.match(MOBILE_SESSION_STACK_INTERACTIVE_SELECTOR, /data-ripple-ignore-chat-swipe/);
-  assert.match(mobileSessionStackSource, /closest\(MOBILE_SESSION_STACK_INTERACTIVE_SELECTOR\)/);
+  assert.match(
+    mobileSessionStackSource,
+    /isInteractiveMobileSwipeBackTarget\(target, MOBILE_SESSION_STACK_INTERACTIVE_SELECTOR\)/
+  );
+  assert.match(mobileSwipeBackSource, /target\.closest\(selector\)/);
 }
 
 function testSwipeBackPointerHandlersRunBeforeClickableChildren() {
@@ -428,10 +437,7 @@ function testMobileMotionUsesRestrainedSharedTiming() {
   assert.equal(mobileSwipeBackConfig.commitViewportRatio, 0.18);
 }
 
-function variantState(
-  variant: unknown,
-  custom?: number
-): Record<string, unknown> {
+function variantState(variant: unknown, custom?: number): Record<string, unknown> {
   return typeof variant === "function"
     ? (variant as (custom?: number) => Record<string, unknown>)(custom)
     : (variant as Record<string, unknown>);

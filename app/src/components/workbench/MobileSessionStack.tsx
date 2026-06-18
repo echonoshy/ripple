@@ -14,6 +14,16 @@ import {
   shouldGuardMobileSwipeBackScroll,
   shouldReleaseMobileSwipeBackScrollGuard,
 } from "./motionPrimitives";
+import {
+  currentMobileSwipeBackTimeMs,
+  ensureMobileSwipeBackScrollLock,
+  isInteractiveMobileSwipeBackTarget,
+  mobileSwipeBackViewportWidth,
+  releaseMobileSwipeBackScrollLock,
+  type MobileSwipeBackDragState,
+  type MobileSwipeBackScrollLockState,
+  type MobileSwipeBackTouchGuardState,
+} from "./mobileSwipeBack";
 
 type MobileSessionStackMode = "list" | "chat";
 
@@ -43,75 +53,10 @@ interface DrawerReleaseResolution {
   commitDistance: number;
 }
 
-interface DragState {
-  pointerId: number;
-  startX: number;
-  startY: number;
-  viewportWidth: number;
-  claimed: boolean;
-  lastX: number;
-  lastTime: number;
-  velocityX: number;
-  scrollElement: HTMLElement | null;
-  startScrollTop: number;
-}
-
-interface ScrollLockState {
-  scrollElement: HTMLElement;
-  startScrollTop: number;
-  previousOverflowY: string;
-  previousOverscrollBehaviorY: string;
-}
-
-interface TouchGuardState {
-  startX: number;
-  startY: number;
-  viewportWidth: number;
-  isGuarding: boolean;
-  scrollElement: HTMLElement | null;
-  startScrollTop: number;
-}
-
-export const MOBILE_SESSION_STACK_INTERACTIVE_SELECTOR =
-  "[data-ripple-ignore-chat-swipe]";
-
-function nowMs(): number {
-  return typeof performance === "undefined" ? Date.now() : performance.now();
-}
-
-function viewportWidth(): number {
-  return typeof window === "undefined" ? 0 : window.innerWidth;
-}
+export const MOBILE_SESSION_STACK_INTERACTIVE_SELECTOR = "[data-ripple-ignore-chat-swipe]";
 
 function mobileSessionTimelineScrollElement(root: Element): HTMLElement | null {
   return root.querySelector<HTMLElement>('[data-ripple-session-scroll="timeline"]');
-}
-
-function ensureMobileSessionScrollLock(
-  currentLock: ScrollLockState | null,
-  scrollElement: HTMLElement | null,
-  startScrollTop: number
-): ScrollLockState | null {
-  if (currentLock) return currentLock;
-  if (!scrollElement) return null;
-  const lock = {
-    scrollElement,
-    startScrollTop,
-    previousOverflowY: scrollElement.style.overflowY,
-    previousOverscrollBehaviorY: scrollElement.style.overscrollBehaviorY,
-  };
-  scrollElement.scrollTop = startScrollTop;
-  scrollElement.style.overflowY = "hidden";
-  scrollElement.style.overscrollBehaviorY = "contain";
-  return lock;
-}
-
-function releaseMobileSessionScrollLock(lock: ScrollLockState | null): void {
-  if (!lock) return;
-  const { scrollElement, startScrollTop, previousOverflowY, previousOverscrollBehaviorY } = lock;
-  scrollElement.style.overflowY = previousOverflowY;
-  scrollElement.style.overscrollBehaviorY = previousOverscrollBehaviorY;
-  scrollElement.scrollTop = startScrollTop;
 }
 
 export function shouldClaimMobileSessionDrawer({
@@ -161,8 +106,7 @@ export function resolveMobileSessionDrawerRelease({
 }
 
 export function isInteractiveMobileSessionStackTarget(target: EventTarget | null): boolean {
-  if (typeof Element === "undefined" || !(target instanceof Element)) return false;
-  return Boolean(target.closest(MOBILE_SESSION_STACK_INTERACTIVE_SELECTOR));
+  return isInteractiveMobileSwipeBackTarget(target, MOBILE_SESSION_STACK_INTERACTIVE_SELECTOR);
 }
 
 export default function MobileSessionStack({
@@ -174,10 +118,10 @@ export default function MobileSessionStack({
 }: MobileSessionStackProps) {
   const reduceMotion = useReducedMotion();
   const sheetX = useMotionValue(0);
-  const dragStateRef = useRef<DragState | null>(null);
+  const dragStateRef = useRef<MobileSwipeBackDragState | null>(null);
   const suppressNextClickRef = useRef(false);
-  const touchGuardStateRef = useRef<TouchGuardState | null>(null);
-  const scrollLockRef = useRef<ScrollLockState | null>(null);
+  const touchGuardStateRef = useRef<MobileSwipeBackTouchGuardState | null>(null);
+  const scrollLockRef = useRef<MobileSwipeBackScrollLockState | null>(null);
   const activeSheetAnimationRef = useRef<ReturnType<typeof animate> | null>(null);
   const previousModeRef = useRef(mode);
   const enterAnimationFrameRef = useRef<number | null>(null);
@@ -196,7 +140,7 @@ export default function MobileSessionStack({
   }, []);
 
   const releaseScrollLock = useCallback(() => {
-    releaseMobileSessionScrollLock(scrollLockRef.current);
+    releaseMobileSwipeBackScrollLock(scrollLockRef.current);
     scrollLockRef.current = null;
   }, []);
 
@@ -231,7 +175,7 @@ export default function MobileSessionStack({
     releaseScrollLock();
 
     if (mode === "chat" && previousMode === "list") {
-      const currentViewportWidth = viewportWidth();
+      const currentViewportWidth = mobileSwipeBackViewportWidth();
       if (currentViewportWidth <= 0 || reduceMotion) {
         sheetX.set(0);
         return;
@@ -269,7 +213,7 @@ export default function MobileSessionStack({
     (event: React.PointerEvent<HTMLDivElement>) => {
       if (mode !== "chat") return;
       if (!event.isPrimary || event.pointerType !== "touch") return;
-      const currentViewportWidth = viewportWidth();
+      const currentViewportWidth = mobileSwipeBackViewportWidth();
       if (currentViewportWidth >= mobileSwipeBackConfig.desktopMinWidth) return;
       suppressNextClickRef.current = false;
       if (isInteractiveMobileSessionStackTarget(event.target)) return;
@@ -283,7 +227,7 @@ export default function MobileSessionStack({
         viewportWidth: currentViewportWidth,
         claimed: false,
         lastX: event.clientX,
-        lastTime: nowMs(),
+        lastTime: currentMobileSwipeBackTimeMs(),
         velocityX: 0,
         scrollElement,
         startScrollTop: scrollElement?.scrollTop ?? 0,
@@ -325,7 +269,7 @@ export default function MobileSessionStack({
         dragState.claimed = true;
         suppressNextClickRef.current = true;
         setIsDragging(true);
-        scrollLockRef.current = ensureMobileSessionScrollLock(
+        scrollLockRef.current = ensureMobileSwipeBackScrollLock(
           scrollLockRef.current,
           dragState.scrollElement,
           dragState.startScrollTop
@@ -340,7 +284,7 @@ export default function MobileSessionStack({
       if (!dragState.claimed) return;
 
       event.preventDefault();
-      const currentTime = nowMs();
+      const currentTime = currentMobileSwipeBackTimeMs();
       const elapsed = Math.max(1, currentTime - dragState.lastTime);
       dragState.velocityX = ((event.clientX - dragState.lastX) / elapsed) * 1000;
       dragState.lastX = event.clientX;
@@ -354,7 +298,7 @@ export default function MobileSessionStack({
     (event: React.TouchEvent<HTMLDivElement>) => {
       if (mode !== "chat") return;
       if (event.touches.length !== 1) return;
-      const currentViewportWidth = viewportWidth();
+      const currentViewportWidth = mobileSwipeBackViewportWidth();
       if (currentViewportWidth >= mobileSwipeBackConfig.desktopMinWidth) return;
       if (isInteractiveMobileSessionStackTarget(event.target)) return;
       stopSheetAnimation();
@@ -421,7 +365,7 @@ export default function MobileSessionStack({
       ) {
         guardState.isGuarding = true;
         event.preventDefault();
-        scrollLockRef.current = ensureMobileSessionScrollLock(
+        scrollLockRef.current = ensureMobileSwipeBackScrollLock(
           scrollLockRef.current,
           guardState.scrollElement,
           guardState.startScrollTop

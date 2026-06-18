@@ -388,11 +388,12 @@ h3 {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 8px;
   min-height: 46px;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 999px;
-  padding: 0 19px;
+  padding: 0 18px;
   font-size: 14px;
   font-weight: 780;
   line-height: 1;
@@ -417,6 +418,25 @@ h3 {
   );
   transform: translateX(-120%);
   transition: transform 360ms ease;
+}
+
+.btn-icon[data-ripple-icon-tile="true"] {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(203, 218, 242, 0.3);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.08);
+  color: currentColor;
+}
+
+.btn-icon[data-ripple-icon-tile="true"] svg {
+  width: 16px;
+  height: 16px;
 }
 
 .button:hover {

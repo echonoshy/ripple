@@ -7,6 +7,10 @@ import { I18nProvider, type LocalePreference } from "@/i18n";
 import AutomationsPage from "./AutomationsPage";
 
 const noop = () => {};
+const automationsFormattingSource = readFileSync(
+  new URL("./automationsFormatting.ts", import.meta.url),
+  "utf8"
+);
 
 function renderAutomationsPage(locale: LocalePreference = "en-US") {
   return renderToStaticMarkup(
@@ -48,7 +52,7 @@ function testTimezoneUsesSelectControl() {
 
   assert.match(source, /<select[\s\S]*value=\{timezone\}/);
   assert.doesNotMatch(source, /<input[\s\S]{0,200}value=\{timezone\}/);
-  assert.match(source, /Asia\/Shanghai/);
+  assert.match(automationsFormattingSource, /Asia\/Shanghai/);
 }
 
 function testAutomationFormCanSelectModel() {
@@ -98,7 +102,7 @@ function testAutomationRunResultsAreDiscoverable() {
   assert.match(source, /deleteScheduleRun/);
   assert.match(source, /saveBlobAsDownload/);
   assert.match(source, /hasRunOutput/);
-  assert.match(source, /output_available/);
+  assert.match(automationsFormattingSource, /output_available/);
   assert.match(source, /t\("automations\.viewOutput"\)/);
   assert.match(source, /t\("automations\.downloadOutput"\)/);
   assert.match(source, /t\("automations\.deleteRecord"\)/);
@@ -108,18 +112,21 @@ function testAutomationRunResultsAreDiscoverable() {
 function testRunningAutomationRunsDoNotOfferOutputActions() {
   const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /function hasRunOutput/);
-  assert.match(source, /run\?\.output_available && !isActiveRunStatus\(run\.status\)/);
+  assert.match(automationsFormattingSource, /function hasRunOutput/);
+  assert.match(
+    automationsFormattingSource,
+    /run\?\.output_available && !isActiveRunStatus\(run\.status\)/
+  );
   assert.doesNotMatch(source, /run\?\.output_file/);
 }
 
 function testCompletedScheduleRunsDoNotSurfaceToolStderrAsErrors() {
   const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /function runErrorText/);
-  assert.match(source, /stripAnsi/);
+  assert.match(automationsFormattingSource, /function runErrorText/);
+  assert.match(automationsFormattingSource, /stripAnsi/);
   assert.match(
-    source,
+    automationsFormattingSource,
     /if \(!\(run\.status === "failed" \|\| run\.status === "cancelled"\)\) return null;/
   );
   assert.match(
@@ -304,7 +311,10 @@ function testAutomationsPageUsesInlineMobileActionsWithoutOverflowSheet() {
   assert.match(source, /data-ripple-automation-mobile-summary-card/);
   assert.match(source, /data-ripple-automation-detail-page="true"/);
   assert.match(source, /data-ripple-automation-mobile-detail-actions/);
-  assert.match(source, /data-ripple-automation-mobile-detail-actions[\s\S]*beginEditSchedule\(schedule\)/);
+  assert.match(
+    source,
+    /data-ripple-automation-mobile-detail-actions[\s\S]*beginEditSchedule\(schedule\)/
+  );
   assert.match(
     source,
     /data-ripple-automation-mobile-detail-actions[\s\S]*"toggle", schedule\.enabled/
@@ -327,10 +337,7 @@ function testAutomationEditUsesMobileDetailPageAndCompactText() {
   );
   assert.match(source, /data-ripple-automation-form-page/);
   assert.match(source, /data-ripple-automation-form-actions/);
-  assert.match(
-    source,
-    /data-ripple-automation-form-page[\s\S]*auto-rows-max content-start/
-  );
+  assert.match(source, /data-ripple-automation-form-page[\s\S]*auto-rows-max content-start/);
   assert.match(
     source,
     /className="fixed inset-x-0 top-0 z-40 flex h-dvh min-h-0 flex-col overflow-hidden/
@@ -365,9 +372,7 @@ function testAutomationAdvancedConfigUsesDisclosureSection() {
 function testMobileAutomationEditReturnsToDetailPage() {
   const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
   const mobileActions =
-    source.match(
-      /data-ripple-automation-mobile-detail-actions[\s\S]*?\{isExpanded \?/
-    )?.[0] || "";
+    source.match(/data-ripple-automation-mobile-detail-actions[\s\S]*?\{isExpanded \?/)?.[0] || "";
   const closeFormBlock =
     source.match(/const closeForm = useCallback\([\s\S]*?\}, \[resetForm\]\);/)?.[0] || "";
   const submitSuccessBlock =
@@ -399,9 +404,7 @@ function testAutomationsMobileActionsStaySingleLineOnNarrowScreens() {
 function testMobileAutomationDeleteConfirmationCanBeCancelled() {
   const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
   const mobileActions =
-    source.match(
-      /data-ripple-automation-mobile-detail-actions[\s\S]*?\{isExpanded \?/
-    )?.[0] || "";
+    source.match(/data-ripple-automation-mobile-detail-actions[\s\S]*?\{isExpanded \?/)?.[0] || "";
 
   assert.match(source, /const isConfirmingDelete = confirmDeleteId === schedule\.schedule_id;/);
   assert.match(mobileActions, /isConfirmingDelete \? \(/);
@@ -418,9 +421,7 @@ function testMobileAutomationDeleteConfirmationCanBeCancelled() {
 function testMobileAutomationDetailPutsRunHistoryAtBottom() {
   const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
   const mobileActions =
-    source.match(
-      /data-ripple-automation-mobile-detail-actions[\s\S]*?\{isExpanded \?/
-    )?.[0] || "";
+    source.match(/data-ripple-automation-mobile-detail-actions[\s\S]*?\{isExpanded \?/)?.[0] || "";
 
   const runNowIndex = mobileActions.indexOf('aria-label={t("automations.runAutomationNow")}');
   const deleteIndex = mobileActions.indexOf('aria-label={t("automations.deleteAutomation")}');
@@ -442,15 +443,11 @@ function testMobileAutomationDetailPutsRunHistoryAtBottom() {
 function testMobileAutomationDeleteConfirmationKeepsHistoryLast() {
   const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
   const mobileActions =
-    source.match(
-      /data-ripple-automation-mobile-detail-actions[\s\S]*?\{isExpanded \?/
-    )?.[0] || "";
+    source.match(/data-ripple-automation-mobile-detail-actions[\s\S]*?\{isExpanded \?/)?.[0] || "";
 
   const confirmIndex = mobileActions.indexOf('<span>{t("automations.confirm")}</span>');
   const editIndex = mobileActions.indexOf('aria-label={t("automations.editAutomation")}');
-  const cancelIndex = mobileActions.indexOf(
-    'aria-label={t("automations.cancelDeleteAutomation")}'
-  );
+  const cancelIndex = mobileActions.indexOf('aria-label={t("automations.cancelDeleteAutomation")}');
   const runHistoryIndex = mobileActions.indexOf('aria-label={t("automations.toggleRunHistory")}');
 
   assert.ok(confirmIndex >= 0);
@@ -503,8 +500,7 @@ function testAutomationDetailUsesCompactMobileHeaderTitle() {
   const detailHeaderBlock =
     source.match(
       /<MobilePageHeader[\s\S]*?backLabel=\{t\("automations\.backToAutomations"\)\}[\s\S]*?\/>/
-    )
-      ?.[0] || "";
+    )?.[0] || "";
   const detailSwipeSheetBlock =
     source.match(
       /<motion\.div[\s\S]*?data-ripple-automation-detail-swipe-sheet="true"[\s\S]*?<\/motion\.div>/
@@ -553,13 +549,16 @@ function testAutomationRefreshesKeepExistingContentVisible() {
 
   assert.match(
     source,
-    /const loadSchedules = useCallback\(async \(options: \{ background\?: boolean \} = \{\}\)/
+    /const loadSchedules = useCallback\(\s*async \(options: \{ background\?: boolean \} = \{\}\)/
   );
   assert.match(source, /if \(!options\.background\) setIsLoading\(true\)/);
   assert.match(source, /if \(!options\.background\) \{\s*setIsLoading\(false\);\s*\}/);
   assert.match(source, /void loadSchedules\(\{ background: true \}\)/);
   assert.match(source, /await loadSchedules\(\{ background: true \}\)/);
-  assert.match(source, /const \[isManualRefreshPending, setIsManualRefreshPending\] = useState\(false\)/);
+  assert.match(
+    source,
+    /const \[isManualRefreshPending, setIsManualRefreshPending\] = useState\(false\)/
+  );
   assert.match(source, /const handleManualRefresh = useCallback\(async \(\) => \{/);
   assert.match(source, /setIsManualRefreshPending\(true\)/);
   assert.match(source, /await loadSchedules\(\{ background: true \}\)/);
@@ -578,13 +577,19 @@ function testAutomationsPageCachesLoadedDataPerUserForTabReentry() {
   const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
 
   assert.match(source, /userId: string;/);
-  assert.match(source, /const automationsPageCacheByUserId: Record<string, AutomationsPageCache>/);
+  assert.match(
+    automationsFormattingSource,
+    /const automationsPageCacheByUserId: Record<string, AutomationsPageCache>/
+  );
   assert.match(source, /const cachedAutomationsPageData = automationsPageCacheByUserId\[userId\]/);
   assert.match(
     source,
     /const \[schedules, setSchedules\] = useState<ScheduleInfo\[\]>\(\s*\(\) => cachedAutomationsPageData\?\.schedules \?\? \[\]\s*\)/
   );
-  assert.match(source, /const \[isLoading, setIsLoading\] = useState\(\(\) => !cachedAutomationsPageData\)/);
+  assert.match(
+    source,
+    /const \[isLoading, setIsLoading\] = useState\(\(\) => !cachedAutomationsPageData\)/
+  );
   assert.match(
     source,
     /const \[runsBySchedule, setRunsBySchedule\] = useState<Record<string, AgentRunInfo\[\]>>\(\s*\(\) => cachedAutomationsPageData\?\.runsBySchedule \?\? \{\}\s*\)/
@@ -595,11 +600,12 @@ function testAutomationsPageCachesLoadedDataPerUserForTabReentry() {
 function testAutomationsPageOnlySilentlyRefreshesStaleCacheOnTabEntry() {
   const source = readFileSync(new URL("./AutomationsPage.tsx", import.meta.url), "utf8");
   const mountRefreshBlock =
-    source.match(/useEffect\(\(\) => \{[\s\S]*?isAutomationsPageCacheStale[\s\S]*?\}, \[[^\]]+\]\);/)?.[0] ||
-    "";
+    source.match(
+      /useEffect\(\(\) => \{[\s\S]*?isAutomationsPageCacheStale[\s\S]*?\}, \[[^\]]+\]\);/
+    )?.[0] || "";
 
-  assert.match(source, /const AUTOMATIONS_PAGE_CACHE_STALE_MS = 60_000;/);
-  assert.match(source, /function isAutomationsPageCacheStale\(userId: string/);
+  assert.match(automationsFormattingSource, /const AUTOMATIONS_PAGE_CACHE_STALE_MS = 60_000;/);
+  assert.match(automationsFormattingSource, /function isAutomationsPageCacheStale\(userId: string/);
   assert.match(
     mountRefreshBlock,
     /if \(cachedAutomationsPageData && !isAutomationsPageCacheStale\(userId\)\) \{\s*return;\s*\}/

@@ -68,7 +68,44 @@ import {
   shouldGuardMobileSwipeBackScroll,
   shouldReleaseMobileSwipeBackScrollGuard,
 } from "./motionPrimitives";
+import {
+  currentMobileSwipeBackTimeMs,
+  ensureMobileSwipeBackScrollLock,
+  isInteractiveMobileSwipeBackTarget,
+  mobileSwipeBackViewportWidth,
+  releaseMobileSwipeBackScrollLock,
+  type MobileSwipeBackDragState,
+  type MobileSwipeBackScrollLockState,
+  type MobileSwipeBackTouchGuardState,
+} from "./mobileSwipeBack";
 import MobilePageHeader from "./MobilePageHeader";
+import {
+  automationsPageCacheByUserId,
+  browserTimezone,
+  datetimeInputValue,
+  defaultMaxRuntimeSeconds,
+  defaultRunAt,
+  failurePolicyOptions,
+  formatDate,
+  hasRunOutput,
+  intervalLabel,
+  intervalParts,
+  intervalUnitSeconds,
+  isActiveRunStatus,
+  isAutomationsPageCacheStale,
+  missedRunPolicyOptions,
+  overlapPolicyOptions,
+  runCountLabel,
+  runErrorText,
+  runStatusClass,
+  statusClass,
+  timezoneLabel,
+  timezoneOptions,
+  type FailurePolicy,
+  type IntervalUnit,
+  type MissedRunPolicy,
+  type OverlapPolicy,
+} from "./automationsFormatting";
 
 interface AutomationsPageProps {
   userId: string;
@@ -79,11 +116,6 @@ interface AutomationsPageProps {
   onBack?: () => void;
 }
 
-type IntervalUnit = "minutes" | "hours" | "days";
-type MissedRunPolicy = "run_once" | "skip";
-type OverlapPolicy = "skip" | "allow";
-type FailurePolicy = "pause" | "keep_active";
-
 type OutputPreviewState = {
   jobId: string;
   title: string;
@@ -91,14 +123,6 @@ type OutputPreviewState = {
   loading: boolean;
   error: string | null;
 } | null;
-
-type Translator = ReturnType<typeof useI18n>["t"];
-
-interface AutomationsPageCache {
-  schedules: ScheduleInfo[];
-  runsBySchedule: Record<string, AgentRunInfo[]>;
-  loadedAt: number;
-}
 
 interface AutomationBackSwipeIntentInput {
   startX?: number;
@@ -118,249 +142,11 @@ interface AutomationBackSwipeReleaseResolution {
   commitDistance: number;
 }
 
-interface AutomationBackSwipeDragState {
-  pointerId: number;
-  startX: number;
-  startY: number;
-  viewportWidth: number;
-  claimed: boolean;
-  lastX: number;
-  lastTime: number;
-  velocityX: number;
-  scrollElement: HTMLElement | null;
-  startScrollTop: number;
-}
-
-interface AutomationBackSwipeTouchGuardState {
-  startX: number;
-  startY: number;
-  viewportWidth: number;
-  isGuarding: boolean;
-  scrollElement: HTMLElement | null;
-  startScrollTop: number;
-}
-
-interface AutomationBackSwipeScrollLockState {
-  scrollElement: HTMLElement;
-  startScrollTop: number;
-  previousOverflowY: string;
-  previousOverscrollBehaviorY: string;
-}
-
-const intervalUnitSeconds: Record<IntervalUnit, number> = {
-  minutes: 60,
-  hours: 3600,
-  days: 86_400,
-};
-const defaultMaxRuntimeSeconds = 1800;
-const AUTOMATIONS_PAGE_CACHE_STALE_MS = 60_000;
-
-const automationsPageCacheByUserId: Record<string, AutomationsPageCache> = {};
-
-function isAutomationsPageCacheStale(userId: string, now = Date.now()): boolean {
-  const cache = automationsPageCacheByUserId[userId];
-  return !cache || now - cache.loadedAt > AUTOMATIONS_PAGE_CACHE_STALE_MS;
-}
-
-const missedRunPolicyOptions: MissedRunPolicy[] = ["run_once", "skip"];
-const overlapPolicyOptions: OverlapPolicy[] = ["skip", "allow"];
-const failurePolicyOptions: FailurePolicy[] = ["pause", "keep_active"];
-
-const commonTimezones = [
-  "UTC",
-  "Asia/Shanghai",
-  "Asia/Hong_Kong",
-  "Asia/Taipei",
-  "Asia/Tokyo",
-  "Asia/Seoul",
-  "Asia/Singapore",
-  "Europe/London",
-  "Europe/Berlin",
-  "Europe/Paris",
-  "America/New_York",
-  "America/Chicago",
-  "America/Denver",
-  "America/Los_Angeles",
-] as const;
-
-function browserTimezone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  } catch {
-    return "UTC";
-  }
-}
-
-function supportedTimezones(): string[] {
-  try {
-    const supported = Intl.supportedValuesOf?.("timeZone") || [];
-    return supported.length > 0 ? supported : [...commonTimezones];
-  } catch {
-    return [...commonTimezones];
-  }
-}
-
-function timezoneOptions(currentTimezone: string): string[] {
-  const options = new Set<string>();
-  const current = currentTimezone.trim();
-  if (current) {
-    options.add(current);
-  }
-  for (const timezone of commonTimezones) {
-    options.add(timezone);
-  }
-  for (const timezone of supportedTimezones()) {
-    options.add(timezone);
-  }
-  return [...options];
-}
-
-function timezoneLabel(value: string): string {
-  return value.replaceAll("_", " ");
-}
-
-function localDatetimeValue(date: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
-    date.getHours()
-  )}:${pad(date.getMinutes())}`;
-}
-
-function formatDate(value: string | null, locale: string, t: Translator): string {
-  if (!value) return t("automations.notScheduled");
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat(locale, {
-    month: "short",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
-}
-
-function intervalLabel(seconds: number | null, t: Translator): string {
-  if (!seconds) return "";
-  if (seconds % 86_400 === 0) {
-    return t("automations.intervalEvery", { value: seconds / 86_400, unit: "d" });
-  }
-  if (seconds % 3600 === 0) {
-    return t("automations.intervalEvery", { value: seconds / 3600, unit: "h" });
-  }
-  if (seconds % 60 === 0) {
-    return t("automations.intervalEvery", { value: seconds / 60, unit: "m" });
-  }
-  return t("automations.intervalEvery", { value: seconds, unit: "s" });
-}
-
-function runCountLabel(schedule: ScheduleInfo, t: Translator): string {
-  const runCount = Math.max(0, schedule.run_count || 0);
-  if (schedule.kind !== "interval") {
-    return t("automations.runCount", {
-      count: runCount,
-      label: runCount === 1 ? "run" : "runs",
-    });
-  }
-  return schedule.max_runs
-    ? t("automations.runsProgress", { count: runCount, max: schedule.max_runs })
-    : t("automations.runsUnlimited", { count: runCount });
-}
-
-function statusClass(status: string): string {
-  if (status === "active") return "border-[#16845B]/25 bg-[#E4F8EE] text-[#16845B]";
-  if (status === "paused") return "border-[#D99900]/25 bg-[#FFF8DB] text-[#8B5E00]";
-  if (status === "completed") return "border-[#1456F0]/20 bg-[#ddf4ff] text-[#1456F0]";
-  if (status === "error") return "border-[#B42318]/25 bg-[#FFF1F0] text-[#B42318]";
-  return "border-[#d7dce3] bg-[#F8F9FA] text-[#2B2F36]";
-}
-
-function runStatusClass(status: string | null | undefined): string {
-  if (status === "completed") return "border-[#16845B]/25 bg-[#E4F8EE] text-[#16845B]";
-  if (status === "failed" || status === "cancelled") {
-    return "border-[#B42318]/25 bg-[#FFF1F0] text-[#B42318]";
-  }
-  if (status === "queued" || status === "running") {
-    return "border-[#1456F0]/20 bg-[#ddf4ff] text-[#1456F0]";
-  }
-  return "border-[#d7dce3] bg-[#F8F9FA] text-[#646A73]";
-}
-
-function isActiveRunStatus(status: string | null | undefined): boolean {
-  return status === "queued" || status === "running";
-}
-
-const ansiPattern = new RegExp(String.raw`\u001b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])`, "g");
-
-function stripAnsi(value: string): string {
-  return value.replace(ansiPattern, "");
-}
-
-function cleanRunIssueText(value: string | null | undefined): string {
-  return stripAnsi(value || "")
-    .replace(/\r/g, "")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .join(" ");
-}
-
-function runErrorText(run: AgentRunInfo | null | undefined): string | null {
-  if (!run) return null;
-  if (!(run.status === "failed" || run.status === "cancelled")) return null;
-  return (
-    cleanRunIssueText(run.error) ||
-    cleanRunIssueText(run.stderr_tail) ||
-    cleanRunIssueText(run.stdout_tail) ||
-    null
-  );
-}
-
-function hasRunOutput(run: AgentRunInfo | null | undefined): boolean {
-  return Boolean(run?.output_available && !isActiveRunStatus(run.status));
-}
-
 const AUTOMATIONS_BACK_SWIPE_INTERACTIVE_SELECTOR =
   "button, a, input, textarea, select, [role='button'], [data-ripple-ignore-automations-swipe]";
 
-function currentTimeMs(): number {
-  return typeof performance === "undefined" ? Date.now() : performance.now();
-}
-
-function automationBackSwipeViewportWidth(): number {
-  return typeof window === "undefined" ? 0 : window.innerWidth;
-}
-
 function isInteractiveAutomationBackSwipeTarget(target: EventTarget | null): boolean {
-  if (typeof Element === "undefined" || !(target instanceof Element)) return false;
-  return Boolean(target.closest(AUTOMATIONS_BACK_SWIPE_INTERACTIVE_SELECTOR));
-}
-
-function ensureAutomationBackSwipeScrollLock(
-  currentLock: AutomationBackSwipeScrollLockState | null,
-  scrollElement: HTMLElement | null,
-  startScrollTop: number
-): AutomationBackSwipeScrollLockState | null {
-  if (currentLock) return currentLock;
-  if (!scrollElement) return null;
-  const lock = {
-    scrollElement,
-    startScrollTop,
-    previousOverflowY: scrollElement.style.overflowY,
-    previousOverscrollBehaviorY: scrollElement.style.overscrollBehaviorY,
-  };
-  scrollElement.scrollTop = startScrollTop;
-  scrollElement.style.overflowY = "hidden";
-  scrollElement.style.overscrollBehaviorY = "contain";
-  return lock;
-}
-
-function releaseAutomationBackSwipeScrollLock(
-  lock: AutomationBackSwipeScrollLockState | null
-): void {
-  if (!lock) return;
-  const { scrollElement, startScrollTop, previousOverflowY, previousOverscrollBehaviorY } = lock;
-  scrollElement.style.overflowY = previousOverflowY;
-  scrollElement.style.overscrollBehaviorY = previousOverscrollBehaviorY;
-  scrollElement.scrollTop = startScrollTop;
+  return isInteractiveMobileSwipeBackTarget(target, AUTOMATIONS_BACK_SWIPE_INTERACTIVE_SELECTOR);
 }
 
 export function shouldGuardAutomationBackSwipeScroll({
@@ -430,27 +216,6 @@ const automationMonoFieldControlClass = `${WORKBENCH_FIELD_CLASS} h-10 w-full px
 
 const automationTextareaClass = `${WORKBENCH_FIELD_CLASS} min-h-[88px] w-full resize-none px-3 py-2 text-[15px] leading-[22px] lg:min-h-[84px] lg:text-[14px] lg:leading-[22px]`;
 
-function defaultRunAt(): string {
-  const date = new Date(Date.now() + 60 * 60 * 1000);
-  date.setSeconds(0, 0);
-  return localDatetimeValue(date);
-}
-
-function datetimeInputValue(value: string | null): string {
-  if (!value) return defaultRunAt();
-  const date = new Date(value);
-  if (!Number.isNaN(date.getTime())) return localDatetimeValue(date);
-  return value.slice(0, 16);
-}
-
-function intervalParts(seconds: number | null): { value: number; unit: IntervalUnit } {
-  const normalized = Math.max(1, seconds || 3600);
-  if (normalized % 86_400 === 0) return { value: normalized / 86_400, unit: "days" };
-  if (normalized % 3600 === 0) return { value: normalized / 3600, unit: "hours" };
-  if (normalized % 60 === 0) return { value: normalized / 60, unit: "minutes" };
-  return { value: Math.ceil(normalized / 60), unit: "minutes" };
-}
-
 export default function AutomationsPage({
   userId,
   selectedModel,
@@ -501,10 +266,10 @@ export default function AutomationsPage({
   const [skipNextDetailTransition, setSkipNextDetailTransition] = useState(false);
   const [isDetailSwipeActive, setIsDetailSwipeActive] = useState(false);
   const automationsPageScrollRef = useRef<HTMLDivElement | null>(null);
-  const detailSwipeDragStateRef = useRef<AutomationBackSwipeDragState | null>(null);
+  const detailSwipeDragStateRef = useRef<MobileSwipeBackDragState | null>(null);
   const suppressNextDetailSwipeClickRef = useRef(false);
-  const detailSwipeTouchGuardStateRef = useRef<AutomationBackSwipeTouchGuardState | null>(null);
-  const detailSwipeScrollLockRef = useRef<AutomationBackSwipeScrollLockState | null>(null);
+  const detailSwipeTouchGuardStateRef = useRef<MobileSwipeBackTouchGuardState | null>(null);
+  const detailSwipeScrollLockRef = useRef<MobileSwipeBackScrollLockState | null>(null);
   const detailSwipeAnimationRef = useRef<ReturnType<typeof animate> | null>(null);
 
   const intervalSeconds = useMemo(
@@ -523,37 +288,40 @@ export default function AutomationsPage({
 
   const loadScheduleRuns = useCallback((scheduleId: string) => fetchScheduleRuns(scheduleId), []);
 
-  const loadSchedules = useCallback(async (options: { background?: boolean } = {}) => {
-    if (!options.background) setIsLoading(true);
-    setError(null);
-    try {
-      const records = await fetchSchedules();
-      const runEntries = await Promise.all(
-        records.map(async (schedule) => {
-          const runs = await loadScheduleRuns(schedule.schedule_id);
-          return [schedule.schedule_id, runs] as const;
-        })
-      );
-      const nextRunsBySchedule = Object.fromEntries(runEntries) as Record<string, AgentRunInfo[]>;
-      automationsPageCacheByUserId[userId] = {
-        schedules: records,
-        runsBySchedule: nextRunsBySchedule,
-        loadedAt: Date.now(),
-      };
-      setSchedules(records);
-      setRunsBySchedule(nextRunsBySchedule);
-    } catch (err) {
-      if (err instanceof AuthError) {
-        onAuthExpired(t("automations.apiKeyExpired"));
-        return;
+  const loadSchedules = useCallback(
+    async (options: { background?: boolean } = {}) => {
+      if (!options.background) setIsLoading(true);
+      setError(null);
+      try {
+        const records = await fetchSchedules();
+        const runEntries = await Promise.all(
+          records.map(async (schedule) => {
+            const runs = await loadScheduleRuns(schedule.schedule_id);
+            return [schedule.schedule_id, runs] as const;
+          })
+        );
+        const nextRunsBySchedule = Object.fromEntries(runEntries) as Record<string, AgentRunInfo[]>;
+        automationsPageCacheByUserId[userId] = {
+          schedules: records,
+          runsBySchedule: nextRunsBySchedule,
+          loadedAt: Date.now(),
+        };
+        setSchedules(records);
+        setRunsBySchedule(nextRunsBySchedule);
+      } catch (err) {
+        if (err instanceof AuthError) {
+          onAuthExpired(t("automations.apiKeyExpired"));
+          return;
+        }
+        setError(err instanceof Error ? err.message : t("automations.failedToLoad"));
+      } finally {
+        if (!options.background) {
+          setIsLoading(false);
+        }
       }
-      setError(err instanceof Error ? err.message : t("automations.failedToLoad"));
-    } finally {
-      if (!options.background) {
-        setIsLoading(false);
-      }
-    }
-  }, [loadScheduleRuns, onAuthExpired, t, userId]);
+    },
+    [loadScheduleRuns, onAuthExpired, t, userId]
+  );
 
   const handleManualRefresh = useCallback(async () => {
     setIsManualRefreshPending(true);
@@ -590,7 +358,7 @@ export default function AutomationsPage({
   }, []);
 
   const releaseDetailSwipeScrollLock = useCallback(() => {
-    releaseAutomationBackSwipeScrollLock(detailSwipeScrollLockRef.current);
+    releaseMobileSwipeBackScrollLock(detailSwipeScrollLockRef.current);
     detailSwipeScrollLockRef.current = null;
   }, []);
 
@@ -675,7 +443,7 @@ export default function AutomationsPage({
   useEffect(
     () => () => {
       stopDetailSwipeAnimation();
-      releaseAutomationBackSwipeScrollLock(detailSwipeScrollLockRef.current);
+      releaseMobileSwipeBackScrollLock(detailSwipeScrollLockRef.current);
       detailSwipeScrollLockRef.current = null;
     },
     [stopDetailSwipeAnimation]
@@ -701,7 +469,7 @@ export default function AutomationsPage({
     (event: React.PointerEvent<HTMLDivElement>) => {
       if (!selectedScheduleId) return;
       if (!event.isPrimary || event.pointerType !== "touch") return;
-      const viewportWidth = automationBackSwipeViewportWidth();
+      const viewportWidth = mobileSwipeBackViewportWidth();
       if (viewportWidth >= mobileSwipeBackConfig.desktopMinWidth) return;
       suppressNextDetailSwipeClickRef.current = false;
       if (isInteractiveAutomationBackSwipeTarget(event.target)) return;
@@ -715,7 +483,7 @@ export default function AutomationsPage({
         viewportWidth,
         claimed: false,
         lastX: event.clientX,
-        lastTime: currentTimeMs(),
+        lastTime: currentMobileSwipeBackTimeMs(),
         velocityX: 0,
         scrollElement,
         startScrollTop: scrollElement.scrollTop,
@@ -758,7 +526,7 @@ export default function AutomationsPage({
         dragState.claimed = true;
         suppressNextDetailSwipeClickRef.current = true;
         setIsDetailSwipeActive(true);
-        detailSwipeScrollLockRef.current = ensureAutomationBackSwipeScrollLock(
+        detailSwipeScrollLockRef.current = ensureMobileSwipeBackScrollLock(
           detailSwipeScrollLockRef.current,
           dragState.scrollElement,
           dragState.startScrollTop
@@ -773,7 +541,7 @@ export default function AutomationsPage({
       if (!dragState.claimed) return;
 
       event.preventDefault();
-      const currentTime = currentTimeMs();
+      const currentTime = currentMobileSwipeBackTimeMs();
       const elapsed = Math.max(1, currentTime - dragState.lastTime);
       dragState.velocityX = ((event.clientX - dragState.lastX) / elapsed) * 1000;
       dragState.lastX = event.clientX;
@@ -845,7 +613,7 @@ export default function AutomationsPage({
     (event: React.TouchEvent<HTMLDivElement>) => {
       if (!selectedScheduleId) return;
       if (event.touches.length !== 1) return;
-      const viewportWidth = automationBackSwipeViewportWidth();
+      const viewportWidth = mobileSwipeBackViewportWidth();
       if (viewportWidth >= mobileSwipeBackConfig.desktopMinWidth) return;
       if (isInteractiveAutomationBackSwipeTarget(event.target)) return;
       const touch = event.touches[0];
@@ -913,7 +681,7 @@ export default function AutomationsPage({
       ) {
         guardState.isGuarding = true;
         event.preventDefault();
-        detailSwipeScrollLockRef.current = ensureAutomationBackSwipeScrollLock(
+        detailSwipeScrollLockRef.current = ensureMobileSwipeBackScrollLock(
           detailSwipeScrollLockRef.current,
           guardState.scrollElement,
           guardState.startScrollTop
@@ -1274,9 +1042,7 @@ export default function AutomationsPage({
               <section className="grid gap-2.5 rounded-xl border border-[#DEE0E3] bg-white p-3 shadow-[0_1px_2px_rgba(31,35,41,0.03)] md:gap-3 md:rounded-none md:border-0 md:bg-transparent md:p-0 md:shadow-none">
                 <div className="grid gap-2.5 md:grid-cols-[minmax(0,1fr)_220px_220px]">
                   <label className="block min-w-0">
-                    <span className={automationFieldLabelClass}>
-                      {t("automations.titleLabel")}
-                    </span>
+                    <span className={automationFieldLabelClass}>{t("automations.titleLabel")}</span>
                     <input
                       value={title}
                       onChange={(event) => setTitle(event.target.value)}
@@ -1407,7 +1173,7 @@ export default function AutomationsPage({
                   onClick={() => setIsAdvancedConfigOpen((current) => !current)}
                   aria-expanded={isAdvancedConfigOpen}
                   data-ripple-automation-advanced-trigger
-                  className={`flex h-11 w-full items-center justify-between gap-2 px-3 text-left text-[#2B2F36] hover:bg-[#F8F9FA] focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#1456F0]/20 md:h-9 md:w-fit md:justify-start md:rounded-lg md:border md:border-[#DEE0E3] md:bg-white ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                  className={`flex h-11 w-full items-center justify-between gap-2 px-3 text-left text-[#2B2F36] hover:bg-[#F8F9FA] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1456F0]/20 focus-visible:ring-inset md:h-9 md:w-fit md:justify-start md:rounded-lg md:border md:border-[#DEE0E3] md:bg-white ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
                 >
                   <span className="flex min-w-0 items-center gap-1.5">
                     <ChevronDown
@@ -1425,7 +1191,7 @@ export default function AutomationsPage({
                 {isAdvancedConfigOpen ? (
                   <div
                     data-ripple-automation-advanced-config
-                    className="grid gap-2.5 border-t border-[#EFF0F1] bg-[#F8F9FA] p-3 md:rounded-lg md:border md:grid-cols-2 md:gap-3 xl:grid-cols-5"
+                    className="grid gap-2.5 border-t border-[#EFF0F1] bg-[#F8F9FA] p-3 md:grid-cols-2 md:gap-3 md:rounded-lg md:border xl:grid-cols-5"
                   >
                     <label className="block min-w-0 md:col-span-2 xl:col-span-1">
                       <span className={automationFieldLabelClass}>{t("automations.cwd")}</span>
@@ -1589,10 +1355,14 @@ export default function AutomationsPage({
                           {schedule.status}
                         </span>
                       </span>
-                      <span className={`mt-0.5 block truncate text-[#646A73] ${TYPOGRAPHY_BODY_CLASS}`}>
+                      <span
+                        className={`mt-0.5 block truncate text-[#646A73] ${TYPOGRAPHY_BODY_CLASS}`}
+                      >
                         {schedule.prompt}
                       </span>
-                      <span className={`mt-1 flex min-w-0 items-center gap-1.5 text-[#8F959E] ${TYPOGRAPHY_META_CLASS}`}>
+                      <span
+                        className={`mt-1 flex min-w-0 items-center gap-1.5 text-[#8F959E] ${TYPOGRAPHY_META_CLASS}`}
+                      >
                         <span className="shrink-0">{t("automations.next")}</span>
                         <span className="min-w-0 truncate text-[#646A73]">
                           {formatDate(schedule.next_run_at, locale, t)}
@@ -2058,8 +1828,7 @@ export default function AutomationsPage({
                     const latestRun = runs[0] || null;
                     const latestRunStatus = latestRun?.status || schedule.last_run_status || null;
                     const latestRunAt = latestRun?.updated_at || schedule.last_run_at;
-                    const scheduleError =
-                      schedule.status === "error" ? schedule.last_error : null;
+                    const scheduleError = schedule.status === "error" ? schedule.last_error : null;
                     const latestRunError = runErrorText(latestRun) || scheduleError;
                     const isExpanded = expandedScheduleId === schedule.schedule_id;
                     const isConfirmingDelete = confirmDeleteId === schedule.schedule_id;
@@ -2146,7 +1915,7 @@ export default function AutomationsPage({
                                 {t("automations.repeat")}
                               </div>
                               <div
-                                className={`mt-0.5 break-words font-[family-name:var(--font-mono)] text-[#2B2F36] ${TYPOGRAPHY_META_CLASS}`}
+                                className={`mt-0.5 font-[family-name:var(--font-mono)] break-words text-[#2B2F36] ${TYPOGRAPHY_META_CLASS}`}
                               >
                                 {schedule.kind === "interval"
                                   ? `${intervalLabel(schedule.interval_seconds, t)} · ${runCountLabel(schedule, t)}`
@@ -2343,8 +2112,7 @@ export default function AutomationsPage({
                                   {runs.map((run) => {
                                     const errorText = runErrorText(run);
                                     const runDeleteKey = `${schedule.schedule_id}:${run.job_id}`;
-                                    const confirmingRunDelete =
-                                      confirmRunDeleteId === runDeleteKey;
+                                    const confirmingRunDelete = confirmRunDeleteId === runDeleteKey;
                                     return (
                                       <div
                                         key={run.job_id}

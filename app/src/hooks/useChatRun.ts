@@ -22,7 +22,6 @@ import {
   sendSessionControlAction,
   uploadWorkspaceAttachment,
 } from "@/lib/api";
-import { readableApiErrorMessage } from "@/lib/apiErrors";
 import { chatErrorContent } from "@/lib/chatErrors";
 import { describeChatFilesForDisplay, type ChatFileRef } from "@/lib/chatInput";
 import {
@@ -48,6 +47,29 @@ import {
 import { openExternalUrl } from "@/lib/platform";
 import type { FeishuAuthOpenPayload, FeishuAuthWaitingState } from "@/components/MarkdownRenderer";
 import { useI18n } from "@/i18n";
+import {
+  attachmentUploadErrorMessage,
+  summarizeAttachmentUploadErrors,
+  uploadPendingLocalImagesForSend,
+} from "./chatRunAttachments";
+import {
+  CONNECTOR_AUTH_POLL_TIMEOUT_MS,
+  connectorAuthPollPayloadFromEvent,
+  connectorAuthRequiresSessionAttention,
+  shouldAutoOpenConnectorAuthWindow,
+  shouldContinueConnectorAuthPoll,
+  shouldStartConnectorAuthPoll,
+} from "./chatRunConnectorAuth";
+
+export {
+  CONNECTOR_AUTH_POLL_TIMEOUT_MS,
+  connectorAuthPollPayloadFromEvent,
+  connectorAuthRequiresSessionAttention,
+  shouldAutoOpenConnectorAuthWindow,
+  shouldContinueConnectorAuthPoll,
+  shouldStartConnectorAuthPoll,
+} from "./chatRunConnectorAuth";
+export { uploadPendingLocalImagesForSend } from "./chatRunAttachments";
 
 export interface ChatRunSessionActions {
   getSessionId: () => string | null;
@@ -80,10 +102,8 @@ const emptyUsage: UsageInfo = {
   total_tokens: 0,
 };
 
-export const CONNECTOR_AUTH_POLL_TIMEOUT_MS = 5 * 60 * 1000;
 export const SESSION_TITLE_REFRESH_DELAYS_MS = [750, 2000, 5000] as const;
 const CONNECTOR_AUTH_POLL_INTERVAL_MS = 2000;
-const MAX_ATTACHMENT_UPLOAD_ERRORS_SHOWN = 3;
 
 function shouldShowRuntimeEvent(event: CodexRuntimeEvent): boolean {
   return event.type !== "tool_output_delta";
@@ -104,112 +124,6 @@ interface ConnectorAuthPollOptions {
   baseMessages?: Message[];
   allowWhileGenerating?: boolean;
   openAuthWindow?: boolean;
-}
-
-export function connectorAuthPollPayloadFromEvent(
-  event: ConnectorAuthChatEvent
-): FeishuAuthOpenPayload | null {
-  const data = event.action?.data || {};
-  const mode = event.action?.source === "connectors_page" ? "connect" : "skill";
-  const nextUrl =
-    typeof data.oauth_url === "string"
-      ? data.oauth_url
-      : typeof data.setup_url === "string"
-        ? data.setup_url
-        : "";
-  if (
-    event.type !== "connector_auth_required" ||
-    (event.connector !== "google_workspace" && event.connector !== "feishu") ||
-    !nextUrl
-  ) {
-    return null;
-  }
-
-  return {
-    connector: event.connector === "google_workspace" ? "google_workspace" : "feishu",
-    tag: event.connector === "feishu" && data.setup_url === nextUrl ? "setup" : "auth",
-    url: nextUrl,
-    popup: null,
-    mode,
-  };
-}
-
-export function shouldStartConnectorAuthPoll(payload: FeishuAuthOpenPayload): boolean {
-  return payload.mode !== "connect";
-}
-
-export function connectorAuthRequiresSessionAttention(event: ConnectorAuthChatEvent): boolean {
-  const payload = connectorAuthPollPayloadFromEvent(event);
-  return Boolean(payload && shouldStartConnectorAuthPoll(payload));
-}
-
-export function shouldContinueConnectorAuthPoll(
-  lastEvent: ConnectorAuthChatEvent | null,
-  targetConnector: FeishuAuthOpenPayload["connector"],
-  elapsedMs: number,
-  timeoutMs: number = CONNECTOR_AUTH_POLL_TIMEOUT_MS
-): boolean {
-  return (
-    elapsedMs < timeoutMs &&
-    lastEvent !== null &&
-    lastEvent.connector === targetConnector &&
-    lastEvent.type === "connector_auth_required" &&
-    lastEvent.stage !== "auth_failed" &&
-    lastEvent.stage !== "invalid_request"
-  );
-}
-
-export function shouldAutoOpenConnectorAuthWindow(
-  connector: FeishuAuthOpenPayload["connector"]
-): boolean {
-  return connector !== "feishu" && connector !== "google_workspace";
-}
-
-function attachmentUploadErrorMessage(error: unknown): string {
-  const message = readableApiErrorMessage(error);
-  if (/length limit/i.test(message)) {
-    return "File exceeds the server upload limit.";
-  }
-  if (/\((413|400)\)/.test(message) && /upload|attachment/i.test(message)) {
-    return `${message}. The file may exceed the server upload limit.`;
-  }
-  return message;
-}
-
-function summarizeAttachmentUploadErrors(errors: string[]): string {
-  const shown = errors.slice(0, MAX_ATTACHMENT_UPLOAD_ERRORS_SHOWN);
-  const suffix =
-    errors.length > shown.length ? `; ${errors.length - shown.length} more failed` : "";
-  return `${shown.join("; ")}${suffix}`;
-}
-
-type AttachmentUploadResult = Awaited<ReturnType<typeof uploadWorkspaceAttachment>>;
-
-export async function uploadPendingLocalImagesForSend(
-  images: PendingLocalImage[],
-  uploadAttachment: (file: File) => Promise<AttachmentUploadResult>
-): Promise<{ files: ChatFileRef[]; failures: string[] }> {
-  const files: ChatFileRef[] = [];
-  const failures: string[] = [];
-
-  for (const image of images) {
-    try {
-      const uploaded = await uploadAttachment(image.file);
-      files.push({
-        path: uploaded.path,
-        name: uploaded.name,
-        mime_type: uploaded.mime_type,
-        kind: uploaded.kind,
-      });
-    } catch (err) {
-      if (err instanceof AuthError) {
-        throw err;
-      }
-      failures.push(`${image.name}: ${attachmentUploadErrorMessage(err)}`);
-    }
-  }
-
-  return { files, failures };
 }
 
 export function useChatRun({

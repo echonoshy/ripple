@@ -16,6 +16,15 @@ import {
 import WorkspaceFileList from "@/components/workspace/WorkspaceFileList";
 import WorkspaceToolbar from "@/components/workspace/WorkspaceToolbar";
 import {
+  getCachedWorkspaceLastPath,
+  getCachedWorkspaceListing,
+  getWorkspaceDragPaths,
+  hasDraggedWorkspaceEntries,
+  setCachedWorkspaceLastPath,
+  setCachedWorkspaceListing,
+  setWorkspaceDragPaths,
+} from "@/components/workspace/workspaceExplorerState";
+import {
   TYPOGRAPHY_BODY_MEDIUM_CLASS,
   TYPOGRAPHY_META_MEDIUM_CLASS,
   WORKBENCH_SECTION_CLASS,
@@ -63,10 +72,10 @@ import {
 } from "@/lib/menuPosition";
 import { getWorkspaceImagePreviewUrl } from "@/lib/workspaceImageCache";
 import {
-  WorkspaceEntry,
   WorkspaceFileOpenRequest,
   WorkspaceFilePreview,
   WorkspaceListing,
+  WorkspaceEntry,
 } from "@/types";
 
 export {
@@ -94,18 +103,6 @@ const WORKSPACE_CONTEXT_MENU_WIDTH = 220;
 const WORKSPACE_FILE_CONTEXT_MENU_HEIGHT = 244;
 const WORKSPACE_DIRECTORY_CONTEXT_MENU_HEIGHT = 208;
 const WORKSPACE_EMPTY_CONTEXT_MENU_HEIGHT = 132;
-const WORKSPACE_DRAG_ENTRY_MIME = "application/x-ripple-workspace-entry";
-
-interface WorkspaceDragPayload {
-  paths: string[];
-}
-
-const workspaceListingCache = new Map<string, WorkspaceListing>();
-const workspaceLastPathCache = new Map<string, string>();
-
-function workspaceCacheKey(userId: string, path: string): string {
-  return `${userId}\n${path}`;
-}
 
 function workspaceContextMenuHeight(entry: WorkspaceEntry | null): number {
   if (!entry) return WORKSPACE_EMPTY_CONTEXT_MENU_HEIGHT;
@@ -152,24 +149,6 @@ function initialIsCoarsePointer(): boolean {
   return window.matchMedia("(pointer: coarse)").matches;
 }
 
-function hasDraggedWorkspaceEntries(event: React.DragEvent<Element>): boolean {
-  return Array.from(event.dataTransfer.types).includes(WORKSPACE_DRAG_ENTRY_MIME);
-}
-
-function getWorkspaceDragPaths(dataTransfer: DataTransfer): string[] {
-  const rawPayload = dataTransfer.getData(WORKSPACE_DRAG_ENTRY_MIME);
-  if (!rawPayload) return [];
-
-  try {
-    const payload = JSON.parse(rawPayload) as WorkspaceDragPayload;
-    return Array.isArray(payload.paths)
-      ? payload.paths.filter((path): path is string => typeof path === "string")
-      : [];
-  } catch {
-    return [];
-  }
-}
-
 export default function WorkspaceExplorer({
   userId,
   refreshToken,
@@ -182,13 +161,10 @@ export default function WorkspaceExplorer({
 }: WorkspaceExplorerProps) {
   const { locale, t } = useI18n();
   const initialPath =
-    testInitialListing?.path || workspaceLastPathCache.get(userId) || DEFAULT_WORKSPACE_PATH;
+    testInitialListing?.path || getCachedWorkspaceLastPath(userId) || DEFAULT_WORKSPACE_PATH;
   const [currentPath, setCurrentPath] = useState(initialPath);
   const [listing, setListing] = useState<WorkspaceListing | null>(
-    () =>
-      testInitialListing ||
-      workspaceListingCache.get(workspaceCacheKey(userId, initialPath)) ||
-      null
+    () => testInitialListing || getCachedWorkspaceListing(userId, initialPath)
   );
   const [preview, setPreview] = useState<WorkspaceFilePreview | null>(testInitialPreview || null);
   const [draft, setDraft] = useState("");
@@ -436,7 +412,7 @@ export default function WorkspaceExplorer({
 
   const loadDirectory = useCallback(
     async (path: string) => {
-      const key = workspaceCacheKey(userId, path);
+      const key = `${userId}\n${path}`;
       const existingLoad = directoryLoadRef.current;
       if (existingLoad?.key === key) return existingLoad.promise;
 
@@ -449,8 +425,8 @@ export default function WorkspaceExplorer({
         try {
           const data = await fetchWorkspaceListing(path);
           if (directoryRequestIdRef.current !== requestId) return;
-          workspaceListingCache.set(workspaceCacheKey(userId, data.path), data);
-          workspaceLastPathCache.set(userId, data.path);
+          setCachedWorkspaceListing(userId, data);
+          setCachedWorkspaceLastPath(userId, data.path);
           currentPathRef.current = data.path;
           setListing(data);
           setCurrentPath(data.path);
@@ -555,7 +531,7 @@ export default function WorkspaceExplorer({
     if (userChanged) {
       currentPathRef.current = path;
       setCurrentPath(path);
-      setListing(workspaceListingCache.get(workspaceCacheKey(userId, path)) || null);
+      setListing(getCachedWorkspaceListing(userId, path));
       setPreview(null);
       setImagePreviewUrl(null);
       setDocumentPreview(null);
@@ -786,11 +762,14 @@ export default function WorkspaceExplorer({
     setSaveError(null);
   };
 
-  const refreshAfterUpload = useCallback(async (path: string) => {
-    setQuery("");
-    setSearchResults([]);
-    await loadDirectory(path);
-  }, [loadDirectory]);
+  const refreshAfterUpload = useCallback(
+    async (path: string) => {
+      setQuery("");
+      setSearchResults([]);
+      await loadDirectory(path);
+    },
+    [loadDirectory]
+  );
 
   const uploadFilesToCurrentDirectory = useCallback(
     async (files: File[], overwrite: boolean = false) => {
@@ -898,8 +877,7 @@ export default function WorkspaceExplorer({
     setDraggedEntries(dragEntries);
     setContextMenu((prev) => ({ ...prev, visible: false }));
     event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData(WORKSPACE_DRAG_ENTRY_MIME, JSON.stringify({ paths }));
-    event.dataTransfer.setData("text/plain", paths.join("\n"));
+    setWorkspaceDragPaths(event.dataTransfer, paths);
   };
 
   const handleEntryDragEnd = () => {
@@ -1431,7 +1409,6 @@ export default function WorkspaceExplorer({
         "--ripple-workspace-list-row": `minmax(96px, ${splitPercent}%) minmax(0, 1fr)`,
       }
     : undefined;
-
 
   return (
     <div

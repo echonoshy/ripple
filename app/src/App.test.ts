@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
+const workbenchLayoutSource = readFileSync(
+  new URL("./hooks/workbenchLayout.ts", import.meta.url),
+  "utf8"
+);
+
 function testAppUsesAuthGatewayForLoginScreen() {
   const source = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
 
@@ -147,7 +152,7 @@ function testMobileSessionListDoesNotHideSelectedSessionAttention() {
   const attentionHandlerBlock =
     source.match(/const handleSessionAttention = useCallback\([\s\S]*?\n {2}\);/)?.[0] || "";
 
-  assert.match(source, /const \[isMobileLayout, setIsMobileLayout\]/);
+  assert.match(source, /const isMobileLayout = useMobileLayout\(\)/);
   assert.match(source, /const sessionDetailVisibleForAttention =/);
   assert.match(source, /!isMobileLayout \|\| mobileSessionMode === "chat"/);
   assert.match(
@@ -207,8 +212,8 @@ function testSessionRailOnlyLivesInsideSessionsView() {
 function testDesktopSessionRailCanResizeAndCollapse() {
   const source = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /SESSION_RAIL_WIDTH_STORAGE_KEY/);
-  assert.match(source, /SESSION_RAIL_COLLAPSED_STORAGE_KEY/);
+  assert.match(workbenchLayoutSource, /SESSION_RAIL_WIDTH_STORAGE_KEY/);
+  assert.match(workbenchLayoutSource, /SESSION_RAIL_COLLAPSED_STORAGE_KEY/);
   assert.match(source, /handleSessionRailResizeStart/);
   assert.match(source, /aria-label=\{t\("common\.resizeSessionList"\)\}/);
   assert.match(source, /aria-valuemin=\{SESSION_RAIL_MIN_WIDTH\}/);
@@ -243,18 +248,22 @@ function testCollapsedSessionRailUsesEdgeHandle() {
 function testAndroidBackGestureExclusionAppliesToMobileSwipeBackSurfaces() {
   const source = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /setAndroidChatBackGestureEnabled/);
-  assert.match(source, /ANDROID_CHAT_BACK_GESTURE_DESKTOP_MIN_WIDTH_PX/);
+  assert.match(source, /useAndroidChatBackGesture\(\{/);
+  assert.match(workbenchLayoutSource, /setAndroidChatBackGestureEnabled/);
+  assert.match(workbenchLayoutSource, /ANDROID_CHAT_BACK_GESTURE_DESKTOP_MIN_WIDTH_PX/);
   assert.match(source, /isSkillsMobileBackGestureActive/);
   assert.match(source, /setIsSkillsMobileBackGestureActive/);
   assert.match(source, /onMobileBackGestureScopeChange=\{setIsSkillsMobileBackGestureActive\}/);
-  assert.match(source, /authState === "authenticated"/);
-  assert.match(source, /const isMobileChatBackGestureActive =/);
-  assert.match(source, /const isMobileSkillsBackGestureActive =/);
-  assert.match(source, /window\.innerWidth < ANDROID_CHAT_BACK_GESTURE_DESKTOP_MIN_WIDTH_PX/);
-  assert.match(source, /setAndroidChatBackGestureEnabled\(shouldEnable\)/);
-  assert.match(source, /window\.addEventListener\("resize", updateAndroidChatBackGesture\)/);
-  assert.match(source, /setAndroidChatBackGestureEnabled\(false\)/);
+  assert.match(workbenchLayoutSource, /authState === "authenticated"/);
+  assert.match(workbenchLayoutSource, /const isMobileChatBackGestureActive =/);
+  assert.match(workbenchLayoutSource, /const isMobileSkillsBackGestureActive =/);
+  assert.match(workbenchLayoutSource, /isMobileLayoutWidth\(viewportWidth\)/);
+  assert.match(workbenchLayoutSource, /shouldEnableAndroidChatBackGesture/);
+  assert.match(
+    workbenchLayoutSource,
+    /window\.addEventListener\("resize", updateAndroidChatBackGesture\)/
+  );
+  assert.match(workbenchLayoutSource, /setAndroidChatBackGestureEnabled\(false\)/);
   assert.doesNotMatch(source, /listenForAndroidBackButton/);
   assert.doesNotMatch(source, /handleAndroidBackButton/);
   assert.doesNotMatch(source, /onBackButtonPress/);

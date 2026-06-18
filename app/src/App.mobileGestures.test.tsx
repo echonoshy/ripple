@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const appSource = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
+const workbenchLayoutSource = readFileSync(
+  new URL("./hooks/workbenchLayout.ts", import.meta.url),
+  "utf8"
+);
 
 function testMobileSwipeBackDoesNotTriggerOuterPageTransition() {
   assert.match(
@@ -51,12 +55,13 @@ function testModelDropdownStateOnlyTracksComposer() {
 }
 
 function testAndroidBackGestureScopeStaysInsideActiveDetailSurfaces() {
-  assert.match(appSource, /activeView === "sessions" && mobileSessionMode === "chat"/);
+  assert.match(appSource, /useAndroidChatBackGesture\(\{/);
+  assert.match(workbenchLayoutSource, /activeView === "sessions" && mobileSessionMode === "chat"/);
   assert.match(
-    appSource,
+    workbenchLayoutSource,
     /\(activeView === "skills" \|\| activeView === "connectors"\) && isSkillsMobileBackGestureActive/
   );
-  assert.match(appSource, /setAndroidChatBackGestureEnabled\(shouldEnable\)/);
+  assert.match(workbenchLayoutSource, /setAndroidChatBackGestureEnabled\(/);
 }
 
 testMobileSwipeBackDoesNotTriggerOuterPageTransition();

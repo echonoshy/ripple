@@ -172,8 +172,9 @@ testSkillsPageUsesCompactSkillRowsInCategoryDetail();
 function testSkillsCategoryDetailUsesSharedMobilePageHeader() {
   const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
   const headerBlock =
-    source.match(/<MobilePageHeader[\s\S]*?backLabel=\{t\("skills\.backToCategories"\)\}[\s\S]*?\/>/)
-      ?.[0] || "";
+    source.match(
+      /<MobilePageHeader[\s\S]*?backLabel=\{t\("skills\.backToCategories"\)\}[\s\S]*?\/>/
+    )?.[0] || "";
 
   assert.match(source, /import MobilePageHeader from "\.\/MobilePageHeader"/);
   assert.match(source, /<MobilePageHeader[\s\S]*title=\{categoryLabel\(category\)\}/);
@@ -247,8 +248,7 @@ function testSkillsCategoryDetailSupportsSwipeBackGesture() {
     source.match(
       /<motion\.div[\s\S]*?data-ripple-skill-category-swipe-sheet="true"[\s\S]*?<\/motion\.div>/
     )?.[0] || "";
-  const pageRootBlock =
-    source.match(/<div\s+ref=\{skillsPageScrollRef\}[\s\S]*?>/)?.[0] || "";
+  const pageRootBlock = source.match(/<div\s+ref=\{skillsPageScrollRef\}[\s\S]*?>/)?.[0] || "";
 
   assert.equal(
     shouldGuardSkillsCategoryBackSwipeScroll({
@@ -412,6 +412,10 @@ function testSkillsCategorySwipeUsesSharedMotionPrimitive() {
 
 function testSkillsCategoryGuardedScrollCanReleaseBackToVerticalIntent() {
   const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
+  const mobileSwipeBackSource = readFileSync(
+    new URL("./mobileSwipeBack.ts", import.meta.url),
+    "utf8"
+  );
 
   assert.equal(
     shouldReleaseSkillsCategoryBackSwipeScrollGuard({
@@ -423,7 +427,8 @@ function testSkillsCategoryGuardedScrollCanReleaseBackToVerticalIntent() {
   );
   assert.match(source, /shouldReleaseSkillsCategoryBackSwipeScrollGuard/);
   assert.match(source, /releaseCategorySwipeScrollLock\(\)/);
-  assert.match(source, /scrollElement\.scrollTop = startScrollTop/);
+  assert.match(source, /releaseMobileSwipeBackScrollLock/);
+  assert.match(mobileSwipeBackSource, /scrollElement\.scrollTop = startScrollTop/);
 }
 
 function testSkillsCategorySwipeUsesFullHeightScrollableSheetLikeSession() {
@@ -449,8 +454,9 @@ function testSkillsCategorySwipeUsesFullHeightScrollableSheetLikeSession() {
 function testSkillsCategorySwipeCommitDoesNotJumpScrollAfterReturn() {
   const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
   const commitBlock =
-    source.match(/const closeCategoryWithSwipeCommit = useCallback\(\(\) => \{[\s\S]*?\}, \[[\s\S]*?\]\);/)?.[0] ||
-    "";
+    source.match(
+      /const closeCategoryWithSwipeCommit = useCallback\(\(\) => \{[\s\S]*?\}, \[[\s\S]*?\]\);/
+    )?.[0] || "";
 
   assert.match(commitBlock, /setSelectedCategoryId\(null\)/);
   assert.match(commitBlock, /setSkipNextCategoryTransition\(true\)/);
@@ -524,8 +530,7 @@ function testSkillsCategoryResetToRootUsesStaticReturn() {
   const resetBlock =
     source.match(
       /useEffect\(\(\) => \{\n\s{4}if \(resetToRootRequest <= 0\)[\s\S]*?\}, \[[\s\S]*?\]\);/
-    )?.[0] ||
-    "";
+    )?.[0] || "";
 
   assert.match(resetBlock, /setSkipNextCategoryTransition\(true\)/);
   assert.match(resetBlock, /setCategoryTransitionDirection\(0\)/);
@@ -696,7 +701,10 @@ testSkillsPageUsesFeishuInspiredVisualLanguage();
 function testSkillsPageUsesSolidWorkbenchSurfaces() {
   const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /WORKBENCH_(SECTION|SURFACE|PRIMARY_BUTTON|SECONDARY_BUTTON|STATUS|FIELD|MENU)/);
+  assert.match(
+    source,
+    /WORKBENCH_(SECTION|SURFACE|PRIMARY_BUTTON|SECONDARY_BUTTON|STATUS|FIELD|MENU)/
+  );
   assert.match(source, /WORKBENCH_MOBILE_ICON_BUTTON_CLASS/);
   assert.doesNotMatch(source, /MOBILE_GLASS_ICON_BUTTON_CLASS/);
   assert.doesNotMatch(source, /bg-white\/7[02468].*backdrop-blur-xl/);

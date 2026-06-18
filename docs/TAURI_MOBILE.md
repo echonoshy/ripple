@@ -6,9 +6,9 @@
 
 ## 结论
 
-Ripple mobile 主线采用 **Tauri 复用主 App 工作台**。
+Ripple mobile 主线采用 **Tauri 复用主 App 客户端**。
 
-- `app` 已经包含完整 App 工作台和 Tauri v2 shell，覆盖 Sessions/Chat、Files、Connectors、Automations、Settings 等核心能力。
+- `app` 已经包含完整 App 客户端和 Tauri v2 shell，一级体验覆盖 Sessions/Chat、Tasks、Files、Skills/Connectors 和 Settings。Autos/standalone schedule 管理不再是一级导航。
 - iOS/Android app 仍然只是 Ripple Server 客户端，不嵌入后端控制面，也不运行 agent loop、sandbox、connector CLI 或 Codex app-server。
 - 首阶段分发目标是 Android APK 真机安装、iOS 真机调试和 TestFlight。
 - 开发/内测阶段可保留设置页手填服务级 API key 和 user id；启用 `server.user_auth` 时也可走邀请制账号登录。生产 trusted-proxy 形态由可信上游服务注入 `X-Ripple-User-Id`。
@@ -61,16 +61,16 @@ Ripple mobile 主线采用 **Tauri 复用主 App 工作台**。
    - 当前 HTTP IP 过渡期需要 iOS ATS 明文加载例外；恢复 HTTPS 域名后移除该例外。本地真机调试仍走 `tauri ios dev --host <LAN_IP>`。
    - 如新增 Tauri 插件，必须同步更新 Rust 初始化、JS 依赖和 capabilities 权限。
 
-4. 增加 package scripts。
+4. 确认 package scripts。
 
-   建议在 `app/package.json` 中补充：
+   当前 `app/package.json` 应包含：
 
    ```json
    {
      "scripts": {
        "tauri:ios:init": "tauri ios init",
        "tauri:ios:dev": "tauri ios dev",
-       "tauri:ios:build:testflight": "tauri ios build --export-method release-testing",
+       "tauri:ios:build:testflight": "tauri ios build --export-method app-store-connect",
        "tauri:android:init": "tauri android init",
        "tauri:android:dev": "tauri android dev",
        "tauri:android:build": "tauri android build"
@@ -85,7 +85,7 @@ Ripple mobile 主线采用 **Tauri 复用主 App 工作台**。
    - `WorkbenchShell` 的安全区、底部导航和 overlay nav。
    - `SessionPage` 和 `SessionComposer` 的键盘避让、输入框高度、发送/停止按钮触控区域。
    - Settings modal 在小屏上的高度、滚动、保存按钮位置。
-   - Files、Connectors、Automations 的列表密度、横向溢出、长文本换行。
+   - Files、Skills/Connectors、Tasks 的列表密度、横向溢出、长文本换行。
    - tool call、permission request、用户确认、connector auth 卡片在 375px 宽度下不遮挡内容。
 
 ## 验证清单
@@ -111,7 +111,7 @@ TestFlight 构建验证：
 
 ```bash
 cd app
-bun run tauri ios build --export-method release-testing --build-number 1
+bun run tauri:ios:build:testflight -- --build-number 1
 ```
 
 Android APK 构建验证：
@@ -130,7 +130,7 @@ bun run tauri android build --apk --target aarch64 --split-per-abi
 - tool call、tool result、permission request、用户确认、stop generation 正常。
 - Files 可浏览、预览、上传、下载。
 - Connectors 状态、账号列表和授权入口可用。
-- Automations 可创建、更新、删除和 run-now。
+- Tasks 可查看、确认、run-now，并能展示 actions、triggers、events 和 source session 链接。
 - iPhone/Android 小屏没有横向滚动，底部输入框不被键盘或 safe area 遮挡。
 
 ## iOS TestFlight 发布

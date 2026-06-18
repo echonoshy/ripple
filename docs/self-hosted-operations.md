@@ -206,7 +206,7 @@ Codex auth 建议恢复后重新登录服务端专用 `CODEX_HOME`，不要把 a
 - 服务启动时，旧的 `queued/running` jobs 会标记为 `interrupted_by_restart`，客户端可重试。
 - Run output 下载使用 `/v1/runs/:job_id/output`，不要依赖 host path。
 
-## Schedules
+## Tasks And Schedules
 
 默认策略：
 
@@ -214,7 +214,7 @@ Codex auth 建议恢复后重新登录服务端专用 `CODEX_HOME`，不要把 a
 - `overlap_policy=skip`：上一轮仍在运行时跳过本轮。
 - `failure_policy=pause`：启动失败时暂停并记录 `failure_reason`。
 
-前端 Automations 页面展示这些 policy、last run status、failure reason 和 retry/run-now。
+前端 Tasks 页面是当前 follow-up 中心，展示 task、actions、trigger、run history、事件和 result writeback。独立 schedules 仍通过兼容管理界面保留，可展示这些 policy、last run status、failure reason 和 retry/run-now。
 
 ## Diagnostics
 

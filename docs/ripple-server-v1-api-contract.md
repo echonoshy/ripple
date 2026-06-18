@@ -47,11 +47,12 @@
 
 ## Pagination
 
-列表接口开始支持 `limit` 和 `cursor`，返回 `count`、`total`、`next_cursor`：
+列表接口开始支持 `limit` 和 `cursor`。Sessions、runs 和 schedules 返回 `count`、`total`、`next_cursor`；tasks 为兼容当前客户端 response shape，返回 `count` 和 `next_cursor`，其中 `count` 是分页前当前 user 匹配的 task 数量：
 
 - `GET /v1/sessions?limit=50&cursor=50`
 - `GET /v1/runs?limit=50&cursor=50`
 - `GET /v1/schedules?limit=50&cursor=50`
+- `GET /v1/tasks?limit=50&cursor=50`
 
 `cursor` 当前是稳定的 offset 字符串，客户端应只把它当 opaque token 传回。
 
@@ -61,6 +62,23 @@
 - `GET /v1/runs/:job_id/output` 下载 run output，不要求客户端读取 host path。
 - `events_file` 和 `output_file` 仍保留给管理员调试，客户端不要依赖它们作为下载入口。
 - 服务重启时遗留 `queued/running` run 会标记为 `failed`，`failure_reason=interrupted_by_restart`。
+
+## Tasks
+
+Tasks 是当前持久 follow-up 和多步工作状态的主 API，不是旧兼容占位接口。
+
+- `GET /v1/tasks` 列出当前 user 的 tasks；`POST /v1/tasks` 创建 task 和可选 actions。
+- `GET /v1/tasks/:task_id` 返回 task、actions 和 progress；`PATCH /v1/tasks/:task_id` 更新 task。
+- `DELETE /v1/tasks/:task_id` 将 task 标记为 cancelled；`POST /v1/tasks/:task_id/delete` 物理删除 task、actions 和 events。
+- `POST /v1/tasks/:task_id/confirm` 将 candidate task/action 确认为可执行状态。
+- `POST /v1/tasks/:task_id/run-now` 从 task 的 `source_session_id` 构建一次 Codex run，并把进展写回 task events/actions。
+- `GET /v1/tasks/:task_id/actions`、`POST /v1/tasks/:task_id/actions`、`PATCH /v1/tasks/:task_id/actions/:action_id` 管理 task actions。
+- `GET /v1/tasks/:task_id/events` 返回 task timeline。
+- `GET /v1/sessions/:session_id/tasks` 返回与 session 关联的 tasks。
+
+Chat 主链路会向 Codex 暴露 `codex_app.task_update` 动态工具。它只写 Ripple 控制面 task/action 状态，不要求 Codex 反向调用 Ripple HTTP API。支持 `propose`、`create`、`update_task`、`create_action`、`update_action`、`start_action`、`complete_action`、`block_action`、`wait_user` 和 `complete_task` 等模式。
+
+Schedule records 可以通过 `task_id` / `task_action_id` 连接到 task/action。task action 自身也支持 `next_wakeup_at`，后台 due task action trigger 会按确认后的 action 触发 run 并追加 task events。
 
 ## Risk Confirmation
 

@@ -30,6 +30,7 @@ crates/ripple-server/
 - OpenAI-compatible 非流式和 SSE 响应、Codex event 映射、token usage 持久化、workspace attachment 和 image 事件导入。
 - Codex approval bridge、session stop/delete/context clear/suspend/resume、sandbox teardown cancellation。
 - Schedule CRUD、run history、run-now、due schedule trigger、chat-side schedule proposal/confirmation。
+- Tasks / TaskActions CRUD、session task listing、task event/progress、run-now、due task action trigger、schedule-task link，以及 chat-side `codex_app.task_update` 动态工具。
 - Codex managed permissions profile、服务端 Codex auth deny-read、skill manifest rendering。
 - OpenAPI/Swagger 文档入口、doctor/ready diagnostics、backup posture 检查。
 - Rust route smoke coverage 覆盖主要 `/v1` API、fake Codex app-server、fake nsjail connector CLI 边界和 server listener 启动。
@@ -46,17 +47,14 @@ crates/ripple-server/
    - 用真实 Codex extraction 输出验证 schedule proposal/confirmation。
    - 覆盖老客户端 UI flow。
 
-3. Session/job lifecycle
+3. Session/job/task lifecycle
+   - 用真实 Codex `codex_app.task_update` 输出补充 task proposal、progress、run-now 和 source-session writeback fixtures。
    - 为自动 idle suspend 和 suspended retention cleanup 增加 controlled-time route tests。
-   - 增加 active/queued job 下 steering、approval、cancel 的压力测试。
+   - 增加 active/queued job 下 steering、approval、cancel，以及 due task action trigger 的压力测试。
 
 4. Connector runtime boundary
    - 在真实 nsjail runtime 下验证 Google Workspace、Feishu/Lark 等 CLI auth/status flow。
    - 保持 connector 状态检查和 app-server 执行使用同一 Codex home/env 语义。
-
-5. Deprecated compatibility
-   - `/v1/tasks` 目前保留为 410 compatibility response。
-   - 确认老客户端不再访问后，可以删除该 compatibility route 和测试。
 
 ## Verification
 

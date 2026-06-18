@@ -11,6 +11,7 @@ SQLite 是 `ripple-server` 当前控制面状态存储。它不替代用户 work
 - session messages
 - runs/jobs metadata
 - schedules
+- tasks、task actions、task events
 - documents index
 - pending approval / pending question / pending connector auth 状态
 - plan steps / progress
@@ -99,6 +100,9 @@ sessions
 session_messages
 jobs
 schedules
+tasks
+task_actions
+task_events
 documents
 file_refs
 schema_migrations
@@ -114,6 +118,9 @@ jobs(user_id, updated_at)
 jobs(user_id, session_id)
 jobs(user_id, status)
 schedules(user_id, status, next_run_at)
+tasks(user_id, status, due_at)
+tasks(user_id, source_session_id, status)
+task_actions(user_id, task_id, status, next_wakeup_at)
 documents(user_id, updated_at)
 file_refs(user_id, workspace_path)
 ```

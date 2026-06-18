@@ -204,11 +204,11 @@ bun run tauri ios dev --host <LAN_IP>
 
 `<LAN_IP>` 必须是 iPhone 能访问到的 Mac 局域网 IP。不要在真机上依赖 `localhost` 访问后端。
 
-TestFlight / release-testing 构建：
+TestFlight / App Store Connect 构建：
 
 ```bash
 cd app
-bun run tauri ios build --export-method release-testing --build-number 1
+bun run tauri:ios:build:testflight -- --build-number 1
 ```
 
 常见 IPA 产物位置：

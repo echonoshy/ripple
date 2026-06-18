@@ -30,14 +30,13 @@
   <img src="assets/iOS/ripple-ios-session.png" alt="Ripple iOS session" width="19%" />
   <img src="assets/iOS/ripple-ios-files.png" alt="Ripple iOS files" width="19%" />
   <img src="assets/iOS/ripple-ios-skills.png" alt="Ripple iOS capabilities" width="19%" />
-  <img src="assets/iOS/ripple-ios-autos.png" alt="Ripple iOS automations" width="19%" />
 </div>
 
 ---
 
 ## 项目定位
 
-**Ripple** 是一个面向 Web / Tauri / Mobile 多端客户端的 AI Agent 工作空间与控制面。它把会话、文件、能力、自动化、设置与用量管理放在同一个终端用户界面里，并把实际执行委托给服务端 Codex app-server。
+**Ripple** 是一个面向 Web / Tauri / Mobile 多端客户端的 AI Agent 工作空间与控制面。它把会话、任务、文件、能力、设置与用量管理放在同一个终端用户界面里，并把实际执行委托给服务端 Codex app-server。
 
 随着大语言模型（LLM）生态的快速演进，Agent 的**纯执行层能力**（如 Claude Code / Codex 等）正逐渐收敛为底层的标准化基础设施（Infrastructure）。
 
@@ -48,16 +47,16 @@
 *   **会话工作流**：用户可以创建、恢复和继续长期 Agent 会话，历史消息、生成过程和上下文在同一 workspace 中持续存在。
 *   **文件与产物**：内置 workspace 文件浏览、搜索、上传、预览和下载，支持查看 Agent 生成的文档、图片、PDF 与脚本产物。
 *   **能力与连接器**：将 Shared / Workspace Skills、自定义能力和 Google Workspace、飞书/Lark、Notion、Bilibili 等授权状态整合到统一的能力页。
-*   **自动化调度**：支持创建、暂停、恢复、立即运行和查看历史记录，让 Agent 工作可以按计划持续执行。
+*   **任务与调度**：Tasks 管理长期目标、行动、提醒/触发器、运行历史和结果回写；独立 Schedule 仍作为兼容能力保留。
 *   **多端客户端**：同一套 Vite + React 客户端覆盖 Web、Tauri Desktop、iOS 和 Android；移动端保持底部 Tab、详情页返回和触控友好的工作流。
 
 ### 控制面职责
 
-*   **多用户物理沙箱**：基于 `user_id` 的强沙箱环境隔离，确保多用户数据与运行环境物理安全隔离。
+*   **多用户工作区隔离**：基于 `user_id` 隔离长期 workspace、connector credential、runtime artifact 和控制面状态。
 *   **连接器凭证托管**：管理第三方账号 OAuth、token 保存、状态检查与运行时授权拦截。
 *   **Skill Manifest 注入**：解析 Shared / Workspace 级 Skill Manifest，通过控制面向 Codex-facing prompt 注入可用能力。
-*   **全生命周期状态**：管理 Session 会话记录、Run 异步任务、后台 Schedule 周期调度任务以及用户 Quota 额度。
-*   **协同审批桥接**：在 Codex 自动化执行与客户端之间架起 Approval Bridge，提供人机协同的安全性二次确认。
+*   **全生命周期状态**：管理 Session 会话记录、Run 异步任务、Task/Action、Schedule 触发器以及用户 Quota 额度。
+*   **协同审批桥接**：在 Codex 任务执行与客户端之间架起 Approval Bridge，提供人机协同的安全性二次确认。
 
 ---
 
@@ -66,7 +65,7 @@
 Ripple 采用 **控制面（Control Plane）与 执行面（Execution Plane）** 分离的高效设计：
 
 *   **Ripple Control Plane (控制面)**：由 Rust (`crates/ripple-server`) 编写的高性能控制服务。负责外部 Web/Tauri/Mobile API 路由、状态持久化、连接器 OAuth 与安全拦截。
-*   **Codex Execution Plane (执行面)**：基于服务端预装的 `codex app-server`，由控制面按 job 启动并托管。通过受限的 permissions profile 策略实现沙箱内高安全性指令执行。
+*   **Codex Execution Plane (执行面)**：基于服务端预装的 `codex app-server`，由控制面 worker pool 托管可信 app-server 进程，job 运行时借用 worker。通过受限的 permissions profile 策略约束 shell 指令执行。
 
 ---
 
@@ -128,7 +127,7 @@ bun run build
 | 文档指南 | 职责描述 | 路径 |
 | :--- | :--- | :--- |
 | **系统开发原则** | 最核心的开发原则、编码纪律与系统边界定义 | [AGENTS.md](AGENTS.md) |
-| **Rust 后端迁移** | 追踪后端从 Python/FastAPI 迁移至 Rust 的迁移状态与技术设计 | [rust-backend-migration.md](docs/rust-backend-migration.md) |
+| **Rust 后端当前态** | 记录当前 Rust 控制面覆盖范围、运行边界和剩余硬化项 | [rust-backend-migration.md](docs/rust-backend-migration.md) |
 | **Skill 开发规范** | 了解如何为系统编写、注册并集成新的能力（Skills） | [SKILLS.md](docs/SKILLS.md) |
 | **构建与部署指南** | 生产环境下的多用户部署、反向代理与物理隔离沙箱配置 | [BUILD_AND_DEPLOY.md](docs/BUILD_AND_DEPLOY.md) |
 | **Tauri 移动端开发** | 针对 iOS 和 Android 客户端的编译、明文例外及打包细节 | [TAURI_MOBILE.md](docs/TAURI_MOBILE.md) |

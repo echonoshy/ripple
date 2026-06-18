@@ -33,31 +33,32 @@
 
 - Rust 后端：`crates/ripple-server`
 - Rust 后端要保持 Web / Tauri / Mobile 客户端依赖的 `/v1` response shape、SSE 事件、session 状态和 connector auth 流程稳定。
-- 迁移状态文档：`docs/rust-backend-migration.md`
+- 后端当前状态文档：`docs/rust-backend-migration.md`
 
-已经迁移到 Rust 的主要后端能力：
+当前 Rust 后端已经覆盖的主要能力：
 
 - 配置加载、API key middleware、`X-Ripple-User-Id` 校验。
 - user sandbox 目录、session metadata/messages、workspace 文件 API、documents、users/quota。
 - connector list/status/auth/disconnect/accounts。
 - Notion token、Google Workspace OAuth、Feishu/Lark auth、Bilibili QR auth。
-- Codex app-server JSON-RPC provider，按 job 启动可信服务端进程；job 完成后关闭，chat 连续上下文依赖持久 Codex thread id。
+- Codex app-server JSON-RPC provider，按 `user_id + workspace_root + generation` 维护可信 worker pool；job 运行时借用 worker，完成后释放为 idle worker，chat 连续上下文依赖持久 Codex thread id。
 - `/v1/runs`、`/v1/chat/completions`、Codex approval bridge。
 - chat 侧 connector auth 拦截、轮询和授权后自动恢复。
 - schedule CRUD、run history、run-now、后台 due schedule trigger。
+- Tasks / TaskActions CRUD、session-linked tasks、task events/progress、run-now、due task action trigger，以及 chat 侧 `codex_app.task_update` 动态工具。
 - Codex managed permissions profile、服务端 Codex auth deny-read、skill manifest。
 
 仍需重点补齐：
 
 - chat 侧 schedule creation 在真实 Codex extraction 输出和老客户端 UI flow 下的端到端硬化。
+- task/action proposal、progress 和 source-session writeback 在真实 Codex `task_update` 输出下的端到端硬化。
 - 真实 nsjail runtime 下 connector CLI auth/status flow 的端到端硬化。
-- 老客户端如果仍需要的 deprecated compatibility API，例如 `/v1/tasks`。
 
 ## 主要目录
 
 ```text
 crates/
-  ripple-server/       # Rust 后端迁移目标
+  ripple-server/       # Rust 后端控制面
     src/api/           # /v1 API routes
     src/codex/         # Codex app-server provider、approval、permissions
     src/sandbox.rs     # user sandbox 路径与运行时目录
@@ -164,7 +165,7 @@ App 设计语言：
 Ripple 采用控制面 / 执行面分离：
 
 - **Ripple Control Plane**：API、鉴权、user/session/sandbox lifecycle、connector auth/status、skill manifest、approval bridge、job/event/output 状态。
-- **Codex Execution Plane**：服务端预装 `codex app-server --listen stdio://`，由 Ripple 按 job 启动为可信服务端进程；job 完成后关闭。
+- **Codex Execution Plane**：服务端预装 `codex app-server --listen stdio://`，由 Ripple worker pool 作为可信服务端进程管理；job 运行时借用 worker，完成后释放为 idle worker。
 
 Codex 授权是服务端统一授权，不是 per-user Codex 授权：
 
@@ -181,7 +182,7 @@ Codex 授权是服务端统一授权，不是 per-user Codex 授权：
 2. 创建或恢复当前 user 的 session 和 workspace。
 3. chat 侧先处理 connector auth、schedule 等控制面事件。
 4. 构建 Codex-facing prompt，注入 Ripple/Codex 角色说明、session 历史、connector 状态、skill manifest。
-5. 启动 Codex app-server job，并以当前 user workspace 为 cwd。
+5. 借用或启动当前 pool 的 Codex app-server worker，并以当前 user workspace 为 cwd。
 6. Codex 通过 managed permissions profile 限制读写。
 7. Ripple 收集 Codex event/output，转换为 OpenAI-compatible response 或 SSE，并持久化 session。
 
@@ -204,14 +205,18 @@ Codex 授权是服务端统一授权，不是 per-user Codex 授权：
 - `user_id` 合法字符集为 `[a-zA-Z0-9_-]{1,64}`。
 - Ripple 不做最终身份鉴权，由上游业务系统保证 user_id 的真实性和隔离语义。
 
-运行时目录 `.ripple/` 由 Server 首次运行创建，不纳入版本控制：
+运行时目录 `.ripple/` 由 Server 首次运行创建，不纳入版本控制。SQLite 是 session、message、job、schedule、task、document 和 auth 状态的权威来源；用户 workspace、connector credential 和 run artifact 仍保存在文件系统：
 
 ```text
 .ripple/
+├── ripple.sqlite
+├── ripple.sqlite-wal
+├── ripple.sqlite-shm
 ├── sandboxes-cache/
 └── sandboxes/
     └── <user_id>/
         ├── workspace/
+        ├── agent-runs/
         ├── nsjail.cfg
         ├── credentials/
         │   ├── feishu.json
@@ -219,12 +224,7 @@ Codex 授权是服务端统一授权，不是 per-user Codex 授权：
         │   ├── gogcli-client.json
         │   ├── gogcli-keyring.pass
         │   └── bilibili.json
-        └── sessions/
-            └── <session_id>/
-                ├── meta.json
-                ├── messages.jsonl
-                ├── tasks.json
-                └── task-outputs/
+        └── sessions/        # 仅用于清理/兼容旧文件状态；新 session 数据在 SQLite
 ```
 
 ## Connector 约定
